@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Check } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import type { CardWithCompany } from '@mi/contracts';
 import { cn } from '@/lib/cn';
 import { useMarket } from '@/hooks/data';
@@ -40,8 +41,21 @@ export function CardGrid({
   // Store the ID, derive the data: when a desk corrects a metric and the cards
   // refetch, the OPEN reader updates in place instead of showing a frozen
   // snapshot — change it in one place, it changes everywhere.
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const active = activeId != null ? (cards.find((c) => c.card.id === activeId) ?? null) : null;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeId = searchParams.get('card');
+  const activeIndex = cards.findIndex((c) => c.card.id === activeId);
+  const active = activeIndex >= 0 ? cards[activeIndex]! : null;
+  const setActiveId = (id: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (id) next.set('card', id);
+    else next.delete('card');
+    setSearchParams(next, { replace: true });
+  };
+  const deckView = new URLSearchParams();
+  for (const key of ['split', 'type']) {
+    const value = searchParams.get(key);
+    if (value) deckView.set(key, value);
+  }
   const marketName = useMarket(marketId).data?.name ?? null;
   const repo = useRepository();
   const [shareTarget, setShareTarget] = useState<CardWithCompany | null>(null);
@@ -98,6 +112,11 @@ export function CardGrid({
         }}
         deckUserValues={deckUserValues}
         marketId={marketId}
+        deckView={deckView.toString()}
+        position={activeIndex >= 0 ? activeIndex + 1 : undefined}
+        total={cards.length}
+        onPrevious={activeIndex > 0 ? () => setActiveId(cards[activeIndex - 1]!.card.id) : undefined}
+        onNext={activeIndex >= 0 && activeIndex < cards.length - 1 ? () => setActiveId(cards[activeIndex + 1]!.card.id) : undefined}
       />
     </>
   );

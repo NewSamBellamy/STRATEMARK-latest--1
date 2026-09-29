@@ -21,24 +21,27 @@ const userValues = data.cards
   .map((m) => m.value as number);
 
 describe('CardReader', () => {
-  it('shows the auditable CMS breakdown and an open-dashboard action for a company card', () => {
+  it('opens on the card, with evidence and maturity available without blocking research', async () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
-    renderWithProviders(
+    const { user } = renderWithProviders(
       <CardReader data={cwc} open onOpenChange={() => {}} deckUserValues={userValues} />,
     );
     const dialog = screen.getByRole('dialog');
+    expect(within(dialog).queryByText('Company Maturity Score')).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('tab', { name: 'Maturity' }));
     expect(within(dialog).getByText('Company Maturity Score')).toBeInTheDocument();
     // Holy Hype has a +1 nudge with a reason — it must be surfaced.
     expect(within(dialog).getByText(/compounding/i)).toBeInTheDocument();
-    expect(within(dialog).getByRole('link', { name: /view more/i })).toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: /explore research/i })).toBeInTheDocument();
   });
 
-  it('shows sourced vice claims with citations', () => {
+  it('shows sourced vice claims with citations', async () => {
     const cwc = hydrate((c) => c.cardType === 'vice');
-    renderWithProviders(
+    const { user } = renderWithProviders(
       <CardReader data={cwc} open onOpenChange={() => {}} deckUserValues={userValues} />,
     );
     const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('tab', { name: 'Evidence' }));
     expect(within(dialog).getByText(/risk & controversy/i)).toBeInTheDocument();
     // Every claim renders a Source link.
     // The link now NAMES the publisher (or admits "Publisher not recorded")
@@ -50,11 +53,23 @@ describe('CardReader', () => {
     expect(sources[0]).toHaveAttribute('href');
   });
 
-  it('shows how-we-got-this notes for estimated metrics', () => {
+  it('shows how-we-got-this notes for estimated metrics', async () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_grace-threads');
-    renderWithProviders(
+    const { user } = renderWithProviders(
       <CardReader data={cwc} open onOpenChange={() => {}} deckUserValues={userValues} />,
     );
+    await user.click(screen.getByRole('tab', { name: 'Evidence' }));
     expect(screen.getAllByText(/how we got this/i).length).toBeGreaterThan(0);
+  });
+
+  it('flips to a research reverse and preserves the selected card in the dashboard link', async () => {
+    const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
+    const { user } = renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}}
+      deckUserValues={userValues} marketId="market-test" />);
+    await user.click(screen.getByRole('button', { name: 'Flip card' }));
+    expect(screen.getByTestId('collectible-card-back')).toBeInTheDocument();
+    expect(screen.queryByTestId('collectible-card-front')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /explore research/i })).toHaveAttribute('href',
+      `/company/${cwc.company!.id}/dashboard/overview?deck=market-test&card=${cwc.card.id}`);
   });
 });

@@ -146,10 +146,14 @@ function DashboardTabNav({
   companyId,
   activeTab,
   fromMarketId,
+  fromCardId,
+  fromDeckView,
 }: {
   companyId: string;
   activeTab: DashboardTab;
   fromMarketId: string | null;
+  fromCardId: string | null;
+  fromDeckView: string | null;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -167,7 +171,7 @@ function DashboardTabNav({
   const overflowTabs = DASHBOARD_TABS.slice(VISIBLE_TAB_COUNT);
   const activeInOverflow = overflowTabs.includes(activeTab);
 
-  const qs = fromMarketId ? `?deck=${fromMarketId}` : '';
+  const qs = fromMarketId ? `?${new URLSearchParams({ deck: fromMarketId, ...(fromCardId ? { card: fromCardId } : {}), ...(fromDeckView ? { view: fromDeckView } : {}) })}` : '';
 
   return (
     <nav
@@ -238,6 +242,14 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const fromMarketId = params.get('deck');
+  const fromCardId = params.get('card');
+  const fromDeckView = params.get('view');
+  const returnToDeck = () => {
+    if (!fromMarketId) return navigate(-1);
+    const deckParams = new URLSearchParams(fromDeckView ?? '');
+    if (fromCardId) deckParams.set('card', fromCardId);
+    navigate(`/markets/${fromMarketId}/deck${deckParams.size ? `?${deckParams}` : ''}`);
+  };
   const company = useCompany(companyId);
   const hasKey = useApiKey((s) => s.hasKey);
   const activeTab = tab as DashboardTab;
@@ -321,11 +333,11 @@ export default function DashboardPage() {
           // A real route back to the deck. History fallback only when the
           // dashboard was reached without deck context. NOTE: the deck lives
           // at /markets/:id/deck — /markets/:id alone is a 404.
-          onClick={() => (fromMarketId ? navigate(`/markets/${fromMarketId}/deck`) : navigate(-1))}
+          onClick={returnToDeck}
           className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-content"
         >
           <ArrowLeft className="h-4 w-4" />
-          {fromMarketId ? 'Back to deck' : 'Back'}
+          {fromMarketId ? fromCardId ? 'Back to card' : 'Back to deck' : 'Back'}
         </button>
         <span className="text-faint">·</span>
         <Link
@@ -373,6 +385,8 @@ export default function DashboardPage() {
               companyId={companyId}
               activeTab={activeTab}
               fromMarketId={fromMarketId}
+              fromCardId={fromCardId}
+              fromDeckView={fromDeckView}
             />
             {prefetchFailed.length > 0 && (
               <div className="mb-3 rounded-lg border border-negative/30 bg-negative/5 px-3 py-2 text-[12px] text-negative">

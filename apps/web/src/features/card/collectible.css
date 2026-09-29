@@ -1,0 +1,70 @@
+.card-sleeve { width: 100%; max-width: 350px; margin-inline: auto; border-radius: 18px; }
+.card-sleeve__open { display: block; width: 100%; text-align: left; border-radius: 18px; transition: transform 220ms ease; }
+.card-sleeve__open:hover { transform: translateY(-6px) rotate(-.65deg); }
+.card-sleeve__open:focus-visible, .card-control:focus-visible { outline: 3px solid rgb(var(--c-primary)); outline-offset: 4px; }
+.card-sleeve__actions { display: flex; align-items: center; justify-content: space-between; padding: 12px 5px 0; }
+.card-control { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 1px solid rgb(var(--c-border)); border-radius: 50%; color: rgb(var(--c-muted)); background: rgb(var(--c-surface)); }
+.card-control:hover { color: rgb(var(--c-content)); background: rgb(var(--c-surface-2)); }
+.card-control:disabled { opacity: .45; cursor: wait; }
+.collectible { position: relative; isolation: isolate; width: 100%; aspect-ratio: 2.5 / 3.5; padding: 7px; border-radius: 18px; background: linear-gradient(135deg, #e0d6bc, #807767 18%, #d6d0c3 48%, #726e64 78%, #d5cfbd); box-shadow: 0 2px 2px #102c2529, 0 14px 24px -12px #102c2552, inset 0 0 0 1px #ffffff80; color: #1c2b28; overflow: hidden; }
+.collectible__paper { position: relative; display: flex; flex-direction: column; height: 100%; border: 1px solid #f9f8edb3; border-radius: 12px; overflow: hidden; background: #f5f2e9; }
+.collectible__edition { display: flex; justify-content: space-between; padding: 10px 12px; font: 600 8px/1.2 sans-serif; letter-spacing: 1.7px; color: #50605a; }
+.collectible__art { position: relative; height: 38%; min-height: 125px; margin: 0 6px; border: 1px solid #ffffff40; border-radius: 7px; overflow: hidden; background: radial-gradient(ellipse at 62% 28%, var(--card-accent), transparent 66%), linear-gradient(135deg, #152e2b, #233d3b 60%, #102825); }
+.collectible__orbit { position: absolute; border: 1px solid #ffffff45; border-radius: 50%; width: 118%; height: 130%; left: -9%; top: -15%; transform: rotate(-35deg); }
+.collectible__orbit--two { width: 74%; height: 142%; left: 13%; top: -21%; }
+.collectible__orbit--three { width: 46%; height: 155%; left: 27%; top: -27%; }
+.collectible__axis { position: absolute; left: 0; top: 50%; width: 100%; height: 1px; background: #ffffff32; transform: rotate(-35deg); }
+.collectible__brand { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-5deg); width: 68px; height: 68px; padding: 10px; border-radius: 16px; background: #fafaf5; box-shadow: 0 12px 24px #0917144d, inset 0 0 0 1px #fff; }
+.collectible__art-label { position: absolute; top: 11px; left: 12px; padding: 4px 7px; border: 1px solid #ffffff40; border-radius: 3px; font-size: 9px; letter-spacing: 1px; color: #fff; background: #142e2aa6; text-transform: uppercase; }
+.collectible__art-index { position: absolute; bottom: 11px; right: 12px; font-size: 8px; letter-spacing: 1.5px; color: #e5ece7; }
+.collectible__signal-art { position: absolute; width: 65%; height: 120%; left: 18%; top: -10%; filter: brightness(1.25); }
+.collectible__identity { padding: 15px 16px 0; }
+.collectible__eyebrow { display: block; font-size: 9px; font-weight: 600; letter-spacing: 1.25px; color: #52635b; text-transform: uppercase; }
+.collectible__name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin-top: 5px; font-family: 'Parkinsans', sans-serif; font-size: clamp(18px, 1.8vw, 23px); line-height: 1.14; font-weight: 600; letter-spacing: -.6px; }
+.collectible__description { margin-top: 7px; font-size: 11px; line-height: 1.5; color: #4e5b55; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.collectible__metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: auto 16px 14px; padding-top: 12px; border-top: 1px solid #cdd3c8; }
+.collectible__metric-value { display: block; font-family: 'Parkinsans', sans-serif; font-size: 22px; line-height: 1.2; letter-spacing: -.65px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.collectible__metric-label { display: block; margin-top: 3px; color: #4e5b55; font-size: 10px; }
+.collectible__confidence { display: block; margin-top: 3px; font-size: 9px; color: #52635b; }
+.collectible__footer { display: flex; justify-content: space-between; gap: 8px; margin-top: auto; padding: 11px 13px; border-top: 1px solid #cdd3c8; background: #e8eade; font-size: 9px; font-weight: 500; color: #405349; }
+.collectible__foil { pointer-events: none; position: absolute; z-index: 2; inset: 0; border-radius: inherit; mix-blend-mode: soft-light; background: radial-gradient(circle at var(--shine-x, 25%) var(--shine-y, 15%), #fff9, transparent 58%), linear-gradient(115deg, transparent 15%, #b8e6ec25 35%, #ffdcab33 48%, transparent 67%); }
+.collectible__signal-copy { margin: auto 16px 16px; padding-top: 12px; border-top: 1px solid #cdd3c8; }
+.collectible__signal-copy p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; margin-top: 7px; font-size: 11px; line-height: 1.5; }
+.collectible--back { transform: rotateY(180deg); }
+.collectible--back .collectible__paper { background: radial-gradient(circle at 50% 0, #e1e7db, #f5f2e9 60%); }
+.collectible__reverse-mark { display: grid; place-items: center; height: 65px; font-family: 'Parkinsans', sans-serif; font-size: 34px; letter-spacing: -5px; color: #37574b; }
+.collectible__reverse-copy { padding: 15px 16px; overflow: hidden; font-size: 11px; line-height: 1.55; }
+.collectible__reverse-copy p { margin-top: 7px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.collectible__reverse-copy ul { margin-top: 12px; padding-left: 14px; list-style: disc; }
+.collectible__reverse-copy li { margin-top: 7px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.card-stage { position: relative; isolation: isolate; display: flex; flex-direction: column; align-items: center; padding: 16px 22px; overflow: hidden; border-radius: 14px; background: radial-gradient(ellipse at 50% 30%, #3c514d, #142c29 76%); color: #d9e4dc; }
+.card-stage__light { position: absolute; z-index: -1; width: 600px; height: 600px; top: -220px; left: -150px; border: 1px solid #becfc325; border-radius: 50%; box-shadow: 0 0 0 50px #becfc30a, 0 0 0 100px #becfc30a; }
+.card-stage__caption { align-self: flex-start; margin-bottom: 10px; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #b9c9bf; }
+.card-stage__perspective { width: 100%; max-width: 250px; perspective: 1200px; padding-bottom: 4px; }
+.card-stage__tilt { transform-style: preserve-3d; transform: rotateX(var(--tilt-x, 0deg)) rotateY(calc(var(--tilt-y, 0deg) + var(--card-flip, 0deg))); transition: transform 300ms cubic-bezier(.2,.8,.2,1); }
+.card-stage__tilt.is-flipped { --card-flip: 180deg; }
+.card-stage .collectible { box-shadow: 0 22px 35px -10px #0008, inset 0 0 0 1px #ffffff80; }
+.card-stage .collectible__edition { padding: 7px 9px; }
+.card-stage .collectible__art { height: 34%; min-height: 0; }
+.card-stage .collectible__identity { padding: 10px 12px 0; }
+.card-stage .collectible__description { margin-top: 4px; -webkit-line-clamp: 1; }
+.card-stage .collectible__metrics { gap: 4px; margin: auto 12px 5px; padding-top: 5px; }
+.card-stage .collectible__metric-value { font-size: 18px; }
+.card-stage .collectible__footer { padding: 6px 9px; font-size: 8px; }
+.card-stage__tools { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 10px; }
+.card-stage__tools button { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 20px; border: 1px solid #93b7a76b; color: #f0f5ee; background: #ffffff0d; font-size: 12px; }
+.card-stage__tools button:focus-visible { outline: 2px solid #d5e7dc; outline-offset: 3px; }
+.card-stage__tools span { font-size: 10px; color: #b9c9bf; }
+.card-inspector { padding: 20px !important; max-width: 1020px !important; height: min(820px, calc(100vh - 48px)); max-height: calc(100vh - 48px) !important; overflow: hidden !important; }
+.card-inspector__layout { display: grid; grid-template-columns: minmax(250px, .9fr) minmax(0, 1fr); gap: 30px; height: 100%; min-height: 0; }
+.card-inspector__detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 15px 10px 8px 0; }
+.card-inspector__intro { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.card-inspector__tabs { display: flex; gap: 18px; border-bottom: 1px solid rgb(var(--c-border)); margin: 24px 0 18px; }
+.card-inspector__tab { padding-bottom: 10px; border-bottom: 2px solid transparent; font-size: 12px; color: rgb(var(--c-muted)); }
+.card-inspector__tab[data-state='active'] { border-color: rgb(var(--c-primary)); color: rgb(var(--c-content)); }
+.card-inspector__panel { min-height: 0; flex: 1; overflow-y: auto; padding-right: 8px; }
+.card-inspector__cta { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-radius: 9px; margin-top: 24px; background: #213e33; color: #f5f8ee; font-size: 13px; font-weight: 500; }
+.card-inspector__cta:hover { background: #305341; }
+.card-inspector__cta:focus-visible { outline: 3px solid rgb(var(--c-primary)); outline-offset: 3px; }
+@media (max-width: 720px) { .card-inspector { height: auto; max-height: calc(100vh - 24px) !important; overflow-y: auto !important; } .card-inspector__layout { grid-template-columns: 1fr; gap: 16px; height: auto; } .card-inspector__detail { padding: 4px; } .card-stage { padding: 22px; } .card-stage__perspective { max-width: 260px; } .card-inspector__panel { max-height: none; min-height: 0; overflow: visible; } .collectible__name { font-size: 19px; } .card-stage__tools span { display: none; } }
+@media (prefers-reduced-motion: reduce) { .card-sleeve__open, .card-stage__tilt { transition: none; } .card-sleeve__open:hover { transform: none; } .card-stage__tilt { transform: rotateY(var(--card-flip, 0deg)); } }

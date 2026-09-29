@@ -1,0 +1,26 @@
+# Collectible card exploration
+
+Branch: `feat/collectible-card-exploration` (isolated from the `feat/desktop-release-integration` baseline, commit `b131b66`). This is a reviewable UX experiment, not a release or scoring-model rewrite.
+
+## Core journey
+
+Deck → pick up a card → inspect its front or thesis reverse → Evidence / Maturity → Explore research dashboard → Back to the same card. The dashboard stays the place for deep research. The old generic intermediary is replaced by a focused inspection stage. No customizer in this first pass; adding one now would confuse personal expression with evidence and provenance.
+
+## Direction
+
+Physical-card cues are restrained: portrait proportion, layered border, serial, dedicated art field, slight pointer tilt and reflected light. They do **not** indicate financial quality, research certainty, investment merit, or scarcity. The card is navigable without pointer motion; touch gets the same flip control; reduced-motion users get no tilt or transitions. No Pokémon/other franchise images, branding, pack-opening mechanics, or rarity claims are copied.
+
+Reference: [The Pokémon TCG Comes to Smartphones in New, Exciting Ways](https://corporate.pokemon.co.jp/en/topics/detail/t-28/), especially the tactile tilt/parallax and individualized inspection of digital cards. This experiment translates the interaction principle into market research, not the game's visual IP.
+
+## Data boundaries
+
+- Face and inspector share one `buildCardView` read-only projection. Stored research records are not rewritten by the visual treatment.
+- No fabricated 1–99 rating or “strong/weak” quality label. Existing maturity tiers remain identified as **stage** and the shared CMS explanation remains in the Maturity tab. Backend scoring is unchanged.
+- No `users → customers` renaming, synthetic growth arrow, or `+` qualifier. Counts use the actual metric name and bounded compact formatting. Unknown and invalid numeric values render “Unknown,” never zero.
+- A `verified` badge on this surface needs a clickable receipt. Legacy URL sources are made clickable, but prose-only attributions render as estimates. Human-confirmed data remains human-confirmed; presentation never claims to perform human review.
+- Market share lacks stored market scope and reporting period; it is disclosed, not inferred. “Captured” is the snapshot capture date, not a claim about the economic reporting period. Source conflicts are flagged.
+- Signal cards do not borrow company statistics or maturity. Their artwork is decorative and deterministic, not generated evidence.
+
+## Still open
+
+This does not repair incorrect underlying research or establish metric reporting periods. Those need a separate backend schema/provenance and source-audit pass before production. The BYOK live research path still requires a real key and is not represented by the shipped sample deck. Card customization, collection/rarity system, sound/haptics, and production packaging/signing are deliberately out of scope pending founder review.

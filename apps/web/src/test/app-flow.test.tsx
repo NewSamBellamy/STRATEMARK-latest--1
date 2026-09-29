@@ -48,12 +48,16 @@ describe('end-to-end deck flow (markets → deck → 2-level split → card → 
     const card = await screen.findByRole('button', { name: /GraceWear Global/ }, FIND);
     await user.click(card);
     const dialog = await screen.findByRole('dialog', undefined, FIND);
-    await user.click(within(dialog).getByRole('link', { name: /view more/i }));
+    await user.click(within(dialog).getByRole('link', { name: /explore research/i }));
 
     // Dashboard — overview content + tab switch to Metrics.
     expect(await screen.findByText(/What they do/i, undefined, FIND)).toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: 'Metrics' }));
     expect(await screen.findByText(/Revenue trend/i, undefined, FIND)).toBeInTheDocument();
     expect(screen.getByText('Cap table')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Back to card' }));
+    const reopened = await screen.findByRole('dialog', undefined, FIND);
+    expect(within(reopened).getAllByText('GraceWear Global').length).toBeGreaterThan(0);
+    expect(within(reopened).getByRole('button', { name: 'Next card' })).toBeInTheDocument();
   });
 });
