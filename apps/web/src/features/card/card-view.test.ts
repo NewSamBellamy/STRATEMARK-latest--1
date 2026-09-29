@@ -50,8 +50,20 @@ describe('collectible card evidence model', () => {
       metric({ id: 'v', metricType: 'valuation', value: null, confidence: 'unknown' }),
       metric({ id: 'c', metricType: 'market_cap', value: 100_000_000 }),
     ]);
-    expect(result.faceMetrics[1]!.label).toBe('Market cap');
-    expect(result.faceMetrics[1]!.display).toBe('$100M');
+    expect(result.faceMetrics[0]!.label).toBe('Market cap');
+    expect(result.faceMetrics[0]!.display).toBe('$100M');
+  });
+  it('does not fill the card with unknown figures or assign an unsupported position', () => {
+    const result = view([]);
+    expect(result.faceMetrics).toEqual([]);
+    expect(result.position).toBe('Position pending');
+    expect(result.maturity).toBeNull();
+  });
+  it('marks single-source tiers as indicative instead of a confident ranking', () => {
+    const result = view([metric({ metricType: 'users', value: 1200 })], {
+      card: { ...card, tier: 6 },
+    });
+    expect(result.position).toBe('Indicative · T6');
   });
   it('shows invalid inputs as unknown rather than painting false precision', () => {
     for (const value of [NaN, Infinity, -1, 101]) {

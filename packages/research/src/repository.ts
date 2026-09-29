@@ -345,6 +345,28 @@ export class GeminiRepository implements MarketIntelRepository {
 
   /** Flatten a pipeline result into the normalized store. */
   private ingest(result: ResearchResult): void {
+    const previous = this.snap.cards.filter((card) => card.deckId === result.deck.id);
+    const nameFor = (card: Card) => this.snap.companies.find((company) => company.id === card.companyId)?.name;
+    const keyFor = (card: Card, name?: string) =>
+      `${card.cardType}:${name ? companyKey(name) : card.title?.toLowerCase() ?? card.id}`;
+    const previousByKey = new Map(previous.map((card) => [keyFor(card, nameFor(card)), card]));
+    const companyIdByName = new Map(previous.flatMap((card) => {
+      const name = nameFor(card);
+      return name && card.companyId ? [[companyKey(name), card.companyId] as const] : [];
+    }));
+    for (const entry of result.cards) {
+      const name = entry.company?.name;
+      const stableCompanyId = name ? companyIdByName.get(companyKey(name)) : undefined;
+      const stableCardId = previousByKey.get(keyFor(entry.card, name))?.id;
+      if (stableCompanyId && entry.company) {
+        entry.company = { ...entry.company, id: stableCompanyId };
+        entry.metrics = entry.metrics.map((metric) => ({ ...metric, companyId: stableCompanyId }));
+      }
+      entry.card = { ...entry.card, ...(stableCompanyId ? { companyId: stableCompanyId } : {}),
+        ...(stableCardId ? { id: stableCardId } : {}) };
+      if (stableCardId) entry.viceClaims = entry.viceClaims.map((claim) => ({ ...claim, cardId: stableCardId }));
+    }
+    const incomingKeys = new Set(result.cards.map((entry) => keyFor(entry.card, entry.company?.name)));
     this.snap.markets = [
       result.market,
       ...this.snap.markets.filter((m) => m.id !== result.market.id),
@@ -353,6 +375,10 @@ export class GeminiRepository implements MarketIntelRepository {
     const existingCompanyIds = new Set(this.snap.companies.map((company) => company.id));
     const companyById = new Map<string, Company>();
     const metrics: CompanyMetric[] = [];
+    this.snap.cards = this.snap.cards.filter((card) =>
+      card.deckId !== result.deck.id || !incomingKeys.has(keyFor(card, nameFor(card))));
+    const incomingCardIds = new Set(result.cards.map((entry) => entry.card.id));
+    this.snap.viceClaims = this.snap.viceClaims.filter((claim) => !incomingCardIds.has(claim.cardId));
     for (const cwc of result.cards) {
       this.snap.cards.push(cwc.card);
       if (cwc.company && !companyById.has(cwc.company.id)) {
@@ -491,7 +517,9 @@ export class GeminiRepository implements MarketIntelRepository {
           market: job.market,
           deck: job.deck,
           candidates: job.catalog,
-          completedCards: job.partialCards,
+          completedCards: job.partialCards.filter(
+            (entry) => entry.company && job.completedEntityNames.includes(entry.company.name),
+          ),
         },
       });
       job.status = 'completed';

@@ -107,7 +107,7 @@ export function AgentActivityFeed({ living }: { living: LivingDeckState }) {
         </span>
         <span className="text-[11px] font-semibold text-content">
           {!living.canVerify
-            ? 'Sample deck — live research off'
+            ? 'Research snapshot — live updates off'
             : paused
               ? 'Live research paused'
               : active

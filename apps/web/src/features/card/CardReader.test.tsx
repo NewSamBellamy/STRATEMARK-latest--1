@@ -62,6 +62,16 @@ describe('CardReader', () => {
     expect(screen.getAllByText(/how we got this/i).length).toBeGreaterThan(0);
   });
 
+  it('keeps an unranked company inspectable without pretending it has figures', async () => {
+    const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
+    const { user } = renderWithProviders(<CardReader data={{ ...cwc, metrics: [], card: { ...cwc.card, tier: null } }}
+      open onOpenChange={() => {}} deckUserValues={[]} />);
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText(/position pending: no usable figures/i)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('tab', { name: 'Maturity' }));
+    expect(within(dialog).getByText(/not ranked: no usable company figures/i)).toBeInTheDocument();
+  });
+
   it('flips to a research reverse and preserves the selected card in the dashboard link', async () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
     const { user } = renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}}

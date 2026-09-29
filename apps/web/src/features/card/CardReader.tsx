@@ -36,7 +36,7 @@ function CardReaderBody({ data, open, onOpenChange, deckUserValues, marketId,
   const repo = useRepository();
   const { chat } = useDeepDive();
   const [shareOpen, setShareOpen] = useState(false);
-  const hasMaturity = !view.signal && view.maturity != null;
+  const hasMaturity = !view.signal;
   const dashboardUrl = company ? `/company/${company.id}/dashboard/overview?${new URLSearchParams({
     ...(marketId ? { deck: marketId } : {}), card: card.id, ...(deckView ? { view: deckView } : {}),
   })}` : null;
@@ -53,7 +53,8 @@ function CardReaderBody({ data, open, onOpenChange, deckUserValues, marketId,
             <span className="text-[11px] text-muted">{position && total ? `${position} of ${total}` : view.type}</span>
           </div>
           <h2 className="mt-4 font-display text-2xl font-semibold leading-tight text-content">{view.title}</h2>
-          <p className="card-inspector__intro mt-2 max-w-[52ch] text-[13px] leading-relaxed text-muted">{view.description || 'Inspect the card for its research thesis.'}</p>
+          {view.description && view.description.trim() !== card.summary?.trim() &&
+            <p className="card-inspector__intro mt-2 max-w-[52ch] text-[13px] leading-relaxed text-muted">{view.description}</p>}
           <Tabs.Root defaultValue="overview" className="flex min-h-0 flex-1 flex-col">
             <Tabs.List className="card-inspector__tabs" aria-label="Card details">
               <Tabs.Trigger value="overview" className="card-inspector__tab">Overview</Tabs.Trigger>
@@ -73,7 +74,8 @@ function CardReaderBody({ data, open, onOpenChange, deckUserValues, marketId,
                 <p className="mt-1 text-[12px] leading-relaxed text-content">{card.tierReason}</p>
               </div>}
               {!view.signal && <p className="mt-4 rounded-lg bg-surface-2 p-3 text-[11px] leading-relaxed text-muted">
-                {view.knownCount} figures recorded · {view.sourcedCount} with clickable source receipts. The maturity tier describes company stage, not investment quality or research confidence.
+                {view.knownCount === 0 ? 'Position pending: no usable figures were recorded for this company.' :
+                  `${view.knownCount} figures recorded · ${view.sourcedCount} with clickable source receipts.`} Maturity describes company stage, not investment quality or research confidence.
               </p>}
             </Tabs.Content>
             <Tabs.Content value="evidence" className="card-inspector__panel" tabIndex={0}>

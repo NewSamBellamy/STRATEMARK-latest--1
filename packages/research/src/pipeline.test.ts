@@ -549,6 +549,44 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
     expect(job?.error).toBe('Interrupted by restart.');
   });
 
+  it('resumes catalog placeholders as unfinished research without duplicating or losing saved cards', async () => {
+    const brief = { prompt: 'test market', region: 'CA' };
+    const stubs = await discoverDeckStubs(brief, fakeClient(), {
+      apiKey: '', coverage: testCoverage, catalogMax: 3, catalogPasses: 0,
+    });
+    const first = stubs.cards.find((entry) => entry.company?.name === 'Alpha Inc')!;
+    const snapshot: RepoSnapshot = {
+      markets: [stubs.market], decks: [stubs.deck],
+      companies: stubs.cards.flatMap((entry) => entry.company ? [entry.company] : []),
+      metrics: stubs.cards.flatMap((entry) => entry.metrics),
+      cards: stubs.cards.map((entry) => entry.card),
+      viceClaims: [], dashboards: {}, companyMarket: {}, reports: [], briefings: [],
+      savedCards: [{ cardId: first.card.id, savedAt: '2026-08-12T00:00:00.000Z' }],
+      opportunity: {}, threads: [],
+      researchJobs: [{
+        id: 'job_catalog_interrupted', status: 'failed', stage: 'summary', brief,
+        catalogNames: stubs.candidates.map((candidate) => candidate.name),
+        completedEntityNames: [], partialCards: stubs.cards, warnings: [],
+        error: 'Interrupted by restart.', createdAt: '2026-08-12T00:00:00.000Z',
+        updatedAt: '2026-08-12T00:00:00.000Z', marketPlan: stubs.plan,
+        catalog: stubs.candidates, market: stubs.market, deck: stubs.deck,
+      }],
+    };
+    const store: ResearchStore = { read: () => snapshot, write: (value) => Object.assign(snapshot, value) };
+    const repo = new GeminiRepository({ apiKey: 'x', client: fakeClient(), coverage: testCoverage,
+      catalogMax: 3, catalogPasses: 0, store });
+    const resumed = await repo.resumeResearchJob('job_catalog_interrupted');
+    const cards = await repo.listCards(stubs.deck.id);
+    const alpha = cards.filter((entry) => entry.company?.name === 'Alpha Inc' && entry.card.cardType === 'company');
+    expect(resumed?.status).toBe('completed');
+    expect(alpha.some((entry) => entry.metrics.length > 0 && entry.card.tier != null)).toBe(true);
+    expect(alpha).toHaveLength(1);
+    expect(alpha[0]!.card.id).toBe(first.card.id);
+    expect(alpha[0]!.metrics.length).toBeGreaterThan(0);
+    expect(alpha[0]!.card.tier).not.toBeNull();
+    expect((await repo.listSavedCards()).map((entry) => entry.card.id)).toContain(first.card.id);
+  });
+
   it('fact-checks a claim with a grounded verdict + citations', async () => {
     const repo = new GeminiRepository({
       apiKey: 'x',

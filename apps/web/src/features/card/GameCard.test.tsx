@@ -29,9 +29,9 @@ describe('GameCard', () => {
     expect(screen.getAllByText('GraceWear Global').length).toBeGreaterThan(0);
     expect(screen.getByText(cwc.company!.oneLiner)).toBeInTheDocument();
     expect(screen.getByText('ARR')).toBeInTheDocument();
-    expect(screen.getByText(/Maturity · T/)).toBeInTheDocument();
+    expect(screen.getByText(/Indicative · T/)).toBeInTheDocument();
     expect(screen.queryByText(/Very Strong|Very Weak/)).not.toBeInTheDocument();
-    expect(screen.getByText(/metrics? with sources/)).toBeInTheDocument();
+    expect(screen.getByText(/0 sourced figures/)).toBeInTheDocument();
     // HQ shown.
     expect(screen.getByText(/Los Angeles/)).toBeInTheDocument();
   });
@@ -52,6 +52,17 @@ describe('GameCard', () => {
     const { user } = renderWithProviders(<GameCard data={hydrate(companyCard.id)} onOpen={onOpen} />);
     await user.click(screen.getByRole('button', { name: /GraceWear Global/ }));
     expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it('does not treat the generic placeholder theme as a company brand', () => {
+    const cwc = hydrate(companyCard.id);
+    renderWithProviders(<GameCard data={{ ...cwc, company: {
+      ...cwc.company!, brandTheme: {
+        primary: '#4f46e5', secondary: '#a5b4fc', accent: '#f59e0b',
+        text: '#0f172a', background: '#ffffff', fontFamily: null, source: 'default',
+      },
+    } }} />);
+    expect(screen.getByTestId('collectible-card-front')).not.toHaveStyle('--card-accent: #4f46e5');
   });
 
   it('keeps save and share controls outside the card-opening button', async () => {

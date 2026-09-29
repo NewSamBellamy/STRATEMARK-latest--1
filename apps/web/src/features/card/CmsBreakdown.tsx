@@ -32,6 +32,11 @@ export function CmsBreakdown({
       <h4 className="mb-3 font-display text-sm font-semibold text-content">
         Company Maturity Score
       </h4>
+      {base.availableSignalCount < 2 && <p className="mb-3 rounded-md bg-surface p-2 text-xs leading-relaxed text-muted">
+        {base.availableSignalCount === 0
+          ? 'Not ranked: no usable company figures were found. A tier would imply evidence we do not have.'
+          : 'Indicative only: one available signal is too thin for a confident market position.'}
+      </p>}
 
       <table className="w-full text-xs">
         <thead>
@@ -63,23 +68,23 @@ export function CmsBreakdown({
             {base.baseTier != null ? `T${base.baseTier}` : 'Unscored'}
           </span>
         </div>
-        <div className="flex items-center justify-between">
+        {base.baseTier != null && <div className="flex items-center justify-between">
           <span className="text-muted">LLM review nudge</span>
           <span className="font-semibold text-content">
             {nudge === 0 ? 'none' : nudge > 0 ? `+${nudge}` : `${nudge}`}
           </span>
-        </div>
+        </div>}
         {card.tierReason && (
           <p className="rounded-md bg-surface p-2 leading-relaxed text-muted">
             “{card.tierReason}”
           </p>
         )}
         <div className="flex items-center justify-between border-t border-border pt-2">
-          <span className="text-muted">Final tier</span>
-          {finalTier != null ? (
+          <span className="text-muted">{base.baseTier == null ? 'Current position' : 'Recorded tier'}</span>
+          {finalTier != null && base.baseTier != null ? (
             <TierBadge tier={finalTier as MaturityTier} reason={card.tierReason} size="md" />
           ) : (
-            <span className="font-semibold text-content">Unscored</span>
+            <span className="font-semibold text-content">Pending evidence</span>
           )}
         </div>
       </div>

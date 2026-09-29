@@ -55,7 +55,7 @@ const MAX_UPSCALE = 2;
  * the wordmark overruns. Equal *area* is how identity designers normalise a
  * mixed logo set, and it's what keeps a deck reading as one printed set.
  */
-const TARGET_FILL = 0.62;
+const TARGET_FILL = 0.74;
 
 /** Box for a mark of the given proportions, as a share of the square window. */
 function fitToSquare(natural: { width: number; height: number }): {
@@ -198,7 +198,7 @@ export function Logo({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [best?.src]);
 
-  const usable = best && (best.vector || best.width >= MIN_USABLE_PX) ? best : null;
+  const usable = best && (best.vector || best.width >= (bare ? CRISP_PX : MIN_USABLE_PX)) ? best : null;
 
   return (
     <div
@@ -208,24 +208,7 @@ export function Logo({
         className,
       )}
     >
-      {usable && bare && !usable.vector && usable.width < CRISP_PX ? (
-        // Low-res mark: show it at its honest size (capped upscale) inside a
-        // composed plate with the name beneath — same composition family as the
-        // lettermark below, so the grid still reads as one set instead of one
-        // card having a blurry balloon.
-        <span className="flex max-w-full flex-col items-center justify-center gap-2.5 px-2 text-center">
-          <img
-            src={usable.src}
-            alt={`${name} logo`}
-            className="object-contain"
-            style={{ width: usable.width * MAX_UPSCALE, height: usable.width * MAX_UPSCALE }}
-            referrerPolicy="no-referrer"
-          />
-          <span className="max-w-full truncate text-[8.5px] font-semibold uppercase tracking-[0.2em] text-faint">
-            {name}
-          </span>
-        </span>
-      ) : usable ? (
+      {usable ? (
         <img
           src={usable.src}
           alt={`${name} logo`}
@@ -254,7 +237,7 @@ export function Logo({
         >
           <span
             className="font-display text-[42px] font-bold leading-none tracking-tight"
-            style={{ color: 'var(--tcg-primary, #3F3F46)', opacity: 0.88 }}
+            style={{ color: 'var(--card-accent, var(--tcg-primary, #3F3F46))', opacity: 0.88 }}
           >
             {initials(name)}
           </span>

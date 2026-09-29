@@ -37,15 +37,18 @@ export function buildCardView(data: CardWithCompany) {
   const arr = metrics.find((m) => m.metric.metricType === 'arr');
   const values = metrics.filter((m) => ['valuation', 'market_cap'].includes(m.metric.metricType));
   const value = values.find((m) => m.metric.value != null) ?? values[0];
-  const maturity = !signal && data.card.tier != null
+  const knownCount = metrics.filter((m) => m.metric.value != null).length;
+  const sourcedCount = metrics.filter((m) => m.metric.value != null && m.citations.length > 0).length;
+  const maturity = !signal && data.card.tier != null && knownCount > 0
     ? { tier: data.card.tier, label: TIER_LABELS[data.card.tier] } : null;
+  const faceMetrics = signal ? [] : [arr, value].filter((m): m is NonNullable<typeof m> => m?.metric.value != null);
+  const position = signal ? 'Market signal' : !maturity ? 'Position pending' :
+    sourcedCount >= 2 ? `Maturity · T${maturity.tier}` : `Indicative · T${maturity.tier}`;
   return {
     title: data.company?.name ?? data.card.title ?? 'Research card',
     description: signal ? data.card.summary : data.company?.oneLiner,
-    type: CARD_TYPE_LABELS[data.card.cardType], signal, maturity, metrics,
-    faceMetrics: signal ? [] : [arr ?? missing('ARR'), value ?? missing('Valuation')],
-    knownCount: metrics.filter((m) => m.metric.value != null).length,
-    sourcedCount: metrics.filter((m) => m.metric.value != null && m.citations.length > 0).length,
+    type: CARD_TYPE_LABELS[data.card.cardType], signal, maturity, position, metrics,
+    faceMetrics, knownCount, sourcedCount,
     citations: usableCitations([...(data.card.citations ?? []).filter((c) => sourceUrl(c.url)),
       ...metrics.flatMap((m) => m.citations)]),
   };
@@ -64,8 +67,5 @@ function displayValue(metric: CompanyMetric): string {
   const number = compact.format(metric.value);
   return ['arr', 'valuation', 'market_cap'].includes(metric.metricType) ? `$${number}` :
     metric.metricType === 'market_share' ? `${metric.value.toLocaleString('en-US', { maximumFractionDigits: 1 })}%` : number;
-}
-function missing(label: string) {
-  return { label, display: 'Unknown', confidence: 'Unknown' };
 }
 export type CardView = ReturnType<typeof buildCardView>;
