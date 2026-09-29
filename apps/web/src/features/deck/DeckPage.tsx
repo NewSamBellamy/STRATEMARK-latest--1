@@ -310,9 +310,8 @@ export default function DeckPage() {
                   Sentinel Cloud Agent is researching this market
                 </h2>
                 <p className="mt-2 text-sm leading-relaxed text-muted">
-                  Running multi-vector discovery, 24/7 web scraping, and CourtListener legal
-                  monitors. Verified company cards and proxy estimates will appear automatically as
-                  they are built.
+                  Research is still running. Verified company cards will appear as each pass
+                  completes.
                 </p>
                 <div className="mt-6 flex items-center justify-center gap-2 text-xs text-primary font-medium">
                   <Loader2 className="h-4 w-4 animate-spin" />

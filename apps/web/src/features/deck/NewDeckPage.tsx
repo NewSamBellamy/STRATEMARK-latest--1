@@ -166,7 +166,7 @@ function EnginePicker({
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
-  if (isCommunityDesktop()) return <span className="text-xs text-muted">Local Engine</span>;
+  if (isCommunityDesktop()) return null;
 
   return (
     <div ref={ref} className="relative inline-block">

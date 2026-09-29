@@ -21,9 +21,7 @@ function TestWrapper({ children }: { children: React.ReactNode }) {
       <GoogleAuthProvider>
         <TaskManagerProvider>
           <RepositoryProvider repository={new MockRepository()}>
-            <MemoryRouter initialEntries={['/']}>
-              {children}
-            </MemoryRouter>
+            <MemoryRouter initialEntries={['/']}>{children}</MemoryRouter>
           </RepositoryProvider>
         </TaskManagerProvider>
       </GoogleAuthProvider>
@@ -33,9 +31,27 @@ function TestWrapper({ children }: { children: React.ReactNode }) {
 
 describe('Research Engine Settings & Strict Execution', () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
     localStorage.clear();
     useEngineChoice.setState({ engine: 'local' });
     vi.restoreAllMocks();
+  });
+
+  it('presents one clear local workflow in the community desktop build', async () => {
+    vi.stubEnv('VITE_DESKTOP', '1');
+    useSettingsModal.setState({ isOpen: true });
+
+    render(
+      <TestWrapper>
+        <SettingsModal />
+      </TestWrapper>,
+    );
+
+    expect(screen.queryByRole('button', { name: /^engine$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /usage & limits/i })).toBeInTheDocument();
+    expect(
+      screen.getByText(/No Stratemark account or hosted service is required/i),
+    ).toBeInTheDocument();
   });
 
   it('allows toggling research execution engine in SettingsModal', async () => {
@@ -44,7 +60,7 @@ describe('Research Engine Settings & Strict Execution', () => {
     render(
       <TestWrapper>
         <SettingsModal />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     await user.click(screen.getByRole('button', { name: /^engine$/i }));
@@ -66,7 +82,7 @@ describe('Research Engine Settings & Strict Execution', () => {
     useEngineChoice.setState({ engine: 'cloud' });
 
     vi.spyOn(sentinelApi, 'runCloudResearchDeck').mockRejectedValueOnce(
-      new Error('Sentinel Cloud Run service temporary 503 error')
+      new Error('Sentinel Cloud Run service temporary 503 error'),
     );
 
     const user = userEvent.setup();
@@ -75,7 +91,7 @@ describe('Research Engine Settings & Strict Execution', () => {
         <Routes>
           <Route path="/" element={<NewDeckPage />} />
         </Routes>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const input = screen.getByPlaceholderText(/describe a market/i);
@@ -85,7 +101,9 @@ describe('Research Engine Settings & Strict Execution', () => {
     await user.click(submitBtn);
 
     expect(
-      await screen.findByText(/Sentinel Cloud Agent error: Sentinel Cloud Run service temporary 503 error/i)
+      await screen.findByText(
+        /Sentinel Cloud Agent error: Sentinel Cloud Run service temporary 503 error/i,
+      ),
     ).toBeInTheDocument();
   });
 

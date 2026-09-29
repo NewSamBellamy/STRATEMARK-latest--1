@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth/AuthContext';
 import { getAccessProfile, subscribeAccess } from '@/lib/access';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { initials } from '@/lib/format';
+import { isCommunityDesktop } from '@/lib/settings/runtime';
 
 /** Right-side controls — rendered inside AppShell's header. */
 export function TopBar() {
@@ -23,6 +24,15 @@ export function TopBar() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  if (isCommunityDesktop()) {
+    return (
+      <div className="flex items-center gap-2">
+        <ThemeToggle />
+        <span className="text-xs text-muted">Local workspace</span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-2">
@@ -82,9 +92,7 @@ export function TopBar() {
                 )}
                 <div className="overflow-hidden">
                   <p className="truncate text-sm font-semibold text-content">{user.name}</p>
-                  <p className="truncate text-xs text-muted">
-                    {user.email ?? 'No email provided'}
-                  </p>
+                  <p className="truncate text-xs text-muted">{user.email ?? 'No email provided'}</p>
                   <span className="mt-1 inline-flex items-center gap-1 rounded border border-positive/30 bg-positive/10 px-1.5 py-0.5 text-[10px] font-medium text-positive">
                     User Account
                   </span>

@@ -30,7 +30,10 @@ describe('Google Auth System', () => {
 
   describe('Authenticated State', () => {
     beforeEach(() => {
-      localStorage.setItem('stratemark_auth_user', JSON.stringify({ id: 'local', name: 'Local Analyst', email: null }));
+      localStorage.setItem(
+        'stratemark_auth_user',
+        JSON.stringify({ id: 'local', name: 'Local Analyst', email: null }),
+      );
     });
 
     it('renders authenticated state with default local analyst', () => {
@@ -68,7 +71,10 @@ describe('Google Auth System', () => {
 
   describe('Sign-Out & Unauthenticated State', () => {
     it('executes sign-out flow from TopBar dropdown and transitions to unauthenticated state', async () => {
-      localStorage.setItem('stratemark_auth_user', JSON.stringify({ id: 'local', name: 'Local Analyst', email: null }));
+      localStorage.setItem(
+        'stratemark_auth_user',
+        JSON.stringify({ id: 'local', name: 'Local Analyst', email: null }),
+      );
       const user = userEvent.setup();
       render(
         <GoogleAuthProvider>
@@ -90,7 +96,10 @@ describe('Google Auth System', () => {
     });
 
     it('transitions to unauthenticated state and re-authenticates via signInWithGoogle', async () => {
-      localStorage.setItem('stratemark_auth_user', JSON.stringify({ id: 'local', name: 'Local Analyst', email: null }));
+      localStorage.setItem(
+        'stratemark_auth_user',
+        JSON.stringify({ id: 'local', name: 'Local Analyst', email: null }),
+      );
       const user = userEvent.setup();
       render(
         <GoogleAuthProvider>
@@ -114,8 +123,11 @@ describe('Google Auth System', () => {
   });
 
   describe('Error State & Error Recovery', () => {
-    it('handles sign-in error and renders Auth Error indicator in TopBar', async () => {
-      localStorage.setItem('stratemark_auth_user', JSON.stringify({ id: 'local', name: 'Local Analyst', email: null }));
+    it('keeps desktop auth errors out of the account-free TopBar', async () => {
+      localStorage.setItem(
+        'stratemark_auth_user',
+        JSON.stringify({ id: 'local', name: 'Local Analyst', email: null }),
+      );
       (window as unknown as Record<string, unknown>).mi = {
         googleSignIn: vi.fn().mockRejectedValue(new Error('OAuth provider popup blocked')),
       };
@@ -137,12 +149,16 @@ describe('Google Auth System', () => {
       const loginBtn = screen.getByRole('button', { name: 'Login' });
       await user.click(loginBtn);
 
-      expect(await screen.findByTitle('OAuth provider popup blocked')).toBeInTheDocument();
-      expect(screen.getByText('Auth Error')).toBeInTheDocument();
+      expect(screen.getByTestId('auth-error')).toHaveTextContent('OAuth provider popup blocked');
+      expect(screen.getByText('Local workspace')).toBeInTheDocument();
+      expect(screen.queryByText('Auth Error')).not.toBeInTheDocument();
     });
 
     it('clears auth error when clearError is invoked', async () => {
-      localStorage.setItem('stratemark_auth_user', JSON.stringify({ id: 'local', name: 'Local Analyst', email: null }));
+      localStorage.setItem(
+        'stratemark_auth_user',
+        JSON.stringify({ id: 'local', name: 'Local Analyst', email: null }),
+      );
       (window as unknown as Record<string, unknown>).mi = {
         googleSignIn: vi.fn().mockRejectedValue(new Error('Network auth failure')),
       };

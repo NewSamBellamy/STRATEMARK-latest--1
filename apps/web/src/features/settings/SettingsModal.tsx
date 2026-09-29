@@ -43,13 +43,18 @@ type TabId = 'general' | 'engine' | 'data' | 'usage' | 'pricing';
 export function SettingsModal() {
   const { isOpen, close } = useSettingsModal();
   const [activeTab, setActiveTab] = useState<TabId>('general');
+  const communityDesktop = isCommunityDesktop();
 
   return (
     <Modal
       open={isOpen}
       onOpenChange={(open) => !open && close()}
       title="Settings"
-      description="Manage your research key, engine, and saved data."
+      description={
+        communityDesktop
+          ? 'Manage your Gemini key, local usage, and saved data.'
+          : 'Manage your research key, engine, and saved data.'
+      }
       size="2xl"
     >
       <div className="mt-2 flex h-[65vh] min-h-[500px] flex-col overflow-hidden border-t border-border sm:flex-row">
@@ -65,13 +70,15 @@ export function SettingsModal() {
             icon={Key}
             label="General"
           />
-          <TabButton
-            id="engine"
-            active={activeTab}
-            onClick={setActiveTab}
-            icon={Cpu}
-            label="Engine"
-          />
+          {!communityDesktop && (
+            <TabButton
+              id="engine"
+              active={activeTab}
+              onClick={setActiveTab}
+              icon={Cpu}
+              label="Engine"
+            />
+          )}
           <TabButton
             id="data"
             active={activeTab}
@@ -84,26 +91,24 @@ export function SettingsModal() {
             active={activeTab}
             onClick={setActiveTab}
             icon={Gauge}
-            label="Usage & billing"
+            label={communityDesktop ? 'Usage & limits' : 'Usage & billing'}
           />
           <TabButton
             id="pricing"
             active={activeTab}
             onClick={setActiveTab}
             icon={BadgeCheck}
-            label={isCommunityDesktop() ? 'About' : 'Builder profile'}
+            label={communityDesktop ? 'About' : 'Builder profile'}
           />
         </nav>
 
         {/* Content Area */}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8">
           {activeTab === 'general' && <GeneralTab />}
-          {activeTab === 'engine' && <EngineTab />}
-          {activeTab === 'data' &&
-            (isCommunityDesktop() ? <DesktopDataPanel /> : <DataSafetyPanel />)}
+          {activeTab === 'engine' && !communityDesktop && <EngineTab />}
+          {activeTab === 'data' && (communityDesktop ? <DesktopDataPanel /> : <DataSafetyPanel />)}
           {activeTab === 'usage' && <UsageBillingPanel />}
-          {activeTab === 'pricing' &&
-            (isCommunityDesktop() ? <CommunityPanel /> : <PricingPanel />)}
+          {activeTab === 'pricing' && (communityDesktop ? <CommunityPanel /> : <PricingPanel />)}
         </div>
       </div>
     </Modal>
@@ -130,7 +135,7 @@ function TabButton({
       aria-pressed={isActive}
       onClick={() => onClick(id)}
       className={cn(
-        'flex w-full shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors',
+        'flex w-auto shrink-0 items-center gap-2 rounded-lg px-2 py-2.5 text-[13px] font-medium transition-colors sm:w-full sm:gap-3 sm:px-3',
         isActive ? 'bg-surface-2 text-content' : 'text-muted hover:bg-surface-2 hover:text-content',
       )}
     >
@@ -208,6 +213,13 @@ function GeneralTab() {
           )}
         </div>
         <p className="text-sm text-muted mb-4">Connect Gemini to run live grounded research.</p>
+
+        {isCommunityDesktop() && (
+          <p className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs leading-relaxed text-muted">
+            Research runs from this device with your key. No Stratemark account or hosted service is
+            required.
+          </p>
+        )}
 
         <label className="label" htmlFor="key">
           API key
@@ -678,6 +690,7 @@ function UsageBillingPanel() {
   const spend = getSpend();
   const controls = getCostControls();
   const lowPower = isLowPower();
+  const communityDesktop = isCommunityDesktop();
   const [capDraft, setCapDraft] = useState(
     controls.monthlyCapUsd != null ? String(controls.monthlyCapUsd) : '',
   );
@@ -694,7 +707,9 @@ function UsageBillingPanel() {
   return (
     <div className="space-y-6 pb-6">
       <div>
-        <h2 className="font-display text-lg text-content">Usage & billing</h2>
+        <h2 className="font-display text-lg text-content">
+          {communityDesktop ? 'Usage & limits' : 'Usage & billing'}
+        </h2>
       </div>
 
       {lowPower && (
@@ -744,7 +759,8 @@ function UsageBillingPanel() {
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-faint">
           Estimates from published list prices, counted locally. Today: {usage.total} of{' '}
-          {DAILY_REQUEST_CAP} free-tier requests (~{usage.decksLeft} more decks).
+          {DAILY_REQUEST_CAP} requests in your local safety budget (~{usage.decksLeft} more decks).
+          Google quota and billing depend on your AI Studio account.
         </p>
       </div>
 
