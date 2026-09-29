@@ -31,7 +31,7 @@ describe('GameCard', () => {
     expect(screen.getByText('ARR')).toBeInTheDocument();
     expect(screen.getByText('Stage pending')).toBeInTheDocument();
     expect(screen.queryByText(/Very Strong|Very Weak/)).not.toBeInTheDocument();
-    expect(screen.getByText(/0 sourced figures/)).toBeInTheDocument();
+    expect(screen.getByText(/research needed/i)).toBeInTheDocument();
     // HQ shown.
     expect(screen.getByText(/Los Angeles/)).toBeInTheDocument();
   });
@@ -42,40 +42,63 @@ describe('GameCard', () => {
     renderWithProviders(<GameCard data={hydrate(companyCard.id)} />);
     expect(screen.queryByText(/%\s*YoY/i)).not.toBeInTheDocument();
     // Confidence provenance chips render instead (Verified / Estimated).
-    expect(
-      screen.getAllByText(/Verified|Estimated|User verified/).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Verified|Estimated|User verified/).length).toBeGreaterThan(0);
   });
 
   it('fires onOpen when clicked', async () => {
     const onOpen = vi.fn();
-    const { user } = renderWithProviders(<GameCard data={hydrate(companyCard.id)} onOpen={onOpen} />);
+    const { user } = renderWithProviders(
+      <GameCard data={hydrate(companyCard.id)} onOpen={onOpen} />,
+    );
     await user.click(screen.getByRole('button', { name: /GraceWear Global/ }));
     expect(onOpen).toHaveBeenCalledOnce();
   });
 
   it('does not treat the generic placeholder theme as a company brand', () => {
     const cwc = hydrate(companyCard.id);
-    renderWithProviders(<GameCard data={{ ...cwc, company: {
-      ...cwc.company!, brandTheme: {
-        primary: '#4f46e5', secondary: '#a5b4fc', accent: '#f59e0b',
-        text: '#0f172a', background: '#ffffff', fontFamily: null, source: 'default',
-      },
-    } }} />);
+    renderWithProviders(
+      <GameCard
+        data={{
+          ...cwc,
+          company: {
+            ...cwc.company!,
+            brandTheme: {
+              primary: '#4f46e5',
+              secondary: '#a5b4fc',
+              accent: '#f59e0b',
+              text: '#0f172a',
+              background: '#ffffff',
+              fontFamily: null,
+              source: 'default',
+            },
+          },
+        }}
+      />,
+    );
     expect(screen.getByTestId('collectible-card-front')).not.toHaveStyle('--card-accent: #4f46e5');
   });
   it('does not pass off a model-guessed palette as the company brand', () => {
     const cwc = hydrate(companyCard.id);
-    renderWithProviders(<GameCard data={{ ...cwc, company: {
-      ...cwc.company!, brandTheme: { ...cwc.company!.brandTheme!, source: 'llm' },
-    } }} />);
+    renderWithProviders(
+      <GameCard
+        data={{
+          ...cwc,
+          company: {
+            ...cwc.company!,
+            brandTheme: { ...cwc.company!.brandTheme!, source: 'llm' },
+          },
+        }}
+      />,
+    );
     expect(screen.getByTestId('collectible-card-front')).not.toHaveStyle('--card-accent: #111827');
   });
 
   it('keeps save and share controls outside the card-opening button', async () => {
     const onOpen = vi.fn();
     const onShare = vi.fn();
-    const { user } = renderWithProviders(<GameCard data={hydrate(companyCard.id)} onOpen={onOpen} onShare={onShare} />);
+    const { user } = renderWithProviders(
+      <GameCard data={hydrate(companyCard.id)} onOpen={onOpen} onShare={onShare} />,
+    );
     const inspect = screen.getByRole('button', { name: /GraceWear Global/ });
     expect(inspect.querySelector('button')).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Share card' }));

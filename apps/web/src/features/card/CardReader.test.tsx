@@ -64,24 +64,37 @@ describe('CardReader', () => {
 
   it('keeps an unranked company inspectable without pretending it has figures', async () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
-    const { user } = renderWithProviders(<CardReader data={{ ...cwc, metrics: [], card: { ...cwc.card, tier: null } }}
-      open onOpenChange={() => {}} deckUserValues={[]} />);
+    const { user } = renderWithProviders(
+      <CardReader
+        data={{ ...cwc, metrics: [], card: { ...cwc.card, tier: null } }}
+        open
+        onOpenChange={() => {}}
+        deckUserValues={[]}
+      />,
+    );
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText(/stage pending: no usable figures/i)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('tab', { name: 'Maturity' }));
     expect(within(dialog).getByText(/not ranked: no usable company figures/i)).toBeInTheDocument();
   });
 
-  it('flips to a research reverse and preserves the selected card in the dashboard link', async () => {
+  it('keeps the card one-sided and preserves the selected card in the dashboard link', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
-    const { user } = renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}}
-      deckUserValues={userValues} marketId="market-test" />);
-    await user.click(screen.getByRole('button', { name: 'Flip card' }));
-    expect(screen.getByTestId('collectible-card-back')).toBeInTheDocument();
-    expect(screen.queryByTestId('collectible-card-front')).not.toBeInTheDocument();
-    expect(within(screen.getByTestId('collectible-card-back')).getByText('Evidence on file')).toBeInTheDocument();
-    expect(within(screen.getByTestId('collectible-card-back')).queryByText(/The thesis/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /explore research/i })).toHaveAttribute('href',
-      `/company/${cwc.company!.id}/dashboard/overview?deck=market-test&card=${cwc.card.id}`);
+    renderWithProviders(
+      <CardReader
+        data={cwc}
+        open
+        onOpenChange={() => {}}
+        deckUserValues={userValues}
+        marketId="market-test"
+      />,
+    );
+    expect(screen.getByTestId('collectible-card-front')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /flip card/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('collectible-card-back')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /explore research/i })).toHaveAttribute(
+      'href',
+      `/company/${cwc.company!.id}/dashboard/overview?deck=market-test&card=${cwc.card.id}`,
+    );
   });
 });
