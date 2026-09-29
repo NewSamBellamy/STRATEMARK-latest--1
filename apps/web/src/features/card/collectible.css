@@ -332,6 +332,59 @@
   -webkit-line-clamp: 3;
   overflow: hidden;
 }
+.card-researcher {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 15px;
+  padding: 10px 11px;
+  border: 1px solid #cfe1db;
+  border-radius: 10px;
+  color: #173c34;
+  background: linear-gradient(120deg, #edf8f4, #f7faf5);
+}
+.card-researcher__mark {
+  display: grid;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  color: #d9fff4;
+  background: #163f37;
+  box-shadow: 0 0 0 4px #dceee8;
+}
+.card-researcher strong,
+.card-researcher span span {
+  display: block;
+}
+.card-researcher strong {
+  font-size: 11px;
+}
+.card-researcher span span {
+  margin-top: 1px;
+  color: #5d716a;
+  font-size: 9.5px;
+}
+.card-researcher button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: #f5fff9;
+  background: #173f37;
+  font-size: 10px;
+  font-weight: 650;
+}
+.card-researcher button:hover {
+  background: #24594d;
+}
+.card-researcher button:focus-visible {
+  outline: 3px solid rgb(var(--c-primary));
+  outline-offset: 2px;
+}
 .card-inspector__tabs {
   display: flex;
   gap: 18px;
@@ -401,6 +454,13 @@
   }
   .collectible__name {
     font-size: 19px;
+  }
+  .card-researcher {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .card-researcher button {
+    margin-left: 40px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

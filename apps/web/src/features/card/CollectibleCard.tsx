@@ -24,7 +24,7 @@ export function CollectibleCard({
   const accent = color(brand?.primary, PALETTES[hash % PALETTES.length]!);
   const highlight = color(brand?.accent, accent);
   const serial = hash.toString(16).slice(-4).toUpperCase().padStart(4, '0');
-  const stage = view.maturity?.label ?? view.position;
+  const stage = view.position;
   const provenance = view.signal
     ? `${view.citations.length} ${view.citations.length === 1 ? 'source' : 'sources'}`
     : view.sourcedCount > 0

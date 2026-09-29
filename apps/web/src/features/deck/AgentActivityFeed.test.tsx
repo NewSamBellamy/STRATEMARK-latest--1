@@ -20,9 +20,10 @@ function state(overrides: Partial<LivingDeckState> = {}): LivingDeckState {
 describe('AgentActivityFeed', () => {
   it('shows the live pill with the desk count and session actions', () => {
     renderWithProviders(<AgentActivityFeed living={state()} />);
-    expect(screen.getByText('Live research')).toBeInTheDocument();
-    expect(screen.getByText(/20 company desks/)).toBeInTheDocument();
-    expect(screen.getByText(/3 actions this session/)).toBeInTheDocument();
+    expect(screen.getByText('Market research desk')).toBeInTheDocument();
+    expect(screen.getByText('Live')).toBeInTheDocument();
+    expect(screen.getByText(/20 company researchers/)).toBeInTheDocument();
+    expect(screen.getByText(/3 verified actions this session/)).toBeInTheDocument();
   });
 
   it('renders nothing for a deck with no company desks', () => {
@@ -59,5 +60,15 @@ describe('AgentActivityFeed', () => {
     const { user } = renderWithProviders(<AgentActivityFeed living={living} />);
     await user.click(screen.getByTitle('Pause live research'));
     expect(living.pause).toHaveBeenCalledOnce();
+  });
+
+  it('does not offer a fake pause control when live verification is unavailable', () => {
+    renderWithProviders(<AgentActivityFeed living={state({ canVerify: false })} />);
+    expect(screen.getByText('Snapshot')).toBeInTheDocument();
+    expect(
+      screen.getByText(/connect Gemini to activate 20 company researchers/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByTitle('Pause live research')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /connect key/i })).toBeInTheDocument();
   });
 });

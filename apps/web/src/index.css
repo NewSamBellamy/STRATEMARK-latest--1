@@ -25,24 +25,24 @@
 :root {
   color-scheme: light;
 
-  --c-bg: 244 248 247;         /* #F4F8F7 subtle green-grey canvas */
-  --c-surface: 255 255 255;    /* #FFFFFF crisp white */
-  --c-surface-2: 247 250 249;  /* #F7FAF9 barely lifted */
-  --c-border: 220 232 229;     /* #DCE8E5 */
-  --c-content: 23 26 25;       /* #171A19 charcoal ink */
-  --c-muted: 104 113 111;      /* #68716F secondary text */
-  --c-faint: 104 113 111;      /* #68716F tertiary — AA on surface + canvas */
-  --c-primary: 15 118 110;     /* #0F766E Deep Teal — accent only */
+  --c-bg: 247 246 241; /* #F7F6F1 warm editorial canvas */
+  --c-surface: 255 255 255; /* #FFFFFF crisp white */
+  --c-surface-2: 244 247 243; /* #F4F7F3 pale mint paper */
+  --c-border: 216 225 220; /* #D8E1DC */
+  --c-content: 23 26 25; /* #171A19 charcoal ink */
+  --c-muted: 104 113 111; /* #68716F secondary text */
+  --c-faint: 104 113 111; /* #68716F tertiary — AA on surface + canvas */
+  --c-primary: 8 125 107; /* #087D6B Stratemark teal */
   --c-primary-fg: 255 255 255;
-  --c-primary-ink: 15 118 110; /* #0F766E same teal for links */
-  --c-ink: 23 26 25;           /* #171A19 charcoal button pill */
+  --c-primary-ink: 8 112 96; /* #087060 accessible teal ink */
+  --c-ink: 15 43 38; /* #0F2B26 emerald-black button pill */
   --c-ink-fg: 255 255 255;
-  --c-ink-hover: 42 48 46;     /* #2A302E */
-  --c-positive: 22 163 106;    /* #16A36A */
-  --c-neutral: 217 154 37;     /* #D99A25 */
-  --c-negative: 229 72 77;     /* #E5484D */
+  --c-ink-hover: 24 62 54; /* #183E36 */
+  --c-positive: 22 163 106; /* #16A36A */
+  --c-neutral: 217 154 37; /* #D99A25 */
+  --c-negative: 229 72 77; /* #E5484D */
 
-  --c-scrollbar: 200 210 207;  /* #C8D2CF neutral scrollbar */
+  --c-scrollbar: 200 210 207; /* #C8D2CF neutral scrollbar */
 
   --s-card: 0 1px 2px rgba(0, 0, 0, 0.03), 0 2px 8px rgba(0, 0, 0, 0.04);
   --s-card-hover: 0 2px 6px rgba(0, 0, 0, 0.05), 0 6px 20px rgba(0, 0, 0, 0.08);
@@ -52,24 +52,24 @@
 .dark {
   color-scheme: dark;
 
-  --c-bg: 12 14 13;           /* #0C0E0D near-black, warm neutral */
-  --c-surface: 24 27 26;      /* #181B1A warm dark surface */
-  --c-surface-2: 36 40 38;    /* #242826 */
-  --c-border: 52 58 56;       /* #343A38 */
-  --c-content: 237 240 239;   /* #EDF0EF warm white */
-  --c-muted: 156 163 161;     /* #9CA3A1 */
-  --c-faint: 112 120 118;     /* #707876 */
-  --c-primary: 45 200 182;    /* #2DC8B6 lifted teal for dark */
-  --c-primary-fg: 12 14 13;   /* dark text on teal */
+  --c-bg: 12 14 13; /* #0C0E0D near-black, warm neutral */
+  --c-surface: 24 27 26; /* #181B1A warm dark surface */
+  --c-surface-2: 36 40 38; /* #242826 */
+  --c-border: 52 58 56; /* #343A38 */
+  --c-content: 237 240 239; /* #EDF0EF warm white */
+  --c-muted: 156 163 161; /* #9CA3A1 */
+  --c-faint: 112 120 118; /* #707876 */
+  --c-primary: 45 200 182; /* #2DC8B6 lifted teal for dark */
+  --c-primary-fg: 12 14 13; /* dark text on teal */
   --c-primary-ink: 80 218 200; /* #50DAC8 bright teal for links */
-  --c-ink: 237 240 239;       /* pill inverts */
+  --c-ink: 237 240 239; /* pill inverts */
   --c-ink-fg: 24 27 26;
-  --c-ink-hover: 215 220 218;  /* #D7DCDA */
-  --c-positive: 52 200 140;   /* #34C88C */
-  --c-neutral: 230 175 50;    /* #E6AF32 */
-  --c-negative: 240 100 100;  /* #F06464 */
+  --c-ink-hover: 215 220 218; /* #D7DCDA */
+  --c-positive: 52 200 140; /* #34C88C */
+  --c-neutral: 230 175 50; /* #E6AF32 */
+  --c-negative: 240 100 100; /* #F06464 */
 
-  --c-scrollbar: 72 72 74;    /* #48484A */
+  --c-scrollbar: 72 72 74; /* #48484A */
 
   --s-card: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.4);
   --s-card-hover: 0 2px 8px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.5);
@@ -203,20 +203,23 @@
   z-index: 1;
 }
 @keyframes glow-spin {
-  0% { transform: translate(-50%, -50%) rotate(0deg); }
-  100% { transform: translate(-50%, -50%) rotate(360deg); }
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .glow-border::before { animation: none; opacity: 0.3; }
+  .glow-border::before {
+    animation: none;
+    opacity: 0.3;
+  }
 }
 
 /* Estimated figures render visibly softer — striped, not solid (system §4). */
 .mi-est-stripes {
-  background-image: repeating-linear-gradient(
-    135deg,
-    currentColor 0 3px,
-    transparent 3px 6px
-  );
+  background-image: repeating-linear-gradient(135deg, currentColor 0 3px, transparent 3px 6px);
 }
 
 /* Legacy logo chip (dashboard header etc.). */
@@ -233,32 +236,68 @@
 
 /* Modal / overlay entrance animations. */
 @keyframes mi-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes mi-modal-in {
-  from { opacity: 0; transform: translate(-50%, -48%) scale(0.97); }
-  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
-.mi-overlay-in { animation: mi-fade-in 0.16s ease-out; }
-.mi-modal-in { animation: mi-modal-in 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
+.mi-overlay-in {
+  animation: mi-fade-in 0.16s ease-out;
+}
+.mi-modal-in {
+  animation: mi-modal-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
 
 /* Market-brief carousel. */
 @keyframes mi-brief-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
-.mi-brief-in { animation: mi-brief-in 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+.mi-brief-in {
+  animation: mi-brief-in 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
 @media (prefers-reduced-motion: reduce) {
-  .mi-brief-in { animation: none; }
+  .mi-brief-in {
+    animation: none;
+  }
 }
 
 /* Print / PDF export. */
 @media print {
-  aside, header, .no-print { display: none !important; }
-  main { overflow: visible !important; padding: 0 !important; }
-  .panel { box-shadow: none !important; border: none !important; }
-  body { background: #fff !important; }
+  aside,
+  header,
+  .no-print {
+    display: none !important;
+  }
+  main {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+  .panel {
+    box-shadow: none !important;
+    border: none !important;
+  }
+  body {
+    background: #fff !important;
+  }
 }
 
 /* Markdown. */
@@ -299,37 +338,61 @@
     radial-gradient(ellipse 100% 80% at 50% 100%, rgba(13, 148, 136, 0.08), transparent 60%),
     #0a1220;
 }
-.brf-scene { perspective: 1400px; }
+.brf-scene {
+  perspective: 1400px;
+}
 .brf-card {
   transform-style: preserve-3d;
   transition: transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.brf-card.brf-flipped { transform: rotateY(180deg); }
-.brf-face { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
-.brf-back { transform: rotateY(180deg); }
+.brf-card.brf-flipped {
+  transform: rotateY(180deg);
+}
+.brf-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.brf-back {
+  transform: rotateY(180deg);
+}
 
 /* Foil edge: a slow conic sweep around the sealed pack's border. */
-@keyframes brf-foil-spin { to { --brf-angle: 360deg; } }
-@property --brf-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+@keyframes brf-foil-spin {
+  to {
+    --brf-angle: 360deg;
+  }
+}
+@property --brf-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
 .brf-foil {
   background:
     linear-gradient(#0c1626, #0c1626) padding-box,
     conic-gradient(
-      from var(--brf-angle, 0deg),
-      rgba(45, 212, 191, 0.9),
-      rgba(14, 116, 144, 0.25),
-      rgba(94, 234, 212, 0.85),
-      rgba(15, 118, 110, 0.25),
-      rgba(45, 212, 191, 0.9)
-    ) border-box;
+        from var(--brf-angle, 0deg),
+        rgba(45, 212, 191, 0.9),
+        rgba(14, 116, 144, 0.25),
+        rgba(94, 234, 212, 0.85),
+        rgba(15, 118, 110, 0.25),
+        rgba(45, 212, 191, 0.9)
+      )
+      border-box;
   border: 2px solid transparent;
   animation: brf-foil-spin 6s linear infinite;
 }
 
 /* Sheen: a light band sweeping across the sealed face. */
 @keyframes brf-sheen {
-  0%, 55% { transform: translateX(-160%) skewX(-18deg); }
-  85%, 100% { transform: translateX(240%) skewX(-18deg); }
+  0%,
+  55% {
+    transform: translateX(-160%) skewX(-18deg);
+  }
+  85%,
+  100% {
+    transform: translateX(240%) skewX(-18deg);
+  }
 }
 .brf-sheen::after {
   content: '';
@@ -342,59 +405,125 @@
 
 /* Idle float — the pack breathes while it waits to be opened. */
 @keyframes brf-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
 }
-.brf-float { animation: brf-float 4.5s ease-in-out infinite; }
+.brf-float {
+  animation: brf-float 4.5s ease-in-out infinite;
+}
 
 /* Revealed items pop in staggered (delay set inline per item). */
 @keyframes brf-item-in {
-  from { opacity: 0; transform: translateY(10px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
-.brf-item-in { opacity: 0; animation: brf-item-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.brf-item-in {
+  opacity: 0;
+  animation: brf-item-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
 
 /* Burst ring on flip. */
 @keyframes brf-burst {
-  from { opacity: 0.7; transform: scale(0.6); }
-  to { opacity: 0; transform: scale(1.6); }
+  from {
+    opacity: 0.7;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.6);
+  }
 }
-.brf-burst { animation: brf-burst 0.9s ease-out forwards; }
+.brf-burst {
+  animation: brf-burst 0.9s ease-out forwards;
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .brf-card { transition: none; }
-  .brf-foil { animation: none; }
-  .brf-sheen::after { animation: none; opacity: 0; }
-  .brf-float { animation: none; }
-  .brf-item-in { animation: none; opacity: 1; }
-  .brf-burst { animation: none; opacity: 0; }
+  .brf-card {
+    transition: none;
+  }
+  .brf-foil {
+    animation: none;
+  }
+  .brf-sheen::after {
+    animation: none;
+    opacity: 0;
+  }
+  .brf-float {
+    animation: none;
+  }
+  .brf-item-in {
+    animation: none;
+    opacity: 1;
+  }
+  .brf-burst {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 /* ── Briefing print: print ONLY the report (the PDF path). ── */
 @media print {
-  body.brf-printing * { visibility: hidden; }
+  body.brf-printing * {
+    visibility: hidden;
+  }
   body.brf-printing .brf-print-root,
-  body.brf-printing .brf-print-root * { visibility: visible; }
+  body.brf-printing .brf-print-root * {
+    visibility: visible;
+  }
   body.brf-printing .brf-print-root {
     position: absolute;
     inset: 0 auto auto 0;
     width: 100%;
     padding: 0;
   }
-  body.brf-printing .brf-no-print { display: none !important; }
+  body.brf-printing .brf-no-print {
+    display: none !important;
+  }
 }
 
 /* Floating agent presence: a soft breathing glow while agents work. */
 @keyframes mi-presence-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.0), 0 1px 3px rgba(0,0,0,0.1); }
-  50% { box-shadow: 0 0 18px 4px rgba(20, 184, 166, 0.35), 0 1px 3px rgba(0,0,0,0.1); }
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(20, 184, 166, 0),
+      0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 18px 4px rgba(20, 184, 166, 0.35),
+      0 1px 3px rgba(0, 0, 0, 0.1);
+  }
 }
-.mi-presence-glow { animation: mi-presence-glow 2.6s ease-in-out infinite; }
+.mi-presence-glow {
+  animation: mi-presence-glow 2.6s ease-in-out infinite;
+}
 @keyframes mi-presence-active {
-  0%, 100% { filter: drop-shadow(0 0 2px rgba(20, 184, 166, 0.35)); }
-  50% { filter: drop-shadow(0 0 7px rgba(20, 184, 166, 0.75)); }
+  0%,
+  100% {
+    filter: drop-shadow(0 0 2px rgba(20, 184, 166, 0.35));
+  }
+  50% {
+    filter: drop-shadow(0 0 7px rgba(20, 184, 166, 0.75));
+  }
 }
-.mi-presence-active { animation: mi-presence-active 2.6s ease-in-out infinite; }
+.mi-presence-active {
+  animation: mi-presence-active 2.6s ease-in-out infinite;
+}
 @media (prefers-reduced-motion: reduce) {
-  .mi-presence-glow, .mi-presence-active { animation: none; }
+  .mi-presence-glow,
+  .mi-presence-active {
+    animation: none;
+  }
 }

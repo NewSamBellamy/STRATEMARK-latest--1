@@ -27,9 +27,14 @@ describe('CardReader', () => {
       <CardReader data={cwc} open onOpenChange={() => {}} deckUserValues={userValues} />,
     );
     const dialog = screen.getByRole('dialog');
-    expect(within(dialog).queryByText('Company Maturity Score')).not.toBeInTheDocument();
-    await user.click(within(dialog).getByRole('tab', { name: 'Maturity' }));
-    expect(within(dialog).getByText('Company Maturity Score')).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole('heading', { name: 'Company stage' }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /ask researcher/i })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('tab', { name: 'Company stage' }));
+    expect(within(dialog).getByRole('heading', { name: 'Company stage' })).toBeInTheDocument();
+    expect(within(dialog).getByText(/stage signals/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/source receipts/i)).toBeInTheDocument();
     // Holy Hype has a +1 nudge with a reason — it must be surfaced.
     expect(within(dialog).getByText(/compounding/i)).toBeInTheDocument();
     expect(within(dialog).getByRole('link', { name: /explore research/i })).toBeInTheDocument();
@@ -74,7 +79,7 @@ describe('CardReader', () => {
     );
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText(/stage pending: no usable figures/i)).toBeInTheDocument();
-    await user.click(within(dialog).getByRole('tab', { name: 'Maturity' }));
+    await user.click(within(dialog).getByRole('tab', { name: 'Company stage' }));
     expect(within(dialog).getByText(/not ranked: no usable company figures/i)).toBeInTheDocument();
   });
 
