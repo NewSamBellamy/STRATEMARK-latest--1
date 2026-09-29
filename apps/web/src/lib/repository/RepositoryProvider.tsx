@@ -14,7 +14,7 @@ import { MockRepository, type SeedSnapshot } from '@mi/mocks';
 import sampleSnapshot from '@/sample/frontier-snapshot.json';
 import { GeminiRepository } from '@mi/research';
 import { IpcRepository, isElectron } from './ipc-repository';
-import { SentinelRepository } from './SentinelRepository';
+import { SentinelRepository } from '@/lib/repository/SentinelRepository';
 import { createLocalStore } from './localStore';
 import { hydrateFromVault } from './vault';
 import { useApiKey } from '@/lib/settings/apiKey';
@@ -23,7 +23,11 @@ import { recordCall } from '@/lib/usage';
 
 const RepositoryContext = createContext<MarketIntelRepository | null>(null);
 
-export function selectRepository(apiKey: string, model: string, engine?: string): MarketIntelRepository {
+export function selectRepository(
+  apiKey: string,
+  model: string,
+  engine?: string,
+): MarketIntelRepository {
   if (isElectron() && window.mi) {
     return new IpcRepository(window.mi);
   }

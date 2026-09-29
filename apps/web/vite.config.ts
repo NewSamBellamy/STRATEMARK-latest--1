@@ -7,6 +7,8 @@ import { fileURLToPath, URL } from 'node:url';
 // SINGLEFILE=1 inlines all JS/CSS into one index.html — used to publish a
 // self-contained public demo (works with the user's own key, client-side).
 const singleFile = process.env.SINGLEFILE === '1';
+const communityDesktop = process.env.VITE_DESKTOP === '1';
+const source = (path: string) => fileURLToPath(new URL(`./src/${path}`, import.meta.url));
 
 // Relative asset base under Electron/file:// or singlefile; root '/' for web deployments and deep routing.
 const isElectron = process.env.ELECTRON === '1';
@@ -22,9 +24,26 @@ export default defineConfig({
     __BUILD_AT__: JSON.stringify(new Date().toISOString()),
   },
   resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-    },
+    alias: [
+      ...(communityDesktop
+        ? [
+            {
+              find: '@/lib/auth/AuthContext',
+              replacement: source('lib/auth/AuthContext.desktop.tsx'),
+            },
+            {
+              find: '@/lib/auth/RequireAuth',
+              replacement: source('lib/auth/RequireAuth.desktop.tsx'),
+            },
+            {
+              find: '@/lib/repository/SentinelRepository',
+              replacement: source('lib/repository/SentinelRepository.desktop.ts'),
+            },
+            { find: '@/lib/sentinelApi', replacement: source('lib/sentinelApi.desktop.ts') },
+          ]
+        : []),
+      { find: '@', replacement: source('') },
+    ],
   },
   server: {
     port: 5173,
