@@ -5,24 +5,10 @@
  * survives navigation. The user can click "Decks", browse, and come back to
  * "New Deck" — the running session is still here.
  */
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import {
-  ArrowRight,
-  ArrowUp,
-  Brain,
-  ChevronDown,
-  ChevronRight,
-  Cloud,
-  Globe2,
-  Loader2,
-  Radar,
-  ScanSearch,
-  TrendingUp,
-  X,
-  Cpu,
-} from 'lucide-react';
+import { ArrowRight, ArrowUp, ChevronDown, Cloud, Globe2, X, Cpu } from 'lucide-react';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { runCloudResearchDeck } from '@/lib/sentinelApi';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
@@ -36,6 +22,7 @@ import { NotificationToast } from '@/components/ui/NotificationToast';
 import { SettingsLink } from '@/components/SettingsLink';
 import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { useResearchSession } from './research-session';
+import { ResearchStage, type LogLine } from './ResearchStage';
 import { qk } from '@/lib/query/keys';
 
 const SUGGESTIONS = [
@@ -66,16 +53,6 @@ const REGIONS = [
   'Nordics',
 ];
 
-// ── Research phases ──────────────────────────────────────────────────────────
-
-const RESEARCH_PHASES = [
-  { label: 'Brainstorming…', Icon: Brain },
-  { label: 'Scanning the market…', Icon: Radar },
-  { label: 'Discovering companies…', Icon: ScanSearch },
-  { label: 'Analyzing metrics…', Icon: TrendingUp },
-  { label: 'Scoring tiers…', Icon: Loader2 },
-] as const;
-
 const STAGE_LABELS: Record<string, string> = {
   scope: 'Understanding the market…',
   catalog: 'Cataloging the market…',
@@ -84,19 +61,6 @@ const STAGE_LABELS: Record<string, string> = {
   signals: 'Researching market signals…',
   dashboard: 'Preparing company dashboards…',
 };
-
-function useResearchPhase(active: boolean) {
-  const [index, setIndex] = useState(0);
-  useEffect(() => {
-    if (!active) {
-      setIndex(0);
-      return;
-    }
-    const id = setInterval(() => setIndex((i) => (i + 1) % RESEARCH_PHASES.length), 3500);
-    return () => clearInterval(id);
-  }, [active]);
-  return RESEARCH_PHASES[index]!;
-}
 
 // ── Region picker ────────────────────────────────────────────────────────────
 
@@ -381,7 +345,6 @@ export default function NewDeckPage() {
   const [prompt, setPrompt] = useState('');
   const [region, setRegion] = useState('');
   const { engine, setEngine } = useEngineChoice();
-  const [logsOpen, setLogsOpen] = useState(false);
 
   useEffect(() => {
     if (user && !localStorage.getItem('mi.researchEngine')) {
@@ -402,7 +365,19 @@ export default function NewDeckPage() {
     if (session && !session.running) clear();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const phase = useResearchPhase(session?.running ?? false);
+  const liveLines = useMemo<LogLine[]>(
+    () =>
+      (session?.logLines ?? []).map((message, index) => ({
+        message,
+        kind: /error|failed|warning|could not/i.test(message)
+          ? 'warn'
+          : /^(found|discovered|added)|verified|built/i.test(message)
+            ? 'find'
+            : 'step',
+        at: index,
+      })),
+    [session?.logLines],
+  );
 
   // Honest demo gate: without a key (and outside the cloud engine), "research"
   // would be pure theater — the mock transport returns the built-in SAMPLE deck
@@ -438,7 +413,7 @@ export default function NewDeckPage() {
         } catch {
           /* opaque origin — keep default */
         }
-        
+
         addLog('Connecting to Sentinel Cloud Agent…', { stage: 'interpret' });
         const authToken = await getToken();
         const res = await runCloudResearchDeck(q, regionStr || null, targetCompanies, authToken);
@@ -450,10 +425,16 @@ export default function NewDeckPage() {
           (res.deck?.id ? { id: res.deck.id as string } : null);
         if (res.ok && market && (market as { id?: string }).id) {
           const m = market as { id: string };
-          if ('cacheCloudDeckResponse' in repo && typeof repo.cacheCloudDeckResponse === 'function') {
-            (repo as { cacheCloudDeckResponse: (r: typeof res) => void }).cacheCloudDeckResponse(res);
+          if (
+            'cacheCloudDeckResponse' in repo &&
+            typeof repo.cacheCloudDeckResponse === 'function'
+          ) {
+            (repo as { cacheCloudDeckResponse: (r: typeof res) => void }).cacheCloudDeckResponse(
+              res,
+            );
           }
-          const cardCount = res.cards?.length || res.candidates?.length || res.result?.cards?.length || 0;
+          const cardCount =
+            res.cards?.length || res.candidates?.length || res.result?.cards?.length || 0;
           finish(`/markets/${m.id}/deck`, cardCount);
           // The deck exists NOW — every deck list refetches immediately.
           void qc.invalidateQueries({ queryKey: qk.markets });
@@ -533,7 +514,8 @@ export default function NewDeckPage() {
                 <SettingsLink className="font-semibold underline hover:opacity-80">
                   Add your key in Settings
                 </SettingsLink>{' '}
-                (free tier works), then come back and run “{prompt.trim() || 'this market'}” for real.
+                (free tier works), then come back and run “{prompt.trim() || 'this market'}” for
+                real.
               </span>
             }
             onClose={() => setDemoGate(false)}
@@ -545,16 +527,25 @@ export default function NewDeckPage() {
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6">
         {!hasSession ? (
           /* ── Empty state ── */
-          <div className="w-full max-w-2xl pb-32">
+          <div className="w-full max-w-2xl pb-24">
             <div className="mb-6">
+              <p className="text-[10px] font-semibold uppercase tracking-[.2em] text-primary-ink">
+                AI market research
+              </p>
               <div className="flex items-center gap-2.5">
                 <img src={logoMark} alt="Stratemark" className="h-8 w-8" />
-                <span className="font-display text-lg font-bold tracking-tight text-content">Stratemark</span>
+                <span className="font-display text-lg font-bold tracking-tight text-content">
+                  Stratemark
+                </span>
                 <span className="text-[13px] text-muted ml-1">{timeLabel()}</span>
               </div>
               <h1 className="mt-2 font-display text-2xl font-semibold text-content md:text-3xl">
-                What market should we dive into?
+                Research any market. Understand every company.
               </h1>
+              <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-muted">
+                Start with a market question. Stratemark finds the companies, verifies the figures,
+                and builds a research deck you can keep investigating.
+              </p>
             </div>
 
             <div className="mb-6 w-full">
@@ -573,6 +564,9 @@ export default function NewDeckPage() {
               />
             </div>
 
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[.16em] text-faint">
+              Try a market
+            </p>
             <div className="flex flex-wrap gap-2">
               {SUGGESTIONS.map((ex) => (
                 <button
@@ -584,6 +578,11 @@ export default function NewDeckPage() {
                   {ex}
                 </button>
               ))}
+            </div>
+            <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-4 text-[11px] text-muted">
+              <span>Grounded Google research</span>
+              <span>Evidence and unknowns stay visible</span>
+              <span>Your research stays on your machine</span>
             </div>
           </div>
         ) : (
@@ -607,76 +606,15 @@ export default function NewDeckPage() {
               </div>
 
               {running && (
-                <div className="glow-border rounded-xl bg-surface p-4">
-                  <div className="flex items-center gap-2.5 text-[14px] text-content transition-all duration-300">
-                    <phase.Icon className="h-4 w-4 animate-pulse text-muted" />
-                    <span>
-                      {session.stage ? (STAGE_LABELS[session.stage] ?? phase.label) : phase.label}
-                    </span>
-                    {session.progress != null && (
-                      <span className="text-[11px] text-faint">
-                        {Math.round(session.progress * 100)}%
-                      </span>
-                    )}
-                  </div>
-                  {/* The latest research steps, always visible — no more black box. */}
-                  {session.logLines.length > 0 && (
-                    <div className="mt-2.5 space-y-1">
-                      {session.logLines.slice(-3).map((l, i, arr) => (
-                        <p
-                          key={`${session.logLines.length}-${i}`}
-                          className={cn(
-                            'truncate text-[12px] transition-opacity',
-                            i === arr.length - 1 ? 'text-content' : 'text-faint',
-                          )}
-                        >
-                          {l}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                  {/* Companies appearing as they are found — research you can watch. */}
-                  {session.found.length > 0 && (
-                    <div className="mt-3 border-t border-border pt-3">
-                      <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-faint">
-                        {session.found.length} found so far
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {session.found.map((name) => (
-                          <span
-                            key={name}
-                            className="animate-in fade-in rounded-full border border-border bg-surface-2 px-2.5 py-0.5 text-[12px] text-content"
-                          >
-                            {name}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {session.logLines.length > 0 && (
-                    <div className="mt-3 border-t border-border pt-2.5">
-                      <button
-                        type="button"
-                        onClick={() => setLogsOpen(!logsOpen)}
-                        className="flex items-center gap-1 text-[12px] text-muted hover:text-content"
-                      >
-                        <ChevronRight
-                          className={cn('h-3 w-3 transition-transform', logsOpen && 'rotate-90')}
-                        />
-                        {session.logLines.length} steps completed
-                      </button>
-                      {logsOpen && (
-                        <div className="mt-2 max-h-48 overflow-y-auto text-[12px] text-muted">
-                          {session.logLines.map((l, i) => (
-                            <div key={i} className="py-0.5">
-                              {l}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <ResearchStage
+                  lines={liveLines}
+                  message={
+                    (session.stage && STAGE_LABELS[session.stage]) ||
+                    session.logLines.at(-1) ||
+                    'Starting grounded research…'
+                  }
+                  pct={session.progress ?? 0}
+                />
               )}
 
               {session.done && (
@@ -686,8 +624,8 @@ export default function NewDeckPage() {
                     {session.done.count > 0
                       ? `${session.done.count} cards built`
                       : 'cards are built'}
-                    , metrics sourced, tiers scored. Desks are pre-researching dashboard
-                    tabs in the background, so company pages open instantly.
+                    , with source receipts and evidence-aware company stages. Every company card has
+                    a grounded researcher ready for your next question.
                   </p>
                   <div className="mt-3 flex items-center gap-3">
                     <Link
@@ -725,7 +663,7 @@ export default function NewDeckPage() {
       </div>
 
       {/* Floating input pill */}
-      {hasSession && (
+      {hasSession && !running && (
         <div
           className="sticky bottom-0 z-20 flex justify-center px-6 pb-5 pt-3"
           style={{ background: 'linear-gradient(transparent, rgb(var(--c-bg)) 40%)' }}

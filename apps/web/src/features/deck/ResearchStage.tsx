@@ -70,7 +70,10 @@ function deriveInsights(lines: LogLine[]): Insight[] {
     out.push({
       id: 'gaps',
       eyebrow: `Gaps we’re being honest about · ${warns.length}`,
-      body: warns.slice(-2).map((w) => w.message).join(' · '),
+      body: warns
+        .slice(-2)
+        .map((w) => w.message)
+        .join(' · '),
       icon: ShieldCheck,
     });
   }
@@ -80,16 +83,14 @@ function deriveInsights(lines: LogLine[]): Insight[] {
   out.push({
     id: 'signals',
     eyebrow: 'What we capture per company',
-    body:
-      'Market share, ARR, valuation or market cap, team size, and user base — then a maturity tier from T1 The Sandbox up to T8 The Titans.',
+    body: 'Market share, ARR, valuation or market cap, team size, and user base — then a rules-based company stage from T1 The Sandbox up to T8 The Titans.',
     icon: Layers,
     method: true,
   });
   out.push({
     id: 'discipline',
     eyebrow: 'The rule we don’t break',
-    body:
-      'Every figure is tagged verified, estimated, or unknown, with a source. Anything we can’t stand behind stays Unknown — we never invent a number to fill a gap.',
+    body: 'Every figure is tagged verified, estimated, or unknown, with a source. Anything we can’t stand behind stays Unknown — we never invent a number to fill a gap.',
     icon: ShieldCheck,
     method: true,
   });
@@ -100,15 +101,15 @@ function deriveInsights(lines: LogLine[]): Insight[] {
 function LiveLog({ lines }: { lines: LogLine[] }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    ref.current?.scrollTo({ top: ref.current.scrollHeight, behavior: 'smooth' });
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [lines.length]);
   const color = (k: LogLine['kind']) =>
-    k === 'find' ? 'text-emerald-300' : k === 'warn' ? 'text-amber-300' : 'text-sky-300';
+    k === 'find' ? 'text-[#9cf4df]' : k === 'warn' ? 'text-amber-300' : 'text-[#8ecdbf]';
   const prefix = (k: LogLine['kind']) => (k === 'find' ? '✓' : k === 'warn' ? '!' : '▸');
   return (
     <div
       ref={ref}
-      className="h-60 overflow-y-auto rounded-xl bg-[#1B1F27] p-4 font-mono text-[12.5px] leading-relaxed"
+      className="h-60 overflow-y-auto rounded-xl bg-[#12352f] p-4 font-mono text-[12.5px] leading-relaxed shadow-inner"
       aria-live="polite"
       aria-label="Live research log"
     >
@@ -122,10 +123,10 @@ function LiveLog({ lines }: { lines: LogLine[] }) {
             the app's dark ink — dark-on-black, invisible. That was the original
             "why is this panel so dark" bug.
           */}
-          <span className={l.kind === 'find' ? 'text-white' : 'text-[#D6DAE3]'}>{l.message}</span>
+          <span className={l.kind === 'find' ? 'text-white' : 'text-[#d6e7e1]'}>{l.message}</span>
         </div>
       ))}
-      <div className="mt-1 text-[#8A93A6]">
+      <div className="mt-1 text-[#76a69a]">
         <span className="animate-pulse">▮</span>
       </div>
     </div>
@@ -154,7 +155,7 @@ function MarketBrief({ insights }: { insights: Insight[] }) {
 
   return (
     <div
-      className="relative flex h-60 flex-col justify-between overflow-hidden rounded-xl border border-border bg-gradient-to-br from-white to-surface-2 p-5"
+      className="relative flex h-60 flex-col justify-between overflow-hidden rounded-xl border border-[#cfe1db] bg-gradient-to-br from-[#f9fbf7] to-[#eaf6f1] p-5"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       aria-live="polite"
@@ -210,7 +211,7 @@ export function ResearchStage({
   const insights = useMemo(() => deriveInsights(lines), [lines]);
 
   return (
-    <div className="panel mt-6 p-6">
+    <div className="mt-6 rounded-2xl border border-[#cfe1db] bg-surface p-6 shadow-soft">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Loader2 className="h-5 w-5 animate-spin text-muted" />
@@ -231,7 +232,9 @@ export function ResearchStage({
               aria-pressed={tab === id}
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
-                tab === id ? 'bg-surface text-content shadow-soft' : 'text-muted hover:text-content',
+                tab === id
+                  ? 'bg-surface text-content shadow-soft'
+                  : 'text-muted hover:text-content',
               )}
             >
               <Icon className="h-3.5 w-3.5" />
