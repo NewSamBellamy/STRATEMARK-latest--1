@@ -123,10 +123,10 @@ export type Confidence = (typeof CONFIDENCE_LEVELS)[number];
 export const MODEL_PROPOSABLE_CONFIDENCE = ['verified', 'estimated', 'unknown'] as const;
 
 export const CONFIDENCE_LABELS: Record<Confidence, string> = {
-  verified: 'Verified',
+  verified: 'Sourced',
   estimated: 'Estimated',
   unknown: 'Unknown',
-  user_verified: 'User verified',
+  user_verified: 'User confirmed',
 };
 
 // ---------------------------------------------------------------------------

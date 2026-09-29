@@ -106,6 +106,13 @@ describe('collectible card evidence model', () => {
     });
     expect(result.position).toBe('T6 · Scale');
   });
+  it('carries the newest research date onto the card face', () => {
+    const result = view([
+      metric({ id: 'older', capturedAt: '2026-07-01T00:00:00.000Z' }),
+      metric({ id: 'newer', capturedAt: '2026-08-15T00:00:00.000Z' }),
+    ]);
+    expect(result.latestCapturedAt).toBe(new Date('2026-08-15T00:00:00.000Z').getTime());
+  });
   it('withholds even a recorded high tier from the face when no source backs any figure', () => {
     const result = view(
       [metric({ metricType: 'arr', value: 9_000_000, confidence: 'estimated', citations: [] })],

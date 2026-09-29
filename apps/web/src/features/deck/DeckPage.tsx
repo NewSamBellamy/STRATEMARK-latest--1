@@ -311,7 +311,7 @@ export default function DeckPage() {
                   Sentinel Cloud Agent is researching this market
                 </h2>
                 <p className="mt-2 text-sm leading-relaxed text-muted">
-                  Research is still running. Verified company cards will appear as each pass
+                  Research is still running. Sourced company cards will appear as each pass
                   completes.
                 </p>
                 <div className="mt-6 flex items-center justify-center gap-2 text-xs text-primary font-medium">

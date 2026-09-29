@@ -41,8 +41,8 @@ describe('GameCard', () => {
     // own digits. Growth indicators are banned until real history exists.
     renderWithProviders(<GameCard data={hydrate(companyCard.id)} />);
     expect(screen.queryByText(/%\s*YoY/i)).not.toBeInTheDocument();
-    // Confidence provenance chips render instead (Verified / Estimated).
-    expect(screen.getAllByText(/Verified|Estimated|User verified/).length).toBeGreaterThan(0);
+    // Confidence provenance chips render instead (Sourced / Estimated).
+    expect(screen.getAllByText(/Sourced|Estimated|User confirmed/).length).toBeGreaterThan(0);
   });
 
   it('fires onOpen when clicked', async () => {

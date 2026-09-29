@@ -25,10 +25,17 @@ export function CollectibleCard({
   const highlight = color(brand?.accent, accent);
   const serial = hash.toString(16).slice(-4).toUpperCase().padStart(4, '0');
   const stage = view.position;
+  const asOf = view.latestCapturedAt
+    ? new Intl.DateTimeFormat('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }).format(view.latestCapturedAt)
+    : null;
   const provenance = view.signal
     ? `${view.citations.length} ${view.citations.length === 1 ? 'source' : 'sources'}`
     : view.sourcedCount > 0
-      ? `${view.sourcedCount} sourced ${view.sourcedCount === 1 ? 'fact' : 'facts'}`
+      ? `${view.sourcedCount} ${view.sourcedCount === 1 ? 'source' : 'sources'}${asOf ? ` · ${asOf}` : ''}`
       : 'Research needed';
 
   return (

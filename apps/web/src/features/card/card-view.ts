@@ -58,6 +58,10 @@ export function buildCardView(data: CardWithCompany) {
   const sourcedCount = metrics.filter(
     (m) => m.metric.value != null && m.citations.length > 0,
   ).length;
+  const latestCapturedAt = metrics.reduce<number | null>((latest, entry) => {
+    const captured = new Date(entry.metric.capturedAt).getTime();
+    return Number.isFinite(captured) && (latest == null || captured > latest) ? captured : latest;
+  }, null);
   // Face space goes to the strongest usable facts, not a fixed ARR/valuation template.
   // Market share stays in Evidence until the research records its market scope.
   const ranked = signal
@@ -112,6 +116,7 @@ export function buildCardView(data: CardWithCompany) {
     faceMetrics,
     knownCount,
     sourcedCount,
+    latestCapturedAt,
     citations: usableCitations([
       ...(data.card.citations ?? []).filter((c) => sourceUrl(c.url)),
       ...metrics.flatMap((m) => m.citations),

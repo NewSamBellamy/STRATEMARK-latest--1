@@ -55,10 +55,6 @@ function CardReaderBody({
   const hasMaturity = card.cardType === 'company' && !view.signal;
   const researcherLabel = view.signal ? 'Market researcher' : 'Company researcher';
   const evidenceCount = view.signal ? view.citations.length : view.sourcedCount;
-  const latestChecked = view.metrics.reduce<number | null>((latest, entry) => {
-    const captured = new Date(entry.metric.capturedAt).getTime();
-    return Number.isFinite(captured) && (latest == null || captured > latest) ? captured : latest;
-  }, null);
   const dashboardUrl = company
     ? `/company/${company.id}/dashboard/overview?${new URLSearchParams({
         ...(marketId ? { deck: marketId } : {}),
@@ -103,8 +99,8 @@ function CardReaderBody({
                   {evidenceCount > 0
                     ? `${evidenceCount} sourced ${evidenceCount === 1 ? 'record' : 'records'}`
                     : 'Evidence needed'}
-                  {latestChecked
-                    ? ` · checked ${new Date(latestChecked).toLocaleDateString()}`
+                  {view.latestCapturedAt
+                    ? ` · as of ${new Date(view.latestCapturedAt).toLocaleDateString()}`
                     : ''}
                 </span>
               </span>

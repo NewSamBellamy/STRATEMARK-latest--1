@@ -112,7 +112,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
                   <span className="block font-display text-lg font-semibold text-content">
                     {verified.length}
                   </span>
-                  <span className="text-muted">verified figures</span>
+                  <span className="text-muted">sourced figures</span>
                 </div>
                 <div>
                   <span className="block font-display text-lg font-semibold text-content">
