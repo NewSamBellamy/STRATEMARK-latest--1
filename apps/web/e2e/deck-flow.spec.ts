@@ -20,12 +20,12 @@ test('full journey: markets → deck → 2-level split → card reader → dashb
     .click();
   await expect(page.getByTestId('card-grid')).toBeVisible();
 
-  // Level 1 → tier grouping. The sample deck spans tiers 5-8, so the highest
-  // (Market Defining) and the lowest present (Breakout) are the ones
-  // guaranteed to render — not every tier label exists in every deck.
-  await page.getByRole('button', { name: /group by tier/i }).click();
-  await expect(page.getByText('Market Defining').first()).toBeVisible();
+  // Level 1 → company-stage grouping. Recorded stages only appear when the
+  // evidence supports them; unsupported rankings stay in an explicit section.
+  await page.getByRole('button', { name: /group by stage/i }).click();
+  await expect(page.getByText('Category Leader').first()).toBeVisible();
   await expect(page.getByText('Breakout').first()).toBeVisible();
+  await expect(page.getByTestId('unverified-stage')).toContainText('OpenAI');
 
   // Open a card → reader → dashboard.
   await page

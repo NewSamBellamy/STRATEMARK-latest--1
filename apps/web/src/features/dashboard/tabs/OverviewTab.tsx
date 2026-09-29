@@ -1,6 +1,6 @@
 import { ArrowUpRight, ExternalLink, MapPin } from 'lucide-react';
 import { METRIC_TYPE_LABELS, type CompanyMetric, type MetricType } from '@mi/contracts';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useCompany, useCompanyMetrics } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { formatMetricValue } from '@/lib/format';
@@ -40,6 +40,7 @@ function strongestMetrics(metrics: CompanyMetric[]): CompanyMetric[] {
 
 /** Immediate card-to-research handoff: useful before any live research is requested. */
 export function OverviewTab({ companyId }: { companyId: string }) {
+  const { search } = useLocation();
   const company = useCompany(companyId);
   const metrics = useCompanyMetrics(companyId);
   const allMetrics = metrics.data ?? [];
@@ -134,7 +135,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
                 </h2>
               </div>
               <Link
-                to={`/company/${companyId}/dashboard/metrics`}
+                to={`/company/${companyId}/dashboard/metrics${search}`}
                 className="inline-flex items-center gap-1 text-[12px] font-medium text-primary-ink hover:underline"
               >
                 See all metrics <ArrowUpRight className="h-3.5 w-3.5" />

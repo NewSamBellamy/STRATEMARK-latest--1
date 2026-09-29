@@ -72,7 +72,7 @@ function SharedReader({ data, onClose }: { data: CardWithCompany; onClose: () =>
                 )}
                 {card.tier != null && (
                   <span className="font-medium text-muted">
-                    Tier {card.tier} · {TIER_LABELS[card.tier as MaturityTier]}
+                    Stage T{card.tier} · {TIER_LABELS[card.tier as MaturityTier]}
                   </span>
                 )}
               </div>

@@ -80,7 +80,9 @@ describe('CardReader', () => {
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText(/stage unavailable: no usable figures/i)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('tab', { name: 'Company stage' }));
-    expect(within(dialog).getByText(/not ranked: no usable company figures/i)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/stage unavailable: no usable company figures/i),
+    ).toBeInTheDocument();
   });
 
   it('keeps the card one-sided and preserves the selected card in the dashboard link', () => {

@@ -134,7 +134,7 @@ export function BandGauge({
   const tier = known ? mapValueToTier(SIGNAL_BANDS[bandKey], value) : null;
   const estimated = confidence === 'estimated';
   return (
-    <div title="Where this value sits on the T1–T8 signal band">
+    <div title="Where this value sits on the T1–T8 company-stage signal band">
       <div className="flex items-center gap-1">
         {Array.from({ length: 8 }, (_, i) => {
           const on = tier != null && i < tier;
@@ -158,7 +158,7 @@ export function BandGauge({
       <div className="mt-1.5 flex justify-between text-[9px] leading-none text-faint">
         <span>T1</span>
         <span className="font-semibold text-muted">
-          {tier != null ? `T${tier} signal` : 'unknown'}
+          {tier != null ? `T${tier} stage signal` : 'unknown'}
         </span>
         <span>T8</span>
       </div>

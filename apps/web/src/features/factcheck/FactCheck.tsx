@@ -194,7 +194,7 @@ export function FactCheck({
           <p className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-positive">
             <CheckCheck className="h-3.5 w-3.5" />
             {applied === 'corrected'
-              ? 'Corrected from live sources — value, badge, card, and tier updated everywhere.'
+              ? 'Corrected from live sources — value, badge, card, and stage updated everywhere.'
               : 'Re-checked against live sources — the stored figure stands; freshness updated.'}
           </p>
         )}

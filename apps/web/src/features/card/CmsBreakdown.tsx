@@ -10,7 +10,7 @@ import { TierBadge } from './TierBadge';
 
 /**
  * Shows the auditable CMS derivation (spec §6.3): per-signal tier + effective
- * weight, the rules-based base tier, and the LLM ±1 review nudge with its reason.
+ * weight, the rules-based base stage, and the LLM ±1 review nudge with its reason.
  * Recomputes the base from the stored metrics so what you see is what scored.
  */
 export function CmsBreakdown({
@@ -59,13 +59,13 @@ export function CmsBreakdown({
       {base.availableSignalCount < 2 && (
         <p className="mb-3 rounded-md bg-surface p-2 text-xs leading-relaxed text-muted">
           {base.availableSignalCount === 0
-            ? 'Not ranked: no usable company figures were found. A tier would imply evidence we do not have.'
+            ? 'Stage unavailable: no usable company figures were found. A stage would imply evidence we do not have.'
             : 'Indicative only: one available signal is too thin for a confident market position.'}
         </p>
       )}
       {finalTier != null && sourcedCount === 0 && (
         <p className="mb-3 rounded-md bg-surface p-2 text-xs leading-relaxed text-muted">
-          A tier was recorded from estimates, but no figure has a clickable source receipt. It is
+          A stage was recorded from estimates, but no figure has a clickable source receipt. It is
           withheld from the card face.
         </p>
       )}
@@ -95,7 +95,7 @@ export function CmsBreakdown({
 
       <div className="mt-3 space-y-2 border-t border-border pt-3 text-xs">
         <div className="flex items-center justify-between">
-          <span className="text-muted">Rules-based base tier</span>
+          <span className="text-muted">Rules-based base stage</span>
           <span className="font-semibold text-content">
             {base.baseTier != null ? `T${base.baseTier}` : 'Unscored'}
           </span>
@@ -115,7 +115,7 @@ export function CmsBreakdown({
         )}
         <div className="flex items-center justify-between border-t border-border pt-2">
           <span className="text-muted">
-            {base.baseTier == null ? 'Current position' : 'Recorded tier'}
+            {base.baseTier == null ? 'Current position' : 'Recorded stage'}
           </span>
           {finalTier != null && base.baseTier != null ? (
             <TierBadge tier={finalTier as MaturityTier} reason={card.tierReason} size="md" />

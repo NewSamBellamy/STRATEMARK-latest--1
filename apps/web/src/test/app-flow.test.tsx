@@ -57,7 +57,9 @@ describe('end-to-end deck flow (markets → deck → 2-level split → card → 
     expect(await screen.findByText('Company brief', undefined, FIND)).toBeInTheDocument();
     expect(screen.getByText('Most useful public figures')).toBeInTheDocument();
     expect(dashboardResearch).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('link', { name: 'Metrics' }));
+    // The overview shortcut must preserve deck/card context just like the tab,
+    // otherwise the dashboard loses the "Back to card" journey.
+    await user.click(screen.getByRole('link', { name: /See all metrics/i }));
     expect(await screen.findByText(/Revenue trend/i, undefined, FIND)).toBeInTheDocument();
     expect(screen.getByText('Cap table')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Back to card' }));

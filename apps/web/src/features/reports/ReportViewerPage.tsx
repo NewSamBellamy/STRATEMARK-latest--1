@@ -87,7 +87,7 @@ function LandscapeTable({ deckId }: { deckId: string }) {
         <thead className="border-b border-border">
           <tr>
             <Th k="name" label="Company" />
-            <Th k="tier" label="Tier" />
+            <Th k="tier" label="Stage" />
             <Th k="market_share" label="Share" />
             <Th k="arr" label="ARR" />
             <Th k="value" label="Valuation/Cap" />

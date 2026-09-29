@@ -25,7 +25,6 @@ import {
   CARD_TYPE_ORDER,
   MATURITY_TIERS,
   TIER_BLURBS,
-  TIER_LABELS,
   type CardType,
   type CardWithCompany,
   type MaturityTier,
@@ -46,6 +45,7 @@ import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
 import { CardGrid } from './CardGrid';
 import { TierBadge } from '@/features/card/TierBadge';
+import { buildCardView } from '@/features/card/card-view';
 
 /**
  * Retired for now (founder's call): Vice and Culture read as too ambiguous
@@ -54,6 +54,7 @@ import { TierBadge } from '@/features/card/TierBadge';
  */
 const HIDDEN_CARD_TYPES: ReadonlySet<CardType> = new Set(['vice', 'culture'] as CardType[]);
 const VISIBLE_CARD_TYPE_ORDER = CARD_TYPE_ORDER.filter((t) => !HIDDEN_CARD_TYPES.has(t));
+const DISPLAY_STAGES = [...MATURITY_TIERS].reverse();
 
 /** Human count noun per card type — fixes the old "20 company companies" bug. */
 function cardCountNoun(type: CardType, count: number): string {
@@ -426,7 +427,7 @@ export default function DeckPage() {
           }
         >
           {(list) => {
-            // Level 2 — Company sub-deck split into 8 tier-decks.
+            // Level 2 — Company sub-deck grouped by the 8 company stages.
             if (split === 'company') {
               return (
                 <section>
@@ -438,7 +439,7 @@ export default function DeckPage() {
                     onToggleSplit={() => setSplit({})}
                   />
                   <p className="mb-4 text-[12px] text-muted">
-                    Companies grouped by maturity tier — T8 giants down to T1 seeds.
+                    Companies grouped by evidence-backed stage — highest supported stage first.
                     <span className="text-faint"> {CARD_TYPE_DESCRIPTIONS.company}</span>
                   </p>
                   <TierSplit
@@ -702,7 +703,7 @@ function SubDeckTile({
       </div>
       <p className="mt-2 text-sm text-muted">{CARD_TYPE_DESCRIPTIONS[type]}</p>
       <span className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-primary-ink opacity-0 transition-opacity group-hover:opacity-100">
-        {type === 'company' ? 'Split into 8 tiers' : 'View cards'}
+        {type === 'company' ? 'Group by company stage' : 'View cards'}
         <ChevronRight className="h-3.5 w-3.5" />
       </span>
     </button>
@@ -797,7 +798,7 @@ function TypeNav({
           )}
         >
           <Layers className="h-3.5 w-3.5" />
-          {split === 'company' ? 'Ungroup' : 'Group by Tier'}
+          {split === 'company' ? 'Ungroup' : 'Group by Stage'}
         </button>
       )}
     </div>
@@ -891,15 +892,19 @@ function TierSplit({
 }) {
   const companyCards = cards.filter((c) => c.card.cardType === 'company');
   const byTier = new Map<MaturityTier, CardWithCompany[]>();
+  const unverified: CardWithCompany[] = [];
   for (const t of MATURITY_TIERS) byTier.set(t, []);
   for (const c of companyCards) {
-    if (c.card.tier != null) byTier.get(c.card.tier)!.push(c);
+    const stage = buildCardView(c).maturity?.tier;
+    if (stage != null) byTier.get(stage)!.push(c);
+    else unverified.push(c);
   }
 
   return (
     <div className="space-y-8">
-      {MATURITY_TIERS.map((tier) => {
+      {DISPLAY_STAGES.map((tier) => {
         const group = byTier.get(tier)!;
+        if (group.length === 0) return null;
         return (
           <section key={tier}>
             <div className="mb-3 flex items-center gap-3 border-b border-border pb-2">
@@ -907,23 +912,34 @@ function TierSplit({
               <span className="text-sm text-muted">{TIER_BLURBS[tier]}</span>
               <span className="ml-auto chip border-border text-muted">{group.length}</span>
             </div>
-            {group.length > 0 ? (
-              <CardGrid
-                cards={group}
-                deckUserValues={deckUserValues}
-                marketId={marketId}
-                deckStatus={deckStatus}
-              />
-            ) : (
-              <ExpandPrompt
-                marketId={marketId}
-                focus={{ tier }}
-                label={`Hunt for ${TIER_LABELS[tier]} companies`}
-              />
-            )}
+            <CardGrid
+              cards={group}
+              deckUserValues={deckUserValues}
+              marketId={marketId}
+              deckStatus={deckStatus}
+            />
           </section>
         );
       })}
+      {unverified.length > 0 && (
+        <section data-testid="unverified-stage">
+          <div className="mb-3 flex items-center gap-3 border-b border-border pb-2">
+            <span className="rounded-full border border-border bg-surface px-3 py-1 text-xs font-semibold text-content">
+              Stage unverified
+            </span>
+            <span className="text-sm text-muted">
+              Insufficient sourced evidence for a reliable company stage
+            </span>
+            <span className="ml-auto chip border-border text-muted">{unverified.length}</span>
+          </div>
+          <CardGrid
+            cards={unverified}
+            deckUserValues={deckUserValues}
+            marketId={marketId}
+            deckStatus={deckStatus}
+          />
+        </section>
+      )}
     </div>
   );
 }
