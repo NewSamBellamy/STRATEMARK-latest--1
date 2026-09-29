@@ -1,347 +1,158 @@
-/**
- * All decks — ONE shelf, and every deck finally looks like a deck of cards.
- *
- * Founder's spec, third pass (verbatim): "Make it like a deck of cards front
- * and center and then the next deck of cards, and just one carousel you can
- * scroll through… use the image generation to make a really nice face card
- * for each deck… It should just be all decks." So:
- *
- *  · ONE section. No "Your decks" + "All decks" duplication.
- *  · Each deck renders as a physical portrait card stack (two offset card
- *    edges behind the face), with a GENERATED face-card image (nano-banana,
- *    vault-cached — one image per deck, ever) and the deck's name set over a
- *    quiet scrim. No rainbow accent bands — the art carries the color.
- *  · Hand-pull carousel: grab and drag anywhere; scroll-snap centers the
- *    nearest stack; the centered deck is the hero with its info strip and
- *    actions below. Oldest left, newest right.
- *  · A deck being researched RIGHT NOW appears at the right end as a live,
- *    pulsing card back — starting a hunt is never invisible.
- */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, Cloud, Cpu, MapPin, PlusCircle, Trash2 } from 'lucide-react';
+import { ArrowUpRight, Cloud, Cpu, MapPin, PlusCircle, Trash2 } from 'lucide-react';
+import type { Market } from '@mi/contracts';
 import { useDeleteDeck, useMarkets } from '@/hooks/data';
-import { useAiCover } from '@/lib/ai/aiCover';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
 import { useResearchSession } from '@/features/deck/research-session';
-import { cn } from '@/lib/cn';
-import type { Market } from '@mi/contracts';
 import logoMark from '@/assets/wordmark.svg';
 
-/** Market objects returned by SentinelRepository carry an optional runtime `engine` tag. */
 type MarketWithEngine = Market & { engine?: string };
 
-/**
- * Quiet, deterministic card-back palette per deck — used only until (or
- * unless) the generated face art exists. Muted duotones, not Christmas.
- */
-const BACKS = [
-  ['#1f2937', '#374151'], // graphite
-  ['#1e3a5f', '#2d4a73'], // deep navy
-  ['#3b3054', '#4a3d68'], // aubergine
-  ['#1f3d33', '#2d5445'], // forest
-  ['#4a3728', '#5e4536'], // umber
-  ['#2d3a4a', '#3d4d61'], // slate blue
+const PALETTES = [
+  ['#12352f', '#2b5a50', '#9ce4d2'],
+  ['#172f4f', '#31547b', '#a7c6ec'],
+  ['#3d304f', '#67527a', '#d8bfea'],
+  ['#4c3528', '#79543c', '#e4c09d'],
+  ['#263945', '#496272', '#b4d3df'],
 ] as const;
 
-function backOf(id: string): readonly [string, string] {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0;
-  return BACKS[Math.abs(h) % BACKS.length]!;
+function hashOf(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) hash = (Math.imul(31, hash) + value.charCodeAt(i)) | 0;
+  return Math.abs(hash);
 }
 
-/** The face card: generated art (vault-cached) or the designed card back. */
-function DeckFace({ market }: { market: MarketWithEngine }) {
-  const scope = market.scopeDefinition;
-  const { url: art } = useAiCover(
-    `deckface:${market.id}`,
-    market.name,
-    `The face card of a premium trading-card deck about the "${market.name}" competitive market (${scope.vertical}${scope.geography ? `, ${scope.geography}` : ''}). One striking editorial illustration that captures this industry — concrete subject matter, no text, no logos.`,
-    '3:4',
-  );
-  const [c1, c2] = backOf(market.id);
-  return (
-    <>
-      {art ? (
-        <img src={art} alt="" className="absolute inset-0 h-full w-full object-cover" />
-      ) : (
-        /* The card back: quiet duotone with an embossed monogram ring. */
-        <div
-          aria-hidden
-          className="absolute inset-0"
-          style={{ background: `linear-gradient(150deg, ${c1} 0%, ${c2} 100%)` }}
-        >
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-            <img src={logoMark} alt="" className="h-10 w-10 opacity-[0.15] drop-shadow-sm grayscale invert" />
-          </div>
-        </div>
-      )}
-      {/* The nameplate: the deck's identity over a quiet scrim. */}
-      <span
-        aria-hidden
-        className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/80 via-black/40 to-transparent"
-      />
-      <span className="absolute inset-x-0 bottom-0 p-4 text-left">
-        <span className="block text-[10px] font-medium tracking-normal text-white/60">
-          Stratemark Deck
-        </span>
-        <span className="mt-1 block font-display text-[17px] font-bold leading-snug text-white [text-wrap:balance]">
-          {market.name}
-        </span>
-        <span className="mt-0.5 block truncate text-[11px] text-white/70">
-          {scope.vertical}
-        </span>
-      </span>
-      {art && (
-        <span className="absolute right-2.5 top-2 font-display text-[8px] italic tracking-wide text-white/60">
-          AI-generated
-        </span>
-      )}
-    </>
-  );
-}
-
-/** A deck as a physical stack of cards — two edges peeking behind the face. */
-function DeckStack({
+function DeckTile({
   market,
-  onOpen,
-}: {
-  market: MarketWithEngine;
-  onOpen: () => void;
-}) {
-  return (
-    <div className="group relative select-none">
-      <span
-        aria-hidden
-        className="absolute inset-x-2 -bottom-2 h-full rounded-2xl border border-border bg-surface-2 shadow-sm"
-        style={{ transform: 'rotate(1.4deg)' }}
-      />
-      <span
-        aria-hidden
-        className="absolute inset-x-1 -bottom-1 h-full rounded-2xl border border-border bg-surface shadow-sm"
-        style={{ transform: 'rotate(-1deg)' }}
-      />
-      <button
-        type="button"
-        onClick={onOpen}
-        className="relative block aspect-[3/4] w-full cursor-pointer overflow-hidden rounded-2xl border border-border bg-surface text-left shadow-card transition-all hover:-translate-y-1 hover:shadow-card-hover"
-        title={`Open ${market.name}`}
-      >
-        <DeckFace market={market} />
-      </button>
-    </div>
-  );
-}
-
-/** The deck that's still in the oven — a pulsing card back at the shelf's end. */
-function ResearchingStack({ query, onOpen }: { query: string; onOpen: () => void }) {
-  return (
-    <div className="relative select-none">
-      <span
-        aria-hidden
-        className="absolute inset-x-2 -bottom-2 h-full rounded-2xl border border-border bg-surface-2 shadow-sm"
-        style={{ transform: 'rotate(1.4deg)' }}
-      />
-      <button
-        type="button"
-        onClick={onOpen}
-        className="relative block aspect-[3/4] w-full cursor-pointer overflow-hidden rounded-2xl border border-dashed border-primary/40 bg-surface text-left shadow-card"
-        title="Research is running — open the live progress"
-      >
-        <div className="absolute inset-0 grid place-items-center">
-          <span className="grid h-16 w-16 place-items-center rounded-full border border-primary/30">
-            <span className="h-3 w-3 animate-ping rounded-full bg-primary" />
-          </span>
-        </div>
-        <span className="absolute inset-x-0 bottom-0 p-4">
-          <span className="block text-[9px] font-semibold uppercase tracking-[0.28em] text-primary-ink">
-            Researching now
-          </span>
-          <span className="mt-1 block font-display text-[17px] font-bold leading-snug text-content [text-wrap:balance]">
-            {query}
-          </span>
-          <span className="mt-1.5 block h-2 w-2/3 animate-pulse rounded bg-surface-2" />
-        </span>
-      </button>
-    </div>
-  );
-}
-
-/**
- * THE shelf — every deck on one hand-pull carousel. Native scroll-snap does
- * the physics; pointer-drag makes the whole rail grabbable.
- */
-function DeckShelf({
-  decks,
-  researching,
   onOpen,
   onDelete,
 }: {
-  decks: MarketWithEngine[];
-  researching: string | null;
-  onOpen: (id: string) => void;
-  onDelete: (m: MarketWithEngine) => void;
+  market: MarketWithEngine;
+  onOpen: () => void;
+  onDelete: () => void;
 }) {
-  const railRef = useRef<HTMLDivElement>(null);
-  const count = decks.length + (researching ? 1 : 0);
-  const [activeIdx, setActiveIdx] = useState(count - 1);
-  const drag = useRef<{ startX: number; startScroll: number; moved: boolean } | null>(null);
-  const navigate = useNavigate();
-
-  // Open on the newest item (right end of the shelf).
-  useEffect(() => {
-    const el = railRef.current;
-    if (el) el.scrollLeft = el.scrollWidth;
-  }, []);
-
-  // Track which stack sits at center — its info strip renders below.
-  const onScroll = useCallback(() => {
-    const el = railRef.current;
-    if (!el) return;
-    const center = el.scrollLeft + el.clientWidth / 2;
-    const kids = Array.from(el.children) as HTMLElement[];
-    let best = 0;
-    let bestDist = Infinity;
-    kids.forEach((kid, i) => {
-      const mid = kid.offsetLeft + kid.offsetWidth / 2;
-      const dist = Math.abs(mid - center);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = i;
-      }
-    });
-    setActiveIdx(best);
-  }, []);
-
-  const active: MarketWithEngine | null = decks[activeIdx] ?? null;
-  const activeIsResearch = researching != null && activeIdx === decks.length;
+  const hash = hashOf(market.id);
+  const [start, end, accent] = PALETTES[hash % PALETTES.length]!;
+  const code = hash.toString(36).slice(0, 3).toUpperCase().padStart(3, '0');
+  const date = new Date(market.createdAt).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 
   return (
-    <section>
-      <div
-        ref={railRef}
-        onScroll={onScroll}
-        onPointerDown={(e) => {
-          const el = railRef.current;
-          if (!el) return;
-          drag.current = { startX: e.clientX, startScroll: el.scrollLeft, moved: false };
-        }}
-        onPointerMove={(e) => {
-          const el = railRef.current;
-          if (!el || !drag.current) return;
-          const dx = e.clientX - drag.current.startX;
-          if (Math.abs(dx) > 4) {
-            drag.current.moved = true;
-            el.scrollLeft = drag.current.startScroll - dx;
-          }
-        }}
-        onPointerUp={() => {
-          drag.current = null;
-        }}
-        onPointerLeave={() => {
-          drag.current = null;
-        }}
-        className="flex cursor-grab snap-x snap-mandatory gap-8 overflow-x-auto px-[30%] pb-8 pt-4 [scrollbar-width:none] active:cursor-grabbing [&::-webkit-scrollbar]:hidden"
-        aria-label="All decks — drag to browse, oldest left to newest right"
-      >
-        {decks.map((m, i) => (
-          <div
-            key={m.id}
-            className={cn(
-              'w-[220px] shrink-0 snap-center transition-all duration-200 sm:w-[250px]',
-              i === activeIdx ? 'scale-100 opacity-100' : 'scale-[0.88] opacity-55',
-            )}
+    <article className="group">
+      <div className="relative mx-2">
+        <span
+          aria-hidden
+          className="absolute inset-x-2 -bottom-2 h-full rounded-[20px] border border-border bg-surface-2"
+          style={{ transform: 'rotate(1.4deg)' }}
+        />
+        <span
+          aria-hidden
+          className="absolute inset-x-1 -bottom-1 h-full rounded-[20px] border border-border bg-surface"
+          style={{ transform: 'rotate(-0.8deg)' }}
+        />
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label={'Open ' + market.name}
+          className="relative block aspect-[3/4] w-full overflow-hidden rounded-[20px] border border-white/15 text-left shadow-card transition-all duration-200 hover:-translate-y-1 hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          style={{
+            background:
+              'radial-gradient(circle at 78% 18%, ' +
+              accent +
+              '35 0, transparent 27%), linear-gradient(145deg, ' +
+              start +
+              ', ' +
+              end +
+              ')',
+          }}
+        >
+          <span className="absolute inset-3 rounded-[14px] border border-white/15" />
+          <span className="absolute left-5 right-5 top-5 flex items-center justify-between text-[9px] font-semibold uppercase tracking-[0.2em] text-white/55">
+            <span>Stratemark / Market</span>
+            <span>D{code}</span>
+          </span>
+          <span
+            aria-hidden
+            className="absolute right-5 top-14 font-display text-[96px] font-bold leading-none text-white/[0.06]"
           >
-            <DeckStack
-              market={m}
-              onOpen={() => {
-                // A drag that ended on the card is a pull, not a click.
-                if (!drag.current?.moved) onOpen(m.id);
-              }}
-            />
-          </div>
-        ))}
-        {researching && (
-          <div
-            className={cn(
-              'w-[220px] shrink-0 snap-center transition-all duration-200 sm:w-[250px]',
-              activeIsResearch ? 'scale-100 opacity-100' : 'scale-[0.88] opacity-55',
-            )}
-          >
-            <ResearchingStack
-              query={researching}
-              onOpen={() => {
-                if (!drag.current?.moved) navigate('/');
-              }}
-            />
-          </div>
-        )}
+            {market.name.trim().charAt(0).toUpperCase()}
+          </span>
+          <span className="absolute inset-x-5 bottom-6">
+            <span className="mb-3 block h-px w-10" style={{ backgroundColor: accent }} />
+            <span className="block font-display text-[22px] font-semibold leading-[1.08] tracking-[-0.03em] text-white [text-wrap:balance]">
+              {market.name}
+            </span>
+            <span className="mt-2 block line-clamp-2 text-[11px] leading-relaxed text-white/60">
+              {market.scopeDefinition.vertical}
+            </span>
+            <span className="mt-4 inline-flex items-center gap-1 text-[10px] font-medium text-white/65">
+              Open deck <ArrowUpRight className="h-3 w-3" />
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          title={'Delete "' + market.name + '"'}
+          aria-label={'Delete ' + market.name}
+          onClick={onDelete}
+          className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full border border-white/15 bg-black/20 text-white/55 opacity-0 backdrop-blur-sm transition-all hover:bg-red-500/80 hover:text-white focus:opacity-100 group-hover:opacity-100"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       </div>
+      <div className="mt-4 px-2">
+        <div className="flex items-center justify-between gap-2 text-[11px] text-muted">
+          <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
+            {market.scopeDefinition.geography && (
+              <>
+                <MapPin className="h-3 w-3 shrink-0" />
+                <span className="truncate">{market.scopeDefinition.geography}</span>
+              </>
+            )}
+          </span>
+          <span className="shrink-0 text-faint">{date}</span>
+        </div>
+        <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-faint">
+          {market.engine === 'cloud' ? (
+            <>
+              <Cloud className="h-3 w-3" /> Cloud research
+            </>
+          ) : (
+            <>
+              <Cpu className="h-3 w-3" /> Local research
+            </>
+          )}
+        </span>
+      </div>
+    </article>
+  );
+}
 
-      {/* The info strip: what's centered, with its actions. */}
-      <div className="mx-auto max-w-md text-center">
-        {activeIsResearch ? (
-          <div>
-            <p className="font-display text-[15px] font-semibold text-content">{researching}</p>
-            <p className="mt-0.5 text-[12px] text-muted">
-              The desk is researching this market right now — cards appear as they're found.
-            </p>
-            <Link to="/" className="btn-primary mt-3 inline-flex">
-              Watch the research
-            </Link>
-          </div>
-        ) : active ? (
-          <div>
-            <p className="font-display text-[15px] font-semibold text-content">{active.name}</p>
-            <p className="mt-0.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[12px] text-muted">
-              <span>{active.scopeDefinition.vertical}</span>
-              {active.scopeDefinition.geography && (
-                <span className="inline-flex items-center gap-1">
-                  <MapPin className="h-3 w-3" />
-                  {active.scopeDefinition.geography}
-                </span>
-              )}
-              <span className="inline-flex items-center gap-1">
-                {active.engine === 'cloud' ? (
-                  <>
-                    <Cloud className="h-3 w-3 text-teal-500" /> Sentinel cloud
-                  </>
-                ) : (
-                  <>
-                    <Cpu className="h-3 w-3" /> Local engine
-                  </>
-                )}
-              </span>
-              <span className="text-faint">
-                {new Date(active.createdAt).toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                })}
-              </span>
-              <span className="tabular-nums text-faint">
-                {activeIdx + 1} / {count}
-              </span>
-            </p>
-            <div className="mt-3 flex items-center justify-center gap-2">
-              <button type="button" className="btn-primary" onClick={() => onOpen(active.id)}>
-                Open deck
-                <ArrowRight className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                title={`Delete "${active.name}"`}
-                onClick={() => onDelete(active)}
-                className="grid h-9 w-9 place-items-center rounded-lg border border-border text-faint transition-colors hover:border-red-300 hover:bg-red-500/10 hover:text-red-500"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        ) : null}
+function ResearchingTile({ query }: { query: string }) {
+  return (
+    <Link to="/" className="group block">
+      <div className="relative mx-2 aspect-[3/4] overflow-hidden rounded-[20px] border border-dashed border-primary/40 bg-[#edf6f1] p-5 shadow-card transition-transform hover:-translate-y-1">
+        <span className="absolute inset-3 rounded-[14px] border border-primary/10" />
+        <span className="relative text-[9px] font-semibold uppercase tracking-[0.2em] text-primary">
+          Researching now
+        </span>
+        <span className="absolute left-1/2 top-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-primary/20">
+          <span className="h-3 w-3 animate-ping rounded-full bg-primary" />
+        </span>
+        <span className="absolute inset-x-5 bottom-6">
+          <span className="block font-display text-[21px] font-semibold leading-tight text-content [text-wrap:balance]">
+            {query}
+          </span>
+          <span className="mt-2 block text-[11px] text-muted">Open the live research room</span>
+        </span>
       </div>
-    </section>
+    </Link>
   );
 }
 
@@ -349,34 +160,40 @@ export default function MarketsListPage() {
   const markets = useMarkets();
   const deleteDeck = useDeleteDeck();
   const navigate = useNavigate();
-  const open = (id: string) => navigate(`/markets/${id}/deck`);
-  // A deck being researched right now belongs on the shelf already.
-  const session = useResearchSession((s) => s.session);
+  const session = useResearchSession((state) => state.session);
   const researching = session?.running ? session.query : null;
-
   const sorted = useMemo(
     () =>
       [...((markets.data ?? []) as MarketWithEngine[])].sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       ),
     [markets.data],
   );
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <div className="mb-2 flex items-end justify-between">
+    <div className="mx-auto max-w-6xl">
+      <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-content">All decks</h1>
-          <p className="mt-1 text-sm text-muted">
-            Every market you've researched, as a deck of cards. Drag the shelf — oldest left,
-            newest right.
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
+            Research library
           </p>
+          <h1 className="mt-1 font-display text-[32px] font-semibold tracking-[-0.03em] text-content">
+            All decks
+          </h1>
+          <p className="mt-1 text-sm text-muted">Every market you have researched, newest first.</p>
         </div>
-        <Link to="/" className="btn-primary">
-          <PlusCircle className="h-4 w-4" />
-          New deck
-        </Link>
-      </div>
+        <div className="flex items-center gap-3">
+          {sorted.length > 0 && (
+            <span className="text-[12px] tabular-nums text-muted">
+              {sorted.length} {sorted.length === 1 ? 'deck' : 'decks'}
+            </span>
+          )}
+          <Link to="/" className="btn-primary">
+            <PlusCircle className="h-4 w-4" />
+            New deck
+          </Link>
+        </div>
+      </header>
 
       <QueryBoundary
         query={markets}
@@ -385,7 +202,7 @@ export default function MarketsListPage() {
         empty={
           <EmptyState
             title="No decks yet"
-            description="Describe a market in plain language and we'll research it into a deck of cards."
+            description="Describe a market in plain language and Stratemark will research it into a deck."
             icon={<img src={logoMark} alt="" className="h-6 w-6 opacity-40 grayscale" />}
             action={
               <Link to="/" className="btn-primary mt-2">
@@ -397,16 +214,24 @@ export default function MarketsListPage() {
         }
       >
         {() => (
-          <DeckShelf
-            decks={sorted}
-            researching={researching}
-            onOpen={open}
-            onDelete={(m) => {
-              if (confirm(`Are you sure you want to delete "${m.name}"?`)) {
-                deleteDeck.mutate(m.id);
-              }
-            }}
-          />
+          <section
+            className="grid gap-x-7 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+            aria-label="Research decks"
+          >
+            {researching && <ResearchingTile query={researching} />}
+            {sorted.map((market) => (
+              <DeckTile
+                key={market.id}
+                market={market}
+                onOpen={() => navigate('/markets/' + market.id + '/deck')}
+                onDelete={() => {
+                  if (confirm('Are you sure you want to delete "' + market.name + '"?')) {
+                    deleteDeck.mutate(market.id);
+                  }
+                }}
+              />
+            ))}
+          </section>
         )}
       </QueryBoundary>
     </div>

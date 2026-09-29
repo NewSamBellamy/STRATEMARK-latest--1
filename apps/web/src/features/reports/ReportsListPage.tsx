@@ -29,10 +29,7 @@ function AuditAnySite() {
   const run = () => {
     const trimmed = url.trim();
     if (!trimmed || audit.isPending) return;
-    audit.mutate(
-      { url: trimmed },
-      { onSuccess: (r) => navigate(`/reports/${r.id}`) },
-    );
+    audit.mutate({ url: trimmed }, { onSuccess: (r) => navigate(`/reports/${r.id}`) });
   };
   return (
     <div className="panel mt-6 p-5">
@@ -63,7 +60,11 @@ function AuditAnySite() {
           onClick={run}
           title="One grounded research pass on your key (typically a fraction of a cent)"
         >
-          {audit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
+          {audit.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ClipboardCheck className="h-4 w-4" />
+          )}
           {audit.isPending ? 'The auditor is on it…' : 'Run the audit'}
         </button>
       </div>
@@ -79,11 +80,16 @@ function AuditAnySite() {
 export default function ReportsListPage() {
   const reports = useReports();
   return (
-    <div className="mx-auto max-w-4xl">
-      <h1 className="font-display text-2xl font-semibold text-content">Reports</h1>
+    <div className="mx-auto max-w-5xl">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
+        Research archive
+      </p>
+      <h1 className="mt-1 font-display text-[32px] font-semibold tracking-[-0.03em] text-content">
+        Reports
+      </h1>
       <p className="mt-1 text-sm text-muted">
-        AI-composed research reports, built from your decks’ sourced evidence. Everything stays
-        organized here.
+        Cited reports assembled from your saved research. Drafts without evidence stay clearly
+        marked.
       </p>
 
       <div className="mt-6">
@@ -131,7 +137,18 @@ export default function ReportsListPage() {
                       </div>
                       <p className="mt-1 text-xs text-muted">
                         <span className="capitalize">{KIND_LABEL[r.kind] ?? r.kind}</span> ·{' '}
-                        {formatRelative(r.createdAt)} · {r.citations.length} sources
+                        {formatRelative(r.createdAt)} ·{' '}
+                        <span
+                          className={
+                            r.citations.length > 0
+                              ? 'font-medium text-primary-ink'
+                              : 'font-medium text-amber-700'
+                          }
+                        >
+                          {r.citations.length > 0
+                            ? `${r.citations.length} ${r.citations.length === 1 ? 'source' : 'sources'}`
+                            : 'Draft · needs sources'}
+                        </span>
                       </p>
                     </div>
                     <ArrowRight className="h-5 w-5 shrink-0 text-muted transition-transform group-hover:translate-x-0.5" />
