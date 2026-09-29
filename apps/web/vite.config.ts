@@ -28,6 +28,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    allowedHosts: true,
     // Allow importing the workspace packages' TS source from the monorepo root.
     fs: { allow: ['../..'] },
   },

@@ -82,6 +82,25 @@ function useIsDesktop(): boolean {
   return desktop;
 }
 
+function useCurrentRoute(): { isStartingPage: boolean } {
+  const [hash, setHash] = useState(() => (typeof window !== 'undefined' ? window.location.hash : ''));
+  useEffect(() => {
+    const onHashChange = () => setHash(window.location.hash);
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  const path = typeof window !== 'undefined' ? window.location.pathname : '';
+  const isStart =
+    !hash ||
+    hash === '#/' ||
+    hash.startsWith('#/new') ||
+    path === '/' ||
+    path === '/new';
+
+  return { isStartingPage: isStart };
+}
+
 /** Rotating status phrases shown inside the assistant "typing" bubble. */
 const THINKING_PHASES = [
   'Searching the web…',
@@ -215,6 +234,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
   const repo = useRepository();
   const qc = useQueryClient();
   const conversational = typeof repo.askResearch === 'function';
+  const { isStartingPage } = useCurrentRoute();
 
   const [openState, setOpenState] = useState(false);
   const [scope, setScope] = useState<ResearchScope | null>(null);
@@ -457,8 +477,8 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     >
       {children}
 
-      {/* Floating pill — in floating mode, when minimized, a tap reopens the chat. */}
-      {mode === 'floating' && !openState && scope && (
+      {/* Floating pill — in floating mode, when minimized on deck/workspace pages, a tap reopens the chat. */}
+      {mode === 'floating' && !openState && scope && !isStartingPage && (
         <button
           type="button"
           onClick={() => setOpenState(true)}

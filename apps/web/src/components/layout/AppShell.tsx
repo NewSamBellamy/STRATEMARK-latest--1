@@ -10,7 +10,7 @@ import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { useHuntRunner } from '@/lib/agentic/useHuntRunner';
 import { useSentinel } from '@/lib/agentic/useSentinel';
-import { AgentPresence } from '@/components/agentic/AgentPresence';
+import { SettingsModal } from '@/features/settings/SettingsModal';
 
 export function AppShell() {
   useDeckRefreshSubscription();
@@ -70,9 +70,7 @@ export function AppShell() {
           </ErrorBoundary>
         </main>
       </div>
-
-      {/* The floating agentic presence — movable, labeled, honest. */}
-      <AgentPresence />
+      <SettingsModal />
     </div>
   );
 }

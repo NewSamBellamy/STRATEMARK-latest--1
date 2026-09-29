@@ -32,6 +32,7 @@ import { cn } from '@/lib/cn';
 import logoMark from '@/assets/logo-mark.svg';
 import wordmark from '@/assets/wordmark.svg';
 import { MicButton } from '@/components/ui/MicButton';
+import { NotificationToast } from '@/components/ui/NotificationToast';
 import { useResearchSession } from './research-session';
 import { qk } from '@/lib/query/keys';
 
@@ -515,13 +516,33 @@ export default function NewDeckPage() {
   const running = session?.running ?? false;
 
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="relative flex min-h-full flex-col">
+      {/* Floating System Notification at Top */}
+      {demoGate && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg px-4 transition-all duration-300 animate-in fade-in slide-in-from-top-4">
+          <NotificationToast
+            variant="warning"
+            title="Gemini API Key Required"
+            description={
+              <span>
+                Grounded research runs on your own key — nothing here is ever faked.{' '}
+                <Link to="/settings" className="font-semibold underline hover:opacity-80">
+                  Add your key in Settings
+                </Link>{' '}
+                (free tier works), then come back and run “{prompt.trim() || 'this market'}” for real.
+              </span>
+            }
+            onClose={() => setDemoGate(false)}
+          />
+        </div>
+      )}
+
       {/* Main content area */}
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6">
         {!hasSession ? (
           /* ── Empty state ── */
           <div className="w-full max-w-2xl pb-32">
-            <div className="mb-8">
+            <div className="mb-6">
               <div className="flex items-center gap-2.5">
                 <img src={logoMark} alt="Stratemark" className="h-8 w-8" />
                 <span className="font-display text-lg font-bold tracking-tight text-content">Stratemark</span>
@@ -531,7 +552,24 @@ export default function NewDeckPage() {
                 What market should we dive into?
               </h1>
             </div>
-            <div className="mt-5 flex flex-wrap gap-2">
+
+            <div className="mb-6 w-full">
+              <InputPill
+                prompt={prompt}
+                setPrompt={setPrompt}
+                region={region}
+                setRegion={setRegion}
+                engine={engine}
+                setEngine={setEngine}
+                isPro={isPro || !!user}
+                onSubmit={onSubmit}
+                disabled={running}
+                hasKey={hasKey}
+                showHint={true}
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
               {SUGGESTIONS.map((ex) => (
                 <button
                   key={ex}
@@ -683,39 +721,26 @@ export default function NewDeckPage() {
       </div>
 
       {/* Floating input pill */}
-      <div
-        className="sticky bottom-0 z-20 flex justify-center px-6 pb-5 pt-3"
-        style={{ background: 'linear-gradient(transparent, rgb(var(--c-bg)) 40%)' }}
-      >
-        <InputPill
-          prompt={prompt}
-          setPrompt={setPrompt}
-          region={region}
-          setRegion={setRegion}
-          engine={engine}
-          setEngine={setEngine}
-          isPro={isPro || !!user}
-          onSubmit={onSubmit}
-          disabled={running}
-          hasKey={hasKey}
-          showHint={!hasSession}
-        />
-        {demoGate && (
-          <div className="mx-auto mt-3 max-w-xl rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-center dark:border-amber-800 dark:bg-amber-950/40">
-            <p className="text-[13px] font-medium text-amber-900 dark:text-amber-200">
-              Researching a new market needs your Gemini API key.
-            </p>
-            <p className="mt-1 text-[12px] leading-relaxed text-amber-800/90 dark:text-amber-300/90">
-              Grounded research runs on your own key — nothing here is ever faked.{' '}
-              <Link to="/settings" className="font-semibold underline">
-                Add your key in Settings
-              </Link>{' '}
-              (free tier works), then come back and run “{prompt.trim() || 'this market'}” for
-              real.
-            </p>
-          </div>
-        )}
-      </div>
+      {hasSession && (
+        <div
+          className="sticky bottom-0 z-20 flex justify-center px-6 pb-5 pt-3"
+          style={{ background: 'linear-gradient(transparent, rgb(var(--c-bg)) 40%)' }}
+        >
+          <InputPill
+            prompt={prompt}
+            setPrompt={setPrompt}
+            region={region}
+            setRegion={setRegion}
+            engine={engine}
+            setEngine={setEngine}
+            isPro={isPro || !!user}
+            onSubmit={onSubmit}
+            disabled={running}
+            hasKey={hasKey}
+            showHint={false}
+          />
+        </div>
+      )}
     </div>
   );
 }

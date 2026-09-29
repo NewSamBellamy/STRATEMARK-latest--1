@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, Cloud, Cpu, Layers, MapPin, PlusCircle, Trash2 } from 'lucide-react';
+import { ArrowRight, Cloud, Cpu, MapPin, PlusCircle, Trash2 } from 'lucide-react';
 import { useDeleteDeck, useMarkets } from '@/hooks/data';
 import { useAiCover } from '@/lib/ai/aiCover';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
@@ -28,6 +28,7 @@ import { EmptyState } from '@/components/states/EmptyState';
 import { useResearchSession } from '@/features/deck/research-session';
 import { cn } from '@/lib/cn';
 import type { Market } from '@mi/contracts';
+import logoMark from '@/assets/wordmark.svg';
 
 /** Market objects returned by SentinelRepository carry an optional runtime `engine` tag. */
 type MarketWithEngine = Market & { engine?: string };
@@ -72,20 +73,19 @@ function DeckFace({ market }: { market: MarketWithEngine }) {
           className="absolute inset-0"
           style={{ background: `linear-gradient(150deg, ${c1} 0%, ${c2} 100%)` }}
         >
-          <div className="absolute inset-3 rounded-xl border border-white/15" />
-          <div className="absolute left-1/2 top-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/20">
-            <Layers className="h-7 w-7 text-white/50" />
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+            <img src={logoMark} alt="" className="h-10 w-10 opacity-[0.15] drop-shadow-sm grayscale invert" />
           </div>
         </div>
       )}
       {/* The nameplate: the deck's identity over a quiet scrim. */}
       <span
         aria-hidden
-        className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/75 via-black/35 to-transparent"
+        className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/80 via-black/40 to-transparent"
       />
       <span className="absolute inset-x-0 bottom-0 p-4 text-left">
-        <span className="block text-[9px] font-semibold uppercase tracking-[0.28em] text-white/60">
-          Stratemark deck
+        <span className="block text-[10px] font-medium tracking-normal text-white/60">
+          Stratemark Deck
         </span>
         <span className="mt-1 block font-display text-[17px] font-bold leading-snug text-white [text-wrap:balance]">
           {market.name}
@@ -386,7 +386,7 @@ export default function MarketsListPage() {
           <EmptyState
             title="No decks yet"
             description="Describe a market in plain language and we'll research it into a deck of cards."
-            icon={<Layers className="h-6 w-6" />}
+            icon={<img src={logoMark} alt="" className="h-6 w-6 opacity-40 grayscale" />}
             action={
               <Link to="/" className="btn-primary mt-2">
                 <PlusCircle className="h-4 w-4" />

@@ -5,13 +5,15 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { GoogleAuthProvider } from '@/lib/auth/AuthContext';
 import { TaskManagerProvider } from '@/lib/tasks/TaskManagerContext';
-import SettingsPage from '@/features/settings/SettingsPage';
+import { SettingsModal } from '@/features/settings/SettingsModal';
 import NewDeckPage from '@/features/deck/NewDeckPage';
 import { RepositoryProvider } from '@/lib/repository/RepositoryProvider';
 import { createQueryClient } from '@/lib/query/queryClient';
 import { MockRepository } from '@mi/mocks';
 import { useEngineChoice } from '@/lib/settings/engine';
 import * as sentinelApi from '@/lib/sentinelApi';
+
+import { useSettingsModal } from '@/lib/settings/settingsModal';
 
 function TestWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -36,11 +38,12 @@ describe('Research Engine Settings & Strict Execution', () => {
     vi.restoreAllMocks();
   });
 
-  it('allows toggling research execution engine in SettingsPage', async () => {
+  it('allows toggling research execution engine in SettingsModal', async () => {
+    useSettingsModal.setState({ isOpen: true });
     const user = userEvent.setup();
     render(
       <TestWrapper>
-        <SettingsPage />
+        <SettingsModal />
       </TestWrapper>
     );
 
