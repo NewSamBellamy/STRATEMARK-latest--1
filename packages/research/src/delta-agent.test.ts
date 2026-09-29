@@ -72,7 +72,12 @@ function fakeClient(mockOverrides?: {
         brand: { primary: '#4f46e5', secondary: '#a5b4fc', accent: '#f59e0b' },
         metrics: {
           arr: { value: null, confidence: 'unknown', sourceIndex: null, method: null },
-          valuation: { value: 12_000_000, confidence: 'estimated', sourceIndex: 0, method: 'Seed round proxy' },
+          valuation: {
+            value: 12_000_000,
+            confidence: 'estimated',
+            sourceIndex: 0,
+            method: 'Seed round proxy',
+          },
           employees: { value: 6, confidence: 'verified', sourceIndex: 0, method: null },
           users: { value: 500, confidence: 'estimated', sourceIndex: 0, method: 'Beta users' },
         },
@@ -119,8 +124,36 @@ describe('Incremental Delta Search Agent — Identity & Normalization', () => {
       companies: [{ name: 'Delta Inc', domain: 'delta.ai' }],
       cards: [
         {
-          card: { id: 'crd_1', deckId: 'd1', companyId: 'cmp_1', cardType: 'company', title: null, summary: null, tier: 1, tierReason: null, citations: [], keyPoints: [], createdAt: '' },
-          company: { id: 'cmp_1', name: 'Epsilon AI', oneLiner: '', logoUrl: null, hqLocation: null, websiteUrl: 'https://epsilon.ai', brandTheme: { primary: '', secondary: '', accent: '', text: '', background: '', fontFamily: null, source: 'default' } },
+          card: {
+            id: 'crd_1',
+            deckId: 'd1',
+            companyId: 'cmp_1',
+            cardType: 'company',
+            title: null,
+            summary: null,
+            tier: 1,
+            tierReason: null,
+            citations: [],
+            keyPoints: [],
+            createdAt: '',
+          },
+          company: {
+            id: 'cmp_1',
+            name: 'Epsilon AI',
+            oneLiner: '',
+            logoUrl: null,
+            hqLocation: null,
+            websiteUrl: 'https://epsilon.ai',
+            brandTheme: {
+              primary: '',
+              secondary: '',
+              accent: '',
+              text: '',
+              background: '',
+              fontFamily: null,
+              source: 'default',
+            },
+          },
           metrics: [],
           viceClaims: [],
         },
@@ -158,36 +191,36 @@ describe('Incremental Delta Search Agent — Precision Focus Translation', () =>
     const t1 = translateExpandFocus({ tier: 1 });
     expect(t1.targetTier).toBe(1);
     expect(t1.primaryCardType).toBe('company');
-    expect(t1.focusPrompt).toContain('The Sandbox');
+    expect(t1.focusPrompt).toContain('Formation');
     expect(t1.focusPrompt).toContain('pre-product');
 
     const t2 = translateExpandFocus({ tier: 2 });
     expect(t2.targetTier).toBe(2);
-    expect(t2.focusPrompt).toContain('Scrappy Startups');
+    expect(t2.focusPrompt).toContain('Early Traction');
 
     const t3 = translateExpandFocus({ tier: 3 });
     expect(t3.targetTier).toBe(3);
-    expect(t3.focusPrompt).toContain('Emerging Challengers');
+    expect(t3.focusPrompt).toContain('Emerging');
 
     const t4 = translateExpandFocus({ tier: 4 });
     expect(t4.targetTier).toBe(4);
-    expect(t4.focusPrompt).toContain('Growth Stage');
+    expect(t4.focusPrompt).toContain('Growth');
 
     const t5 = translateExpandFocus({ tier: 5 });
     expect(t5.targetTier).toBe(5);
-    expect(t5.focusPrompt).toContain('Market Disruptors');
+    expect(t5.focusPrompt).toContain('Breakout');
 
     const t6 = translateExpandFocus({ tier: 6 });
     expect(t6.targetTier).toBe(6);
-    expect(t6.focusPrompt).toContain('Scale Stage');
+    expect(t6.focusPrompt).toContain('Scale');
 
     const t7 = translateExpandFocus({ tier: 7 });
     expect(t7.targetTier).toBe(7);
-    expect(t7.focusPrompt).toContain('Category Leaders');
+    expect(t7.focusPrompt).toContain('Category Leader');
 
     const t8 = translateExpandFocus({ tier: 8 });
     expect(t8.targetTier).toBe(8);
-    expect(t8.focusPrompt).toContain('The Titans');
+    expect(t8.focusPrompt).toContain('Market Defining');
     expect(t8.focusPrompt).toContain('multi-billion-dollar');
   });
 
@@ -219,7 +252,9 @@ describe('Incremental Delta Search Agent — Precision Focus Translation', () =>
     const textTier1 = translateExpandFocus('Hunt for Tier 1 sandbox startups');
     expect(textTier1.targetTier).toBe(1);
 
-    const textInfra = translateExpandFocus('Search for GPU compute & infrastructure tooling providers');
+    const textInfra = translateExpandFocus(
+      'Search for GPU compute & infrastructure tooling providers',
+    );
     expect(textInfra.primaryCardType).toBe('infrastructure');
 
     const freeQuery = translateExpandFocus('Autonomous robotics startups in Southern California');
@@ -308,9 +343,13 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
     expect(viceCard!.viceClaims[0]?.claimText).toContain('Litigation pending');
     expect(viceCard!.metrics).toEqual([]); // Zero borrowed metrics on signal cards per spec §4
 
-    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'status', step: 'discover' }));
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'status', step: 'discover' }),
+    );
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'candidates' }));
-    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'status', step: 'enrich' }));
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'status', step: 'enrich' }),
+    );
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'card' }));
   });
 

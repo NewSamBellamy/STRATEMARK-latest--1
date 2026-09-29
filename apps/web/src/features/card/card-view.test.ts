@@ -8,8 +8,21 @@ const card = dataset.cards.find((c) => c.cardType === 'company' && c.companyId)!
 const company = dataset.companies.find((c) => c.id === card.companyId)!;
 const seed = dataset.metrics.find((m) => m.companyId === company.id)!;
 function metric(patch: Partial<CompanyMetric>): CompanyMetric {
-  return { ...seed, value: 1200, metricType: 'users', confidence: 'verified', source: null,
-    citations: [{ title: 'Annual report', url: 'https://investor.example.com/report', credibility: 'primary' }], ...patch };
+  return {
+    ...seed,
+    value: 1200,
+    metricType: 'users',
+    confidence: 'verified',
+    source: null,
+    citations: [
+      {
+        title: 'Annual report',
+        url: 'https://investor.example.com/report',
+        credibility: 'primary',
+      },
+    ],
+    ...patch,
+  };
 }
 function view(metrics: CompanyMetric[], overrides: Partial<CardWithCompany> = {}) {
   return buildCardView({ card, company, metrics, viceClaims: [], ...overrides });
@@ -42,7 +55,11 @@ describe('collectible card evidence model', () => {
       metric({ id: 'b', confidence: 'estimated' }),
       metric({ id: 'c', confidence: 'user_verified', citations: [], source: null }),
     ]);
-    expect(result.metrics.map((m) => m.metric.confidence)).toEqual(['verified', 'estimated', 'user_verified']);
+    expect(result.metrics.map((m) => m.metric.confidence)).toEqual([
+      'verified',
+      'estimated',
+      'user_verified',
+    ]);
     expect(result.sourcedCount).toBe(2);
   });
   it('falls back to known market cap when the valuation row is unknown', () => {
@@ -55,7 +72,13 @@ describe('collectible card evidence model', () => {
   });
   it('puts the strongest usable company facts on the face across market types', () => {
     const result = view([
-      metric({ id: 'arr', metricType: 'arr', value: 9_000_000, confidence: 'estimated', citations: [] }),
+      metric({
+        id: 'arr',
+        metricType: 'arr',
+        value: 9_000_000,
+        confidence: 'estimated',
+        citations: [],
+      }),
       metric({ id: 'share', metricType: 'market_share', value: 24 }),
       metric({ id: 'people', metricType: 'employees', value: 270 }),
       metric({ id: 'reach', metricType: 'users', value: 2_400_000 }),
@@ -74,22 +97,25 @@ describe('collectible card evidence model', () => {
   it('does not fill the card with unknown figures or assign an unsupported position', () => {
     const result = view([]);
     expect(result.faceMetrics).toEqual([]);
-    expect(result.position).toBe('Stage pending');
+    expect(result.position).toBe('Stage unverified');
     expect(result.maturity).toBeNull();
   });
-  it('marks single-source tiers as indicative instead of a confident ranking', () => {
+  it('shows the named stage while the source count communicates evidence depth', () => {
     const result = view([metric({ metricType: 'users', value: 1200 })], {
       card: { ...card, tier: 6 },
     });
-    expect(result.position).toBe('Indicative · T6');
+    expect(result.position).toBe('T6 · Scale');
   });
   it('withholds even a recorded high tier from the face when no source backs any figure', () => {
-    const result = view([metric({ metricType: 'arr', value: 9_000_000, confidence: 'estimated', citations: [] })], {
-      card: { ...card, tier: 8 },
-    });
+    const result = view(
+      [metric({ metricType: 'arr', value: 9_000_000, confidence: 'estimated', citations: [] })],
+      {
+        card: { ...card, tier: 8 },
+      },
+    );
     expect(result.faceMetrics[0]!.display).toBe('$9M');
     expect(result.maturity).toBeNull();
-    expect(result.position).toBe('Stage pending');
+    expect(result.position).toBe('Stage unverified');
   });
   it('keeps unscoped market share in Evidence, not on the face or as a tier receipt', () => {
     const result = view([metric({ metricType: 'market_share', value: 24 })], {

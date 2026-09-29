@@ -83,7 +83,7 @@ function deriveInsights(lines: LogLine[]): Insight[] {
   out.push({
     id: 'signals',
     eyebrow: 'What we capture per company',
-    body: 'Market share, ARR, valuation or market cap, team size, and user base — then a rules-based company stage from T1 The Sandbox up to T8 The Titans.',
+    body: 'Market share, ARR, valuation or market cap, team size, and user base — then a rules-based company stage from T1 Formation through T8 Market Defining.',
     icon: Layers,
     method: true,
   });

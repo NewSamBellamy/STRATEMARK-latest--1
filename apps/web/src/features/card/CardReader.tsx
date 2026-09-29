@@ -157,9 +157,9 @@ function CardReaderBody({
                 {hasMaturity && (
                   <p className="mt-4 rounded-lg bg-surface-2 p-3 text-[11px] leading-relaxed text-muted">
                     {view.knownCount === 0
-                      ? 'Stage pending: no usable figures were recorded for this company.'
+                      ? 'Stage unavailable: no usable figures were recorded for this company.'
                       : !view.maturity
-                        ? `${view.knownCount} figures recorded · ${view.sourcedCount} with clickable source receipts. No comparable sourced figure supports showing a tier on the card.`
+                        ? `${view.knownCount} figures recorded · ${view.sourcedCount} with clickable source receipts. The available evidence does not support showing a reliable stage on the card.`
                         : `${view.knownCount} figures recorded · ${view.sourcedCount} with clickable source receipts.`}{' '}
                     Company stage describes scale and market maturity, not investment quality or
                     research confidence.

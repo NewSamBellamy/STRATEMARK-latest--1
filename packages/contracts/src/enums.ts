@@ -180,28 +180,25 @@ export const MATURITY_TIERS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 export type MaturityTier = (typeof MATURITY_TIERS)[number];
 
 export const TIER_LABELS: Record<MaturityTier, string> = {
-  1: 'The Sandbox',
-  2: 'Scrappy Startups',
-  3: 'Emerging Challengers',
-  4: 'Growth Stage',
-  5: 'Market Disruptors',
-  6: 'Scale Stage',
-  // "Category Leaders", not "Legacy Incumbents": tiers measure MATURITY
-  // (signal-weighted scale), not age. A three-year-old frontier lab can land
-  // in Tier 7; labeling it a "legacy incumbent" reads as nonsense on the card.
-  7: 'Category Leaders',
-  8: 'The Titans',
+  1: 'Formation',
+  2: 'Early Traction',
+  3: 'Emerging',
+  4: 'Growth',
+  5: 'Breakout',
+  6: 'Scale',
+  7: 'Category Leader',
+  8: 'Market Defining',
 };
 
 export const TIER_BLURBS: Record<MaturityTier, string> = {
-  1: 'Pre-product, speculative R&D',
-  2: 'Early-stage, high-risk, finding traction',
-  3: 'Early product-market fit',
+  1: 'Pre-product or pre-revenue',
+  2: 'Early commercial traction',
+  3: 'Demonstrated product-market fit',
   4: 'Scaling with institutional backing',
-  5: 'Actively rewriting industry rules',
-  6: 'Massive distribution achieved',
-  7: 'Established leaders with durable share',
-  8: 'Absolute market behemoths',
+  5: 'High-growth challenger gaining share',
+  6: 'Large-scale distribution and operations',
+  7: 'Durable category leadership',
+  8: 'Market-defining scale and reach',
 };
 
 /** Typical (not enforced) company counts per tier — used only for UI hints. */

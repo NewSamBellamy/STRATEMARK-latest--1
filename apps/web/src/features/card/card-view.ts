@@ -99,10 +99,8 @@ export function buildCardView(data: CardWithCompany) {
     : data.card.cardType !== 'company'
       ? 'Entity profile'
       : !maturity
-        ? 'Stage pending'
-        : sourcedCount >= 2
-          ? `T${maturity.tier} · ${maturity.label}`
-          : `Indicative · T${maturity.tier}`;
+        ? 'Stage unverified'
+        : `T${maturity.tier} · ${maturity.label}`;
   return {
     title: data.company?.name ?? data.card.title ?? 'Research card',
     description: signal ? data.card.summary : data.company?.oneLiner,

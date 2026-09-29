@@ -55,7 +55,7 @@ await shot('04-subdecks', {
 });
 await shot('05-tier-split', {
   url: `${BASE}/#/markets/${MARKET}/deck?split=company`,
-  waitFor: 'text=The Titans',
+  waitFor: 'text=Market Defining',
 });
 await shot('06-dashboard-overview', {
   url: `${BASE}/#/company/${COMPANY}/dashboard/overview`,

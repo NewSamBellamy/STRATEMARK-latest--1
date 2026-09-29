@@ -76,7 +76,7 @@ function theme(
 }
 
 export const COMPANY_SEEDS: CompanySeed[] = [
-  // ---- Tier 1: The Sandbox --------------------------------------------------
+  // ---- Tier 1: Formation ----------------------------------------------------
   {
     slug: 'crossthread-labs',
     name: 'CrossThread Labs',
@@ -109,7 +109,7 @@ export const COMPANY_SEEDS: CompanySeed[] = [
       employees: v(2, 'Founders only.'),
     },
   },
-  // ---- Tier 2: Scrappy Startups --------------------------------------------
+  // ---- Tier 2: Early Traction ----------------------------------------------
   {
     slug: 'grace-threads',
     name: 'Grace Threads',
@@ -159,7 +159,7 @@ export const COMPANY_SEEDS: CompanySeed[] = [
       employees: v(15, 'LinkedIn.'),
     },
   },
-  // ---- Tier 3: Emerging Challengers ----------------------------------------
+  // ---- Tier 3: Emerging -----------------------------------------------------
   {
     slug: 'anchored-co',
     name: 'Anchored Co.',
@@ -193,7 +193,7 @@ export const COMPANY_SEEDS: CompanySeed[] = [
     },
     cultureNote: 'Runs a free apprenticeship for at-risk youth in South LA.',
   },
-  // ---- Tier 4: Growth Stage ------------------------------------------------
+  // ---- Tier 4: Growth -------------------------------------------------------
   {
     slug: 'faithful-fit',
     name: 'Faithful Fit',
@@ -226,7 +226,7 @@ export const COMPANY_SEEDS: CompanySeed[] = [
       employees: v(120, 'LinkedIn.'),
     },
   },
-  // ---- Tier 5: Market Disruptors -------------------------------------------
+  // ---- Tier 5: Breakout -----------------------------------------------------
   {
     slug: 'holy-hype',
     name: 'Holy Hype',
@@ -245,7 +245,7 @@ export const COMPANY_SEEDS: CompanySeed[] = [
     nudge: {
       delta: 1,
       reason:
-        'Rules place it at Growth, but share is compounding >120% YoY per category report — nudged to Market Disruptors.',
+        'Rules place it at Growth, but share is compounding >120% YoY per category report — nudged to Breakout.',
     },
     viceClaims: [
       {
@@ -274,7 +274,7 @@ export const COMPANY_SEEDS: CompanySeed[] = [
       employees: v(430, 'LinkedIn.'),
     },
   },
-  // ---- Tier 6: Scale Stage -------------------------------------------------
+  // ---- Tier 6: Scale --------------------------------------------------------
   {
     slug: 'crown-cross',
     name: 'Crown & Cross',
@@ -307,7 +307,7 @@ export const COMPANY_SEEDS: CompanySeed[] = [
       employees: v(1_650, '10-K headcount.'),
     },
   },
-  // ---- Tier 7: Category Leaders --------------------------------------------
+  // ---- Tier 7: Category Leader ---------------------------------------------
   {
     slug: 'cornerstone-apparel',
     name: 'Cornerstone Christian Apparel',
@@ -351,7 +351,7 @@ export const COMPANY_SEEDS: CompanySeed[] = [
       },
     ],
   },
-  // ---- Tier 8: The Titans --------------------------------------------------
+  // ---- Tier 8: Market Defining ---------------------------------------------
   {
     slug: 'gracewear-global',
     name: 'GraceWear Global',
