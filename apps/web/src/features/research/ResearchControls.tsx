@@ -68,7 +68,7 @@ export function ThreadHistoryButton({
         aria-expanded={open}
       >
         <History className="h-4 w-4" />
-        Research
+        Past research
         {list.length > 0 && (
           <span className="ml-1 rounded-full bg-surface-2 px-1.5 text-xs tabular-nums text-muted">
             {list.length}
@@ -187,8 +187,14 @@ export function ReportButton({
             }}
           />
           <div className="mt-2 flex items-center justify-between gap-2">
-            <p className="text-[11px] text-muted">Sourcing rules don’t change — focus steers emphasis.</p>
-            <button type="button" className="btn-primary shrink-0 px-3 py-1.5 text-xs" onClick={run}>
+            <p className="text-[11px] text-muted">
+              Sourcing rules don’t change — focus steers emphasis.
+            </p>
+            <button
+              type="button"
+              className="btn-primary shrink-0 px-3 py-1.5 text-xs"
+              onClick={run}
+            >
               Compose
             </button>
           </div>

@@ -3,7 +3,7 @@
  *
  * A quiet strip under the deck header: a status pill (pulsing dot while the
  * desks are working) plus the most recent research actions — verifications,
- * corrections, audit findings, tab warm-ups — each with its source count and
+ * corrections and audit findings — each with its source count and
  * age. This is the difference between claiming the research is alive and the
  * user WATCHING it happen.
  */
@@ -39,8 +39,6 @@ function EventRow({ event, now }: { event: AgentActivityEvent; now: number }) {
       <Wand2 className="h-3 w-3 text-positive" />
     ) : event.kind === 'verified' ? (
       <BadgeCheck className="h-3 w-3 text-positive" />
-    ) : event.kind === 'prefetched' ? (
-      <Radar className="h-3 w-3 text-primary-ink" />
     ) : event.kind === 'finding' ? (
       <AlertTriangle
         className={cn(

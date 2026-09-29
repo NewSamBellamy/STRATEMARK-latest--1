@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useIsFetching, useQueryClient } from '@tanstack/react-query';
+import { useIsFetching } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, FileText, Search } from 'lucide-react';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
-import { useCompany, useReports, useRerunDashboardTab } from '@/hooks/data';
-import { useRepository } from '@/lib/repository/RepositoryProvider';
+import { useCard, useCompany, useReports, useRerunDashboardTab } from '@/hooks/data';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
-import { qk } from '@/lib/query/keys';
 import { ReportButton, ThreadHistoryButton } from '@/features/research/ResearchControls';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { ContextRerun } from '@/components/ui/ContextRerun';
@@ -14,7 +12,8 @@ import { cn } from '@/lib/cn';
 import { formatRelative } from '@/lib/format';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { Logo } from '@/features/card/Logo';
-import { DigDeeper, useDeepDive } from '@/features/deepdive/DeepDive';
+import { useDeepDive } from '@/features/deepdive/DeepDive';
+import { buildCardView } from '@/features/card/card-view';
 import { OverviewTab } from './tabs/OverviewTab';
 import { LiveIntelTab } from './tabs/LiveIntelTab';
 import { TeamOrgTab } from './tabs/TeamOrgTab';
@@ -50,12 +49,12 @@ function ResearchComposer({ companyId, companyName }: { companyId: string; compa
           className="input py-2 pl-8 text-[13px]"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder={`Research anything about ${companyName} — grounded & sourced…`}
+          placeholder={`Ask a grounded question about ${companyName}…`}
           aria-label={`Research anything about ${companyName}`}
         />
       </div>
       <button type="submit" className="btn-ghost shrink-0 px-3 py-2 text-xs" disabled={!q.trim()}>
-        Research
+        Ask
       </button>
     </form>
   );
@@ -117,27 +116,37 @@ function TabView({ tab, companyId }: { tab: DashboardTab; companyId: string }) {
   }
 }
 
-const VISIBLE_TAB_COUNT = 6;
+const PRIMARY_TABS: DashboardTab[] = ['overview', 'metrics', 'live_intel'];
+const MORE_TABS: DashboardTab[] = [
+  'products_roadmap',
+  'team_org',
+  'history',
+  'mission_governance',
+  'live_landing',
+];
 
 /**
- * The non-intrusive agentic trace: while desk agents research tabs in the
- * background (the warm loop, tab reruns, correction refetches), a quiet
- * pulsing pill rides the tab bar. Driven by REAL in-flight query state —
- * it appears when work is genuinely happening and vanishes when it's done.
+ * A quiet, honest signal for the view the user explicitly opened.
  */
-function AgentWorkingPill({ companyId }: { companyId: string }) {
-  const inFlight = useIsFetching({ queryKey: ['dashboard', companyId] });
+function AgentWorkingPill({
+  companyId,
+  activeTab,
+}: {
+  companyId: string;
+  activeTab: DashboardTab;
+}) {
+  const inFlight = useIsFetching({ queryKey: ['dashboard', companyId, activeTab], exact: true });
   if (inFlight === 0) return null;
   return (
     <span
       className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap pb-1 text-[11px] font-medium text-muted"
-      title="Desk agents are researching sections of this dashboard in the background — each finishes and fills in live."
+      title="Researching this company view from live sources"
     >
       <span className="relative flex h-1.5 w-1.5">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
       </span>
-      {inFlight === 1 ? 'Agent researching 1 section…' : `Agents researching ${inFlight} sections…`}
+      Researching this view…
     </span>
   );
 }
@@ -167,18 +176,18 @@ function DashboardTabNav({
     return () => document.removeEventListener('mousedown', close);
   }, [moreOpen]);
 
-  const visibleTabs = DASHBOARD_TABS.slice(0, VISIBLE_TAB_COUNT);
-  const overflowTabs = DASHBOARD_TABS.slice(VISIBLE_TAB_COUNT);
-  const activeInOverflow = overflowTabs.includes(activeTab);
+  const activeInOverflow = MORE_TABS.includes(activeTab);
 
-  const qs = fromMarketId ? `?${new URLSearchParams({ deck: fromMarketId, ...(fromCardId ? { card: fromCardId } : {}), ...(fromDeckView ? { view: fromDeckView } : {}) })}` : '';
+  const qs = fromMarketId
+    ? `?${new URLSearchParams({ deck: fromMarketId, ...(fromCardId ? { card: fromCardId } : {}), ...(fromDeckView ? { view: fromDeckView } : {}) })}`
+    : '';
 
   return (
     <nav
       className="mb-6 flex items-center gap-1 border-b border-border"
       aria-label="Company dashboard tabs"
     >
-      {visibleTabs.map((t) => (
+      {PRIMARY_TABS.map((t) => (
         <NavLink
           key={t}
           to={`/company/${companyId}/dashboard/${t}${qs}`}
@@ -194,45 +203,43 @@ function DashboardTabNav({
           {DASHBOARD_TAB_LABELS[t]}
         </NavLink>
       ))}
-      {overflowTabs.length > 0 && (
-        <div ref={ref} className="relative">
-          <button
-            type="button"
-            onClick={() => setMoreOpen(!moreOpen)}
-            className={cn(
-              'flex items-center gap-1 whitespace-nowrap border-b-2 px-3.5 py-2 text-[13px] font-medium transition-colors',
-              activeInOverflow
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted hover:text-content',
-            )}
-          >
-            {activeInOverflow ? DASHBOARD_TAB_LABELS[activeTab] : 'More'}
-            <ChevronDown className={cn('h-3 w-3 transition-transform', moreOpen && 'rotate-180')} />
-          </button>
-          {moreOpen && (
-            <div className="absolute left-0 top-full z-30 mt-1 w-48 rounded-lg border border-border bg-surface p-1 shadow-card">
-              {overflowTabs.map((t) => (
-                <NavLink
-                  key={t}
-                  to={`/company/${companyId}/dashboard/${t}${qs}`}
-                  onClick={() => setMoreOpen(false)}
-                  className={({ isActive }) =>
-                    cn(
-                      'block rounded-md px-3 py-1.5 text-[13px] transition-colors',
-                      isActive
-                        ? 'bg-surface-2 font-medium text-content'
-                        : 'text-muted hover:bg-surface-2 hover:text-content',
-                    )
-                  }
-                >
-                  {DASHBOARD_TAB_LABELS[t]}
-                </NavLink>
-              ))}
-            </div>
+      <div ref={ref} className="relative">
+        <button
+          type="button"
+          onClick={() => setMoreOpen(!moreOpen)}
+          className={cn(
+            'flex items-center gap-1 whitespace-nowrap border-b-2 px-3.5 py-2 text-[13px] font-medium transition-colors',
+            activeInOverflow
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted hover:text-content',
           )}
-        </div>
-      )}
-      <AgentWorkingPill companyId={companyId} />
+        >
+          {activeInOverflow ? DASHBOARD_TAB_LABELS[activeTab] : 'More'}
+          <ChevronDown className={cn('h-3 w-3 transition-transform', moreOpen && 'rotate-180')} />
+        </button>
+        {moreOpen && (
+          <div className="absolute left-0 top-full z-30 mt-1 w-48 rounded-lg border border-border bg-surface p-1 shadow-card">
+            {MORE_TABS.map((t) => (
+              <NavLink
+                key={t}
+                to={`/company/${companyId}/dashboard/${t}${qs}`}
+                onClick={() => setMoreOpen(false)}
+                className={({ isActive }) =>
+                  cn(
+                    'block rounded-md px-3 py-1.5 text-[13px] transition-colors',
+                    isActive
+                      ? 'bg-surface-2 font-medium text-content'
+                      : 'text-muted hover:bg-surface-2 hover:text-content',
+                  )
+                }
+              >
+                {DASHBOARD_TAB_LABELS[t]}
+              </NavLink>
+            ))}
+          </div>
+        )}
+      </div>
+      <AgentWorkingPill companyId={companyId} activeTab={activeTab} />
     </nav>
   );
 }
@@ -254,71 +261,18 @@ export default function DashboardPage() {
   const hasKey = useApiKey((s) => s.hasKey);
   const activeTab = tab as DashboardTab;
   const rerunTab = useRerunDashboardTab(companyId, activeTab);
-  const repo = useRepository();
-  const qc = useQueryClient();
-  const [prefetchFailed, setPrefetchFailed] = useState<string[]>([]);
-
-  // Warm EVERY tab the moment the dashboard opens (founder's audit: "as I'm
-  // reading the overview I want all the other tabs to start loading"). Runs
-  // sequentially so the free-tier rate limiter never sees a burst; each tab is
-  // cached in the snapshot, so revisits cost nothing.
-  // CLICK PRIORITY (founder's video audit: Live Intel spun for 30s while the
-  // background quietly warmed other tabs ahead of it). The warm loop re-checks
-  // the CURRENTLY ACTIVE tab before every step and always researches it first,
-  // so a user's click jumps the queue instead of waiting behind prefetch work.
-  const activeTabRef = useRef(activeTab);
-  activeTabRef.current = activeTab;
+  const sourceCard = useCard(fromCardId ?? undefined);
+  const sourceView = sourceCard.data ? buildCardView(sourceCard.data) : null;
 
   // Anchor the floating presence's "Chat" to THIS company's research context.
   const setChatContext = useAgentTrace((s) => s.setChatContext);
   const companyName = company.data?.name;
-  // Ref for the warm loop below: the loop must not restart when the name loads.
-  const companyNameRef = useRef(companyName);
-  companyNameRef.current = companyName;
   useEffect(() => {
     if (companyId && companyName) {
       setChatContext({ kind: 'company', companyId, subject: companyName });
     }
     return () => setChatContext(null);
   }, [companyId, companyName, setChatContext]);
-
-  useEffect(() => {
-    if (!companyId) return;
-    setPrefetchFailed([]);
-    let cancelled = false;
-    const warm = async (t: DashboardTab) => {
-      if (qc.getQueryData(qk.dashboard(companyId, t)) != null) return;
-      try {
-        useAgentTrace
-          .getState()
-          .trace(
-            `${companyNameRef.current ?? 'Company'} desk`,
-            `Researching ${DASHBOARD_TAB_LABELS[t]} in the background`,
-          );
-        await qc.prefetchQuery({
-          queryKey: qk.dashboard(companyId, t),
-          queryFn: () => repo.getDashboardTab(companyId, t),
-          staleTime: Infinity,
-        });
-      } catch {
-        if (!cancelled) setPrefetchFailed((failed) => [...new Set([...failed, t])]);
-      }
-    };
-    void (async () => {
-      const pending = new Set<DashboardTab>(DASHBOARD_TABS);
-      while (pending.size > 0 && !cancelled) {
-        // Whatever the user is looking at RIGHT NOW always wins.
-        const next = pending.has(activeTabRef.current)
-          ? activeTabRef.current
-          : (DASHBOARD_TABS.find((t) => pending.has(t)) as DashboardTab);
-        pending.delete(next);
-        await warm(next);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [companyId, qc, repo]);
 
   if (!companyId || !DASHBOARD_TABS.includes(activeTab)) return <NotFoundPage />;
 
@@ -337,7 +291,7 @@ export default function DashboardPage() {
           className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-content"
         >
           <ArrowLeft className="h-4 w-4" />
-          {fromMarketId ? fromCardId ? 'Back to card' : 'Back to deck' : 'Back'}
+          {fromMarketId ? (fromCardId ? 'Back to card' : 'Back to deck') : 'Back'}
         </button>
         <span className="text-faint">·</span>
         <Link
@@ -352,35 +306,47 @@ export default function DashboardPage() {
       <QueryBoundary query={company}>
         {(c) => (
           <>
-            <header className="mb-5 flex items-center gap-4">
-              <Logo
-                name={c.name}
-                website={c.websiteUrl}
-                logoUrl={c.logoUrl}
-                className="h-14 w-14 border border-border"
-              />
-              <div className="min-w-0 flex-1">
-                <h1 className="font-display text-2xl font-semibold text-content">{c.name}</h1>
-                <p className="text-sm text-muted">{c.oneLiner}</p>
+            <header className="mb-6 rounded-2xl border border-[#bfd8cf] bg-[#edf6f1] p-5 sm:p-6">
+              <div className="flex flex-wrap items-start gap-4">
+                <Logo
+                  name={c.name}
+                  website={c.websiteUrl}
+                  logoUrl={c.logoUrl}
+                  className="h-16 w-16 border border-[#bfd8cf] bg-white"
+                />
+                <div className="min-w-[240px] flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
+                      Company research
+                    </span>
+                    {sourceView && (
+                      <>
+                        <span className="rounded-full border border-[#c7ddd5] bg-white/70 px-2 py-0.5 text-[10px] font-medium text-muted">
+                          {sourceView.position}
+                        </span>
+                        <span className="rounded-full border border-[#c7ddd5] bg-white/70 px-2 py-0.5 text-[10px] font-medium text-muted">
+                          {sourceView.sourcedCount} sourced{' '}
+                          {sourceView.sourcedCount === 1 ? 'figure' : 'figures'}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <h1 className="mt-1 font-display text-[32px] font-semibold tracking-[-0.03em] text-content">
+                    {c.name}
+                  </h1>
+                  <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted">{c.oneLiner}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <ThreadHistoryButton companyId={c.id} />
+                  <ReportButton kind="company" subjectId={c.id} />
+                </div>
               </div>
-              <ThreadHistoryButton companyId={c.id} className="shrink-0" />
-              <ReportButton kind="company" subjectId={c.id} className="shrink-0" />
-              <DigDeeper
-                topic="Recent developments & what to watch"
-                companyId={c.id}
-                companyName={c.name}
-                label="Research"
-                className="h-8 w-8 shrink-0"
-              />
+              <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-[#cbded7] pt-4">
+                <ResearchComposer companyId={companyId} companyName={c.name} />
+                <IntelFile companyId={companyId} />
+              </div>
             </header>
 
-            {/* Context-aware research row: ask anything + this company's intel file. */}
-            <div className="mb-4 flex flex-wrap items-center gap-3">
-              <ResearchComposer companyId={companyId} companyName={c.name} />
-              <IntelFile companyId={companyId} />
-            </div>
-
-            {/* 6 visible tabs + overflow dropdown for the rest */}
             <DashboardTabNav
               companyId={companyId}
               activeTab={activeTab}
@@ -388,16 +354,6 @@ export default function DashboardPage() {
               fromCardId={fromCardId}
               fromDeckView={fromDeckView}
             />
-            {prefetchFailed.length > 0 && (
-              <div className="mb-3 rounded-lg border border-negative/30 bg-negative/5 px-3 py-2 text-[12px] text-negative">
-                Some dashboard research did not finish in the background:{' '}
-                {prefetchFailed
-                  .map((tabName) => DASHBOARD_TAB_LABELS[tabName as DashboardTab])
-                  .join(', ')}
-                . Open a tab to retry it directly.
-              </div>
-            )}
-
             {/* Right-click any tab's content → rerun just that research. */}
             <ContextRerun
               label={`the ${DASHBOARD_TAB_LABELS[activeTab]} tab`}

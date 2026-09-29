@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -12,8 +12,10 @@ import { makeRepo } from './test-utils';
 
 function renderApp() {
   const repository = makeRepo();
+  const dashboardResearch = vi.spyOn(repository, 'getDashboardTab');
   return {
     user: userEvent.setup(),
+    dashboardResearch,
     ...render(
       <RepositoryProvider repository={repository}>
         <QueryClientProvider client={createQueryClient()}>
@@ -34,7 +36,7 @@ const FIND = { timeout: 20000 } as const;
 
 describe('end-to-end deck flow (markets → deck → 2-level split → card → dashboard)', () => {
   it('navigates the full journey against the mock repository', { timeout: 20000 }, async () => {
-    const { user } = renderApp();
+    const { user, dashboardResearch } = renderApp();
 
     // Navigate directly to the deck via the inline recent decks sidebar link.
     const marketLink = await screen.findByRole('link', { name: /Christian Apparel/i }, FIND);
@@ -50,8 +52,11 @@ describe('end-to-end deck flow (markets → deck → 2-level split → card → 
     const dialog = await screen.findByRole('dialog', undefined, FIND);
     await user.click(within(dialog).getByRole('link', { name: /explore research/i }));
 
-    // Dashboard — overview content + tab switch to Metrics.
-    expect(await screen.findByText(/What they do/i, undefined, FIND)).toBeInTheDocument();
+    // The card opens into an immediate evidence brief. Live dashboard research
+    // starts only when the user explicitly opens a deeper view.
+    expect(await screen.findByText('Company brief', undefined, FIND)).toBeInTheDocument();
+    expect(screen.getByText('Most useful public figures')).toBeInTheDocument();
+    expect(dashboardResearch).not.toHaveBeenCalled();
     await user.click(screen.getByRole('link', { name: 'Metrics' }));
     expect(await screen.findByText(/Revenue trend/i, undefined, FIND)).toBeInTheDocument();
     expect(screen.getByText('Cap table')).toBeInTheDocument();

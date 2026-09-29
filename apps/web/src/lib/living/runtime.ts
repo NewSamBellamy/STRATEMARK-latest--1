@@ -10,28 +10,19 @@
  *      re-verify those first.
  *   2. REFRESH DECAY — the freshness engine (@mi/contracts) ranks every stored
  *      figure by overdue-ness; verify the single most-decayed one.
- *   3. WARM THE ROOM — pre-research dashboard tabs the user hasn't opened yet
- *      so "View more" is instant instead of a 30-second spinner.
- *   4. REST — nothing due: idle quietly and re-check on a slow cadence.
+ *   3. REST — nothing due: idle quietly and re-check on a slow cadence.
  *
  * Cost discipline (deliberate, not incidental):
  *   - ONE action per tick, ticks paced by `intervalMs` (default 15s ≈ 4/min)
  *   - a hard `maxActions` budget per session — the loop rests when spent
- *   - verification is skipped entirely on transports without live research;
- *     prefetching still runs (cache-warm only, no extra spend once cached)
+ *   - verification is skipped entirely on transports without live research
  *
  * The class is framework-free and fully dependency-injected (clock included),
  * so the scheduling policy is unit-testable without React, timers, or Gemini.
  */
 
 export type LivingActionKind =
-  | 'started'
-  | 'verified'
-  | 'corrected'
-  | 'prefetched'
-  | 'finding'
-  | 'resting'
-  | 'error';
+  'started' | 'verified' | 'corrected' | 'finding' | 'resting' | 'error';
 
 export interface AgentActivityEvent {
   id: number;
@@ -55,13 +46,6 @@ export interface VerificationTarget {
   reason: 'consistency' | 'stale';
 }
 
-export interface PrefetchTarget {
-  companyId: string;
-  companyName: string;
-  tab: string;
-  tabLabel: string;
-}
-
 export interface LivingDeckDeps {
   /** Recompute the audit + stale queue. Called at most once per tick. */
   plan(nowMs: number): {
@@ -74,20 +58,17 @@ export interface LivingDeckDeps {
   };
   /** Live re-verification write path. Null when the transport can't research. */
   verify:
-    | ((target: VerificationTarget) => Promise<{ changed: boolean; citations: number; summary: string }>)
+    | ((
+        target: VerificationTarget,
+      ) => Promise<{ changed: boolean; citations: number; summary: string }>)
     | null;
-  /** Warm the next cold dashboard tab; null when everything is warm. */
-  nextPrefetch(): PrefetchTarget | null;
-  prefetch(target: PrefetchTarget): Promise<void>;
   onEvent(event: AgentActivityEvent): void;
   now?: () => number;
   /** Pacing between verification actions. */
   intervalMs?: number;
-  /** Pacing after a prefetch (cheaper than verification, so faster). */
-  prefetchIntervalMs?: number;
   /** Re-check cadence while resting. */
   idleIntervalMs?: number;
-  /** Hard per-session action budget (verifications + prefetches). */
+  /** Hard per-session verification budget. */
   maxActions?: number;
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (t: ReturnType<typeof setTimeout>) => void;
@@ -99,7 +80,7 @@ export class LivingDeckRuntime {
   private deps: Required<
     Pick<
       LivingDeckDeps,
-      'now' | 'intervalMs' | 'prefetchIntervalMs' | 'idleIntervalMs' | 'maxActions' | 'setTimer' | 'clearTimer'
+      'now' | 'intervalMs' | 'idleIntervalMs' | 'maxActions' | 'setTimer' | 'clearTimer'
     >
   > &
     LivingDeckDeps;
@@ -116,7 +97,6 @@ export class LivingDeckRuntime {
       // 10s between verifications ≈ 6/min — fast enough that a birth audit of
       // a fresh deck visibly self-corrects within the first minutes.
       intervalMs: 10_000,
-      prefetchIntervalMs: 5_000,
       idleIntervalMs: 60_000,
       maxActions: 60,
       setTimer: (fn, ms) => setTimeout(fn, ms),
@@ -214,7 +194,7 @@ export class LivingDeckRuntime {
       }
 
       const verifyTarget = this.deps.verify
-        ? plan.consistencyTargets[0] ?? plan.staleTargets[0] ?? null
+        ? (plan.consistencyTargets[0] ?? plan.staleTargets[0] ?? null)
         : null;
 
       if (verifyTarget && this.deps.verify) {
@@ -242,24 +222,10 @@ export class LivingDeckRuntime {
         return;
       }
 
-      const prefetchTarget = this.deps.nextPrefetch();
-      if (prefetchTarget) {
-        this.statusValue = 'running';
-        await this.deps.prefetch(prefetchTarget);
-        this.actionsTaken += 1;
-        this.emit(
-          'prefetched',
-          prefetchTarget.companyName,
-          `${prefetchTarget.companyName} desk pre-researched the ${prefetchTarget.tabLabel} tab — it will open instantly.`,
-        );
-        this.schedule(this.deps.prefetchIntervalMs);
-        return;
-      }
-
       // Nothing to do: rest and re-check slowly.
       if (this.statusValue !== 'resting') {
         this.statusValue = 'resting';
-        this.emit('resting', null, 'All figures fresh and every tab warmed — watching for decay.');
+        this.emit('resting', null, 'All tracked figures are fresh — watching for decay.');
       }
       this.schedule(this.deps.idleIntervalMs);
     } catch (err) {

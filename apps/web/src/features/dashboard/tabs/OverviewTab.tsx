@@ -1,127 +1,183 @@
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { ExternalLink, MapPin } from 'lucide-react';
-import { METRIC_TYPE_LABELS } from '@mi/contracts';
-import { useCompany, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
+import { ArrowUpRight, ExternalLink, MapPin } from 'lucide-react';
+import { METRIC_TYPE_LABELS, type CompanyMetric, type MetricType } from '@mi/contracts';
+import { Link } from 'react-router-dom';
+import { useCompany, useCompanyMetrics } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { formatMetricValue } from '@/lib/format';
-import { METRIC_COLORS } from '@/lib/theme';
-import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
-import { AiCover } from '@/components/media/AiCover';
+import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
 
-/**
- * Overview — the "front page" of a company. A readable grounded summary plus an
- * at-a-glance fact rail, with drill-downs so any thread can be pulled further.
- */
+const PRIORITY = ['arr', 'market_cap', 'valuation', 'users', 'employees', 'market_share'] as const;
+const METRIC_FAMILIES: ReadonlyArray<readonly MetricType[]> = [
+  ['arr'],
+  ['market_cap', 'valuation'],
+  ['users'],
+  ['employees'],
+  ['market_share'],
+] as const;
+
+function strongestMetrics(metrics: CompanyMetric[]): CompanyMetric[] {
+  const strength = (metric: CompanyMetric) =>
+    (metric.confidence === 'user_verified' ? 6 : metric.confidence === 'verified' ? 4 : 2) +
+    (metric.citations.length > 0 || metric.source ? 1 : 0);
+  const seen = new Set<string>();
+  return [...metrics]
+    .filter((metric) => metric.value != null && metric.confidence !== 'unknown')
+    .sort(
+      (a, b) =>
+        strength(b) - strength(a) ||
+        PRIORITY.indexOf(a.metricType) - PRIORITY.indexOf(b.metricType),
+    )
+    .filter((metric) => {
+      const family = ['valuation', 'market_cap'].includes(metric.metricType)
+        ? 'company_value'
+        : metric.metricType;
+      if (seen.has(family)) return false;
+      seen.add(family);
+      return true;
+    })
+    .slice(0, 4);
+}
+
+/** Immediate card-to-research handoff: useful before any live research is requested. */
 export function OverviewTab({ companyId }: { companyId: string }) {
-  const query = useDashboardTab(companyId, 'overview');
-  const company = useCompany(companyId).data;
-  const metrics = useCompanyMetrics(companyId).data ?? [];
-  const name = company?.name ?? 'this company';
+  const company = useCompany(companyId);
+  const metrics = useCompanyMetrics(companyId);
+  const allMetrics = metrics.data ?? [];
+  const headlineMetrics = strongestMetrics(allMetrics);
+  const known = allMetrics.filter(
+    (metric) => metric.value != null && metric.confidence !== 'unknown',
+  );
+  const sourced = known.filter((metric) => metric.citations.length > 0 || Boolean(metric.source));
+  const verified = known.filter(
+    (metric) => metric.confidence === 'verified' || metric.confidence === 'user_verified',
+  );
+  const missingCount = METRIC_FAMILIES.filter(
+    (family) => !known.some((metric) => family.includes(metric.metricType)),
+  ).length;
 
   return (
-    <QueryBoundary query={query}>
-      {(result) => (
-        <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
-          <article className="markdown panel p-6">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.content.markdown}</ReactMarkdown>
-            <div className="mt-5 flex justify-end border-t border-border pt-4">
-              <DigDeeperMenu
-                topics={[
-                  'Business model & how they make money',
-                  'Competitive landscape & closest rivals',
-                  'Risks & headwinds',
-                ]}
-                companyId={companyId}
-                companyName={name}
-              />
-            </div>
-          </article>
-
-          <aside className="space-y-4">
-            <div className="panel p-4">
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">
-                At a glance
-              </h3>
-              <ul className="space-y-2.5">
-                {metrics.slice(0, 6).map((m) => (
-                  <li key={m.id} className="flex items-center justify-between gap-2 text-sm">
-                    <span className="flex items-center gap-2 text-muted">
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ background: METRIC_COLORS[m.metricType] }}
-                      />
-                      {METRIC_TYPE_LABELS[m.metricType]}
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="font-semibold tabular-nums text-content">
-                        {formatMetricValue(m.metricType, m.value)}
-                      </span>
-                      {/* Trust state at a glance: an unconfirmed estimate must
-                          never look identical to a verified figure. */}
-                      {m.confidence === 'estimated' && (
-                        <span
-                          className="text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400"
-                          title="Estimated — a desk agent will verify this from live sources shortly"
-                        >
-                          est
-                        </span>
-                      )}
-                      {(m.confidence === 'verified' || m.confidence === 'user_verified') && (
-                        <span
-                          className="text-[9px] font-semibold uppercase tracking-wide text-positive"
-                          title="Verified from cited sources"
-                        >
-                          ✓
-                        </span>
-                      )}
-                    </span>
-                  </li>
-                ))}
-                {metrics.length === 0 && (
-                  <li className="text-sm text-muted">No quantitative metrics found.</li>
+    <QueryBoundary query={company}>
+      {(record) => (
+        <div className="space-y-5">
+          <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_310px]">
+            <article className="rounded-2xl border border-[#bfd8cf] bg-[#edf6f1] p-6">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
+                Company brief
+              </p>
+              <p className="mt-3 max-w-3xl font-display text-[24px] font-semibold leading-snug tracking-[-0.02em] text-content">
+                {record.oneLiner || 'A concise public description has not been captured yet.'}
+              </p>
+              <div className="mt-5 flex flex-wrap items-center gap-2 text-[12px] text-muted">
+                {record.hqLocation && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[#cbded7] bg-white/70 px-3 py-1.5">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {record.hqLocation}
+                  </span>
                 )}
-              </ul>
-            </div>
-
-            {company && (
-              <div className="panel space-y-2 p-4 text-sm">
-                {company.hqLocation && (
-                  <>
-                    <p className="flex items-start gap-2 text-muted">
-                      <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
-                      {company.hqLocation}
-                    </p>
-                    {/* A glimpse of the place — generated from the HQ location
-                        itself, so every company's panel carries its city's
-                        light (founder's ask: "give people a glimpse of where
-                        it's based out of"). */}
-                    <div className="h-[110px] overflow-hidden rounded-lg border border-border">
-                      <AiCover
-                        cacheKey={`hq:${companyId}`}
-                        title={`${name} — ${company.hqLocation}`}
-                        context={`A cityscape of ${company.hqLocation} that is INSTANTLY RECOGNIZABLE as that specific place: its most famous landmarks, skyline silhouette, geography and light (e.g. San Francisco = Golden Gate Bridge + fog + hills + bay). Concrete and place-specific, never a generic city.`}
-                        url={company.websiteUrl ?? ''}
-                        source="news"
-                        compact
-                      />
-                    </div>
-                  </>
-                )}
-                {company.websiteUrl && (
+                {record.websiteUrl && (
                   <a
-                    href={company.websiteUrl}
+                    href={record.websiteUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-primary-ink hover:underline"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[#cbded7] bg-white/70 px-3 py-1.5 transition-colors hover:border-primary/50 hover:text-content"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
-                    {company.websiteUrl.replace(/^https?:\/\//, '')}
+                    {record.websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}
                   </a>
                 )}
               </div>
+            </article>
+
+            <aside className="rounded-2xl border border-border bg-surface p-5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-faint">
+                Evidence health
+              </p>
+              <div className="mt-3 flex items-end justify-between gap-3">
+                <span className="font-display text-3xl font-semibold tabular-nums text-content">
+                  {known.length ? `${sourced.length}/${known.length}` : '0'}
+                </span>
+                <span className="pb-1 text-[11px] text-muted">
+                  {known.length ? 'known figures sourced' : 'credible figures captured'}
+                </span>
+              </div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-2">
+                <div
+                  className="h-full rounded-full bg-primary transition-[width]"
+                  style={{ width: `${known.length ? (sourced.length / known.length) * 100 : 0}%` }}
+                />
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border pt-4 text-[11px]">
+                <div>
+                  <span className="block font-display text-lg font-semibold text-content">
+                    {verified.length}
+                  </span>
+                  <span className="text-muted">verified figures</span>
+                </div>
+                <div>
+                  <span className="block font-display text-lg font-semibold text-content">
+                    {missingCount}
+                  </span>
+                  <span className="text-muted">open questions</span>
+                </div>
+              </div>
+            </aside>
+          </section>
+
+          <section>
+            <div className="mb-3 flex items-end justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-faint">
+                  At a glance
+                </p>
+                <h2 className="mt-1 font-display text-xl font-semibold text-content">
+                  Most useful public figures
+                </h2>
+              </div>
+              <Link
+                to={`/company/${companyId}/dashboard/metrics`}
+                className="inline-flex items-center gap-1 text-[12px] font-medium text-primary-ink hover:underline"
+              >
+                See all metrics <ArrowUpRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+
+            {headlineMetrics.length > 0 ? (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {headlineMetrics.map((metric) => (
+                  <article
+                    key={metric.id}
+                    className="rounded-xl border border-border bg-surface p-4"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+                        {METRIC_TYPE_LABELS[metric.metricType]}
+                      </span>
+                      <ConfidenceBadge
+                        confidence={metric.confidence}
+                        note={metric.methodNote}
+                        source={metric.source}
+                        citations={metric.citations}
+                        metricLabel={METRIC_TYPE_LABELS[metric.metricType]}
+                      />
+                    </div>
+                    <p className="mt-4 font-display text-[28px] font-semibold tracking-tight text-content">
+                      {formatMetricValue(metric.metricType, metric.value)}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-border bg-surface px-5 py-6">
+                <p className="font-medium text-content">
+                  No credible public figures were captured.
+                </p>
+                <p className="mt-1 text-sm text-muted">
+                  Ask the company researcher a focused question rather than filling the space with
+                  estimates.
+                </p>
+              </div>
             )}
-          </aside>
+          </section>
         </div>
       )}
     </QueryBoundary>

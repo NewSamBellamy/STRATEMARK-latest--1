@@ -1,7 +1,7 @@
 /**
  * Scheduling-policy tests for the LivingDeckRuntime.
  *
- * Everything is injected — clock, timers, plan, verify, prefetch — so these
+ * Everything is injected — clock, timers, plan and verify — so these
  * tests pin the POLICY (priority order, pacing, budget, pause semantics)
  * without React, real timers, or any model call.
  */
@@ -10,7 +10,6 @@ import {
   LivingDeckRuntime,
   type AgentActivityEvent,
   type LivingDeckDeps,
-  type PrefetchTarget,
   type VerificationTarget,
 } from './runtime';
 
@@ -35,8 +34,6 @@ function harness(overrides: Partial<LivingDeckDeps> = {}) {
   const deps: LivingDeckDeps = {
     plan: () => ({ consistencyTargets: [], staleTargets: [], freshFindings: [] }),
     verify: null,
-    nextPrefetch: () => null,
-    prefetch: async () => undefined,
     onEvent: (e) => events.push(e),
     now: () => 1_000_000,
     intervalMs: 100,
@@ -104,54 +101,21 @@ describe('LivingDeckRuntime', () => {
     expect(last?.citations).toBe(3);
   });
 
-  it('falls back to tab prefetching when nothing needs verification', async () => {
-    const prefetched: PrefetchTarget[] = [];
-    let cold: PrefetchTarget | null = {
-      companyId: 'openai',
-      companyName: 'OpenAI',
-      tab: 'live_intel',
-      tabLabel: 'Live Intel',
-    };
+  it('rests without hidden model work when no figure needs verification', async () => {
+    const verify = vi.fn();
     const { runtime, events, runNext } = harness({
-      nextPrefetch: () => cold,
-      prefetch: async (t) => {
-        prefetched.push(t);
-        cold = null;
-      },
-    });
-    runtime.start(1);
-    await runNext();
-    expect(prefetched).toHaveLength(1);
-    expect(events.at(-1)?.kind).toBe('prefetched');
-    expect(events.at(-1)?.message).toContain('Live Intel');
-
-    // Next turn: everything warm → rests on the idle cadence.
-    await runNext();
-    expect(events.at(-1)?.kind).toBe('resting');
-  });
-
-  it('never verifies on transports without live research, but still prefetches', async () => {
-    const prefetch = vi.fn().mockResolvedValue(undefined);
-    let served = false;
-    const { runtime, runNext } = harness({
       plan: () => ({
-        consistencyTargets: [target('OpenAI', 'arr', 'consistency')],
+        consistencyTargets: [],
         staleTargets: [],
         freshFindings: [],
       }),
-      verify: null, // mock/demo transport
-      nextPrefetch: () =>
-        served
-          ? null
-          : { companyId: 'x', companyName: 'X', tab: 'overview', tabLabel: 'Overview' },
-      prefetch: async (t) => {
-        served = true;
-        await prefetch(t);
-      },
+      verify,
     });
     runtime.start(1);
     await runNext();
-    expect(prefetch).toHaveBeenCalledTimes(1);
+    expect(verify).not.toHaveBeenCalled();
+    expect(events.at(-1)?.kind).toBe('resting');
+    expect(events.at(-1)?.message).toContain('figures are fresh');
   });
 
   it('stops spending at the action budget and says so', async () => {
@@ -180,9 +144,7 @@ describe('LivingDeckRuntime', () => {
       plan: () => ({
         consistencyTargets: [],
         staleTargets: [],
-        freshFindings: [
-          { message: 'Stated market shares add up to 101.7%…', severity: 'warning' },
-        ],
+        freshFindings: [{ message: 'Stated market shares add up to 101.7%…', severity: 'warning' }],
       }),
     });
     runtime.start(1);

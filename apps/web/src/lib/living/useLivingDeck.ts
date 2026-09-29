@@ -3,10 +3,9 @@
  *
  * Bridges the framework-free runtime to the app: the plan is computed from the
  * deck's cards (consistency audit + freshness ranking, both pure @mi/contracts
- * code), verification flows through the repository's live write path, prefetch
- * warms TanStack Query AND the repository's persistent tab cache, and every
- * write-back invalidates exactly the queries it touched so open views update
- * in place.
+ * code), verification flows through the repository's live write path, and every
+ * write-back invalidates exactly the queries it touched so open views update in
+ * place. Dashboard research is intentionally click-driven.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -18,7 +17,6 @@ import {
   verificationTargetsFrom,
   type CardWithCompany,
   type CompanyMetric,
-  type DashboardTab,
   type MetricType,
 } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
@@ -31,18 +29,8 @@ import {
   LivingDeckRuntime,
   type AgentActivityEvent,
   type LivingStatus,
-  type PrefetchTarget,
   type VerificationTarget,
 } from './runtime';
-
-/** Tabs worth warming before the user asks, in open-likelihood order. */
-const PREFETCH_TABS: Array<{ tab: DashboardTab; label: string }> = [
-  { tab: 'overview', label: 'Overview' },
-  { tab: 'metrics', label: 'Metrics' },
-  { tab: 'live_intel', label: 'Live Intel' },
-];
-/** Warm the first N companies (deck order) — the ones a user opens first. */
-const PREFETCH_COMPANY_LIMIT = 8;
 /** Verification candidates considered per turn (top of the overdue ranking). */
 const STALE_BUDGET_PER_TURN = 3;
 const MAX_FEED_EVENTS = 30;
@@ -54,7 +42,7 @@ export interface LivingDeckState {
   actionCount: number;
   pause: () => void;
   resume: () => void;
-  /** False on transports with no live research (mock/demo) — prefetch only. */
+  /** False on transports with no live research. */
   canVerify: boolean;
 }
 
@@ -90,7 +78,6 @@ export function useLivingDeck(
     }
 
     const seenFindings = new Set<string>();
-    const prefetched = new Set<string>();
 
     const nameOf = (companyId: string): string =>
       cardsRef.current.find((c) => c.company?.id === companyId)?.company?.name ?? 'A company';
@@ -109,9 +96,7 @@ export function useLivingDeck(
 
     const runtime = new LivingDeckRuntime({
       plan: (nowMs) => {
-        const current = cardsRef.current.filter(
-          (c) => c.card.cardType === 'company' && c.company,
-        );
+        const current = cardsRef.current.filter((c) => c.card.cardType === 'company' && c.company);
         const audit = auditDeckConsistency(
           current.map((c) => ({
             companyId: c.company!.id,
@@ -141,7 +126,11 @@ export function useLivingDeck(
               toTarget(candidate.metric.companyId, candidate.metric.metricType, 'stale'),
             );
 
-        return { consistencyTargets: isLowPower() ? [] : consistencyTargets, staleTargets, freshFindings };
+        return {
+          consistencyTargets: isLowPower() ? [] : consistencyTargets,
+          staleTargets,
+          freshFindings,
+        };
       },
 
       verify: canVerify
@@ -167,34 +156,6 @@ export function useLivingDeck(
             return { changed: result.changed, citations: result.citations.length, summary };
           }
         : null,
-
-      nextPrefetch: (): PrefetchTarget | null => {
-        const current = cardsRef.current
-          .filter((c) => c.card.cardType === 'company' && c.company)
-          .slice(0, PREFETCH_COMPANY_LIMIT);
-        for (const { tab, label } of PREFETCH_TABS) {
-          for (const c of current) {
-            const companyId = c.company!.id;
-            const key = `${companyId}:${tab}`;
-            if (prefetched.has(key)) continue;
-            if (qc.getQueryData(qk.dashboard(companyId, tab)) !== undefined) {
-              prefetched.add(key);
-              continue;
-            }
-            return { companyId, companyName: c.company!.name, tab, tabLabel: label };
-          }
-        }
-        return null;
-      },
-
-      prefetch: async (target) => {
-        prefetched.add(`${target.companyId}:${target.tab}`);
-        await qc.fetchQuery({
-          queryKey: qk.dashboard(target.companyId, target.tab as DashboardTab),
-          queryFn: () => repo.getDashboardTab(target.companyId, target.tab as DashboardTab),
-          staleTime: Infinity,
-        });
-      },
 
       onEvent: (event) => {
         setEvents((prev) => [event, ...prev].slice(0, MAX_FEED_EVENTS));

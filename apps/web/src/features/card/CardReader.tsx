@@ -260,7 +260,9 @@ function CardReaderBody({
               >
                 <span>
                   Explore research{' '}
-                  <span className="ml-2 font-normal opacity-75">Full company dashboard</span>
+                  <span className="ml-2 font-normal opacity-75">
+                    Sources, metrics & live signals
+                  </span>
                 </span>
                 <ArrowUpRight size={17} />
               </Link>
