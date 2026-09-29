@@ -15,6 +15,7 @@ import {
   hasVerificationGradeCitation,
   isJunkSource,
   markVerified,
+  normalizeReportMarkdown,
   reconcileMetrics,
   usableCitations,
   type Card,
@@ -1836,7 +1837,7 @@ export class GeminiRepository implements MarketIntelRepository {
           ? `CONVERSATION FINDINGS — the analyst already dug into this in a grounded research session. Weave the substance of these findings in (re-verify anything surprising):\n${conversation}`
           : '',
         `Structure: ## Executive summary · ## Landscape · ## Key players & signals · ## Risks & barriers · ## Outlook & what to watch. Keep claims attributed; where the digest marks a figure estimated/unknown, say so — never upgrade confidence or invent numbers.`,
-        `Style: prose plus standard markdown lists/tables ONLY — never ASCII-art diagrams or box drawings. Do not repeat the report title as a heading; start directly with "## Executive summary".`,
+        `Style: prose plus standard markdown lists/tables ONLY — never ASCII-art diagrams or box drawings. Use Sourced, Estimated, or Unknown for evidence status; never call a third-party figure verified. Do not repeat the report title as a heading; start directly with "## Executive summary".`,
         ``,
         `EVIDENCE DIGEST:`,
         digest,
@@ -1846,7 +1847,7 @@ export class GeminiRepository implements MarketIntelRepository {
       { system: GROUNDED_SYSTEM },
     );
 
-    const markdown = await this.elevate(g.text, 'report', title);
+    const markdown = normalizeReportMarkdown(await this.elevate(g.text, 'report', title));
     const evidenceCitations = usableCitations(
       this.snap.metrics.flatMap((metric) => metric.citations).concat(g.citations),
     );

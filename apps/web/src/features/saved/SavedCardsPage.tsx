@@ -1,5 +1,6 @@
 import { BookmarkSimple } from '@phosphor-icons/react';
 import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import type { CardWithCompany } from '@mi/contracts';
 import { EmptyState } from '@/components/states/EmptyState';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
@@ -78,6 +79,11 @@ export default function SavedCardsPage() {
             title="No saved cards yet"
             description="Bookmark company cards from any deck to save them here for quick access."
             icon={<BookmarkSimple weight="duotone" size={24} />}
+            action={
+              <Link to="/history" className="btn-primary mt-2">
+                Browse decks
+              </Link>
+            }
           />
         }
       >

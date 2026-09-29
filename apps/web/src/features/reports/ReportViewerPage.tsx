@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import {
   TIER_LABELS,
+  normalizeReportMarkdown,
   type CardWithCompany,
   type MaturityTier,
   type MetricType,
@@ -181,7 +182,9 @@ export default function ReportViewerPage() {
         {(r) => {
           if (r.kind === 'site_audit' && r.audit)
             return <SiteAuditView report={r} audit={r.audit} />;
-          const markdown = typeof r.markdown === 'string' ? r.markdown : '';
+          const markdown = normalizeReportMarkdown(
+            typeof r.markdown === 'string' ? r.markdown : '',
+          );
           const citations = Array.isArray(r.citations) ? r.citations : [];
           return (
             <article className="brf-print-root panel p-6">

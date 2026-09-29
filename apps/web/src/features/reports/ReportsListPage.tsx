@@ -1,9 +1,6 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { FileText, ArrowRight, ClipboardCheck, Layers, Building2, Loader2 } from 'lucide-react';
-import { useAuditSite, useReports } from '@/hooks/data';
-import { useRepository } from '@/lib/repository/RepositoryProvider';
-import { useApiKey } from '@/lib/settings/apiKey';
+import { Link } from 'react-router-dom';
+import { FileText, ArrowRight, ClipboardCheck, Layers, Building2 } from 'lucide-react';
+import { useReports } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { EmptyState } from '@/components/states/EmptyState';
 import { formatRelative } from '@/lib/format';
@@ -13,69 +10,6 @@ const KIND_LABEL: Record<string, string> = {
   company: 'company',
   site_audit: 'site audit',
 };
-
-/**
- * Audit ANY website — yours or a competitor's — straight from the library.
- * This is the standalone entry to the teardown feature; company dashboards
- * have their own one-click version on the Live Landing tab.
- */
-function AuditAnySite() {
-  const repo = useRepository();
-  const hasKey = useApiKey((st) => st.hasKey);
-  const audit = useAuditSite();
-  const navigate = useNavigate();
-  const [url, setUrl] = useState('');
-  if (typeof repo.auditSite !== 'function' || !hasKey) return null;
-  const run = () => {
-    const trimmed = url.trim();
-    if (!trimmed || audit.isPending) return;
-    audit.mutate({ url: trimmed }, { onSuccess: (r) => navigate(`/reports/${r.id}`) });
-  };
-  return (
-    <div className="panel mt-6 p-5">
-      <div className="flex items-center gap-2">
-        <ClipboardCheck className="h-4 w-4 text-primary-ink" />
-        <h2 className="font-display text-base font-semibold text-content">Audit a website</h2>
-      </div>
-      <p className="mt-1 text-[13px] text-muted">
-        A CRO/UX teardown of any landing page — your own site or a competitor's: scorecard, what's
-        working, what's missing (and what each gap costs), the design language, and what to test
-        first. Screenshots included, exportable as PDF.
-      </p>
-      <div className="mt-3 flex gap-2">
-        <input
-          className="input flex-1 py-2 text-sm"
-          placeholder="yoursite.com — or a competitor's"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') run();
-          }}
-          disabled={audit.isPending}
-        />
-        <button
-          type="button"
-          className="btn-primary shrink-0"
-          disabled={!url.trim() || audit.isPending}
-          onClick={run}
-          title="One grounded research pass on your key (typically a fraction of a cent)"
-        >
-          {audit.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <ClipboardCheck className="h-4 w-4" />
-          )}
-          {audit.isPending ? 'The auditor is on it…' : 'Run the audit'}
-        </button>
-      </div>
-      {audit.isError && (
-        <p className="mt-2 text-[12px] text-negative">
-          {audit.error instanceof Error ? audit.error.message : 'The audit failed — try again.'}
-        </p>
-      )}
-    </div>
-  );
-}
 
 export default function ReportsListPage() {
   const reports = useReports();
@@ -99,7 +33,7 @@ export default function ReportsListPage() {
           empty={
             <EmptyState
               title="No reports yet"
-              description="Open any deck or company dashboard and hit “Report” — the AI composes an executive-ready, cited report from your researched evidence."
+              description="Open any deck or company dashboard and choose “Report” to compose an executive-ready report from its researched evidence."
               icon={<FileText className="h-6 w-6" />}
             />
           }
@@ -160,8 +94,6 @@ export default function ReportsListPage() {
         </QueryBoundary>
       </div>
 
-      {/* The teardown tool lives BELOW the library — reports first. */}
-      <AuditAnySite />
     </div>
   );
 }

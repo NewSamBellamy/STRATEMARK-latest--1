@@ -13,6 +13,7 @@ import { ExternalLink, Layers, Link2Off, MapPin } from 'lucide-react';
 import {
   METRIC_TYPE_LABELS,
   TIER_LABELS,
+  normalizeReportMarkdown,
   publisherOf,
   type CardWithCompany,
   type MaturityTier,
@@ -252,6 +253,7 @@ function SharedReportView({
   cards: CardWithCompany[];
 }) {
   const r = payload.report;
+  const markdown = r.k === 'site_audit' ? r.md : normalizeReportMarkdown(r.md);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const kindLabel =
     r.k === 'deck' ? 'Market Report' : r.k === 'site_audit' ? 'Site Audit' : 'Company Report';
@@ -281,7 +283,7 @@ function SharedReportView({
           <div className="markdown">
             {/* Strip a leading H1 if the model repeated the title — the masthead owns it. */}
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {r.md.replace(/^#\s[^\n]*\n+/, '')}
+              {markdown.replace(/^#\s[^\n]*\n+/, '')}
             </ReactMarkdown>
           </div>
 
