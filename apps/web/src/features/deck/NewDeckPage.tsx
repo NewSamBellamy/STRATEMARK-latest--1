@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, ArrowUp, ChevronDown, Cloud, Globe2, X, Cpu } from 'lucide-react';
+import { ArrowRight, ArrowUp, ChevronDown, Cloud, Globe2, Cpu } from 'lucide-react';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { runCloudResearchDeck } from '@/lib/sentinelApi';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
@@ -16,7 +16,6 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice, type EngineChoice } from '@/lib/settings/engine';
 import { cn } from '@/lib/cn';
 import logoMark from '@/assets/logo-mark.svg';
-import wordmark from '@/assets/wordmark.svg';
 import { MicButton } from '@/components/ui/MicButton';
 import { NotificationToast } from '@/components/ui/NotificationToast';
 import { SettingsLink } from '@/components/SettingsLink';
@@ -57,7 +56,7 @@ const STAGE_LABELS: Record<string, string> = {
   scope: 'Understanding the market…',
   catalog: 'Cataloging the market…',
   summary: 'Researching company cards…',
-  metrics: 'Verifying metrics…',
+  metrics: 'Sourcing metrics…',
   signals: 'Researching market signals…',
   dashboard: 'Preparing company dashboards…',
 };
@@ -102,21 +101,7 @@ function RegionPicker({
       >
         <Globe2 className="h-3 w-3" />
         {hasValue ? value : 'Region'}
-        {hasValue ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onChange('');
-            }}
-            className="ml-0.5 rounded-full p-0.5 hover:bg-primary/10"
-            aria-label="Clear region"
-          >
-            <X className="h-2.5 w-2.5" />
-          </button>
-        ) : (
-          <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
-        )}
+        <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
         <div className="absolute bottom-full left-0 z-30 mb-1 w-56 max-h-64 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-card">
@@ -294,7 +279,6 @@ function InputPill({
         />
         <div className="mt-1.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src={wordmark} alt="" className="h-3.5 opacity-40" />
             <RegionPicker value={region} onChange={setRegion} disabled={disabled} />
             <EnginePicker value={engine} onChange={setEngine} isPro={isPro} disabled={disabled} />
           </div>
@@ -530,21 +514,20 @@ export default function NewDeckPage() {
           <div className="w-full max-w-2xl pb-24">
             <div className="mb-6">
               <p className="text-[10px] font-semibold uppercase tracking-[.2em] text-primary-ink">
-                AI market research
+                Market research
               </p>
               <div className="flex items-center gap-2.5">
                 <img src={logoMark} alt="Stratemark" className="h-8 w-8" />
                 <span className="font-display text-lg font-bold tracking-tight text-content">
                   Stratemark
                 </span>
-                <span className="text-[13px] text-muted ml-1">{timeLabel()}</span>
               </div>
               <h1 className="mt-2 font-display text-2xl font-semibold text-content md:text-3xl">
                 Research any market. Understand every company.
               </h1>
               <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-muted">
-                Start with a market question. Stratemark finds the companies, verifies the figures,
-                and builds a research deck you can keep investigating.
+                Start with a market question. Stratemark finds the companies, records sourced
+                figures, and builds a research deck you can keep investigating.
               </p>
             </div>
 
@@ -602,7 +585,7 @@ export default function NewDeckPage() {
             <div className="mt-5">
               <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-content">
                 <img src={logoMark} alt="" className="h-4 w-4" />
-                <span>Stratemark AI</span>
+                <span>Research desk</span>
               </div>
 
               {running && (

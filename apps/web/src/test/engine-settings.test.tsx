@@ -54,6 +54,22 @@ describe('Research Engine Settings & Strict Execution', () => {
     ).toBeInTheDocument();
   });
 
+  it('starts with precise research language instead of AI theater', () => {
+    vi.stubEnv('VITE_DESKTOP', '1');
+    render(
+      <TestWrapper>
+        <Routes>
+          <Route path="/" element={<NewDeckPage />} />
+        </Routes>
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText('Market research')).toBeInTheDocument();
+    expect(screen.getByText(/records sourced figures/i)).toBeInTheDocument();
+    expect(screen.queryByText(/verifies the figures/i)).not.toBeInTheDocument();
+    expect(document.querySelector('button button')).toBeNull();
+  });
+
   it('allows toggling research execution engine in SettingsModal', async () => {
     useSettingsModal.setState({ isOpen: true });
     const user = userEvent.setup();
