@@ -44,6 +44,10 @@ const api: PreloadRepositoryApi = {
   verifyMetric: (input) => ipcRenderer.invoke(IPC_CHANNELS.verifyMetric, input),
   generateReport: (request) => ipcRenderer.invoke(IPC_CHANNELS.generateReport, request),
   listReports: () => ipcRenderer.invoke(IPC_CHANNELS.listReports),
+  huntCompanyMetrics: (id) => ipcRenderer.invoke(IPC_CHANNELS.huntCompanyMetrics, id),
+  generateDeckBriefing: (id, opts) => ipcRenderer.invoke(IPC_CHANNELS.generateDeckBriefing, id, opts),
+  listDeckBriefings: (id) => ipcRenderer.invoke(IPC_CHANNELS.listDeckBriefings, id),
+  auditSite: (input) => ipcRenderer.invoke(IPC_CHANNELS.auditSite, input),
   getReport: (id) => ipcRenderer.invoke(IPC_CHANNELS.getReport, id),
   expandDeck: (marketId, focus) => ipcRenderer.invoke(IPC_CHANNELS.expandDeck, marketId, focus),
   overrideMetric: (input) => ipcRenderer.invoke(IPC_CHANNELS.overrideMetric, input),
@@ -92,6 +96,9 @@ contextBridge.exposeInMainWorld('mi', api);
 const secure: SecureApi = {
   getApiKey: () => ipcRenderer.invoke(SECURE_CHANNELS.getApiKey),
   setApiKey: (key) => ipcRenderer.invoke(SECURE_CHANNELS.setApiKey, key),
+  exportResearch: () => ipcRenderer.invoke(SECURE_CHANNELS.exportResearch),
+  importResearch: (json) => ipcRenderer.invoke(SECURE_CHANNELS.importResearch, json),
+  getResearchStorageInfo: () => ipcRenderer.invoke(SECURE_CHANNELS.getResearchStorageInfo),
   googleSignIn: () => ipcRenderer.invoke(SECURE_CHANNELS.googleSignIn),
   googleSignOut: () => ipcRenderer.invoke(SECURE_CHANNELS.googleSignOut),
 };

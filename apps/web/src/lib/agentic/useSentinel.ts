@@ -17,6 +17,8 @@ import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { REFRESH_CADENCE_HOURS } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
+import { useApiKey } from '@/lib/settings/apiKey';
+import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { isLowPower } from '@/lib/usage';
 import { traceAgent } from './agentTrace';
 
@@ -24,11 +26,13 @@ const CHECK_EVERY_MS = 60 * 60 * 1000; // re-check hourly while the app is open
 
 export function useSentinel(): void {
   const repo = useRepository();
+  const hasKey = useApiKey((state) => state.hasKey);
   const qc = useQueryClient();
   const handled = useRef(new Set<string>());
   const busy = useRef(false);
 
   useEffect(() => {
+    if (isCommunityDesktop() && !hasKey) return;
     if (
       typeof repo.generateDeckBriefing !== 'function' ||
       typeof repo.listDeckBriefings !== 'function'
@@ -87,5 +91,5 @@ export function useSentinel(): void {
       clearTimeout(kickoff);
       clearInterval(interval);
     };
-  }, [repo, qc]);
+  }, [repo, qc, hasKey]);
 }

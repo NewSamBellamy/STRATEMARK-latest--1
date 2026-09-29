@@ -4,15 +4,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "repository": "https://github.com/lYlarufAhmed/STRATEMARK.git",
-  "main": "dist/main.mjs",
+  "repository": "https://github.com/lYlarufAhmed/STRATEMARK-latest-",
+  "main": "dist/main.cjs",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build:main": "esbuild src/main.ts src/preload.ts --bundle --platform=node --format=esm --target=node20 --external:electron --outdir=dist --out-extension:.js=.mjs",
-    "build": "pnpm --filter @mi/web build && pnpm build:main",
+    "build:main": "node scripts/build.mjs --main-only",
+    "build": "node scripts/build.mjs",
     "test": "vitest",
     "dev": "pnpm build && electron .",
-    "dev:watch": "pnpm build:main && VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "dev:watch": "pnpm build:main && electron . --dev-server",
     "dist": "pnpm build && electron-builder --publish never",
     "test:run": "vitest run"
   },
@@ -23,7 +23,7 @@
     "publish": {
       "provider": "github",
       "owner": "lYlarufAhmed",
-      "repo": "STRATEMARK"
+      "repo": "STRATEMARK-latest-"
     },
     "files": [
       "dist/**",
@@ -37,6 +37,12 @@
     ],
     "directories": {
       "output": "release"
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
     },
     "mac": {
       "icon": "build/icon.icns",
@@ -61,7 +67,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
-    "electron": "^33.2.1",
+    "electron": "44.4.5",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.24.0",
     "typescript": "^5.7.2",

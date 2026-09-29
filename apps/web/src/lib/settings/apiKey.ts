@@ -3,7 +3,7 @@
  *
  * The key lives ONLY in the user's browser (localStorage) and is sent only to
  * Google's API. It is never logged or transmitted anywhere else. In the Electron
- * build this will move to the OS keychain via safeStorage (main process).
+ * build persistence is exclusively through OS-backed safeStorage (main process).
  */
 import { create } from 'zustand';
 
@@ -58,37 +58,64 @@ interface ApiKeyState {
   /** Optional grounded-model override (defaults handled by the client). */
   model: string;
   hasKey: boolean;
-  setApiKey: (key: string) => void;
+  storageError: string | null;
+  setApiKey: (key: string) => Promise<void>;
   setModel: (model: string) => void;
-  clear: () => void;
+  clear: () => Promise<void>;
+}
+
+const secure = typeof window !== 'undefined' ? window.miSecure : undefined;
+let hydration: Promise<void> = Promise.resolve();
+function removePlaintextKeys(): void {
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem('mi.apiKey');
 }
 
 export const useApiKey = create<ApiKeyState>((set) => ({
-  apiKey: readLocal(STORAGE_KEY),
+  apiKey: secure ? '' : readLocal(STORAGE_KEY),
   model: readLocal(MODEL_KEY),
-  hasKey: readLocal(STORAGE_KEY).length > 0,
-  setApiKey: (key) => {
+  hasKey: !secure && readLocal(STORAGE_KEY).length > 0,
+  storageError: null,
+  setApiKey: async (key) => {
+    await hydration;
     const trimmed = sanitizeApiKey(key);
-    writeLocal(STORAGE_KEY, trimmed);
-    // In the Electron shell, also persist to the OS keychain (safeStorage).
-    void window.miSecure?.setApiKey(trimmed);
-    set({ apiKey: trimmed, hasKey: trimmed.length > 0 });
+    if (secure) {
+      await secure.setApiKey(trimmed);
+      removePlaintextKeys();
+    } else {
+      writeLocal(STORAGE_KEY, trimmed);
+      localStorage.removeItem('mi.apiKey');
+    }
+    set({ apiKey: trimmed, hasKey: trimmed.length > 0, storageError: null });
   },
   setModel: (model) => {
     writeLocal(MODEL_KEY, model.trim());
     set({ model: model.trim() });
   },
-  clear: () => {
-    writeLocal(STORAGE_KEY, '');
-    void window.miSecure?.setApiKey('');
-    set({ apiKey: '', hasKey: false });
+  clear: async () => {
+    await hydration;
+    if (secure) await secure.setApiKey('');
+    removePlaintextKeys();
+    set({ apiKey: '', hasKey: false, storageError: null });
   },
 }));
 
 // In Electron, hydrate the key from the OS keychain on boot (authoritative over
 // the localStorage cache).
-if (typeof window !== 'undefined' && window.miSecure) {
-  void window.miSecure.getApiKey().then((key) => {
-    if (key) useApiKey.setState({ apiKey: key, hasKey: true });
+if (secure) {
+  hydration = (async () => {
+    let key = await secure.getApiKey();
+    // Migrate older plaintext caches only after encrypted persistence succeeds.
+    const legacy = sanitizeApiKey(readLocal(STORAGE_KEY));
+    if (!key && legacy) {
+      await secure.setApiKey(legacy);
+      key = legacy;
+    }
+    removePlaintextKeys();
+    useApiKey.setState({ apiKey: key, hasKey: !!key });
+  })().catch(() => {
+    useApiKey.setState({ storageError: 'Could not open secure key storage. Save your key again after checking your system keyring.' });
   });
 }
+
+export const apiKeyReady = hydration;

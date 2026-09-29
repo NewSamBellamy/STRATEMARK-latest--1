@@ -33,6 +33,8 @@ import logoMark from '@/assets/logo-mark.svg';
 import wordmark from '@/assets/wordmark.svg';
 import { MicButton } from '@/components/ui/MicButton';
 import { NotificationToast } from '@/components/ui/NotificationToast';
+import { SettingsLink } from '@/components/SettingsLink';
+import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { useResearchSession } from './research-session';
 import { qk } from '@/lib/query/keys';
 
@@ -200,6 +202,8 @@ function EnginePicker({
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
+  if (isCommunityDesktop()) return <span className="text-xs text-muted">Local Engine</span>;
+
   return (
     <div ref={ref} className="relative inline-block">
       <button
@@ -349,9 +353,9 @@ function InputPill({
       {showHint && !hasKey && (
         <p className="mt-2 text-center text-[11px] text-faint">
           <span>
-            <Link to="/settings" className="text-primary-ink hover:underline">
+            <SettingsLink className="text-primary-ink hover:underline">
               Add Gemini API key
-            </Link>{' '}
+            </SettingsLink>{' '}
             in Settings for live Google grounded research.
           </span>
         </p>
@@ -526,9 +530,9 @@ export default function NewDeckPage() {
             description={
               <span>
                 Grounded research runs on your own key — nothing here is ever faked.{' '}
-                <Link to="/settings" className="font-semibold underline hover:opacity-80">
+                <SettingsLink className="font-semibold underline hover:opacity-80">
                   Add your key in Settings
-                </Link>{' '}
+                </SettingsLink>{' '}
                 (free tier works), then come back and run “{prompt.trim() || 'this market'}” for real.
               </span>
             }

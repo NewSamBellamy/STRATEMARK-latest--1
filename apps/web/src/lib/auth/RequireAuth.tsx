@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext';
 import { FullPageLoader } from '@/components/states/FullPageLoader';
 import { getAccessProfile, subscribeAccess, tryUnlock } from '@/lib/access';
 import wordmark from '@/assets/wordmark.svg';
+import { isCommunityDesktop } from '@/lib/settings/runtime';
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { isLoading, isAuthenticated, signInWithEmail } = useAuth();
@@ -59,7 +60,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     }
   };
 
-  if (import.meta.env.MODE === 'test') return <>{children}</>;
+  if (isCommunityDesktop() || import.meta.env.VITE_OPEN_ACCESS === 'true' || import.meta.env.MODE === 'test') return <>{children}</>;
   if (isLoading) return <FullPageLoader label="Checking your session…" />;
   if (isAuthenticated || getAccessProfile()) return <>{children}</>;
 

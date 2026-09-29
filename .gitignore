@@ -25,3 +25,6 @@ apps/web/shots/
 .cursor/
 .opencode/
 *.session.json
+
+# Isolated desktop-preview profile: personal research and OS-encrypted keys.
+work/preview-profile/

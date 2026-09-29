@@ -24,11 +24,11 @@ import { recordCall } from '@/lib/usage';
 const RepositoryContext = createContext<MarketIntelRepository | null>(null);
 
 export function selectRepository(apiKey: string, model: string, engine?: string): MarketIntelRepository {
-  if (engine === 'cloud') {
-    return new SentinelRepository();
-  }
   if (isElectron() && window.mi) {
     return new IpcRepository(window.mi);
+  }
+  if (engine === 'cloud') {
+    return new SentinelRepository();
   }
   if (apiKey) {
     // Power-user knob (also used by scripted demos): localStorage 'mi.targetCompanies'.

@@ -9,6 +9,8 @@
 import { useEffect } from 'react';
 import { REFRESH_CADENCE_HOURS } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
+import { useApiKey } from '@/lib/settings/apiKey';
+import { isCommunityDesktop } from '@/lib/settings/runtime';
 
 const TICK_MS = 15 * 60 * 1000;
 const BOOT_DELAY_MS = 8 * 1000;
@@ -22,8 +24,10 @@ export function nextDueAt(lastRefreshedAt: string | null, cadenceHours: number):
 
 export function useAutoRefresh(): void {
   const repo = useRepository();
+  const hasKey = useApiKey((state) => state.hasKey);
 
   useEffect(() => {
+    if (isCommunityDesktop() && !hasKey) return;
     let disposed = false;
     let running = false;
 
@@ -56,5 +60,5 @@ export function useAutoRefresh(): void {
       clearTimeout(boot);
       clearInterval(interval);
     };
-  }, [repo]);
+  }, [repo, hasKey]);
 }

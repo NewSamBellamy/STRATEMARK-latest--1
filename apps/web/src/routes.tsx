@@ -1,7 +1,14 @@
-import { lazy } from 'react';
+import { lazy, useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { RequireAuth } from '@/lib/auth/RequireAuth';
+import { useSettingsModal } from '@/lib/settings/settingsModal';
+
+function LegacySettingsRoute() {
+  const open = useSettingsModal((state) => state.open);
+  useEffect(() => { open(); }, [open]);
+  return <Navigate to="/" replace />;
+}
 
 // Route-level code splitting (Phase 7 perf).
 const MarketsListPage = lazy(() => import('@/features/markets/MarketsListPage'));
@@ -35,6 +42,7 @@ export function AppRoutes() {
         <Route index element={<NewDeckPage />} />
         <Route path="history" element={<MarketsListPage />} />
         <Route path="saved" element={<SavedCardsPage />} />
+        <Route path="settings" element={<LegacySettingsRoute />} />
         <Route path="reports" element={<ReportsListPage />} />
         <Route path="reports/:reportId" element={<ReportViewerPage />} />
         <Route path="markets/:marketId/deck" element={<DeckPage />} />

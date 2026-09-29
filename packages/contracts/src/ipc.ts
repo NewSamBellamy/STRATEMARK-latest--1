@@ -62,6 +62,10 @@ export const IPC_CHANNELS = {
   deepDive: 'mi:deepDive',
   factCheck: 'mi:factCheck',
   verifyMetric: 'mi:verifyMetric',
+  huntCompanyMetrics: 'mi:huntCompanyMetrics',
+  generateDeckBriefing: 'mi:generateDeckBriefing',
+  listDeckBriefings: 'mi:listDeckBriefings',
+  auditSite: 'mi:auditSite',
   generateReport: 'mi:generateReport',
   listReports: 'mi:listReports',
   getReport: 'mi:getReport',
@@ -89,6 +93,9 @@ export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 export const SECURE_CHANNELS = {
   getApiKey: 'mi:secure:getApiKey',
   setApiKey: 'mi:secure:setApiKey',
+  exportResearch: 'mi:secure:exportResearch',
+  importResearch: 'mi:secure:importResearch',
+  getResearchStorageInfo: 'mi:secure:getResearchStorageInfo',
   googleSignIn: 'mi:secure:googleSignIn',
   googleSignOut: 'mi:secure:googleSignOut',
 } as const;
@@ -97,6 +104,9 @@ export const SECURE_CHANNELS = {
 export interface SecureApi {
   getApiKey(): Promise<string>;
   setApiKey(key: string): Promise<void>;
+  exportResearch(): Promise<string | null>;
+  importResearch(json: string): Promise<void>;
+  getResearchStorageInfo(): Promise<{ marketCount: number; sizeBytes: number; hasBackup: boolean }>;
   googleSignIn?(): Promise<{ id: string; name: string; email: string | null; photoURL?: string | null } | null>;
   googleSignOut?(): Promise<void>;
 }

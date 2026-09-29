@@ -85,7 +85,7 @@ describe('Google Auth System', () => {
       await user.click(signOutBtn);
 
       // TopBar now shows Signed In status text when unauthenticated
-      expect(screen.getByText('Signed In')).toBeInTheDocument();
+      expect(screen.getByText('Local workspace')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /user profile menu/i })).not.toBeInTheDocument();
     });
 

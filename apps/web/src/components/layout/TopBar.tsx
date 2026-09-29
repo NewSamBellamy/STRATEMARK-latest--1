@@ -122,7 +122,7 @@ export function TopBar() {
           <span className="hidden max-w-[140px] truncate sm:inline">{access.name}</span>
         </span>
       ) : (
-        <span className="text-xs text-muted">Signed In</span>
+        <span className="text-xs text-muted">Local workspace</span>
       )}
     </div>
   );

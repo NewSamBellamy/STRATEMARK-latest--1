@@ -15,6 +15,7 @@ import { useMarkets } from '@/hooks/data';
 import { useResearchSession } from '@/features/deck/research-session';
 import wordmark from '@/assets/wordmark.svg';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
+import { SettingsLink } from '@/components/SettingsLink';
 
 export function SettingsTrigger({ collapsed }: { collapsed: boolean }) {
   const { open } = useSettingsModal();
@@ -155,13 +156,12 @@ export function Sidebar() {
       {(!hasKey) && (
         <div className="shrink-0 px-2 pt-4">
           {!collapsed ? (
-            <NavLink
-              to="/settings"
+            <SettingsLink
               className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted hover:text-content"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-neutral" />
               Add your API key
-            </NavLink>
+            </SettingsLink>
           ) : (
             <div className="flex justify-center">
               <span className="h-2 w-2 rounded-full bg-neutral" />

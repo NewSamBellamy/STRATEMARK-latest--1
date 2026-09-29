@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @mi/web dev",
-    "build": "pnpm --filter @mi/web build && pnpm --filter @mi/desktop build:main",
+    "build": "pnpm --filter @mi/desktop build",
     "build:contracts": "pnpm --filter @mi/contracts typecheck",
     "build:mocks": "pnpm --filter @mi/mocks build",
     "preview": "pnpm --filter @mi/web preview",
@@ -31,9 +31,6 @@
     "prettier": "^3.4.2",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "msw"]
   },
   "packageManager": "pnpm@10.34.3"
 }

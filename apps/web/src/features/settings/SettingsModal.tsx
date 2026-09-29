@@ -35,6 +35,7 @@ import { useAuth } from '@/lib/auth/AuthContext';
 import { Modal } from '@/components/ui/Modal';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { cn } from '@/lib/cn';
+import { isCommunityDesktop } from '@/lib/settings/runtime';
 
 type TestState = { status: 'idle' | 'testing' | 'ok' | 'fail'; detail?: string };
 
@@ -49,26 +50,27 @@ export function SettingsModal() {
       open={isOpen}
       onOpenChange={(open) => !open && close()}
       title="Settings"
+      description="Manage your research key, engine, and saved data."
       size="2xl"
     >
       <div className="mt-2 flex h-[65vh] min-h-[500px] flex-col overflow-hidden border-t border-border sm:flex-row">
         
         {/* Sidebar Navigation */}
-        <nav className="flex shrink-0 flex-row overflow-x-auto border-b border-border bg-surface-2/30 p-2 sm:w-48 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:pr-2 sm:pt-4">
+        <nav aria-label="Settings sections" className="flex shrink-0 flex-row overflow-x-auto border-b border-border bg-surface-2/30 p-2 sm:w-48 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:pr-2 sm:pt-4">
           <TabButton id="general" active={activeTab} onClick={setActiveTab} icon={Key} label="General" />
           <TabButton id="engine" active={activeTab} onClick={setActiveTab} icon={Cpu} label="Engine" />
           <TabButton id="data" active={activeTab} onClick={setActiveTab} icon={DatabaseBackup} label="Data controls" />
           <TabButton id="usage" active={activeTab} onClick={setActiveTab} icon={Gauge} label="Usage & billing" />
-          <TabButton id="pricing" active={activeTab} onClick={setActiveTab} icon={BadgeCheck} label="Builder profile" />
+          <TabButton id="pricing" active={activeTab} onClick={setActiveTab} icon={BadgeCheck} label={isCommunityDesktop() ? 'About' : 'Builder profile'} />
         </nav>
 
         {/* Content Area */}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8">
           {activeTab === 'general' && <GeneralTab />}
           {activeTab === 'engine' && <EngineTab />}
-          {activeTab === 'data' && <DataSafetyPanel />}
+          {activeTab === 'data' && (isCommunityDesktop() ? <DesktopDataPanel /> : <DataSafetyPanel />)}
           {activeTab === 'usage' && <UsageBillingPanel />}
-          {activeTab === 'pricing' && <PricingPanel />}
+          {activeTab === 'pricing' && (isCommunityDesktop() ? <CommunityPanel /> : <PricingPanel />)}
         </div>
       </div>
     </Modal>
@@ -80,6 +82,7 @@ function TabButton({ id, active, onClick, icon: Icon, label }: { id: TabId, acti
   return (
     <button
       type="button"
+      aria-pressed={isActive}
       onClick={() => onClick(id)}
       className={cn(
         'flex w-full shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors',
@@ -93,15 +96,23 @@ function TabButton({ id, active, onClick, icon: Icon, label }: { id: TabId, acti
 }
 
 function GeneralTab() {
-  const { model, hasKey, setApiKey, setModel, clear, apiKey } = useApiKey();
+  const { model, hasKey, setApiKey, setModel, clear, apiKey, storageError } = useApiKey();
   const [draft, setDraft] = useState(apiKey);
   const [saved, setSaved] = useState(false);
   const [test, setTest] = useState<TestState>({ status: 'idle' });
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setDraft(apiKey); }, [apiKey]);
 
-  const save = () => {
-    setApiKey(draft);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const save = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await setApiKey(draft);
+      setSaved(true);
+    } catch {
+      setSaveError('Your key was not saved. Check that secure storage is available and try again.');
+    } finally { setSaving(false); }
   };
 
   const testKey = async () => {
@@ -180,7 +191,7 @@ function GeneralTab() {
           >
             aistudio.google.com/app/apikey <ExternalLink className="h-3 w-3" />
           </a>
-          . Your key stays in this browser and is sent only to Google.
+          . Your key is sent only to Google. {isCommunityDesktop() ? 'It is encrypted on disk using your operating system’s key storage.' : 'It is saved in this browser.'}
         </p>
       </div>
 
@@ -224,7 +235,7 @@ function GeneralTab() {
       )}
 
       <div className="flex items-center gap-3 border-t border-border pt-4">
-        <button type="button" className="btn-primary" onClick={save} disabled={!draft.trim()}>
+        <button type="button" className="btn-primary" onClick={() => void save()} disabled={!draft.trim() || saving}>
           {saved ? 'Saved ✓' : 'Save key'}
         </button>
         <button
@@ -240,8 +251,9 @@ function GeneralTab() {
             type="button"
             className="btn-ghost text-negative"
             onClick={() => {
-              clear();
-              setDraft('');
+              void clear().then(() => { setDraft(''); setSaved(false); }).catch(() => {
+                setSaveError('Your key could not be removed. Please try again.');
+              });
             }}
           >
             <Trash2 className="h-4 w-4" /> Remove
@@ -251,10 +263,11 @@ function GeneralTab() {
 
       <div className="flex items-start gap-2 rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
-        Your key is stored only in this browser and sent only to Google’s API.
+        Your key is stored on this device and sent only to Google’s API.
       </div>
+      {(saveError || storageError) && <p role="alert" className="text-sm text-negative">{saveError || storageError}</p>}
       
-      <AccessPanel />
+      {!isCommunityDesktop() && <AccessPanel />}
     </div>
   );
 }
@@ -263,6 +276,8 @@ function EngineTab() {
   const { user } = useAuth();
   const { engine, setEngine } = useEngineChoice();
   const isPro = user?.subscriptionTier === 'pro';
+
+  if (isCommunityDesktop()) return <div className="space-y-3"><h2 className="font-display text-lg">Local Engine</h2><p className="text-sm text-muted">Research runs on this device with your Gemini key. Google handles the AI requests; no Stratemark account or hosted service is required.</p></div>;
 
   return (
     <div className="space-y-6 pb-6">
@@ -313,6 +328,45 @@ function EngineTab() {
       </div>
     </div>
   );
+}
+
+function CommunityPanel() {
+  return <div className="space-y-4"><h2 className="font-display text-lg">Stratemark Community</h2><p className="text-sm text-muted">Open-source desktop research, licensed under MIT. No account or subscription required. Research is stored on this device; Gemini requests use your own key and Google’s quotas.</p><a className="btn-ghost" href="https://github.com/lYlarufAhmed/STRATEMARK-latest-" target="_blank" rel="noopener noreferrer"><Github className="h-4 w-4" /> Source code</a></div>;
+}
+
+function DesktopDataPanel() {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [info, setInfo] = useState<{ marketCount: number; sizeBytes: number; hasBackup: boolean } | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void window.miSecure?.getResearchStorageInfo().then((value) => { if (live) setInfo(value); }).catch(() => { if (live) setMessage('Could not read desktop storage.'); });
+    return () => { live = false; };
+  }, []);
+  const exportData = async () => {
+    try {
+      const json = await window.miSecure?.exportResearch();
+      if (!json) { setMessage('Nothing to export yet.'); return; }
+      const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `stratemark-research-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch { setMessage('Export failed. Your saved research has not been changed.'); }
+  };
+  const importData = async (file: File) => {
+    if (!window.confirm('Replace this workspace with the selected research export? The current workspace will be backed up.')) return;
+    setBusy(true);
+    try {
+      if (file.size > 50 * 1024 * 1024) throw new Error('Export exceeds 50 MB.');
+      await window.miSecure!.importResearch(await file.text());
+      window.location.reload();
+    } catch { setMessage('Import failed. Choose a valid Stratemark export and finish or cancel active research first.'); }
+    finally { setBusy(false); }
+  };
+  return <div className="space-y-4"><h2 className="font-display text-lg">Data safety</h2><p className="text-sm text-muted">Research is saved on your disk with atomic writes and a last-good backup. Exports contain research, not your API key. Exported files are not encrypted; store them somewhere safe.</p>{info && <p className="text-sm">{info.marketCount} decks · {Math.round(info.sizeBytes / 1024)} KB{info.hasBackup ? ' · backup available' : ''}</p>}<div className="flex gap-2"><button className="btn-ghost" type="button" onClick={() => void exportData()}><Download className="h-4 w-4" />Export my research</button><button className="btn-ghost" type="button" disabled={busy} onClick={() => fileRef.current?.click()}><Upload className="h-4 w-4" />Import</button></div><input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importData(file); event.target.value = ''; }} />{message && <p role="alert" className="text-sm text-negative">{message}</p>}</div>;
 }
 
 function DataSafetyPanel() {

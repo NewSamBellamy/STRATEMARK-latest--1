@@ -22,6 +22,8 @@ import {
   type MetricType,
 } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
+import { useApiKey } from '@/lib/settings/apiKey';
+import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { qk } from '@/lib/query/keys';
 import { traceAgent } from '@/lib/agentic/agentTrace';
 import { formatMetricValue } from '@/lib/format';
@@ -77,10 +79,15 @@ export function useLivingDeck(
     [cards],
   );
   const deskCount = companyCards.length;
-  const canVerify = typeof repo.verifyMetric === 'function';
+  const hasKey = useApiKey((state) => state.hasKey);
+  const researchAvailable = !isCommunityDesktop() || hasKey;
+  const canVerify = researchAvailable && typeof repo.verifyMetric === 'function';
 
   useEffect(() => {
-    if (!deckId || deskCount === 0) return;
+    if (!deckId || deskCount === 0 || !researchAvailable) {
+      setStatus('stopped');
+      return;
+    }
 
     const seenFindings = new Set<string>();
     const prefetched = new Set<string>();
@@ -213,7 +220,7 @@ export function useLivingDeck(
     };
     // Restart only when the deck itself (or transport capability) changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deckId, deskCount > 0, canVerify]);
+  }, [deckId, deskCount > 0, canVerify, researchAvailable]);
 
   return {
     events,

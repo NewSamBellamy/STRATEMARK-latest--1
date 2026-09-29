@@ -45,6 +45,7 @@ import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { ThreadHistoryButton } from '@/features/research/ResearchControls';
 import { cn } from '@/lib/cn';
 import { useApiKey } from '@/lib/settings/apiKey';
+import { SettingsLink } from '@/components/SettingsLink';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
@@ -289,7 +290,7 @@ export default function DeckPage() {
                 {refreshDeck.isPending ? 'Researching…' : 'Re-run research'}
               </button>
             )}
-            <Link to="/settings" className="btn-ghost">Data safety</Link>
+            <SettingsLink className="btn-ghost">Data safety</SettingsLink>
             <Link to="/history" className="btn-ghost">All decks</Link>
           </div>
         </div>
