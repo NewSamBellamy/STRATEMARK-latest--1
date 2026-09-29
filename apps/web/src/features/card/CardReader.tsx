@@ -36,7 +36,7 @@ function CardReaderBody({ data, open, onOpenChange, deckUserValues, marketId,
   const repo = useRepository();
   const { chat } = useDeepDive();
   const [shareOpen, setShareOpen] = useState(false);
-  const hasMaturity = !view.signal;
+  const hasMaturity = card.cardType === 'company' && !view.signal;
   const dashboardUrl = company ? `/company/${company.id}/dashboard/overview?${new URLSearchParams({
     ...(marketId ? { deck: marketId } : {}), card: card.id, ...(deckView ? { view: deckView } : {}),
   })}` : null;
@@ -62,20 +62,17 @@ function CardReaderBody({ data, open, onOpenChange, deckUserValues, marketId,
               {hasMaturity && <Tabs.Trigger value="maturity" className="card-inspector__tab">Maturity</Tabs.Trigger>}
             </Tabs.List>
             <Tabs.Content value="overview" className="card-inspector__panel" tabIndex={0}>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">{card.summary ? 'The thesis' : card.tierReason ? 'Why this stage' : 'Research snapshot'}</p>
-              <p className="mt-2 text-[13px] leading-relaxed text-content">{card.summary || card.tierReason || view.description || 'A research summary has not been recorded yet.'}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">{view.signal ? 'Research finding' : 'Company snapshot'}</p>
+              <p className="mt-2 text-[13px] leading-relaxed text-content">{card.summary || view.description || 'A research summary has not been recorded yet.'}</p>
               {card.keyPoints.length > 0 && <ul className="mt-4 space-y-2 border-t border-border pt-3">
                 {card.keyPoints.map((point, i) => <li key={i} className="flex gap-3 text-[12px] leading-relaxed text-content">
                   <span className="font-semibold tabular-nums text-muted">0{i + 1}</span><span>{point}</span>
                 </li>)}
               </ul>}
-              {card.summary && card.tierReason && <div className="mt-4 border-t border-border pt-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">Why this stage</p>
-                <p className="mt-1 text-[12px] leading-relaxed text-content">{card.tierReason}</p>
-              </div>}
-              {!view.signal && <p className="mt-4 rounded-lg bg-surface-2 p-3 text-[11px] leading-relaxed text-muted">
-                {view.knownCount === 0 ? 'Position pending: no usable figures were recorded for this company.' :
-                  `${view.knownCount} figures recorded · ${view.sourcedCount} with clickable source receipts.`} Maturity describes company stage, not investment quality or research confidence.
+              {hasMaturity && <p className="mt-4 rounded-lg bg-surface-2 p-3 text-[11px] leading-relaxed text-muted">
+                {view.knownCount === 0 ? 'Stage pending: no usable figures were recorded for this company.' :
+                  !view.maturity ? `${view.knownCount} figures recorded · ${view.sourcedCount} with clickable source receipts. No comparable sourced figure supports showing a tier on the card.` :
+                    `${view.knownCount} figures recorded · ${view.sourcedCount} with clickable source receipts.`} Maturity describes company stage, not investment quality or research confidence.
               </p>}
             </Tabs.Content>
             <Tabs.Content value="evidence" className="card-inspector__panel" tabIndex={0}>

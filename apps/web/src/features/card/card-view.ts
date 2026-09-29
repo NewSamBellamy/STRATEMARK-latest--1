@@ -8,6 +8,7 @@ const LABELS: Record<MetricType, string> = {
   market_share: 'Market share', users: 'Users', employees: 'Employees',
 };
 const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
+const facePriority: MetricType[] = ['arr', 'market_cap', 'valuation', 'users', 'employees'];
 
 /** A single read-only boundary for deck and inspection. Never updates stored research. */
 export function buildCardView(data: CardWithCompany) {
@@ -34,15 +35,29 @@ export function buildCardView(data: CardWithCompany) {
       confidence: CONFIDENCE_LABELS[metric.confidence], note, citations,
     };
   });
-  const arr = metrics.find((m) => m.metric.metricType === 'arr');
-  const values = metrics.filter((m) => ['valuation', 'market_cap'].includes(m.metric.metricType));
-  const value = values.find((m) => m.metric.value != null) ?? values[0];
   const knownCount = metrics.filter((m) => m.metric.value != null).length;
   const sourcedCount = metrics.filter((m) => m.metric.value != null && m.citations.length > 0).length;
-  const maturity = !signal && data.card.tier != null && knownCount > 0
+  // Face space goes to the strongest usable facts, not a fixed ARR/valuation template.
+  // Market share stays in Evidence until the research records its market scope.
+  const ranked = signal ? [] : metrics.filter((m) => m.metric.value != null &&
+    facePriority.includes(m.metric.metricType)).sort((a, b) => {
+    const strength = (m: typeof a) =>
+      (m.metric.confidence === 'user_verified' ? 6 : m.metric.confidence === 'verified' ? 4 : 2) +
+      (m.citations.length > 0 ? 1 : 0);
+    return strength(b) - strength(a) ||
+      facePriority.indexOf(a.metric.metricType) - facePriority.indexOf(b.metric.metricType);
+  });
+  const seen = new Set<string>();
+  const faceMetrics = ranked.filter((m) => {
+    const family = ['valuation', 'market_cap'].includes(m.metric.metricType) ? 'company_value' : m.metric.metricType;
+    if (seen.has(family)) return false;
+    seen.add(family);
+    return true;
+  }).slice(0, 2);
+  const maturity = data.card.cardType === 'company' && !signal && data.card.tier != null &&
+    faceMetrics.some((m) => m.citations.length > 0)
     ? { tier: data.card.tier, label: TIER_LABELS[data.card.tier] } : null;
-  const faceMetrics = signal ? [] : [arr, value].filter((m): m is NonNullable<typeof m> => m?.metric.value != null);
-  const position = signal ? 'Market signal' : !maturity ? 'Position pending' :
+  const position = signal ? 'Market signal' : data.card.cardType !== 'company' ? 'Entity profile' : !maturity ? 'Stage pending' :
     sourcedCount >= 2 ? `Maturity · T${maturity.tier}` : `Indicative · T${maturity.tier}`;
   return {
     title: data.company?.name ?? data.card.title ?? 'Research card',

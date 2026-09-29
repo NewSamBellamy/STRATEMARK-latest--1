@@ -26,6 +26,7 @@ export function CmsBreakdown({
   const finalTier = card.tier;
   const nudge =
     finalTier != null && base.baseTier != null ? finalTier - base.baseTier : 0;
+  const sourcedCount = metrics.filter((m) => m.value != null && m.citations.length > 0).length;
 
   return (
     <div className="panel-2 p-4">
@@ -36,6 +37,9 @@ export function CmsBreakdown({
         {base.availableSignalCount === 0
           ? 'Not ranked: no usable company figures were found. A tier would imply evidence we do not have.'
           : 'Indicative only: one available signal is too thin for a confident market position.'}
+      </p>}
+      {finalTier != null && sourcedCount === 0 && <p className="mb-3 rounded-md bg-surface p-2 text-xs leading-relaxed text-muted">
+        A tier was recorded from estimates, but no figure has a clickable source receipt. It is withheld from the card face.
       </p>}
 
       <table className="w-full text-xs">

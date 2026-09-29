@@ -25,8 +25,7 @@ export function GameCard({ data, onOpen, onShare, hideActions, className }: Game
     </button> : <CollectibleCard data={data} view={view} />}
     {!hideActions && <div className="card-sleeve__actions">
       <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted">
-        {onOpen ? <><ArrowUpRight size={13} aria-hidden="true" /> Pick up card</> : data.company?.hqLocation}
-        {onOpen && data.company?.hqLocation && <span className="sr-only">{data.company.hqLocation}</span>}
+        {onOpen && <><ArrowUpRight size={13} aria-hidden="true" /> Inspect card</>}
       </span>
       <div className="flex gap-1"><SaveCardButton cardId={data.card.id} />
         {onShare && <button type="button" className="card-control" aria-label="Share card" onClick={onShare}><Share2 size={15} /></button>}

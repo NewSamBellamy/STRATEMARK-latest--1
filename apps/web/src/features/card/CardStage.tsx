@@ -21,15 +21,12 @@ export function CardStage({ data, view }: { data: CardWithCompany; view: CardVie
     card.current?.style.setProperty('--shine-y', `${y * 100}%`);
   };
   return <div className="card-stage">
-    <div className="card-stage__light" aria-hidden="true" />
-    <p className="card-stage__caption">A closer look</p>
     <div className="card-stage__perspective" onPointerMove={tilt} onPointerLeave={reset} onPointerCancel={reset}>
       <div ref={card} className={`card-stage__tilt ${back ? 'is-flipped' : ''}`}>
         <CollectibleCard data={data} view={view} back={back} />
       </div>
     </div>
     <div className="card-stage__tools"><button type="button" onClick={() => { reset(); setBack(!back); }}
-      aria-label="Flip card" aria-pressed={back}><Rotate3D size={16} aria-hidden="true" />{back ? 'Show front' : 'Flip card'}</button>
-      <span>Move your pointer to catch the light</span></div>
+      aria-label="Flip card" aria-pressed={back}><Rotate3D size={16} aria-hidden="true" />{back ? 'Show front' : 'Flip card'}</button></div>
   </div>;
 }

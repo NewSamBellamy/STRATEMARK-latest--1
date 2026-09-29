@@ -29,7 +29,7 @@ describe('GameCard', () => {
     expect(screen.getAllByText('GraceWear Global').length).toBeGreaterThan(0);
     expect(screen.getByText(cwc.company!.oneLiner)).toBeInTheDocument();
     expect(screen.getByText('ARR')).toBeInTheDocument();
-    expect(screen.getByText(/Indicative · T/)).toBeInTheDocument();
+    expect(screen.getByText('Stage pending')).toBeInTheDocument();
     expect(screen.queryByText(/Very Strong|Very Weak/)).not.toBeInTheDocument();
     expect(screen.getByText(/0 sourced figures/)).toBeInTheDocument();
     // HQ shown.
@@ -64,6 +64,13 @@ describe('GameCard', () => {
     } }} />);
     expect(screen.getByTestId('collectible-card-front')).not.toHaveStyle('--card-accent: #4f46e5');
   });
+  it('does not pass off a model-guessed palette as the company brand', () => {
+    const cwc = hydrate(companyCard.id);
+    renderWithProviders(<GameCard data={{ ...cwc, company: {
+      ...cwc.company!, brandTheme: { ...cwc.company!.brandTheme!, source: 'llm' },
+    } }} />);
+    expect(screen.getByTestId('collectible-card-front')).not.toHaveStyle('--card-accent: #111827');
+  });
 
   it('keeps save and share controls outside the card-opening button', async () => {
     const onOpen = vi.fn();
@@ -78,7 +85,7 @@ describe('GameCard', () => {
 
   it('shows a sourced-risk indicator on a Vice card', () => {
     renderWithProviders(<GameCard data={hydrate(viceCard.id)} />);
-    expect(screen.getByText(/risk signal/i)).toBeInTheDocument();
+    expect(screen.getByText(/risk finding/i)).toBeInTheDocument();
   });
 
   it('renders a non-company Barrier card with its title, no metrics', () => {

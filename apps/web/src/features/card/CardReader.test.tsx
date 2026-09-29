@@ -67,7 +67,7 @@ describe('CardReader', () => {
     const { user } = renderWithProviders(<CardReader data={{ ...cwc, metrics: [], card: { ...cwc.card, tier: null } }}
       open onOpenChange={() => {}} deckUserValues={[]} />);
     const dialog = screen.getByRole('dialog');
-    expect(within(dialog).getByText(/position pending: no usable figures/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/stage pending: no usable figures/i)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('tab', { name: 'Maturity' }));
     expect(within(dialog).getByText(/not ranked: no usable company figures/i)).toBeInTheDocument();
   });
@@ -79,6 +79,8 @@ describe('CardReader', () => {
     await user.click(screen.getByRole('button', { name: 'Flip card' }));
     expect(screen.getByTestId('collectible-card-back')).toBeInTheDocument();
     expect(screen.queryByTestId('collectible-card-front')).not.toBeInTheDocument();
+    expect(within(screen.getByTestId('collectible-card-back')).getByText('Evidence on file')).toBeInTheDocument();
+    expect(within(screen.getByTestId('collectible-card-back')).queryByText(/The thesis/i)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /explore research/i })).toHaveAttribute('href',
       `/company/${cwc.company!.id}/dashboard/overview?deck=market-test&card=${cwc.card.id}`);
   });
