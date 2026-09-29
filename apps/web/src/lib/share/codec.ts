@@ -99,7 +99,7 @@ export interface SharePayload {
   market: string | null;
   sharedAt: string;
   cards: SharedCard[];
-  /** Present when kind='briefing' — the unboxing + report payload. */
+  /** Present when kind='briefing' — the full briefing payload. */
   briefing?: SharedBriefing;
   /** Present when kind='report' — the full editorial report rides the link. */
   report?: SharedReport;
@@ -116,9 +116,7 @@ export function toSharedCard(c: CardWithCompany): SharedCard {
     summary: c.card.summary,
     tier: c.card.tier,
     keyPoints: c.card.keyPoints.slice(0, 6),
-    citations: (c.card.citations ?? [])
-      .slice(0, 3)
-      .map((x) => ({ t: x.title, u: x.url })),
+    citations: (c.card.citations ?? []).slice(0, 3).map((x) => ({ t: x.title, u: x.url })),
     claims: (c.viceClaims ?? [])
       .slice(0, 3)
       .map((v) => ({ text: v.claimText, t: v.sourceTitle, u: v.sourceUrl })),
@@ -141,13 +139,16 @@ export function toSharedCard(c: CardWithCompany): SharedCard {
 }
 
 export function buildCardShare(c: CardWithCompany, marketName: string | null): SharePayload {
-  return { v: 1, kind: 'card', market: marketName, sharedAt: new Date().toISOString(), cards: [toSharedCard(c)] };
+  return {
+    v: 1,
+    kind: 'card',
+    market: marketName,
+    sharedAt: new Date().toISOString(),
+    cards: [toSharedCard(c)],
+  };
 }
 
-export function buildDeckShare(
-  cards: CardWithCompany[],
-  marketName: string | null,
-): SharePayload {
+export function buildDeckShare(cards: CardWithCompany[], marketName: string | null): SharePayload {
   return {
     v: 1,
     kind: 'deck',
@@ -158,7 +159,7 @@ export function buildDeckShare(
 }
 
 /**
- * A shared Daily Briefing: the unboxing reveal + full report ride the link,
+ * A shared Daily Briefing: the full report rides the link,
  * along with the cards for the companies the briefing mentions so the
  * recipient can flip through the evidence beneath the story.
  */
@@ -241,7 +242,11 @@ export function buildReportShare(
 // touches the repository.
 // ---------------------------------------------------------------------------
 
-export function sharedToCardWithCompany(sc: SharedCard, index: number, sharedAt: string): CardWithCompany {
+export function sharedToCardWithCompany(
+  sc: SharedCard,
+  index: number,
+  sharedAt: string,
+): CardWithCompany {
   const companyId = sc.company ? `shared_cmp_${index}` : null;
   return {
     card: {

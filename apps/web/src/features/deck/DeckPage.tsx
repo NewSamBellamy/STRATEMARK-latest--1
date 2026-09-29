@@ -30,12 +30,7 @@ import {
   type CardWithCompany,
   type MaturityTier,
 } from '@mi/contracts';
-import {
-  useCards,
-  useDeckByMarket,
-  useMarket,
-  useRefreshDeck,
-} from '@/hooks/data';
+import { useCards, useDeckByMarket, useMarket, useRefreshDeck } from '@/hooks/data';
 import { useLivingDeck } from '@/lib/living/useLivingDeck';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
 import { buildDeckShare } from '@/lib/share/codec';
@@ -100,7 +95,11 @@ export default function DeckPage() {
   const refreshDeck = useRefreshDeck();
   const { chat } = useDeepDive();
 
-  const deckStatus = (deck.data as { status?: 'running' | 'refreshing' | 'partial' | 'failed' | 'ready' | 'ready_stale' } | null)?.status;
+  const deckStatus = (
+    deck.data as {
+      status?: 'running' | 'refreshing' | 'partial' | 'failed' | 'ready' | 'ready_stale';
+    } | null
+  )?.status;
   const isRunning = deckStatus === 'running';
   const isPartial = deckStatus === 'partial';
   const isRefreshing = deckStatus === 'refreshing';
@@ -127,10 +126,7 @@ export default function DeckPage() {
   };
   const askSelected = () => {
     if (!deckId || selected.size === 0) return;
-    chat(
-      { kind: 'cards', deckId, cardIds: [...selected] },
-      { placeholder: 'Compare these…' },
-    );
+    chat({ kind: 'cards', deckId, cardIds: [...selected] }, { placeholder: 'Compare these…' });
     exitCompare();
   };
 
@@ -174,7 +170,10 @@ export default function DeckPage() {
       {/* ── Header — tight, structured, clear hierarchy ── */}
       <div className="mb-6">
         {/* Back link */}
-        <Link to="/history" className="inline-flex items-center gap-1 text-[12px] font-medium text-muted hover:text-primary-ink transition-colors">
+        <Link
+          to="/history"
+          className="inline-flex items-center gap-1 text-[12px] font-medium text-muted hover:text-primary-ink transition-colors"
+        >
           <ArrowLeft className="h-3 w-3" />
           Back
         </Link>
@@ -196,9 +195,11 @@ export default function DeckPage() {
             {market.data?.scopeDefinition && (
               <p className="mt-0.5 text-[12px] text-faint">
                 {[
-                  all.filter(c => c.card.cardType === 'company').length + ' companies',
+                  all.filter((c) => c.card.cardType === 'company').length + ' companies',
                   market.data.scopeDefinition.geography,
-                ].filter(Boolean).join(' · ')}
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
               </p>
             )}
           </div>
@@ -210,11 +211,7 @@ export default function DeckPage() {
               className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
               disabled={!deckId}
               onClick={() =>
-                deckId &&
-                chat(
-                  { kind: 'deck', deckId },
-                  { placeholder: 'Ask about this market…' },
-                )
+                deckId && chat({ kind: 'deck', deckId }, { placeholder: 'Ask about this market…' })
               }
             >
               <MessagesSquare className="h-3.5 w-3.5" />
@@ -236,7 +233,7 @@ export default function DeckPage() {
             <Link
               to={`/markets/${marketId}/briefing`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-              title="The Daily Briefing — the desk hunts the last 24h across every tracked company and unboxes it as an editorial report"
+              title="Generate a cited update across every tracked company"
             >
               <Newspaper className="h-3.5 w-3.5" />
               Briefing
@@ -291,260 +288,290 @@ export default function DeckPage() {
               </button>
             )}
             <SettingsLink className="btn-ghost">Data safety</SettingsLink>
-            <Link to="/history" className="btn-ghost">All decks</Link>
+            <Link to="/history" className="btn-ghost">
+              All decks
+            </Link>
           </div>
         </div>
       )}
 
       {!deckMissing && (
-            <QueryBoundary
-        query={cards}
-        loading={<CardGridSkeleton />}
-        isEmpty={(list) => list.length === 0}
-        empty={
-          isRunning ? (
-            <div className="panel mx-auto max-w-xl p-8 text-center glow-border my-6">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <Radar className="h-6 w-6 animate-pulse text-primary" />
-              </div>
-              <h2 className="mt-4 font-display text-xl font-semibold text-content">
-                Sentinel Cloud Agent is researching this market
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-muted">
-                Running multi-vector discovery, 24/7 web scraping, and CourtListener legal monitors. Verified company cards and proxy estimates will appear automatically as they are built.
-              </p>
-              <div className="mt-6 flex items-center justify-center gap-2 text-xs text-primary font-medium">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Streaming live updates…</span>
-              </div>
-            </div>
-          ) : isPartial ? (
-            <div className="panel mx-auto max-w-xl p-8 text-center glow-border my-6">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <Radar className="h-6 w-6 animate-pulse text-primary" />
-              </div>
-              <h2 className="mt-4 font-display text-xl font-semibold text-content">
-                Research in progress — partial results below
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-muted">
-                More cards are being added as they are discovered. Partial cards are marked incomplete.
-              </p>
-              <div className="mt-6 flex items-center justify-center gap-2 text-xs text-primary font-medium">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Streaming live updates…</span>
-              </div>
-            </div>
-          ) : isRefreshing ? (
-            <div className="panel mx-auto max-w-xl p-8 text-center border-teal-200 bg-teal-50 my-6 dark:border-teal-800 dark:bg-teal-950/50">
-              <RefreshCw className="mx-auto h-8 w-8 text-teal-600 animate-spin" />
-              <h2 className="mt-3 font-display text-xl font-semibold text-teal-800 dark:text-teal-200">
-                Refreshing deck…
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-muted">
-                Delta research is running. Your existing cards remain visible while new discoveries are added.
-              </p>
-            </div>
-          ) : isStale ? (
-            <div className="panel mx-auto max-w-xl p-8 text-center border-amber-200 bg-amber-50 my-6 dark:border-amber-800 dark:bg-amber-950/50">
-              <AlertCircle className="mx-auto h-8 w-8 text-amber-600" />
-              <h2 className="mt-3 font-display text-xl font-semibold text-amber-800 dark:text-amber-200">
-                Last refresh failed — showing previous results
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-muted">
-                {deckError || 'The refresh did not complete. The deck below is the last successful snapshot.'}
-                {lastSyncedAt && (
-                  <span className="block mt-1 text-xs text-faint">
-                    Last synced: {new Date(lastSyncedAt).toLocaleString()}{deckRevision ? ` · Revision ${deckRevision}` : ''}
-                  </span>
-                )}
-              </p>
-              <div className="mt-5 flex justify-center gap-2">
-                {marketId && (
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    disabled={refreshDeck.isPending}
-                    onClick={() => refreshDeck.mutate(marketId)}
-                  >
-                    <RefreshCw className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
-                    Retry refresh
-                  </button>
-                )}
-              </div>
-            </div>
-          ) : isFailed ? (
-            <div className="panel mx-auto max-w-xl p-8 text-center border-negative/30 bg-negative/5 my-6">
-              <AlertCircle className="mx-auto h-8 w-8 text-negative" />
-              <h2 className="mt-3 font-display text-xl font-semibold text-negative">
-                Research failed
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-muted">
-                {deckError || 'The research run failed or timed out.'}
-              </p>
-              <div className="mt-5 flex justify-center gap-2">
-                {marketId && (
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    disabled={refreshDeck.isPending}
-                    onClick={() => refreshDeck.mutate(marketId)}
-                  >
-                    <RefreshCw className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
-                    Retry research
-                  </button>
-                )}
-              </div>
-            </div>
-          ) : (
-            <EmptyState
-              title="No cards yet"
-              description="Run the research pass to populate this deck with competitive-intelligence cards."
-              icon={<Layers className="h-6 w-6" />}
-              action={
-                <button
-                  type="button"
-                  className="btn-primary mt-2"
-                  disabled={refreshDeck.isPending || !marketId}
-                  onClick={() => marketId && refreshDeck.mutate(marketId)}
-                >
-                  <RefreshCw className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
-                  {refreshDeck.isPending ? 'Researching…' : 'Run research'}
-                </button>
-              }
-            />
-          )
-        }
-      >
-        {(list) => {
-          // Level 2 — Company sub-deck split into 8 tier-decks.
-          if (split === 'company') {
-            return (
-              <section>
-                <TypeNav
-                  cards={list}
-                  active="company"
-                  onSelect={(t) => setSplit(t === 'company' ? {} : (t ? { type: t } : {}))}
-                  split={split}
-                  onToggleSplit={() => setSplit({})}
-                />
-                <p className="mb-4 text-[12px] text-muted">
-                  Companies grouped by maturity tier — T8 giants down to T1 seeds.
-                  <span className="text-faint"> {CARD_TYPE_DESCRIPTIONS.company}</span>
-                </p>
-                <TierSplit cards={list} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} />
-                {/* The deck never hard-stops in this view either. */}
-                <div className="mt-8">
-                  <ExpandPrompt
-                    marketId={marketId}
-                    focus={{}}
-                    label="Hunt for more companies in this market"
-                    compact
-                  />
+        <QueryBoundary
+          query={cards}
+          loading={<CardGridSkeleton />}
+          isEmpty={(list) => list.length === 0}
+          empty={
+            isRunning ? (
+              <div className="panel mx-auto max-w-xl p-8 text-center glow-border my-6">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Radar className="h-6 w-6 animate-pulse text-primary" />
                 </div>
-              </section>
-            );
-          }
-          // Level 1 leaf — a specific non-company sub-deck's cards.
-          if (split === 'types' && typeParam) {
-            const filtered = list.filter((c) => c.card.cardType === typeParam);
-            return (
-              <section>
-                <TypeNav
-                  cards={list}
-                  active={typeParam}
-                  onSelect={(t) => setSplit(t ? { type: t } : {})}
-                  split={split}
-                  onToggleSplit={() => setSplit({ split: 'company' })}
-                />
-                <h2 className="mb-1 font-display text-lg text-content">
-                  {CARD_TYPE_LABELS[typeParam]} — {filtered.length} card
-                  {filtered.length === 1 ? '' : 's'}
+                <h2 className="mt-4 font-display text-xl font-semibold text-content">
+                  Sentinel Cloud Agent is researching this market
                 </h2>
-                <p className="mb-3 text-[12px] text-faint">{CARD_TYPE_DESCRIPTIONS[typeParam]}</p>
-                {filtered.length > 0 ? (
-                  <CardGrid cards={filtered} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} />
-                ) : (
-                  <ExpandPrompt marketId={marketId} focus={{ cardType: typeParam }} label={`Hunt for ${CARD_TYPE_LABELS[typeParam].toLowerCase()} players in this market`} />
-                )}
-              </section>
-            );
-          }
-          // Level 1 — six card-type sub-decks.
-          if (split === 'types') {
-            return (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {VISIBLE_CARD_TYPE_ORDER.map((t) => (
-                  <SubDeckTile
-                    key={t}
-                    type={t}
-                    count={countByType.get(t) ?? 0}
-                    onClick={() =>
-                      t === 'company' ? setSplit({ split: 'company' }) : setSplit({ split: 'types', type: t })
-                    }
-                  />
-                ))}
+                <p className="mt-2 text-sm leading-relaxed text-muted">
+                  Running multi-vector discovery, 24/7 web scraping, and CourtListener legal
+                  monitors. Verified company cards and proxy estimates will appear automatically as
+                  they are built.
+                </p>
+                <div className="mt-6 flex items-center justify-center gap-2 text-xs text-primary font-medium">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Streaming live updates…</span>
+                </div>
               </div>
-            );
-          }
-          // Level 0 — show company cards by default (the primary view).
-          // Other types are accessible via the category nav.
-          const defaultType: CardType = typeParam ?? 'company';
-          const filtered = list.filter((c) => c.card.cardType === defaultType);
-          return (
-            <section>
-              <TypeNav
-                cards={list}
-                active={defaultType}
-                onSelect={(t) => setSplit(t ? { type: t } : {})}
-                split={split}
-                onToggleSplit={() => setSplit(split === 'company' ? {} : { split: 'company' })}
-              />
-              <div className="mb-4">
-                <p className="text-[12px] text-muted">
-                  {filtered.length} {cardCountNoun(defaultType, filtered.length)}
-                  <span className="text-faint"> — {CARD_TYPE_DESCRIPTIONS[defaultType]}</span>
+            ) : isPartial ? (
+              <div className="panel mx-auto max-w-xl p-8 text-center glow-border my-6">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Radar className="h-6 w-6 animate-pulse text-primary" />
+                </div>
+                <h2 className="mt-4 font-display text-xl font-semibold text-content">
+                  Research in progress — partial results below
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-muted">
+                  More cards are being added as they are discovered. Partial cards are marked
+                  incomplete.
+                </p>
+                <div className="mt-6 flex items-center justify-center gap-2 text-xs text-primary font-medium">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Streaming live updates…</span>
+                </div>
+              </div>
+            ) : isRefreshing ? (
+              <div className="panel mx-auto max-w-xl p-8 text-center border-teal-200 bg-teal-50 my-6 dark:border-teal-800 dark:bg-teal-950/50">
+                <RefreshCw className="mx-auto h-8 w-8 text-teal-600 animate-spin" />
+                <h2 className="mt-3 font-display text-xl font-semibold text-teal-800 dark:text-teal-200">
+                  Refreshing deck…
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-muted">
+                  Delta research is running. Your existing cards remain visible while new
+                  discoveries are added.
                 </p>
               </div>
-              {filtered.length > 0 ? (
-                <>
-                  <CardGrid
-                    cards={filtered}
+            ) : isStale ? (
+              <div className="panel mx-auto max-w-xl p-8 text-center border-amber-200 bg-amber-50 my-6 dark:border-amber-800 dark:bg-amber-950/50">
+                <AlertCircle className="mx-auto h-8 w-8 text-amber-600" />
+                <h2 className="mt-3 font-display text-xl font-semibold text-amber-800 dark:text-amber-200">
+                  Last refresh failed — showing previous results
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-muted">
+                  {deckError ||
+                    'The refresh did not complete. The deck below is the last successful snapshot.'}
+                  {lastSyncedAt && (
+                    <span className="block mt-1 text-xs text-faint">
+                      Last synced: {new Date(lastSyncedAt).toLocaleString()}
+                      {deckRevision ? ` · Revision ${deckRevision}` : ''}
+                    </span>
+                  )}
+                </p>
+                <div className="mt-5 flex justify-center gap-2">
+                  {marketId && (
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={refreshDeck.isPending}
+                      onClick={() => refreshDeck.mutate(marketId)}
+                    >
+                      <RefreshCw
+                        className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`}
+                      />
+                      Retry refresh
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : isFailed ? (
+              <div className="panel mx-auto max-w-xl p-8 text-center border-negative/30 bg-negative/5 my-6">
+                <AlertCircle className="mx-auto h-8 w-8 text-negative" />
+                <h2 className="mt-3 font-display text-xl font-semibold text-negative">
+                  Research failed
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-muted">
+                  {deckError || 'The research run failed or timed out.'}
+                </p>
+                <div className="mt-5 flex justify-center gap-2">
+                  {marketId && (
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={refreshDeck.isPending}
+                      onClick={() => refreshDeck.mutate(marketId)}
+                    >
+                      <RefreshCw
+                        className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`}
+                      />
+                      Retry research
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <EmptyState
+                title="No cards yet"
+                description="Run the research pass to populate this deck with competitive-intelligence cards."
+                icon={<Layers className="h-6 w-6" />}
+                action={
+                  <button
+                    type="button"
+                    className="btn-primary mt-2"
+                    disabled={refreshDeck.isPending || !marketId}
+                    onClick={() => marketId && refreshDeck.mutate(marketId)}
+                  >
+                    <RefreshCw
+                      className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`}
+                    />
+                    {refreshDeck.isPending ? 'Researching…' : 'Run research'}
+                  </button>
+                }
+              />
+            )
+          }
+        >
+          {(list) => {
+            // Level 2 — Company sub-deck split into 8 tier-decks.
+            if (split === 'company') {
+              return (
+                <section>
+                  <TypeNav
+                    cards={list}
+                    active="company"
+                    onSelect={(t) => setSplit(t === 'company' ? {} : t ? { type: t } : {})}
+                    split={split}
+                    onToggleSplit={() => setSplit({})}
+                  />
+                  <p className="mb-4 text-[12px] text-muted">
+                    Companies grouped by maturity tier — T8 giants down to T1 seeds.
+                    <span className="text-faint"> {CARD_TYPE_DESCRIPTIONS.company}</span>
+                  </p>
+                  <TierSplit
+                    cards={list}
                     deckUserValues={userValues}
                     marketId={marketId}
                     deckStatus={deckStatus}
-                    selectable={compare}
-                    selected={selected}
-                    onToggle={toggleSelected}
                   />
-                  {/* The deck never "just stops": hunting more of this type is always one click. */}
-                  <div className="mt-6">
+                  {/* The deck never hard-stops in this view either. */}
+                  <div className="mt-8">
                     <ExpandPrompt
                       marketId={marketId}
-                      focus={typeParam ? { cardType: typeParam } : {}}
-                      label={
-                        typeParam
-                          ? `Hunt for more ${CARD_TYPE_LABELS[typeParam].toLowerCase()} players`
-                          : 'Hunt for more companies in this market'
-                      }
+                      focus={{}}
+                      label="Hunt for more companies in this market"
                       compact
                     />
                   </div>
-                </>
-              ) : (
-                <ExpandPrompt
-                  marketId={marketId}
-                  focus={typeParam ? { cardType: typeParam } : {}}
-                  label={
-                    typeParam
-                      ? `Hunt for ${CARD_TYPE_LABELS[typeParam].toLowerCase()} cards in this market`
-                      : 'Hunt for more companies in this market'
-                  }
+                </section>
+              );
+            }
+            // Level 1 leaf — a specific non-company sub-deck's cards.
+            if (split === 'types' && typeParam) {
+              const filtered = list.filter((c) => c.card.cardType === typeParam);
+              return (
+                <section>
+                  <TypeNav
+                    cards={list}
+                    active={typeParam}
+                    onSelect={(t) => setSplit(t ? { type: t } : {})}
+                    split={split}
+                    onToggleSplit={() => setSplit({ split: 'company' })}
+                  />
+                  <h2 className="mb-1 font-display text-lg text-content">
+                    {CARD_TYPE_LABELS[typeParam]} — {filtered.length} card
+                    {filtered.length === 1 ? '' : 's'}
+                  </h2>
+                  <p className="mb-3 text-[12px] text-faint">{CARD_TYPE_DESCRIPTIONS[typeParam]}</p>
+                  {filtered.length > 0 ? (
+                    <CardGrid
+                      cards={filtered}
+                      deckUserValues={userValues}
+                      marketId={marketId}
+                      deckStatus={deckStatus}
+                    />
+                  ) : (
+                    <ExpandPrompt
+                      marketId={marketId}
+                      focus={{ cardType: typeParam }}
+                      label={`Hunt for ${CARD_TYPE_LABELS[typeParam].toLowerCase()} players in this market`}
+                    />
+                  )}
+                </section>
+              );
+            }
+            // Level 1 — six card-type sub-decks.
+            if (split === 'types') {
+              return (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {VISIBLE_CARD_TYPE_ORDER.map((t) => (
+                    <SubDeckTile
+                      key={t}
+                      type={t}
+                      count={countByType.get(t) ?? 0}
+                      onClick={() =>
+                        t === 'company'
+                          ? setSplit({ split: 'company' })
+                          : setSplit({ split: 'types', type: t })
+                      }
+                    />
+                  ))}
+                </div>
+              );
+            }
+            // Level 0 — show company cards by default (the primary view).
+            // Other types are accessible via the category nav.
+            const defaultType: CardType = typeParam ?? 'company';
+            const filtered = list.filter((c) => c.card.cardType === defaultType);
+            return (
+              <section>
+                <TypeNav
+                  cards={list}
+                  active={defaultType}
+                  onSelect={(t) => setSplit(t ? { type: t } : {})}
+                  split={split}
+                  onToggleSplit={() => setSplit(split === 'company' ? {} : { split: 'company' })}
                 />
-              )}
-            </section>
-          );
-        }}
-      </QueryBoundary>
+                <div className="mb-4">
+                  <p className="text-[12px] text-muted">
+                    {filtered.length} {cardCountNoun(defaultType, filtered.length)}
+                    <span className="text-faint"> — {CARD_TYPE_DESCRIPTIONS[defaultType]}</span>
+                  </p>
+                </div>
+                {filtered.length > 0 ? (
+                  <>
+                    <CardGrid
+                      cards={filtered}
+                      deckUserValues={userValues}
+                      marketId={marketId}
+                      deckStatus={deckStatus}
+                      selectable={compare}
+                      selected={selected}
+                      onToggle={toggleSelected}
+                    />
+                    {/* The deck never "just stops": hunting more of this type is always one click. */}
+                    <div className="mt-6">
+                      <ExpandPrompt
+                        marketId={marketId}
+                        focus={typeParam ? { cardType: typeParam } : {}}
+                        label={
+                          typeParam
+                            ? `Hunt for more ${CARD_TYPE_LABELS[typeParam].toLowerCase()} players`
+                            : 'Hunt for more companies in this market'
+                        }
+                        compact
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <ExpandPrompt
+                    marketId={marketId}
+                    focus={typeParam ? { cardType: typeParam } : {}}
+                    label={
+                      typeParam
+                        ? `Hunt for ${CARD_TYPE_LABELS[typeParam].toLowerCase()} cards in this market`
+                        : 'Hunt for more companies in this market'
+                    }
+                  />
+                )}
+              </section>
+            );
+          }}
+        </QueryBoundary>
       )}
 
       {/* Compare mode action bar */}
@@ -626,7 +653,9 @@ function MoreMenu({
               setOpen(false);
             }}
           >
-            <RefreshCw className={`h-4 w-4 text-muted ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`h-4 w-4 text-muted ${refreshDeck.isPending ? 'animate-spin' : ''}`}
+            />
             {refreshDeck.isPending ? 'Refreshing…' : 'Refresh deck'}
           </button>
           <Link
@@ -651,7 +680,6 @@ function MoreMenu({
   );
 }
 
-
 function SubDeckTile({
   type,
   count,
@@ -668,7 +696,9 @@ function SubDeckTile({
       className="panel group flex flex-col p-5 text-left transition-colors hover:border-primary/50 hover:bg-surface-2"
     >
       <div className="flex items-center justify-between">
-        <h3 className="font-display text-lg font-semibold text-content">{CARD_TYPE_LABELS[type]}</h3>
+        <h3 className="font-display text-lg font-semibold text-content">
+          {CARD_TYPE_LABELS[type]}
+        </h3>
         <span className="chip border-border text-muted">{count}</span>
       </div>
       <p className="mt-2 text-sm text-muted">{CARD_TYPE_DESCRIPTIONS[type]}</p>
@@ -814,13 +844,16 @@ function ExpandPrompt({
     );
   }
   return (
-    <div className={cn('flex flex-wrap items-center gap-3', compact ? 'justify-center py-1' : 'py-3')}>
+    <div
+      className={cn('flex flex-wrap items-center gap-3', compact ? 'justify-center py-1' : 'py-3')}
+    >
       {!compact && <p className="text-sm text-muted">Nothing surfaced in the first pass.</p>}
       <button
         type="button"
         className={cn(
           'btn-ghost text-sm',
-          mine?.status === 'running' && 'animate-pulse border-primary/60 bg-primary/5 text-primary-ink',
+          mine?.status === 'running' &&
+            'animate-pulse border-primary/60 bg-primary/5 text-primary-ink',
           mine?.status === 'queued' && 'border-primary/30 text-primary-ink',
         )}
         disabled={mine?.status === 'queued' || mine?.status === 'running' || !marketId}
@@ -835,7 +868,9 @@ function ExpandPrompt({
             : label}
       </button>
       {mine?.status === 'done' && mine.added === 0 && (
-        <span className="text-xs text-muted">Search ran — nothing credible found (that’s honest).</span>
+        <span className="text-xs text-muted">
+          Search ran — nothing credible found (that’s honest).
+        </span>
       )}
       {mine?.status === 'failed' && (
         <span className="text-xs text-negative">Hunt failed — try again.</span>
@@ -874,7 +909,12 @@ function TierSplit({
               <span className="ml-auto chip border-border text-muted">{group.length}</span>
             </div>
             {group.length > 0 ? (
-              <CardGrid cards={group} deckUserValues={deckUserValues} marketId={marketId} deckStatus={deckStatus} />
+              <CardGrid
+                cards={group}
+                deckUserValues={deckUserValues}
+                marketId={marketId}
+                deckStatus={deckStatus}
+              />
             ) : (
               <ExpandPrompt
                 marketId={marketId}

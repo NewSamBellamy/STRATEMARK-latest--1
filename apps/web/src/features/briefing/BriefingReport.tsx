@@ -1,9 +1,7 @@
 /**
  * The Daily Briefing, opened — an editorial one-pager in the paper-of-record
- * register: masthead, lede, high-signal features with card art, a compact
- * "also notable" wire, and the desk's read on what it all means. The same
- * component renders for the owner (generated covers, dashboard links) and
- * for share-link recipients (deterministic covers, AI layer removed).
+ * register: masthead, lede, high-signal features with deterministic editorial
+ * covers, a compact "also notable" wire, and sourced takeaways.
  *
  * "Download PDF" is the browser's print pipeline scoped to this element —
  * high-fidelity, zero dependencies.
@@ -11,7 +9,6 @@
 import { Link } from 'react-router-dom';
 import { Activity, CalendarDays, ExternalLink, Printer, Radio } from 'lucide-react';
 import { publisherOf } from '@mi/contracts';
-import { AiCover } from '@/components/media/AiCover';
 import { EditorialCover } from '@/components/media/EditorialCover';
 import { printScoped } from '@/lib/print';
 import { isDirectSource, sourceHref } from '@/lib/sourceHref';
@@ -36,32 +33,9 @@ export interface BriefingView {
   insights: string[];
 }
 
-function Cover({
-  update,
-  marketName,
-  shared,
-  compact,
-}: {
-  update: BriefingViewUpdate;
-  marketName: string;
-  shared: boolean;
-  compact?: boolean;
-}) {
+function Cover({ update, compact }: { update: BriefingViewUpdate; compact?: boolean }) {
   const url = update.citations[0]?.url ?? '';
-  if (shared) {
-    // Recipient view: the AI layer is removed — deterministic cover only.
-    return <EditorialCover title={update.oneLiner} url={url} source="news" compact={compact} />;
-  }
-  return (
-    <AiCover
-      cacheKey={`briefing:${marketName}:${update.companyName}:${update.oneLiner.slice(0, 60)}`}
-      title={`${update.companyName} — ${update.oneLiner}`}
-      context={`News illustration for a market-intelligence briefing. ${update.oneLiner} ${update.detail}`}
-      url={url}
-      source="news"
-      compact={compact}
-    />
-  );
+  return <EditorialCover title={update.oneLiner} url={url} source="news" compact={compact} />;
 }
 
 function SourceLinks({ citations }: { citations: Array<{ title: string; url: string }> }) {
@@ -105,7 +79,6 @@ export function BriefingReport({
     day: 'numeric',
     year: 'numeric',
   });
-
 
   const CompanyTag = ({ u }: { u: BriefingViewUpdate }) =>
     !shared && u.companyId ? (
@@ -178,13 +151,15 @@ export function BriefingReport({
               <div key={i} className="panel overflow-hidden p-0">
                 <div className="grid sm:grid-cols-[240px_1fr]">
                   <div className="h-[150px] sm:h-full">
-                    <Cover update={u} marketName={view.marketName} shared={shared} />
+                    <Cover update={u} />
                   </div>
                   <div className="p-5">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                       <CompanyTag u={u} />
                       {u.publishedDate && (
-                        <span className="text-[11px] tabular-nums text-faint">{u.publishedDate}</span>
+                        <span className="text-[11px] tabular-nums text-faint">
+                          {u.publishedDate}
+                        </span>
                       )}
                     </div>
                     <h3 className="mt-1.5 font-display text-[17px] font-semibold leading-snug text-content">
@@ -212,7 +187,7 @@ export function BriefingReport({
             {notables.map((u, i) => (
               <li key={i} className="flex items-start gap-3.5 p-4">
                 <span className="hidden h-[56px] w-[88px] shrink-0 overflow-hidden rounded-lg border border-border sm:block">
-                  <Cover update={u} marketName={view.marketName} shared={shared} compact />
+                  <Cover update={u} compact />
                 </span>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -241,11 +216,11 @@ export function BriefingReport({
         </p>
       )}
 
-      {/* ── The desk's read ── */}
+      {/* ── Sourced takeaways ── */}
       {view.insights.length > 0 && (
         <section className="mt-8 rounded-xl border border-border bg-surface-2/60 p-5">
           <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted">
-            What the desk thinks
+            Analyst takeaways
           </h2>
           <ol className="space-y-2.5">
             {view.insights.map((s, i) => (

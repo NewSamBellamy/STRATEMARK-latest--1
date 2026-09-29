@@ -60,15 +60,11 @@ export default function MarketSettingsPage() {
                   ))}
                 </select>
                 <p className="mt-2 max-w-md text-[11px] leading-relaxed text-faint">
-                  This cadence drives the Deck Sentinel: once you've unboxed this deck's first
-                  briefing, the Sentinel runs the next one automatically whenever the app is open
-                  past its due time. True background delivery (Telegram, email) ships with Pro
-                  cloud.
+                  Stratemark checks whether this deck is due whenever the desktop app is open.
                 </p>
                 <p className="mt-2 text-xs text-muted">
-                  Auto-refresh runs when the app is open: shortly after launch if the interval has
-                  elapsed, then on a periodic check — one deck at a time to respect free-tier
-                  quotas. You can always refresh manually.
+                  Refreshes run one deck at a time to respect Gemini quotas. You can always refresh
+                  manually.
                 </p>
               </div>
 

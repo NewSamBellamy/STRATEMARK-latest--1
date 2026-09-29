@@ -4,32 +4,29 @@
  * Three honest states:
  *   1. GATED — the deck is still forming; the briefing waits (with a real
  *      progress count) rather than digesting skeletons into prose.
- *   2. READY — one click sends the desk out over the last N hours; the result
- *      arrives as a sealed pack (the unboxing) before opening into the report.
- *   3. ARCHIVE — every generated briefing is kept; reopening one replays the
- *      reveal or jumps straight to the editorial page. Sharing rides the
+ *   2. READY — one click sends the desk out over the last N hours and opens the
+ *      cited editorial report.
+ *   3. ARCHIVE — every generated briefing is kept. Sharing rides the
  *      existing link codec: the whole briefing + its evidence cards travel
  *      inside the URL, AI layer removed.
  */
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import {
-  ArrowLeft,
-  CheckCircle2,
-  Loader2,
-  Newspaper,
-  RefreshCw,
-  Share2,
-} from 'lucide-react';
+import { ArrowLeft, Loader2, Newspaper, RefreshCw, Share2 } from 'lucide-react';
 import { deckBakedState, type DeckBriefing } from '@mi/contracts';
-import { useCards, useDeckBriefings, useDeckByMarket, useGenerateBriefing, useMarket } from '@/hooks/data';
+import {
+  useCards,
+  useDeckBriefings,
+  useDeckByMarket,
+  useGenerateBriefing,
+  useMarket,
+} from '@/hooks/data';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { SettingsLink } from '@/components/SettingsLink';
 import { buildBriefingShare } from '@/lib/share/codec';
 import { ShareDialog } from '@/features/share/ShareDialog';
 import { cn } from '@/lib/cn';
-import { BriefingUnboxing } from './BriefingUnboxing';
 import { BriefingReport, toBriefingView } from './BriefingReport';
 
 const WINDOWS: Array<{ hours: number; label: string }> = [
@@ -51,17 +48,12 @@ export default function BriefingPage() {
 
   const [windowHours, setWindowHours] = useState(24);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [view, setView] = useState<'auto' | 'unbox' | 'report'>('auto');
 
   const supported = typeof repo.generateDeckBriefing === 'function' && hasKey;
-  const baked = useMemo(
-    () => deckBakedState((cards.data ?? []).map((c) => c.card)),
-    [cards.data],
-  );
+  const baked = useMemo(() => deckBakedState((cards.data ?? []).map((c) => c.card)), [cards.data]);
   const list = briefings.data ?? [];
   const active: DeckBriefing | null =
     (activeId ? list.find((b) => b.id === activeId) : null) ?? list[0] ?? null;
-  const mode: 'unbox' | 'report' = view === 'auto' ? 'report' : view;
 
   const runGenerate = () => {
     if (!marketId) return;
@@ -70,7 +62,6 @@ export default function BriefingPage() {
       {
         onSuccess: (b) => {
           setActiveId(b.id);
-          setView('unbox'); // a fresh briefing always gets its moment
         },
       },
     );
@@ -114,9 +105,7 @@ export default function BriefingPage() {
             real developments across every company in this deck and composes them into an editorial
             report. Connect your Gemini key in Settings to turn it on.
           </p>
-          <SettingsLink className="btn-primary mt-5 inline-flex">
-            Open Settings
-          </SettingsLink>
+          <SettingsLink className="btn-primary mt-5 inline-flex">Open Settings</SettingsLink>
         </div>
       )}
 
@@ -149,14 +138,11 @@ export default function BriefingPage() {
       {/* ── Ready, nothing generated yet ── */}
       {supported && baked.baked && !active && (
         <div className="panel mx-auto max-w-xl p-8 text-center">
-          <CheckCircle2 className="mx-auto h-8 w-8 text-positive" />
-          <h1 className="mt-3 font-display text-xl font-semibold text-content">
-            The deck is fully baked
-          </h1>
+          <Newspaper className="mx-auto h-8 w-8 text-primary-ink" />
+          <h1 className="mt-3 font-display text-xl font-semibold text-content">Daily briefing</h1>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            All {baked.total} cards are formed. Send the desk out over {marketName}: one grounded
-            hunt across every tracked company, composed into today's briefing — and unboxed like it
-            deserves.
+            Choose a time window. Stratemark checks all {baked.total} tracked companies in{' '}
+            {marketName} and composes the cited developments that matter.
           </p>
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
             {WINDOWS.map((w) => (
@@ -187,15 +173,16 @@ export default function BriefingPage() {
             ) : (
               <Newspaper className="h-4 w-4" />
             )}
-            {generate.isPending ? 'The desk is out hunting…' : "Unbox today's briefing"}
+            {generate.isPending ? 'Researching latest changes…' : 'Generate briefing'}
           </button>
           <p className="mt-3 text-[11px] text-faint">
-            Costs one grounded search + one structuring call on your key (typically a fraction of a
-            cent). Article art generates progressively after the reveal.
+            Uses your Gemini key. Only cited updates are saved in the briefing.
           </p>
           {generate.isError && (
             <p className="mt-3 text-[12px] text-negative">
-              {generate.error instanceof Error ? generate.error.message : 'The hunt failed — try again.'}
+              {generate.error instanceof Error
+                ? generate.error.message
+                : 'The hunt failed — try again.'}
             </p>
           )}
         </div>
@@ -204,63 +191,35 @@ export default function BriefingPage() {
       {/* ── A briefing exists ── */}
       {supported && baked.baked && active && (
         <>
-          {mode === 'unbox' ? (
-            <BriefingUnboxing
-              content={{
-                marketName: active.marketName,
-                generatedAt: active.generatedAt,
-                windowHours: active.windowHours,
-                headline: active.headline,
-                highSignal: (active.updates.filter((u) => u.signal === 'high').length > 0
-                  ? active.updates.filter((u) => u.signal === 'high')
-                  : active.updates
-                )
-                  .slice(0, 4)
-                  .map((u) => `${u.companyName}: ${u.oneLiner}`),
-                updateCount: active.updates.length,
-              }}
-              onOpen={() => setView('report')}
-            />
-          ) : (
-            <BriefingReport
-              view={toBriefingView(active)}
-              actions={
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setView('unbox')}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-                    title="Replay the unboxing reveal"
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    Replay
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShareOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-                    title="Share this briefing — the unboxing, the report, and its evidence cards all travel inside the link. AI layer removed."
-                  >
-                    <Share2 className="h-3.5 w-3.5" />
-                    Share
-                  </button>
-                  <button
-                    type="button"
-                    onClick={runGenerate}
-                    disabled={generate.isPending}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-                    title={`Send the desk out again over the last ${windowHours}h (one grounded pass on your key)`}
-                  >
-                    <RefreshCw className={cn('h-3.5 w-3.5', generate.isPending && 'animate-spin')} />
-                    {generate.isPending ? 'Hunting…' : 'New briefing'}
-                  </button>
-                </>
-              }
-            />
-          )}
+          <BriefingReport
+            view={toBriefingView(active)}
+            actions={
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShareOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
+                  title="Share this briefing and its evidence cards"
+                >
+                  <Share2 className="h-3.5 w-3.5" />
+                  Share
+                </button>
+                <button
+                  type="button"
+                  onClick={runGenerate}
+                  disabled={generate.isPending}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
+                  title={`Research the last ${windowHours}h again`}
+                >
+                  <RefreshCw className={cn('h-3.5 w-3.5', generate.isPending && 'animate-spin')} />
+                  {generate.isPending ? 'Researching…' : 'New briefing'}
+                </button>
+              </>
+            }
+          />
 
           {/* Archive — every briefing is kept; the deck accumulates its mornings. */}
-          {list.length > 1 && mode === 'report' && (
+          {list.length > 1 && (
             <div className="brf-no-print mx-auto mt-8 max-w-3xl">
               <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted">
                 Past briefings
@@ -272,7 +231,6 @@ export default function BriefingPage() {
                       type="button"
                       onClick={() => {
                         setActiveId(b.id);
-                        setView('report');
                       }}
                       aria-pressed={active.id === b.id}
                       className={cn(
@@ -296,7 +254,7 @@ export default function BriefingPage() {
         </>
       )}
 
-      {/* The share dialog — packages the briefing + its evidence cards. */}
+      {/* The share dialog packages the briefing and its evidence cards. */}
       <ShareDialog
         open={shareOpen}
         onOpenChange={setShareOpen}

@@ -116,7 +116,7 @@ describe('share codec round-trip', () => {
     expect(blob.length).toBeLessThan(4_000);
   });
 
-  it('a Daily Briefing round-trips: unboxing payload + cards intact', async () => {
+  it('a Daily Briefing round-trips: report payload + cards intact', async () => {
     const briefing = {
       marketName: 'Frontier AI',
       generatedAt: '2026-08-26T14:00:00.000Z',

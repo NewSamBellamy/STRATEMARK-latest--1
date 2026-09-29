@@ -3,11 +3,24 @@ import { isDirectSource, sourceHref } from '@/lib/sourceHref';
 import { Link, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowDown, ArrowLeft, ArrowUp, Download, ExternalLink, Presentation, Printer, Share2 } from 'lucide-react';
-import { TIER_LABELS, type CardWithCompany, type MaturityTier, type MetricType } from '@mi/contracts';
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  Download,
+  ExternalLink,
+  Presentation,
+  Printer,
+  Share2,
+} from 'lucide-react';
+import {
+  TIER_LABELS,
+  type CardWithCompany,
+  type MaturityTier,
+  type MetricType,
+} from '@mi/contracts';
 import { useCards, useReport } from '@/hooks/data';
 import { SiteAuditView } from './SiteAuditView';
-import { AiCover } from '@/components/media/AiCover';
 import { printScoped } from '@/lib/print';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { formatMetricValue, formatRelative } from '@/lib/format';
@@ -60,7 +73,8 @@ function LandscapeTable({ deckId }: { deckId: string }) {
     >
       <span className="inline-flex items-center gap-1">
         {label}
-        {sort.key === k && (sort.dir === 1 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+        {sort.key === k &&
+          (sort.dir === 1 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
       </span>
     </th>
   );
@@ -84,7 +98,10 @@ function LandscapeTable({ deckId }: { deckId: string }) {
           {rows.map((c) => {
             const share = metricValue(c, 'market_share');
             return (
-              <tr key={c.card.id} className="border-b border-border/60 last:border-0 hover:bg-surface-2/60">
+              <tr
+                key={c.card.id}
+                className="border-b border-border/60 last:border-0 hover:bg-surface-2/60"
+              >
                 <td className="px-3 py-2 font-medium text-content">{c.company!.name}</td>
                 <td className="px-3 py-2">
                   {c.card.tier != null && (
@@ -103,25 +120,37 @@ function LandscapeTable({ deckId }: { deckId: string }) {
                   <div className="flex items-center gap-2">
                     <span className="w-12">{share != null ? `${share}%` : '—'}</span>
                     {share != null && (
-                      <span className="h-1.5 w-16 overflow-hidden rounded-full" style={{ background: tint(METRIC_COLORS.market_share, 0.12) }}>
+                      <span
+                        className="h-1.5 w-16 overflow-hidden rounded-full"
+                        style={{ background: tint(METRIC_COLORS.market_share, 0.12) }}
+                      >
                         <span
                           className="block h-full rounded-full"
-                          style={{ width: `${(share / maxShare) * 100}%`, background: METRIC_COLORS.market_share }}
+                          style={{
+                            width: `${(share / maxShare) * 100}%`,
+                            background: METRIC_COLORS.market_share,
+                          }}
                         />
                       </span>
                     )}
                   </div>
                 </td>
-                <td className="px-3 py-2 tabular-nums">{formatMetricValue('arr', metricValue(c, 'arr'))}</td>
+                <td className="px-3 py-2 tabular-nums">
+                  {formatMetricValue('arr', metricValue(c, 'arr'))}
+                </td>
                 <td className="px-3 py-2 tabular-nums">
                   {(() => {
                     const v = c.metrics.find(
-                      (m) => (m.metricType === 'valuation' || m.metricType === 'market_cap') && m.value != null,
+                      (m) =>
+                        (m.metricType === 'valuation' || m.metricType === 'market_cap') &&
+                        m.value != null,
                     );
                     return v ? formatMetricValue(v.metricType, v.value) : 'Unknown';
                   })()}
                 </td>
-                <td className="px-3 py-2 tabular-nums">{formatMetricValue('employees', metricValue(c, 'employees'))}</td>
+                <td className="px-3 py-2 tabular-nums">
+                  {formatMetricValue('employees', metricValue(c, 'employees'))}
+                </td>
               </tr>
             );
           })}
@@ -140,153 +169,170 @@ export default function ReportViewerPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <Link to="/reports" className="brf-no-print mb-4 inline-flex items-center gap-1.5 text-sm text-muted hover:text-content">
+      <Link
+        to="/reports"
+        className="brf-no-print mb-4 inline-flex items-center gap-1.5 text-sm text-muted hover:text-content"
+      >
         <ArrowLeft className="h-4 w-4" />
         Reports
       </Link>
 
       <QueryBoundary query={report}>
         {(r) => {
-          if (r.kind === 'site_audit' && r.audit) return <SiteAuditView report={r} audit={r.audit} />;
+          if (r.kind === 'site_audit' && r.audit)
+            return <SiteAuditView report={r} audit={r.audit} />;
           const markdown = typeof r.markdown === 'string' ? r.markdown : '';
           const citations = Array.isArray(r.citations) ? r.citations : [];
           return (
-          <article className="brf-print-root panel p-6">
-            <header className="mb-4 border-y-[3px] border-double border-content/70 py-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-muted">
-                  Stratemark · {r.kind === 'deck' ? 'Market Report' : 'Company Report'}
-                </p>
-                <h1 className="mt-1 font-display text-2xl font-bold tracking-tight text-content sm:text-3xl">{r.title}</h1>
-                <p className="mt-1 text-xs text-muted">
-                  Generated {formatRelative(r.createdAt)} · {citations.length} sources
-                </p>
-              </div>
-              <div className="brf-no-print flex flex-wrap gap-2">
-                {r.kind === 'deck' && (
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    disabled={exporting || !deckCards.data?.length}
-                    title="Boss-ready PowerPoint: title, landscape, one slide per key company"
-                    onClick={async () => {
-                      setExporting(true);
-                      try {
-                        await exportDeckPptx({
-                          marketName: r.title.replace(/ — Market Report$/, ''),
-                          cards: deckCards.data ?? [],
-                          thesis: null,
-                        });
-                      } finally {
-                        setExporting(false);
-                      }
-                    }}
-                  >
-                    <Presentation className="h-4 w-4" />
-                    {exporting ? 'Building…' : 'Export .pptx'}
-                  </button>
-                )}
-                <button type="button" className="btn-ghost" onClick={printScoped} title="Print or save as PDF">
-                  <Printer className="h-4 w-4" />
-                  PDF
-                </button>
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  onClick={() => setShareOpen(true)}
-                  title="Share this report as a Stratemark link — the whole report opens in a clean read-only display, no account needed."
-                >
-                  <Share2 className="h-4 w-4" />
-                  Share
-                </button>
-                <ShareDialog
-                  open={shareOpen}
-                  onOpenChange={setShareOpen}
-                  title={r.title}
-                  subtitle={`Stratemark ${r.kind === 'deck' ? 'market report' : 'company report'}`}
-                  build={async () =>
-                    buildReportShare(
-                      {
-                        title: r.title,
-                        kind: r.kind,
-                        markdown,
-                        citations,
-                        createdAt: r.createdAt,
-                      },
-                      r.kind === 'deck' ? r.title.replace(/ — Market Report$/, '') : null,
-                      (deckCards.data ?? []).filter((c) => c.card.cardType === 'company').slice(0, 3),
-                    )
-                  }
-                />
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  onClick={() => {
-                    const blob = new Blob([`# ${r.title}\n\n${markdown}`], {
-                      type: 'text/markdown',
-                    });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${r.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.md`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}
-                >
-                  <Download className="h-4 w-4" />
-                  .md
-                </button>
-              </div>
-              </div>
-            </header>
-
-            {/* The report's face: generated from ITS OWN title + evidence, so a
-                wall of text opens with an image instead (owner-key only;
-                designed fallback otherwise). */}
-            <div className="mb-5 h-[160px] overflow-hidden rounded-xl border border-border">
-              <AiCover
-                cacheKey={`report:${r.id}`}
-                title={r.title}
-                context={`Editorial cover illustration for a market-intelligence report titled "${r.title}". ${(r.evidenceDigest ?? markdown).slice(0, 240)}`}
-                url={citations[0]?.url ?? ''}
-                source="news"
-              />
-            </div>
-
-            {r.kind === 'deck' && <LandscapeTable deckId={r.subjectId} />}
-
-            <div className="markdown">
-              {/* Strip a leading H1 if the model repeated the title — the header above owns it. */}
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {markdown.replace(/^#\s[^\n]*\n+/, '')}
-              </ReactMarkdown>
-            </div>
-
-            {citations.length > 0 && (
-              <footer className="mt-6 border-t border-border pt-4">
-                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-                  Sources ({citations.length})
-                </h2>
-                <ul className="space-y-1.5">
-                  {citations.map((c, i) => (
-                    <li key={i}>
-                      <a
-                        href={sourceHref(c.url, c.title)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-start gap-1.5 text-xs text-primary-ink hover:underline"
-                        title={isDirectSource(c.url) ? 'Read the source' : 'Find the original story'}
+            <article className="brf-print-root panel p-6">
+              <header className="mb-4 border-y-[3px] border-double border-content/70 py-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-muted">
+                      Stratemark · {r.kind === 'deck' ? 'Market Report' : 'Company Report'}
+                    </p>
+                    <h1 className="mt-1 font-display text-2xl font-bold tracking-tight text-content sm:text-3xl">
+                      {r.title}
+                    </h1>
+                    <p className="mt-1 text-xs text-muted">
+                      Generated {formatRelative(r.createdAt)} ·{' '}
+                      {citations.length > 0
+                        ? `${citations.length} ${citations.length === 1 ? 'source' : 'sources'}`
+                        : 'Draft · no sources'}
+                    </p>
+                  </div>
+                  <div className="brf-no-print flex flex-wrap gap-2">
+                    {r.kind === 'deck' && (
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        disabled={exporting || !deckCards.data?.length || citations.length === 0}
+                        title="Boss-ready PowerPoint: title, landscape, one slide per key company"
+                        onClick={async () => {
+                          setExporting(true);
+                          try {
+                            await exportDeckPptx({
+                              marketName: r.title.replace(/ — Market Report$/, ''),
+                              cards: deckCards.data ?? [],
+                              thesis: null,
+                            });
+                          } finally {
+                            setExporting(false);
+                          }
+                        }}
                       >
-                        <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
-                        <span className="line-clamp-1">{c.title || c.url}</span>
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </footer>
-            )}
-          </article>
+                        <Presentation className="h-4 w-4" />
+                        {exporting ? 'Building…' : 'Export .pptx'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={printScoped}
+                      title="Print or save as PDF"
+                    >
+                      <Printer className="h-4 w-4" />
+                      PDF
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() => setShareOpen(true)}
+                      disabled={citations.length === 0}
+                      title={
+                        citations.length > 0
+                          ? 'Share this cited report as a read-only Stratemark link'
+                          : 'Add sources before sharing this draft'
+                      }
+                    >
+                      <Share2 className="h-4 w-4" />
+                      Share
+                    </button>
+                    <ShareDialog
+                      open={shareOpen}
+                      onOpenChange={setShareOpen}
+                      title={r.title}
+                      subtitle={`Stratemark ${r.kind === 'deck' ? 'market report' : 'company report'}`}
+                      build={async () =>
+                        buildReportShare(
+                          {
+                            title: r.title,
+                            kind: r.kind,
+                            markdown,
+                            citations,
+                            createdAt: r.createdAt,
+                          },
+                          r.kind === 'deck' ? r.title.replace(/ — Market Report$/, '') : null,
+                          (deckCards.data ?? [])
+                            .filter((c) => c.card.cardType === 'company')
+                            .slice(0, 3),
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() => {
+                        const blob = new Blob([`# ${r.title}\n\n${markdown}`], {
+                          type: 'text/markdown',
+                        });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${r.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.md`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      <Download className="h-4 w-4" />
+                      .md
+                    </button>
+                  </div>
+                </div>
+              </header>
+
+              {citations.length === 0 && (
+                <div className="mb-5 rounded-xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  <strong>Draft — no sources attached.</strong> Treat this as working notes. Sharing
+                  and presentation export stay disabled until the report has clickable evidence.
+                </div>
+              )}
+
+              {r.kind === 'deck' && <LandscapeTable deckId={r.subjectId} />}
+
+              <div className="markdown">
+                {/* Strip a leading H1 if the model repeated the title — the header above owns it. */}
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {markdown.replace(/^#\s[^\n]*\n+/, '')}
+                </ReactMarkdown>
+              </div>
+
+              {citations.length > 0 && (
+                <footer className="mt-6 border-t border-border pt-4">
+                  <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                    Sources ({citations.length})
+                  </h2>
+                  <ul className="space-y-1.5">
+                    {citations.map((c, i) => (
+                      <li key={i}>
+                        <a
+                          href={sourceHref(c.url, c.title)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-start gap-1.5 text-xs text-primary-ink hover:underline"
+                          title={
+                            isDirectSource(c.url) ? 'Read the source' : 'Find the original story'
+                          }
+                        >
+                          <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
+                          <span className="line-clamp-1">{c.title || c.url}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </footer>
+              )}
+            </article>
           );
         }}
       </QueryBoundary>

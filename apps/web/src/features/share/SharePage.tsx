@@ -19,7 +19,6 @@ import {
 } from '@mi/contracts';
 import { decodeSharePayload, sharedToCardWithCompany, type SharePayload } from '@/lib/share/codec';
 import { GameCard } from '@/features/card/GameCard';
-import { BriefingUnboxing } from '@/features/briefing/BriefingUnboxing';
 import { BriefingReport, type BriefingView } from '@/features/briefing/BriefingReport';
 import { Logo } from '@/features/card/Logo';
 import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
@@ -28,13 +27,7 @@ import { FullPageLoader } from '@/components/states/FullPageLoader';
 import { formatMetricValue } from '@/lib/format';
 
 /** Read-only card reader: evidence only, no AI actions. */
-function SharedReader({
-  data,
-  onClose,
-}: {
-  data: CardWithCompany;
-  onClose: () => void;
-}) {
+function SharedReader({ data, onClose }: { data: CardWithCompany; onClose: () => void }) {
   const { card, company, metrics, viceClaims } = data;
   const title = company?.name ?? card.title ?? 'Card';
   return (
@@ -181,9 +174,8 @@ function SharedReader({
 }
 
 /**
- * A shared Daily Briefing: the recipient gets the full unboxing moment, then
- * the editorial report (deterministic covers — the AI layer never ships in a
- * link), then the evidence cards the briefing stands on.
+ * A shared Daily Briefing: the cited editorial report first, then the evidence
+ * cards it stands on. The AI layer never ships in a link.
  */
 function SharedBriefingView({
   payload,
@@ -193,7 +185,6 @@ function SharedBriefingView({
   cards: CardWithCompany[];
 }) {
   const b = payload.briefing;
-  const [opened, setOpened] = useState(false);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const view: BriefingView = {
     marketName: payload.market ?? 'Market briefing',
@@ -211,59 +202,39 @@ function SharedBriefingView({
       citations: upd.c.map((cit) => ({ title: cit.t, url: cit.u })),
     })),
   };
-  const highs = view.updates.filter((u) => u.signal === 'high');
   return (
     <div className="min-h-screen bg-bg">
       <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
-        {!opened ? (
-          <BriefingUnboxing
-            content={{
-              marketName: view.marketName,
-              generatedAt: view.generatedAt,
-              windowHours: view.windowHours,
-              headline: view.headline,
-              highSignal: (highs.length > 0 ? highs : view.updates)
-                .slice(0, 4)
-                .map((u) => `${u.companyName}: ${u.oneLiner}`),
-              updateCount: view.updates.length,
-            }}
-            ctaLabel="Open the briefing"
-            onOpen={() => setOpened(true)}
-          />
-        ) : (
-          <>
-            <BriefingReport view={view} shared />
-            {cards.length > 0 && (
-              <section className="mx-auto mt-10 max-w-3xl">
-                <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted">
-                  The deck behind this briefing
-                </h2>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {cards.map((c, i) => (
-                    <GameCard key={c.card.id} data={c} hideActions onOpen={() => setOpenIdx(i)} />
-                  ))}
-                </div>
-                {openIdx != null && cards[openIdx] && (
-                  <SharedReader data={cards[openIdx]!} onClose={() => setOpenIdx(null)} />
-                )}
-              </section>
+        <BriefingReport view={view} shared />
+        {cards.length > 0 && (
+          <section className="mx-auto mt-10 max-w-3xl">
+            <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted">
+              The deck behind this briefing
+            </h2>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {cards.map((c, i) => (
+                <GameCard key={c.card.id} data={c} hideActions onOpen={() => setOpenIdx(i)} />
+              ))}
+            </div>
+            {openIdx != null && cards[openIdx] && (
+              <SharedReader data={cards[openIdx]!} onClose={() => setOpenIdx(null)} />
             )}
-            <footer className="mt-10 flex flex-col items-center gap-3 border-t border-border pt-5 text-center text-[11px] leading-relaxed text-faint">
-              <p>
-                Shared from STRATEMARK — a living market-intelligence deck. Every update carries the
-                sources it was grounded in; live verification and the agentic research desk run in
-                the full app.
-              </p>
-              <Link
-                to="/"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-              >
-                <Layers className="h-3.5 w-3.5 text-primary-ink" />
-                Research your own market
-              </Link>
-            </footer>
-          </>
+          </section>
         )}
+        <footer className="mt-10 flex flex-col items-center gap-3 border-t border-border pt-5 text-center text-[11px] leading-relaxed text-faint">
+          <p>
+            Shared from STRATEMARK — a living market-intelligence deck. Every update carries the
+            sources it was grounded in; live verification and the agentic research desk run in the
+            full app.
+          </p>
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
+          >
+            <Layers className="h-3.5 w-3.5 text-primary-ink" />
+            Research your own market
+          </Link>
+        </footer>
       </div>
     </div>
   );

@@ -4,12 +4,10 @@
  * A browser app can't wake itself at 6 AM, but it CAN settle its debts on
  * arrival: when the app opens (and once an hour while it stays open), the
  * Sentinel checks every deck's refresh cadence and runs the ONE most overdue
- * Daily Briefing. True background delivery (Telegram, email) ships with the
- * Pro cloud tier; this is the same schedule honored the moment you show up.
+ * Daily Briefing. This schedule is honored while the local app is open.
  *
  * Consent + cost rules:
- *  - A deck only auto-briefs after its FIRST briefing was run by hand — the
- *    manual unboxing is the opt-in for that deck's schedule.
+ *  - A deck only auto-briefs after its first briefing was run by hand.
  *  - At most one auto-briefing per check (gentle on the rate limiter).
  *  - LOW POWER MODE (spending cap) pauses the Sentinel entirely.
  */
