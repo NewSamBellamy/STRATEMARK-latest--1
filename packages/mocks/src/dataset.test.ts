@@ -163,4 +163,15 @@ describe('MockRepository conforms to the interface behavior', () => {
     const updated = await repo.updateMarketCadence(market.id, 'twice_daily');
     expect(updated.refreshCadence).toBe('twice_daily');
   });
+
+  it('never fabricates a research answer when no live engine is connected', async () => {
+    const repo = new MockRepository();
+    await expect(
+      repo.askResearch({
+        scope: { kind: 'deck', deckId: 'sample' },
+        question: 'Who is winning?',
+      }),
+    ).rejects.toThrow(/Gemini API key/i);
+    expect(await repo.listResearchThreads()).toEqual([]);
+  });
 });

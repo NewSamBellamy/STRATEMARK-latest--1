@@ -126,7 +126,7 @@ export default function DeckPage() {
     setSelected(new Set());
   };
   const askSelected = () => {
-    if (!deckId || selected.size === 0) return;
+    if (!deckId || selected.size < 2) return;
     chat({ kind: 'cards', deckId, cardIds: [...selected] }, { placeholder: 'Compare these…' });
     exitCompare();
   };
@@ -583,7 +583,7 @@ export default function DeckPage() {
           <button
             type="button"
             className="btn-primary px-3.5 py-1.5 text-sm"
-            disabled={selected.size === 0}
+            disabled={selected.size < 2}
             onClick={askSelected}
           >
             <MessagesSquare className="h-4 w-4" />

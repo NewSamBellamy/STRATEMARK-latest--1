@@ -539,59 +539,19 @@ export class MockRepository implements MarketIntelRepository {
   }
 
   // Research conversations ---------------------------------------------------
-  // The demo build has no key, so it cannot run a grounded conversation. It
-  // still implements the interface: threads persist, and the assistant reply is
-  // an honest statement of what's missing — never a fabricated research answer.
-  private threads: ResearchThread[] = [];
-
-  askResearch(input: AskResearchInput): Promise<ResearchThread> {
-    const now = new Date().toISOString();
-    const rid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    let thread = input.threadId ? this.threads.find((t) => t.id === input.threadId) : undefined;
-    if (!thread) {
-      if (!input.scope) return Promise.reject(new Error('A new research thread needs a scope.'));
-      thread = {
-        id: `thr_${rid()}`,
-        scope: input.scope,
-        title: input.question.length > 76 ? `${input.question.slice(0, 76)}…` : input.question,
-        messages: [],
-        reportId: null,
-        createdAt: now,
-        updatedAt: now,
-      };
-      this.threads = [thread, ...this.threads];
-    }
-    thread.messages.push({
-      id: `msg_${rid()}`,
-      role: 'user',
-      text: input.question,
-      citations: [],
-      at: now,
-    });
-    thread.messages.push({
-      id: `msg_${rid()}`,
-      role: 'assistant',
-      text: `Research Insight for "${input.question}":\n\nBased on your active research scope, key findings indicate strong market momentum with competitive positioning across primary market leaders. Metrics and citations have been updated.`,
-      citations: [
-        { title: 'Stratemark Intelligence Engine', url: 'https://stratemark.com/research' },
-        { title: 'Market Data Snapshot', url: 'https://stratemark.com/data' },
-      ],
-      at: new Date().toISOString(),
-    });
-    thread.updatedAt = new Date().toISOString();
-    return this.delay({ ...thread, messages: [...thread.messages] });
+  // Sample data is useful for browsing, never for manufacturing an answer.
+  askResearch(_input: AskResearchInput): Promise<ResearchThread> {
+    return Promise.reject(
+      new Error('Connect your Gemini API key in Settings to run grounded research.'),
+    );
   }
 
-  listResearchThreads(filter?: { deckId?: string; companyId?: string }): Promise<ResearchThread[]> {
-    const out = this.threads
-      .filter((t) => (filter?.deckId ? t.scope.deckId === filter.deckId : true))
-      .filter((t) => (filter?.companyId ? t.scope.companyId === filter.companyId : true));
-    return this.delay(out.map((t) => ({ ...t, messages: [...t.messages] })));
+  listResearchThreads(): Promise<ResearchThread[]> {
+    return this.delay([]);
   }
 
-  getResearchThread(id: string): Promise<ResearchThread | null> {
-    const t = this.threads.find((x) => x.id === id);
-    return this.delay(t ? { ...t, messages: [...t.messages] } : null);
+  getResearchThread(_id: string): Promise<ResearchThread | null> {
+    return this.delay(null);
   }
 
   // Live refresh stream -----------------------------------------------------

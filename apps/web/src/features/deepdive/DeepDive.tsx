@@ -9,7 +9,15 @@
  * Grounding contract (non-negotiable): answers come from the deck's stored
  * research plus a fresh Google Search — never from model memory.
  */
-import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -19,6 +27,7 @@ import {
   ExternalLink,
   FilePlus2,
   FileText,
+  KeyRound,
   Layers,
   MessageCircle,
   PanelRight,
@@ -27,12 +36,21 @@ import {
   Paperclip,
   MessagesSquare,
 } from 'lucide-react';
-import { publisherOf, type Citation, type DeepDiveInput, type ResearchScope, type ResearchThread } from '@mi/contracts';
+import {
+  publisherOf,
+  type Citation,
+  type DeepDiveInput,
+  type ResearchScope,
+  type ResearchThread,
+} from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useCards, useCompany, useReports } from '@/hooks/data';
 import { cn } from '@/lib/cn';
 import { MicButton } from '@/components/ui/MicButton';
 import { Logo } from '@/features/card/Logo';
+import { SettingsLink } from '@/components/SettingsLink';
+import { useApiKey } from '@/lib/settings/apiKey';
+import { isCommunityDesktop } from '@/lib/settings/runtime';
 
 type PanelMode = 'locked' | 'floating';
 
@@ -83,7 +101,9 @@ function useIsDesktop(): boolean {
 }
 
 function useCurrentRoute(): { isStartingPage: boolean } {
-  const [hash, setHash] = useState(() => (typeof window !== 'undefined' ? window.location.hash : ''));
+  const [hash, setHash] = useState(() =>
+    typeof window !== 'undefined' ? window.location.hash : '',
+  );
   useEffect(() => {
     const onHashChange = () => setHash(window.location.hash);
     window.addEventListener('hashchange', onHashChange);
@@ -92,11 +112,7 @@ function useCurrentRoute(): { isStartingPage: boolean } {
 
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const isStart =
-    !hash ||
-    hash === '#/' ||
-    hash.startsWith('#/new') ||
-    path === '/' ||
-    path === '/new';
+    !hash || hash === '#/' || hash.startsWith('#/new') || path === '/' || path === '/new';
 
   return { isStartingPage: isStart };
 }
@@ -234,6 +250,8 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
   const repo = useRepository();
   const qc = useQueryClient();
   const conversational = typeof repo.askResearch === 'function';
+  const hasKey = useApiKey((state) => state.hasKey);
+  const keyRequired = isCommunityDesktop() && !hasKey;
   const { isStartingPage } = useCurrentRoute();
 
   const [openState, setOpenState] = useState(false);
@@ -333,6 +351,10 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
 
   const ask = async (question: string, forScope: ResearchScope | null, threadId?: string) => {
     if (!repo.askResearch) return;
+    if (keyRequired) {
+      setError('Connect your Gemini key in Settings to run grounded research.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -403,7 +425,13 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
             title: input.topic,
             messages: [
               { id: 'q', role: 'user', text: seed, citations: [], at: new Date().toISOString() },
-              { id: 'a', role: 'assistant', text: r.markdown, citations: r.citations, at: new Date().toISOString() },
+              {
+                id: 'a',
+                role: 'assistant',
+                text: r.markdown,
+                citations: r.citations,
+                at: new Date().toISOString(),
+              },
             ],
             reportId: null,
             createdAt: new Date().toISOString(),
@@ -447,7 +475,8 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
       ? `${scope.cardIds?.length ?? 0} selected cards`
       : scope?.kind === 'deck'
         ? 'This deck'
-        : 'Research');
+          : 'Research');
+  const researchTarget = scopeLabel === 'Research' ? 'this question' : scopeLabel.toLowerCase();
   const canConverse = conversational && thread?.id !== 'oneshot';
   const hasAnswer = (thread?.messages ?? []).some((m) => m.role === 'assistant');
 
@@ -455,9 +484,9 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
   const pushWidth = openState && mode === 'locked' && isDesktop ? width : 0;
   const attachedCompanyId =
     openState && scope && (scope.kind === 'company' || scope.kind === 'datapoint')
-      ? scope.companyId ?? null
+      ? (scope.companyId ?? null)
       : null;
-  const attachedCardIds = openState && scope?.kind === 'cards' ? scope.cardIds ?? [] : [];
+  const attachedCardIds = openState && scope?.kind === 'cards' ? (scope.cardIds ?? []) : [];
 
   return (
     <DeepDiveContext.Provider
@@ -537,7 +566,11 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
               aria-label={mode === 'locked' ? 'Float panel' : 'Dock panel'}
               title={mode === 'locked' ? 'Float panel (overlay)' : 'Dock panel (locked)'}
             >
-              {mode === 'locked' ? <PictureInPicture2 className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
+              {mode === 'locked' ? (
+                <PictureInPicture2 className="h-4 w-4" />
+              ) : (
+                <PanelRight className="h-4 w-4" />
+              )}
             </button>
             {canConverse && hasAnswer && repo.saveThreadAsReport && !thread?.reportId && (
               <button
@@ -573,7 +606,10 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
 
         {showReportForm && (
           <div className="border-b border-border bg-surface-2 px-4 py-2.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted" htmlFor="report-focus">
+            <label
+              className="text-[10px] font-semibold uppercase tracking-wider text-muted"
+              htmlFor="report-focus"
+            >
               Report focus
             </label>
             <div className="mt-1 flex gap-2">
@@ -584,7 +620,12 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                 value={reportFocus}
                 onChange={(e) => setReportFocus(e.target.value)}
               />
-              <button type="button" className="btn-primary px-2.5 py-1 text-[11px]" onClick={() => void saveReport()} disabled={savingReport}>
+              <button
+                type="button"
+                className="btn-primary px-2.5 py-1 text-[11px]"
+                onClick={() => void saveReport()}
+                disabled={savingReport}
+              >
                 {savingReport ? 'Saving…' : 'Create'}
               </button>
             </div>
@@ -595,11 +636,21 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           {(thread?.messages ?? []).length === 0 && !busy && !error && (
             <div className="flex flex-col items-center justify-center gap-4 py-10 text-center text-muted">
-              <p className="text-[13px]">
-                What would you like to dig into about{' '}
-                <span className="font-medium text-content">{scopeLabel.toLowerCase()}</span>?
-              </p>
-              {conversational && (
+              {keyRequired ? (
+                <>
+                  <KeyRound className="h-5 w-5 text-muted" />
+                  <p className="max-w-xs text-[13px] leading-relaxed">
+                    Connect Gemini to research {researchTarget}. No answer will be generated
+                    without your key.
+                  </p>
+                </>
+              ) : (
+                <p className="text-[13px]">
+                  What would you like to dig into about{' '}
+                  <span className="font-medium text-content">{scopeLabel.toLowerCase()}</span>?
+                </p>
+              )}
+              {conversational && !keyRequired && (
                 <div className="flex max-w-sm flex-wrap justify-center gap-2">
                   {starters.map((q) => (
                     <button
@@ -613,10 +664,12 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                   ))}
                 </div>
               )}
-              <p className="max-w-xs text-[11px] leading-relaxed text-faint">
-                Or type your own below — every answer is grounded in this deck's research plus a
-                fresh search.
-              </p>
+              {!keyRequired && (
+                <p className="max-w-xs text-[11px] leading-relaxed text-faint">
+                  Or type your own below — every answer is grounded in this deck's research plus a
+                  fresh search.
+                </p>
+              )}
             </div>
           )}
 
@@ -648,43 +701,61 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
         </div>
 
         {/* Pinned context — reports/conversations riding along with every question. */}
-        {conversational && (attachedReportIds.length > 0 || attachedThreadIds.length > 0) && (
-          <div className="flex flex-wrap gap-1.5 border-t border-border bg-surface-2/60 px-4 py-2">
-            {attachedReportIds.map((id) => {
-              const r = (reportsQuery.data ?? []).find((x) => x.id === id);
-              return (
-                <span key={id} className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary-ink">
-                  <FileText className="h-3 w-3" />
-                  <span className="max-w-[160px] truncate">{r?.title ?? 'Report'}</span>
-                  <button type="button" aria-label="Detach report" onClick={() => setAttachedReportIds((l) => l.filter((x) => x !== id))}>
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              );
-            })}
-            {attachedThreadIds.map((id) => {
-              const t = (threadsQuery.data ?? []).find((x) => x.id === id);
-              return (
-                <span key={id} className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary-ink">
-                  <MessagesSquare className="h-3 w-3" />
-                  <span className="max-w-[160px] truncate">{t?.title ?? 'Conversation'}</span>
-                  <button type="button" aria-label="Detach conversation" onClick={() => setAttachedThreadIds((l) => l.filter((x) => x !== id))}>
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              );
-            })}
-          </div>
-        )}
+        {conversational &&
+          !keyRequired &&
+          (attachedReportIds.length > 0 || attachedThreadIds.length > 0) && (
+            <div className="flex flex-wrap gap-1.5 border-t border-border bg-surface-2/60 px-4 py-2">
+              {attachedReportIds.map((id) => {
+                const r = (reportsQuery.data ?? []).find((x) => x.id === id);
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary-ink"
+                  >
+                    <FileText className="h-3 w-3" />
+                    <span className="max-w-[160px] truncate">{r?.title ?? 'Report'}</span>
+                    <button
+                      type="button"
+                      aria-label="Detach report"
+                      onClick={() => setAttachedReportIds((l) => l.filter((x) => x !== id))}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                );
+              })}
+              {attachedThreadIds.map((id) => {
+                const t = (threadsQuery.data ?? []).find((x) => x.id === id);
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary-ink"
+                  >
+                    <MessagesSquare className="h-3 w-3" />
+                    <span className="max-w-[160px] truncate">{t?.title ?? 'Conversation'}</span>
+                    <button
+                      type="button"
+                      aria-label="Detach conversation"
+                      onClick={() => setAttachedThreadIds((l) => l.filter((x) => x !== id))}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
 
         {/* Attachment picker */}
-        {conversational && attachOpen && (
+        {conversational && !keyRequired && attachOpen && (
           <div className="max-h-56 overflow-y-auto border-t border-border bg-surface-2/80 px-4 py-3">
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted">
               Attach as grounded context
             </p>
             {(reportsQuery.data ?? []).length === 0 && (threadsQuery.data ?? []).length === 0 && (
-              <p className="text-[12px] text-faint">No reports or conversations yet — generate a report or finish a chat first.</p>
+              <p className="text-[12px] text-faint">
+                No reports or conversations yet — generate a report or finish a chat first.
+              </p>
             )}
             <ul className="space-y-1">
               {(reportsQuery.data ?? []).slice(0, 8).map((r) => {
@@ -694,11 +765,19 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                     <button
                       type="button"
                       className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] transition-colors ${on ? 'bg-primary/10 text-primary-ink' : 'text-content hover:bg-surface'}`}
-                      onClick={() => setAttachedReportIds((l) => (on ? l.filter((x) => x !== r.id) : [...l, r.id].slice(-3)))}
+                      onClick={() =>
+                        setAttachedReportIds((l) =>
+                          on ? l.filter((x) => x !== r.id) : [...l, r.id].slice(-3),
+                        )
+                      }
                     >
                       <FileText className="h-3.5 w-3.5 shrink-0 text-muted" />
                       <span className="truncate">{r.title}</span>
-                      {on && <span className="ml-auto text-[10px] font-semibold uppercase">attached</span>}
+                      {on && (
+                        <span className="ml-auto text-[10px] font-semibold uppercase">
+                          attached
+                        </span>
+                      )}
                     </button>
                   </li>
                 );
@@ -713,11 +792,19 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                       <button
                         type="button"
                         className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] transition-colors ${on ? 'bg-primary/10 text-primary-ink' : 'text-content hover:bg-surface'}`}
-                        onClick={() => setAttachedThreadIds((l) => (on ? l.filter((x) => x !== t.id) : [...l, t.id].slice(-3)))}
+                        onClick={() =>
+                          setAttachedThreadIds((l) =>
+                            on ? l.filter((x) => x !== t.id) : [...l, t.id].slice(-3),
+                          )
+                        }
                       >
                         <MessagesSquare className="h-3.5 w-3.5 shrink-0 text-muted" />
                         <span className="truncate">{t.title}</span>
-                        {on && <span className="ml-auto text-[10px] font-semibold uppercase">attached</span>}
+                        {on && (
+                          <span className="ml-auto text-[10px] font-semibold uppercase">
+                            attached
+                          </span>
+                        )}
                       </button>
                     </li>
                   );
@@ -727,7 +814,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
         )}
 
         {/* Composer */}
-        {conversational && (
+        {conversational && !keyRequired && (
           <form onSubmit={submit} className="border-t border-border px-4 py-3">
             <div className="flex items-end gap-1.5 rounded-2xl border border-border bg-surface-2 px-2 py-1.5">
               <button
@@ -753,7 +840,10 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                   }
                 }}
               />
-              <MicButton onTranscript={(text) => setDraft((d) => (d ? `${d} ${text}` : text))} disabled={busy} />
+              <MicButton
+                onTranscript={(text) => setDraft((d) => (d ? `${d} ${text}` : text))}
+                disabled={busy}
+              />
               <button
                 type="submit"
                 className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary text-primary-fg transition-opacity disabled:opacity-40"
@@ -764,6 +854,14 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
               </button>
             </div>
           </form>
+        )}
+        {conversational && keyRequired && (
+          <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
+            <p className="text-[11px] text-muted">Grounded questions use your Gemini key.</p>
+            <SettingsLink className="btn-primary shrink-0 px-3 py-1.5 text-xs">
+              <KeyRound className="h-3.5 w-3.5" /> Connect Gemini
+            </SettingsLink>
+          </div>
         )}
       </aside>
     </DeepDiveContext.Provider>
@@ -786,7 +884,9 @@ function RefChip({ label, sub, logo }: { label: string; sub?: string | null; log
 function ChipRow({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-surface px-4 py-2">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-faint">In context</span>
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-faint">
+        In context
+      </span>
       {children}
     </div>
   );
@@ -802,7 +902,12 @@ function CompanyChip({ companyId, subject }: { companyId: string; subject: strin
       sub={sub}
       logo={
         company ? (
-          <Logo name={company.name} website={company.websiteUrl} logoUrl={company.logoUrl} className="h-full w-full" />
+          <Logo
+            name={company.name}
+            website={company.websiteUrl}
+            logoUrl={company.logoUrl}
+            className="h-full w-full"
+          />
         ) : undefined
       }
     />
@@ -822,7 +927,12 @@ function CardsChips({ deckId, cardIds }: { deckId: string; cardIds: string[] }) 
           label={c.company?.name ?? c.card.title ?? 'Card'}
           logo={
             c.company ? (
-              <Logo name={c.company.name} website={c.company.websiteUrl} logoUrl={c.company.logoUrl} className="h-full w-full" />
+              <Logo
+                name={c.company.name}
+                website={c.company.websiteUrl}
+                logoUrl={c.company.logoUrl}
+                className="h-full w-full"
+              />
             ) : undefined
           }
         />
@@ -830,7 +940,9 @@ function CardsChips({ deckId, cardIds }: { deckId: string; cardIds: string[] }) 
       {matched.length > shown.length && (
         <span className="text-[11px] text-faint">+{matched.length - shown.length} more</span>
       )}
-      {matched.length === 0 && <span className="text-[11px] text-faint">{cardIds.length} cards</span>}
+      {matched.length === 0 && (
+        <span className="text-[11px] text-faint">{cardIds.length} cards</span>
+      )}
     </ChipRow>
   );
 }

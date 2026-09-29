@@ -20,6 +20,24 @@ test('full journey: markets → deck → 2-level split → card reader → dashb
     .click();
   await expect(page.getByTestId('card-grid')).toBeVisible();
 
+  // Compare requires a real multi-card selection and never fabricates an
+  // answer when the local BYOK engine is not connected.
+  await page.getByRole('button', { name: 'Compare' }).click();
+  await page
+    .getByRole('button', { name: /OpenAI/ })
+    .first()
+    .click();
+  await expect(page.getByRole('button', { name: 'Ask about these' })).toBeDisabled();
+  await page
+    .getByRole('button', { name: /Anthropic/ })
+    .first()
+    .click();
+  await page.getByRole('button', { name: 'Ask about these' }).click();
+  await expect(page.getByText(/No answer will be generated without your key/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: /Connect Gemini/i })).toBeVisible();
+  await expect(page.getByText(/Research Insight for/i)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Close AI panel' }).click();
+
   // Level 1 → company-stage grouping. Recorded stages only appear when the
   // evidence supports them; unsupported rankings stay in an explicit section.
   await page.getByRole('button', { name: /group by stage/i }).click();
