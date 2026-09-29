@@ -2,16 +2,17 @@
  * Usage meter + cost transparency + the spending cap.
  *
  * Trust is the product: the user's key does real billable work (grounded
- * search, structuring, image generation), so the app shows exactly what it
+ * search and structuring), so the app shows exactly what it
  * has been asked to spend — locally counted, nothing leaves the browser —
  * and lets the user set a hard monthly cap. Over the cap the app drops into
- * LOW POWER MODE: autonomous spending (image generation, hunts, warm loops,
+ * LOW POWER MODE: autonomous spending (hunts, warm loops,
  * scheduled briefings) pauses; deliberate manual actions still work so the
  * user is never locked out of their own research.
  *
  * Costs are ESTIMATES from published list prices (the UI says so): grounded
- * calls carry the Google-Search-grounding fee, structuring is cheap flash
- * tokens, images are per-image. Actual billing truth lives in the user's
+ * calls carry the Google-Search-grounding fee and structuring is cheap flash
+ * tokens. Historical image calls remain in the local meter for an honest
+ * total. Actual billing truth lives in the user's
  * Google AI Studio console.
  */
 const KEY = 'mi.usage.v1';
@@ -158,13 +159,11 @@ export function getSpend(): SpendSummary {
 // ---------------------------------------------------------------------------
 
 export interface CostControls {
-  /** Generated imagery on/off — off falls back to the designed covers. */
-  imagesEnabled: boolean;
   /** Monthly estimated-spend cap in USD; null = no cap. */
   monthlyCapUsd: number | null;
 }
 
-const DEFAULT_CONTROLS: CostControls = { imagesEnabled: true, monthlyCapUsd: null };
+const DEFAULT_CONTROLS: CostControls = { monthlyCapUsd: null };
 
 export function getCostControls(): CostControls {
   try {
@@ -183,18 +182,13 @@ export function setCostControls(patch: Partial<CostControls>): void {
 
 /**
  * LOW POWER MODE: true once estimated month-to-date spend meets the cap.
- * Autonomous spenders (images, hunts, warm loops, scheduled briefings) check
+ * Autonomous spenders (hunts, warm loops, scheduled briefings) check
  * this before every call; deliberate manual actions stay available.
  */
 export function isLowPower(): boolean {
   const cap = getCostControls().monthlyCapUsd;
   if (cap == null || cap <= 0) return false;
   return getSpend().estUsd >= cap;
-}
-
-/** True when generated imagery may be produced right now. */
-export function imagesAllowed(): boolean {
-  return getCostControls().imagesEnabled && !isLowPower();
 }
 
 // --- tiny subscription so the UI can live-update without a store dependency ---

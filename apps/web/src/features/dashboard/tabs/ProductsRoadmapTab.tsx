@@ -3,7 +3,6 @@ import { ExternalLink } from 'lucide-react';
 import type { Product, RoadmapItem } from '@mi/contracts';
 import { useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
-import { AiCover } from '@/components/media/AiCover';
 import { Modal } from '@/components/ui/Modal';
 import { InsightReader } from '@/components/reader/InsightReader';
 import { DigDeeper, DigDeeperMenu } from '@/features/deepdive/DeepDive';
@@ -25,9 +24,24 @@ const HORIZONS: {
   accent: string;
   dot: string;
 }[] = [
-  { key: 'now', label: 'Now', accent: 'text-content border-border bg-surface-2/60', dot: 'bg-emerald-500' },
-  { key: 'next', label: 'Next', accent: 'text-content border-border bg-surface-2/60', dot: 'bg-amber-500' },
-  { key: 'later', label: 'Later', accent: 'text-muted border-border bg-surface-2/60', dot: 'bg-slate-400' },
+  {
+    key: 'now',
+    label: 'Now',
+    accent: 'text-content border-border bg-surface-2/60',
+    dot: 'bg-emerald-500',
+  },
+  {
+    key: 'next',
+    label: 'Next',
+    accent: 'text-content border-border bg-surface-2/60',
+    dot: 'bg-amber-500',
+  },
+  {
+    key: 'later',
+    label: 'Later',
+    accent: 'text-muted border-border bg-surface-2/60',
+    dot: 'bg-slate-400',
+  },
 ];
 
 /** The product, opened like a newsletter feature: capture, paragraph, link. */
@@ -53,18 +67,6 @@ function ProductReader({
       description={`${companyName} · ${product.status}`}
     >
       <div className="space-y-4">
-        {/* The card art: a generated illustration of the product experience,
-            prompted from the research (page captures kept hitting bot walls —
-            a CAPTCHA is not product art). */}
-        <div className="h-[200px] overflow-hidden rounded-xl border border-border">
-          <AiCover
-            cacheKey={`product:${companyName}:${product.name}`}
-            title={`${companyName} — ${product.name}`}
-            context={`Product card art. ${product.description} Depict the essence of using this product — the experience, the interface mood, the domain — as premium collectible-card artwork.`}
-            url={product.url ?? ''}
-            source="news"
-          />
-        </div>
         <p className="text-sm leading-relaxed text-content/90">{product.description}</p>
         {product.revenueNote && (
           <p className="rounded-lg border border-border bg-surface-2/60 px-3 py-2 text-[12px] text-muted">
@@ -74,7 +76,12 @@ function ProductReader({
         )}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
           {hasUrl ? (
-            <a href={product.url!} target="_blank" rel="noopener noreferrer" className="btn-primary">
+            <a
+              href={product.url!}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary"
+            >
               <ExternalLink className="h-4 w-4" />
               Open the product
             </a>
@@ -108,7 +115,9 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
             <section>
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="font-display text-sm font-semibold text-content">Product lineup</h3>
+                  <h3 className="font-display text-sm font-semibold text-content">
+                    Product lineup
+                  </h3>
                   <p className="text-xs text-muted">
                     Ranked by reported revenue contribution — breadwinners first, loss-leaders last.
                     Ranking follows what sources actually say; “not disclosed” stays honest.
@@ -151,9 +160,14 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <h4 className="font-medium text-content">{p.name}</h4>
-                          <span className={cn('chip capitalize', STATUS_STYLE[p.status])}>{p.status}</span>
+                          <span className={cn('chip capitalize', STATUS_STYLE[p.status])}>
+                            {p.status}
+                          </span>
                           {p.revenueNote && (
-                            <span className="chip border-border bg-surface-2 text-muted" title="What sources report about revenue contribution">
+                            <span
+                              className="chip border-border bg-surface-2 text-muted"
+                              title="What sources report about revenue contribution"
+                            >
                               {p.revenueNote}
                             </span>
                           )}
@@ -172,17 +186,6 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                           </a>
                         )}
                       </div>
-                      {/* The card art, in miniature — generated, never a CAPTCHA. */}
-                      <span className="hidden h-[76px] w-[120px] shrink-0 overflow-hidden rounded-lg border border-border sm:block">
-                        <AiCover
-                          cacheKey={`product:${name}:${p.name}`}
-                          title={`${name} — ${p.name}`}
-                          context={`Product card art. ${p.description} Depict the essence of using this product — the experience, the interface mood, the domain — as premium collectible-card artwork.`}
-                          url={p.url ?? ''}
-                          source="news"
-                          compact
-                        />
-                      </span>
                     </li>
                   );
                 })}
@@ -196,7 +199,12 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                   const items = c.roadmap.filter((r) => r.horizon === key);
                   return (
                     <div key={key} className="panel overflow-hidden p-0">
-                      <div className={cn('flex items-center gap-2 border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide', accent)}>
+                      <div
+                        className={cn(
+                          'flex items-center gap-2 border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide',
+                          accent,
+                        )}
+                      >
                         <span className={cn('h-2 w-2 rounded-full', dot)} />
                         {label}
                         <span className="ml-1.5 font-normal normal-case opacity-70">
@@ -207,7 +215,9 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                         {items.map((r, i) => (
                           <li key={i} className="relative pb-3 pl-5 last:pb-0">
                             {/* Timeline spine: dot per item, line connecting them. */}
-                            <span className={cn('absolute left-0 top-1.5 h-2 w-2 rounded-full', dot)} />
+                            <span
+                              className={cn('absolute left-0 top-1.5 h-2 w-2 rounded-full', dot)}
+                            />
                             {i < items.length - 1 && (
                               <span className="absolute bottom-0 left-[3.5px] top-4 w-px bg-border" />
                             )}
@@ -230,7 +240,9 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                           </li>
                         ))}
                         {items.length === 0 && (
-                          <li className="py-1 text-xs text-faint">Nothing announced for this horizon.</li>
+                          <li className="py-1 text-xs text-faint">
+                            Nothing announced for this horizon.
+                          </li>
                         )}
                       </ul>
                     </div>

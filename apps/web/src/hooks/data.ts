@@ -20,6 +20,7 @@ import type {
   VerifyMetricInput,
   VerifyMetricResult,
 } from '@mi/contracts';
+import { DASHBOARD_CONTENT_SCHEMAS } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { traceAgent } from '@/lib/agentic/agentTrace';
 import { qk } from '@/lib/query/keys';
@@ -46,7 +47,11 @@ export function useDeckByMarket(marketId: string | undefined): UseQueryResult<De
     enabled: !!marketId,
     refetchInterval: (query) => {
       const deck = query.state.data as { status?: string } | null;
-      if (deck?.status === 'running' || deck?.status === 'partial' || deck?.status === 'refreshing') {
+      if (
+        deck?.status === 'running' ||
+        deck?.status === 'partial' ||
+        deck?.status === 'refreshing'
+      ) {
         return 3000;
       }
       return false;
@@ -163,7 +168,16 @@ export function useDashboardTab<T extends DashboardTab>(
   const repo = useRepository();
   return useQuery({
     queryKey: qk.dashboard(companyId ?? '', tab),
-    queryFn: () => repo.getDashboardTab(companyId as string, tab),
+    queryFn: async () => {
+      const result = await repo.getDashboardTab(companyId as string, tab);
+      if (!result) return null;
+      return {
+        ...result,
+        content: DASHBOARD_CONTENT_SCHEMAS[tab].parse(
+          result.content,
+        ) as DashboardTabResult<T>['content'],
+      };
+    },
     enabled: !!companyId,
   });
 }
@@ -242,9 +256,7 @@ export function useDeckBriefings(marketId: string | undefined) {
   return useQuery({
     queryKey: ['briefings', marketId ?? ''],
     queryFn: () =>
-      repo.listDeckBriefings
-        ? repo.listDeckBriefings(marketId as string)
-        : Promise.resolve([]),
+      repo.listDeckBriefings ? repo.listDeckBriefings(marketId as string) : Promise.resolve([]),
     enabled: !!marketId,
   });
 }

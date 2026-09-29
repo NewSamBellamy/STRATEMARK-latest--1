@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useIsFetching } from '@tanstack/react-query';
-import { ArrowLeft, ChevronDown, FileText, Search } from 'lucide-react';
+import { ArrowLeft, ChevronDown, FileText, KeyRound, Search } from 'lucide-react';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
 import { useCard, useCompany, useReports, useRerunDashboardTab } from '@/hooks/data';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
@@ -23,6 +23,7 @@ import { MissionGovernanceTab } from './tabs/MissionGovernanceTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { ProductsRoadmapTab } from './tabs/ProductsRoadmapTab';
 import NotFoundPage from '@/features/NotFoundPage';
+import { SettingsLink } from '@/components/SettingsLink';
 
 /**
  * "You're already halfway there" — free-text grounded research from inside the
@@ -30,6 +31,7 @@ import NotFoundPage from '@/features/NotFoundPage';
  */
 function ResearchComposer({ companyId, companyName }: { companyId: string; companyName: string }) {
   const { chat } = useDeepDive();
+  const hasKey = useApiKey((s) => s.hasKey);
   const [q, setQ] = useState('');
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -41,7 +43,7 @@ function ResearchComposer({ companyId, companyName }: { companyId: string; compa
     chat({ kind: 'company', deckId: null, companyId, subject: companyName }, { seed: question });
     setQ('');
   };
-  return (
+  return hasKey ? (
     <form onSubmit={submit} className="flex min-w-0 flex-1 items-center gap-2">
       <div className="relative min-w-0 flex-1">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
@@ -57,6 +59,11 @@ function ResearchComposer({ companyId, companyName }: { companyId: string; compa
         Ask
       </button>
     </form>
+  ) : (
+    <SettingsLink className="btn-ghost min-w-0 flex-1 justify-start py-2 text-xs text-muted">
+      <KeyRound className="h-3.5 w-3.5" />
+      Connect Gemini to ask a grounded question
+    </SettingsLink>
   );
 }
 

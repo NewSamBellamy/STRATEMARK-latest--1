@@ -2,10 +2,8 @@
  * InsightReader v2 — clicking a claim opens a genuine trading card, not the
  * same sentence in a bigger window (the founder's exact complaint).
  *
- * Every card carries:
- *  1. A generated cover (nano banana, prompted from the item itself),
- *  2. The stored text, and
- *  3. THE FULL STORY — a grounded deep-dive that auto-runs on open (cached per
+ * Every card carries the stored text and THE FULL STORY — a grounded
+ * deep-dive that auto-runs on open (cached per
  *     item for the session), with citations. Depth is the point of the click.
  */
 import { useEffect, useState } from 'react';
@@ -22,7 +20,6 @@ import {
 } from 'lucide-react';
 import { publisherOf, type Citation } from '@mi/contracts';
 import { Modal } from '@/components/ui/Modal';
-import { AiCover } from '@/components/media/AiCover';
 import { DigDeeper } from '@/features/deepdive/DeepDive';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { isDirectSource, sourceHref } from '@/lib/sourceHref';
@@ -31,10 +28,26 @@ import { cn } from '@/lib/cn';
 export type InsightTone = 'positive' | 'negative' | 'milestone' | 'roadmap';
 
 const TONE: Record<InsightTone, { kicker: string; cls: string; Icon: typeof ThumbsUp }> = {
-  positive: { kicker: 'Positive signal', cls: 'text-positive border-emerald-200 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/30', Icon: ThumbsUp },
-  negative: { kicker: 'Concern', cls: 'text-negative border-rose-200 bg-rose-50/60 dark:border-rose-900 dark:bg-rose-950/30', Icon: ThumbsDown },
-  milestone: { kicker: 'Milestone', cls: 'text-primary-ink border-border bg-surface-2/60', Icon: Milestone },
-  roadmap: { kicker: 'Roadmap', cls: 'text-primary-ink border-border bg-surface-2/60', Icon: MapIcon },
+  positive: {
+    kicker: 'Positive signal',
+    cls: 'text-positive border-emerald-200 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/30',
+    Icon: ThumbsUp,
+  },
+  negative: {
+    kicker: 'Concern',
+    cls: 'text-negative border-rose-200 bg-rose-50/60 dark:border-rose-900 dark:bg-rose-950/30',
+    Icon: ThumbsDown,
+  },
+  milestone: {
+    kicker: 'Milestone',
+    cls: 'text-primary-ink border-border bg-surface-2/60',
+    Icon: Milestone,
+  },
+  roadmap: {
+    kicker: 'Roadmap',
+    cls: 'text-primary-ink border-border bg-surface-2/60',
+    Icon: MapIcon,
+  },
 };
 
 /** One deep-dive per card per session — reopening is instant, never re-billed. */
@@ -111,17 +124,6 @@ export function InsightReader({
       size="lg"
     >
       <div className="space-y-4">
-        {/* The card face: generated cover, prompted from the item itself. */}
-        <div className="h-[180px] overflow-hidden rounded-xl border border-border">
-          <AiCover
-            cacheKey={`insight:${cacheKey}`}
-            title={`${companyName} — ${title}`}
-            context={body ?? researchSeed}
-            url=""
-            source="news"
-          />
-        </div>
-
         <div className="flex flex-wrap items-center gap-2">
           <span
             className={cn(
@@ -174,8 +176,8 @@ export function InsightReader({
             </>
           ) : expanding ? (
             <p className="flex items-center gap-2 py-2 text-sm text-muted">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              A desk agent is researching the full story from live sources…
+              <Loader2 className="h-4 w-4 animate-spin" />A desk agent is researching the full story
+              from live sources…
             </p>
           ) : (
             <p className="py-1 text-sm italic text-muted">

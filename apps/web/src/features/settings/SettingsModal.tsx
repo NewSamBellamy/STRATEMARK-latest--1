@@ -11,7 +11,6 @@ import {
   Download,
   Github,
   Gauge,
-  ImageOff,
   ShieldCheck,
   Upload,
   Trash2,
@@ -54,30 +53,76 @@ export function SettingsModal() {
       size="2xl"
     >
       <div className="mt-2 flex h-[65vh] min-h-[500px] flex-col overflow-hidden border-t border-border sm:flex-row">
-        
         {/* Sidebar Navigation */}
-        <nav aria-label="Settings sections" className="flex shrink-0 flex-row overflow-x-auto border-b border-border bg-surface-2/30 p-2 sm:w-48 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:pr-2 sm:pt-4">
-          <TabButton id="general" active={activeTab} onClick={setActiveTab} icon={Key} label="General" />
-          <TabButton id="engine" active={activeTab} onClick={setActiveTab} icon={Cpu} label="Engine" />
-          <TabButton id="data" active={activeTab} onClick={setActiveTab} icon={DatabaseBackup} label="Data controls" />
-          <TabButton id="usage" active={activeTab} onClick={setActiveTab} icon={Gauge} label="Usage & billing" />
-          <TabButton id="pricing" active={activeTab} onClick={setActiveTab} icon={BadgeCheck} label={isCommunityDesktop() ? 'About' : 'Builder profile'} />
+        <nav
+          aria-label="Settings sections"
+          className="flex shrink-0 flex-row overflow-x-auto border-b border-border bg-surface-2/30 p-2 sm:w-48 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:pr-2 sm:pt-4"
+        >
+          <TabButton
+            id="general"
+            active={activeTab}
+            onClick={setActiveTab}
+            icon={Key}
+            label="General"
+          />
+          <TabButton
+            id="engine"
+            active={activeTab}
+            onClick={setActiveTab}
+            icon={Cpu}
+            label="Engine"
+          />
+          <TabButton
+            id="data"
+            active={activeTab}
+            onClick={setActiveTab}
+            icon={DatabaseBackup}
+            label="Data controls"
+          />
+          <TabButton
+            id="usage"
+            active={activeTab}
+            onClick={setActiveTab}
+            icon={Gauge}
+            label="Usage & billing"
+          />
+          <TabButton
+            id="pricing"
+            active={activeTab}
+            onClick={setActiveTab}
+            icon={BadgeCheck}
+            label={isCommunityDesktop() ? 'About' : 'Builder profile'}
+          />
         </nav>
 
         {/* Content Area */}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8">
           {activeTab === 'general' && <GeneralTab />}
           {activeTab === 'engine' && <EngineTab />}
-          {activeTab === 'data' && (isCommunityDesktop() ? <DesktopDataPanel /> : <DataSafetyPanel />)}
+          {activeTab === 'data' &&
+            (isCommunityDesktop() ? <DesktopDataPanel /> : <DataSafetyPanel />)}
           {activeTab === 'usage' && <UsageBillingPanel />}
-          {activeTab === 'pricing' && (isCommunityDesktop() ? <CommunityPanel /> : <PricingPanel />)}
+          {activeTab === 'pricing' &&
+            (isCommunityDesktop() ? <CommunityPanel /> : <PricingPanel />)}
         </div>
       </div>
     </Modal>
   );
 }
 
-function TabButton({ id, active, onClick, icon: Icon, label }: { id: TabId, active: TabId, onClick: (id: TabId) => void, icon: React.ElementType, label: string }) {
+function TabButton({
+  id,
+  active,
+  onClick,
+  icon: Icon,
+  label,
+}: {
+  id: TabId;
+  active: TabId;
+  onClick: (id: TabId) => void;
+  icon: React.ElementType;
+  label: string;
+}) {
   const isActive = active === id;
   return (
     <button
@@ -86,7 +131,7 @@ function TabButton({ id, active, onClick, icon: Icon, label }: { id: TabId, acti
       onClick={() => onClick(id)}
       className={cn(
         'flex w-full shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors',
-        isActive ? 'bg-surface-2 text-content' : 'text-muted hover:bg-surface-2 hover:text-content'
+        isActive ? 'bg-surface-2 text-content' : 'text-muted hover:bg-surface-2 hover:text-content',
       )}
     >
       <Icon className="h-4 w-4" />
@@ -102,7 +147,9 @@ function GeneralTab() {
   const [test, setTest] = useState<TestState>({ status: 'idle' });
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  useEffect(() => { setDraft(apiKey); }, [apiKey]);
+  useEffect(() => {
+    setDraft(apiKey);
+  }, [apiKey]);
 
   const save = async () => {
     setSaving(true);
@@ -112,7 +159,9 @@ function GeneralTab() {
       setSaved(true);
     } catch {
       setSaveError('Your key was not saved. Check that secure storage is available and try again.');
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   };
 
   const testKey = async () => {
@@ -122,7 +171,7 @@ function GeneralTab() {
     try {
       const client = createGeminiClient({ apiKey: key, model: model || undefined });
       const res = await client.ground(
-        'In one short sentence, what is today\'s date according to search results?',
+        "In one short sentence, what is today's date according to search results?",
       );
       setTest({
         status: 'ok',
@@ -160,7 +209,9 @@ function GeneralTab() {
         </div>
         <p className="text-sm text-muted mb-4">Connect Gemini to run live grounded research.</p>
 
-        <label className="label" htmlFor="key">API key</label>
+        <label className="label" htmlFor="key">
+          API key
+        </label>
         <input
           id="key"
           type="password"
@@ -191,7 +242,10 @@ function GeneralTab() {
           >
             aistudio.google.com/app/apikey <ExternalLink className="h-3 w-3" />
           </a>
-          . Your key is sent only to Google. {isCommunityDesktop() ? 'It is encrypted on disk using your operating system’s key storage.' : 'It is saved in this browser.'}
+          . Your key is sent only to Google.{' '}
+          {isCommunityDesktop()
+            ? 'It is encrypted on disk using your operating system’s key storage.'
+            : 'It is saved in this browser.'}
         </p>
       </div>
 
@@ -206,9 +260,7 @@ function GeneralTab() {
             value={model}
             onChange={(e) => setModel(e.target.value)}
           />
-          <p className="mt-1 text-xs text-muted">
-            Leave blank for the default rolling alias.
-          </p>
+          <p className="mt-1 text-xs text-muted">Leave blank for the default rolling alias.</p>
         </div>
       </details>
 
@@ -223,19 +275,34 @@ function GeneralTab() {
           }
           role="status"
         >
-          {test.status === 'testing' && <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />}
+          {test.status === 'testing' && (
+            <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+          )}
           {test.status === 'ok' && <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
           {test.status === 'fail' && <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
           <span>
             {test.status === 'testing' && 'Testing your key against Gemini…'}
-            {test.status === 'ok' && <><strong>Key works.</strong> {test.detail}</>}
-            {test.status === 'fail' && <><strong>Key test failed.</strong> {test.detail}</>}
+            {test.status === 'ok' && (
+              <>
+                <strong>Key works.</strong> {test.detail}
+              </>
+            )}
+            {test.status === 'fail' && (
+              <>
+                <strong>Key test failed.</strong> {test.detail}
+              </>
+            )}
           </span>
         </div>
       )}
 
       <div className="flex items-center gap-3 border-t border-border pt-4">
-        <button type="button" className="btn-primary" onClick={() => void save()} disabled={!draft.trim() || saving}>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => void save()}
+          disabled={!draft.trim() || saving}
+        >
           {saved ? 'Saved ✓' : 'Save key'}
         </button>
         <button
@@ -251,9 +318,14 @@ function GeneralTab() {
             type="button"
             className="btn-ghost text-negative"
             onClick={() => {
-              void clear().then(() => { setDraft(''); setSaved(false); }).catch(() => {
-                setSaveError('Your key could not be removed. Please try again.');
-              });
+              void clear()
+                .then(() => {
+                  setDraft('');
+                  setSaved(false);
+                })
+                .catch(() => {
+                  setSaveError('Your key could not be removed. Please try again.');
+                });
             }}
           >
             <Trash2 className="h-4 w-4" /> Remove
@@ -265,8 +337,12 @@ function GeneralTab() {
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
         Your key is stored on this device and sent only to Google’s API.
       </div>
-      {(saveError || storageError) && <p role="alert" className="text-sm text-negative">{saveError || storageError}</p>}
-      
+      {(saveError || storageError) && (
+        <p role="alert" className="text-sm text-negative">
+          {saveError || storageError}
+        </p>
+      )}
+
       {!isCommunityDesktop() && <AccessPanel />}
     </div>
   );
@@ -277,7 +353,16 @@ function EngineTab() {
   const { engine, setEngine } = useEngineChoice();
   const isPro = user?.subscriptionTier === 'pro';
 
-  if (isCommunityDesktop()) return <div className="space-y-3"><h2 className="font-display text-lg">Local Engine</h2><p className="text-sm text-muted">Research runs on this device with your Gemini key. Google handles the AI requests; no Stratemark account or hosted service is required.</p></div>;
+  if (isCommunityDesktop())
+    return (
+      <div className="space-y-3">
+        <h2 className="font-display text-lg">Local Engine</h2>
+        <p className="text-sm text-muted">
+          Research runs on this device with your Gemini key. Google handles the AI requests; no
+          Stratemark account or hosted service is required.
+        </p>
+      </div>
+    );
 
   return (
     <div className="space-y-6 pb-6">
@@ -301,10 +386,15 @@ function EngineTab() {
           <div className="flex items-center gap-2 font-medium text-content text-sm">
             <Cloud className="h-4 w-4 text-primary-ink" />
             <span>Sentinel Cloud Agent</span>
-            {isPro && <span className="chip border-emerald-300 bg-emerald-50 text-emerald-700 text-[10px] py-0 px-1.5">Default (Pro)</span>}
+            {isPro && (
+              <span className="chip border-emerald-300 bg-emerald-50 text-emerald-700 text-[10px] py-0 px-1.5">
+                Default (Pro)
+              </span>
+            )}
           </div>
           <p className="mt-2 text-xs text-muted leading-relaxed">
-            Multi-pass research pipeline running on Cloud Run. Automatically links 24/7 CourtListener legal & market monitoring.
+            Multi-pass research pipeline running on Cloud Run. Automatically links 24/7
+            CourtListener legal & market monitoring.
           </p>
         </button>
 
@@ -322,7 +412,8 @@ function EngineTab() {
             <span>Local Engine</span>
           </div>
           <p className="mt-2 text-xs text-muted leading-relaxed">
-            Runs grounded search directly in your local browser / desktop client using your connected Gemini API key.
+            Runs grounded search directly in your local browser / desktop client using your
+            connected Gemini API key.
           </p>
         </button>
       </div>
@@ -331,42 +422,131 @@ function EngineTab() {
 }
 
 function CommunityPanel() {
-  return <div className="space-y-4"><h2 className="font-display text-lg">Stratemark Community</h2><p className="text-sm text-muted">Open-source desktop research, licensed under MIT. No account or subscription required. Research is stored on this device; Gemini requests use your own key and Google’s quotas.</p><a className="btn-ghost" href="https://github.com/lYlarufAhmed/STRATEMARK-latest-" target="_blank" rel="noopener noreferrer"><Github className="h-4 w-4" /> Source code</a></div>;
+  return (
+    <div className="space-y-4">
+      <h2 className="font-display text-lg">Stratemark Community</h2>
+      <p className="text-sm text-muted">
+        Open-source desktop research, licensed under MIT. No account or subscription required.
+        Research is stored on this device; Gemini requests use your own key and Google’s quotas.
+      </p>
+      <a
+        className="btn-ghost"
+        href="https://github.com/lYlarufAhmed/STRATEMARK-latest-"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <Github className="h-4 w-4" /> Source code
+      </a>
+    </div>
+  );
 }
 
 function DesktopDataPanel() {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [info, setInfo] = useState<{ marketCount: number; sizeBytes: number; hasBackup: boolean } | null>(null);
+  const [info, setInfo] = useState<{
+    marketCount: number;
+    sizeBytes: number;
+    hasBackup: boolean;
+  } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let live = true;
-    void window.miSecure?.getResearchStorageInfo().then((value) => { if (live) setInfo(value); }).catch(() => { if (live) setMessage('Could not read desktop storage.'); });
-    return () => { live = false; };
+    void window.miSecure
+      ?.getResearchStorageInfo()
+      .then((value) => {
+        if (live) setInfo(value);
+      })
+      .catch(() => {
+        if (live) setMessage('Could not read desktop storage.');
+      });
+    return () => {
+      live = false;
+    };
   }, []);
   const exportData = async () => {
     try {
       const json = await window.miSecure?.exportResearch();
-      if (!json) { setMessage('Nothing to export yet.'); return; }
+      if (!json) {
+        setMessage('Nothing to export yet.');
+        return;
+      }
       const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
       const link = document.createElement('a');
       link.href = url;
       link.download = `stratemark-research-${new Date().toISOString().slice(0, 10)}.json`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch { setMessage('Export failed. Your saved research has not been changed.'); }
+    } catch {
+      setMessage('Export failed. Your saved research has not been changed.');
+    }
   };
   const importData = async (file: File) => {
-    if (!window.confirm('Replace this workspace with the selected research export? The current workspace will be backed up.')) return;
+    if (
+      !window.confirm(
+        'Replace this workspace with the selected research export? The current workspace will be backed up.',
+      )
+    )
+      return;
     setBusy(true);
     try {
       if (file.size > 50 * 1024 * 1024) throw new Error('Export exceeds 50 MB.');
       await window.miSecure!.importResearch(await file.text());
       window.location.reload();
-    } catch { setMessage('Import failed. Choose a valid Stratemark export and finish or cancel active research first.'); }
-    finally { setBusy(false); }
+    } catch {
+      setMessage(
+        'Import failed. Choose a valid Stratemark export and finish or cancel active research first.',
+      );
+    } finally {
+      setBusy(false);
+    }
   };
-  return <div className="space-y-4"><h2 className="font-display text-lg">Data safety</h2><p className="text-sm text-muted">Research is saved on your disk with atomic writes and a last-good backup. Exports contain research, not your API key. Exported files are not encrypted; store them somewhere safe.</p>{info && <p className="text-sm">{info.marketCount} decks · {Math.round(info.sizeBytes / 1024)} KB{info.hasBackup ? ' · backup available' : ''}</p>}<div className="flex gap-2"><button className="btn-ghost" type="button" onClick={() => void exportData()}><Download className="h-4 w-4" />Export my research</button><button className="btn-ghost" type="button" disabled={busy} onClick={() => fileRef.current?.click()}><Upload className="h-4 w-4" />Import</button></div><input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importData(file); event.target.value = ''; }} />{message && <p role="alert" className="text-sm text-negative">{message}</p>}</div>;
+  return (
+    <div className="space-y-4">
+      <h2 className="font-display text-lg">Data safety</h2>
+      <p className="text-sm text-muted">
+        Research is saved on your disk with atomic writes and a last-good backup. Exports contain
+        research, not your API key. Exported files are not encrypted; store them somewhere safe.
+      </p>
+      {info && (
+        <p className="text-sm">
+          {info.marketCount} decks · {Math.round(info.sizeBytes / 1024)} KB
+          {info.hasBackup ? ' · backup available' : ''}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <button className="btn-ghost" type="button" onClick={() => void exportData()}>
+          <Download className="h-4 w-4" />
+          Export my research
+        </button>
+        <button
+          className="btn-ghost"
+          type="button"
+          disabled={busy}
+          onClick={() => fileRef.current?.click()}
+        >
+          <Upload className="h-4 w-4" />
+          Import
+        </button>
+      </div>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void importData(file);
+          event.target.value = '';
+        }}
+      />
+      {message && (
+        <p role="alert" className="text-sm text-negative">
+          {message}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function DataSafetyPanel() {
@@ -418,19 +598,21 @@ function DataSafetyPanel() {
       <div>
         <h2 className="font-display text-lg text-content">Data safety</h2>
         <p className="mt-1 text-sm text-muted">
-          Your research is written to three places: this browser, an IndexedDB vault, and an automatic backup.
+          Your research is written to three places: this browser, an IndexedDB vault, and an
+          automatic backup.
         </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm">
         <span className="text-content">
-          <span className="font-semibold tabular-nums">{Math.max(currentMarkets, 0)}</span>{' '}
-          deck{currentMarkets === 1 ? '' : 's'} stored
+          <span className="font-semibold tabular-nums">{Math.max(currentMarkets, 0)}</span> deck
+          {currentMarkets === 1 ? '' : 's'} stored
         </span>
         <span className="text-muted tabular-nums">{sizeKb} KB</span>
         {backupMarkets > 0 && (
           <span className="text-muted">
-            backup: <span className="tabular-nums">{backupMarkets}</span> deck{backupMarkets === 1 ? '' : 's'}
+            backup: <span className="tabular-nums">{backupMarkets}</span> deck
+            {backupMarkets === 1 ? '' : 's'}
           </span>
         )}
       </div>
@@ -454,11 +636,7 @@ function DataSafetyPanel() {
           <Upload className="h-4 w-4" /> Import
         </button>
         {backupMarkets > 0 && backupMarkets > Math.max(currentMarkets, 0) && (
-          <button
-            type="button"
-            className="btn-primary text-sm"
-            onClick={restoreBackup}
-          >
+          <button type="button" className="btn-primary text-sm" onClick={restoreBackup}>
             <DatabaseBackup className="h-4 w-4" /> Restore {backupMarkets} decks
           </button>
         )}
@@ -478,9 +656,7 @@ function DataSafetyPanel() {
 
       <div className="border-t border-border pt-6">
         <h2 className="font-display text-lg text-content">Storage & Desktop App</h2>
-        <p className="mt-1 text-sm text-muted">
-          Right now your research lives in this browser.
-        </p>
+        <p className="mt-1 text-sm text-muted">Right now your research lives in this browser.</p>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 p-4">
           <div>
             <p className="text-sm font-semibold text-content">STRATEMARK Desktop</p>
@@ -508,7 +684,9 @@ function UsageBillingPanel() {
 
   const applyCap = () => {
     const n = Number(capDraft);
-    setCostControls({ monthlyCapUsd: capDraft.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n });
+    setCostControls({
+      monthlyCapUsd: capDraft.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n,
+    });
   };
 
   const usd = (n: number) => `$${n.toFixed(2)}`;
@@ -534,33 +712,48 @@ function UsageBillingPanel() {
             <span className="ml-1 text-[11px] font-medium text-faint">est.</span>
           </p>
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+        <div
+          className={cn(
+            'mt-3 grid gap-3 text-center',
+            spend.image > 0 ? 'grid-cols-3' : 'grid-cols-2',
+          )}
+        >
           <div>
-            <p className="font-display text-sm font-bold tabular-nums text-content">{spend.grounded}</p>
+            <p className="font-display text-sm font-bold tabular-nums text-content">
+              {spend.grounded}
+            </p>
             <p className="text-[10px] uppercase tracking-wide text-muted">searches</p>
             <p className="text-[10px] tabular-nums text-faint">{usd(spend.estByKind.ground)}</p>
           </div>
           <div>
-            <p className="font-display text-sm font-bold tabular-nums text-content">{spend.structure}</p>
+            <p className="font-display text-sm font-bold tabular-nums text-content">
+              {spend.structure}
+            </p>
             <p className="text-[10px] uppercase tracking-wide text-muted">extractions</p>
             <p className="text-[10px] tabular-nums text-faint">{usd(spend.estByKind.structure)}</p>
           </div>
-          <div>
-            <p className="font-display text-sm font-bold tabular-nums text-content">{spend.image}</p>
-            <p className="text-[10px] uppercase tracking-wide text-muted">images</p>
-            <p className="text-[10px] tabular-nums text-faint">{usd(spend.estByKind.image)}</p>
-          </div>
+          {spend.image > 0 && (
+            <div>
+              <p className="font-display text-sm font-bold tabular-nums text-content">
+                {spend.image}
+              </p>
+              <p className="text-[10px] uppercase tracking-wide text-muted">past images</p>
+              <p className="text-[10px] tabular-nums text-faint">{usd(spend.estByKind.image)}</p>
+            </div>
+          )}
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-faint">
-          Estimates from published list prices, counted locally. Today: {usage.total} of {DAILY_REQUEST_CAP} free-tier requests
-          (~{usage.decksLeft} more decks).
+          Estimates from published list prices, counted locally. Today: {usage.total} of{' '}
+          {DAILY_REQUEST_CAP} free-tier requests (~{usage.decksLeft} more decks).
         </p>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 p-4">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-content">Monthly spending cap</p>
-          <p className="mt-0.5 text-xs text-muted">Hit the cap and the app scales back to low power mode.</p>
+          <p className="mt-0.5 text-xs text-muted">
+            Hit the cap and the app scales back to low power mode.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted">$</span>
@@ -577,37 +770,6 @@ function UsageBillingPanel() {
           />
         </div>
       </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 p-4">
-        <div className="min-w-0">
-          <p className="flex items-center gap-1.5 text-sm font-semibold text-content">
-            <ImageOff className="h-4 w-4 text-muted" />
-            Generated imagery
-          </p>
-          <p className="mt-0.5 text-xs text-muted">
-            Card art, article covers, HQ scenes.
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={controls.imagesEnabled}
-          onClick={() => setCostControls({ imagesEnabled: !controls.imagesEnabled })}
-          className={
-            controls.imagesEnabled
-              ? 'relative h-6 w-11 shrink-0 rounded-full bg-primary transition-colors'
-              : 'relative h-6 w-11 shrink-0 rounded-full bg-surface transition-colors border border-border'
-          }
-        >
-          <span
-            className={
-              controls.imagesEnabled
-                ? 'absolute left-[22px] top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all'
-                : 'absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-muted/40 shadow transition-all'
-            }
-          />
-        </button>
-      </div>
     </div>
   );
 }
@@ -615,16 +777,32 @@ function UsageBillingPanel() {
 function PricingPanel() {
   const [oneTime, setOneTime] = useState(10);
   const TIERS = [
-    { name: 'Starter', price: 19, blurb: 'Up to 10 decks a month, daily briefings, generated card art included.', highlight: false },
-    { name: 'Growth', price: 49, blurb: 'More room to run: 40 decks a month, everything in Starter, priority research lanes.', highlight: true },
-    { name: 'Max', price: 99, blurb: 'For teams living in the product: 150 decks a month and the full feature surface.', highlight: false },
+    {
+      name: 'Starter',
+      price: 19,
+      blurb: 'Up to 10 decks a month with cited daily briefings.',
+      highlight: false,
+    },
+    {
+      name: 'Growth',
+      price: 49,
+      blurb: 'More room to run: 40 decks a month, everything in Starter, priority research lanes.',
+      highlight: true,
+    },
+    {
+      name: 'Max',
+      price: 99,
+      blurb: 'For teams living in the product: 150 decks a month and the full feature surface.',
+      highlight: false,
+    },
   ];
   return (
     <div className="space-y-6 pb-6">
       <div>
         <h2 className="font-display text-lg text-content">Pricing — three doors</h2>
         <p className="mt-1 text-sm text-muted">
-          Research runs on your own Gemini key — we never see it. Pick how you want the app to arrive.
+          Research runs on your own Gemini key — we never see it. Pick how you want the app to
+          arrive.
         </p>
       </div>
 
@@ -674,7 +852,8 @@ function PricingPanel() {
       <div className="border-t border-border pt-4">
         <p className="text-sm font-semibold text-content">Stratemark Pro — subscription</p>
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
-          Fully hosted on Google Cloud — no API key to manage, usage included up to your tier's monthly cap.
+          Fully hosted on Google Cloud — no API key to manage, usage included up to your tier's
+          monthly cap.
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {TIERS.map((t) => (

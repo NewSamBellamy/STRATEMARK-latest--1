@@ -12,7 +12,7 @@ import { publisherOf, type LiveIntelItem } from '@mi/contracts';
 import { useCompany, useDashboardTab, useRerunDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { Modal } from '@/components/ui/Modal';
-import { AiCover } from '@/components/media/AiCover';
+import { EditorialCover } from '@/components/media/EditorialCover';
 import { LiveBadge } from '../LiveBadge';
 import { DigDeeper } from '@/features/deepdive/DeepDive';
 import { formatRelative } from '@/lib/format';
@@ -98,16 +98,8 @@ function ArticleReader({
       description={item.summary}
     >
       <div className="space-y-4">
-        {/* Generated cover (nano banana, prompted from the story's research);
-            designed editorial cover holds the frame until it lands. */}
         <div className="h-[200px] overflow-hidden rounded-xl border border-border">
-          <AiCover
-            cacheKey={item.id}
-            title={item.title}
-            context={item.detail ?? item.summary ?? null}
-            url={item.url}
-            source={item.source}
-          />
+          <EditorialCover title={item.title} url={item.url} source={item.source} />
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted">
@@ -132,9 +124,7 @@ function ArticleReader({
           </span>
         </div>
 
-        <p className="text-sm leading-relaxed text-content/90">
-          {item.detail ?? item.summary}
-        </p>
+        <p className="text-sm leading-relaxed text-content/90">{item.detail ?? item.summary}</p>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
           {href ? (
@@ -168,13 +158,7 @@ function ArticleReader({
   );
 }
 
-function IntelRow({
-  item,
-  onOpen,
-}: {
-  item: LiveIntelItem;
-  onOpen: () => void;
-}) {
+function IntelRow({ item, onOpen }: { item: LiveIntelItem; onOpen: () => void }) {
   const Icon = SOURCE_ICON[item.source];
   const href = articleHref(item);
   return (
@@ -201,7 +185,13 @@ function IntelRow({
             <span>·</span>
             {/* The honest date: the story's reported publish date when research
                 surfaced one; otherwise when WE found it — never a fake "just now". */}
-            <span title={item.publishedDate ? 'Reported publish date' : 'When our research surfaced this item'}>
+            <span
+              title={
+                item.publishedDate
+                  ? 'Reported publish date'
+                  : 'When our research surfaced this item'
+              }
+            >
               {item.publishedDate
                 ? fmtPublishDate(item.publishedDate)
                 : `found ${formatRelative(item.publishedAt)}`}
@@ -229,16 +219,8 @@ function IntelRow({
             <span className="ml-auto text-[11px] text-faint">Open story →</span>
           </div>
         </div>
-        {/* Generated cover — never a CAPTCHA; editorial cover until it lands. */}
         <div className="hidden h-[84px] w-[128px] shrink-0 overflow-hidden rounded-lg border border-border sm:block">
-          <AiCover
-            cacheKey={item.id}
-            title={item.title}
-            context={item.detail ?? item.summary ?? null}
-            url={item.url}
-            source={item.source}
-            compact
-          />
+          <EditorialCover title={item.title} url={item.url} source={item.source} compact />
         </div>
       </div>
       {item.stale && (

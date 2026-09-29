@@ -5,8 +5,7 @@
  * each gap), the design language read, and the tests to run first.
  *
  * Everything visual is honest: the screenshot is a live capture of the
- * actual page (retried past the renderer's placeholder), the design-mood
- * panel is generated FROM the audit's own description, and every claim
+ * actual page (retried past the renderer's placeholder), and every claim
  * keeps the sources the desk grounded it in.
  */
 import { useEffect, useRef, useState } from 'react';
@@ -27,7 +26,6 @@ import {
   SHOT_PLACEHOLDER_MAX_WIDTH,
   SHOT_RETRY_MS,
 } from '@/lib/screenshot';
-import { AiCover } from '@/components/media/AiCover';
 import {
   captureSite,
   isServiceConfigured,
@@ -61,22 +59,12 @@ const AREA_LABEL: Record<SiteAuditArea, string> = {
  *     site was genuinely visited, which is what makes the audit trustworthy
  *     when the image is missing.
  *
- *   NO SERVICE — the previous browser-side path, retried past the renderer's
- *     placeholder, with a manual swap to an illustration. Kept so the app stays
- *     fully usable standalone.
+ *   NO SERVICE — the browser-side path retries past the renderer's placeholder
+ *     and then reports honestly when a capture is unavailable.
  */
-function PageCapture({
-  url,
-  siteName,
-  designSummary,
-}: {
-  url: string;
-  siteName: string;
-  designSummary?: string;
-}) {
+function PageCapture({ url, siteName }: { url: string; siteName: string }) {
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
-  const [swapped, setSwapped] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [verified, setVerified] = useState<CaptureOutcome | null>(null);
   const [verifying, setVerifying] = useState(isServiceConfigured());
@@ -145,14 +133,6 @@ function PageCapture({
             // every one of them escaped at the point of render (lib/fallback.ts).
             dangerouslySetInnerHTML={{ __html: verified.fallbackSvg }}
           />
-        ) : swapped ? (
-          <AiCover
-            cacheKey={`audit-hero:${url}`}
-            title={`${siteName} — landing page impression`}
-            context={`An artist's impression of this website's landing page design language${designSummary ? `: ${designSummary}` : ''}. A clean generic webpage layout in that style — abstract placeholder blocks, NO readable text, NO real interface.`}
-            url={url}
-            source="news"
-          />
         ) : failed ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-muted">
             <Globe className="h-7 w-7" />
@@ -175,7 +155,7 @@ function PageCapture({
           />
         )}
       </div>
-      <figcaption className="flex items-center justify-between gap-3 border-t border-border bg-surface-2/60 px-3 py-1.5 text-[10px] text-faint">
+      <figcaption className="border-t border-border bg-surface-2/60 px-3 py-1.5 text-[10px] text-faint">
         <span>
           {serviceOk && verified?.ok
             ? `Verified live capture — ${verified.receipt.finalUrl.replace(/^https?:\/\//, '')} answered ${
@@ -183,30 +163,17 @@ function PageCapture({
               } at ${verified.receipt.capturedAt.replace('T', ' ').slice(0, 16)} UTC.`
             : serviceBlocked && verified && 'caption' in verified
               ? verified.caption
-              : swapped
-                ? 'Generated impression of the design language (the live capture hit an anti-bot wall).'
-                : 'Live capture of the audited page. Some sites serve anti-bot challenges to capture services — if this frame looks wrong, swap it.'}
+              : failed
+                ? 'Live capture unavailable. No substitute image is shown as evidence.'
+                : 'Live capture of the audited page. Some sites serve anti-bot challenges to capture services.'}
         </span>
-        {/* The manual swap only makes sense on the unverified path. When the
-            service has ruled, its verdict is the answer — offering a cosmetic
-            override would invite dressing a blocked capture up as content. */}
-        {!serviceOk && !serviceBlocked ? (
-          <button
-            type="button"
-            className="brf-no-print shrink-0 font-medium text-primary-ink hover:underline"
-            onClick={() => setSwapped((v) => !v)}
-          >
-            {swapped ? 'Show live capture' : 'Swap to illustration'}
-          </button>
-        ) : null}
       </figcaption>
     </figure>
   );
 }
 
 function ScoreBar({ score }: { score: number }) {
-  const tone =
-    score >= 8 ? 'bg-emerald-500' : score >= 5 ? 'bg-amber-500' : 'bg-rose-500';
+  const tone = score >= 8 ? 'bg-emerald-500' : score >= 5 ? 'bg-amber-500' : 'bg-rose-500';
   return (
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
       <div className={cn('h-full rounded-full', tone)} style={{ width: `${score * 10}%` }} />
@@ -222,7 +189,11 @@ export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAu
     year: 'numeric',
   });
   const dialTone =
-    audit.overall >= 80 ? 'text-emerald-600' : audit.overall >= 50 ? 'text-amber-600' : 'text-rose-600';
+    audit.overall >= 80
+      ? 'text-emerald-600'
+      : audit.overall >= 50
+        ? 'text-amber-600'
+        : 'text-rose-600';
 
   return (
     <article className="brf-print-root mx-auto max-w-3xl">
@@ -265,7 +236,9 @@ export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAu
           </div>
           {/* The overall dial. */}
           <div className="text-right">
-            <p className={cn('font-display text-5xl font-bold leading-none tabular-nums', dialTone)}>
+            <p
+              className={cn('font-display text-5xl font-bold leading-none tabular-nums', dialTone)}
+            >
               {audit.overall}
             </p>
             <p className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-muted">
@@ -277,7 +250,7 @@ export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAu
 
       {/* ── The page itself ── */}
       <div className="mt-6">
-        <PageCapture url={audit.url} siteName={audit.siteName} designSummary={audit.designStyle.summary} />
+        <PageCapture url={audit.url} siteName={audit.siteName} />
       </div>
 
       {/* ── Scorecard ── */}
@@ -292,11 +265,14 @@ export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAu
                 <div className="mb-1 flex items-baseline justify-between gap-2">
                   <span className="text-sm font-medium text-content">{AREA_LABEL[s.area]}</span>
                   <span className="font-display text-sm font-bold tabular-nums text-content">
-                    {s.score}<span className="text-faint">/10</span>
+                    {s.score}
+                    <span className="text-faint">/10</span>
                   </span>
                 </div>
                 <ScoreBar score={s.score} />
-                {s.verdict && <p className="mt-1.5 text-[12px] leading-snug text-muted">{s.verdict}</p>}
+                {s.verdict && (
+                  <p className="mt-1.5 text-[12px] leading-snug text-muted">{s.verdict}</p>
+                )}
               </div>
             ))}
           </div>
@@ -353,30 +329,17 @@ export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAu
             <Palette className="h-3.5 w-3.5 text-primary-ink" />
             Design style
           </h2>
-          <div className="panel grid gap-0 overflow-hidden p-0 sm:grid-cols-[1fr_220px]">
-            <div className="p-5">
-              <p className="text-sm leading-relaxed text-content/90">{audit.designStyle.summary}</p>
-              {audit.designStyle.notes.length > 0 && (
-                <ul className="mt-3 flex flex-wrap gap-2">
-                  {audit.designStyle.notes.map((n, i) => (
-                    <li key={i} className="chip border-border bg-surface-2 text-muted">
-                      {n}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            {/* The mood, illustrated FROM the audit's own read of the brand. */}
-            <div className="h-[150px] border-t border-border sm:h-auto sm:border-l sm:border-t-0">
-              <AiCover
-                aspect="1:1"
-                cacheKey={`audit-mood:${audit.url}`}
-                title={`${audit.siteName} — design language`}
-                context={`Abstract mood-board illustration of this visual design language, no interface elements: ${audit.designStyle.summary} ${audit.designStyle.notes.join(', ')}`}
-                url={audit.url}
-                source="news"
-              />
-            </div>
+          <div className="panel p-5">
+            <p className="text-sm leading-relaxed text-content/90">{audit.designStyle.summary}</p>
+            {audit.designStyle.notes.length > 0 && (
+              <ul className="mt-3 flex flex-wrap gap-2">
+                {audit.designStyle.notes.map((n, i) => (
+                  <li key={i} className="chip border-border bg-surface-2 text-muted">
+                    {n}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
       )}

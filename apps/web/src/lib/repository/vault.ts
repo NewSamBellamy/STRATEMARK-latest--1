@@ -19,8 +19,6 @@
 
 const DB_NAME = 'stratemark.vault';
 const STORE = 'snapshots';
-/** Generated imagery — paid for once on the user's key, kept forever. */
-const IMAGE_STORE = 'images';
 
 function idbOpen(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
@@ -29,8 +27,6 @@ function idbOpen(): Promise<IDBDatabase | null> {
       const req = indexedDB.open(DB_NAME, 2);
       req.onupgradeneeded = () => {
         if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
-        if (!req.result.objectStoreNames.contains(IMAGE_STORE))
-          req.result.createObjectStore(IMAGE_STORE);
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
@@ -170,77 +166,4 @@ export async function importSnapshot(json: string, key = 'mi.repo.v1'): Promise<
   }
   await vaultPut(key, json);
   return markets;
-}
-
-
-// ---------------------------------------------------------------------------
-// Generated-image persistence — an image the user's key paid for is research
-// data: it must survive refreshes, not regenerate (and re-bill) every session.
-// Data URLs are far too big for localStorage; IndexedDB is their home.
-// ---------------------------------------------------------------------------
-
-export async function imageGet(key: string): Promise<string | null> {
-  const db = await idbOpen();
-  if (!db) return null;
-  return new Promise((resolve) => {
-    try {
-      const tx = db.transaction(IMAGE_STORE, 'readonly');
-      const req = tx.objectStore(IMAGE_STORE).get(key);
-      req.onsuccess = () => {
-        db.close();
-        resolve(typeof req.result === 'string' ? req.result : null);
-      };
-      req.onerror = () => {
-        db.close();
-        resolve(null);
-      };
-    } catch {
-      db.close();
-      resolve(null);
-    }
-  });
-}
-
-export async function imagePut(key: string, dataUrl: string): Promise<void> {
-  const db = await idbOpen();
-  if (!db) return;
-  await new Promise<void>((resolve) => {
-    try {
-      const tx = db.transaction(IMAGE_STORE, 'readwrite');
-      tx.objectStore(IMAGE_STORE).put(dataUrl, key);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => {
-        db.close();
-        resolve();
-      };
-    } catch {
-      db.close();
-      resolve();
-    }
-  });
-}
-
-export async function imageDelete(key: string): Promise<void> {
-  const db = await idbOpen();
-  if (!db) return;
-  await new Promise<void>((resolve) => {
-    try {
-      const tx = db.transaction(IMAGE_STORE, 'readwrite');
-      tx.objectStore(IMAGE_STORE).delete(key);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => {
-        db.close();
-        resolve();
-      };
-    } catch {
-      db.close();
-      resolve();
-    }
-  });
 }
