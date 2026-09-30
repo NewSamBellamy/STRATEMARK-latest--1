@@ -23,7 +23,7 @@ Follow current human instructions and repository `AGENTS.md` first. Within produ
 - [PHASES.md](PHASES.md): ordered goals, acceptance gates, quality experiments, and production checklist.
 - [RESEARCH.md](RESEARCH.md): dated primary sources, reasoning, and code-inspection findings.
 - [BUILD-STATE.md](BUILD-STATE.md): cold-start instructions, current status, and work-packet format.
-- [build-workflow.md](build-workflow.md): Astra planning, Sol execution, and escalation rules.
+- [build-workflow.md](build-workflow.md): current Sol planning, Luna execution, and escalation rules; historical Astra review is not dispatch authority.
 
 Change a decision deliberately: record the old rule, new rule, reason, affected action/story/goal IDs, migration consequences, and new verification. Increment the plan version. Do not silently reinterpret a story or use a historical roadmap to expand scope.
 

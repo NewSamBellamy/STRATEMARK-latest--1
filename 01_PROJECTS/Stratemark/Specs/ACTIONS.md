@@ -3,7 +3,7 @@
 Plan version: 1.0.0. Normative companion to [NORTHSTAR.md](NORTHSTAR.md).
 Status: design, not implemented API. Catalogue IDs are stable; wire schemas are finalized and fixture-tested in G00 before executors change callers.
 
-G00-P01/P02 implementation status: all catalogue metadata and 19 request schemas now exist in `packages/contracts/src/actions.ts`, alongside structured failures and a pure lifecycle transition rule. No transport/service is wired to them yet; the other 43 requests fail closed in that parser. Runtime schemas remain additive candidates until their complete result/policy/adapter fixtures pass. See BUILD-STATE for actual verification and remaining gates, not this catalogue as proof of a working API.
+G00-P01/P02/P03 implementation status: all catalogue metadata and 34 request schemas now exist in `packages/contracts/src/actions.ts`, alongside structured failures and a pure lifecycle transition rule. No transport/service is wired to them yet; the other 28 requests fail closed in that parser. Runtime schemas remain additive candidates until their complete result/policy/adapter fixtures pass. See BUILD-STATE and CALLER-MAP for actual verification and remaining gates, not this catalogue as proof of a working API.
 
 ## 1. One action system
 

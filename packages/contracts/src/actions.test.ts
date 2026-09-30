@@ -34,7 +34,227 @@ const receipt = {
   runId: 'run_1',
 };
 
+const scopeDraft = {
+  goal: 'Compare regional robotics automation vendors',
+  inclusions: ['Warehouse robotics'],
+  exclusions: ['Consumer toys'],
+  region: 'North America',
+  depth: 'standard',
+  seeds: [{ name: 'Example Robotics', domain: 'example.com' }],
+};
+
+const selectedAnswerTargets = [{ kind: 'company', companyId: 'co_1', revision: 4 }];
+const selectedReportTargets = [{ kind: 'company', companyId: 'co_1', revision: 4 }];
+
+const newActionRequest = (
+  action: string,
+  target: Record<string, unknown>,
+  input: Record<string, unknown>,
+  kind: 'read' | 'write' | 'paid',
+) => ({
+  contractVersion: '1',
+  requestId: 'req_new',
+  vaultId: 'v_1',
+  action,
+  target,
+  input,
+  ...(kind === 'read' ? {} : { idempotencyKey: 'new-action-1', expectedRevision: 5 }),
+  ...(kind === 'paid' ? { policyRef: 'policy_1', budgetRef: 'budget_1' } : {}),
+});
+
+const newlyBackedActions = [
+  ['scope.preview', newActionRequest('scope.preview', {}, scopeDraft, 'read')],
+  ['scope.assist.start', newActionRequest('scope.assist.start', {}, scopeDraft, 'paid')],
+  ['market.create', newActionRequest('market.create', {}, scopeDraft, 'write')],
+  [
+    'market.scope.update',
+    newActionRequest('market.scope.update', { marketId: 'm_1' }, scopeDraft, 'write'),
+  ],
+  [
+    'membership.update',
+    newActionRequest(
+      'membership.update',
+      { companyId: 'co_1', marketId: 'm_1' },
+      {
+        companyRevision: 4,
+        roles: ['company', 'distribution'],
+        fit: { basis: 'evidence', evidenceIds: ['ev_1'], reason: 'Evidence shows channel sales.' },
+      },
+      'write',
+    ),
+  ],
+  [
+    'saved.update',
+    newActionRequest(
+      'saved.update',
+      { kind: 'company', companyId: 'co_1' },
+      { saved: true },
+      'write',
+    ),
+  ],
+  [
+    'market.discovery.expand',
+    newActionRequest(
+      'market.discovery.expand',
+      { marketId: 'm_1' },
+      {
+        scopeRevision: 3,
+        exclusions: ['consumer products'],
+        maxCompanies: 12,
+        maxSearchBatches: 5,
+      },
+      'paid',
+    ),
+  ],
+  [
+    'finding.research.start',
+    newActionRequest(
+      'finding.research.start',
+      { marketId: 'm_1' },
+      { scopeRevision: 3, kind: 'trend', focus: 'Warehouse automation', maxSearchBatches: 4 },
+      'paid',
+    ),
+  ],
+  [
+    'answer.from_library.start',
+    newActionRequest(
+      'answer.from_library.start',
+      {},
+      {
+        question: 'Which vendors support cold storage?',
+        targets: selectedAnswerTargets,
+        maxEvidence: 20,
+      },
+      'paid',
+    ),
+  ],
+  [
+    'answer.research.start',
+    newActionRequest(
+      'answer.research.start',
+      {},
+      {
+        question: 'Which vendors support cold storage?',
+        targets: selectedAnswerTargets,
+        maxEvidence: 20,
+        webExpansion: { enabled: true, maxSearchBatches: 3, maxResultsPerBatch: 5 },
+      },
+      'paid',
+    ),
+  ],
+  [
+    'comparison.explain.start',
+    newActionRequest(
+      'comparison.explain.start',
+      {},
+      {
+        companies: [
+          { companyId: 'co_1', revision: 4 },
+          { companyId: 'co_2', revision: 7 },
+        ],
+        goal: 'Choose a warehouse pilot vendor',
+        weights: [
+          { criterion: 'Deployment time', weight: 0.6 },
+          { criterion: 'Cold storage support', weight: 0.4 },
+        ],
+      },
+      'paid',
+    ),
+  ],
+  [
+    'report.create.start',
+    newActionRequest(
+      'report.create.start',
+      {},
+      {
+        targets: selectedReportTargets,
+        templateId: 'brief_standard',
+        templateVersion: '1.0',
+      },
+      'paid',
+    ),
+  ],
+  [
+    'evidence.check.start',
+    newActionRequest(
+      'evidence.check.start',
+      {},
+      {
+        items: [{ kind: 'claim', claimId: 'claim_1', revision: 2 }],
+        retrievalScope: { mode: 'approved_web', maxSearchBatches: 3 },
+      },
+      'paid',
+    ),
+  ],
+  [
+    'run.retry',
+    newActionRequest(
+      'run.retry',
+      { runId: 'run_1' },
+      {
+        selection: 'failed_tasks',
+        tasks: [{ taskId: 'task_1', revision: 2 }],
+        maxAttempts: 1,
+      },
+      'paid',
+    ),
+  ],
+  [
+    'updates.check.start',
+    newActionRequest(
+      'updates.check.start',
+      {},
+      {
+        companies: [
+          { companyId: 'co_1', revision: 4 },
+          { companyId: 'co_2', revision: 7 },
+        ],
+        focus: 'Material product and leadership changes',
+        maxSearchBatches: 4,
+      },
+      'paid',
+    ),
+  ],
+] as const;
+
 describe('shared action contracts', () => {
+  it('permits market discovery without seeds or a geography restriction', () => {
+    expect(
+      actionRequestSchema.safeParse(
+        newActionRequest(
+          'scope.preview',
+          {},
+          {
+            ...scopeDraft,
+            seeds: [],
+            region: null,
+          },
+          'read',
+        ),
+      ).success,
+    ).toBe(true);
+  });
+
+  it('preserves same-name seed ambiguity instead of treating names as identity', () => {
+    const input = {
+      ...scopeDraft,
+      seeds: [
+        { name: 'Example Labs', domain: 'one.example' },
+        { name: 'Example Labs', domain: 'two.example' },
+      ],
+    };
+    const request = newActionRequest('scope.preview', {}, input, 'read');
+    expect(actionRequestSchema.parse(request)).toEqual(request);
+    expect(
+      actionRequestSchema.safeParse({
+        ...request,
+        input: {
+          ...input,
+          seeds: [input.seeds[0], input.seeds[0]],
+        },
+      }).success,
+    ).toBe(false);
+  });
   it('keeps all 62 planned action names and IDs unique', () => {
     const definitions = Object.values(ACTION_DEFINITIONS);
     expect(definitions).toHaveLength(62);
@@ -67,6 +287,135 @@ describe('shared action contracts', () => {
 
   it('preserves a versioned company research command without inventing authority', () => {
     expect(actionRequestSchema.parse(command)).toEqual(command);
+  });
+
+  it.each(newlyBackedActions)('accepts the bounded %s request shape', (_action, request) => {
+    expect(actionRequestSchema.parse(request)).toEqual(request);
+  });
+
+  it.each(newlyBackedActions)(
+    'keeps %s strict at the envelope, target, and input boundaries',
+    (_action, request) => {
+      expect(actionRequestSchema.safeParse({ ...request, actor: 'owner' }).success).toBe(false);
+      expect(
+        actionRequestSchema.safeParse({
+          ...request,
+          target: { ...(request.target as object), extra: 'unexpected' },
+        }).success,
+      ).toBe(false);
+      expect(
+        actionRequestSchema.safeParse({
+          ...request,
+          input: { ...(request.input as object), extra: 'unexpected' },
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it('rejects unbounded scope, forged fit support, and invalid membership preconditions', () => {
+    const preview = newlyBackedActions[0][1];
+    expect(
+      actionRequestSchema.safeParse({
+        ...preview,
+        input: { ...scopeDraft, webSearch: true },
+      }).success,
+    ).toBe(false);
+    expect(
+      actionRequestSchema.safeParse({
+        ...preview,
+        input: { ...scopeDraft, seeds: [{ name: 'Example', domain: 'https://example.com' }] },
+      }).success,
+    ).toBe(false);
+    const membership = newlyBackedActions[4][1];
+    expect(
+      actionRequestSchema.safeParse({
+        ...membership,
+        input: { ...membership.input, companyRevision: undefined },
+      }).success,
+    ).toBe(false);
+    expect(
+      actionRequestSchema.safeParse({
+        ...membership,
+        input: {
+          ...membership.input,
+          fit: {
+            basis: 'human_judgment',
+            label: 'Evidence verified',
+            reason: 'Reviewed by a person.',
+          },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('requires paid envelopes for jobs and rejects spending authority on local writes', () => {
+    const paidRequest = newlyBackedActions[1][1];
+    expect(actionRequestSchema.safeParse({ ...paidRequest, policyRef: undefined }).success).toBe(
+      false,
+    );
+    const writeRequest = newlyBackedActions[2][1];
+    expect(
+      actionRequestSchema.safeParse({
+        ...writeRequest,
+        policyRef: 'policy_1',
+        budgetRef: 'budget_1',
+      }).success,
+    ).toBe(false);
+    expect(
+      actionRequestSchema.safeParse({ ...writeRequest, idempotencyKey: undefined }).success,
+    ).toBe(false);
+  });
+
+  it('keeps library answers offline and bounds external answer expansion', () => {
+    const libraryAnswer = newlyBackedActions[8][1];
+    expect(
+      actionRequestSchema.safeParse({
+        ...libraryAnswer,
+        input: {
+          ...libraryAnswer.input,
+          webExpansion: { enabled: true, maxSearchBatches: 1, maxResultsPerBatch: 1 },
+        },
+      }).success,
+    ).toBe(false);
+    const webAnswer = newlyBackedActions[9][1];
+    expect(
+      actionRequestSchema.safeParse({
+        ...webAnswer,
+        input: {
+          ...webAnswer.input,
+          webExpansion: { enabled: true, maxSearchBatches: 51, maxResultsPerBatch: 5 },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      actionRequestSchema.safeParse({
+        ...webAnswer,
+        input: {
+          ...webAnswer.input,
+          targets: [{ kind: 'company', companyId: 'co_1' }],
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('requires explicit revisions and finite selections for comparison and report inputs', () => {
+    const comparison = newlyBackedActions[10][1];
+    expect(
+      actionRequestSchema.safeParse({
+        ...comparison,
+        input: {
+          ...comparison.input,
+          companies: [{ companyId: 'co_1', revision: 4 }, { companyId: 'co_2' }],
+        },
+      }).success,
+    ).toBe(false);
+    const report = newlyBackedActions[11][1];
+    expect(
+      actionRequestSchema.safeParse({
+        ...report,
+        input: { ...report.input, targets: [{ kind: 'company', companyId: 'co_1' }] },
+      }).success,
+    ).toBe(false);
   });
 
   it.each(['actor', 'user_verified', 'apiKey', 'grant', 'shell'])(

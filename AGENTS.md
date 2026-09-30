@@ -117,23 +117,25 @@ compromised and rotate it immediately.
 
 ## Stratemark overhaul planning entry point
 
-Fresh-session $50 Sol campaign: read `01_PROJECTS/Stratemark/Specs/LAUNCH.md`
-and its budget preflight first. Budget enforcement is not configured by a prompt.
-The current human instruction authorizes continued phased building under a $50
-working target; this does not resume the old automation or authorize live migration.
+Latest human goal (September 30): GPT-6.1 Sol plans and integrates; bounded
+`gpt-6-luna` workers implement at `high` effort. Astra is off the table,
+including escalation. Development spend limits/projections are not a gate now;
+this supersedes the older $50 campaign defaults below. Keep context limits,
+verification, separate-branch work, and the prohibition on live data migration
+or publication. Live product research still requires its own explicit approval.
+
+Fresh sessions: read `01_PROJECTS/Stratemark/Specs/LAUNCH.md` for the current
+Sol/Luna execution handoff. No development billing preflight blocks this goal.
 
 For the separate founder-directed overhaul, start at
 `01_PROJECTS/Stratemark/Specs/BUILD-STATE.md` and read `NORTHSTAR.md` before work.
 The north star, action catalogue, and phase goals supersede conflicting earlier
 product proposals, not current human instructions or these repository rules.
-The founder subsequently authorized phased implementation (September 30, 2026);
-the active goal and `BUILD-STATE.md` record that authority. Do not infer authority
-from the existence of the plan alone. The $50 campaign's spending controls remain
-unverified. The human explicitly requested continuation after the limitation was
-explained: proceed with bounded, serial implementation and estimated costs, not
-a claimed hard dollar cutoff. No live paid research without its own approved cap;
-additional workers need an explicit model, bounded packet and cost projection.
-Never treat unknown spend as zero. Do not resume the earlier automation, migrate live research,
+The founder authorized phased implementation (September 30, 2026); the active
+goal and BUILD-STATE record that authority. Do not infer authority from a plan
+alone. Keep worker scopes bounded, model/effort explicit, and unknown spend
+unknown. Live paid product research needs separate approval. Do not resume the
+earlier automation, migrate live research,
 push, publish, deploy, or merge without separate human authorization.
 Follow the context/checkpoint limits in
 `01_PROJECTS/Stratemark/Specs/build-workflow.md`; never send the entire
