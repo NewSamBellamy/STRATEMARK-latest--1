@@ -10,6 +10,8 @@ The current app offers many research surfaces, but the journey from market promp
 
 Product direction: help a user define a research goal, discover the market, scan distinct and trustworthy company cards, explore supported evidence, ask useful questions, retain findings, and understand later changes. The final screen structure and feature scope remain pending founder feedback.
 
+The September 30 handwritten direction adds three research responsibilities: a Deck Sentinel coordinates market discovery and memory, persistent Card Scouts build company research, and specialist researchers produce market findings. See [Founder research architecture](founder-research-architecture.md) for extracted meaning, proposed steps N01-N14, gaps G01-G12, and unresolved wording. These steps describe desired future behavior rather than the existing app. Exact scheduling, data ownership, ranking, taxonomy, and release scope remain planning decisions.
+
 ## 3. Exhaustive user stories
 
 Pending review. Each accepted story must have an ID, actor, action, benefit, relevant journey/feature IDs, observable acceptance criteria, and priority. Cover first run, return visits, sparse evidence, contradictions, provider failure, cancellation, restart, import, and accessibility. Do not turn every existing feature into a required story automatically.

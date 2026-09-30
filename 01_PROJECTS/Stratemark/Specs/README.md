@@ -7,9 +7,10 @@ Prepared September 30, 2026 from exploration branch `feat/claim-level-signal-evi
 ## Read and comment in this order
 
 1. [Journey and feature inventory](journey-and-features.md): the current experience in simple sentences, with stable IDs for comments.
-2. [Decision register](decisions.md): agreed direction and space for founder feedback.
-3. [Overhaul specification draft](overhaul-draft.md): the structure we will complete after the review.
-4. [Build workflow](build-workflow.md): Astra planning, GPT-6.1 Sol implementation, and the three-attempt escalation rule.
+2. [Founder research architecture](founder-research-architecture.md): the handwritten direction, proposed journey, and missing decisions.
+3. [Decision register](decisions.md): agreed direction and founder feedback.
+4. [Overhaul specification draft](overhaul-draft.md): the structure we will complete after the review.
+5. [Build workflow](build-workflow.md): Astra planning, GPT-6.1 Sol implementation, and the three-attempt escalation rule.
 
 Use comments such as `J06: ...` or `F18: ...`. A comment may say keep, expand, simplify, combine, remove, or change. Unstructured feedback is also welcome; it will be mapped to these IDs without requiring the founder to rewrite it.
 

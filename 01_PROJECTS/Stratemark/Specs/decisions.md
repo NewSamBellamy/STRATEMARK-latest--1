@@ -19,10 +19,18 @@
 
 ## Founder feedback
 
-No new feature-level feedback has been received for this review yet. Add one row per decision after the founder comments; preserve meaning and do not treat a tentative idea as approval.
+The founder supplied handwritten architecture notes on September 30, 2026. Their cleaned meaning and proposed additions are separated in [Founder research architecture](founder-research-architecture.md). These are product-direction decisions, not authority to start implementation.
 
 | Comment ID | Journey / feature IDs | Requested change in plain language | Decision | Reason / tradeoff | Release priority | Acceptance example |
 | --- | --- | --- | --- | --- | --- | --- |
+| C01 | J03-J05, F08-F16 | Begin with a defined market and let a Deck Sentinel discover players while assigning research. | Expand | Discovery and company research should proceed together. | Sequencing pending | A newly discovered company receives a task while discovery can continue. |
+| C02 | J09-J10, F33-F47 | Give each company a persistent Card Scout and a growing company research database. | Expand | Persistent ownership is requested; the bounded worker-pool implementation is a proposal. | Sequencing pending | New research accumulates in the same company dossier and updates its card and workspace. |
+| C03 | J06-J07, F17-F22 | Organize entities by company, infrastructure, and distribution roles and useful researched metrics. | Expand | Exact ranking criteria, multiple role membership, and metric comparability remain to settle. | Pending definition | Cards explain their market role and the selected sort criterion. |
+| C04 | J07, F21, L02 | Add specialist research for trends, positive culture news, barriers to entry, and negative stories. | Expand | This reopens Culture and Vice in proposed scope after their earlier display retirement. | Pending taxonomy | Each specialist produces sourced market findings under its relevant tab. |
+| C05 | J07-J10, F21-F25 | Market specialists create findings cards about the market rather than owning one company each. | Keep and clarify | Findings may refer to companies without inheriting company financial metrics. | Sequencing pending | A trend card retains its own evidence and links the affected companies. |
+| C06 | J14-J15, F35, F58-F61 | Add continuous company research and an Updates tab in the deeper company dashboard. | Expand | Cadence, meaningful change detection, local runtime, budgets, and consent need design. | Pending controls | An update explains a supported change and its date, without duplicating unchanged news. |
+| C07 | F52-F55 | Produce additional company reports from accumulated research. | Unresolved wording | The handwritten report phrase may mean written reports or white papers. | Pending clarification | Specify report type and creation trigger before implementation. |
+| C08 | P01-P11 | Carry forward scope review, seeds, BYOK breadth, evidence, vault, budgets, MCP, benchmarks, and release quality. | Keep | These earlier requirements were not rescinded by the architecture notes. | Release scope pending | The overhaul plan explicitly includes or defers each requirement. |
 
 Allowed decisions: keep, expand, simplify, combine, remove, defer, unresolved.
 
