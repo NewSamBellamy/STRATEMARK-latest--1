@@ -69,12 +69,15 @@ const observation = (id = 'obs_a') => ({
 });
 const directories: string[] = [];
 const handles: ReturnType<typeof openNativeVault>[] = [];
+type TestVault = ReturnType<typeof openNativeVault> &
+  ReturnType<ReturnType<typeof openNativeVault>['writer']>;
 function fixture() {
   const directory = mkdtempSync(path.join(tmpdir(), 'stratemark-evidence-test-'));
   directories.push(directory);
   const file = path.join(directory, 'vault.sqlite');
-  const vault = openNativeVault(file, 'vault_fixture');
-  handles.push(vault);
+  const handle = openNativeVault(file, 'vault_fixture');
+  handles.push(handle);
+  const vault = { ...handle, ...handle.writer() };
   vault.saveCompany(
     { record: version('co_a'), name: 'Fixture Labs', officialDomain: 'a.example' },
     0,
@@ -90,7 +93,7 @@ function fixture() {
   );
   return { file, directory, vault };
 }
-function seed(vault: ReturnType<typeof openNativeVault>) {
+function seed(vault: TestVault) {
   vault.saveSourceVersion(source(), text, 0);
   vault.savePassage(passage());
   vault.saveMetricDefinition(metric());
@@ -157,10 +160,9 @@ describe('offline retained evidence vault (no service cutover)', () => {
     expect(vault.getSourceVersion('src_a', 1)?.record).toEqual(privateSource);
   });
   it('appends source versions, keeps old passage links exact, and rejects stale revisions', () => {
-    const { file, vault } = fixture();
+    const { vault } = fixture();
     seed(vault);
-    const second = openNativeVault(file, 'vault_fixture');
-    handles.push(second);
+    const second = { ...vault, ...vault.writer() };
     const nextText = `${text} Later retrieval.`;
     second.saveSourceVersion({ ...source(2), contentHash: sha(nextText) }, nextText, 1);
     expect(() => vault.saveSourceVersion(source(2), text, 1)).toThrow(/revision/i);
@@ -347,14 +349,23 @@ describe('offline retained evidence vault (no service cutover)', () => {
   it('rejects a foreign vault source with no mutations', () => {
     const { file, vault } = fixture();
     vault.close();
-    const before = readFileSync(file);
-    const writer = openNativeVault(file, 'vault_fixture');
-    handles.push(writer);
+    const handle = openNativeVault(file, 'vault_fixture');
+    handles.push(handle);
+    const writer = { ...handle, ...handle.writer() };
+    // Reopening intentionally advances ownership. Capture DB + WAL AFTER that
+    // accepted change, then prove the rejected command changes neither file.
+    const files = [file, `${file}-wal`];
+    const hashes = () =>
+      files.map((candidate) => createHash('sha256').update(readFileSync(candidate)).digest('hex'));
+    const before = hashes();
+    const beforeRevision = writer.status().revision;
     expect(() =>
       writer.saveSourceVersion({ ...source(), vaultId: 'vault_other' }, text, 0),
     ).toThrow(/vault/i);
+    expect(hashes()).toEqual(before);
+    expect(writer.status().revision).toBe(beforeRevision);
+    expect(writer.getSourceVersion('src_a', 1)).toBeNull();
     writer.close();
-    expect(readFileSync(file)).toEqual(before);
   });
   it('bounds source content by UTF-8 bytes and refuses lossy Unicode retention', () => {
     const { vault } = fixture();

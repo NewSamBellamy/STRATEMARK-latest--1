@@ -252,117 +252,93 @@ const testCoverage = {
 };
 
 describe('runDeckResearch (full orchestration, fake LLM)', () => {
-  it(
-    'produces company, vice, and barrier cards with grounded sources',
-    async () => {
-      const events: string[] = [];
-      const result = await runDeckResearch(
-        { prompt: 'test market', region: 'CA' },
-        fakeClient(),
-        {
-          apiKey: '',
-          coverage: testCoverage,
-          catalogMax: 3,
-          catalogPasses: 0,
-          onEvent: (e) => events.push(e.type),
-        },
-      );
+  it('produces company, vice, and barrier cards with grounded sources', async () => {
+    const events: string[] = [];
+    const result = await runDeckResearch({ prompt: 'test market', region: 'CA' }, fakeClient(), {
+      apiKey: '',
+      coverage: testCoverage,
+      catalogMax: 3,
+      catalogPasses: 0,
+      onEvent: (e) => events.push(e.type),
+    });
 
-      expect(result.market.name).toBe('Test Market');
-      // Alpha, Beta, and Gamma Media (promoted from a signal-only tag because it
-      // has a real domain). The pseudo-entity with no domain is not among them.
-      const companyCards = result.cards.filter((c) => c.card.cardType === 'company');
-      expect(companyCards).toHaveLength(3);
+    expect(result.market.name).toBe('Test Market');
+    // Alpha, Beta, and Gamma Media (promoted from a signal-only tag because it
+    // has a real domain). The pseudo-entity with no domain is not among them.
+    const companyCards = result.cards.filter((c) => c.card.cardType === 'company');
+    expect(companyCards).toHaveLength(3);
 
-      // Alpha should score as a top-tier titan; Beta near the bottom.
-      const alpha = companyCards.find((c) => c.company?.name === 'Alpha Inc')!;
-      const beta = companyCards.find((c) => c.company?.name === 'Beta LLC')!;
-      expect(alpha.card.tier).toBeGreaterThanOrEqual(6);
-      expect(beta.card.tier).toBeLessThanOrEqual(3);
+    // Alpha should score as a top-tier titan; Beta near the bottom.
+    const alpha = companyCards.find((c) => c.company?.name === 'Alpha Inc')!;
+    const beta = companyCards.find((c) => c.company?.name === 'Beta LLC')!;
+    expect(alpha.card.tier).toBeGreaterThanOrEqual(6);
+    expect(beta.card.tier).toBeLessThanOrEqual(3);
 
-      // Metrics carry citation URLs from grounding.
-      const cap = alpha.metrics.find((m) => m.metricType === 'market_cap');
-      expect(cap?.source).toBe('https://sec.example/b');
+    // Metrics carry citation URLs from grounding.
+    const cap = alpha.metrics.find((m) => m.metricType === 'market_cap');
+    expect(cap?.source).toBe('https://sec.example/b');
 
-      // Logos resolved from the domain.
-      expect(alpha.company?.logoUrl).toContain('faviconV2');
+    // Logos resolved from the domain.
+    expect(alpha.company?.logoUrl).toContain('faviconV2');
 
-      // Vice card: sourced claim kept, unsourced claim dropped.
-      const vice = result.cards.find((c) => c.card.cardType === 'vice')!;
-      expect(vice.viceClaims).toHaveLength(1);
-      expect(vice.viceClaims[0]!.sourceUrl).toBe('https://tc.example/a');
+    // Vice card: sourced claim kept, unsourced claim dropped.
+    const vice = result.cards.find((c) => c.card.cardType === 'vice')!;
+    expect(vice.viceClaims).toHaveLength(1);
+    expect(vice.viceClaims[0]!.sourceUrl).toBe('https://tc.example/a');
 
-      // Barrier card is company-agnostic.
-      const barrier = result.cards.find((c) => c.card.cardType === 'barrier')!;
-      expect(barrier.company).toBeNull();
-      expect(barrier.card.title).toBe('Capital intensity');
+    // Barrier card is company-agnostic.
+    const barrier = result.cards.find((c) => c.card.cardType === 'barrier')!;
+    expect(barrier.company).toBeNull();
+    expect(barrier.card.title).toBe('Capital intensity');
 
-      // Insight card rides along on the same market-level pass, with its source.
-      const insight = result.cards.find((c) => c.card.cardType === 'insight')!;
-      expect(insight.company).toBeNull();
-      expect(insight.card.citations[0]?.url).toBe('https://sec.example/b');
-      expect(barrier.card.citations[0]?.url).toBe('https://tc.example/a');
+    // Insight card rides along on the same market-level pass, with its source.
+    const insight = result.cards.find((c) => c.card.cardType === 'insight')!;
+    expect(insight.company).toBeNull();
+    expect(insight.card.citations[0]?.url).toBe('https://sec.example/b');
+    expect(barrier.card.citations[0]?.url).toBe('https://tc.example/a');
 
-      expect(events).toContain('market');
-      expect(events).toContain('done');
-    },
-    20000,
-  );
+    expect(events).toContain('market');
+    expect(events).toContain('done');
+  }, 20000);
 
-  it(
-    'refuses to mint a company from a topic, and warns instead of failing silently',
-    async () => {
-      const warnings: string[] = [];
-      const result = await runDeckResearch(
-        { prompt: 'test market', region: 'CA' },
-        fakeClient(),
-        {
-          apiKey: '',
-          coverage: testCoverage,
-          catalogMax: 3,
-          catalogPasses: 0,
-          onEvent: (e) => {
-            if (e.type === 'warning') warnings.push(e.message);
-          },
-        },
-      );
+  it('refuses to mint a company from a topic, and warns instead of failing silently', async () => {
+    const warnings: string[] = [];
+    const result = await runDeckResearch({ prompt: 'test market', region: 'CA' }, fakeClient(), {
+      apiKey: '',
+      coverage: testCoverage,
+      catalogMax: 3,
+      catalogPasses: 0,
+      onEvent: (e) => {
+        if (e.type === 'warning') warnings.push(e.message);
+      },
+    });
 
-      // Audit Finding 1.2: this pseudo-entity used to become a card AND inherit a
-      // real company's valuation/ARR/users as unsourced "verified" figures.
-      const names = result.cards.map((c) => c.company?.name ?? c.card.title ?? '');
-      expect(names.some((n) => /Controversy Entity/.test(n))).toBe(false);
-      expect(warnings.join(' ')).toMatch(/topic rather than a company/i);
-      expect(warnings.join(' ')).toMatch(/Controversy Entity/);
-    },
-    20000,
-  );
+    // Audit Finding 1.2: this pseudo-entity used to become a card AND inherit a
+    // real company's valuation/ARR/users as unsourced "verified" figures.
+    const names = result.cards.map((c) => c.company?.name ?? c.card.title ?? '');
+    expect(names.some((n) => /Controversy Entity/.test(n))).toBe(false);
+    expect(warnings.join(' ')).toMatch(/topic rather than a company/i);
+    expect(warnings.join(' ')).toMatch(/Controversy Entity/);
+  }, 20000);
 
-  it(
-    'keeps a real business that discovery tagged only as a controversy',
-    async () => {
-      // "Controversial" and "not a company" are different things. A resolvable
-      // domain is evidence of an operating entity, so a signal-only tag on one is
-      // a mis-tag to correct, not a topic to discard. The first version of the
-      // entity rule conflated them and threw away a real company.
-      const result = await runDeckResearch(
-        { prompt: 'test market', region: 'CA' },
-        fakeClient(),
-        {
-          apiKey: '',
-          coverage: testCoverage,
-          catalogMax: 3,
-          catalogPasses: 0,
-        },
-      );
-      const gammaCards = result.cards.filter((c) => c.company?.name === 'Gamma Media');
-      expect(gammaCards.map((c) => c.card.cardType).sort()).toEqual(['company', 'vice']);
-      // Promotion must not smuggle figures onto the signal facet.
-      expect(gammaCards.find((c) => c.card.cardType === 'vice')!.metrics).toEqual([]);
-      // The company card is scored even though discovery never said "company".
-      expect(gammaCards.find((c) => c.card.cardType === 'company')!.card.tier).not.toBeNull();
-    },
-    20000,
-  );
+  it('keeps a real business that discovery tagged only as a controversy', async () => {
+    // "Controversial" and "not a company" are different things. A resolvable
+    // domain is evidence of an operating entity, so a signal-only tag on one is
+    // a mis-tag to correct, not a topic to discard. The first version of the
+    // entity rule conflated them and threw away a real company.
+    const result = await runDeckResearch({ prompt: 'test market', region: 'CA' }, fakeClient(), {
+      apiKey: '',
+      coverage: testCoverage,
+      catalogMax: 3,
+      catalogPasses: 0,
+    });
+    const gammaCards = result.cards.filter((c) => c.company?.name === 'Gamma Media');
+    expect(gammaCards.map((c) => c.card.cardType).sort()).toEqual(['company', 'vice']);
+    // Promotion must not smuggle figures onto the signal facet.
+    expect(gammaCards.find((c) => c.card.cardType === 'vice')!.metrics).toEqual([]);
+    // The company card is scored even though discovery never said "company".
+    expect(gammaCards.find((c) => c.card.cardType === 'company')!.card.tier).not.toBeNull();
+  }, 20000);
 
   it('mints one entity card per company, never one per role', async () => {
     // Discovery legitimately reports several roles for one business. Emitting a
@@ -494,7 +470,22 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
     expect(holder.value?.researchJobs.at(-1)?.partialCards.length).toBeGreaterThan(0);
     const jobId = holder.value!.researchJobs.at(-1)!.id;
     holder.value!.researchJobs.at(-1)!.status = 'cancelled';
-    const resumed = await repo.resumeResearchJob(jobId);
+    // A saved snapshot changed outside the open owner. Resume only after an
+    // explicit reopen; the earlier owner must not re-adopt replacement data.
+    await expect(
+      Promise.resolve().then(() => repo.updateMarketCadence(market.id, market.refreshCadence)),
+    ).rejects.toMatchObject({
+      code: 'REPOSITORY_OWNERSHIP_LOST',
+    });
+    const reopened = new GeminiRepository({
+      apiKey: 'x',
+      client: fakeClient(),
+      coverage: testCoverage,
+      catalogMax: 3,
+      catalogPasses: 0,
+      store,
+    });
+    const resumed = await reopened.resumeResearchJob(jobId);
     expect(resumed?.status).toBe('completed');
     expect(resumed?.partialCards.length).toBeGreaterThan(0);
   });
@@ -552,32 +543,63 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
   it('resumes catalog placeholders as unfinished research without duplicating or losing saved cards', async () => {
     const brief = { prompt: 'test market', region: 'CA' };
     const stubs = await discoverDeckStubs(brief, fakeClient(), {
-      apiKey: '', coverage: testCoverage, catalogMax: 3, catalogPasses: 0,
+      apiKey: '',
+      coverage: testCoverage,
+      catalogMax: 3,
+      catalogPasses: 0,
     });
     const first = stubs.cards.find((entry) => entry.company?.name === 'Alpha Inc')!;
     const snapshot: RepoSnapshot = {
-      markets: [stubs.market], decks: [stubs.deck],
-      companies: stubs.cards.flatMap((entry) => entry.company ? [entry.company] : []),
+      markets: [stubs.market],
+      decks: [stubs.deck],
+      companies: stubs.cards.flatMap((entry) => (entry.company ? [entry.company] : [])),
       metrics: stubs.cards.flatMap((entry) => entry.metrics),
       cards: stubs.cards.map((entry) => entry.card),
-      viceClaims: [], dashboards: {}, companyMarket: {}, reports: [], briefings: [],
+      viceClaims: [],
+      dashboards: {},
+      companyMarket: {},
+      reports: [],
+      briefings: [],
       savedCards: [{ cardId: first.card.id, savedAt: '2026-08-12T00:00:00.000Z' }],
-      opportunity: {}, threads: [],
-      researchJobs: [{
-        id: 'job_catalog_interrupted', status: 'failed', stage: 'summary', brief,
-        catalogNames: stubs.candidates.map((candidate) => candidate.name),
-        completedEntityNames: [], partialCards: stubs.cards, warnings: [],
-        error: 'Interrupted by restart.', createdAt: '2026-08-12T00:00:00.000Z',
-        updatedAt: '2026-08-12T00:00:00.000Z', marketPlan: stubs.plan,
-        catalog: stubs.candidates, market: stubs.market, deck: stubs.deck,
-      }],
+      opportunity: {},
+      threads: [],
+      researchJobs: [
+        {
+          id: 'job_catalog_interrupted',
+          status: 'failed',
+          stage: 'summary',
+          brief,
+          catalogNames: stubs.candidates.map((candidate) => candidate.name),
+          completedEntityNames: [],
+          partialCards: stubs.cards,
+          warnings: [],
+          error: 'Interrupted by restart.',
+          createdAt: '2026-08-12T00:00:00.000Z',
+          updatedAt: '2026-08-12T00:00:00.000Z',
+          marketPlan: stubs.plan,
+          catalog: stubs.candidates,
+          market: stubs.market,
+          deck: stubs.deck,
+        },
+      ],
     };
-    const store: ResearchStore = { read: () => snapshot, write: (value) => Object.assign(snapshot, value) };
-    const repo = new GeminiRepository({ apiKey: 'x', client: fakeClient(), coverage: testCoverage,
-      catalogMax: 3, catalogPasses: 0, store });
+    const store: ResearchStore = {
+      read: () => snapshot,
+      write: (value) => Object.assign(snapshot, value),
+    };
+    const repo = new GeminiRepository({
+      apiKey: 'x',
+      client: fakeClient(),
+      coverage: testCoverage,
+      catalogMax: 3,
+      catalogPasses: 0,
+      store,
+    });
     const resumed = await repo.resumeResearchJob('job_catalog_interrupted');
     const cards = await repo.listCards(stubs.deck.id);
-    const alpha = cards.filter((entry) => entry.company?.name === 'Alpha Inc' && entry.card.cardType === 'company');
+    const alpha = cards.filter(
+      (entry) => entry.company?.name === 'Alpha Inc' && entry.card.cardType === 'company',
+    );
     expect(resumed?.status).toBe('completed');
     expect(alpha.some((entry) => entry.metrics.length > 0 && entry.card.tier != null)).toBe(true);
     expect(alpha).toHaveLength(1);

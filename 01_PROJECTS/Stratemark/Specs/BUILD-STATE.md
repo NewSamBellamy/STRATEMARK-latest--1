@@ -11,13 +11,14 @@ deferred by the human; do not stop for missing API telemetry or require cost
 projections before worker dispatch. This overrides the historical campaign
 instructions below, not product privacy, bounded execution, phase dependencies,
 context ceilings or live-research consent. Goal is active (verified via goal tool).
-Latest completed packet: G01-P03 below. G00 contracts and reproduced baseline
+Latest completed packet: G01-P04 below. G00 contracts and reproduced baseline
 are frozen for offline G01 work; this is not product-readiness or service parity.
 G01-P01 proves the native SQLite binding in an unsigned packaged app and the
 actual installer payload, plus fixes two legacy data-safety defects. G01-P02
 adds an offline inventory vault and fixes quota-induced report loss. G01-P03
 adds retained evidence, period-compatible observations and the v1-to-v2 fixture
-upgrade. G01-P04 must add exclusive owner/writer fences before fixture cutover.
+upgrade. G01-P04 adds exclusive native ownership, captured writer generations,
+and a transitional legacy content fence. Staged migration/cutover is still open.
 No live cutover is authorized.
 The full goal remains active; do not restart planning.
 Earlier $50/Astra campaign instructions are historical, not current dispatch
@@ -27,15 +28,15 @@ preflight blocks this development goal; live product research still requires
 separate explicit approval and a numeric cap.
 
 - Planning: complete researched v1 north star, action catalogue, phase goals, and evidence ledger.
-- Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. Three of the original 11 reproduced defects are fixed; 8 remain RED. Offline native vault now retains inventory, hashed source versions/content, exact passages, immutable metric definitions and numeric observations with linked evidence and periods. It is NOT connected to the current app/data/service; link validation is not semantic verification. G01 is not complete.
+- Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. Four of the original 11 reproduced defects are fixed; 7 remain RED. Offline native vault retains inventory, hashed source versions/content, exact passages, immutable metric definitions and period-aware numeric observations, now behind one native owner and captured-generation write capabilities. It is NOT connected to the current app/data/service; link validation is not semantic verification. G01 is not complete.
 - Branch: `feat/stratemark-spinoff-local-agents`, created from `b2c6398`; predecessor `feat/claim-level-signal-evidence` retained unchanged. Personal-fork checkpoint destination: remote newsam, `NewSamBellamy/STRATEMARK-latest--1`.
 - Inspected code baseline: `3f18af2`. The documentation commit will follow that baseline; determine current HEAD from git rather than treating this baseline as current code forever.
 - Goal tool: the human's replacement Sol-planner/Luna-worker goal is active, verified at G00-P03 start. No billing blocker remains for development. Keep the full goal active at packet boundaries.
-- Next work: G01-P04 minimum exclusive ownership/writer-generation fencing and legacy-worker shutdown contract before offline fixture migration/cutover. Record revision checks are NOT a process lock or a late-worker/cutover fence. Keep P03 evidence/definition APIs internal until scoped service reads and semantic support checks exist. Chosen investigation binding is node:sqlite on Electron44.4.5/Node24.21.0/SQLite3.53.4; its API is release-candidate, not Stability2. Keep it isolated and verify performance/recovery before production acceptance. No live data migration is authorized. G02/G07 own runtime enforcement and actual adapter parity; source-level caller inspection is not that proof.
+- Next work: G01-P05 retain the remaining typed research records (claims/reports/findings/jobs and input/support revisions), then staged synthetic snapshot migration with count/content/relationship checks and preserved originals. Do not invent support from URLs or promote legacy/imported verification. Migration cannot switch an authority until all relevant record families, asset retention and operational-authority disabling are proven. P04 proves minimum native locking/fencing, NOT service attach/handoff, provider shutdown, restore counter floors or a live cutover. Keep internal APIs private until scoped service reads exist. Chosen binding remains node:sqlite on Electron44.4.5/Node24.21.0/SQLite3.53.4, release-candidate API; performance/production acceptance remains open. G02/G07 own runtime enforcement and adapter parity. No live data migration is authorized.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
 - Push: latest human explicitly authorized periodic checkpoints ONLY to this new personal-fork branch. No overwriting existing refs, upstream/Tobi pushes, main merge, release or deployment. First upload verified at `73e61c0e0f9f20e063fd290ef9fb3a122f570061`; all 49 pre-existing remote branch refs remained unchanged, including main at `c945b31dee0095331b8487133c131c36e76ba601`. Verified owner NewSamBellamy, public fork of Maruf. The shorter old URL redirects to Maruf and is unsafe as a personal destination. Read actual local/remote tips before each later fast-forward checkpoint.
-- Current application tests: latest G01-P03 check passed all6 typechecks/lint; contracts353, mocks16, research326 passed/7 known failures. Independent desktop81 passed/1 known failure; native inventory/evidence/schema52/52 passed; web153/153 passed (both journey tests passed). API158 passed in P01, unchanged/not freshly rerun in P03. Full root gate remains RED; no live research or new visual acceptance. Packaged synthetic evidence/upgrade/crash/backup proof is not full desktop release acceptance.
+- Current application tests: latest G01-P04 check passed all6 typechecks/lint; contracts353, mocks16, research334 passed/6 known failures. Independent desktop93 passed/1 known failure; native inventory/evidence/schema/owner64/64 passed; web153/153 passed, both journeys passed. API158 passed in P01, unchanged/not freshly rerun in P04. Full root gate remains RED; no live research or new visual acceptance. Packaged synthetic two-process contention, owner crash takeover, evidence/upgrade/backup proof is not full desktop release acceptance.
 - Document verification: local links and balanced code fences passed; unique registers checked (22 defaults, 30 stories, 62 actions, 9 goals, 26 sources); JSON command example parsed; canonical files had no candidate credential patterns. Markdown formatting checked separately before commit.
 - Astra final planning review: seven substantive gaps identified and addressed (service lifetime, migration fences, imported authority, restored budgets, asset/evidence retention, asynchronous output retrieval, and human approval boundary). Re-review found no remaining material contract contradictions; this is planning consistency, not application verification.
 
@@ -52,17 +53,17 @@ separate explicit approval and a numeric cap.
 
 ## Execution ledger
 
-| Goal | State                             | Packet / commit evidence        | Remaining                                                           |
-| ---- | --------------------------------- | ------------------------------- | ------------------------------------------------------------------- |
-| G00  | Contract/baseline freeze complete | G00-P01-P05 below               | Legacy defects remain RED; enforcement/parity belong to G01/G02/G07 |
-| G01  | In progress                       | G01-P03 retained evidence proof | Writer fences, complete records and staged fixture migration        |
-| G02  | Not started                       | None                            | Shared runtime, policies, secrets                                   |
-| G03  | Not started                       | None                            | Progressive research and evaluation                                 |
-| G04  | Not started                       | None                            | Cards and coherent frontend journey                                 |
-| G05  | Not started                       | None                            | Decision outputs and findings                                       |
-| G06  | Not started                       | None                            | Local monitored updates                                             |
-| G07  | Not started                       | None                            | Scoped MCP                                                          |
-| G08  | Not started                       | None                            | Production verification                                             |
+| Goal | State                             | Packet / commit evidence      | Remaining                                                           |
+| ---- | --------------------------------- | ----------------------------- | ------------------------------------------------------------------- |
+| G00  | Contract/baseline freeze complete | G00-P01-P05 below             | Legacy defects remain RED; enforcement/parity belong to G01/G02/G07 |
+| G01  | In progress                       | G01-P04 ownership/crash proof | Complete records, staged fixture migration, recovery/lifecycle      |
+| G02  | Not started                       | None                          | Shared runtime, policies, secrets                                   |
+| G03  | Not started                       | None                          | Progressive research and evaluation                                 |
+| G04  | Not started                       | None                          | Cards and coherent frontend journey                                 |
+| G05  | Not started                       | None                          | Decision outputs and findings                                       |
+| G06  | Not started                       | None                          | Local monitored updates                                             |
+| G07  | Not started                       | None                          | Scoped MCP                                                          |
+| G08  | Not started                       | None                          | Production verification                                             |
 
 Only one authoritative execution ledger lives here. Action schemas are authoritative in contracts once built; update this plan when implementation intentionally changes the design. Do not create competing status files in unrelated folders.
 
@@ -645,6 +646,104 @@ source reads can return large text; do not expose them as unbounded MCP response
 Backup path/race and malicious-import boundaries, source retention performance,
 semantic verification and true UI/service parity remain open. Continue G01-P04;
 keep the full goal active and back up meaningful slices only to newsam spin-off.
+
+## Packet G01-P04 — Exclusive owner and late-result write fences
+
+Entry HEAD `6500427`, September30. Sol owns native ownership, integration,
+packaged proof and this ledger. Luna/high worker Raman owns the legacy repository
+fence and tests; completed, reviewed and closed. Sol strengthened the field-order
+regression and existing restart scenario. No Astra, key reads, provider calls,
+live research/data migration, UI restyle, installation or publication.
+US13/US23/US24/US30; prepares A27-A31/A42/A43/A47, not wired action-service parity.
+
+Native schema3 adds persisted writer generation and a fresh opaque nonce, with
+explicit transactional v1-to-v2-to-v3 and v2-to-v3 upgrades. Inspection and genuine
+read-only handles never upgrade or advance a generation; missing, invalid and
+future schemas still fail closed. Owner construction advances once, including
+after a crash. Inventory, histories and retained evidence survive the upgrade.
+
+A separate identified SQLite guard file holds BEGIN IMMEDIATE for the native
+owner's lifetime. The research database commits independently in WAL mode.
+This reuses SQLite's local process locking, not expiring PID/heartbeat files.
+An existing guard file is not proof of a live owner, and unrelated guard data
+is refused, not deleted. Canonical parent/path resolution and regular-file,
+no-hardlink checks prevent competing guard names for the tested aliases. File
+identity checks fence a replaced/moved file; Windows additionally refuses a
+rename of a currently open native database. Nonce mismatch permanently invalidates
+the owner even if older metadata reappears. See official SQLite
+[transactions](https://www.sqlite.org/lang_transaction.html) and rollback-guard
+[locking](https://www.sqlite.org/lockingv3.html); actual process behavior is tested
+below, not inferred from documentation alone.
+
+The base handle exposes cached reads/status/backup/close, not mutation methods.
+Its trusted internal writer() captures one generation. All inventory/evidence
+writes check it before/inside their transaction and before commit. Advancing the
+generation fences existing capabilities without changing content revision.
+Runtime jobs must capture once when accepted, not reacquire a new capability to
+save a late result. Readers cannot obtain writers or advance a generation.
+No path, nonce, SQL handle or writer factory is exposed to renderer/MCP.
+
+Legacy GeminiRepository now compares canonical JSON content with the last
+successfully persisted baseline before a write, clones input/write payloads,
+and permanently rejects ownership loss with REPOSITORY_OWNERSHIP_LOST. Failed
+storage writes do not advance the saved baseline. Object key order is not an
+authority change; array order and JSON value semantics remain significant.
+Migration writes use the same guard. The existing late-provider baseline now
+requires an explicit rejection and unchanged replacement with zero extra writes.
+An externally changed saved job is resumed through a deliberately reopened
+repository, not an already-open stale owner. Cached completed-job reads need
+not throw merely because they do not write. This transitional content guard is
+NOT atomic cross-process CAS and cannot detect identical-content ABA replacement.
+Failed saves can still leave in-memory changes; rollback/error UX remains open.
+
+Test-first and integration evidence:
+
+- New owner tests initially fail for missing reader/captured-writer boundaries;
+  stored nonce ABA test fails before the permanent-invalidity latch. Final
+  inventory19 + evidence18 + schema16 + owner11 =64/64 on real disposable DBs.
+- Worker reproduces blind late persistence; its six fence tests pass after the
+  fix. Integration finds a legitimate alias/merged-store key-order false positive;
+  a seventh regression fails before canonical comparison, then passes. The first
+  restart assertion targeted a no-write completed-job read; corrected to a real
+  write, and wrapped the synchronous error correctly. Final fence7 and pipeline19
+  pass. No baseline assertion is skipped/inverted and no timeout/config is relaxed.
+- Standard pnpm check: all6 typechecks/root lint/contracts353/mocks16 pass;
+  research334 pass/6 original RED failures, root exit1. Independent desktop93
+  pass/1 original renderer-secret RED; web153/153 pass (both journeys, 3.037s).
+  API not rerun. Keyless live tests return early: no live quality claim.
+- Expanded packaged-proof assertions fail against P03's old ASAR. Rebuilt native
+  Electron and fresh unsigned unpublished ASAR pass all required structured
+  fields. A confirmed-live second process cannot obtain ownership; a reader can
+  read committed data without writing. Forced SIGKILL with1582112 uncommitted WAL
+  bytes leaves committed data intact/uncommitted absent/integrity ok. Replacement
+  owner obtains generation2 and saves a correction. Old generation capabilities
+  cannot save inventory or evidence. Upgrade, period/zero, hashes and backups
+  continue passing. This is the actual bundled module, not extracted substitutes.
+- Frozen artifact: apps/desktop/release/sqlite-spike-20260930-6500427-owner/
+  win-unpacked, module resources/app.asar/dist/sqlite-spike.cjs. Runtime remains
+  Electron44.4.5/Node24.21.0/SQLite3.53.4 with P01's source ID. No edits during
+  packaging. No new NSIS/install/full-GUI acceptance. Normal desktop main build
+  passes and removes the optional proof bundle. Formatting and whitespace pass.
+  Sandbox compiler denial is resolved by approved identical offline commands;
+  runner configuration is unchanged.
+
+Limitations: exclusive owner is per canonical local file, not an authenticated
+cross-process service or a registry across copies of the same vault ID. Not a
+defense against privileged arbitrary SQLite/filesystem writes; network filesystem
+behavior is unverified. Closed backup copies preserve historical generations:
+future restore must drain/fence the old owner and advance beyond the active
+generation, never blindly adopt a backup counter. Provider cancellation/draining,
+attach/handoff, durable job leases, complete migration/rollback, guarded backup
+paths/races, assets/GC, imported disabled authority and scope enforcement remain
+open. Hash/link checks still do not establish semantic support or human verification.
+
+Seven original release blockers remain: uncached tab triggers provider, legacy
+metric period loss, premature cancellation, shared-company projection invalidation,
+same-name/different-domain collapse, different-period conflict collapse, renderer
+plaintext-key retrieval. Keep these ordinary RED while implementing the phased
+replacement. G01-P05 is typed remaining records and staged synthetic migration,
+not a live migration or permission to skip G02-G08. Full goal remains active.
+Read actual Git tips before each authorized fast-forward spin-off checkpoint.
 
 ## Change record (history)
 

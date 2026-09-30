@@ -143,6 +143,8 @@ try {
     retainedEvidenceBackup: true,
     periodAndZeroRetained: true,
     falseHashRejected: true,
+    oldCapabilityFenced: true,
+    ownerGenerationAdvanced: true,
   });
   for (const key of ['fts5Match', 'walReopen', 'backupFromOpenWal', 'backupReopen'])
     assert.equal(prepared[key], true);
@@ -163,7 +165,12 @@ try {
     'only the expected crash worker may be terminated',
   );
   assert.equal(path.resolve(ready.databasePath), path.join(directory, 'source.sqlite'));
+  assert.equal(path.resolve(ready.ownedDatabasePath), path.join(directory, 'owned.sqlite'));
+  assert.equal(ready.writerGeneration, 1);
   assert.ok(ready.walBytes > 32 && ready.pendingRows > 0);
+  const contention = await successWorker('contend', directory, 'contend');
+  assert.equal(contention.secondOwnerRejected, true);
+  assert.equal(contention.committedReaderWorked, true);
   assert.equal(
     crashWorker.child.kill('SIGKILL'),
     true,
@@ -179,8 +186,11 @@ try {
   assert.equal(recovered.committedSurvived, true);
   assert.equal(recovered.uncommittedAbsent, true);
   assert.equal(recovered.integrityCheck, 'ok');
+  assert.equal(recovered.crashedOwnerReplaced, true);
+  assert.equal(recovered.replacementGeneration, 2);
   summary = {
     ...prepared,
+    contention,
     crash: {
       forced: true,
       exitCode: crashExit.code,

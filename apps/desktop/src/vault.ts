@@ -1,5 +1,6 @@
 /** Offline G01 inventory adapter. No renderer/connector access or live-data cutover. */
 import { existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { SQLInputValue } from 'node:sqlite';
@@ -7,6 +8,7 @@ import type * as NodeSqlite from 'node:sqlite';
 import { z } from 'zod';
 import { compareRecordTimestamps, recordVersionSchema } from '@mi/contracts';
 import { createEvidenceStore, evidenceSchemaSql } from './vault-evidence-store';
+import { acquireVaultOwner, canonicalVaultPath, vaultFileFence } from './vault-owner';
 import {
   currentVaultSchemaVersion,
   initializeVaultSchema,
@@ -60,39 +62,97 @@ const historyOptions = z
   })
   .strict();
 
-/** Trusted local path and identity only. G01 owner lock must precede production use. */
-export function openVault(file: string, vaultId: string) {
-  if (!path.isAbsolute(file)) throw new Error('Vault path must be an absolute local path.');
+/** Internal owner or read-only handle. Never expose writers or paths directly to a connector. */
+export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader' = 'owner') {
+  if (mode !== 'owner' && mode !== 'reader') throw new Error('Invalid vault mode.');
+  file = canonicalVaultPath(file);
   recordVersionSchema.innerType().shape.vaultId.parse(vaultId);
   const existed = existsSync(file);
+  if (!existed && mode === 'reader') throw new Error('Read-only vault must already exist.');
   // Inspect unsupported/mismatched files read-only, before journal/header changes.
   if (existed) {
     const reader = new DatabaseSync(file, { readOnly: true, allowExtension: false });
     try {
-      inspectVaultSchema(reader, vaultId);
+      const version = inspectVaultSchema(reader, vaultId);
+      if (mode === 'reader' && version !== currentVaultSchemaVersion)
+        throw new Error('Read-only vault needs an explicit owner-side schema upgrade.');
     } finally {
       reader.close();
     }
   }
-  const db = new DatabaseSync(file, {
-    defensive: true,
-    allowExtension: false,
-    enableForeignKeyConstraints: true,
-    timeout: 2000,
-  });
+  const owner = mode === 'owner' ? acquireVaultOwner(file) : null;
+  let db: InstanceType<typeof DatabaseSync>;
   try {
-    db.exec('PRAGMA trusted_schema=OFF; BEGIN IMMEDIATE;');
-    // Recheck and upgrade within the write transaction, not while inspecting.
-    initializeVaultSchema(db, vaultId, !existed, evidenceSchemaSql);
-    db.exec('COMMIT; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
+    db = new DatabaseSync(file, {
+      readOnly: mode === 'reader',
+      defensive: true,
+      allowExtension: false,
+      enableForeignKeyConstraints: true,
+      timeout: 2000,
+    });
+  } catch (error) {
+    owner?.close();
+    throw error;
+  }
+  let state: { generation: number; nonce: string } | null = null;
+  function advanceGeneration() {
+    const previous = db
+      .prepare('SELECT generation FROM writer_state WHERE singleton=1')
+      .get()?.generation;
+    if (
+      typeof previous !== 'number' ||
+      !Number.isSafeInteger(previous) ||
+      previous >= Number.MAX_SAFE_INTEGER
+    )
+      throw new Error('Vault writer generation cannot advance.');
+    const next = { generation: previous + 1, nonce: randomUUID() };
+    db.prepare('UPDATE writer_state SET generation=?,owner_nonce=? WHERE singleton=1').run(
+      next.generation,
+      next.nonce,
+    );
+    return next;
+  }
+  let assertFile: () => void;
+  try {
+    db.exec('PRAGMA trusted_schema=OFF;');
+    if (owner) {
+      db.exec('BEGIN IMMEDIATE;');
+      owner.assertOwned();
+      initializeVaultSchema(db, vaultId, !existed, evidenceSchemaSql);
+      state = advanceGeneration();
+      db.exec('COMMIT; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
+    } else inspectVaultSchema(db, vaultId);
+    assertFile = vaultFileFence(file);
   } catch (error) {
     if (db.isTransaction) db.exec('ROLLBACK;');
     db.close();
+    owner?.close();
     throw error;
   }
   let closed = false;
+  let ownershipLost = false;
   function assertOpen() {
     if (closed) throw new Error('Vault is closed.');
+  }
+  function assertWriter(captured = state) {
+    assertOpen();
+    if (!owner) throw new Error('Vault is read-only.');
+    if (ownershipLost || !captured || captured !== state)
+      throw new Error('Vault writer generation is fenced.');
+    try {
+      owner.assertOwned();
+      assertFile();
+    } catch (error) {
+      ownershipLost = true;
+      throw error;
+    }
+    const current = db
+      .prepare('SELECT generation,owner_nonce FROM writer_state WHERE singleton=1')
+      .get();
+    if (current?.generation !== captured.generation || current.owner_nonce !== captured.nonce) {
+      ownershipLost = true;
+      throw new Error('Vault writer generation is fenced.');
+    }
   }
   function decode<T extends RecordData>(
     row: Record<string, unknown> | undefined,
@@ -106,8 +166,13 @@ export function openVault(file: string, vaultId: string) {
       throw new Error('Stored record version does not match its vault.');
     return value;
   }
-  function save(table: Table, value: RecordData, expectedRevision: number) {
-    assertOpen();
+  function save(
+    table: Table,
+    value: RecordData,
+    expectedRevision: number,
+    assertWrite: () => void,
+  ) {
+    assertWrite();
     if (value.record.vaultId !== vaultId) throw new Error('Record belongs to a different vault.');
     if (
       !Number.isSafeInteger(expectedRevision) ||
@@ -117,6 +182,7 @@ export function openVault(file: string, vaultId: string) {
       throw new Error('Record revision must advance exactly once.');
     db.exec('BEGIN IMMEDIATE;');
     try {
+      assertWrite();
       const previous = db
         .prepare(`SELECT id,revision,body FROM ${table} WHERE id=?`)
         .get(value.record.id);
@@ -172,6 +238,7 @@ export function openVault(file: string, vaultId: string) {
           company.officialDomain,
         );
       }
+      assertWrite();
       db.exec('UPDATE vault_meta SET revision=revision+1 WHERE singleton=1; COMMIT;');
     } catch (error) {
       db.exec('ROLLBACK;');
@@ -210,20 +277,64 @@ export function openVault(file: string, vaultId: string) {
       throw error;
     }
   }
+  const noWrite = () => {
+    throw new Error('Read handle cannot write without a captured owner capability.');
+  };
+  const evidence = createEvidenceStore(db, vaultId, assertOpen, readRevision, noWrite);
   return {
-    ...createEvidenceStore(db, vaultId, assertOpen, readRevision),
+    getSourceVersion: evidence.getSourceVersion,
+    getPassage: evidence.getPassage,
+    getMetricDefinition: evidence.getMetricDefinition,
+    listObservations: evidence.listObservations,
+    comparableObservations: evidence.comparableObservations,
     status() {
       assertOpen();
-      return { vaultId, schemaVersion: currentVaultSchemaVersion, revision: readRevision() };
+      return {
+        vaultId,
+        schemaVersion: currentVaultSchemaVersion,
+        revision: readRevision(),
+        mode,
+        writerGeneration: db.prepare('SELECT generation FROM writer_state WHERE singleton=1').get()
+          ?.generation,
+      };
     },
-    saveCompany(value: VaultCompany, expectedRevision: number) {
-      save('companies', companySchema.parse(value), expectedRevision);
+    writer() {
+      assertWriter();
+      const captured = state;
+      const check = () => assertWriter(captured);
+      const writes = createEvidenceStore(db, vaultId, assertOpen, readRevision, check);
+      return {
+        saveCompany(value: VaultCompany, expectedRevision: number) {
+          check();
+          save('companies', companySchema.parse(value), expectedRevision, check);
+        },
+        saveMarket(value: VaultMarket, expectedRevision: number) {
+          check();
+          save('markets', marketSchema.parse(value), expectedRevision, check);
+        },
+        saveMembership(value: VaultMembership, expectedRevision: number) {
+          check();
+          save('memberships', membershipSchema.parse(value), expectedRevision, check);
+        },
+        saveSourceVersion: writes.saveSourceVersion,
+        savePassage: writes.savePassage,
+        saveMetricDefinition: writes.saveMetricDefinition,
+        saveObservation: writes.saveObservation,
+      };
     },
-    saveMarket(value: VaultMarket, expectedRevision: number) {
-      save('markets', marketSchema.parse(value), expectedRevision);
-    },
-    saveMembership(value: VaultMembership, expectedRevision: number) {
-      save('memberships', membershipSchema.parse(value), expectedRevision);
+    advanceWriterGeneration() {
+      assertWriter();
+      db.exec('BEGIN IMMEDIATE;');
+      try {
+        assertWriter();
+        const next = advanceGeneration();
+        db.exec('COMMIT;');
+        state = next;
+      } catch (error) {
+        if (db.isTransaction) db.exec('ROLLBACK;');
+        throw error;
+      }
+      return state.generation;
     },
     getCompany: readCompany,
     listMarketCompanies(marketId: string, options: z.input<typeof pageOptions> = {}) {
@@ -292,6 +403,7 @@ export function openVault(file: string, vaultId: string) {
       if (!closed) {
         db.close();
         closed = true;
+        owner?.close();
       }
     },
   };

@@ -168,8 +168,12 @@ describe('G00 UNRESOLVED baseline: cached reads, migration and writer fencing', 
     const replacement = migrateSnapshot(null).snapshot;
     data.replace(replacement);
     release({ text: 'Late synthetic response', citations: [], queries: [] });
-    await oldRead;
+    await expect(oldRead).rejects.toMatchObject({
+      name: 'RepositoryOwnershipLostError',
+      code: 'REPOSITORY_OWNERSHIP_LOST',
+    });
     expect(data.read()).toEqual(replacement);
+    expect(data.writes).toHaveLength(0);
   });
 
   it('metric records must retain reporting periods separately from retrieval time', () => {

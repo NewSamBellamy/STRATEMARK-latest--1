@@ -31,7 +31,7 @@ async function proveNativeVault(directory) {
   });
   const file = path.join(directory, 'inventory.sqlite');
   const company = { record: record('co_a'), name: 'Fixture Labs', officialDomain: 'a.example' };
-  // Create a P02-shaped synthetic vault, then prove the real v1 -> v2 upgrade.
+  // Create a P02-shaped synthetic vault, then prove the real v1 -> v2 -> v3 upgrade.
   const prior = new DatabaseSync(file);
   try {
     prior.exec(`BEGIN IMMEDIATE; ${inventorySchemaSql}`);
@@ -47,9 +47,10 @@ async function proveNativeVault(directory) {
   } finally {
     prior.close();
   }
-  const vault = openVault(file, vaultId);
+  const handle = openVault(file, vaultId);
+  const vault = { ...handle, ...handle.writer() };
   try {
-    assert.equal(vault.status().schemaVersion, 2);
+    assert.equal(vault.status().schemaVersion, 3);
     assert.deepEqual(vault.getCompany('co_a'), company);
     for (const marketId of ['mkt_a', 'mkt_b']) {
       vault.saveMarket({ record: record(marketId), name: marketId }, 0);
@@ -138,9 +139,22 @@ async function proveNativeVault(directory) {
         ),
       /hash/i,
     );
+    const oldWriter = vault.writer();
+    vault.advanceWriterGeneration();
+    assert.equal(vault.status().writerGeneration, 2);
+    assert.throws(
+      () => oldWriter.saveCompany({ ...company, record: record('co_late') }, 0),
+      /fenced/i,
+    );
+    assert.throws(
+      () => oldWriter.saveSourceVersion({ ...source, id: 'src_late' }, content, 0),
+      /fenced/i,
+    );
+    assert.equal(vault.getCompany('co_late'), null);
+    assert.equal(vault.getSourceVersion('src_late', 1), null);
     const backupPath = path.join(directory, 'inventory-backup.sqlite');
     await vault.backup(backupPath);
-    const restored = openVault(backupPath, vaultId);
+    const restored = openVault(backupPath, vaultId, 'reader');
     try {
       assert.deepEqual(restored.getCompany('co_a'), updated);
       assert.deepEqual(restored.getSourceVersion('src_a', 1), { record: source, content });
@@ -163,6 +177,8 @@ async function proveNativeVault(directory) {
       retainedEvidenceBackup: true,
       periodAndZeroRetained: true,
       falseHashRejected: true,
+      oldCapabilityFenced: true,
+      ownerGenerationAdvanced: true,
     };
   } finally {
     vault.close();
@@ -240,6 +256,25 @@ async function prepare(directory) {
 }
 
 function crash(directory) {
+  const owned = openVault(path.join(directory, 'owned.sqlite'), 'vault_owner');
+  const at = '2026-09-30T12:00:00Z';
+  owned
+    .writer()
+    .saveCompany(
+      {
+        record: {
+          contractVersion: '1',
+          vaultId: 'vault_owner',
+          id: 'co_owned',
+          revision: 1,
+          createdAt: at,
+          updatedAt: at,
+        },
+        name: 'Owned fixture',
+        officialDomain: null,
+      },
+      0,
+    );
   const databasePath = path.join(directory, 'source.sqlite');
   const db = openWal(databasePath);
   db.exec('PRAGMA cache_size=4; BEGIN IMMEDIATE;');
@@ -254,8 +289,33 @@ function crash(directory) {
     databasePath,
     walBytes,
     pendingRows: 256,
+    ownedDatabasePath: path.join(directory, 'owned.sqlite'),
+    writerGeneration: owned.status().writerGeneration,
   });
-  setInterval(() => {}, 1000);
+  // Hold actual handles strongly until the deliberate process kill.
+  setInterval(() => {
+    assert.equal(db.isTransaction, true);
+    owned.status();
+  }, 1000);
+}
+
+function contend(directory) {
+  const file = path.join(directory, 'owned.sqlite');
+  assert.throws(() => openVault(file, 'vault_owner'), /already owned/i);
+  const reader = openVault(file, 'vault_owner', 'reader');
+  try {
+    assert.equal(reader.status().writerGeneration, 1);
+    assert.equal(reader.getCompany('co_owned').name, 'Owned fixture');
+    assert.throws(() => reader.writer(), /read-only/i);
+    assert.throws(() => reader.advanceWriterGeneration(), /read-only/i);
+  } finally {
+    reader.close();
+  }
+  marker('SQLITE_SPIKE_OK', {
+    phase: 'contend',
+    secondOwnerRejected: true,
+    committedReaderWorked: true,
+  });
 }
 
 function recover(directory) {
@@ -269,20 +329,37 @@ function recover(directory) {
   assert.equal(uncommitted, 0);
   assert.equal(integrity, 'ok');
   db.close();
+  const owned = openVault(path.join(directory, 'owned.sqlite'), 'vault_owner');
+  try {
+    assert.equal(owned.status().writerGeneration, 2);
+    const company = owned.getCompany('co_owned');
+    owned
+      .writer()
+      .saveCompany(
+        { ...company, record: { ...company.record, revision: 2 }, name: 'Recovered owner' },
+        1,
+      );
+    assert.equal(owned.getCompany('co_owned').name, 'Recovered owner');
+  } finally {
+    owned.close();
+  }
   marker('SQLITE_SPIKE_OK', {
     phase: 'recover',
     committedSurvived: true,
     uncommittedAbsent: true,
     integrityCheck: integrity,
+    crashedOwnerReplaced: true,
+    replacementGeneration: 2,
   });
 }
 
 async function main() {
   const [mode, directory] = process.argv.slice(3);
-  if (!directory || !['prepare', 'crash', 'recover'].includes(mode))
+  if (!directory || !['prepare', 'crash', 'contend', 'recover'].includes(mode))
     throw new Error('invalid sqlite spike worker arguments');
   if (mode === 'prepare') await prepare(directory);
   else if (mode === 'crash') crash(directory);
+  else if (mode === 'contend') contend(directory);
   else recover(directory);
 }
 

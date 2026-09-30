@@ -15,7 +15,7 @@ const handles: ReturnType<typeof openNativeVault>[] = [];
 function openVault(file: string, vaultId: string) {
   const handle = openNativeVault(file, vaultId);
   handles.push(handle);
-  return handle;
+  return { ...handle, ...handle.writer() };
 }
 function location() {
   const directory = mkdtempSync(path.join(tmpdir(), 'stratemark-vault-test-'));
@@ -38,7 +38,7 @@ describe('offline native vault foundation (no product cutover)', () => {
     const file = location();
     let vault = openVault(file, 'vault_fixture');
     vault.saveCompany(company(), 0);
-    expect(vault.status()).toMatchObject({ schemaVersion: 2, revision: 1 });
+    expect(vault.status()).toMatchObject({ schemaVersion: 3, revision: 1 });
     vault.close();
     vault = openVault(file, 'vault_fixture');
     expect(vault.getCompany('co_a')).toEqual(company());
@@ -97,11 +97,11 @@ describe('offline native vault foundation (no product cutover)', () => {
     vault.close();
   });
 
-  it('rejects stale writes from another open handle and preserves history', () => {
+  it('rejects stale record writes from two capabilities of the one owner and preserves history', () => {
     const file = location();
     const first = openVault(file, 'vault_fixture');
     first.saveCompany(company(), 0);
-    const second = openVault(file, 'vault_fixture');
+    const second = { ...first, ...first.writer() };
     const updated = { ...company(), name: 'Corrected Labs', record: record('co_a', 2) };
     second.saveCompany(updated, 1);
     expect(() =>

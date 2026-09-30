@@ -1,6 +1,6 @@
 import type * as NodeSqlite from 'node:sqlite';
 
-export const currentVaultSchemaVersion = 2;
+export const currentVaultSchemaVersion = 3;
 
 export const inventorySchemaSql = `
 CREATE TABLE vault_meta (
@@ -88,7 +88,7 @@ function requireInventorySchema(db: NodeSqlite.DatabaseSync) {
 
 export function inspectVaultSchema(db: NodeSqlite.DatabaseSync, vaultId: string): number {
   const version = readSchemaVersion(db);
-  if (version !== 1 && version !== currentVaultSchemaVersion)
+  if (version < 1 || version > currentVaultSchemaVersion)
     throw new Error('Unrecognized vault schema.');
 
   requireInventorySchema(db);
@@ -100,7 +100,23 @@ export function inspectVaultSchema(db: NodeSqlite.DatabaseSync, vaultId: string)
   if (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 0)
     throw new Error('Vault metadata revision is invalid.');
 
-  if (version === currentVaultSchemaVersion) requireTableColumns(db, evidenceColumns, 'evidence');
+  if (version >= 2) requireTableColumns(db, evidenceColumns, 'evidence');
+  if (version >= 3) {
+    requireTableColumns(db, { writer_state: ['singleton', 'generation', 'owner_nonce'] }, 'owner');
+    const rows = db.prepare('SELECT singleton,generation,owner_nonce FROM writer_state').all();
+    const writer = rows[0];
+    if (
+      rows.length !== 1 ||
+      writer?.singleton !== 1 ||
+      typeof writer.generation !== 'number' ||
+      !Number.isSafeInteger(writer.generation) ||
+      writer.generation < 0 ||
+      (writer.generation === 0
+        ? writer.owner_nonce !== null
+        : typeof writer.owner_nonce !== 'string' || !/^[a-f0-9-]{36}$/.test(writer.owner_nonce))
+    )
+      throw new Error('Vault writer generation is invalid.');
+  }
   if (db.prepare('PRAGMA quick_check').get()?.quick_check !== 'ok')
     throw new Error('Vault integrity check failed.');
   if (db.prepare('PRAGMA foreign_key_check').all().length !== 0)
@@ -118,13 +134,13 @@ export function initializeVaultSchema(
   if (!db.isTransaction)
     throw new Error('Vault schema initialization requires an active transaction.');
 
-  const version = readSchemaVersion(db);
+  let version = readSchemaVersion(db);
   if (version === currentVaultSchemaVersion) {
     inspectVaultSchema(db, vaultId);
     return;
   }
 
-  if (version === 1) {
+  if (version >= 1) {
     inspectVaultSchema(db, vaultId);
   } else if (version === 0) {
     if (!allowCreate) throw new Error('Vault creation is not allowed.');
@@ -135,12 +151,22 @@ export function initializeVaultSchema(
       throw new Error('Unrecognized version-zero database; refusing to adopt unrelated schema.');
     db.exec(inventorySchemaSql);
     db.prepare('INSERT INTO vault_meta VALUES(1,?,0)').run(vaultId);
+    db.exec('PRAGMA user_version=1;');
+    version = 1;
   } else {
     throw new Error('Unrecognized vault schema.');
   }
 
-  db.exec(evidenceSchemaSql);
-  requireTableColumns(db, evidenceColumns, 'evidence');
+  if (version === 1) {
+    db.exec(evidenceSchemaSql);
+    requireTableColumns(db, evidenceColumns, 'evidence');
+    db.exec('PRAGMA user_version=2;');
+  }
+  db.exec(`CREATE TABLE writer_state (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    generation INTEGER NOT NULL CHECK(generation>=0 AND generation<=9007199254740991),
+    owner_nonce TEXT
+  ) STRICT; INSERT INTO writer_state VALUES(1,0,NULL);`);
   db.exec(`PRAGMA user_version=${currentVaultSchemaVersion};`);
   inspectVaultSchema(db, vaultId);
 }

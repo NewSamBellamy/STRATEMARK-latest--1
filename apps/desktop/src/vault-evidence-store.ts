@@ -77,6 +77,7 @@ export function createEvidenceStore(
   vaultId: string,
   assertOpen: () => void,
   readRevision: () => number,
+  assertWrite: () => void,
 ) {
   function checkVersion(value: Version, first = true) {
     if (value.vaultId !== vaultId) throw new Error('Evidence belongs to a different vault.');
@@ -166,9 +167,12 @@ export function createEvidenceStore(
   }
   function write(operation: () => void) {
     assertOpen();
+    assertWrite();
     db.exec('BEGIN IMMEDIATE;');
     try {
+      assertWrite();
       operation();
+      assertWrite();
       db.exec('UPDATE vault_meta SET revision=revision+1 WHERE singleton=1; COMMIT;');
     } catch (error) {
       db.exec('ROLLBACK;');

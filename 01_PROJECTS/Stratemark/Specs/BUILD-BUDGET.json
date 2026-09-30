@@ -1,6 +1,6 @@
 {
   "campaignId": "stratemark-overhaul-sol-luna-v1",
-  "status": "G01_offline_retained_evidence_writer_fences_next_active_goal",
+  "status": "G01_owner_fences_verified_remaining_records_and_staged_migration_next_active_goal",
   "executionAuthorization": "Human active goal defers development spend limits; Sol plans and integrates; Luna high-effort workers implement; Astra disabled",
   "enforcementMode": "development_spend_limits_deferred_by_human",
   "currency": "USD",
@@ -62,6 +62,7 @@
     "fullHistoryForksAllowed": false
   },
   "completedPackets": [
+    "G01-P04-exclusive-owner-and-legacy-write-fences-not-phase-completion",
     "G01-P03-retained-evidence-and-schema-upgrade-not-phase-completion",
     "G01-P02-offline-inventory-and-quota-slice-not-phase-completion",
     "G01-P01-native-binding-and-legacy-inspection-not-phase-completion",
@@ -70,6 +71,21 @@
     "G00-P05-contract-baseline-freeze-not-product-readiness"
   ],
   "checkpoints": [
+    {
+      "packetId": "G01-P04",
+      "date": "2026-09-30",
+      "fullGate": "typecheck_lint_contracts353_mocks16_passed; research334_passed_6_known_failures; independent_desktop93_passed_1_known_failure_web153_all_passed; API_not_rerun",
+      "nativeVaultTestsPassed": 64,
+      "legacyReleaseBlockersUnfixed": 7,
+      "packagedVault": "unsigned_actual_ASAR_passed_second_process_owner_refusal_read_only_reader_forced_crash_takeover_generation2_old_capability_fences_upgrade_evidence_backup; no_live_cutover",
+      "legacyFence": "canonical_content_guard_not_cross_process_atomic_CAS_or_identical_ABA_detection",
+      "serviceAttachRestoreAndShutdown": "not_implemented_minimum_native_fence_only",
+      "workerModel": "gpt-6-luna",
+      "workerReasoningEffort": "high",
+      "workersDispatched": 1,
+      "astraDispatched": false,
+      "campaignSpentKnown": null
+    },
     {
       "packetId": "G01-P03",
       "date": "2026-09-30",

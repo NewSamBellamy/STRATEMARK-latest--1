@@ -135,6 +135,31 @@ export interface ResearchStore {
   write(snapshot: RepoSnapshot): void;
 }
 
+function snapshotContent(snapshot: RepoSnapshot | null): string {
+  // JSON object field order is not an authority change. Keep array order and
+  // JSON's normal value semantics, but compare all object keys consistently.
+  return JSON.stringify(snapshot, (_key, value: unknown) =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(
+          Object.entries(value).sort(([left], [right]) =>
+            left < right ? -1 : left > right ? 1 : 0,
+          ),
+        )
+      : value,
+  );
+}
+
+export class RepositoryOwnershipLostError extends Error {
+  readonly code = 'REPOSITORY_OWNERSHIP_LOST';
+
+  constructor() {
+    super(
+      'Research repository lost write ownership because its stored snapshot changed. Reopen it before writing again.',
+    );
+    this.name = 'RepositoryOwnershipLostError';
+  }
+}
+
 /**
  * Current storage format version.
  *
@@ -298,6 +323,8 @@ export type ResearchRepositoryOptions = Omit<
 
 export class GeminiRepository implements MarketIntelRepository {
   private snap: RepoSnapshot;
+  private lastPersistedContent = 'null';
+  private writeOwnershipLost = false;
   private lastMigration: MigrationOutcome | null = null;
   private readonly client: LlmClient;
   private readonly store?: ResearchStore;
@@ -314,7 +341,11 @@ export class GeminiRepository implements MarketIntelRepository {
   constructor(options: GeminiRepositoryOptions | ResearchRepositoryOptions) {
     // Reject unsupported data before constructing a provider or enabling any
     // mutation path. Pure inspection remains available through migrateSnapshot.
-    const migration = migrateSnapshot(options.store?.read() ?? null);
+    const storedSnapshot = options.store?.read() ?? null;
+    this.lastPersistedContent = snapshotContent(storedSnapshot);
+    const migration = migrateSnapshot(
+      storedSnapshot === null ? null : structuredClone(storedSnapshot),
+    );
     if (migration.fromVersion !== null && migration.fromVersion > REPO_SCHEMA_VERSION) {
       throw Object.assign(
         new Error('This research was saved by a newer Stratemark version. Please upgrade.'),
@@ -346,7 +377,7 @@ export class GeminiRepository implements MarketIntelRepository {
     this.lastMigration = migration;
     // Persist immediately after an upgrade so the migration is not re-run on
     // every launch, and so a later downgrade sees an honest version stamp.
-    if (migration.applied.length > 0) this.store?.write(this.snap);
+    if (migration.applied.length > 0) this.persist();
   }
 
   /**
@@ -375,7 +406,17 @@ export class GeminiRepository implements MarketIntelRepository {
   }
 
   private persist(): void {
-    this.store?.write(this.snap);
+    if (!this.store) return;
+    if (this.writeOwnershipLost) throw new RepositoryOwnershipLostError();
+    if (snapshotContent(this.store.read()) !== this.lastPersistedContent) {
+      this.writeOwnershipLost = true;
+      throw new RepositoryOwnershipLostError();
+    }
+
+    const next = structuredClone(this.snap);
+    const nextContent = snapshotContent(next);
+    this.store.write(next);
+    this.lastPersistedContent = nextContent;
   }
 
   /** Flatten a pipeline result into the normalized store. */
