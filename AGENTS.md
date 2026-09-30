@@ -126,9 +126,15 @@ For the separate founder-directed overhaul, start at
 `01_PROJECTS/Stratemark/Specs/BUILD-STATE.md` and read `NORTHSTAR.md` before work.
 The north star, action catalogue, and phase goals supersede conflicting earlier
 product proposals, not current human instructions or these repository rules.
-The founder authorized researched planning, not implementation yet. Do not start
-the build, resume the earlier automation, spend provider credits, migrate live
-research, push, publish, deploy, or merge from the existence of this plan.
+The founder subsequently authorized phased implementation (September 30, 2026);
+the active goal and `BUILD-STATE.md` record that authority. Do not infer authority
+from the existence of the plan alone. The $50 campaign's spending controls remain
+unverified: no additional paid research or subagent dispatch until its billing
+preflight passes. Do not resume the earlier automation, migrate live research,
+push, publish, deploy, or merge without separate human authorization.
+Follow the context/checkpoint limits in
+`01_PROJECTS/Stratemark/Specs/build-workflow.md`; never send the entire
+conversation to an executor.
 
 ## PR body template
 

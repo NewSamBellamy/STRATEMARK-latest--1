@@ -3,6 +3,8 @@
 Plan version: 1.0.0. Normative companion to [NORTHSTAR.md](NORTHSTAR.md).
 Status: design, not implemented API. Catalogue IDs are stable; wire schemas are finalized and fixture-tested in G00 before executors change callers.
 
+G00-P01 implementation status: all catalogue metadata and nine request schemas now exist in `packages/contracts/src/actions.ts`. No transport/service is wired to them yet; the other 53 requests fail closed in that parser. Runtime schemas remain additive candidates until their complete result/policy/adapter fixtures pass. See BUILD-STATE for actual verification and remaining gates, not this catalogue as proof of a working API.
+
 ## 1. One action system
 
 Every button, scheduled task, IPC request, and permitted MCP tool maps to one of the actions below. Business rules, authorization, spend, evidence rules, and state transitions live in the local action service. Transport adapters authenticate callers and translate schemas; they cannot create parallel research implementations.

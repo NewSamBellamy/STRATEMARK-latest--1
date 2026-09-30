@@ -1,7 +1,7 @@
 # Phased build goals and verification
 
 Plan version: 1.0.0. Companion to [NORTHSTAR.md](NORTHSTAR.md) and [ACTIONS.md](ACTIONS.md).
-All implementation goals below are NOT STARTED. Creating this plan does not authorize the build, paid evaluation, automation restart, publication, or a main merge.
+The initial plan did not start these goals. Subsequent human authorization started G00; BUILD-STATE is the authoritative execution ledger. Creating this plan alone does not authorize the build, paid evaluation, automation restart, publication, or a main merge.
 
 ## 1. Execution order
 

@@ -1,10 +1,10 @@
 # Stratemark planned build workflow
 
-Status: recorded for the future build. Astra has completed a read-only architecture red team for the researched plan. No implementation executor has been launched. Current planning authority: [NORTHSTAR.md](NORTHSTAR.md), v1.0.0; current execution status: [BUILD-STATE.md](BUILD-STATE.md).
+Status: the human authorized phased implementation; G00's first local contract slice is in progress. Astra previously completed the read-only architecture red team. No additional implementation subagent has been launched. Current planning authority: [NORTHSTAR.md](NORTHSTAR.md), v1.0.0; current execution status: [BUILD-STATE.md](BUILD-STATE.md).
 
 ## Roles
 
-Budgeted campaign supplement: [LAUNCH.md](LAUNCH.md) reuses the completed Astra plan and uses one serial Sol executor. Do not launch a new planner for every packet; reserve Astra for the defined three-attempt escalation, subject to verified billing and remaining funds. This campaign does not authorize a full G00-G08 overhaul for $50.
+Budgeted campaign supplement: [LAUNCH.md](LAUNCH.md) reuses the completed Astra plan and uses one serial Sol executor. Do not launch a new planner for every packet; reserve Astra for the defined three-attempt escalation, subject to verified billing and remaining funds. The latest human goal authorizes phased G00-G08 work, not a promise that production fits in $50. Monetary gates still apply.
 
 - The founder comments on the current journey/features and approves the resulting overhaul direction.
 - Astra (`gpt-6-astra`) plans architecture, scope, dependencies, work packets, and acceptance gates from the accepted decisions.
@@ -29,6 +29,16 @@ The researched north star, actions, and phase gates now exist. Do not re-open al
 ## Executor work packet
 
 Every packet needs a specific user outcome, approved story/feature IDs, allowed files, dependencies, contracts to preserve, acceptance examples, verification steps, and completion evidence. Preserve unrelated changes and research data. Coordinate shared contract changes before concurrent edits.
+
+## Context and dispatch policy
+
+Every coordinator and child has the founder's 200k context ceiling. Checkpoint around an estimated 100k; finish or hand off the bounded packet before 150k. Do not wait for 200k, and do not confuse cumulative session/goal usage with active context occupancy. Exact occupancy and forced compaction are not exposed here: use small packets, bounded outputs and clean handoffs, not a claimed automatic limiter.
+
+Cold-start context is only the applicable repository instructions, north-star decisions, current packet, relevant source excerpts and test evidence. Never fork full history or copy customer data, credentials, raw recordings/transcripts or complete logs into a child. At handoff, save the objective, branch/HEAD, owned dirty files, decisions, actual checks, remaining failures, distinct blocker attempts, money known/unknown and next safe command in BUILD-STATE. The next agent verifies that checkpoint against disk.
+
+Before EACH child dispatch record requested model, actual service tier if exposed, input/output/context bounds, projected USD range, conservative maximum reservation, evidence for rates and remaining reconciled funds. Projected cost is not actual spend. No dispatch when billing/tier/usage is unknown or a strict cap cannot be bounded. The current agent-spawn tool exposes model/reasoning but no enforceable per-child USD limit; a prompt allocation cannot replace a billing limit. If the route cannot provide the required controls, use a controlled route or stop for owner setup, not an unbounded swarm.
+
+Default after that gate: one `gpt-6.1-sol` executor, medium effort, with disjoint bounded ownership. Astra help only after three distinct failed technical approaches and a reserved remaining allocation. This policy authorizes no worker by itself.
 
 ## Three-attempt escalation rule
 

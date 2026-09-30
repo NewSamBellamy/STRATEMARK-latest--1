@@ -1,6 +1,6 @@
 {
   "campaignId": "stratemark-sol-50-v1",
-  "status": "prepared_not_started",
+  "status": "G00_partial_billing_preflight_unverified",
   "currency": "USD",
   "absoluteCeiling": 50,
   "workingCeiling": 40,
@@ -15,7 +15,10 @@
   "reasoningDefault": "medium",
   "processingTierRequired": "standard",
   "maxActiveWorkers": 1,
-  "authorizedAtHumanLaunch": ["G00", "bounded G01 foundation slice"],
+  "authorizedAtHumanLaunch": ["G00", "G01", "G02", "G03", "G04", "G05", "G06", "G07", "G08"],
+  "phaseExecution": "sequential; acceptance gates and spending preflight still apply",
+  "apiAuthenticationReportedByUser": true,
+  "hardLimitConfiguredReportedByUser": false,
   "liveProductResearchAllowed": false,
   "liveUserDataMigrationAllowed": false,
   "preflight": {
@@ -35,5 +38,22 @@
     "persistsAcrossMonthlyResets": true,
     "unknownUsageBlocksDispatch": true
   },
-  "completedPackets": []
+  "contextPolicy": {
+    "checkpointAtEstimatedContextTokens": 100000,
+    "handoffBeforeEstimatedContextTokens": 150000,
+    "userContextCeilingTokens": 200000,
+    "tokenBudgetIsNotDollarLimit": true,
+    "fullHistoryForksAllowed": false
+  },
+  "completedPackets": [],
+  "checkpoints": [
+    {
+      "packetId": "G00-P01",
+      "date": "2026-09-30",
+      "targetedContractTestsPassed": 25,
+      "fullGate": "failed_existing_journey_timeout; isolated_retry_passed; root_cause_unconfirmed",
+      "additionalPaidAgentsDispatched": 0,
+      "campaignSpentKnown": null
+    }
+  ]
 }

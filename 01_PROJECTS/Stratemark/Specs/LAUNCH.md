@@ -2,6 +2,8 @@
 
 Prepared September 30, 2026. Execution supplement to north-star v1.0.0, not a replacement product plan. Status: handoff prepared; billing preflight UNVERIFIED; application build NOT STARTED.
 
+Subsequent human authorization: phased implementation is now approved under the active overhaul goal and G00's first contract slice has begun. See BUILD-STATE for actual status. This supersedes historical planning-only/bounded-G01 scope below; monetary enforcement/accounting gates are unchanged. The human reports an API key and no configured spending limit. No full production build for $50 is promised. Apply the 100k checkpoint / 150k handoff / 200k user ceiling in build-workflow to every agent.
+
 ## Setup once
 
 Open this repository as the project:

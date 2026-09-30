@@ -17,3 +17,4 @@ export * from './living-deck';
 export * from './freshness';
 export * from './consistency';
 export * from './report';
+export * from './actions';
