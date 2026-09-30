@@ -7,7 +7,6 @@ import { AuthProvider } from '@/lib/auth/AuthContext';
 import { TaskManagerProvider } from '@/lib/tasks/TaskManagerContext';
 import { createQueryClient } from '@/lib/query/queryClient';
 import { ErrorBoundary } from '@/components/states/ErrorBoundary';
-import { DeepDiveProviderWithPanel } from '@/features/deepdive/DeepDive';
 import './index.css';
 
 const queryClient = createQueryClient();
@@ -19,9 +18,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <TaskManagerProvider>
-              <DeepDiveProviderWithPanel>
-                <App />
-              </DeepDiveProviderWithPanel>
+              <App />
             </TaskManagerProvider>
           </AuthProvider>
         </QueryClientProvider>

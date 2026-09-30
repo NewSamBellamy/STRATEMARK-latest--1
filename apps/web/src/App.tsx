@@ -1,5 +1,6 @@
 import { HashRouter, MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from './routes';
+import { DeepDiveProviderWithPanel } from '@/features/deepdive/DeepDive';
 
 /**
  * Can this document support a URL-based router?
@@ -26,16 +27,14 @@ function supportsUrlRouting(): boolean {
 // HashRouter keeps deep links working under Electron's file:// origin (Electron-ready),
 // and avoids the data-router fetch/Request machinery we don't need (no loaders/actions).
 export function App() {
-  if (!supportsUrlRouting()) {
-    return (
-      <MemoryRouter initialEntries={['/']}>
-        <AppRoutes />
-      </MemoryRouter>
-    );
-  }
-  return (
-    <HashRouter>
+  // The panel reads route/search state, so it must live under either router.
+  const content = (
+    <DeepDiveProviderWithPanel>
       <AppRoutes />
-    </HashRouter>
+    </DeepDiveProviderWithPanel>
   );
+  if (!supportsUrlRouting()) {
+    return <MemoryRouter initialEntries={['/']}>{content}</MemoryRouter>;
+  }
+  return <HashRouter>{content}</HashRouter>;
 }

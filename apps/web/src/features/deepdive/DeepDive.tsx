@@ -245,7 +245,7 @@ export function DeepDiveProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * Full provider with the docked AI conversation panel. Used by main.tsx.
+ * Full provider with the docked AI conversation panel. Mounted inside App's router.
  * The panel is fixed-positioned at the right edge; AppShell reads `isOpen`
  * and applies a right margin so the main content area shrinks to accommodate.
  */
