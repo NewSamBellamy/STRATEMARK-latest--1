@@ -9,7 +9,16 @@ unknown, not zero. Prior budgeted launch instructions remain in Git history.
 ## Start from disk, not this conversation
 
 Repository: C:\\Users\\shann\\Documents\\Codex\\2026-09-28\\i-x20\\work\\stratemark-cards
-Branch: feat/claim-level-signal-evidence
+Branch: feat/stratemark-spinoff-local-agents
+Checkpoint remote: newsam -> https://github.com/NewSamBellamy/STRATEMARK-latest--1
+Preserved local predecessor: feat/claim-level-signal-evidence
+
+The human authorized periodic checkpoint pushes to this NEW branch in their
+personal fork. Commit meaningful verified slices, then fast-forward push only
+there. Do not alter existing remote branches or push to Maruf/Tobi/main. The
+shorter NewSamBellamy/STRATEMARK-latest- URL redirects to Maruf and is not this
+destination. If the checkpoint branch diverges, stop the push and investigate;
+never force-update or overwrite it. Record failing gates honestly.
 
 Read AGENTS.md, BUILD-STATE.md, NORTHSTAR.md and the active PHASES.md gate.
 Check actual HEAD/tree and active goal. Keep the full objective active; each
@@ -26,8 +35,9 @@ merely to reset accounting or narrow the existing objective.
 > unfinished packet, verify meaningful behavior, record gaps and commit locally.
 > Use clean bounded worker context, 100k checkpoint / 150k handoff / 200k ceiling.
 > Do not ask me to repeat already accepted decisions. Preserve user data and
-> existing work. No live paid product evaluation, live migration, push, main
-> merge, deployment or publication without separate authority. Keep the goal
+> existing work. Save verified checkpoints to the personal spin-off branch above;
+> no other push, live paid product evaluation, live migration, main merge,
+> deployment or release publication without separate authority. Keep the goal
 > active until the full outcome is verified, not just until a slice is saved.
 
 ## Boundaries

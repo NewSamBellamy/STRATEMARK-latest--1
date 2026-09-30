@@ -47,8 +47,13 @@ are separate gates. G00 reproductions stay honestly RED while legacy defects
 remain; don't skip/invert them to claim production readiness. A worker's final
 report is not proof of completion; review diff and rerun proportionate checks.
 
-Commit finished slices locally on feat/claim-level-signal-evidence, preserving
+Commit finished slices on feat/stratemark-spinoff-local-agents, preserving
 unrelated work/data. Maintain BUILD-STATE as the single ledger and proceed to
 the next unfinished packet without requiring repeated founder approval. Keep
-the broad goal active. No push, deployment, publication or main merge without
-separate authority.
+the broad goal active. The latest human instruction authorizes checkpoint
+pushes only to remote newsam, NewSamBellamy/STRATEMARK-latest--1, on this new
+spin-off branch. Push meaningful verified slices, not unfinished micro-edits.
+Check the destination/remote tip first; subsequent pushes must fast-forward.
+If it diverges, preserve both histories and report it; no force update, branch
+deletion or automatic merge. Origin/Maruf, Tobi and all existing branches remain
+untouched. No release, deployment, main merge or other push without authority.

@@ -117,6 +117,16 @@ compromised and rotate it immediately.
 
 ## Stratemark overhaul planning entry point
 
+Latest human backup instruction (September 30): continue this spin-off on
+`feat/stratemark-spinoff-local-agents`, with checkpoint pushes only to the
+verified personal fork `NewSamBellamy/STRATEMARK-latest--1` (remote `newsam`).
+The old NewSamBellamy/STRATEMARK-latest- URL redirects to Maruf; never use it as
+the personal backup destination. Preserve origin/tobi and the old local branch.
+Save meaningful verified slices locally, then push fast-forward checkpoints
+to this new branch. No overwrite/force-update of existing refs, no push to main,
+no PR/merge/release/deployment or live migration authority. Known RED baseline
+tests must be disclosed; a checkpoint is not a release-readiness claim.
+
 Latest human goal (September 30): GPT-6.1 Sol plans and integrates; bounded
 `gpt-6-luna` workers implement at `high` effort. Astra is off the table,
 including escalation. Development spend limits/projections are not a gate now;
@@ -136,7 +146,8 @@ goal and BUILD-STATE record that authority. Do not infer authority from a plan
 alone. Keep worker scopes bounded, model/effort explicit, and unknown spend
 unknown. Live paid product research needs separate approval. Do not resume the
 earlier automation, migrate live research,
-push, publish, deploy, or merge without separate human authorization.
+publish, deploy, or merge without separate human authorization. Only the
+personal-fork checkpoint pushes specified above are now authorized.
 Follow the context/checkpoint limits in
 `01_PROJECTS/Stratemark/Specs/build-workflow.md`; never send the entire
 conversation to an executor.

@@ -11,8 +11,8 @@ deferred by the human; do not stop for missing API telemetry or require cost
 projections before worker dispatch. This overrides the historical campaign
 instructions below, not product privacy, bounded execution, phase dependencies,
 context ceilings or live-research consent. Goal is active (verified via goal tool).
-Latest completed packet: G00-P04 below (startup fix local `012aff3`, contract
-checkpoint commit follows). No phase is complete. Next G00-P05 finishes typed
+Latest completed packet: G00-P04 below (startup fix `012aff3`, contract
+checkpoint `b2c6398`). No phase is complete. Next G00-P05 finishes typed
 cached-read projections/version contracts; do not restart planning.
 Earlier $50/Astra campaign instructions are historical, not current dispatch
 rules. The human reports API-key sign-in; actual development spend is unknown.
@@ -22,13 +22,13 @@ separate explicit approval and a numeric cap.
 
 - Planning: complete researched v1 north star, action catalogue, phase goals, and evidence ledger.
 - Implementation: G00 in progress; 62 strict requests, typed command receipts/output manifests and approval/grant/egress/budget policies, 11 RED baseline reproductions, verified public browser journey and a fixed startup wiring bug. Remaining cached-read/version contracts are unfinished. New action service is not connected to application callers.
-- Branch: `feat/claim-level-signal-evidence`; main must not be used for this exploration.
+- Branch: `feat/stratemark-spinoff-local-agents`, created from `b2c6398`; predecessor `feat/claim-level-signal-evidence` retained unchanged. Personal-fork checkpoint destination: remote newsam, `NewSamBellamy/STRATEMARK-latest--1`.
 - Inspected code baseline: `3f18af2`. The documentation commit will follow that baseline; determine current HEAD from git rather than treating this baseline as current code forever.
 - Goal tool: the human's replacement Sol-planner/Luna-worker goal is active, verified at G00-P03 start. No billing blocker remains for development. Keep the full goal active at packet boundaries.
 - Next work: remaining G00 contracts and baseline fixtures in bounded packets. G01 waits on its required contracts/fixtures; no live migration is authorized.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
-- Push / main merge / public deployment / publication: not authorized.
+- Push: latest human explicitly authorized periodic checkpoints ONLY to this new personal-fork branch. No overwriting existing refs, upstream/Tobi pushes, main merge, release or deployment. Before the first push, verified owner NewSamBellamy, public fork of Maruf, main tip `c945b31dee0095331b8487133c131c36e76ba601`, new branch absent. The shorter old URL redirects to Maruf and is unsafe as a personal destination. First push still pending at this authored checkpoint.
 - Current application tests: see packet G00-P01 below for dated execution evidence. Historical counts are not a substitute for a fresh check; live quality, packaged desktop and visual journeys remain unverified in this slice.
 - Document verification: local links and balanced code fences passed; unique registers checked (22 defaults, 30 stories, 62 actions, 9 goals, 26 sources); JSON command example parsed; canonical files had no candidate credential patterns. Markdown formatting checked separately before commit.
 - Astra final planning review: seven substantive gaps identified and addressed (service lifetime, migration fences, imported authority, restored budgets, asset/evidence retention, asynchronous output retrieval, and human approval boundary). Re-review found no remaining material contract contradictions; this is planning consistency, not application verification.
@@ -324,8 +324,9 @@ Final September30 verification on this packet's tree:
   Unrelated user previews were untouched. Full desktop build/installer/signing
   and live research still open.
 
-Local startup commit: `012aff3`. Remaining contract/baseline/docs slice is ready
-for a separate local checkpoint commit. No push/main merge/migration/publication.
+Local startup commit: `012aff3`; contract/baseline/docs checkpoint: `b2c6398`.
+Both are preserved on the predecessor and new spin-off branch. New human
+checkpoint-push authority is recorded above; no main merge/migration/release.
 Next G00-P05: typed cached-read projections and explicit record/version envelopes,
 including sparse/period/conflict/evidence states. Reuse existing domain schemas
 where correct, do not add generic untyped payloads or another backend. Verify
@@ -334,6 +335,8 @@ G01 starts the packaged SQLite binding spike and offline vault/migration work.
 Keep the full goal active; development spend is unknown and not a blocker.
 
 ## Change record (history)
+
+- September30: human authorized periodic GitHub checkpoint saves on a new branch under NewSamBellamy, preserving everything else. Verified personal fork is STRATEMARK-latest--1; shorter old URL redirects to Maruf. Created feat/stratemark-spinoff-local-agents from b2c6398, retained predecessor, and added separate newsam backup remote without changing origin/tobi. Core model/provider/MCP direction remains the accepted north star; universal compatibility is a target, not a tested claim.
 
 - September 30, 2026: current execution policy changed by human goal to Sol planning/Luna high-effort workers, Astra disabled, development billing gates deferred. Product decisions remain v1.0.0; no change to release privacy/consent or deployment authority.
 - September 30, 2026, v1.0.0: researched defaults chosen after handwritten architecture review and read-only Astra red team. Created canonical spec, A01-A62 actions, G00-G08 goals, dated source ledger, and this cold-start record. No application code/data/provider credentials changed; no implementation agents launched. Astra's planning review is not implementation evidence.

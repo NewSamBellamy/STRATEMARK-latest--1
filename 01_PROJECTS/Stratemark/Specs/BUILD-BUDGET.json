@@ -18,6 +18,15 @@
   "workerModel": "gpt-6-luna",
   "workerReasoningEffort": "high",
   "astraAllowed": false,
+  "checkpointBackup": {
+    "humanAuthorized": true,
+    "ownerRepository": "NewSamBellamy/STRATEMARK-latest--1",
+    "remote": "newsam",
+    "branch": "feat/stratemark-spinoff-local-agents",
+    "cadence": "each meaningful verified slice during active goal",
+    "existingRefsMayBeOverwritten": false,
+    "mainMergeOrReleaseAuthorized": false
+  },
   "workerCostProjectionRequired": false,
   "processingTierRequired": null,
   "maxActiveWorkers": 1,
