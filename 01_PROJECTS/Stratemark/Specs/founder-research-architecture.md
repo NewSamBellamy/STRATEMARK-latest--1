@@ -2,6 +2,8 @@
 
 Status: planning input, not implementation authorization. Recorded September 30, 2026.
 
+Historical extraction: the later researched [NORTHSTAR.md](NORTHSTAR.md) v1.0.0 resolves the proposed labels, defaults, report interpretation, and open questions below. Preserve this as source meaning, not a competing specification. Implementation remains unauthorized.
+
 The founder supplied photographs of two distinct handwritten product-planning pages. The second and third attachments show the same page. This document preserves cleaned product meaning rather than copying the photographs or a private transcript into the repository. It separates requested direction from proposed additions and unresolved decisions.
 
 ## Meaning extracted from the notes
@@ -45,13 +47,13 @@ These researchers do not each own a single company. They create findings cards a
 
 This is our interpretation of the direction, with additions called out below.
 
-| Surface | Purpose | Main content |
-| --- | --- | --- |
-| Research library | Reopen ongoing research | Markets, saved companies, recent changes, existing reports |
-| Market deck | Understand the players and the market | Companies, infrastructure, distribution, insights, culture, barriers, risks |
-| Card reader | Understand one company quickly | Identity, purpose, a few useful supported facts, why it belongs, sources |
-| Company workspace | Explore the accumulated company dossier | Overview, metrics, products, supporting evidence, reports, and Updates |
-| Research activity | Understand work and control it | Discoveries, queued tasks, active work, gaps, failures, pause/resume, budget |
+| Surface           | Purpose                                 | Main content                                                                 |
+| ----------------- | --------------------------------------- | ---------------------------------------------------------------------------- |
+| Research library  | Reopen ongoing research                 | Markets, saved companies, recent changes, existing reports                   |
+| Market deck       | Understand the players and the market   | Companies, infrastructure, distribution, insights, culture, barriers, risks  |
+| Card reader       | Understand one company quickly          | Identity, purpose, a few useful supported facts, why it belongs, sources     |
+| Company workspace | Explore the accumulated company dossier | Overview, metrics, products, supporting evidence, reports, and Updates       |
+| Research activity | Understand work and control it          | Discoveries, queued tasks, active work, gaps, failures, pause/resume, budget |
 
 Culture and Vice were hidden in the previous exploration. The new notes request those purposes again. Restore them to proposed scope for review, not to application code. Recommend the user-facing label Risks for Vice and Barriers to entry for B2E; exact labels remain a founder decision.
 
@@ -61,22 +63,22 @@ Infrastructure and distribution describe an entity's role in a market. A company
 
 The steps below include our recommended missing controls. They describe future behavior, not current shipped capability.
 
-| ID | Simple sentence | Basis |
-| --- | --- | --- |
-| N01 | You open your library and start a market or reopen an existing one. | Prior product direction plus recommended return entry point |
-| N02 | You describe the market, your goal, region, and any companies that must be included. | Notes plus prior seed-company direction |
-| N03 | You confirm the scope, provider setup, research depth, and budget. | Recommended checkpoint |
-| N04 | The Sentinel starts discovering relevant companies and market roles. | Notes |
-| N05 | Each new company gets a persistent dossier and a Scout assignment. | Notes; dossier separation is a recommendation |
-| N06 | Scouts research companies while the Sentinel keeps discovering more players. | Notes |
-| N07 | The first useful, supported cards appear before all research is finished. | Recommended progressive delivery |
-| N08 | You browse companies, infrastructure, and distribution, using clear filters. | Notes |
-| N09 | You open a card for a short orientation and then explore its deeper company research. | Prior confirmed interaction direction |
-| N10 | You inspect facts and sources, ask questions, compare companies, or request missing research. | Notes plus existing product direction |
-| N11 | Market specialists publish sourced trend, culture, barrier, and risk findings in their own sections. | Notes |
-| N12 | You save findings, create reports, and share or export a snapshot. | Notes plus existing product direction |
-| N13 | You choose what should be monitored and how often it can spend your budget. | Recommended consent and scheduling control |
-| N14 | You return to meaningful changes, unresolved gaps, and research you can resume. | Recommended return experience |
+| ID  | Simple sentence                                                                                      | Basis                                                       |
+| --- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| N01 | You open your library and start a market or reopen an existing one.                                  | Prior product direction plus recommended return entry point |
+| N02 | You describe the market, your goal, region, and any companies that must be included.                 | Notes plus prior seed-company direction                     |
+| N03 | You confirm the scope, provider setup, research depth, and budget.                                   | Recommended checkpoint                                      |
+| N04 | The Sentinel starts discovering relevant companies and market roles.                                 | Notes                                                       |
+| N05 | Each new company gets a persistent dossier and a Scout assignment.                                   | Notes; dossier separation is a recommendation               |
+| N06 | Scouts research companies while the Sentinel keeps discovering more players.                         | Notes                                                       |
+| N07 | The first useful, supported cards appear before all research is finished.                            | Recommended progressive delivery                            |
+| N08 | You browse companies, infrastructure, and distribution, using clear filters.                         | Notes                                                       |
+| N09 | You open a card for a short orientation and then explore its deeper company research.                | Prior confirmed interaction direction                       |
+| N10 | You inspect facts and sources, ask questions, compare companies, or request missing research.        | Notes plus existing product direction                       |
+| N11 | Market specialists publish sourced trend, culture, barrier, and risk findings in their own sections. | Notes                                                       |
+| N12 | You save findings, create reports, and share or export a snapshot.                                   | Notes plus existing product direction                       |
+| N13 | You choose what should be monitored and how often it can spend your budget.                          | Recommended consent and scheduling control                  |
+| N14 | You return to meaningful changes, unresolved gaps, and research you can resume.                      | Recommended return experience                               |
 
 ## Gaps and recommended resolutions
 

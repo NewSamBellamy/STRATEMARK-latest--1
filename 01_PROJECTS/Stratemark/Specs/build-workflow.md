@@ -1,6 +1,6 @@
 # Stratemark planned build workflow
 
-Status: recorded for the future build. No planner or executor has been launched as part of this preparation.
+Status: recorded for the future build. Astra has completed a read-only architecture red team for the researched plan. No implementation executor has been launched. Current planning authority: [NORTHSTAR.md](NORTHSTAR.md), v1.0.0; current execution status: [BUILD-STATE.md](BUILD-STATE.md).
 
 ## Roles
 
@@ -13,6 +13,8 @@ Status: recorded for the future build. No planner or executor has been launched 
 Both requested model IDs are exposed by the current subagent tool. Verify availability again at build time; do not silently substitute a different model if a requested one is unavailable. Using these model names for development does not require Stratemark's users to use those providers.
 
 ## Before implementation
+
+The researched north star, actions, and phase gates now exist. Do not re-open already chosen defaults just because older input documents contain pending questions. Astra still prepares concrete code-informed packets for each authorized phase; the plan is not permission to start them.
 
 1. Finish the founder review and map feedback to journey, feature, and decision IDs.
 2. Have Astra produce a complete, reviewable plan from the accepted decisions and current code.

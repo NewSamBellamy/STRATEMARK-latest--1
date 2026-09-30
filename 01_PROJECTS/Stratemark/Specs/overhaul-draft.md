@@ -1,5 +1,7 @@
 # Spec: Stratemark overhaul
 
+SUPERSEDED September 30, 2026: the complete canonical specification is [NORTHSTAR.md](NORTHSTAR.md), with [ACTIONS.md](ACTIONS.md), [PHASES.md](PHASES.md), and [BUILD-STATE.md](BUILD-STATE.md). The scaffold below is historical only; its pending questions are not the current planning state. Do not use it as an alternate build plan.
+
 Status: review scaffold. No implementation authorization. Fill this specification after the founder comments on the journey and feature inventory, then have Astra plan the accepted scope.
 
 ## 1. Problem statement

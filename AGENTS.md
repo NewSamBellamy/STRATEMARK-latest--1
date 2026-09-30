@@ -5,11 +5,11 @@ are the rules that keep that from turning into a mess. They are short on purpose
 
 ## Who works here
 
-| Handle | Runtime | Owns |
-|---|---|---|
-| **Shannon** (`@NewSamBellamy`) | human, owner | Product direction, design, merge authority on anything ambiguous |
-| **Morgan** | Hermes / Cursor | Lead development, feature work, UI wiring, packaging and release |
-| **Blackbeard** | HyperAgent (Claude Opus 5) | Backend architecture, agent/ADK layer, data integrity, security hardening |
+| Handle                         | Runtime                    | Owns                                                                      |
+| ------------------------------ | -------------------------- | ------------------------------------------------------------------------- |
+| **Shannon** (`@NewSamBellamy`) | human, owner               | Product direction, design, merge authority on anything ambiguous          |
+| **Morgan**                     | Hermes / Cursor            | Lead development, feature work, UI wiring, packaging and release          |
+| **Blackbeard**                 | HyperAgent (Claude Opus 5) | Backend architecture, agent/ADK layer, data integrity, security hardening |
 
 ## Rule 1 — Never push to `main`
 
@@ -50,14 +50,14 @@ One concern per branch. If a PR needs the word "and" twice to describe it, split
 
 ## Rule 4 — Path ownership (advisory, not a lock)
 
-| Path | Primary |
-|---|---|
-| `apps/web/**` | Morgan |
-| `apps/desktop/**` | Morgan (packaging), Blackbeard (security surface) |
-| `packages/research/**` | Blackbeard |
-| `packages/contracts/**` | Shared — **announce in the PR body**, since it breaks both sides |
-| `services/**` | Blackbeard |
-| `.github/**`, root config | Either, but flag it |
+| Path                      | Primary                                                          |
+| ------------------------- | ---------------------------------------------------------------- |
+| `apps/web/**`             | Morgan                                                           |
+| `apps/desktop/**`         | Morgan (packaging), Blackbeard (security surface)                |
+| `packages/research/**`    | Blackbeard                                                       |
+| `packages/contracts/**`   | Shared — **announce in the PR body**, since it breaks both sides |
+| `services/**`             | Blackbeard                                                       |
+| `.github/**`, root config | Either, but flag it                                              |
 
 Touching another agent's primary path is fine. Doing it silently is not.
 
@@ -115,19 +115,33 @@ No API keys, tokens, or credentials in code, tests, fixtures, commit messages, o
 bodies — including in a git remote URL. If one is exposed anywhere, treat it as
 compromised and rotate it immediately.
 
+## Stratemark overhaul planning entry point
+
+For the separate founder-directed overhaul, start at
+`01_PROJECTS/Stratemark/Specs/BUILD-STATE.md` and read `NORTHSTAR.md` before work.
+The north star, action catalogue, and phase goals supersede conflicting earlier
+product proposals, not current human instructions or these repository rules.
+The founder authorized researched planning, not implementation yet. Do not start
+the build, resume the earlier automation, spend provider credits, migrate live
+research, push, publish, deploy, or merge from the existence of this plan.
+
 ## PR body template
 
 ```markdown
 ## What
+
 One or two sentences.
 
 ## Why
+
 The problem. Link the issue or audit finding.
 
 ## Verification
-- [ ] pnpm check green  ← or: VERIFICATION NOT RUN, because ...
+
+- [ ] pnpm check green ← or: VERIFICATION NOT RUN, because ...
 - Tests added: ...
 
 ## Risk / blast radius
+
 Shared contracts touched? Other agent's paths touched? What did you check?
 ```
