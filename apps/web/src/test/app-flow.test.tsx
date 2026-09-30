@@ -68,15 +68,15 @@ describe('end-to-end deck flow (markets → deck → 2-level split → card → 
     expect(within(reopened).getByRole('button', { name: 'Next card' })).toBeInTheDocument();
   });
 
-  it('keeps company comparison selectable inside the stage-grouped view', async () => {
+  it('keeps company comparison selectable inside the scale-band-grouped view', async () => {
     const { user } = renderApp();
     const marketLink = await screen.findByRole('link', { name: /Christian Apparel/i }, FIND);
     await user.click(marketLink);
     expect(await screen.findByTestId('type-nav', undefined, FIND)).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /group by stage/i }));
+    await user.click(screen.getByRole('button', { name: /group by scale band/i }));
     expect(
-      await screen.findByText(/Companies grouped by evidence-backed stage/i, undefined, FIND),
+      await screen.findByText(/Companies grouped by size-signal band/i, undefined, FIND),
     ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Compare' }));
     await user.click(await screen.findByRole('button', { name: /GraceWear Global/i }, FIND));

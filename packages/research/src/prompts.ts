@@ -195,10 +195,9 @@ export function tierReviewBatchPrompt(
   rows: { name: string; baseTier: number; evidence: string }[],
 ): string {
   return [
-    `You are grading maturity tiers for companies in the "${marketName}" market on a 1-8 ladder, where 1 is a pre-product sandbox and 8 is a category-defining titan.`,
-    `A deterministic rules engine already assigned each company a BASE TIER from its hard metrics. Your job is a sanity check across the whole cohort: for each company decide whether to nudge its tier by -1, 0, or +1. You may NOT move a company further than one step.`,
-    `Judge them RELATIVE TO EACH OTHER — the point is a ranking that a analyst would defend, so a company should not sit above a clearly stronger peer.`,
-    `Only nudge where the evidence plainly justifies it (e.g. share collapsing despite scale, or an obvious leader under-ranked because a figure was unknown). Default to 0.`,
+    `You are reviewing 1-8 company size-signal bands for the "${marketName}" market. The band is a coarse composite of available market share, valuation or market cap, ARR, user-footprint, and employee signals.`,
+    `A deterministic rules engine already assigned each company a BASE BAND from its available metrics. Check whether the evidence shows a clear scoring inconsistency; you may nudge by -1, 0, or +1 only. You may NOT move a company further than one step.`,
+    `This is not a competitive ranking or a judgment of company quality. Do not infer growth, product-market fit, profitability, or leadership from size signals. Compare like-for-like evidence where possible, and default to 0 when the evidence is mixed, missing, estimated, or not comparable.`,
     `Return JSON: { "reviews": [ { "name": string (copy it EXACTLY as given), "nudge": -1|0|1, "reason": string|null (one sentence) } ] }. Include every company exactly once.`,
     ``,
     `COHORT:`,
@@ -211,8 +210,8 @@ export function tierReviewBatchPrompt(
 
 export function tierReviewPrompt(name: string, baseTier: number, evidence: string): string {
   return [
-    `A rules-based system scored "${name}" at maturity tier ${baseTier} (${TIER_LABELS[baseTier as 1]}) out of 8, where 1 is a pre-product sandbox and 8 is a category-defining titan.`,
-    `Given the evidence below, decide whether to nudge the tier by -1, 0, or +1 (you may NOT move it further). Output JSON: { "nudge": -1|0|1, "reason": string|null }. Only nudge if the evidence clearly justifies it (e.g. share declining despite size), and give a one-sentence reason.`,
+    `A rules-based system assigned "${name}" size-signal band ${baseTier} (${TIER_LABELS[baseTier as 1]}). This coarse band is based on available size signals, not a measure of growth, product-market fit, profitability, or leadership.`,
+    `Given the evidence below, decide whether it clearly justifies a consistency adjustment of -1, 0, or +1 (you may NOT move it further). Output JSON: { "nudge": -1|0|1, "reason": string|null }. Default to 0 when evidence is missing, estimated, mixed, or not comparable.`,
     ``,
     `EVIDENCE:`,
     evidence,

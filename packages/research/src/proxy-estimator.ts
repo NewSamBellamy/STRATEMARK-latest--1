@@ -487,6 +487,7 @@ export function estimateArrFromPricingAndFootprint(
     source: citations[0]?.url ?? null,
     citations,
     methodNote,
+    derivedFromMetricTypes: ['users'],
     capturedAt: new Date().toISOString(),
   };
 }
@@ -570,6 +571,7 @@ export function estimateArrFromHeadcount(
     source: citations[0]?.url ?? null,
     citations,
     methodNote,
+    derivedFromMetricTypes: ['employees'],
     capturedAt: new Date().toISOString(),
     categoryKey: benchmark.key,
     arrPerFte,

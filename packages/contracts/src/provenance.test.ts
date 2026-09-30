@@ -14,6 +14,7 @@ import {
   usableCitations,
   isJunkSource,
 } from './provenance';
+import { companyMetricSchema } from './schemas';
 import type { CompanyMetric } from './types';
 
 const base: CompanyMetric = {
@@ -31,6 +32,14 @@ const base: CompanyMetric = {
 const cite = (url: string, title = '') => ({ url, title });
 
 describe('provenance enforcement', () => {
+  it('preserves structured proxy dependencies when a metric is persisted', () => {
+    const parsed = companyMetricSchema.parse({
+      ...base,
+      derivedFromMetricTypes: ['employees'],
+    });
+    expect(parsed.derivedFromMetricTypes).toEqual(['employees']);
+  });
+
   it('demotes a "verified" figure that has no citation (the audit bug)', () => {
     const out = enforceMetricProvenance(base);
     expect(out.confidence).toBe('estimated');

@@ -42,7 +42,7 @@ export async function exportDeckPptx(args: {
   // 2) Landscape table slide
   const companies = args.cards.filter((c) => c.card.cardType === 'company' && c.company);
   const rows: PptxGenJS.TableRow[] = [
-    ['Company', 'Stage', 'Mkt share', 'ARR', 'Valuation/Cap', 'Team'].map((t) => ({
+    ['Company', 'Scale band', 'Mkt share', 'ARR', 'Valuation/Cap', 'Team'].map((t) => ({
       text: t,
       options: { bold: true, color: 'FFFFFF', fill: { color: INK }, fontSize: 11 },
     })),
@@ -72,7 +72,7 @@ export async function exportDeckPptx(args: {
     });
   }
 
-  // 4) One slide per company (top 10 by tier desc)
+  // 4) One slide per company (highest size-signal bands first; not a quality ranking)
   const top = [...companies].sort((a, b) => (b.card.tier ?? 0) - (a.card.tier ?? 0)).slice(0, 10);
   for (const c of top) {
     const s = pptx.addSlide();
@@ -80,7 +80,7 @@ export async function exportDeckPptx(args: {
     s.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.25, fill: { color: brand } });
     s.addText(c.company!.name, { x: 0.5, y: 0.5, w: 9, h: 0.6, fontSize: 26, bold: true, color: INK });
     s.addText(
-      `${c.card.tier ? `${TIER_LABELS[c.card.tier as MaturityTier]} (T${c.card.tier})` : 'Stage unavailable'} · ${c.company!.hqLocation ?? ''}`,
+      `${c.card.tier ? `Scale band ${TIER_LABELS[c.card.tier as MaturityTier]} (T${c.card.tier})` : 'Scale band unavailable'} · ${c.company!.hqLocation ?? ''}`,
       { x: 0.5, y: 1.1, w: 9, h: 0.4, fontSize: 12, color: MUTED },
     );
     s.addText(c.company!.oneLiner, { x: 0.5, y: 1.6, w: 9, h: 0.8, fontSize: 13, color: INK });
@@ -95,7 +95,7 @@ export async function exportDeckPptx(args: {
       x: 0.5, y: 2.6, w: 5.5, h: 2.4, valign: 'top',
     });
     if (c.card.tierReason) {
-      s.addText(`Stage note: ${c.card.tierReason}`, { x: 0.5, y: 5.0, w: 9, h: 0.5, fontSize: 10, italic: true, color: MUTED });
+      s.addText(`Scale-band review note: ${c.card.tierReason}`, { x: 0.5, y: 5.0, w: 9, h: 0.5, fontSize: 10, italic: true, color: MUTED });
     }
   }
 

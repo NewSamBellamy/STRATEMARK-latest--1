@@ -15,7 +15,7 @@ export const METRIC_COLORS: Record<MetricType, string> = {
   employees: '#14B8A6', // teal
 };
 
-/** Maturity tier scale, cool → warm as maturity rises. Saturated enough to hold
+/** Size-signal band scale, cool → warm as the band rises. Saturated enough to hold
  *  up on both the light and dark canvases, so it isn't theme-switched. */
 export const TIER_COLORS: Record<MaturityTier, string> = {
   1: '#64748B', // slate

@@ -174,31 +174,31 @@ export const DASHBOARD_TAB_LABELS: Record<DashboardTab, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Company Maturity Tiers (spec §5 Level-2, §6.2)
+// Company size-signal bands (stored as MaturityTier for data compatibility)
 // ---------------------------------------------------------------------------
 export const MATURITY_TIERS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 export type MaturityTier = (typeof MATURITY_TIERS)[number];
 
 export const TIER_LABELS: Record<MaturityTier, string> = {
-  1: 'Formation',
-  2: 'Early Traction',
-  3: 'Emerging',
-  4: 'Growth',
-  5: 'Breakout',
-  6: 'Scale',
-  7: 'Category Leader',
-  8: 'Market Defining',
+  1: 'Minimal footprint',
+  2: 'Very small footprint',
+  3: 'Small footprint',
+  4: 'Mid-sized footprint',
+  5: 'Substantial footprint',
+  6: 'Large footprint',
+  7: 'Very large footprint',
+  8: 'Largest footprint',
 };
 
 export const TIER_BLURBS: Record<MaturityTier, string> = {
-  1: 'Pre-product or pre-revenue',
-  2: 'Early commercial traction',
-  3: 'Demonstrated product-market fit',
-  4: 'Scaling with institutional backing',
-  5: 'High-growth challenger gaining share',
-  6: 'Large-scale distribution and operations',
-  7: 'Durable category leadership',
-  8: 'Market-defining scale and reach',
+  1: 'Lowest band from available size signals; not a measure of growth, product quality, or leadership.',
+  2: 'Low band from available size signals; not a measure of growth, product quality, or leadership.',
+  3: 'Lower-middle band from available size signals; not a measure of growth, product quality, or leadership.',
+  4: 'Middle band from available size signals; not a measure of growth, product quality, or leadership.',
+  5: 'Upper-middle band from available size signals; not a measure of growth, product quality, or leadership.',
+  6: 'High band from available size signals; not a measure of growth, product quality, or leadership.',
+  7: 'Very high band from available size signals; not a measure of growth, product quality, or leadership.',
+  8: 'Highest band from available size signals; not a measure of growth, product quality, or leadership.',
 };
 
 /** Typical (not enforced) company counts per tier — used only for UI hints. */

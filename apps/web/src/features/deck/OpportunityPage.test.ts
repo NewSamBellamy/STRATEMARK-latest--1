@@ -26,7 +26,7 @@ const metric = (
 });
 
 describe('opportunity evidence threshold', () => {
-  it('plots only companies with a sourced share and evidence-backed stage', () => {
+  it('plots only companies with a sourced share and evidence-backed scale band', () => {
     const sourced: CardWithCompany = {
       card: { ...card, tier: 5 },
       company,
@@ -60,5 +60,29 @@ describe('opportunity evidence threshold', () => {
       ],
     };
     expect(buildOpportunityPoints([withoutArr])).toEqual([expect.objectContaining({ arr: null })]);
+  });
+
+  it('does not present cited estimates as reported market share or ARR', () => {
+    const sourcedShareWithEstimatedArr: CardWithCompany = {
+      card: { ...card, tier: 5 },
+      company,
+      metrics: [
+        metric('share', 'market_share', 18),
+        { ...metric('arr', 'arr', 12_000_000), confidence: 'estimated' },
+        metric('employees', 'employees', 120),
+      ],
+      viceClaims: [],
+    };
+    const estimatedShare: CardWithCompany = {
+      ...sourcedShareWithEstimatedArr,
+      metrics: sourcedShareWithEstimatedArr.metrics.map((entry) =>
+        entry.metricType === 'market_share' ? { ...entry, confidence: 'estimated' } : entry,
+      ),
+    };
+
+    expect(buildOpportunityPoints([sourcedShareWithEstimatedArr])).toEqual([
+      expect.objectContaining({ share: 18, arr: null }),
+    ]);
+    expect(buildOpportunityPoints([estimatedShare])).toEqual([]);
   });
 });

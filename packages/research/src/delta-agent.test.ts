@@ -187,41 +187,44 @@ describe('Incremental Delta Search Agent — Identity & Normalization', () => {
 });
 
 describe('Incremental Delta Search Agent — Precision Focus Translation', () => {
-  it('translates all 8 maturity tiers into precision search instructions', () => {
+  it('translates all 8 size bands into evidence-led scale search instructions', () => {
     const t1 = translateExpandFocus({ tier: 1 });
     expect(t1.targetTier).toBe(1);
     expect(t1.primaryCardType).toBe('company');
-    expect(t1.focusPrompt).toContain('Formation');
-    expect(t1.focusPrompt).toContain('pre-product');
+    expect(t1.focusPrompt).toContain('Minimal footprint');
+    expect(t1.focusPrompt).toContain('size cues only');
+    expect(t1.focusPrompt).not.toContain('pre-product');
 
     const t2 = translateExpandFocus({ tier: 2 });
     expect(t2.targetTier).toBe(2);
-    expect(t2.focusPrompt).toContain('Early Traction');
+    expect(t2.focusPrompt).toContain('Very small footprint');
 
     const t3 = translateExpandFocus({ tier: 3 });
     expect(t3.targetTier).toBe(3);
-    expect(t3.focusPrompt).toContain('Emerging');
+    expect(t3.focusPrompt).toContain('Small footprint');
 
     const t4 = translateExpandFocus({ tier: 4 });
     expect(t4.targetTier).toBe(4);
-    expect(t4.focusPrompt).toContain('Growth');
+    expect(t4.focusPrompt).toContain('Mid-sized footprint');
 
     const t5 = translateExpandFocus({ tier: 5 });
     expect(t5.targetTier).toBe(5);
-    expect(t5.focusPrompt).toContain('Breakout');
+    expect(t5.focusPrompt).toContain('Substantial footprint');
 
     const t6 = translateExpandFocus({ tier: 6 });
     expect(t6.targetTier).toBe(6);
-    expect(t6.focusPrompt).toContain('Scale');
+    expect(t6.focusPrompt).toContain('Large footprint');
 
     const t7 = translateExpandFocus({ tier: 7 });
     expect(t7.targetTier).toBe(7);
-    expect(t7.focusPrompt).toContain('Category Leader');
+    expect(t7.focusPrompt).toContain('Very large footprint');
 
     const t8 = translateExpandFocus({ tier: 8 });
     expect(t8.targetTier).toBe(8);
-    expect(t8.focusPrompt).toContain('Market Defining');
-    expect(t8.focusPrompt).toContain('multi-billion-dollar');
+    expect(t8.focusPrompt).toContain('Largest footprint');
+    expect(t8.focusPrompt).toContain('$1B+ ARR or 10,000+ employees');
+    expect(t8.focusPrompt).not.toContain('category-defining');
+    expect(t8.focusPrompt).toContain('leadership are not implied');
   });
 
   it('translates card types into role-specific search prompts', () => {

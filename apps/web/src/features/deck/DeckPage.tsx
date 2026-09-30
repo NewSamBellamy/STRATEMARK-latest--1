@@ -436,7 +436,7 @@ export default function DeckPage() {
           }
         >
           {(list) => {
-            // Level 2 — Company sub-deck grouped by the 8 company stages.
+            // Level 2 — Company sub-deck grouped by the 8 size-signal bands.
             if (split === 'company') {
               return (
                 <section>
@@ -448,7 +448,8 @@ export default function DeckPage() {
                     onToggleSplit={() => setSplit({})}
                   />
                   <p className="mb-4 text-[12px] text-muted">
-                    Companies grouped by evidence-backed stage — highest supported stage first.
+                    Companies grouped by size-signal band — higher bands first. Bands reflect
+                    available size inputs, not company performance or quality.
                     <span className="text-faint"> {CARD_TYPE_DESCRIPTIONS.company}</span>
                   </p>
                   <TierSplit
@@ -551,7 +552,7 @@ export default function DeckPage() {
                     {defaultType === 'company' && (
                       <span className="text-faint">
                         {' '}
-                        · Ordered by evidence-backed stage, not company quality
+                        · Ordered by size-signal band, not company quality
                       </span>
                     )}
                   </p>
@@ -727,7 +728,7 @@ function SubDeckTile({
       </div>
       <p className="mt-2 text-sm text-muted">{CARD_TYPE_DESCRIPTIONS[type]}</p>
       <span className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-primary-ink opacity-0 transition-opacity group-hover:opacity-100">
-        {type === 'company' ? 'Group by company stage' : 'View cards'}
+        {type === 'company' ? 'Group by scale band' : 'View cards'}
         <ChevronRight className="h-3.5 w-3.5" />
       </span>
     </button>
@@ -822,7 +823,7 @@ function TypeNav({
           )}
         >
           <Layers className="h-3.5 w-3.5" />
-          {split === 'company' ? 'Ungroup' : 'Group by Stage'}
+          {split === 'company' ? 'Ungroup' : 'Group by scale band'}
         </button>
       )}
     </div>
@@ -925,8 +926,8 @@ function TierSplit({
   const unverified: CardWithCompany[] = [];
   for (const t of MATURITY_TIERS) byTier.set(t, []);
   for (const c of companyCards) {
-    const stage = buildCardView(c).maturity?.tier;
-    if (stage != null) byTier.get(stage)!.push(c);
+    const scaleBand = buildCardView(c).maturity?.tier;
+    if (scaleBand != null) byTier.get(scaleBand)!.push(c);
     else unverified.push(c);
   }
 
@@ -958,10 +959,10 @@ function TierSplit({
         <section data-testid="unverified-stage">
           <div className="mb-3 flex items-center gap-3 border-b border-border pb-2">
             <span className="rounded-full border border-border bg-surface px-3 py-1 text-xs font-semibold text-content">
-              Stage unverified
+              Scale unverified
             </span>
             <span className="text-sm text-muted">
-              Insufficient sourced evidence for a reliable company stage
+              Not enough source-backed size signals for a scale band
             </span>
             <span className="ml-auto chip border-border text-muted">{unverified.length}</span>
           </div>

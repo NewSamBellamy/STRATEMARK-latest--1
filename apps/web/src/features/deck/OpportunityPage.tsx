@@ -46,6 +46,7 @@ export function buildOpportunityPoints(cards: CardWithCompany[]): Point[] {
       const share = view.metrics.find(
         (entry) =>
           entry.metric.metricType === 'market_share' &&
+          entry.metric.confidence === 'verified' &&
           entry.metric.value != null &&
           entry.citations.length > 0,
       );
@@ -53,6 +54,7 @@ export function buildOpportunityPoints(cards: CardWithCompany[]): Point[] {
       const arr = view.metrics.find(
         (entry) =>
           entry.metric.metricType === 'arr' &&
+          entry.metric.confidence === 'verified' &&
           entry.metric.value != null &&
           entry.citations.length > 0,
       );
@@ -69,8 +71,8 @@ export function buildOpportunityPoints(cards: CardWithCompany[]): Point[] {
 }
 
 /**
- * Market Opportunity — the deck-level strategy view: a positioning map built
- * from the deck's real researched data + a grounded whitespace thesis.
+ * Market evidence snapshot — descriptive researched signals plus a sourced
+ * hypothesis, not an objective competitive positioning or investment ranking.
  */
 export default function OpportunityPage() {
   const { marketId } = useParams();
@@ -94,20 +96,24 @@ export default function OpportunityPage() {
       </Link>
       <div className="mb-1 flex items-center gap-2 text-primary-ink">
         <Target className="h-5 w-5" />
-        <span className="text-xs font-semibold uppercase tracking-wide">Market opportunity</span>
+        <span className="text-xs font-semibold uppercase tracking-wide">Market evidence</span>
       </div>
       <h1 className="font-display text-2xl font-semibold text-content">
-        {market.data?.name ?? 'Market'} — where the gap is
+        {market.data?.name ?? 'Market'} — reported landscape and research notes
       </h1>
 
-      {/* Positioning map from real deck data (no LLM in the chart). */}
+      {/* Descriptive map from reported data; market-share definitions may differ. */}
       <div className="panel mt-5 p-5">
         <h2 className="font-display text-sm font-semibold text-content">
-          Positioning map — company stage vs. sourced market share
+          Cited market-share figures vs. composite size band
           <span className="ml-2 text-xs font-normal text-muted">
             bubble size = sourced ARR when available
           </span>
         </h2>
+        <p className="mt-1 text-xs text-muted">
+          Directional snapshot only. Market-share definitions, geographies, and periods may differ;
+          citations are attribution, not independent verification.
+        </p>
         {points.length > 0 ? (
           <div className="mt-2 h-[340px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -116,7 +122,7 @@ export default function OpportunityPage() {
                 <XAxis
                   type="number"
                   dataKey="tier"
-                  name="Maturity"
+                  name="Scale band"
                   domain={[0.5, 8.5]}
                   ticks={[1, 2, 3, 4, 5, 6, 7, 8]}
                   tickFormatter={(t: number) => `T${t}`}
@@ -126,7 +132,7 @@ export default function OpportunityPage() {
                 <YAxis
                   type="number"
                   dataKey="share"
-                  name="Market share"
+                  name="Cited share"
                   unit="%"
                   stroke="#9A9AA1"
                   fontSize={11}
@@ -186,8 +192,8 @@ export default function OpportunityPage() {
           </div>
         ) : (
           <p className="mt-3 text-sm text-muted">
-            Not enough companies with market-share data to plot yet — the whitespace thesis below
-            waits rather than plotting estimates or unsourced figures.
+            Not enough companies with sourced market-share data to plot yet — this view waits rather
+            than plotting estimates or unsourced figures.
           </p>
         )}
       </div>
@@ -208,6 +214,14 @@ export default function OpportunityPage() {
             {(o) =>
               o.citations.length > 0 ? (
                 <>
+                  <div className="mb-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                      Research hypothesis
+                    </p>
+                    <p className="mt-1 text-xs text-muted">
+                      A sourced starting point for investigation, not a verified market fact.
+                    </p>
+                  </div>
                   <article className="markdown">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{o.markdown}</ReactMarkdown>
                   </article>

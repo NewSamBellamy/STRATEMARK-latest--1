@@ -607,8 +607,8 @@ export default function NewDeckPage() {
                     {session.done.count > 0
                       ? `${session.done.count} cards built`
                       : 'cards are built'}
-                    , with source receipts and evidence-aware company stages. Every company card has
-                    a grounded researcher ready for your next question.
+                    , with source receipts and evidence-aware size bands. Every company card has a
+                    grounded researcher ready for your next question.
                   </p>
                   <div className="mt-3 flex items-center gap-3">
                     <Link

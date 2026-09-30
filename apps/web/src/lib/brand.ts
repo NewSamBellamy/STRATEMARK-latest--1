@@ -171,7 +171,7 @@ export function deriveTriad(theme: BrandTheme | null, extracted: string | null):
   return { primary, secondary, accent, headerInk, lightHeader: headerInk === INK };
 }
 
-/** Card material by maturity tier — rarity is earned (design system §3). */
+/** Card material by size-signal band — rarity is earned (design system §3). */
 export function tierMaterial(tier: number | null | undefined): 'matte' | 'metal' | 'foil' {
   if (tier == null) return 'matte';
   if (tier >= 7) return 'foil';

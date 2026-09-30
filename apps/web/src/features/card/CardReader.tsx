@@ -10,6 +10,7 @@ import { verifyCardForShare } from '@/lib/share/preflight';
 import { ShareDialog } from '@/features/share/ShareDialog';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { CardStage } from './CardStage';
+import { CmsBreakdown } from './CmsBreakdown';
 import { ViceClaims } from './ViceClaims';
 import { SaveCardButton } from './GameCard';
 import { buildCardView, sourceUrl } from './card-view';
@@ -21,6 +22,7 @@ type Props = {
   marketId?: string;
   position?: number;
   total?: number;
+  deckUserValues?: number[];
   deckView?: string;
   onPrevious?: () => void;
   onNext?: () => void;
@@ -39,6 +41,7 @@ function CardReaderBody({
   deckView,
   position,
   total,
+  deckUserValues = [],
   onPrevious,
   onNext,
 }: Omit<Props, 'data'> & { data: CardWithCompany }) {
@@ -48,7 +51,7 @@ function CardReaderBody({
   const repo = useRepository();
   const { chat } = useDeepDive();
   const [shareOpen, setShareOpen] = useState(false);
-  const hasMaturity = card.cardType === 'company' && !view.signal;
+  const isCompanyCard = card.cardType === 'company' && !view.signal;
   const hasClaimEvidencePoints = card.cardType === 'barrier' || card.cardType === 'insight';
   const researcherLabel = view.signal ? 'Market researcher' : 'Company researcher';
   const evidenceCount = hasClaimEvidencePoints
@@ -243,14 +246,28 @@ function CardReaderBody({
                   <ViceClaims claims={sourcedViceClaims} companyName={company?.name} />
                 </div>
               )}
-              {hasMaturity && (
-                <p className="mt-4 rounded-lg bg-surface-2 p-3 text-[11px] leading-relaxed text-muted">
-                  {view.knownCount === 0
-                    ? 'Stage unavailable: no usable figures have been recorded.'
-                    : !view.maturity
-                      ? `${view.knownCount} figures recorded, but the evidence does not support a reliable company stage yet.`
-                      : `${view.maturity.label} stage · ${view.sourcedCount} sourced metrics. Stage describes company scale, not investment quality.`}
-                </p>
+              {isCompanyCard && (
+                <>
+                  <p className="mt-4 rounded-lg bg-surface-2 p-3 text-[11px] leading-relaxed text-muted">
+                    {view.knownCount === 0
+                      ? 'Scale band unavailable: no usable figures have been recorded.'
+                      : !view.maturity
+                        ? `${view.knownCount} figures recorded, but there are not enough source-backed size signals for a scale band.`
+                        : `${view.maturity.label} · ${view.sourcedCount} sourced metrics. This composite reflects available size signals, not growth, product quality, or leadership.`}
+                  </p>
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-[11px] font-medium text-primary-ink">
+                      How this band was calculated
+                    </summary>
+                    <div className="mt-2">
+                      <CmsBreakdown
+                        card={card}
+                        metrics={view.metrics.map((entry) => entry.metric)}
+                        deckUserValues={deckUserValues}
+                      />
+                    </div>
+                  </details>
+                </>
               )}
             </div>
             {dashboardUrl ? (

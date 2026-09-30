@@ -358,6 +358,7 @@ describe('Proxy 4 & Orchestrated Engine — estimatePrivateCompanyMetrics', () =
     expect(arr).toBeDefined();
     expect(arr.value).toBe(7_700_000); // 35 * $220k = $7.7M
     expect(arr.confidence).toBe('estimated');
+    expect(arr.derivedFromMetricTypes).toEqual(['employees']);
     expect(arr.methodNote).toBe(
       'Estimated: 35 FTEs (LinkedIn hiring data) × $220k AI / Infra / Compute benchmark = ~$7.7M ARR.',
     );
@@ -389,6 +390,7 @@ describe('Proxy 4 & Orchestrated Engine — estimatePrivateCompanyMetrics', () =
 
     const arr = results.find((r) => r.metricType === 'arr')!;
     expect(arr.value).toBe(1_200_000); // 2,500 * $480 = $1.2M
+    expect(arr.derivedFromMetricTypes).toEqual(['users']);
     expect(arr.methodNote).toContain('2,500 active teams × $40/mo');
 
     const val = results.find((r) => r.metricType === 'valuation')!;

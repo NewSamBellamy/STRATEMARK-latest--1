@@ -43,7 +43,7 @@ export function buildCardView(data: CardWithCompany) {
         (metric.metricType === 'market_share' && metric.value > 100))
     ) {
       metric = { ...metric, value: null, confidence: 'unknown' };
-      note = 'Invalid stored value. Not displayed or used in this card’s maturity breakdown.';
+      note = 'Invalid stored value. Not displayed or used in this card’s scale-band calculation.';
     }
     return {
       metric,
@@ -118,7 +118,7 @@ export function buildCardView(data: CardWithCompany) {
     : data.card.cardType !== 'company'
       ? 'Entity profile'
       : !maturity
-        ? 'Stage unverified'
+        ? 'Scale unverified'
         : `T${maturity.tier} · ${maturity.label}`;
   return {
     title: data.company?.name ?? data.card.title ?? 'Research card',
@@ -143,7 +143,7 @@ export function buildCardView(data: CardWithCompany) {
   };
 }
 
-/** Order browsing by evidenced company stage, then sourced figure count—not business quality. */
+/** Order browsing by evidenced size-signal band, then sourced figure count—not business quality. */
 export function sortCompanyCardsForBrowse(cards: CardWithCompany[]): CardWithCompany[] {
   return [...cards].sort((a, b) => {
     const aView = buildCardView(a);

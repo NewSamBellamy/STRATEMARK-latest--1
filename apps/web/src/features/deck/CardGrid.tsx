@@ -110,6 +110,7 @@ export function CardGrid({
           if (!o) setActiveId(null);
         }}
         marketId={marketId}
+        deckUserValues={deckUserValues}
         deckView={deckView.toString()}
         position={activeIndex >= 0 ? activeIndex + 1 : undefined}
         total={cards.length}

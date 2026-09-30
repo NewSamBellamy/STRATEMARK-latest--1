@@ -336,43 +336,35 @@ export function translateExpandFocus(
     const label = TIER_LABELS[tier];
     const blurb = TIER_BLURBS[tier];
 
-    let stageGuidance = '';
+    let sizeGuidance = '';
     switch (tier) {
       case 1:
-        stageGuidance =
-          'Focus specifically on pre-product, stealth, speculative R&D, university spin-outs, incubator-backed or pre-seed companies with <$1 ARR and <5 employees.';
+        sizeGuidance = 'Use little or no publicly reported ARR and fewer than 5 employees as rough size cues.';
         break;
       case 2:
-        stageGuidance =
-          'Focus specifically on early-stage, high-risk seed startups finding initial traction ($1-$1M ARR, 5-20 employees).';
+        sizeGuidance = 'Use roughly $1 to <$1M ARR or 5–19 employees as rough size cues.';
         break;
       case 3:
-        stageGuidance =
-          'Focus specifically on emerging Series A startups with demonstrable product-market fit ($1M-$5M ARR, 20-75 employees).';
+        sizeGuidance = 'Use roughly $1M to <$5M ARR or 20–74 employees as rough size cues.';
         break;
       case 4:
-        stageGuidance =
-          'Focus specifically on fast-scaling Series B/C growth companies backed by institutional venture capital ($5M-$20M ARR, 75-300 employees).';
+        sizeGuidance = 'Use roughly $5M to <$20M ARR or 75–299 employees as rough size cues.';
         break;
       case 5:
-        stageGuidance =
-          'Focus specifically on high-growth market disruptors actively taking share and rewriting industry rules ($20M-$75M ARR, 300-1,000 employees).';
+        sizeGuidance = 'Use roughly $20M to <$75M ARR or 300–999 employees as rough size cues.';
         break;
       case 6:
-        stageGuidance =
-          'Focus specifically on large, scaled enterprise companies with massive distribution and proven business models ($75M-$250M ARR, 1,000-5,000 employees).';
+        sizeGuidance = 'Use roughly $75M to <$250M ARR or 1,000–4,999 employees as rough size cues.';
         break;
       case 7:
-        stageGuidance =
-          'Focus specifically on mature, highly profitable legacy incumbents and established industry stalwarts ($250M-$1B ARR, 5,000-10,000 employees).';
+        sizeGuidance = 'Use roughly $250M to <$1B ARR or 5,000–9,999 employees as rough size cues.';
         break;
       case 8:
-        stageGuidance =
-          'Focus specifically on absolute market titans and multi-billion-dollar market leaders (>$1B ARR, >10,000 employees, public tech behemoths).';
+        sizeGuidance = 'Use $1B+ ARR or 10,000+ employees as rough size cues.';
         break;
     }
 
-    const focusPrompt = `Tier ${tier} (${label} — "${blurb}"). ${stageGuidance}`;
+    const focusPrompt = `Size band ${tier} (${label} — "${blurb}"). ${sizeGuidance} These are size cues only, not eligibility rules; company age, funding stage, growth, product-market fit, profitability, and market leadership are not implied. Prefer public evidence, and do not exclude a company solely because a size figure is unavailable.`;
 
     return {
       focusPrompt,

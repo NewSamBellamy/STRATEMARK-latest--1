@@ -13,7 +13,7 @@
  *   4. The LLM may nudge ±1 with a logged reason (applied here as data, never
  *      assigned from scratch — see `applyNudge`, which throws on |nudge| > 1).
  */
-import type { Confidence, MaturityTier } from './enums';
+import type { Confidence, MaturityTier, MetricType } from './enums';
 import {
   CMS_SIGNAL_KEYS,
   CMS_WEIGHTS,
@@ -27,6 +27,8 @@ export interface CmsSignalInput {
   /** Numeric value, or null when there is no usable figure. */
   value: number | null;
   confidence: Confidence;
+  /** A proxy derived from another scored signal is shown, but not scored twice. */
+  excludedReason?: 'dependent_proxy' | null;
 }
 
 export interface CmsValueSignalInput extends CmsSignalInput {
@@ -57,6 +59,7 @@ export interface CmsPerSignal {
   available: boolean;
   rawValue: number | null;
   confidence: Confidence;
+  excludedReason: 'dependent_proxy' | null;
   signalTier: MaturityTier | null;
   baseWeight: number;
   /** Weight after renormalizing across available signals (0 when unavailable). */
@@ -88,11 +91,7 @@ function clampTier(n: number): MaturityTier {
   return Math.min(8, Math.max(1, n)) as MaturityTier;
 }
 
-function signalTierFor(
-  key: CmsSignalKey,
-  value: number,
-  context: CmsContext,
-): MaturityTier | null {
+function signalTierFor(key: CmsSignalKey, value: number, context: CmsContext): MaturityTier | null {
   if (key === 'users') return mapUsersRelative(value, context.deckUserValues);
   return mapValueToTier(SIGNAL_BANDS[key], value);
 }
@@ -119,13 +118,16 @@ export function computeCms(
 
   const perSignal: CmsPerSignal[] = CMS_SIGNAL_KEYS.map((key) => {
     const signal = input[key];
-    const usable = signal.confidence !== 'unknown' && signal.value !== null;
+    const excludedReason = signal.excludedReason ?? null;
+    const usable =
+      excludedReason === null && signal.confidence !== 'unknown' && signal.value !== null;
     const signalTier = usable ? signalTierFor(key, signal.value as number, context) : null;
     return {
       key,
       available: signalTier !== null,
       rawValue: signal.value,
       confidence: signal.confidence,
+      excludedReason,
       signalTier,
       baseWeight: CMS_WEIGHTS[key],
       effectiveWeight: 0,
@@ -176,6 +178,8 @@ export interface MetricLike {
   metricType: 'market_cap' | 'valuation' | 'market_share' | 'arr' | 'users' | 'employees';
   value: number | null;
   confidence: Confidence;
+  methodNote?: string | null;
+  derivedFromMetricTypes?: MetricType[];
 }
 
 export function buildCmsInput(metrics: MetricLike[]): CmsInput {
@@ -191,14 +195,48 @@ export function buildCmsInput(metrics: MetricLike[]): CmsInput {
     confidence: m?.confidence ?? 'unknown',
   });
 
+  const arrMetric = find('arr');
+  const arrSignal = asSignal(arrMetric);
+  if (isDependentArrProxy(metrics, arrMetric)) arrSignal.excludedReason = 'dependent_proxy';
+
   return {
     marketShare: asSignal(find('market_share')),
     value: {
       ...asSignal(valueMetric),
       kind: valuation ? 'valuation' : marketCap ? 'market_cap' : null,
     },
-    arr: asSignal(find('arr')),
+    arr: arrSignal,
     users: asSignal(find('users')),
     employees: asSignal(find('employees')),
   };
+}
+
+function isDependentArrProxy(metrics: MetricLike[], arrMetric: MetricLike | undefined): boolean {
+  if (
+    !arrMetric ||
+    arrMetric.value === null ||
+    arrMetric.confidence === 'unknown' ||
+    arrMetric.confidence === 'user_verified'
+  ) {
+    return false;
+  }
+
+  if (arrMetric.derivedFromMetricTypes !== undefined) {
+    return arrMetric.derivedFromMetricTypes.some(
+      (type) => type === 'employees' || type === 'users',
+    );
+  }
+
+  if (arrMetric.confidence !== 'estimated') return false;
+
+  // Backward compatibility for saved proxy rows created before dependencies were
+  // structured. The headcount formula is unambiguous; pricing-footprint ARR is
+  // treated as dependent only when a users footprint is present in the same card.
+  const methodNote = arrMetric.methodNote ?? '';
+  if (/\bFTEs?\s*×/i.test(methodNote)) return true;
+  const hasUserFootprint = metrics.some(
+    (metric) =>
+      metric.metricType === 'users' && metric.value !== null && metric.confidence !== 'unknown',
+  );
+  return hasUserFootprint && /^Estimated:.*×.*ARR\.?$/i.test(methodNote);
 }

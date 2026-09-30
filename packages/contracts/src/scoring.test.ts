@@ -137,4 +137,87 @@ describe('buildCmsInput', () => {
     expect(input.value.kind).toBe('market_cap');
     expect(input.value.value).toBe(5_000_000_000);
   });
+
+  it('does not count headcount-derived ARR as a second independent scoring signal', () => {
+    const input = buildCmsInput([
+      {
+        metricType: 'arr',
+        value: 160_000_000,
+        confidence: 'estimated',
+        methodNote: 'Estimated: 1,000 FTEs × $160k benchmark = ~$160M ARR.',
+      },
+      { metricType: 'employees', value: 1_000, confidence: 'verified' },
+    ]);
+    const result = computeCms(input, { deckUserValues: [] });
+    const arr = result.perSignal.find((signal) => signal.key === 'arr')!;
+    const employees = result.perSignal.find((signal) => signal.key === 'employees')!;
+
+    expect(arr.available).toBe(false);
+    expect(arr.effectiveWeight).toBe(0);
+    expect(employees.available).toBe(true);
+    expect(result.availableSignalCount).toBe(1);
+  });
+
+  it('uses structured dependencies when excluding pricing-footprint ARR from the user signal', () => {
+    const input = buildCmsInput([
+      {
+        metricType: 'arr',
+        value: 1_200_000,
+        confidence: 'estimated',
+        derivedFromMetricTypes: ['users'],
+      },
+      { metricType: 'users', value: 2_500, confidence: 'verified' },
+    ]);
+    const result = computeCms(input, { deckUserValues: [1_000, 2_500, 5_000] });
+    const arr = result.perSignal.find((signal) => signal.key === 'arr')!;
+
+    expect(arr.available).toBe(false);
+    expect(result.availableSignalCount).toBe(1);
+  });
+
+  it('recognizes legacy pricing-footprint ARR rows when their dependency metadata is absent', () => {
+    const input = buildCmsInput([
+      {
+        metricType: 'arr',
+        value: 1_200_000,
+        confidence: 'estimated',
+        methodNote: 'Estimated: 2,500 active teams × $40/mo standard tier ($480/yr) = ~$1.2M ARR.',
+      },
+      { metricType: 'users', value: 2_500, confidence: 'verified' },
+    ]);
+    const result = computeCms(input, { deckUserValues: [1_000, 2_500, 5_000] });
+
+    expect(result.perSignal.find((signal) => signal.key === 'arr')!.available).toBe(false);
+    expect(result.availableSignalCount).toBe(1);
+  });
+
+  it('excludes derived ARR despite a citation but honors a human-confirmed correction', () => {
+    const sourcedProxy = buildCmsInput([
+      {
+        metricType: 'arr',
+        value: 160_000_000,
+        confidence: 'verified',
+        derivedFromMetricTypes: ['employees'],
+      },
+      { metricType: 'employees', value: 1_000, confidence: 'verified' },
+    ]);
+    const humanConfirmed = buildCmsInput([
+      {
+        metricType: 'arr',
+        value: 130_000_000,
+        confidence: 'user_verified',
+        derivedFromMetricTypes: ['employees'],
+      },
+      { metricType: 'employees', value: 1_000, confidence: 'verified' },
+    ]);
+
+    expect(
+      computeCms(sourcedProxy, { deckUserValues: [] }).perSignal.find((s) => s.key === 'arr')!
+        .available,
+    ).toBe(false);
+    expect(
+      computeCms(humanConfirmed, { deckUserValues: [] }).perSignal.find((s) => s.key === 'arr')!
+        .available,
+    ).toBe(true);
+  });
 });

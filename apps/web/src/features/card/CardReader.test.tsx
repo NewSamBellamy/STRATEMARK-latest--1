@@ -40,6 +40,7 @@ describe('CardReader', () => {
     expect(within(dialog).queryByRole('tab')).not.toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: /ask researcher/i })).toBeInTheDocument();
     expect(within(dialog).getByText(/figures recorded/i)).toBeInTheDocument();
+    expect(within(dialog).getByText('How this band was calculated')).toBeInTheDocument();
     expect(within(dialog).getByText(/^Sources ·/)).toBeInTheDocument();
     expect(
       within(dialog).getByRole('region', { name: 'Company summary and sources' }),
@@ -146,7 +147,9 @@ describe('CardReader', () => {
       />,
     );
     const dialog = screen.getByRole('dialog');
-    expect(within(dialog).getByText(/stage unavailable: no usable figures/i)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/scale band unavailable: no usable figures/i),
+    ).toBeInTheDocument();
   });
 
   it('keeps the card one-sided and preserves the selected card in the dashboard link', () => {

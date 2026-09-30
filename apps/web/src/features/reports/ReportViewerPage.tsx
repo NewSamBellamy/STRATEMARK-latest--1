@@ -88,7 +88,7 @@ function LandscapeTable({ deckId }: { deckId: string }) {
         <thead className="border-b border-border">
           <tr>
             <Th k="name" label="Company" />
-            <Th k="tier" label="Stage" />
+            <Th k="tier" label="Scale band" />
             <Th k="market_share" label="Share" />
             <Th k="arr" label="ARR" />
             <Th k="value" label="Valuation/Cap" />
@@ -113,7 +113,7 @@ function LandscapeTable({ deckId }: { deckId: string }) {
                         borderColor: tint(TIER_COLORS[c.card.tier as MaturityTier], 0.3),
                       }}
                     >
-                      T{c.card.tier} {TIER_LABELS[c.card.tier as MaturityTier]}
+                      Scale band {TIER_LABELS[c.card.tier as MaturityTier]}
                     </span>
                   )}
                 </td>

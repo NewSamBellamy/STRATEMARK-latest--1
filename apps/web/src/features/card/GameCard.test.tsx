@@ -29,7 +29,7 @@ describe('GameCard', () => {
     expect(screen.getAllByText('GraceWear Global').length).toBeGreaterThan(0);
     expect(screen.getByText(cwc.company!.oneLiner)).toBeInTheDocument();
     expect(screen.getByText('ARR')).toBeInTheDocument();
-    expect(screen.getByText('Stage unverified')).toBeInTheDocument();
+    expect(screen.getByText('Scale unverified')).toBeInTheDocument();
     expect(screen.queryByText(/Very Strong|Very Weak/)).not.toBeInTheDocument();
     expect(screen.getByText(/research needed/i)).toBeInTheDocument();
     expect(screen.queryByText(/FIELD NOTE/i)).not.toBeInTheDocument();

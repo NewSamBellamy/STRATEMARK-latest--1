@@ -155,6 +155,8 @@ export const companyMetricSchema = z.object({
    */
   citations: z.array(citationSchema).default([]),
   methodNote: z.string().nullable(), // "how we got this number" for estimated figures
+  /** Scoring inputs used to derive a proxy metric; prevents double-counting. */
+  derivedFromMetricTypes: z.array(metricTypeSchema).optional(),
   capturedAt: isoTimestamp,
   /**
    * When a source last CONFIRMED this figure, as opposed to when we wrote the

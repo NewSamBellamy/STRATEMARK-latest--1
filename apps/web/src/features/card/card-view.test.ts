@@ -97,10 +97,10 @@ describe('collectible card evidence model', () => {
   it('does not fill the card with unknown figures or assign an unsupported position', () => {
     const result = view([]);
     expect(result.faceMetrics).toEqual([]);
-    expect(result.position).toBe('Stage unverified');
+    expect(result.position).toBe('Scale unverified');
     expect(result.maturity).toBeNull();
   });
-  it('shows a stage only with two independent signals and a cited signal', () => {
+  it('shows a scale band only with two independent signals and a cited signal', () => {
     const result = view(
       [
         metric({ id: 'users', metricType: 'users', value: 1200 }),
@@ -108,14 +108,14 @@ describe('collectible card evidence model', () => {
       ],
       { card: { ...card, tier: 6 } },
     );
-    expect(result.position).toBe('T6 · Scale');
+    expect(result.position).toBe('T6 · Large footprint');
   });
-  it('withholds a recorded stage when only one figure is available', () => {
+  it('withholds a recorded scale band when only one figure is available', () => {
     const result = view([metric({ metricType: 'users', value: 1200 })], {
       card: { ...card, tier: 6 },
     });
     expect(result.maturity).toBeNull();
-    expect(result.position).toBe('Stage unverified');
+    expect(result.position).toBe('Scale unverified');
   });
   it('carries the newest research date onto the card face', () => {
     const result = view([
@@ -133,7 +133,7 @@ describe('collectible card evidence model', () => {
     );
     expect(result.faceMetrics[0]!.display).toBe('$9M');
     expect(result.maturity).toBeNull();
-    expect(result.position).toBe('Stage unverified');
+    expect(result.position).toBe('Scale unverified');
   });
   it('keeps unscoped market share in Evidence, not on the face or as a tier receipt', () => {
     const result = view([metric({ metricType: 'market_share', value: 24 })], {
@@ -157,7 +157,7 @@ describe('collectible card evidence model', () => {
       expect(result.metrics[0]!.note).toMatch(/invalid/i);
     }
   });
-  it('does not inherit company stats or a maturity tier on signal cards', () => {
+  it('does not inherit company stats or a size band on signal cards', () => {
     const result = view([metric({})], { card: { ...card, cardType: 'vice', tier: 8 } });
     expect(result.metrics).toEqual([]);
     expect(result.faceMetrics).toEqual([]);
@@ -188,11 +188,11 @@ describe('collectible card evidence model', () => {
     const input = [
       makeCard('Evidence Needed', 8, false),
       makeCard('Emerging', 3, true),
-      makeCard('Market Defining', 8, true),
+      makeCard('Largest footprint', 8, true),
     ];
 
     expect(sortCompanyCardsForBrowse(input).map((entry) => entry.company!.name)).toEqual([
-      'Market Defining',
+      'Largest footprint',
       'Emerging',
       'Evidence Needed',
     ]);
