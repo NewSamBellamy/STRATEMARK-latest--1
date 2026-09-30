@@ -279,6 +279,12 @@ export function createEvidenceStore(
     }
   }
   return {
+    getObservation(observationId: string) {
+      assertOpen();
+      id.parse(observationId);
+      const row = db.prepare('SELECT * FROM observations WHERE id=?').get(observationId);
+      return row ? decodeObservation(row) : null;
+    },
     saveSourceVersion(input: unknown, content: string | null, expectedRevision: number) {
       const value = sourceVersionRecordSchema.parse(input);
       checkVersion(value, false);

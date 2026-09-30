@@ -8,6 +8,7 @@ import type * as NodeSqlite from 'node:sqlite';
 import { z } from 'zod';
 import { compareRecordTimestamps, recordVersionSchema } from '@mi/contracts';
 import { createEvidenceStore, evidenceSchemaSql } from './vault-evidence-store';
+import { createResearchStore } from './vault-research-store';
 import { acquireVaultOwner, canonicalVaultPath, vaultFileFence } from './vault-owner';
 import {
   currentVaultSchemaVersion,
@@ -281,12 +282,20 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
     throw new Error('Read handle cannot write without a captured owner capability.');
   };
   const evidence = createEvidenceStore(db, vaultId, assertOpen, readRevision, noWrite);
+  const research = createResearchStore(db, vaultId, assertOpen, readRevision, noWrite, evidence);
   return {
     getSourceVersion: evidence.getSourceVersion,
     getPassage: evidence.getPassage,
+    getObservation: evidence.getObservation,
     getMetricDefinition: evidence.getMetricDefinition,
     listObservations: evidence.listObservations,
     comparableObservations: evidence.comparableObservations,
+    getClaim: research.getClaim,
+    getFinding: research.getFinding,
+    getReport: research.getReport,
+    listClaims: research.listClaims,
+    listFindings: research.listFindings,
+    listReports: research.listReports,
     status() {
       assertOpen();
       return {
@@ -303,6 +312,14 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
       const captured = state;
       const check = () => assertWriter(captured);
       const writes = createEvidenceStore(db, vaultId, assertOpen, readRevision, check);
+      const researchWrites = createResearchStore(
+        db,
+        vaultId,
+        assertOpen,
+        readRevision,
+        check,
+        evidence,
+      );
       return {
         saveCompany(value: VaultCompany, expectedRevision: number) {
           check();
@@ -320,6 +337,9 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
         savePassage: writes.savePassage,
         saveMetricDefinition: writes.saveMetricDefinition,
         saveObservation: writes.saveObservation,
+        saveClaim: researchWrites.saveClaim,
+        saveFinding: researchWrites.saveFinding,
+        saveReport: researchWrites.saveReport,
       };
     },
     advanceWriterGeneration() {

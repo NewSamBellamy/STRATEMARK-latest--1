@@ -32,6 +32,9 @@ Workers receive repository instructions, relevant accepted decisions, exact
 scope and tests, not credentials, private research, transcripts or full logs.
 Persist branch/HEAD, owned dirty files, decisions, actual checks, known failures
 and next task in BUILD-STATE. Revalidate that checkpoint against disk.
+BUILD-STATE keeps current truth and the latest packet. Closed packet evidence
+lives in PACKET-ARCHIVE; read only relevant historical sections, not the entire
+archive for every worker. The archive never overrides current authority/state.
 
 Missing API spend telemetry is not a blocker for this development goal. Actual
 spend remains unknown, not zero. Don't invent a hard cap or price projection.

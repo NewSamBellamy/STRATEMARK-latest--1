@@ -19,6 +19,7 @@ import {
   computeCms,
   deckBakedState,
   hasVerificationGradeCitation,
+  isEntityCardType,
   isJunkSource,
   markVerified,
   normalizeReportMarkdown,
@@ -419,6 +420,73 @@ export class GeminiRepository implements MarketIntelRepository {
     this.lastPersistedContent = nextContent;
   }
 
+  /** Invalidate cached market analyses derived from this canonical company. */
+  private invalidateCompanyMarketOpportunities(companyId: string): void {
+    const cards = Array.isArray(this.snap.cards) ? this.snap.cards : [];
+    const companyDeckIds = new Set<string>();
+    for (const card of cards) {
+      if (
+        card &&
+        typeof card === 'object' &&
+        card.companyId === companyId &&
+        isEntityCardType(card.cardType) &&
+        typeof card.deckId === 'string'
+      ) {
+        companyDeckIds.add(card.deckId);
+      }
+    }
+
+    const markets = Array.isArray(this.snap.markets) ? this.snap.markets : [];
+    const marketIds = new Set<string>();
+    if (companyDeckIds.size > 0 && Array.isArray(this.snap.decks)) {
+      for (const deck of this.snap.decks) {
+        if (
+          !deck ||
+          typeof deck !== 'object' ||
+          typeof deck.id !== 'string' ||
+          !companyDeckIds.has(deck.id) ||
+          typeof deck.marketId !== 'string'
+        ) {
+          continue;
+        }
+        if (
+          markets.some(
+            (market) => market && typeof market === 'object' && market.id === deck.marketId,
+          )
+        ) {
+          marketIds.add(deck.marketId);
+        }
+      }
+    }
+
+    // Legacy snapshots may have no card/deck links. Use the old name mapping
+    // only when it resolves to exactly one market and no linked owner exists.
+    if (marketIds.size === 0) {
+      const legacyCompanyMarket = this.snap.companyMarket;
+      const legacyMarketName =
+        legacyCompanyMarket &&
+        typeof legacyCompanyMarket === 'object' &&
+        !Array.isArray(legacyCompanyMarket)
+          ? (legacyCompanyMarket as Record<string, unknown>)[companyId]
+          : undefined;
+      if (typeof legacyMarketName === 'string' && legacyMarketName.trim()) {
+        const matches = markets.filter(
+          (market) =>
+            market &&
+            typeof market === 'object' &&
+            market.name === legacyMarketName &&
+            typeof market.id === 'string' &&
+            market.id.length > 0,
+        );
+        if (matches.length === 1) marketIds.add(matches[0]!.id);
+      }
+    }
+
+    const opportunity = this.snap.opportunity;
+    if (!opportunity || typeof opportunity !== 'object' || Array.isArray(opportunity)) return;
+    for (const marketId of marketIds) delete opportunity[marketId];
+  }
+
   /** Flatten a pipeline result into the normalized store. */
   private ingest(result: ResearchResult): void {
     const previous = this.snap.cards.filter((card) => card.deckId === result.deck.id);
@@ -518,7 +586,10 @@ export class GeminiRepository implements MarketIntelRepository {
     // Dashboard tabs are cached projections. Invalidate every affected company
     // so a newly detected contradiction cannot leave one tab on stale evidence
     // while the card and Metrics tab show a different canonical value.
-    for (const companyId of companyById.keys()) this.snap.dashboards[companyId] = {};
+    for (const companyId of companyById.keys()) {
+      this.snap.dashboards[companyId] = {};
+      this.invalidateCompanyMarketOpportunities(companyId);
+    }
     this.persist();
   }
 
@@ -773,13 +844,18 @@ export class GeminiRepository implements MarketIntelRepository {
       ),
       ...stubsResult.cards.flatMap((c) => c.metrics),
     ];
+    const affectedCompanyIds = new Set<string>();
     for (const stub of stubsResult.cards) {
       if (stub.company) {
         const existingIdx = this.snap.companies.findIndex((c) => c.id === stub.company!.id);
         if (existingIdx >= 0) this.snap.companies[existingIdx] = stub.company;
         else this.snap.companies.push(stub.company);
         this.snap.companyMarket[stub.company.id] = stubsResult.market.name;
+        affectedCompanyIds.add(stub.company.id);
       }
+    }
+    for (const companyId of affectedCompanyIds) {
+      this.invalidateCompanyMarketOpportunities(companyId);
     }
 
     const initialReportId = `rpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -977,8 +1053,9 @@ export class GeminiRepository implements MarketIntelRepository {
                     job.partialCards.push(hydrated.primaryCard);
                   }
 
-                  // Invalidate dashboard caches for company
+                  // Invalidate projections after updating canonical company metrics.
                   this.snap.dashboards[hydrated.company.id] = {};
+                  this.invalidateCompanyMarketOpportunities(hydrated.company.id);
 
                   this.persist();
 
@@ -1487,6 +1564,7 @@ export class GeminiRepository implements MarketIntelRepository {
           metric.capturedAt = nowIso;
           changed = true;
           this.snap.dashboards[input.companyId] = {};
+          this.invalidateCompanyMarketOpportunities(input.companyId);
         }
         Object.assign(metric, markVerified(metric, nowIso));
         const retieredCardIds = changed
@@ -1602,6 +1680,7 @@ export class GeminiRepository implements MarketIntelRepository {
         }
         metric.capturedAt = nowIso;
         changed = true;
+        this.invalidateCompanyMarketOpportunities(input.companyId);
         // Researched tabs quoting the stale figure re-research on next open.
         this.snap.dashboards[input.companyId] = {};
       }
@@ -1796,6 +1875,7 @@ export class GeminiRepository implements MarketIntelRepository {
     if (filledTypes.length > 0) {
       // Researched tabs quoting the old gaps re-research on next open.
       this.snap.dashboards[companyId] = {};
+      this.invalidateCompanyMarketOpportunities(companyId);
       this.persist();
       const card = this.snap.cards.find(
         (c) => c.companyId === companyId && c.cardType === 'company',
@@ -2692,13 +2772,7 @@ export class GeminiRepository implements MarketIntelRepository {
     metric.methodNote = input.note ?? 'Manually corrected by user';
     metric.capturedAt = new Date().toISOString();
     this.snap.dashboards[input.companyId] = {};
-    this.snap.opportunity = Object.fromEntries(
-      Object.entries(this.snap.opportunity).filter(([marketId]) => {
-        const companyMarket = this.snap.companyMarket[input.companyId];
-        const market = this.snap.markets.find((candidate) => candidate.name === companyMarket);
-        return market?.id !== marketId;
-      }),
-    );
+    this.invalidateCompanyMarketOpportunities(input.companyId);
 
     // Recompute the CMS tier for this company's company-cards (auditable: base
     // tier from rules; prior LLM nudge is dropped as stale after an override).

@@ -21,6 +21,8 @@ destination. If the checkpoint branch diverges, stop the push and investigate;
 never force-update or overwrite it. Record failing gates honestly.
 
 Read AGENTS.md, BUILD-STATE.md, NORTHSTAR.md and the active PHASES.md gate.
+BUILD-STATE is the compact current ledger; PACKET-ARCHIVE is historical evidence
+to consult selectively, not another current instruction set.
 Check actual HEAD/tree and active goal. Keep the full objective active; each
 packet is progress, not completion. Use build-workflow.md for current model,
 context, ownership, verification and escalation rules. Don't create a new goal

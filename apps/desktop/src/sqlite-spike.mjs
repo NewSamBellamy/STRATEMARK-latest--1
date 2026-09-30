@@ -31,7 +31,7 @@ async function proveNativeVault(directory) {
   });
   const file = path.join(directory, 'inventory.sqlite');
   const company = { record: record('co_a'), name: 'Fixture Labs', officialDomain: 'a.example' };
-  // Create a P02-shaped synthetic vault, then prove the real v1 -> v2 -> v3 upgrade.
+  // Create a P02-shaped synthetic vault, then prove the real v1 -> v2 -> v3 -> v4 upgrade.
   const prior = new DatabaseSync(file);
   try {
     prior.exec(`BEGIN IMMEDIATE; ${inventorySchemaSql}`);
@@ -50,7 +50,7 @@ async function proveNativeVault(directory) {
   const handle = openVault(file, vaultId);
   const vault = { ...handle, ...handle.writer() };
   try {
-    assert.equal(vault.status().schemaVersion, 3);
+    assert.equal(vault.status().schemaVersion, 4);
     assert.deepEqual(vault.getCompany('co_a'), company);
     for (const marketId of ['mkt_a', 'mkt_b']) {
       vault.saveMarket({ record: record(marketId), name: marketId }, 0);
@@ -139,6 +139,99 @@ async function proveNativeVault(directory) {
         ),
       /hash/i,
     );
+    const evidenceRef = { sourceId: 'src_a', sourceRevision: 1, passageId: 'pass_a' };
+    const claim = {
+      record: record('claim_a'),
+      companyId: 'co_a',
+      scope: { kind: 'company', id: 'co_a' },
+      text: 'Synthetic retained company description.',
+      eventAt: null,
+      origin: 'user_provided',
+      support: 'reported',
+      evidenceRefs: [evidenceRef],
+    };
+    vault.saveClaim(claim, 0);
+    const marketContent = 'Synthetic market barrier, not an inherited company metric.';
+    const marketHash = createHash('sha256').update(marketContent).digest('hex');
+    const marketScope = { companyIds: [], marketIds: ['mkt_a'] };
+    vault.saveSourceVersion(
+      { ...source, id: 'src_market', contentHash: marketHash, visibilityScope: marketScope },
+      marketContent,
+      0,
+    );
+    vault.savePassage({
+      ...record('pass_market'),
+      sourceId: 'src_market',
+      sourceRevision: 1,
+      text: marketContent,
+      contentHash: marketHash,
+      origin: 'user_provided',
+      visibilityScope: marketScope,
+    });
+    const marketRef = { sourceId: 'src_market', sourceRevision: 1, passageId: 'pass_market' };
+    const finding = {
+      record: record('finding_a'),
+      marketId: 'mkt_a',
+      kind: 'barrier',
+      title: 'Synthetic barrier',
+      summary: marketContent,
+      companyIds: ['co_a'],
+      eventAt: null,
+      origin: 'user_provided',
+      state: 'reported',
+      riskStatus: null,
+      evidenceRefs: [marketRef],
+    };
+    vault.saveFinding(finding, 0);
+    const report = {
+      record: record('report_a'),
+      scope: { kind: 'market', id: 'mkt_a' },
+      title: 'Synthetic historical report',
+      markdown: 'Exact historical prose preserved after later corrections.',
+      origin: 'user_provided',
+      status: 'completed',
+      inputRevisions: [
+        { kind: 'company', id: 'co_a', revision: 1 },
+        { kind: 'claim', id: 'claim_a', revision: 1 },
+        { kind: 'finding', id: 'finding_a', revision: 1 },
+        { kind: 'observation', id: 'obs_2025', revision: 1 },
+      ],
+      evidenceRefs: [evidenceRef, marketRef],
+      gaps: [],
+    };
+    vault.saveReport(report, 0);
+    vault.saveClaim(
+      { ...claim, record: record('claim_a', 2), text: 'Later company claim version.' },
+      1,
+    );
+    vault.saveFinding(
+      { ...finding, record: record('finding_a', 2), summary: 'Later finding version.' },
+      1,
+    );
+    vault.saveReport(
+      {
+        ...report,
+        record: record('report_a', 2),
+        markdown: 'Later report, not a rewrite of its predecessor.',
+      },
+      1,
+    );
+    assert.deepEqual(vault.getReport('report_a', 1), report);
+    assert.deepEqual(vault.getClaim('claim_a', 1), claim);
+    assert.deepEqual(vault.getFinding('finding_a', 1), finding);
+    assert.throws(
+      () =>
+        vault.saveReport(
+          {
+            ...report,
+            record: record('report_private_leak'),
+            scope: { kind: 'market', id: 'mkt_b' },
+          },
+          0,
+        ),
+      /scope|private/i,
+    );
+    assert.equal(vault.getReport('report_private_leak'), null);
     const oldWriter = vault.writer();
     vault.advanceWriterGeneration();
     assert.equal(vault.status().writerGeneration, 2);
@@ -152,6 +245,10 @@ async function proveNativeVault(directory) {
     );
     assert.equal(vault.getCompany('co_late'), null);
     assert.equal(vault.getSourceVersion('src_late', 1), null);
+    assert.throws(
+      () => oldWriter.saveReport({ ...report, record: record('report_a', 3) }, 2),
+      /fenced/i,
+    );
     const backupPath = path.join(directory, 'inventory-backup.sqlite');
     await vault.backup(backupPath);
     const restored = openVault(backupPath, vaultId, 'reader');
@@ -159,6 +256,9 @@ async function proveNativeVault(directory) {
       assert.deepEqual(restored.getCompany('co_a'), updated);
       assert.deepEqual(restored.getSourceVersion('src_a', 1), { record: source, content });
       assert.equal(restored.getPassage('pass_a').text, content);
+      assert.deepEqual(restored.getReport('report_a', 1), report);
+      assert.deepEqual(restored.getClaim('claim_a', 1), claim);
+      assert.deepEqual(restored.getFinding('finding_a', 1), finding);
       assert.deepEqual(
         restored.listObservations('co_a').items.map((item) => item.value),
         [0, 5],
@@ -179,6 +279,9 @@ async function proveNativeVault(directory) {
       falseHashRejected: true,
       oldCapabilityFenced: true,
       ownerGenerationAdvanced: true,
+      retainedResearchVersions: true,
+      historicalReportInputs: true,
+      privateResearchRejected: true,
     };
   } finally {
     vault.close();
@@ -258,23 +361,21 @@ async function prepare(directory) {
 function crash(directory) {
   const owned = openVault(path.join(directory, 'owned.sqlite'), 'vault_owner');
   const at = '2026-09-30T12:00:00Z';
-  owned
-    .writer()
-    .saveCompany(
-      {
-        record: {
-          contractVersion: '1',
-          vaultId: 'vault_owner',
-          id: 'co_owned',
-          revision: 1,
-          createdAt: at,
-          updatedAt: at,
-        },
-        name: 'Owned fixture',
-        officialDomain: null,
+  owned.writer().saveCompany(
+    {
+      record: {
+        contractVersion: '1',
+        vaultId: 'vault_owner',
+        id: 'co_owned',
+        revision: 1,
+        createdAt: at,
+        updatedAt: at,
       },
-      0,
-    );
+      name: 'Owned fixture',
+      officialDomain: null,
+    },
+    0,
+  );
   const databasePath = path.join(directory, 'source.sqlite');
   const db = openWal(databasePath);
   db.exec('PRAGMA cache_size=4; BEGIN IMMEDIATE;');

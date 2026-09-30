@@ -1,6 +1,7 @@
 import type * as NodeSqlite from 'node:sqlite';
+import { researchSchemaSql } from './vault-research-store';
 
-export const currentVaultSchemaVersion = 3;
+export const currentVaultSchemaVersion = 4;
 
 export const inventorySchemaSql = `
 CREATE TABLE vault_meta (
@@ -43,6 +44,30 @@ const evidenceColumns = {
   metric_definitions: ['id', 'revision', 'body'],
   observations: ['id', 'revision', 'body', 'company_id', 'definition_id', 'comparison_key'],
   observation_evidence: ['observation_id', 'ordinal', 'source_id', 'source_revision', 'passage_id'],
+} as const;
+const researchColumns = {
+  retained_record_versions: ['kind', 'id', 'revision'],
+  claims: ['id', 'revision', 'body', 'company_id', 'scope_kind', 'scope_id'],
+  findings: ['id', 'revision', 'body', 'market_id'],
+  reports: ['id', 'revision', 'body', 'scope_kind', 'scope_id'],
+  research_evidence: [
+    'kind',
+    'id',
+    'revision',
+    'ordinal',
+    'source_id',
+    'source_revision',
+    'passage_id',
+  ],
+  finding_companies: ['finding_id', 'finding_revision', 'ordinal', 'company_id'],
+  report_inputs: [
+    'report_id',
+    'report_revision',
+    'ordinal',
+    'input_kind',
+    'input_id',
+    'input_revision',
+  ],
 } as const;
 
 function readSchemaVersion(db: NodeSqlite.DatabaseSync) {
@@ -117,6 +142,7 @@ export function inspectVaultSchema(db: NodeSqlite.DatabaseSync, vaultId: string)
     )
       throw new Error('Vault writer generation is invalid.');
   }
+  if (version >= 4) requireTableColumns(db, researchColumns, 'research');
   if (db.prepare('PRAGMA quick_check').get()?.quick_check !== 'ok')
     throw new Error('Vault integrity check failed.');
   if (db.prepare('PRAGMA foreign_key_check').all().length !== 0)
@@ -161,12 +187,15 @@ export function initializeVaultSchema(
     db.exec(evidenceSchemaSql);
     requireTableColumns(db, evidenceColumns, 'evidence');
     db.exec('PRAGMA user_version=2;');
+    version = 2;
   }
-  db.exec(`CREATE TABLE writer_state (
+  if (version === 2)
+    db.exec(`CREATE TABLE writer_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
     generation INTEGER NOT NULL CHECK(generation>=0 AND generation<=9007199254740991),
     owner_nonce TEXT
   ) STRICT; INSERT INTO writer_state VALUES(1,0,NULL);`);
+  db.exec(researchSchemaSql);
   db.exec(`PRAGMA user_version=${currentVaultSchemaVersion};`);
   inspectVaultSchema(db, vaultId);
 }

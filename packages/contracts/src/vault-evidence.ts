@@ -124,7 +124,7 @@ const periodSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('interval'), startAt: timestamp, endAt: timestamp }).strict(),
   z.object({ kind: z.literal('unknown') }).strict(),
 ]);
-const evidenceRefsSchema = z
+export const evidenceRefsSchema = z
   .array(retainedEvidenceRefSchema)
   .max(100)
   .superRefine((refs, context) => {

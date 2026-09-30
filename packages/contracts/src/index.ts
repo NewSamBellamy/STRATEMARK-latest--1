@@ -21,4 +21,5 @@ export * from './actions';
 export * from './action-results';
 export * from './action-policies';
 export * from './vault-evidence';
+export * from './vault-research';
 export * from './action-reads';

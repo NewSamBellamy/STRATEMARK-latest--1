@@ -145,6 +145,9 @@ try {
     falseHashRejected: true,
     oldCapabilityFenced: true,
     ownerGenerationAdvanced: true,
+    retainedResearchVersions: true,
+    historicalReportInputs: true,
+    privateResearchRejected: true,
   });
   for (const key of ['fts5Match', 'walReopen', 'backupFromOpenWal', 'backupReopen'])
     assert.equal(prepared[key], true);
