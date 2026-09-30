@@ -7,6 +7,7 @@ export * from './gemini';
 export * from './genai';
 export * from './provider-http';
 export * from './http-search';
+export * from './provider-connectors';
 export * from './openai-compatible';
 export * from './sources';
 export * from './research-client';

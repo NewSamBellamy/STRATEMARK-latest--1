@@ -103,6 +103,7 @@ export interface SearchConnector {
 export const RESEARCH_PROVIDER_ERROR_CODES = [
   'CONFIG',
   'AUTH',
+  'QUOTA',
   'RATE_LIMIT',
   'TIMEOUT',
   'UPSTREAM',

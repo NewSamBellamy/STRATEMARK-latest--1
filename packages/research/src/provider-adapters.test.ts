@@ -39,6 +39,17 @@ describe('provider HTTP boundary', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it('distinguishes exhausted provider credit from malformed responses', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response('payment detail', { status: 402 }));
+
+    await expect(
+      fetchProviderJson({ provider: 'test', url: 'https://provider.example', fetchImpl }),
+    ).rejects.toMatchObject({ code: 'QUOTA', provider: 'test', retryable: false });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it('honors caller cancellation before sending a request', async () => {
     const controller = new AbortController();
     controller.abort(new DOMException('cancelled', 'AbortError'));

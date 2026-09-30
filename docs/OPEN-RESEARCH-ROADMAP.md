@@ -107,3 +107,9 @@ The settings screen should describe these differences in plain language and reco
 ## Product quality test
 
 A release is not ready because it generated an attractive deck once. It is ready when the same workflow handles a mainstream market, an obscure market, sparse private-company evidence, contradictory sources, missing values, a provider failure, a cancelled run, and a later refresh—and remains honest, useful, recoverable, and visually coherent in every case.
+
+## Implementation record
+
+- **Provider composition foundation:** implemented. The existing pipeline can now use Gemini's native grounded research or compose an intelligence model with explicit external search connectors. External synthesis is restricted to normalized source IDs, fails closed without evidence, and handles bounded retries, cancellation, partial provider failures, and secret-safe errors.
+- **First-party connector factories:** Firecrawl v2 Search, Perplexity Search, and Serper discovery adapters are implemented with fixture tests. Firecrawl requests extracted markdown; Perplexity uses the direct Search API; Serper remains discovery-only. DuckDuckGo remains deliberately unsupported because no official general-purpose production search API was verified.
+- **Still required before exposing this in Settings:** main-process secret storage, connection tests, capability-aware setup, provider cost/privacy language, a fetch/extract contract for discovery-only connectors, and benchmark runs using user-authorized provider keys.

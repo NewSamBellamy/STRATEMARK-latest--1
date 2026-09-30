@@ -58,6 +58,7 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
 
 function codeForStatus(status: number): ResearchProviderErrorCode {
   if (status === 401 || status === 403) return 'AUTH';
+  if (status === 402) return 'QUOTA';
   if (status === 429) return 'RATE_LIMIT';
   if (status === 408 || status === 504) return 'TIMEOUT';
   if (status === 451) return 'BLOCKED';
