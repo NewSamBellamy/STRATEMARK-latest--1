@@ -20,3 +20,5 @@ export * from './report';
 export * from './actions';
 export * from './action-results';
 export * from './action-policies';
+export * from './vault-evidence';
+export * from './action-reads';

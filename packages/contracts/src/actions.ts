@@ -945,7 +945,7 @@ const recordPurgeRequest = mutationCommand(
   z.object({ confirmationPhrase: z.literal('PURGE'), approvalRef }).strict(),
 );
 
-const providerCapabilitySchema = z.enum(['model', 'search', 'extraction', 'embedding']);
+export const providerCapabilitySchema = z.enum(['model', 'search', 'extraction', 'embedding']);
 const providerCapabilitiesSchema = z
   .array(providerCapabilitySchema)
   .min(1)

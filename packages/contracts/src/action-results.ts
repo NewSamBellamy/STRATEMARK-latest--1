@@ -29,6 +29,22 @@ const receiptFields = {
   acceptedAt: z.string().datetime(),
   resultingRevision: revision,
 };
+const createdKindSchema = z.enum([
+  'market',
+  'schedule',
+  'grant',
+  'connection',
+  'budget',
+  'tombstone',
+]);
+const createdKinds: Partial<Record<ActionName, z.infer<typeof createdKindSchema>>> = {
+  'market.create': 'market',
+  'monitor.enable': 'schedule',
+  'connection.grant': 'grant',
+  'provider.configure': 'connection',
+  'budget.approve': 'budget',
+  'record.trash': 'tombstone',
+};
 
 /** Shape only: the service must persist acceptance, dedupe and authorize before returning it. */
 export const actionReceiptSchema = z
@@ -47,6 +63,7 @@ export const actionReceiptSchema = z
         effect: z.literal('write'),
         status: z.enum(['applied', 'pausing', 'paused', 'cancelling', 'cancelled']),
         runId: id.optional(),
+        createdRecord: z.object({ kind: createdKindSchema, id, revision }).strict().optional(),
       })
       .strict(),
     z
@@ -78,6 +95,18 @@ export const actionReceiptSchema = z
       });
     }
     if (receipt.effect === 'write') {
+      const expectedKind = createdKinds[receipt.action];
+      if (
+        expectedKind
+          ? receipt.createdRecord?.kind !== expectedKind
+          : receipt.createdRecord !== undefined
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'Creating writes must identify their exact created record kind; other writes cannot invent one',
+        });
+      }
       const lifecycle = receipt.action === 'run.pause' || receipt.action === 'run.cancel';
       const statuses =
         receipt.action === 'run.pause' ? ['pausing', 'paused'] : ['cancelling', 'cancelled'];

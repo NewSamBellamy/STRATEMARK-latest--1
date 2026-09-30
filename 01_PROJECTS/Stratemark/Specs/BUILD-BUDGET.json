@@ -1,6 +1,6 @@
 {
   "campaignId": "stratemark-overhaul-sol-luna-v1",
-  "status": "G00_in_progress_active_sol_planner_luna_workers",
+  "status": "G00_contract_baseline_frozen_G01_binding_in_progress_active_goal",
   "executionAuthorization": "Human active goal defers development spend limits; Sol plans and integrates; Luna high-effort workers implement; Astra disabled",
   "enforcementMode": "development_spend_limits_deferred_by_human",
   "currency": "USD",
@@ -63,9 +63,24 @@
   },
   "completedPackets": [
     "G00-P03-contract-and-baseline-slice-not-phase-completion",
-    "G00-P04-contract-policy-and-startup-slice-not-phase-completion"
+    "G00-P04-contract-policy-and-startup-slice-not-phase-completion",
+    "G00-P05-contract-baseline-freeze-not-product-readiness"
   ],
   "checkpoints": [
+    {
+      "packetId": "G00-P05",
+      "date": "2026-09-30",
+      "requestSchemas": 62,
+      "cachedReadResultSchemas": 20,
+      "fullContractTestsPassed": 353,
+      "fullGate": "typecheck_and_lint_passed; contracts353_mocks16_passed; research314_passed_9_baseline_failures; downstream_suites_not_run",
+      "legacyReleaseBlockersUnfixed": 11,
+      "workerModel": "gpt-6-luna",
+      "workerReasoningEffort": "high",
+      "workersDispatched": 1,
+      "astraDispatched": false,
+      "campaignSpentKnown": null
+    },
     {
       "packetId": "G00-P04",
       "date": "2026-09-30",

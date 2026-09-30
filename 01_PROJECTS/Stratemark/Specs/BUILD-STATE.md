@@ -11,9 +11,10 @@ deferred by the human; do not stop for missing API telemetry or require cost
 projections before worker dispatch. This overrides the historical campaign
 instructions below, not product privacy, bounded execution, phase dependencies,
 context ceilings or live-research consent. Goal is active (verified via goal tool).
-Latest completed packet: G00-P04 below (startup fix `012aff3`, contract
-checkpoint `b2c6398`). No phase is complete. Next G00-P05 finishes typed
-cached-read projections/version contracts; do not restart planning.
+Latest completed packet: G00-P05 below. G00 contracts and reproduced baseline
+are frozen for offline G01 work; this is not product-readiness or service parity.
+G01-P01 is verifying packaged SQLite before any authoritative schema or cutover.
+The full goal remains active; do not restart planning.
 Earlier $50/Astra campaign instructions are historical, not current dispatch
 rules. The human reports API-key sign-in; actual development spend is unknown.
 The ChatGPT usage tool cannot measure that API account's charges. No billing
@@ -21,11 +22,11 @@ preflight blocks this development goal; live product research still requires
 separate explicit approval and a numeric cap.
 
 - Planning: complete researched v1 north star, action catalogue, phase goals, and evidence ledger.
-- Implementation: G00 in progress; 62 strict requests, typed command receipts/output manifests and approval/grant/egress/budget policies, 11 RED baseline reproductions, verified public browser journey and a fixed startup wiring bug. Remaining cached-read/version contracts are unfinished. New action service is not connected to application callers.
+- Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. Existing product still has 11 reproduced RED defects; shared service is not connected to callers. G01 packaged binding investigation is underway, not vault completion or live cutover.
 - Branch: `feat/stratemark-spinoff-local-agents`, created from `b2c6398`; predecessor `feat/claim-level-signal-evidence` retained unchanged. Personal-fork checkpoint destination: remote newsam, `NewSamBellamy/STRATEMARK-latest--1`.
 - Inspected code baseline: `3f18af2`. The documentation commit will follow that baseline; determine current HEAD from git rather than treating this baseline as current code forever.
 - Goal tool: the human's replacement Sol-planner/Luna-worker goal is active, verified at G00-P03 start. No billing blocker remains for development. Keep the full goal active at packet boundaries.
-- Next work: remaining G00 contracts and baseline fixtures in bounded packets. G01 waits on its required contracts/fixtures; no live migration is authorized.
+- Next work: G01 packaged SQLite binding/crash/online-backup proof, then offline durable vault and safe migration. No live data migration is authorized. G02/G07 own runtime enforcement and actual adapter parity; source-level caller inspection is not that proof.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
 - Push: latest human explicitly authorized periodic checkpoints ONLY to this new personal-fork branch. No overwriting existing refs, upstream/Tobi pushes, main merge, release or deployment. First upload verified at `73e61c0e0f9f20e063fd290ef9fb3a122f570061`; all 49 pre-existing remote branch refs remained unchanged, including main at `c945b31dee0095331b8487133c131c36e76ba601`. Verified owner NewSamBellamy, public fork of Maruf. The shorter old URL redirects to Maruf and is unsafe as a personal destination. Read actual local/remote tips before each later fast-forward checkpoint.
@@ -46,17 +47,17 @@ separate explicit approval and a numeric cap.
 
 ## Execution ledger
 
-| Goal | State       | Packet / commit evidence  | Remaining                                                                     |
-| ---- | ----------- | ------------------------- | ----------------------------------------------------------------------------- |
-| G00  | In progress | G00-P01/P02/P03/P04 below | Complete typed cached-read results/version contracts, final acceptance review |
-| G01  | Not started | None                      | Vault and migration                                                           |
-| G02  | Not started | None                      | Shared runtime, policies, secrets                                             |
-| G03  | Not started | None                      | Progressive research and evaluation                                           |
-| G04  | Not started | None                      | Cards and coherent frontend journey                                           |
-| G05  | Not started | None                      | Decision outputs and findings                                                 |
-| G06  | Not started | None                      | Local monitored updates                                                       |
-| G07  | Not started | None                      | Scoped MCP                                                                    |
-| G08  | Not started | None                      | Production verification                                                       |
+| Goal | State                             | Packet / commit evidence       | Remaining                                                           |
+| ---- | --------------------------------- | ------------------------------ | ------------------------------------------------------------------- |
+| G00  | Contract/baseline freeze complete | G00-P01-P05 below              | Legacy defects remain RED; enforcement/parity belong to G01/G02/G07 |
+| G01  | In progress                       | G01-P01 binding spike underway | Packaged binding gate, vault and offline migration                  |
+| G02  | Not started                       | None                           | Shared runtime, policies, secrets                                   |
+| G03  | Not started                       | None                           | Progressive research and evaluation                                 |
+| G04  | Not started                       | None                           | Cards and coherent frontend journey                                 |
+| G05  | Not started                       | None                           | Decision outputs and findings                                       |
+| G06  | Not started                       | None                           | Local monitored updates                                             |
+| G07  | Not started                       | None                           | Scoped MCP                                                          |
+| G08  | Not started                       | None                           | Production verification                                             |
 
 Only one authoritative execution ledger lives here. Action schemas are authoritative in contracts once built; update this plan when implementation intentionally changes the design. Do not create competing status files in unrelated folders.
 
@@ -333,6 +334,65 @@ where correct, do not add generic untyped payloads or another backend. Verify
 contract fixtures and current action/caller review before G00 completion. Then
 G01 starts the packaged SQLite binding spike and offline vault/migration work.
 Keep the full goal active; development spend is unknown and not a blocker.
+
+## Packet G00-P05 — Cached read and retained evidence freeze
+
+Entry HEAD `6d55272`, September30. Human requested uninterrupted progress while
+away; existing separate-branch/personal-fork policy remains. Sol planned and
+integrated; Luna high worker Euclid (`01a0f437-a363-79a3-8384-36ce6e45525f`)
+implemented only vault-evidence.ts/test.ts and was closed after review. No Astra,
+new dependency, paid product research, actual user data, or secret access.
+
+Additive action-reads.ts covers all20 read actions with strict typed results,
+vault/request/record revision, freshness, gaps, evidence and bounded pagination.
+Correlation rejects wrong request/vault/target/fixed revision; nested identities
+and selected company sets are checked. Sparse cards remain sparse. Numeric card
+facts retain actual value/unit/currency/period and source references, rather
+than disconnected formatted strings. At most3 facts; text facts have their own
+support. Evidence bundles retain source versions/passages and reject dangling
+links/foreign vault records. Complete briefs require retained support; unknown
+prices stay null; preview cannot promise closed-app monitoring. Creation receipts
+for markets/schedules/grants/connections/budgets/trash identify the created ID
+and revision. Provider status reuses input capability vocabulary (no drift).
+
+Worker records separate observed/published/event dates, origins and selected
+visibility. Zero is valid; unknown is null; supported/conflicted observations
+need retained evidence. Coordinator review reproduced/fixed equivalent timestamp
+spelling mismatches, unknown-period comparability, supported-null/conflict gaps,
+and forced fake public URLs/hash values on private/failed source records.
+Unknown periods or money without currency have no comparison key. Shape validation
+does not establish truth, access, human confirmation, protected storage or runtime
+fencing. G01 must enforce reference relationships and append-only persistence;
+G02/G07 must enforce current grants including transitive support on actual reads.
+
+Test-first missing modules were reproduced after the sandbox esbuild access
+failure was resolved by approved offline execution, not runner changes. Later
+independent adversarial cases failed at intended assertions before fixes.
+Final `pnpm check`: all6 package typechecks and root lint passed; contracts353
+and mocks16 passed; research314 passed/9 ordinary RED baseline failures; exit1.
+Downstream web/desktop/API suites did not run after that recursive failure.
+Earlier intermediate checks are superseded by this final tree. Existing 2 extra
+desktop/web RED baselines and public browser captures are prior G00-P04 evidence,
+not newly fixed/retested outcomes. No full green, live-quality or packaged claim.
+
+G00 freeze acceptance: complete catalogue request/read/error/state/policy shapes,
+command/output identity, canonical evidence/version primitives, current caller/
+route dispositions, public captures and deterministic risk reproductions exist.
+They provide the baseline for fixes, not a production implementation. Runtime
+authorization/transport parity cannot be proven by shape tests and is explicitly
+deferred to the shared service gates, not silently marked passing. Physical record
+schemas can extend these contracts in G01 without weakening their trust rules.
+
+Direct installed-runtime investigation: Electron44.4.5, Node24.21.0, SQLite3.53.4;
+built-in FTS5 lookup and backup function passed using an in-memory synthetic DB.
+First probe had a shell quoting error (Electron returned0 despite syntax error),
+corrected probe produced parsed version/search evidence. This is NOT packaged,
+crash/recovery, installer, security-patch or signing acceptance. G01-P01 worker
+Descartes (`01a0f442-bd46-7d00-9086-02b01c974b90`, Luna/high) owns only optional
+build spike entry and isolated SQLite process scripts; no vault/user migration.
+Next: verify that same binding in an unsigned unpacked artifact with publishing
+disabled, FTS5, crash rollback, reopen/integrity and real online backup, then build
+the actual vault. Keep the broad goal active and checkpoint tested milestones.
 
 ## Change record (history)
 

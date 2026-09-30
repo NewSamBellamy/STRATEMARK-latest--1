@@ -181,4 +181,32 @@ describe('persisted action results', () => {
       false,
     );
   });
+  it.each([
+    ['market.create', 'market', {}],
+    ['monitor.enable', 'schedule', {}],
+    ['connection.grant', 'grant', {}],
+    ['provider.configure', 'connection', {}],
+    ['budget.approve', 'budget', {}],
+    ['record.trash', 'tombstone', { kind: 'company', companyId: 'co_1' }],
+  ])(
+    'returns the exact created record for %s without treating its ID as authority',
+    (action, kind, target) => {
+      const { runId, ...base } = receipt;
+      expect(runId).toBe('run_1');
+      const write = { ...base, action, target, effect: 'write', status: 'applied' };
+      expect(actionReceiptSchema.safeParse(write).success).toBe(false);
+      expect(
+        actionReceiptSchema.safeParse({
+          ...write,
+          createdRecord: { kind, id: 'created_1', revision: 1 },
+        }).success,
+      ).toBe(true);
+      expect(
+        actionReceiptSchema.safeParse({
+          ...write,
+          createdRecord: { kind: 'company', id: 'created_1', revision: 1 },
+        }).success,
+      ).toBe(false);
+    },
+  );
 });
