@@ -1,6 +1,8 @@
 {
   "campaignId": "stratemark-sol-50-v1",
-  "status": "G00_partial_billing_preflight_unverified",
+  "status": "G00_in_progress_resumed_by_human",
+  "executionAuthorization": "Human requested continued goal work after inability to verify a hard session cap was explained; bounded serial implementation may proceed with estimates",
+  "enforcementMode": "working_target_not_verified_hard_cutoff",
   "currency": "USD",
   "absoluteCeiling": 50,
   "workingCeiling": 40,
@@ -36,7 +38,8 @@
     "latestReconciliationAt": null,
     "includesPreparationIfSameBillingProject": true,
     "persistsAcrossMonthlyResets": true,
-    "unknownUsageBlocksDispatch": true
+    "unknownUsageBlocksStrictCapClaims": true,
+    "unknownUsageBlocksUnboundedDispatch": true
   },
   "contextPolicy": {
     "checkpointAtEstimatedContextTokens": 100000,
@@ -52,6 +55,15 @@
       "date": "2026-09-30",
       "targetedContractTestsPassed": 25,
       "fullGate": "failed_existing_journey_timeout; isolated_retry_passed; root_cause_unconfirmed",
+      "additionalPaidAgentsDispatched": 0,
+      "campaignSpentKnown": null
+    },
+    {
+      "packetId": "G00-P02",
+      "date": "2026-09-30",
+      "targetedContractTestsPassed": 46,
+      "fullGate": "passed",
+      "desktopBuild": "passed; large-chunk warning remains; installer/launch unverified",
       "additionalPaidAgentsDispatched": 0,
       "campaignSpentKnown": null
     }

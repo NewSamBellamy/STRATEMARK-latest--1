@@ -213,6 +213,113 @@ const resumeRequest = z
   })
   .strict();
 
+function cachedRead<N extends ActionName, T extends z.ZodTypeAny, I extends z.ZodTypeAny>(
+  action: N,
+  target: T,
+  input: I,
+) {
+  return z.object({ ...base, action: z.literal(action), target, input }).strict();
+}
+
+const pagination = {
+  cursor: recordId.optional(),
+  limit: z.number().int().min(1).max(100),
+};
+const uniqueIds = (min: number, max: number) =>
+  z
+    .array(recordId)
+    .min(min)
+    .max(max)
+    .refine((ids) => new Set(ids).size === ids.length, 'IDs must be unique');
+const librarySearchRequest = cachedRead(
+  'library.search',
+  emptyInput,
+  z
+    .object({
+      query: z.string().trim().min(1).max(500),
+      kinds: z
+        .array(z.enum(['market', 'company', 'finding', 'report']))
+        .min(1)
+        .max(4)
+        .refine((kinds) => new Set(kinds).size === kinds.length, 'Kinds must be unique')
+        .optional(),
+      marketIds: uniqueIds(1, 50).optional(),
+      savedOnly: z.boolean().optional(),
+      ...pagination,
+    })
+    .strict(),
+);
+const marketListRequest = cachedRead(
+  'market.list',
+  emptyInput,
+  z
+    .object({
+      savedOnly: z.boolean().optional(),
+      ...pagination,
+    })
+    .strict(),
+);
+const evidenceReadRequest = cachedRead(
+  'evidence.get',
+  z.union([
+    z.object({ claimId: recordId }).strict(),
+    z.object({ sourceId: recordId }).strict(),
+    z.object({ passageId: recordId }).strict(),
+  ]),
+  snapshotInput,
+);
+const resolveCompanyRequest = cachedRead(
+  'company.resolve',
+  emptyInput,
+  z
+    .object({
+      names: z.array(z.string().trim().min(1).max(160)).max(20),
+      // Identity hints are hostnames, not outbound URLs; this read never resolves DNS.
+      domains: z
+        .array(
+          z
+            .string()
+            .max(253)
+            .regex(
+              /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])$/i,
+            ),
+        )
+        .max(20),
+      context: z.string().trim().min(1).max(500).optional(),
+    })
+    .strict()
+    .refine(
+      (input) => input.names.length + input.domains.length > 0,
+      'At least one name or domain is required',
+    ),
+);
+const comparisonReadRequest = cachedRead(
+  'comparison.get',
+  z.object({ companyIds: uniqueIds(2, 6) }).strict(),
+  snapshotInput.extend({ metricProfileId: recordId.optional() }).strict(),
+);
+const reportReadRequest = cachedRead(
+  'report.get',
+  z.object({ reportId: recordId }).strict(),
+  snapshotInput,
+);
+const updatesReadRequest = cachedRead(
+  'updates.list',
+  z.union([z.object({ companyId: recordId }).strict(), marketTarget]),
+  z.object({ since: z.string().datetime({ offset: true }).optional(), ...pagination }).strict(),
+);
+const providerStatusRequest = cachedRead(
+  'provider.status',
+  z.object({ connectionId: recordId }).strict(),
+  emptyInput,
+);
+const budgetReadRequest = cachedRead(
+  'budget.get',
+  z.object({ budgetId: recordId }).strict(),
+  snapshotInput,
+);
+const vaultStatusRequest = cachedRead('vault.status', emptyInput, emptyInput);
+
 /** Only schema-backed actions parse. Parsing is not authorization or job acceptance. */
 export const actionRequestSchema = z.discriminatedUnion('action', [
   companyResearchRequest,
@@ -224,6 +331,16 @@ export const actionRequestSchema = z.discriminatedUnion('action', [
   pauseRequest,
   cancelRequest,
   resumeRequest,
+  librarySearchRequest,
+  marketListRequest,
+  evidenceReadRequest,
+  resolveCompanyRequest,
+  comparisonReadRequest,
+  reportReadRequest,
+  updatesReadRequest,
+  providerStatusRequest,
+  budgetReadRequest,
+  vaultStatusRequest,
 ]);
 export type ActionRequest = z.infer<typeof actionRequestSchema>;
 export type SchemaBackedActionName = ActionRequest['action'];
@@ -240,6 +357,58 @@ export const researchRunStateSchema = z.enum([
   'failed',
 ]);
 export type ResearchRunState = z.infer<typeof researchRunStateSchema>;
+
+const nextRunStates: Readonly<Record<ResearchRunState, readonly ResearchRunState[]>> = {
+  queued: ['running', 'pausing', 'cancelling', 'failed'],
+  running: ['pausing', 'cancelling', 'completed', 'partial', 'failed'],
+  pausing: ['paused', 'cancelling', 'failed'],
+  paused: ['queued', 'cancelling'],
+  cancelling: ['cancelled'],
+  cancelled: [],
+  completed: [],
+  partial: [],
+  failed: [],
+};
+
+/** Pure lifecycle rule only. Runtime must separately prove quiescence/fencing before acknowledgement. */
+export function isResearchRunTransitionAllowed(
+  from: ResearchRunState,
+  to: ResearchRunState,
+): boolean {
+  return nextRunStates[from]?.includes(to) ?? false;
+}
+
+export const actionErrorCodeSchema = z.enum([
+  'INVALID_INPUT',
+  'NOT_FOUND_OR_NOT_ALLOWED',
+  'REVISION_CONFLICT',
+  'IDEMPOTENCY_CONFLICT',
+  'CONSENT_REQUIRED',
+  'BUDGET_REQUIRED',
+  'BUDGET_EXCEEDED',
+  'PRICE_UNKNOWN',
+  'CAPABILITY_UNSUPPORTED',
+  'PROVIDER_UNAVAILABLE',
+  'RATE_LIMITED',
+  'CANCELLED',
+  'VAULT_BUSY',
+  'STORAGE_FAILURE',
+  'MIGRATION_REQUIRED',
+  'SCHEMA_TOO_NEW',
+]);
+const actionNames = Object.keys(ACTION_DEFINITIONS) as [ActionName, ...ActionName[]];
+
+/** UI resolves static, localized copy from code. Never return a provider exception or raw input. */
+export const actionFailureSchema = z
+  .object({
+    contractVersion: z.literal('1'),
+    requestId: recordId,
+    code: actionErrorCodeSchema,
+    retryable: z.boolean(),
+    nextAction: z.enum(actionNames).nullable(),
+  })
+  .strict();
+export type ActionFailure = z.infer<typeof actionFailureSchema>;
 
 const receipt = {
   contractVersion: z.literal('1'),

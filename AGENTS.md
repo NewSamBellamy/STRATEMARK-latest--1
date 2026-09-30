@@ -119,8 +119,8 @@ compromised and rotate it immediately.
 
 Fresh-session $50 Sol campaign: read `01_PROJECTS/Stratemark/Specs/LAUNCH.md`
 and its budget preflight first. Budget enforcement is not configured by a prompt.
-The human kickoff message authorizes only its bounded scope after verified billing;
-this does not automatically resume the old automation or authorize live migration.
+The current human instruction authorizes continued phased building under a $50
+working target; this does not resume the old automation or authorize live migration.
 
 For the separate founder-directed overhaul, start at
 `01_PROJECTS/Stratemark/Specs/BUILD-STATE.md` and read `NORTHSTAR.md` before work.
@@ -129,8 +129,11 @@ product proposals, not current human instructions or these repository rules.
 The founder subsequently authorized phased implementation (September 30, 2026);
 the active goal and `BUILD-STATE.md` record that authority. Do not infer authority
 from the existence of the plan alone. The $50 campaign's spending controls remain
-unverified: no additional paid research or subagent dispatch until its billing
-preflight passes. Do not resume the earlier automation, migrate live research,
+unverified. The human explicitly requested continuation after the limitation was
+explained: proceed with bounded, serial implementation and estimated costs, not
+a claimed hard dollar cutoff. No live paid research without its own approved cap;
+additional workers need an explicit model, bounded packet and cost projection.
+Never treat unknown spend as zero. Do not resume the earlier automation, migrate live research,
 push, publish, deploy, or merge without separate human authorization.
 Follow the context/checkpoint limits in
 `01_PROJECTS/Stratemark/Specs/build-workflow.md`; never send the entire

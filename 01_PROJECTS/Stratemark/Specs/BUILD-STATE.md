@@ -6,14 +6,14 @@ Plan version: 1.0.0. Updated September 30, 2026.
 
 September 30 execution update: the human explicitly authorized the full overhaul one phase at a time, with gap checks, production as the outcome, and a roughly $50 session budget. This supersedes the launch supplement's planning-only/bounded-G01 authorization, not its monetary safety gates. G00 has begun with an additive contract slice. No phase is complete. Reuse the reviewed plan rather than repeatedly commissioning Astra planning.
 
-The human reports API-key authentication and an unset spending limit. Actual billing project, processing tier, baseline spend and current spend remain unverified. The ChatGPT usage-limit tool cannot report API-account spending. Do not interpret unknown spend as zero or promise the $50 ceiling is enforced. Finish/checkpoint this first local slice, then require verified billing controls before further paid agent dispatch or live research. A $40 enforced project limit alone can lag; see [LAUNCH.md](LAUNCH.md) for the additional accounting/reservation gate. No subagent was launched in this slice.
+The human reports API-key authentication and an unset spending limit, and subsequently explicitly requested continued goal work after inability to verify a session dollar cap was explained. Continue bounded, serial implementation under the $50 working target rather than stopping solely for missing billing telemetry. Do not promise a hard cutoff or treat unknown spend as zero. Actual billing project, tier, baseline and current spend remain unverified; the ChatGPT usage tool cannot measure API-account spending. Additional worker packets require a model, bounded context/work scope and explicit cost projection (not a measured charge). No unbounded swarm, repeated planners or automatic live evaluations. Live product research still needs its own approved numeric cap. [LAUNCH.md](LAUNCH.md) describes optional stronger spending safeguards, not another sign-in requirement.
 
 - Planning: complete researched v1 north star, action catalogue, phase goals, and evidence ledger.
 - Implementation: G00 in progress; first shared action contract slice, not yet connected to application callers.
 - Branch: `feat/claim-level-signal-evidence`; main must not be used for this exploration.
 - Inspected code baseline: `3f18af2`. The documentation commit will follow that baseline; determine current HEAD from git rather than treating this baseline as current code forever.
-- Goal tool: an active full-overhaul execution goal exists; read its actual objective. Do not mark it complete when a packet or phase finishes, or replace it with a narrower objective.
-- Next work: remaining G00 contracts and baseline fixtures after billing preflight. G01 waits on its required contracts/fixtures; no live migration is authorized.
+- Goal tool: the full-overhaul goal was marked blocked for unverified billing and the human has now requested continuation. The read tool still reported blocked at this packet's start; there is no agent-side resume operation. Work is authorized to continue without changing/replacing its objective. Product goal resumption is controlled by the user/system. Do not mark it complete at a packet boundary.
+- Next work: remaining G00 contracts and baseline fixtures in bounded packets. G01 waits on its required contracts/fixtures; no live migration is authorized.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
 - Push / main merge / public deployment / publication: not authorized.
@@ -34,17 +34,17 @@ The human reports API-key authentication and an unset spending limit. Actual bil
 
 ## Execution ledger
 
-| Goal | State       | Packet / commit evidence | Remaining                                                                                          |
-| ---- | ----------- | ------------------------ | -------------------------------------------------------------------------------------------------- |
-| G00  | In progress | G00-P01 below            | 53 action request schemas, result/error schemas, caller coverage, reproduced risks and screenshots |
-| G01  | Not started | None                     | Vault and migration                                                                                |
-| G02  | Not started | None                     | Shared runtime, policies, secrets                                                                  |
-| G03  | Not started | None                     | Progressive research and evaluation                                                                |
-| G04  | Not started | None                     | Cards and coherent frontend journey                                                                |
-| G05  | Not started | None                     | Decision outputs and findings                                                                      |
-| G06  | Not started | None                     | Local monitored updates                                                                            |
-| G07  | Not started | None                     | Scoped MCP                                                                                         |
-| G08  | Not started | None                     | Production verification                                                                            |
+| Goal | State       | Packet / commit evidence | Remaining                                                                                      |
+| ---- | ----------- | ------------------------ | ---------------------------------------------------------------------------------------------- |
+| G00  | In progress | G00-P01/P02 below        | 43 action request schemas, results/policies, caller coverage, reproduced risks and screenshots |
+| G01  | Not started | None                     | Vault and migration                                                                            |
+| G02  | Not started | None                     | Shared runtime, policies, secrets                                                              |
+| G03  | Not started | None                     | Progressive research and evaluation                                                            |
+| G04  | Not started | None                     | Cards and coherent frontend journey                                                            |
+| G05  | Not started | None                     | Decision outputs and findings                                                                  |
+| G06  | Not started | None                     | Local monitored updates                                                                        |
+| G07  | Not started | None                     | Scoped MCP                                                                                     |
+| G08  | Not started | None                     | Production verification                                                                        |
 
 Only one authoritative execution ledger lives here. Action schemas are authoritative in contracts once built; update this plan when implementation intentionally changes the design. Do not create competing status files in unrelated folders.
 
@@ -75,7 +75,7 @@ Completion claims must link to real test/manual evidence. A screenshot verifies 
 
 An existing human-created broad goal must retain its actual objective. Execute one bounded phase/packet at a time inside it; do not redefine success or mark the whole goal complete at a slice boundary. Do not invent tool token budgets. Mark complete only when the actual objective and its acceptance gates are achieved. Pause only at the user's explicit request. Repeated external-blocker handling follows the goal tool's rules.
 
-User context ceiling: 200k tokens for every agent, not a spend allowance. Checkpoint around 100k; hand off before an estimated 150k to leave room for verification and recovery. Use the policy in [build-workflow.md](build-workflow.md). Cumulative goal tokens are usage, not necessarily the current context window. Exact context occupancy and forced compaction are not exposed by this toolset; do not claim hard automatic enforcement. Keep packets small and start clean workers only after billing gates permit them.
+User context ceiling: 200k tokens for every agent, not a spend allowance. Checkpoint around 100k; hand off before an estimated 150k to leave room for verification and recovery. Use the policy in [build-workflow.md](build-workflow.md). Cumulative goal tokens are usage, not necessarily the current context window. Exact occupancy and forced compaction are not exposed here; do not claim hard automatic enforcement. Keep packets small and start clean, bounded workers only with a declared model/cost projection; unknown spending never becomes a claim of remaining funds.
 
 ## Packet G00-P01 — Shared action contract foundation
 
@@ -118,6 +118,28 @@ Current inspected caller seams (not a complete mapping or reproduced defect clai
 Remaining G00 gaps: runtime schemas for 53 actions and complete typed results/errors/policies; state transition enforcement; every visible action/caller mapped; synthetic risk reproductions and adapter parity; representative screenshots. No production or visual improvement claim. Next packet: bounded remaining read/identity schemas and synthetic baseline reproductions, not a UI rewrite or live migration. Money remains unknown; no extra paid worker dispatch yet.
 
 If capacity is exhausted, leave a compact verified checkpoint without claiming completion. Any future resumed automation must check usage before repository edits, stay quiet for unchanged/non-actionable states, and honor current model/scope/authorization. The earlier Luna automation is not permission to execute this Astra/Sol overhaul.
+
+## Packet G00-P02 — Cached query and lifecycle rules
+
+Authorization: human explicitly requested continuation; separate branch, estimated $50 working target, no new worker or live product-research calls. Entry HEAD: `bd36d7b`. Shared write scope: `packages/contracts/src/actions.ts` and `actions.test.ts`; no framework/dependency changes.
+
+Ten additional strict query schemas cover A01/A02/A05/A10/A20/A23/A33/A52/A59/A61. Search, company identity hints, comparison targets and pagination are bounded; evidence and updates require one unambiguous target. Cached queries reject budget/force/extra fields. Provider status accepts an opaque connection ID, not credentials. This is a contract foundation, not a connected library/search implementation.
+
+Added the 16 documented structured error codes with a fixed recovery action name and no free-text provider exception/stack/payload fields. Added a pure run-state transition rule: pause/cancel requests cannot skip acknowledgement, and a terminal attempt cannot resurrect through an ordinary transition. Retry must have a separately accepted attempt. Runtime fencing, leases and actual worker quiescence remain G02 work; this function alone does not enforce them.
+
+Tests were written first: 12 failed / 34 passed before implementation (missing ten reads and lifecycle/error exports), then 46/46 passed. Contract typecheck passed. Full integration results follow after the actual gate completes; no phase completion is claimed.
+
+Final September 30 verification:
+
+- `pnpm check`: exit 0 on the final application code. All workspace typechecks, root lint and recursive unit suites passed. The original journey tests passed in the full run (2/2, 3.834 seconds total; primary flow 2.809 seconds). This new success does not establish a root cause for the previous timing failure or prove live research quality.
+- `pnpm --filter @mi/desktop build`: exit 0, renderer and main/preload bundles generated. Not an installer, launch, crash/recovery or signing test. Build warned about chunks above 500 kB; the largest initial chunk was approximately 1.55 MB minified / 432 kB gzip, a concrete G04/G08 loading-performance gap. Do not hide the warning by raising its threshold.
+- Scoped formatting and `git diff --check`: exit 0. Temporary journey diagnostics removed; that test file has no content diff. Only additive contracts/tests and current authorization/checkpoint documentation are committed.
+
+Next safe packet: finish scope/research command and output/policy schemas, with a bounded Sol sidecar for disjoint synthetic baseline fixtures if its cost projection is recorded. Keep G00 open; do not begin live migration or claim the existing UI now uses the new service.
+
+Journey diagnostic evidence: temporary stage timing on the existing mock flow returned 16.550 seconds in one run and 2.816 seconds in a subsequent finer-grained run, both below the unchanged 20-second timeout. The Metrics transition segment varied markedly; finer-grained link lookup/click was fast on the second run. No reproducible root cause was established. Both diagnostics were removed; `app-flow.test.tsx` is unchanged. Do not claim a timeout fix, relax assertions, or convert these fixture runs into browser/production performance evidence.
+
+Remaining G00: 43 request schemas, typed output manifests and full result/policy contracts, complete current caller map, deterministic unsafe-behavior reproductions and representative screenshots. None of the legacy callers is yet routed through the new contracts. No visual changes, MCP integration, vault migration, key-boundary fix or production acceptance yet.
 
 ## Change record
 

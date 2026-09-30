@@ -4,6 +4,8 @@ Prepared September 30, 2026. Execution supplement to north-star v1.0.0, not a re
 
 Subsequent human authorization: phased implementation is now approved under the active overhaul goal and G00's first contract slice has begun. See BUILD-STATE for actual status. This supersedes historical planning-only/bounded-G01 scope below; monetary enforcement/accounting gates are unchanged. The human reports an API key and no configured spending limit. No full production build for $50 is promised. Apply the 100k checkpoint / 150k handoff / 200k user ceiling in build-workflow to every agent.
 
+Latest continuation directive: the human explicitly requested continued goal work after the missing session spend meter/enforcement was explained. Proceed with small serial implementation packets and disclosed estimates under the $50 working target; do not stop again solely because exact billing is unavailable. Historical strict preflight text below remains guidance for a genuinely enforced ceiling, not a prerequisite for this resumed estimated campaign. No new login/key disclosure is needed. Keep actual spend unknown where unmeasured, no unbounded dispatch, and no live product research without a separately approved cap. BUILD-STATE and BUILD-BUDGET contain current status.
+
 ## Setup once
 
 Open this repository as the project:

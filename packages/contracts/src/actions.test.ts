@@ -4,6 +4,8 @@ import {
   actionRequestSchema,
   researchActionReceiptSchema,
   researchRunStateSchema,
+  isResearchRunTransitionAllowed,
+  actionFailureSchema,
 } from './actions';
 
 const command = {
@@ -250,5 +252,95 @@ describe('shared action contracts', () => {
       expect(researchRunStateSchema.safeParse(state).success).toBe(true);
     }
     expect(researchRunStateSchema.safeParse('stopping').success).toBe(false);
+  });
+
+  it.each([
+    ['library.search', {}, { query: 'robotics', kinds: ['company'], limit: 25 }],
+    ['market.list', {}, { limit: 25, savedOnly: true }],
+    ['evidence.get', { passageId: 'passage_1' }, { revision: 3 }],
+    ['company.resolve', {}, { names: ['Example Labs'], domains: [], context: 'robotics' }],
+    ['comparison.get', { companyIds: ['co_1', 'co_2'] }, { revision: 3 }],
+    ['report.get', { reportId: 'report_1' }, {}],
+    ['updates.list', { companyId: 'co_1' }, { since: '2026-09-30T00:00:00.000Z', limit: 25 }],
+    ['provider.status', { connectionId: 'connection_1' }, {}],
+    ['budget.get', { budgetId: 'budget_1' }, {}],
+    ['vault.status', {}, {}],
+  ])('accepts bounded cached %s reads without spending fields', (action, target, input) => {
+    const query = {
+      contractVersion: '1',
+      requestId: 'req_read',
+      vaultId: 'v_1',
+      action,
+      target,
+      input,
+    };
+    expect(actionRequestSchema.parse(query)).toEqual(query);
+    expect(actionRequestSchema.safeParse({ ...query, budgetRef: 'budget_1' }).success).toBe(false);
+    expect(
+      actionRequestSchema.safeParse({ ...query, input: { ...input, force: true } }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    ['library.search', {}, { query: 'robotics', limit: 101 }],
+    ['library.search', {}, { query: ' ', limit: 25 }],
+    ['evidence.get', { sourceId: 's_1', claimId: 'claim_1' }, {}],
+    ['company.resolve', {}, { names: [], domains: [] }],
+    ['company.resolve', {}, { names: [], domains: ['https://example.com/secret'] }],
+    ['comparison.get', { companyIds: ['co_1', 'co_1'] }, {}],
+    ['updates.list', {}, { limit: 25 }],
+    ['updates.list', { companyId: 'co_1', marketId: 'm_1' }, { limit: 25 }],
+    ['provider.status', { connectionId: '../credentials' }, {}],
+  ])('rejects ambiguous or unsafe %s query input', (action, target, input) => {
+    expect(
+      actionRequestSchema.safeParse({
+        contractVersion: '1',
+        requestId: 'req_read',
+        vaultId: 'v_1',
+        action,
+        target,
+        input,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('requires acknowledged pause/cancel states and forbids terminal resurrection', () => {
+    expect(isResearchRunTransitionAllowed('running', 'pausing')).toBe(true);
+    expect(isResearchRunTransitionAllowed('pausing', 'paused')).toBe(true);
+    expect(isResearchRunTransitionAllowed('paused', 'queued')).toBe(true);
+    expect(isResearchRunTransitionAllowed('pausing', 'cancelling')).toBe(true);
+    expect(isResearchRunTransitionAllowed('cancelling', 'cancelled')).toBe(true);
+    expect(isResearchRunTransitionAllowed('running', 'cancelled')).toBe(false);
+    expect(isResearchRunTransitionAllowed('running', 'paused')).toBe(false);
+    for (const terminal of ['completed', 'partial', 'failed', 'cancelled'] as const) {
+      expect(isResearchRunTransitionAllowed(terminal, 'running')).toBe(false);
+      expect(isResearchRunTransitionAllowed(terminal, 'queued')).toBe(false);
+    }
+  });
+
+  it('returns structured recovery without raw provider errors, secret fields or existence leaks', () => {
+    const failure = {
+      contractVersion: '1',
+      requestId: 'req_1',
+      code: 'NOT_FOUND_OR_NOT_ALLOWED',
+      retryable: false,
+      nextAction: null,
+    };
+    expect(actionFailureSchema.parse(failure)).toEqual(failure);
+    expect(actionFailureSchema.safeParse({ ...failure, code: 'NOT_FOUND' }).success).toBe(false);
+    expect(actionFailureSchema.safeParse({ ...failure, apiKey: 'secret' }).success).toBe(false);
+    expect(
+      actionFailureSchema.safeParse({ ...failure, providerResponse: 'private research' }).success,
+    ).toBe(false);
+    expect(actionFailureSchema.safeParse({ ...failure, nextAction: 'fetch_url' }).success).toBe(
+      false,
+    );
+    expect(
+      actionFailureSchema.safeParse({
+        ...failure,
+        code: 'BUDGET_REQUIRED',
+        nextAction: 'budget.preview',
+      }).success,
+    ).toBe(true);
   });
 });
