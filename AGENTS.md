@@ -117,6 +117,11 @@ compromised and rotate it immediately.
 
 ## Stratemark overhaul planning entry point
 
+Fresh-session $50 Sol campaign: read `01_PROJECTS/Stratemark/Specs/LAUNCH.md`
+and its budget preflight first. Budget enforcement is not configured by a prompt.
+The human kickoff message authorizes only its bounded scope after verified billing;
+this does not automatically resume the old automation or authorize live migration.
+
 For the separate founder-directed overhaul, start at
 `01_PROJECTS/Stratemark/Specs/BUILD-STATE.md` and read `NORTHSTAR.md` before work.
 The north star, action catalogue, and phase goals supersede conflicting earlier

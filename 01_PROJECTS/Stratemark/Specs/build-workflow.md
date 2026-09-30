@@ -4,6 +4,8 @@ Status: recorded for the future build. Astra has completed a read-only architect
 
 ## Roles
 
+Budgeted campaign supplement: [LAUNCH.md](LAUNCH.md) reuses the completed Astra plan and uses one serial Sol executor. Do not launch a new planner for every packet; reserve Astra for the defined three-attempt escalation, subject to verified billing and remaining funds. This campaign does not authorize a full G00-G08 overhaul for $50.
+
 - The founder comments on the current journey/features and approves the resulting overhaul direction.
 - Astra (`gpt-6-astra`) plans architecture, scope, dependencies, work packets, and acceptance gates from the accepted decisions.
 - GPT-6.1 Sol (`gpt-6.1-sol`) executors implement bounded work packets and provide evidence of verification.

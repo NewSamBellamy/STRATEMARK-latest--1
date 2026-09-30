@@ -4,6 +4,8 @@ Plan version: 1.0.0. Updated September 30, 2026.
 
 ## Current truth
 
+September 30 launch supplement: [LAUNCH.md](LAUNCH.md) and [BUILD-BUDGET.json](BUILD-BUDGET.json) define the founder's fresh-session GPT-6.1 Sol experiment, $50 absolute ceiling, $40 working target, and conditional G00/bounded-G01 scope. Billing/authentication/enforcement remain unverified. This session prepares the handoff only. The human-submitted launch prompt authorizes execution after preflight; no application build has begun. This supplement overrides generic repeated-Astra-planning advice for this campaign: reuse the approved plan, run serial Sol packets, and call Astra only on bounded qualifying escalation.
+
 - Planning: complete researched v1 north star, action catalogue, phase goals, and evidence ledger.
 - Implementation: NOT STARTED for this overhaul; waiting for explicit human build authorization.
 - Branch: `feat/claim-level-signal-evidence`; main must not be used for this exploration.

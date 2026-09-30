@@ -6,6 +6,8 @@ Prepared September 30, 2026 on exploration branch `feat/claim-level-signal-evide
 
 ## Current source of truth
 
+For the fresh-session Sol experiment, start with [LAUNCH.md](LAUNCH.md): secure API setup, $50 ceiling, token-efficient execution, first goal scope, and a paste-ready kickoff prompt. Billing controls have not been configured by these documents.
+
 1. [North star](NORTHSTAR.md): chosen direction, simple journey, screens, user stories, architecture, and non-goals.
 2. [Phased goals](PHASES.md): G00-G08, acceptance gates, research experiments, and production readiness.
 3. [Action contract](ACTIONS.md): A01-A62, shared UI/MCP behavior, permissions, costs, and recovery.

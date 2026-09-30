@@ -1,0 +1,39 @@
+{
+  "campaignId": "stratemark-sol-50-v1",
+  "status": "prepared_not_started",
+  "currency": "USD",
+  "absoluteCeiling": 50,
+  "workingCeiling": 40,
+  "stopNewImplementationAt": 30,
+  "allocations": {
+    "solImplementation": 30,
+    "solVerification": 5,
+    "astraEscalation": 5,
+    "unspentMargin": 10
+  },
+  "primaryModel": "gpt-6.1-sol",
+  "reasoningDefault": "medium",
+  "processingTierRequired": "standard",
+  "maxActiveWorkers": 1,
+  "authorizedAtHumanLaunch": ["G00", "bounded G01 foundation slice"],
+  "liveProductResearchAllowed": false,
+  "liveUserDataMigrationAllowed": false,
+  "preflight": {
+    "apiAuthenticationVerified": false,
+    "dedicatedProjectVerified": false,
+    "hardLimit40Verified": false,
+    "actualTierVerified": false,
+    "spendVisibilityVerified": false,
+    "perRequestReservationOrStrictCapControlVerified": false
+  },
+  "accounting": {
+    "baselineProjectSpend": null,
+    "campaignSpentKnown": null,
+    "pendingConservativeReservation": null,
+    "latestReconciliationAt": null,
+    "includesPreparationIfSameBillingProject": true,
+    "persistsAcrossMonthlyResets": true,
+    "unknownUsageBlocksDispatch": true
+  },
+  "completedPackets": []
+}
