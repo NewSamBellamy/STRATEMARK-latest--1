@@ -59,6 +59,38 @@ before G00 completion; do not assume a grouped row verifies every caller.
 - `packages/research/src/repository.ts`: follow-on dashboard warm-up and
   in-flight tab promises have no vault generation fence. Entire declared work
   scope must belong to one durable run; no detached success work.
+- `features/dashboard/tabs/LiveLandingTab.tsx`: mounting SitePreview sends the
+  company URL to screenshot services (mShots, then thum.io); local reading is
+  therefore not offline merely because a dossier is cached. Remove implicit
+  remote images in G02/G04; approved retrieval can create managed cached assets.
+  The explicit live-site iframe/browser link remains disclosed navigation.
+
+## Route disposition review (G00-P04)
+
+Inspected `apps/web/src/routes.tsx` and feature button handlers. This is a
+source review, not adapter parity or an executed walkthrough of every button.
+
+| Current route                        | Release disposition / operation                                                                                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/`                                  | Currently NewDeckPage behind RequireAuth; change to no-key Library. New market is an explicit A06/A08/A14 flow.                                                    |
+| `/history`, `/saved`                 | Cached Library and saved-company views, A01-A04/A13; delete uses A49, not direct hard deletion.                                                                    |
+| `/settings`                          | Legacy redirect opens settings modal; retain a single accessible settings entry, A35-A62 as applicable.                                                            |
+| `/reports`, `/reports/:reportId`     | A23 cached outputs; generate uses A22, print/sort is local, recheck/share must not silently research.                                                              |
+| `/markets/:marketId/deck`            | Main deck and optional reader; refresh A34, research-more A15/A17, save A13, ask/compare distinguish cached vs billed.                                             |
+| `/markets/:marketId/opportunity`     | Consolidate cached findings into market context; explicit A17 generation, not a competing primary dashboard.                                                       |
+| `/markets/:marketId/briefing`        | Saved updates/brief outputs A23/A33; generate A22/A34 with visible consent, no implied recurring schedule.                                                         |
+| `/markets/:marketId/settings`        | Scope A09 and approved schedule A35-A38; refresh A34. Cadence setting alone cannot authorize calls.                                                                |
+| `/company/:companyId/dashboard/:tab` | Five cached primary sections A04/A05; research controls A16/A24. History/team expansion and Live Intel rerun currently hide separate model work behind section UI. |
+| `/share/:blob`                       | Unauthenticated snapshot outside shell; treat imported text as untrusted, bounded and read-only. Not an MCP grant or authority-bearing import.                     |
+| unmatched paths                      | Honest not-found state, no automatic research or fallback account flow.                                                                                            |
+
+Other reviewed controls: CardReader previous/next and GameCard open are local
+navigation; share preflight and FactCheck must split A24 from cached viewing;
+MetricsTab edit requires A25/A26 trusted confirmation; AgentActivityFeed pause
+currently controls renderer living checks, not durable A29 quiescence. Live
+landing audit is explicit paid work, whereas screenshot mounting is implicit
+egress. Settings key Test is A54, engine switching is not egress consent,
+browser backup restore is not a production A47 recovery implementation.
 
 ## Reproduced release blockers
 
@@ -77,6 +109,14 @@ does not contradict the newly established failures.
 | Stored keys never return to renderer    | desktop `overhaul-security-baseline.test.ts`: getApiKey exposed     | G02        |
 | Saved reports survive quota failure     | web `overhaul-storage-baseline.test.ts`: saved reports discarded    | G01        |
 
-Remaining baseline work: cross-market identity and period-conflict fixtures,
-transitive disclosure/adapter parity, representative synthetic screenshots and
-remaining local/cloud route/button audit. No visual or production claim yet.
+G00-P04 additional reproductions: `overhaul-baseline.test.ts` now checks shared
+company cache invalidation across two markets, distinct-domain/same-name identity
+on resumed ingestion, and separate reporting periods. All three reached their
+intended assertions: one stale market projection, one company identity instead
+of two, and one metric row instead of two. Fixtures are synthetic and remain RED.
+
+Remaining baseline work: transitive disclosure/adapter parity, representative
+screenshots and remaining local/cloud route/button audit. An isolated browser
+capture fixture now exists at `apps/web/e2e/overhaul-baseline.spec.ts`, blocking
+all external traffic and using only the public repository sample; execution
+results belong in BUILD-STATE. No visual improvement or production claim yet.

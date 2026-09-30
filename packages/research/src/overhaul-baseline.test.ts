@@ -4,7 +4,14 @@
  * implemented. Never skip/invert them to manufacture a healthy baseline.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { companyMetricSchema, type ResearchJob } from '@mi/contracts';
+import {
+  cardSchema,
+  companyMetricSchema,
+  reconcileMetrics,
+  type ResearchJob,
+  type Market,
+  type Deck,
+} from '@mi/contracts';
 import {
   GeminiRepository,
   migrateSnapshot,
@@ -51,6 +58,32 @@ function snapshot(): RepoSnapshot {
     ],
     companyMarket: { co_fixture: 'Synthetic market' },
   };
+}
+function market(id: string, name: string): Market {
+  return {
+    id,
+    name,
+    createdAt: AT,
+    refreshCadence: 'daily',
+    scopeDefinition: { vertical: 'Synthetic', geography: null, notes: null },
+  };
+}
+function deck(id: string, marketId: string): Deck {
+  return { id, marketId, createdAt: AT, lastRefreshedAt: null };
+}
+function card(id: string, deckId: string, companyId: string) {
+  return cardSchema.parse({
+    id,
+    deckId,
+    companyId,
+    createdAt: AT,
+    cardType: 'company',
+    tier: null,
+    tierReason: null,
+    title: null,
+    summary: null,
+    citations: [],
+  });
 }
 function memory(initial = snapshot()) {
   let current = structuredClone(initial);
@@ -202,5 +235,93 @@ describe('G00 UNRESOLVED baseline: cached reads, migration and writer fencing', 
       rejectProvider(new Error('Synthetic provider acknowledged abort'));
       await running;
     }
+  });
+
+  it('a shared company correction must invalidate both market projections', async () => {
+    const source = snapshot();
+    source.markets = [market('market_a', 'Synthetic A'), market('market_b', 'Synthetic B')];
+    source.decks = [deck('deck_a', 'market_a'), deck('deck_b', 'market_b')];
+    source.cards = [card('card_a', 'deck_a', 'co_fixture'), card('card_b', 'deck_b', 'co_fixture')];
+    source.companyMarket.co_fixture = 'Synthetic A';
+    source.opportunity = {
+      market_a: { markdown: 'Old synthetic projection', citations: [], at: AT },
+      market_b: { markdown: 'Old synthetic projection', citations: [], at: AT },
+    };
+    const data = memory(source);
+    const repo = new GeminiRepository({ client: client(), store: data.store });
+    await repo.overrideMetric({
+      companyId: 'co_fixture',
+      metricType: 'arr',
+      value: null,
+      note: 'Synthetic correction: unsupported value cleared',
+    });
+    expect(Object.keys(data.read().opportunity)).toEqual([]);
+  });
+
+  it('same-name companies with distinct domains must retain distinct IDs on refresh', async () => {
+    const source = snapshot();
+    source.markets = [market('market_a', 'Synthetic A')];
+    source.decks = [deck('deck_a', 'market_a')];
+    const first = { ...source.companies[0]!, websiteUrl: 'https://one.fixture.test' };
+    const second = { ...first, id: 'co_other', websiteUrl: 'https://two.fixture.test' };
+    source.companies = [first, second];
+    source.cards = [card('card_a', 'deck_a', first.id), card('card_b', 'deck_a', second.id)];
+    source.researchJobs = [
+      {
+        ...job('failed'),
+        market: source.markets[0],
+        deck: source.decks[0],
+        marketPlan: {
+          marketName: 'Synthetic A',
+          vertical: 'Synthetic',
+          geography: null,
+          notes: null,
+          searchThemes: [],
+        },
+        catalog: [],
+      },
+    ];
+    pipeline.run.mockResolvedValueOnce({
+      market: source.markets[0],
+      deck: source.decks[0],
+      cards: source.cards.map((item, index) => ({
+        card: { ...item },
+        company: { ...source.companies[index]! },
+        metrics: [],
+        viceClaims: [],
+      })),
+    });
+    const repo = new GeminiRepository({ client: client(), store: memory(source).store });
+    await repo.resumeResearchJob('run_fixture');
+    const cards = await repo.listCards('deck_a');
+    expect(new Set(cards.map((item) => item.company?.id)).size).toBe(2);
+    expect(new Set(cards.map((item) => item.company?.websiteUrl)).size).toBe(2);
+  });
+
+  it('different reporting periods must coexist rather than become a same-period conflict', () => {
+    const observation = (year: number, value: number) => ({
+      ...companyMetricSchema.parse({
+        id: `metric_${year}`,
+        companyId: 'co_fixture',
+        metricType: 'arr',
+        value,
+        confidence: 'verified',
+        source: `https://reports.fixture.test/${year}`,
+        methodNote: 'Synthetic annual source',
+        citations: [
+          {
+            title: 'Synthetic company statement',
+            url: `https://reports.fixture.test/${year}`,
+            credibility: 'primary',
+          },
+        ],
+        capturedAt: AT,
+      }),
+      period: { start: `${year}-01-01`, end: `${year}-12-31` },
+    });
+    const combined = reconcileMetrics([observation(2024, 100)], [observation(2025, 200)]);
+    expect(combined[0]?.value).toBe(100);
+    expect(combined).toHaveLength(2);
+    expect(combined.flatMap((item) => item.conflicts ?? [])).toEqual([]);
   });
 });

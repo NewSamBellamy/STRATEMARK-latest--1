@@ -86,6 +86,17 @@ export const ACTION_DEFINITIONS = Object.freeze({
 
 export type ActionName = keyof typeof ACTION_DEFINITIONS;
 
+const grantableNames = (Object.keys(ACTION_DEFINITIONS) as ActionName[]).filter((action) => {
+  const definition = ACTION_DEFINITIONS[action];
+  return definition.external !== 'never' && !definition.humanOnly;
+}) as [ActionName, ...ActionName[]];
+export const grantableActionSchema = z.enum(grantableNames);
+export const grantedActionsSchema = z
+  .array(grantableActionSchema)
+  .min(1)
+  .max(grantableNames.length)
+  .refine((actions) => new Set(actions).size === actions.length, 'Granted actions must be unique');
+
 // Opaque record IDs, never a filesystem path, URL, credential, or authority claim.
 const recordId = z
   .string()
@@ -244,7 +255,7 @@ const domainHint = z
   .string()
   .max(253)
   .regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])$/i);
-const scopeDraftSchema = z
+export const scopeDraftSchema = z
   .object({
     goal: boundedText,
     inclusions: uniqueTexts(50),
@@ -281,7 +292,7 @@ const scopeDraftSchema = z
   })
   .strict();
 
-const selectedTargetSchema = z.discriminatedUnion('kind', [
+export const selectedTargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('market'), marketId: recordId, revision }).strict(),
   z
     .object({
@@ -312,7 +323,7 @@ const selectedTargetId = (target: z.infer<typeof selectedTargetSchema>): string 
       return target.comparisonId;
   }
 };
-const selectedTargetsSchema = z
+export const selectedTargetsSchema = z
   .array(selectedTargetSchema)
   .min(1)
   .max(20)
@@ -681,6 +692,483 @@ const updatesCheckRequest = z
   })
   .strict();
 
+const sha256Hash = z.string().regex(/^[a-f0-9]{64}$/);
+const approvalRef = recordId;
+const mutationCommand = <N extends ActionName, T extends z.ZodTypeAny, I extends z.ZodTypeAny>(
+  action: N,
+  target: T,
+  input: I,
+) => z.object({ ...mutation, action: z.literal(action), target, input }).strict();
+const cadenceSchema = z.enum(['daily', 'weekly']);
+const monitorLimitsSchema = z
+  .object({
+    maxRequestsPerTick: z.number().int().min(1).max(100),
+    maxInputTokensPerRequest: z.number().int().min(1).max(200_000),
+    maxOutputTokensPerRequest: z.number().int().min(1).max(100_000),
+    currencyLimit: z
+      .object({
+        currency: z.string().regex(/^[A-Z]{3}$/),
+        amountMinor: z.number().int().min(1).max(1_000_000),
+      })
+      .strict(),
+  })
+  .strict();
+
+const companyMergeRequest = mutationCommand(
+  // expectedRevision guards the surviving company; mergeCompanyRevision guards the merged record.
+  'company.merge',
+  z
+    .object({ companyId: recordId, mergeCompanyId: recordId })
+    .strict()
+    .refine((target) => target.companyId !== target.mergeCompanyId, {
+      message: 'Companies to merge must be distinct',
+      path: ['mergeCompanyId'],
+    }),
+  z
+    .object({
+      mergeCompanyRevision: revision,
+      reviewedEvidenceIds: uniqueIds(1, 20),
+      approvalRef,
+    })
+    .strict(),
+);
+
+const observationCorrectionRequest = mutationCommand(
+  'observation.correct',
+  z.object({ observationId: recordId }).strict(),
+  z
+    .object({
+      correctedValue: z.union([z.number().finite(), z.string().trim().min(1).max(500), z.null()]),
+      status: z.enum(['supported', 'unknown', 'rejected']),
+      reason: boundedText,
+      supportIds: uniqueIds(1, 20).optional(),
+      approvalRef,
+    })
+    .strict()
+    .refine(
+      ({ correctedValue, status }) =>
+        status === 'supported' ? correctedValue !== null : correctedValue === null,
+      'Unknown and rejected corrections must carry a null value',
+    ),
+);
+// The envelope expectedRevision is the observation revision bound by the approval challenge.
+const observationConfirmRequest = mutationCommand(
+  'observation.confirm',
+  z.object({ observationId: recordId }).strict(),
+  z.object({ supportIds: uniqueIds(1, 20), reason: boundedText, approvalRef }).strict(),
+);
+
+const monitorPreviewRequest = cachedRead(
+  'monitor.preview',
+  emptyInput,
+  z
+    .object({
+      companies: companyRevisionTargetsSchema,
+      cadence: cadenceSchema,
+      limits: monitorLimitsSchema,
+    })
+    .strict(),
+);
+const monitorEnableRequest = mutationCommand(
+  'monitor.enable',
+  emptyInput,
+  z
+    .object({
+      proposalId: recordId,
+      proposalHash: sha256Hash,
+      policyRef: recordId,
+      budgetRef: recordId,
+      approvalRef,
+    })
+    .strict(),
+);
+// These finite edit bounds do not prove a reduction. The service must compare the request with
+// persisted schedule policy and require fresh human approval for any increase or scope expansion.
+const monitorUpdateRequest = mutationCommand(
+  'monitor.update',
+  z.object({ scheduleId: recordId }).strict(),
+  z
+    .object({
+      changes: z
+        .object({
+          companies: companyRevisionTargetsSchema.optional(),
+          cadence: cadenceSchema.optional(),
+          limits: monitorLimitsSchema.optional(),
+        })
+        .strict()
+        .refine((changes) => Object.values(changes).some((value) => value !== undefined)),
+      approvalRef: approvalRef.optional(),
+    })
+    .strict(),
+);
+const monitorDisableRequest = mutationCommand(
+  'monitor.disable',
+  z.object({ scheduleId: recordId }).strict(),
+  z.object({ activeRunHandling: z.enum(['allow_finish', 'cancel']) }).strict(),
+);
+
+const connectionGrantRequest = mutationCommand(
+  'connection.grant',
+  emptyInput,
+  z
+    .object({
+      // The trusted service must match this handle to the authenticated client; it is not identity.
+      clientBindingRef: recordId,
+      records: selectedTargetsSchema,
+      actions: grantedActionsSchema,
+      fields: z
+        .array(
+          z.enum([
+            'identity',
+            'overview',
+            'metrics',
+            'observations',
+            'evidence',
+            'sources',
+            'updates',
+            'findings',
+            'reports',
+            'freshness',
+          ]),
+        )
+        .min(1)
+        .max(10)
+        .refine((fields) => new Set(fields).size === fields.length),
+      maxResponseBytes: z.number().int().min(1).max(1_000_000),
+      expiresInHours: z.number().int().min(1).max(720),
+      policyRef: recordId.optional(),
+      budgetRef: recordId.optional(),
+      approvalRef,
+    })
+    .strict()
+    .superRefine((input, context) => {
+      const permitsJobs = input.actions.some((action) => ACTION_DEFINITIONS[action].billable);
+      if (permitsJobs && (!input.policyRef || !input.budgetRef)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Job grants require policy and budget references',
+        });
+      }
+      if (!permitsJobs && (input.policyRef || input.budgetRef)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Read-only grants cannot carry job authority',
+        });
+      }
+    }),
+);
+const connectionRevokeRequest = mutationCommand(
+  'connection.revoke',
+  z.object({ grantId: recordId }).strict(),
+  z.object({ approvalRef }).strict(),
+);
+const connectionAuditRequest = cachedRead(
+  'connection.audit.list',
+  z.object({ grantId: recordId }).strict(),
+  z.object(pagination).strict(),
+);
+
+const exportPreviewRequest = cachedRead(
+  'export.preview',
+  emptyInput,
+  z
+    .object({
+      targets: selectedTargetsSchema,
+      format: z.enum(['json', 'markdown', 'csv']),
+      evidenceDepth: z.enum(['none', 'summary', 'supporting']),
+    })
+    .strict(),
+);
+const exportCreateRequest = mutationCommand(
+  'export.create',
+  emptyInput,
+  z
+    .object({
+      previewId: recordId,
+      previewHash: sha256Hash,
+      saveDialogRef: recordId,
+      approvalRef,
+    })
+    .strict(),
+);
+const importPreviewRequest = cachedRead(
+  'import.preview',
+  emptyInput,
+  z.object({ openDialogRef: recordId }).strict(),
+);
+const importApplyRequest = mutationCommand(
+  'import.apply',
+  emptyInput,
+  z.object({ previewId: recordId, previewHash: sha256Hash, approvalRef }).strict(),
+);
+const backupCreateRequest = mutationCommand(
+  'backup.create',
+  emptyInput,
+  z.object({ retentionDays: z.number().int().min(1).max(3650) }).strict(),
+);
+const backupRestoreRequest = mutationCommand(
+  'backup.restore',
+  emptyInput,
+  z.object({ backupHandle: recordId, backupHash: sha256Hash, approvalRef }).strict(),
+);
+const vaultRelocateRequest = mutationCommand(
+  'vault.relocate',
+  emptyInput,
+  z.object({ directoryDialogRef: recordId, approvalRef }).strict(),
+);
+
+const recordTargetSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('market'), marketId: recordId }).strict(),
+  z.object({ kind: z.literal('company'), companyId: recordId }).strict(),
+  z.object({ kind: z.literal('finding'), findingId: recordId }).strict(),
+  z.object({ kind: z.literal('report'), reportId: recordId }).strict(),
+  z.object({ kind: z.literal('answer'), answerId: recordId }).strict(),
+  z.object({ kind: z.literal('comparison'), comparisonId: recordId }).strict(),
+  z.object({ kind: z.literal('claim'), claimId: recordId }).strict(),
+  z.object({ kind: z.literal('observation'), observationId: recordId }).strict(),
+  z.object({ kind: z.literal('source'), sourceId: recordId }).strict(),
+  z.object({ kind: z.literal('passage'), passageId: recordId }).strict(),
+]);
+const recordTrashRequest = mutationCommand(
+  'record.trash',
+  recordTargetSchema,
+  z.object({ impactPreviewId: recordId, impactPreviewHash: sha256Hash, approvalRef }).strict(),
+);
+const recordRestoreRequest = mutationCommand(
+  'record.restore',
+  z.object({ tombstoneId: recordId }).strict(),
+  z.object({ approvalRef }).strict(),
+);
+const recordPurgeRequest = mutationCommand(
+  'record.purge',
+  z.object({ tombstoneId: recordId }).strict(),
+  z.object({ confirmationPhrase: z.literal('PURGE'), approvalRef }).strict(),
+);
+
+const providerCapabilitySchema = z.enum(['model', 'search', 'extraction', 'embedding']);
+const providerCapabilitiesSchema = z
+  .array(providerCapabilitySchema)
+  .min(1)
+  .max(4)
+  .refine((capabilities) => new Set(capabilities).size === capabilities.length);
+const providerEndpointSchema = z
+  .string()
+  .max(2048)
+  .url()
+  .refine((value) => {
+    try {
+      const endpoint = new URL(value);
+      const hasEmbeddedCredential = [...endpoint.searchParams.keys()].some((key) =>
+        /^(?:key|api[-_]?key|token|access[-_]?token|password|secret|authorization)$/i.test(key),
+      );
+      return (
+        ['http:', 'https:'].includes(endpoint.protocol) &&
+        endpoint.username === '' &&
+        endpoint.password === '' &&
+        endpoint.hash === '' &&
+        !hasEmbeddedCredential
+      );
+    } catch {
+      return false;
+    }
+  }, 'Endpoint must use HTTP(S) and contain no embedded credentials');
+const isLocalEndpoint = (value: string): boolean => {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (
+      hostname === 'localhost' ||
+      hostname.endsWith('.localhost') ||
+      hostname.endsWith('.local') ||
+      hostname === '::1' ||
+      hostname === '::' ||
+      hostname === '0.0.0.0'
+    ) {
+      return true;
+    }
+    const octets = hostname.split('.').map(Number);
+    if (
+      octets.length !== 4 ||
+      octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)
+    ) {
+      return (
+        !hostname.includes('.') ||
+        (hostname.includes(':') &&
+          (hostname.startsWith('fc') || hostname.startsWith('fd') || hostname.startsWith('fe80:')))
+      );
+    }
+    const first = octets[0] ?? -1;
+    const second = octets[1] ?? -1;
+    return (
+      first === 10 ||
+      first === 127 ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168) ||
+      (first === 169 && second === 254)
+    );
+  } catch {
+    return false;
+  }
+};
+// This recognizes conventional local hosts without DNS; the trusted service must resolve and
+// recheck the actual destination before connecting. A permission reference never grants access.
+const providerProtocolSchema = z.enum([
+  'openai_chat_completions',
+  'openai_responses',
+  'gemini_native',
+]);
+const localEndpointPermissionSchema = z
+  .object({ acknowledged: z.literal(true), policyRef: recordId })
+  .strict();
+// A freshly typed secret is represented only by its trusted input handle, never by key material.
+const providerConfigureRequest = mutationCommand(
+  'provider.configure',
+  emptyInput,
+  z
+    .object({
+      endpoint: providerEndpointSchema,
+      protocol: providerProtocolSchema,
+      capabilities: providerCapabilitiesSchema,
+      secretInputRef: recordId,
+      localEndpointPermission: localEndpointPermissionSchema.optional(),
+      approvalRef,
+    })
+    .strict()
+    .superRefine((input, context) => {
+      if (isLocalEndpoint(input.endpoint) && !input.localEndpointPermission) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['localEndpointPermission'],
+          message: 'Local endpoints require explicit permission and a policy reference',
+        });
+      }
+    }),
+);
+const providerTestRequest = z
+  .object({
+    ...paid,
+    action: z.literal('provider.test.start'),
+    target: z.object({ connectionId: recordId }).strict(),
+    input: z
+      .object({
+        limits: z
+          .object({
+            maxRequests: z.number().int().min(1).max(3),
+            maxInputTokens: z.number().int().min(1).max(40_000),
+            maxOutputTokens: z.number().int().min(1).max(8_000),
+          })
+          .strict(),
+        capabilities: providerCapabilitiesSchema,
+        approvalRef,
+      })
+      .strict(),
+  })
+  .strict();
+const providerRemoveRequest = mutationCommand(
+  'provider.remove',
+  z.object({ connectionId: recordId }).strict(),
+  z.object({ approvalRef }).strict(),
+);
+
+const currencyLimitSchema = z
+  .object({
+    currency: z.string().regex(/^[A-Z]{3}$/),
+    amountMinor: z.number().int().min(1).max(100_000_000_000),
+  })
+  .strict();
+const budgetPreviewRequest = cachedRead(
+  'budget.preview',
+  emptyInput,
+  z
+    .object({
+      connectionIds: uniqueIds(1, 5),
+      targets: selectedTargetsSchema,
+      limits: z
+        .object({
+          maxRequests: z.number().int().min(1).max(100_000),
+          maxInputTokens: z.number().int().min(1).max(10_000_000),
+          maxOutputTokens: z.number().int().min(1).max(2_000_000),
+        })
+        .strict(),
+      durationDays: z.number().int().min(1).max(365),
+      currencyLimit: currencyLimitSchema.optional(),
+      priceHandling: z.enum(['reject_unknown', 'allow_unpriced']),
+    })
+    .strict()
+    .refine(
+      ({ currencyLimit, priceHandling }) => !currencyLimit || priceHandling === 'reject_unknown',
+      'A currency ceiling must reject routes with unknown prices',
+    ),
+);
+const budgetApproveRequest = mutationCommand(
+  'budget.approve',
+  emptyInput,
+  z.object({ proposalId: recordId, proposalHash: sha256Hash, approvalRef }).strict(),
+);
+// Bounds do not establish that a limit is lower than persisted authority. The service must compare
+// every field to the stored budget and authorize any increase separately.
+const budgetRestrictRequest = mutationCommand(
+  'budget.restrict',
+  z.object({ budgetId: recordId }).strict(),
+  z
+    .object({
+      limits: z
+        .object({
+          maxRequests: z.number().int().min(0).max(100_000).optional(),
+          maxInputTokens: z.number().int().min(0).max(10_000_000).optional(),
+          maxOutputTokens: z.number().int().min(0).max(2_000_000).optional(),
+          maxAmountMinor: z.number().int().min(0).max(100_000_000_000).optional(),
+        })
+        .strict()
+        .refine((limits) => Object.values(limits).some((value) => value !== undefined))
+        .optional(),
+      stop: z.literal(true).optional(),
+      approvalRef: approvalRef.optional(),
+    })
+    .strict()
+    .refine((input) => input.limits !== undefined || input.stop === true),
+);
+const preferencesUpdateRequest = mutationCommand(
+  'preferences.update',
+  emptyInput,
+  z
+    .object({
+      viewMode: z.enum(['cards', 'table', 'compact']).optional(),
+      sortBy: z.enum(['name', 'freshness', 'updated']).optional(),
+      metricProfileId: recordId.optional(),
+    })
+    .strict()
+    .refine((preferences) => Object.values(preferences).some((value) => value !== undefined)),
+);
+
+const navigationTargetSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('vault') }).strict(),
+  z.object({ kind: z.literal('source'), sourceId: recordId }).strict(),
+  z
+    .object({
+      kind: z.literal('record'),
+      recordType: z.enum([
+        'market',
+        'company',
+        'finding',
+        'report',
+        'answer',
+        'comparison',
+        'claim',
+        'observation',
+      ]),
+      recordId,
+    })
+    .strict(),
+]);
+const navigationOpenRequest = z
+  .object({
+    ...base,
+    action: z.literal('navigation.open'),
+    target: navigationTargetSchema,
+    input: z.object({ approvalRef }).strict(),
+  })
+  .strict();
+
 /** Only schema-backed actions parse. Parsing is not authorization or job acceptance. */
 export const actionRequestSchema = z.discriminatedUnion('action', [
   companyResearchRequest,
@@ -717,6 +1205,34 @@ export const actionRequestSchema = z.discriminatedUnion('action', [
   evidenceCheckRequest,
   retryRequest,
   updatesCheckRequest,
+  companyMergeRequest,
+  observationCorrectionRequest,
+  observationConfirmRequest,
+  monitorPreviewRequest,
+  monitorEnableRequest,
+  monitorUpdateRequest,
+  monitorDisableRequest,
+  connectionGrantRequest,
+  connectionRevokeRequest,
+  connectionAuditRequest,
+  exportPreviewRequest,
+  exportCreateRequest,
+  importPreviewRequest,
+  importApplyRequest,
+  backupCreateRequest,
+  backupRestoreRequest,
+  vaultRelocateRequest,
+  recordTrashRequest,
+  recordRestoreRequest,
+  recordPurgeRequest,
+  providerConfigureRequest,
+  providerTestRequest,
+  providerRemoveRequest,
+  budgetPreviewRequest,
+  budgetApproveRequest,
+  budgetRestrictRequest,
+  preferencesUpdateRequest,
+  navigationOpenRequest,
 ]);
 export type ActionRequest = z.infer<typeof actionRequestSchema>;
 export type SchemaBackedActionName = ActionRequest['action'];

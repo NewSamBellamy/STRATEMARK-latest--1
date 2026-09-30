@@ -217,6 +217,387 @@ const newlyBackedActions = [
   ],
 ] as const;
 
+const sha256 = 'a'.repeat(64);
+const approval = { approvalRef: 'approval_1' };
+const monitorLimits = {
+  maxRequestsPerTick: 8,
+  maxInputTokensPerRequest: 4000,
+  maxOutputTokensPerRequest: 1000,
+  currencyLimit: { currency: 'USD', amountMinor: 500 },
+};
+const remainingActions = [
+  [
+    'company.merge',
+    newActionRequest(
+      'company.merge',
+      { companyId: 'co_survivor', mergeCompanyId: 'co_duplicate' },
+      {
+        mergeCompanyRevision: 7,
+        reviewedEvidenceIds: ['evidence_1'],
+        ...approval,
+      },
+      'write',
+    ),
+  ],
+  [
+    'observation.correct',
+    newActionRequest(
+      'observation.correct',
+      { observationId: 'observation_1' },
+      {
+        correctedValue: 12.5,
+        status: 'supported',
+        reason: 'The cited report gives the corrected value.',
+        supportIds: ['evidence_1'],
+        ...approval,
+      },
+      'write',
+    ),
+  ],
+  [
+    'observation.confirm',
+    newActionRequest(
+      'observation.confirm',
+      { observationId: 'observation_1' },
+      { supportIds: ['evidence_1'], reason: 'Checked against the retained source.', ...approval },
+      'write',
+    ),
+  ],
+  [
+    'monitor.preview',
+    newActionRequest(
+      'monitor.preview',
+      {},
+      {
+        companies: [{ companyId: 'co_1', revision: 4 }],
+        cadence: 'daily',
+        limits: monitorLimits,
+      },
+      'read',
+    ),
+  ],
+  [
+    'monitor.enable',
+    newActionRequest(
+      'monitor.enable',
+      {},
+      {
+        proposalId: 'proposal_1',
+        proposalHash: sha256,
+        policyRef: 'policy_1',
+        budgetRef: 'budget_1',
+        ...approval,
+      },
+      'write',
+    ),
+  ],
+  [
+    'monitor.update',
+    newActionRequest(
+      'monitor.update',
+      { scheduleId: 'schedule_1' },
+      { changes: { cadence: 'weekly', limits: monitorLimits } },
+      'write',
+    ),
+  ],
+  [
+    'monitor.disable',
+    newActionRequest(
+      'monitor.disable',
+      { scheduleId: 'schedule_1' },
+      { activeRunHandling: 'allow_finish' },
+      'write',
+    ),
+  ],
+  [
+    'connection.grant',
+    newActionRequest(
+      'connection.grant',
+      {},
+      {
+        clientBindingRef: 'client_1',
+        records: [{ kind: 'company', companyId: 'co_1', revision: 4 }],
+        actions: ['company.get', 'evidence.get'],
+        fields: ['identity', 'overview', 'observations', 'evidence'],
+        maxResponseBytes: 65536,
+        expiresInHours: 24,
+        ...approval,
+      },
+      'write',
+    ),
+  ],
+  [
+    'connection.revoke',
+    newActionRequest('connection.revoke', { grantId: 'grant_1' }, approval, 'write'),
+  ],
+  [
+    'connection.audit.list',
+    newActionRequest('connection.audit.list', { grantId: 'grant_1' }, { limit: 25 }, 'read'),
+  ],
+  [
+    'export.preview',
+    newActionRequest(
+      'export.preview',
+      {},
+      {
+        targets: [{ kind: 'company', companyId: 'co_1', revision: 4 }],
+        format: 'json',
+        evidenceDepth: 'supporting',
+      },
+      'read',
+    ),
+  ],
+  [
+    'export.create',
+    newActionRequest(
+      'export.create',
+      {},
+      { previewId: 'preview_1', previewHash: sha256, saveDialogRef: 'dialog_1', ...approval },
+      'write',
+    ),
+  ],
+  ['import.preview', newActionRequest('import.preview', {}, { openDialogRef: 'dialog_1' }, 'read')],
+  [
+    'import.apply',
+    newActionRequest(
+      'import.apply',
+      {},
+      { previewId: 'preview_1', previewHash: sha256, ...approval },
+      'write',
+    ),
+  ],
+  ['backup.create', newActionRequest('backup.create', {}, { retentionDays: 30 }, 'write')],
+  [
+    'backup.restore',
+    newActionRequest(
+      'backup.restore',
+      {},
+      { backupHandle: 'backup_1', backupHash: sha256, ...approval },
+      'write',
+    ),
+  ],
+  [
+    'vault.relocate',
+    newActionRequest(
+      'vault.relocate',
+      {},
+      { directoryDialogRef: 'directory_1', ...approval },
+      'write',
+    ),
+  ],
+  [
+    'record.trash',
+    newActionRequest(
+      'record.trash',
+      { kind: 'company', companyId: 'co_1' },
+      { impactPreviewId: 'preview_1', impactPreviewHash: sha256, ...approval },
+      'write',
+    ),
+  ],
+  [
+    'record.restore',
+    newActionRequest('record.restore', { tombstoneId: 'tombstone_1' }, approval, 'write'),
+  ],
+  [
+    'record.purge',
+    newActionRequest(
+      'record.purge',
+      { tombstoneId: 'tombstone_1' },
+      { confirmationPhrase: 'PURGE', ...approval },
+      'write',
+    ),
+  ],
+  [
+    'provider.configure',
+    newActionRequest(
+      'provider.configure',
+      {},
+      {
+        endpoint: 'https://api.example.com/v1',
+        protocol: 'openai_chat_completions',
+        capabilities: ['model', 'search'],
+        secretInputRef: 'secret_input_1',
+        ...approval,
+      },
+      'write',
+    ),
+  ],
+  [
+    'provider.test.start',
+    newActionRequest(
+      'provider.test.start',
+      { connectionId: 'connection_1' },
+      {
+        limits: { maxRequests: 1, maxInputTokens: 2000, maxOutputTokens: 500 },
+        capabilities: ['model'],
+        ...approval,
+      },
+      'paid',
+    ),
+  ],
+  [
+    'provider.remove',
+    newActionRequest('provider.remove', { connectionId: 'connection_1' }, approval, 'write'),
+  ],
+  [
+    'budget.preview',
+    newActionRequest(
+      'budget.preview',
+      {},
+      {
+        connectionIds: ['connection_1'],
+        targets: [{ kind: 'company', companyId: 'co_1', revision: 4 }],
+        limits: { maxRequests: 100, maxInputTokens: 20000, maxOutputTokens: 4000 },
+        durationDays: 30,
+        currencyLimit: { currency: 'USD', amountMinor: 10000 },
+        priceHandling: 'reject_unknown',
+      },
+      'read',
+    ),
+  ],
+  [
+    'budget.approve',
+    newActionRequest(
+      'budget.approve',
+      {},
+      { proposalId: 'proposal_1', proposalHash: sha256, ...approval },
+      'write',
+    ),
+  ],
+  [
+    'budget.restrict',
+    newActionRequest(
+      'budget.restrict',
+      { budgetId: 'budget_1' },
+      { limits: { maxRequests: 50, maxInputTokens: 8000, maxOutputTokens: 2000 } },
+      'write',
+    ),
+  ],
+  [
+    'preferences.update',
+    newActionRequest(
+      'preferences.update',
+      {},
+      { viewMode: 'cards', sortBy: 'name', metricProfileId: 'metric_default' },
+      'write',
+    ),
+  ],
+  [
+    'navigation.open',
+    newActionRequest('navigation.open', { kind: 'source', sourceId: 'source_1' }, approval, 'read'),
+  ],
+] as const;
+
+type RequestFixture = ReturnType<typeof newActionRequest>;
+const invalidRemainingActions: readonly (readonly [
+  string,
+  (request: RequestFixture) => unknown,
+])[] = [
+  [
+    'company.merge',
+    (request) => ({ ...request, target: { ...request.target, mergeCompanyId: 'co_survivor' } }),
+  ],
+  [
+    'observation.correct',
+    (request) => ({ ...request, input: { ...request.input, status: 'user_verified' } }),
+  ],
+  [
+    'observation.confirm',
+    (request) => ({ ...request, input: { ...request.input, approvalRef: undefined } }),
+  ],
+  ['monitor.preview', (request) => ({ ...request, input: { ...request.input, companies: [] } })],
+  [
+    'monitor.enable',
+    (request) => ({ ...request, input: { ...request.input, proposalHash: 'not-a-hash' } }),
+  ],
+  ['monitor.update', (request) => ({ ...request, input: { ...request.input, changes: {} } })],
+  [
+    'monitor.disable',
+    (request) => ({ ...request, input: { ...request.input, activeRunHandling: 'maybe' } }),
+  ],
+  ['connection.grant', (request) => ({ ...request, input: { ...request.input, actions: ['*'] } })],
+  [
+    'connection.revoke',
+    (request) => ({ ...request, input: { ...request.input, approvalRef: undefined } }),
+  ],
+  ['connection.audit.list', (request) => ({ ...request, input: { ...request.input, limit: 101 } })],
+  ['export.preview', (request) => ({ ...request, input: { ...request.input, targets: [] } })],
+  [
+    'export.create',
+    (request) => ({
+      ...request,
+      input: { ...request.input, saveDialogRef: 'C:\\private\\export.json' },
+    }),
+  ],
+  [
+    'import.preview',
+    (request) => ({ ...request, input: { openDialogRef: 'C:\\private\\import.json' } }),
+  ],
+  [
+    'import.apply',
+    (request) => ({ ...request, input: { ...request.input, approvalRef: undefined } }),
+  ],
+  ['backup.create', (request) => ({ ...request, input: { retentionDays: 0 } })],
+  ['backup.restore', (request) => ({ ...request, input: { ...request.input, backupHash: 'abc' } })],
+  [
+    'vault.relocate',
+    (request) => ({ ...request, input: { directory: 'C:\\private\\vault', ...request.input } }),
+  ],
+  [
+    'record.trash',
+    (request) => ({ ...request, input: { ...request.input, impactPreviewHash: 'abc' } }),
+  ],
+  [
+    'record.restore',
+    (request) => ({ ...request, input: { ...request.input, approvalRef: undefined } }),
+  ],
+  [
+    'record.purge',
+    (request) => ({ ...request, input: { ...request.input, confirmationPhrase: 'delete' } }),
+  ],
+  [
+    'provider.configure',
+    (request) => ({
+      ...request,
+      input: { ...request.input, endpoint: 'https://user:pass@api.example.com/v1' },
+    }),
+  ],
+  [
+    'provider.test.start',
+    (request) => ({
+      ...request,
+      input: {
+        ...request.input,
+        limits: { ...(request.input.limits as Record<string, unknown>), maxRequests: 0 },
+      },
+    }),
+  ],
+  [
+    'provider.remove',
+    (request) => ({ ...request, input: { ...request.input, approvalRef: undefined } }),
+  ],
+  ['budget.preview', (request) => ({ ...request, input: { ...request.input, durationDays: 366 } })],
+  [
+    'budget.approve',
+    (request) => ({ ...request, input: { ...request.input, proposalHash: 'abc' } }),
+  ],
+  ['budget.restrict', (request) => ({ ...request, input: { limits: {} } })],
+  [
+    'preferences.update',
+    (request) => ({ ...request, input: { ...request.input, budgetRef: 'budget_1' } }),
+  ],
+  [
+    'navigation.open',
+    (request) => ({ ...request, target: { kind: 'source', path: 'C:\\secret' } }),
+  ],
+];
+
+const remainingRequest = (action: string): RequestFixture => {
+  const fixture = remainingActions.find(([name]) => name === action);
+  if (!fixture) throw new Error(`Missing action fixture: ${action}`);
+  return fixture[1];
+};
+
 describe('shared action contracts', () => {
   it('permits market discovery without seeds or a geography restriction', () => {
     expect(
@@ -264,6 +645,12 @@ describe('shared action contracts', () => {
     );
   });
 
+  it('backs every catalogue action with exactly one request schema', () => {
+    const schemaActions = actionRequestSchema.options.map((option) => option.shape.action.value);
+    expect(schemaActions).toHaveLength(62);
+    expect(new Set(schemaActions)).toEqual(new Set(Object.keys(ACTION_DEFINITIONS)));
+  });
+
   it('separates cached reads, billable jobs, and human-only operations', () => {
     expect(ACTION_DEFINITIONS['company.get']).toMatchObject({
       effect: 'read',
@@ -285,12 +672,328 @@ describe('shared action contracts', () => {
     });
   });
 
+  it('keeps local storage jobs nonbillable and provider tests billable', () => {
+    for (const action of [
+      'export.create',
+      'import.apply',
+      'backup.create',
+      'backup.restore',
+      'vault.relocate',
+      'record.purge',
+    ] as const) {
+      expect(ACTION_DEFINITIONS[action]).toMatchObject({
+        effect: 'job',
+        billable: false,
+        scope: 'local',
+      });
+    }
+    expect(ACTION_DEFINITIONS['provider.test.start']).toMatchObject({
+      effect: 'job',
+      billable: true,
+      humanOnly: true,
+    });
+  });
+
   it('preserves a versioned company research command without inventing authority', () => {
     expect(actionRequestSchema.parse(command)).toEqual(command);
   });
 
   it.each(newlyBackedActions)('accepts the bounded %s request shape', (_action, request) => {
     expect(actionRequestSchema.parse(request)).toEqual(request);
+  });
+
+  it.each(remainingActions)(
+    'accepts the bounded remaining %s request shape',
+    (_action, request) => {
+      expect(actionRequestSchema.parse(request)).toEqual(request);
+    },
+  );
+
+  it.each(remainingActions)(
+    'keeps remaining %s strict at the envelope, target, and input boundaries',
+    (_action, request) => {
+      expect(actionRequestSchema.safeParse({ ...request, actor: 'owner' }).success).toBe(false);
+      expect(
+        actionRequestSchema.safeParse({
+          ...request,
+          target: { ...(request.target as object), filePath: '../vault.sqlite' },
+        }).success,
+      ).toBe(false);
+      expect(
+        actionRequestSchema.safeParse({
+          ...request,
+          input: { ...request.input, force: true },
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each(invalidRemainingActions)('rejects invalid bounded %s input', (_action, invalidate) => {
+    const request = remainingRequest(_action);
+    expect(actionRequestSchema.safeParse(invalidate(request)).success).toBe(false);
+  });
+
+  it('requires mutation revisions and idempotency while keeping local jobs nonbillable', () => {
+    const baseEnvelopeActions = new Set([
+      'monitor.preview',
+      'connection.audit.list',
+      'export.preview',
+      'import.preview',
+      'budget.preview',
+      'navigation.open',
+    ]);
+    for (const [action, request] of remainingActions) {
+      if (baseEnvelopeActions.has(action)) continue;
+      expect(
+        actionRequestSchema.safeParse({ ...request, expectedRevision: undefined }).success,
+      ).toBe(false);
+      expect(actionRequestSchema.safeParse({ ...request, idempotencyKey: undefined }).success).toBe(
+        false,
+      );
+    }
+    for (const [action, request] of remainingActions) {
+      if (
+        ![
+          'export.create',
+          'import.apply',
+          'backup.create',
+          'backup.restore',
+          'vault.relocate',
+          'record.purge',
+        ].includes(action)
+      )
+        continue;
+      expect(actionRequestSchema.safeParse({ ...request, policyRef: 'policy_1' }).success).toBe(
+        false,
+      );
+      expect(actionRequestSchema.safeParse({ ...request, budgetRef: 'budget_1' }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it('requires service-issued approvals for human-only additions', () => {
+    const humanOnlyActions = new Set([
+      'company.merge',
+      'observation.correct',
+      'observation.confirm',
+      'monitor.enable',
+      'connection.grant',
+      'connection.revoke',
+      'export.create',
+      'import.apply',
+      'backup.restore',
+      'vault.relocate',
+      'record.trash',
+      'record.restore',
+      'record.purge',
+      'provider.configure',
+      'provider.test.start',
+      'provider.remove',
+      'budget.approve',
+      'navigation.open',
+    ]);
+    for (const [action, request] of remainingActions) {
+      if (!humanOnlyActions.has(action)) continue;
+      expect(
+        actionRequestSchema.safeParse({
+          ...request,
+          input: { ...request.input, approvalRef: undefined },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it('keeps reads on the base envelope and does not let a connection grant use wildcards', () => {
+    const reads = new Set([
+      'monitor.preview',
+      'connection.audit.list',
+      'export.preview',
+      'import.preview',
+      'budget.preview',
+    ]);
+    for (const [action, request] of remainingActions) {
+      if (!reads.has(action)) continue;
+      for (const field of [
+        'idempotencyKey',
+        'expectedRevision',
+        'policyRef',
+        'budgetRef',
+        'force',
+      ]) {
+        expect(actionRequestSchema.safeParse({ ...request, [field]: 'unexpected' }).success).toBe(
+          false,
+        );
+      }
+    }
+    const grant = remainingRequest('connection.grant');
+    expect(
+      actionRequestSchema.safeParse({
+        ...grant,
+        input: { ...grant.input, actions: ['company.get', 'company.research.start'] },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('requires both merge revisions and the observed revision for human verification', () => {
+    const merge = remainingRequest('company.merge');
+    const confirm = remainingRequest('observation.confirm');
+    expect(
+      actionRequestSchema.safeParse({
+        ...merge,
+        input: { ...merge.input, mergeCompanyRevision: undefined },
+      }).success,
+    ).toBe(false);
+    expect(actionRequestSchema.safeParse({ ...confirm, expectedRevision: undefined }).success).toBe(
+      false,
+    );
+    expect(
+      actionRequestSchema.safeParse({
+        ...confirm,
+        input: { ...confirm.input, user_verified: true },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('requires policy and budget refs only when a connection grant permits jobs', () => {
+    const grant = remainingRequest('connection.grant');
+    const jobGrant = {
+      ...grant,
+      input: {
+        ...grant.input,
+        actions: ['company.research.start'],
+        policyRef: 'policy_1',
+        budgetRef: 'budget_1',
+      },
+    };
+    expect(actionRequestSchema.safeParse(jobGrant).success).toBe(true);
+    expect(
+      actionRequestSchema.safeParse({
+        ...jobGrant,
+        input: { ...jobGrant.input, budgetRef: undefined },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('permits selected cached search, comparison and run status grants', () => {
+    const grant = remainingRequest('connection.grant');
+    expect(
+      actionRequestSchema.safeParse({
+        ...grant,
+        input: {
+          ...grant.input,
+          actions: ['library.search', 'comparison.get', 'run.get', 'run.events.list'],
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      actionRequestSchema.safeParse({
+        ...grant,
+        input: { ...grant.input, actions: ['observation.confirm'] },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('requires local endpoint permission and keeps provider secrets behind opaque handles', () => {
+    const provider = remainingRequest('provider.configure');
+    const localEndpoint = {
+      ...provider,
+      input: {
+        ...provider.input,
+        endpoint: 'http://127.0.0.1:11434/v1',
+        localEndpointPermission: { acknowledged: true, policyRef: 'local_policy_1' },
+      },
+    };
+    expect(actionRequestSchema.safeParse(localEndpoint).success).toBe(true);
+    expect(
+      actionRequestSchema.safeParse({
+        ...localEndpoint,
+        input: { ...localEndpoint.input, localEndpointPermission: undefined },
+      }).success,
+    ).toBe(false);
+    for (const endpoint of ['not a URL', 'https://api.example.com/v1?key=raw-secret']) {
+      expect(
+        actionRequestSchema.safeParse({
+          ...provider,
+          input: { ...provider.input, endpoint },
+        }).success,
+      ).toBe(false);
+    }
+    expect(
+      actionRequestSchema.safeParse({
+        ...provider,
+        input: { ...provider.input, secretInputRef: 'C:\\secrets\\provider-key.txt' },
+      }).success,
+    ).toBe(false);
+    expect(
+      actionRequestSchema.safeParse({
+        ...provider,
+        input: { ...provider.input, apiKey: 'raw-secret' },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('keeps grant expiry, response size, IDs, and field selections finite', () => {
+    const grant = remainingRequest('connection.grant');
+    for (const input of [
+      { ...grant.input, expiresInHours: 721 },
+      { ...grant.input, maxResponseBytes: 1_000_001 },
+      {
+        ...grant.input,
+        records: Array.from({ length: 21 }, (_, index) => ({
+          kind: 'company',
+          companyId: `co_${index}`,
+          revision: 1,
+        })),
+      },
+      { ...grant.input, fields: ['identity', '*'] },
+    ]) {
+      expect(actionRequestSchema.safeParse({ ...grant, input }).success).toBe(false);
+    }
+  });
+
+  it('does not confuse public domain prefixes with private IPv6 endpoints', () => {
+    const provider = remainingRequest('provider.configure');
+    for (const endpoint of ['https://fcm.example.com/v1', 'https://fd.example.com/v1']) {
+      expect(
+        actionRequestSchema.safeParse({ ...provider, input: { ...provider.input, endpoint } })
+          .success,
+      ).toBe(true);
+    }
+  });
+
+  it('rejects non-finite corrected observations', () => {
+    const correction = remainingRequest('observation.correct');
+    for (const correctedValue of [Infinity, -Infinity, NaN]) {
+      expect(
+        actionRequestSchema.safeParse({
+          ...correction,
+          input: { ...correction.input, status: 'supported', correctedValue },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it('keeps provider tests paid, approved, and strictly bounded', () => {
+    const providerTest = remainingRequest('provider.test.start');
+    expect(actionRequestSchema.safeParse({ ...providerTest, policyRef: undefined }).success).toBe(
+      false,
+    );
+    expect(actionRequestSchema.safeParse({ ...providerTest, budgetRef: undefined }).success).toBe(
+      false,
+    );
+    expect(
+      actionRequestSchema.safeParse({
+        ...providerTest,
+        input: {
+          ...providerTest.input,
+          limits: {
+            ...(providerTest.input.limits as Record<string, unknown>),
+            maxOutputTokens: 8001,
+          },
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it.each(newlyBackedActions)(

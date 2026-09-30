@@ -52,8 +52,29 @@
     "tokenBudgetIsNotDollarLimit": true,
     "fullHistoryForksAllowed": false
   },
-  "completedPackets": ["G00-P03-contract-and-baseline-slice-not-phase-completion"],
+  "completedPackets": [
+    "G00-P03-contract-and-baseline-slice-not-phase-completion",
+    "G00-P04-contract-policy-and-startup-slice-not-phase-completion"
+  ],
   "checkpoints": [
+    {
+      "packetId": "G00-P04",
+      "date": "2026-09-30",
+      "requestSchemas": 62,
+      "fullContractTestsPassed": 308,
+      "fullGate": "typecheck_and_lint_passed; contracts308_mocks16_passed; research314_passed_9_baseline_failures; downstream_suites_not_run",
+      "targetedDesktopBaseline": "1_RED_not_fixed",
+      "targetedWebBaseline": "1_RED_not_fixed",
+      "publicBrowserJourney": "1_passed_external_requests_blocked; four_screenshots_reviewed; no_live_quality_claim",
+      "startupFixCommit": "012aff3",
+      "webJourneyTests": "3_passed_in_targeted_runs",
+      "desktopMainBuild": "passed_not_packaged_release",
+      "workerModel": "gpt-6-luna",
+      "workerReasoningEffort": "high",
+      "workersDispatched": 2,
+      "astraDispatched": false,
+      "campaignSpentKnown": null
+    },
     {
       "packetId": "G00-P03",
       "date": "2026-09-30",

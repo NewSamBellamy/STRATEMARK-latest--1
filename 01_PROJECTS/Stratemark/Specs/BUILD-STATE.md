@@ -11,15 +11,17 @@ deferred by the human; do not stop for missing API telemetry or require cost
 projections before worker dispatch. This overrides the historical campaign
 instructions below, not product privacy, bounded execution, phase dependencies,
 context ceilings or live-research consent. Goal is active (verified via goal tool).
-Previous goal turn made progress: local commit `44bfeb8`, clean tree, full check
-and desktop build passed. Next packet is G00-P03, not a new planning exercise.
-
-September 30 execution update: the human explicitly authorized the full overhaul one phase at a time, with gap checks, production as the outcome, and a roughly $50 session budget. This supersedes the launch supplement's planning-only/bounded-G01 authorization, not its monetary safety gates. G00 has begun with an additive contract slice. No phase is complete. Reuse the reviewed plan rather than repeatedly commissioning Astra planning.
-
-The human reports API-key authentication and an unset spending limit, and subsequently explicitly requested continued goal work after inability to verify a session dollar cap was explained. Continue bounded, serial implementation under the $50 working target rather than stopping solely for missing billing telemetry. Do not promise a hard cutoff or treat unknown spend as zero. Actual billing project, tier, baseline and current spend remain unverified; the ChatGPT usage tool cannot measure API-account spending. Additional worker packets require a model, bounded context/work scope and explicit cost projection (not a measured charge). No unbounded swarm, repeated planners or automatic live evaluations. Live product research still needs its own approved numeric cap. [LAUNCH.md](LAUNCH.md) describes optional stronger spending safeguards, not another sign-in requirement.
+Latest completed packet: G00-P04 below (startup fix local `012aff3`, contract
+checkpoint commit follows). No phase is complete. Next G00-P05 finishes typed
+cached-read projections/version contracts; do not restart planning.
+Earlier $50/Astra campaign instructions are historical, not current dispatch
+rules. The human reports API-key sign-in; actual development spend is unknown.
+The ChatGPT usage tool cannot measure that API account's charges. No billing
+preflight blocks this development goal; live product research still requires
+separate explicit approval and a numeric cap.
 
 - Planning: complete researched v1 north star, action catalogue, phase goals, and evidence ledger.
-- Implementation: G00 in progress; 34 strict request schemas and 8 RED baseline reproductions; not yet connected to application callers. See G00-P03 and CALLER-MAP.
+- Implementation: G00 in progress; 62 strict requests, typed command receipts/output manifests and approval/grant/egress/budget policies, 11 RED baseline reproductions, verified public browser journey and a fixed startup wiring bug. Remaining cached-read/version contracts are unfinished. New action service is not connected to application callers.
 - Branch: `feat/claim-level-signal-evidence`; main must not be used for this exploration.
 - Inspected code baseline: `3f18af2`. The documentation commit will follow that baseline; determine current HEAD from git rather than treating this baseline as current code forever.
 - Goal tool: the human's replacement Sol-planner/Luna-worker goal is active, verified at G00-P03 start. No billing blocker remains for development. Keep the full goal active at packet boundaries.
@@ -44,17 +46,17 @@ The human reports API-key authentication and an unset spending limit, and subseq
 
 ## Execution ledger
 
-| Goal | State       | Packet / commit evidence | Remaining                                                                                    |
-| ---- | ----------- | ------------------------ | -------------------------------------------------------------------------------------------- |
-| G00  | In progress | G00-P01/P02/P03 below    | 28 request schemas, results/policies, caller review, remaining risk fixtures and screenshots |
-| G01  | Not started | None                     | Vault and migration                                                                          |
-| G02  | Not started | None                     | Shared runtime, policies, secrets                                                            |
-| G03  | Not started | None                     | Progressive research and evaluation                                                          |
-| G04  | Not started | None                     | Cards and coherent frontend journey                                                          |
-| G05  | Not started | None                     | Decision outputs and findings                                                                |
-| G06  | Not started | None                     | Local monitored updates                                                                      |
-| G07  | Not started | None                     | Scoped MCP                                                                                   |
-| G08  | Not started | None                     | Production verification                                                                      |
+| Goal | State       | Packet / commit evidence  | Remaining                                                                     |
+| ---- | ----------- | ------------------------- | ----------------------------------------------------------------------------- |
+| G00  | In progress | G00-P01/P02/P03/P04 below | Complete typed cached-read results/version contracts, final acceptance review |
+| G01  | Not started | None                      | Vault and migration                                                           |
+| G02  | Not started | None                      | Shared runtime, policies, secrets                                             |
+| G03  | Not started | None                      | Progressive research and evaluation                                           |
+| G04  | Not started | None                      | Cards and coherent frontend journey                                           |
+| G05  | Not started | None                      | Decision outputs and findings                                                 |
+| G06  | Not started | None                      | Local monitored updates                                                       |
+| G07  | Not started | None                      | Scoped MCP                                                                    |
+| G08  | Not started | None                      | Production verification                                                       |
 
 Only one authoritative execution ledger lives here. Action schemas are authoritative in contracts once built; update this plan when implementation intentionally changes the design. Do not create competing status files in unrelated folders.
 
@@ -76,7 +78,7 @@ Actual results with date and commit or dirty-tree context:
 Changed files / local commit:
 Known limitations / unverified claims / next safe packet:
 Technical blocker attempts 1/2/3, distinct hypothesis and evidence:
-Astra escalation outcome if required:
+Sol technical escalation outcome if required (Astra disabled):
 ```
 
 Completion claims must link to real test/manual evidence. A screenshot verifies only the shown state. A mock/provider fixture verifies the contract, not live output quality. A green build does not prove cancellation, privacy, costs, or installer behavior. External blockers do not need three billable retries; record them and proceed only with independent authorized work.
@@ -85,7 +87,7 @@ Completion claims must link to real test/manual evidence. A screenshot verifies 
 
 An existing human-created broad goal must retain its actual objective. Execute one bounded phase/packet at a time inside it; do not redefine success or mark the whole goal complete at a slice boundary. Do not invent tool token budgets. Mark complete only when the actual objective and its acceptance gates are achieved. Pause only at the user's explicit request. Repeated external-blocker handling follows the goal tool's rules.
 
-User context ceiling: 200k tokens for every agent, not a spend allowance. Checkpoint around 100k; hand off before an estimated 150k to leave room for verification and recovery. Use the policy in [build-workflow.md](build-workflow.md). Cumulative goal tokens are usage, not necessarily the current context window. Exact occupancy and forced compaction are not exposed here; do not claim hard automatic enforcement. Keep packets small and start clean, bounded workers only with a declared model/cost projection; unknown spending never becomes a claim of remaining funds.
+User context ceiling: 200k tokens for every agent, not a spend allowance. Checkpoint around 100k; hand off before an estimated 150k to leave room for verification and recovery. Use the policy in [build-workflow.md](build-workflow.md). Cumulative goal tokens are usage, not necessarily the current context window. Exact occupancy and forced compaction are not exposed here; do not claim hard automatic enforcement. Keep packets small and start clean workers with a declared model, effort and exclusive scope; development cost projections are not a current gate. Unknown spending never becomes a claim of remaining funds.
 
 ## Packet G00-P01 — Shared action contract foundation
 
@@ -227,10 +229,111 @@ stop for missing development spend telemetry, invoke Astra or claim production.
 
 Compact handoff for context: requested ceiling remains 200k, checkpoint around
 100k and handoff before estimated 150k. Exact active occupancy isn't exposed;
-new workers get only owned packet context. No live sessions/workers remain after
+new workers get only owned packet context. No live sessions/workers remained after
 the verification commands complete. Keep the active full goal, not a new subgoal.
 
-## Change record
+## Packet G00-P04 (entry bffd47c)
+
+Sol coordinator; Luna `gpt-6-luna/high` worker Archimedes (ID
+`01a0f40f-9cd2-76f1-98d7-6286e66ba0c6`) owns only actions.ts/actions.test.ts,
+adding remaining28 request schemas. No history fork or Astra. Main owns research
+baseline, public-sample browser fixture and docs; shared contract writes remain
+serialized until worker completion/closure. No live product-provider calls or user data.
+
+Main added three ordinary RED baseline checks. After fixing a missing createdAt
+in the synthetic card fixture, the selected3 failed at intended assertions:
+shared company leaves market_b's cached opportunity; same-name distinct-domain
+companies collapse to one identity on resumed ingestion; different reporting
+periods merge into one row. Final whole baseline9/9 RED; targeted research
+typecheck and scoped lint passed. These are defects established, not fixed.
+
+Public-sample browser baseline startup FAILED (session53575 exited1); no
+screenshots were created. Direct web build reproduced exit2 from TypeScript:
+actions.ts:1002 accesses possibly undefined `second` under noUncheckedIndexedAccess.
+The error was sent to the existing Luna owner; no competing edit or blind retry.
+The fixture uses isolated port4187, blocked external traffic and fresh storage.
+Four screenshots remain unverified. Production doesn't depend on preview4174.
+
+Archimedes completed and was closed. Independently verified 176 action tests;
+review added a public-domain/IPv6 prefix regression and retained finite-number
+rejection. Fixed prefix classification; all178 action tests pass. All62 actions
+have input schemas. Shape validation is not authentication, approval or dispatch.
+
+Coordinator implemented additive `action-results.ts` after the worker closed:
+typed receipts distinguish job/write/local effects and action-specific targets,
+require job run IDs, bind resume/pause/cancel to their run, and do not accept read
+query receipts. Versioned output manifests pin scope/input revisions and evidence,
+retrieve dossiers/briefs via typed reads, preserve incomplete gaps, and support
+pre-market scope drafts and no-result failure. Seven result tests pass. Scope
+filtering, evidence verification and durable acceptance remain future runtime work.
+
+Browser startup investigation then reproduced a genuine app wiring error:
+DeepDiveProviderWithPanel used route hooks above App's router. Moved it inside
+either HashRouter/MemoryRouter; no visual restyling or user-data change. The
+production public-sample browser fixture passed after rebuilding: Library,
+deck, reader, Company brief and reload, with all external requests blocked.
+Four screenshots were inspected locally in ignored apps/web/test-results.
+Observed baseline gaps: washed-out Anthropic fallback, internally scrolling
+deck cards clipped at viewport bottom, repeated descriptions, reader/header
+sourced/credible counts confusing beside overview evidence health, and researcher/live
+language not backed by actual no-key activity. No sample metric is endorsed as
+a current verified company fact. E2E seeds only an isolated preview access
+profile; account-free onboarding is not yet implemented/proven. These captures
+are not packaged/live evidence.
+
+Browser harness also bound localhost while checking127.0.0.1: direct probes
+returned localhost200/127refused. Playwright now passes the requested host and
+strict port to Vite, not a larger timeout. Existing lighter journey2/2 and new
+real-panel/router-root regression1/1 pass. Web build passed (large chunks and
+Firebase mixed-import warning remain). Scoped source/test lint passed; initial
+command included ignored Playwright config and returned a warning, then correctly
+scoped command passed without changing lint rules. Temporary startup log removed.
+
+Second bounded Luna worker Nietzsche `01a0f41f-7406-74d2-9213-af60e9c6b6fa`
+completed action-policies.ts/test.ts and was closed. Four versioned policy
+records have14 passing tests: vault-revision-bound approval challenges, selected
+expiring grants, explicit record/input-only egress, and finite time/budget bounds.
+Model-only work does not require retrieval. Request-bound scope assistance and
+provider tests work before companies exist. Strict currency budgets reject
+unknown prices; request/token-only budgets may explicitly allow unpriced routes.
+Restored budgets cannot parse as active under their restored reference. These
+are contract checks, not persistent enforcement/replay/revocation guarantees.
+
+Sol review reproduced and fixed request/persisted-grant allowlist drift: cached
+library search, comparison and run status were unavailable in grant requests.
+Both now reuse one metadata-derived finite unique action list, excluding never
+and human-only actions; paid job grants need policy/budget refs. Exported policies
+additively after worker closure. Shared writes remained serialized.
+
+Final September30 verification on this packet's tree:
+
+- Full contracts308/308 passed (actions179, results7, policies14).
+- `pnpm check`: all6 package typechecks and root lint passed; contracts308 and
+  mocks16 passed; research314 passed/9 ordinary baseline failures. Exit1. The
+  recursive failure prevented downstream web/desktop/API suites from running.
+- Independently: real public browser journey1/1, existing web journey2/2,
+  real-panel/router-root regression1/1, scoped lint all passed; web build and
+  desktop build:main passed. Browser captures reviewed, no paid/live calls.
+- Targeted desktop key-boundary baseline1/1 RED; web report-retention baseline1/1
+  RED. Initial web invocation used a nonexistent guessed test path; verified
+  path is src/lib/repository/overhaul-storage-baseline.test.ts, and its rerun
+  reached the actual retention assertion. No test skip/inversion/timeout change.
+- Typecheck during worker test-first RED temporarily failed on a missing policy
+  module; final integrated typechecks passed. Both workers closed; temporary
+  preview92672 was stopped (interrupt returned terminal exit1 as expected).
+  Unrelated user previews were untouched. Full desktop build/installer/signing
+  and live research still open.
+
+Local startup commit: `012aff3`. Remaining contract/baseline/docs slice is ready
+for a separate local checkpoint commit. No push/main merge/migration/publication.
+Next G00-P05: typed cached-read projections and explicit record/version envelopes,
+including sparse/period/conflict/evidence states. Reuse existing domain schemas
+where correct, do not add generic untyped payloads or another backend. Verify
+contract fixtures and current action/caller review before G00 completion. Then
+G01 starts the packaged SQLite binding spike and offline vault/migration work.
+Keep the full goal active; development spend is unknown and not a blocker.
+
+## Change record (history)
 
 - September 30, 2026: current execution policy changed by human goal to Sol planning/Luna high-effort workers, Astra disabled, development billing gates deferred. Product decisions remain v1.0.0; no change to release privacy/consent or deployment authority.
 - September 30, 2026, v1.0.0: researched defaults chosen after handwritten architecture review and read-only Astra red team. Created canonical spec, A01-A62 actions, G00-G08 goals, dated source ledger, and this cold-start record. No application code/data/provider credentials changed; no implementation agents launched. Astra's planning review is not implementation evidence.
