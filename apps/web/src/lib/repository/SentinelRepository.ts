@@ -1029,11 +1029,13 @@ export class SentinelRepository implements MarketIntelRepository {
 
       // Handle raw card records
       const c = item as CloudRecord;
-      const companyId = String(c.companyId || `comp_${String(c.id)}`);
-      let company = companyMap.get(companyId);
-      if (!company) {
+      const cardType = (c.cardType || 'company') as Card['cardType'];
+      const isMarketSignal = cardType === 'barrier' || cardType === 'insight';
+      const companyId = isMarketSignal ? null : String(c.companyId || `comp_${String(c.id)}`);
+      let company = companyId ? companyMap.get(companyId) : undefined;
+      if (!company && !isMarketSignal) {
         company = {
-          id: companyId,
+          id: companyId!,
           name: String(c.companyName || c.title || 'Target Company'),
           oneLiner: String(c.summary || c.descriptor || ''),
           websiteUrl: String(c.websiteUrl || 'https://example.com'),
@@ -1054,10 +1056,10 @@ export class SentinelRepository implements MarketIntelRepository {
       const card: Card & { engine: string } = {
         id: String(c.id),
         deckId: String(c.deckId || payload.deck?.id || 'dck_cloud'),
-        companyId: company.id,
-        cardType: (c.cardType || 'company') as Card['cardType'],
-        title: String(c.title || company.name),
-        summary: String(c.summary || company.oneLiner),
+        companyId,
+        cardType,
+        title: String(c.title || company?.name || 'Market finding'),
+        summary: String(c.summary || company?.oneLiner || ''),
         tier: (c.tier ?? null) as Card['tier'],
         tierReason: (c.tierReason || null) as string | null,
         citations: (c.citations ?? []) as unknown as Citation[],
@@ -1069,11 +1071,13 @@ export class SentinelRepository implements MarketIntelRepository {
         engine: 'cloud',
       };
 
-      const companyObj = company;
-      const metrics = rawMetrics
-        .filter((m: CloudRecord) => m.companyId === companyObj.id) as unknown as CompanyMetric[];
-      const viceClaims = rawViceClaims
-        .filter((vc: CloudRecord) => vc.cardId === c.id || vc.companyId === companyObj.id) as unknown as ViceClaim[];
+      const companyObj = company ?? null;
+      const metrics = companyObj
+        ? (rawMetrics.filter((m: CloudRecord) => m.companyId === companyObj.id) as unknown as CompanyMetric[])
+        : [];
+      const viceClaims = rawViceClaims.filter(
+        (vc: CloudRecord) => vc.cardId === c.id || (companyObj != null && vc.companyId === companyObj.id),
+      ) as unknown as ViceClaim[];
 
       results.push({
         card,

@@ -212,6 +212,52 @@ describe('SentinelRepository — Stale Local Cloud Deck Cache (#55)', () => {
     expect(cards[0]?.metrics).toEqual([]);
   });
 
+  it('keeps raw market-signal records company-less and preserves their evidence details', async () => {
+    const repo = new SentinelRepository();
+    vi.spyOn(sentinelApi, 'getCloudDeck').mockResolvedValueOnce({
+      deck: { id: 'deck_raw_signal', marketId: 'deck_raw_signal', revision: 1 },
+      market: { id: 'deck_raw_signal', name: 'Signal Market' },
+      cards: [
+        {
+          id: 'insight_raw_1',
+          deckId: 'deck_raw_signal',
+          companyId: null,
+          cardType: 'insight',
+          title: 'Inference pricing shift',
+          summary: 'Providers are changing prices.',
+          tier: null,
+          tierReason: null,
+          citations: [{ title: 'Provider', url: 'https://provider.example/pricing' }],
+          keyPoints: [],
+          evidencePoints: [
+            {
+              text: 'Hosted inference prices fell in Q2.',
+              timeWindow: 'Q2 2026',
+              citations: [{ title: 'Provider', url: 'https://provider.example/pricing' }],
+            },
+          ],
+          createdAt: '2026-09-01T00:00:00.000Z',
+        },
+      ],
+      companies: [],
+      metrics: [],
+      viceClaims: [],
+    });
+
+    const cards = await repo.listCards('deck_raw_signal');
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.company).toBeNull();
+    expect(cards[0]?.card.companyId).toBeNull();
+    expect(cards[0]?.card.evidencePoints).toEqual([
+      {
+        text: 'Hosted inference prices fell in Q2.',
+        timeWindow: 'Q2 2026',
+        citations: [{ title: 'Provider', url: 'https://provider.example/pricing' }],
+      },
+    ]);
+  });
+
   it('does not replace an empty running Cloud Deck with seeded sample cards', async () => {
     const repo = new SentinelRepository();
     vi.spyOn(sentinelApi, 'getCloudDeck').mockResolvedValueOnce({
