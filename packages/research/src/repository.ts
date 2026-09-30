@@ -2139,6 +2139,11 @@ export class GeminiRepository implements MarketIntelRepository {
     const marketCardLine = (card: Card) => {
       push(`${card.cardType.toUpperCase()}: ${card.title} — ${card.summary ?? ''}`);
       for (const k of card.keyPoints ?? []) push(`  · ${k}`);
+      for (const citation of card.citations?.slice(0, 4) ?? []) {
+        push(
+          `  SOURCE RECEIPT (card-level; verify claim against source): ${citation.title || 'Untitled source'} — ${citation.url}`,
+        );
+      }
     };
 
     const deck = scope.deckId ? this.snap.decks.find((d) => d.id === scope.deckId) : null;

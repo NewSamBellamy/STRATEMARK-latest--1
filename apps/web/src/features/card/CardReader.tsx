@@ -116,8 +116,14 @@ function CardReaderBody({
                 onClick={() => {
                   onOpenChange(false);
                   chat(
-                    { kind: 'cards', deckId: card.deckId, cardIds: [card.id], subject: view.title },
-                    { placeholder: `Ask the ${view.title} researcher…` },
+                    {
+                      kind: 'cards',
+                      deckId: card.deckId,
+                      cardIds: [card.id],
+                      cardType: card.cardType,
+                      subject: view.title,
+                    },
+                    { placeholder: `Ask the ${view.title} researcher…`, returnToCard: card.id },
                   );
                 }}
               >
@@ -207,12 +213,26 @@ function CardReaderBody({
                 onClick={() => {
                   onOpenChange(false);
                   chat(
-                    { kind: 'cards', deckId: card.deckId, cardIds: [card.id], subject: card.title },
-                    { seed: `Dig into "${card.title}" — what's the full picture?` },
+                    {
+                      kind: 'cards',
+                      deckId: card.deckId,
+                      cardIds: [card.id],
+                      cardType: card.cardType,
+                      subject: card.title,
+                    },
+                    {
+                      seed: `Dig into "${card.title}" — what's the full picture?`,
+                      returnToCard: card.id,
+                    },
                   );
                 }}
               >
-                Discuss this finding <ArrowUpRight size={17} />
+                {card.cardType === 'insight'
+                  ? 'Explore this trend'
+                  : card.cardType === 'barrier'
+                    ? 'Understand this barrier'
+                    : 'Discuss this finding'}{' '}
+                <ArrowUpRight size={17} />
               </button>
             )}
             <div className="mt-4 flex items-center justify-between gap-2">

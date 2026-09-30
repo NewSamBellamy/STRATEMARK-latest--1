@@ -98,4 +98,39 @@ describe('askResearch — pinned attachments ground the conversation', () => {
     const prompt = ground.mock.calls[0]![0] as string;
     expect(prompt).not.toContain('ATTACHED REFERENCES');
   });
+
+  it('includes source receipts when research is scoped to a market finding', async () => {
+    const data = snapshot();
+    data.cards.push({
+      id: 'insight_1',
+      deckId: 'deck_1',
+      companyId: null,
+      cardType: 'insight',
+      title: 'Inference prices are falling',
+      summary: 'Several providers lowered inference prices this quarter.',
+      keyPoints: ['The change is concentrated in hosted models.'],
+      citations: [
+        {
+          title: 'Provider pricing announcement',
+          url: 'https://provider.example/pricing-update',
+          credibility: 'primary',
+        },
+      ],
+    } as unknown as RepoSnapshot['cards'][number]);
+    const ground = vi.fn().mockResolvedValue({ text: 'answer', citations: [], queries: [] });
+    const repo = new GeminiRepository({
+      apiKey: 'k',
+      store: memoryStore(data),
+      client: { ground, structure: vi.fn() } as unknown as LlmClient,
+    });
+
+    await repo.askResearch({
+      scope: { kind: 'cards', deckId: 'deck_1', cardIds: ['insight_1'], cardType: 'insight' },
+      question: 'What evidence supports this trend?',
+    });
+
+    const prompt = ground.mock.calls[0]![0] as string;
+    expect(prompt).toContain('Provider pricing announcement');
+    expect(prompt).toContain('https://provider.example/pricing-update');
+  });
 });

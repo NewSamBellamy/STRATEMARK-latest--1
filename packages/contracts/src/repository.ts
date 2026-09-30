@@ -236,8 +236,10 @@ export interface ResearchScope {
   kind: 'deck' | 'company' | 'cards' | 'datapoint';
   deckId: string | null;
   companyId?: string | null;
-  /** Selected card ids for deck-level comparisons. */
+  /** Cards anchoring this thread: a single detail view or a comparison set. */
   cardIds?: string[];
+  /** Optional single-card context for relevant research prompts in the UI. */
+  cardType?: CardType;
   /** Human label for what this thread is anchored to, e.g. "ARR", "GPT-5", "Jane Doe". */
   subject?: string | null;
 }

@@ -460,6 +460,7 @@ export const researchScopeSchema = z.object({
   deckId: z.string().nullable(),
   companyId: z.string().nullable().optional(),
   cardIds: z.array(z.string()).optional(),
+  cardType: cardTypeSchema.optional(),
   subject: z.string().nullable().optional(),
 });
 
@@ -481,4 +482,3 @@ export const researchThreadSchema = z.object({
   createdAt: isoTimestamp,
   updatedAt: isoTimestamp,
 });
-

@@ -75,6 +75,14 @@ describe('CardReader', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('names the next action for a market insight instead of using a generic finding CTA', () => {
+    const cwc = hydrate((c) => c.cardType === 'insight');
+    renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
+
+    expect(screen.getByRole('button', { name: /explore this trend/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /discuss this finding/i })).not.toBeInTheDocument();
+  });
+
   it('keeps evidence details in the company research view', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_grace-threads');
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);

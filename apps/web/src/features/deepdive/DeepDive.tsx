@@ -19,7 +19,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -51,6 +51,8 @@ import { Logo } from '@/features/card/Logo';
 import { SettingsLink } from '@/components/SettingsLink';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { isCommunityDesktop } from '@/lib/settings/runtime';
+import { restoreCardReaderSearch } from './card-return';
+import { getConversationStarters } from './chat-starters';
 
 type PanelMode = 'locked' | 'floating';
 
@@ -158,6 +160,7 @@ function TypingBubble({ active }: { active: boolean }) {
 interface ChatOptions {
   seed?: string;
   placeholder?: string;
+  returnToCard?: string;
 }
 
 interface DeepDiveContextValue {
@@ -253,9 +256,11 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
   const hasKey = useApiKey((state) => state.hasKey);
   const keyRequired = isCommunityDesktop() && !hasKey;
   const { isStartingPage } = useCurrentRoute();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [openState, setOpenState] = useState(false);
   const [scope, setScope] = useState<ResearchScope | null>(null);
+  const [returnCardId, setReturnCardId] = useState<string | null>(null);
   const [thread, setThread] = useState<ResearchThread | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -315,28 +320,9 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     }
   }, [thread?.messages.length, busy]);
 
-  // Conversation starters: quick ways in, so the chat feels like a
-  // conversation you steer rather than a research job that fires instantly.
-  const starters: string[] =
-    scope?.kind === 'company' || scope?.kind === 'datapoint'
-      ? [
-          `What changed for ${scope?.subject ?? 'this company'} in the last 90 days?`,
-          'How do they make money — and how durable is it?',
-          'Who are their most direct competitors, and where do they lose?',
-          'What are the biggest risks ahead?',
-        ]
-      : scope?.kind === 'cards'
-        ? [
-            'Compare these head-to-head: strengths, weaknesses, momentum.',
-            'Which of these would you back, and why?',
-            'What do these players all miss that a new entrant could take?',
-          ]
-        : [
-            'Who is winning this market right now, and why?',
-            "Where's the whitespace a new entrant could take?",
-            'What moved in this market in the last month?',
-            'Which players look overrated by the hype?',
-          ];
+  // Keep suggested questions aligned with the object the user opened. A
+  // market signal is not a company and a single card is not a comparison set.
+  const starters = getConversationStarters(scope);
 
   const reset = () => {
     setThread(null);
@@ -347,6 +333,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     setAttachOpen(false);
     setAttachedReportIds([]);
     setAttachedThreadIds([]);
+    setReturnCardId(null);
   };
 
   const ask = async (question: string, forScope: ResearchScope | null, threadId?: string) => {
@@ -379,6 +366,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
   const chat = (s: ResearchScope, opts?: ChatOptions) => {
     reset();
     setScope(s);
+    setReturnCardId(opts?.returnToCard ?? null);
     setPlaceholder(opts?.placeholder);
     setOpenState(true);
     if (opts?.seed) void ask(opts.seed, s);
@@ -443,7 +431,18 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     }
   };
 
-  const close = () => setOpenState(false);
+  const dismiss = () => {
+    setReturnCardId(null);
+    setOpenState(false);
+  };
+
+  const close = () => {
+    if (returnCardId) {
+      const restoredSearch = restoreCardReaderSearch(searchParams.toString(), returnCardId);
+      setSearchParams(new URLSearchParams(restoredSearch), { replace: true });
+    }
+    dismiss();
+  };
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -494,7 +493,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
         open,
         chat,
         openThread,
-        closePanel: close,
+        closePanel: dismiss,
         isOpen: openState,
         mode,
         setMode,
@@ -584,7 +583,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
             {thread?.reportId && (
               <Link
                 to={`/reports/${thread.reportId}`}
-                onClick={close}
+                onClick={dismiss}
                 className="inline-flex items-center gap-1 rounded-lg border border-positive/40 bg-positive/10 px-2 py-1 text-[11px] text-positive"
               >
                 <FileText className="h-3 w-3" /> Saved
