@@ -57,3 +57,11 @@ Check the destination/remote tip first; subsequent pushes must fast-forward.
 If it diverges, preserve both histories and report it; no force update, branch
 deletion or automatic merge. Origin/Maruf, Tobi and all existing branches remain
 untouched. No release, deployment, main merge or other push without authority.
+
+Local Git backup note: its default first-run credential-helper selector stalls
+headless uploads. For a network Git invocation only, use the installed manager
+with `-c credential.helper= -c credential.helper=manager`, interactive prompts
+disabled and a bounded network timeout. Do not inspect credentials or change
+global settings. Escalated Git may also need a per-command safe.directory for
+this exact checkout because sandbox ownership differs; do not trust broad paths.
+If authentication fails, preserve the local checkpoint and report the blocker.
