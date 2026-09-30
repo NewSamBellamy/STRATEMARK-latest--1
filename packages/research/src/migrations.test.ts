@@ -67,11 +67,37 @@ describe('migrateSnapshot', () => {
     const future = {
       ...legacySnapshot(),
       schemaVersion: REPO_SCHEMA_VERSION + 5,
+      futureOnly: { retained: ['original'] },
     } as RepoSnapshot;
     const outcome = migrateSnapshot(future);
     expect(outcome.fromVersion).toBe(REPO_SCHEMA_VERSION + 5);
     expect(outcome.applied).toEqual([]);
     expect(outcome.snapshot.schemaVersion).toBe(REPO_SCHEMA_VERSION + 5);
+    expect(outcome.snapshot).toEqual(future);
+  });
+
+  it.each([0, -1, 1.5, NaN, Infinity, '2', null, undefined])(
+    'rejects an explicitly invalid schema version: %s',
+    (schemaVersion) => {
+      const source = { ...legacySnapshot(), schemaVersion } as unknown as RepoSnapshot;
+      const before = structuredClone(source);
+      expect(() => migrateSnapshot(source)).toThrow(/invalid.*schema version/i);
+      expect(source).toEqual(before);
+    },
+  );
+
+  it('fails closed if a required migration is missing instead of stamping success', () => {
+    const source = legacySnapshot();
+    const before = structuredClone(source);
+    const migration = SNAPSHOT_MIGRATIONS[1];
+    if (!migration) throw new Error('The fixture requires the registered v1 migration.');
+    delete SNAPSHOT_MIGRATIONS[1];
+    try {
+      expect(() => migrateSnapshot(source)).toThrow(/missing.*migration/i);
+      expect(source).toEqual(before);
+    } finally {
+      SNAPSHOT_MIGRATIONS[1] = migration;
+    }
   });
 
   it('has a migration registered for every version gap below current', () => {
@@ -82,7 +108,7 @@ describe('migrateSnapshot', () => {
     }
   });
 
-  it('reaps a job left "running" by a crash into a resumable failed state', () => {
+  it('preserves job status during format inspection; restart recovery is a separate operation', () => {
     const withRunning = {
       ...legacySnapshot(),
       researchJobs: [{ id: 'job_1', status: 'running' }],
@@ -90,8 +116,8 @@ describe('migrateSnapshot', () => {
 
     const outcome = migrateSnapshot(withRunning);
     const job = outcome.snapshot.researchJobs[0];
-    expect(job?.status).toBe('failed');
-    expect(job?.error).toBeTruthy();
+    expect(job?.status).toBe('running');
+    expect(withRunning.researchJobs[0]?.status).toBe('running');
   });
 });
 
@@ -135,5 +161,20 @@ describe('GeminiRepository load path', () => {
     const repo = new GeminiRepository({ apiKey: 'k', store });
     expect(repo.getMigrationOutcome()?.fromVersion).toBeNull();
     expect(written).toHaveLength(0);
+  });
+  it('still recovers an interrupted job at repository startup, not during inspection', async () => {
+    const initial = {
+      ...legacySnapshot(),
+      schemaVersion: REPO_SCHEMA_VERSION,
+      researchJobs: [{ id: 'job_1', status: 'running', error: null }],
+    } as unknown as RepoSnapshot;
+    const { store } = storeWith(initial);
+    const inspected = migrateSnapshot(initial);
+    expect(inspected.snapshot.researchJobs[0]?.status).toBe('running');
+    const repo = new GeminiRepository({ apiKey: 'synthetic-test-key', store });
+    expect((await repo.getResearchJob('job_1'))?.status).toBe('failed');
+    expect((await repo.getResearchJob('job_1'))?.error).toBe('Interrupted by restart.');
+    expect(initial.researchJobs[0]?.status).toBe('running');
+    expect(inspected.snapshot.researchJobs[0]?.status).toBe('running');
   });
 });

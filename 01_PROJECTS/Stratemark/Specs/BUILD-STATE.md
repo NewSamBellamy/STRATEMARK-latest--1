@@ -11,9 +11,11 @@ deferred by the human; do not stop for missing API telemetry or require cost
 projections before worker dispatch. This overrides the historical campaign
 instructions below, not product privacy, bounded execution, phase dependencies,
 context ceilings or live-research consent. Goal is active (verified via goal tool).
-Latest completed packet: G00-P05 below. G00 contracts and reproduced baseline
+Latest completed packet: G01-P01 below. G00 contracts and reproduced baseline
 are frozen for offline G01 work; this is not product-readiness or service parity.
-G01-P01 is verifying packaged SQLite before any authoritative schema or cutover.
+G01-P01 proves the native SQLite binding in an unsigned packaged app and the
+actual installer payload, plus fixes two legacy data-safety defects. G01-P02
+starts an offline vault adapter; no live data cutover is authorized.
 The full goal remains active; do not restart planning.
 Earlier $50/Astra campaign instructions are historical, not current dispatch
 rules. The human reports API-key sign-in; actual development spend is unknown.
@@ -22,15 +24,15 @@ preflight blocks this development goal; live product research still requires
 separate explicit approval and a numeric cap.
 
 - Planning: complete researched v1 north star, action catalogue, phase goals, and evidence ledger.
-- Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. Existing product still has 11 reproduced RED defects; shared service is not connected to callers. G01 packaged binding investigation is underway, not vault completion or live cutover.
+- Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. Two of the original 11 reproduced defects are fixed; 9 remain RED. Native SQLite packaged crash/online-backup/installer-payload proof passed. Shared service is not connected to callers; G01 is not complete.
 - Branch: `feat/stratemark-spinoff-local-agents`, created from `b2c6398`; predecessor `feat/claim-level-signal-evidence` retained unchanged. Personal-fork checkpoint destination: remote newsam, `NewSamBellamy/STRATEMARK-latest--1`.
 - Inspected code baseline: `3f18af2`. The documentation commit will follow that baseline; determine current HEAD from git rather than treating this baseline as current code forever.
 - Goal tool: the human's replacement Sol-planner/Luna-worker goal is active, verified at G00-P03 start. No billing blocker remains for development. Keep the full goal active at packet boundaries.
-- Next work: G01 packaged SQLite binding/crash/online-backup proof, then offline durable vault and safe migration. No live data migration is authorized. G02/G07 own runtime enforcement and actual adapter parity; source-level caller inspection is not that proof.
+- Next work: G01-P02 offline durable vault adapter, versioned schema and retained-evidence relationships, with exclusive ownership/fencing before any cutover. Chosen investigation binding is node:sqlite on Electron44.4.5/Node24.21.0/SQLite3.53.4; its API is release-candidate, not Stability2. Keep it isolated and verify performance/recovery before production acceptance. No live data migration is authorized. G02/G07 own runtime enforcement and actual adapter parity; source-level caller inspection is not that proof.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
 - Push: latest human explicitly authorized periodic checkpoints ONLY to this new personal-fork branch. No overwriting existing refs, upstream/Tobi pushes, main merge, release or deployment. First upload verified at `73e61c0e0f9f20e063fd290ef9fb3a122f570061`; all 49 pre-existing remote branch refs remained unchanged, including main at `c945b31dee0095331b8487133c131c36e76ba601`. Verified owner NewSamBellamy, public fork of Maruf. The shorter old URL redirects to Maruf and is unsafe as a personal destination. Read actual local/remote tips before each later fast-forward checkpoint.
-- Current application tests: see packet G00-P01 below for dated execution evidence. Historical counts are not a substitute for a fresh check; live quality, packaged desktop and visual journeys remain unverified in this slice.
+- Current application tests: latest G01-P01 check passed all6 typechecks/lint; contracts353, mocks16, research326 passed/7 known failures. Independent desktop29 passed/1 known failure, web148 passed/1 known failure (both journey tests passed), API158 passed. Full root gate remains RED; no live research or new visual acceptance. Packaged synthetic binding proof is not full desktop release acceptance.
 - Document verification: local links and balanced code fences passed; unique registers checked (22 defaults, 30 stories, 62 actions, 9 goals, 26 sources); JSON command example parsed; canonical files had no candidate credential patterns. Markdown formatting checked separately before commit.
 - Astra final planning review: seven substantive gaps identified and addressed (service lifetime, migration fences, imported authority, restored budgets, asset/evidence retention, asynchronous output retrieval, and human approval boundary). Re-review found no remaining material contract contradictions; this is planning consistency, not application verification.
 
@@ -50,7 +52,7 @@ separate explicit approval and a numeric cap.
 | Goal | State                             | Packet / commit evidence       | Remaining                                                           |
 | ---- | --------------------------------- | ------------------------------ | ------------------------------------------------------------------- |
 | G00  | Contract/baseline freeze complete | G00-P01-P05 below              | Legacy defects remain RED; enforcement/parity belong to G01/G02/G07 |
-| G01  | In progress                       | G01-P01 binding spike underway | Packaged binding gate, vault and offline migration                  |
+| G01  | In progress                       | G01-P01 native/installer proof | Offline vault, writer fences and fixture migration                 |
 | G02  | Not started                       | None                           | Shared runtime, policies, secrets                                   |
 | G03  | Not started                       | None                           | Progressive research and evaluation                                 |
 | G04  | Not started                       | None                           | Cards and coherent frontend journey                                 |
@@ -393,6 +395,89 @@ build spike entry and isolated SQLite process scripts; no vault/user migration.
 Next: verify that same binding in an unsigned unpacked artifact with publishing
 disabled, FTS5, crash rollback, reopen/integrity and real online backup, then build
 the actual vault. Keep the broad goal active and checkpoint tested milestones.
+
+## Packet G01-P01 — Native binding proof and safe legacy inspection
+
+Entry HEAD `ed58ebc`, September30. That contract checkpoint was pushed normally
+to the personal spin-off; all49 other branch refs were unchanged. Sol integrated
+the bounded Luna/high worker's optional native spike (worker closed). No provider
+calls, secret reads, real research migration, installer launch, signing or
+publication. Generated packages/fixture data remain ignored, not in Git.
+
+Legacy fixes: normalize/migrateSnapshot is now a pure format inspection and no
+longer changes running jobs to failed. Restart recovery remains explicit at the
+legacy repository constructor; existing restart test still passes. Future-format
+inspection retains an independent exact-format copy, including unknown fields.
+Repository construction rejects future formats with SCHEMA_TOO_NEW before client
+construction/provider work/writes. Explicit invalid versions and missing migration
+steps fail instead of fabricating a current-version stamp. The future baseline was
+strengthened to require early refusal, zero provider calls, zero writes and
+unchanged source, not skipped or weakened. This is not G02 durable-lease recovery.
+
+Test-first evidence: original inspection/startup assertions failed before the
+separation; 10 additional malformed-version/missing-chain/future-ownership cases
+failed at intended assertions before guards. Final migrations19 + pipeline19 pass;
+desktop storage5 pass. Final full root gate passes typecheck/lint/contracts353/
+mocks16; research326 pass/7 ordinary baseline failures; downstream suites stop.
+Independent downstream runs: desktop29 pass/1 plaintext-key boundary failure;
+web148 pass/1 quota-retention failure; API158 pass. Both mocked web journey tests
+pass. Live research fixtures that return early without a key are not quality proof.
+One intermediate typecheck failed on the test fixture's optional migration type,
+and a later lint failed on explicit native globals; both were fixed and rerun.
+
+Native fixture files: apps/desktop/scripts/sqlite-spike.mjs runner,
+apps/desktop/src/sqlite-spike.mjs entry, optional --sqlite-spike build switch.
+Ordinary builds remove only the exact optional bundle. Runner requires parsed
+success markers, not merely an exit code; creates its own temporary DB, confirms
+the PID/path of its own child, forces termination only there, and validates its
+temporary root before cleanup. All data is synthetic. Checks prove FTS5 search,
+WAL reopen, real online backup while committed WAL frames exist, backup reopen,
+1,582,112-byte uncommitted-WAL forced-crash rollback, committed-record survival,
+and integrity_check=ok. SQL sqlite_version/source_id agree with runtime metadata.
+
+Verified final artifact: ignored apps/desktop/release/sqlite-spike-20260930-ed58ebc-3.
+Unsigned NSIS installer SHA256:
+`4955249e9a2dd8083c7337ecd7a3676b27603828225ea72b444d61bbffea038f`.
+The same checks passed in both win-unpacked and the payload extracted from that
+actual installer, with the module inside resources/app.asar. Installer was never
+installed/launched. Chosen offline adapter binding: node:sqlite, Electron44.4.5,
+embedded Node24.21.0, SQLite3.53.4, SQL source ID
+`2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc`.
+
+Primary references checked September30: [official Electron release](https://releases.electronjs.org/release/v44.4.5)
+confirms embedded Node version; [matching Node API source](https://raw.githubusercontent.com/nodejs/node/v24.21.0/doc/api/sqlite.md)
+marks the API Stability1.2/release-candidate, with synchronous DB calls;
+[SQLite release history](https://www.sqlite.org/changes.html) matches the exact
+3.53.4 source ID and includes the preceding WAL-reset fix. This is a specific
+patch/version check, not a comprehensive dependency/CVE clearance. Follow
+[SQLite's defensive-input guidance](https://www.sqlite.org/security.html): private
+main-process boundary, bound parameters, extensions off, trusted_schema off,
+defensive mode, bounded queries and validated imports. Keep API candidate status
+and production performance/installation/security/signing gates open at G08.
+
+Packaging failure and diagnosis: artifact1 failed a real syntax assertion. Byte
+audit found retained module content intact but archive offsets wrong beginning
+at the workspace migration-test source, which was being edited/formatted during
+packaging. Frozen-tree rebuild2 passed; final rebuilt bundle/package3 and extracted
+installer payload passed. Never edit/format dependency or app files while a
+package is being assembled; use a frozen checkout/checkpoint for release builds.
+This was not hidden by extracting/replacing just the broken test module.
+
+Reproduction (publishing/signing disabled, fresh output directory required):
+
+```powershell
+pnpm --filter @mi/desktop exec node scripts/build.mjs --sqlite-spike
+# From apps/desktop, with a NEW ignored output path and frozen source:
+$env:CSC_IDENTITY_AUTO_DISCOVERY='false'
+pnpm exec electron-builder --win nsis --x64 --publish never --config.directories.output=release/sqlite-spike-NEW --config.forceCodeSigning=false --config.win.signAndEditExecutable=false
+# From repository root; use the matching generated executable and ASAR:
+node apps/desktop/scripts/sqlite-spike.mjs --electron apps/desktop/release/sqlite-spike-NEW/win-unpacked/Stratemark.exe --module apps/desktop/release/sqlite-spike-NEW/win-unpacked/resources/app.asar/dist/sqlite-spike.cjs
+```
+
+Open: G01 vault schema/transaction fences, company identity/memberships, passage/
+observation relationships, offline fixture migration and full backup/restore;
+9 legacy release blockers, G02 shared service/secrets, frontend redesign and MCP.
+No production readiness, always-on operation or host compatibility claim.
 
 ## Change record (history)
 

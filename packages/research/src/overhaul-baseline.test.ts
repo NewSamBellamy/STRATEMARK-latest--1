@@ -132,12 +132,18 @@ describe('G00 UNRESOLVED baseline: cached reads, migration and writer fencing', 
     expect(source.researchJobs[0]?.status).toBe('running');
   });
 
-  it('a future schema must not become a writable repository', async () => {
+  it('a future schema is refused before any provider call or repository write', () => {
     const source = { ...snapshot(), schemaVersion: REPO_SCHEMA_VERSION + 1 };
     const data = memory(source);
-    const repo = new GeminiRepository({ client: client(), store: data.store });
-    await repo.getDashboardTab('co_fixture', 'overview');
+    const llm = client();
+    // Construction refusal is stronger than permitting an unknown-shape reader:
+    // no mutation path or paid work can start against the newer data format.
+    expect(() => new GeminiRepository({ client: llm, store: data.store })).toThrow(
+      /newer.*version/i,
+    );
+    expect(llm.ground).not.toHaveBeenCalled();
     expect(data.writes).toHaveLength(0);
+    expect(data.read()).toEqual(source);
   });
 
   it('an old in-flight worker must not overwrite a replaced vault snapshot', async () => {

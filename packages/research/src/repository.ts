@@ -174,23 +174,26 @@ export interface MigrationOutcome {
  * Bring a stored snapshot up to {@link REPO_SCHEMA_VERSION}.
  *
  * A snapshot from a NEWER version than this build understands is returned
- * untouched rather than mangled — a user who ran a newer release and then
- * downgraded should get a clean read-only-ish experience, not silent data loss.
+ * as an independent unchanged-format inspection copy. It must not be opened
+ * as a writable repository by a build that cannot understand its schema.
  */
 export function migrateSnapshot(raw: RepoSnapshot | null): MigrationOutcome {
   if (!raw) return { snapshot: empty(), fromVersion: null, applied: [] };
 
-  const found = typeof raw.schemaVersion === 'number' ? raw.schemaVersion : 1;
+  const found = Object.hasOwn(raw, 'schemaVersion') ? raw.schemaVersion : 1;
+  if (typeof found !== 'number' || !Number.isSafeInteger(found) || found < 1) {
+    throw new Error('Invalid research schema version. The original data was not changed.');
+  }
   const applied: number[] = [];
 
   if (found > REPO_SCHEMA_VERSION) {
-    return { snapshot: normalize(raw), fromVersion: found, applied };
+    return { snapshot: structuredClone(raw), fromVersion: found, applied };
   }
 
   let working = raw as unknown as Record<string, unknown>;
   for (let version = found; version < REPO_SCHEMA_VERSION; version += 1) {
     const migration = SNAPSHOT_MIGRATIONS[version];
-    if (!migration) break;
+    if (!migration) throw new Error(`Missing research migration from version ${version}.`);
     working = migration(working);
     applied.push(version);
   }
@@ -245,10 +248,6 @@ function normalize(raw: RepoSnapshot | null): RepoSnapshot {
   if (!raw) return empty();
   const researchJobs = (raw.researchJobs ?? []).map((job) => ({
     ...job,
-    // A job persisted as running can never resume if the process died with no
-    // live AbortController. Reap it into a resumable failed state.
-    status: job.status === 'running' ? ('failed' as const) : job.status,
-    error: job.status === 'running' ? (job.error ?? 'Interrupted by restart.') : job.error,
     partialCards: job.partialCards ?? [],
   }));
   return {
@@ -313,6 +312,15 @@ export class GeminiRepository implements MarketIntelRepository {
   private listeners = new Set<DeckRefreshListener>();
 
   constructor(options: GeminiRepositoryOptions | ResearchRepositoryOptions) {
+    // Reject unsupported data before constructing a provider or enabling any
+    // mutation path. Pure inspection remains available through migrateSnapshot.
+    const migration = migrateSnapshot(options.store?.read() ?? null);
+    if (migration.fromVersion !== null && migration.fromVersion > REPO_SCHEMA_VERSION) {
+      throw Object.assign(
+        new Error('This research was saved by a newer Stratemark version. Please upgrade.'),
+        { code: 'SCHEMA_TOO_NEW' },
+      );
+    }
     this.client = options.client ?? createGeminiClient(options as GeminiRepositoryOptions);
     this.store = options.store;
     this.targetCompanies = options.targetCompanies;
@@ -324,8 +332,17 @@ export class GeminiRepository implements MarketIntelRepository {
     // Migrate on load, not on demand. A snapshot written by an older build is
     // brought forward once, here, so nothing downstream has to reason about
     // which format it is looking at.
-    const migration = migrateSnapshot(this.store?.read() ?? null);
-    this.snap = migration.snapshot;
+    // Inspection/export must preserve execution state. Only this legacy owner
+    // startup recovers jobs whose in-process AbortControllers no longer exist.
+    // G02 replaces this recovery with durable leases and paid-ambiguity review.
+    this.snap = {
+      ...migration.snapshot,
+      researchJobs: migration.snapshot.researchJobs.map((job) => ({
+        ...job,
+        status: job.status === 'running' ? ('failed' as const) : job.status,
+        error: job.status === 'running' ? (job.error ?? 'Interrupted by restart.') : job.error,
+      })),
+    };
     this.lastMigration = migration;
     // Persist immediately after an upgrade so the migration is not re-run on
     // every launch, and so a later downgrade sees an honest version stamp.
