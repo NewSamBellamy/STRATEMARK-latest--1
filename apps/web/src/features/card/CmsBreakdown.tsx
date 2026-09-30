@@ -2,9 +2,11 @@ import {
   buildCmsInput,
   computeCms,
   CMS_SIGNAL_LABELS,
+  metricDisplayLabel,
   type Card,
   type CompanyMetric,
   type MaturityTier,
+  type UserFootprintCohort,
 } from '@mi/contracts';
 import { TierBadge } from './TierBadge';
 
@@ -16,17 +18,18 @@ import { TierBadge } from './TierBadge';
 export function CmsBreakdown({
   card,
   metrics,
-  deckUserValues,
+  userFootprintCohort,
 }: {
   card: Card;
   metrics: CompanyMetric[];
-  deckUserValues: number[];
+  userFootprintCohort: UserFootprintCohort;
 }) {
-  const base = computeCms(buildCmsInput(metrics), { deckUserValues });
+  const base = computeCms(buildCmsInput(metrics), { userFootprintCohort });
   const finalTier = card.tier;
   const nudge = finalTier != null && base.baseTier != null ? finalTier - base.baseTier : 0;
   const nudgeWithinPolicy = nudge >= -1 && nudge <= 1;
   const sourcedCount = metrics.filter((m) => m.value != null && m.citations.length > 0).length;
+  const userMetric = metrics.find((metric) => metric.metricType === 'users');
   const readiness =
     base.availableSignalCount >= 3 && sourcedCount >= 2
       ? 'Broad evidence'
@@ -83,11 +86,22 @@ export function CmsBreakdown({
         <tbody className="text-content">
           {base.perSignal.map((s) => (
             <tr key={s.key} className="border-t border-border/60">
-              <td className="py-1.5">{CMS_SIGNAL_LABELS[s.key]}</td>
+              <td className="py-1.5">
+                {s.key === 'users' && userMetric
+                  ? metricDisplayLabel(userMetric)
+                  : CMS_SIGNAL_LABELS[s.key]}
+              </td>
               <td className="py-1.5 text-center">
                 {s.excludedReason === 'dependent_proxy' ? (
                   <span className="text-muted" title="This proxy reuses another counted input">
                     Excluded proxy
+                  </span>
+                ) : s.excludedReason === 'uncomparable_user_basis' ? (
+                  <span
+                    className="text-muted"
+                    title="Not scored: this count does not match the deck's comparable footprint type."
+                  >
+                    Not comparable
                   </span>
                 ) : s.available ? (
                   `T${s.signalTier}`

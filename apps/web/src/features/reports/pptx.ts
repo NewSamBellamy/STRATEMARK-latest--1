@@ -4,7 +4,7 @@
  */
 import type PptxGenJS from 'pptxgenjs';
 import type { CardWithCompany, MaturityTier } from '@mi/contracts';
-import { TIER_LABELS } from '@mi/contracts';
+import { TIER_LABELS, metricDisplayLabel } from '@mi/contracts';
 import { formatMetricValue } from '@/lib/format';
 
 const INK = '18181B';
@@ -89,7 +89,7 @@ export async function exportDeckPptx(args: {
       `ARR: ${metric(c, 'arr')}`,
       `Valuation/Cap: ${(() => { const v = c.metrics.find((m) => (m.metricType === 'valuation' || m.metricType === 'market_cap') && m.value != null); return v ? formatMetricValue(v.metricType, v.value) : '—'; })()}`,
       `Team: ${metric(c, 'employees')}`,
-      `Users: ${metric(c, 'users')}`,
+      `${metricDisplayLabel(c.metrics.find((m) => m.metricType === 'users') ?? { metricType: 'users' })}: ${metric(c, 'users')}`,
     ];
     s.addText(facts.map((f) => ({ text: f, options: { bullet: true, fontSize: 13, color: INK } })), {
       x: 0.5, y: 2.6, w: 5.5, h: 2.4, valign: 'top',

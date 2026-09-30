@@ -37,9 +37,15 @@ describe('collectible card evidence model', () => {
   });
   it('never relabels users as customers or invents a plus sign', () => {
     const result = view([metric({ value: 1_200_000_000 })]);
-    expect(result.metrics[0]!.label).toBe('Users');
+    expect(result.metrics[0]!.label).toBe('Unclassified footprint');
     expect(result.metrics[0]!.display).toBe('1.2B');
     expect(result.metrics[0]!.display).not.toContain('+');
+  });
+  it('labels a footprint by its actual basis instead of calling stars users', () => {
+    const result = view([
+      metric({ metricType: 'users', value: 12_000, userBasis: 'github_stars' }),
+    ]);
+    expect(result.metrics[0]?.label).toBe('GitHub stars');
   });
   it('requires a clickable receipt before displaying model-verified confidence', () => {
     const input = metric({ citations: [], source: 'Annual report', methodNote: null });
@@ -67,7 +73,7 @@ describe('collectible card evidence model', () => {
       metric({ id: 'v', metricType: 'valuation', value: null, confidence: 'unknown' }),
       metric({ id: 'c', metricType: 'market_cap', value: 100_000_000 }),
     ]);
-    expect(result.faceMetrics[0]!.label).toBe('Market cap');
+    expect(result.faceMetrics[0]!.label).toBe('Market Cap');
     expect(result.faceMetrics[0]!.display).toBe('$100M');
   });
   it('puts the strongest usable company facts on the face across market types', () => {
@@ -83,8 +89,8 @@ describe('collectible card evidence model', () => {
       metric({ id: 'people', metricType: 'employees', value: 270 }),
       metric({ id: 'reach', metricType: 'users', value: 2_400_000 }),
     ]);
-    expect(result.faceMetrics.map((m) => m.label)).toEqual(['Users', 'Employees']);
-    expect(result.metrics.some((m) => m.label === 'Market share')).toBe(true);
+    expect(result.faceMetrics.map((m) => m.label)).toEqual(['Unclassified footprint', 'Employees']);
+    expect(result.metrics.some((m) => m.label === 'Market Share')).toBe(true);
   });
   it('never uses both valuation and market cap as the two headline facts', () => {
     const result = view([
@@ -92,7 +98,7 @@ describe('collectible card evidence model', () => {
       metric({ id: 'public', metricType: 'market_cap', value: 90_000_000 }),
       metric({ id: 'revenue', metricType: 'arr', value: 8_000_000 }),
     ]);
-    expect(result.faceMetrics.map((m) => m.label)).toEqual(['ARR', 'Market cap']);
+    expect(result.faceMetrics.map((m) => m.label)).toEqual(['ARR', 'Market Cap']);
   });
   it('does not fill the card with unknown figures or assign an unsupported position', () => {
     const result = view([]);

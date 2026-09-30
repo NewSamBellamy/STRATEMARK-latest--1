@@ -311,7 +311,7 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
       marketName: 'Generative Media',
       vertical: 'ai_infra_compute',
       deckId: 'deck_test_1',
-      deckUserValues: [500, 10_000, 50_000],
+      userFootprintCohort: { basis: 'unknown', values: [] },
     });
 
     const onEvent = vi.fn();
@@ -439,7 +439,7 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
       focusPrompt: 'Stealth humanoid robotics labs',
       excludeNames: ['Boston Dynamics'],
       deckId: 'deck_robotics_1',
-      deckUserValues: [],
+      userFootprintCohort: { basis: 'unknown', values: [] },
       target: 2,
     });
 

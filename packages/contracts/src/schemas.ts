@@ -11,15 +11,19 @@ import {
   DASHBOARD_TABS,
   METRIC_TYPES,
   MODEL_PROPOSABLE_CONFIDENCE,
+  PRICING_UNIT_BASES,
   REFRESH_CADENCES,
   SUBSCRIPTION_STATUSES,
   SUBSCRIPTION_TIERS,
+  USER_FOOTPRINT_BASES,
 } from './enums';
 
 // Enum schemas -------------------------------------------------------------
 export const cardTypeSchema = z.enum(CARD_TYPES);
 export const metricTypeSchema = z.enum(METRIC_TYPES);
 export const confidenceSchema = z.enum(CONFIDENCE_LEVELS);
+export const userFootprintBasisSchema = z.enum(USER_FOOTPRINT_BASES);
+export const pricingUnitBasisSchema = z.enum(PRICING_UNIT_BASES);
 
 /**
  * Confidence as a MODEL may state it (issue #48). Use this — never
@@ -157,6 +161,8 @@ export const companyMetricSchema = z.object({
   methodNote: z.string().nullable(), // "how we got this number" for estimated figures
   /** Scoring inputs used to derive a proxy metric; prevents double-counting. */
   derivedFromMetricTypes: z.array(metricTypeSchema).optional(),
+  /** Meaning of a user-footprint count; absent in legacy records. */
+  userBasis: userFootprintBasisSchema.optional(),
   capturedAt: isoTimestamp,
   /**
    * When a source last CONFIRMED this figure, as opposed to when we wrote the

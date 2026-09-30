@@ -5,7 +5,12 @@
  * permissive (missing → Unknown/null) to honor the missing-data protocol.
  */
 import { z } from 'zod';
-import { cardTypeSchema, modelConfidenceSchema } from '@mi/contracts';
+import {
+  PRICING_UNIT_BASES,
+  USER_FOOTPRINT_BASES,
+  cardTypeSchema,
+  modelConfidenceSchema,
+} from '@mi/contracts';
 import { FUNDING_ROUND_TYPES, parseFundingRoundType } from './proxy-estimator';
 
 /**
@@ -37,6 +42,10 @@ export const metricOutSchema = z.object({
   method: z.string().nullable().default(null),
 });
 export type MetricOut = z.infer<typeof metricOutSchema>;
+const userMetricOutSchema = metricOutSchema.extend({
+  /** Exact denominator; unknown prevents apples-to-oranges cohort scoring. */
+  userBasis: z.enum(USER_FOOTPRINT_BASES).nullish(),
+});
 
 export const marketPlanOutSchema = z.object({
   marketName: z.string().min(1),
@@ -100,7 +109,7 @@ export const enrichmentOutSchema = z.object({
       valuation: metricOutSchema.nullish(),
       market_cap: metricOutSchema.nullish(),
       arr: metricOutSchema.nullish(),
-      users: metricOutSchema.nullish(),
+      users: userMetricOutSchema.nullish(),
       employees: metricOutSchema.nullish(),
     })
     .default({}),
@@ -128,11 +137,13 @@ export const enrichmentOutSchema = z.object({
         .object({
           monthlyPrice: z.number().nullable().default(null),
           annualPrice: z.number().nullable().default(null),
+          pricingUnitBasis: z.enum(PRICING_UNIT_BASES).default('unknown'),
         })
         .nullable()
         .default(null),
       publicUserFootprint: z.number().nullable().default(null),
       footprintLabel: z.string().nullable().default(null),
+      footprintBasis: z.enum(USER_FOOTPRINT_BASES).nullish(),
     })
     .default({}),
   viceClaims: z
@@ -195,6 +206,8 @@ export const verifyMetricOutSchema = z.object({
   rationale: z.string().default(''),
   /** One-line method note explaining where the figure comes from. */
   methodNote: z.string().nullable().default(null),
+  /** Unit of a user-footprint value; null/unknown is safer than guessing. */
+  userBasis: z.enum(USER_FOOTPRINT_BASES).nullish(),
 });
 
 /**
@@ -221,6 +234,8 @@ export const huntMetricsOutSchema = z.preprocess(
           value: z.number().nullable().default(null),
           /** One line naming where the figure comes from. */
           methodNote: z.string().nullable().default(null),
+          /** Unit of a users figure; absent for every other metric. */
+          userBasis: z.enum(USER_FOOTPRINT_BASES).nullish(),
         }),
       )
       .default([]),

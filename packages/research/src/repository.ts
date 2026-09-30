@@ -9,6 +9,9 @@
 import {
   METRIC_TYPES,
   METRIC_TYPE_LABELS,
+  metricDisplayLabel,
+  buildUserFootprintCohort,
+  inferUserFootprintBasis,
   buildCmsInput,
   computeCms,
   deckBakedState,
@@ -402,17 +405,20 @@ export class GeminiRepository implements MarketIntelRepository {
       mergedCompanyMetrics.push(...reconcileMetrics(existingForCo, incomingForCo));
     }
     this.snap.metrics = [...otherMetrics, ...mergedCompanyMetrics];
-    const deckUserValues = this.snap.metrics
-      .filter(
-        (metric) =>
-          metric.metricType === 'users' && metric.confidence !== 'unknown' && metric.value !== null,
-      )
-      .map((metric) => metric.value as number);
+    const deckCompanyIds = new Set(
+      this.snap.cards
+        .filter((card) => card.deckId === result.deck.id && card.cardType === 'company')
+        .map((card) => card.companyId)
+        .filter((companyId): companyId is string => companyId !== null),
+    );
+    const userFootprintCohort = buildUserFootprintCohort(
+      this.snap.metrics.filter((metric) => deckCompanyIds.has(metric.companyId)),
+    );
     for (const companyId of companyById.keys()) {
       if (!existingCompanyIds.has(companyId)) continue;
       const canonicalMetrics = this.snap.metrics.filter((metric) => metric.companyId === companyId);
       const canonicalTier = computeCms(buildCmsInput(canonicalMetrics), {
-        deckUserValues,
+        userFootprintCohort,
       }).finalTier;
       for (const card of this.snap.cards) {
         if (
@@ -986,15 +992,20 @@ export class GeminiRepository implements MarketIntelRepository {
         const deckCards = this.snap.cards.filter(
           (c) => c.deckId === stubsResult.deck.id && c.companyId && c.cardType === 'company',
         );
-        const deckUserValues = this.snap.metrics
-          .filter((m) => m.metricType === 'users' && m.confidence !== 'unknown' && m.value !== null)
-          .map((m) => m.value as number);
+        const deckCompanyIds = new Set(
+          deckCards
+            .map((card) => card.companyId)
+            .filter((companyId): companyId is string => companyId !== null),
+        );
+        const userFootprintCohort = buildUserFootprintCohort(
+          this.snap.metrics.filter((metric) => deckCompanyIds.has(metric.companyId)),
+        );
 
         const baseTiers = new Map<string, MaturityTier>();
         const reviewRows: { name: string; baseTier: MaturityTier; evidence: string }[] = [];
         for (const card of deckCards) {
           const metrics = this.snap.metrics.filter((m) => m.companyId === card.companyId);
-          const base = computeCms(buildCmsInput(metrics), { deckUserValues });
+          const base = computeCms(buildCmsInput(metrics), { userFootprintCohort });
           if (base.finalTier != null) {
             baseTiers.set(card.companyId!, base.finalTier);
             const company = this.snap.companies.find((c) => c.id === card.companyId);
@@ -1026,7 +1037,7 @@ export class GeminiRepository implements MarketIntelRepository {
           const metrics = this.snap.metrics.filter((m) => m.companyId === card.companyId);
           const scored = computeCms(
             buildCmsInput(metrics),
-            { deckUserValues },
+            { userFootprintCohort },
             { nudge: review.nudge },
           );
           if (scored.finalTier !== card.tier || (review.reason && review.reason !== card.tierReason)) {
@@ -1270,7 +1281,9 @@ export class GeminiRepository implements MarketIntelRepository {
   }
 
   async factCheck(input: FactCheckInput): Promise<FactCheckResult> {
-    const metricLabel = input.metricType ? METRIC_TYPE_LABELS[input.metricType] : null;
+    const metricLabel = input.metricType
+      ? metricDisplayLabel({ metricType: input.metricType, methodNote: input.claim })
+      : null;
     const g = await this.client.ground(
       [
         `Fact-check this claim${input.companyName ? ` about ${input.companyName}` : ''} using Google Search:`,
@@ -1340,7 +1353,7 @@ export class GeminiRepository implements MarketIntelRepository {
     );
     if (!metric) throw new Error(`Metric not found: ${input.companyId}/${input.metricType}`);
 
-    const label = METRIC_TYPE_LABELS[input.metricType];
+    const label = metricDisplayLabel(metric);
 
     // FAST PATH: the fact-check that summoned us already ran the grounded
     // hunt and produced a cited correction. Re-researching the same figure
@@ -1365,6 +1378,10 @@ export class GeminiRepository implements MarketIntelRepository {
           metric.methodNote =
             input.correction.rationale ??
             `Corrected from a grounded fact-check${input.correction.asOf ? ` (as of ${input.correction.asOf})` : ''}.`;
+          if (input.metricType === 'users') {
+            const inferredBasis = inferUserFootprintBasis(metric.methodNote);
+            if (inferredBasis !== 'unknown') metric.userBasis = inferredBasis;
+          }
           metric.capturedAt = nowIso;
           changed = true;
           this.snap.dashboards[input.companyId] = {};
@@ -1425,6 +1442,7 @@ export class GeminiRepository implements MarketIntelRepository {
         `  "currentValue": number|null — the best-supported current figure in ${label === 'Market Share' ? 'percent (0-100)' : label === 'Users' || label === 'Employees' ? 'plain count' : 'US dollars'}; null when the notes name none. NEVER invent one.`,
         `  "rationale": string (1-2 sentences),`,
         `  "methodNote": string|null — one line naming where the figure comes from`,
+        `  "userBasis": one of the exact count types (daily_active_users, weekly_active_users, monthly_active_users, registered_accounts, active_workspaces, paid_seats, business_customer_accounts, paying_business_accounts, individual_paying_customers, downloads_or_installs, github_stars, social_followers, social_reach, waitlist_signups, newsletter_subscribers, other, unknown) when metricType is users; use unknown if the notes do not establish it, omit for all other metrics`,
         `}`,
         ``,
         `Stored figure for comparison: ${stored}`,
@@ -1458,9 +1476,24 @@ export class GeminiRepository implements MarketIntelRepository {
         metric.citations = cited;
         metric.source = cited[0]?.url ?? metric.source;
         metric.methodNote = out.methodNote ?? `Live verification: ${out.rationale}`;
+        if (input.metricType === 'users') {
+          if (out.userBasis != null) metric.userBasis = out.userBasis;
+          else {
+            const inferredBasis = inferUserFootprintBasis(metric.methodNote);
+            if (inferredBasis !== 'unknown') metric.userBasis = inferredBasis;
+          }
+        }
         metric.capturedAt = nowIso;
         changed = true;
         // Researched tabs quoting the stale figure re-research on next open.
+        this.snap.dashboards[input.companyId] = {};
+      }
+    }
+    if (input.metricType === 'users' && metric.confidence !== 'user_verified') {
+      const basis = out.userBasis ?? inferUserFootprintBasis(out.methodNote ?? out.rationale);
+      if (basis !== 'unknown' && basis !== metric.userBasis) {
+        metric.userBasis = basis;
+        changed = true;
         this.snap.dashboards[input.companyId] = {};
       }
     }
@@ -1546,12 +1579,13 @@ export class GeminiRepository implements MarketIntelRepository {
         `Use Google Search. For each figure name the value, its as-of date, and the source. Prefer primary sources and recent reputable coverage. If no reliable current figure exists for a metric, say so plainly for that metric. Never guess.`,
         `MEASUREMENT BASIS: every figure must describe the WHOLE legal company — for a conglomerate, total company revenue/valuation/headcount, never a division's figure presented as the company's.`,
         `UNITS: Market Share in percent of its primary market (0-100); Users and Employees as plain counts; Valuation, Market Cap, and ARR in US dollars.`,
+        `For a Users figure, also return userBasis naming exactly what is counted (for example monthly_active_users, registered_accounts, paying_business_accounts, downloads_or_installs, github_stars). Use unknown when the notes do not say; never guess based on the business category.`,
       ].join('\n'),
       { system: GROUNDED_SYSTEM },
     );
     const out = await this.client.structure(
       [
-        `Based ONLY on these research notes about ${company.name}, output JSON { "figures": [ { "metricType": "market_cap"|"valuation"|"market_share"|"arr"|"users"|"employees", "value": number|null, "methodNote": string|null (one line naming the source and as-of date) } ] }.`,
+        `Based ONLY on these research notes about ${company.name}, output JSON { "figures": [ { "metricType": "market_cap"|"valuation"|"market_share"|"arr"|"users"|"employees", "value": number|null, "methodNote": string|null (one line naming the source and as-of date), "userBasis": string|null (users only; unknown if the notes do not establish it) } ] }.`,
         `Include ONLY the metrics the notes actually support with a concrete figure — omit the rest entirely. NEVER invent a value.`,
         ``,
         `NOTES:`,
@@ -1591,6 +1625,9 @@ export class GeminiRepository implements MarketIntelRepository {
         metric.citations = cited;
         metric.source = cited[0]?.url ?? metric.source;
         metric.methodNote = fig.methodNote ?? 'Filled by a targeted metrics hunt.';
+        if (fig.metricType === 'users') {
+          metric.userBasis = fig.userBasis ?? inferUserFootprintBasis(metric.methodNote);
+        }
         metric.capturedAt = nowIso;
         Object.assign(metric, markVerified(metric, nowIso));
         filledTypes.push(fig.metricType);
@@ -1630,11 +1667,17 @@ export class GeminiRepository implements MarketIntelRepository {
     );
     const updatedIds: string[] = [];
     for (const card of companyCards) {
-      const deckUserValues = this.snap.metrics
-        .filter((m) => m.metricType === 'users' && m.confidence !== 'unknown' && m.value !== null)
-        .map((m) => m.value as number);
       const metrics = this.snap.metrics.filter((m) => m.companyId === companyId);
-      const result = computeCms(buildCmsInput(metrics), { deckUserValues });
+      const deckCompanyIds = new Set(
+        this.snap.cards
+          .filter((candidate) => candidate.deckId === card.deckId && candidate.cardType === 'company')
+          .map((candidate) => candidate.companyId)
+          .filter((id): id is string => id !== null),
+      );
+      const userFootprintCohort = buildUserFootprintCohort(
+        this.snap.metrics.filter((metric) => deckCompanyIds.has(metric.companyId)),
+      );
+      const result = computeCms(buildCmsInput(metrics), { userFootprintCohort });
       if (result.finalTier !== card.tier) {
         card.tier = result.finalTier;
         card.tierReason = reason;
@@ -1677,7 +1720,13 @@ export class GeminiRepository implements MarketIntelRepository {
    */
   private async redTeamReportFigures(companyIds: string[]): Promise<string[]> {
     const CAP = 12;
-    const picked: Array<{ companyId: string; companyName: string; metricType: MetricType; value: number }> = [];
+    const picked: Array<{
+      companyId: string;
+      companyName: string;
+      metricType: MetricType;
+      metricLabel: string;
+      value: number;
+    }> = [];
     for (const id of companyIds) {
       const company = this.snap.companies.find((c) => c.id === id);
       if (!company) continue;
@@ -1686,7 +1735,13 @@ export class GeminiRepository implements MarketIntelRepository {
         // Only soft figures get challenged: user figures are law, verified
         // ones re-check via freshness decay.
         if (m.confidence !== 'estimated') continue;
-        picked.push({ companyId: id, companyName: company.name, metricType: m.metricType, value: m.value });
+        picked.push({
+          companyId: id,
+          companyName: company.name,
+          metricType: m.metricType,
+          metricLabel: metricDisplayLabel(m),
+          value: m.value,
+        });
         if (picked.length >= CAP) break;
       }
       if (picked.length >= CAP) break;
@@ -1694,7 +1749,7 @@ export class GeminiRepository implements MarketIntelRepository {
     if (picked.length === 0) return [];
 
     const listing = picked
-      .map((t) => `- ${t.companyName}: ${METRIC_TYPE_LABELS[t.metricType]} = ${t.value}`)
+      .map((t) => `- ${t.companyName}: ${t.metricLabel} = ${t.value}`)
       .join('\n');
     const g = await this.client.ground(
       [
@@ -1723,7 +1778,7 @@ export class GeminiRepository implements MarketIntelRepository {
         (t) => companyKey(t.companyName) === companyKey(f.companyName) && t.metricType === f.metricType,
       );
       if (!target) continue;
-      const label = METRIC_TYPE_LABELS[f.metricType];
+      const label = target?.metricLabel ?? METRIC_TYPE_LABELS[f.metricType];
       if (f.verdict === 'wrong' && f.correctedValue != null && hasVerificationGradeCitation(cited)) {
         try {
           await this.verifyMetric({
@@ -2336,9 +2391,15 @@ export class GeminiRepository implements MarketIntelRepository {
       .map((c) => this.snap.companies.find((x) => x.id === c.companyId))
       .filter((c): c is Company => Boolean(c));
 
-    const deckUserValues = this.snap.metrics
-      .filter((m) => m.metricType === 'users' && m.confidence !== 'unknown' && m.value !== null)
-      .map((m) => m.value as number);
+    const deckCompanyIds = new Set(
+      this.snap.cards
+        .filter((card) => card.deckId === deck.id && card.cardType === 'company')
+        .map((card) => card.companyId)
+        .filter((companyId): companyId is string => companyId !== null),
+    );
+    const userFootprintCohort = buildUserFootprintCohort(
+      this.snap.metrics.filter((metric) => deckCompanyIds.has(metric.companyId)),
+    );
 
     const cards = await expandDeckWithDeltaAgent({
       client: this.client,
@@ -2348,7 +2409,7 @@ export class GeminiRepository implements MarketIntelRepository {
       focus,
       existingCompanies,
       deckId: deck.id,
-      deckUserValues,
+      userFootprintCohort,
       target: 3,
       signal: handlers?.signal,
       onEvent: (evt) => {
@@ -2406,6 +2467,7 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     metric.value = input.value;
     metric.confidence = input.value == null ? 'unknown' : 'user_verified';
+    if (input.userBasis !== undefined) metric.userBasis = input.userBasis;
     // A human override is its own provenance: the note IS the source.
     metric.source = input.note?.trim() || 'Manually corrected by user';
     metric.citations = [];

@@ -177,6 +177,30 @@ describe('verifyMetric', () => {
     expect(events).toHaveLength(0);
   });
 
+  it('can correct the footprint basis even when the number itself is unchanged', async () => {
+    const initial = seededSnapshot();
+    const users = initial.metrics.find((metric) => metric.metricType === 'users')!;
+    users.confidence = 'estimated';
+    users.userBasis = 'unknown';
+    const { store } = memoryStore(initial);
+    const client = stubClient({
+      structured: {
+        verdict: 'supported',
+        currentValue: 1_000_000_000,
+        rationale: 'The reported count is still current.',
+        methodNote: 'Reuters reports one billion monthly active users.',
+        userBasis: 'monthly_active_users',
+      },
+    });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'users' });
+
+    expect(result.metric.value).toBe(1_000_000_000);
+    expect(result.metric.userBasis).toBe('monthly_active_users');
+    expect(result.changed).toBe(true);
+  });
+
   it('NEVER revises without citations, even when a figure is offered (no-fabrication)', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({

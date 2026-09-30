@@ -125,6 +125,50 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
     expect(byType('users').confidence).toBe('user_verified');
   });
 
+  it('stores an explicit basis for a newly discovered user-footprint metric', async () => {
+    const initial = snapshot();
+    initial.metrics = initial.metrics.filter((metric) => metric.metricType !== 'users');
+    const ground = vi.fn().mockResolvedValue({
+      text: 'OpenAI reported monthly active users.',
+      citations: [{ title: 'Reuters', url: 'https://reuters.com/openai-users' }],
+      queries: [],
+    });
+    const structure = vi.fn().mockResolvedValue({
+      figures: [
+        {
+          metricType: 'users',
+          value: 700_000_000,
+          methodNote: 'Reuters, monthly active users, Aug 2026',
+          userBasis: 'monthly_active_users',
+        },
+      ],
+    });
+    const repo = new GeminiRepository({
+      apiKey: 'k',
+      store: memoryStore(initial),
+      client: { ground, structure } as unknown as LlmClient,
+    });
+
+    await repo.huntCompanyMetrics('cmp_1');
+
+    const users = (await repo.getCompanyMetrics('cmp_1')).find((metric) => metric.metricType === 'users');
+    expect(users?.userBasis).toBe('monthly_active_users');
+  });
+
+  it('keeps an explicitly supplied basis when a user corrects a footprint metric', async () => {
+    const repo = repoWith({} as LlmClient);
+    await repo.overrideMetric({
+      companyId: 'cmp_1',
+      metricType: 'users',
+      value: 120,
+      note: 'Manually confirmed by operations',
+      userBasis: 'paying_business_accounts',
+    });
+
+    const users = (await repo.getCompanyMetrics('cmp_1')).find((metric) => metric.metricType === 'users');
+    expect(users?.userBasis).toBe('paying_business_accounts');
+  });
+
   it('writes NOTHING when the only citations are junk domains', async () => {
     const ground = vi.fn().mockResolvedValue({
       text: 'notes',

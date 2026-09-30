@@ -83,6 +83,42 @@ describe('enrichmentOutSchema — funding round as a closed vocabulary', () => {
   });
 });
 
+describe('enrichmentOutSchema — user footprint and pricing bases', () => {
+  it('preserves the measured footprint and exact priced unit separately', () => {
+    const out = enrichmentOutSchema.parse({
+      metrics: {
+        users: {
+          value: 4_000,
+          confidence: 'verified',
+          sourceIndex: 0,
+          method: '4,000 monthly active users',
+          userBasis: 'monthly_active_users',
+        },
+      },
+      facts: {
+        publicUserFootprint: 700,
+        footprintLabel: 'paying business accounts',
+        footprintBasis: 'paying_business_accounts',
+        scrapedPricing: {
+          annualPrice: 12_000,
+          pricingUnitBasis: 'per_business_account',
+        },
+      },
+    });
+
+    expect(out.metrics.users?.userBasis).toBe('monthly_active_users');
+    expect(out.facts.footprintBasis).toBe('paying_business_accounts');
+    expect(out.facts.scrapedPricing?.pricingUnitBasis).toBe('per_business_account');
+  });
+
+  it('defaults omitted pricing denominator to unknown, never an inferred paid unit', () => {
+    const out = enrichmentOutSchema.parse({
+      facts: { scrapedPricing: { monthlyPrice: 40 } },
+    });
+    expect(out.facts.scrapedPricing?.pricingUnitBasis).toBe('unknown');
+  });
+});
+
 describe('malformed model output at every strict boundary (issue #48)', () => {
   /**
    * Each agent boundary is handed garbage a real model has plausibly produced:
@@ -104,6 +140,21 @@ describe('malformed model output at every strict boundary (issue #48)', () => {
 
     const hunt = huntMetricsOutSchema.parse({ figures: [{ metricType: 'arr' }] });
     expect(hunt.figures[0]!.value).toBeNull();
+  });
+
+  it('preserves explicit footprint bases from live verification and metric hunts', () => {
+    expect(
+      verifyMetricOutSchema.parse({
+        verdict: 'supported',
+        currentValue: 1200,
+        userBasis: 'monthly_active_users',
+      }).userBasis,
+    ).toBe('monthly_active_users');
+    expect(
+      huntMetricsOutSchema.parse({
+        figures: [{ metricType: 'users', value: 1200, userBasis: 'registered_accounts' }],
+      }).figures[0]?.userBasis,
+    ).toBe('registered_accounts');
   });
 
   it('tolerates a bare list where an object was requested, on every list boundary', () => {

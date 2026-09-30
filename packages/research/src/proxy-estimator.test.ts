@@ -278,20 +278,24 @@ describe('Proxy 2 — VC Funding Dilution Valuation Model', () => {
   });
 });
 
-describe('Proxy 3 — Pricing Tier × Customer Footprint', () => {
-  it('estimates ARR from monthly pricing and active team footprint', () => {
+describe('Proxy 3 — Pricing Tier × Paid Customer Footprint', () => {
+  it('estimates ARR only from a paying footprint whose unit matches plan pricing', () => {
     const result = estimateArrFromPricingAndFootprint(
       { monthlyPrice: 40 },
       2_500,
       [],
-      { footprintLabel: 'active teams' },
+      {
+        footprintLabel: 'paying business accounts',
+        footprintBasis: 'paying_business_accounts',
+        pricingUnitBasis: 'per_business_account',
+      },
     );
     expect(result).not.toBeNull();
     expect(result!.metricType).toBe('arr');
     expect(result!.value).toBe(1_200_000); // 2,500 * ($40 * 12) = $1.2M
     expect(result!.confidence).toBe('estimated');
     expect(result!.methodNote).toBe(
-      'Estimated: 2,500 active teams × $40/mo standard tier ($480/yr) = ~$1.2M ARR.',
+      'Estimated: 2,500 paying business accounts × $40/mo standard tier ($480/yr) = ~$1.2M ARR.',
     );
   });
 
@@ -300,14 +304,18 @@ describe('Proxy 3 — Pricing Tier × Customer Footprint', () => {
       { annualPrice: 12_000, tierName: 'Enterprise' },
       50,
       [],
-      { footprintLabel: 'verified customer logos' },
+      {
+        footprintLabel: 'paying business accounts',
+        footprintBasis: 'paying_business_accounts',
+        pricingUnitBasis: 'per_business_account',
+      },
     );
     expect(result).not.toBeNull();
     expect(result!.metricType).toBe('arr');
     expect(result!.value).toBe(600_000); // 50 * $12,000 = $600k
     expect(result!.confidence).toBe('estimated');
     expect(result!.methodNote).toBe(
-      'Estimated: 50 verified customer logos × $1k/mo standard Enterprise tier ($12k/yr) = ~$600k ARR.',
+      'Estimated: 50 paying business accounts × $1k/mo standard Enterprise tier ($12k/yr) = ~$600k ARR.',
     );
   });
 
@@ -316,14 +324,18 @@ describe('Proxy 3 — Pricing Tier × Customer Footprint', () => {
       { lowestPrice: 20, highestPrice: 60 },
       1_000,
       [],
-      { footprintLabel: 'active subscriptions' },
+      {
+        footprintLabel: 'individual paying customers',
+        footprintBasis: 'individual_paying_customers',
+        pricingUnitBasis: 'per_individual_subscription',
+      },
     );
     expect(result).not.toBeNull();
     expect(result!.metricType).toBe('arr');
     expect(result!.value).toBe(480_000); // 1,000 * (($20+$60)/2 * 12) = 1,000 * $480 = $480k
     expect(result!.confidence).toBe('estimated');
     expect(result!.methodNote).toBe(
-      'Estimated: 1,000 active subscriptions × $40/mo standard tier ($480/yr) = ~$480k ARR.',
+      'Estimated: 1,000 individual paying customers × $40/mo standard tier ($480/yr) = ~$480k ARR.',
     );
   });
 
@@ -332,6 +344,19 @@ describe('Proxy 3 — Pricing Tier × Customer Footprint', () => {
     expect(estimateArrFromPricingAndFootprint({ monthlyPrice: 50 }, null)).toBeNull();
     expect(estimateArrFromPricingAndFootprint({ monthlyPrice: 50 }, 0)).toBeNull();
     expect(estimateArrFromPricingAndFootprint({ monthlyPrice: 50 }, -10)).toBeNull();
+  });
+
+  it('never treats stars, downloads, or free active users as a paying footprint', () => {
+    for (const footprintBasis of ['github_stars', 'downloads_or_installs', 'monthly_active_users'] as const) {
+      expect(
+        estimateArrFromPricingAndFootprint(
+          { monthlyPrice: 40 },
+          10_000,
+          [],
+          { footprintBasis, pricingUnitBasis: 'per_seat' },
+        ),
+      ).toBeNull();
+    }
   });
 });
 
@@ -380,8 +405,9 @@ describe('Proxy 4 & Orchestrated Engine — estimatePrivateCompanyMetrics', () =
       'B2B SaaS',
       {
         publicUserFootprint: 2_500,
-        footprintLabel: 'active teams',
-        scrapedPricing: { monthlyPrice: 40 },
+        footprintLabel: 'paying business accounts',
+        footprintBasis: 'paying_business_accounts',
+        scrapedPricing: { monthlyPrice: 40, pricingUnitBasis: 'per_business_account' },
         lastFundingRound: { amount: 3_000_000, roundType: 'Seed' },
       },
     );
@@ -391,10 +417,29 @@ describe('Proxy 4 & Orchestrated Engine — estimatePrivateCompanyMetrics', () =
     const arr = results.find((r) => r.metricType === 'arr')!;
     expect(arr.value).toBe(1_200_000); // 2,500 * $480 = $1.2M
     expect(arr.derivedFromMetricTypes).toEqual(['users']);
-    expect(arr.methodNote).toContain('2,500 active teams × $40/mo');
+    expect(arr.methodNote).toContain('2,500 paying business accounts × $40/mo');
 
     const val = results.find((r) => r.metricType === 'valuation')!;
     expect(val.value).toBe(24_000_000); // $3M * 8 = $24M
+  });
+
+  it('withholds a footprint ARR proxy when its count is attention rather than paying units', () => {
+    const results = estimatePrivateCompanyMetrics(
+      'Starware',
+      'Developer tools',
+      {
+        publicUserFootprint: 50_000,
+        footprintLabel: 'GitHub stars',
+        footprintBasis: 'github_stars',
+        scrapedPricing: { monthlyPrice: 40, pricingUnitBasis: 'per_seat' },
+      },
+      { includeUnknowns: true },
+    );
+
+    const arr = results.find((result) => result.metricType === 'arr')!;
+    expect(arr.value).toBeNull();
+    expect(arr.confidence).toBe('unknown');
+    expect(arr.methodNote).toMatch(/withheld because the footprint is not confirmed as a paying unit/i);
   });
 
   it('prioritizes Headcount (Tier 1) over Pricing × Footprint (Tier 3) when both are present', () => {

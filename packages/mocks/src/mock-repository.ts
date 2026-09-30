@@ -13,6 +13,7 @@ import {
   type CreateMarketInput,
   type DashboardTab,
   type DashboardTabResult,
+  buildUserFootprintCohort,
   buildCmsInput,
   computeCms,
   enforceMetricsProvenance,
@@ -490,15 +491,19 @@ export class MockRepository implements MarketIntelRepository {
     metric.methodNote = input.note ?? 'Manually corrected by user';
     metric.capturedAt = new Date().toISOString();
     // Recompute company-card tiers (same auditable rule as live: base tier, no stale nudge).
-    const deckUserValues = this.metrics
-      .filter((m) => m.metricType === 'users' && m.confidence !== 'unknown' && m.value !== null)
-      .map((m) => m.value as number);
     for (const card of this.cards.filter(
       (c) => c.companyId === input.companyId && c.cardType === 'company',
     )) {
+      const deckCompanyIds = new Set(
+        this.cards
+          .filter((candidate) => candidate.deckId === card.deckId && candidate.cardType === 'company')
+          .map((candidate) => candidate.companyId)
+          .filter((companyId): companyId is string => companyId !== null),
+      );
+      const deckMetrics = this.metrics.filter((m) => deckCompanyIds.has(m.companyId));
       const result = computeCms(
         buildCmsInput(this.metrics.filter((m) => m.companyId === input.companyId)),
-        { deckUserValues },
+        { userFootprintCohort: buildUserFootprintCohort(deckMetrics) },
       );
       if (result.finalTier !== card.tier) {
         card.tier = result.finalTier;

@@ -22,10 +22,7 @@ function hydrate(cardId: string) {
 describe('GameCard', () => {
   it('shows a collectible face with truthful metrics, not a quality rating', () => {
     const cwc = hydrate(companyCard.id);
-    const deckUserValues = data.metrics
-      .filter((m) => m.metricType === 'users' && m.confidence !== 'unknown' && m.value !== null)
-      .map((m) => m.value as number);
-    renderWithProviders(<GameCard data={cwc} deckUserValues={deckUserValues} />);
+    renderWithProviders(<GameCard data={cwc} />);
     expect(screen.getAllByText('GraceWear Global').length).toBeGreaterThan(0);
     expect(screen.getByText(cwc.company!.oneLiner)).toBeInTheDocument();
     expect(screen.getByText('ARR')).toBeInTheDocument();

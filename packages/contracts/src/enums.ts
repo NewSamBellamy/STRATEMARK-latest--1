@@ -103,6 +103,79 @@ export const METRIC_TYPE_LABELS: Record<MetricType, string> = {
   employees: 'Employees',
 };
 
+/**
+ * What a `users` footprint actually counts. Only like-for-like, person/account
+ * measures are comparable in a deck; attention and acquisition proxies remain
+ * visible but are deliberately excluded from size-band scoring.
+ */
+export const USER_FOOTPRINT_BASES = [
+  'daily_active_users',
+  'weekly_active_users',
+  'monthly_active_users',
+  'active_users_unspecified',
+  'registered_accounts',
+  'active_workspaces',
+  'paid_seats',
+  'business_customer_accounts',
+  'paying_business_accounts',
+  'individual_paying_customers',
+  'downloads_or_installs',
+  'github_stars',
+  'social_followers',
+  'social_reach',
+  'waitlist_signups',
+  'newsletter_subscribers',
+  'customers_unspecified',
+  'other',
+  'unknown',
+] as const;
+export type UserFootprintBasis = (typeof USER_FOOTPRINT_BASES)[number];
+
+export const USER_FOOTPRINT_BASIS_LABELS: Record<UserFootprintBasis, string> = {
+  daily_active_users: 'Daily active users',
+  weekly_active_users: 'Weekly active users',
+  monthly_active_users: 'Monthly active users',
+  active_users_unspecified: 'Active users (period not stated)',
+  registered_accounts: 'Registered accounts',
+  active_workspaces: 'Active workspaces',
+  paid_seats: 'Paid seats',
+  business_customer_accounts: 'Business customer accounts',
+  paying_business_accounts: 'Paying business accounts',
+  individual_paying_customers: 'Individual paying customers',
+  downloads_or_installs: 'Downloads / installs',
+  github_stars: 'GitHub stars',
+  social_followers: 'Social followers',
+  social_reach: 'Social reach',
+  waitlist_signups: 'Waitlist signups',
+  newsletter_subscribers: 'Newsletter subscribers',
+  customers_unspecified: 'Customers (type not stated)',
+  other: 'Other footprint',
+  unknown: 'Unclassified footprint',
+};
+
+export const SCOREABLE_USER_FOOTPRINT_BASES: readonly UserFootprintBasis[] = [
+  'monthly_active_users',
+  'weekly_active_users',
+  'daily_active_users',
+  'business_customer_accounts',
+  'paying_business_accounts',
+  'individual_paying_customers',
+  'active_workspaces',
+  'registered_accounts',
+  'paid_seats',
+];
+
+/** Price denominators that can be reconciled to an explicitly paid footprint. */
+export const PRICING_UNIT_BASES = [
+  'per_business_account',
+  'per_individual_subscription',
+  'per_seat',
+  'per_workspace',
+  'per_usage_unit',
+  'unknown',
+] as const;
+export type PricingUnitBasis = (typeof PRICING_UNIT_BASES)[number];
+
 // ---------------------------------------------------------------------------
 // Confidence (spec §6.4)
 // ---------------------------------------------------------------------------

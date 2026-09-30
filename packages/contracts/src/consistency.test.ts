@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { UserFootprintBasis } from './enums';
 import {
   auditDeckConsistency,
   verificationTargetsFrom,
@@ -9,7 +10,13 @@ import {
 function company(
   id: string,
   name: string,
-  metrics: Array<{ metricType: string; value: number | null; confidence?: string }>,
+  metrics: Array<{
+    metricType: string;
+    value: number | null;
+    confidence?: string;
+    userBasis?: UserFootprintBasis;
+    methodNote?: string | null;
+  }>,
 ): ConsistencyCompanyInput {
   return {
     companyId: id,
@@ -18,6 +25,8 @@ function company(
       metricType: m.metricType as ConsistencyCompanyInput['metrics'][number]['metricType'],
       value: m.value,
       confidence: m.confidence ?? 'verified',
+      userBasis: m.userBasis,
+      methodNote: m.methodNote,
     })),
   };
 }
@@ -103,11 +112,18 @@ describe('auditDeckConsistency', () => {
 
   it('flags user counts above the world population', () => {
     const deck = [
-      company('z', 'Zeta', [{ metricType: 'users', value: 9_000_000_000 }]),
+      company('z', 'Zeta', [{ metricType: 'users', value: 9_000_000_000, userBasis: 'monthly_active_users' }]),
     ];
     const findings = auditDeckConsistency(deck);
     expect(findings[0]?.code).toBe('users_exceed_population');
     expect(findings[0]?.severity).toBe('critical');
+  });
+
+  it('does not apply a human-population ceiling to downloads or other non-person footprints', () => {
+    const deck = [
+      company('z', 'Zeta', [{ metricType: 'users', value: 20_000_000_000, userBasis: 'downloads_or_installs' }]),
+    ];
+    expect(auditDeckConsistency(deck)).toEqual([]);
   });
 
   it('ignores unknown-confidence rows entirely — an honest Unknown is never inconsistent', () => {

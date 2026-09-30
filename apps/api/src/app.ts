@@ -35,8 +35,11 @@ import {
   hasVerificationGradeCitation, 
   markVerified,
   buildCmsInput,
+  buildUserFootprintCohort,
+  inferUserFootprintBasis,
   computeCms,
   METRIC_TYPE_LABELS,
+  metricDisplayLabel,
   METRIC_TYPES
 } from '@mi/contracts';
 import type { CompanyMetric } from '@mi/contracts';
@@ -127,6 +130,12 @@ export function createApp(
   },
 ): Hono {
   const app = new Hono();
+  const deckUserFootprintCohort = (cards: CardWithCompany[]) =>
+    buildUserFootprintCohort(
+      cards
+        .filter((card) => card.card.cardType === 'company' && card.company)
+        .flatMap((card) => card.metrics),
+    );
   const store = createDataStore(env, {
     store: options?.store,
     forceMemory: options?.forceMemoryStore,
@@ -844,7 +853,7 @@ export function createApp(
     if (metricIdx === -1) return c.json({ error: 'Metric not found' }, 404);
     const metric = companyCard.metrics[metricIdx]!;
 
-    const label = METRIC_TYPE_LABELS[metricType as keyof typeof METRIC_TYPE_LABELS];
+    const label = metricDisplayLabel(metric);
     const nowIso = new Date().toISOString();
 
     if (correction && correction.value != null) {
@@ -859,12 +868,18 @@ export function createApp(
           metric.citations = hintCited;
           metric.source = hintCited[0]?.url ?? metric.source;
           metric.methodNote = correction.rationale ?? `Corrected from a grounded fact-check${correction.asOf ? ` (as of ${correction.asOf})` : ''}.`;
+          if (metricType === 'users') {
+            const inferredBasis = inferUserFootprintBasis(metric.methodNote);
+            if (inferredBasis !== 'unknown') metric.userBasis = inferredBasis;
+          }
           metric.capturedAt = nowIso;
           changed = true;
         }
         Object.assign(metric, markVerified(metric as CompanyMetric, nowIso));
         const priorTier = companyCard.card.tier;
-        companyCard.card.tier = computeCms(buildCmsInput(companyCard.metrics), { deckUserValues: [] }).finalTier;
+        companyCard.card.tier = computeCms(buildCmsInput(companyCard.metrics), {
+          userFootprintCohort: deckUserFootprintCohort(existingDeck.cards ?? []),
+        }).finalTier;
         const retieredCardIds = changed && priorTier !== companyCard.card.tier ? [companyCard.card.id] : [];
         if (retieredCardIds.length > 0) {
           companyCard.card.tierReason = 'Re-tiered after a fact-check correction.';
@@ -940,7 +955,21 @@ export function createApp(
         metric.citations = cited;
         metric.source = cited[0]?.url ?? metric.source;
         metric.methodNote = out.methodNote ?? `Live verification: ${out.rationale}`;
+        if (metricType === 'users') {
+          if (out.userBasis != null) metric.userBasis = out.userBasis;
+          else {
+            const inferredBasis = inferUserFootprintBasis(metric.methodNote);
+            if (inferredBasis !== 'unknown') metric.userBasis = inferredBasis;
+          }
+        }
         metric.capturedAt = nowIso;
+        changed = true;
+      }
+    }
+    if (metricType === 'users' && metric.confidence !== 'user_verified') {
+      const basis = out.userBasis ?? inferUserFootprintBasis(out.methodNote ?? out.rationale);
+      if (basis !== 'unknown' && basis !== metric.userBasis) {
+        metric.userBasis = basis;
         changed = true;
       }
     }
@@ -953,7 +982,9 @@ export function createApp(
     }
 
     const priorTier = companyCard.card.tier;
-    companyCard.card.tier = computeCms(buildCmsInput(companyCard.metrics), { deckUserValues: [] }).finalTier;
+    companyCard.card.tier = computeCms(buildCmsInput(companyCard.metrics), {
+      userFootprintCohort: deckUserFootprintCohort(existingDeck.cards ?? []),
+    }).finalTier;
     const retieredCardIds = changed && priorTier !== companyCard.card.tier ? [companyCard.card.id] : [];
     if (retieredCardIds.length > 0) {
       companyCard.card.tierReason = 'Re-tiered after live metric verification.';
@@ -1039,13 +1070,14 @@ export function createApp(
         `Use Google Search. For each figure name the value, its as-of date, and the source. Prefer primary sources and recent reputable coverage. If no reliable current figure exists for a metric, say so plainly for that metric. Never guess.`,
         `MEASUREMENT BASIS: every figure must describe the WHOLE legal company — for a conglomerate, total company revenue/valuation/headcount, never a division's figure presented as the company's.`,
         `UNITS: Market Share in percent of its primary market (0-100); Users and Employees as plain counts; Valuation, Market Cap, and ARR in US dollars.`,
+        `For a Users figure, also return userBasis naming exactly what is counted (for example monthly_active_users, registered_accounts, paying_business_accounts, downloads_or_installs, github_stars). Use unknown when the notes do not say; never guess based on the business category.`,
       ].join('\n'),
       { system: GROUNDED_SYSTEM }
     );
 
     const out = await client.structure(
       [
-        `Based ONLY on these research notes about ${company.name}, output JSON { "figures": [ { "metricType": "market_cap"|"valuation"|"market_share"|"arr"|"users"|"employees", "value": number|null, "methodNote": string|null (one line naming the source and as-of date) } ] }.`,
+        `Based ONLY on these research notes about ${company.name}, output JSON { "figures": [ { "metricType": "market_cap"|"valuation"|"market_share"|"arr"|"users"|"employees", "value": number|null, "methodNote": string|null (one line naming the source and as-of date), "userBasis": string|null (users only; unknown if the notes do not establish it) } ] }.`,
         `Include ONLY the metrics the notes actually support with a concrete figure — omit the rest entirely. NEVER invent a value.`,
         ``,
         `NOTES:`,
@@ -1084,6 +1116,9 @@ export function createApp(
         metric.citations = cited;
         metric.source = cited[0]?.url ?? null;
         metric.methodNote = fig.methodNote ?? null;
+        if (fig.metricType === 'users') {
+          metric.userBasis = fig.userBasis ?? inferUserFootprintBasis(metric.methodNote);
+        }
         metric.capturedAt = nowIso;
         filledTypes.push(fig.metricType);
         changed = true;

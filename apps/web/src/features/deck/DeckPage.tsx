@@ -79,14 +79,6 @@ function cardCountNoun(type: CardType, count: number): string {
   return count === 1 ? one[type] : many[type];
 }
 
-function deckUserValuesFrom(cards: CardWithCompany[]): number[] {
-  return cards
-    .filter((c) => c.card.cardType === 'company')
-    .flatMap((c) => c.metrics)
-    .filter((m) => m.metricType === 'users' && m.confidence !== 'unknown' && m.value !== null)
-    .map((m) => m.value as number);
-}
-
 export default function DeckPage() {
   const { marketId } = useParams();
   const market = useMarket(marketId);
@@ -156,7 +148,6 @@ export default function DeckPage() {
     if (deckId) setChatContext({ kind: 'deck', deckId, subject: marketName ?? 'this deck' });
     return () => setChatContext(null);
   }, [deckId, marketName, setChatContext]);
-  const userValues = useMemo(() => deckUserValuesFrom(all), [all]);
   const countByType = useMemo(() => {
     const m = new Map<CardType, number>();
     for (const c of all) m.set(c.card.cardType, (m.get(c.card.cardType) ?? 0) + 1);
@@ -454,7 +445,7 @@ export default function DeckPage() {
                   </p>
                   <TierSplit
                     cards={list}
-                    deckUserValues={userValues}
+                    cohortCards={all}
                     marketId={marketId}
                     deckStatus={deckStatus}
                     selectable={compare}
@@ -496,7 +487,7 @@ export default function DeckPage() {
                   {filtered.length > 0 ? (
                     <CardGrid
                       cards={filtered}
-                      deckUserValues={userValues}
+                      cohortCards={all}
                       marketId={marketId}
                       deckStatus={deckStatus}
                     />
@@ -561,7 +552,7 @@ export default function DeckPage() {
                   <>
                     <CardGrid
                       cards={filtered}
-                      deckUserValues={userValues}
+                      cohortCards={all}
                       marketId={marketId}
                       deckStatus={deckStatus}
                       selectable={compare}
@@ -906,7 +897,7 @@ function ExpandPrompt({
 
 function TierSplit({
   cards,
-  deckUserValues,
+  cohortCards,
   marketId,
   deckStatus,
   selectable,
@@ -914,7 +905,7 @@ function TierSplit({
   onToggle,
 }: {
   cards: CardWithCompany[];
-  deckUserValues: number[];
+  cohortCards: CardWithCompany[];
   marketId: string | undefined;
   deckStatus?: 'running' | 'refreshing' | 'partial' | 'failed' | 'ready' | 'ready_stale';
   selectable: boolean;
@@ -945,7 +936,7 @@ function TierSplit({
             </div>
             <CardGrid
               cards={group}
-              deckUserValues={deckUserValues}
+              cohortCards={cohortCards}
               marketId={marketId}
               deckStatus={deckStatus}
               selectable={selectable}
@@ -968,7 +959,7 @@ function TierSplit({
           </div>
           <CardGrid
             cards={unverified}
-            deckUserValues={deckUserValues}
+            cohortCards={cohortCards}
             marketId={marketId}
             deckStatus={deckStatus}
             selectable={selectable}

@@ -27,11 +27,36 @@ describe('CmsBreakdown', () => {
       <CmsBreakdown
         card={{ ...companyCard, tier: 6 }}
         metrics={[arrMetric, employeeMetric]}
-        deckUserValues={[]}
+        userFootprintCohort={{ basis: 'unknown', values: [] }}
       />,
     );
 
     expect(screen.getByText('Excluded proxy')).toBeInTheDocument();
     expect(screen.getByTitle('This proxy reuses another counted input')).toBeInTheDocument();
+  });
+
+  it('explains when a footprint count does not match the deck comparison group', () => {
+    const companyCard = dataset.cards.find((card) => card.cardType === 'company')!;
+    const userMetric = dataset.metrics.find(
+      (metric) => metric.companyId === companyCard.companyId && metric.metricType === 'users',
+    )!;
+    const activeUsers = {
+      ...userMetric,
+      userBasis: 'monthly_active_users' as const,
+    };
+
+    render(
+      <CmsBreakdown
+        card={{ ...companyCard, tier: null }}
+        metrics={[activeUsers]}
+        userFootprintCohort={{ basis: 'github_stars', values: [100, 200] }}
+      />,
+    );
+
+    expect(screen.getByText('Monthly active users')).toBeInTheDocument();
+    expect(screen.getByText('Not comparable')).toHaveAttribute(
+      'title',
+      "Not scored: this count does not match the deck's comparable footprint type.",
+    );
   });
 });

@@ -8,7 +8,6 @@ import { buildCardView } from './card-view';
 
 export interface GameCardProps {
   data: CardWithCompany;
-  deckUserValues?: number[];
   deckStatus?: 'running' | 'refreshing' | 'partial' | 'failed' | 'ready' | 'ready_stale';
   onOpen?: () => void;
   onShare?: () => void;

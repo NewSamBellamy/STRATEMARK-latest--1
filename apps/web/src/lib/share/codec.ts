@@ -11,13 +11,14 @@
  *   "z" — deflate-raw compressed JSON (normal path)
  *   "j" — plain JSON (fallback for engines without CompressionStream)
  */
-import { CARD_TYPES, CONFIDENCE_LEVELS, METRIC_TYPES } from '@mi/contracts';
+import { CARD_TYPES, CONFIDENCE_LEVELS, METRIC_TYPES, USER_FOOTPRINT_BASES } from '@mi/contracts';
 import type {
   CardType,
   CardWithCompany,
   Confidence,
   MaturityTier,
   MetricType,
+  UserFootprintBasis,
 } from '@mi/contracts';
 import { z } from 'zod';
 
@@ -73,6 +74,7 @@ const sharedCardSchema = z.object({
         t: z.enum(METRIC_TYPES),
         v: z.number().finite().nullable(),
         c: z.enum(CONFIDENCE_LEVELS),
+        b: z.enum(USER_FOOTPRINT_BASES).optional(),
         s: sharedCitationSchema.nullable().optional(),
       }),
     )
@@ -139,6 +141,8 @@ export interface SharedMetric {
   t: MetricType;
   v: number | null;
   c: Confidence;
+  /** What a user-footprint figure counts; optional to preserve older links. */
+  b?: UserFootprintBasis;
   /** Top citation: publisher + url. */
   s?: { t: string; u: string } | null;
 }
@@ -266,6 +270,7 @@ export function toSharedCard(c: CardWithCompany): SharedCard {
       t: m.metricType,
       v: m.value,
       c: m.confidence,
+      ...(m.userBasis === undefined ? {} : { b: m.userBasis }),
       s: m.citations[0] ? { t: m.citations[0].title, u: m.citations[0].url } : null,
     })),
   };
@@ -424,6 +429,7 @@ export function sharedToCardWithCompany(
       metricType: m.t,
       value: m.v,
       confidence: m.c,
+      ...(m.b === undefined ? {} : { userBasis: m.b }),
       source: m.s?.u ?? null,
       citations: m.s ? [{ title: m.s.t, url: m.s.u }] : [],
       methodNote: null,

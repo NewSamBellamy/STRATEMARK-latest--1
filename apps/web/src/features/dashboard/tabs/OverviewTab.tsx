@@ -1,5 +1,5 @@
 import { ArrowUpRight, ExternalLink, MapPin } from 'lucide-react';
-import { METRIC_TYPE_LABELS, type CompanyMetric, type MetricType } from '@mi/contracts';
+import { metricDisplayLabel, type CompanyMetric, type MetricType } from '@mi/contracts';
 import { Link, useLocation } from 'react-router-dom';
 import { useCompany, useCompanyMetrics } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
@@ -151,14 +151,14 @@ export function OverviewTab({ companyId }: { companyId: string }) {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-                        {METRIC_TYPE_LABELS[metric.metricType]}
+                        {metricDisplayLabel(metric)}
                       </span>
                       <ConfidenceBadge
                         confidence={metric.confidence}
                         note={metric.methodNote}
                         source={metric.source}
                         citations={metric.citations}
-                        metricLabel={METRIC_TYPE_LABELS[metric.metricType]}
+                        metricLabel={metricDisplayLabel(metric)}
                       />
                     </div>
                     <p className="mt-4 font-display text-[28px] font-semibold tracking-tight text-content">

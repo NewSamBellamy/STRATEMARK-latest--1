@@ -13,6 +13,7 @@ import { isLowPower } from '@/lib/usage';
 import {
   METRIC_TYPE_LABELS,
   auditDeckConsistency,
+  metricDisplayLabel,
   selectStaleMetrics,
   verificationTargetsFrom,
   type CardWithCompany,
@@ -96,13 +97,18 @@ export function useLivingDeck(
       companyId: string,
       metricType: MetricType,
       reason: 'consistency' | 'stale',
-    ): VerificationTarget => ({
-      companyId,
-      companyName: nameOf(companyId),
-      metricType,
-      metricLabel: METRIC_TYPE_LABELS[metricType],
-      reason,
-    });
+    ): VerificationTarget => {
+      const metric = cardsRef.current
+        .find((card) => card.company?.id === companyId)
+        ?.metrics.find((candidate) => candidate.metricType === metricType);
+      return {
+        companyId,
+        companyName: nameOf(companyId),
+        metricType,
+        metricLabel: metric ? metricDisplayLabel(metric) : METRIC_TYPE_LABELS[metricType],
+        reason,
+      };
+    };
 
     const runtime = new LivingDeckRuntime({
       plan: (nowMs) => {

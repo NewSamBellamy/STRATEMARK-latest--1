@@ -4,22 +4,16 @@ import {
   TIER_LABELS,
   enforceMetricProvenance,
   isSignalCardType,
+  metricDisplayLabel,
   usableCitations,
   type CardWithCompany,
   type CompanyMetric,
   type MetricType,
 } from '@mi/contracts';
-
-const LABELS: Record<MetricType, string> = {
-  arr: 'ARR',
-  valuation: 'Valuation',
-  market_cap: 'Market cap',
-  market_share: 'Market share',
-  users: 'Users',
-  employees: 'Employees',
-};
 const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 const facePriority: MetricType[] = ['arr', 'market_cap', 'valuation', 'users', 'employees'];
+
+export const metricLabel = metricDisplayLabel;
 
 /** A single read-only boundary for deck and inspection. Never updates stored research. */
 export function buildCardView(data: CardWithCompany) {
@@ -47,7 +41,7 @@ export function buildCardView(data: CardWithCompany) {
     }
     return {
       metric,
-      label: LABELS[metric.metricType],
+      label: metricLabel(metric),
       display: displayValue(metric),
       confidence: CONFIDENCE_LABELS[metric.confidence],
       note,

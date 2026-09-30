@@ -39,14 +39,6 @@ export function collapseSavedCards(cards: CardWithCompany[]): CardWithCompany[] 
 export default function SavedCardsPage() {
   const cards = useSavedCards();
   const uniqueCards = useMemo(() => collapseSavedCards(cards.data ?? []), [cards.data]);
-  const deckUserValues = useMemo(
-    () =>
-      uniqueCards
-        .flatMap((entry) => entry.metrics)
-        .filter((metric) => metric.metricType === 'users' && metric.value != null)
-        .map((metric) => metric.value as number),
-    [uniqueCards],
-  );
   return (
     <div className="mx-auto max-w-6xl">
       <header className="mb-7">
@@ -87,7 +79,7 @@ export default function SavedCardsPage() {
           />
         }
       >
-        {() => <CardGrid cards={uniqueCards} deckUserValues={deckUserValues} />}
+        {() => <CardGrid cards={uniqueCards} cohortCards={uniqueCards} />}
       </QueryBoundary>
     </div>
   );

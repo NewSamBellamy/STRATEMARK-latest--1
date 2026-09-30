@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Loader2, Pencil, Radar, SearchX } from 'lucide-react';
 import {
   METRIC_TYPE_LABELS,
+  inferUserFootprintBasis,
+  metricDisplayLabel,
   type SIGNAL_BANDS,
   type CompanyMetric,
   type MetricType,
@@ -69,7 +71,7 @@ function OverrideModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title={`Correct ${METRIC_TYPE_LABELS[metric.metricType]}`}
+      title={`Correct ${metricDisplayLabel(metric)}`}
       description={`${companyName} — your value becomes ground truth (User confirmed) and the scale band recomputes instantly.`}
     >
       <div className="space-y-4">
@@ -109,12 +111,18 @@ function OverrideModal({
             onClick={() => {
               const parsed = value.trim() === '' ? null : Number(value.replace(/[,$%\s]/g, ''));
               if (parsed !== null && !Number.isFinite(parsed)) return;
+              const correctedNote = note.trim() || null;
+              const inferredBasis = inferUserFootprintBasis(correctedNote);
+              const existingBasis = metric.userBasis ?? inferUserFootprintBasis(metric.methodNote);
               override.mutate(
                 {
                   companyId: metric.companyId,
                   metricType: metric.metricType,
                   value: parsed,
-                  note: note.trim() || null,
+                  note: correctedNote,
+                  ...(metric.metricType === 'users'
+                    ? { userBasis: inferredBasis === 'unknown' ? existingBasis : inferredBasis }
+                    : {}),
                 },
                 { onSuccess: () => onOpenChange(false) },
               );
@@ -154,7 +162,7 @@ function MetricTile({
     >
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted">
-            {METRIC_TYPE_LABELS[metric.metricType]}
+            {metricDisplayLabel(metric)}
             {highlight && (
               <span className="rounded-full border border-emerald-300 bg-emerald-50 px-1.5 py-px text-[9px] font-semibold normal-case tracking-normal text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
                 Updated from live sources
@@ -167,13 +175,13 @@ function MetricTile({
               note={metric.methodNote}
               source={metric.source}
               citations={metric.citations}
-              metricLabel={METRIC_TYPE_LABELS[metric.metricType]}
+              metricLabel={metricDisplayLabel(metric)}
             />
             <button
               type="button"
               className="rounded-md p-1 text-faint transition-colors hover:bg-surface-2 hover:text-content"
               title="Correct this figure (you know better)"
-              aria-label={`Correct ${METRIC_TYPE_LABELS[metric.metricType]}`}
+              aria-label={`Correct ${metricDisplayLabel(metric)}`}
               onClick={() => setEditing(true)}
             >
               <Pencil className="h-3.5 w-3.5" />
@@ -205,7 +213,7 @@ function MetricTile({
           <div className="flex items-center gap-1.5">
             {metric.value != null && metric.confidence !== 'unknown' && (
               <FactCheck
-                claim={`${companyName}'s ${METRIC_TYPE_LABELS[metric.metricType]} is ${formatMetricValue(metric.metricType, metric.value)}`}
+                claim={`${companyName}'s ${metricDisplayLabel(metric)} is ${formatMetricValue(metric.metricType, metric.value)}`}
                 companyName={companyName}
                 companyId={companyId}
                 metricType={metric.metricType}
@@ -250,7 +258,7 @@ function KpiBand({ tiles }: { tiles: CompanyMetric[] }) {
         <div key={m.id} className="px-4 py-3.5">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-semibold uppercase tracking-widest text-muted">
-              {METRIC_TYPE_LABELS[m.metricType]}
+              {metricDisplayLabel(m)}
             </span>
             <span
               className="h-1.5 w-1.5 rounded-full"
@@ -352,7 +360,10 @@ function HuntMetricsButton({
                 // change was the filmed confusion.
                 setOutcome(
                   r.filledTypes.length > 0
-                    ? `Filled ${r.filledTypes.map((t) => METRIC_TYPE_LABELS[t]).join(' & ')} from live sources — highlighted below.`
+                    ? `Filled ${r.filledTypes.map((t) => {
+                        const filled = r.metrics.find((m) => m.metricType === t);
+                        return filled ? metricDisplayLabel(filled) : METRIC_TYPE_LABELS[t];
+                      }).join(' & ')} from live sources — highlighted below.`
                     : 'No additional figures met the sourcing bar — gaps stay honest.',
                 );
                 if (r.filledTypes.length > 0) onFilled?.(r.filledTypes);
@@ -390,6 +401,8 @@ export function MetricsTab({ companyId }: { companyId: string }) {
         const seen = new Set<MetricType>();
         const tiles = ORDER.map((t) => metrics.find((m) => m.metricType === t))
           .filter((m): m is CompanyMetric => !!m && !seen.has(m.metricType) && !!seen.add(m.metricType));
+        const footprintMetric = metrics.find((m) => m.metricType === 'users');
+        const footprintLabel = footprintMetric ? metricDisplayLabel(footprintMetric) : 'User footprint';
         const series = seriesQ.data?.content;
         const hasSeries = !!series && (series.revenue.length > 1 || series.users.length > 1);
         return (
@@ -437,7 +450,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
                 )}
                 {series.users.length > 1 && (
                   <ChartPanel
-                    title="Users trend"
+                    title={`${footprintLabel} trend`}
                     sub={`${series.users[0]!.period} → ${series.users[series.users.length - 1]!.period} · estimated series`}
                     right={<Delta data={series.users} fmt={(v) => formatMetricValue('users', v)} />}
                     render={(w) => (

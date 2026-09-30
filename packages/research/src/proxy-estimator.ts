@@ -23,7 +23,14 @@
  *   3. Zero Fabrication: Strictly zero fabricated numbers or ungrounded assertions.
  */
 
-import type { Citation, CompanyMetric, Confidence, MetricType } from '@mi/contracts';
+import type {
+  Citation,
+  CompanyMetric,
+  Confidence,
+  MetricType,
+  PricingUnitBasis,
+  UserFootprintBasis,
+} from '@mi/contracts';
 
 // ============================================================================
 // 1. Domain Types & Enums
@@ -380,10 +387,13 @@ export interface PricingInput {
   lowestPrice?: number | null;
   highestPrice?: number | null;
   tierName?: string | null;
+  pricingUnitBasis?: PricingUnitBasis | null;
 }
 
 export interface PricingFootprintOptions {
   footprintLabel?: string;
+  footprintBasis?: UserFootprintBasis | null;
+  pricingUnitBasis?: PricingUnitBasis | null;
   companyId?: string;
 }
 
@@ -392,9 +402,23 @@ export interface PrivateCompanyResearchData {
   headcountSource?: string | null;
   publicUserFootprint?: number | null;
   footprintLabel?: string | null;
+  footprintBasis?: UserFootprintBasis | null;
   scrapedPricing?: PricingInput | null;
   lastFundingRound?: FundingRoundInput | null;
   citations?: Citation[];
+}
+
+export function isPricingFootprintEligible(
+  footprintBasis: UserFootprintBasis | null | undefined,
+  pricingUnitBasis: PricingUnitBasis | null | undefined,
+): boolean {
+  return (
+    (footprintBasis === 'paying_business_accounts' &&
+      pricingUnitBasis === 'per_business_account') ||
+    (footprintBasis === 'individual_paying_customers' &&
+      pricingUnitBasis === 'per_individual_subscription') ||
+    (footprintBasis === 'paid_seats' && pricingUnitBasis === 'per_seat')
+  );
 }
 
 export interface EstimateOptions {
@@ -427,6 +451,7 @@ export function estimateArrFromPricingAndFootprint(
   ) {
     return null;
   }
+  if (!isPricingFootprintEligible(options?.footprintBasis, options?.pricingUnitBasis)) return null;
 
   let monthly: number | null = null;
   let annual: number | null = null;
@@ -499,6 +524,8 @@ export const estimateArrFromFootprint = (
     annualPricePerUnit?: number | null;
     monthlyPricePerUnit?: number | null;
     footprintUnit?: string | null;
+    footprintBasis?: UserFootprintBasis | null;
+    pricingUnitBasis?: PricingUnitBasis | null;
     pricingTierName?: string | null;
   },
   citations: Citation[] = [],
@@ -511,7 +538,11 @@ export const estimateArrFromFootprint = (
     },
     input.footprintCount,
     citations,
-    { footprintLabel: input.footprintUnit ?? undefined },
+    {
+      footprintLabel: input.footprintUnit ?? undefined,
+      footprintBasis: input.footprintBasis,
+      pricingUnitBasis: input.pricingUnitBasis,
+    },
   );
 
 // ============================================================================
@@ -698,6 +729,8 @@ export function estimatePrivateCompanyMetrics(
       citations,
       {
         footprintLabel: data.footprintLabel ?? undefined,
+        footprintBasis: data.footprintBasis,
+        pricingUnitBasis: data.scrapedPricing.pricingUnitBasis,
         companyId,
       },
     );
@@ -716,7 +749,16 @@ export function estimatePrivateCompanyMetrics(
       !data.scrapedPricing &&
       !data.lastFundingRound?.amount);
 
-  const shouldIncludeUnknowns = Boolean(options?.includeUnknowns || isStealthOrEmpty);
+  const hasIneligiblePricingFootprint = Boolean(
+    !data?.headcount &&
+      data?.publicUserFootprint &&
+      data.scrapedPricing &&
+      !isPricingFootprintEligible(data.footprintBasis, data.scrapedPricing.pricingUnitBasis),
+  );
+
+  const shouldIncludeUnknowns = Boolean(
+    options?.includeUnknowns || isStealthOrEmpty || hasIneligiblePricingFootprint,
+  );
 
   if (arrMetric) {
     results.push(arrMetric);
@@ -729,8 +771,9 @@ export function estimatePrivateCompanyMetrics(
       confidence: 'unknown',
       source: null,
       citations: [],
-      methodNote:
-        'Unknown: No verified headcount or customer pricing footprint disclosed for private company ARR proxy.',
+      methodNote: hasIneligiblePricingFootprint
+        ? 'Unknown: Pricing-based ARR proxy withheld because the footprint is not confirmed as a paying unit that matches the price basis.'
+        : 'Unknown: No verified headcount or customer pricing footprint disclosed for private company ARR proxy.',
       capturedAt: new Date().toISOString(),
     });
   }
@@ -767,6 +810,8 @@ export const estimateGroundedProxies = (company: {
     monthlyPrice?: number | null;
     annualPrice?: number | null;
     footprintLabel?: string | null;
+    footprintBasis?: UserFootprintBasis | null;
+    pricingUnitBasis?: PricingUnitBasis | null;
   } | null;
   citations?: Citation[];
 }) => {
@@ -778,10 +823,12 @@ export const estimateGroundedProxies = (company: {
       lastFundingRound: company.funding,
       publicUserFootprint: company.pricingFootprint?.footprintCount,
       footprintLabel: company.pricingFootprint?.footprintLabel,
+      footprintBasis: company.pricingFootprint?.footprintBasis,
       scrapedPricing: company.pricingFootprint
         ? {
             monthlyPrice: company.pricingFootprint.monthlyPrice,
             annualPrice: company.pricingFootprint.annualPrice,
+            pricingUnitBasis: company.pricingFootprint.pricingUnitBasis,
           }
         : null,
       citations: company.citations,

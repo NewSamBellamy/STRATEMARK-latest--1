@@ -13,7 +13,7 @@
  *   4. The LLM may nudge ±1 with a logged reason (applied here as data, never
  *      assigned from scratch — see `applyNudge`, which throws on |nudge| > 1).
  */
-import type { Confidence, MaturityTier, MetricType } from './enums';
+import type { Confidence, MaturityTier, MetricType, UserFootprintBasis } from './enums';
 import {
   CMS_SIGNAL_KEYS,
   CMS_WEIGHTS,
@@ -22,13 +22,20 @@ import {
   mapUsersRelative,
   mapValueToTier,
 } from './tiers';
+import {
+  inferUserFootprintBasis,
+  isScoreableUserFootprintBasis,
+  type UserFootprintCohort,
+} from './user-footprint';
 
 export interface CmsSignalInput {
   /** Numeric value, or null when there is no usable figure. */
   value: number | null;
   confidence: Confidence;
   /** A proxy derived from another scored signal is shown, but not scored twice. */
-  excludedReason?: 'dependent_proxy' | null;
+  excludedReason?: 'dependent_proxy' | 'uncomparable_user_basis' | null;
+  /** Exact denominator used when this is the user-footprint signal. */
+  userBasis?: UserFootprintBasis;
 }
 
 export interface CmsValueSignalInput extends CmsSignalInput {
@@ -43,15 +50,15 @@ export interface CmsInput {
   value: CmsValueSignalInput;
   /** Annual recurring revenue, USD. */
   arr: CmsSignalInput;
-  /** Number of users (scored relative to the deck). */
+  /** User / account footprint (scored only against a like-for-like cohort). */
   users: CmsSignalInput;
   /** Headcount. */
   employees: CmsSignalInput;
 }
 
 export interface CmsContext {
-  /** All usable user values across companies in the same deck, for relative users scoring. */
-  deckUserValues: number[];
+  /** The single comparable peer cohort selected for this deck. */
+  userFootprintCohort: UserFootprintCohort;
 }
 
 export interface CmsPerSignal {
@@ -59,7 +66,7 @@ export interface CmsPerSignal {
   available: boolean;
   rawValue: number | null;
   confidence: Confidence;
-  excludedReason: 'dependent_proxy' | null;
+  excludedReason: 'dependent_proxy' | 'uncomparable_user_basis' | null;
   signalTier: MaturityTier | null;
   baseWeight: number;
   /** Weight after renormalizing across available signals (0 when unavailable). */
@@ -91,8 +98,17 @@ function clampTier(n: number): MaturityTier {
   return Math.min(8, Math.max(1, n)) as MaturityTier;
 }
 
-function signalTierFor(key: CmsSignalKey, value: number, context: CmsContext): MaturityTier | null {
-  if (key === 'users') return mapUsersRelative(value, context.deckUserValues);
+function signalTierFor(
+  key: CmsSignalKey,
+  value: number,
+  context: CmsContext,
+  userBasis?: UserFootprintBasis,
+): MaturityTier | null {
+  if (key === 'users') {
+    const cohort = context.userFootprintCohort;
+    if (!isScoreableUserFootprintBasis(userBasis) || userBasis !== cohort.basis) return null;
+    return mapUsersRelative(value, cohort.values);
+  }
   return mapValueToTier(SIGNAL_BANDS[key], value);
 }
 
@@ -118,10 +134,22 @@ export function computeCms(
 
   const perSignal: CmsPerSignal[] = CMS_SIGNAL_KEYS.map((key) => {
     const signal = input[key];
-    const excludedReason = signal.excludedReason ?? null;
+    let excludedReason = signal.excludedReason ?? null;
+    if (
+      key === 'users' &&
+      excludedReason === null &&
+      signal.confidence !== 'unknown' &&
+      signal.value !== null &&
+      (!isScoreableUserFootprintBasis(signal.userBasis) ||
+        signal.userBasis !== context.userFootprintCohort.basis)
+    ) {
+      excludedReason = 'uncomparable_user_basis';
+    }
     const usable =
       excludedReason === null && signal.confidence !== 'unknown' && signal.value !== null;
-    const signalTier = usable ? signalTierFor(key, signal.value as number, context) : null;
+    const signalTier = usable
+      ? signalTierFor(key, signal.value as number, context, signal.userBasis)
+      : null;
     return {
       key,
       available: signalTier !== null,
@@ -180,6 +208,7 @@ export interface MetricLike {
   confidence: Confidence;
   methodNote?: string | null;
   derivedFromMetricTypes?: MetricType[];
+  userBasis?: UserFootprintBasis;
 }
 
 export function buildCmsInput(metrics: MetricLike[]): CmsInput {
@@ -206,7 +235,11 @@ export function buildCmsInput(metrics: MetricLike[]): CmsInput {
       kind: valuation ? 'valuation' : marketCap ? 'market_cap' : null,
     },
     arr: arrSignal,
-    users: asSignal(find('users')),
+    users: {
+      ...asSignal(find('users')),
+      userBasis:
+        find('users')?.userBasis ?? inferUserFootprintBasis(find('users')?.methodNote),
+    },
     employees: asSignal(find('employees')),
   };
 }

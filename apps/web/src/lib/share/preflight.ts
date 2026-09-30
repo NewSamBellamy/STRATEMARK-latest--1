@@ -11,11 +11,7 @@
  * A failed check never blocks the share (the link still ships, honestly
  * badged); low-power mode and missing transports skip the pass entirely.
  */
-import {
-  METRIC_TYPE_LABELS,
-  type CardWithCompany,
-  type MarketIntelRepository,
-} from '@mi/contracts';
+import { metricDisplayLabel, type CardWithCompany, type MarketIntelRepository } from '@mi/contracts';
 
 /** Cap the pre-share verification burn: at most this many grounded checks. */
 const MAX_CHECKS = 5;
@@ -34,7 +30,7 @@ export async function verifyCardForShare(
   if (soft.length === 0) return data;
 
   for (const m of soft) {
-    onStage(`Fact-checking ${METRIC_TYPE_LABELS[m.metricType] ?? m.metricType}…`);
+    onStage(`Fact-checking ${metricDisplayLabel(m)}…`);
     try {
       await repo.verifyMetric({ companyId, metricType: m.metricType, correction: null });
     } catch {

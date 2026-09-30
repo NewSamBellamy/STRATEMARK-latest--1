@@ -17,7 +17,12 @@
  * pass three. Nothing is invented to keep the loop interesting — an empty pass
  * is the signal to stop, not a prompt to lower the bar.
  */
-import type { CardWithCompany, ExpandFocus, LivingDeckDelta } from '@mi/contracts';
+import type {
+  CardWithCompany,
+  ExpandFocus,
+  LivingDeckDelta,
+  UserFootprintCohort,
+} from '@mi/contracts';
 import { IncrementalDeltaAgent } from '../delta-agent';
 import { throwIfAborted, sleep, type RateLimiter } from '../util';
 import type { CompanyCandidate, LlmClient, MarketPlan } from '../types';
@@ -66,7 +71,7 @@ export interface SignalWatcherOptions {
   parentSpan?: AdkSpan | null;
   signal?: AbortSignal;
   deckId?: string;
-  deckUserValues?: number[];
+  userFootprintCohort?: UserFootprintCohort;
   /** Entities already in the deck; seeds the accumulating exclusion set. */
   existing?: readonly ExistingEntity[];
   /**
@@ -151,7 +156,9 @@ export async function runSignalWatcher(
     vertical: plan.vertical,
     geography: plan.geography,
     ...(deckId === undefined ? {} : { deckId }),
-    ...(options.deckUserValues === undefined ? {} : { deckUserValues: options.deckUserValues }),
+    ...(options.userFootprintCohort === undefined
+      ? {}
+      : { userFootprintCohort: options.userFootprintCohort }),
   });
 
   // The exclusion set accumulates so later passes never re-research earlier hits.

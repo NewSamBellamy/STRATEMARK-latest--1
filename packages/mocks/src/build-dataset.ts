@@ -4,6 +4,7 @@
  * a tier — so the fixtures exercise the same code path the back end will use.
  */
 import {
+  buildUserFootprintCohort,
   buildCmsInput,
   computeCms,
   type Card,
@@ -91,7 +92,7 @@ export function buildDataset(cadence: RefreshCadence = DEFAULT_CADENCE): Dataset
   const viceClaims: ViceClaim[] = [];
   const dashboards: Record<string, DashboardRecord> = {};
 
-  // First pass: companies + metrics; collect user values for relative scoring.
+  // First pass: companies + metrics; choose one comparable footprint basis for this deck.
   const seedMetrics = new Map<string, CompanyMetric[]>();
   for (const seed of COMPANY_SEEDS) {
     const company: Company = {
@@ -109,10 +110,7 @@ export function buildDataset(cadence: RefreshCadence = DEFAULT_CADENCE): Dataset
     metrics.push(...rows);
   }
 
-  const deckUserValues: number[] = COMPANY_SEEDS.filter((s) => s.cardTypes.includes('company'))
-    .map((s) => s.metrics.users)
-    .filter((m): m is NonNullable<typeof m> => !!m && m.confidence !== 'unknown' && m.value !== null)
-    .map((m) => m.value as number);
+  const userFootprintCohort = buildUserFootprintCohort(metrics);
 
   // Second pass: cards (with computed tiers), vice claims, dashboards.
   for (const seed of COMPANY_SEEDS) {
@@ -127,7 +125,7 @@ export function buildDataset(cadence: RefreshCadence = DEFAULT_CADENCE): Dataset
       if (cardType === 'company') {
         const result = computeCms(
           buildCmsInput(rows),
-          { deckUserValues },
+          { userFootprintCohort },
           { nudge: seed.nudge?.delta ?? 0, nudgeReason: seed.nudge?.reason ?? null },
         );
         tier = result.finalTier;

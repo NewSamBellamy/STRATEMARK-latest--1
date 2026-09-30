@@ -18,6 +18,7 @@ import type {
   MaturityTier,
   MetricType,
   RefreshCadence,
+  UserFootprintBasis,
 } from './enums';
 import type {
   Card,
@@ -434,6 +435,8 @@ export interface OverrideMetricInput {
   value: number | null;
   /** The user's source note, e.g. "Confirmed by their VP Sales at dinner 07/2026". */
   note: string | null;
+  /** Optional precise count meaning, retained from the existing metric when absent. */
+  userBasis?: UserFootprintBasis;
 }
 
 export interface CardFilter {

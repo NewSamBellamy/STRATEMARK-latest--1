@@ -23,7 +23,7 @@
  *     module never invents a figure to fill a gap; a company that yields no
  *     usable metrics is hydrated with honest nulls.
  */
-import type { LivingDeckDelta } from '@mi/contracts';
+import type { LivingDeckDelta, UserFootprintCohort } from '@mi/contracts';
 import { hydrateCompanyCard, type HydrateCompanyCardResult } from '../company-agent';
 import { sleep, throwIfAborted, type RateLimiter } from '../util';
 import type { CompanyCandidate, LlmClient, MarketPlan } from '../types';
@@ -59,8 +59,8 @@ export interface EnrichmentPoolOptions {
   /** Workers in flight. Defaults to 3 — free-tier friendly. */
   concurrency?: number;
   deckId?: string;
-  /** User counts across the deck, needed for the relative `users` CMS signal. */
-  deckUserValues?: number[];
+  /** Same-deck peer cohort, sharing one comparable footprint basis. */
+  userFootprintCohort?: UserFootprintCohort;
   rateLimiter?: RateLimiter;
   /**
    * Fraction of failures that trips escalation, 0–1. Defaults to 0.5, and only
@@ -251,9 +251,9 @@ export async function runEnrichmentPool(
           plan,
           signal,
           ...(deckId === undefined ? {} : { deckId }),
-          ...(options.deckUserValues === undefined
+          ...(options.userFootprintCohort === undefined
             ? {}
-            : { deckUserValues: options.deckUserValues }),
+            : { userFootprintCohort: options.userFootprintCohort }),
         });
         workerSpan.toolResult('hydrate_company_card', {
           company: candidate.name,

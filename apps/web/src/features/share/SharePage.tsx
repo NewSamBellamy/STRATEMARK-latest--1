@@ -11,7 +11,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ExternalLink, Layers, Link2Off, MapPin } from 'lucide-react';
 import {
-  METRIC_TYPE_LABELS,
+  metricDisplayLabel,
   TIER_LABELS,
   normalizeReportMarkdown,
   publisherOf,
@@ -93,7 +93,7 @@ function SharedReader({ data, onClose }: { data: CardWithCompany; onClose: () =>
             <ul className="space-y-2.5">
               {metrics.map((m) => (
                 <li key={m.id} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-muted">{METRIC_TYPE_LABELS[m.metricType]}</span>
+                  <span className="text-muted">{metricDisplayLabel(m)}</span>
                   <span className="flex items-center gap-2">
                     <span className="font-semibold tabular-nums text-content">
                       {m.value != null && m.confidence !== 'unknown'
@@ -105,7 +105,7 @@ function SharedReader({ data, onClose }: { data: CardWithCompany; onClose: () =>
                       note={null}
                       source={m.source}
                       citations={m.citations}
-                      metricLabel={METRIC_TYPE_LABELS[m.metricType]}
+                      metricLabel={metricDisplayLabel(m)}
                     />
                   </span>
                 </li>

@@ -368,7 +368,9 @@ describe('Company Agent — enrichCompanyWithProxies Deep Module', () => {
       pricingFootprint: {
         footprintCount: 500,
         monthlyPrice: 100,
-        footprintLabel: 'enterprise customers',
+        footprintLabel: 'paying business accounts',
+        footprintBasis: 'paying_business_accounts',
+        pricingUnitBasis: 'per_business_account',
       },
       citations: [{ title: 'Pricing Page', url: 'https://delta.example/pricing' }],
     });
@@ -377,7 +379,7 @@ describe('Company Agent — enrichCompanyWithProxies Deep Module', () => {
     expect(arr).toBeDefined();
     expect(arr.value).toBe(600_000); // 500 * ($100 * 12) = $600k
     expect(arr.confidence).toBe('estimated');
-    expect(arr.methodNote).toContain('500 enterprise customers × $100/mo');
+    expect(arr.methodNote).toContain('500 paying business accounts × $100/mo');
   });
 
   it('emits honest null/unknown (Tier 4) when facts and anchors are completely missing (zero fabrication)', () => {

@@ -38,6 +38,7 @@ import {
   type CardWithCompany,
   type ExpandFocus,
   type MaturityTier,
+  type UserFootprintCohort,
 } from '@mi/contracts';
 import {
   discoveryOutSchema,
@@ -81,7 +82,7 @@ export interface DeltaAgentContext {
   geography?: string | null;
   notes?: string | null;
   deckId?: string;
-  deckUserValues?: number[];
+  userFootprintCohort?: UserFootprintCohort;
 }
 
 export interface TranslatedFocus {
@@ -134,7 +135,7 @@ export interface ExpandDeckWithDeltaAgentArgs {
   existingCompanies?: Array<{ name: string; domain?: string | null; websiteUrl?: string | null }>;
   existingCards?: CardWithCompany[];
   deckId?: string;
-  deckUserValues?: number[];
+  userFootprintCohort?: UserFootprintCohort;
   target?: number;
   onEvent?: OnResearchEvent;
   signal?: AbortSignal;
@@ -430,7 +431,8 @@ export class IncrementalDeltaAgent {
       geography: context?.geography ?? null,
       notes: context?.notes ?? null,
       deckId: context?.deckId ?? '',
-      deckUserValues: context?.deckUserValues ?? [],
+      userFootprintCohort:
+        context?.userFootprintCohort ?? { basis: 'unknown', values: [] },
     };
   }
 
@@ -608,7 +610,7 @@ export class IncrementalDeltaAgent {
         client: this.client,
         plan,
         deckId: this.context.deckId,
-        deckUserValues: this.context.deckUserValues,
+        userFootprintCohort: this.context.userFootprintCohort,
         signal: options.signal,
         includeUnknowns: options.includeUnknowns ?? true,
         customArrPerFte: options.customArrPerFte,
@@ -641,7 +643,10 @@ export class IncrementalDeltaAgent {
           if (review.nudge !== 0 || review.reason) {
             const adjusted = computeCms(
               buildCmsInput(hydration.metrics),
-              { deckUserValues: this.context.deckUserValues ?? [] },
+              {
+                userFootprintCohort:
+                  this.context.userFootprintCohort ?? { basis: 'unknown', values: [] },
+              },
               { nudge: review.nudge, nudgeReason: review.reason },
             );
             hydration.cmsResult = adjusted;
@@ -720,7 +725,7 @@ export async function expandDeckWithDeltaAgent(
     vertical: args.vertical,
     geography: args.geography,
     deckId: args.deckId,
-    deckUserValues: args.deckUserValues,
+    userFootprintCohort: args.userFootprintCohort,
   });
 
   const excludeItems: Array<{ name: string; domain?: string | null }> = [];

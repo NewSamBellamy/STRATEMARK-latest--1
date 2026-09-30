@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Check } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import type { CardWithCompany } from '@mi/contracts';
+import { buildUserFootprintCohort, isEntityCardType, type CardWithCompany } from '@mi/contracts';
 import { cn } from '@/lib/cn';
 import { useMarket } from '@/hooks/data';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
@@ -22,7 +22,7 @@ import { CardReader } from '@/features/card/CardReader';
  */
 export function CardGrid({
   cards,
-  deckUserValues,
+  cohortCards = cards,
   marketId,
   deckStatus,
   selectable = false,
@@ -30,7 +30,8 @@ export function CardGrid({
   onToggle,
 }: {
   cards: CardWithCompany[];
-  deckUserValues: number[];
+  /** Full source deck when `cards` is a filtered/subdeck view. */
+  cohortCards?: CardWithCompany[];
   /** Lets the reader hand the dashboard a real way back to this deck. */
   marketId?: string;
   deckStatus?: 'running' | 'refreshing' | 'partial' | 'failed' | 'ready' | 'ready_stale';
@@ -45,6 +46,17 @@ export function CardGrid({
   const activeId = searchParams.get('card');
   const activeIndex = cards.findIndex((c) => c.card.id === activeId);
   const active = activeIndex >= 0 ? cards[activeIndex]! : null;
+  const activeDeckId = active?.card.deckId;
+  const userFootprintCohort = useMemo(() => {
+    if (!activeDeckId) return { basis: 'unknown' as const, values: [] };
+    const activeDeckMetrics = cohortCards
+      .filter(
+        (entry) =>
+          entry.card.deckId === activeDeckId && isEntityCardType(entry.card.cardType),
+      )
+      .flatMap((entry) => entry.metrics);
+    return buildUserFootprintCohort(activeDeckMetrics);
+  }, [activeDeckId, cohortCards]);
   const setActiveId = (id: string | null) => {
     const next = new URLSearchParams(searchParams);
     if (id) next.set('card', id);
@@ -68,7 +80,6 @@ export function CardGrid({
             <div key={c.card.id} className={cn('relative', selectable && 'cursor-pointer')}>
               <GameCard
                 data={c}
-                deckUserValues={deckUserValues}
                 deckStatus={deckStatus}
                 onOpen={() => (selectable ? onToggle?.(c.card.id) : setActiveId(c.card.id))}
                 onShare={() => setShareTarget(c)}
@@ -110,7 +121,7 @@ export function CardGrid({
           if (!o) setActiveId(null);
         }}
         marketId={marketId}
-        deckUserValues={deckUserValues}
+        userFootprintCohort={userFootprintCohort}
         deckView={deckView.toString()}
         position={activeIndex >= 0 ? activeIndex + 1 : undefined}
         total={cards.length}

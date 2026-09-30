@@ -16,7 +16,8 @@
  *    impossible or wildly implausible. False alarms erode trust faster than
  *    missed ones — a "critical" here must be indefensible.
  */
-import type { MetricType } from './enums';
+import type { MetricType, UserFootprintBasis } from './enums';
+import { inferUserFootprintBasis } from './user-footprint';
 
 export type ConsistencySeverity = 'warning' | 'critical';
 
@@ -46,6 +47,8 @@ export interface ConsistencyCompanyInput {
     value: number | null;
     /** 'unknown' rows are ignored — an honest Unknown is never inconsistent. */
     confidence: string;
+    userBasis?: UserFootprintBasis;
+    methodNote?: string | null;
   }>;
 }
 
@@ -60,6 +63,13 @@ export const SHARE_SUM_CRITICAL_PCT = 110;
 export const MAX_PLAUSIBLE_ARR_PER_EMPLOYEE_USD = 15_000_000;
 /** More users than humans is not a growth story. */
 export const WORLD_POPULATION_CEILING = 8_300_000_000;
+const HUMAN_USER_BASES = new Set<UserFootprintBasis>([
+  'daily_active_users',
+  'weekly_active_users',
+  'monthly_active_users',
+  'active_users_unspecified',
+  'individual_paying_customers',
+]);
 
 function usable(m: { value: number | null; confidence: string }): m is {
   value: number;
@@ -120,7 +130,9 @@ export function auditDeckConsistency(
     const arr = metricOf(company, 'arr');
     const valuation = metricOf(company, 'valuation') ?? metricOf(company, 'market_cap');
     const employees = metricOf(company, 'employees');
-    const users = metricOf(company, 'users');
+    const usersMetric = company.metrics.find((m) => m.metricType === 'users');
+    const users = usersMetric && usable(usersMetric) ? usersMetric : null;
+    const userBasis = usersMetric?.userBasis ?? inferUserFootprintBasis(usersMetric?.methodNote);
 
     // ── 2. A valuation below annual revenue is a near-certain data error ──
     if (arr && valuation && valuation.value < arr.value) {
@@ -148,7 +160,7 @@ export function auditDeckConsistency(
     }
 
     // ── 4. More users than people on Earth ──
-    if (users && users.value > WORLD_POPULATION_CEILING) {
+    if (users && HUMAN_USER_BASES.has(userBasis) && users.value > WORLD_POPULATION_CEILING) {
       findings.push({
         code: 'users_exceed_population',
         severity: 'critical',

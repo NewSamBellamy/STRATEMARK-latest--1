@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, ArrowUpRight, ExternalLink, Radar, Share2 } from 'lucide-react';
-import { publisherOf, type CardWithCompany } from '@mi/contracts';
+import { publisherOf, type CardWithCompany, type UserFootprintCohort } from '@mi/contracts';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/Modal';
 import { useMarket } from '@/hooks/data';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
@@ -22,7 +22,7 @@ type Props = {
   marketId?: string;
   position?: number;
   total?: number;
-  deckUserValues?: number[];
+  userFootprintCohort?: UserFootprintCohort;
   deckView?: string;
   onPrevious?: () => void;
   onNext?: () => void;
@@ -41,7 +41,7 @@ function CardReaderBody({
   deckView,
   position,
   total,
-  deckUserValues = [],
+  userFootprintCohort = { basis: 'unknown', values: [] },
   onPrevious,
   onNext,
 }: Omit<Props, 'data'> & { data: CardWithCompany }) {
@@ -263,7 +263,7 @@ function CardReaderBody({
                       <CmsBreakdown
                         card={card}
                         metrics={view.metrics.map((entry) => entry.metric)}
-                        deckUserValues={deckUserValues}
+                        userFootprintCohort={userFootprintCohort}
                       />
                     </div>
                   </details>

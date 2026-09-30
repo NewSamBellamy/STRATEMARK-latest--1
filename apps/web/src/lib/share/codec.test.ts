@@ -66,6 +66,18 @@ function liveCard(): CardWithCompany {
         methodNote: null,
         capturedAt: now,
       },
+      {
+        id: 'met_3',
+        companyId: 'cmp_1',
+        metricType: 'users',
+        value: 12_000,
+        confidence: 'verified',
+        source: 'https://github.com/openai',
+        citations: [{ title: 'GitHub', url: 'https://github.com/openai' }],
+        methodNote: 'Repository stars',
+        userBasis: 'github_stars',
+        capturedAt: now,
+      },
     ],
     viceClaims: [
       {
@@ -114,6 +126,7 @@ describe('share codec round-trip', () => {
     expect(sc.company?.name).toBe('OpenAI');
     expect(sc.metrics.find((m) => m.t === 'arr')?.v).toBe(13_000_000_000);
     expect(sc.metrics.find((m) => m.t === 'arr')?.c).toBe('verified');
+    expect(sc.metrics.find((m) => m.t === 'users')?.b).toBe('github_stars');
     expect(sc.claims[0]?.text).toContain('governance');
 
     // …and inflates back into the shape the card components render.
@@ -121,6 +134,7 @@ describe('share codec round-trip', () => {
     expect(cwc.company?.name).toBe('OpenAI');
     expect(cwc.card.tier).toBe(7);
     expect(cwc.metrics.find((m) => m.metricType === 'arr')?.confidence).toBe('verified');
+    expect(cwc.metrics.find((m) => m.metricType === 'users')?.userBasis).toBe('github_stars');
     expect(cwc.viceClaims[0]?.sourceUrl).toBe('https://theverge.com/x');
   });
 

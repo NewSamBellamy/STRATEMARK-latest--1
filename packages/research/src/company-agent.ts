@@ -27,6 +27,7 @@ import {
   enforceModelMetricsProvenance,
   isHumanAuthored,
   isEntityCardType,
+  inferUserFootprintBasis,
   type BrandTheme,
   type Card,
   type CardType,
@@ -35,6 +36,8 @@ import {
   type Company,
   type CompanyMetric,
   type MetricType,
+  type PricingUnitBasis,
+  type UserFootprintCohort,
   type ViceClaim,
 } from '@mi/contracts';
 import {
@@ -103,7 +106,7 @@ export interface CompanyAgentMemory {
 export interface HydrateCompanyCardOptions {
   companyId?: string;
   deckId?: string;
-  deckUserValues?: number[];
+  userFootprintCohort?: UserFootprintCohort;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   includeUnknowns?: boolean;
@@ -149,6 +152,8 @@ export interface EnrichCompanyWithProxiesInput {
     monthlyPrice?: number | null;
     annualPrice?: number | null;
     footprintLabel?: string | null;
+    footprintBasis?: CompanyMetric['userBasis'];
+    pricingUnitBasis?: PricingUnitBasis | null;
   } | null;
   options?: {
     includeUnknowns?: boolean;
@@ -240,6 +245,14 @@ export function metricRows(
       source: attached[0]?.url ?? null,
       citations: attached,
       methodNote: m.method ?? null,
+      ...(type === 'users'
+        ? {
+            userBasis:
+              (m as NonNullable<EnrichmentOut['metrics']['users']>).userBasis ??
+              enrich.facts?.footprintBasis ??
+              inferUserFootprintBasis(m.method),
+          }
+        : {}),
       capturedAt: now(),
     });
   }
@@ -357,6 +370,8 @@ export function enrichCompanyWithProxies(
           footprintLabel: extraData.footprintLabel,
           monthlyPrice: extraData.scrapedPricing.monthlyPrice,
           annualPrice: extraData.scrapedPricing.annualPrice,
+          footprintBasis: extraData.footprintBasis,
+          pricingUnitBasis: extraData.scrapedPricing.pricingUnitBasis,
         }
       : null;
 
@@ -408,6 +423,8 @@ export function enrichCompanyWithProxies(
       citations,
       {
         footprintLabel: explicitFootprint.footprintLabel ?? undefined,
+        footprintBasis: explicitFootprint.footprintBasis,
+        pricingUnitBasis: explicitFootprint.pricingUnitBasis,
         companyId,
       },
     );
@@ -523,6 +540,8 @@ export function enrichCompanyWithProxies(
       source: citationsToUse[0]?.url ?? null,
       citations: citationsToUse,
       methodNote: explicitFootprint.footprintLabel ?? 'Public user/customer footprint count.',
+      userBasis:
+        explicitFootprint.footprintBasis ?? inferUserFootprintBasis(explicitFootprint.footprintLabel),
       capturedAt: now(),
     };
     const usersIdx = resultMetrics.findIndex((m) => m.metricType === 'users');
@@ -658,6 +677,7 @@ export async function hydrateCompanyCard(
       scrapedPricing: enrichment.facts?.scrapedPricing,
       publicUserFootprint: enrichment.facts?.publicUserFootprint,
       footprintLabel: enrichment.facts?.footprintLabel,
+      footprintBasis: enrichment.facts?.footprintBasis,
       citations: grounded.citations,
     },
     {
@@ -671,7 +691,9 @@ export async function hydrateCompanyCard(
   const cmsInput = buildCmsInput(metrics);
   const cmsResult = computeCms(
     cmsInput,
-    { deckUserValues: options.deckUserValues ?? [] },
+    {
+      userFootprintCohort: options.userFootprintCohort ?? { basis: 'unknown', values: [] },
+    },
     { nudge: options.nudge, nudgeReason: options.nudgeReason },
   );
 
@@ -796,7 +818,7 @@ export async function executeCompanyAgent(
     signal?: AbortSignal;
     existingMemory?: CompanyAgentMemory;
     deckId?: string;
-    deckUserValues?: number[];
+    userFootprintCohort?: UserFootprintCohort;
   },
 ): Promise<CompanyAgentMemory> {
   const plan: MarketPlan = options?.plan ?? {
@@ -812,7 +834,7 @@ export async function executeCompanyAgent(
     client,
     plan,
     deckId: options?.deckId,
-    deckUserValues: options?.deckUserValues,
+    userFootprintCohort: options?.userFootprintCohort,
     signal: options?.signal,
     existingMemory: options?.existingMemory,
   });

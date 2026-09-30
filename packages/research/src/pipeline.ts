@@ -12,6 +12,7 @@
  */
 import type { infer as ZodInfer } from 'zod';
 import {
+  buildUserFootprintCohort,
   buildCmsInput,
   computeCms,
   type Card,
@@ -22,6 +23,7 @@ import {
   type Deck,
   type Market,
   type MaturityTier,
+  type UserFootprintCohort,
   isEntityCardType,
 } from '@mi/contracts';
 import {
@@ -487,7 +489,7 @@ export async function expandDeckResearch(args: {
   focusPrompt: string;
   excludeNames: string[];
   deckId: string;
-  deckUserValues: number[];
+  userFootprintCohort: UserFootprintCohort;
   target?: number;
   onEvent?: OnResearchEvent;
   signal?: AbortSignal;
@@ -500,7 +502,7 @@ export async function expandDeckResearch(args: {
     focusPrompt: args.focusPrompt,
     excludeNames: args.excludeNames,
     deckId: args.deckId,
-    deckUserValues: args.deckUserValues,
+    userFootprintCohort: args.userFootprintCohort,
     target: args.target,
     onEvent: args.onEvent,
     signal: args.signal,
@@ -806,26 +808,20 @@ export async function hydrateDeckCards(
 
       emit({ type: 'status', step: 'score', message: 'Scoring maturity tiers…' });
 
-      // Score: relative user values across the whole deck
+      // Choose a single user-footprint basis for this deck; other bases remain
+      // visible but cannot make the company bands look like a common ranking.
       const allMetrics = [
         ...completedCards.flatMap((card) => card.metrics),
         ...hydratedResults.flatMap((entry) => entry.metrics),
       ];
-      const deckUserValues = allMetrics
-        .filter(
-          (metric) =>
-            metric.metricType === 'users' &&
-            metric.confidence !== 'unknown' &&
-            metric.value !== null,
-        )
-        .map((metric) => metric.value as number);
+      const userFootprintCohort = buildUserFootprintCohort(allMetrics);
 
       // Deterministic base tiers first, then ONE cohort-wide review pass.
       const baseTiers = new Map<string, MaturityTier>();
       const reviewRows: { name: string; baseTier: MaturityTier; evidence: string }[] = [];
       for (const r of hydratedResults) {
         if (!r.candidate.cardTypes.some(isEntityCardType)) continue;
-        const base = computeCms(buildCmsInput(r.metrics), { deckUserValues });
+        const base = computeCms(buildCmsInput(r.metrics), { userFootprintCohort });
         if (base.finalTier == null) continue;
         baseTiers.set(r.company.id, base.finalTier);
         reviewRows.push({
@@ -853,7 +849,7 @@ export async function hydrateDeckCards(
           const review = reviews.get(r.company.name) ?? { nudge: 0 as const, reason: null };
           const scored = computeCms(
             buildCmsInput(r.metrics),
-            { deckUserValues },
+            { userFootprintCohort },
             { nudge: review.nudge },
           );
           tier = scored.finalTier;
