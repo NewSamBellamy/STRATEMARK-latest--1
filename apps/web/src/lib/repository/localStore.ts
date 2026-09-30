@@ -1,20 +1,14 @@
 import type { RepoSnapshot, ResearchStore } from '@mi/research';
 import { marketCountOf, vaultPut } from './vault';
 
-/**
- * localStorage-backed snapshot store — now QUOTA-RESILIENT.
- *
- * The filmed failure: "the app deletes all the decks". Root cause: once the
- * snapshot outgrew the ~5MB localStorage quota (researched tab caches are
- * big), `setItem` threw, the old code swallowed it as "session-only", every
- * subsequent write silently no-oped — and the next refresh lost everything
- * since the last successful write.
- *
- * The fix has one principle: RESEARCH DATA IS SACRED, CACHES ARE NOT. On a
- * quota failure we shed the re-researchable dashboard cache (and then stored
- * reports) and retry, so decks, companies, metrics, and corrections always
- * survive a refresh. Every degradation is loudly logged.
- */
+export class LocalStorePersistenceError extends Error {
+  constructor() {
+    super('Could not persist the research snapshot to localStorage.');
+    this.name = 'LocalStorePersistenceError';
+  }
+}
+
+/** localStorage-backed synchronous snapshot store with a best-effort vault mirror. */
 export function createLocalStore(key = 'mi.repo.v1'): ResearchStore {
   return {
     read(): RepoSnapshot | null {
@@ -30,60 +24,53 @@ export function createLocalStore(key = 'mi.repo.v1'): ResearchStore {
         } catch {
           /* best effort */
         }
-        console.error('[store] snapshot unreadable — preserved under .corrupt; starting clean', err);
+        console.error(
+          '[store] snapshot unreadable — preserved under .corrupt; starting clean',
+          err,
+        );
         return null;
       }
     },
     write(snapshot: RepoSnapshot): void {
-      // DECK-LOSS GUARD: before any write that would DROP markets (an
-      // intentional delete or a clobber from a stale tab — indistinguishable
-      // here), stash the richer stored copy under `.backup` so the Settings
-      // Data Safety panel can always bring it back.
+      let json: string;
       try {
-        const stored = localStorage.getItem(key);
-        const storedMarkets = marketCountOf(stored);
-        if (stored && storedMarkets > (snapshot.markets?.length ?? 0)) {
-          localStorage.setItem(`${key}.backup`, stored);
-        }
+        json = JSON.stringify(snapshot);
       } catch {
-        /* backup is best-effort; never block the real write */
+        throw new LocalStorePersistenceError();
       }
 
-      const attempt = (snap: RepoSnapshot): boolean => {
+      let previous: string | null = null;
+      let preservePrevious = false;
+      try {
+        previous = localStorage.getItem(key);
+        preservePrevious =
+          previous !== null && marketCountOf(previous) > (snapshot.markets?.length ?? 0);
+      } catch {
+        /* The backup is best-effort; the primary write remains authoritative. */
+      }
+
+      try {
+        localStorage.setItem(key, json);
+      } catch {
+        throw new LocalStorePersistenceError();
+      }
+
+      // Keep the richer prior snapshot as a recovery copy, but only after the
+      // new complete snapshot has committed successfully.
+      if (preservePrevious && previous !== null) {
         try {
-          const json = JSON.stringify(snap);
-          localStorage.setItem(key, json);
-          // Mirror to the IndexedDB vault (bigger quota, survives co-tenant
-          // localStorage.clear() and most eviction) — fire and forget.
-          void vaultPut(key, json);
-          return true;
+          localStorage.setItem(`${key}.backup`, previous);
         } catch {
-          return false;
+          /* A backup failure does not undo the successful primary write. */
         }
-      };
-      if (attempt(snapshot)) return;
-
-      // Quota pressure: shed the dashboard tab cache — it re-researches on
-      // demand; a lost deck does not.
-      const shed1 = { ...snapshot, dashboards: {} } as RepoSnapshot;
-      if (attempt(shed1)) {
-        console.warn('[store] quota hit — persisted WITHOUT the dashboard cache (tabs will re-research).');
-        return;
       }
 
-      // Still too big: shed stored reports too (regenerable), keep the core.
-      const shed2 = { ...shed1, reports: [] } as unknown as RepoSnapshot;
-      if (attempt(shed2)) {
-        console.warn('[store] severe quota pressure — persisted core research only (dashboards + reports shed).');
-        return;
-      }
-
-      // localStorage is out of room entirely — the vault has no such limit.
+      // IndexedDB is a mirror only: its asynchronous outcome cannot prove this
+      // synchronous ResearchStore.write succeeded or failed.
       try {
-        void vaultPut(key, JSON.stringify(snapshot));
-        console.error('[store] localStorage persist FAILED — snapshot saved to the IndexedDB vault instead; it will auto-restore on next launch.');
+        void vaultPut(key, json).catch(() => undefined);
       } catch {
-        console.error('[store] persist FAILED even after shedding caches — this session is memory-only. Export the deck from Settings → Data safety to avoid loss.');
+        /* The committed localStorage snapshot remains the synchronous result. */
       }
     },
   };

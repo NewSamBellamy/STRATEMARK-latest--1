@@ -5,6 +5,7 @@ import { setInterval } from 'node:timers';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync, backup } from 'node:sqlite';
+import { openVault } from './vault.ts';
 
 const marker = (name, data) => process.stdout.write(`${name} ${JSON.stringify(data)}\n`);
 
@@ -15,7 +16,66 @@ function openWal(databasePath) {
   return db;
 }
 
+async function proveNativeVault(directory) {
+  const vaultId = 'vault_spike';
+  const at = '2026-09-30T12:00:00.000Z';
+  const record = (id, revision = 1) => ({
+    contractVersion: '1',
+    vaultId,
+    id,
+    revision,
+    createdAt: at,
+    updatedAt: at,
+  });
+  const file = path.join(directory, 'inventory.sqlite');
+  const vault = openVault(file, vaultId);
+  try {
+    const company = { record: record('co_a'), name: 'Fixture Labs', officialDomain: 'a.example' };
+    vault.saveCompany(company, 0);
+    for (const marketId of ['mkt_a', 'mkt_b']) {
+      vault.saveMarket({ record: record(marketId), name: marketId }, 0);
+      vault.saveMembership(
+        { record: record(`mem_${marketId}`), marketId, companyId: 'co_a', roles: ['company'] },
+        0,
+      );
+    }
+    assert.deepEqual(vault.listMarketCompanies('mkt_a').items, [company]);
+    assert.deepEqual(vault.listMarketCompanies('mkt_b').items, [company]);
+    const updated = { ...company, record: record('co_a', 2), name: 'Fixture Corrected' };
+    vault.saveCompany(updated, 1);
+    assert.throws(() => vault.saveCompany({ ...updated, name: 'Stale Fixture' }, 1), /revision/i);
+    assert.deepEqual(vault.companyHistory('co_a').items, [company, updated]);
+    vault.saveCompany({ ...company, record: record('co_b'), officialDomain: 'b.example' }, 0);
+    const first = vault.searchCompanies('Fixture', { limit: 1 });
+    assert.equal(first.nextCursor, 'co_a');
+    assert.equal(first.items.length, 1);
+    assert.equal(
+      vault.searchCompanies('Fixture', { limit: 1, afterId: first.nextCursor }).items[0].record.id,
+      'co_b',
+    );
+    const backupPath = path.join(directory, 'inventory-backup.sqlite');
+    await vault.backup(backupPath);
+    const restored = openVault(backupPath, vaultId);
+    try {
+      assert.deepEqual(restored.getCompany('co_a'), updated);
+      assert.equal(restored.integrity(), 'ok');
+    } finally {
+      restored.close();
+    }
+    return {
+      twoMarketSharedIdentity: true,
+      retainedHistory: true,
+      staleWriteRejected: true,
+      pagedSearch: true,
+      backupReopened: true,
+    };
+  } finally {
+    vault.close();
+  }
+}
+
 async function prepare(directory) {
+  const nativeVault = await proveNativeVault(directory);
   const databasePath = path.join(directory, 'source.sqlite');
   const backupPath = path.join(directory, 'snapshot.sqlite');
   let db = openWal(databasePath);
@@ -75,6 +135,7 @@ async function prepare(directory) {
       sqlite: process.versions.sqlite,
     },
     engine,
+    nativeVault,
     fts5Match: true,
     walReopen: true,
     backupFromOpenWal: true,

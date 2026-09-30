@@ -11,7 +11,8 @@ const revision = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const timestamp = z.string().datetime();
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 
-function compareTimestamps(left: string, right: string): number {
+/** Compare already-validated UTC record timestamps without losing submillisecond precision. */
+export function compareRecordTimestamps(left: string, right: string): number {
   const leftSecond = Date.parse(`${left.slice(0, 19)}Z`);
   const rightSecond = Date.parse(`${right.slice(0, 19)}Z`);
   if (leftSecond !== rightSecond) return leftSecond < rightSecond ? -1 : 1;
@@ -38,7 +39,7 @@ function versionedRecord<Fields extends z.ZodRawShape>(fields: Fields) {
     .object({ ...recordVersionFields, ...fields })
     .strict()
     .superRefine((record, context) => {
-      if (compareTimestamps(record.createdAt!, record.updatedAt!) > 0) {
+      if (compareRecordTimestamps(record.createdAt!, record.updatedAt!) > 0) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['updatedAt'],
@@ -100,7 +101,7 @@ export const sourceVersionRecordSchema = versionedRecord({
       message: 'Web sources need attributable URLs; retained content needs a hash',
     });
   }
-  if (compareTimestamps(source.fetchedAt!, source.updatedAt!) > 0) {
+  if (compareRecordTimestamps(source.fetchedAt!, source.updatedAt!) > 0) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['fetchedAt'],
@@ -176,7 +177,7 @@ export const numericObservationRecordSchema = versionedRecord({
   }
   if (
     observation.period.kind === 'interval' &&
-    compareTimestamps(observation.period.startAt, observation.period.endAt) > 0
+    compareRecordTimestamps(observation.period.startAt, observation.period.endAt) > 0
   ) {
     context.addIssue({
       code: z.ZodIssueCode.custom,

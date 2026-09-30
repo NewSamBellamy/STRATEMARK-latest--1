@@ -133,6 +133,13 @@ try {
     prepared.engine?.sourceId ?? '',
     /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [a-f0-9]{64}$/,
   );
+  assert.deepEqual(prepared.nativeVault, {
+    twoMarketSharedIdentity: true,
+    retainedHistory: true,
+    staleWriteRejected: true,
+    pagedSearch: true,
+    backupReopened: true,
+  });
   for (const key of ['fts5Match', 'walReopen', 'backupFromOpenWal', 'backupReopen'])
     assert.equal(prepared[key], true);
   assert.deepEqual(prepared.backupValues, {
