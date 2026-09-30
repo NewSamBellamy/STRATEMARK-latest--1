@@ -9,6 +9,8 @@ import {
   type CardWithCompany,
   type CompanyMetric,
   type MetricType,
+  type UserFootprintCohort,
+  userFootprintBasisFor,
 } from '@mi/contracts';
 const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 const facePriority: MetricType[] = ['arr', 'market_cap', 'valuation', 'users', 'employees'];
@@ -16,7 +18,7 @@ const facePriority: MetricType[] = ['arr', 'market_cap', 'valuation', 'users', '
 export const metricLabel = metricDisplayLabel;
 
 /** A single read-only boundary for deck and inspection. Never updates stored research. */
-export function buildCardView(data: CardWithCompany) {
+export function buildCardView(data: CardWithCompany, userFootprintCohort?: UserFootprintCohort) {
   const signal = isSignalCardType(data.card.cardType) || !data.company;
   const metrics = (signal ? [] : data.metrics).map((original) => {
     const legacy = sourceUrl(original.source);
@@ -82,7 +84,14 @@ export function buildCardView(data: CardWithCompany) {
               ? 6
               : m.metric.confidence === 'verified'
                 ? 4
-                : 2) + (m.citations.length > 0 ? 1 : 0);
+                : 2) +
+            (m.citations.length > 0 ? 1 : 0) +
+            (m.metric.metricType === 'users' &&
+            userFootprintCohort?.basis !== undefined &&
+            userFootprintCohort.basis !== 'unknown' &&
+            userFootprintBasisFor(m.metric) === userFootprintCohort.basis
+              ? 8
+              : 0);
           return (
             strength(b) - strength(a) ||
             facePriority.indexOf(a.metric.metricType) - facePriority.indexOf(b.metric.metricType)

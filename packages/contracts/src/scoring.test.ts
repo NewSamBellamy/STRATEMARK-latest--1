@@ -87,7 +87,9 @@ describe('computeCms — missing data protocol (spec §6.4)', () => {
   });
 
   it('excludes the users signal when the deck lacks ranking context', () => {
-    const result = computeCms(fullInput(), { userFootprintCohort: { basis: 'unknown', values: [] } });
+    const result = computeCms(fullInput(), {
+      userFootprintCohort: { basis: 'unknown', values: [] },
+    });
     const users = result.perSignal.find((s) => s.key === 'users')!;
     expect(users.available).toBe(false);
     expect(result.availableSignalCount).toBe(4);
@@ -194,6 +196,30 @@ describe('buildCmsInput', () => {
     expect(input.value.value).toBe(5_000_000_000);
   });
 
+  it('scores the user footprint matching the deck cohort when a company has several', () => {
+    const input = buildCmsInput([
+      {
+        metricType: 'users',
+        value: 12_000,
+        confidence: 'verified',
+        userBasis: 'monthly_active_users',
+      },
+      {
+        metricType: 'users',
+        value: 500,
+        confidence: 'verified',
+        userBasis: 'paid_seats',
+      },
+    ]);
+
+    const result = computeCms(input, {
+      userFootprintCohort: { basis: 'paid_seats', values: [100, 500, 2_000] },
+    });
+
+    expect(result.perSignal.find((signal) => signal.key === 'users')?.rawValue).toBe(500);
+    expect(result.perSignal.find((signal) => signal.key === 'users')?.available).toBe(true);
+  });
+
   it('does not count headcount-derived ARR as a second independent scoring signal', () => {
     const input = buildCmsInput([
       {
@@ -282,12 +308,14 @@ describe('buildCmsInput', () => {
     ]);
 
     expect(
-      computeCms(sourcedProxy, { userFootprintCohort: { basis: 'unknown', values: [] } }).perSignal.find((s) => s.key === 'arr')!
-        .available,
+      computeCms(sourcedProxy, {
+        userFootprintCohort: { basis: 'unknown', values: [] },
+      }).perSignal.find((s) => s.key === 'arr')!.available,
     ).toBe(false);
     expect(
-      computeCms(humanConfirmed, { userFootprintCohort: { basis: 'unknown', values: [] } }).perSignal.find((s) => s.key === 'arr')!
-        .available,
+      computeCms(humanConfirmed, {
+        userFootprintCohort: { basis: 'unknown', values: [] },
+      }).perSignal.find((s) => s.key === 'arr')!.available,
     ).toBe(true);
   });
 });

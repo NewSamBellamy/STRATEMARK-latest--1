@@ -10,12 +10,57 @@ export interface UserFootprintCohort {
 export type ComparableUserFootprintBasis = (typeof SCOREABLE_USER_FOOTPRINT_BASES)[number];
 
 export interface UserFootprintMetricLike {
+  id?: string;
   metricType: string;
   companyId?: string;
   value: number | null;
   confidence: Confidence;
   userBasis?: UserFootprintBasis;
   methodNote?: string | null;
+}
+
+/** Resolve a structured footprint unit, inferring only for pre-basis snapshots. */
+export function userFootprintBasisFor(
+  metric: Pick<UserFootprintMetricLike, 'userBasis' | 'methodNote'>,
+): UserFootprintBasis {
+  return metric.userBasis ?? inferUserFootprintBasis(metric.methodNote);
+}
+
+/** Normalize method text for matching intentionally unclassified footprint rows. */
+export function normalizeUserFootprintNote(note: string | null | undefined): string {
+  return note?.trim().toLowerCase().replace(/\s+/g, ' ') ?? '';
+}
+
+/**
+ * Identity for a users row. Known units are unique per company; `other` and
+ * `unknown` need their own method text (or row ID) to avoid collapsing unlike
+ * measures into one generic bucket.
+ */
+export function userFootprintIdentity(
+  metric: Pick<UserFootprintMetricLike, 'userBasis' | 'methodNote'> & { id?: string },
+): string {
+  const basis = userFootprintBasisFor(metric);
+  if (basis !== 'unknown' && basis !== 'other') return basis;
+  return `${basis}:${normalizeUserFootprintNote(metric.methodNote) || `row:${metric.id ?? 'unidentified'}`}`;
+}
+
+/** Find by unit; unknown/other units require a note when multiple rows exist. */
+export function findUserFootprint<T extends UserFootprintMetricLike>(
+  metrics: readonly T[],
+  basis?: UserFootprintBasis,
+  methodNote?: string | null,
+): T | undefined {
+  const footprints = metrics.filter((metric) => metric.metricType === 'users');
+  if (basis === undefined) return footprints[0];
+  const matching = footprints.filter((metric) => userFootprintBasisFor(metric) === basis);
+  if (basis === 'unknown' || basis === 'other') {
+    if (methodNote != null) {
+      const note = normalizeUserFootprintNote(methodNote);
+      return matching.find((metric) => normalizeUserFootprintNote(metric.methodNote) === note);
+    }
+    return matching.length === 1 ? matching[0] : undefined;
+  }
+  return matching[0];
 }
 
 const scoreableBases = new Set<UserFootprintBasis>(SCOREABLE_USER_FOOTPRINT_BASES);

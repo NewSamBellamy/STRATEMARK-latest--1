@@ -19,28 +19,31 @@ import { Hono, type Context } from 'hono';
 import { getFirestore } from 'firebase-admin/firestore';
 import { cors } from 'hono/cors';
 import { z } from 'zod';
-import { 
-  describeAgentGraph, 
-  runLivingDeckEngine, 
+import {
+  describeAgentGraph,
+  runLivingDeckEngine,
   expandDeckWithDeltaAgent,
   researchDashboardTab,
-  verifyMetricOutSchema, 
+  verifyMetricOutSchema,
   huntMetricsOutSchema,
-  GROUNDED_SYSTEM, 
-  STRUCTURE_SYSTEM
+  GROUNDED_SYSTEM,
+  STRUCTURE_SYSTEM,
 } from '@mi/research';
 import type { DashboardTab, CardWithCompany, Company } from '@mi/contracts';
-import { 
-  usableCitations, 
-  hasVerificationGradeCitation, 
+import {
+  usableCitations,
+  hasVerificationGradeCitation,
   markVerified,
   buildCmsInput,
   buildUserFootprintCohort,
+  findUserFootprint,
+  userFootprintBasisFor,
+  userFootprintIdentity,
   inferUserFootprintBasis,
   computeCms,
   METRIC_TYPE_LABELS,
   metricDisplayLabel,
-  METRIC_TYPES
+  METRIC_TYPES,
 } from '@mi/contracts';
 import type { CompanyMetric } from '@mi/contracts';
 import type { MarketPlan } from '@mi/research';
@@ -142,8 +145,12 @@ export function createApp(
     allowMemoryFallback: options?.forceMemoryStore,
   });
 
-  const tasksAdapter = options?.tasksAdapter ?? (env.tasks ? new CloudTasksAdapter(env) : new MockTasksAdapter(env.port));
-  const cloudDeckService = options?.cloudDeckService ?? new CloudDeckService(store, new FirebaseAdapter(), new FirebaseAdapter(), tasksAdapter);
+  const tasksAdapter =
+    options?.tasksAdapter ??
+    (env.tasks ? new CloudTasksAdapter(env) : new MockTasksAdapter(env.port));
+  const cloudDeckService =
+    options?.cloudDeckService ??
+    new CloudDeckService(store, new FirebaseAdapter(), new FirebaseAdapter(), tasksAdapter);
   const cloudDeckWorker = new CloudDeckWorker(env, cloudDeckService);
 
   // Per-instance guards. See lib/budget.ts and lib/authz.ts for why these are
@@ -153,7 +160,9 @@ export function createApp(
   const captureLimiter = new RateLimiter(20, 60_000);
 
   /** Maps our guard errors onto responses without leaking internals. */
-  const guardError = (err: unknown): { status: 401 | 429; body: Record<string, unknown> } | null => {
+  const guardError = (
+    err: unknown,
+  ): { status: 401 | 429; body: Record<string, unknown> } | null => {
     if (err instanceof UnauthorizedSpendError) return { status: 401, body: { error: err.message } };
     if (err instanceof RateLimitedError) return { status: 429, body: { error: err.message } };
     if (err instanceof BudgetExhaustedError) {
@@ -163,7 +172,10 @@ export function createApp(
   };
 
   const getUserId = async (c: Context): Promise<string | null> => {
-    const auth = c.req.header('authorization')?.replace(/^Bearer\s+/i, '').trim();
+    const auth = c.req
+      .header('authorization')
+      ?.replace(/^Bearer\s+/i, '')
+      .trim();
     if (auth) {
       if (env.appToken && auth === env.appToken) return null;
       return await cloudDeckService.authenticate(auth);
@@ -177,7 +189,10 @@ export function createApp(
   ): Promise<{ userId: string; callerKey: string | undefined; metered: boolean }> => {
     const callerKey = c.req.header(BYOK_HEADER);
     const rawAppToken = c.req.header(APP_TOKEN_HEADER);
-    const authHeader = c.req.header('authorization')?.replace(/^Bearer\s+/i, '').trim();
+    const authHeader = c.req
+      .header('authorization')
+      ?.replace(/^Bearer\s+/i, '')
+      .trim();
     const appToken = rawAppToken
       ? rawAppToken
       : authHeader && env.appToken && authHeader === env.appToken
@@ -187,7 +202,9 @@ export function createApp(
     if (!userId) throw new UnauthorizedSpendError('Authenticated user required for cloud research');
 
     const authorization = authorizeSpend({ env, callerKey, appToken });
-    researchLimiter.check(callerKeyFor({ forwardedFor: c.req.header('x-forwarded-for'), appToken }));
+    researchLimiter.check(
+      callerKeyFor({ forwardedFor: c.req.header('x-forwarded-for'), appToken }),
+    );
     if (authorization.metered && !budget.canAfford(estimatedUsd)) {
       throw new BudgetExhaustedError(budget.status());
     }
@@ -317,9 +334,9 @@ export function createApp(
     if (!body.cardId) {
       return c.json({ error: 'cardId is required' }, 400);
     }
-    await cloudDeckService.saveCard(userId, String(body.cardId), { 
-      deckId: body.deckId, 
-      deckRevision: body.deckRevision 
+    await cloudDeckService.saveCard(userId, String(body.cardId), {
+      deckId: body.deckId,
+      deckRevision: body.deckRevision,
     });
     return c.json({ ok: true });
   });
@@ -464,7 +481,10 @@ export function createApp(
 
     const callerKey = c.req.header(BYOK_HEADER);
     const rawAppToken = c.req.header(APP_TOKEN_HEADER);
-    const authHeader = c.req.header('authorization')?.replace(/^Bearer\s+/i, '').trim();
+    const authHeader = c.req
+      .header('authorization')
+      ?.replace(/^Bearer\s+/i, '')
+      .trim();
     const appToken = rawAppToken
       ? rawAppToken
       : authHeader && env.appToken && authHeader === env.appToken
@@ -476,7 +496,7 @@ export function createApp(
     let metered = false;
     try {
       const authz = authorizeSpend({ env, callerKey, appToken });
-      
+
       // Cloud Deck creation (/api/research/deck or cloud persistence) requires verified user with entitlement
       const isCloudDeckEndpoint = c.req.path.startsWith('/api/research/deck');
       if (isCloudDeckEndpoint) {
@@ -495,7 +515,9 @@ export function createApp(
       }
 
       metered = authz.metered;
-      researchLimiter.check(callerKeyFor({ forwardedFor: c.req.header('x-forwarded-for'), appToken }));
+      researchLimiter.check(
+        callerKeyFor({ forwardedFor: c.req.header('x-forwarded-for'), appToken }),
+      );
       if (metered && !budget.canAfford(DECK_ESTIMATE_USD)) {
         throw new BudgetExhaustedError(budget.status());
       }
@@ -549,12 +571,15 @@ export function createApp(
         traceContext,
       });
 
-      return c.json({
-        ok: true,
-        deckId: result.deckId,
-        plan,
-        state: { status: 'running' },
-      }, 202);
+      return c.json(
+        {
+          ok: true,
+          deckId: result.deckId,
+          plan,
+          state: { status: 'running' },
+        },
+        202,
+      );
     }
 
     // BYOK users execute synchronously without cloud persistence
@@ -570,10 +595,13 @@ export function createApp(
         logger.logAdkTrace(traceEvent);
       },
     });
-    logger.logNotice(`Synchronous BYOK research completed for "${plan.marketName}" (${deckId}) in ${run.totalMs}ms`, {
-      totalCards: run.hydrated.reduce((acc, h) => acc + h.cards.length, 0),
-      totalMs: run.totalMs,
-    });
+    logger.logNotice(
+      `Synchronous BYOK research completed for "${plan.marketName}" (${deckId}) in ${run.totalMs}ms`,
+      {
+        totalCards: run.hydrated.reduce((acc, h) => acc + h.cards.length, 0),
+        totalMs: run.totalMs,
+      },
+    );
 
     const marketObj = {
       id: deckId,
@@ -622,9 +650,9 @@ export function createApp(
       const input = await c.req.json().catch(() => ({}));
       const question = input.question || '';
       const uid = await getUserId(c);
-      
+
       const db = getFirestore();
-      
+
       let resolved;
       try {
         resolved = resolveClient({
@@ -635,23 +663,23 @@ export function createApp(
         if (err instanceof NoCredentialsError) return c.json({ error: err.message }, 401);
         throw err;
       }
-      
+
       const threadId = input.threadId || `thread_${uid}_default`;
       const threadRef = db.collection('chatThreads').doc(threadId);
-      
+
       await db.runTransaction(async (t) => {
         const doc = await t.get(threadRef);
         const data = doc.exists ? doc.data() : { turns: 0, rawHistory: [], distilledMemory: '' };
-        
+
         data!.turns = (data!.turns || 0) + 1;
         data!.rawHistory.push({ role: 'user', content: question });
-        
+
         const MEMORY_DISTILLATION_THRESHOLD = 20;
         // Memory Distillation Guardrail (20+ turns)
         if (data!.turns > MEMORY_DISTILLATION_THRESHOLD) {
           // Bonus Points: Using additional Google AI Models (Gemma 2) for Distillation
           const summaryPrompt = `Distill these raw chat logs into a concise set of durable facts and context. Logs: ${JSON.stringify(data!.rawHistory)}`;
-          
+
           let newMemory = '';
           try {
             // Instantiate Gemma directly using the Vertex integration
@@ -662,12 +690,14 @@ export function createApp(
             );
             const summaryRes = await ai.models.generateContent({
               model: 'gemma-2-9b-it',
-              contents: summaryPrompt
+              contents: summaryPrompt,
             });
             newMemory = summaryRes.text ?? '';
           } catch {
             // Fallback to Gemini if Gemma is not deployed in this region
-            const summaryRes = await resolved.client.ground(summaryPrompt, { system: 'You are a summarizer.' });
+            const summaryRes = await resolved.client.ground(summaryPrompt, {
+              system: 'You are a summarizer.',
+            });
             newMemory = summaryRes.text;
           }
 
@@ -675,21 +705,21 @@ export function createApp(
           data!.rawHistory = []; // Clear raw history to prevent token bloat
           data!.turns = 0; // Reset counter for next distillation phase
         }
-        
+
         t.set(threadRef, data!, { merge: true });
       });
-      
+
       // Fetch thread again after transaction for generation
       const finalDoc = await threadRef.get();
       const finalData = finalDoc.data() || { distilledMemory: '', rawHistory: [] };
-      
+
       // Combine distilled memory + recent history + new question
       const contextPrompt = `
       Semantic Memory: ${finalData.distilledMemory}
       Recent Chat: ${JSON.stringify(finalData.rawHistory)}
       New Question: ${question}
       `;
-      
+
       const res = await resolved.client.ground(contextPrompt);
 
       return c.json({
@@ -706,17 +736,19 @@ export function createApp(
     try {
       const input = await c.req.json().catch(() => ({}));
       const { deckId, companyId, tab } = input;
-      
+
       if (!deckId || !companyId || !tab) {
         return c.json({ error: 'Missing deckId, companyId, or tab' }, 400);
       }
-      
+
       const uid = await getUserId(c);
       if (!uid) return c.json({ error: 'Unauthorized' }, 401);
 
       let deckRec = await store.getDeck(deckId);
       if (!deckRec && deckId.startsWith('mkt_')) {
-        deckRec = (await store.getDeck(`deck_${deckId.slice(4)}`)) || (await store.getDeck(`dck_${deckId.slice(4)}`));
+        deckRec =
+          (await store.getDeck(`deck_${deckId.slice(4)}`)) ||
+          (await store.getDeck(`dck_${deckId.slice(4)}`));
       }
       if (!deckRec || (deckRec.userId && deckRec.userId !== uid)) {
         return c.json({ error: 'Deck not found' }, 404);
@@ -804,13 +836,18 @@ export function createApp(
       });
 
       const addedCount = updatedCards.length - currentCardsLength;
-      
-      await cloudDeckService.saveDeck(userId!, deckId, {
-        ...existingDeck,
-        cards: updatedCards,
-        refreshedAt: new Date().toISOString(),
-        state: { ...existingDeck.state, status: 'ready' }
-      }, existingDeck.revision);
+
+      await cloudDeckService.saveDeck(
+        userId!,
+        deckId,
+        {
+          ...existingDeck,
+          cards: updatedCards,
+          refreshedAt: new Date().toISOString(),
+          state: { ...existingDeck.state, status: 'ready' },
+        },
+        existingDeck.revision,
+      );
 
       return c.json({ added: Math.max(0, addedCount) });
     } catch (err) {
@@ -820,7 +857,7 @@ export function createApp(
 
   app.post('/api/research/verify', async (c) => {
     const json = await c.req.json().catch(() => ({}));
-    const { deckId, companyId, metricType, correction } = json;
+    const { deckId, companyId, metricType, correction, userBasis, metricId } = json;
 
     if (!deckId || !companyId || !metricType) {
       return c.json({ error: 'Missing parameters' }, 400);
@@ -839,17 +876,23 @@ export function createApp(
     const isEntitled = await cloudDeckService.checkEntitlement(userId);
     if (!isEntitled) return c.json({ error: 'Active subscription required' }, 402);
 
-        const existingDeck = await cloudDeckService.getDeck(userId, deckId);
+    const existingDeck = await cloudDeckService.getDeck(userId, deckId);
     if (!existingDeck) return c.json({ error: 'Deck not found' }, 404);
 
-
     const cards = existingDeck.cards || [];
-    const cardIdx = cards.findIndex(c => c.company?.id === companyId);
+    const cardIdx = cards.findIndex((c) => c.company?.id === companyId);
     if (cardIdx === -1) return c.json({ error: 'Company not found in deck' }, 404);
-    
+
     const companyCard = cards[cardIdx]!;
     const company = companyCard.company!;
-    const metricIdx = companyCard.metrics.findIndex(m => m.metricType === metricType);
+    const metricIdx =
+      metricId !== undefined
+        ? companyCard.metrics.findIndex((m) => m.id === metricId && m.metricType === metricType)
+        : metricType === 'users' && userBasis !== undefined
+          ? companyCard.metrics.findIndex(
+              (m) => m.metricType === 'users' && userFootprintBasisFor(m) === userBasis,
+            )
+          : companyCard.metrics.findIndex((m) => m.metricType === metricType);
     if (metricIdx === -1) return c.json({ error: 'Metric not found' }, 404);
     const metric = companyCard.metrics[metricIdx]!;
 
@@ -860,15 +903,24 @@ export function createApp(
       const hintCited = usableCitations(correction.citations);
       if (hasVerificationGradeCitation(hintCited) && metric.confidence !== 'user_verified') {
         const prior = metric.value;
-        const differs = prior == null || prior === 0 || Math.abs(correction.value - prior) / Math.max(Math.abs(prior), 1) > 0.02;
+        const differs =
+          prior == null ||
+          prior === 0 ||
+          Math.abs(correction.value - prior) / Math.max(Math.abs(prior), 1) > 0.02;
         let changed = false;
         if (differs) {
           metric.value = correction.value;
           metric.confidence = 'verified';
           metric.citations = hintCited;
           metric.source = hintCited[0]?.url ?? metric.source;
-          metric.methodNote = correction.rationale ?? `Corrected from a grounded fact-check${correction.asOf ? ` (as of ${correction.asOf})` : ''}.`;
-          if (metricType === 'users') {
+          metric.methodNote =
+            correction.rationale ??
+            `Corrected from a grounded fact-check${correction.asOf ? ` (as of ${correction.asOf})` : ''}.`;
+          if (
+            metricType === 'users' &&
+            userBasis === undefined &&
+            userFootprintBasisFor(metric as CompanyMetric) === 'unknown'
+          ) {
             const inferredBasis = inferUserFootprintBasis(metric.methodNote);
             if (inferredBasis !== 'unknown') metric.userBasis = inferredBasis;
           }
@@ -880,19 +932,22 @@ export function createApp(
         companyCard.card.tier = computeCms(buildCmsInput(companyCard.metrics), {
           userFootprintCohort: deckUserFootprintCohort(existingDeck.cards ?? []),
         }).finalTier;
-        const retieredCardIds = changed && priorTier !== companyCard.card.tier ? [companyCard.card.id] : [];
+        const retieredCardIds =
+          changed && priorTier !== companyCard.card.tier ? [companyCard.card.id] : [];
         if (retieredCardIds.length > 0) {
           companyCard.card.tierReason = 'Re-tiered after a fact-check correction.';
         }
 
         await cloudDeckService.saveDeck(userId, deckId!, existingDeck, existingDeck.revision);
-        
+
         return c.json({
           metric,
           verdict: changed ? 'contradicted' : 'supported',
           changed,
           retieredCardIds,
-          rationale: correction.rationale ?? 'Applied the correction from the grounded fact-check that just ran.',
+          rationale:
+            correction.rationale ??
+            'Applied the correction from the grounded fact-check that just ran.',
           citations: hintCited,
         });
       }
@@ -912,14 +967,19 @@ export function createApp(
     }
     const client = resolved.client;
 
-    const stored = metric.value != null ? `${metric.value} (confidence: ${metric.confidence})` : 'unknown';
+    const stored =
+      metric.value != null ? `${metric.value} (confidence: ${metric.confidence})` : 'unknown';
+    const basisInstruction =
+      metricType === 'users'
+        ? `MEASUREMENT BASIS: verify only ${label}. Do not substitute installs, followers, signups, accounts, or another user-footprint unit.`
+        : `MEASUREMENT BASIS: the figure must describe the WHOLE legal company — for a conglomerate, total company revenue/valuation/headcount, never a division's figure presented as the company's.`;
     const g = await client.ground(
       [
         `What is the most current, reliable figure for ${company.name}'s ${label}?`,
         `Company: ${company.name} — ${company.oneLiner}`,
         `Our stored figure: ${stored}.`,
         `Use Google Search. Prefer primary sources and recent reputable coverage; name the figure, its as-of date, and the source. If coverage disagrees, say which figure is best supported. If no reliable current figure exists, say so plainly. Never guess.`,
-        `MEASUREMENT BASIS: the figure must describe the WHOLE legal company — for a conglomerate, total company revenue/valuation/headcount, never a division's figure presented as the company's.`,
+        basisInstruction,
       ].join('\n'),
       { system: GROUNDED_SYSTEM },
     );
@@ -928,7 +988,7 @@ export function createApp(
       [
         `Based ONLY on these verification notes about ${company.name}'s ${label}, output JSON {`,
         `  "verdict": "supported" (stored figure holds) | "contradicted" (evidence names a different figure) | "unverified" (no reliable current figure),`,
-        `  "currentValue": number|null — the best-supported current figure in ${label === 'Market Share' ? 'percent (0-100)' : label === 'Users' || label === 'Employees' ? 'plain count' : 'US dollars'}; null when the notes name none. NEVER invent one.`,
+        `  "currentValue": number|null — the best-supported current figure in ${metricType === 'market_share' ? 'percent (0-100)' : metricType === 'users' || metricType === 'employees' ? 'plain count' : 'US dollars'}; null when the notes name none. NEVER invent one.`,
         `  "rationale": string (1-2 sentences),`,
         `  "methodNote": string|null — one line naming where the figure comes from`,
         `}`,
@@ -945,17 +1005,30 @@ export function createApp(
     const cited = usableCitations(g.citations);
     let changed = false;
 
-    if (out.currentValue != null && hasVerificationGradeCitation(cited)) {
+    const basisMismatch =
+      metricType === 'users' &&
+      userBasis !== undefined &&
+      out.userBasis != null &&
+      out.userBasis !== userBasis;
+    const verdict = basisMismatch ? 'unverified' : out.verdict;
+    if (out.currentValue != null && hasVerificationGradeCitation(cited) && !basisMismatch) {
       const prior = metric.value;
-      const differs = prior == null || prior === 0 || Math.abs(out.currentValue - prior) / Math.max(Math.abs(prior), 1) > 0.02;
-      
+      const differs =
+        prior == null ||
+        prior === 0 ||
+        Math.abs(out.currentValue - prior) / Math.max(Math.abs(prior), 1) > 0.02;
+
       if (differs && metric.confidence !== 'user_verified') {
         metric.value = out.currentValue;
         metric.confidence = 'verified';
         metric.citations = cited;
         metric.source = cited[0]?.url ?? metric.source;
         metric.methodNote = out.methodNote ?? `Live verification: ${out.rationale}`;
-        if (metricType === 'users') {
+        if (
+          metricType === 'users' &&
+          userBasis === undefined &&
+          userFootprintBasisFor(metric as CompanyMetric) === 'unknown'
+        ) {
           if (out.userBasis != null) metric.userBasis = out.userBasis;
           else {
             const inferredBasis = inferUserFootprintBasis(metric.methodNote);
@@ -966,15 +1039,20 @@ export function createApp(
         changed = true;
       }
     }
-    if (metricType === 'users' && metric.confidence !== 'user_verified') {
+    if (
+      metricType === 'users' &&
+      userBasis === undefined &&
+      userFootprintBasisFor(metric as CompanyMetric) === 'unknown' &&
+      metric.confidence !== 'user_verified'
+    ) {
       const basis = out.userBasis ?? inferUserFootprintBasis(out.methodNote ?? out.rationale);
       if (basis !== 'unknown' && basis !== metric.userBasis) {
         metric.userBasis = basis;
         changed = true;
       }
     }
-    
-    if (!changed && out.verdict === 'unverified' && metric.confidence === 'verified') {
+
+    if (!changed && verdict === 'unverified' && metric.confidence === 'verified') {
       metric.confidence = 'estimated';
       metric.methodNote = `Could not re-corroborate from live sources on ${nowIso.slice(0, 10)}; badge downgraded pending fresh evidence.`;
       metric.capturedAt = nowIso;
@@ -985,7 +1063,8 @@ export function createApp(
     companyCard.card.tier = computeCms(buildCmsInput(companyCard.metrics), {
       userFootprintCohort: deckUserFootprintCohort(existingDeck.cards ?? []),
     }).finalTier;
-    const retieredCardIds = changed && priorTier !== companyCard.card.tier ? [companyCard.card.id] : [];
+    const retieredCardIds =
+      changed && priorTier !== companyCard.card.tier ? [companyCard.card.id] : [];
     if (retieredCardIds.length > 0) {
       companyCard.card.tierReason = 'Re-tiered after live metric verification.';
     }
@@ -997,7 +1076,7 @@ export function createApp(
 
     return c.json({
       metric,
-      verdict: out.verdict,
+      verdict,
       changed,
       retieredCardIds,
       rationale: out.rationale,
@@ -1029,22 +1108,36 @@ export function createApp(
     if (!existingDeck) return c.json({ error: 'Deck not found' }, 404);
 
     const cards = existingDeck.cards || [];
-    const cardIdx = cards.findIndex(c => c.company?.id === companyId);
+    const cardIdx = cards.findIndex((c) => c.company?.id === companyId);
     if (cardIdx === -1) return c.json({ error: 'Company not found in deck' }, 404);
-    
+
     const companyCard = cards[cardIdx]!;
     const company = companyCard.company!;
     const metrics = companyCard.metrics;
 
-    const softTypes = METRIC_TYPES.filter(t => {
-      const m = metrics.find(x => x.metricType === t);
+    const softTypes = METRIC_TYPES.filter((t) => {
+      if (t === 'users') {
+        const footprints = metrics.filter((metric) => metric.metricType === 'users');
+        return (
+          footprints.length === 0 ||
+          footprints.some(
+            (metric) =>
+              metric.confidence !== 'user_verified' &&
+              metric.confidence !== 'verified' &&
+              (metric.value == null ||
+                metric.confidence === 'unknown' ||
+                metric.confidence === 'estimated'),
+          )
+        );
+      }
+      const m = metrics.find((x) => x.metricType === t);
       if (!m) return true;
       if (m.confidence === 'user_verified' || m.confidence === 'verified') return false;
       return m.value == null || m.confidence === 'unknown' || m.confidence === 'estimated';
     });
 
     if (softTypes.length === 0) {
-      return c.json({ filledTypes: [], metrics, retieredCardIds: [] });
+      return c.json({ filledTypes: [], filledMetricIds: [], metrics, retieredCardIds: [] });
     }
 
     let resolved;
@@ -1060,8 +1153,8 @@ export function createApp(
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 503);
     }
     const client = resolved.client;
-    
-    const wanted = softTypes.map(t => `- ${METRIC_TYPE_LABELS[t]}`).join('\n');
+
+    const wanted = softTypes.map((t) => `- ${METRIC_TYPE_LABELS[t]}`).join('\n');
     const g = await client.ground(
       [
         `Find the most current, reliable figures for these metrics of ${company.name}:`,
@@ -1070,9 +1163,9 @@ export function createApp(
         `Use Google Search. For each figure name the value, its as-of date, and the source. Prefer primary sources and recent reputable coverage. If no reliable current figure exists for a metric, say so plainly for that metric. Never guess.`,
         `MEASUREMENT BASIS: every figure must describe the WHOLE legal company — for a conglomerate, total company revenue/valuation/headcount, never a division's figure presented as the company's.`,
         `UNITS: Market Share in percent of its primary market (0-100); Users and Employees as plain counts; Valuation, Market Cap, and ARR in US dollars.`,
-        `For a Users figure, also return userBasis naming exactly what is counted (for example monthly_active_users, registered_accounts, paying_business_accounts, downloads_or_installs, github_stars). Use unknown when the notes do not say; never guess based on the business category.`,
+        `For Users, return every distinct footprint the notes support, one figure per exact basis (for example monthly_active_users, registered_accounts, paying_business_accounts, downloads_or_installs, github_stars). Never combine counts and never return more than one row for the same known basis. When basis is other or unknown, preserve rows with different method notes as separate figures.`,
       ].join('\n'),
-      { system: GROUNDED_SYSTEM }
+      { system: GROUNDED_SYSTEM },
     );
 
     const out = await client.structure(
@@ -1084,22 +1177,44 @@ export function createApp(
         g.text,
       ].join('\n'),
       huntMetricsOutSchema,
-      { system: STRUCTURE_SYSTEM }
+      { system: STRUCTURE_SYSTEM },
     );
 
     const nowIso = new Date().toISOString();
     const cited = usableCitations(g.citations);
     const filledTypes: string[] = [];
+    const filledMetricIds: string[] = [];
 
     let changed = false;
     if (hasVerificationGradeCitation(cited)) {
-      for (const fig of out.figures) {
+      for (const [figureIndex, fig] of out.figures.entries()) {
         if (fig.value == null) continue;
         if (!softTypes.includes(fig.metricType)) continue;
-        let metric = metrics.find(m => m.metricType === fig.metricType);
+        const userBasis =
+          fig.metricType === 'users'
+            ? (fig.userBasis ?? inferUserFootprintBasis(fig.methodNote))
+            : undefined;
+        const userFootprintId =
+          userBasis === undefined
+            ? undefined
+            : userFootprintIdentity({
+                userBasis,
+                methodNote: fig.methodNote,
+                id: `source-${figureIndex}`,
+              })
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-|-$/g, '')
+                .slice(0, 48);
+        let metric =
+          fig.metricType === 'users'
+            ? findUserFootprint(metrics, userBasis, fig.methodNote)
+            : metrics.find((m) => m.metricType === fig.metricType);
+        if (metric && (metric.confidence === 'user_verified' || metric.confidence === 'verified')) {
+          continue;
+        }
         if (!metric) {
           metric = {
-            id: `met_hunt_${Date.now().toString(36)}_${fig.metricType}`,
+            id: `met_hunt_${Date.now().toString(36)}_${fig.metricType}${userFootprintId ? `_${userFootprintId}` : ''}`,
             companyId,
             metricType: fig.metricType as CompanyMetric['metricType'],
             value: null,
@@ -1108,6 +1223,7 @@ export function createApp(
             citations: [],
             methodNote: null,
             capturedAt: nowIso,
+            ...(userBasis !== undefined ? { userBasis } : {}),
           };
           metrics.push(metric);
         }
@@ -1117,10 +1233,11 @@ export function createApp(
         metric.source = cited[0]?.url ?? null;
         metric.methodNote = fig.methodNote ?? null;
         if (fig.metricType === 'users') {
-          metric.userBasis = fig.userBasis ?? inferUserFootprintBasis(metric.methodNote);
+          metric.userBasis = userBasis ?? 'unknown';
         }
         metric.capturedAt = nowIso;
-        filledTypes.push(fig.metricType);
+        if (!filledTypes.includes(fig.metricType)) filledTypes.push(fig.metricType);
+        if (!filledMetricIds.includes(metric.id)) filledMetricIds.push(metric.id);
         changed = true;
       }
     }
@@ -1131,11 +1248,11 @@ export function createApp(
 
     return c.json({
       filledTypes,
+      filledMetricIds,
       metrics,
       retieredCardIds: changed ? [companyCard.card.id] : [],
     });
   });
-
 
   /**
    * Capture a page, verify the capture is genuine, and never return a
@@ -1154,7 +1271,9 @@ export function createApp(
     // and costs us CPU, not tokens. It IS rate limited, because launching
     // Chromium is expensive enough to be a denial-of-service lever.
     try {
-      captureLimiter.check(callerKeyFor({ forwardedFor: c.req.header('x-forwarded-for'), appToken }));
+      captureLimiter.check(
+        callerKeyFor({ forwardedFor: c.req.header('x-forwarded-for'), appToken }),
+      );
     } catch (err) {
       const mapped = guardError(err);
       if (mapped) return c.json(mapped.body, mapped.status);
@@ -1258,9 +1377,13 @@ export function createApp(
         `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`,
       );
       if (tokenInfoRes.ok) {
-        const info = await tokenInfoRes.json() as { email?: string; exp?: string; iss?: string };
+        const info = (await tokenInfoRes.json()) as { email?: string; exp?: string; iss?: string };
         if (info.email && info.email === expectedEmail) {
-          if (!info.iss || info.iss === 'https://accounts.google.com' || info.iss === 'accounts.google.com') {
+          if (
+            !info.iss ||
+            info.iss === 'https://accounts.google.com' ||
+            info.iss === 'accounts.google.com'
+          ) {
             return true;
           }
         }
@@ -1275,9 +1398,13 @@ export function createApp(
         `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`,
       );
       if (tokenInfoRes.ok) {
-        const info = await tokenInfoRes.json() as { email?: string; exp?: string; iss?: string };
+        const info = (await tokenInfoRes.json()) as { email?: string; exp?: string; iss?: string };
         if (info.email && info.email === expectedEmail) {
-          if (!info.iss || info.iss === 'https://accounts.google.com' || info.iss === 'accounts.google.com') {
+          if (
+            !info.iss ||
+            info.iss === 'https://accounts.google.com' ||
+            info.iss === 'accounts.google.com'
+          ) {
             return true;
           }
         }
@@ -1297,8 +1424,14 @@ export function createApp(
 
       const tokenEmail = payload.email || payload.service_account_email;
       if (tokenEmail && tokenEmail !== expectedEmail) return false;
-      if (payload.exp && typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) return false;
-      if (payload.iss && payload.iss !== 'https://accounts.google.com' && payload.iss !== 'accounts.google.com') return false;
+      if (payload.exp && typeof payload.exp === 'number' && payload.exp * 1000 < Date.now())
+        return false;
+      if (
+        payload.iss &&
+        payload.iss !== 'https://accounts.google.com' &&
+        payload.iss !== 'accounts.google.com'
+      )
+        return false;
 
       return true;
     } catch {
@@ -1335,21 +1468,23 @@ export function createApp(
     // In local development or testing, these might be absent depending on adapter, so we just log.
     const queueName = c.req.header('X-CloudTasks-QueueName');
     if (env.tasks && !queueName) {
-       console.warn('Worker invoked without X-CloudTasks-QueueName header - ensure IAM proxy is securing this endpoint.');
+      console.warn(
+        'Worker invoked without X-CloudTasks-QueueName header - ensure IAM proxy is securing this endpoint.',
+      );
     }
-    
+
     const payload = await c.req.json().catch(() => null);
     if (!payload || !payload.deckId || !payload.userId || !payload.plan) {
       return c.json({ error: 'Invalid task payload' }, 400);
     }
-    
+
     const traceHeader = c.req.header('x-cloud-trace-context') || c.req.header('traceparent');
     const headerTraceContext = parseTraceContext(traceHeader);
     const traceContext = payload.traceContext || headerTraceContext;
 
     // Process deck creation
     await cloudDeckWorker.processDeckCreation({ ...payload, traceContext });
-    
+
     return c.json({ ok: true });
   });
 
@@ -1360,20 +1495,22 @@ export function createApp(
 
     const queueName = c.req.header('X-CloudTasks-QueueName');
     if (env.tasks && !queueName) {
-       console.warn('Worker invoked without X-CloudTasks-QueueName header - ensure IAM proxy is securing this endpoint.');
+      console.warn(
+        'Worker invoked without X-CloudTasks-QueueName header - ensure IAM proxy is securing this endpoint.',
+      );
     }
-    
+
     const payload = await c.req.json().catch(() => null);
     if (!payload || !payload.deckId || !payload.userId || !payload.query) {
       return c.json({ error: 'Invalid task payload for refresh' }, 400);
     }
-    
+
     const traceHeader = c.req.header('x-cloud-trace-context') || c.req.header('traceparent');
     const headerTraceContext = parseTraceContext(traceHeader);
     const traceContext = payload.traceContext || headerTraceContext;
 
     await cloudDeckWorker.processDeckRefresh({ ...payload, traceContext });
-    
+
     return c.json({ ok: true });
   });
 
@@ -1383,9 +1520,12 @@ export function createApp(
    */
   app.post('/tasks/refresh', async (c) => {
     if (!env.schedulerServiceAccountEmail) {
-      return c.json({ error: 'Scheduled refresh is not configured with an OIDC service account.' }, 503);
+      return c.json(
+        { error: 'Scheduled refresh is not configured with an OIDC service account.' },
+        503,
+      );
     }
-    
+
     const authHeader = c.req.header('authorization');
     if (!authHeader || !authHeader.toLowerCase().startsWith('bearer ')) {
       return c.json({ error: 'Unauthorized: Missing or invalid Bearer token' }, 401);
@@ -1405,10 +1545,10 @@ export function createApp(
     if (!hasServerCredentials(env)) {
       return c.json({ error: 'No server credentials; nothing to refresh with.' }, 503);
     }
-    
+
     // We don't resolve the LlmClient directly anymore in the scheduler since
     // executeScheduledRefresh fan-out logic now delegates to workers.
-    
+
     const result = await executeScheduledRefresh({
       env,
       store: options?.worklistStore ?? store,
@@ -1424,7 +1564,12 @@ export function createApp(
     console.error(JSON.stringify({ severity: 'ERROR', message: err.message, stack: err.stack }));
     const status = (err as Error & { status?: unknown }).status;
     if (status === 429) {
-      return c.json({ error: 'Cloud model quota is exhausted. Try again later or provide your own Gemini key.' }, 429);
+      return c.json(
+        {
+          error: 'Cloud model quota is exhausted. Try again later or provide your own Gemini key.',
+        },
+        429,
+      );
     }
     if (status === 404 || err.message === 'Not found') {
       return c.json({ error: 'Not found' }, 404);

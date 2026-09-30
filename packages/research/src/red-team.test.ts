@@ -99,7 +99,11 @@ function memoryStore(initial: RepoSnapshot): ResearchStore {
 }
 
 const CITED: Citation[] = [
-  { title: 'reuters.com', url: 'https://reuters.com/openai-arr', credibility: 'reputable_secondary' },
+  {
+    title: 'reuters.com',
+    url: 'https://reuters.com/openai-arr',
+    credibility: 'reputable_secondary',
+  },
 ];
 
 /** Routes by prompt content: the red-team audit vs. the report composer. */
@@ -175,5 +179,80 @@ describe('pre-report red-team pass', () => {
     // The estimated ARR is audited; the user-verified Users figure is not.
     expect(redTeamPrompt).toContain('ARR');
     expect(redTeamPrompt).not.toContain('Users = 1000000000');
+  });
+
+  it('routes red-team corrections to the exact footprint row, not the first users metric', async () => {
+    const initial = seededSnapshot();
+    initial.metrics.push(
+      {
+        id: 'met_mau',
+        companyId: 'cmp_openai',
+        metricType: 'users',
+        userBasis: 'monthly_active_users',
+        value: 800_000_000,
+        confidence: 'estimated',
+        source: null,
+        citations: [],
+        methodNote: 'Monthly active users',
+        capturedAt: new Date().toISOString(),
+      },
+      {
+        id: 'met_stars',
+        companyId: 'cmp_openai',
+        metricType: 'users',
+        userBasis: 'github_stars',
+        value: 50_000,
+        confidence: 'estimated',
+        source: null,
+        citations: [],
+        methodNote: 'GitHub stars',
+        capturedAt: new Date().toISOString(),
+      },
+    );
+    const client = routedClient();
+    (client.ground as ReturnType<typeof vi.fn>).mockImplementation((prompt: string) =>
+      Promise.resolve(
+        prompt.includes('RED-TEAM')
+          ? {
+              text: 'OpenAI has 12,000 GitHub stars as of July 2026 per Reuters.',
+              citations: CITED,
+              queries: ['OpenAI GitHub stars'],
+            }
+          : {
+              text: '## Executive summary\n\nComposed from the audited digest.',
+              citations: CITED,
+              queries: ['Frontier AI market'],
+            },
+      ),
+    );
+    (client.structure as ReturnType<typeof vi.fn>).mockImplementation((prompt: string) =>
+      Promise.resolve(
+        prompt.includes('red-team notes')
+          ? {
+              findings: [
+                {
+                  auditId: 'R3',
+                  companyName: 'OpenAI',
+                  metricType: 'users',
+                  verdict: 'wrong',
+                  correctedValue: 12_000,
+                  note: 'Reuters reporting, July 2026',
+                },
+              ],
+            }
+          : {},
+      ),
+    );
+    const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(initial), client });
+
+    await repo.generateReport({ kind: 'company', subjectId: 'cmp_openai' });
+
+    const users = (await repo.getCompanyMetrics('cmp_openai')).filter(
+      (m) => m.metricType === 'users',
+    );
+    expect(users.find((m) => m.id === 'met_users')?.value).toBe(1_000_000_000);
+    expect(users.find((m) => m.id === 'met_mau')?.value).toBe(800_000_000);
+    expect(users.find((m) => m.id === 'met_stars')?.value).toBe(12_000);
+    expect(users.find((m) => m.id === 'met_stars')?.confidence).toBe('verified');
   });
 });

@@ -77,7 +77,9 @@ describe('enrichmentOutSchema — funding round as a closed vocabulary', () => {
   });
 
   it('survives a malformed round object without losing the company', () => {
-    expect(enrichmentOutSchema.parse(payload({ roundType: 'seed' })).facts.lastFundingRound).toBeNull();
+    expect(
+      enrichmentOutSchema.parse(payload({ roundType: 'seed' })).facts.lastFundingRound,
+    ).toBeNull();
     expect(enrichmentOutSchema.parse(payload('Series A')).facts.lastFundingRound).toBeNull();
     expect(enrichmentOutSchema.parse(payload(null)).facts.lastFundingRound).toBeNull();
   });
@@ -109,6 +111,35 @@ describe('enrichmentOutSchema — user footprint and pricing bases', () => {
     expect(out.metrics.users?.userBasis).toBe('monthly_active_users');
     expect(out.facts.footprintBasis).toBe('paying_business_accounts');
     expect(out.facts.scrapedPricing?.pricingUnitBasis).toBe('per_business_account');
+  });
+
+  it('accepts multiple independently sourced footprints and keeps the legacy users field optional', () => {
+    const out = enrichmentOutSchema.parse({
+      metrics: {
+        userFootprints: [
+          {
+            value: 12_000,
+            confidence: 'verified',
+            sourceIndex: 0,
+            method: 'Monthly active users',
+            userBasis: 'monthly_active_users',
+          },
+          {
+            value: 500,
+            confidence: 'verified',
+            sourceIndex: 1,
+            method: 'Paid seats',
+            userBasis: 'paid_seats',
+          },
+        ],
+      },
+    });
+
+    expect(out.metrics.users).toBeUndefined();
+    expect(out.metrics.userFootprints.map((metric) => metric.userBasis)).toEqual([
+      'monthly_active_users',
+      'paid_seats',
+    ]);
   });
 
   it('defaults omitted pricing denominator to unknown, never an inferred paid unit', () => {
@@ -159,7 +190,9 @@ describe('malformed model output at every strict boundary (issue #48)', () => {
 
   it('tolerates a bare list where an object was requested, on every list boundary', () => {
     // The recurring "Expected object, received array" crash class.
-    expect(huntMetricsOutSchema.parse([{ metricType: 'users', value: 10 }]).figures).toHaveLength(1);
+    expect(huntMetricsOutSchema.parse([{ metricType: 'users', value: 10 }]).figures).toHaveLength(
+      1,
+    );
     expect(tierReviewBatchOutSchema.parse([{ name: 'Acme' }]).reviews).toHaveLength(1);
     expect(discoveryOutSchema.parse([{ name: 'Acme' }]).companies).toHaveLength(1);
   });

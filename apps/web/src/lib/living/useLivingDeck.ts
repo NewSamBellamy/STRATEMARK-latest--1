@@ -13,12 +13,14 @@ import { isLowPower } from '@/lib/usage';
 import {
   METRIC_TYPE_LABELS,
   auditDeckConsistency,
+  userFootprintBasisFor,
   metricDisplayLabel,
   selectStaleMetrics,
   verificationTargetsFrom,
   type CardWithCompany,
   type CompanyMetric,
   type MetricType,
+  type UserFootprintBasis,
 } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useApiKey } from '@/lib/settings/apiKey';
@@ -97,14 +99,26 @@ export function useLivingDeck(
       companyId: string,
       metricType: MetricType,
       reason: 'consistency' | 'stale',
+      userBasis?: UserFootprintBasis,
+      metricId?: string,
     ): VerificationTarget => {
       const metric = cardsRef.current
         .find((card) => card.company?.id === companyId)
-        ?.metrics.find((candidate) => candidate.metricType === metricType);
+        ?.metrics.find(
+          (candidate) =>
+            candidate.metricType === metricType &&
+            (metricId !== undefined
+              ? candidate.id === metricId
+              : metricType !== 'users' ||
+                userBasis === undefined ||
+                userFootprintBasisFor(candidate) === userBasis),
+        );
       return {
         companyId,
         companyName: nameOf(companyId),
         metricType,
+        ...(metricId !== undefined ? { metricId } : metric ? { metricId: metric.id } : {}),
+        ...(userBasis !== undefined ? { userBasis } : {}),
         metricLabel: metric ? metricDisplayLabel(metric) : METRIC_TYPE_LABELS[metricType],
         reason,
       };
@@ -122,7 +136,7 @@ export function useLivingDeck(
         );
         const freshFindings = audit
           .filter((f) => {
-            const key = `${f.code}:${f.companyIds.join(',')}`;
+            const key = `${f.code}:${f.companyIds.join(',')}:${f.metricId ?? f.userBasis ?? ''}`;
             if (seenFindings.has(key)) return false;
             seenFindings.add(key);
             return true;
@@ -130,7 +144,7 @@ export function useLivingDeck(
           .map((f) => ({ message: f.message, severity: f.severity }));
 
         const consistencyTargets = verificationTargetsFrom(audit).map((t) =>
-          toTarget(t.companyId, t.metricType, 'consistency'),
+          toTarget(t.companyId, t.metricType, 'consistency', t.userBasis, t.metricId),
         );
 
         const allMetrics: CompanyMetric[] = current.flatMap((c) => c.metrics);
@@ -139,7 +153,15 @@ export function useLivingDeck(
         const staleTargets = isLowPower()
           ? []
           : selectStaleMetrics(allMetrics, nowMs, STALE_BUDGET_PER_TURN).map((candidate) =>
-              toTarget(candidate.metric.companyId, candidate.metric.metricType, 'stale'),
+              toTarget(
+                candidate.metric.companyId,
+                candidate.metric.metricType,
+                'stale',
+                candidate.metric.metricType === 'users'
+                  ? userFootprintBasisFor(candidate.metric)
+                  : undefined,
+                candidate.metric.id,
+              ),
             );
 
         return {
@@ -154,6 +176,8 @@ export function useLivingDeck(
             const result = await repo.verifyMetric!({
               companyId: target.companyId,
               metricType: target.metricType as MetricType,
+              ...(target.metricId !== undefined ? { metricId: target.metricId } : {}),
+              ...(target.userBasis !== undefined ? { userBasis: target.userBasis } : {}),
             });
             if (result.changed) {
               qc.invalidateQueries({ queryKey: qk.companyMetrics(target.companyId) });

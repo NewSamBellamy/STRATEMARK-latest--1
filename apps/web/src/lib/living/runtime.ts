@@ -21,6 +21,8 @@
  * so the scheduling policy is unit-testable without React, timers, or Gemini.
  */
 
+import type { UserFootprintBasis } from '@mi/contracts';
+
 export type LivingActionKind =
   'started' | 'verified' | 'corrected' | 'finding' | 'resting' | 'error';
 
@@ -41,6 +43,8 @@ export interface VerificationTarget {
   companyId: string;
   companyName: string;
   metricType: string;
+  metricId?: string;
+  userBasis?: UserFootprintBasis;
   metricLabel: string;
   /** Why this target is queued — shown in the feed. */
   reason: 'consistency' | 'stale';

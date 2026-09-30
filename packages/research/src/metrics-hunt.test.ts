@@ -151,11 +151,102 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
 
     await repo.huntCompanyMetrics('cmp_1');
 
-    const users = (await repo.getCompanyMetrics('cmp_1')).find((metric) => metric.metricType === 'users');
+    const users = (await repo.getCompanyMetrics('cmp_1')).find(
+      (metric) => metric.metricType === 'users',
+    );
     expect(users?.userBasis).toBe('monthly_active_users');
   });
 
-  it('keeps an explicitly supplied basis when a user corrects a footprint metric', async () => {
+  it('updates a soft footprint and adds a second basis without overwriting either identity', async () => {
+    const initial = snapshot();
+    const mau = initial.metrics.find((metric) => metric.metricType === 'users')!;
+    mau.confidence = 'estimated';
+    mau.userBasis = 'monthly_active_users';
+    mau.value = 600_000_000;
+    const ground = vi.fn().mockResolvedValue({
+      text: 'OpenAI reports monthly active users and GitHub stars.',
+      citations: [{ title: 'Reuters', url: 'https://reuters.com/openai-footprints' }],
+      queries: [],
+    });
+    const structure = vi.fn().mockResolvedValue({
+      figures: [
+        {
+          metricType: 'users',
+          value: 700_000_000,
+          methodNote: 'Monthly active users',
+          userBasis: 'monthly_active_users',
+        },
+        {
+          metricType: 'users',
+          value: 100_000,
+          methodNote: 'GitHub stars',
+          userBasis: 'github_stars',
+        },
+      ],
+    });
+    const repo = new GeminiRepository({
+      apiKey: 'k',
+      store: memoryStore(initial),
+      client: { ground, structure } as unknown as LlmClient,
+    });
+
+    const result = await repo.huntCompanyMetrics('cmp_1');
+    const footprints = (await repo.getCompanyMetrics('cmp_1')).filter(
+      (metric) => metric.metricType === 'users',
+    );
+
+    expect(result.filledTypes).toEqual(['users']);
+    expect(footprints.find((metric) => metric.userBasis === 'monthly_active_users')?.value).toBe(
+      700_000_000,
+    );
+    expect(footprints.find((metric) => metric.userBasis === 'github_stars')?.value).toBe(100_000);
+    expect(footprints).toHaveLength(2);
+    expect(result.filledMetricIds?.sort()).toEqual(footprints.map((metric) => metric.id).sort());
+  });
+
+  it('adds a distinct unknown footprint instead of overwriting another unknown row', async () => {
+    const initial = snapshot();
+    const existing = initial.metrics.find((metric) => metric.metricType === 'users')!;
+    existing.confidence = 'estimated';
+    existing.userBasis = 'unknown';
+    existing.methodNote = 'Community members reported by the company';
+    existing.value = 2_000;
+    const ground = vi.fn().mockResolvedValue({
+      text: 'OpenAI has an open source contributor count.',
+      citations: [{ title: 'Reuters', url: 'https://reuters.com/openai-contributors' }],
+      queries: [],
+    });
+    const structure = vi.fn().mockResolvedValue({
+      figures: [
+        {
+          metricType: 'users',
+          value: 800,
+          methodNote: 'Repository watchers reported by the project',
+          userBasis: 'unknown',
+        },
+      ],
+    });
+    const repo = new GeminiRepository({
+      apiKey: 'k',
+      store: memoryStore(initial),
+      client: { ground, structure } as unknown as LlmClient,
+    });
+
+    const result = await repo.huntCompanyMetrics('cmp_1');
+    const footprints = (await repo.getCompanyMetrics('cmp_1')).filter(
+      (metric) => metric.metricType === 'users',
+    );
+
+    expect(footprints).toHaveLength(2);
+    expect(footprints.find((metric) => metric.id === 'met_users')?.value).toBe(2_000);
+    const watchers = footprints.find(
+      (metric) => metric.methodNote === 'Repository watchers reported by the project',
+    );
+    expect(watchers?.value).toBe(800);
+    expect(result.filledMetricIds).toEqual([watchers?.id]);
+  });
+
+  it('adds a basis-specific human correction without rewriting another footprint', async () => {
     const repo = repoWith({} as LlmClient);
     await repo.overrideMetric({
       companyId: 'cmp_1',
@@ -165,8 +256,14 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
       userBasis: 'paying_business_accounts',
     });
 
-    const users = (await repo.getCompanyMetrics('cmp_1')).find((metric) => metric.metricType === 'users');
-    expect(users?.userBasis).toBe('paying_business_accounts');
+    const users = (await repo.getCompanyMetrics('cmp_1')).filter(
+      (metric) => metric.metricType === 'users',
+    );
+    expect(users).toHaveLength(2);
+    expect(users.find((metric) => metric.userBasis === 'paying_business_accounts')?.value).toBe(
+      120,
+    );
+    expect(users.find((metric) => metric.confidence === 'user_verified')?.value).toBe(700_000_000);
   });
 
   it('writes NOTHING when the only citations are junk domains', async () => {
@@ -197,10 +294,30 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
     // Direct check: after one successful hunt fills everything findable, a
     // second hunt still runs only for what stayed soft — here we simulate the
     // all-hard case by pre-verifying rows through overrideMetric.
-    await repo.overrideMetric({ companyId: 'cmp_1', metricType: 'employees', value: 3200, note: 'HR' });
-    await repo.overrideMetric({ companyId: 'cmp_1', metricType: 'valuation', value: 5e11, note: 'board' });
-    await repo.overrideMetric({ companyId: 'cmp_1', metricType: 'market_cap', value: 5e11, note: 'board' });
-    await repo.overrideMetric({ companyId: 'cmp_1', metricType: 'market_share', value: 40, note: 'analyst' });
+    await repo.overrideMetric({
+      companyId: 'cmp_1',
+      metricType: 'employees',
+      value: 3200,
+      note: 'HR',
+    });
+    await repo.overrideMetric({
+      companyId: 'cmp_1',
+      metricType: 'valuation',
+      value: 5e11,
+      note: 'board',
+    });
+    await repo.overrideMetric({
+      companyId: 'cmp_1',
+      metricType: 'market_cap',
+      value: 5e11,
+      note: 'board',
+    });
+    await repo.overrideMetric({
+      companyId: 'cmp_1',
+      metricType: 'market_share',
+      value: 40,
+      note: 'analyst',
+    });
     const result = await repo.huntCompanyMetrics('cmp_1');
     expect(ground).not.toHaveBeenCalled();
     expect(result.filledTypes).toEqual([]);

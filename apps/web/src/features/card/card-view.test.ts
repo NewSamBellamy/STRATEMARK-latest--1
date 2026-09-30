@@ -47,6 +47,31 @@ describe('collectible card evidence model', () => {
     ]);
     expect(result.metrics[0]?.label).toBe('GitHub stars');
   });
+  it('puts the deck-comparable footprint on the card face when several are available', () => {
+    const result = buildCardView(
+      {
+        card,
+        company,
+        viceClaims: [],
+        metrics: [
+          metric({
+            id: 'stars',
+            value: 80_000,
+            userBasis: 'github_stars',
+            confidence: 'user_verified',
+          }),
+          metric({
+            id: 'mau',
+            value: 12_000,
+            userBasis: 'monthly_active_users',
+            confidence: 'verified',
+          }),
+        ],
+      },
+      { basis: 'monthly_active_users', values: [500, 12_000, 40_000] },
+    );
+    expect(result.faceMetrics[0]?.metric.id).toBe('mau');
+  });
   it('requires a clickable receipt before displaying model-verified confidence', () => {
     const input = metric({ citations: [], source: 'Annual report', methodNote: null });
     const result = view([input]);

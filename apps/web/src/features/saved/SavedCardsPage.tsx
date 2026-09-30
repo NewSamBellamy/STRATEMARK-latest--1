@@ -1,5 +1,6 @@
 import { BookmarkSimple } from '@phosphor-icons/react';
 import { useMemo } from 'react';
+import { useQueries } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import type { CardWithCompany } from '@mi/contracts';
 import { EmptyState } from '@/components/states/EmptyState';
@@ -8,6 +9,8 @@ import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { CardGrid } from '@/features/deck/CardGrid';
 import { buildCardView } from '@/features/card/card-view';
 import { useSavedCards } from '@/hooks/data';
+import { useRepository } from '@/lib/repository/RepositoryProvider';
+import { qk } from '@/lib/query/keys';
 
 function savedIdentity(entry: CardWithCompany): string {
   if (!entry.company) return entry.card.id;
@@ -39,6 +42,19 @@ export function collapseSavedCards(cards: CardWithCompany[]): CardWithCompany[] 
 export default function SavedCardsPage() {
   const cards = useSavedCards();
   const uniqueCards = useMemo(() => collapseSavedCards(cards.data ?? []), [cards.data]);
+  const repo = useRepository();
+  const sourceDeckIds = useMemo(
+    () => [...new Set(uniqueCards.map((entry) => entry.card.deckId))],
+    [uniqueCards],
+  );
+  const sourceDecks = useQueries({
+    queries: sourceDeckIds.map((deckId) => ({
+      queryKey: qk.cards(deckId),
+      queryFn: () => repo.listCards(deckId),
+      staleTime: 60_000,
+    })),
+  });
+  const fullSourceDeckCards = sourceDecks.flatMap((query) => query.data ?? []);
   return (
     <div className="mx-auto max-w-6xl">
       <header className="mb-7">
@@ -79,7 +95,13 @@ export default function SavedCardsPage() {
           />
         }
       >
-        {() => <CardGrid cards={uniqueCards} cohortCards={uniqueCards} />}
+        {() => (
+          <CardGrid
+            cards={uniqueCards}
+            cohortCards={fullSourceDeckCards}
+            cohortReady={sourceDecks.every((query) => query.isSuccess)}
+          />
+        )}
       </QueryBoundary>
     </div>
   );

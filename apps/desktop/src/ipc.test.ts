@@ -8,6 +8,7 @@ import {
   reportRequestSchema,
   expandFocusSchema,
   overrideMetricInputSchema,
+  verifyMetricInputSchema,
   askResearchInputSchema,
   listResearchThreadsFilterSchema,
   refreshCadenceSchema,
@@ -86,9 +87,15 @@ describe('Desktop IPC Schemas & Payload Validation', () => {
       const parsed = factCheckInputSchema.parse({
         claim: 'OpenAI reached $10B ARR in 2025',
         companyName: 'OpenAI',
+        companyId: 'cmp_openai',
+        metricType: 'users',
+        userBasis: 'monthly_active_users',
+        storedValue: 10_000,
       });
       expect(parsed.claim).toBe('OpenAI reached $10B ARR in 2025');
       expect(parsed.companyName).toBe('OpenAI');
+      expect(parsed.userBasis).toBe('monthly_active_users');
+      expect(parsed.storedValue).toBe(10_000);
     });
 
     it('rejects missing claims or topics', () => {
@@ -128,6 +135,17 @@ describe('Desktop IPC Schemas & Payload Validation', () => {
       expect(parsed.metricType).toBe('arr');
     });
 
+    it('accepts basis-specific user corrections and preserves the selected footprint', () => {
+      const parsed = overrideMetricInputSchema.parse({
+        companyId: 'comp_1',
+        metricType: 'users',
+        userBasis: 'paid_seats',
+        value: 500,
+        note: 'Confirmed in the company report',
+      });
+      expect(parsed.userBasis).toBe('paid_seats');
+    });
+
     it('allows clearing metric with null value', () => {
       const parsed = overrideMetricInputSchema.parse({
         companyId: 'comp_1',
@@ -135,6 +153,23 @@ describe('Desktop IPC Schemas & Payload Validation', () => {
         value: null,
       });
       expect(parsed.value).toBeNull();
+    });
+  });
+
+  describe('verifyMetricInputSchema', () => {
+    it('accepts a basis-targeted correction payload', () => {
+      const parsed = verifyMetricInputSchema.parse({
+        companyId: 'comp_1',
+        metricType: 'users',
+        userBasis: 'paid_seats',
+        correction: {
+          value: 500,
+          citations: [{ title: 'Company report', url: 'https://company.example/report' }],
+          rationale: 'The report states 500 paid seats.',
+        },
+      });
+      expect(parsed.userBasis).toBe('paid_seats');
+      expect(parsed.correction?.value).toBe(500);
     });
   });
 

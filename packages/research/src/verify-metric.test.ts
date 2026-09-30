@@ -105,7 +105,11 @@ function memoryStore(initial: RepoSnapshot): { store: ResearchStore; written: Re
 }
 
 const CITED: Citation[] = [
-  { title: 'reuters.com', url: 'https://reuters.com/openai-arr', credibility: 'reputable_secondary' },
+  {
+    title: 'reuters.com',
+    url: 'https://reuters.com/openai-arr',
+    credibility: 'reputable_secondary',
+  },
 ];
 
 function stubClient(overrides: {
@@ -220,6 +224,77 @@ describe('verifyMetric', () => {
     expect(result.metric.value).toBe(990_000_000); // untouched
   });
 
+  it('verifies the selected footprint basis without changing another users row', async () => {
+    const initial = seededSnapshot();
+    const mau = initial.metrics.find((metric) => metric.metricType === 'users')!;
+    mau.value = 12_000;
+    mau.confidence = 'verified';
+    mau.userBasis = 'monthly_active_users';
+    initial.metrics.push({
+      ...mau,
+      id: 'met_paid_seats',
+      value: 500,
+      confidence: 'estimated',
+      methodNote: 'Paid seats',
+      userBasis: 'paid_seats',
+    });
+    const { store } = memoryStore(initial);
+    const client = stubClient({
+      structured: {
+        verdict: 'contradicted',
+        currentValue: 650,
+        rationale: 'Current pricing materials name 650 paid seats.',
+        methodNote: 'Company pricing report, July 2026',
+        userBasis: 'paid_seats',
+      },
+    });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+
+    const result = await repo.verifyMetric({
+      companyId: 'cmp_openai',
+      metricType: 'users',
+      userBasis: 'paid_seats',
+    });
+    const metrics = await repo.getCompanyMetrics('cmp_openai');
+
+    expect(result.metric.userBasis).toBe('paid_seats');
+    expect(result.metric.value).toBe(650);
+    expect(metrics.find((metric) => metric.userBasis === 'monthly_active_users')?.value).toBe(
+      12_000,
+    );
+    expect((client.ground as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toContain('Paid seats');
+  });
+
+  it('refuses a correction whose structured output names a different footprint basis', async () => {
+    const initial = seededSnapshot();
+    const mau = initial.metrics.find((metric) => metric.metricType === 'users')!;
+    mau.value = 500;
+    mau.confidence = 'verified';
+    mau.userBasis = 'paid_seats';
+    const { store } = memoryStore(initial);
+    const client = stubClient({
+      structured: {
+        verdict: 'contradicted',
+        currentValue: 12_000,
+        rationale: 'This is actually a monthly active user count.',
+        methodNote: 'Monthly active users',
+        userBasis: 'monthly_active_users',
+      },
+    });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+
+    const result = await repo.verifyMetric({
+      companyId: 'cmp_openai',
+      metricType: 'users',
+      userBasis: 'paid_seats',
+    });
+
+    expect(result.verdict).toBe('unverified');
+    expect(result.metric.value).toBe(500);
+    expect(result.metric.userBasis).toBe('paid_seats');
+    expect(result.metric.confidence).toBe('estimated');
+  });
+
   it('never overwrites a user_verified figure — the human outranks the machine', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({
@@ -245,12 +320,18 @@ describe('verifyMetric', () => {
     // Rule: a verified figure that cannot be re-corroborated keeps its value
     // but honestly drops to 'estimated' with an audit note.
     const snap = seededSnapshot();
-    const arr = (snap as unknown as { metrics: Array<{ metricType: string; confidence: string }> })
-      .metrics.find((m) => m.metricType === 'arr')!;
+    const arr = (
+      snap as unknown as { metrics: Array<{ metricType: string; confidence: string }> }
+    ).metrics.find((m) => m.metricType === 'arr')!;
     arr.confidence = 'verified';
     const { store } = memoryStore(snap);
     const client = stubClient({
-      structured: { verdict: 'unverified', currentValue: null, rationale: 'No official corroboration.', methodNote: null },
+      structured: {
+        verdict: 'unverified',
+        currentValue: null,
+        rationale: 'No official corroboration.',
+        methodNote: null,
+      },
     });
     const repo = new GeminiRepository({ apiKey: 'k', store, client });
 
@@ -265,7 +346,12 @@ describe('verifyMetric', () => {
   it('treats an inconclusive check as timestamp-only', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({
-      structured: { verdict: 'unverified', currentValue: null, rationale: 'No reliable figure.', methodNote: null },
+      structured: {
+        verdict: 'unverified',
+        currentValue: null,
+        rationale: 'No reliable figure.',
+        methodNote: null,
+      },
     });
     const repo = new GeminiRepository({ apiKey: 'k', store, client });
 
@@ -342,8 +428,8 @@ describe('verifyMetric fast-path correction (fact-check evidence applied directl
     });
 
     // The whole point: no second grounded hunt.
-    expect((client.ground as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
-    expect((client.structure as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect(client.ground as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    expect(client.structure as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
     expect(result.changed).toBe(true);
     expect(result.verdict).toBe('contradicted');
     expect(result.metric.value).toBe(40_000_000_000);
@@ -369,7 +455,7 @@ describe('verifyMetric fast-path correction (fact-check evidence applied directl
     });
 
     // Junk evidence bought nothing: the full grounded pass ran instead.
-    expect((client.ground as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
+    expect(client.ground as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1);
     const metrics = await repo.getCompanyMetrics('cmp_openai');
     expect(metrics.find((m) => m.metricType === 'arr')!.value).toBe(990_000_000);
   });

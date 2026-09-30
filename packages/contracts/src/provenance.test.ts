@@ -147,6 +147,111 @@ describe('provenance enforcement', () => {
     expect(merged[0]?.revision).toBe(1);
   });
 
+  it('keeps distinct user-footprint bases while reconciling duplicates within a basis', () => {
+    const mau = {
+      ...base,
+      id: 'mau',
+      metricType: 'users' as const,
+      value: 12_000,
+      userBasis: 'monthly_active_users' as const,
+      methodNote: 'Monthly active users',
+    };
+    const paidSeats = {
+      ...mau,
+      id: 'seats',
+      value: 500,
+      userBasis: 'paid_seats' as const,
+      methodNote: 'Paid seats',
+    };
+    const updatedMau = {
+      ...mau,
+      value: 14_000,
+      citations: [cite('https://example.com/mau', 'Company metrics')],
+    };
+
+    const merged = reconcileMetrics([mau, paidSeats], [updatedMau]);
+
+    expect(merged).toHaveLength(2);
+    expect(merged.find((metric) => metric.userBasis === 'monthly_active_users')?.value).toBe(
+      14_000,
+    );
+    expect(merged.find((metric) => metric.userBasis === 'paid_seats')?.value).toBe(500);
+  });
+
+  it('infers a legacy footprint basis before reconciling duplicate user rows', () => {
+    const legacy = {
+      ...base,
+      metricType: 'users' as const,
+      value: 3_000,
+      methodNote: 'Monthly active users',
+    };
+    const updated = {
+      ...legacy,
+      value: 3_500,
+      citations: [cite('https://example.com/mau', 'Company metrics')],
+    };
+
+    const merged = reconcileMetrics([legacy], [updated]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.value).toBe(3_500);
+    expect(merged[0]?.userBasis).toBe('monthly_active_users');
+  });
+
+  it('does not merge ambiguous legacy footprints when their notes describe different counts', () => {
+    const merged = reconcileMetrics(
+      [
+        {
+          ...base,
+          id: 'mixed-a',
+          metricType: 'users',
+          value: 500,
+          methodNote: 'App installs and email list',
+          userBasis: 'unknown',
+        },
+        {
+          ...base,
+          id: 'mixed-b',
+          metricType: 'users',
+          value: 900,
+          methodNote: 'Social followers and downloads',
+          userBasis: 'unknown',
+        },
+      ],
+      [],
+    );
+
+    expect(merged).toHaveLength(2);
+  });
+
+  it('keeps distinct explicitly-other footprints separate while reconciling the same note', () => {
+    const partner = {
+      ...base,
+      id: 'partners',
+      metricType: 'users' as const,
+      value: 12,
+      methodNote: 'Partner organizations',
+      userBasis: 'other' as const,
+    };
+    const event = {
+      ...base,
+      id: 'events',
+      metricType: 'users' as const,
+      value: 4,
+      methodNote: 'Event attendees',
+      userBasis: 'other' as const,
+    };
+
+    const merged = reconcileMetrics(
+      [partner, event],
+      [{ ...partner, value: 14, source: 'https://reuters.com/partners' }],
+    );
+
+    expect(merged).toHaveLength(2);
+    expect(merged.find((metric) => metric.id === 'partners')?.value).toBe(14);
+    expect(merged.find((metric) => metric.id === 'events')?.value).toBe(4);
+  });
+
   it('shows the publisher rather than the opaque grounding redirect', () => {
     const redirect = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc123';
     expect(isRedirectCitation(redirect)).toBe(true);

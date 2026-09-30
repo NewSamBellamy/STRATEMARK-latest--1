@@ -112,7 +112,9 @@ describe('auditDeckConsistency', () => {
 
   it('flags user counts above the world population', () => {
     const deck = [
-      company('z', 'Zeta', [{ metricType: 'users', value: 9_000_000_000, userBasis: 'monthly_active_users' }]),
+      company('z', 'Zeta', [
+        { metricType: 'users', value: 9_000_000_000, userBasis: 'monthly_active_users' },
+      ]),
     ];
     const findings = auditDeckConsistency(deck);
     expect(findings[0]?.code).toBe('users_exceed_population');
@@ -121,9 +123,27 @@ describe('auditDeckConsistency', () => {
 
   it('does not apply a human-population ceiling to downloads or other non-person footprints', () => {
     const deck = [
-      company('z', 'Zeta', [{ metricType: 'users', value: 20_000_000_000, userBasis: 'downloads_or_installs' }]),
+      company('z', 'Zeta', [
+        { metricType: 'users', value: 20_000_000_000, userBasis: 'downloads_or_installs' },
+      ]),
     ];
     expect(auditDeckConsistency(deck)).toEqual([]);
+  });
+
+  it('audits each human footprint independently and keeps the exact basis on its verification target', () => {
+    const deck = [
+      company('z', 'Zeta', [
+        { metricType: 'users', value: 20_000_000_000, userBasis: 'github_stars' },
+        { metricType: 'users', value: 9_000_000_000, userBasis: 'monthly_active_users' },
+      ]),
+    ];
+    const findings = auditDeckConsistency(deck);
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.message).toContain('Monthly active users');
+    expect(verificationTargetsFrom(findings)).toEqual([
+      { companyId: 'z', metricType: 'users', userBasis: 'monthly_active_users' },
+    ]);
   });
 
   it('ignores unknown-confidence rows entirely — an honest Unknown is never inconsistent', () => {

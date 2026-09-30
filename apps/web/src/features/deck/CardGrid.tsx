@@ -25,6 +25,7 @@ export function CardGrid({
   cohortCards = cards,
   marketId,
   deckStatus,
+  cohortReady = true,
   selectable = false,
   selected,
   onToggle,
@@ -35,6 +36,8 @@ export function CardGrid({
   /** Lets the reader hand the dashboard a real way back to this deck. */
   marketId?: string;
   deckStatus?: 'running' | 'refreshing' | 'partial' | 'failed' | 'ready' | 'ready_stale';
+  /** False while a filtered view is loading its complete source-deck peers. */
+  cohortReady?: boolean;
   selectable?: boolean;
   selected?: Set<string>;
   onToggle?: (cardId: string) => void;
@@ -46,13 +49,12 @@ export function CardGrid({
   const activeId = searchParams.get('card');
   const activeIndex = cards.findIndex((c) => c.card.id === activeId);
   const active = activeIndex >= 0 ? cards[activeIndex]! : null;
-  const activeDeckId = active?.card.deckId;
+  const activeDeckId = active?.card.deckId ?? cards[0]?.card.deckId ?? cohortCards[0]?.card.deckId;
   const userFootprintCohort = useMemo(() => {
     if (!activeDeckId) return { basis: 'unknown' as const, values: [] };
     const activeDeckMetrics = cohortCards
       .filter(
-        (entry) =>
-          entry.card.deckId === activeDeckId && isEntityCardType(entry.card.cardType),
+        (entry) => entry.card.deckId === activeDeckId && isEntityCardType(entry.card.cardType),
       )
       .flatMap((entry) => entry.metrics);
     return buildUserFootprintCohort(activeDeckMetrics);
@@ -80,6 +82,7 @@ export function CardGrid({
             <div key={c.card.id} className={cn('relative', selectable && 'cursor-pointer')}>
               <GameCard
                 data={c}
+                userFootprintCohort={userFootprintCohort}
                 deckStatus={deckStatus}
                 onOpen={() => (selectable ? onToggle?.(c.card.id) : setActiveId(c.card.id))}
                 onShare={() => setShareTarget(c)}
@@ -122,6 +125,7 @@ export function CardGrid({
         }}
         marketId={marketId}
         userFootprintCohort={userFootprintCohort}
+        cohortReady={cohortReady}
         deckView={deckView.toString()}
         position={activeIndex >= 0 ? activeIndex + 1 : undefined}
         total={cards.length}

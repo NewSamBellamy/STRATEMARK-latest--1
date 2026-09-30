@@ -40,7 +40,12 @@ function fakeClient(mockOverrides?: {
           valuation: { value: null, confidence: 'unknown', sourceIndex: null, method: null },
           arr: { value: null, confidence: 'unknown', sourceIndex: null, method: null },
           employees: { value: 45, confidence: 'verified', sourceIndex: 0, method: null },
-          users: { value: 12_000, confidence: 'estimated', sourceIndex: 0, method: 'active developers' },
+          users: {
+            value: 12_000,
+            confidence: 'estimated',
+            sourceIndex: 0,
+            method: 'active developers',
+          },
         },
         viceClaims: [
           { text: 'Sued over code copyright claims in 2026', sourceIndex: 0 },
@@ -83,8 +88,12 @@ describe('Company Agent — Brand & Helper Functions', () => {
     expect(primaryEntityType(['company'])).toBe('company');
     expect(primaryEntityType(['infrastructure'])).toBe('infrastructure');
     expect(primaryEntityType(['distribution'])).toBe('distribution');
-    expect(primaryEntityType(['company', 'infrastructure'], 'Cloud Compute Corp')).toBe('infrastructure');
-    expect(primaryEntityType(['company', 'distribution'], 'AI Model Marketplace Store')).toBe('distribution');
+    expect(primaryEntityType(['company', 'infrastructure'], 'Cloud Compute Corp')).toBe(
+      'infrastructure',
+    );
+    expect(primaryEntityType(['company', 'distribution'], 'AI Model Marketplace Store')).toBe(
+      'distribution',
+    );
   });
 
   it('extracts metric rows and enforces provenance rules', () => {
@@ -98,6 +107,7 @@ describe('Company Agent — Brand & Helper Functions', () => {
         metrics: {
           arr: { value: 10_000_000, confidence: 'verified', sourceIndex: 0, method: null },
           users: { value: 5_000, confidence: 'estimated', sourceIndex: null, method: 'est' },
+          userFootprints: [],
         },
         facts: {
           headcount: null,
@@ -118,6 +128,79 @@ describe('Company Agent — Brand & Helper Functions', () => {
     expect(arr.value).toBe(10_000_000);
     expect(arr.confidence).toBe('verified');
     expect(arr.citations[0]?.url).toBe('https://sec.gov/filing');
+  });
+
+  it('emits distinct sourced metric rows for multiple company footprints', () => {
+    const metrics = metricRows(
+      enrichment({
+        users: {
+          value: 12_000,
+          confidence: 'verified',
+          sourceIndex: 0,
+          method: 'Monthly active users',
+          userBasis: 'monthly_active_users',
+        },
+        userFootprints: [
+          {
+            value: 12_000,
+            confidence: 'verified',
+            sourceIndex: 0,
+            method: 'Monthly active users',
+            userBasis: 'monthly_active_users',
+          },
+          {
+            value: 500,
+            confidence: 'verified',
+            sourceIndex: 1,
+            method: 'Paid seats',
+            userBasis: 'paid_seats',
+          },
+        ],
+      }),
+      [
+        { title: 'Company metrics', url: 'https://company.example/metrics' },
+        { title: 'Pricing page', url: 'https://company.example/pricing' },
+      ],
+      'cmp_multi',
+    );
+    const footprints = metrics.filter((metric) => metric.metricType === 'users');
+
+    expect(footprints).toHaveLength(2);
+    expect(new Set(footprints.map((metric) => metric.id)).size).toBe(2);
+    expect(
+      footprints.find((metric) => metric.userBasis === 'monthly_active_users')?.citations[0]?.url,
+    ).toBe('https://company.example/metrics');
+    expect(footprints.find((metric) => metric.userBasis === 'paid_seats')?.citations[0]?.url).toBe(
+      'https://company.example/pricing',
+    );
+  });
+
+  it('does not collapse separate footprints both classified as other', () => {
+    const metrics = metricRows(
+      enrichment({
+        userFootprints: [
+          {
+            value: 12,
+            confidence: 'estimated',
+            method: 'Partner organizations',
+            userBasis: 'other',
+          },
+          {
+            value: 4,
+            confidence: 'estimated',
+            method: 'Event attendees',
+            userBasis: 'other',
+          },
+        ],
+      }),
+      [],
+      'cmp_other',
+    );
+    const footprints = metrics.filter((metric) => metric.metricType === 'users');
+
+    expect(footprints).toHaveLength(2);
+    expect(new Set(footprints.map((metric) => metric.id)).size).toBe(2);
+    expect(footprints.map((metric) => metric.value).sort((a, b) => a! - b!)).toEqual([4, 12]);
   });
 
   // ------------------------------------------------------------------------
@@ -148,7 +231,12 @@ describe('Company Agent — Brand & Helper Functions', () => {
     // Nobody did. It must not survive ingestion under any evidence.
     const metrics = metricRows(
       enrichment({
-        valuation: { value: 9_000_000_000, confidence: 'user_verified', sourceIndex: 0, method: null },
+        valuation: {
+          value: 9_000_000_000,
+          confidence: 'user_verified',
+          sourceIndex: 0,
+          method: null,
+        },
       }),
       [{ title: 'sec.gov', url: 'https://sec.gov/filing' }],
       'cmp_forge',
@@ -382,6 +470,43 @@ describe('Company Agent — enrichCompanyWithProxies Deep Module', () => {
     expect(arr.methodNote).toContain('500 paying business accounts × $100/mo');
   });
 
+  it('adds a pricing-matched footprint without replacing another company footprint', () => {
+    const mau: CompanyMetric = {
+      id: 'met_mau',
+      companyId: 'cmp_delta',
+      metricType: 'users',
+      value: 12_000,
+      confidence: 'verified',
+      source: 'https://delta.example/metrics',
+      citations: [{ title: 'Company metrics', url: 'https://delta.example/metrics' }],
+      methodNote: 'Monthly active users',
+      userBasis: 'monthly_active_users',
+      capturedAt: '2026-09-29T00:00:00.000Z',
+    };
+    const result = enrichCompanyWithProxies({
+      companyId: 'cmp_delta',
+      name: 'Delta Platform',
+      category: 'b2b_vertical_saas',
+      metrics: [mau],
+      pricingFootprint: {
+        footprintCount: 500,
+        monthlyPrice: 100,
+        footprintLabel: 'paying business accounts',
+        footprintBasis: 'paying_business_accounts',
+        pricingUnitBasis: 'per_business_account',
+      },
+      citations: [{ title: 'Pricing Page', url: 'https://delta.example/pricing' }],
+    });
+
+    expect(result.find((metric) => metric.userBasis === 'monthly_active_users')?.value).toBe(
+      12_000,
+    );
+    expect(result.find((metric) => metric.userBasis === 'paying_business_accounts')?.value).toBe(
+      500,
+    );
+    expect(result.find((metric) => metric.metricType === 'arr')?.value).toBe(600_000);
+  });
+
   it('emits honest null/unknown (Tier 4) when facts and anchors are completely missing (zero fabrication)', () => {
     const result = enrichCompanyWithProxies(
       { id: 'cmp_stealth', name: 'Stealth AI', category: 'ai_infra_compute' },
@@ -393,7 +518,9 @@ describe('Company Agent — enrichCompanyWithProxies Deep Module', () => {
     const arr = result.find((m) => m.metricType === 'arr')!;
     expect(arr.value).toBeNull();
     expect(arr.confidence).toBe('unknown');
-    expect(arr.methodNote).toContain('No verified headcount or customer pricing footprint disclosed');
+    expect(arr.methodNote).toContain(
+      'No verified headcount or customer pricing footprint disclosed',
+    );
 
     const val = result.find((m) => m.metricType === 'valuation')!;
     expect(val.value).toBeNull();
@@ -413,7 +540,12 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
         metrics: {
           employees: { value: 50, confidence: 'verified', sourceIndex: 0, method: null },
           users: { value: 10_000, confidence: 'estimated', sourceIndex: 0, method: 'signups' },
-          market_share: { value: 5, confidence: 'estimated', sourceIndex: 0, method: 'market estimate' },
+          market_share: {
+            value: 5,
+            confidence: 'estimated',
+            sourceIndex: 0,
+            method: 'market estimate',
+          },
         },
         viceClaims: [
           { text: 'Named in 2026 IP lawsuit regarding training data', sourceIndex: 0 },
@@ -461,7 +593,9 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
 
     // 5. Sourced vice claims (1 kept, 1 dropped)
     expect(viceCard.viceClaims).toHaveLength(1);
-    expect(viceCard.viceClaims[0]!.claimText).toBe('Named in 2026 IP lawsuit regarding training data');
+    expect(viceCard.viceClaims[0]!.claimText).toBe(
+      'Named in 2026 IP lawsuit regarding training data',
+    );
     expect(viceCard.viceClaims[0]!.sourceUrl).toBe('https://techcrunch.example/article');
 
     // 6. Culture note

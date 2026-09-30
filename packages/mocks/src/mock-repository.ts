@@ -14,6 +14,7 @@ import {
   type DashboardTab,
   type DashboardTabResult,
   buildUserFootprintCohort,
+  findUserFootprint,
   buildCmsInput,
   computeCms,
   enforceMetricsProvenance,
@@ -469,9 +470,16 @@ export class MockRepository implements MarketIntelRepository {
   }
 
   overrideMetric(input: OverrideMetricInput): Promise<CompanyMetric> {
-    let metric = this.metrics.find(
-      (m) => m.companyId === input.companyId && m.metricType === input.metricType,
-    );
+    const companyMetrics = this.metrics.filter((m) => m.companyId === input.companyId);
+    let metric =
+      input.metricId !== undefined
+        ? companyMetrics.find((m) => m.id === input.metricId && m.metricType === input.metricType)
+        : input.metricType === 'users'
+          ? findUserFootprint(companyMetrics, input.userBasis)
+          : companyMetrics.find((m) => m.metricType === input.metricType);
+    if (input.metricId !== undefined && !metric) {
+      return Promise.reject(new Error(`Metric not found: ${input.companyId}/${input.metricId}`));
+    }
     if (!metric) {
       metric = {
         id: uid('met'),
@@ -483,11 +491,17 @@ export class MockRepository implements MarketIntelRepository {
         citations: [],
         methodNote: null,
         capturedAt: new Date().toISOString(),
+        ...(input.metricType === 'users' && input.userBasis !== undefined
+          ? { userBasis: input.userBasis }
+          : {}),
       };
       this.metrics.push(metric);
     }
     metric.value = input.value;
     metric.confidence = input.value == null ? 'unknown' : 'user_verified';
+    if (input.userBasis !== undefined && metric.userBasis === undefined) {
+      metric.userBasis = input.userBasis;
+    }
     metric.methodNote = input.note ?? 'Manually corrected by user';
     metric.capturedAt = new Date().toISOString();
     // Recompute company-card tiers (same auditable rule as live: base tier, no stale nudge).
@@ -496,7 +510,9 @@ export class MockRepository implements MarketIntelRepository {
     )) {
       const deckCompanyIds = new Set(
         this.cards
-          .filter((candidate) => candidate.deckId === card.deckId && candidate.cardType === 'company')
+          .filter(
+            (candidate) => candidate.deckId === card.deckId && candidate.cardType === 'company',
+          )
           .map((candidate) => candidate.companyId)
           .filter((companyId): companyId is string => companyId !== null),
       );

@@ -110,6 +110,8 @@ export const enrichmentOutSchema = z.object({
       market_cap: metricOutSchema.nullish(),
       arr: metricOutSchema.nullish(),
       users: userMetricOutSchema.nullish(),
+      /** All independently sourced counts; `users` remains the legacy headline. */
+      userFootprints: z.array(userMetricOutSchema).default([]),
       employees: metricOutSchema.nullish(),
     })
     .default({}),
@@ -128,9 +130,7 @@ export const enrichmentOutSchema = z.object({
       lastFundingRound: z
         .preprocess(
           normalizeFundingRound,
-          z
-            .object({ amount: z.number(), roundType: z.enum(FUNDING_ROUND_TYPES) })
-            .nullable(),
+          z.object({ amount: z.number(), roundType: z.enum(FUNDING_ROUND_TYPES) }).nullable(),
         )
         .default(null),
       scrapedPricing: z
@@ -352,6 +352,8 @@ export const redTeamOutSchema = z.preprocess(
     findings: z
       .array(
         z.object({
+          /** Stable per-figure key, needed when a company has multiple users footprints. */
+          auditId: z.string().optional(),
           companyName: z.string(),
           metricType: z.enum([
             'market_cap',

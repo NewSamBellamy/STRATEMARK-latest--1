@@ -17,7 +17,7 @@
  *    missed ones — a "critical" here must be indefensible.
  */
 import type { MetricType, UserFootprintBasis } from './enums';
-import { inferUserFootprintBasis } from './user-footprint';
+import { userFootprintBasisFor, userFootprintLabel } from './user-footprint';
 
 export type ConsistencySeverity = 'warning' | 'critical';
 
@@ -36,6 +36,9 @@ export interface ConsistencyFinding {
   companyIds: string[];
   /** The metrics whose re-verification would resolve the doubt. */
   metricTypes: MetricType[];
+  /** Identifies the exact user-footprint row when a finding concerns users. */
+  userBasis?: UserFootprintBasis;
+  metricId?: string;
 }
 
 /** The slice of a company the audit needs — kept minimal so any caller can map into it. */
@@ -45,6 +48,7 @@ export interface ConsistencyCompanyInput {
   metrics: Array<{
     metricType: MetricType;
     value: number | null;
+    id?: string;
     /** 'unknown' rows are ignored — an honest Unknown is never inconsistent. */
     confidence: string;
     userBasis?: UserFootprintBasis;
@@ -97,15 +101,18 @@ function fmtUsd(value: number): string {
  * Audit one deck's companies against each other and against arithmetic.
  * Deterministic: same input → same findings in the same order.
  */
-export function auditDeckConsistency(
-  companies: ConsistencyCompanyInput[],
-): ConsistencyFinding[] {
+export function auditDeckConsistency(companies: ConsistencyCompanyInput[]): ConsistencyFinding[] {
   const findings: ConsistencyFinding[] = [];
 
   // ── 1. Market shares cannot sum past the whole market ──
   const shared = companies
     .map((c) => ({ company: c, share: metricOf(c, 'market_share') }))
-    .filter((x): x is { company: ConsistencyCompanyInput; share: { value: number; confidence: string } } => x.share !== null)
+    .filter(
+      (
+        x,
+      ): x is { company: ConsistencyCompanyInput; share: { value: number; confidence: string } } =>
+        x.share !== null,
+    )
     .sort((a, b) => b.share.value - a.share.value);
   const shareSum = shared.reduce((sum, x) => sum + x.share.value, 0);
   if (shareSum > SHARE_SUM_WARNING_PCT) {
@@ -130,9 +137,7 @@ export function auditDeckConsistency(
     const arr = metricOf(company, 'arr');
     const valuation = metricOf(company, 'valuation') ?? metricOf(company, 'market_cap');
     const employees = metricOf(company, 'employees');
-    const usersMetric = company.metrics.find((m) => m.metricType === 'users');
-    const users = usersMetric && usable(usersMetric) ? usersMetric : null;
-    const userBasis = usersMetric?.userBasis ?? inferUserFootprintBasis(usersMetric?.methodNote);
+    const userFootprints = company.metrics.filter((metric) => metric.metricType === 'users');
 
     // ── 2. A valuation below annual revenue is a near-certain data error ──
     if (arr && valuation && valuation.value < arr.value) {
@@ -160,14 +165,23 @@ export function auditDeckConsistency(
     }
 
     // ── 4. More users than people on Earth ──
-    if (users && HUMAN_USER_BASES.has(userBasis) && users.value > WORLD_POPULATION_CEILING) {
-      findings.push({
-        code: 'users_exceed_population',
-        severity: 'critical',
-        message: `${company.name} is stored with ${users.value.toLocaleString()} users — more than the world's population.`,
-        companyIds: [company.companyId],
-        metricTypes: ['users'],
-      });
+    for (const footprint of userFootprints) {
+      const basis = userFootprintBasisFor(footprint);
+      if (
+        usable(footprint) &&
+        HUMAN_USER_BASES.has(basis) &&
+        footprint.value > WORLD_POPULATION_CEILING
+      ) {
+        findings.push({
+          code: 'users_exceed_population',
+          severity: 'critical',
+          message: `${company.name} is stored with ${footprint.value.toLocaleString()} ${userFootprintLabel(basis)} — more than the world's population.`,
+          companyIds: [company.companyId],
+          metricTypes: ['users'],
+          userBasis: basis,
+          ...(footprint.id ? { metricId: footprint.id } : {}),
+        });
+      }
     }
   }
 
@@ -181,19 +195,36 @@ export function auditDeckConsistency(
  */
 export function verificationTargetsFrom(
   findings: ConsistencyFinding[],
-): Array<{ companyId: string; metricType: MetricType }> {
+): Array<{
+  companyId: string;
+  metricType: MetricType;
+  userBasis?: UserFootprintBasis;
+  metricId?: string;
+}> {
   const seen = new Set<string>();
-  const targets: Array<{ companyId: string; metricType: MetricType }> = [];
+  const targets: Array<{
+    companyId: string;
+    metricType: MetricType;
+    userBasis?: UserFootprintBasis;
+    metricId?: string;
+  }> = [];
   const ordered = [...findings].sort((a, b) =>
     a.severity === b.severity ? 0 : a.severity === 'critical' ? -1 : 1,
   );
   for (const finding of ordered) {
     for (const companyId of finding.companyIds) {
       for (const metricType of finding.metricTypes) {
-        const key = `${companyId}:${metricType}`;
+        const userBasis = metricType === 'users' ? finding.userBasis : undefined;
+        const metricId = metricType === 'users' ? finding.metricId : undefined;
+        const key = `${companyId}:${metricType}:${metricId ?? userBasis ?? ''}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        targets.push({ companyId, metricType });
+        targets.push({
+          companyId,
+          metricType,
+          ...(userBasis !== undefined ? { userBasis } : {}),
+          ...(metricId !== undefined ? { metricId } : {}),
+        });
       }
     }
   }

@@ -14,6 +14,7 @@
 import { MODEL_PROPOSABLE_CONFIDENCE, type Confidence } from './enums';
 import type { Citation, MetricConflict, SourceCredibility } from './repository';
 import type { CompanyMetric } from './types';
+import { userFootprintBasisFor, userFootprintIdentity } from './user-footprint';
 
 /** Reason text stamped on a figure that lost its "verified" claim. */
 export const UNSOURCED_DOWNGRADE_NOTE =
@@ -132,9 +133,7 @@ export function isJunkSource(url: string, title?: string | null): boolean {
  * True when at least one citation is fit to stand behind a "verified" badge:
  * not a junk domain, and not user-generated content.
  */
-export function hasVerificationGradeCitation(
-  citations: readonly Citation[] | undefined,
-): boolean {
+export function hasVerificationGradeCitation(citations: readonly Citation[] | undefined): boolean {
   if (!citations) return false;
   return citations.some(
     (c) =>
@@ -182,9 +181,7 @@ export function enforceMetricProvenance(metric: CompanyMetric): CompanyMetric {
     !hasVerificationGradeCitation(citations)
   ) {
     confidence = 'estimated';
-    methodNote = methodNote
-      ? `${methodNote} — ${JUNK_DOWNGRADE_NOTE}`
-      : JUNK_DOWNGRADE_NOTE;
+    methodNote = methodNote ? `${methodNote} — ${JUNK_DOWNGRADE_NOTE}` : JUNK_DOWNGRADE_NOTE;
   }
 
   // An "unknown" figure cannot carry a number.
@@ -320,12 +317,30 @@ export function reconcileMetrics(
   existing: CompanyMetric[],
   incoming: CompanyMetric[],
 ): CompanyMetric[] {
-  const byType = new Map(existing.map((metric) => [metric.metricType, metric]));
+  const identity = (metric: CompanyMetric): string => {
+    if (metric.metricType !== 'users') return metric.metricType;
+    return `${metric.metricType}:${userFootprintIdentity(metric)}`;
+  };
+  const normalize = (metric: CompanyMetric): CompanyMetric =>
+    metric.metricType === 'users' && metric.userBasis === undefined
+      ? { ...metric, userBasis: userFootprintBasisFor(metric) }
+      : metric;
+
+  const byType = new Map<string, CompanyMetric>();
+  for (const metric of existing) {
+    const key = identity(metric);
+    const normalized = normalize(metric);
+    const current = byType.get(key);
+    byType.set(key, current ? reconcileMetric(current, normalized) : normalized);
+  }
   for (const metric of incoming) {
-    const current = byType.get(metric.metricType);
+    const key = identity(metric);
+    const current = byType.get(key);
     byType.set(
-      metric.metricType,
-      current ? reconcileMetric(current, metric) : enforceMetricProvenance(metric),
+      key,
+      current
+        ? reconcileMetric(current, normalize(metric))
+        : enforceMetricProvenance(normalize(metric)),
     );
   }
   return [...byType.values()];

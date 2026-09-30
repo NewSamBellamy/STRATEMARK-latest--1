@@ -59,4 +59,24 @@ describe('CmsBreakdown', () => {
       "Not scored: this count does not match the deck's comparable footprint type.",
     );
   });
+
+  it('labels the footprint that actually matches the deck scoring cohort', () => {
+    const companyCard = dataset.cards.find((card) => card.cardType === 'company')!;
+    const userMetric = dataset.metrics.find(
+      (metric) => metric.companyId === companyCard.companyId && metric.metricType === 'users',
+    )!;
+
+    render(
+      <CmsBreakdown
+        card={{ ...companyCard, tier: null }}
+        metrics={[
+          { ...userMetric, id: 'mau', userBasis: 'monthly_active_users' },
+          { ...userMetric, id: 'seats', userBasis: 'paid_seats', value: 500 },
+        ]}
+        userFootprintCohort={{ basis: 'paid_seats', values: [100, 500, 2_000] }}
+      />,
+    );
+
+    expect(screen.getByText('Paid seats')).toBeInTheDocument();
+  });
 });

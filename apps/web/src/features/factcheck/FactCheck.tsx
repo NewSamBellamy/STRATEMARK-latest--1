@@ -20,15 +20,35 @@ import {
   ShieldQuestion,
   Wand2,
 } from 'lucide-react';
-import type { FactCheckResult, FactCheckVerdict, MetricType } from '@mi/contracts';
+import type {
+  FactCheckResult,
+  FactCheckVerdict,
+  MetricType,
+  UserFootprintBasis,
+} from '@mi/contracts';
 import { useFactCheck, useVerifyMetric } from '@/hooks/data';
 import { formatMetricValue } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
-const VERDICT_STYLE: Record<FactCheckVerdict, { label: string; cls: string; Icon: typeof ShieldCheck }> = {
-  supported: { label: 'Supported', cls: 'border-emerald-300 bg-emerald-50 text-emerald-800', Icon: ShieldCheck },
-  contradicted: { label: 'Contradicted', cls: 'border-rose-300 bg-rose-50 text-rose-800', Icon: ShieldAlert },
-  unverified: { label: 'Unverified', cls: 'border-slate-300 bg-slate-100 text-slate-700', Icon: ShieldQuestion },
+const VERDICT_STYLE: Record<
+  FactCheckVerdict,
+  { label: string; cls: string; Icon: typeof ShieldCheck }
+> = {
+  supported: {
+    label: 'Supported',
+    cls: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+    Icon: ShieldCheck,
+  },
+  contradicted: {
+    label: 'Contradicted',
+    cls: 'border-rose-300 bg-rose-50 text-rose-800',
+    Icon: ShieldAlert,
+  },
+  unverified: {
+    label: 'Unverified',
+    cls: 'border-slate-300 bg-slate-100 text-slate-700',
+    Icon: ShieldQuestion,
+  },
 };
 
 export function FactCheck({
@@ -37,6 +57,8 @@ export function FactCheck({
   context,
   companyId,
   metricType,
+  metricId,
+  userBasis,
   storedValue,
   className,
 }: {
@@ -46,6 +68,8 @@ export function FactCheck({
   /** Present when the claim is a stored metric — unlocks one-click correction. */
   companyId?: string | null;
   metricType?: MetricType | null;
+  metricId?: string | null;
+  userBasis?: UserFootprintBasis;
   storedValue?: number | null;
   className?: string;
 }) {
@@ -67,6 +91,8 @@ export function FactCheck({
         context: context ?? null,
         companyId: companyId ?? null,
         metricType: metricType ?? null,
+        metricId: metricId ?? null,
+        userBasis,
         storedValue: storedValue ?? null,
       },
       { onSuccess: setResult },
@@ -100,6 +126,8 @@ export function FactCheck({
       {
         companyId,
         metricType,
+        metricId: metricId ?? undefined,
+        userBasis,
         correction:
           canApply && result?.correctedValue != null
             ? {
@@ -128,6 +156,8 @@ export function FactCheck({
       {
         companyId,
         metricType,
+        metricId: metricId ?? undefined,
+        userBasis,
         correction:
           result?.verdict === 'contradicted' && result.correctedValue != null
             ? {
@@ -145,7 +175,9 @@ export function FactCheck({
   if (result) {
     const v = VERDICT_STYLE[result.verdict];
     return (
-      <div className={cn('rounded-lg border border-border bg-surface-2 p-2.5 text-left', className)}>
+      <div
+        className={cn('rounded-lg border border-border bg-surface-2 p-2.5 text-left', className)}
+      >
         <span className={cn('chip', v.cls)}>
           <v.Icon className="h-3.5 w-3.5" />
           {v.label}

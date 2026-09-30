@@ -25,9 +25,12 @@ import {
   computeCms,
   enforceMetricsProvenance,
   enforceModelMetricsProvenance,
+  reconcileMetrics,
   isHumanAuthored,
   isEntityCardType,
+  findUserFootprint,
   inferUserFootprintBasis,
+  userFootprintIdentity,
   type BrandTheme,
   type Card,
   type CardType,
@@ -40,10 +43,7 @@ import {
   type UserFootprintCohort,
   type ViceClaim,
 } from '@mi/contracts';
-import {
-  enrichmentOutSchema,
-  type EnrichmentOut,
-} from './schemas';
+import { enrichmentOutSchema, type EnrichmentOut } from './schemas';
 import {
   CHAT_SYSTEM,
   GROUNDED_SYSTEM,
@@ -62,12 +62,7 @@ import {
   type FundingRoundInput,
   type PrivateCompanyResearchData,
 } from './proxy-estimator';
-import type {
-  Citation,
-  CompanyCandidate,
-  LlmClient,
-  MarketPlan,
-} from './types';
+import type { Citation, CompanyCandidate, LlmClient, MarketPlan } from './types';
 
 // ============================================================================
 // 1. Domain Types & State Contracts
@@ -230,7 +225,9 @@ export function metricRows(
   const rows: CompanyMetric[] = [];
   const cited = (idx: number | null | undefined): Citation[] =>
     idx != null && citations[idx] ? [citations[idx]!] : [];
-  for (const [type, m] of Object.entries(enrich.metrics ?? {})) {
+  const metricTypes = ['market_share', 'valuation', 'market_cap', 'arr', 'employees'] as const;
+  for (const type of metricTypes) {
+    const m = enrich.metrics?.[type];
     if (!m) continue;
     const attached = cited(m.sourceIndex).map((citation) => ({
       ...citation,
@@ -245,21 +242,53 @@ export function metricRows(
       source: attached[0]?.url ?? null,
       citations: attached,
       methodNote: m.method ?? null,
-      ...(type === 'users'
-        ? {
-            userBasis:
-              (m as NonNullable<EnrichmentOut['metrics']['users']>).userBasis ??
-              enrich.facts?.footprintBasis ??
-              inferUserFootprintBasis(m.method),
-          }
-        : {}),
+      capturedAt: now(),
+    });
+  }
+  const userFigures = [
+    ...(enrich.metrics?.users ? [enrich.metrics.users] : []),
+    ...(enrich.metrics?.userFootprints ?? []),
+  ];
+  for (const [index, figure] of userFigures.entries()) {
+    const basis =
+      figure.userBasis ??
+      (figure === enrich.metrics?.users ? enrich.facts?.footprintBasis : undefined) ??
+      inferUserFootprintBasis(figure.method);
+    const attached = cited(figure.sourceIndex).map((citation) => ({
+      ...citation,
+      credibility: classifySource(citation.url, citation.title),
+    }));
+    const footprintId = slugify(
+      userFootprintIdentity({
+        userBasis: basis,
+        methodNote: figure.method,
+        id: `source-${figure.sourceIndex ?? index}`,
+      }),
+    );
+    rows.push({
+      id: uid('met', `${companyId}-users-${footprintId}`),
+      companyId,
+      metricType: 'users',
+      value: figure.value ?? null,
+      confidence: figure.confidence ?? 'unknown',
+      source: attached[0]?.url ?? null,
+      citations: attached,
+      methodNote: figure.method ?? null,
+      userBasis: basis,
       capturedAt: now(),
     });
   }
   // These rows come straight from model output, so they pass through the
   // automation-ingest gate: a forged `user_verified` is stripped here, not
   // merely preserved as the canonical path would (issue #48).
-  return enforceModelMetricsProvenance(rows);
+  const modelRows = enforceModelMetricsProvenance(rows);
+  return [
+    ...modelRows.filter((metric) => metric.metricType !== 'users'),
+    ...reconcileMetrics(
+      [],
+      modelRows.filter((metric) => metric.metricType === 'users'),
+    ),
+  ];
 }
 
 // ============================================================================
@@ -329,15 +358,10 @@ export function enrichCompanyWithProxies(
       };
 
   const metrics = isInputObject ? companyOrInput.metrics : [...existingMetrics];
-  const citations = isInputObject
-    ? (companyOrInput.citations ?? [])
-    : (extraData?.citations ?? []);
-  const mergedOptions = isInputObject
-    ? (companyOrInput.options ?? {})
-    : (options ?? {});
+  const citations = isInputObject ? (companyOrInput.citations ?? []) : (extraData?.citations ?? []);
+  const mergedOptions = isInputObject ? (companyOrInput.options ?? {}) : (options ?? {});
 
-  const companyId =
-    company.id || `cmp_${slugify(company.name || 'company')}`;
+  const companyId = company.id || `cmp_${slugify(company.name || 'company')}`;
 
   const existingArr = metrics.find((m) => m.metricType === 'arr');
   const existingValuation = metrics.find((m) => m.metricType === 'valuation');
@@ -345,9 +369,7 @@ export function enrichCompanyWithProxies(
   const existingEmployees = metrics.find((m) => m.metricType === 'employees');
 
   // Headcount anchor resolution
-  const explicitHeadcount = isInputObject
-    ? companyOrInput.headcount
-    : extraData?.headcount;
+  const explicitHeadcount = isInputObject ? companyOrInput.headcount : extraData?.headcount;
   const employeeMetricValue =
     existingEmployees &&
     existingEmployees.confidence !== 'unknown' &&
@@ -376,9 +398,7 @@ export function enrichCompanyWithProxies(
       : null;
 
   // Funding round anchor resolution
-  const explicitFunding = isInputObject
-    ? companyOrInput.funding
-    : extraData?.lastFundingRound;
+  const explicitFunding = isInputObject ? companyOrInput.funding : extraData?.lastFundingRound;
 
   // Filter out existing ARR & valuation to replace with grounded waterfall results
   const resultMetrics = metrics.filter(
@@ -397,17 +417,12 @@ export function enrichCompanyWithProxies(
     const citationsToUse =
       citations.length > 0
         ? citations
-        : existingEmployees?.citations ?? (existingArr?.citations ?? []);
-    finalArr = estimateArrFromHeadcount(
-      headcount,
-      company.category,
-      citationsToUse,
-      {
-        sourceNote: headcountSource,
-        customArrPerFte: mergedOptions.customArrPerFte,
-        companyId,
-      },
-    );
+        : (existingEmployees?.citations ?? existingArr?.citations ?? []);
+    finalArr = estimateArrFromHeadcount(headcount, company.category, citationsToUse, {
+      sourceNote: headcountSource,
+      customArrPerFte: mergedOptions.customArrPerFte,
+      companyId,
+    });
   } else if (
     explicitFootprint &&
     explicitFootprint.footprintCount &&
@@ -467,8 +482,7 @@ export function enrichCompanyWithProxies(
     explicitFunding.amount > 0
   ) {
     // Tier 3: VC Funding Dilution Valuation Model
-    const citationsToUse =
-      citations.length > 0 ? citations : existingValuation?.citations ?? [];
+    const citationsToUse = citations.length > 0 ? citations : (existingValuation?.citations ?? []);
     finalValuation = estimateValuationFromFunding(explicitFunding, citationsToUse, {
       customFundingMultiplier: mergedOptions.customFundingMultiplier,
       companyId,
@@ -480,10 +494,7 @@ export function enrichCompanyWithProxies(
   ) {
     // Retain existing estimated valuation if present
     finalValuation = existingValuation;
-  } else if (
-    !existingMarketCap &&
-    (mergedOptions.includeUnknowns || existingValuation)
-  ) {
+  } else if (!existingMarketCap && (mergedOptions.includeUnknowns || existingValuation)) {
     // Tier 4: Honest Null / Unknown
     finalValuation = {
       id: existingValuation?.id || uid('met', `${companyId}-valuation`),
@@ -507,7 +518,12 @@ export function enrichCompanyWithProxies(
   // 3. Populate Employees & Users from Facts or Fallback Unknowns
   // --------------------------------------------------------------------------
   const existingEmp = resultMetrics.find((m) => m.metricType === 'employees');
-  if ((!existingEmp || existingEmp.value === null) && headcount !== null && headcount !== undefined && headcount > 0) {
+  if (
+    (!existingEmp || existingEmp.value === null) &&
+    headcount !== null &&
+    headcount !== undefined &&
+    headcount > 0
+  ) {
     const citationsToUse = citations.length > 0 ? citations : [];
     const empMetric: CompanyMetric = {
       id: existingEmp?.id || uid('met', `${companyId}-employees`),
@@ -528,11 +544,36 @@ export function enrichCompanyWithProxies(
     }
   }
 
-  const existingUsers = resultMetrics.find((m) => m.metricType === 'users');
-  if ((!existingUsers || existingUsers.value === null) && explicitFootprint?.footprintCount && explicitFootprint.footprintCount > 0) {
+  const explicitFootprintBasis = explicitFootprint
+    ? (explicitFootprint.footprintBasis ??
+      inferUserFootprintBasis(explicitFootprint.footprintLabel))
+    : undefined;
+  const existingUsers = explicitFootprint
+    ? findUserFootprint(
+        resultMetrics,
+        explicitFootprintBasis,
+        explicitFootprint.footprintLabel,
+      )
+    : findUserFootprint(resultMetrics);
+  if (
+    (!existingUsers || existingUsers.value === null) &&
+    explicitFootprint?.footprintCount &&
+    explicitFootprint.footprintCount > 0
+  ) {
     const citationsToUse = citations.length > 0 ? citations : [];
     const usersMetric: CompanyMetric = {
-      id: existingUsers?.id || uid('met', `${companyId}-users`),
+      id:
+        existingUsers?.id ||
+        uid(
+          'met',
+          `${companyId}-users-${slugify(
+            userFootprintIdentity({
+              userBasis: explicitFootprintBasis ?? 'unknown',
+              methodNote: explicitFootprint.footprintLabel,
+              id: 'unclassified',
+            }),
+          )}`,
+        ),
       companyId,
       metricType: 'users',
       value: explicitFootprint.footprintCount,
@@ -540,11 +581,12 @@ export function enrichCompanyWithProxies(
       source: citationsToUse[0]?.url ?? null,
       citations: citationsToUse,
       methodNote: explicitFootprint.footprintLabel ?? 'Public user/customer footprint count.',
-      userBasis:
-        explicitFootprint.footprintBasis ?? inferUserFootprintBasis(explicitFootprint.footprintLabel),
+      userBasis: explicitFootprintBasis,
       capturedAt: now(),
     };
-    const usersIdx = resultMetrics.findIndex((m) => m.metricType === 'users');
+    const usersIdx = existingUsers
+      ? resultMetrics.findIndex((metric) => metric.id === existingUsers.id)
+      : -1;
     if (usersIdx >= 0) {
       resultMetrics[usersIdx] = usersMetric;
     } else {
@@ -605,7 +647,11 @@ export async function hydrateCompanyCard(
   let plan: MarketPlan;
   let options: HydrateCompanyCardOptions = {};
 
-  if ('candidate' in inputOrCandidate && 'client' in inputOrCandidate && 'plan' in inputOrCandidate) {
+  if (
+    'candidate' in inputOrCandidate &&
+    'client' in inputOrCandidate &&
+    'plan' in inputOrCandidate
+  ) {
     candidate = inputOrCandidate.candidate;
     client = inputOrCandidate.client;
     plan = inputOrCandidate.plan;
@@ -712,7 +758,8 @@ export async function hydrateCompanyCard(
     primaryEntityType(candidate.cardTypes, candidate.name, candidate.descriptor);
 
   const emittedTypes: CardType[] = [primaryRole];
-  if (candidate.cardTypes.includes('vice') && sourcedViceClaims.length > 0) emittedTypes.push('vice');
+  if (candidate.cardTypes.includes('vice') && sourcedViceClaims.length > 0)
+    emittedTypes.push('vice');
   if (candidate.cardTypes.includes('culture') && cultureNote) emittedTypes.push('culture');
 
   const defaultSummary = candidate.descriptor || enrichment.oneLiner || company.oneLiner || null;
@@ -721,7 +768,7 @@ export async function hydrateCompanyCard(
   const cards: CardWithCompany[] = emittedTypes.map((cardType) => {
     const isEntity = isEntityCardType(cardType);
     const subCardId = uid('crd', `${slugify(company.name)}-${cardType}`);
-    const summary = cardType === 'culture' ? (cultureNote || defaultSummary) : defaultSummary;
+    const summary = cardType === 'culture' ? cultureNote || defaultSummary : defaultSummary;
     const subCard: Card = {
       id: subCardId,
       deckId,
@@ -735,7 +782,8 @@ export async function hydrateCompanyCard(
       keyPoints: [],
       createdAt: now(),
     };
-    const claims = cardType === 'vice' ? sourcedViceClaims.map((c) => ({ ...c, cardId: subCardId })) : [];
+    const claims =
+      cardType === 'vice' ? sourcedViceClaims.map((c) => ({ ...c, cardId: subCardId })) : [];
     return {
       card: subCard,
       company,

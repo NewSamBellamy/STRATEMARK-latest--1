@@ -23,6 +23,7 @@ type Props = {
   position?: number;
   total?: number;
   userFootprintCohort?: UserFootprintCohort;
+  cohortReady?: boolean;
   deckView?: string;
   onPrevious?: () => void;
   onNext?: () => void;
@@ -41,12 +42,13 @@ function CardReaderBody({
   deckView,
   position,
   total,
+  cohortReady = true,
   userFootprintCohort = { basis: 'unknown', values: [] },
   onPrevious,
   onNext,
 }: Omit<Props, 'data'> & { data: CardWithCompany }) {
   const { card, company, viceClaims } = data;
-  const view = buildCardView(data);
+  const view = buildCardView(data, userFootprintCohort);
   const marketName = useMarket(marketId).data?.name ?? null;
   const repo = useRepository();
   const { chat } = useDeepDive();
@@ -260,11 +262,19 @@ function CardReaderBody({
                       How this band was calculated
                     </summary>
                     <div className="mt-2">
-                      <CmsBreakdown
-                        card={card}
-                        metrics={view.metrics.map((entry) => entry.metric)}
-                        userFootprintCohort={userFootprintCohort}
-                      />
+                      {cohortReady ? (
+                        <CmsBreakdown
+                          card={card}
+                          metrics={view.metrics.map((entry) => entry.metric)}
+                          userFootprintCohort={userFootprintCohort}
+                        />
+                      ) : (
+                        <p className="rounded-lg border border-border bg-surface p-3 text-xs leading-relaxed text-muted">
+                          The full source deck is still loading. This saved card keeps its recorded
+                          band; the peer-relative breakdown will appear when its original deck is
+                          available.
+                        </p>
+                      )}
                     </div>
                   </details>
                 </>

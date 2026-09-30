@@ -13,6 +13,7 @@ import {
   maturityTierSchema,
   dashboardTabSchema,
   metricTypeSchema,
+  userFootprintBasisSchema,
 } from '@mi/contracts';
 
 export {
@@ -22,6 +23,7 @@ export {
   maturityTierSchema,
   dashboardTabSchema,
   metricTypeSchema,
+  userFootprintBasisSchema,
 };
 
 export const createMarketInputSchema = z.object({
@@ -38,6 +40,17 @@ export const deckResearchBriefSchema = z.object({
 export const verifyMetricInputSchema = z.object({
   companyId: z.string().min(1),
   metricType: metricTypeSchema,
+  metricId: z.string().optional(),
+  userBasis: userFootprintBasisSchema.optional(),
+  correction: z
+    .object({
+      value: z.number(),
+      citations: z.array(z.object({ title: z.string(), url: z.string() })),
+      rationale: z.string().nullable().optional(),
+      asOf: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 export const cardFilterSchema = z
@@ -58,6 +71,11 @@ export const factCheckInputSchema = z.object({
   claim: z.string().min(1),
   companyName: z.string().nullable().optional().default(null),
   context: z.string().nullable().optional().default(null),
+  companyId: z.string().nullable().optional(),
+  metricId: z.string().nullable().optional(),
+  metricType: metricTypeSchema.nullable().optional(),
+  userBasis: userFootprintBasisSchema.optional(),
+  storedValue: z.number().nullable().optional(),
 });
 
 export const reportRequestSchema = z.object({
@@ -75,8 +93,10 @@ export const expandFocusSchema = z.object({
 export const overrideMetricInputSchema = z.object({
   companyId: z.string().min(1),
   metricType: metricTypeSchema,
+  metricId: z.string().optional(),
   value: z.number().nullable(),
   note: z.string().nullable().optional().default(null),
+  userBasis: userFootprintBasisSchema.optional(),
 });
 
 export const researchScopeSchema = z.object({

@@ -135,6 +135,9 @@ export interface FactCheckInput {
    */
   companyId?: string | null;
   metricType?: MetricType | null;
+  metricId?: string | null;
+  /** Exact footprint unit when metricType is `users`. */
+  userBasis?: UserFootprintBasis;
   /** The currently stored value, for the checker to compare against. */
   storedValue?: number | null;
 }
@@ -166,6 +169,10 @@ export interface FactCheckResult {
 export interface VerifyMetricInput {
   companyId: string;
   metricType: MetricType;
+  /** Stable row identity; disambiguates unclassified footprints as well as known bases. */
+  metricId?: string;
+  /** Selects one precise users footprint when a company stores several. */
+  userBasis?: UserFootprintBasis;
   /**
    * A pre-verified correction from an immediately-preceding fact-check pass.
    * When present (and its citations clear the credibility gate) the repository
@@ -202,6 +209,8 @@ export interface VerifyMetricResult {
 export interface HuntMetricsResult {
   /** Metric types that gained a grounded value in this hunt. */
   filledTypes: MetricType[];
+  /** Exact rows that gained a grounded value; distinguishes multiple user footprints. */
+  filledMetricIds?: string[];
   /** The company's full metric set AFTER the hunt. */
   metrics: CompanyMetric[];
   /** Card ids whose tier moved as a result. */
@@ -352,13 +361,7 @@ export interface DeckBriefing {
 // Works on ANY url — your own site or a competitor's.
 // ---------------------------------------------------------------------------
 
-export type SiteAuditArea =
-  | 'value_proposition'
-  | 'messaging'
-  | 'cta'
-  | 'trust'
-  | 'design'
-  | 'seo';
+export type SiteAuditArea = 'value_proposition' | 'messaging' | 'cta' | 'trust' | 'design' | 'seo';
 
 export interface SiteAuditScore {
   area: SiteAuditArea;
@@ -431,6 +434,8 @@ export interface MetricConflict {
 export interface OverrideMetricInput {
   companyId: string;
   metricType: MetricType;
+  /** Stable row identity; disambiguates multiple user footprints with the same/unknown basis. */
+  metricId?: string;
   /** Raw number (USD for money, count for users/employees, percent for share); null clears to Unknown. */
   value: number | null;
   /** The user's source note, e.g. "Confirmed by their VP Sales at dinner 07/2026". */
@@ -563,10 +568,7 @@ export interface MarketIntelRepository {
    * when the deck is still forming (deckBakedState gate). OPTIONAL —
    * live-research transports only.
    */
-  generateDeckBriefing?(
-    marketId: string,
-    opts?: { windowHours?: number },
-  ): Promise<DeckBriefing>;
+  generateDeckBriefing?(marketId: string, opts?: { windowHours?: number }): Promise<DeckBriefing>;
   /** Stored briefings for a market, newest first. OPTIONAL. */
   listDeckBriefings?(marketId: string): Promise<DeckBriefing[]>;
 

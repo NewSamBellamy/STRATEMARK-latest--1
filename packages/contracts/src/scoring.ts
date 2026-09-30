@@ -52,6 +52,8 @@ export interface CmsInput {
   arr: CmsSignalInput;
   /** User / account footprint (scored only against a like-for-like cohort). */
   users: CmsSignalInput;
+  /** All known footprints; scoring selects the one matching the deck cohort. */
+  userFootprints?: CmsSignalInput[];
   /** Headcount. */
   employees: CmsSignalInput;
 }
@@ -131,9 +133,10 @@ export function computeCms(
   options: ComputeCmsOptions = {},
 ): CmsResult {
   const nudge: Nudge = options.nudge ?? 0;
+  const users = selectUserFootprint(input, context);
 
   const perSignal: CmsPerSignal[] = CMS_SIGNAL_KEYS.map((key) => {
-    const signal = input[key];
+    const signal = key === 'users' ? users : input[key];
     let excludedReason = signal.excludedReason ?? null;
     if (
       key === 'users' &&
@@ -227,6 +230,13 @@ export function buildCmsInput(metrics: MetricLike[]): CmsInput {
   const arrMetric = find('arr');
   const arrSignal = asSignal(arrMetric);
   if (isDependentArrProxy(metrics, arrMetric)) arrSignal.excludedReason = 'dependent_proxy';
+  const userFootprints = metrics
+    .filter((metric) => metric.metricType === 'users')
+    .map((metric) => ({
+      ...asSignal(metric),
+      userBasis: metric.userBasis ?? inferUserFootprintBasis(metric.methodNote),
+    }));
+  const firstUserFootprint = userFootprints[0];
 
   return {
     marketShare: asSignal(find('market_share')),
@@ -235,13 +245,19 @@ export function buildCmsInput(metrics: MetricLike[]): CmsInput {
       kind: valuation ? 'valuation' : marketCap ? 'market_cap' : null,
     },
     arr: arrSignal,
-    users: {
-      ...asSignal(find('users')),
-      userBasis:
-        find('users')?.userBasis ?? inferUserFootprintBasis(find('users')?.methodNote),
-    },
+    users: firstUserFootprint ?? { ...asSignal(undefined), userBasis: 'unknown' },
+    userFootprints,
     employees: asSignal(find('employees')),
   };
+}
+
+function selectUserFootprint(input: CmsInput, context: CmsContext): CmsSignalInput {
+  const footprints = input.userFootprints;
+  if (!footprints?.length) return input.users;
+  return (
+    footprints.find((footprint) => footprint.userBasis === context.userFootprintCohort.basis) ??
+    footprints[0]!
+  );
 }
 
 function isDependentArrProxy(metrics: MetricLike[], arrMetric: MetricLike | undefined): boolean {

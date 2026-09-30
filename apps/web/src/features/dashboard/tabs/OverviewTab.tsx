@@ -1,7 +1,16 @@
 import { ArrowUpRight, ExternalLink, MapPin } from 'lucide-react';
-import { metricDisplayLabel, type CompanyMetric, type MetricType } from '@mi/contracts';
+import {
+  buildUserFootprintCohort,
+  isEntityCardType,
+  metricDisplayLabel,
+  userFootprintBasisFor,
+  type CompanyMetric,
+  type MetricType,
+  type UserFootprintBasis,
+} from '@mi/contracts';
 import { Link, useLocation } from 'react-router-dom';
-import { useCompany, useCompanyMetrics } from '@/hooks/data';
+import { useMemo } from 'react';
+import { useCards, useCompany, useCompanyMetrics, useDeckByMarket } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { formatMetricValue } from '@/lib/format';
 import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
@@ -15,10 +24,18 @@ const METRIC_FAMILIES: ReadonlyArray<readonly MetricType[]> = [
   ['market_share'],
 ] as const;
 
-function strongestMetrics(metrics: CompanyMetric[]): CompanyMetric[] {
+export function strongestMetrics(
+  metrics: CompanyMetric[],
+  preferredUserBasis?: UserFootprintBasis,
+): CompanyMetric[] {
   const strength = (metric: CompanyMetric) =>
     (metric.confidence === 'user_verified' ? 6 : metric.confidence === 'verified' ? 4 : 2) +
-    (metric.citations.length > 0 || metric.source ? 1 : 0);
+    (metric.citations.length > 0 || metric.source ? 1 : 0) +
+    (metric.metricType === 'users' &&
+    preferredUserBasis !== undefined &&
+    userFootprintBasisFor(metric) === preferredUserBasis
+      ? 10
+      : 0);
   const seen = new Set<string>();
   return [...metrics]
     .filter((metric) => metric.value != null && metric.confidence !== 'unknown')
@@ -41,16 +58,36 @@ function strongestMetrics(metrics: CompanyMetric[]): CompanyMetric[] {
 /** Immediate card-to-research handoff: useful before any live research is requested. */
 export function OverviewTab({ companyId }: { companyId: string }) {
   const { search } = useLocation();
+  const marketId = new URLSearchParams(search).get('deck') ?? undefined;
   const company = useCompany(companyId);
   const metrics = useCompanyMetrics(companyId);
+  const deck = useDeckByMarket(marketId);
+  const deckCards = useCards(deck.data?.id);
+  const userCohort = useMemo(
+    () =>
+      buildUserFootprintCohort(
+        (deckCards.data ?? [])
+          .filter((entry) => isEntityCardType(entry.card.cardType))
+          .flatMap((entry) => entry.metrics),
+      ),
+    [deckCards.data],
+  );
   const allMetrics = metrics.data ?? [];
-  const headlineMetrics = strongestMetrics(allMetrics);
+  const headlineMetrics = strongestMetrics(
+    allMetrics,
+    userCohort.basis === 'unknown' ? undefined : userCohort.basis,
+  );
   const known = allMetrics.filter(
     (metric) => metric.value != null && metric.confidence !== 'unknown',
   );
   const sourced = known.filter((metric) => metric.citations.length > 0 || Boolean(metric.source));
   const verified = known.filter(
     (metric) => metric.confidence === 'verified' || metric.confidence === 'user_verified',
+  );
+  const userFootprintCount = known.filter((metric) => metric.metricType === 'users').length;
+  const additionalFootprintCount = Math.max(
+    0,
+    userFootprintCount - (headlineMetrics.some((metric) => metric.metricType === 'users') ? 1 : 0),
   );
   const missingCount = METRIC_FAMILIES.filter(
     (family) => !known.some((metric) => family.includes(metric.metricType)),
@@ -177,6 +214,19 @@ export function OverviewTab({ companyId }: { companyId: string }) {
                   estimates.
                 </p>
               </div>
+            )}
+            {additionalFootprintCount > 0 && (
+              <p className="mt-3 text-[11px] text-muted">
+                {additionalFootprintCount} more distinct footprint
+                {additionalFootprintCount === 1 ? '' : 's'} recorded.{' '}
+                <Link
+                  to={`/company/${companyId}/dashboard/metrics${search}`}
+                  className="font-medium text-primary-ink hover:underline"
+                >
+                  Review each count and unit
+                </Link>
+                .
+              </p>
             )}
           </section>
         </div>

@@ -3,6 +3,7 @@ import {
   computeCms,
   CMS_SIGNAL_LABELS,
   metricDisplayLabel,
+  userFootprintBasisFor,
   type Card,
   type CompanyMetric,
   type MaturityTier,
@@ -29,7 +30,10 @@ export function CmsBreakdown({
   const nudge = finalTier != null && base.baseTier != null ? finalTier - base.baseTier : 0;
   const nudgeWithinPolicy = nudge >= -1 && nudge <= 1;
   const sourcedCount = metrics.filter((m) => m.value != null && m.citations.length > 0).length;
-  const userMetric = metrics.find((metric) => metric.metricType === 'users');
+  const userMetrics = metrics.filter((metric) => metric.metricType === 'users');
+  const userMetric =
+    userMetrics.find((metric) => userFootprintBasisFor(metric) === userFootprintCohort.basis) ??
+    userMetrics[0];
   const readiness =
     base.availableSignalCount >= 3 && sourcedCount >= 2
       ? 'Broad evidence'
