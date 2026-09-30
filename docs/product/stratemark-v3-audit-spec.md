@@ -1,7 +1,8 @@
 # Stratemark v3 — Red-team findings and product/engineering plan
 
 **Status:** living exploration spec
-**Branch:** `explore/stratemark-collectible-card-lab`
+**Design baseline:** `explore/stratemark-collectible-card-lab`
+**Current hardening slice:** `hardening/living-research-spend-guard`
 **Input:** founder walkthrough (`startemark v3 audit.mp4` and its accompanying transcript), current desktop/web implementation, and the open-source BYOK product direction.
 **Decision rule:** preserve Stratemark’s restrained green, editorial identity. Cards should feel considered and collectible, not like a game UI pasted over research. No card backs or flip interaction in this direction.
 
@@ -153,7 +154,9 @@ Technical references reviewed: [OpenRouter Quickstart](https://openrouter.ai/doc
 
 ## “Alive” without pretending to be always-on
 
-- **Current behavior/risk:** opening a deck with a key mounts an automatic living research loop. It can perform up to 60 actions during one mount and may start over when the deck is reopened. In Electron, the repository does not currently pass the usage-counting callback; the app-level spend cap defaults to unlimited; Gemini retries are not counted individually. Therefore the present loop is not safely budget-bounded and is not an around-the-clock service.
+- **Previous behavior:** opening a deck with a key mounted an automatic living research loop, potentially spending without a deliberate start action.
+- **Current hardening slice:** automatic research is off when a deck opens. The user must start it explicitly; the control warns that it uses their selected provider and may incur charges. Authorization is scoped to the currently open deck and is cleared on pause/navigation/provider disconnect, so reopening or reconnecting requires another deliberate start. Desktop Settings now says its request meter and hard spending cap are unavailable instead of displaying misleading zeroes or an ineffective cap control.
+- **Remaining risk:** the runtime can still perform up to 60 actions per mounted session, and that in-memory budget resets when the user explicitly starts again. Electron verification runs in the main process without the renderer's usage-counting callback; the app-level spend cap defaults to unlimited; Gemini retries are not counted individually. Cadence-based refreshes and briefings also run in the background while the desktop app is open; queued hunts start after the user requests them. These desktop paths are not included in an enforceable local cap. Thus explicit opt-in reduces surprise spending but is not a hard budget guarantee and must not be presented as one.
 - **Target behavior:** background spending is explicitly opted into per deck, with a persistent app/provider-level budget and a visible pause/stop control. Manual refresh remains available. An offline desktop cannot promise around-the-clock polling.
 - Each market has an explicit refresh cadence, next check time (if scheduled), last successful check, last attempted check, coverage, and provider health. Cadence, pause/resume, missed-check handling, and budget state survive app restarts; count every actual provider attempt including retries and fallback providers.
 - A check compares new source-backed observations with the prior ledger and emits a change event only when a defined fact/event differs. Repeated unchanged sources are collapsed.
@@ -216,7 +219,7 @@ Portable HTML deck sharing is a later product surface, not a shortcut around the
 
 ### Phase 5 — Continuous intelligence
 
-- First remove unsafe auto-on-open/unbounded spend behavior. Add explicit opt-in, a persistent main/provider-layer cap, accurate retry/fallback accounting, pause/resume across restarts, configurable local schedules, deltas, deduplication, review queues, and notifications. Document that local polling only occurs while its configured runtime is available.
+- Done on the hardening branch: remove auto-on-open and require an explicit, per-open-deck start with a provider-charge warning. Remaining: enforce a persistent main/provider-layer cap, count retries/fallbacks, support safe pause/resume across restarts, configurable local schedules, deltas, deduplication, review queues, and notifications. Document that local polling only occurs while its configured runtime is available.
 - Acceptance: user can inspect what was checked; no-change, not-checked, and failed are distinct; user controls cadence and alert categories; no background cost can exceed configured limits.
 
 ### Phase 6 — MCP and assistant workflows

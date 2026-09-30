@@ -712,7 +712,7 @@ function UsageBillingPanel() {
         </h2>
       </div>
 
-      {lowPower && (
+      {lowPower && !communityDesktop && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           Low power mode — your spending cap is reached. Autonomous research is paused.
@@ -720,72 +720,104 @@ function UsageBillingPanel() {
       )}
 
       <div className="rounded-lg border border-border bg-surface-2 p-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <p className="text-sm font-semibold text-content">This month on your key</p>
-          <p className="font-display text-2xl font-bold tabular-nums text-content">
-            {usd(spend.estUsd)}
-            <span className="ml-1 text-[11px] font-medium text-faint">est.</span>
-          </p>
-        </div>
-        <div
-          className={cn(
-            'mt-3 grid gap-3 text-center',
-            spend.image > 0 ? 'grid-cols-3' : 'grid-cols-2',
-          )}
-        >
-          <div>
-            <p className="font-display text-sm font-bold tabular-nums text-content">
-              {spend.grounded}
+        {communityDesktop ? (
+          <div
+            role="note"
+            className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
+          >
+            <p className="font-semibold">Desktop usage is not metered here yet</p>
+            <p className="mt-1 leading-relaxed">
+              These estimates do not include provider calls made by the desktop research process.
+              Check your provider's billing dashboard for actual usage.
             </p>
-            <p className="text-[10px] uppercase tracking-wide text-muted">searches</p>
-            <p className="text-[10px] tabular-nums text-faint">{usd(spend.estByKind.ground)}</p>
           </div>
-          <div>
-            <p className="font-display text-sm font-bold tabular-nums text-content">
-              {spend.structure}
-            </p>
-            <p className="text-[10px] uppercase tracking-wide text-muted">extractions</p>
-            <p className="text-[10px] tabular-nums text-faint">{usd(spend.estByKind.structure)}</p>
-          </div>
-          {spend.image > 0 && (
-            <div>
-              <p className="font-display text-sm font-bold tabular-nums text-content">
-                {spend.image}
+        ) : (
+          <>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm font-semibold text-content">This month on your key</p>
+              <p className="font-display text-2xl font-bold tabular-nums text-content">
+                {usd(spend.estUsd)}
+                <span className="ml-1 text-[11px] font-medium text-faint">est.</span>
               </p>
-              <p className="text-[10px] uppercase tracking-wide text-muted">past images</p>
-              <p className="text-[10px] tabular-nums text-faint">{usd(spend.estByKind.image)}</p>
             </div>
-          )}
-        </div>
-        <p className="mt-3 text-[11px] leading-relaxed text-faint">
-          Estimates from published list prices, counted locally. Today: {usage.total} of{' '}
-          {DAILY_REQUEST_CAP} requests in your local safety budget (~{usage.decksLeft} more decks).
-          Google quota and billing depend on your AI Studio account.
-        </p>
+            <div
+              className={cn(
+                'mt-3 grid gap-3 text-center',
+                spend.image > 0 ? 'grid-cols-3' : 'grid-cols-2',
+              )}
+            >
+              <div>
+                <p className="font-display text-sm font-bold tabular-nums text-content">
+                  {spend.grounded}
+                </p>
+                <p className="text-[10px] uppercase tracking-wide text-muted">searches</p>
+                <p className="text-[10px] tabular-nums text-faint">{usd(spend.estByKind.ground)}</p>
+              </div>
+              <div>
+                <p className="font-display text-sm font-bold tabular-nums text-content">
+                  {spend.structure}
+                </p>
+                <p className="text-[10px] uppercase tracking-wide text-muted">extractions</p>
+                <p className="text-[10px] tabular-nums text-faint">
+                  {usd(spend.estByKind.structure)}
+                </p>
+              </div>
+              {spend.image > 0 && (
+                <div>
+                  <p className="font-display text-sm font-bold tabular-nums text-content">
+                    {spend.image}
+                  </p>
+                  <p className="text-[10px] uppercase tracking-wide text-muted">past images</p>
+                  <p className="text-[10px] tabular-nums text-faint">
+                    {usd(spend.estByKind.image)}
+                  </p>
+                </div>
+              )}
+            </div>
+            <p className="mt-3 text-[11px] leading-relaxed text-faint">
+              Estimates from published list prices, counted locally. Today: {usage.total} of{' '}
+              {DAILY_REQUEST_CAP} requests in your local safety budget (~{usage.decksLeft} more
+              decks). Google quota and billing depend on your AI Studio account.
+            </p>
+          </>
+        )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 p-4">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-content">Monthly spending cap</p>
-          <p className="mt-0.5 text-xs text-muted">
-            Hit the cap and the app scales back to low power mode.
+      {communityDesktop ? (
+        <div
+          role="note"
+          className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900"
+        >
+          <p className="font-semibold">A hard spending cap is not available in Desktop yet</p>
+          <p className="mt-1 leading-relaxed">
+            Starting live research requires an explicit action, but this build cannot enforce a
+            provider-spend limit. Manage billing limits with your provider.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted">$</span>
-          <input
-            className="input w-24 py-1.5 text-sm tabular-nums"
-            inputMode="decimal"
-            placeholder="none"
-            value={capDraft}
-            onChange={(e) => setCapDraft(e.target.value)}
-            onBlur={applyCap}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') applyCap();
-            }}
-          />
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 p-4">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-content">Monthly spending cap</p>
+            <p className="mt-0.5 text-xs text-muted">
+              Hit the cap and the app scales back to low power mode.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted">$</span>
+            <input
+              className="input w-24 py-1.5 text-sm tabular-nums"
+              inputMode="decimal"
+              placeholder="none"
+              value={capDraft}
+              onChange={(e) => setCapDraft(e.target.value)}
+              onBlur={applyCap}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') applyCap();
+              }}
+            />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

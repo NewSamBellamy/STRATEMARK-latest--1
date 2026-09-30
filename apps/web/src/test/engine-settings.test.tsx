@@ -54,6 +54,26 @@ describe('Research Engine Settings & Strict Execution', () => {
     ).toBeInTheDocument();
   });
 
+  it('does not present incomplete desktop usage data as a meter or hard cap', async () => {
+    vi.stubEnv('VITE_DESKTOP', '1');
+    useSettingsModal.setState({ isOpen: true });
+    const user = userEvent.setup();
+
+    render(
+      <TestWrapper>
+        <SettingsModal />
+      </TestWrapper>,
+    );
+
+    await user.click(screen.getByRole('button', { name: /usage & limits/i }));
+    expect(screen.getByText(/desktop usage is not metered here yet/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/a hard spending cap is not available in desktop yet/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('none')).not.toBeInTheDocument();
+    expect(screen.queryByText('This month on your key')).not.toBeInTheDocument();
+  });
+
   it('starts with precise research language instead of AI theater', () => {
     vi.stubEnv('VITE_DESKTOP', '1');
     render(

@@ -55,6 +55,10 @@ export function useLivingDeck(
   const [events, setEvents] = useState<AgentActivityEvent[]>([]);
   const [status, setStatus] = useState<LivingStatus>('stopped');
   const [actionCount, setActionCount] = useState(0);
+  // A provider key is not consent to spend it in the background. Opt-in is
+  // deliberately scoped to this mounted deck view and must be repeated after
+  // navigation/relaunch.
+  const [authorizedDeckId, setAuthorizedDeckId] = useState<string | null>(null);
   const runtimeRef = useRef<LivingDeckRuntime | null>(null);
 
   // Latest cards without retriggering the effect — the runtime re-plans every
@@ -72,8 +76,14 @@ export function useLivingDeck(
   const canVerify = researchAvailable && typeof repo.verifyMetric === 'function';
 
   useEffect(() => {
-    if (!deckId || deskCount === 0 || !researchAvailable) {
+    if (!deckId || deskCount === 0 || !researchAvailable || !canVerify) {
       setStatus('stopped');
+      setAuthorizedDeckId(null);
+      return;
+    }
+    if (authorizedDeckId !== deckId) {
+      setStatus('paused');
+      setAuthorizedDeckId(null);
       return;
     }
 
@@ -179,9 +189,9 @@ export function useLivingDeck(
       runtime.stop();
       runtimeRef.current = null;
     };
-    // Restart only when the deck itself (or transport capability) changes.
+    // Restart only when the deck, explicit authorization, or transport changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deckId, deskCount > 0, canVerify, researchAvailable]);
+  }, [deckId, deskCount > 0, canVerify, researchAvailable, authorizedDeckId]);
 
   return {
     events,
@@ -191,11 +201,12 @@ export function useLivingDeck(
     canVerify,
     pause: () => {
       runtimeRef.current?.pause();
-      setStatus(runtimeRef.current?.status ?? 'paused');
+      setAuthorizedDeckId(null);
+      setStatus('paused');
     },
     resume: () => {
-      runtimeRef.current?.resume();
-      setStatus(runtimeRef.current?.status ?? 'running');
+      if (!canVerify || !deckId) return;
+      setAuthorizedDeckId(deckId);
     },
   };
 }

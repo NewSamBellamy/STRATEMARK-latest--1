@@ -62,6 +62,16 @@ describe('AgentActivityFeed', () => {
     expect(living.pause).toHaveBeenCalledOnce();
   });
 
+  it('makes starting research explicit and warns that provider charges may apply', async () => {
+    const living = state({ status: 'paused' });
+    const { user } = renderWithProviders(<AgentActivityFeed living={living} />);
+    expect(
+      screen.getByText(/starting uses your research provider and may incur charges/i),
+    ).toBeInTheDocument();
+    await user.click(screen.getByTitle('Start live research'));
+    expect(living.resume).toHaveBeenCalledOnce();
+  });
+
   it('does not offer a fake pause control when live verification is unavailable', () => {
     renderWithProviders(<AgentActivityFeed living={state({ canVerify: false })} />);
     expect(screen.getByText('Snapshot')).toBeInTheDocument();

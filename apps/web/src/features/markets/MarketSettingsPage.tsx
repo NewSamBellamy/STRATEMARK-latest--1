@@ -63,8 +63,10 @@ export default function MarketSettingsPage() {
                   Stratemark checks whether this deck is due whenever the desktop app is open.
                 </p>
                 <p className="mt-2 text-xs text-muted">
-                  Refreshes run one deck at a time to respect Gemini quotas. You can always refresh
-                  manually.
+                  A selected cadence schedules checks while the app is open. They use your Gemini
+                  key and may incur provider charges; the desktop app cannot enforce a spending cap
+                  yet. Choose a longer cadence to reduce scheduled requests; manual refresh is also
+                  available below.
                 </p>
               </div>
 

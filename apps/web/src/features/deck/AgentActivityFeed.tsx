@@ -119,9 +119,11 @@ export function AgentActivityFeed({ living }: { living: LivingDeckState }) {
             </span>
           </span>
           <span className="mt-0.5 block truncate text-[10.5px] text-white/55">
-            {living.canVerify
-              ? `${living.deskCount} company researcher${living.deskCount === 1 ? '' : 's'}${living.actionCount > 0 ? ` · ${living.actionCount} verified action${living.actionCount === 1 ? '' : 's'} this session` : ''}`
-              : `Connect Gemini to activate ${living.deskCount} company researcher${living.deskCount === 1 ? '' : 's'}`}
+            {living.canVerify && paused
+              ? `${living.deskCount} company researcher${living.deskCount === 1 ? '' : 's'} · paused; starting uses your research provider and may incur charges`
+              : living.canVerify
+                ? `${living.deskCount} company researcher${living.deskCount === 1 ? '' : 's'}${living.actionCount > 0 ? ` · ${living.actionCount} verified action${living.actionCount === 1 ? '' : 's'} this session` : ''}`
+                : `Connect Gemini to activate ${living.deskCount} company researcher${living.deskCount === 1 ? '' : 's'}`}
           </span>
         </span>
         {!expanded && latest && (
@@ -139,7 +141,8 @@ export function AgentActivityFeed({ living }: { living: LivingDeckState }) {
           {living.canVerify && (
             <button
               type="button"
-              title={paused ? 'Resume live research' : 'Pause live research'}
+              title={paused ? 'Start live research' : 'Pause live research'}
+              aria-label={paused ? 'Start live research' : 'Pause live research'}
               className="rounded p-1.5 text-white/55 transition-colors hover:bg-white/10 hover:text-white"
               onClick={() => (paused ? living.resume() : living.pause())}
             >
