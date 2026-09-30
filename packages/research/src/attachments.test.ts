@@ -39,8 +39,20 @@ function snapshot(): RepoSnapshot {
         scope: { kind: 'deck', deckId: 'deck_1' },
         title: 'Conversion metrics dig',
         messages: [
-          { id: 'm1', role: 'user', text: 'How do their conversion rates compare?', citations: [], at: now },
-          { id: 'm2', role: 'assistant', text: 'Sources put trial-to-paid near 9%.', citations: [], at: now },
+          {
+            id: 'm1',
+            role: 'user',
+            text: 'How do their conversion rates compare?',
+            citations: [],
+            at: now,
+          },
+          {
+            id: 'm2',
+            role: 'assistant',
+            text: 'Sources put trial-to-paid near 9%.',
+            citations: [],
+            at: now,
+          },
         ],
         reportId: null,
         createdAt: now,
@@ -109,6 +121,19 @@ describe('askResearch — pinned attachments ground the conversation', () => {
       title: 'Inference prices are falling',
       summary: 'Several providers lowered inference prices this quarter.',
       keyPoints: ['The change is concentrated in hosted models.'],
+      evidencePoints: [
+        {
+          text: 'Hosted inference prices fell during the second quarter.',
+          timeWindow: 'Q2 2026',
+          citations: [
+            {
+              title: 'Provider pricing announcement',
+              url: 'https://provider.example/pricing-update',
+              credibility: 'primary',
+            },
+          ],
+        },
+      ],
       citations: [
         {
           title: 'Provider pricing announcement',
@@ -132,5 +157,7 @@ describe('askResearch — pinned attachments ground the conversation', () => {
     const prompt = ground.mock.calls[0]![0] as string;
     expect(prompt).toContain('Provider pricing announcement');
     expect(prompt).toContain('https://provider.example/pricing-update');
+    expect(prompt).toContain('Hosted inference prices fell during the second quarter.');
+    expect(prompt).toContain('AI-reported period (not independently verified): Q2 2026');
   });
 });

@@ -75,7 +75,8 @@ export function CollectibleCard({
               {data.card.cardType === 'vice' ? 'Risk finding' : 'Market finding'}
             </span>
             <p>
-              {data.card.keyPoints[0] || 'Open the card to inspect the finding and its evidence.'}
+              {data.card.evidencePoints?.[0]?.text ||
+                'Open to inspect this finding and its sources.'}
             </p>
           </div>
         ) : view.faceMetrics.length ? (

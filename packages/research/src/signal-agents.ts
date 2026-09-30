@@ -11,11 +11,11 @@
  *   2. BarrierToEntryAgent:
  *      - Discovers stage-specific structural moats (regulatory hurdles, capital intensity,
  *        network effects, distribution moats, brand trust).
- *      - Outputs `barrier` cards with `company: null`, sourced `citations`, and 4-8 bulleted `keyPoints`.
+ *      - Outputs `barrier` cards with claim-linked evidence details and `company: null`.
  *   3. MarketInsightAgent:
  *      - Synthesizes 4-6 non-obvious macro trend cards (pricing shifts, talent migration,
  *        AI integration, whitespace opportunities) grounded in recent 3-6 month search.
- *      - Outputs `insight` cards with `company: null`, sourced `citations`, and `keyPoints`.
+ *      - Outputs `insight` cards with claim-linked evidence details and `company: null`.
  *   4. CultureAgent & ViceAgent:
  *      - Manages sourced company-level culture and controversy signals.
  *      - Grounding discipline: strictly drops unsourced claims, never borrows entity metrics,
@@ -23,13 +23,15 @@
  *   5. Citation & Provenance Integrity:
  *      - Strict mapping from 0-based source indices to full `Citation` metadata.
  *      - Deduplicates overlapping barrier/insight themes cleanly.
- *      - Zero fabricated sources or ungrounded claims.
+ *      - Never invents source URLs; claim-to-source links are model-attributed,
+ *        not independently verified.
  */
 
 import { z } from 'zod';
 import {
   classifySource,
   type Card,
+  type CardEvidencePoint,
   type CardWithCompany,
   type Company,
   type ViceClaim,
@@ -72,7 +74,14 @@ export interface RawMarketClaim {
   summary: string;
   sourceIndex: number | null;
   keyPoints?: string[];
+  evidencePoints?: RawEvidencePoint[];
   category?: string;
+}
+
+interface RawEvidencePoint {
+  text: string;
+  sourceIndices: number[];
+  timeWindow: string | null;
 }
 
 export interface SignalAgentOptions {
@@ -112,6 +121,15 @@ const rawClaimSchema = z.object({
   summary: z.string().default(''),
   sourceIndex: z.number().int().nullable().default(null),
   keyPoints: z.array(z.string()).default([]),
+  evidencePoints: z
+    .array(
+      z.object({
+        text: z.string().min(1),
+        sourceIndices: z.array(z.number().int()).default([]),
+        timeWindow: z.string().nullable().default(null),
+      }),
+    )
+    .default([]),
 });
 
 export const barrierAgentOutSchema = z.preprocess(
@@ -187,13 +205,19 @@ export function deduplicateClaims<T extends { title: string }>(
 /**
  * Adjusts sourceIndex values when chaining multiple research passes.
  */
-export function offsetClaimSourceIndices<T extends { sourceIndex: number | null }>(
-  claims: T[],
-  offset: number,
-): T[] {
+export function offsetClaimSourceIndices<
+  T extends {
+    sourceIndex: number | null;
+    evidencePoints?: Array<{ sourceIndices: number[] }>;
+  },
+>(claims: T[], offset: number): T[] {
   return claims.map((claim) => ({
     ...claim,
     sourceIndex: claim.sourceIndex == null ? null : claim.sourceIndex + offset,
+    evidencePoints: claim.evidencePoints?.map((point) => ({
+      ...point,
+      sourceIndices: point.sourceIndices.map((index) => index + offset),
+    })),
   }));
 }
 
@@ -220,6 +244,32 @@ export function resolveClaimCitation(
   ];
 }
 
+/**
+ * Attach only citations explicitly assigned to a detail by the structured pass.
+ * The card's headline source is never borrowed to make a detail look sourced.
+ */
+export function resolveClaimEvidencePoints(
+  points: readonly RawEvidencePoint[] | undefined,
+  citations: readonly Citation[],
+): CardEvidencePoint[] {
+  return (points ?? [])
+    .slice(0, 8)
+    .map((point) => {
+      const text = point.text.trim();
+      const byUrl = new Map<string, Citation>();
+      for (const sourceIndex of point.sourceIndices) {
+        for (const citation of resolveClaimCitation(sourceIndex, citations)) {
+          byUrl.set(citation.url, citation);
+        }
+      }
+      const pointCitations = [...byUrl.values()].slice(0, 4);
+      if (!text || pointCitations.length === 0) return null;
+      const timeWindow = point.timeWindow?.trim() || null;
+      return { text, citations: pointCitations, timeWindow };
+    })
+    .filter((point): point is CardEvidencePoint => point !== null);
+}
+
 // ============================================================================
 // 3. Card Factory Constructors
 // ============================================================================
@@ -233,6 +283,7 @@ export function createBarrierCard(
   citations: Citation[],
   keyPoints: string[] = [],
   deckId = '',
+  evidencePoints?: CardEvidencePoint[],
 ): CardWithCompany {
   const validCitations = citations
     .filter((c) => c && c.url && /^https?:\/\//i.test(c.url))
@@ -253,7 +304,13 @@ export function createBarrierCard(
     tier: null,
     tierReason: null,
     citations: validCitations,
-    keyPoints: Array.isArray(keyPoints) ? keyPoints.map((p) => p.trim()).filter(Boolean) : [],
+    keyPoints:
+      evidencePoints === undefined
+        ? Array.isArray(keyPoints)
+          ? keyPoints.map((p) => p.trim()).filter(Boolean)
+          : []
+        : evidencePoints.map((point) => point.text),
+    ...(evidencePoints === undefined ? {} : { evidencePoints }),
     createdAt: now(),
   };
 
@@ -274,6 +331,7 @@ export function createInsightCard(
   citations: Citation[],
   keyPoints: string[] = [],
   deckId = '',
+  evidencePoints?: CardEvidencePoint[],
 ): CardWithCompany {
   const validCitations = citations
     .filter((c) => c && c.url && /^https?:\/\//i.test(c.url))
@@ -294,7 +352,13 @@ export function createInsightCard(
     tier: null,
     tierReason: null,
     citations: validCitations,
-    keyPoints: Array.isArray(keyPoints) ? keyPoints.map((p) => p.trim()).filter(Boolean) : [],
+    keyPoints:
+      evidencePoints === undefined
+        ? Array.isArray(keyPoints)
+          ? keyPoints.map((p) => p.trim()).filter(Boolean)
+          : []
+        : evidencePoints.map((point) => point.text),
+    ...(evidencePoints === undefined ? {} : { evidencePoints }),
     createdAt: now(),
   };
 
@@ -460,7 +524,8 @@ export class BarrierToEntryAgent {
       `For each barrier, provide:`,
       `- Sourced title naming the specific barrier`,
       `- 1-2 sentence executive summary`,
-      `- 4 to 8 concise, bulleted key points detailing concrete mechanisms, figures, regulations, or incumbent advantages`,
+      `- 2 to 5 concise evidence points, each with one or more source indices that directly support that exact point`,
+      `- For each evidence point, include a timeWindow only when the claim/event period is explicitly stated in the notes; otherwise null. Do not substitute the source's publication date.`,
       ``,
       `STRICT GROUNDING: Ground every barrier and key point in what search results actually confirm. Do not extrapolate generic claims.`,
     ].join('\n');
@@ -470,11 +535,12 @@ export class BarrierToEntryAgent {
     const sourcesText =
       citations.map((c, i) => `[${i}] ${c.title} — ${c.url}`).join('\n') || '(none)';
     return [
-      `Convert the research notes into JSON: { "barriers": [ { "title": string, "summary": string, "sourceIndex": number | null, "keyPoints": string[] } ] }.`,
+      `Convert the research notes into JSON: { "barriers": [ { "title": string, "summary": string, "sourceIndex": number | null, "evidencePoints": [{ "text": string, "sourceIndices": number[], "timeWindow": string | null }] } ] }.`,
       `Rules:`,
       `- Return 4-10 distinct structural barrier cards.`,
       `- "sourceIndex" must be the 0-based index into SOURCES supporting the barrier. Null if unsourced.`,
-      `- "keyPoints" must contain 4-8 bullet points (1-2 sentences each) with concrete specifics: metrics, regulatory names, capital requirements, dates, and named entities.`,
+      `- Every evidence point must be a discrete factual detail (1-2 sentences) and list one or more 0-based SOURCES indices that directly support that exact detail. Drop any point whose source cannot be identified.`,
+      `- "timeWindow" is the period the claim/event describes, only if explicitly stated in NOTES; otherwise null. Never infer it from a publication date.`,
       `- Deduplicate overlapping barriers.`,
       ``,
       `SOURCES:`,
@@ -525,6 +591,7 @@ export class BarrierToEntryAgent {
           claimCitations,
           item.keyPoints,
           deckId,
+          resolveClaimEvidencePoints(item.evidencePoints, grounded.citations),
         ),
       );
     }
@@ -575,7 +642,8 @@ export class MarketInsightAgent {
       `For each insight, provide:`,
       `- Sourced title capturing the core strategic shift`,
       `- 1-2 sentence executive summary`,
-      `- 4 to 8 concise key points describing concrete evidence, data points, market shifts, dates, and named entities`,
+      `- 2 to 5 concise evidence points, each with one or more source indices that directly support that exact point`,
+      `- For each evidence point, include a timeWindow only when the claim/event period is explicitly stated in the notes; otherwise null. Do not substitute the source's publication date.`,
       ``,
       `STRICT GROUNDING: Ground every insight in real search findings from recent reporting, announcements, or analysis. Do not speculate.`,
     ].join('\n');
@@ -585,11 +653,12 @@ export class MarketInsightAgent {
     const sourcesText =
       citations.map((c, i) => `[${i}] ${c.title} — ${c.url}`).join('\n') || '(none)';
     return [
-      `Convert the research notes into JSON: { "insights": [ { "title": string, "summary": string, "sourceIndex": number | null, "keyPoints": string[] } ] }.`,
+      `Convert the research notes into JSON: { "insights": [ { "title": string, "summary": string, "sourceIndex": number | null, "evidencePoints": [{ "text": string, "sourceIndices": number[], "timeWindow": string | null }] } ] }.`,
       `Rules:`,
       `- Return 4-10 non-obvious macro insight cards.`,
       `- "sourceIndex" must be the 0-based index into SOURCES supporting the insight. Null if unsourced.`,
-      `- "keyPoints" must contain 4-8 bullet points (1-2 sentences each) explaining the underlying mechanism and evidence.`,
+      `- Every evidence point must be a discrete factual detail (1-2 sentences) and list one or more 0-based SOURCES indices that directly support that exact detail. Drop any point whose source cannot be identified.`,
+      `- "timeWindow" is the period the claim/event describes, only if explicitly stated in NOTES; otherwise null. Never infer it from a publication date.`,
       `- Deduplicate overlapping insight themes.`,
       ``,
       `SOURCES:`,
@@ -640,6 +709,7 @@ export class MarketInsightAgent {
           claimCitations,
           item.keyPoints,
           deckId,
+          resolveClaimEvidencePoints(item.evidencePoints, grounded.citations),
         ),
       );
     }
@@ -902,10 +972,11 @@ export async function researchMarketSignals(
     });
 
     const structurePrompt = [
-      `From the notes, output JSON { "barriers": [ { "title", "summary", "sourceIndex", "keyPoints" } ], "insights": [ { "title", "summary", "sourceIndex", "keyPoints" } ] }.`,
+      `From the notes, output JSON { "barriers": [ { "title", "summary", "sourceIndex", "evidencePoints": [{ "text", "sourceIndices", "timeWindow" }] } ], "insights": [ { "title", "summary", "sourceIndex", "evidencePoints": [{ "text", "sourceIndices", "timeWindow" }] } ] }.`,
       `Return 4-10 distinct sourced items for each requested category. If the notes do not support four, return fewer rather than inventing.`,
       `"sourceIndex" is the 0-based index of the source that supports the point, or null if none of the listed sources do.`,
-      `"keyPoints" is 4-8 short entries (1-2 sentences each) carrying the substance behind the headline — concrete specifics drawn ONLY from the notes: figures, named companies, dates, mechanisms. No filler.`,
+      `Each evidence point is one short factual detail (1-2 sentences) with one or more 0-based sourceIndices that directly support that exact detail. Drop details that cannot be source-linked; never borrow the card's sourceIndex for a detail.`,
+      `timeWindow is the claim/event period only when stated in NOTES; otherwise null. Do not infer from source publication dates.`,
       ``,
       `SOURCES:`,
       grounded.citations.map((c, i) => `[${i}] ${c.title} — ${c.url}`).join('\n') || '(none)',
@@ -993,6 +1064,7 @@ export async function researchMarketSignals(
         claimCitations,
         barrier.keyPoints,
         deckId,
+        resolveClaimEvidencePoints(barrier.evidencePoints, allCitations),
       ),
     );
   }
@@ -1008,6 +1080,7 @@ export async function researchMarketSignals(
         claimCitations,
         insight.keyPoints,
         deckId,
+        resolveClaimEvidencePoints(insight.evidencePoints, allCitations),
       ),
     );
   }

@@ -2138,7 +2138,15 @@ export class GeminiRepository implements MarketIntelRepository {
 
     const marketCardLine = (card: Card) => {
       push(`${card.cardType.toUpperCase()}: ${card.title} — ${card.summary ?? ''}`);
-      for (const k of card.keyPoints ?? []) push(`  · ${k}`);
+      for (const point of card.evidencePoints ?? []) {
+        push(`  AI-ATTRIBUTED DETAIL (not independently verified): ${point.text}`);
+        push(`    AI-reported period (not independently verified): ${point.timeWindow ?? 'Period not stated'}`);
+        for (const citation of point.citations) {
+          push(
+            `    AI-SELECTED SOURCE RECEIPT: ${citation.title || 'Untitled source'} — ${citation.url}`,
+          );
+        }
+      }
       for (const citation of card.citations?.slice(0, 4) ?? []) {
         push(
           `  SOURCE RECEIPT (card-level; verify claim against source): ${citation.title || 'Untitled source'} — ${citation.url}`,

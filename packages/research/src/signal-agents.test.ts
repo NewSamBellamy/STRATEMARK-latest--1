@@ -57,6 +57,9 @@ const sampleCitations: Citation[] = [
   { title: 'bloomberg.com', url: 'https://bloomberg.com/news/articles/antitrust-probe' },
 ];
 
+const pointEvidence = (texts: string[], sourceIndex: number) =>
+  texts.map((text) => ({ text, sourceIndices: [sourceIndex], timeWindow: null }));
+
 function createMockLlmClient(responses: {
   groundText?: string;
   citations?: Citation[];
@@ -88,6 +91,15 @@ function createMockLlmClient(responses: {
                 'R&D amortisation cycles are under 18 months due to rapid architecture iteration.',
                 'Only top hyperscalers and sovereign funds can fund leading cluster iterations.',
               ],
+              evidencePoints: pointEvidence(
+                [
+                  'Cluster capital requirements exceed $10B for 100k+ GPU deployments.',
+                  'Power purchase agreements require 1+ gigawatt dedicated substations.',
+                  'R&D amortisation cycles are under 18 months due to rapid architecture iteration.',
+                  'Only top hyperscalers and sovereign funds can fund leading cluster iterations.',
+                ],
+                0,
+              ),
             },
           ],
           insights: [
@@ -101,6 +113,15 @@ function createMockLlmClient(responses: {
                 'Hybrid inference routing reduces average call cost by 62%.',
                 'Enterprise ACVs rose 3.4x when structured around end-to-end task completion.',
               ],
+              evidencePoints: pointEvidence(
+                [
+                  'Per-token margins compressed 80% over 12 months across commodity models.',
+                  'Workday and Salesforce require workflow completion guarantees over raw tokens.',
+                  'Hybrid inference routing reduces average call cost by 62%.',
+                  'Enterprise ACVs rose 3.4x when structured around end-to-end task completion.',
+                ],
+                2,
+              ),
             },
           ],
         });
@@ -118,6 +139,15 @@ function createMockLlmClient(responses: {
                 'Pre-training data copyright disclosure requirements exclude opaque datasets.',
                 'Penalties reach up to 35M EUR or 7% of global annual turnover.',
               ],
+              evidencePoints: pointEvidence(
+                [
+                  'Article 6 mandates third-party safety audits before EU market deployment.',
+                  'Compliance costs average $3.2M per foundation model release.',
+                  'Pre-training data copyright disclosure requirements exclude opaque datasets.',
+                  'Penalties reach up to 35M EUR or 7% of global annual turnover.',
+                ],
+                1,
+              ),
             },
           ],
         });
@@ -135,6 +165,15 @@ function createMockLlmClient(responses: {
                 'Quantization and spec-decoding specialists represent 40% of open engineering headcount.',
                 'Talent concentration remains locked across SF, Seattle, and London hubs.',
               ],
+              evidencePoints: pointEvidence(
+                [
+                  'GPU kernel optimization engineers saw compensation packages surge 45% YoY.',
+                  'Frontier labs are actively poaching distributed CUDA talent from hardware OEMs.',
+                  'Quantization and spec-decoding specialists represent 40% of open engineering headcount.',
+                  'Talent concentration remains locked across SF, Seattle, and London hubs.',
+                ],
+                0,
+              ),
             },
           ],
         });
@@ -198,6 +237,21 @@ describe('Signal Agents Deep Module', () => {
       expect(offset[0]!.sourceIndex).toBe(5);
       expect(offset[1]!.sourceIndex).toBe(7);
       expect(offset[2]!.sourceIndex).toBeNull();
+    });
+
+    it('offsets each nested evidence source index for fallback passes', () => {
+      const offset = offsetClaimSourceIndices(
+        [
+          {
+            title: 'Fallback detail',
+            sourceIndex: 0,
+            evidencePoints: [{ sourceIndices: [0, 2] }],
+          },
+        ],
+        4,
+      );
+      expect(offset[0]!.sourceIndex).toBe(4);
+      expect(offset[0]!.evidencePoints?.[0]?.sourceIndices).toEqual([4, 6]);
     });
 
     it('resolves claim citations and classifies source credibility correctly', () => {
@@ -539,6 +593,50 @@ describe('Signal Agents Deep Module', () => {
       expect(insight!.card.keyPoints).toHaveLength(4);
     });
 
+    it('keeps only claim details with their own resolvable sources and reported time window', async () => {
+      const client = createMockLlmClient({
+        structureData: {
+          barriers: [
+            {
+              title: 'Compute access',
+              summary: 'A cited market barrier.',
+              sourceIndex: 0,
+              keyPoints: ['Unlinked legacy detail must not be promoted.'],
+              evidencePoints: [
+                {
+                  text: 'The filing reports a dedicated 1 GW power commitment.',
+                  sourceIndices: [1],
+                  timeWindow: 'FY2026 filing',
+                },
+                {
+                  text: 'This detail has no source and must be dropped.',
+                  sourceIndices: [99],
+                  timeWindow: null,
+                },
+              ],
+            },
+          ],
+          insights: [],
+        },
+      });
+
+      const cards = await researchMarketSignals(client, samplePlan, 'dck_claim_evidence', {
+        minBarriers: 1,
+        minInsights: 0,
+      });
+      const barrier = cards.find((card) => card.card.cardType === 'barrier')!;
+
+      expect(barrier.card.keyPoints).toEqual([
+        'The filing reports a dedicated 1 GW power commitment.',
+      ]);
+      expect(barrier.card.evidencePoints).toHaveLength(1);
+      expect(barrier.card.evidencePoints?.[0]).toMatchObject({
+        text: 'The filing reports a dedicated 1 GW power commitment.',
+        timeWindow: 'FY2026 filing',
+        citations: [{ title: 'sec.gov', url: 'https://sec.gov/edgar/filings/10k' }],
+      });
+    });
+
     it('triggers fallback passes when initial yield is below minimum coverage targets', async () => {
       let callCount = 0;
       const client: LlmClient = {
@@ -580,6 +678,9 @@ describe('Signal Agents Deep Module', () => {
                 summary: 'Fallback barrier',
                 sourceIndex: 0,
                 keyPoints: ['Point 2'],
+                evidencePoints: [
+                  { text: 'Fallback-specific evidence.', sourceIndices: [0], timeWindow: null },
+                ],
               },
             ],
             insights: [
@@ -606,6 +707,7 @@ describe('Signal Agents Deep Module', () => {
       // Verify citation sourceIndex offsetting
       const barrier2 = cards.find((c) => c.card.title === 'Barrier 2')!;
       expect(barrier2.card.citations[0]!.url).toBe('https://sec.gov/p2');
+      expect(barrier2.card.evidencePoints?.[0]?.citations[0]?.url).toBe('https://sec.gov/p2');
     });
 
     it('retries when raw counts meet minimums but duplicates and invalid sources leave thin usable coverage', async () => {

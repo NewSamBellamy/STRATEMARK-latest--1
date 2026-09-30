@@ -49,8 +49,13 @@ function CardReaderBody({
   const { chat } = useDeepDive();
   const [shareOpen, setShareOpen] = useState(false);
   const hasMaturity = card.cardType === 'company' && !view.signal;
+  const hasClaimEvidencePoints = card.cardType === 'barrier' || card.cardType === 'insight';
   const researcherLabel = view.signal ? 'Market researcher' : 'Company researcher';
-  const evidenceCount = view.signal ? view.citations.length : view.sourcedCount;
+  const evidenceCount = hasClaimEvidencePoints
+    ? (card.evidencePoints?.length ?? 0)
+    : view.signal
+      ? view.citations.length
+      : view.sourcedCount;
   const sourcedViceClaims = viceClaims.filter((claim) => sourceUrl(claim.sourceUrl) !== null);
   const viceSourceUrls = new Set(
     sourcedViceClaims
@@ -103,9 +108,13 @@ function CardReaderBody({
               <span className="min-w-0 flex-1">
                 <strong>{researcherLabel}</strong>
                 <span>
-                  {evidenceCount > 0
-                    ? `${evidenceCount} sourced ${evidenceCount === 1 ? 'record' : 'records'}`
-                    : 'Evidence needed'}
+                  {hasClaimEvidencePoints
+                    ? evidenceCount > 0
+                      ? `${evidenceCount} ${evidenceCount === 1 ? 'detail' : 'details'} · AI-attributed sources`
+                      : 'No sources attributed to details'
+                    : evidenceCount > 0
+                      ? `${evidenceCount} sourced ${evidenceCount === 1 ? 'record' : 'records'}`
+                      : 'Evidence needed'}
                   {view.latestCapturedAt
                     ? ` · as of ${new Date(view.latestCapturedAt).toLocaleDateString()}`
                     : ''}
@@ -144,7 +153,47 @@ function CardReaderBody({
                   view.description ||
                   'A research summary has not been recorded yet.'}
               </p>
-              {card.keyPoints.length > 0 && (
+              {hasClaimEvidencePoints && (card.evidencePoints?.length ?? 0) > 0 && (
+                <div className="mt-4 border-t border-border pt-3">
+                  <p className="mb-3 text-[10px] leading-relaxed text-muted">
+                    Sources and periods are AI-attributed from research notes; they have not been
+                    independently verified.
+                  </p>
+                  <ul className="space-y-2">
+                    {card.evidencePoints!.slice(0, 5).map((point, i) => (
+                      <li
+                        key={`${point.text}-${i}`}
+                        className="border-b border-border/70 pb-3 last:border-0"
+                      >
+                        <p className="flex gap-3 text-[12px] leading-relaxed text-content">
+                          <span className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-primary/60" />
+                          <span>{point.text}</span>
+                        </p>
+                        <div className="ml-4 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
+                          <span>
+                            {point.timeWindow
+                              ? `AI-reported period · ${point.timeWindow}`
+                              : 'Period not stated'}
+                          </span>
+                          {point.citations.map((citation) => (
+                            <a
+                              key={citation.url}
+                              href={citation.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-primary-ink hover:underline"
+                            >
+                              <ExternalLink size={10} />
+                              {publisherOf(citation.url, citation.title)}
+                            </a>
+                          ))}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {!hasClaimEvidencePoints && card.keyPoints.length > 0 && (
                 <ul className="mt-4 space-y-2 border-t border-border pt-3">
                   {card.keyPoints.slice(0, 4).map((point, i) => (
                     <li key={i} className="flex gap-3 text-[12px] leading-relaxed text-content">
@@ -154,12 +203,24 @@ function CardReaderBody({
                   ))}
                 </ul>
               )}
+              {hasClaimEvidencePoints &&
+                !card.evidencePoints?.length &&
+                card.keyPoints.length > 0 && (
+                  <p className="mt-4 border-t border-border pt-3 text-[11px] leading-relaxed text-muted">
+                    Earlier detail notes aren’t shown because they don’t have their own source
+                    links.
+                  </p>
+                )}
               {detailCitations.length > 0 && (
                 <div className="mt-4 border-t border-border pt-3">
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">
-                    {detailCitations.length > 4
-                      ? `Showing 4 of ${detailCitations.length} sources`
-                      : `Sources · ${detailCitations.length}`}
+                    {hasClaimEvidencePoints
+                      ? detailCitations.length > 4
+                        ? `Headline & summary sources · showing 4 of ${detailCitations.length}`
+                        : `Headline & summary sources · ${detailCitations.length}`
+                      : detailCitations.length > 4
+                        ? `Showing 4 of ${detailCitations.length} sources`
+                        : `Sources · ${detailCitations.length}`}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
                     {detailCitations.slice(0, 4).map((citation) => (

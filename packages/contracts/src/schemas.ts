@@ -130,6 +130,14 @@ export const citationSchema = z.object({
     .optional(),
 });
 
+/** A short research claim with its own sources and explicitly reported period. */
+export const cardEvidencePointSchema = z.object({
+  text: z.string().min(1),
+  citations: z.array(citationSchema).min(1),
+  /** Claim/event period, not source publication or retrieval date. */
+  timeWindow: z.string().nullable(),
+});
+
 export const companyMetricSchema = z.object({
   id: z.string(),
   companyId: z.string(),
@@ -213,6 +221,8 @@ export const cardSchema = z.object({
    * cards and for decks baked before this field existed.
    */
   keyPoints: z.array(z.string()).default([]),
+  /** Optional so snapshots from before claim-level attribution remain readable. */
+  evidencePoints: z.array(cardEvidencePointSchema).optional(),
   createdAt: isoTimestamp,
 });
 

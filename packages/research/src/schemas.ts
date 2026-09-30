@@ -240,8 +240,19 @@ const marketClaimSchema = z.object({
   title: z.string(),
   summary: z.string(),
   sourceIndex: z.number().int().nullable().default(null),
-  /** The scannable substance behind the headline — 1-2 sentences each. */
+  /** Legacy unlinked details accepted for parsing, but never promoted to cards. */
   keyPoints: z.array(z.string()).default([]),
+  /** Each detail must cite one or more source indices for that exact claim. */
+  evidencePoints: z
+    .array(
+      z.object({
+        text: z.string().min(1),
+        sourceIndices: z.array(z.number().int()).default([]),
+        /** Claim/event period stated in notes; null when not stated. */
+        timeWindow: z.string().nullable().default(null),
+      }),
+    )
+    .default([]),
 });
 
 export const marketCardsOutSchema = z.preprocess(

@@ -5,6 +5,7 @@ import type {
   brandThemeSchema,
   capTableSliceSchema,
   cardSchema,
+  cardEvidencePointSchema,
   companyMetricSchema,
   companySchema,
   deckSchema,
@@ -41,6 +42,7 @@ export type BrandTheme = z.infer<typeof brandThemeSchema>;
 export type Company = z.infer<typeof companySchema>;
 export type CompanyMetric = z.infer<typeof companyMetricSchema>;
 export type Card = z.infer<typeof cardSchema>;
+export type CardEvidencePoint = z.infer<typeof cardEvidencePointSchema>;
 export type ViceClaim = z.infer<typeof viceClaimSchema>;
 
 export type OverviewContent = z.infer<typeof overviewContentSchema>;

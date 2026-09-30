@@ -83,6 +83,52 @@ describe('CardReader', () => {
     expect(screen.queryByRole('button', { name: /discuss this finding/i })).not.toBeInTheDocument();
   });
 
+  it('shows AI-attributed sources and periods, not legacy unlinked notes', () => {
+    const cwc = hydrate((c) => c.cardType === 'insight');
+    const sourcedFinding = {
+      ...cwc,
+      company: null,
+      card: {
+        ...cwc.card,
+        companyId: null,
+        title: 'Inference pricing shift',
+        keyPoints: ['Legacy detail without claim-level provenance.'],
+        evidencePoints: [
+          {
+            text: 'Hosted inference prices fell during the second quarter.',
+            timeWindow: 'Q2 2026',
+            citations: [{ title: 'provider.example', url: 'https://provider.example/pricing' }],
+          },
+          {
+            text: 'A second finding has no reported period.',
+            timeWindow: null,
+            citations: [{ title: 'research.example', url: 'https://research.example/report' }],
+          },
+        ],
+      },
+    } as typeof cwc;
+
+    renderWithProviders(<CardReader data={sourcedFinding} open onOpenChange={() => {}} />);
+    const dialog = screen.getByRole('dialog');
+    expect(
+      within(dialog).getAllByText('Hosted inference prices fell during the second quarter.'),
+    ).toHaveLength(2); // collectible face + expanded details
+    expect(within(dialog).getByText(/AI-reported period · Q2 2026/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        /AI-attributed from research notes; they have not been independently verified/i,
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText('Period not stated')).toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: /provider\.example/i })).toHaveAttribute(
+      'href',
+      'https://provider.example/pricing',
+    );
+    expect(
+      within(dialog).queryByText('Legacy detail without claim-level provenance.'),
+    ).not.toBeInTheDocument();
+  });
+
   it('keeps evidence details in the company research view', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_grace-threads');
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);

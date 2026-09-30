@@ -80,6 +80,25 @@ function liveCard(): CardWithCompany {
   } as CardWithCompany;
 }
 
+function rawJsonShare(value: unknown): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `j${btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
+}
+
+async function compressedJsonShare(value: unknown): Promise<string> {
+  const compressor = new CompressionStream('deflate-raw');
+  const compressedPromise = new Response(compressor.readable).arrayBuffer();
+  const writer = compressor.writable.getWriter();
+  await writer.write(new TextEncoder().encode(JSON.stringify(value)));
+  await writer.close();
+  const compressed = new Uint8Array(await compressedPromise);
+  let binary = '';
+  for (const byte of compressed) binary += String.fromCharCode(byte);
+  return `z${btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
+}
+
 describe('share codec round-trip', () => {
   it('a shared card decodes to exactly what was shared', async () => {
     const payload = buildCardShare(liveCard(), 'Frontier AI');
@@ -103,6 +122,44 @@ describe('share codec round-trip', () => {
     expect(cwc.card.tier).toBe(7);
     expect(cwc.metrics.find((m) => m.metricType === 'arr')?.confidence).toBe('verified');
     expect(cwc.viceClaims[0]?.sourceUrl).toBe('https://theverge.com/x');
+  });
+
+  it('round-trips claim-specific citations and reported periods for market findings', async () => {
+    const finding = {
+      ...liveCard(),
+      company: null,
+      card: {
+        ...liveCard().card,
+        cardType: 'insight' as const,
+        companyId: null,
+        title: 'Inference pricing shift',
+        evidencePoints: [
+          {
+            text: 'Hosted inference prices fell during the second quarter.',
+            timeWindow: 'Q2 2026',
+            citations: [{ title: 'provider.example', url: 'https://provider.example/pricing' }],
+          },
+        ],
+      },
+    } as CardWithCompany;
+    const decoded = await decodeSharePayload(
+      await encodeSharePayload(buildCardShare(finding, 'Frontier AI')),
+    );
+
+    expect(decoded?.cards[0]?.evidencePoints).toEqual([
+      {
+        text: 'Hosted inference prices fell during the second quarter.',
+        timeWindow: 'Q2 2026',
+        citations: [{ t: 'provider.example', u: 'https://provider.example/pricing' }],
+      },
+    ]);
+    expect(decoded?.cards[0]?.keyPoints).toEqual([]);
+    const inflated = sharedToCardWithCompany(decoded!.cards[0]!, 0, decoded!.sharedAt);
+    expect(inflated.card.evidencePoints?.[0]).toMatchObject({
+      text: 'Hosted inference prices fell during the second quarter.',
+      timeWindow: 'Q2 2026',
+      citations: [{ title: 'provider.example', url: 'https://provider.example/pricing' }],
+    });
   });
 
   it('a 10-company deck stays link-sized (compressed)', async () => {
@@ -189,4 +246,66 @@ describe('share codec round-trip', () => {
     expect(await decodeSharePayload('')).toBeNull();
     expect(await decodeSharePayload('jnot-base64!!!')).toBeNull();
   });
+
+  it('rejects malformed claim evidence and non-web citation URLs at the share boundary', async () => {
+    const base = buildCardShare(
+      {
+        ...liveCard(),
+        company: null,
+        card: {
+          ...liveCard().card,
+          cardType: 'insight',
+          companyId: null,
+          evidencePoints: [
+            {
+              text: 'A market detail.',
+              timeWindow: null,
+              citations: [{ title: 'Example', url: 'https://example.com/source' }],
+            },
+          ],
+        },
+      } as CardWithCompany,
+      'Frontier AI',
+    );
+    const unsafeUrl = structuredClone(base);
+    unsafeUrl.cards[0]!.evidencePoints![0]!.citations[0]!.u = 'javascript:alert(1)';
+    const malformed = structuredClone(base);
+    malformed.cards[0]!.evidencePoints = [{ text: 'No citation', timeWindow: null, citations: [] }];
+
+    expect(await decodeSharePayload(rawJsonShare(unsafeUrl))).toBeNull();
+    expect(await decodeSharePayload(rawJsonShare(malformed))).toBeNull();
+  });
+
+  it('rejects shares beyond the encoded-link size limit', async () => {
+    const cardPayload = buildCardShare(liveCard(), null);
+    const oversized = {
+      ...cardPayload,
+      kind: 'deck' as const,
+      cards: Array.from({ length: 100 }, () => ({
+        ...cardPayload.cards[0]!,
+        summary: 'x'.repeat(5000),
+      })),
+    };
+    await expect(encodeSharePayload(oversized)).rejects.toThrow(/too large to package/i);
+    expect(await decodeSharePayload(`j${'A'.repeat(60_001)}`)).toBeNull();
+  });
+
+  it.skipIf(typeof CompressionStream === 'undefined')(
+    'rejects a small compressed link that expands beyond the decoded-size limit',
+    async () => {
+      const base = buildCardShare(liveCard(), 'Frontier AI');
+      const expanded = {
+        ...base,
+        kind: 'deck' as const,
+        cards: Array.from({ length: 100 }, () => ({
+          ...base.cards[0]!,
+          summary: 'x'.repeat(5000),
+        })),
+      };
+      const blob = await compressedJsonShare(expanded);
+
+      expect(blob.length).toBeLessThan(60_000);
+      expect(await decodeSharePayload(blob)).toBeNull();
+    },
+  );
 });

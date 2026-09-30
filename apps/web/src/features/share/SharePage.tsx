@@ -114,7 +114,60 @@ function SharedReader({ data, onClose }: { data: CardWithCompany; onClose: () =>
           </div>
         )}
 
-        {card.keyPoints.length > 0 && (
+        {(card.cardType === 'barrier' || card.cardType === 'insight') &&
+        card.evidencePoints &&
+        card.evidencePoints.length > 0 ? (
+          <div className="rounded-xl border border-border bg-surface-2 p-4">
+            <h4 className="mb-3 font-display text-[13px] font-semibold text-content">
+              AI-attributed details
+            </h4>
+            <p className="mb-3 text-[11px] leading-relaxed text-muted">
+              Sources and periods were attributed by the research model and have not been
+              independently verified.
+            </p>
+            <ol className="space-y-3">
+              {card.evidencePoints.map((point, i) => (
+                <li
+                  key={`${point.text}-${i}`}
+                  className="border-b border-border/70 pb-3 last:border-0 last:pb-0"
+                >
+                  <p className="flex gap-2.5 text-sm leading-relaxed text-content">
+                    <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-surface text-[11px] font-bold text-muted">
+                      {i + 1}
+                    </span>
+                    {point.text}
+                  </p>
+                  <div className="ml-7 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
+                    <span>
+                      {point.timeWindow
+                        ? `AI-reported period · ${point.timeWindow}`
+                        : 'Period not stated'}
+                    </span>
+                    {point.citations.map((citation) => (
+                      <a
+                        key={citation.url}
+                        href={citation.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-primary-ink hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        {publisherOf(citation.url, citation.title)}
+                      </a>
+                    ))}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : card.cardType === 'barrier' || card.cardType === 'insight' ? (
+          card.keyPoints.length > 0 && (
+            <p className="rounded-xl border border-border bg-surface-2 p-4 text-sm leading-relaxed text-muted">
+              Older detail notes are omitted because this share doesn’t include claim-specific
+              source links.
+            </p>
+          )
+        ) : card.keyPoints.length > 0 ? (
           <div className="rounded-xl border border-border bg-surface-2 p-4">
             <h4 className="mb-3 font-display text-[13px] font-semibold text-content">Key points</h4>
             <ol className="space-y-2.5">
@@ -128,7 +181,7 @@ function SharedReader({ data, onClose }: { data: CardWithCompany; onClose: () =>
               ))}
             </ol>
           </div>
-        )}
+        ) : null}
 
         {viceClaims.length > 0 && (
           <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-4 dark:border-rose-900 dark:bg-rose-950/30">
@@ -154,19 +207,26 @@ function SharedReader({ data, onClose }: { data: CardWithCompany; onClose: () =>
         )}
 
         {card.citations.length > 0 && (
-          <div className="flex flex-wrap gap-x-4 gap-y-1.5 border-t border-border pt-3">
-            {card.citations.map((c, i) => (
-              <a
-                key={i}
-                href={c.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"
-              >
-                <ExternalLink className="h-3 w-3" />
-                {publisherOf(c.url, c.title)}
-              </a>
-            ))}
+          <div className="border-t border-border pt-3">
+            {(card.cardType === 'barrier' || card.cardType === 'insight') && (
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted">
+                Headline & summary sources
+              </p>
+            )}
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+              {card.citations.map((c, i) => (
+                <a
+                  key={i}
+                  href={c.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {publisherOf(c.url, c.title)}
+                </a>
+              ))}
+            </div>
           </div>
         )}
       </div>

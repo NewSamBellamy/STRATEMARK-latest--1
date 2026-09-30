@@ -278,7 +278,7 @@ export class SentinelRepository implements MarketIntelRepository {
       this.memoryCards.delete(deck.id);
       this.memoryCards.delete(id);
     }
-    
+
     const cache = readCloudCache();
     try {
       const res = await deleteCloudDeck(targetDeckId);
@@ -509,7 +509,7 @@ export class SentinelRepository implements MarketIntelRepository {
 
     const rawM = res.market ?? res.result?.market ?? res.deck;
     const m: CloudRecord = (rawM as CloudRecord | undefined) ?? {};
-    
+
     // Cloud enqueued decks return deckId directly. Synchronous runs return market/deck objects.
     const returnedDeckId = res.deckId as string | undefined;
     const marketId = String(m.id || m.marketId || returnedDeckId || `mkt_${Date.now().toString(36)}`);
@@ -747,7 +747,6 @@ export class SentinelRepository implements MarketIntelRepository {
     void input;
     throw new Error('Cloud fact-check research is not available through Sentinel yet.');
   }
-
 
   private invalidateDeckCache(deckId: string) {
     this.memoryCards.delete(deckId);
@@ -1063,6 +1062,9 @@ export class SentinelRepository implements MarketIntelRepository {
         tierReason: (c.tierReason || null) as string | null,
         citations: (c.citations ?? []) as unknown as Citation[],
         keyPoints: (c.keyPoints ?? []) as string[],
+        ...(Array.isArray(c.evidencePoints)
+          ? { evidencePoints: c.evidencePoints as Card['evidencePoints'] }
+          : {}),
         createdAt: String(c.createdAt || new Date().toISOString()),
         engine: 'cloud',
       };
