@@ -289,6 +289,14 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   catalogPasses?: number;
 }
 
+/** Injected provider-neutral clients do not need otherwise-unused Gemini credentials. */
+export type ResearchRepositoryOptions = Omit<
+  GeminiRepositoryOptions,
+  keyof GeminiClientConfig | 'client'
+> & {
+  client: LlmClient;
+};
+
 export class GeminiRepository implements MarketIntelRepository {
   private snap: RepoSnapshot;
   private lastMigration: MigrationOutcome | null = null;
@@ -304,8 +312,8 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly activeBackgroundJobs = new Map<string, Promise<void>>();
   private listeners = new Set<DeckRefreshListener>();
 
-  constructor(options: GeminiRepositoryOptions) {
-    this.client = options.client ?? createGeminiClient(options);
+  constructor(options: GeminiRepositoryOptions | ResearchRepositoryOptions) {
+    this.client = options.client ?? createGeminiClient(options as GeminiRepositoryOptions);
     this.store = options.store;
     this.targetCompanies = options.targetCompanies;
     this.concurrency = options.concurrency ?? 3;

@@ -8,7 +8,7 @@
  * them). Retries 429/5xx with backoff. Free-tier default models below.
  */
 import type { ZodType, ZodTypeDef } from 'zod';
-import type { Citation, LlmClient } from './types';
+import type { Citation, IntelligenceModel, LlmClient, NativeResearchProvider } from './types';
 import { createRateLimiter, extractJson, withRetry, type RetryableError } from './util';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -148,7 +148,11 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
       };
     },
 
-    async structure<T>(prompt: string, schema: ZodType<T, ZodTypeDef, unknown>, opts?: { system?: string; signal?: AbortSignal }): Promise<T> {
+    async structure<T>(
+      prompt: string,
+      schema: ZodType<T, ZodTypeDef, unknown>,
+      opts?: { system?: string; signal?: AbortSignal },
+    ): Promise<T> {
       // No `responseSchema` here, deliberately (issue #48). The SDK client
       // (`genai.ts`) sends one, because it can derive it without cost. Doing the
       // same here would mean pulling the schema converter — and with it the
@@ -177,6 +181,24 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
       throw new Error(
         `Failed to structure Gemini output: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
       );
+    },
+  };
+}
+
+/** Provider-neutral capabilities backed by one shared Gemini client instance. */
+export function createGeminiBackend(config: GeminiClientConfig): {
+  model: IntelligenceModel;
+  nativeResearch: NativeResearchProvider;
+} {
+  const client = createGeminiClient(config);
+  return {
+    model: {
+      id: `gemini:${config.structureModel ?? DEFAULT_STRUCTURE_MODEL}`,
+      structure: (prompt, schema, opts) => client.structure(prompt, schema, opts),
+    },
+    nativeResearch: {
+      id: 'google-search',
+      ground: (prompt, opts) => client.ground(prompt, opts),
     },
   };
 }

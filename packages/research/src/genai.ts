@@ -24,7 +24,7 @@
 import type { ZodType, ZodTypeDef } from 'zod';
 import { GoogleGenAI, Type } from '@google/genai';
 import type { GenerateContentResponse } from '@google/genai';
-import type { Citation, LlmClient } from './types';
+import type { Citation, IntelligenceModel, LlmClient, NativeResearchProvider } from './types';
 import { createRateLimiter, extractJson, withRetry, type RetryableError } from './util';
 import {
   DEFAULT_GROUNDED_MODEL,
@@ -55,11 +55,7 @@ export interface GenAiClientConfig {
   groundedRpm?: number;
   structureRpm?: number;
   /** Observability hook — fires once per outbound request. Powers cost metering. */
-  onCall?: (info: {
-    model: string;
-    kind: 'ground' | 'structure';
-    usage?: GenAiUsage;
-  }) => void;
+  onCall?: (info: { model: string; kind: 'ground' | 'structure'; usage?: GenAiUsage }) => void;
   /** Injectable for tests — anything satisfying the slice of the SDK we use. */
   clientImpl?: GenAiLike;
 }
@@ -110,7 +106,9 @@ function citationsOf(res: GenerateContentResponse): Citation[] {
   return out;
 }
 
-export function zodToGenAiSchema(schema: ZodType<unknown, ZodTypeDef, unknown>): Record<string, unknown> {
+export function zodToGenAiSchema(
+  schema: ZodType<unknown, ZodTypeDef, unknown>,
+): Record<string, unknown> {
   const def = schema._def as Record<string, unknown>;
   const typeName = def?.typeName as string | undefined;
 
@@ -133,13 +131,19 @@ export function zodToGenAiSchema(schema: ZodType<unknown, ZodTypeDef, unknown>):
     return { type: Type.STRING, enum: def.values };
   }
   if (typeName === 'ZodNativeEnum') {
-    return { type: Type.STRING, enum: Object.values((def.values as Record<string, unknown>) ?? {}) };
+    return {
+      type: Type.STRING,
+      enum: Object.values((def.values as Record<string, unknown>) ?? {}),
+    };
   }
   if (typeName === 'ZodArray') {
     return { type: Type.ARRAY, items: zodToGenAiSchema(def.type as ZodType) };
   }
   if (typeName === 'ZodObject') {
-    const shape = (typeof def.shape === 'function' ? def.shape() : def.shape) as Record<string, ZodType>;
+    const shape = (typeof def.shape === 'function' ? def.shape() : def.shape) as Record<
+      string,
+      ZodType
+    >;
     const properties: Record<string, unknown> = {};
     const required: string[] = [];
     if (shape) {
@@ -162,7 +166,8 @@ export function zodToGenAiSchema(schema: ZodType<unknown, ZodTypeDef, unknown>):
     };
   }
   if (typeName === 'ZodUnion' || typeName === 'ZodDiscriminatedUnion') {
-    const options = (def.options || (def.optionsMap as Map<string, ZodType> | undefined)?.values()) as ZodType[];
+    const options = (def.options ||
+      (def.optionsMap as Map<string, ZodType> | undefined)?.values()) as ZodType[];
     if (Array.isArray(options) && options.length > 0) {
       return zodToGenAiSchema(options[0]!);
     }
@@ -237,11 +242,15 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     const usageMeta = res.usageMetadata;
     const usage: GenAiUsage | undefined = usageMeta
       ? {
-          ...(typeof usageMeta.promptTokenCount === 'number' ? { promptTokens: usageMeta.promptTokenCount } : {}),
+          ...(typeof usageMeta.promptTokenCount === 'number'
+            ? { promptTokens: usageMeta.promptTokenCount }
+            : {}),
           ...(typeof usageMeta.candidatesTokenCount === 'number'
             ? { candidatesTokens: usageMeta.candidatesTokenCount }
             : {}),
-          ...(typeof usageMeta.totalTokenCount === 'number' ? { totalTokens: usageMeta.totalTokenCount } : {}),
+          ...(typeof usageMeta.totalTokenCount === 'number'
+            ? { totalTokens: usageMeta.totalTokenCount }
+            : {}),
         }
       : undefined;
 
@@ -296,6 +305,24 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
       throw new Error(
         `Failed to structure Gemini output: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
       );
+    },
+  };
+}
+
+/** Provider-neutral capabilities backed by one shared official-SDK client. */
+export function createGenAiBackend(config: GenAiClientConfig): {
+  model: IntelligenceModel;
+  nativeResearch: NativeResearchProvider;
+} {
+  const client = createGenAiClient(config);
+  return {
+    model: {
+      id: `gemini:${config.structureModel ?? DEFAULT_STRUCTURE_MODEL}`,
+      structure: (prompt, schema, opts) => client.structure(prompt, schema, opts),
+    },
+    nativeResearch: {
+      id: 'google-search',
+      ground: (prompt, opts) => client.ground(prompt, opts),
     },
   };
 }

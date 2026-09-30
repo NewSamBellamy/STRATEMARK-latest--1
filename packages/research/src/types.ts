@@ -39,11 +39,105 @@ export interface ResearchResumeState {
   completedCards: CardWithCompany[];
 }
 
-/** A grounded source (from Gemini's Google-Search grounding metadata). */
+/** A source attached to a grounded research result. */
 export interface Citation {
   title: string;
   url: string;
   credibility?: SourceCredibility;
+}
+
+export interface CallOptions {
+  system?: string;
+  signal?: AbortSignal;
+}
+
+/** Provider-neutral search result before provenance is stamped by Stratemark. */
+export interface SearchHit {
+  url: string;
+  title?: string | null;
+  snippet?: string | null;
+  publishedAt?: string | null;
+}
+
+/** Normalized evidence retained while composing an externally grounded answer. */
+export interface ResearchSource {
+  url: string;
+  title: string;
+  snippet: string | null;
+  publishedAt: string | null;
+  retrievedAt: string;
+  /** Connector identifier, not the publisher or intelligence model. */
+  provider: string;
+}
+
+export interface GroundedResult {
+  text: string;
+  citations: Citation[];
+  queries: string[];
+  /** Additive so every existing LlmClient implementation remains compatible. */
+  sources?: ResearchSource[];
+}
+
+export interface IntelligenceModel {
+  readonly id: string;
+  structure<T>(
+    prompt: string,
+    schema: ZodType<T, ZodTypeDef, unknown>,
+    opts?: CallOptions,
+  ): Promise<T>;
+}
+
+export interface NativeResearchProvider {
+  readonly id: string;
+  ground(prompt: string, opts?: CallOptions): Promise<GroundedResult>;
+}
+
+export interface SearchConnector {
+  readonly id: string;
+  search(
+    query: string,
+    opts: { limit: number; signal?: AbortSignal },
+  ): Promise<readonly SearchHit[]>;
+}
+
+export const RESEARCH_PROVIDER_ERROR_CODES = [
+  'CONFIG',
+  'AUTH',
+  'RATE_LIMIT',
+  'TIMEOUT',
+  'UPSTREAM',
+  'BAD_RESPONSE',
+  'BLOCKED',
+  'NO_EVIDENCE',
+  'INVALID_OUTPUT',
+] as const;
+
+export type ResearchProviderErrorCode = (typeof RESEARCH_PROVIDER_ERROR_CODES)[number];
+
+/** Safe, provider-neutral failure surfaced across model and search adapters. */
+export class ResearchProviderError extends Error {
+  readonly code: ResearchProviderErrorCode;
+  readonly provider: string;
+  readonly status?: number;
+  readonly retryable: boolean;
+
+  constructor(
+    message: string,
+    options: {
+      code: ResearchProviderErrorCode;
+      provider: string;
+      status?: number;
+      retryable?: boolean;
+      cause?: unknown;
+    },
+  ) {
+    super(message, { cause: options.cause });
+    this.name = 'ResearchProviderError';
+    this.code = options.code;
+    this.provider = options.provider;
+    this.status = options.status;
+    this.retryable = options.retryable ?? false;
+  }
 }
 
 /** A discovered company before full enrichment. */
@@ -116,17 +210,14 @@ export interface RunResearchOptions extends GeminiConfig {
   resume?: ResearchResumeState;
 }
 
-/** The abstraction the pipeline steps talk to (implemented by the Gemini client). */
+/** Provider-neutral abstraction used by every existing research pipeline step. */
 export interface LlmClient {
   /**
-   * Grounded generation — ALWAYS sends the Google Search tool. Returns the
-   * model's text plus the source citations Google attached. This is the only
-   * way facts enter the pipeline (never from training data alone).
+   * Grounded generation backed by either a model's native research capability
+   * or explicit external search connectors. Facts must come from returned
+   * evidence, never from model memory alone.
    */
-  ground(
-    prompt: string,
-    opts?: { system?: string; signal?: AbortSignal },
-  ): Promise<{ text: string; citations: Citation[]; queries: string[] }>;
+  ground(prompt: string, opts?: CallOptions): Promise<GroundedResult>;
 
   /**
    * Structured extraction — converts prior grounded text into strict JSON,
@@ -138,7 +229,7 @@ export interface LlmClient {
     // Input param widened to `unknown` so T binds to the schema's OUTPUT type
     // (post-defaults), not its input type.
     schema: ZodType<T, ZodTypeDef, unknown>,
-    opts?: { system?: string; signal?: AbortSignal },
+    opts?: CallOptions,
   ): Promise<T>;
 }
 

@@ -1,13 +1,20 @@
 # Research Engine (`@mi/research`)
 
-Turns a plain-language market brief into a deck of sourced cards using **Gemini +
-Google Search grounding**. Runs client-side in the web app today and in Electron
-main later — same module, no server required. A user supplies a free Google AI
-Studio key in **Settings** and it works.
+Turns a plain-language market brief into a deck of sourced cards. The current
+production path uses **Gemini + Google Search grounding**. The provider-composition
+work described in `OPEN-RESEARCH-ROADMAP.md` is expanding this into separate
+intelligence-model and research-connector capabilities without requiring a
+Stratemark account or hosted Stratemark service.
+
+A Gemini key can provide both the model and native Google Search grounding; it
+does not need a second search-provider key. OpenRouter and other
+OpenAI-compatible model endpoints do not automatically provide equivalent web
+research, so they need a configured research connector unless the chosen endpoint
+explicitly returns supported citations.
 
 ## Why an agent graph
 
-The user's framing: *"every card is a search query."* So the engine is a typed
+The user's framing: _"every card is a search query."_ So the engine is a typed
 task graph (LangGraph-style, but dependency-free TS):
 
 ```
@@ -15,13 +22,13 @@ interpret ─▶ discover ─▶ enrich (fan-out, concurrency-gated) ─▶ scor
                      └─▶ barriers ───────────────────────────────────────┘
 ```
 
-| Step | Grounded? | What it does |
-| --- | --- | --- |
-| `interpret` | ✅ | Normalize the brief + region into a market definition and search angles. |
-| `discover` | ✅ | One grounded search enumerating the real companies/entities in the market. |
-| `enrich` | ✅ (per company) | For each company, a grounded search fills the card: one-liner, HQ, site, the 6 metrics (each with confidence + citation), plus culture/vice signals. |
-| `score` | ⬜ pure | The existing `computeCms` scores tiers from the researched metrics; an optional ±1 LLM review nudge (logged). |
-| `barriers` | ✅ | One grounded search for structural barriers to entry. |
+| Step        | Grounded?        | What it does                                                                                                                                         |
+| ----------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `interpret` | ✅               | Normalize the brief + region into a market definition and search angles.                                                                             |
+| `discover`  | ✅               | One grounded search enumerating the real companies/entities in the market.                                                                           |
+| `enrich`    | ✅ (per company) | For each company, a grounded search fills the card: one-liner, HQ, site, the 6 metrics (each with confidence + citation), plus culture/vice signals. |
+| `score`     | ⬜ pure          | The existing `computeCms` scores tiers from the researched metrics; an optional ±1 LLM review nudge (logged).                                        |
+| `barriers`  | ✅               | One grounded search for structural barriers to entry.                                                                                                |
 
 ## Grounding discipline (the "no hallucination" contract)
 
@@ -36,21 +43,26 @@ interpret ─▶ discover ─▶ enrich (fan-out, concurrency-gated) ─▶ scor
    invented. **Unsourced Vice claims are dropped.**
 4. All output is Zod-validated against `@mi/contracts` before it reaches the UI.
 
-## Free-tier friendliness
+## Usage friendliness
 
 - Deck creation ≈ `2 + N` grounded calls (interpret + discover + N companies +
   barriers). Default `targetCompanies` keeps N modest.
 - Dashboard tabs are **researched lazily** on first open and cached, so a deck of
   N companies isn't `8N` calls up front.
-- Flash grounding is free up to ~500 requests/day (shared pool).
+- Provider free tiers, included grounding allowances, and prices change. The app
+  must show the selected provider and current usage terms rather than promising a
+  fixed free request allowance.
 - Concurrency is gated (default 2) and calls retry 429/5xx with exponential
   backoff + jitter.
 
 ## Key handling
 
-The key lives only in the browser (`localStorage`, `useApiKey`) and is sent only
-to Google. In Electron it moves to the OS keychain (main process). The renderer
-never bundles a secret.
+The browser build currently stores its Gemini key in `localStorage`. Electron
+encrypts the key with OS-backed `safeStorage`, but the current preload path can
+return plaintext to renderer JavaScript. The target boundary is stricter:
+renderer code can configure, test, and revoke a provider but cannot read a stored
+secret back. Keys must never enter research records, logs, exports, URLs, or MCP
+responses.
 
 ## Swapping in the backend
 
