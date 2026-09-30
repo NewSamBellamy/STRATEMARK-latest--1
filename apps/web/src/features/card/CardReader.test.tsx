@@ -14,39 +14,43 @@ function hydrate(predicate: (c: (typeof data.cards)[number]) => boolean) {
   return { card, company, metrics, viceClaims };
 }
 
-const userValues = data.cards
-  .filter((c) => c.cardType === 'company')
-  .flatMap((c) => data.metrics.filter((m) => m.companyId === c.companyId))
-  .filter((m) => m.metricType === 'users' && m.value !== null)
-  .map((m) => m.value as number);
-
 describe('CardReader', () => {
-  it('opens on the card, with evidence and maturity available without blocking research', async () => {
+  it('opens as a concise one-page company summary with sources and deeper research', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
-    const { user } = renderWithProviders(
-      <CardReader data={cwc} open onOpenChange={() => {}} deckUserValues={userValues} />,
-    );
+    const withSource = {
+      ...cwc,
+      metrics: cwc.metrics.map((metric, index) =>
+        index === 0
+          ? {
+              ...metric,
+              citations: [
+                {
+                  title: 'Company filing',
+                  url: 'https://investor.example.com/filing',
+                  credibility: 'primary' as const,
+                },
+              ],
+            }
+          : metric,
+      ),
+    };
+    renderWithProviders(<CardReader data={withSource} open onOpenChange={() => {}} />);
     const dialog = screen.getByRole('dialog');
-    expect(
-      within(dialog).queryByRole('heading', { name: 'Company stage' }),
-    ).not.toBeInTheDocument();
+    expect(within(dialog).getByText('Company snapshot')).toBeInTheDocument();
+    expect(within(dialog).queryByRole('tab')).not.toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: /ask researcher/i })).toBeInTheDocument();
-    await user.click(within(dialog).getByRole('tab', { name: 'Company stage' }));
-    expect(within(dialog).getByRole('heading', { name: 'Company stage' })).toBeInTheDocument();
-    expect(within(dialog).getByText(/stage signals/i)).toBeInTheDocument();
-    expect(within(dialog).getByText(/source receipts/i)).toBeInTheDocument();
-    // Holy Hype has a +1 nudge with a reason — it must be surfaced.
-    expect(within(dialog).getByText(/compounding/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/figures recorded/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/^Sources ·/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('region', { name: 'Company summary and sources' }),
+    ).toBeInTheDocument();
     expect(within(dialog).getByRole('link', { name: /explore research/i })).toBeInTheDocument();
   });
 
-  it('shows sourced vice claims with citations', async () => {
+  it('shows sourced vice claims in the one-page risk summary', () => {
     const cwc = hydrate((c) => c.cardType === 'vice');
-    const { user } = renderWithProviders(
-      <CardReader data={cwc} open onOpenChange={() => {}} deckUserValues={userValues} />,
-    );
+    renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
     const dialog = screen.getByRole('dialog');
-    await user.click(within(dialog).getByRole('tab', { name: 'Evidence' }));
     expect(within(dialog).getByText(/risk & controversy/i)).toBeInTheDocument();
     // Every claim renders a Source link.
     // The link now NAMES the publisher (or admits "Publisher not recorded")
@@ -56,45 +60,45 @@ describe('CardReader', () => {
       .filter((a) => a.getAttribute('href')?.startsWith('http'));
     expect(sources.length).toBeGreaterThan(0);
     expect(sources[0]).toHaveAttribute('href');
+    expect(within(dialog).queryByText('Evidence needed')).not.toBeInTheDocument();
   });
 
-  it('shows how-we-got-this notes for estimated metrics', async () => {
+  it('opens a company-linked risk card as a finding, not a company dashboard', () => {
+    const cwc = hydrate((c) => c.cardType === 'vice' && c.companyId !== null);
+    renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
+    const dialog = screen.getByRole('dialog');
+    expect(
+      within(dialog).getByRole('button', { name: /discuss this finding/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole('link', { name: /explore research/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps evidence details in the company research view', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_grace-threads');
-    const { user } = renderWithProviders(
-      <CardReader data={cwc} open onOpenChange={() => {}} deckUserValues={userValues} />,
-    );
-    await user.click(screen.getByRole('tab', { name: 'Evidence' }));
-    expect(screen.getAllByText(/how we got this/i).length).toBeGreaterThan(0);
+    renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
+    expect(screen.getByRole('link', { name: /explore research/i })).toBeInTheDocument();
+    expect(screen.queryByText(/how we got this/i)).not.toBeInTheDocument();
   });
 
-  it('keeps an unranked company inspectable without pretending it has figures', async () => {
+  it('keeps an unranked company inspectable without pretending it has figures', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
-    const { user } = renderWithProviders(
+    renderWithProviders(
       <CardReader
         data={{ ...cwc, metrics: [], card: { ...cwc.card, tier: null } }}
         open
         onOpenChange={() => {}}
-        deckUserValues={[]}
       />,
     );
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText(/stage unavailable: no usable figures/i)).toBeInTheDocument();
-    await user.click(within(dialog).getByRole('tab', { name: 'Company stage' }));
-    expect(
-      within(dialog).getByText(/stage unavailable: no usable company figures/i),
-    ).toBeInTheDocument();
   });
 
   it('keeps the card one-sided and preserves the selected card in the dashboard link', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
     renderWithProviders(
-      <CardReader
-        data={cwc}
-        open
-        onOpenChange={() => {}}
-        deckUserValues={userValues}
-        marketId="market-test"
-      />,
+      <CardReader data={cwc} open onOpenChange={() => {}} marketId="market-test" />,
     );
     expect(screen.getByTestId('collectible-card-front')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /flip card/i })).not.toBeInTheDocument();

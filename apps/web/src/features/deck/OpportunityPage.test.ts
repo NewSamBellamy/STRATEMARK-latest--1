@@ -30,7 +30,11 @@ describe('opportunity evidence threshold', () => {
     const sourced: CardWithCompany = {
       card: { ...card, tier: 5 },
       company,
-      metrics: [metric('share', 'market_share', 18), metric('arr', 'arr', 12_000_000)],
+      metrics: [
+        metric('share', 'market_share', 18),
+        metric('arr', 'arr', 12_000_000),
+        metric('employees', 'employees', 120),
+      ],
       viceClaims: [],
     };
     const unsourced: CardWithCompany = {
@@ -49,7 +53,11 @@ describe('opportunity evidence threshold', () => {
     ]);
     const withoutArr = {
       ...sourced,
-      metrics: [metric('share-only', 'market_share', 18), metric('value', 'valuation', 90_000_000)],
+      metrics: [
+        metric('share-only', 'market_share', 18),
+        metric('value', 'valuation', 90_000_000),
+        metric('employees-without-arr', 'employees', 120),
+      ],
     };
     expect(buildOpportunityPoints([withoutArr])).toEqual([expect.objectContaining({ arr: null })]);
   });

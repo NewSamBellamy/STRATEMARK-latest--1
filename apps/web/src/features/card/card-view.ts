@@ -58,6 +58,20 @@ export function buildCardView(data: CardWithCompany) {
   const sourcedCount = metrics.filter(
     (m) => m.metric.value != null && m.citations.length > 0,
   ).length;
+  const stageMetrics = metrics.filter(
+    (m) =>
+      m.metric.value != null &&
+      m.metric.confidence !== 'unknown' &&
+      m.metric.metricType !== 'market_share',
+  );
+  const metricFamily = (metricType: MetricType) =>
+    ['valuation', 'market_cap'].includes(metricType) ? 'company_value' : metricType;
+  const stageFamilies = new Set(stageMetrics.map((m) => metricFamily(m.metric.metricType)));
+  const sourcedStageFamilies = new Set(
+    stageMetrics
+      .filter((m) => m.citations.length > 0)
+      .map((m) => metricFamily(m.metric.metricType)),
+  );
   const latestCapturedAt = metrics.reduce<number | null>((latest, entry) => {
     const captured = new Date(entry.metric.capturedAt).getTime();
     return Number.isFinite(captured) && (latest == null || captured > latest) ? captured : latest;
@@ -95,7 +109,8 @@ export function buildCardView(data: CardWithCompany) {
     data.card.cardType === 'company' &&
     !signal &&
     data.card.tier != null &&
-    faceMetrics.some((m) => m.citations.length > 0)
+    stageFamilies.size >= 2 &&
+    sourcedStageFamilies.size >= 1
       ? { tier: data.card.tier, label: TIER_LABELS[data.card.tier] }
       : null;
   const position = signal
@@ -120,8 +135,25 @@ export function buildCardView(data: CardWithCompany) {
     citations: usableCitations([
       ...(data.card.citations ?? []).filter((c) => sourceUrl(c.url)),
       ...metrics.flatMap((m) => m.citations),
+      ...data.viceClaims.map((claim) => ({
+        url: claim.sourceUrl,
+        title: claim.sourceTitle ?? '',
+      })),
     ]),
   };
+}
+
+/** Order browsing by evidenced company stage, then sourced figure count—not business quality. */
+export function sortCompanyCardsForBrowse(cards: CardWithCompany[]): CardWithCompany[] {
+  return [...cards].sort((a, b) => {
+    const aView = buildCardView(a);
+    const bView = buildCardView(b);
+    return (
+      (bView.maturity?.tier ?? 0) - (aView.maturity?.tier ?? 0) ||
+      bView.sourcedCount - aView.sourcedCount ||
+      aView.title.localeCompare(bView.title)
+    );
+  });
 }
 
 export function sourceUrl(value: string | null | undefined): string | null {

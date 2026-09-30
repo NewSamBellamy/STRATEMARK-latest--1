@@ -32,6 +32,7 @@ describe('GameCard', () => {
     expect(screen.getByText('Stage unverified')).toBeInTheDocument();
     expect(screen.queryByText(/Very Strong|Very Weak/)).not.toBeInTheDocument();
     expect(screen.getByText(/research needed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/FIELD NOTE/i)).not.toBeInTheDocument();
     // HQ shown.
     expect(screen.getByText(/Los Angeles/)).toBeInTheDocument();
   });

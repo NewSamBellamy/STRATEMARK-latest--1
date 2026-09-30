@@ -61,10 +61,7 @@ export function CardGrid({
   const [shareTarget, setShareTarget] = useState<CardWithCompany | null>(null);
   return (
     <>
-      <div
-        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-        data-testid="card-grid"
-      >
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="card-grid">
         {cards.map((c) => {
           const isSelected = selectable && (selected?.has(c.card.id) ?? false);
           return (
@@ -97,7 +94,9 @@ export function CardGrid({
           if (!o) setShareTarget(null);
         }}
         title={shareTarget?.company?.name ?? shareTarget?.card.title ?? 'Card'}
-        subtitle={marketName ? `${marketName} — market research snapshot` : 'Market research snapshot'}
+        subtitle={
+          marketName ? `${marketName} — market research snapshot` : 'Market research snapshot'
+        }
         build={async (onStage) => {
           if (!shareTarget) throw new Error('Nothing selected to share.');
           const fresh = await verifyCardForShare(repo, shareTarget, onStage);
@@ -110,13 +109,18 @@ export function CardGrid({
         onOpenChange={(o) => {
           if (!o) setActiveId(null);
         }}
-        deckUserValues={deckUserValues}
         marketId={marketId}
         deckView={deckView.toString()}
         position={activeIndex >= 0 ? activeIndex + 1 : undefined}
         total={cards.length}
-        onPrevious={activeIndex > 0 ? () => setActiveId(cards[activeIndex - 1]!.card.id) : undefined}
-        onNext={activeIndex >= 0 && activeIndex < cards.length - 1 ? () => setActiveId(cards[activeIndex + 1]!.card.id) : undefined}
+        onPrevious={
+          activeIndex > 0 ? () => setActiveId(cards[activeIndex - 1]!.card.id) : undefined
+        }
+        onNext={
+          activeIndex >= 0 && activeIndex < cards.length - 1
+            ? () => setActiveId(cards[activeIndex + 1]!.card.id)
+            : undefined
+        }
       />
     </>
   );

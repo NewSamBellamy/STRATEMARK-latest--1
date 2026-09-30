@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildDataset } from '@mi/mocks';
 import type { CardWithCompany, CompanyMetric } from '@mi/contracts';
-import { buildCardView } from './card-view';
+import { buildCardView, sortCompanyCardsForBrowse } from './card-view';
 
 const dataset = buildDataset();
 const card = dataset.cards.find((c) => c.cardType === 'company' && c.companyId)!;
@@ -100,11 +100,22 @@ describe('collectible card evidence model', () => {
     expect(result.position).toBe('Stage unverified');
     expect(result.maturity).toBeNull();
   });
-  it('shows the named stage while the source count communicates evidence depth', () => {
+  it('shows a stage only with two independent signals and a cited signal', () => {
+    const result = view(
+      [
+        metric({ id: 'users', metricType: 'users', value: 1200 }),
+        metric({ id: 'employees', metricType: 'employees', value: 120, citations: [] }),
+      ],
+      { card: { ...card, tier: 6 } },
+    );
+    expect(result.position).toBe('T6 · Scale');
+  });
+  it('withholds a recorded stage when only one figure is available', () => {
     const result = view([metric({ metricType: 'users', value: 1200 })], {
       card: { ...card, tier: 6 },
     });
-    expect(result.position).toBe('T6 · Scale');
+    expect(result.maturity).toBeNull();
+    expect(result.position).toBe('Stage unverified');
   });
   it('carries the newest research date onto the card face', () => {
     const result = view([
@@ -152,5 +163,39 @@ describe('collectible card evidence model', () => {
     expect(result.faceMetrics).toEqual([]);
     expect(result.maturity).toBeNull();
     expect(result.signal).toBe(true);
+  });
+
+  it('orders company cards by sourced stage, then title, without mutating the input', () => {
+    const makeCard = (name: string, tier: number | null, sourced: boolean) => ({
+      card: { ...card, id: name, title: name, tier: tier as typeof card.tier },
+      company: { ...company, id: `company-${name}`, name },
+      metrics: [
+        metric({
+          id: `metric-${name}`,
+          metricType: 'users',
+          value: 1200,
+          citations: sourced ? metric({}).citations : [],
+        }),
+        metric({
+          id: `employees-${name}`,
+          metricType: 'employees',
+          value: 40,
+          citations: [],
+        }),
+      ],
+      viceClaims: [],
+    });
+    const input = [
+      makeCard('Evidence Needed', 8, false),
+      makeCard('Emerging', 3, true),
+      makeCard('Market Defining', 8, true),
+    ];
+
+    expect(sortCompanyCardsForBrowse(input).map((entry) => entry.company!.name)).toEqual([
+      'Market Defining',
+      'Emerging',
+      'Evidence Needed',
+    ]);
+    expect(input[0]!.company!.name).toBe('Evidence Needed');
   });
 });

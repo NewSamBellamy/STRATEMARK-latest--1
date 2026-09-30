@@ -45,7 +45,7 @@ import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
 import { CardGrid } from './CardGrid';
 import { TierBadge } from '@/features/card/TierBadge';
-import { buildCardView } from '@/features/card/card-view';
+import { buildCardView, sortCompanyCardsForBrowse } from '@/features/card/card-view';
 
 /**
  * Retired for now (founder's call): Vice and Culture read as too ambiguous
@@ -139,6 +139,10 @@ export default function DeckPage() {
     () => (cards.data ?? []).filter((c) => !HIDDEN_CARD_TYPES.has(c.card.cardType)),
     [cards.data],
   );
+  const sortedCompanies = useMemo(
+    () => sortCompanyCardsForBrowse(all.filter((c) => c.card.cardType === 'company')),
+    [all],
+  );
   // A market whose deck record is gone (or a stale link) must NEVER render a
   // blank screen (audit 7:44): show a recovery path instead.
   const deckMissing = market.isSuccess && deck.isSuccess && (!market.data || !deck.data);
@@ -160,6 +164,9 @@ export default function DeckPage() {
   }, [all]);
 
   const setSplit = (next: { split?: string; type?: string }) => {
+    if ((next.type && next.type !== 'company') || (next.split === 'types' && !next.type)) {
+      exitCompare();
+    }
     const p = new URLSearchParams();
     if (next.split) p.set('split', next.split);
     if (next.type) p.set('type', next.type);
@@ -218,19 +225,21 @@ export default function DeckPage() {
               <MessagesSquare className="h-3.5 w-3.5" />
               Ask
             </button>
-            <button
-              type="button"
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2',
-                compare && 'border-primary bg-primary/10 text-primary-ink',
-              )}
-              disabled={!deckId}
-              aria-pressed={compare}
-              onClick={() => (compare ? exitCompare() : setCompare(true))}
-            >
-              <SquareMousePointer className="h-3.5 w-3.5" />
-              {compare ? 'Cancel' : 'Compare'}
-            </button>
+            {(!split || split === 'company') && (!typeParam || typeParam === 'company') && (
+              <button
+                type="button"
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2',
+                  compare && 'border-primary bg-primary/10 text-primary-ink',
+                )}
+                disabled={!deckId}
+                aria-pressed={compare}
+                onClick={() => (compare ? exitCompare() : setCompare(true))}
+              >
+                <SquareMousePointer className="h-3.5 w-3.5" />
+                {compare ? 'Cancel' : 'Compare'}
+              </button>
+            )}
             <Link
               to={`/markets/${marketId}/briefing`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
@@ -447,6 +456,9 @@ export default function DeckPage() {
                     deckUserValues={userValues}
                     marketId={marketId}
                     deckStatus={deckStatus}
+                    selectable={compare}
+                    selected={selected}
+                    onToggle={toggleSelected}
                   />
                   {/* The deck never hard-stops in this view either. */}
                   <div className="mt-8">
@@ -462,7 +474,10 @@ export default function DeckPage() {
             }
             // Level 1 leaf — a specific non-company sub-deck's cards.
             if (split === 'types' && typeParam) {
-              const filtered = list.filter((c) => c.card.cardType === typeParam);
+              const filtered =
+                typeParam === 'company'
+                  ? sortedCompanies
+                  : list.filter((c) => c.card.cardType === typeParam);
               return (
                 <section>
                   <TypeNav
@@ -516,7 +531,10 @@ export default function DeckPage() {
             // Level 0 — show company cards by default (the primary view).
             // Other types are accessible via the category nav.
             const defaultType: CardType = typeParam ?? 'company';
-            const filtered = list.filter((c) => c.card.cardType === defaultType);
+            const filtered =
+              defaultType === 'company'
+                ? sortedCompanies
+                : list.filter((c) => c.card.cardType === defaultType);
             return (
               <section>
                 <TypeNav
@@ -530,6 +548,12 @@ export default function DeckPage() {
                   <p className="text-[12px] text-muted">
                     {filtered.length} {cardCountNoun(defaultType, filtered.length)}
                     <span className="text-faint"> — {CARD_TYPE_DESCRIPTIONS[defaultType]}</span>
+                    {defaultType === 'company' && (
+                      <span className="text-faint">
+                        {' '}
+                        · Ordered by evidence-backed stage, not company quality
+                      </span>
+                    )}
                   </p>
                 </div>
                 {filtered.length > 0 ? (
@@ -884,11 +908,17 @@ function TierSplit({
   deckUserValues,
   marketId,
   deckStatus,
+  selectable,
+  selected,
+  onToggle,
 }: {
   cards: CardWithCompany[];
   deckUserValues: number[];
   marketId: string | undefined;
   deckStatus?: 'running' | 'refreshing' | 'partial' | 'failed' | 'ready' | 'ready_stale';
+  selectable: boolean;
+  selected: Set<string>;
+  onToggle: (cardId: string) => void;
 }) {
   const companyCards = cards.filter((c) => c.card.cardType === 'company');
   const byTier = new Map<MaturityTier, CardWithCompany[]>();
@@ -917,6 +947,9 @@ function TierSplit({
               deckUserValues={deckUserValues}
               marketId={marketId}
               deckStatus={deckStatus}
+              selectable={selectable}
+              selected={selected}
+              onToggle={onToggle}
             />
           </section>
         );
@@ -937,6 +970,9 @@ function TierSplit({
             deckUserValues={deckUserValues}
             marketId={marketId}
             deckStatus={deckStatus}
+            selectable={selectable}
+            selected={selected}
+            onToggle={onToggle}
           />
         </section>
       )}

@@ -23,7 +23,6 @@ export function CollectibleCard({
     value && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
   const accent = color(brand?.primary, PALETTES[hash % PALETTES.length]!);
   const highlight = color(brand?.accent, accent);
-  const serial = hash.toString(16).slice(-4).toUpperCase().padStart(4, '0');
   const stage = view.position;
   const asOf = view.latestCapturedAt
     ? new Intl.DateTimeFormat('en-US', {
@@ -32,22 +31,20 @@ export function CollectibleCard({
         year: 'numeric',
       }).format(view.latestCapturedAt)
     : null;
-  const provenance = view.signal
-    ? `${view.citations.length} ${view.citations.length === 1 ? 'source' : 'sources'}`
-    : view.sourcedCount > 0
-      ? `${view.sourcedCount} ${view.sourcedCount === 1 ? 'source' : 'sources'}${asOf ? ` · ${asOf}` : ''}`
+  const provenance =
+    view.citations.length > 0
+      ? `${view.citations.length} ${view.citations.length === 1 ? 'source' : 'sources'}${asOf ? ` · ${asOf}` : ''}`
       : 'Research needed';
 
   return (
     <div
-      className={`collectible ${view.signal ? 'collectible--signal' : ''} ${view.maturity && view.maturity.tier >= 7 && view.sourcedCount >= 2 ? 'collectible--foil' : ''}`}
+      className={`collectible ${view.signal ? 'collectible--signal' : ''}`}
       style={{ '--card-accent': accent, '--card-highlight': highlight } as CSSProperties}
       data-testid="collectible-card-front"
     >
       <div className="collectible__paper">
         <div className="collectible__edition">
           <span>STRATEMARK / RESEARCH</span>
-          <span>{serial}</span>
         </div>
         <div className="collectible__art" aria-hidden="true">
           {view.signal ? (
@@ -66,7 +63,6 @@ export function CollectibleCard({
             </div>
           )}
           <span className="collectible__art-label">{view.type}</span>
-          <span className="collectible__art-index">FIELD NOTE / {serial}</span>
         </div>
         <div className="collectible__identity">
           <span className="collectible__eyebrow">{data.company?.hqLocation || view.type}</span>
@@ -98,7 +94,6 @@ export function CollectibleCard({
           <span>{provenance}</span>
         </div>
       </div>
-      <div className="collectible__foil" aria-hidden="true" />
     </div>
   );
 }
