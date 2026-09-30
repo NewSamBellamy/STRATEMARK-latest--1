@@ -149,6 +149,14 @@ try {
     historicalReportInputs: true,
     privateResearchRejected: true,
   });
+  assert.deepEqual(prepared.legacyInspection, {
+    allKnownFormats: true,
+    exactOriginalRetained: true,
+    historyNotResumed: true,
+    attributionNotAuthority: true,
+    sharedMembershipsPreserved: true,
+    duplicateAndFutureRejected: true,
+  });
   for (const key of ['fts5Match', 'walReopen', 'backupFromOpenWal', 'backupReopen'])
     assert.equal(prepared[key], true);
   assert.deepEqual(prepared.backupValues, {

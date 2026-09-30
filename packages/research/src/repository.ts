@@ -260,6 +260,120 @@ function companyKey(name: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
+// Shared profile hosts are deliberately ineligible as company identity keys:
+// distinct organizations commonly share one hostname and differ only by path.
+// This conservative list is a guard, not a semantic URL/company resolver.
+const SHARED_PROFILE_HOSTS = [
+  'github.com',
+  'linkedin.com',
+  'x.com',
+  'twitter.com',
+  'facebook.com',
+  'instagram.com',
+  'youtube.com',
+  'tiktok.com',
+  'crunchbase.com',
+  'medium.com',
+  'substack.com',
+] as const;
+
+function parsedCompanyWebsite(websiteUrl: string | null | undefined): URL | undefined {
+  const value = websiteUrl?.trim();
+  if (!value) return undefined;
+  try {
+    const url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
+      return undefined;
+    return url;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizedCompanyHost(url: URL): string {
+  return url.hostname
+    .toLowerCase()
+    .replace(/\.$/, '')
+    .replace(/^www\./, '');
+}
+
+function isSharedProfileHost(hostname: string): boolean {
+  return SHARED_PROFILE_HOSTS.some((host) => hostname === host || hostname.endsWith(`.${host}`));
+}
+
+function companyDomain(websiteUrl: string | null | undefined): string | null {
+  const url = parsedCompanyWebsite(websiteUrl);
+  if (!url) return null;
+  const hostname = normalizedCompanyHost(url);
+  return hostname.includes('.') && !isSharedProfileHost(hostname) ? hostname : null;
+}
+
+function companyWebsiteIdentity(websiteUrl: string | null | undefined): string | null {
+  const url = parsedCompanyWebsite(websiteUrl);
+  if (!url) return null;
+  const hostname = normalizedCompanyHost(url);
+  if (!hostname.includes('.')) return null;
+  if (isSharedProfileHost(hostname)) {
+    const path = url.pathname.toLowerCase().replace(/\/+$/, '') || '/';
+    return `profile:${hostname}${path}`;
+  }
+  return `domain:${hostname}`;
+}
+
+function conflictingCompanyWebsites(first: Company, second: Company): boolean {
+  const firstIdentity = companyWebsiteIdentity(first.websiteUrl);
+  const secondIdentity = companyWebsiteIdentity(second.websiteUrl);
+  return firstIdentity !== null && secondIdentity !== null && firstIdentity !== secondIdentity;
+}
+
+function companyWithMatchingDomain(
+  companies: readonly Company[],
+  candidate: Company,
+): Company | undefined {
+  const domain = companyDomain(candidate.websiteUrl);
+  if (!domain) return undefined;
+  const matches = companies.filter((company) => companyDomain(company.websiteUrl) === domain);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function hasOtherCompanyWithMatchingDomain(
+  companies: readonly Company[],
+  candidate: Company,
+): boolean {
+  const domain = companyDomain(candidate.websiteUrl);
+  return (
+    !!domain &&
+    companies.some(
+      (company) => company.id !== candidate.id && companyDomain(company.websiteUrl) === domain,
+    )
+  );
+}
+
+function allocateCompanyId(candidate: Company, reservedIds: ReadonlySet<string>): string {
+  let id: string;
+  do {
+    id = `cmp_${slugify(candidate.name || 'company')}_${Math.random().toString(36).slice(2, 7)}`;
+  } while (reservedIds.has(id));
+  return id;
+}
+
+function companyIdentityId(
+  companies: readonly Company[],
+  candidate: Company,
+  reservedIds: ReadonlySet<string> = new Set(companies.map((company) => company.id)),
+): string {
+  const idMatches = companies.filter((company) => company.id === candidate.id);
+  if (idMatches.length > 0) {
+    if (idMatches.length === 1 && !conflictingCompanyWebsites(idMatches[0]!, candidate)) {
+      return idMatches[0]!.id;
+    }
+    return allocateCompanyId(candidate, reservedIds);
+  }
+  const domainMatch = companyWithMatchingDomain(companies, candidate);
+  if (domainMatch) return domainMatch.id;
+  return reservedIds.has(candidate.id) ? allocateCompanyId(candidate, reservedIds) : candidate.id;
+}
+
 function stageForStep(step: string): ResearchStage {
   if (step === 'interpret') return 'scope';
   if (step === 'discover') return 'catalog';
@@ -490,36 +604,37 @@ export class GeminiRepository implements MarketIntelRepository {
   /** Flatten a pipeline result into the normalized store. */
   private ingest(result: ResearchResult): void {
     const previous = this.snap.cards.filter((card) => card.deckId === result.deck.id);
-    const nameFor = (card: Card) =>
-      this.snap.companies.find((company) => company.id === card.companyId)?.name;
-    const keyFor = (card: Card, name?: string) =>
-      `${card.cardType}:${name ? companyKey(name) : (card.title?.toLowerCase() ?? card.id)}`;
-    const previousByKey = new Map(previous.map((card) => [keyFor(card, nameFor(card)), card]));
-    const companyIdByName = new Map(
-      previous.flatMap((card) => {
-        const name = nameFor(card);
-        return name && card.companyId ? [[companyKey(name), card.companyId] as const] : [];
-      }),
-    );
+    const keyFor = (card: Card) =>
+      `${card.cardType}:${card.companyId ?? card.title?.toLowerCase() ?? card.id}`;
+    const previousByKey = new Map(previous.map((card) => [keyFor(card), card]));
+    const reservedCompanyIds = new Set(this.snap.companies.map((company) => company.id));
+    const resolvedCompanyIds = new Map<string, string>();
     for (const entry of result.cards) {
-      const name = entry.company?.name;
-      const stableCompanyId = name ? companyIdByName.get(companyKey(name)) : undefined;
-      const stableCardId = previousByKey.get(keyFor(entry.card, name))?.id;
-      if (stableCompanyId && entry.company) {
+      if (entry.company) {
+        const identityKey = `${entry.company.id}\u0000${companyWebsiteIdentity(entry.company.websiteUrl) ?? ''}`;
+        let stableCompanyId = resolvedCompanyIds.get(identityKey);
+        if (!stableCompanyId) {
+          stableCompanyId = companyIdentityId(
+            this.snap.companies,
+            entry.company,
+            reservedCompanyIds,
+          );
+          resolvedCompanyIds.set(identityKey, stableCompanyId);
+          reservedCompanyIds.add(stableCompanyId);
+        }
         entry.company = { ...entry.company, id: stableCompanyId };
+        entry.card = { ...entry.card, companyId: stableCompanyId };
         entry.metrics = entry.metrics.map((metric) => ({ ...metric, companyId: stableCompanyId }));
       }
+      const stableCardId = previousByKey.get(keyFor(entry.card))?.id;
       entry.card = {
         ...entry.card,
-        ...(stableCompanyId ? { companyId: stableCompanyId } : {}),
         ...(stableCardId ? { id: stableCardId } : {}),
       };
       if (stableCardId)
         entry.viceClaims = entry.viceClaims.map((claim) => ({ ...claim, cardId: stableCardId }));
     }
-    const incomingKeys = new Set(
-      result.cards.map((entry) => keyFor(entry.card, entry.company?.name)),
-    );
+    const incomingKeys = new Set(result.cards.map((entry) => keyFor(entry.card)));
     this.snap.markets = [
       result.market,
       ...this.snap.markets.filter((m) => m.id !== result.market.id),
@@ -529,7 +644,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const companyById = new Map<string, Company>();
     const metrics: CompanyMetric[] = [];
     this.snap.cards = this.snap.cards.filter(
-      (card) => card.deckId !== result.deck.id || !incomingKeys.has(keyFor(card, nameFor(card))),
+      (card) => card.deckId !== result.deck.id || !incomingKeys.has(keyFor(card)),
     );
     const incomingCardIds = new Set(result.cards.map((entry) => entry.card.id));
     this.snap.viceClaims = this.snap.viceClaims.filter(
@@ -825,6 +940,24 @@ export class GeminiRepository implements MarketIntelRepository {
       throw new Error('Research cancelled');
     }
 
+    // Reuse known IDs/domains before inserting placeholders. Name-only matches
+    // are not enough to attach a company to an existing dossier.
+    const reservedCompanyIds = new Set(this.snap.companies.map((company) => company.id));
+    const resolvedCompanyIds = new Map<string, string>();
+    for (const entry of stubsResult.cards) {
+      if (!entry.company) continue;
+      const identityKey = `${entry.company.id}\u0000${companyWebsiteIdentity(entry.company.websiteUrl) ?? ''}`;
+      let companyId = resolvedCompanyIds.get(identityKey);
+      if (!companyId) {
+        companyId = companyIdentityId(this.snap.companies, entry.company, reservedCompanyIds);
+        resolvedCompanyIds.set(identityKey, companyId);
+        reservedCompanyIds.add(companyId);
+      }
+      entry.company = { ...entry.company, id: companyId };
+      entry.card = { ...entry.card, companyId };
+      entry.metrics = entry.metrics.map((metric) => ({ ...metric, companyId }));
+    }
+
     // Ingest stub cards into snapshot immediately
     this.snap.markets = [
       stubsResult.market,
@@ -838,18 +971,27 @@ export class GeminiRepository implements MarketIntelRepository {
       ...this.snap.cards.filter((c) => c.deckId !== stubsResult.deck.id),
       ...stubsResult.cards.map((c) => c.card),
     ];
+    const stubMetricsByCompany = new Map<string, CompanyMetric[]>();
+    for (const entry of stubsResult.cards) {
+      if (!entry.company) continue;
+      const metrics = stubMetricsByCompany.get(entry.company.id) ?? [];
+      metrics.push(...entry.metrics);
+      stubMetricsByCompany.set(entry.company.id, metrics);
+    }
     this.snap.metrics = [
-      ...this.snap.metrics.filter(
-        (m) => !stubsResult.cards.some((c) => c.company?.id === m.companyId),
+      ...this.snap.metrics.filter((metric) => !stubMetricsByCompany.has(metric.companyId)),
+      ...[...stubMetricsByCompany].flatMap(([companyId, incoming]) =>
+        reconcileMetrics(
+          this.snap.metrics.filter((metric) => metric.companyId === companyId),
+          incoming,
+        ),
       ),
-      ...stubsResult.cards.flatMap((c) => c.metrics),
     ];
     const affectedCompanyIds = new Set<string>();
     for (const stub of stubsResult.cards) {
       if (stub.company) {
         const existingIdx = this.snap.companies.findIndex((c) => c.id === stub.company!.id);
-        if (existingIdx >= 0) this.snap.companies[existingIdx] = stub.company;
-        else this.snap.companies.push(stub.company);
+        if (existingIdx < 0) this.snap.companies.push(stub.company);
         this.snap.companyMarket[stub.company.id] = stubsResult.market.name;
         affectedCompanyIds.add(stub.company.id);
       }
@@ -948,9 +1090,32 @@ export class GeminiRepository implements MarketIntelRepository {
               async (candidate) => {
                 throwIfAborted(controller.signal);
                 try {
-                  const stub = stubsResult.cards.find(
-                    (c) => c.company?.name.toLowerCase() === candidate.name.toLowerCase(),
+                  const candidateName = candidate.name.trim().toLowerCase();
+                  const candidateDomain = companyDomain(candidate.domain);
+                  const hasExplicitDomain = !!candidate.domain?.trim();
+                  const domainCandidates = candidateDomain
+                    ? stubsResult.candidates.filter(
+                        (item) => companyDomain(item.domain) === candidateDomain,
+                      )
+                    : [];
+                  const domainStubs = candidateDomain
+                    ? stubsResult.cards.filter(
+                        (item) => companyDomain(item.company?.websiteUrl) === candidateDomain,
+                      )
+                    : [];
+                  const matchingCandidates = stubsResult.candidates.filter(
+                    (item) => item.name.trim().toLowerCase() === candidateName,
                   );
+                  const matchingStubs = stubsResult.cards.filter(
+                    (item) => item.company?.name.trim().toLowerCase() === candidateName,
+                  );
+                  const stub = hasExplicitDomain
+                    ? domainCandidates.length === 1 && domainStubs.length === 1
+                      ? domainStubs[0]
+                      : undefined
+                    : matchingCandidates.length === 1 && matchingStubs.length === 1
+                      ? matchingStubs[0]
+                      : undefined;
                   const existingCompanyId = stub?.company?.id;
 
                   const hydrated = await hydrateCompanyCard({
@@ -969,11 +1134,47 @@ export class GeminiRepository implements MarketIntelRepository {
                     progress: done / stubsResult.candidates.length,
                   });
 
-                  // Update company in snap
+                  // Publication makes this ID stable. Later domain discovery
+                  // may reveal ambiguity, but cannot remap this dossier.
+                  const stableCompanyId = hydrated.company.id;
+                  const publishedCompany = this.snap.companies.find(
+                    (company) => company.id === stableCompanyId,
+                  );
+                  if (
+                    publishedCompany &&
+                    conflictingCompanyWebsites(publishedCompany, hydrated.company)
+                  ) {
+                    throw new Error(
+                      `Hydration identity conflicts with the published company ID ${stableCompanyId}; preserving the existing dossier.`,
+                    );
+                  }
+                  const domainBecameAmbiguous = hasOtherCompanyWithMatchingDomain(
+                    this.snap.companies,
+                    hydrated.company,
+                  );
+                  hydrated.company = { ...hydrated.company, id: stableCompanyId };
+                  hydrated.metrics = hydrated.metrics.map((metric) => ({
+                    ...metric,
+                    companyId: stableCompanyId,
+                  }));
+                  hydrated.card = { ...hydrated.card, companyId: stableCompanyId };
+                  hydrated.primaryCard.card = {
+                    ...hydrated.primaryCard.card,
+                    companyId: stableCompanyId,
+                  };
+                  hydrated.primaryCard.company = hydrated.company;
+                  for (const entry of hydrated.cards) {
+                    entry.card = { ...entry.card, companyId: stableCompanyId };
+                    if (entry.company) entry.company = { ...entry.company, id: stableCompanyId };
+                    entry.metrics = entry.metrics.map((metric) => ({
+                      ...metric,
+                      companyId: stableCompanyId,
+                    }));
+                  }
+
+                  // Update company in snap by explicit canonical ID.
                   const coIdx = this.snap.companies.findIndex(
-                    (c) =>
-                      c.id === hydrated.company.id ||
-                      companyKey(c.name) === companyKey(hydrated.company.name),
+                    (company) => company.id === stableCompanyId,
                   );
                   if (coIdx >= 0) {
                     this.snap.companies[coIdx] = hydrated.company;
@@ -999,13 +1200,7 @@ export class GeminiRepository implements MarketIntelRepository {
                   const addedCardIds: string[] = [];
 
                   const cardIdx = this.snap.cards.findIndex(
-                    (c) =>
-                      c.deckId === stubsResult.deck.id &&
-                      (c.companyId === hydrated.company.id ||
-                        (c.companyId &&
-                          this.snap.companies
-                            .find((comp) => comp.id === c.companyId)
-                            ?.name.toLowerCase() === hydrated.company.name.toLowerCase())),
+                    (c) => c.deckId === stubsResult.deck.id && c.companyId === stableCompanyId,
                   );
 
                   if (cardIdx >= 0) {
@@ -1014,7 +1209,7 @@ export class GeminiRepository implements MarketIntelRepository {
                       ...hydrated.primaryCard.card,
                       id: existingCard.id,
                       deckId: stubsResult.deck.id,
-                      companyId: hydrated.company.id,
+                      companyId: stableCompanyId,
                     };
                     this.snap.cards[cardIdx] = updatedCard;
                     updatedCardIds.push(updatedCard.id);
@@ -1028,7 +1223,7 @@ export class GeminiRepository implements MarketIntelRepository {
                     const existingFacet = this.snap.cards.find(
                       (c) =>
                         c.deckId === stubsResult.deck.id &&
-                        c.companyId === hydrated.company.id &&
+                        c.companyId === stableCompanyId &&
                         c.cardType === facetCwc.card.cardType,
                     );
                     if (!existingFacet) {
@@ -1044,17 +1239,17 @@ export class GeminiRepository implements MarketIntelRepository {
                   if (!job.completedEntityNames.includes(hydrated.company.name)) {
                     job.completedEntityNames.push(hydrated.company.name);
                   }
-                  const pIdx = job.partialCards.findIndex(
-                    (p) => p.company?.name.toLowerCase() === hydrated.company.name.toLowerCase(),
-                  );
+                  const pIdx = job.partialCards.findIndex((p) => p.company?.id === stableCompanyId);
                   if (pIdx >= 0) {
                     job.partialCards[pIdx] = hydrated.primaryCard;
                   } else {
                     job.partialCards.push(hydrated.primaryCard);
                   }
 
-                  // Invalidate projections after updating canonical company metrics.
-                  this.snap.dashboards[hydrated.company.id] = {};
+                  // Keep a published dashboard when newly discovered domain
+                  // evidence makes this ID ambiguous; human resolution is needed.
+                  // Still invalidate cross-market opportunity projections.
+                  if (!domainBecameAmbiguous) this.snap.dashboards[hydrated.company.id] = {};
                   this.invalidateCompanyMarketOpportunities(hydrated.company.id);
 
                   this.persist();
@@ -2234,9 +2429,8 @@ export class GeminiRepository implements MarketIntelRepository {
     const tracked = companies
       .sort((a, b) => (b.card.tier ?? 0) - (a.card.tier ?? 0))
       .filter((x) => {
-        const k = companyKey(x.company.name);
-        if (seen.has(k)) return false;
-        seen.add(k);
+        if (seen.has(x.company.id)) return false;
+        seen.add(x.company.id);
         return true;
       })
       .slice(0, 14);
@@ -2271,8 +2465,17 @@ export class GeminiRepository implements MarketIntelRepository {
       { system: STRUCTURE_SYSTEM },
     );
 
+    const companyIdsByName = new Map<string, Set<string>>();
+    for (const item of companies) {
+      const key = companyKey(item.company.name);
+      const ids = companyIdsByName.get(key) ?? new Set<string>();
+      ids.add(item.company.id);
+      companyIdsByName.set(key, ids);
+    }
     const byKey = new Map(
-      companies.map((x) => [companyKey(x.company.name), x.company.id] as const),
+      [...companyIdsByName]
+        .filter(([, ids]) => ids.size === 1)
+        .map(([key, ids]) => [key, [...ids][0]!] as const),
     );
     const updates: DeckBriefing['updates'] = [];
     for (const u of out.updates) {

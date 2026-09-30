@@ -11,7 +11,7 @@ deferred by the human; do not stop for missing API telemetry or require cost
 projections before worker dispatch. This overrides the historical campaign
 instructions in the archive, not product privacy, bounded execution, phase dependencies,
 context ceilings or live-research consent. Goal is active (verified via goal tool).
-Latest completed packet: G01-P05 below. G00 contracts and reproduced baseline
+Latest completed packet: G01-P06 below. G00 contracts and reproduced baseline
 are frozen for offline G01 work; this is not product-readiness or service parity.
 G01-P01 proves the native SQLite binding in an unsigned packaged app and the
 actual installer payload, plus fixes two legacy data-safety defects. G01-P02
@@ -20,7 +20,8 @@ adds retained evidence, period-compatible observations and the v1-to-v2 fixture
 upgrade. G01-P04 adds exclusive native ownership, captured writer generations,
 and a transitional legacy content fence. G01-P05 retains typed claims/findings/
 reports and their exact inputs/support, and fixes shared-company cache invalidation.
-Staged migration/cutover, passive job history and complete lifecycle remain open.
+G01-P06 adds bounded read-only legacy inspection and fixes same-name identity collapse.
+Actual staged retention/cutover, passive job history and complete lifecycle remain open.
 No live cutover is authorized.
 The full goal remains active; do not restart planning.
 Earlier $50/Astra campaign instructions are historical, not current dispatch
@@ -30,15 +31,15 @@ preflight blocks this development goal; live product research still requires
 separate explicit approval and a numeric cap.
 
 - Planning: complete researched v1 north star, action catalogue, phase goals, and evidence ledger.
-- Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. Five of the original 11 reproduced defects are fixed; 6 remain RED. Offline native vault retains inventory, hashed source versions/content, exact passages, immutable metric definitions, period-aware numeric observations, versioned qualitative claims/findings/reports and pinned report inputs, behind one native owner and captured-generation write capabilities. It is NOT connected to the current app/data/service; link validation is not semantic verification. G01 is not complete.
+- Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. Six of the original 11 reproduced defects are fixed; 5 remain RED. Offline native vault retains inventory, hashed source versions/content, exact passages, immutable metric definitions, period-aware numeric observations, versioned qualitative claims/findings/reports and pinned report inputs, behind one native owner and captured-generation write capabilities. It is NOT connected to the current app/data/service; link validation is not semantic verification. G01 is not complete.
 - Branch: `feat/stratemark-spinoff-local-agents`, created from `b2c6398`; predecessor `feat/claim-level-signal-evidence` retained unchanged. Personal-fork checkpoint destination: remote newsam, `NewSamBellamy/STRATEMARK-latest--1`.
-- Original planning baseline: `3f18af2`. Latest packet entry: `9e63778`; determine current HEAD/tree from Git. Neither historical value is a claim about current code forever.
+- Original planning baseline: `3f18af2`. Latest packet entry: `ec8dcee`; determine current HEAD/tree from Git. Neither historical value is a claim about current code forever.
 - Goal tool: the human's replacement Sol-planner/Luna-worker goal is active, verified at G00-P03 start. No billing blocker remains for development. Keep the full goal active at packet boundaries.
-- Next work: G01-P06 read-only staged snapshot inspection/planning for every known format, followed by passive job/saved-item/identity/scope retention and complete synthetic migration with count/content/relationship checks and preserved originals. No cutover until all relevant families are retained. Do not invent support from URLs or promote legacy/imported verification. Migration cannot switch an authority until all relevant record families, asset retention and operational-authority disabling are proven. P04 proves minimum native locking/fencing, NOT service attach/handoff, provider shutdown, restore counter floors or a live cutover. Keep internal APIs private until scoped service reads exist. Chosen binding remains node:sqlite on Electron44.4.5/Node24.21.0/SQLite3.53.4, release-candidate API; performance/production acceptance remains open. G02/G07 own runtime enforcement and adapter parity. No live data migration is authorized.
+- Next work: G01-P07 typed/passive retention of jobs and their nested partial results, saved items, legacy decks/cards/dashboards/reports/threads/briefings/opportunity and metric candidates; complete company identity and market-scope records; then synthetic staged migration with count/content/relationship checks. Use the P06 inspector, preserve exact original exports, and do not use display-schema output as historical content. No whole-snapshot JSON blob as a second authoritative vault, no cutover until every relevant family and referenced asset is retained and operational authority is disabled. No fabricated passage evidence from URLs, no imported local verification. P04 proves minimum ownership/fencing, NOT service attach/handoff, provider shutdown or restore counter floors. G02/G07 own runtime and adapter parity. No live data migration is authorized.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
 - Push: latest human explicitly authorized periodic checkpoints ONLY to this new personal-fork branch. No overwriting existing refs, upstream/Tobi pushes, main merge, release or deployment. First upload verified at `73e61c0e0f9f20e063fd290ef9fb3a122f570061`; all 49 pre-existing remote branch refs remained unchanged, including main at `c945b31dee0095331b8487133c131c36e76ba601`. Verified owner NewSamBellamy, public fork of Maruf. The shorter old URL redirects to Maruf and is unsafe as a personal destination. Read actual local/remote tips before each later fast-forward checkpoint.
-- Current application tests: latest G01-P05 check passed all6 typechecks/lint; contracts359, mocks16, research343 passed/5 known failures. Independent desktop106 passed/1 known failure; native vault77/77 passed; web153/153 passed, both journeys passed. API158 passed in P01, unchanged/not freshly rerun in P05. Full root gate remains RED; no live research or new visual acceptance. Packaged synthetic two-process contention, owner crash takeover, evidence/upgrade/backup proof is not full desktop release acceptance.
+- Current application tests: G01-P06 pnpm check passed all6 typechecks/root lint; contracts359, mocks16, research355 passed/4 original failures (root exit1). Independent desktop125 passed/1 original key-boundary failure; native vault77/77, inspection19/19 and identity11/11 passed. Web153/153, both journeys passed. API158 is historical P01 evidence, unchanged/not rerun. Packaged offline inspection and vault/owner/crash proof passed; no live research, visual acceptance, new NSIS installation or release proof.
 - Document verification: local links and balanced code fences passed; unique registers checked (22 defaults, 30 stories, 62 actions, 9 goals, 26 sources); JSON command example parsed; canonical files had no candidate credential patterns. Markdown formatting checked separately before commit.
 - Astra final planning review: seven substantive gaps identified and addressed (service lifetime, migration fences, imported authority, restored budgets, asset/evidence retention, asynchronous output retrieval, and human approval boundary). Re-review found no remaining material contract contradictions; this is planning consistency, not application verification.
 
@@ -58,7 +59,7 @@ separate explicit approval and a numeric cap.
 | Goal | State                             | Packet / commit evidence                 | Remaining                                                           |
 | ---- | --------------------------------- | ---------------------------------------- | ------------------------------------------------------------------- |
 | G00  | Contract/baseline freeze complete | [G00-P01-P05 archive](PACKET-ARCHIVE.md) | Legacy defects remain RED; enforcement/parity belong to G01/G02/G07 |
-| G01  | In progress                       | G01-P05 retained-report proof            | Complete records, staged fixture migration, recovery/lifecycle      |
+| G01  | In progress                       | G01-P06 inspection/identity proof        | Complete records, staged fixture migration, recovery/lifecycle      |
 | G02  | Not started                       | None                                     | Shared runtime, policies, secrets                                   |
 | G03  | Not started                       | None                                     | Progressive research and evaluation                                 |
 | G04  | Not started                       | None                                     | Cards and coherent frontend journey                                 |
@@ -98,100 +99,112 @@ An existing human-created broad goal must retain its actual objective. Execute o
 
 User context ceiling: 200k tokens for every agent, not a spend allowance. Checkpoint around 100k; hand off before an estimated 150k to leave room for verification and recovery. Use the policy in [build-workflow.md](build-workflow.md). Cumulative goal tokens are usage, not necessarily the current context window. Exact occupancy and forced compaction are not exposed here; do not claim hard automatic enforcement. Keep packets small and start clean workers with a declared model, effort and exclusive scope; development cost projections are not a current gate. Unknown spending never becomes a claim of remaining funds.
 
-## Latest completed packet — G01-P05
+## Latest completed packet — G01-P06
 
-Entry HEAD `9e63778`, September30. P04 GitHub tip verified identical and all49
-other refs unchanged. Sol owns additive contracts/native records/schema, packaged
-proof and integration. Luna/high worker Franklin owns only legacy correction
-invalidation and its test; completed, reviewed and closed. No Astra, provider
-calls, key reads, live data migration, UI restyle, installation or publication.
-US13/US16/US19/US23/US30; prepares A05/A18/A22/A25/A47, not action-service parity.
+Entry HEAD `ec8dcee`, September30, clean personal spin-off branch. The prior
+checkpoint was verified on GitHub with all49 other refs unchanged. Sol owns
+offline snapshot inspection, proof entry and integration; Luna/high worker
+Laplace owns the bounded legacy identity patch/tests. Coordinator review caught
+and corrected post-publication ID remapping before integration. Worker completed
+and closed; no active workers remain. No Astra, stored-key/customer-data reads,
+provider calls, live migration, UI restyle, installation or publication.
+US01/US13/US14/US16/US23; prepares A10/A44/A45, not action-service parity.
 
-Native schema4 retains versioned qualitative claims, market findings and reports
-in typed append-only tables. Each version has strict metadata, exact evidence
-links, immutable origin/target, revision CAS and chronological history. Findings
-have their own market support and company memberships; no inherited numeric
-metrics. Risk records preserve allegation/event/ongoing/resolution attribution.
-Imported claims/findings remain reported/unknown, not locally verified; an
-imported reported resolution can be preserved without claiming local resolution.
-Imported reports remain incomplete with an explicit unvalidated-evidence gap.
-No machine metadata can set human verification.
+Internal inspectLegacySnapshot accepts JSON text, not arbitrary filenames.
+It recognizes unversioned v1, explicit v1 and v2 and uses the registered version
+chain. Unknown/future versions and unrecognized top-level families fail closed;
+nothing is silently dropped or stamped current. Input ceilings are50MiB UTF8,
+64 container levels and200000 structural tokens. Duplicate object members,
+including escaped duplicate keys, fail before JSON.parse can lose a value.
+Invalid JSON, nonfinite parsed numbers and structural credential fields fail
+with safe code/family errors, not source-value/error-payload dumps. Credential
+field refusal is not a guarantee that arbitrary prose contains no sensitive text.
 
-Report prose is saved verbatim. Input pins identify exact company/market history,
-claim, observation, finding or earlier report revisions. Older reports retain
-their input versions after later corrections. An identity-only version registry
-and foreign-key junctions enforce retained references; it is not a generic JSON
-vault store. All transitive support is pinned; missing versions, mismatched
-passages, cycles, oversized dependency graphs and scope expansion fail before
-commit. Source/hash/link validity is NOT semantic adjudication of the prose.
-Unknown/attributed records do not become eligible card facts through this adapter.
+Inspection covers all14 known array/map families plus dashboard-tab counts.
+Stable IDs and references are checked across companies, markets, decks, cards,
+metrics, risks, reports, saved cards, briefings, threads/memory and job partials.
+Minimal older job metadata remains readable history; present typed metadata
+validates. Uncommitted companies/decks/markets remain within their historical
+job rather than being inserted into main inventory. Duplicate partial-card and
+memory-fact IDs are refused. Site-audit subjects may be external URLs, not
+fabricated company IDs. Known display schemas validate, but their transformed
+output is NOT used as retained historical content: nested scope/period fields
+are preserved through a separate raw-data migration copy.
 
-Company or market report scope is explicit. A market report may reference a
-member company's company-wide evidence, not another market's private evidence.
-A company report cannot launder market-private input reports. Finding support
-must be directly market-scoped, not borrowed from company-only passages.
-Cross-market report projections, scoped connector reads and semantic fact
-selection remain future service/G03/G05 work, not claims of completed parity.
-Internal reads support exact/latest versions and bounded cursor pages carrying
-one SQLite revision; full prose/source payloads must not be exposed as unbounded
-MCP responses. Trusted captured-generation writers fence all new record saves.
+Exact original JSON and its byte length/SHA256 are retained for future staging.
+Saved report prose, numeric zero, explicit periods, old confidence labels and
+job statuses are preserved, not normalized into new facts/authority. Imported
+attestations are counted as attributed assertions; no local attestations,
+runnable jobs, schedules, grants or budget approvals are proposed. URLs/snippets
+do not become supporting passages. External logo references and missing support
+remain review gaps; nothing is fetched. Company IDs are never merged by the
+inspector. Explicit card/deck links yield market-role proposals; a unique legacy
+market-name fallback is labeled legacy_name, not evidence of scope or identity.
+Ambiguous names/domains stay review groups. Private evidence disclosure still
+requires the future scoped service.
 
-Version1/2/3-to4 upgrades retain inventory/history/evidence and existing writer
-generation. A v3 fixture at generation7 upgrades without resetting it. Collision
-during new DDL rolls back to the original schema3 and data, not a repaired/reset
-vault. Registry population uses retained inventory history and observations.
-Actual owner construction still advances the generation separately.
+canApply is always false. The returned snapshot/originalJson are internal,
+local-only staging inputs, NOT renderer/MCP read results or live repository
+hydration. No staged database was created and no live adapter was switched.
+storage.ts only exposes the existing validation schema additively (plus
+formatting); the old live parser's conversion behavior is unchanged. Thus the
+nested-field preservation fix here is NOT a claim that legacy live imports
+or cached UI projections are already corrected.
 
-Legacy correction fix follows all entity-card-to-deck-to-market memberships to
-invalidate affected opportunity caches, including manual/cited corrections and
-other canonical metric updates. It preserves unrelated markets, handles multiple
-decks once, and falls back only to a unique legacy name when no valid owner link
-exists. Ambiguous/stale legacy names are not identity proof. The unchanged G00
-shared-company correction baseline now passes; ownership-loss protection remains.
+Legacy repository ingestion/hydration no longer merges saved dossiers by name.
+Unique eligible normalized domain evidence can reuse an existing ID before
+stub publication; missing/ambiguous domains stay distinct. Conflicting supplied
+IDs allocate a separate unpublished identity instead of overwriting a dossier.
+After publication, later domain discovery cannot rekey/delete the dossier,
+dashboard, metrics or job partial. Explicit candidate-domain mismatch cannot
+fall back to a unique name. A conservative shared-profile-host guard excludes
+hostname-only reuse on common profile sites; it is not exhaustive semantic
+domain/ownership validation. Briefings dedupe company IDs and ambiguous names
+do not resolve to an arbitrary dossier. P04 ownership fences and P05 multi-market
+invalidation remain intact.
 
 Verification of final sources:
 
-- Six additive contract cases: missing module RED, then GREEN. An additional
-  imported-resolution assertion reproduces lost attribution before its fix.
-- Eleven native research cases: nine missing-method RED; deep dependency case
-  later reproduces save/read bound mismatch before the fix. Save validation now
-  counts its root, so accepted records can be read at the same graph bound.
-  Exact observation pins retain true zero and period/definition support.
-  Native totals inventory19/evidence18/schema18/owner11/research11 =77/77.
-- Worker unchanged baseline RED before fix; final new projection8/8 pass (six
-  worker cases, two coordinator ambiguity/stale-name cases). No skipped/inverted
-  baseline or relaxed timeout/config. Full pnpm check: all6 typechecks/root lint,
-  contracts359/mocks16 pass; research343 pass/5 original failures, root exit1.
-  Independent desktop106 pass/1 original secret-boundary failure; web153/153
-  pass, both journeys3.087s. API not rerun; historical158 is not current evidence.
-  Keyless live fixtures return early, not live research quality.
-- New required packaged assertions fail against old P04 ASAR. Expanded native
-  Electron and fresh unsigned unpublished ASAR pass: schema1-to4; historical
-  claim/finding/report versions and report inputs survive later corrections and
-  real backup; private report scope expansion refused; old writer cannot save a
-  report. Prior owner contention/read-only reader/forced SIGKILL takeover,
-  FTS/WAL/backup/period/zero/hash checks pass. Runtime remains
-  Electron44.4.5/Node24.21.0/SQLite3.53.4, P01 source ID,1582112 pending WAL bytes,
-  recovery integrity ok and replacement generation2.
-- Frozen ignored artifact: apps/desktop/release/
-  sqlite-spike-20260930-9e63778-research/win-unpacked, actual module inside
-  resources/app.asar/dist/sqlite-spike.cjs. No source edits during packaging;
-  no new NSIS/install/full-GUI acceptance. Ordinary desktop main build passes and
-  excludes the optional proof entry. Formatting/diff checks pass. Compiler
-  sandbox restrictions use identical approved offline commands, not new runners.
+- Inspection module missing RED first, then19/19 GREEN. Additional RED checks
+  reproduced duplicate partial identity, stripped nested scope/period fields,
+  numeric overflow, bare-domain review gaps and invalid catalog roles before
+  fixes. Public repository sample also passes inspection. A coordinator long-name
+  identity check was already GREEN and required no implementation change.
+- Luna identity tests RED before implementation and coordinator-requested
+  immutable-ID/conflicting-ID/shared-profile checks; final identity11/11.
+  Existing unchanged same-name baseline now passes. No baseline edits/skips,
+  relaxed timeouts, changed runners or fake live success.
+- Full pnpm check: all6 typechecks/root lint pass; contracts359/mocks16 pass;
+  research355 pass/4 original failures, root exit1. Independent desktop125
+  pass/1 original key retrieval failure; native inventory19/evidence18/schema18/
+  owner11/research11 =77/77; inspection19/19. Web153/153, both journeys2.990s.
+  API not rerun; keyless live fixtures are not live research-quality evidence.
+- New packaged assertions fail against P05's actual ASAR before implementation.
+  Native Electron and frozen fresh unsigned unpublished ASAR pass all known
+  inspection formats, exact-original preservation, history-not-resumed,
+  attribution-not-authority, shared memberships and future/duplicate refusal.
+  Prior schema1-to4/evidence/report/backup/owner contention/reader/SIGKILL takeover
+  proof remains GREEN: Electron44.4.5/Node24.21.0/SQLite3.53.4, same SQL source ID,
+  1582112 pending WAL bytes, integrity ok and replacement generation2.
+- Ignored artifact: apps/desktop/release/
+  sqlite-spike-20260930-ec8dcee-inspection/win-unpacked, actual proof inside
+  resources/app.asar/dist/sqlite-spike.cjs. Source frozen during packaging;
+  ordinary desktop main build passes and excludes the optional proof entry.
+  This is NOT new NSIS/install/full-GUI acceptance. Formatting/diff checks pass.
 
-Remaining: passive jobs/attempt history, receipts/policies/schedules, saved items,
-complete company identity/market scope, assets and full staged migration plus
-validated backup/restore/import/export/trash/GC. No live adapter cutover; no
-provider draining, real job runtime, MCP host, card redesign or production release
-acceptance. Six original blockers remain: uncached-tab provider call, legacy
-period loss, premature cancellation, same-name/different-domain collapse,
-different-period conflict collapse, renderer plaintext-key retrieval. The broad
-G00-G08 goal remains active.
+Remaining: actual typed/passive legacy retention and staged conversion, complete
+company identity/scope, assets and backup/restore/import/export/trash/GC;
+service ownership/handoff/provider draining, durable task runtime, MCP and the
+card/journey overhaul. Legacy names still appear in some job checkpoints; this
+is not new durable-ID scheduler acceptance. Same-domain ownership resolution
+and human ambiguity/merge records remain G01/G03 work. Five original blockers
+remain: uncached-tab provider call, legacy period loss, premature cancellation,
+different-period conflict collapse and renderer plaintext-key retrieval.
+Full G00-G08 goal stays active; G01 is not complete.
 
 ## Historical evidence without context bloat
 
-Detailed closed packets G00-P01-P05 and G01-P01-P04 are preserved in
+Detailed closed packets G00-P01-P05 and G01-P01-P05 are preserved in
 [PACKET-ARCHIVE.md](PACKET-ARCHIVE.md), including their original failures and
 limits. That archive is historical evidence, NOT another execution ledger or
 current dispatch instructions. This file is the sole current-state ledger.

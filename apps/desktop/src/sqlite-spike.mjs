@@ -8,8 +8,119 @@ import { DatabaseSync, backup } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { openVault } from './vault.ts';
 import { inventorySchemaSql } from './vault-schema.ts';
+import { inspectLegacySnapshot } from './snapshot-inspection.ts';
 
 const marker = (name, data) => process.stdout.write(`${name} ${JSON.stringify(data)}\n`);
+
+function proveLegacyInspection() {
+  const at = '2026-09-30T12:00:00.000Z';
+  const original = {
+    markets: ['a', 'b'].map((suffix) => ({
+      id: `mkt_${suffix}`,
+      name: `Market ${suffix}`,
+      scopeDefinition: { vertical: 'Synthetic', geography: null, notes: null },
+      refreshCadence: 'daily',
+      createdAt: at,
+    })),
+    decks: ['a', 'b'].map((suffix) => ({
+      id: `deck_${suffix}`,
+      marketId: `mkt_${suffix}`,
+      createdAt: at,
+      lastRefreshedAt: null,
+    })),
+    companies: [
+      {
+        id: 'co_a',
+        name: 'Fixture Labs',
+        oneLiner: 'Synthetic',
+        websiteUrl: 'https://a.example',
+        logoUrl: null,
+        hqLocation: null,
+        brandTheme: null,
+      },
+    ],
+    metrics: [
+      {
+        id: 'metric_a',
+        companyId: 'co_a',
+        metricType: 'arr',
+        value: 0,
+        confidence: 'user_verified',
+        source: 'https://a.example/report',
+        methodNote: null,
+        capturedAt: at,
+        period: '2025',
+      },
+    ],
+    cards: ['a', 'b'].map((suffix) => ({
+      id: `card_${suffix}`,
+      deckId: `deck_${suffix}`,
+      companyId: 'co_a',
+      cardType: 'company',
+      title: null,
+      summary: null,
+      tier: null,
+      tierReason: null,
+      createdAt: at,
+    })),
+    viceClaims: [],
+    dashboards: {},
+    companyMarket: { co_a: 'Market a' },
+    reports: [
+      {
+        id: 'report_a',
+        kind: 'deck',
+        subjectId: 'deck_a',
+        title: 'Original',
+        markdown: '```text\nKeep exact prose.\n```',
+        citations: [],
+        createdAt: at,
+      },
+    ],
+    researchJobs: [{ id: 'job_a', status: 'running' }],
+  };
+  for (const version of [undefined, 1, 2]) {
+    const json = JSON.stringify({
+      ...original,
+      ...(version === undefined ? {} : { schemaVersion: version }),
+    });
+    const inspection = inspectLegacySnapshot(json);
+    assert.equal(inspection.originalJson, json);
+    assert.equal(inspection.source.sha256, createHash('sha256').update(json).digest('hex'));
+    assert.equal(inspection.source.schemaVersion, version ?? 1);
+    assert.deepEqual(inspection.appliedVersions, version === 2 ? [] : [1]);
+    assert.equal(inspection.snapshot.researchJobs[0].status, 'running');
+    assert.equal(inspection.proposedAuthority.runnableJobs, 0);
+    assert.equal(inspection.proposedAuthority.localAttestations, 0);
+    assert.equal(inspection.review.attributedAttestationCount, 1);
+    assert.equal(inspection.review.supportedPassageCount, 0);
+    assert.equal(inspection.snapshot.metrics[0].value, 0);
+    assert.equal(inspection.snapshot.metrics[0].period, '2025');
+    assert.equal(inspection.snapshot.reports[0].markdown, original.reports[0].markdown);
+    assert.deepEqual(
+      inspection.memberships.map((row) => row.marketId),
+      ['mkt_a', 'mkt_b'],
+    );
+    assert.equal(inspection.canApply, false);
+  }
+  assert.throws(
+    () => inspectLegacySnapshot(JSON.stringify({ ...original, schemaVersion: 999 })),
+    (error) => error.code === 'UNSUPPORTED_FORMAT',
+  );
+  const json = JSON.stringify(original);
+  assert.throws(
+    () => inspectLegacySnapshot(json.replace('"markets":', '"markets":[],"markets":')),
+    (error) => error.code === 'DUPLICATE_MEMBER',
+  );
+  return {
+    allKnownFormats: true,
+    exactOriginalRetained: true,
+    historyNotResumed: true,
+    attributionNotAuthority: true,
+    sharedMembershipsPreserved: true,
+    duplicateAndFutureRejected: true,
+  };
+}
 
 function openWal(databasePath) {
   const db = new DatabaseSync(databasePath);
@@ -350,6 +461,7 @@ async function prepare(directory) {
     },
     engine,
     nativeVault,
+    legacyInspection: proveLegacyInspection(),
     fts5Match: true,
     walReopen: true,
     backupFromOpenWal: true,
