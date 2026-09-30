@@ -925,8 +925,15 @@ export async function researchMarketSignals(
   };
 
   const firstPass = await runGroundedPass('both');
-  const firstBarrierCount = firstPass.out.barriers?.length ?? 0;
-  const firstInsightCount = firstPass.out.insights?.length ?? 0;
+  const usableClaimCount = (
+    claims: z.infer<typeof rawClaimSchema>[],
+    citations: Citation[],
+  ): number =>
+    deduplicateClaims(claims, 10).filter(
+      (claim) => resolveClaimCitation(claim.sourceIndex, citations).length > 0,
+    ).length;
+  const firstBarrierCount = usableClaimCount(firstPass.out.barriers ?? [], firstPass.citations);
+  const firstInsightCount = usableClaimCount(firstPass.out.insights ?? [], firstPass.citations);
 
   // 2. Bounded Fallback Pass if initial yield is below minimums
   let secondPass: {

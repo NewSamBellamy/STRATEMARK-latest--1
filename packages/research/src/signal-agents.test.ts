@@ -608,6 +608,54 @@ describe('Signal Agents Deep Module', () => {
       expect(barrier2.card.citations[0]!.url).toBe('https://sec.gov/p2');
     });
 
+    it('retries when raw counts meet minimums but duplicates and invalid sources leave thin usable coverage', async () => {
+      let callCount = 0;
+      const prompts: string[] = [];
+      const ground = vi.fn(async (prompt: string) => {
+        callCount += 1;
+        prompts.push(prompt);
+        return {
+          text: `Pass ${callCount} notes`,
+          citations: [
+            {
+              title: callCount === 1 ? 'Initial source' : 'Fallback source',
+              url: `https://example.com/${callCount}`,
+            },
+          ],
+          queries: [],
+        };
+      });
+      const client: LlmClient = {
+        ground,
+        structure: vi.fn(async (_prompt: string, schema: ZodType<unknown>) =>
+          callCount === 1
+            ? schema.parse({
+                barriers: [
+                  { title: 'Barrier A', summary: 'First', sourceIndex: 0 },
+                  { title: 'barrier-a', summary: 'Duplicate', sourceIndex: 0 },
+                  { title: 'Barrier B', summary: 'Uncited', sourceIndex: 9 },
+                ],
+                insights: [{ title: 'Pricing shift', summary: 'Insight', sourceIndex: 0 }],
+              })
+            : schema.parse({
+                barriers: [{ title: 'Barrier C', summary: 'Fallback', sourceIndex: 0 }],
+                insights: [],
+              }),
+        ) as LlmClient['structure'],
+      };
+
+      const cards = await researchMarketSignals(client, samplePlan, 'dck_usable_coverage', {
+        minBarriers: 2,
+        minInsights: 1,
+      });
+
+      expect(ground).toHaveBeenCalledTimes(2);
+      expect(prompts[1]).toContain('BARRIERS');
+      expect(cards.filter((card) => card.card.cardType === 'barrier')).toHaveLength(2);
+      expect(cards.filter((card) => card.card.cardType === 'insight')).toHaveLength(1);
+      expect(cards.some((card) => card.card.title === 'Barrier C')).toBe(true);
+    });
+
     it('respects AbortSignal and cancels gracefully', async () => {
       const controller = new AbortController();
       controller.abort();
