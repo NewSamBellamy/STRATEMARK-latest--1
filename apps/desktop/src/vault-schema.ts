@@ -1,0 +1,146 @@
+import type * as NodeSqlite from 'node:sqlite';
+
+export const currentVaultSchemaVersion = 2;
+
+export const inventorySchemaSql = `
+CREATE TABLE vault_meta (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+  vault_id TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK(revision>=0 AND revision<=9007199254740991)
+) STRICT;
+CREATE TABLE companies (
+  id TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision>0), body TEXT NOT NULL CHECK(json_valid(body))
+) STRICT;
+CREATE TABLE markets (
+  id TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision>0), body TEXT NOT NULL CHECK(json_valid(body))
+) STRICT;
+CREATE TABLE memberships (
+  id TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision>0), body TEXT NOT NULL CHECK(json_valid(body)),
+  company_id TEXT NOT NULL REFERENCES companies(id), market_id TEXT NOT NULL REFERENCES markets(id),
+  UNIQUE(company_id, market_id)
+) STRICT;
+CREATE TABLE record_history (
+  kind TEXT NOT NULL CHECK(kind IN ('companies','markets','memberships')),
+  id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>0),
+  body TEXT NOT NULL CHECK(json_valid(body)), PRIMARY KEY(kind,id,revision)
+) STRICT;
+CREATE TRIGGER history_no_update BEFORE UPDATE ON record_history BEGIN SELECT RAISE(ABORT,'History is append-only'); END;
+CREATE TRIGGER history_no_delete BEFORE DELETE ON record_history BEGIN SELECT RAISE(ABORT,'History is append-only'); END;
+CREATE VIRTUAL TABLE company_search USING fts5(company_id UNINDEXED, name, official_domain);
+`;
+
+const inventoryColumns = {
+  vault_meta: ['singleton', 'vault_id', 'revision'],
+  companies: ['id', 'revision', 'body'],
+  markets: ['id', 'revision', 'body'],
+  memberships: ['id', 'revision', 'body', 'company_id', 'market_id'],
+  record_history: ['kind', 'id', 'revision', 'body'],
+  company_search: ['company_id', 'name', 'official_domain'],
+} as const;
+const evidenceColumns = {
+  source_versions: ['id', 'revision', 'body', 'content'],
+  passages: ['id', 'revision', 'body', 'source_id', 'source_revision'],
+  metric_definitions: ['id', 'revision', 'body'],
+  observations: ['id', 'revision', 'body', 'company_id', 'definition_id', 'comparison_key'],
+  observation_evidence: ['observation_id', 'ordinal', 'source_id', 'source_revision', 'passage_id'],
+} as const;
+
+function readSchemaVersion(db: NodeSqlite.DatabaseSync) {
+  const version = db.prepare('PRAGMA user_version').get()?.user_version;
+  if (typeof version !== 'number' || !Number.isSafeInteger(version))
+    throw new Error('Vault schema version is invalid.');
+  if (version > currentVaultSchemaVersion)
+    throw new Error('Vault schema is newer than this application supports.');
+  return version;
+}
+
+function requireTables(db: NodeSqlite.DatabaseSync, tables: readonly string[], kind: string) {
+  for (const name of tables) {
+    const row = db.prepare('SELECT type FROM sqlite_schema WHERE name=?').get(name);
+    if (row?.type !== 'table')
+      throw new Error(`Vault schema is missing required ${kind} table: ${name}.`);
+  }
+}
+
+function requireTableColumns(
+  db: NodeSqlite.DatabaseSync,
+  schema: Record<string, readonly string[]>,
+  kind: string,
+) {
+  requireTables(db, Object.keys(schema), kind);
+  for (const [table, required] of Object.entries(schema)) {
+    const columns = new Set(
+      db
+        .prepare(`PRAGMA table_info(${table})`)
+        .all()
+        .map((row) => row.name),
+    );
+    for (const name of required) {
+      if (!columns.has(name))
+        throw new Error(`Vault schema is missing required ${table} column: ${name}.`);
+    }
+  }
+}
+
+function requireInventorySchema(db: NodeSqlite.DatabaseSync) {
+  requireTableColumns(db, inventoryColumns, 'inventory');
+}
+
+export function inspectVaultSchema(db: NodeSqlite.DatabaseSync, vaultId: string): number {
+  const version = readSchemaVersion(db);
+  if (version !== 1 && version !== currentVaultSchemaVersion)
+    throw new Error('Unrecognized vault schema.');
+
+  requireInventorySchema(db);
+  const metadata = db.prepare('SELECT singleton, vault_id, revision FROM vault_meta').all();
+  const meta = metadata[0];
+  if (metadata.length !== 1 || !meta || meta.singleton !== 1 || meta.vault_id !== vaultId)
+    throw new Error('Vault identity does not match.');
+  const revision = meta.revision;
+  if (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 0)
+    throw new Error('Vault metadata revision is invalid.');
+
+  if (version === currentVaultSchemaVersion) requireTableColumns(db, evidenceColumns, 'evidence');
+  if (db.prepare('PRAGMA quick_check').get()?.quick_check !== 'ok')
+    throw new Error('Vault integrity check failed.');
+  if (db.prepare('PRAGMA foreign_key_check').all().length !== 0)
+    throw new Error('Vault foreign key check failed.');
+  return version;
+}
+
+/** Caller starts BEGIN IMMEDIATE and owns the eventual commit or rollback. */
+export function initializeVaultSchema(
+  db: NodeSqlite.DatabaseSync,
+  vaultId: string,
+  allowCreate: boolean,
+  evidenceSchemaSql: string,
+): void {
+  if (!db.isTransaction)
+    throw new Error('Vault schema initialization requires an active transaction.');
+
+  const version = readSchemaVersion(db);
+  if (version === currentVaultSchemaVersion) {
+    inspectVaultSchema(db, vaultId);
+    return;
+  }
+
+  if (version === 1) {
+    inspectVaultSchema(db, vaultId);
+  } else if (version === 0) {
+    if (!allowCreate) throw new Error('Vault creation is not allowed.');
+    const unrelated = db
+      .prepare("SELECT name FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' LIMIT 1")
+      .get();
+    if (unrelated)
+      throw new Error('Unrecognized version-zero database; refusing to adopt unrelated schema.');
+    db.exec(inventorySchemaSql);
+    db.prepare('INSERT INTO vault_meta VALUES(1,?,0)').run(vaultId);
+  } else {
+    throw new Error('Unrecognized vault schema.');
+  }
+
+  db.exec(evidenceSchemaSql);
+  requireTableColumns(db, evidenceColumns, 'evidence');
+  db.exec(`PRAGMA user_version=${currentVaultSchemaVersion};`);
+  inspectVaultSchema(db, vaultId);
+}

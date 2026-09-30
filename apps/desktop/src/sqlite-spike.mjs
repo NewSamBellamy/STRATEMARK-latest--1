@@ -5,7 +5,9 @@ import { setInterval } from 'node:timers';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync, backup } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { openVault } from './vault.ts';
+import { inventorySchemaSql } from './vault-schema.ts';
 
 const marker = (name, data) => process.stdout.write(`${name} ${JSON.stringify(data)}\n`);
 
@@ -28,10 +30,27 @@ async function proveNativeVault(directory) {
     updatedAt: at,
   });
   const file = path.join(directory, 'inventory.sqlite');
+  const company = { record: record('co_a'), name: 'Fixture Labs', officialDomain: 'a.example' };
+  // Create a P02-shaped synthetic vault, then prove the real v1 -> v2 upgrade.
+  const prior = new DatabaseSync(file);
+  try {
+    prior.exec(`BEGIN IMMEDIATE; ${inventorySchemaSql}`);
+    prior.prepare('INSERT INTO vault_meta VALUES(1,?,1)').run(vaultId);
+    prior.prepare('INSERT INTO companies VALUES(?,?,?)').run('co_a', 1, JSON.stringify(company));
+    prior
+      .prepare('INSERT INTO record_history VALUES(?,?,?,?)')
+      .run('companies', 'co_a', 1, JSON.stringify(company));
+    prior
+      .prepare('INSERT INTO company_search VALUES(?,?,?)')
+      .run('co_a', company.name, company.officialDomain);
+    prior.exec('PRAGMA user_version=1; COMMIT;');
+  } finally {
+    prior.close();
+  }
   const vault = openVault(file, vaultId);
   try {
-    const company = { record: record('co_a'), name: 'Fixture Labs', officialDomain: 'a.example' };
-    vault.saveCompany(company, 0);
+    assert.equal(vault.status().schemaVersion, 2);
+    assert.deepEqual(vault.getCompany('co_a'), company);
     for (const marketId of ['mkt_a', 'mkt_b']) {
       vault.saveMarket({ record: record(marketId), name: marketId }, 0);
       vault.saveMembership(
@@ -53,11 +72,83 @@ async function proveNativeVault(directory) {
       vault.searchCompanies('Fixture', { limit: 1, afterId: first.nextCursor }).items[0].record.id,
       'co_b',
     );
+    const content = 'Synthetic revenue was 0 USD in 2025 and 5 USD in 2026.';
+    const hash = createHash('sha256').update(content).digest('hex');
+    const source = {
+      ...record('src_a'),
+      canonicalUrl: null,
+      originalUrl: null,
+      contentHash: hash,
+      fetchedAt: at,
+      publishedAt: null,
+      eventAt: null,
+      retrievalStatus: 'retrieved',
+      origin: 'user_provided',
+      visibilityScope: { companyIds: ['co_a'], marketIds: [] },
+    };
+    vault.saveSourceVersion(source, content, 0);
+    vault.savePassage({
+      ...record('pass_a'),
+      sourceId: 'src_a',
+      sourceRevision: 1,
+      text: content,
+      contentHash: hash,
+      origin: source.origin,
+      visibilityScope: source.visibilityScope,
+    });
+    vault.saveMetricDefinition({
+      record: record('annual_revenue'),
+      label: 'Annual revenue',
+      description: 'Reported revenue for the annual interval, not funding.',
+      unit: 'money',
+      currencyMode: 'required',
+      scopeKind: 'company',
+      periodKind: 'interval',
+    });
+    for (const [year, value] of [
+      [2025, 0],
+      [2026, 5],
+    ]) {
+      vault.saveObservation({
+        ...record(`obs_${year}`),
+        companyId: 'co_a',
+        metricDefinitionId: 'annual_revenue',
+        scope: { kind: 'company', id: 'co_a' },
+        unit: 'money',
+        currency: 'USD',
+        period: {
+          kind: 'interval',
+          startAt: `${year}-01-01T00:00:00Z`,
+          endAt: `${year}-12-31T23:59:59Z`,
+        },
+        value,
+        support: 'supported',
+        evidenceRefs: [{ sourceId: 'src_a', sourceRevision: 1, passageId: 'pass_a' }],
+      });
+    }
+    assert.equal(vault.listObservations('co_a').items.length, 2);
+    assert.equal(vault.comparableObservations('obs_2025').items.length, 1);
+    assert.equal(vault.comparableObservations('obs_2025').hasDifferentValues, false);
+    assert.throws(
+      () =>
+        vault.saveSourceVersion(
+          { ...source, id: 'src_bad', contentHash: 'a'.repeat(64) },
+          content,
+          0,
+        ),
+      /hash/i,
+    );
     const backupPath = path.join(directory, 'inventory-backup.sqlite');
     await vault.backup(backupPath);
     const restored = openVault(backupPath, vaultId);
     try {
       assert.deepEqual(restored.getCompany('co_a'), updated);
+      assert.deepEqual(restored.getSourceVersion('src_a', 1), { record: source, content });
+      assert.equal(restored.getPassage('pass_a').text, content);
+      assert.deepEqual(
+        restored.listObservations('co_a').items.map((item) => item.value),
+        [0, 5],
+      );
       assert.equal(restored.integrity(), 'ok');
     } finally {
       restored.close();
@@ -68,6 +159,10 @@ async function proveNativeVault(directory) {
       staleWriteRejected: true,
       pagedSearch: true,
       backupReopened: true,
+      versionOneUpgrade: true,
+      retainedEvidenceBackup: true,
+      periodAndZeroRetained: true,
+      falseHashRejected: true,
     };
   } finally {
     vault.close();

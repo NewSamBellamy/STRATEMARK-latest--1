@@ -6,12 +6,17 @@ import type { SQLInputValue } from 'node:sqlite';
 import type * as NodeSqlite from 'node:sqlite';
 import { z } from 'zod';
 import { compareRecordTimestamps, recordVersionSchema } from '@mi/contracts';
+import { createEvidenceStore, evidenceSchemaSql } from './vault-evidence-store';
+import {
+  currentVaultSchemaVersion,
+  initializeVaultSchema,
+  inspectVaultSchema,
+} from './vault-schema';
 
 // Native resolution also avoids Vite5's obsolete builtin list. No third-party binding.
 const { DatabaseSync, backup } = createRequire(process.execPath)(
   'node:sqlite',
 ) as typeof NodeSqlite;
-const SCHEMA_VERSION = 1;
 const label = z.string().trim().min(1).max(240);
 const companySchema = z
   .object({
@@ -55,56 +60,16 @@ const historyOptions = z
   })
   .strict();
 
-const SCHEMA = `
-CREATE TABLE vault_meta (
-  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
-  vault_id TEXT NOT NULL,
-  revision INTEGER NOT NULL CHECK(revision>=0 AND revision<=9007199254740991)
-) STRICT;
-CREATE TABLE companies (
-  id TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision>0), body TEXT NOT NULL CHECK(json_valid(body))
-) STRICT;
-CREATE TABLE markets (
-  id TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision>0), body TEXT NOT NULL CHECK(json_valid(body))
-) STRICT;
-CREATE TABLE memberships (
-  id TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision>0), body TEXT NOT NULL CHECK(json_valid(body)),
-  company_id TEXT NOT NULL REFERENCES companies(id), market_id TEXT NOT NULL REFERENCES markets(id),
-  UNIQUE(company_id, market_id)
-) STRICT;
-CREATE TABLE record_history (
-  kind TEXT NOT NULL CHECK(kind IN ('companies','markets','memberships')),
-  id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>0),
-  body TEXT NOT NULL CHECK(json_valid(body)), PRIMARY KEY(kind,id,revision)
-) STRICT;
-CREATE TRIGGER history_no_update BEFORE UPDATE ON record_history BEGIN SELECT RAISE(ABORT,'History is append-only'); END;
-CREATE TRIGGER history_no_delete BEFORE DELETE ON record_history BEGIN SELECT RAISE(ABORT,'History is append-only'); END;
-CREATE VIRTUAL TABLE company_search USING fts5(company_id UNINDEXED, name, official_domain);
-`;
-
 /** Trusted local path and identity only. G01 owner lock must precede production use. */
 export function openVault(file: string, vaultId: string) {
   if (!path.isAbsolute(file)) throw new Error('Vault path must be an absolute local path.');
   recordVersionSchema.innerType().shape.vaultId.parse(vaultId);
   const existed = existsSync(file);
-  function inspect(db: InstanceType<typeof DatabaseSync>) {
-    const version = db.prepare('PRAGMA user_version').get()?.user_version;
-    if (typeof version !== 'number' || version > SCHEMA_VERSION)
-      throw new Error('Vault schema was saved by a newer version.');
-    if (version !== SCHEMA_VERSION)
-      throw new Error('Unrecognized vault schema. Original data was not changed.');
-    const meta = db.prepare('SELECT vault_id FROM vault_meta WHERE singleton=1').get();
-    if (meta?.vault_id !== vaultId) throw new Error('Vault identity does not match.');
-    if (db.prepare('PRAGMA quick_check').get()?.quick_check !== 'ok')
-      throw new Error('Vault integrity check failed.');
-    if (db.prepare('PRAGMA foreign_key_check').all().length !== 0)
-      throw new Error('Vault foreign key check failed.');
-  }
   // Inspect unsupported/mismatched files read-only, before journal/header changes.
   if (existed) {
     const reader = new DatabaseSync(file, { readOnly: true, allowExtension: false });
     try {
-      inspect(reader);
+      inspectVaultSchema(reader, vaultId);
     } finally {
       reader.close();
     }
@@ -117,22 +82,8 @@ export function openVault(file: string, vaultId: string) {
   });
   try {
     db.exec('PRAGMA trusted_schema=OFF; BEGIN IMMEDIATE;');
-    if (existed) inspect(db);
-    else {
-      // Recheck after obtaining the SQLite write lock: another initializer may
-      // have created the same file between our existence check and open.
-      const version = db.prepare('PRAGMA user_version').get()?.user_version;
-      if (version === SCHEMA_VERSION) inspect(db);
-      else {
-        const tables = db
-          .prepare("SELECT count(*) AS count FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'")
-          .get()?.count;
-        if (version !== 0 || tables !== 0) throw new Error('Unrecognized vault schema.');
-        db.exec(SCHEMA);
-        db.prepare('INSERT INTO vault_meta VALUES(1,?,0)').run(vaultId);
-        db.exec(`PRAGMA user_version=${SCHEMA_VERSION};`);
-      }
-    }
+    // Recheck and upgrade within the write transaction, not while inspecting.
+    initializeVaultSchema(db, vaultId, !existed, evidenceSchemaSql);
     db.exec('COMMIT; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   } catch (error) {
     if (db.isTransaction) db.exec('ROLLBACK;');
@@ -260,9 +211,10 @@ export function openVault(file: string, vaultId: string) {
     }
   }
   return {
+    ...createEvidenceStore(db, vaultId, assertOpen, readRevision),
     status() {
       assertOpen();
-      return { vaultId, schemaVersion: SCHEMA_VERSION, revision: readRevision() };
+      return { vaultId, schemaVersion: currentVaultSchemaVersion, revision: readRevision() };
     },
     saveCompany(value: VaultCompany, expectedRevision: number) {
       save('companies', companySchema.parse(value), expectedRevision);

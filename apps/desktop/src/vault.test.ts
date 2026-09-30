@@ -38,7 +38,7 @@ describe('offline native vault foundation (no product cutover)', () => {
     const file = location();
     let vault = openVault(file, 'vault_fixture');
     vault.saveCompany(company(), 0);
-    expect(vault.status()).toMatchObject({ schemaVersion: 1, revision: 1 });
+    expect(vault.status()).toMatchObject({ schemaVersion: 2, revision: 1 });
     vault.close();
     vault = openVault(file, 'vault_fixture');
     expect(vault.getCompany('co_a')).toEqual(company());

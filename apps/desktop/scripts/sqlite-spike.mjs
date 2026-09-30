@@ -139,6 +139,10 @@ try {
     staleWriteRejected: true,
     pagedSearch: true,
     backupReopened: true,
+    versionOneUpgrade: true,
+    retainedEvidenceBackup: true,
+    periodAndZeroRetained: true,
+    falseHashRejected: true,
   });
   for (const key of ['fts5Match', 'walReopen', 'backupFromOpenWal', 'backupReopen'])
     assert.equal(prepared[key], true);

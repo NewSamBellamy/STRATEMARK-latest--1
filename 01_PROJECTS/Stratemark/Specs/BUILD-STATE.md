@@ -11,12 +11,14 @@ deferred by the human; do not stop for missing API telemetry or require cost
 projections before worker dispatch. This overrides the historical campaign
 instructions below, not product privacy, bounded execution, phase dependencies,
 context ceilings or live-research consent. Goal is active (verified via goal tool).
-Latest completed packet: G01-P02 below. G00 contracts and reproduced baseline
+Latest completed packet: G01-P03 below. G00 contracts and reproduced baseline
 are frozen for offline G01 work; this is not product-readiness or service parity.
 G01-P01 proves the native SQLite binding in an unsigned packaged app and the
 actual installer payload, plus fixes two legacy data-safety defects. G01-P02
 adds an offline inventory vault and fixes quota-induced report loss. G01-P03
-must add retained evidence and writer/cutover fences; no live cutover is authorized.
+adds retained evidence, period-compatible observations and the v1-to-v2 fixture
+upgrade. G01-P04 must add exclusive owner/writer fences before fixture cutover.
+No live cutover is authorized.
 The full goal remains active; do not restart planning.
 Earlier $50/Astra campaign instructions are historical, not current dispatch
 rules. The human reports API-key sign-in; actual development spend is unknown.
@@ -25,15 +27,15 @@ preflight blocks this development goal; live product research still requires
 separate explicit approval and a numeric cap.
 
 - Planning: complete researched v1 north star, action catalogue, phase goals, and evidence ledger.
-- Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. Three of the original 11 reproduced defects are fixed; 8 remain RED. Offline native inventory vault persists versioned companies, markets and memberships with history, revision conflicts, search paging and backup. It is NOT connected to the current app/data/service. G01 is not complete.
+- Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. Three of the original 11 reproduced defects are fixed; 8 remain RED. Offline native vault now retains inventory, hashed source versions/content, exact passages, immutable metric definitions and numeric observations with linked evidence and periods. It is NOT connected to the current app/data/service; link validation is not semantic verification. G01 is not complete.
 - Branch: `feat/stratemark-spinoff-local-agents`, created from `b2c6398`; predecessor `feat/claim-level-signal-evidence` retained unchanged. Personal-fork checkpoint destination: remote newsam, `NewSamBellamy/STRATEMARK-latest--1`.
 - Inspected code baseline: `3f18af2`. The documentation commit will follow that baseline; determine current HEAD from git rather than treating this baseline as current code forever.
 - Goal tool: the human's replacement Sol-planner/Luna-worker goal is active, verified at G00-P03 start. No billing blocker remains for development. Keep the full goal active at packet boundaries.
-- Next work: G01-P03 retained source versions/passages/observations and immutable relationships; then exclusive ownership/writer-generation fencing and offline fixture migration. P02 record revision checks are NOT a process lock or a late-worker/cutover fence. Chosen investigation binding is node:sqlite on Electron44.4.5/Node24.21.0/SQLite3.53.4; its API is release-candidate, not Stability2. Keep it isolated and verify performance/recovery before production acceptance. No live data migration is authorized. G02/G07 own runtime enforcement and actual adapter parity; source-level caller inspection is not that proof.
+- Next work: G01-P04 minimum exclusive ownership/writer-generation fencing and legacy-worker shutdown contract before offline fixture migration/cutover. Record revision checks are NOT a process lock or a late-worker/cutover fence. Keep P03 evidence/definition APIs internal until scoped service reads and semantic support checks exist. Chosen investigation binding is node:sqlite on Electron44.4.5/Node24.21.0/SQLite3.53.4; its API is release-candidate, not Stability2. Keep it isolated and verify performance/recovery before production acceptance. No live data migration is authorized. G02/G07 own runtime enforcement and actual adapter parity; source-level caller inspection is not that proof.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
 - Push: latest human explicitly authorized periodic checkpoints ONLY to this new personal-fork branch. No overwriting existing refs, upstream/Tobi pushes, main merge, release or deployment. First upload verified at `73e61c0e0f9f20e063fd290ef9fb3a122f570061`; all 49 pre-existing remote branch refs remained unchanged, including main at `c945b31dee0095331b8487133c131c36e76ba601`. Verified owner NewSamBellamy, public fork of Maruf. The shorter old URL redirects to Maruf and is unsafe as a personal destination. Read actual local/remote tips before each later fast-forward checkpoint.
-- Current application tests: latest G01-P02 check passed all6 typechecks/lint; contracts353, mocks16, research326 passed/7 known failures. Independent desktop48 passed/1 known failure; web153/153 passed (both journey tests passed). API158 passed in P01, unchanged/not freshly rerun in P02. Full root gate remains RED; no live research or new visual acceptance. Packaged synthetic binding/inventory proof is not full desktop release acceptance.
+- Current application tests: latest G01-P03 check passed all6 typechecks/lint; contracts353, mocks16, research326 passed/7 known failures. Independent desktop81 passed/1 known failure; native inventory/evidence/schema52/52 passed; web153/153 passed (both journey tests passed). API158 passed in P01, unchanged/not freshly rerun in P03. Full root gate remains RED; no live research or new visual acceptance. Packaged synthetic evidence/upgrade/crash/backup proof is not full desktop release acceptance.
 - Document verification: local links and balanced code fences passed; unique registers checked (22 defaults, 30 stories, 62 actions, 9 goals, 26 sources); JSON command example parsed; canonical files had no candidate credential patterns. Markdown formatting checked separately before commit.
 - Astra final planning review: seven substantive gaps identified and addressed (service lifetime, migration fences, imported authority, restored budgets, asset/evidence retention, asynchronous output retrieval, and human approval boundary). Re-review found no remaining material contract contradictions; this is planning consistency, not application verification.
 
@@ -50,17 +52,17 @@ separate explicit approval and a numeric cap.
 
 ## Execution ledger
 
-| Goal | State                             | Packet / commit evidence      | Remaining                                                           |
-| ---- | --------------------------------- | ----------------------------- | ------------------------------------------------------------------- |
-| G00  | Contract/baseline freeze complete | G00-P01-P05 below             | Legacy defects remain RED; enforcement/parity belong to G01/G02/G07 |
-| G01  | In progress                       | G01-P02 inventory/quota proof | Evidence, writer fences and fixture migration                       |
-| G02  | Not started                       | None                          | Shared runtime, policies, secrets                                   |
-| G03  | Not started                       | None                          | Progressive research and evaluation                                 |
-| G04  | Not started                       | None                          | Cards and coherent frontend journey                                 |
-| G05  | Not started                       | None                          | Decision outputs and findings                                       |
-| G06  | Not started                       | None                          | Local monitored updates                                             |
-| G07  | Not started                       | None                          | Scoped MCP                                                          |
-| G08  | Not started                       | None                          | Production verification                                             |
+| Goal | State                             | Packet / commit evidence        | Remaining                                                           |
+| ---- | --------------------------------- | ------------------------------- | ------------------------------------------------------------------- |
+| G00  | Contract/baseline freeze complete | G00-P01-P05 below               | Legacy defects remain RED; enforcement/parity belong to G01/G02/G07 |
+| G01  | In progress                       | G01-P03 retained evidence proof | Writer fences, complete records and staged fixture migration        |
+| G02  | Not started                       | None                            | Shared runtime, policies, secrets                                   |
+| G03  | Not started                       | None                            | Progressive research and evaluation                                 |
+| G04  | Not started                       | None                            | Cards and coherent frontend journey                                 |
+| G05  | Not started                       | None                            | Decision outputs and findings                                       |
+| G06  | Not started                       | None                            | Local monitored updates                                             |
+| G07  | Not started                       | None                            | Scoped MCP                                                          |
+| G08  | Not started                       | None                            | Production verification                                             |
 
 Only one authoritative execution ledger lives here. Action schemas are authoritative in contracts once built; update this plan when implementation intentionally changes the design. Do not create competing status files in unrelated folders.
 
@@ -562,6 +564,87 @@ JSON snapshot, generic arbitrary-SQL API or premature service/renderer cutover.
 Add minimum exclusive owner/writer-generation fencing before fixture migration.
 Remaining8 original blockers stay ordinary RED; broad goal stays active. Save
 each meaningful verified checkpoint to newsam spin-off, never main.
+
+## Packet G01-P03 — Retained evidence and period-aware native observations
+
+Entry HEAD `fc59ac2`, September30. P02 fast-forward backup verified at that tip;
+all49 other remote branches remained unchanged. Sol owns integration/evidence,
+Luna/high worker Ampere owns only vault-schema.ts/test.ts (completed and closed).
+US01/US13/US16/US23/US30; prepares A05/A25/A42/A47/A61, not a wired action service.
+No Astra, provider calls, key reads, live data, UI redesign, installation or publication.
+
+Native vault schema2 has an explicit transactional chain from P02 schema1.
+Read-only inspection accepts only recognized schemas/identity/mandatory columns,
+checks integrity/FKs and never upgrades. Write initialization rechecks under
+BEGIN IMMEDIATE; failed DDL rolls back without stamping2. Existing inventory,
+history, FTS and vault revision survive the synthetic upgrade. A missing evidence
+column, unrelated DB, too-new version or wrong identity is refused, not repaired.
+This is not a validated external import or complete malicious-schema auditor.
+
+vault-evidence-store.ts reuses the canonical source/passage/observation validators.
+Sources retain exact UTF-8 text (at most2000000 bytes) and a checked SHA256;
+lossy Unicode and false hashes are rejected. Failed/blocked retrieval has no
+fabricated content/hash. Private user-provided evidence need not have a public URL.
+Sources append exact versions with CAS/chronology checks. Passages must hash
+correctly, occur verbatim in that source version, retain origin and never broaden
+its selected company/market scope. Quotes and observations are immutable records
+at revision1; corrections append new IDs rather than rewriting old support.
+
+Immutable internal metric definitions retain label/meaning/unit/currency mode/
+scope kind/period kind. Numeric observations must fit the definition, reference
+an existing company, and use the exact source/version/passage tuple. Composite
+FKs, ordered evidence junctions and append-only triggers preserve relationships.
+Market-scoped observations require membership in that market and market-scoped
+evidence; company-wide observations require explicit company-scoped evidence.
+This avoids promoting private market-only evidence into a shared dossier.
+Company/market metric scopes are implemented; product/segment/geography scope
+registries remain open and fail closed here. This is not connector authorization.
+
+Periods, currency, scope, metric definition and company determine comparison
+identity. Different periods coexist; same-period competing values and real zero
+are retained. Unknowns stay null and unknown periods are not comparable. Bounded
+cursor pages carry one SQLite snapshot revision. Different-value flags are review
+candidates, NOT adjudicated conflicts. Presence/hash/link checks do not prove a
+quote supports the stated number or period; semantic support checking and eligible
+card-fact selection remain G03/G04. A declared supported record is not a human
+attestation; the strict schema rejects user_verified. No production writer/service
+or existing research path has been switched to this adapter.
+
+Verification (actual final source):
+
+- Test-first18 evidence cases: initial16 missing-method failures; Unicode case
+  reproduced lossy retention before its fix; definition getter failed before
+  implementation. Final inventory19 + evidence18 + schema15 =52/52 pass on real
+  disposable SQLite. No mocks/timeouts/rules changed. Coordinator reviewed and
+  reran Luna's schema tests with the actual evidence DDL.
+- pnpm check: all6 typechecks/root lint/contracts353/mocks16 pass;
+  research326 pass/7 original failures; root exit1, downstream not reached.
+  Independent desktop81 pass/1 original secret-boundary failure. Full web153/153
+  pass, both journeys pass (3.085s total). API not rerun; historical158 not current
+  evidence. Keyless live fixtures return early, not live quality verification.
+- Normal desktop main build passes and removes optional proof bundle. Source
+  formatting/whitespace checks pass. A scoped lint attempt included the already
+  ignored scripts file and warned; final non-ignored source lint/root lint pass.
+  One runner invocation omitted required arguments; corrected explicit invocation
+  passes. Neither environment/invocation error was counted as assertion RED.
+- Optional native proof requires new evidence/upgrade fields; old P02 package
+  fails those assertions. Rebuilt Electron and unsigned unpublished ASAR proof
+  pass: schema1 company/history survive upgrade2, retained source/passages and
+  two annual observations survive backup, true zero retained, periods not combined,
+  false hash rejected. Prior FTS/WAL/online backup/SIGKILL checks also pass.
+  Runtime matches P01: Electron44.4.5/Node24.21.0/SQLite3.53.4, same SQL source ID,
+  1582112 uncommitted WAL bytes before kill, committed data survives, uncommitted
+  absent, integrity ok. Fresh ignored artifact:
+  apps/desktop/release/sqlite-spike-20260930-fc59ac2-evidence/win-unpacked.
+  Frozen source during packaging; no new NSIS/full GUI/installation proof.
+
+Remaining:8 original legacy/security defects (not fixed merely by new adapter
+tests), exclusive owner/writer generations, staged snapshot migration, reports/
+findings/jobs/policies/assets and validated export/import/restore/GC. Internal
+source reads can return large text; do not expose them as unbounded MCP responses.
+Backup path/race and malicious-import boundaries, source retention performance,
+semantic verification and true UI/service parity remain open. Continue G01-P04;
+keep the full goal active and back up meaningful slices only to newsam spin-off.
 
 ## Change record (history)
 
