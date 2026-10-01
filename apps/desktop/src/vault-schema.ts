@@ -1,13 +1,18 @@
 import type * as NodeSqlite from 'node:sqlite';
 import { researchSchemaSql } from './vault-research-store';
-import { workSchemaColumns, workSchemaSql } from './vault-work-store';
+import {
+  workSchemaColumns,
+  workSchemaSql,
+  bookmarkSchemaColumns,
+  bookmarkSchemaSql,
+} from './vault-work-store';
 import {
   legacySchemaSql,
   legacySchemaColumns,
   assertLegacySchemaGuards,
 } from './vault-legacy-store';
 
-export const currentVaultSchemaVersion = 7;
+export const currentVaultSchemaVersion = 8;
 
 const identitySearchProjection = `
 SELECT c.id,
@@ -200,6 +205,30 @@ export function inspectVaultSchema(db: NodeSqlite.DatabaseSync, vaultId: string)
     assertLegacySchemaGuards(db);
   }
   if (version >= 7) requireTableColumns(db, workSchemaColumns, 'operational research');
+  if (version >= 8) {
+    requireTableColumns(db, bookmarkSchemaColumns, 'saved cards');
+    const columns = db.prepare('PRAGMA table_info(work_saved_cards)').all();
+    const card = columns.find((column) => column.name === 'card_id');
+    const savedAt = columns.find((column) => column.name === 'saved_at');
+    const links = db.prepare('PRAGMA foreign_key_list(work_saved_cards)').all();
+    const strict = db
+      .prepare(
+        "SELECT strict FROM pragma_table_list WHERE name='work_saved_cards' AND schema='main'",
+      )
+      .get();
+    if (
+      card?.pk !== 1 ||
+      columns.filter((column) => Number(column.pk) > 0).length !== 1 ||
+      card.notnull !== 1 ||
+      savedAt?.notnull !== 1 ||
+      strict?.strict !== 1 ||
+      links.length !== 1 ||
+      links[0]?.table !== 'work_cards' ||
+      links[0]?.from !== 'card_id' ||
+      links[0]?.to !== 'id'
+    )
+      throw new Error('Saved card identity constraints are damaged.');
+  }
   if (db.prepare('PRAGMA quick_check').get()?.quick_check !== 'ok')
     throw new Error('Vault integrity check failed.');
   if (db.prepare('PRAGMA foreign_key_check').all().length !== 0)
@@ -273,6 +302,11 @@ export function initializeVaultSchema(
   if (version === 6) {
     db.exec(workSchemaSql);
     db.exec('PRAGMA user_version=7;');
+    version = 7;
+  }
+  if (version === 7) {
+    db.exec(bookmarkSchemaSql);
+    db.exec('PRAGMA user_version=8;');
   }
   inspectVaultSchema(db, vaultId);
 }

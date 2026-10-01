@@ -109,7 +109,7 @@ function createVersionSix(file: string) {
   createCurrent(file);
   const db = openDatabase(file);
   db.exec(
-    'BEGIN IMMEDIATE; DROP TABLE work_cards; DROP TABLE work_events; DROP TABLE work_runs; DROP TABLE work_decks; DROP TABLE work_markets; PRAGMA user_version=6; COMMIT;',
+    'BEGIN IMMEDIATE; DROP TABLE work_saved_cards; DROP TABLE work_cards; DROP TABLE work_events; DROP TABLE work_runs; DROP TABLE work_decks; DROP TABLE work_markets; PRAGMA user_version=6; COMMIT;',
   );
   closeDatabase(db);
 }
@@ -139,13 +139,66 @@ afterEach(() => {
 });
 
 describe('offline vault schema migrations', () => {
-  it('creates schema version 7 in an empty database and leaves the transaction open', () => {
+  it('upgrades version 7 for bookmarks without changing retained research or vault revision', () => {
+    const file = location();
+    createCurrent(file);
+    const old = openDatabase(file);
+    old.exec('DROP TABLE IF EXISTS work_saved_cards; PRAGMA user_version=7;');
+    const before = old.prepare('SELECT * FROM vault_meta').all();
+    closeDatabase(old);
+    const bytes = readFileSync(file);
+    expect(() => {
+      const unexpected = openVault(file, vaultId, 'reader');
+      unexpected.close();
+    }).toThrow(/owner-side schema upgrade/i);
+    expect(readFileSync(file)).toEqual(bytes);
+    const upgraded = openDatabase(file);
+    upgraded.exec('BEGIN IMMEDIATE;');
+    initializeVaultSchema(upgraded, vaultId, false, 'DO NOT RUN OLD EVIDENCE DDL');
+    expect(inspectVaultSchema(upgraded, vaultId)).toBe(8);
+    expect(upgraded.prepare('SELECT * FROM vault_meta').all()).toEqual(before);
+    expect(upgraded.prepare('SELECT * FROM work_saved_cards').all()).toEqual([]);
+    upgraded.exec('COMMIT;');
+  });
+
+  it('refuses a damaged version 8 bookmark table without modifying the file', () => {
+    const file = location();
+    createCurrent(file);
+    const direct = openDatabase(file);
+    direct.exec('DROP TABLE IF EXISTS work_saved_cards; PRAGMA user_version=8;');
+    closeDatabase(direct);
+    expectInspectionRefusal(file, vaultId, /required.*saved.*table|table.*work_saved_cards/i);
+  });
+
+  it('refuses a replaced bookmark table without its identity constraints', () => {
+    const file = location();
+    createCurrent(file);
+    const direct = openDatabase(file);
+    direct.exec(
+      'DROP TABLE work_saved_cards; CREATE TABLE work_saved_cards(card_id TEXT,saved_at TEXT);',
+    );
+    closeDatabase(direct);
+    expectInspectionRefusal(file, vaultId, /saved.*constraint/i);
+  });
+
+  it('refuses a composite bookmark primary key that permits duplicate saved identities', () => {
+    const file = location();
+    createCurrent(file);
+    const direct = openDatabase(file);
+    direct.exec(
+      'DROP TABLE work_saved_cards; CREATE TABLE work_saved_cards(card_id TEXT NOT NULL REFERENCES work_cards(id),saved_at TEXT NOT NULL,PRIMARY KEY(card_id,saved_at)) STRICT;',
+    );
+    closeDatabase(direct);
+    expectInspectionRefusal(file, vaultId, /saved.*constraint/i);
+  });
+
+  it('creates schema version 8 in an empty database and leaves the transaction open', () => {
     const db = openDatabase(location());
     db.exec('BEGIN IMMEDIATE;');
 
     initializeVaultSchema(db, vaultId, true, evidenceSchemaSql);
 
-    expect(currentVaultSchemaVersion).toBe(7);
+    expect(currentVaultSchemaVersion).toBe(8);
     expect(db.isTransaction).toBe(true);
     expect(inspectVaultSchema(db, vaultId)).toBe(currentVaultSchemaVersion);
     expect(db.prepare('SELECT revision FROM vault_meta WHERE singleton=1').get()).toEqual({
@@ -424,7 +477,7 @@ describe('offline vault schema migrations', () => {
     const ownerDb = openDatabase(file);
     ownerDb.exec('BEGIN IMMEDIATE;');
     initializeVaultSchema(ownerDb, vaultId, false, 'INVALID EVIDENCE SQL MUST NOT RUN;');
-    expect(inspectVaultSchema(ownerDb, vaultId)).toBe(7);
+    expect(inspectVaultSchema(ownerDb, vaultId)).toBe(8);
     expect(ownerDb.prepare('SELECT * FROM record_history').all()).toEqual(before.history);
     expect(ownerDb.prepare('SELECT * FROM source_versions').all()).toEqual(before.evidence);
     expect(ownerDb.prepare('SELECT * FROM companies').all()).toEqual(before.inventory);

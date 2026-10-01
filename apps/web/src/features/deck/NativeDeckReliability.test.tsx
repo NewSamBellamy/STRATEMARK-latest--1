@@ -16,6 +16,7 @@ import type {
 import { RepositoryProvider } from '@/lib/repository/RepositoryProvider';
 import { useMarkets } from '@/hooks/data';
 import { useApiKey } from '@/lib/settings/apiKey';
+import { qk } from '@/lib/query/keys';
 import NativeDeckCreate from './NativeDeckCreate';
 import NativeDeckPage from './NativeDeckPage';
 
@@ -84,9 +85,20 @@ function bridge(initialRuns: NativeResearchRun[] = []) {
     runs: initialRuns,
     events: [] as NativeResearchEvent[],
     cards: [] as CardWithCompany[],
+    savedIds: new Set<string>(),
   };
   const api = {
     storageMode: 'native' as const,
+    listSavedCards: vi.fn(async () =>
+      state.cards.filter((entry) => state.savedIds.has(entry.card.id)),
+    ),
+    saveCard: vi.fn(async (cardId: string) => {
+      state.savedIds.add(cardId);
+      return { cardId, savedAt: at };
+    }),
+    unsaveCard: vi.fn(async (cardId: string) => {
+      state.savedIds.delete(cardId);
+    }),
     listNativeRuns: vi.fn(async () => [...state.runs]),
     startNativeResearch: vi.fn(async (input: NativeResearchStart) => {
       const existing = state.runs.find((item) => item.requestKey === input.requestKey);
@@ -333,6 +345,85 @@ describe('explicit source capture allowance', () => {
 });
 
 describe('native saved source reader', () => {
+  it('saves only after an explicit reader action and a confirmed receipt, never on card open', async () => {
+    const native = evidenceBridge();
+    let finish!: () => void;
+    native.api.saveCard.mockImplementationOnce(
+      (cardId) =>
+        new Promise((resolve) => {
+          finish = () => {
+            native.state.savedIds.add(cardId);
+            resolve({ cardId, savedAt: at });
+          };
+        }),
+    );
+    const { user, qc } = mount(native, client(), '/markets/market-1/deck');
+    await user.click(await screen.findByRole('button', { name: 'Saved company — Company card' }));
+    const dialog = within(await screen.findByRole('dialog'));
+    const save = await dialog.findByRole('button', { name: 'Save card' });
+    await waitFor(() => expect(save).toBeEnabled());
+    expect(native.api.saveCard).not.toHaveBeenCalled();
+    await user.click(save);
+    expect(save).toBeDisabled();
+    expect(dialog.queryByText('Card saved to your collection.')).not.toBeInTheDocument();
+    expect(qc.getQueryData(qk.savedCards)).toEqual([]);
+    await user.click(save);
+    expect(native.api.saveCard).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+    expect(await dialog.findByRole('button', { name: 'Remove from saved' })).toBeEnabled();
+    expect(qc.getQueryData(qk.savedCards)).toEqual([native.state.cards[0]]);
+    expect(native.api.saveCard).toHaveBeenCalledWith('card-1');
+    expect(native.api.startNativeResearch).not.toHaveBeenCalled();
+    expect(native.capture).not.toHaveBeenCalled();
+  });
+
+  it.each(['rejected', 'wrong card receipt'] as const)(
+    'keeps save failures honest for %s',
+    async (mode) => {
+      const native = evidenceBridge();
+      if (mode === 'rejected')
+        native.api.saveCard.mockRejectedValueOnce(new Error('Collection write failed'));
+      else native.api.saveCard.mockResolvedValueOnce({ cardId: 'other-card', savedAt: at });
+      const { user } = mount(native, client(), '/markets/market-1/deck');
+      await user.click(await screen.findByRole('button', { name: 'Saved company — Company card' }));
+      const dialog = within(await screen.findByRole('dialog'));
+      const save = await dialog.findByRole('button', { name: 'Save card' });
+      await waitFor(() => expect(save).toBeEnabled());
+      await user.click(save);
+      expect(await dialog.findByRole('alert')).toHaveTextContent(/could not be saved/i);
+      expect(dialog.queryByText('Card saved to your collection.')).not.toBeInTheDocument();
+      expect(save).toBeEnabled();
+      expect(native.state.savedIds.size).toBe(0);
+    },
+  );
+
+  it.each([false, true])(
+    'keeps reader actions read-only and keyless when already saved is %s',
+    async (alreadySaved) => {
+      const native = evidenceBridge();
+      if (alreadySaved) native.state.savedIds.add('card-1');
+      Object.assign(native.api, { nativeResearchWritable: false });
+      useApiKey.setState({ hasKey: false });
+      const { user } = mount(native, client(), '/markets/market-1/deck');
+      await user.click(await screen.findByRole('button', { name: 'Saved company — Company card' }));
+      const dialog = within(await screen.findByRole('dialog'));
+      expect(
+        await dialog.findByRole('button', {
+          name: alreadySaved ? 'Remove from saved' : 'Save card',
+        }),
+      ).toBeDisabled();
+      expect(
+        dialog.getByText(
+          /Collection changes are disabled.*Saved cards and sources remain readable/,
+        ),
+      ).toBeVisible();
+      await user.click(dialog.getByRole('button', { name: 'Show retained text' }));
+      expect(dialog.getByText('A saved plain text passage.')).toBeVisible();
+      expect(native.api.saveCard).not.toHaveBeenCalled();
+      expect(native.api.unsaveCard).not.toHaveBeenCalled();
+    },
+  );
+
   it('reads retained evidence lazily offline, expands plain text, and restores card focus/filter on Escape', async () => {
     const native = evidenceBridge([source({ text: syntheticText })]);
     Object.assign(native.api, { researchProvenance: 'synthetic_fixture' });

@@ -20,6 +20,7 @@ import {
   type Deck,
   type CardWithCompany,
   type ResearchProgress,
+  type SavedCard,
 } from '@mi/contracts';
 
 export type NativeRun = NativeResearchRun;
@@ -167,6 +168,14 @@ CREATE TABLE work_cards (
 ) STRICT;
 CREATE INDEX work_cards_deck ON work_cards(deck_id,id);
 CREATE INDEX work_cards_run_company ON work_cards(run_id,company_id);
+`;
+
+export const bookmarkSchemaColumns = { work_saved_cards: ['card_id', 'saved_at'] } as const;
+export const bookmarkSchemaSql = `
+CREATE TABLE work_saved_cards (
+  card_id TEXT PRIMARY KEY NOT NULL REFERENCES work_cards(id),
+  saved_at TEXT NOT NULL
+) STRICT;
 `;
 
 const transitions: Record<NativeRun['status'], readonly NativeRun['status'][]> = {
@@ -446,6 +455,19 @@ export function createWorkStore(
       assertOpen();
       return decodeCard(db.prepare('SELECT * FROM work_cards WHERE id=?').get(id.parse(cardId)));
     },
+    listSavedCards(): CardWithCompany[] {
+      assertOpen();
+      return db
+        .prepare(
+          'SELECT c.*,s.saved_at FROM work_saved_cards s LEFT JOIN work_cards c ON c.id=s.card_id ORDER BY s.saved_at DESC,s.card_id',
+        )
+        .all()
+        .map((row) => {
+          timestamp.parse(row.saved_at);
+          if (!row.id) throw new Error('Saved reference points to a missing card.');
+          return decodeCard(row)!;
+        });
+    },
     listMarkets(): Market[] {
       assertOpen();
       return db
@@ -468,6 +490,37 @@ export function createWorkStore(
   };
   return {
     ...reads,
+    bookmarkCard(cardId: string): SavedCard {
+      id.parse(cardId);
+      let changed = false;
+      return transaction(
+        () => {
+          if (!reads.getCard(cardId)) throw new Error('Saved card was not found.');
+          const previous = db
+            .prepare('SELECT saved_at FROM work_saved_cards WHERE card_id=?')
+            .get(cardId);
+          if (previous) return { cardId, savedAt: timestamp.parse(previous.saved_at) };
+          const savedAt = new Date().toISOString();
+          db.prepare('INSERT INTO work_saved_cards VALUES(?,?)').run(cardId, savedAt);
+          changed = true;
+          return { cardId, savedAt };
+        },
+        () => changed,
+      );
+    },
+    unbookmarkCard(cardId: string): void {
+      id.parse(cardId);
+      let changed = false;
+      transaction(
+        () => {
+          if (!reads.getCard(cardId)) throw new Error('Saved card was not found.');
+          changed =
+            Number(db.prepare('DELETE FROM work_saved_cards WHERE card_id=?').run(cardId).changes) >
+            0;
+        },
+        () => changed,
+      );
+    },
     acceptRun(input: NativeRun, marketInput: Market, deckInput: Deck): NativeRun {
       const run = runSchema.parse(input);
       const market = operationalMarketSchema.parse(marketInput);

@@ -11,6 +11,8 @@ import { buildCardView } from '@/features/card/card-view';
 import { useSavedCards } from '@/hooks/data';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { qk } from '@/lib/query/keys';
+import { isNativeResearch } from '@/lib/settings/runtime';
+import NativeSavedCardsPage from './NativeSavedCardsPage';
 
 function savedIdentity(entry: CardWithCompany): string {
   if (!entry.company) return entry.card.id;
@@ -40,6 +42,10 @@ export function collapseSavedCards(cards: CardWithCompany[]): CardWithCompany[] 
 }
 
 export default function SavedCardsPage() {
+  return isNativeResearch() ? <NativeSavedCardsPage /> : <LegacySavedCardsPage />;
+}
+
+function LegacySavedCardsPage() {
   const cards = useSavedCards();
   const uniqueCards = useMemo(() => collapseSavedCards(cards.data ?? []), [cards.data]);
   const repo = useRepository();

@@ -141,6 +141,94 @@ afterEach(async () => {
   for (const directory of roots.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
+it('saves and unsaves cards keylessly in a live writable workspace without changing research', async () => {
+  const { service, file } = open(testClient(), undefined, { researchProvenance: 'live_provider' });
+  const run = service.start(request);
+  await service.waitForIdle();
+  const cards = service.vault.work.listCards(run.deckId);
+  const retainedRun = service.vault.work.getRun(run.id);
+  const events = service.vault.work.listEvents(run.id);
+  await service.close();
+  services.splice(services.indexOf(service), 1);
+  const connection = vi.fn(() => null);
+  const saving = new NativeResearchService(openVault(file, 'fixture_native'), connection);
+  services.push(saving);
+  const selected = cards[0]!;
+  const saved = saving.saveCard(selected.card.id);
+  expect(saved).toEqual({ cardId: selected.card.id, savedAt: expect.any(String) });
+  expect(saving.vault.work.listSavedCards()).toEqual([selected]);
+  const revision = saving.vault.status().revision;
+  expect(saving.saveCard(selected.card.id)).toEqual(saved);
+  expect(saving.vault.status().revision).toBe(revision);
+  await saving.close();
+  services.splice(services.indexOf(saving), 1);
+  const reopened = new NativeResearchService(openVault(file, 'fixture_native'), connection);
+  services.push(reopened);
+  expect(reopened.vault.work.listSavedCards()).toEqual([selected]);
+  expect(reopened.unsaveCard(selected.card.id)).toBeUndefined();
+  expect(reopened.vault.work.listSavedCards()).toEqual([]);
+  const unsavedRevision = reopened.vault.status().revision;
+  reopened.unsaveCard(selected.card.id);
+  expect(reopened.vault.status().revision).toBe(unsavedRevision);
+  expect(reopened.vault.work.listCards(run.deckId)).toEqual(cards);
+  expect(reopened.vault.work.getRun(run.id)).toEqual(retainedRun);
+  expect(reopened.vault.work.listEvents(run.id)).toEqual(events);
+  expect(connection).not.toHaveBeenCalled();
+  expect(pipeline.discover).toHaveBeenCalledTimes(1);
+  expect(pipeline.hydrate).toHaveBeenCalledTimes(2);
+});
+
+it.each(['read_only', 'wrong_provenance'] as const)(
+  'blocks saving and unsaving in a %s workspace',
+  async (mode) => {
+    const { service, file } = open();
+    const run = service.start(request);
+    await service.waitForIdle();
+    const selected = service.vault.work.listCards(run.deckId)[0]!;
+    service.vault.writer().work.bookmarkCard(selected.card.id);
+    const revision = service.vault.status().revision;
+    await service.close();
+    services.splice(services.indexOf(service), 1);
+    const connection = vi.fn(() => null);
+    const blocked = new NativeResearchService(
+      openVault(file, 'fixture_native', mode === 'read_only' ? 'reader' : 'owner'),
+      connection,
+      undefined,
+      {
+        researchProvenance: mode === 'read_only' ? 'synthetic_fixture' : 'live_provider',
+        writable: mode !== 'read_only',
+      },
+    );
+    services.push(blocked);
+    const reason = mode === 'read_only' ? /read-only/i : /provenance/i;
+    expect(() => blocked.saveCard(selected.card.id)).toThrow(reason);
+    expect(() => blocked.unsaveCard(selected.card.id)).toThrow(reason);
+    expect(blocked.vault.work.listSavedCards()).toEqual([selected]);
+    expect(blocked.vault.work.getCard(selected.card.id)).toEqual(selected);
+    expect(blocked.vault.status().revision).toBe(revision);
+    expect(connection).not.toHaveBeenCalled();
+  },
+);
+
+it('rejects unknown cards for saving and unsaving without initializing a provider', () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'stratemark-native-bookmarks-'));
+  roots.push(directory);
+  const connection = vi.fn(() => null);
+  const service = new NativeResearchService(
+    openVault(path.join(directory, 'vault.sqlite'), 'fixture_native'),
+    connection,
+  );
+  services.push(service);
+  const revision = service.vault.status().revision;
+  expect(() => service.saveCard('crd_unknown')).toThrow(/not found/i);
+  expect(() => service.unsaveCard('crd_unknown')).toThrow(/not found/i);
+  expect(service.vault.work.listSavedCards()).toEqual([]);
+  expect(service.vault.status().revision).toBe(revision);
+  expect(connection).not.toHaveBeenCalled();
+  expect(pipeline.discover).not.toHaveBeenCalled();
+  expect(pipeline.hydrate).not.toHaveBeenCalled();
+});
+
 it('retains bounded source text after progressive cards and reads it after a keyless reopen', async () => {
   const url = 'https://sources.example/alder';
   pipeline.discover.mockImplementation(async () => ({ candidates: [candidates[0]] }));

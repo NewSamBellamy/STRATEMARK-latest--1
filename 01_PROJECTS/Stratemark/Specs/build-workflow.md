@@ -15,6 +15,10 @@ Current task is the authorized full build. MASTER-PLAN.md, EXPERIENCE-MAP.md and
 
 Keep every R0–R8 requirement in the coverage ledger. Choose the next slice by user impact: data loss/security and broken core journeys first, then a complete create → research → browse → evidence → save/reopen journey, then deeper useful research and sharing/agent access, then remaining polish and release gates. Dependencies may change the order; record why. High-impact-first is sequencing, not permission to omit lower-priority coverage.
 
+Use one bounded outcome at a time for the integrator. Start with the smallest affected acceptance check, expand when shared boundaries or findings justify it, and run the full gate at integration. Reuse an existing worker when it already owns the relevant context; do not launch duplicate broad audits. Keep reviewer packets to the actual diff, invariants and unresolved risks.
+
+Return implementation ownership and repair checkpoint review findings before the final full gate. Keep the verified application diff stable while that gate runs; concurrent worker RED tests can invalidate a checkpoint run. Avoid competing full builds during the gate on resource-constrained machines; targeted checks may still run during bounded development.
+
 Before each bounded assignment, state the user outcome, owned paths, acceptance check and stopping condition. After each slice, update BUILD-STATE and ACTIVE-HANDOFF with branch/HEAD, owned uncommitted work, what actually works, evidence and its limits, decisions, blockers, active workers/processes and the exact next action. Preserve planned versus implemented versus verified versus release-ready distinctions. Red-team each integrated checkpoint for actual user value; do not count scaffolding, documents or passing mocks alone as a completed journey.
 
 ## Verification and context
@@ -32,6 +36,8 @@ Keep stable request instructions consistent before changing task details where r
 Where controllable, keep reusable instructions/tool definitions and stable project context at the start of requests; append changing task details afterward. Do not rotate models or rewrite stable prefixes gratuitously. Do not pad prompts to manufacture cache hits. Runtime-managed requests may not expose cache controls or telemetry; record caching as unverified when it cannot be observed.
 
 Use completed investigation, integrated slice and worker ownership transfer as natural compaction points. Before compacting, persist the handoff above; afterward, read that handoff and only the relevant plan/code sections. Do not re-ingest the entire conversation, repeat completed research or rerun unchanged tests. If automatic compaction is unavailable, prepare a fresh-session handoff rather than pretending context was reset. Context thresholds apply to each agent's active context, not the goal's cumulative token count.
+
+Each compact handoff must answer: what user outcome is underway; exact branch/HEAD and dirty paths; who owns each path; which checks passed or failed and where evidence is stored; active worker/process IDs (or status unknown); the next concrete action; and what must not be touched. Put this current snapshot above historical notes. A failed acceptance test is unfinished work, not checkpoint proof. Do not copy large transcripts or raw logs into the handoff.
 
 Keep existing work and data. Checkpoints may fast-forward the previously authorized personal spin-off branch after verifying destination and remote state; never force push, merge main, publish or deploy on inference. Authentication failure leaves a local commit and an explicit backup gap. No credential inspection or secrets in output/docs.
 

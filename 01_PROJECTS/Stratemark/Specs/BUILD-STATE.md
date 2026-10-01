@@ -4,6 +4,8 @@ Updated October 1, 2026. The founder authorized the complete R0–R8 build. MAST
 
 ## Current execution checkpoint
 
+Current slice after documentation HEAD ee456b4: native bookmark/save/remove and saved collection implemented through SQLite/IPC/shared reader. All owners returned; review findings repaired. Final stable gate26904 passed all six typechecks/lint and1735 reported tests (desktop509/web287); clean-commit recording, final build and remote backup are pending. See ACTIVE-HANDOFF and CHECKPOINT-R1-SAVED-COLLECTION. The source checkpoint below remains the last verified recorded application until this acceptance finishes. Founder monitors the $100 target externally; budget setup does not suspend implementation. Cache hits and actual dollar spend are unobserved.
+
 R1 retained-source development checkpoint verified at application commit `d5052aae8e3c0d85e4a0ad30a8a8fae718ca352b` and backed up on the authorized GitHub exploration branch; main untouched at c945b31. Explicit source ceilings, bounded evidence IPC, safe public retrieval, immutable source/passages, offline reader and recovery are wired in isolated native preview. Final gate 27811 passed all six typechecks/lint and contracts374/mocks16/research391/API158/desktop496/web275; optional live paths still no-key skipped. Build/main rebuild passed with known 1.6MB web chunk warning. Clean-commit actual Electron recording `native-journey-1uRNuJ` passed source reading/recovery/keyless restart/narrow reader with no renderer errors or new read requests. Astra recovery findings repaired, including persistent passage failure and keyless local repair. See CHECKPOINT-R1-SAVED-SOURCES for playable recordings, receipt, limits and next outcome. No live-quality, normal cutover or R-goal completion claim.
 
 - Branch `feat/stratemark-spinoff-local-agents`; application checkpoint `876c9ec0fdc51e60c8d7a1a6f0688c18052ddd63` saved and remote verified in NewSamBellamy/STRATEMARK-latest--1. Main remains `c945b31dee0095331b8487133c131c36e76ba601`. Documentation follows separately; inspect actual HEAD/tree.
@@ -39,7 +41,7 @@ No R-goal is complete. COVERAGE retains U01–U66; partial proof does not make a
 
 ## Next outcome
 
-Next complete native save/remove cards and keyless saved collection opening the same local evidence reader; this repairs exposed-action parity and makes retained research useful on return. Existing listSavedCards native dispatch currently returns an empty list; save/unsave are unsupported. Legacy SavedCardsPage uses CardGrid/dashboard reads and heuristically merges identities, so do not expose it unchanged as a native collection. Reuse existing IPC, stable card/deck/role references, owner fences and reader; unsave never deletes research. Then continue exact support/canonical dossiers, consumed native action parity and disposable migration before normal cutover. Never silently migrate live user data; R2–R8 remain full scope.
+Finish actual saved-collection checkpoint acceptance and branch backup. Native listSavedCards now reads persistent exact references; save/unsave use owner-fenced service operations, and native collection bypasses legacy identity merging/dashboard calls. Then integrate genuinely useful native overview/evidence and role/story destinations with structured retained research, continuing exact support/canonical dossiers, consumed native action parity and disposable migration before normal cutover. Never silently migrate live user data; R2–R8 remain full scope.
 
 ## Historical baseline
 

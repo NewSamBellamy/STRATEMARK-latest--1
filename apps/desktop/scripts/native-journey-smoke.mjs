@@ -147,6 +147,10 @@ try {
   ).toBeVisible();
   await page.getByRole('button', { name: 'Show retained text', exact: true }).click();
   await expect(page.getByText(/Synthetic source text — not live research\./)).toBeVisible();
+  await page.getByRole('button', { name: 'Save card', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Remove from saved', exact: true })).toBeEnabled();
+  assert.equal((await page.evaluate(() => window.mi.listSavedCards())).length, 1);
+  mark('Saved the exact researched card from its local evidence reader');
   await page.screenshot({ path: path.join(output, 'retained-source-leads.png') });
   await hold(1800);
   await page.keyboard.press('Escape');
@@ -180,6 +184,54 @@ try {
   await page.screenshot({ path: path.join(output, 'completed-deck.png') });
   mark('Retry completed original unfinished company; filters read persisted cards');
   await hold(1800);
+  const beforeCollection = await page.evaluate(() => window.mi.listNativeRuns());
+  await page.getByRole('button', { name: /Birch Works.*card/ }).click();
+  await page.getByRole('button', { name: 'Save card', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Remove from saved', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await page.getByRole('link', { name: 'Saved Cards', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Saved cards', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Alder Works.*card/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Birch Works.*card/ })).toBeVisible();
+  await page.screenshot({ path: path.join(output, 'saved-collection.png') });
+  await hold(1800);
+  await page.evaluate((cardId) => {
+    location.hash = `#/saved?card=${encodeURIComponent(cardId)}`;
+  }, sourceCardId);
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Remove from saved', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Undo removal', exact: true })).toBeEnabled();
+  assert.equal((await page.evaluate(() => window.mi.listSavedCards())).length, 1);
+  assert.ok(await page.evaluate((cardId) => window.mi.getCard(cardId), sourceCardId));
+  await page.getByRole('button', { name: 'Show retained text', exact: true }).click();
+  await expect(page.getByText(/Synthetic source text — not live research\./)).toBeVisible();
+  mark(
+    'Removal changes only the collection; the open research and retained sources remain readable',
+  );
+  await hold();
+  await page.getByRole('button', { name: 'Undo removal', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Remove from saved', exact: true })).toBeEnabled();
+  assert.equal((await page.evaluate(() => window.mi.listSavedCards())).length, 2);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Saved cards', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: /Alder Works.*card/ }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: /Alder Works.*card/ })).toBeFocused();
+  await page
+    .locator('article')
+    .filter({ has: page.getByRole('button', { name: /Alder Works.*card/ }) })
+    .getByRole('link', { name: 'Open source deck' })
+    .click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  assert.deepEqual(
+    await page.evaluate(() => window.mi.listNativeRuns()),
+    beforeCollection,
+    'Collection browsing/save/remove/undo must not change research runs or request usage.',
+  );
+  mark(
+    'Undo restores the exact card; source-deck navigation and return focus work without research requests',
+  );
   await createDeck('Second synthetic market to verify fresh run controls');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByText('Research cancelled', { exact: true })).toBeVisible();
@@ -242,6 +294,36 @@ try {
   );
   mark(
     'Retained source text reopened offline with no provider/source dispatch; support remains unreviewed',
+  );
+  await page.getByRole('link', { name: 'Saved Cards', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Saved cards', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Alder Works.*card/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Birch Works.*card/ })).toBeVisible();
+  assert.equal((await page.evaluate(() => window.mi.listSavedCards())).length, 2);
+  await page.getByRole('button', { name: /Alder Works.*card/ }).click();
+  await expect(page.getByRole('button', { name: 'Remove from saved', exact: true })).toBeDisabled();
+  const deniedChange = await page.evaluate(async (cardId) => {
+    try {
+      await window.mi.unsaveCard(cardId);
+      return null;
+    } catch (error) {
+      return error.message;
+    }
+  }, sourceCardId);
+  assert.match(
+    deniedChange,
+    /Changes are disabled.*provenance-preserving/i,
+    'The host must deny collection changes even when a caller bypasses disabled UI.',
+  );
+  assert.equal((await page.evaluate(() => window.mi.listSavedCards())).length, 2);
+  await page.getByRole('button', { name: 'Show retained text', exact: true }).click();
+  await expect(page.getByText(/Synthetic source text — not live research\./)).toBeVisible();
+  await page.screenshot({ path: path.join(output, 'keyless-saved-collection-reader.png') });
+  await hold(1800);
+  await page.keyboard.press('Escape');
+  assert.deepEqual(await page.evaluate(() => window.mi.listNativeRuns()), beforeRead);
+  mark(
+    'Exact saved collection reopened keyless and read-only, with retained source text and unchanged request usage',
   );
   await hold(1800);
   await page.evaluate(() => {

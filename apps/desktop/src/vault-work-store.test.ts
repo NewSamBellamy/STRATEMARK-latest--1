@@ -112,6 +112,103 @@ afterEach(() => {
 });
 
 describe('native bounded operational ledger', () => {
+  it('bookmarks exact card roles idempotently and removes only the saved reference', () => {
+    const vault = open();
+    const current = start(vault);
+    const work = vault.writer().work;
+    work.saveCard(current.id, 0, card());
+    work.saveCard(current.id, 0, {
+      ...card('card_infra'),
+      card: { ...card('card_infra').card, cardType: 'infrastructure' },
+    });
+    const before = vault.work.getRun(current.id);
+    const first = work.bookmarkCard('card_a');
+    expect(first.cardId).toBe('card_a');
+    expect(first.savedAt).toEqual(expect.any(String));
+    const revision = vault.status().revision;
+    expect(work.bookmarkCard('card_a')).toEqual(first);
+    expect(vault.status().revision).toBe(revision);
+    work.bookmarkCard('card_infra');
+    expect(
+      vault.work
+        .listSavedCards()
+        .map(({ card }) => card.id)
+        .sort(),
+    ).toEqual(['card_a', 'card_infra']);
+    work.unbookmarkCard('card_a');
+    const after = vault.status().revision;
+    work.unbookmarkCard('card_a');
+    expect(vault.status().revision).toBe(after);
+    expect(vault.work.listSavedCards().map(({ card }) => card.id)).toEqual(['card_infra']);
+    expect(vault.work.getCard('card_a')).toEqual(card());
+    expect(vault.work.getRun(current.id)).toEqual(before);
+  });
+
+  it('retains bookmarks through keyless reader reopen and never exposes write capabilities', () => {
+    const file = location();
+    const vault = open(file);
+    const current = start(vault);
+    vault.writer().work.saveCard(current.id, 0, card());
+    const saved = vault.writer().work.bookmarkCard('card_a');
+    vault.close();
+    handles.splice(handles.indexOf(vault), 1);
+    const reader = open(file, 'reader');
+    const before = reader.status().revision;
+    expect(reader.work.listSavedCards()).toEqual([card()]);
+    expect(reader.work).not.toHaveProperty('bookmarkCard');
+    expect(reader.work).not.toHaveProperty('unbookmarkCard');
+    expect(() => reader.writer().work.bookmarkCard(saved.cardId)).toThrow(/read-only|owner/i);
+    expect(reader.status().revision).toBe(before);
+  });
+
+  it('rejects invalid or missing bookmark identities without mutating the vault', () => {
+    const vault = open();
+    const revision = vault.status().revision;
+    expect(vault.writer().work.bookmarkCard).toEqual(expect.any(Function));
+    expect(vault.writer().work.unbookmarkCard).toEqual(expect.any(Function));
+    for (const candidate of ['../secret', 'card_missing']) {
+      expect(() => vault.writer().work.bookmarkCard(candidate)).toThrow();
+      expect(() => vault.writer().work.unbookmarkCard(candidate)).toThrow();
+    }
+    expect(vault.status().revision).toBe(revision);
+  });
+
+  it('fences an old bookmark writer after closing and opening a new owner', () => {
+    const file = location();
+    const vault = open(file);
+    const current = start(vault);
+    const old = vault.writer().work;
+    old.saveCard(current.id, 0, card());
+    vault.close();
+    handles.splice(handles.indexOf(vault), 1);
+    const reopened = open(file);
+    const before = reopened.status().revision;
+    expect(() => old.bookmarkCard('card_a')).toThrow();
+    expect(() => old.unbookmarkCard('card_a')).toThrow();
+    expect(reopened.work.listSavedCards()).toEqual([]);
+    expect(reopened.status().revision).toBe(before);
+  });
+
+  it('preserves generated cards and run identity through the version 7 bookmark upgrade', () => {
+    const file = location();
+    const vault = open(file);
+    const current = start(vault);
+    vault.writer().work.saveCard(current.id, 0, card());
+    const before = vault.status().revision;
+    vault.close();
+    handles.splice(handles.indexOf(vault), 1);
+    const old = new DatabaseSync(file);
+    old.exec('DROP TABLE work_saved_cards; PRAGMA user_version=7;');
+    old.close();
+    const upgraded = open(file);
+    expect(upgraded.work.getCard('card_a')).toEqual(card());
+    expect(upgraded.work.getRun(current.id)).toEqual(current);
+    expect(upgraded.status().revision).toBe(before);
+    expect(upgraded.work.listSavedCards()).toEqual([]);
+    upgraded.writer().work.bookmarkCard('card_a');
+    expect(upgraded.work.listSavedCards()).toEqual([card()]);
+  });
+
   it('keeps source capture reservations monotonic and within the explicitly approved ceiling', () => {
     const vault = open();
     const current = start(vault, { limits: { ...run().limits, maxSourceRequests: 2 } });
@@ -540,7 +637,7 @@ describe('native bounded operational ledger', () => {
     vault.close();
     const reopened = open(file);
     expect(reopened.work.getRun(current.id)).toEqual(paused);
-    expect(reopened.status().schemaVersion).toBe(7);
+    expect(reopened.status().schemaVersion).toBe(8);
   });
   it.each(['synthetic_fixture', 'live_provider'] as const)(
     'persists immutable %s research provenance without upgrading schema',
@@ -565,7 +662,7 @@ describe('native bounded operational ledger', () => {
       vault.close();
       const reader = open(file, 'reader');
       expect(reader.work.getRun(current.id)?.researchProvenance).toBe(researchProvenance);
-      expect(reader.status().schemaVersion).toBe(7);
+      expect(reader.status().schemaVersion).toBe(8);
     },
   );
   it('retains accepted untagged local records as read-only instead of assigning an origin', () => {

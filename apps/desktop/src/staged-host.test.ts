@@ -171,6 +171,11 @@ it('binds a native evidence read to the trusted frame and rejects malformed inpu
   const evidence = vi
     .spyOn(NativeResearchService.prototype, 'getCardEvidence')
     .mockReturnValue({ cardId: 'card_fixture', sources: [] });
+  const save = vi.spyOn(NativeResearchService.prototype, 'saveCard').mockReturnValue({
+    cardId: 'card_fixture',
+    savedAt: '2026-10-01T12:00:00.000Z',
+  });
+  const unsave = vi.spyOn(NativeResearchService.prototype, 'unsaveCard').mockReturnValue(undefined);
   process.argv = [
     ...originalArgs,
     `--native-vault-dir=${path.join(root, 'isolated')}`,
@@ -190,6 +195,24 @@ it('binds a native evidence read to the trusted frame and rejects malformed inpu
     expect(() => invoke(event, 'card_fixture')).toThrow(/identity/i);
     evidence.mockReturnValue({ cardId: 'card_fixture', sources: [], unexpected: true } as never);
     expect(() => invoke(event, 'card_fixture')).toThrow();
+    const saveInvoke = host.handlers.get(IPC_CHANNELS.saveCard)!;
+    const unsaveInvoke = host.handlers.get(IPC_CHANNELS.unsaveCard)!;
+    expect(saveInvoke(event, 'card_fixture')).toEqual({
+      cardId: 'card_fixture',
+      savedAt: '2026-10-01T12:00:00.000Z',
+    });
+    expect(save).toHaveBeenCalledWith('card_fixture');
+    expect(unsaveInvoke(event, 'card_fixture')).toBeUndefined();
+    expect(unsave).toHaveBeenCalledWith('card_fixture');
+    for (const action of [saveInvoke, unsaveInvoke]) {
+      expect(() => action({ sender: {}, senderFrame: {} }, 'card_fixture')).toThrow(/untrusted/i);
+      expect(() => action(event, '../private')).toThrow();
+      expect(() => action(event, 'card_fixture', 'extra')).toThrow();
+    }
+    save.mockReturnValue({ cardId: 'another_card', savedAt: '2026-10-01T12:00:00.000Z' });
+    expect(() => saveInvoke(event, 'card_fixture')).toThrow(/identity/i);
+    save.mockReturnValue({ cardId: 'card_fixture', savedAt: 'invalid' });
+    expect(() => saveInvoke(event, 'card_fixture')).toThrow();
   } finally {
     // Await cleanup even on assertion failure before removing this disposable workspace.
     await NativeResearchService.prototype.close.call(

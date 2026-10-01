@@ -287,10 +287,13 @@ function dispatchNative(channel: string, args: unknown[]) {
   if (!nativeService) throw new Error('Native research is unavailable.');
   if (
     nativeMode?.writable === false &&
-    (channel === IPC_CHANNELS.startNativeResearch || channel === IPC_CHANNELS.controlNativeRun)
+    (channel === IPC_CHANNELS.startNativeResearch ||
+      channel === IPC_CHANNELS.controlNativeRun ||
+      channel === IPC_CHANNELS.saveCard ||
+      channel === IPC_CHANNELS.unsaveCard)
   ) {
     throw new Error(
-      'Research is disabled for this provenance-preserving workspace reopen. Use a separate live workspace; saved results remain readable.',
+      'Changes are disabled for this provenance-preserving workspace reopen. Use a separate live workspace; saved results remain readable.',
     );
   }
   const reads = nativeService.vault.work;
@@ -348,7 +351,19 @@ function dispatchNative(channel: string, args: unknown[]) {
       return [];
     case IPC_CHANNELS.listSavedCards:
       noArgs();
-      return [];
+      return reads.listSavedCards();
+    case IPC_CHANNELS.saveCard: {
+      const cardId = oneId();
+      const saved = z
+        .object({ cardId: recordId, savedAt: z.string().datetime() })
+        .strict()
+        .parse(nativeService.saveCard(cardId));
+      if (saved.cardId !== cardId) throw new Error('Saved card identity mismatch.');
+      return saved;
+    }
+    case IPC_CHANNELS.unsaveCard:
+      nativeService.unsaveCard(oneId());
+      return;
     default:
       throw new Error(
         'This action is not yet available in the native research preview. Your saved research has not changed.',

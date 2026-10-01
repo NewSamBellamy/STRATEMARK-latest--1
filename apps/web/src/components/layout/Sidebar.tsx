@@ -108,7 +108,7 @@ export function Sidebar() {
           label="Library"
           collapsed={collapsed}
         />
-        {!readOnly && !native && (
+        {!readOnly && (
           <SidebarLink
             to="/saved"
             icon={BookmarkSimple}

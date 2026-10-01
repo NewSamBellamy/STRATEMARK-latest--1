@@ -349,6 +349,8 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
     updateRun: _updateRun,
     appendEvent: _appendEvent,
     saveCard: _saveCard,
+    bookmarkCard: _bookmarkCard,
+    unbookmarkCard: _unbookmarkCard,
     ...work
   } = createWorkStore(db, vaultId, assertOpen, noWrite);
   return {

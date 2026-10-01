@@ -132,6 +132,14 @@ export class NativeResearchService {
     return this.writes;
   }
 
+  saveCard(cardId: string) {
+    return this.assertWritable().bookmarkCard(cardId);
+  }
+
+  unsaveCard(cardId: string): void {
+    this.assertWritable().unbookmarkCard(cardId);
+  }
+
   getCardEvidence(cardId: string): NativeCardEvidence {
     const card = this.vault.work.getCard(cardId);
     if (!card) throw new Error('Saved card was not found.');
