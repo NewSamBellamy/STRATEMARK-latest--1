@@ -11,7 +11,7 @@ import { useCards, useDeckByMarket, useMarket } from '@/hooks/data';
 import { GameCard } from '@/features/card/GameCard';
 import { buildCardView, sourceUrl } from '@/features/card/card-view';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/ui/button';
 import { qk } from '@/lib/query/keys';
 
 type EventLog = { after: number; items: NativeResearchEvent[] };
