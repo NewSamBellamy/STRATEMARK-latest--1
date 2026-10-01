@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer';
 import console from 'node:console';
 import process from 'node:process';
 import { setInterval } from 'node:timers';
-import { existsSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { createHash } from 'node:crypto';
@@ -14,6 +14,158 @@ import { evidenceSchemaSql } from './vault-evidence-store.ts';
 import { researchSchemaSql } from './vault-research-store.ts';
 import { openAssetStore } from './vault-assets.ts';
 import { legacyRetentionFixture, minimalLegacyJobFixture } from './legacy-retention-fixture.ts';
+import { stageLegacySnapshot, verifyStagedCandidate } from './vault-staging.ts';
+import { openStagedVault } from './staged-vault-reader.ts';
+
+function proveStagedNavigation(directory) {
+  const at = '2026-09-30T12:00:00.000Z';
+  for (const [index, version] of [undefined, 1, 2].entries()) {
+    const original = `${JSON.stringify(legacyRetentionFixture(version), null, 2)}\n`;
+    const originalFile = path.join(directory, `original-${index}.json`);
+    writeFileSync(originalFile, original, { flag: 'wx', flush: true });
+    const staged = stageLegacySnapshot(original, directory, 'vault_staged_proof', at);
+    assert.deepEqual(verifyStagedCandidate(staged.directory), staged.manifest);
+    assert.equal(readFileSync(originalFile, 'utf8'), original);
+    const assets = openAssetStore(path.join(staged.directory, 'assets'), () => {
+      throw new Error('proof asset reader is read-only');
+    });
+    const bytes = Buffer.concat(
+      staged.manifest.originalSourceChunks.map((ref) => assets.read(ref)),
+    );
+    assert.deepEqual(bytes, Buffer.from(original, 'utf8'));
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), staged.manifest.sourceSha256);
+    const reader = openStagedVault(staged.directory);
+    try {
+      assert.deepEqual(
+        reader.listMarkets().items.map((item) => item.record.id),
+        ['mkt_a', 'mkt_b'],
+      );
+      for (const marketId of ['mkt_a', 'mkt_b']) {
+        const deck = reader.getDeckByMarket(marketId);
+        const cards = reader.listCards(deck.deck.id);
+        assert.equal(cards.items.length, 1);
+        assert.equal(cards.items[0].company.record.id, 'co_shared');
+        assert.equal(cards.items[0].evidenceState, 'legacy_unreviewed');
+        assert.deepEqual(cards.items[0].metrics, []);
+      }
+      assert.equal(reader.status().authority, 'disabled');
+      assert.equal(reader.status().canApply, false);
+    } finally {
+      reader.close();
+    }
+  }
+  const original = JSON.stringify(legacyRetentionFixture(2));
+  let interruptedDirectory;
+  assert.throws(() =>
+    stageLegacySnapshot(original, directory, 'vault_interrupted', at, (progress) => {
+      if (progress.phase === 'history_retained') {
+        interruptedDirectory = progress.directory;
+        throw new Error('synthetic interruption');
+      }
+    }),
+  );
+  assert.ok(interruptedDirectory);
+  assert.equal(existsSync(path.join(interruptedDirectory, 'manifest.json')), false);
+  assert.throws(() => openStagedVault(interruptedDirectory));
+  const archive = openVault(
+    path.join(interruptedDirectory, 'vault.sqlite'),
+    'vault_interrupted',
+    'reader',
+  );
+  try {
+    const sourceHash = createHash('sha256').update(original).digest('hex');
+    assert.deepEqual(JSON.parse(archive.exportLegacySnapshot(sourceHash)), JSON.parse(original));
+    assert.equal(archive.verifyLegacySnapshot(sourceHash).proposedAuthority.runnableJobs, 0);
+  } finally {
+    archive.close();
+  }
+  return {
+    allKnownFormats: true,
+    exactOriginalAssets: true,
+    originalFileUntouched: true,
+    sharedCompanyNavigation: true,
+    noUnsupportedMetrics: true,
+    incompleteCandidateRefused: true,
+    originalHistoryRetainedAfterInterruption: true,
+  };
+}
+
+function stageCrash(directory) {
+  const original = `${JSON.stringify(legacyRetentionFixture(2), null, 2)}\n`;
+  writeFileSync(path.join(directory, 'crash-original.json'), original, { flag: 'wx', flush: true });
+  stageLegacySnapshot(
+    original,
+    directory,
+    'vault_stage_crash',
+    '2026-09-30T12:00:00.000Z',
+    (progress) => {
+      if (progress.phase !== 'history_retained') return;
+      const receipt = {
+        directory: progress.directory,
+        sourceSha256: createHash('sha256').update(original).digest('hex'),
+      };
+      writeFileSync(path.join(directory, 'stage-crash-receipt.json'), JSON.stringify(receipt), {
+        flag: 'wx',
+        flush: true,
+      });
+      // Flush the ready marker synchronously, then hold the real owner inside conversion.
+      writeSync(
+        1,
+        `SQLITE_STAGE_CRASH_READY ${JSON.stringify({ pid: process.pid, ...receipt })}\n`,
+      );
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+      throw new Error('unexpected synthetic crash worker wake-up');
+    },
+  );
+  throw new Error('synthetic crash candidate unexpectedly completed');
+}
+
+function stageRecover(directory) {
+  const receipt = JSON.parse(
+    readFileSync(path.join(directory, 'stage-crash-receipt.json'), 'utf8'),
+  );
+  assert.equal(path.dirname(receipt.directory), directory);
+  assert.match(path.basename(receipt.directory), /^stratemark-stage-/);
+  const original = `${JSON.stringify(legacyRetentionFixture(2), null, 2)}\n`;
+  const bytes = Buffer.from(original, 'utf8');
+  assert.equal(readFileSync(path.join(directory, 'crash-original.json'), 'utf8'), original);
+  assert.equal(receipt.sourceSha256, createHash('sha256').update(bytes).digest('hex'));
+  assert.equal(existsSync(path.join(receipt.directory, 'manifest.json')), false);
+  assert.throws(() => verifyStagedCandidate(receipt.directory));
+  assert.throws(() => openStagedVault(receipt.directory));
+  const assets = openAssetStore(path.join(receipt.directory, 'assets'), () => {
+    throw new Error('crash recovery assets are read-only');
+  });
+  assert.deepEqual(
+    assets.read({ sha256: receipt.sourceSha256, byteLength: bytes.byteLength }),
+    bytes,
+  );
+  const vault = openVault(path.join(receipt.directory, 'vault.sqlite'), 'vault_stage_crash');
+  try {
+    assert.equal(vault.status().writerGeneration, 2);
+    assert.equal(vault.integrity(), 'ok');
+    assert.deepEqual(
+      JSON.parse(vault.exportLegacySnapshot(receipt.sourceSha256)),
+      JSON.parse(original),
+    );
+    assert.equal(vault.listMarkets().items.length, 0);
+    assert.equal(
+      vault.verifyLegacySnapshot(receipt.sourceSha256).proposedAuthority.runnableJobs,
+      0,
+    );
+  } finally {
+    vault.close();
+  }
+  marker('SQLITE_SPIKE_OK', {
+    phase: 'stage-recover',
+    originalUntouched: true,
+    originalAssetsRetained: true,
+    passiveHistoryRetained: true,
+    incompleteCandidateRefused: true,
+    noInventoryApproved: true,
+    replacementGeneration: 2,
+  });
+}
 
 async function proveLegacyRetention(directory) {
   const file = path.join(directory, 'legacy-retention.sqlite');
@@ -678,6 +830,7 @@ async function prepare(directory) {
     inventoryContext,
     legacyInspection: proveLegacyInspection(),
     legacyRetention: await proveLegacyRetention(directory),
+    stagedNavigation: proveStagedNavigation(directory),
     fts5Match: true,
     walReopen: true,
     backupFromOpenWal: true,
@@ -784,11 +937,16 @@ function recover(directory) {
 
 async function main() {
   const [mode, directory] = process.argv.slice(3);
-  if (!directory || !['prepare', 'crash', 'contend', 'recover'].includes(mode))
+  if (
+    !directory ||
+    !['prepare', 'crash', 'contend', 'recover', 'stage-crash', 'stage-recover'].includes(mode)
+  )
     throw new Error('invalid sqlite spike worker arguments');
   if (mode === 'prepare') await prepare(directory);
   else if (mode === 'crash') crash(directory);
   else if (mode === 'contend') contend(directory);
+  else if (mode === 'stage-crash') stageCrash(directory);
+  else if (mode === 'stage-recover') stageRecover(directory);
   else recover(directory);
 }
 

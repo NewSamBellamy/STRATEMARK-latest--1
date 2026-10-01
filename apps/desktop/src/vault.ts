@@ -386,6 +386,8 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
         evidence,
       );
       return {
+        // Trusted internal asset publication binds to this captured generation.
+        assertCurrent: check,
         retainLegacySnapshot: legacyWrites.retainLegacySnapshot,
         saveCompany(value: VaultCompany, expectedRevision: number) {
           check();

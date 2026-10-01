@@ -119,6 +119,7 @@ async function successWorker(mode, directory, phase) {
 const tempRoot = realpathSync(os.tmpdir());
 const directory = mkdtempSync(path.join(tempRoot, 'stratemark-sqlite-spike-'));
 let crashWorker;
+let stageCrashWorker;
 let summary;
 try {
   const prepared = await successWorker('prepare', directory, 'prepare');
@@ -178,6 +179,15 @@ try {
     consistentBackupReopened: true,
     closedVaultReopened: true,
   });
+  assert.deepEqual(prepared.stagedNavigation, {
+    allKnownFormats: true,
+    exactOriginalAssets: true,
+    originalFileUntouched: true,
+    sharedCompanyNavigation: true,
+    noUnsupportedMetrics: true,
+    incompleteCandidateRefused: true,
+    originalHistoryRetainedAfterInterruption: true,
+  });
   for (const key of ['fts5Match', 'walReopen', 'backupFromOpenWal', 'backupReopen'])
     assert.equal(prepared[key], true);
   assert.deepEqual(prepared.backupValues, {
@@ -220,6 +230,28 @@ try {
   assert.equal(recovered.integrityCheck, 'ok');
   assert.equal(recovered.crashedOwnerReplaced, true);
   assert.equal(recovered.replacementGeneration, 2);
+  stageCrashWorker = start('stage-crash', directory);
+  const stageReady = JSON.parse(
+    (await stageCrashWorker.waitForLine('SQLITE_STAGE_CRASH_READY ')).slice(
+      'SQLITE_STAGE_CRASH_READY '.length,
+    ),
+  );
+  assert.equal(stageReady.pid, stageCrashWorker.child.pid);
+  assert.equal(path.dirname(stageReady.directory), directory);
+  assert.match(path.basename(stageReady.directory), /^stratemark-stage-/);
+  assert.match(stageReady.sourceSha256, /^[a-f0-9]{64}$/);
+  assert.equal(stageCrashWorker.child.kill('SIGKILL'), true);
+  const stageCrashExit = await stageCrashWorker.waitForClose();
+  const stageRecovery = await successWorker('stage-recover', directory, 'stage-recover');
+  assert.deepEqual(stageRecovery, {
+    phase: 'stage-recover',
+    originalUntouched: true,
+    originalAssetsRetained: true,
+    passiveHistoryRetained: true,
+    incompleteCandidateRefused: true,
+    noInventoryApproved: true,
+    replacementGeneration: 2,
+  });
   summary = {
     ...prepared,
     contention,
@@ -230,10 +262,18 @@ try {
       uncommittedWalBytes: ready.walBytes,
     },
     recovery: recovered,
+    stageCrash: { forced: true, exitCode: stageCrashExit.code, signal: stageCrashExit.signal },
+    stageRecovery,
   };
 } finally {
   if (crashWorker && crashWorker.child.exitCode === null && crashWorker.child.signalCode === null)
     crashWorker.child.kill();
+  if (
+    stageCrashWorker &&
+    stageCrashWorker.child.exitCode === null &&
+    stageCrashWorker.child.signalCode === null
+  )
+    stageCrashWorker.child.kill();
   const realDirectory = realpathSync(directory);
   const expectedParent = realpathSync(os.tmpdir());
   assert.equal(lstatSync(directory).isSymbolicLink(), false);

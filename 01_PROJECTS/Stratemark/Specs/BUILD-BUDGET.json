@@ -1,6 +1,6 @@
 {
   "campaignId": "stratemark-overhaul-sol-luna-v1",
-  "status": "G01_full_passive_retention_verified_staged_conversion_and_native_integration_next_active_goal",
+  "status": "G01_staged_synthetic_navigation_packaged_verified_app_read_integration_next_active_goal",
   "executionAuthorization": "Human active goal defers development spend limits; Sol plans and integrates; Luna high-effort workers implement; Astra disabled",
   "enforcementMode": "development_spend_limits_deferred_by_human",
   "currency": "USD",
@@ -62,6 +62,7 @@
     "fullHistoryForksAllowed": false
   },
   "completedPackets": [
+    "G01-P11-byte-exact-synthetic-staging-packaged-navigation-crash-not-phase-completion",
     "G01-P10-full-passive-legacy-retention-packaged-redteam-not-phase-completion",
     "G01-P09-offline-card-contrast-and-pending-identity-not-phase-completion",
     "G01-P08-cached-navigation-and-explicit-research-not-phase-completion",
@@ -77,6 +78,25 @@
     "G00-P05-contract-baseline-freeze-not-product-readiness"
   ],
   "checkpoints": [
+    {
+      "packetId": "G01-P11",
+      "date": "2026-09-30",
+      "fullGate": "all6_typechecks_root_lint_contracts369_mocks16_web174_API158_pass; research361_pass_3_original_failures_desktop185_pass_1_original_key_failure",
+      "nativeVaultTestsPassed": 137,
+      "stagingTestsPassed": 11,
+      "stagedReaderTestsPassed": 7,
+      "legacyReleaseBlockersUnfixed": 4,
+      "packagedEvidence": "actual_unsigned_Windows_ASAR_byte_exact_staging_original_assets_shared_company_navigation_incomplete_candidate_refusal_and_forced_converter_crash_reopen_pass",
+      "redTeam": "no_new_reproducible_defect_in_bounded_readonly_review; internal_read_seam_not_visible_app_integration_redirect_next_packet",
+      "authority": "disabled_canApply_false_no_live_migration_no_legacy_evidence_promotion; manifest_asset_refs_not_backup_GC_integration",
+      "workerModel": "gpt-6-luna",
+      "workerReasoningEffort": "high",
+      "workersDispatched": 2,
+      "maxConcurrentWorkers": 1,
+      "astraDispatched": false,
+      "campaignSpentKnown": null,
+      "next": "G01-P12_bounded_synthetic_native_reads_in_actual_local_app_journey_then_asset_aware_backup_restore_lifecycle"
+    },
     {
       "packetId": "G01-P10",
       "date": "2026-09-30",

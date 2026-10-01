@@ -1089,3 +1089,94 @@ untouched. Then integrate one native authority/recovery rather than accumulating
 more disconnected modules. G02 handles shared runtime/secrets/provider budgets/
 cancellation; G03 quality/retrieval; G04 card/journey; G05 decision outputs;
 G06 monitors; G07 scoped local MCP; G08 production release acceptance.
+
+## Closed packet — G01-P10
+
+Entry HEAD `92554e4`; September30. Full production goal/G01 remain active.
+Sol integration; two serial Luna/high workers (fixture/tests, then read-only
+red team); at most one active, no history fork/Astra. Separate exploration
+branch only; no live migration/provider calls/installation/publication.
+
+User outcome / seams: G01, US13/14/16/23/30, A44/A45/A46 preparation.
+Native schema6 can retain ALL14 inspected legacy families as individually
+indexed, immutable historical records: markets, decks, companies, metrics,
+cards, vice claims, reports, briefings, saved cards, jobs, threads, dashboards,
+company-market associations and opportunity analysis. Source manifest pins
+original byte hash/length/version plus reconstructed-content checksum/counts.
+Existing v1-v5 vault upgrades are transactional; previous bodies/history,
+evidence, owner generation and search are not rewritten.
+
+Complete raw JSON data semantics survive close/reopen and native online backup:
+unknown nested fields, source wording, numeric zero, reporting periods, exact
+array order/IDs/links, omitted optional families, minimal old jobs and nested
+uncommitted partial results. Only validated historical records are retained.
+Display schemas do not strip research; unsupported metrics/citations are NOT
+promoted to supported observations/passages/current reports. Imported
+`user_verified` wording stays attributed raw history, not local attestation.
+Queued/running status is historical only; no queue/schedule/grant/budget revived.
+
+Captured owner writes validate input, expected vault revision and complete
+family/count/content/relationship roundtrip before one atomic commit. Exact
+original-source replays are idempotent without revision advance; new source
+bytes require the current revision and coexist. Read-only source catalogue
+allows rediscovery after restart, explicitly not-yet-verified. Record pages
+are bounded to100 entries and8MiB payload bytes; an oversized record is not
+dropped and remains available through trusted internal export. Whole source/
+export inspection is bounded to50MiB/200k lexical tokens. No renderer/MCP API.
+
+Verification:
+
+- Worker10 initial behavior failures reproduced missing API; later schema1/
+  absent-version/zero-version additions were integrated and verified locally.
+  Coordinator corrected invalid synthetic fixture inputs and test-interface
+  drift; original release baseline assertions were not weakened.
+- Schema6 RED (actual5), catalogue RED (missing API), reviewer missing/replaced
+  guard RED2, and large-page byte-bound RED were reproduced then fixed.
+- Final desktop167 pass/1 original stored-key failure, including native119/119,
+  retention17/17, schema25/25 and inspection19/19. Late injected SQLite failure
+  rolls ALL families/source/revision back; damaged content/export fails;
+  immutable guards, stale capability, source replay and consistent backup pass.
+- `pnpm check`: all6 typechecks/root lint, contracts369/mocks16 pass;
+  research361 pass/3 original failures. Independent web174/174 and API158/158
+  pass. Final all6 typechecks/root lint rerun pass after red-team fixes.
+- Native Electron runtime AND new unsigned Windows ASAR proof pass: retained
+  full/minimal legacy fixtures, semantic roundtrip, passive authority, source
+  idempotency, fenced writer, closed-vault/online-backup reopening; prior
+  evidence/search/context/owner/crash checks remain green.
+  Electron44.4.5 / Node24.21.0 / SQLite3.53.4 (same recorded source ID as P07).
+  Forced crash has1582112 uncommitted WAL bytes; committed data survives,
+  uncommitted rows absent, integrity ok, replacement writer generation2.
+- Ignored proof artifact:
+  `apps/desktop/release/sqlite-spike-20260930-92554e4-retention/win-unpacked`.
+  Actual packaged `Stratemark.exe` ran the bundled ASAR module; ordinary main
+  rebuilt without the proof afterwards. No signing/installer/full GUI proof.
+- Native/offline checks use synthetic temporary data; no actual key/network
+  research/customer migration. Backend packet does not claim new visual review.
+
+### Checkpoint red team — moving the needle and remaining limits
+
+Reviewer found v6 accepted missing append-only guards. Coordinator reproduced
+missing AND no-op-replaced guards; now opening/reading/reconstructing/retaining
+refuses missing or altered guard SQL. Checksums detect damaged content and
+relationships are revalidated. These are NOT authenticated provenance against
+a hostile local editor who rewrites an entire DB/guards/checksums.
+
+Needle moved: previously unretained reports/conversations/saved items/partial
+jobs now survive native storage AND packaged backup/reopening in full fixture
+roundtrips, an explicit prerequisite to migration. This remains INTERNAL
+PASSIVE RETENTION, not connected app data, paid-run control or G01 completion.
+Original source byte hash is metadata; export preserves JSON data semantics,
+not original whitespace/numeric spelling. Untouched original byte backup and
+asset-pinned validation are mandatory before staged cutover. No old AI claim
+is promoted to present-day evidence or automatically trusted human review.
+
+Next G01-P11: staged synthetic migration with untouched byte-exact source copy,
+all-family counts/content/link verification, managed asset references, explicit
+inventory projections retaining IDs/multi-market memberships and one-authority
+read integration. Failures leave original intact and candidate unapproved.
+Do not add disconnected modules without exercising this converter/read path.
+No live customer migration. G01 still needs backup/restore/assets/trash/disk
+relocation and service lifetime/cutover. The four original release blockers
+(metric period loss, cross-period reconciliation, cancellation acknowledgment,
+renderer stored-key retrieval) still fail and belong to integrated G01/G02.
+G04 visual gaps and G03/G05/G06/G07/G08 release work remain unaccepted.
