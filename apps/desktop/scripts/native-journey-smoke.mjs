@@ -94,6 +94,10 @@ async function createDeck(goal) {
   await hold();
   await page.getByRole('button', { name: 'Approve and start research' }).click();
   await expect(page.getByText('Research running', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pause', exact: true })).toHaveCSS(
+    'border-radius',
+    '9999px',
+  );
   mark('Accepted native run has visible progress and controls');
 }
 try {
@@ -131,8 +135,25 @@ try {
   });
   await expect(page.getByRole('button', { name: /Birch Works.*card/ })).toBeVisible();
   await page.getByRole('button', { name: 'Infrastructure', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Infrastructure', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await expect(page.getByRole('button', { name: /Alder Works.*card/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'All cards', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'All cards', exact: true })).toHaveCSS(
+    'border-radius',
+    '9999px',
+  );
+  assert.notEqual(
+    await page
+      .getByRole('button', { name: 'All cards', exact: true })
+      .evaluate((button) => getComputedStyle(button).backgroundColor),
+    await page
+      .getByRole('button', { name: 'Infrastructure', exact: true })
+      .evaluate((button) => getComputedStyle(button).backgroundColor),
+    'The selected filter must have a distinct visual state.',
+  );
   await page.getByText('Research activity', { exact: true }).click();
   await page.getByRole('button', { name: /Alder Works.*card/ }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(output, 'completed-deck.png') });

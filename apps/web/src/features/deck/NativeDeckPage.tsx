@@ -11,6 +11,7 @@ import { useCards, useDeckByMarket, useMarket } from '@/hooks/data';
 import { GameCard } from '@/features/card/GameCard';
 import { buildCardView, sourceUrl } from '@/features/card/card-view';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
 import { qk } from '@/lib/query/keys';
 
 type EventLog = { after: number; items: NativeResearchEvent[] };
@@ -152,31 +153,34 @@ export default function NativeDeckPage() {
             </p>
             <div className="flex gap-2">
               {['running', 'queued'].includes(run.status) && (
-                <button
-                  className="btn-secondary"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   disabled={pending || window.mi?.nativeResearchWritable === false}
                   onClick={() => void control('pause')}
                 >
                   Pause
-                </button>
+                </Button>
               )}
               {['paused', 'failed'].includes(run.status) && (
-                <button
-                  className="btn-secondary"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   disabled={pending || window.mi?.nativeResearchWritable === false}
                   onClick={() => void control('resume')}
                 >
                   Resume remaining work
-                </button>
+                </Button>
               )}
               {!['completed', 'cancelled'].includes(run.status) && (
-                <button
-                  className="btn-secondary"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   disabled={pending || window.mi?.nativeResearchWritable === false}
                   onClick={() => void control('cancel')}
                 >
                   Cancel
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -220,9 +224,10 @@ export default function NativeDeckPage() {
       </p>
       <div className="mb-6 flex flex-wrap gap-2" aria-label="Filter research cards">
         {[null, ...new Set((cards.data ?? []).map((entry) => entry.card.cardType))].map((type) => (
-          <button
+          <Button
             key={type ?? 'all'}
-            className="btn-secondary"
+            variant={viewType === type || (!viewType && type === null) ? 'blue' : 'ghost'}
+            size="sm"
             aria-pressed={viewType === type || (!viewType && type === null)}
             onClick={() => {
               const next = new URLSearchParams(params);
@@ -233,7 +238,7 @@ export default function NativeDeckPage() {
             }}
           >
             {type ? CARD_TYPE_LABELS[type as CardType] : 'All cards'}
-          </button>
+          </Button>
         ))}
       </div>
       {!visible.length && (
