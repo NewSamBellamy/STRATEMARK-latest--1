@@ -1,6 +1,6 @@
 {
   "campaignId": "stratemark-overhaul-sol-luna-v1",
-  "status": "G01_packaged_readonly_app_journey_verified_asset_backup_restore_lifecycle_next_active_goal",
+  "status": "G01_staged_asset_lifecycle_packaged_verified_guarded_cutover_review_next_active_goal",
   "executionAuthorization": "Human active goal defers development spend limits; Sol plans and integrates; Luna high-effort workers implement; Astra disabled",
   "enforcementMode": "development_spend_limits_deferred_by_human",
   "currency": "USD",
@@ -62,6 +62,7 @@
     "fullHistoryForksAllowed": false
   },
   "completedPackets": [
+    "G01-P13-asset-aware-staged-lifecycle-packaged-restored-journey-not-phase-completion",
     "G01-P12-packaged-readonly-existing-app-journey-not-phase-completion",
     "G01-P11-byte-exact-synthetic-staging-packaged-navigation-crash-not-phase-completion",
     "G01-P10-full-passive-legacy-retention-packaged-redteam-not-phase-completion",
@@ -79,6 +80,23 @@
     "G00-P05-contract-baseline-freeze-not-product-readiness"
   ],
   "checkpoints": [
+    {
+      "packetId": "G01-P13",
+      "date": "2026-10-01",
+      "fullGate": "all6_typechecks_root_lint_contracts369_mocks16_web183_API158_pass; research361_pass_3_original_failures_desktop200_pass_1_original_key_failure",
+      "focusedEvidence": "lifecycle8_staging11_app_reads5_host1_pass",
+      "legacyReleaseBlockersUnfixed": 4,
+      "packagedEvidence": "actual_unsigned_Windows_directory_package_opens_hash_pinned_restored_candidate_then_library_deck_role_card_reader_company_metrics_back_reload; original_candidate_backup_and_restored_candidate_all_unchanged_zero_external_requests_zero_page_errors",
+      "redTeam": "source_candidate_and_approved_backup_TOCTOU_races_RED_fixed; restore_interruption_RED_fixed; smoke_original_source_overclaim_found_and_split_into_three_independent_fingerprints",
+      "authority": "staged_candidate_only_disabled_canApply_false_new_destination_restore_no_live_cutover_no_user_backup_UI_no_general_A46_A47_claim",
+      "workerModel": "gpt-6-luna",
+      "workerReasoningEffort": "high",
+      "workersDispatched": 2,
+      "maxConcurrentWorkers": 1,
+      "astraDispatched": false,
+      "campaignSpentKnown": null,
+      "next": "G01-P14_guarded_cutover_preflight_normal_startup_recovery_and_human_consent_without_live_migration"
+    },
     {
       "packetId": "G01-P12",
       "date": "2026-10-01",

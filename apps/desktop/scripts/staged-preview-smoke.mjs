@@ -45,6 +45,22 @@ for (const key of [
   if (process.env[key]) env[key] = process.env[key];
 }
 const temp = mkdtempSync(path.join(realpathSync(os.tmpdir()), 'stratemark-ui-proof-'));
+function digest(file) {
+  return createHash('sha256').update(readFileSync(file)).digest('hex');
+}
+function stagedFingerprint(directory, includeBackup = false) {
+  const manifestFile = path.join(directory, 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestFile, 'utf8'));
+  return {
+    database: digest(path.join(directory, 'vault.sqlite')),
+    manifest: digest(manifestFile),
+    assets: manifest.originalSourceChunks.map((ref) => ({
+      ...ref,
+      verifiedSha256: digest(path.join(directory, 'assets', ref.sha256)),
+    })),
+    ...(includeBackup ? { backup: digest(path.join(directory, 'backup.json')) } : {}),
+  };
+}
 let application;
 let preparer;
 try {
@@ -87,13 +103,18 @@ try {
     });
   });
   assert.equal(path.dirname(generated.directory), temp);
-  assert.match(path.basename(generated.directory), /^stratemark-stage-/);
-  const dbFile = path.join(generated.directory, 'vault.sqlite');
-  const manifestFile = path.join(generated.directory, 'manifest.json');
-  const before = {
-    db: createHash('sha256').update(readFileSync(dbFile)).digest('hex'),
-    manifest: readFileSync(manifestFile, 'utf8'),
-  };
+  assert.match(path.basename(generated.directory), /^stratemark-restored-/);
+  assert.equal(path.dirname(generated.sourceDirectory), temp);
+  assert.match(path.basename(generated.sourceDirectory), /^stratemark-stage-/);
+  assert.equal(path.dirname(generated.backupDirectory), temp);
+  assert.match(path.basename(generated.backupDirectory), /^stratemark-backup-/);
+  assert.match(generated.backupHash, /^[a-f0-9]{64}$/);
+  assert.equal(generated.lifecycleRestored, true);
+  assert.equal(generated.sourceCandidatePreservedByLifecycle, true);
+  assert.equal(generated.backupPreservedByRestore, true);
+  const sourceBefore = stagedFingerprint(generated.sourceDirectory);
+  const backupBefore = stagedFingerprint(generated.backupDirectory, true);
+  const restoredBefore = stagedFingerprint(generated.directory);
   application = await electron.launch({
     executablePath: executable,
     args: [
@@ -205,8 +226,9 @@ try {
   assert.deepEqual(externalRequests, []);
   await application.close();
   application = null;
-  assert.equal(createHash('sha256').update(readFileSync(dbFile)).digest('hex'), before.db);
-  assert.equal(readFileSync(manifestFile, 'utf8'), before.manifest);
+  assert.deepEqual(stagedFingerprint(generated.sourceDirectory), sourceBefore);
+  assert.deepEqual(stagedFingerprint(generated.backupDirectory, true), backupBefore);
+  assert.deepEqual(stagedFingerprint(generated.directory), restoredBefore);
   assert.equal(existsSync(path.join(generated.directory, 'repo.json')), false);
   console.log(
     JSON.stringify({
@@ -214,7 +236,10 @@ try {
       nativeIPC: true,
       readOnlyDenials: true,
       noActiveJobsOrPromotedMetrics: true,
-      sourceCandidateUnchanged: true,
+      assetAwareBackupRestore: true,
+      originalCandidateUnchanged: true,
+      backupUnchanged: true,
+      restoredCandidateUnchanged: true,
       pageErrors: 0,
       externalRequests: 0,
       screenshots: screenshotDir,

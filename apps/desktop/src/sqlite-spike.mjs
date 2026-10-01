@@ -16,6 +16,26 @@ import { openAssetStore } from './vault-assets.ts';
 import { legacyRetentionFixture, minimalLegacyJobFixture } from './legacy-retention-fixture.ts';
 import { stageLegacySnapshot, verifyStagedCandidate } from './vault-staging.ts';
 import { openStagedVault } from './staged-vault-reader.ts';
+import { createStagedBackup, restoreStagedBackup } from './vault-lifecycle.ts';
+
+function stagedFingerprint(directory) {
+  const manifest = verifyStagedCandidate(directory);
+  const assets = openAssetStore(path.join(directory, 'assets'), () => {
+    throw new Error('fingerprint asset reader is read-only');
+  });
+  return {
+    database: createHash('sha256')
+      .update(readFileSync(path.join(directory, 'vault.sqlite')))
+      .digest('hex'),
+    manifest: createHash('sha256')
+      .update(readFileSync(path.join(directory, 'manifest.json')))
+      .digest('hex'),
+    assets: manifest.originalSourceChunks.map((ref) => ({
+      ...ref,
+      verifiedSha256: createHash('sha256').update(assets.read(ref)).digest('hex'),
+    })),
+  };
+}
 
 function proveStagedNavigation(directory) {
   const at = '2026-09-30T12:00:00.000Z';
@@ -946,9 +966,39 @@ async function main() {
       'vault_ui_preview',
       '2026-09-30T12:00:00.000Z',
     );
+    const sourceBefore = stagedFingerprint(candidate.directory);
+    const backup = await createStagedBackup(
+      candidate.directory,
+      directory,
+      '2026-10-01T18:00:00.000Z',
+    );
+    const backupBefore = stagedFingerprint(backup.directory);
+    const backupManifestBefore = createHash('sha256')
+      .update(readFileSync(path.join(backup.directory, 'backup.json')))
+      .digest('hex');
+    const restored = await restoreStagedBackup(
+      backup.directory,
+      backup.backupHash,
+      directory,
+      '2026-10-01T18:01:00.000Z',
+    );
+    assert.deepEqual(stagedFingerprint(candidate.directory), sourceBefore);
+    assert.deepEqual(stagedFingerprint(backup.directory), backupBefore);
+    assert.equal(
+      createHash('sha256')
+        .update(readFileSync(path.join(backup.directory, 'backup.json')))
+        .digest('hex'),
+      backupManifestBefore,
+    );
     marker('SQLITE_PREVIEW_READY', {
-      directory: candidate.directory,
-      sourceSha256: candidate.manifest.sourceSha256,
+      directory: restored.directory,
+      sourceDirectory: candidate.directory,
+      backupDirectory: backup.directory,
+      sourceSha256: restored.manifest.sourceSha256,
+      backupHash: restored.backupHash,
+      lifecycleRestored: true,
+      sourceCandidatePreservedByLifecycle: true,
+      backupPreservedByRestore: true,
     });
     return;
   }
