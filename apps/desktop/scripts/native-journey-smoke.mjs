@@ -47,6 +47,7 @@ let page;
 let video;
 let deckPath;
 let savedSource;
+let savedBrief;
 let sourceCardId;
 const mark = (name) => {
   steps.push({ name, at: new Date().toISOString() });
@@ -128,6 +129,19 @@ try {
     async (cardId) => (await window.mi.getNativeCardEvidence(cardId)).sources[0],
     sourceCardId,
   );
+  savedBrief = await page.evaluate(
+    async (cardId) => (await window.mi.getCard(cardId)).researchBrief,
+    sourceCardId,
+  );
+  assert.deepEqual(
+    savedBrief.sections.map((section) => section.section),
+    ['overview', 'offering', 'position', 'updates'],
+  );
+  assert.ok(
+    savedBrief.sections.every((section) =>
+      section.blocks.every((block) => block.support === 'unreviewed'),
+    ),
+  );
   assert.equal(
     savedSource.retrievalStatus,
     'retrieved',
@@ -143,8 +157,22 @@ try {
   await page.getByRole('button', { name: /Alder Works.*card/ }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(
-    page.getByRole('link', { name: 'Synthetic fixture source — not live research' }),
+    page
+      .getByRole('region', { name: 'Source evidence' })
+      .getByRole('link', { name: 'Synthetic fixture source — not live research' }),
   ).toBeVisible();
+  await expect(
+    page.getByRole('tabpanel').getByText(/Alder Works brings appointment booking/),
+  ).toBeVisible();
+  await hold(900);
+  await page.screenshot({ path: path.join(output, 'company-research-overview.png') });
+  for (const section of ['Products & business', 'Market position', 'Updates', 'Overview']) {
+    await page.getByRole('tab', { name: section, exact: true }).click();
+    await hold(1000);
+  }
+  mark(
+    'Company reader shows four retained research sections, individually attributed unreviewed notes and open questions',
+  );
   await page.getByRole('button', { name: 'Show retained text', exact: true }).click();
   await expect(page.getByText(/Synthetic source text — not live research\./)).toBeVisible();
   await page.getByRole('button', { name: 'Save card', exact: true }).click();
@@ -185,10 +213,32 @@ try {
   mark('Retry completed original unfinished company; filters read persisted cards');
   await hold(1800);
   const beforeCollection = await page.evaluate(() => window.mi.listNativeRuns());
+  await page.getByLabel('Search this deck', { exact: true }).fill('Birch');
+  await expect(page.getByText('Showing 1 of 2 cards', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Alder Works.*card/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Infrastructure', exact: true }).click();
   await page.getByRole('button', { name: /Birch Works.*card/ }).click();
+  await page.getByRole('tab', { name: 'Capabilities', exact: true }).click();
+  await expect(
+    page.getByRole('tabpanel').getByText(/described capabilities include device diagnostics/),
+  ).toBeVisible();
+  await page.screenshot({ path: path.join(output, 'infrastructure-research-capabilities.png') });
+  await hold(1400);
   await page.getByRole('button', { name: 'Save card', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Remove from saved', exact: true })).toBeEnabled();
   await page.keyboard.press('Escape');
+  await expect(page.getByLabel('Search this deck', { exact: true })).toHaveValue('Birch');
+  await expect(page.getByRole('button', { name: /Birch Works.*card/ })).toBeFocused();
+  await page.getByLabel('Search this deck', { exact: true }).fill('no matching company');
+  await expect(
+    page.getByRole('heading', { name: 'No cards match your search and filters.' }),
+  ).toBeVisible();
+  await hold();
+  await page.getByRole('button', { name: 'Reset search and filters', exact: true }).click();
+  await expect(page.getByText('Showing 2 of 2 cards', { exact: true })).toBeVisible();
+  mark(
+    'Local search combines with type filters, preserves reader return context and recovers from no results',
+  );
   await page.getByRole('link', { name: 'Saved Cards', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Saved cards', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Alder Works.*card/ })).toBeVisible();
@@ -199,6 +249,9 @@ try {
     location.hash = `#/saved?card=${encodeURIComponent(cardId)}`;
   }, sourceCardId);
   await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(
+    page.getByRole('tabpanel').getByText(/Alder Works brings appointment booking/),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Remove from saved', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Undo removal', exact: true })).toBeEnabled();
   assert.equal((await page.evaluate(() => window.mi.listSavedCards())).length, 1);
@@ -270,7 +323,18 @@ try {
     savedSource,
     'Exact source text and capture identity survive restart.',
   );
+  assert.deepEqual(
+    await page.evaluate(
+      async (cardId) => (await window.mi.getCard(cardId)).researchBrief,
+      sourceCardId,
+    ),
+    savedBrief,
+    'Exact retained brief, source attribution and event periods survive keyless restart.',
+  );
   await page.getByRole('button', { name: /Alder Works.*card/ }).click();
+  await page.getByRole('tab', { name: 'Updates', exact: true }).click();
+  await expect(page.getByText('Period: September 2026', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Overview', exact: true }).click();
   await page.getByRole('button', { name: 'Show retained text', exact: true }).click();
   await expect(page.getByText(/Synthetic source text — not live research\./)).toBeVisible();
   await hold(1800);
@@ -282,11 +346,16 @@ try {
     'Saved source reader must fit a narrow window.',
   );
   await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('tab', { name: 'Products & business', exact: true }).click();
+  await expect(page.getByRole('tabpanel').getByText(/shared calendar, intake forms/)).toBeVisible();
+  await page.screenshot({ path: path.join(output, 'narrow-research-brief.png') });
   await page.getByText(/Synthetic source text — not live research\./).scrollIntoViewIfNeeded();
+  await expect(page.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
   await page.screenshot({ path: path.join(output, 'narrow-retained-source.png') });
   await hold();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.setViewportSize({ width: 1440, height: 960 });
-  await page.keyboard.press('Escape');
   assert.deepEqual(
     await page.evaluate(() => window.mi.listNativeRuns()),
     beforeRead,
@@ -302,6 +371,10 @@ try {
   assert.equal((await page.evaluate(() => window.mi.listSavedCards())).length, 2);
   await page.getByRole('button', { name: /Alder Works.*card/ }).click();
   await expect(page.getByRole('button', { name: 'Remove from saved', exact: true })).toBeDisabled();
+  await page.getByRole('tab', { name: 'Market position', exact: true }).click();
+  await expect(
+    page.getByRole('tabpanel').getByText(/Alder addresses workshop coordination/),
+  ).toBeVisible();
   const deniedChange = await page.evaluate(async (cardId) => {
     try {
       await window.mi.unsaveCard(cardId);

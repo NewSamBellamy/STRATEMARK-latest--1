@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
-import type { CompanyMetric } from '@mi/contracts';
+import { researchBriefSchema, type CompanyMetric } from '@mi/contracts';
 import type { CompanyCandidate, LlmClient, MarketPlan } from './types';
 import type { EnrichmentOut } from './schemas';
+import type * as LogoModule from './logos';
 import {
   CompanyCardHydrator,
   askCompanyRepresentative,
@@ -13,6 +14,12 @@ import {
   metricRows,
   primaryEntityType,
 } from './company-agent';
+
+// Hydration tests exercise the actual pipeline without unrelated outbound logo probes.
+vi.mock('./logos', async (importOriginal) => ({
+  ...(await importOriginal<typeof LogoModule>()),
+  resolveLogo: vi.fn(async () => ({ url: null, source: 'none' })),
+}));
 
 function fakeClient(mockOverrides?: {
   enrichment?: Record<string, unknown>;
@@ -72,6 +79,219 @@ const mockCandidate: CompanyCandidate = {
   descriptor: 'Autonomous code generation agent',
   cardTypes: ['company', 'vice', 'culture'],
 };
+
+describe('Company Agent — retained research brief hydration', () => {
+  const citations = [
+    { title: 'Company overview', url: 'https://alder.example/about' },
+    { title: 'Access documentation', url: 'https://alder.example/access' },
+    { title: 'September release', url: 'https://alder.example/releases/september' },
+  ];
+  const brief = () => ({
+    sections: [
+      {
+        section: 'overview',
+        blocks: [
+          {
+            text: 'Alder supplies a parts availability API for independent repair shops.',
+            kind: 'reported',
+            sourceIndices: [0],
+            timeWindow: null,
+          },
+        ],
+      },
+      {
+        section: 'offering',
+        blocks: [
+          {
+            text: 'Approved business accounts can query supplier inventory; documentation does not disclose contract prices.',
+            kind: 'reported',
+            sourceIndices: [1],
+            timeWindow: null,
+          },
+          {
+            text: 'Illustrative annual cost is $240 for two accounts at an assumed $10 per month; this is not disclosed pricing.',
+            kind: 'estimate',
+            sourceIndices: [],
+            timeWindow: 'Illustrative 12-month scenario',
+            method: '2 accounts × assumed $10/account/month × 12 months',
+            assumptions: [
+              'Two paying business accounts',
+              'Assumed monthly price of $10; actual price is unknown',
+            ],
+          },
+        ],
+      },
+      {
+        section: 'position',
+        blocks: [
+          {
+            text: 'API access may reduce manual supplier checks, but supplier coverage has not been compared with alternatives.',
+            kind: 'analysis',
+            sourceIndices: [1],
+            timeWindow: null,
+          },
+        ],
+      },
+      {
+        section: 'updates',
+        blocks: [
+          {
+            text: 'The publisher announced a batch availability endpoint on September 12, 2026.',
+            kind: 'reported',
+            sourceIndices: [2],
+            timeWindow: '2026-09-12 announcement',
+          },
+        ],
+      },
+    ],
+    openQuestions: [
+      'Which suppliers and regions are covered?',
+      'What are the actual contract prices?',
+    ],
+    limitations: ['Publisher documentation has not been independently corroborated.'],
+  });
+
+  it.each(['company', 'infrastructure', 'distribution'] as const)(
+    'hydrates substantive four-section %s research using the same two provider calls',
+    async (role) => {
+      const client = fakeClient({
+        citations: [
+          ...citations,
+          { title: 'Unused global lead', url: 'https://example.org/unused' },
+        ],
+        groundedText: 'Source-backed product, access, position and dated release notes.',
+        enrichment: {
+          oneLiner: 'Parts availability API',
+          researchBrief: brief(),
+          viceClaims: [{ text: 'Attributable separate legal claim', sourceIndex: 0 }],
+          cultureNote: 'A separate community note.',
+        },
+      });
+      const result = await hydrateCompanyCard({
+        candidate: { ...mockCandidate, primaryRole: role, cardTypes: [role, 'vice', 'culture'] },
+        client,
+        plan: mockPlan,
+      });
+      const retained = result.primaryCard.researchBrief;
+      expect(retained).toBeDefined();
+      expect(researchBriefSchema.safeParse(retained).success).toBe(true);
+      expect(retained!.sections.map((section) => section.section)).toEqual([
+        'overview',
+        'offering',
+        'position',
+        'updates',
+      ]);
+      expect(retained!.sections[1]!.blocks[0]!.citations).toEqual([citations[1]]);
+      expect(retained!.sections[1]!.blocks[1]).toMatchObject({
+        kind: 'estimate',
+        method: expect.stringContaining('2 accounts'),
+        assumptions: expect.any(Array),
+        timeWindow: 'Illustrative 12-month scenario',
+        citations: [],
+        support: 'unreviewed',
+      });
+      expect(retained!.sections[3]!.blocks[0]!.citations).toEqual([citations[2]]);
+      expect(
+        retained!.sections
+          .flatMap((section) => section.blocks)
+          .every((block) => block.support === 'unreviewed'),
+      ).toBe(true);
+      expect(result.memory.card.researchBrief).toEqual(retained);
+      const boundUrls = new Set(result.primaryCard.card.citations.map((source) => source.url));
+      expect(
+        retained!.sections
+          .flatMap((section) => section.blocks)
+          .flatMap((block) => block.citations)
+          .every((source) => boundUrls.has(source.url)),
+      ).toBe(true);
+      expect(result.primaryCard.card.citations).toEqual(citations);
+      expect(
+        result.cards
+          .filter((card) => ['vice', 'culture'].includes(card.card.cardType))
+          .every(
+            (card) =>
+              !('researchBrief' in card) &&
+              card.card.keyPoints.length === 0 &&
+              card.card.citations.length === 0,
+          ),
+      ).toBe(true);
+      expect(result.metrics.every((metric) => metric.value === null)).toBe(true);
+      expect(client.ground).toHaveBeenCalledTimes(1);
+      expect(client.structure).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('drops invalid attribution and unsupported estimates while preserving substantive notes and visible limitations', async () => {
+    const input = brief();
+    input.sections[0]!.blocks[0]!.sourceIndices = [99];
+    const client = fakeClient({
+      citations,
+      enrichment: {
+        researchBrief: {
+          ...input,
+          sections: [...input.sections, { section: 'unsupported', blocks: [] }],
+        },
+      },
+    });
+    const result = await hydrateCompanyCard({ candidate: mockCandidate, client, plan: mockPlan });
+    expect(
+      result.primaryCard.researchBrief!.sections.some((section) => section.section === 'overview'),
+    ).toBe(false);
+    expect(result.primaryCard.researchBrief!.limitations.join(' ')).toMatch(/source|attribution/i);
+    expect(result.primaryCard.researchBrief!.limitations.join(' ')).toMatch(/limit|omitted/i);
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps older missing briefs absent without manufacturing research or gaps', async () => {
+    const client = fakeClient({ enrichment: { oneLiner: 'Existing sparse company' } });
+    const result = await hydrateCompanyCard({ candidate: mockCandidate, client, plan: mockPlan });
+    expect(result.primaryCard).not.toHaveProperty('researchBrief');
+    expect(result.primaryCard.card.keyPoints).toEqual([]);
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains explicit entity gap notes when every proposed block fails, without filler or extra calls', async () => {
+    const client = fakeClient({
+      citations,
+      enrichment: {
+        researchBrief: {
+          sections: [
+            {
+              section: 'offering',
+              blocks: [
+                {
+                  text: 'Unattributed claim',
+                  kind: 'reported',
+                  sourceIndices: [500],
+                  timeWindow: null,
+                },
+                {
+                  text: 'Estimated $100M ARR',
+                  kind: 'estimate',
+                  sourceIndices: [0],
+                  timeWindow: null,
+                },
+              ],
+            },
+          ],
+          openQuestions: ['Actual pricing remains unknown.'],
+          limitations: ['Coverage not disclosed.'],
+        },
+      },
+    });
+    const result = await hydrateCompanyCard({ candidate: mockCandidate, client, plan: mockPlan });
+    expect(result.primaryCard).not.toHaveProperty('researchBrief');
+    expect(result.primaryCard.card.keyPoints.join(' ')).toMatch(/source|attribution/i);
+    expect(result.primaryCard.card.keyPoints.join(' ')).toMatch(/method|assumptions/i);
+    expect(result.primaryCard.card.keyPoints.join(' ')).toContain(
+      'Actual pricing remains unknown.',
+    );
+    expect(result.primaryCard.card.keyPoints.join(' ')).toContain('Coverage not disclosed.');
+    expect(client.structure).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('Company Agent — Brand & Helper Functions', () => {
   it('extracts brand theme when present or falls back to default', () => {

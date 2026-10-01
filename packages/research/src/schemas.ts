@@ -10,6 +10,7 @@ import {
   USER_FOOTPRINT_BASES,
   cardTypeSchema,
   modelConfidenceSchema,
+  researchBriefSectionSchema,
 } from '@mi/contracts';
 import { FUNDING_ROUND_TYPES, parseFundingRoundType } from './proxy-estimator';
 
@@ -88,6 +89,149 @@ export const discoveryMinimumOutSchema = discoveryOutSchema.superRefine((value, 
   }
 });
 
+const briefString = z.string().trim().min(1).max(500);
+const researchBriefNoteOutSchema = z
+  .object({
+    text: z.string().trim().min(1).max(2000),
+    kind: z.enum(['reported', 'analysis', 'estimate']),
+    sourceIndices: z.array(z.number().int().safe()).max(3).default([]),
+    timeWindow: z.string().trim().min(1).max(240).nullable().default(null),
+    method: briefString.nullable().default(null),
+    assumptions: z.array(briefString).max(6).default([]),
+  })
+  .strict()
+  .superRefine((note, context) => {
+    if (note.kind === 'reported' && !note.sourceIndices.length)
+      context.addIssue({
+        code: 'custom',
+        path: ['sourceIndices'],
+        message: 'Reported notes require their own source indices.',
+      });
+    if (note.kind === 'estimate') {
+      if (!note.method)
+        context.addIssue({
+          code: 'custom',
+          path: ['method'],
+          message: 'Estimates require a method.',
+        });
+      if (!note.assumptions.length)
+        context.addIssue({
+          code: 'custom',
+          path: ['assumptions'],
+          message: 'Estimates require assumptions.',
+        });
+    }
+  });
+const researchBriefDraftSchema = z
+  .object({
+    // Empty sections are an internal honest failure outcome, never rendered as filler.
+    sections: z
+      .array(
+        z
+          .object({
+            section: researchBriefSectionSchema,
+            blocks: z.array(researchBriefNoteOutSchema).min(1).max(6),
+          })
+          .strict(),
+      )
+      .max(4),
+    openQuestions: z.array(briefString).max(8),
+    limitations: z.array(briefString).max(8),
+  })
+  .strict();
+const briefSectionEnvelope = z
+  .object({
+    section: researchBriefSectionSchema,
+    blocks: z.array(z.unknown()),
+  })
+  .strict();
+
+/** Reserve a visible limitation for host validation gaps, even if the model filled all slots. */
+export function withResearchBriefOmissions(
+  limitations: readonly string[],
+  omissions: readonly string[],
+) {
+  if (!omissions.length) return [...limitations];
+  const reasons = [...new Set(omissions)];
+  if (limitations.length > 7)
+    reasons.push('One supplied limitation omitted to retain validation gaps.');
+  const full = `Research brief omissions: ${reasons.join(' ')}`;
+  const summary =
+    full.length <= 500
+      ? full
+      : `${full.slice(0, 420)}… Further omission details exceeded the 500-character limit.`;
+  return [...limitations.slice(0, 7), summary];
+}
+
+function normalizeResearchBrief(input: unknown): z.infer<typeof researchBriefDraftSchema> {
+  const omitted: string[] = [];
+  const empty = (reason: string) => ({ sections: [], openQuestions: [], limitations: [reason] });
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    return empty('Research brief omitted: invalid optional payload.');
+  const raw = input as Record<string, unknown>;
+  const strings = (key: 'openQuestions' | 'limitations') => {
+    if (raw[key] === undefined) return [];
+    const values = raw[key];
+    if (!Array.isArray(values)) {
+      omitted.push(`Invalid ${key} omitted.`);
+      return [];
+    }
+    if (values.length > 8) omitted.push(`${key} above the 8-item limit omitted.`);
+    const valid: string[] = [];
+    for (const value of values.slice(0, 8)) {
+      const parsed = briefString.safeParse(value);
+      if (parsed.success) valid.push(parsed.data);
+      else omitted.push(`Invalid ${key} text omitted (500-character limit).`);
+    }
+    return valid;
+  };
+  const openQuestions = strings('openQuestions');
+  const limitations = strings('limitations');
+  const sections: z.infer<typeof researchBriefDraftSchema>['sections'] = [];
+  if (!Array.isArray(raw.sections)) omitted.push('Invalid sections omitted.');
+  else {
+    if (raw.sections.length > 4) omitted.push('Sections above the 4-section limit omitted.');
+    const seen = new Set<string>();
+    for (const section of raw.sections.slice(0, 4)) {
+      const parsed = briefSectionEnvelope.safeParse(section);
+      if (!parsed.success) {
+        omitted.push('Invalid section omitted.');
+        continue;
+      }
+      const { section: name, blocks: notes } = parsed.data;
+      if (seen.has(name)) {
+        omitted.push(`Duplicate ${name} section omitted.`);
+        continue;
+      }
+      seen.add(name);
+      if (notes.length > 6) omitted.push(`${name} notes above the 6-block limit omitted.`);
+      const blocks: z.infer<typeof researchBriefNoteOutSchema>[] = [];
+      for (const note of notes.slice(0, 6)) {
+        const checked = researchBriefNoteOutSchema.safeParse(note);
+        if (checked.success) blocks.push(checked.data);
+        else {
+          // Only schema field names reach diagnostics, never injected source text or instructions.
+          const fields = [
+            ...new Set(checked.error.issues.map((issue) => String(issue.path[0] ?? 'fields'))),
+          ];
+          omitted.push(`${name} note omitted: invalid ${fields.join('/')}.`);
+        }
+      }
+      if (blocks.length) sections.push({ section: name, blocks });
+      else omitted.push(`${name} section omitted: no valid notes.`);
+    }
+  }
+  if (Object.keys(raw).some((key) => !['sections', 'openQuestions', 'limitations'].includes(key)))
+    omitted.push('Unexpected brief fields omitted.');
+  return { sections, openQuestions, limitations: withResearchBriefOmissions(limitations, omitted) };
+}
+
+/** Typed generation shape with tolerant, bounded host validation of the optional notes. */
+export const researchBriefOutSchema = z
+  .preprocess(normalizeResearchBrief, researchBriefDraftSchema)
+  .nullish();
+export type ResearchBriefOut = z.infer<typeof researchBriefDraftSchema>;
+
 export const enrichmentOutSchema = z.object({
   oneLiner: z.string().default(''),
   hqLocation: z.string().nullable().default(null),
@@ -150,6 +294,7 @@ export const enrichmentOutSchema = z.object({
     .array(z.object({ text: z.string(), sourceIndex: z.number().int().nullable().default(null) }))
     .default([]),
   cultureNote: z.string().nullable().default(null),
+  researchBrief: researchBriefOutSchema,
 });
 export type EnrichmentOut = z.infer<typeof enrichmentOutSchema>;
 

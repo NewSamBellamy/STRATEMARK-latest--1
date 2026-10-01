@@ -44,6 +44,7 @@ import {
   type ViceClaim,
 } from '@mi/contracts';
 import { enrichmentOutSchema, type EnrichmentOut } from './schemas';
+import { mapResearchBrief } from './research-brief-mapper';
 import {
   CHAT_SYSTEM,
   GROUNDED_SYSTEM,
@@ -550,11 +551,7 @@ export function enrichCompanyWithProxies(
       inferUserFootprintBasis(explicitFootprint.footprintLabel))
     : undefined;
   const existingUsers = explicitFootprint
-    ? findUserFootprint(
-        resultMetrics,
-        explicitFootprintBasis,
-        explicitFootprint.footprintLabel,
-      )
+    ? findUserFootprint(resultMetrics, explicitFootprintBasis, explicitFootprint.footprintLabel)
     : findUserFootprint(resultMetrics);
   if (
     (!existingUsers || existingUsers.value === null) &&
@@ -753,6 +750,18 @@ export async function hydrateCompanyCard(
   );
 
   const cultureNote = extractCultureNote(enrichment.cultureNote);
+  const { researchBrief, gapNotes } = mapResearchBrief(
+    enrichment.researchBrief,
+    grounded.citations,
+  );
+  const briefCitations = [
+    ...new Map(
+      (researchBrief?.sections ?? [])
+        .flatMap((section) => section.blocks)
+        .flatMap((block) => block.citations)
+        .map((citation) => [citation.url, citation] as const),
+    ).values(),
+  ];
 
   // 7. Card Assembly
   const primaryRole =
@@ -780,8 +789,8 @@ export async function hydrateCompanyCard(
       summary,
       tier: cardType === primaryRole ? cmsResult.finalTier : null,
       tierReason: cardType === primaryRole ? (options.nudgeReason ?? null) : null,
-      citations: [],
-      keyPoints: [],
+      citations: isEntity ? briefCitations : [],
+      keyPoints: isEntity ? gapNotes : [],
       createdAt: now(),
     };
     const claims =
@@ -791,6 +800,7 @@ export async function hydrateCompanyCard(
       company,
       metrics: isEntity ? metrics : [],
       viceClaims: claims,
+      ...(isEntity && researchBrief ? { researchBrief } : {}),
     };
   });
 

@@ -30,6 +30,7 @@ import type {
   ScopeDefinition,
   ViceClaim,
 } from './types';
+import type { ResearchBrief } from './research-brief';
 
 export interface CreateMarketInput {
   name: string;
@@ -461,6 +462,8 @@ export interface CardWithCompany {
   marketRoles?: readonly ('company' | 'infrastructure' | 'distribution')[];
   /** Passive migration history is not passage-supported research. */
   evidenceState?: 'legacy_unreviewed';
+  /** Optional on older output. Source-linked notes are not verified dossier facts. */
+  researchBrief?: ResearchBrief;
 }
 
 export interface DashboardTabResult<T extends DashboardTab> {

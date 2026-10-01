@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import type * as NodeSqlite from 'node:sqlite';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { buildDataset } from '@mi/mocks';
-import type { NativeResearchStart, CardWithCompany } from '@mi/contracts';
+import type { NativeResearchStart, CardWithCompany, ResearchBrief } from '@mi/contracts';
 import { sourceVersionRecordSchema, evidencePassageRecordSchema } from '@mi/contracts';
 import type { LlmClient, CompanyCandidate } from '@mi/research';
 import type * as Research from '@mi/research';
@@ -141,11 +141,170 @@ afterEach(async () => {
   for (const directory of roots.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
+it('retains a meaningful brief through atomic company completion, source capture, saving and keyless reopen', async () => {
+  const url = 'https://sources.example/products';
+  const brief: ResearchBrief = {
+    sections: [
+      {
+        section: 'overview',
+        blocks: [
+          {
+            id: 'overview_1',
+            kind: 'analysis',
+            support: 'unreviewed',
+            text: 'Alder serves manufacturers that need modular inspection equipment.',
+            timeWindow: null,
+            citations: [{ title: 'Product page', url }],
+          },
+        ],
+      },
+      {
+        section: 'offering',
+        blocks: [
+          {
+            id: 'offering_1',
+            kind: 'reported',
+            support: 'unreviewed',
+            text: 'Its equipment combines inspection modules with production-line integration.',
+            timeWindow: null,
+            citations: [{ title: 'Product page', url }],
+          },
+        ],
+      },
+      {
+        section: 'position',
+        blocks: [
+          {
+            id: 'position_1',
+            kind: 'estimate',
+            support: 'unreviewed',
+            text: 'Integration needs may make adoption slower than a standalone tool.',
+            timeWindow: null,
+            citations: [],
+            method: 'Qualitative comparison of installation requirements.',
+            assumptions: ['The production line requires equipment integration.'],
+          },
+        ],
+      },
+    ],
+    openQuestions: ['How much deployment work is performed by partners?'],
+    limitations: ['Source-linked notes are not semantically verified.'],
+  };
+  pipeline.discover.mockImplementation(async () => ({ candidates: [candidates[0]] }));
+  pipeline.hydrate.mockImplementation(async ({ candidate, client, deckId }) => {
+    await client.ground('Fixture brief');
+    const data = card(candidate, deckId);
+    return {
+      cards: [
+        {
+          ...data,
+          card: {
+            ...data.card,
+            citations: [{ title: 'Product page', url, credibility: 'unknown' }],
+          },
+          researchBrief: brief,
+        },
+      ],
+    };
+  });
+  const retrieveSource = vi.fn(
+    async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+      options.beforeRequest!();
+      return {
+        originalUrl,
+        canonicalUrl: originalUrl,
+        text: 'Modular inspection equipment fixture source.',
+        retrievalStatus: 'retrieved' as const,
+        reason: null,
+      };
+    },
+  );
+  const { service, file } = open(testClient(), undefined, { retrieveSource });
+  const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 1 } });
+  await service.waitForIdle();
+  const saved = service.vault.work.listCards(run.deckId)[0]!;
+  expect(saved?.researchBrief).toEqual(brief);
+  expect(service.vault.work.getRun(run.id)).toMatchObject({
+    status: 'completed',
+    tasks: [{ status: 'completed', cardIds: [saved.card.id] }],
+  });
+  expect(service.getCardEvidence(saved.card.id).sources[0]?.retrievalStatus).toBe('retrieved');
+  service.saveCard(saved.card.id);
+  expect(service.vault.work.listSavedCards()[0]?.researchBrief).toEqual(brief);
+  await service.close();
+  services.splice(services.indexOf(service), 1);
+  const connection = vi.fn(() => null);
+  const reader = new NativeResearchService(
+    openVault(file, 'fixture_native', 'reader'),
+    connection,
+    undefined,
+    { writable: false, researchProvenance: 'synthetic_fixture', retrieveSource },
+  );
+  services.push(reader);
+  expect(reader.vault.work.getCard(saved.card.id)?.researchBrief).toEqual(brief);
+  expect(reader.vault.work.listSavedCards()[0]?.researchBrief).toEqual(brief);
+  expect(
+    reader.vault.work.listEvents(run.id).find((event) => event.progress.card)?.progress.card
+      ?.researchBrief,
+  ).toEqual(brief);
+  reader.getCardEvidence(saved.card.id);
+  expect(connection).not.toHaveBeenCalled();
+  expect(retrieveSource).toHaveBeenCalledTimes(1);
+});
+
+it('rejects brief citation borrowing even when a company-level result lists the missing source', async () => {
+  const ownUrl = 'https://sources.example/own-card';
+  const borrowedUrl = 'https://sources.example/another-card';
+  pipeline.discover.mockImplementation(async () => ({ candidates: [candidates[0]] }));
+  pipeline.hydrate.mockImplementation(async ({ candidate, deckId }) => {
+    const data = card(candidate, deckId);
+    return {
+      cards: [
+        {
+          ...data,
+          card: {
+            ...data.card,
+            citations: [{ title: 'Own lead', url: ownUrl, credibility: 'unknown' }],
+          },
+          researchBrief: {
+            sections: [
+              {
+                section: 'overview',
+                blocks: [
+                  {
+                    id: 'borrowed_1',
+                    text: 'Borrowed source context.',
+                    kind: 'reported',
+                    support: 'unreviewed',
+                    timeWindow: null,
+                    citations: [{ title: 'Another card source', url: borrowedUrl }],
+                  },
+                ],
+              },
+            ],
+            openQuestions: [],
+            limitations: [],
+          },
+        },
+      ],
+      citations: [{ title: 'Another card source', url: borrowedUrl }],
+    };
+  });
+  const { service } = open();
+  const run = service.start(request);
+  await service.waitForIdle();
+  expect(service.vault.work.getRun(run.id)?.status).toBe('failed');
+  expect(service.vault.work.listCards(run.deckId)).toEqual([]);
+  expect(service.vault.work.getRun(run.id)?.tasks?.[0]?.status).toBe('failed');
+  expect(service.vault.work.getRun(run.id)?.tasks?.[0]?.error).toMatch(/own citation leads/i);
+});
+
 it('saves and unsaves cards keylessly in a live writable workspace without changing research', async () => {
   const { service, file } = open(testClient(), undefined, { researchProvenance: 'live_provider' });
   const run = service.start(request);
   await service.waitForIdle();
   const cards = service.vault.work.listCards(run.deckId);
+  expect(cards.every((entry) => !Object.hasOwn(entry, 'researchBrief'))).toBe(true);
   const retainedRun = service.vault.work.getRun(run.id);
   const events = service.vault.work.listEvents(run.id);
   await service.close();

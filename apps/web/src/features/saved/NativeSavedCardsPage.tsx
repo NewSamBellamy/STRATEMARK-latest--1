@@ -162,6 +162,9 @@ export default function NativeSavedCardsPage() {
       </div>
       <NativeCardReader
         card={selected}
+        sourceDeckName={
+          markets.data?.find((item) => item.id === run?.marketId)?.name ?? run?.scope.goal
+        }
         returnFocus={opener.current}
         fallbackFocus={heading.current}
         active={['queued', 'running'].includes(run?.status ?? '')}

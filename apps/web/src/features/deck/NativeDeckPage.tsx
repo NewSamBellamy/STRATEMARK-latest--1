@@ -11,6 +11,7 @@ import { useCards, useDeckByMarket, useMarket } from '@/hooks/data';
 import { GameCard } from '@/features/card/GameCard';
 import { NativeCardReader } from './NativeCardReader';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { qk } from '@/lib/query/keys';
 
 type EventLog = { after: number; items: NativeResearchEvent[] };
@@ -29,6 +30,7 @@ export default function NativeDeckPage() {
   const [params, setParams] = useSearchParams();
   const selectedId = params.get('card');
   const opener = useRef<HTMLElement | null>(null);
+  const searchInput = useRef<HTMLInputElement | null>(null);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
   const qc = useQueryClient();
@@ -84,10 +86,33 @@ export default function NativeDeckPage() {
     [qc, marketId, runId, selectedId],
   );
   const viewType = params.get('type');
-  const visible = (cards.data ?? []).filter(
-    (entry) => !viewType || entry.card.cardType === viewType,
-  );
+  const search = params.get('q') ?? '';
+  const needle = search.trim().toLocaleLowerCase();
+  const visible = (cards.data ?? []).filter((entry) => {
+    if (viewType && entry.card.cardType !== viewType) return false;
+    return (
+      !needle ||
+      [
+        entry.company?.name,
+        entry.company?.oneLiner,
+        entry.card.title,
+        entry.card.summary,
+        ...entry.card.keyPoints,
+      ]
+        .join(' ')
+        .toLocaleLowerCase()
+        .includes(needle)
+    );
+  });
   const selected = cards.data?.find((entry) => entry.card.id === selectedId);
+  function changeView(name: 'q' | 'type', value: string | null) {
+    const next = new URLSearchParams(params);
+    if (value) next.set(name, value);
+    else next.delete(name);
+    next.delete('card');
+    // Typing must not leave one browser history entry per keystroke.
+    setParams(next, { replace: name === 'q' });
+  }
   async function control(command: 'pause' | 'resume' | 'cancel') {
     if (!run || pending) return;
     if (window.mi?.nativeResearchWritable === false) return;
@@ -137,16 +162,23 @@ export default function NativeDeckPage() {
       <Link className="text-sm text-muted hover:text-primary" to="/library">
         ← Library
       </Link>
-      <h1 className="mt-4 font-display text-3xl font-semibold text-content">{market.data.name}</h1>
-      {window.mi?.nativeResearchWritable === false && (
-        <p className="mt-3 text-sm text-muted">
-          Research is disabled on this provenance-preserving reopen. Saved results are still
-          readable.
+      <header className="mt-5 border-b border-border pb-6">
+        <p className="text-xs font-semibold uppercase tracking-widest text-primary-ink">
+          Research deck
         </p>
-      )}
-      <p className="mt-2 text-sm text-muted">
-        {cards.data?.length ?? 0} saved cards · Research stays on this machine
-      </p>
+        <h1 className="mt-2 break-words font-display text-3xl font-semibold tracking-tight text-content sm:text-4xl">
+          {market.data.name}
+        </h1>
+        {window.mi?.nativeResearchWritable === false && (
+          <p className="mt-3 text-sm text-muted">
+            Research is disabled on this provenance-preserving reopen. Saved results are still
+            readable.
+          </p>
+        )}
+        <p className="mt-2 text-sm text-muted">
+          {cards.data?.length ?? 0} saved cards · Research stays on this machine
+        </p>
+      </header>
       {run && (
         <div className="my-6 rounded-xl border border-border bg-surface p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -224,34 +256,109 @@ export default function NativeDeckPage() {
           {error}
         </p>
       )}
-      <p className="mb-5 text-xs leading-5 text-muted">
+      <p className="my-5 text-xs leading-5 text-muted">
         Native research preview: company research is retained. Passage verification, other card
         categories, sharing, questions and monitoring are still being built.
       </p>
-      <div className="mb-6 flex flex-wrap gap-2" aria-label="Filter research cards">
-        {[null, ...new Set((cards.data ?? []).map((entry) => entry.card.cardType))].map((type) => (
-          <Button
-            key={type ?? 'all'}
-            variant={viewType === type || (!viewType && type === null) ? 'blue' : 'ghost'}
-            size="sm"
-            aria-pressed={viewType === type || (!viewType && type === null)}
-            onClick={() => {
-              const next = new URLSearchParams(params);
-              if (type) next.set('type', type);
-              else next.delete('type');
-              next.delete('card');
-              setParams(next);
-            }}
+      <div className="mb-7 rounded-2xl border border-border bg-surface p-4 sm:p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-display text-xl font-semibold text-content">Browse this deck</h2>
+          <p
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary-ink"
           >
-            {type ? CARD_TYPE_LABELS[type as CardType] : 'All cards'}
-          </Button>
-        ))}
+            {cards.isLoading
+              ? 'Loading saved cards…'
+              : `Showing ${visible.length} of ${cards.data?.length ?? 0} cards`}
+          </p>
+        </div>
+        <form role="search" onSubmit={(event) => event.preventDefault()}>
+          <label
+            htmlFor="native-deck-search"
+            className="mb-2 block text-sm font-medium text-content"
+          >
+            Search this deck
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              ref={searchInput}
+              id="native-deck-search"
+              type="search"
+              value={search}
+              placeholder="Company, title or card text"
+              aria-describedby="native-deck-search-help"
+              className="min-w-0 flex-1 basis-56"
+              onChange={(event) => changeView('q', event.target.value)}
+            />
+            {search && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  changeView('q', null);
+                  searchInput.current?.focus();
+                }}
+              >
+                Clear search
+              </Button>
+            )}
+          </div>
+          <p id="native-deck-search-help" className="mt-2 text-xs leading-5 text-muted">
+            Search retained names, summaries and card text. No new research is started.
+          </p>
+        </form>
+        <div className="mt-4 border-t border-border pt-4">
+          <p className="mb-2 text-xs font-medium text-muted">Card types in this deck</p>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter research cards">
+            {[null, ...new Set((cards.data ?? []).map((entry) => entry.card.cardType))].map(
+              (type) => (
+                <Button
+                  key={type ?? 'all'}
+                  variant={viewType === type || (!viewType && type === null) ? 'blue' : 'ghost'}
+                  size="sm"
+                  aria-pressed={viewType === type || (!viewType && type === null)}
+                  onClick={() => changeView('type', type)}
+                >
+                  {type ? CARD_TYPE_LABELS[type as CardType] : 'All cards'}
+                </Button>
+              ),
+            )}
+          </div>
+        </div>
       </div>
-      {!visible.length && (
-        <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted">
-          {['queued', 'running'].includes(run?.status ?? '')
-            ? 'Research is underway. Cards appear after their results have been saved.'
-            : 'No saved cards in this view. Retained activity explains incomplete research.'}
+      {!cards.isLoading && !visible.length && (
+        <div className="rounded-2xl border border-dashed border-border bg-surface p-8 text-center text-sm text-muted sm:p-10">
+          {cards.data?.length ? (
+            <>
+              <h3 className="font-display text-xl font-semibold text-content">
+                No cards match your search and filters.
+              </h3>
+              <p className="mt-2">
+                Try another name or card text, or return to all retained cards.
+              </p>
+              <Button
+                variant="ghost"
+                className="mt-5"
+                onClick={() => {
+                  const next = new URLSearchParams(params);
+                  next.delete('q');
+                  next.delete('type');
+                  next.delete('card');
+                  setParams(next);
+                  searchInput.current?.focus();
+                }}
+              >
+                Reset search and filters
+              </Button>
+            </>
+          ) : ['queued', 'running'].includes(run?.status ?? '') ? (
+            'Research is underway. Cards appear after their results have been saved.'
+          ) : (
+            'No saved cards in this view. Retained activity explains incomplete research.'
+          )}
         </div>
       )}
       <div className="grid gap-7 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -272,6 +379,7 @@ export default function NativeDeckPage() {
       </div>
       <NativeCardReader
         card={selected ?? null}
+        sourceDeckName={market.data.name}
         returnFocus={opener.current}
         active={['queued', 'running'].includes(run?.status ?? '')}
         onClose={() => {

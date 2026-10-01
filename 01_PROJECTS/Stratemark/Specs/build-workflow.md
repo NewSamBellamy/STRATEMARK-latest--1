@@ -1,5 +1,7 @@
 # Stratemark v2 build workflow
 
+Latest prepared execution mode: ordinary hands-on Astra pass, no goal or automation mechanism. At its launch, ASTRA-PASS.md supersedes planner-only/Sol-executor assignments in this workflow. Product scope, verification, evidence, context and checkpoint requirements remain. Preparing the packet does not itself start the pass.
+
 Current task is the authorized full build. MASTER-PLAN.md, EXPERIENCE-MAP.md and DELIVERY-PLAN.md replace the old execution rules. Astra is the founder's requested planner/reviewer; GPT 6.1 Sol executes bounded assignments. Earlier Astra prohibition and mandatory Luna instructions are superseded.
 
 ## Execution after build authorization

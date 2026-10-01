@@ -4,6 +4,8 @@ Updated October 1, 2026. The founder authorized the complete R0–R8 build. MAST
 
 ## Current execution checkpoint
 
+Latest preparation: founder requests an ordinary hands-on Astra pass instead of using goals. ASTRA-PASS.md and ASTRA-LAUNCH-PROMPT.md are prepared, not launched. All workers returned ownership; the retained-brief slice is still uncommitted and incomplete. Shared contract/prompt targeted checks passed; desktop/UI tests include intentional RED failures and an absent reader component. See the current ACTIVE-HANDOFF snapshot for precise evidence and next action. Last clean verified application below remains authoritative; preparation is not a new application checkpoint.
+
 Current verified application checkpoint `330d67b03b1eaa671e034754d467853ded1b7902`: native saved collection wired through SQLite/IPC/shared reader, explicit save/remove/Undo, exact deck/role identity and keyless reopen. Final gate26904 passed all six typechecks/lint and1735 reported tests (desktop509/web287); final build79935 and actual clean-commit Electron recorder76289 exited0. Two Astra findings repaired. Recording native-journey-q8rX45 proves direct-entry Undo, retained source reading, focus/source-deck navigation and host-denied read-only changes with unchanged research usage. GitHub branch SHA verified330d67b; main unchangedc945b31. See CHECKPOINT-R1-SAVED-COLLECTION for playable files/hashes/limits. No live-quality, normal cutover, packaging or R-goal completion claim. Founder monitors $100 externally; dollars/cache hits unobserved. No implementation workers/processes remain from this slice.
 
 ### Previous retained-source checkpoint

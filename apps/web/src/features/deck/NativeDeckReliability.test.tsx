@@ -345,6 +345,108 @@ describe('explicit source capture allowance', () => {
 });
 
 describe('native saved source reader', () => {
+  it('shows retained brief sections keyless from the deck without restarting sources or invoking dashboard research', async () => {
+    const native = evidenceBridge();
+    native.state.cards[0]!.researchBrief = {
+      sections: [
+        {
+          section: 'overview',
+          blocks: [
+            {
+              id: 'overview',
+              text: 'Saved overview draft.',
+              kind: 'reported',
+              support: 'unreviewed',
+              timeWindow: null,
+              citations: [{ title: 'Own overview lead', url: 'https://fixture.invalid/overview' }],
+            },
+          ],
+        },
+        {
+          section: 'offering',
+          blocks: [
+            {
+              id: 'offering',
+              text: 'Saved offering analysis.',
+              kind: 'analysis',
+              support: 'unreviewed',
+              timeWindow: null,
+              citations: [],
+            },
+          ],
+        },
+        {
+          section: 'position',
+          blocks: [
+            {
+              id: 'position',
+              text: 'Saved position estimate.',
+              kind: 'estimate',
+              support: 'unreviewed',
+              timeWindow: null,
+              citations: [],
+              method: 'Illustrative scope comparison.',
+              assumptions: ['No observed figures.'],
+            },
+          ],
+        },
+        {
+          section: 'updates',
+          blocks: [
+            {
+              id: 'updates',
+              text: 'Saved dated update draft.',
+              kind: 'reported',
+              support: 'unreviewed',
+              timeWindow: 'September 2026',
+              citations: [{ title: 'Own update lead', url: 'https://fixture.invalid/update' }],
+            },
+          ],
+        },
+      ],
+      openQuestions: ['What remains unobserved?'],
+      limitations: ['These are retained drafts, not verified support.'],
+    };
+    const dashboard = vi.fn(() => {
+      throw new Error('No dashboard research on reader open');
+    });
+    Object.assign(native.api, { getDashboardTab: dashboard, nativeResearchWritable: false });
+    useApiKey.setState({ hasKey: false });
+    const { user } = mount(native, client(), '/markets/market-1/deck');
+    await user.click(await screen.findByRole('button', { name: 'Saved company — Company card' }));
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(await dialog.findByText('Saved overview draft.')).toBeVisible();
+    await user.click(await dialog.findByRole('button', { name: 'Show retained text' }));
+    for (const label of ['Products & business', 'Market position', 'Updates', 'Overview'])
+      await user.click(dialog.getByRole('tab', { name: label }));
+    expect(dialog.getByText('A saved plain text passage.')).toBeVisible();
+    expect(dialog.getByText('Reported draft · unreviewed')).toBeVisible();
+    expect(dialog.getByRole('link', { name: 'Own overview lead' })).toHaveAttribute(
+      'href',
+      'https://fixture.invalid/overview',
+    );
+    expect(native.read).toHaveBeenCalledTimes(1);
+    expect(native.capture).not.toHaveBeenCalled();
+    expect(native.api.startNativeResearch).not.toHaveBeenCalled();
+    expect(dashboard).not.toHaveBeenCalled();
+    await user.keyboard('{Escape}');
+    expect(
+      await screen.findByRole('button', { name: 'Saved company — Company card' }),
+    ).toHaveFocus();
+  });
+
+  it('keeps an older missing brief honest and does not backfill it on open', async () => {
+    const native = evidenceBridge();
+    const { user } = mount(native, client(), '/markets/market-1/deck');
+    await user.click(await screen.findByRole('button', { name: 'Saved company — Company card' }));
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(await dialog.findByText('Research brief not retained')).toBeVisible();
+    expect(dialog.queryByRole('tab')).not.toBeInTheDocument();
+    expect(native.state.cards[0]).not.toHaveProperty('researchBrief');
+    expect(native.api.startNativeResearch).not.toHaveBeenCalled();
+    expect(native.capture).not.toHaveBeenCalled();
+  });
+
   it('saves only after an explicit reader action and a confirmed receipt, never on card open', async () => {
     const native = evidenceBridge();
     let finish!: () => void;

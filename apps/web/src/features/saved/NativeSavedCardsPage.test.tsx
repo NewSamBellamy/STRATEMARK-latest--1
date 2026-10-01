@@ -161,6 +161,79 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('native saved collection', () => {
+  it.each([
+    ['card-1', 'Local market 1', 'Local market 2'],
+    ['card-3', 'Local market 2', 'Local market 1'],
+  ])(
+    'identifies the correct market inside the same-company same-role reader %s',
+    async (id, name, other) => {
+      fixture();
+      mount(`/saved?card=${id}`);
+      const dialog = within(await screen.findByRole('dialog'));
+      expect(await dialog.findByText(`From ${name}`)).toBeVisible();
+      expect(dialog.queryByText(`From ${other}`)).not.toBeInTheDocument();
+      expect(dialog.getByRole('heading', { name: 'Alder Works' })).toBeVisible();
+    },
+  );
+  it('shows the same retained role brief keyless through direct entry and keeps notes through removal/Undo', async () => {
+    const native = fixture();
+    native.cards[1]!.researchBrief = {
+      sections: [
+        {
+          section: 'overview',
+          blocks: [
+            {
+              id: 'overview',
+              text: 'Retained infrastructure overview.',
+              kind: 'reported',
+              support: 'unreviewed',
+              timeWindow: null,
+              citations: [
+                { title: 'Own saved note lead', url: 'https://fixture.invalid/own-note' },
+              ],
+            },
+          ],
+        },
+        {
+          section: 'offering',
+          blocks: [
+            {
+              id: 'capabilities',
+              text: 'Retained tooling capabilities.',
+              kind: 'analysis',
+              support: 'unreviewed',
+              timeWindow: null,
+              citations: [],
+            },
+          ],
+        },
+      ],
+      openQuestions: ['Which tools are actually deployed?'],
+      limitations: ['No semantic support review.'],
+    };
+    const { user } = mount('/saved?card=card-2');
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(await dialog.findByText('Retained infrastructure overview.')).toBeVisible();
+    expect(dialog.getByRole('link', { name: 'Own saved note lead' })).toHaveAttribute(
+      'href',
+      'https://fixture.invalid/own-note',
+    );
+    await user.click(dialog.getByRole('tab', { name: 'Capabilities' }));
+    expect(dialog.getByText('Retained tooling capabilities.')).toBeVisible();
+    expect(dialog.getByText('Analysis · unreviewed')).toBeVisible();
+    expect(dialog.getByText('Period unknown')).toBeVisible();
+    await user.click(await dialog.findByRole('button', { name: 'Show retained text' }));
+    expect(dialog.getByText('Synthetic retained card-2 text — not live research.')).toBeVisible();
+    await user.click(await dialog.findByRole('button', { name: 'Remove from saved' }));
+    await user.click(await dialog.findByRole('button', { name: 'Undo removal' }));
+    await waitFor(() => expect(native.saved.has('card-2')).toBe(true));
+    expect(dialog.getByText('Retained tooling capabilities.')).toBeVisible();
+    expect(dialog.getByText('Synthetic retained card-2 text — not live research.')).toBeVisible();
+    expect(native.api.getNativeCardEvidence).toHaveBeenCalledTimes(1);
+    expect(native.api.saveCard).toHaveBeenCalledWith('card-2');
+    expect(native.api.unsaveCard).toHaveBeenCalledWith('card-2');
+  });
+
   it('retains a directly resolved reader after removal and restores the exact card through Undo', async () => {
     const native = fixture();
     const { user } = mount('/saved?card=card-2&view=compact');
@@ -174,7 +247,7 @@ describe('native saved collection', () => {
     expect(
       within(screen.getByRole('dialog')).getByRole('heading', { name: 'Alder Works' }),
     ).toBeVisible();
-    expect(dialog.getByText('Infrastructure · Source deck deck-1')).toBeVisible();
+    expect(dialog.getByText('Infrastructure · Research collection')).toBeVisible();
     expect(dialog.getByText('Synthetic retained card-2 text — not live research.')).toBeVisible();
     expect(screen.getByTestId('saved-location')).toHaveTextContent(
       '/saved?card=card-2&view=compact',

@@ -13,6 +13,7 @@ import {
   compareRecordTimestamps,
   nativeResearchStartSchema,
   nativeResearchTaskSchema,
+  researchBriefSchema,
   isSignalCardType,
   type NativeResearchRun,
   type NativeResearchEvent,
@@ -25,6 +26,18 @@ import {
 
 export type NativeRun = NativeResearchRun;
 export type NativeRunEvent = NativeResearchEvent;
+/** Called only with schema-validated briefs; never borrow another card's citation context. */
+export function researchBriefCitationsMatchCard(
+  data: Pick<CardWithCompany, 'card' | 'researchBrief'>,
+): boolean {
+  const leads = new Set(data.card.citations.map((citation) => citation.url));
+  return (
+    !data.researchBrief ||
+    data.researchBrief.sections.every((section) =>
+      section.blocks.every((block) => block.citations.every((citation) => leads.has(citation.url))),
+    )
+  );
+}
 const id = recordVersionSchema.innerType().shape.id;
 const integer = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const timestamp = z.string().datetime();
@@ -84,6 +97,7 @@ const generatedCardSchema = z
       .max(3)
       .optional(),
     evidenceState: z.literal('legacy_unreviewed').optional(),
+    researchBrief: researchBriefSchema.optional(),
   })
   .strict()
   .superRefine((data, context) => {
@@ -104,6 +118,12 @@ const generatedCardSchema = z
       });
     if (isSignalCardType(data.card.cardType) && data.metrics.length)
       context.addIssue({ code: 'custom', message: 'Finding cards must have empty metrics.' });
+    if (!researchBriefCitationsMatchCard(data))
+      context.addIssue({
+        code: 'custom',
+        path: ['researchBrief'],
+        message: "Research brief citations must belong to this card's own citation leads.",
+      });
   });
 const progressSchema = z
   .object({

@@ -5,6 +5,9 @@ import { buildCardView, sourceUrl } from '@/features/card/card-view';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/button';
 import { qk } from '@/lib/query/keys';
+import { Bookmark, Check, Library } from 'lucide-react';
+import { initials } from '@/lib/format';
+import { NativeResearchBrief } from './NativeResearchBrief';
 
 type Source = NativeCardEvidence['sources'][number];
 const captureDate = new Intl.DateTimeFormat(undefined, {
@@ -170,6 +173,7 @@ type ReaderProps = {
   active?: boolean;
   returnFocus?: HTMLElement | null;
   fallbackFocus?: HTMLElement | null;
+  sourceDeckName?: string;
 };
 
 function ReaderContent({
@@ -177,6 +181,7 @@ function ReaderContent({
   active = false,
   returnFocus,
   fallbackFocus,
+  sourceDeckName,
 }: Omit<ReaderProps, 'card' | 'onClose'> & { card: CardWithCompany }) {
   const view = buildCardView(card);
   const fixture = window.mi?.researchProvenance === 'synthetic_fixture';
@@ -223,6 +228,7 @@ function ReaderContent({
   return (
     <DialogContent
       size="2xl"
+      className="overflow-hidden p-0 [&>button]:bg-surface"
       onCloseAutoFocus={(event) => {
         const target = returnFocus?.isConnected ? returnFocus : fallbackFocus;
         if (target?.isConnected) {
@@ -231,90 +237,130 @@ function ReaderContent({
         }
       }}
     >
-      <DialogTitle>{view.title}</DialogTitle>
-      <DialogDescription>
-        {fixture && 'Synthetic fixture material · no live research. '}
-        Research retained from this bounded pass. Source links are research leads; exact passage
-        support is still pending.
-      </DialogDescription>
-      <div className="mt-5 space-y-5 text-sm leading-6">
-        <p className="text-xs text-muted">
-          {view.type} · Source deck {card.card.deckId}
-        </p>
-        <div className="rounded-xl border border-border bg-surface-2 p-4">
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={disabled}
-              aria-describedby={reasonId}
-              onClick={() => change.mutate(isSaved)}
+      <div className="max-h-[88vh] overflow-y-auto">
+        <header className="border-b border-border bg-surface-2 px-6 pb-6 pt-8 sm:px-8">
+          <p className="mb-5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-primary">
+            <Library aria-hidden className="h-3.5 w-3.5" />
+            {view.type} · Research collection
+          </p>
+          <p className="mb-4 break-words text-xs text-muted">
+            {sourceDeckName ? `From ${sourceDeckName}` : 'Source market context unavailable'}
+          </p>
+          <div className="flex items-center gap-5 pr-5">
+            <div
+              aria-hidden
+              className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl border border-border bg-surface font-display text-3xl font-semibold text-primary shadow-sm sm:h-24 sm:w-24 sm:text-4xl"
             >
-              {isSaved ? 'Remove from saved' : 'Save card'}
-            </Button>
-            {message.startsWith('Removed from saved.') && !isSaved && (
+              {initials(view.title)}
+            </div>
+            <div className="min-w-0">
+              <DialogTitle className="break-words text-3xl font-semibold leading-tight sm:text-4xl">
+                {view.title}
+              </DialogTitle>
+              <DialogDescription className="mt-2 max-w-2xl text-sm leading-6">
+                {view.description || 'Saved research and source material.'}
+              </DialogDescription>
+            </div>
+          </div>
+          {fixture && (
+            <p className="mt-4 text-xs text-muted">
+              Synthetic fixture material · no live research.
+            </p>
+          )}
+        </header>
+        <div className="px-6 py-5 sm:px-8">
+          <div className="mb-5 border-b border-border pb-5">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={disabled}
                 aria-describedby={reasonId}
-                onClick={() => change.mutate(false)}
+                onClick={() => change.mutate(isSaved)}
               >
-                Undo removal
+                {isSaved ? (
+                  <Check aria-hidden className="h-3.5 w-3.5" />
+                ) : (
+                  <Bookmark aria-hidden className="h-3.5 w-3.5" />
+                )}
+                {isSaved ? 'Remove from saved' : 'Save card'}
               </Button>
+              {message.startsWith('Removed from saved.') && !isSaved && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={disabled}
+                  aria-describedby={reasonId}
+                  onClick={() => change.mutate(false)}
+                >
+                  Undo removal
+                </Button>
+              )}
+            </div>
+            <p id={reasonId} className="mt-2 text-xs text-muted">
+              {readonly
+                ? 'Collection changes are disabled in this read-only workspace. Saved cards and sources remain readable.'
+                : unavailable
+                  ? 'Collection actions are unavailable in this native bridge.'
+                  : 'Saving keeps this exact card in your local collection. Removing it does not delete research or sources.'}
+            </p>
+            {saved.isLoading && (
+              <p role="status" className="mt-2 text-xs text-muted">
+                Checking saved collection…
+              </p>
+            )}
+            {saved.isError && (
+              <p role="alert" className="mt-2 text-sm text-amber-800">
+                Saved collection status could not be read. No collection change will be sent.
+                <Button variant="link" size="sm" onClick={() => void saved.refetch()}>
+                  Retry saved status
+                </Button>
+              </p>
+            )}
+            {change.isPending && (
+              <p role="status" className="mt-2 text-xs text-muted">
+                Confirming collection change…
+              </p>
+            )}
+            {message && (
+              <p role="status" className="mt-2 text-sm">
+                {message}
+              </p>
+            )}
+            {change.isError && (
+              <p role="alert" className="mt-2 text-sm text-amber-800">
+                Card could not be {change.variables ? 'removed from saved' : 'saved'}.{' '}
+                {change.error instanceof Error ? change.error.message : 'Please try again.'}
+              </p>
             )}
           </div>
-          <p id={reasonId} className="mt-2 text-xs text-muted">
-            {readonly
-              ? 'Collection changes are disabled in this read-only workspace. Saved cards and sources remain readable.'
-              : unavailable
-                ? 'Collection actions are unavailable in this native bridge.'
-                : 'Saving keeps this exact card in your local collection. Removing it does not delete research or sources.'}
-          </p>
-          {saved.isLoading && (
-            <p role="status" className="mt-2 text-xs text-muted">
-              Checking saved collection…
-            </p>
-          )}
-          {saved.isError && (
-            <p role="alert" className="mt-2 text-sm text-amber-800">
-              Saved collection status could not be read. No collection change will be sent.
-              <Button variant="link" size="sm" onClick={() => void saved.refetch()}>
-                Retry saved status
-              </Button>
-            </p>
-          )}
-          {change.isPending && (
-            <p role="status" className="mt-2 text-xs text-muted">
-              Confirming collection change…
-            </p>
-          )}
-          {message && (
-            <p role="status" className="mt-2 text-sm">
-              {message}
-            </p>
-          )}
-          {change.isError && (
-            <p role="alert" className="mt-2 text-sm text-amber-800">
-              Card could not be {change.variables ? 'removed from saved' : 'saved'}.{' '}
-              {change.error instanceof Error ? change.error.message : 'Please try again.'}
-            </p>
-          )}
+          <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.52fr)]">
+            <div className="min-w-0">
+              {!card.researchBrief &&
+                card.card.summary &&
+                card.card.summary !== view.description && (
+                  <p className="mb-5 whitespace-pre-wrap font-serif leading-7 text-content">
+                    {card.card.summary}
+                  </p>
+                )}
+              {!card.researchBrief && !!card.card.keyPoints?.length && (
+                <ul className="mb-5 list-disc space-y-2 pl-5 text-sm">
+                  {card.card.keyPoints.map((point, index) => (
+                    <li key={index}>{point}</li>
+                  ))}
+                </ul>
+              )}
+              <NativeResearchBrief brief={card.researchBrief} cardType={card.card.cardType} />
+            </div>
+            <aside className="min-w-0">
+              <NativeCardSources cardId={card.card.id} leads={view.citations} active={active} />
+              <p className="mt-3 text-xs leading-5 text-muted">
+                Model-extracted numeric claims have been withheld from the card face until exact
+                evidence support is reviewed.
+              </p>
+            </aside>
+          </div>
         </div>
-        <p>{view.description}</p>
-        {card.card.summary && <p className="whitespace-pre-wrap">{card.card.summary}</p>}
-        {!!card.card.keyPoints?.length && (
-          <ul className="list-disc space-y-2 pl-5">
-            {card.card.keyPoints.map((point, index) => (
-              <li key={index}>{point}</li>
-            ))}
-          </ul>
-        )}
-        <NativeCardSources cardId={card.card.id} leads={view.citations} active={active} />
-        <p className="text-xs text-muted">
-          Model-extracted numeric claims have been withheld from the card face until exact evidence
-          support is reviewed.
-        </p>
       </div>
     </DialogContent>
   );

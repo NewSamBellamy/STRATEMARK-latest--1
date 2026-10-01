@@ -4,6 +4,7 @@ import {
   nativeResearchStartSchema,
   nativeCardEvidenceSchema,
   nativeSourceEvidenceSchema,
+  researchBriefSchema,
   isEntityCardType,
   type NativeCardEvidence,
   type NativeResearchRun,
@@ -25,6 +26,7 @@ import {
 } from '@mi/research';
 import type { openVault } from './vault';
 import { retrievePublicSource } from './native-source-retrieval';
+import { researchBriefCitationsMatchCard } from './vault-work-store';
 
 const id = (prefix: string) => `${prefix}_${randomUUID().replaceAll('-', '')}`;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -706,6 +708,14 @@ export class NativeResearchService {
             const cards = result.cards
               .filter((entry) => entry.company && isEntityCardType(entry.card.cardType))
               .map((entry) => {
+                // Validate before merging company-level leads: those cannot rescue an unbound brief.
+                if (entry.researchBrief !== undefined) {
+                  const brief = researchBriefSchema.parse(entry.researchBrief);
+                  if (!researchBriefCitationsMatchCard({ card: entry.card, researchBrief: brief }))
+                    throw new Error(
+                      "Research brief citations must belong to this card's own citation leads.",
+                    );
+                }
                 const entityId = task.companyId;
                 const citations = [
                   ...new Map(

@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import type * as NodeSqlite from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SIGNAL_CARD_TYPES, type CardWithCompany, type Market, type Deck } from '@mi/contracts';
-import type { NativeResearchTask } from '@mi/contracts';
+import type { NativeResearchTask, ResearchBrief } from '@mi/contracts';
 import { openVault } from './vault';
 import { createWorkStore, workStoreLimits, type NativeRun } from './vault-work-store';
 
@@ -21,6 +21,37 @@ const market: Market = {
   createdAt: at,
 };
 const deck: Deck = { id: 'deck_a', marketId: market.id, createdAt: at, lastRefreshedAt: null };
+const briefUrl = 'https://fixture.example/products';
+const brief: ResearchBrief = {
+  sections: [
+    {
+      section: 'offering',
+      blocks: [
+        {
+          id: 'offering_1',
+          text: 'Fixture Labs makes modular inspection equipment for manufacturers.',
+          kind: 'reported',
+          support: 'unreviewed',
+          timeWindow: null,
+          citations: [{ title: 'Fixture product page', url: briefUrl }],
+        },
+      ],
+    },
+  ],
+  openQuestions: ['Which manufacturers use this equipment?'],
+  limitations: ['Source-linked model notes have not been semantically reviewed.'],
+};
+function briefCard(): CardWithCompany {
+  const data = card();
+  return {
+    ...data,
+    card: {
+      ...data.card,
+      citations: [{ title: 'Fixture product page', url: briefUrl, credibility: 'unknown' }],
+    },
+    researchBrief: brief,
+  };
+}
 function run(overrides: Partial<NativeRun> = {}): NativeRun {
   return {
     id: 'run_a',
@@ -112,6 +143,217 @@ afterEach(() => {
 });
 
 describe('native bounded operational ledger', () => {
+  it('commits a brief with its completed task and preserves it through bookmarks and reader reopen', () => {
+    const file = location();
+    const vault = open(file);
+    const work = vault.writer().work;
+    const current = start(vault);
+    const selected = work.updateRun({ ...current, tasks: [task()] }, 0);
+    const started = work.updateRun(
+      { ...selected, tasks: [{ ...task(), status: 'running', attempts: 1 }] },
+      0,
+    );
+    const completed = {
+      ...started,
+      tasks: [{ ...started.tasks![0]!, status: 'completed' as const, cardIds: ['card_a'] }],
+    };
+    work.updateRun(completed, 0, [briefCard()]);
+    expect(vault.work.getCard('card_a')).toEqual(briefCard());
+    expect(vault.work.getRun(current.id)?.tasks).toEqual(completed.tasks);
+    expect(vault.work.listEvents(current.id)[0]?.progress.card?.researchBrief).toEqual(brief);
+    work.bookmarkCard('card_a');
+    vault.close();
+    handles.splice(handles.indexOf(vault), 1);
+    const reader = open(file, 'reader');
+    expect(reader.work.listSavedCards()).toEqual([briefCard()]);
+    expect(reader.work.getCard('card_a')?.researchBrief).toEqual(brief);
+    expect(reader.work.getRun(current.id)?.tasks).toEqual(completed.tasks);
+  });
+
+  it('rolls the brief, card, event and completed task back when the captured fence fails at commit', () => {
+    const file = location();
+    const vault = open(file);
+    const current = start(vault);
+    const writer = vault.writer().work;
+    const selected = writer.updateRun({ ...current, tasks: [task()] }, 0);
+    const started = writer.updateRun(
+      { ...selected, tasks: [{ ...task(), status: 'running', attempts: 1 }] },
+      0,
+    );
+    const revision = vault.status().revision;
+    const db = new DatabaseSync(file);
+    let checks = 0;
+    const work = createWorkStore(
+      db,
+      'vault_work',
+      () => {},
+      () => {
+        if (++checks === 3) throw new Error('Fixture fence lost at commit');
+      },
+    );
+    try {
+      expect(() =>
+        work.updateRun(
+          {
+            ...started,
+            tasks: [{ ...started.tasks![0]!, status: 'completed', cardIds: ['card_a'] }],
+          },
+          0,
+          [briefCard()],
+        ),
+      ).toThrow(/fence lost at commit/i);
+      expect(vault.work.getCard('card_a')).toBeNull();
+      expect(vault.work.getRun(current.id)).toEqual(started);
+      expect(vault.work.listEvents(current.id)).toEqual([]);
+      expect(vault.status().revision).toBe(revision);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('fences stale brief output without completing the selected company task', () => {
+    const vault = open();
+    const work = vault.writer().work;
+    const current = start(vault);
+    const selected = work.updateRun({ ...current, tasks: [task()] }, 0);
+    const started = work.updateRun(
+      { ...selected, tasks: [{ ...task(), status: 'running', attempts: 1 }] },
+      0,
+    );
+    const paused = work.updateRun({ ...started, status: 'paused', generation: 1 }, 0);
+    const revision = vault.status().revision;
+    expect(() =>
+      work.updateRun(
+        {
+          ...started,
+          tasks: [{ ...started.tasks![0]!, status: 'completed', cardIds: ['card_a'] }],
+        },
+        0,
+        [briefCard()],
+      ),
+    ).toThrow(/generation|fenced/i);
+    expect(vault.work.getCard('card_a')).toBeNull();
+    expect(vault.work.getRun(current.id)).toEqual(paused);
+    expect(vault.status().revision).toBe(revision);
+  });
+
+  it('enforces the shared 128 KiB UTF-8 brief cap without completing a task or saving partial output', () => {
+    const vault = open();
+    const work = vault.writer().work;
+    const current = start(vault);
+    const selected = work.updateRun({ ...current, tasks: [task()] }, 0);
+    const started = work.updateRun(
+      { ...selected, tasks: [{ ...task(), status: 'running', attempts: 1 }] },
+      0,
+    );
+    const oversized: ResearchBrief = {
+      ...brief,
+      sections: (['overview', 'offering', 'position', 'updates'] as const).map((section) => ({
+        section,
+        blocks: Array.from({ length: 6 }, (_, index) => ({
+          ...brief.sections[0]!.blocks[0]!,
+          id: `${section}_${index}`,
+          citations: Array.from({ length: 3 }, () => ({ title: 'é'.repeat(1000), url: briefUrl })),
+        })),
+      })),
+    };
+    const json = JSON.stringify(oversized);
+    expect(json.length).toBeLessThan(128 * 1024);
+    expect(Buffer.byteLength(json, 'utf8')).toBeGreaterThan(128 * 1024);
+    const revision = vault.status().revision;
+    expect(() =>
+      work.updateRun(
+        {
+          ...started,
+          tasks: [{ ...started.tasks![0]!, status: 'completed', cardIds: ['card_a'] }],
+        },
+        0,
+        [{ ...briefCard(), researchBrief: oversized }],
+      ),
+    ).toThrow(/128 KiB/i);
+    expect(vault.work.getCard('card_a')).toBeNull();
+    expect(vault.work.getRun(current.id)).toEqual(started);
+    expect(vault.work.listEvents(current.id)).toEqual([]);
+    expect(vault.status().revision).toBe(revision);
+  });
+
+  it.each(['foreign_citation', 'promoted_support', 'duplicate_ids', 'too_many_questions'] as const)(
+    'rejects a brief with %s without retaining card/task output',
+    (invalid) => {
+      const vault = open();
+      const work = vault.writer().work;
+      const current = start(vault);
+      const selected = work.updateRun(
+        { ...current, tasks: [task(), task('company_b', 'Other')] },
+        0,
+      );
+      const started = work.updateRun(
+        {
+          ...selected,
+          tasks: selected.tasks!.map((entry) => ({ ...entry, status: 'running', attempts: 1 })),
+        },
+        0,
+      );
+      const foreignUrl = 'https://other.example/borrowed';
+      const other = card('card_other', 'company_b');
+      work.saveCard(current.id, 0, {
+        ...other,
+        card: {
+          ...other.card,
+          citations: [{ title: 'Other company', url: foreignUrl, credibility: 'unknown' }],
+        },
+      });
+      const block = brief.sections[0]!.blocks[0]!;
+      const candidate = {
+        ...brief,
+        sections: [
+          {
+            section: 'offering',
+            blocks:
+              invalid === 'duplicate_ids'
+                ? [block, block]
+                : [
+                    {
+                      ...block,
+                      support: invalid === 'promoted_support' ? 'verified' : 'unreviewed',
+                      citations:
+                        invalid === 'foreign_citation'
+                          ? [{ title: 'Borrowed', url: foreignUrl }]
+                          : block.citations,
+                    },
+                  ],
+          },
+        ],
+        openQuestions:
+          invalid === 'too_many_questions' ? Array(9).fill('Too many') : brief.openQuestions,
+      } as ResearchBrief;
+      const revision = vault.status().revision;
+      const reason = {
+        foreign_citation: /own citation leads/i,
+        promoted_support: /unreviewed/i,
+        duplicate_ids: /identities must be unique/i,
+        too_many_questions: /at most 8/i,
+      }[invalid];
+      expect(() =>
+        work.updateRun(
+          {
+            ...started,
+            tasks: [
+              { ...started.tasks![0]!, status: 'completed', cardIds: ['card_a'] },
+              started.tasks![1]!,
+            ],
+          },
+          0,
+          [{ ...briefCard(), researchBrief: candidate }],
+        ),
+      ).toThrow(reason);
+      expect(vault.work.getCard('card_a')).toBeNull();
+      expect(vault.work.getRun(current.id)).toEqual(started);
+      expect(vault.work.getCard('card_other')?.researchBrief).toBeUndefined();
+      expect(vault.status().revision).toBe(revision);
+    },
+  );
+
   it('bookmarks exact card roles idempotently and removes only the saved reference', () => {
     const vault = open();
     const current = start(vault);
@@ -155,6 +397,7 @@ describe('native bounded operational ledger', () => {
     const reader = open(file, 'reader');
     const before = reader.status().revision;
     expect(reader.work.listSavedCards()).toEqual([card()]);
+    expect(reader.work.getCard('card_a')).not.toHaveProperty('researchBrief');
     expect(reader.work).not.toHaveProperty('bookmarkCard');
     expect(reader.work).not.toHaveProperty('unbookmarkCard');
     expect(() => reader.writer().work.bookmarkCard(saved.cardId)).toThrow(/read-only|owner/i);

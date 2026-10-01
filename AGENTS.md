@@ -117,6 +117,13 @@ compromised and rotate it immediately.
 
 ## Stratemark overhaul planning entry point
 
+Latest founder preparation request: a fresh ordinary Astra-led implementation pass,
+not the goal mechanism. Read `01_PROJECTS/Stratemark/Specs/ASTRA-PASS.md` and
+`ASTRA-LAUNCH-PROMPT.md` when launching that pass. Astra owns hands-on implementation
+and integration there; earlier planner-only/Sol-only role rules do not apply to it.
+The packet is prepared, not itself a build launch. Preserve product scope and
+actual evidence below; do not create goals or automations from the launch packet.
+
 Current human direction (October 1): execute the complete v2 product overhaul under
 the active build goal. The founder monitors the $100 development spending target
 externally; do not block ordinary implementation on setting an agent-side cap.
