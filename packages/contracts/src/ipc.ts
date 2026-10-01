@@ -105,9 +105,43 @@ export const SECURE_CHANNELS = {
   exportResearch: 'mi:secure:exportResearch',
   importResearch: 'mi:secure:importResearch',
   getResearchStorageInfo: 'mi:secure:getResearchStorageInfo',
+  preflightResearchMigration: 'mi:secure:preflightResearchMigration',
   googleSignIn: 'mi:secure:googleSignIn',
   googleSignOut: 'mi:secure:googleSignOut',
 } as const;
+
+export interface ResearchStorageInfo {
+  engine: 'legacy_json';
+  health: 'empty' | 'ready' | 'recovery_needed' | 'unavailable';
+  primaryState: 'missing' | 'verified' | 'invalid';
+  contentKind: 'none' | 'demo' | 'workspace';
+  marketCount: number;
+  deckCount: number;
+  sizeBytes: number;
+  sourceRevision: string | null;
+  backup: {
+    state: 'missing' | 'verified' | 'invalid';
+    marketCount: number;
+    deckCount: number;
+    sizeBytes: number;
+  };
+}
+
+export type MigrationReadiness =
+  | {
+      state: 'ready';
+      sourceRevision: string;
+      counts: { markets: number; decks: number; companies: number; cards: number };
+      warnings: string[];
+      canApply: false;
+      performedWrites: false;
+    }
+  | {
+      state: 'blocked';
+      reason: 'source_missing' | 'demo_workspace' | 'invalid_or_unsupported' | 'active_research';
+      canApply: false;
+      performedWrites: false;
+    };
 
 /** Exposed on `window.miSecure` in the Electron shell; undefined on the web. */
 export interface SecureApi {
@@ -115,7 +149,8 @@ export interface SecureApi {
   setApiKey(key: string): Promise<void>;
   exportResearch(): Promise<string | null>;
   importResearch(json: string): Promise<void>;
-  getResearchStorageInfo(): Promise<{ marketCount: number; sizeBytes: number; hasBackup: boolean }>;
+  getResearchStorageInfo(): Promise<ResearchStorageInfo>;
+  preflightResearchMigration(): Promise<MigrationReadiness>;
   googleSignIn?(): Promise<{
     id: string;
     name: string;

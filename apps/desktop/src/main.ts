@@ -22,6 +22,7 @@ import {
   dialog,
 } from 'electron';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -54,6 +55,7 @@ import sampleSnapshot from '../../web/src/sample/frontier-snapshot.json';
 import { createFileStore, parseResearchExport } from './storage.js';
 import { performGoogleOAuthFlow, loadDesktopEnv, type OAuthUser } from './oauth.js';
 import { openStagedAppReads } from './staged-app-reads.js';
+import { inspectResearchStorage, preflightCurrentResearch } from './storage-preflight.js';
 
 // Explicit preview only. Never silently migrate/select a candidate or load a provider.
 const stagedArguments = process.argv.filter((arg) => arg.startsWith('--staged-vault-dir='));
@@ -149,6 +151,8 @@ protocol.registerSchemesAsPrivileged([
 // ---------------------------------------------------------------------------
 const researchFile = () => path.join(app.getPath('userData'), 'research', 'repo.json');
 const researchStore = () => createFileStore(researchFile());
+const demoSnapshot = migrateSnapshot(sampleSnapshot as unknown as RepoSnapshot).snapshot;
+const demoSourceRevision = createHash('sha256').update(JSON.stringify(demoSnapshot)).digest('hex');
 const encryptionAvailable = () =>
   safeStorage.isEncryptionAvailable() &&
   (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
@@ -237,8 +241,7 @@ const ipcMain = {
 function makeRepository(): MarketIntelRepository {
   const apiKey = loadApiKey();
   const store = researchStore();
-  if (!store.read())
-    store.write(migrateSnapshot(sampleSnapshot as unknown as RepoSnapshot).snapshot);
+  if (!store.read()) store.write(demoSnapshot);
   const requireKey = async (): Promise<never> => {
     throw new Error('Add your Gemini API key in Settings to run live research.');
   };
@@ -445,12 +448,18 @@ function registerIpc(): void {
     return snapshot ? JSON.stringify(snapshot) : null;
   });
   ipcMain.handle(SECURE_CHANNELS.getResearchStorageInfo, () => {
-    const snapshot = researchStore().read();
-    return {
-      marketCount: snapshot?.markets.length ?? 0,
-      sizeBytes: snapshot ? Buffer.byteLength(JSON.stringify(snapshot)) : 0,
-      hasBackup: existsSync(`${researchFile()}.bak`),
-    };
+    return inspectResearchStorage(researchFile(), demoSourceRevision);
+  });
+  ipcMain.handle(SECURE_CHANNELS.preflightResearchMigration, async () => {
+    const jobs = (await repository.listResearchJobs?.()) ?? [];
+    if (jobs.some((job) => job.status === 'running' || job.status === 'queued'))
+      return {
+        state: 'blocked',
+        reason: 'active_research',
+        canApply: false,
+        performedWrites: false,
+      } as const;
+    return preflightCurrentResearch(researchFile(), demoSourceRevision);
   });
   ipcMain.handle(SECURE_CHANNELS.importResearch, async (_e, json: unknown) => {
     const jobs = (await repository.listResearchJobs?.()) ?? [];

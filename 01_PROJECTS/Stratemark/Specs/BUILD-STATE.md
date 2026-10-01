@@ -16,7 +16,7 @@ deferred by the human; do not stop for missing API telemetry or require cost
 projections before worker dispatch. This overrides the historical campaign
 instructions in the archive, not product privacy, bounded execution, phase dependencies,
 context ceilings or live-research consent. Goal is active (verified via goal tool).
-Latest completed packet: G01-P13 below. G00 contracts and reproduced baseline
+Latest completed packet: G01-P14 below. G00 contracts and reproduced baseline
 are frozen for offline G01 work; this is not product-readiness or service parity.
 G01-P01 proves the native SQLite binding in an unsigned packaged app and the
 actual installer payload, plus fixes two legacy data-safety defects. G01-P02
@@ -34,7 +34,9 @@ interrupted-converter refusal in the packaged runtime. G01-P12 connects that
 candidate to the existing desktop library/deck/card/company journey under one
 offline read-only boundary. G01-P13 adds a hash-pinned, asset-aware lifecycle
 around that staged path and proves the packaged app can navigate a restored copy.
-Normal-startup integration and guarded cutover remain open.
+G01-P14 adds truthful normal-startup storage status and an explicit, local,
+read-only native-vault readiness check. Recovery application and guarded cutover
+remain open.
 No live cutover is authorized.
 The full goal remains active; do not restart planning.
 Earlier $50/Astra campaign instructions are historical, not current dispatch
@@ -44,15 +46,15 @@ preflight blocks this development goal; live product research still requires
 separate explicit approval and a numeric cap.
 
 - Planning: complete researched v1 north star, action catalogue, phase goals, and evidence ledger.
-- Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. Seven of the original 11 reproduced defects are fixed; 4 remain RED. Offline native vault retains inventory, hashed source versions/content, exact passages, immutable metric definitions, period-aware numeric observations, versioned qualitative claims/findings/reports and pinned report inputs, behind one native owner and captured-generation write capabilities. It is connected to the current app only through an explicit staged read-only preview; normal startup, service actions and live data still use the legacy path. Link validation is not semantic verification. G01 is not complete.
+- Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. Seven of the original 11 reproduced defects are fixed; 4 remain RED. Offline native vault retains inventory, hashed source versions/content, exact passages, immutable metric definitions, period-aware numeric observations, versioned qualitative claims/findings/reports and pinned report inputs, behind one native owner and captured-generation write capabilities. It is connected to the current app only through an explicit staged read-only preview. Normal startup can now inspect legacy storage and run a guarded read-only readiness check, but authority, service actions and live data still use the legacy path. Link validation is not semantic verification. G01 is not complete.
 - Branch: `feat/stratemark-spinoff-local-agents`, created from `b2c6398`; predecessor `feat/claim-level-signal-evidence` retained unchanged. Personal-fork checkpoint destination: remote newsam, `NewSamBellamy/STRATEMARK-latest--1`.
-- Original planning baseline: `3f18af2`. Latest packet entry: `0940b23`; determine current HEAD/tree from Git. Neither historical value is a claim about current code forever.
-- Goal tool: the human's replacement Sol-planner/Luna-worker goal is active, verified at G00-P03 start. No billing blocker remains for development. Keep the full goal active at packet boundaries.
-- Next work: G01-P14 guarded-cutover preflight, normal-startup recovery/status integration and explicit human consent without migrating live data. P13 recovery is staged-candidate-only, not general A46/A47 parity. No live migration/provider work; G04 visual acceptance remains open.
+- Original planning baseline: `3f18af2`. Latest packet entry: `3e591a9`; determine current HEAD/tree from Git. Neither historical value is a claim about current code forever.
+- Goal tool: the production Northstar goal was recreated October 1 after the tracker returned no active goal. It preserves the personal-branch, no-deploy/no-live-migration boundaries. No billing blocker remains for development. Keep the full goal active at packet boundaries.
+- Next work: G01-P15 synthetic normal-startup recovery and reversible guarded cutover, with explicit human approval and rollback proof before any live workspace is eligible. P13 recovery is staged-candidate-only and P14 is inspection-only, not general A44/A46/A47 parity. No live migration/provider work; G04 visual acceptance remains open.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
 - Push: latest human explicitly authorized periodic checkpoints ONLY to this new personal-fork branch. No overwriting existing refs, upstream/Tobi pushes, main merge, release or deployment. First upload verified at `73e61c0e0f9f20e063fd290ef9fb3a122f570061`; all 49 pre-existing remote branch refs remained unchanged, including main at `c945b31dee0095331b8487133c131c36e76ba601`. Verified owner NewSamBellamy, public fork of Maruf. The shorter old URL redirects to Maruf and is unsafe as a personal destination. Read actual local/remote tips before each later fast-forward checkpoint.
-- Current application tests: G01-P13 all6 typechecks/root lint, contracts369/mocks16, web183/API158 pass; research361 pass/3 original failures and desktop200 pass/1 original key failure. Focused lifecycle8/staging11/app-reads5/host1 pass. Actual unsigned Windows directory-package GUI journey opens a restored backup and passes with zero external requests; separate fingerprints prove the original candidate, backup and restored candidate remain unchanged across their measured boundaries. No installer/signing/live-provider acceptance. Four original release blockers remain.
+- Current application tests: G01-P14 all6 typechecks/root lint and production build pass; contracts369/mocks16, web185/API158 pass; research361 pass/3 original failures and desktop205 pass/1 original key failure. Focused storage-preflight5, settings11 and actual Electron storage-status/readiness smoke pass. The Electron smoke proves demo guarding, workspace readiness, unchanged source bytes/timestamps, zero provider requests and zero page errors in a disposable profile. P13 lifecycle/staging/read-only packaged proofs remain valid. No installer/signing/live-provider acceptance. Four original release blockers remain.
 - Document verification: local links and balanced code fences passed; unique registers checked (22 defaults, 30 stories, 62 actions, 9 goals, 26 sources); JSON command example parsed; canonical files had no candidate credential patterns. Markdown formatting checked separately before commit.
 - Astra final planning review: seven substantive gaps identified and addressed (service lifetime, migration fences, imported authority, restored budgets, asset/evidence retention, asynchronous output retrieval, and human approval boundary). Re-review found no remaining material contract contradictions; this is planning consistency, not application verification.
 
@@ -72,7 +74,7 @@ separate explicit approval and a numeric cap.
 | Goal | State                             | Packet / commit evidence                 | Remaining                                                           |
 | ---- | --------------------------------- | ---------------------------------------- | ------------------------------------------------------------------- |
 | G00  | Contract/baseline freeze complete | [G00-P01-P05 archive](PACKET-ARCHIVE.md) | Legacy defects remain RED; enforcement/parity belong to G01/G02/G07 |
-| G01  | In progress                       | G01-P13 staged asset lifecycle           | Normal-startup recovery/status integration and guarded cutover      |
+| G01  | In progress                       | G01-P14 status/readiness preflight       | Normal-startup recovery and reversible guarded cutover              |
 | G02  | Not started                       | None                                     | Shared runtime, policies, secrets                                   |
 | G03  | Not started                       | None                                     | Progressive research and evaluation                                 |
 | G04  | Not started                       | None                                     | Cards and coherent frontend journey                                 |
@@ -113,9 +115,76 @@ An existing human-created broad goal must retain its actual objective. Execute o
 
 User context ceiling: 200k tokens for every agent, not a spend allowance. Checkpoint around 100k; hand off before an estimated 150k to leave room for verification and recovery. Use the policy in [build-workflow.md](build-workflow.md). Cumulative goal tokens are usage, not necessarily the current context window. Exact occupancy and forced compaction are not exposed here; do not claim hard automatic enforcement. Keep packets small and start clean workers with a declared model, effort and exclusive scope; development cost projections are not a current gate. Unknown spending never becomes a claim of remaining funds.
 
-## Latest completed packet — G01-P13
+## Latest completed packet — G01-P14
 
-Entry HEAD `0940b23`; October 1, 2026. Full production goal/G01 remain active.
+Entry HEAD `3e591a9`; October 1, 2026. Full production goal/G01 remain active.
+Sol integration in the existing personal branch. No live migration, provider call,
+credential access, installer, release, publication or main change.
+
+User outcome / seams: G01, US23/24/29, A44 preparation. Desktop Settings now
+reports whether the current legacy research file is empty, verified, a bundled
+sample, needs backup recovery or is unavailable. Backup status is verified rather
+than inferred from file existence. The explicit native-vault readiness action is
+enabled only for a verified non-demo workspace, requires consent, refuses active
+research and returns counts/warnings with `canApply=false` and
+`performedWrites=false`. It never stages, converts, replaces, uploads or grants
+authority.
+
+The inspection reads one bounded regular file through a stable descriptor,
+rejects links, multiple hard links, oversized/non-UTF-8/changed files and keeps
+validation separate from repair. The renderer uses typed IPC results and explains
+that the current JSON backup is not yet the complete native recovery system.
+
+The previously shared Frontier URL failed when a browser profile already had a
+provider key, because repository selection silently changed from the bundled
+sample to profile-local data. Explicit development URLs using `?preview=demo`
+now always select the bundled zero-latency repository. This is a preview seam,
+not production persistence or research-quality acceptance.
+
+Verification:
+
+- Strict storage-preflight tests5/5 cover missing, demo, valid, invalid,
+  link/hard-link and backup-recovery states; settings/preview tests11/11 pass.
+- Actual Electron Settings → Data controls smoke passes in a disposable profile:
+  demo guard, synthetic workspace import, consent, readiness result, unchanged
+  source fingerprint/timestamp, pageErrors0 and providerRequests0.
+- All6 typechecks, root lint and the desktop production build pass. The build has
+  a pre-existing large-chunk warning but no compilation error. Full suite evidence
+  remains contracts369/mocks16/web185/API158; research361 pass/3 original failures
+  and desktop205 pass/1 original failure.
+- Manual browser journey verified the explicit Frontier preview opens the deck,
+  role filters, quick reader, company workspace, Metrics, Live Intel, saved cards,
+  reports and report detail without console errors. Demo saves reset on reload by
+  design because this browser preview is non-authoritative.
+
+### Checkpoint red team — moving the needle and remaining limits
+
+Needle moved: users can now distinguish sample/workspace/recovery states before
+any migration work, and the first normal-startup migration action is explicit,
+local and provably read-only. The testable preview link no longer depends on the
+viewer's saved key. This does not make the product production-ready.
+
+Northstar journey gaps observed in the same manual audit: company cards and
+Metrics still expose universal T1–T8 scale bands despite the decision against a
+universal strength score; card metrics are not consistently scoped by period,
+unit and source; several cards show fallback labels such as “Unclassified
+footprint” or “Entity profile”; the company workspace hides Products and Evidence
+under an ambiguous “More” rather than the five chosen primary sections; findings
+are mixed into deck tabs and can say “Research needed” without claim-level
+support; Activity is session-only rather than a durable task/event trail; report
+sources are domain/search links instead of retained source versions and passages.
+Live Intel contains strong claims that have not been live-verified in this packet.
+
+Remaining G01 limits: no recovery button/application, no reversible normal-startup
+cutover, no approved target candidate, no rollback exercise and no live workspace
+migration. Four ORIGINAL release blockers remain: legacy reporting-period loss,
+cross-period reconciliation, cancellation acknowledgment and renderer stored-key
+retrieval. G02-G08 remain unaccepted. Next is a synthetic P15 recovery/cutover
+proof, not live migration. The broad production goal remains active.
+
+## Previous completed packet — G01-P13
+
+Entry HEAD `3e591a9`; October 1, 2026. Full production goal/G01 remain active.
 Sol integration; two serial Luna/high read-only design/red-team workers, max one
 active, no history fork/Astra. Separate personal branch only. No live migration,
 paid product research, credentials, installer, publication or main change.

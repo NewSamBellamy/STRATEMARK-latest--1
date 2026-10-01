@@ -10,6 +10,7 @@ import NewDeckPage from '@/features/deck/NewDeckPage';
 import { RepositoryProvider } from '@/lib/repository/RepositoryProvider';
 import { createQueryClient } from '@/lib/query/queryClient';
 import { MockRepository } from '@mi/mocks';
+import type { SecureApi } from '@mi/contracts';
 import { useEngineChoice } from '@/lib/settings/engine';
 import * as sentinelApi from '@/lib/sentinelApi';
 
@@ -35,6 +36,59 @@ describe('Research Engine Settings & Strict Execution', () => {
     localStorage.clear();
     useEngineChoice.setState({ engine: 'local' });
     vi.restoreAllMocks();
+    delete window.miSecure;
+  });
+
+  it('shows verified local storage and performs migration readiness only after consent', async () => {
+    vi.stubEnv('VITE_DESKTOP', '1');
+    useSettingsModal.setState({ isOpen: true });
+    const preflightResearchMigration = vi.fn().mockResolvedValue({
+      state: 'ready',
+      sourceRevision: 'a'.repeat(64),
+      counts: { markets: 2, decks: 3, companies: 12, cards: 16 },
+      warnings: ['authority_disabled', 'missing_evidence'],
+      canApply: false,
+      performedWrites: false,
+    });
+    window.miSecure = {
+      getApiKey: vi.fn(),
+      setApiKey: vi.fn(),
+      exportResearch: vi.fn(),
+      importResearch: vi.fn(),
+      getResearchStorageInfo: vi.fn().mockResolvedValue({
+        engine: 'legacy_json',
+        health: 'ready',
+        primaryState: 'verified',
+        contentKind: 'workspace',
+        marketCount: 2,
+        deckCount: 3,
+        sizeBytes: 4096,
+        sourceRevision: 'a'.repeat(64),
+        backup: { state: 'verified', marketCount: 1, deckCount: 2, sizeBytes: 2048 },
+      }),
+      preflightResearchMigration,
+    } as SecureApi;
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+
+    render(
+      <TestWrapper>
+        <SettingsModal />
+      </TestWrapper>,
+    );
+    await user.click(screen.getByRole('button', { name: /data controls/i }));
+    expect(await screen.findByText(/3 decks · 2 markets · 4 KB/i)).toBeInTheDocument();
+    expect(screen.getByText(/last-good JSON backup verified/i)).toBeInTheDocument();
+    expect(preflightResearchMigration).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /check migration readiness/i }));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/will not copy/i));
+    expect(preflightResearchMigration).toHaveBeenCalledOnce();
+    expect(await screen.findByText(/readiness check passed for 3 decks/i)).toBeInTheDocument();
+    expect(screen.getByText(/not approval to switch/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /apply|switch|migrate now/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('presents one clear local workflow in the community desktop build', async () => {

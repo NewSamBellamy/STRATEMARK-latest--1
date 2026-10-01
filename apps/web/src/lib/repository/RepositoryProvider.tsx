@@ -20,7 +20,7 @@ import { hydrateFromVault } from './vault';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
 import { recordCall } from '@/lib/usage';
-import { isReadOnlyResearch } from '@/lib/settings/runtime';
+import { isDemoPreview, isReadOnlyResearch } from '@/lib/settings/runtime';
 
 const RepositoryContext = createContext<MarketIntelRepository | null>(null);
 
@@ -31,6 +31,12 @@ export function selectRepository(
 ): MarketIntelRepository {
   if (isElectron() && window.mi) {
     return new IpcRepository(window.mi);
+  }
+  if (isDemoPreview()) {
+    return new MockRepository({
+      latencyMs: 0,
+      seedSnapshot: sampleSnapshot as unknown as SeedSnapshot,
+    });
   }
   if (engine === 'cloud') {
     return new SentinelRepository();

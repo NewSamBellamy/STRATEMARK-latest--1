@@ -5,11 +5,20 @@ function bridge(key = ''): SecureApi {
   return {
     getApiKey: vi.fn().mockResolvedValue(key),
     setApiKey: vi.fn().mockResolvedValue(undefined),
-    exportResearch: vi.fn(), importResearch: vi.fn(), getResearchStorageInfo: vi.fn(),
+    exportResearch: vi.fn(),
+    importResearch: vi.fn(),
+    getResearchStorageInfo: vi.fn(),
+    preflightResearchMigration: vi.fn(),
   };
 }
-beforeEach(() => { vi.resetModules(); localStorage.clear(); });
-afterEach(() => { delete window.miSecure; vi.restoreAllMocks(); });
+beforeEach(() => {
+  vi.resetModules();
+  localStorage.clear();
+});
+afterEach(() => {
+  delete window.miSecure;
+  vi.restoreAllMocks();
+});
 
 describe('desktop key persistence', () => {
   it('does not persist plaintext in browser storage', async () => {

@@ -17,6 +17,7 @@ import {
   Key,
 } from 'lucide-react';
 import { createGeminiClient } from '@mi/research';
+import type { MigrationReadiness, ResearchStorageInfo } from '@mi/contracts';
 import { exportSnapshot, importSnapshot, marketCountOf } from '@/lib/repository/vault';
 import { clearAccess, getAccessProfile } from '@/lib/access';
 import {
@@ -455,11 +456,8 @@ function CommunityPanel() {
 
 function DesktopDataPanel() {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [info, setInfo] = useState<{
-    marketCount: number;
-    sizeBytes: number;
-    hasBackup: boolean;
-  } | null>(null);
+  const [info, setInfo] = useState<ResearchStorageInfo | null>(null);
+  const [readiness, setReadiness] = useState<MigrationReadiness | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -513,20 +511,80 @@ function DesktopDataPanel() {
       setBusy(false);
     }
   };
+  const checkMigrationReadiness = async () => {
+    if (
+      !window.confirm(
+        'Check whether your current research is ready for the future native vault? This reads data on this device and will not copy, convert, replace, or upload it.',
+      )
+    )
+      return;
+    setBusy(true);
+    setMessage(null);
+    setReadiness(null);
+    try {
+      setReadiness(await window.miSecure!.preflightResearchMigration());
+    } catch {
+      setMessage('Could not complete the readiness check safely. Your research was not changed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const blockedReason =
+    readiness?.state === 'blocked'
+      ? {
+          source_missing: 'There is no saved workspace to check yet.',
+          demo_workspace: 'The current library contains only the bundled sample research.',
+          invalid_or_unsupported:
+            'The current file could not be validated safely. No data was changed.',
+          active_research: 'Finish or cancel active research, then check again.',
+        }[readiness.reason]
+      : null;
   return (
-    <div className="space-y-4">
+    <div className="space-y-5 pb-6">
       <h2 className="font-display text-lg">Data safety</h2>
       <p className="text-sm text-muted">
-        Research is saved on your disk with atomic writes and a last-good backup. Exports contain
-        research, not your API key. Exported files are not encrypted; store them somewhere safe.
+        Research is saved on your disk. Opening this page only inspects storage; it never repairs,
+        replaces, or uploads your files. Exports contain research, not your API key, and are not
+        encrypted.
       </p>
       {info && (
-        <p className="text-sm">
-          {info.marketCount} decks · {Math.round(info.sizeBytes / 1024)} KB
-          {info.hasBackup ? ' · backup available' : ''}
-        </p>
+        <div className="space-y-2 rounded-lg border border-border bg-surface-2 p-4 text-sm">
+          {info.health === 'ready' && info.contentKind === 'workspace' && (
+            <p className="font-semibold text-content">
+              {`${info.deckCount} decks · ${info.marketCount} markets · ${Math.round(info.sizeBytes / 1024)} KB`}
+            </p>
+          )}
+          {info.health === 'ready' && info.contentKind === 'demo' && (
+            <p className="font-semibold text-content">Bundled sample research only</p>
+          )}
+          {info.health === 'empty' && (
+            <p className="font-semibold text-content">No saved research yet</p>
+          )}
+          {info.health === 'recovery_needed' && (
+            <p className="font-semibold text-negative">
+              The current research file needs recovery. This page did not modify it.
+            </p>
+          )}
+          {info.health === 'unavailable' && (
+            <p className="font-semibold text-negative">
+              Storage could not be verified safely. No files were changed.
+            </p>
+          )}
+          {info.backup.state === 'verified' && (
+            <p className="text-muted">
+              Last-good JSON backup verified · {info.backup.deckCount} decks
+            </p>
+          )}
+          {info.backup.state === 'invalid' && (
+            <p className="text-negative">A backup file was detected but could not be verified.</p>
+          )}
+          <p className="text-xs leading-relaxed text-faint">
+            This JSON backup protects the current workspace format. It is not yet the complete,
+            asset-aware native-vault recovery system.
+          </p>
+        </div>
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button className="btn-ghost" type="button" onClick={() => void exportData()}>
           <Download className="h-4 w-4" />
           Export my research
@@ -552,6 +610,50 @@ function DesktopDataPanel() {
           event.target.value = '';
         }}
       />
+
+      <div className="border-t border-border pt-5">
+        <div className="rounded-lg border border-border bg-surface-2 p-4">
+          <h3 className="text-sm font-semibold text-content">Native vault readiness</h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            Check whether this workspace can be prepared for the future native vault. The check is
+            local and read-only. It does not create a vault, approve a migration, or contact a
+            provider.
+          </p>
+          <button
+            className="btn-ghost mt-3 border border-border text-sm"
+            type="button"
+            disabled={busy || !info || info.health !== 'ready' || info.contentKind !== 'workspace'}
+            onClick={() => void checkMigrationReadiness()}
+          >
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ShieldCheck className="h-4 w-4" />
+            )}
+            Check migration readiness
+          </button>
+          {readiness?.state === 'ready' && (
+            <div
+              role="status"
+              className="mt-3 rounded-lg border border-positive/30 bg-positive/5 p-3 text-xs"
+            >
+              <p className="font-semibold text-content">
+                Readiness check passed for {readiness.counts.decks} decks,{' '}
+                {readiness.counts.companies} companies, and {readiness.counts.cards} cards.
+              </p>
+              <p className="mt-1 leading-relaxed text-muted">
+                No files were copied, converted, replaced, or uploaded. This is not approval to
+                switch storage; migration remains disabled in this build.
+              </p>
+            </div>
+          )}
+          {blockedReason && (
+            <p role="alert" className="mt-3 text-xs text-negative">
+              {blockedReason}
+            </p>
+          )}
+        </div>
+      </div>
       {message && (
         <p role="alert" className="text-sm text-negative">
           {message}

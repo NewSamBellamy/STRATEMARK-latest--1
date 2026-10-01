@@ -102,6 +102,7 @@ const secure: SecureApi = {
   exportResearch: () => ipcRenderer.invoke(SECURE_CHANNELS.exportResearch),
   importResearch: (json) => ipcRenderer.invoke(SECURE_CHANNELS.importResearch, json),
   getResearchStorageInfo: () => ipcRenderer.invoke(SECURE_CHANNELS.getResearchStorageInfo),
+  preflightResearchMigration: () => ipcRenderer.invoke(SECURE_CHANNELS.preflightResearchMigration),
   googleSignIn: () => ipcRenderer.invoke(SECURE_CHANNELS.googleSignIn),
   googleSignOut: () => ipcRenderer.invoke(SECURE_CHANNELS.googleSignOut),
 };
