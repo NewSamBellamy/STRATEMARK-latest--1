@@ -6,7 +6,16 @@ import path from 'node:path';
 import type { SQLInputValue } from 'node:sqlite';
 import type * as NodeSqlite from 'node:sqlite';
 import { z } from 'zod';
-import { compareRecordTimestamps, recordVersionSchema } from '@mi/contracts';
+import {
+  compareRecordTimestamps,
+  recordVersionSchema,
+  vaultCompanySchema as companySchema,
+  vaultMarketSchema as marketSchema,
+  vaultMembershipSchema as membershipSchema,
+  type VaultCompany,
+  type VaultMarket,
+  type VaultMembership,
+} from '@mi/contracts';
 import { createEvidenceStore, evidenceSchemaSql } from './vault-evidence-store';
 import { createResearchStore } from './vault-research-store';
 import { acquireVaultOwner, canonicalVaultPath, vaultFileFence } from './vault-owner';
@@ -20,34 +29,7 @@ import {
 const { DatabaseSync, backup } = createRequire(process.execPath)(
   'node:sqlite',
 ) as typeof NodeSqlite;
-const label = z.string().trim().min(1).max(240);
-const companySchema = z
-  .object({
-    record: recordVersionSchema,
-    name: label,
-    officialDomain: z
-      .string()
-      .max(253)
-      .regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])$/i)
-      .nullable(),
-  })
-  .strict();
-const marketSchema = z.object({ record: recordVersionSchema, name: label }).strict();
-const membershipSchema = z
-  .object({
-    record: recordVersionSchema,
-    marketId: z.string().min(1).max(128),
-    companyId: z.string().min(1).max(128),
-    roles: z
-      .array(z.enum(['company', 'infrastructure', 'distribution']))
-      .min(1)
-      .max(3)
-      .refine((roles) => new Set(roles).size === roles.length),
-  })
-  .strict();
-export type VaultCompany = z.infer<typeof companySchema>;
-export type VaultMarket = z.infer<typeof marketSchema>;
-export type VaultMembership = z.infer<typeof membershipSchema>;
+export type { VaultCompany, VaultMarket, VaultMembership } from '@mi/contracts';
 type RecordData = VaultCompany | VaultMarket | VaultMembership;
 type Table = 'companies' | 'markets' | 'memberships';
 const pageOptions = z
@@ -165,6 +147,19 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
       throw new Error('Stored record identity does not match its indexed ID.');
     if (value.record.vaultId !== vaultId || value.record.revision !== row.revision)
       throw new Error('Stored record version does not match its vault.');
+    if ((schema as z.ZodTypeAny) === marketSchema) {
+      const expected =
+        (value as VaultMarket).scopeDraft?.seeds.flatMap((seed, ordinal) =>
+          seed.companyId ? [{ ordinal, company_id: seed.companyId }] : [],
+        ) ?? [];
+      const indexed = db
+        .prepare(
+          'SELECT ordinal,company_id FROM market_scope_seeds WHERE market_id=? AND market_revision=? ORDER BY ordinal',
+        )
+        .all(value.record.id, value.record.revision);
+      if (JSON.stringify(indexed) !== JSON.stringify(expected))
+        throw new Error('Stored scope seed links do not match their historical index.');
+    }
     return value;
   }
   function save(
@@ -189,6 +184,14 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
         .get(value.record.id);
       if ((previous?.revision ?? 0) !== expectedRevision)
         throw new Error('Record revision conflict. Reload before saving.');
+      if (table === 'markets') {
+        for (const seed of (value as VaultMarket).scopeDraft?.seeds ?? [])
+          if (
+            seed.companyId &&
+            !db.prepare('SELECT 1 FROM companies WHERE id=?').get(seed.companyId)
+          )
+            throw new Error('Market scope seed references a missing company.');
+      }
       if (previous) {
         const old =
           table === 'companies'
@@ -198,6 +201,11 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
               : decode(previous, membershipSchema)!;
         if (old.record.createdAt !== value.record.createdAt)
           throw new Error('Record creation time is immutable.');
+        // These are complete replacements, not patches. Require callers to carry
+        // retained context forward; clearing hints is an explicit empty array.
+        for (const field of ['profile', 'identityHints', 'scopeDraft', 'legacyScope'])
+          if (field in old && !(field in value))
+            throw new Error('Replacement save must retain existing inventory context.');
         if (compareRecordTimestamps(old.record.updatedAt, value.record.updatedAt) > 0)
           throw new Error('Record update time must not move backwards.');
         if (
@@ -230,6 +238,17 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
         value.record.revision,
         body,
       );
+      if (table === 'markets') {
+        const seeds = (value as VaultMarket).scopeDraft?.seeds ?? [];
+        for (const [ordinal, seed] of seeds.entries())
+          if (seed.companyId)
+            db.prepare("INSERT INTO market_scope_seeds VALUES('market',?,?,?,?)").run(
+              value.record.id,
+              value.record.revision,
+              ordinal,
+              seed.companyId,
+            );
+      }
       if (table === 'companies') {
         const company = value as VaultCompany;
         db.prepare('DELETE FROM company_search WHERE company_id=?').run(company.record.id);
@@ -237,6 +256,16 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
           company.record.id,
           company.name,
           company.officialDomain,
+        );
+        db.prepare('DELETE FROM company_identity_search WHERE company_id=?').run(company.record.id);
+        db.prepare(
+          'INSERT INTO company_identity_search(company_id,aliases,domains) VALUES(?,?,?)',
+        ).run(
+          company.record.id,
+          [company.name, ...(company.identityHints?.aliases ?? [])].join(' ').trim(),
+          [company.officialDomain ?? '', ...(company.identityHints?.domains ?? [])]
+            .join(' ')
+            .trim(),
         );
       }
       assertWrite();
@@ -246,12 +275,10 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
       throw error;
     }
   }
-  function readCompany(id: string) {
+  function readRecord<T extends RecordData>(table: Table, schema: z.ZodType<T>, id: string) {
     assertOpen();
-    return decode(
-      db.prepare('SELECT id,revision,body FROM companies WHERE id=?').get(id),
-      companySchema,
-    );
+    recordVersionSchema.innerType().shape.id.parse(id);
+    return decode(db.prepare(`SELECT id,revision,body FROM ${table} WHERE id=?`).get(id), schema);
   }
   function readRevision() {
     const revision = db
@@ -261,7 +288,12 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
       throw new Error('Invalid vault revision.');
     return revision;
   }
-  function companyPage(sql: string, parameters: SQLInputValue[], limit: number) {
+  function recordPage<T extends RecordData>(
+    sql: string,
+    parameters: SQLInputValue[],
+    limit: number,
+    schema: z.ZodType<T>,
+  ) {
     assertOpen();
     // Revision and records must describe one SQLite read snapshot, even if a
     // separate process commits while a page is being read.
@@ -269,10 +301,36 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
     try {
       const vaultRevision = readRevision();
       const rows = db.prepare(sql).all(...parameters, limit + 1);
-      const items = rows.slice(0, limit).map((row) => decode(row, companySchema)!);
+      const items = rows.slice(0, limit).map((row) => decode(row, schema)!);
       const nextCursor = rows.length > limit ? items.at(-1)!.record.id : null;
       db.exec('COMMIT;');
       return { items, nextCursor, vaultRevision };
+    } catch (error) {
+      db.exec('ROLLBACK;');
+      throw error;
+    }
+  }
+  function history<T extends RecordData>(
+    table: Table,
+    schema: z.ZodType<T>,
+    id: string,
+    options: z.input<typeof historyOptions> = {},
+  ) {
+    assertOpen();
+    recordVersionSchema.innerType().shape.id.parse(id);
+    const page = historyOptions.parse(options);
+    db.exec('BEGIN;');
+    try {
+      const vaultRevision = readRevision();
+      const rows = db
+        .prepare(
+          'SELECT id,revision,body FROM record_history WHERE kind=? AND id=? AND revision>? ORDER BY revision LIMIT ?',
+        )
+        .all(table, id, page.afterRevision, page.limit + 1);
+      const items = rows.slice(0, page.limit).map((row) => decode(row, schema)!);
+      const nextRevision = rows.length > page.limit ? items.at(-1)!.record.revision : null;
+      db.exec('COMMIT;');
+      return { items, nextRevision, vaultRevision };
     } catch (error) {
       db.exec('ROLLBACK;');
       throw error;
@@ -356,14 +414,26 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
       }
       return state.generation;
     },
-    getCompany: readCompany,
+    getCompany: (id: string) => readRecord('companies', companySchema, id),
+    getMarket: (id: string) => readRecord('markets', marketSchema, id),
+    getMembership: (id: string) => readRecord('memberships', membershipSchema, id),
+    listMarkets(options: z.input<typeof pageOptions> = {}) {
+      const page = pageOptions.parse(options);
+      return recordPage(
+        'SELECT id,revision,body FROM markets WHERE id>? ORDER BY id LIMIT ?',
+        [page.afterId ?? ''],
+        page.limit,
+        marketSchema,
+      );
+    },
     listMarketCompanies(marketId: string, options: z.input<typeof pageOptions> = {}) {
       assertOpen();
       const page = pageOptions.parse(options);
-      return companyPage(
+      return recordPage(
         'SELECT c.id,c.revision,c.body FROM companies c JOIN memberships m ON m.company_id=c.id WHERE m.market_id=? AND c.id>? ORDER BY c.id LIMIT ?',
         [marketId, page.afterId ?? ''],
         page.limit,
+        companySchema,
       );
     },
     searchCompanies(query: string, options: z.input<typeof pageOptions> = {}) {
@@ -373,37 +443,28 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
       const terms = query.match(/[\p{L}\p{N}]+/gu) ?? [];
       if (terms.length > 16) throw new Error('Search must have at most 16 terms.');
       if (!terms.length)
-        return companyPage(
+        return recordPage(
           `SELECT id,revision,body FROM companies WHERE id>? ${query.trim() ? 'AND 0=1' : ''} ORDER BY id LIMIT ?`,
           [page.afterId ?? ''],
           page.limit,
+          companySchema,
         );
       const literal = terms.map((term) => `"${term}"`).join(' AND ');
-      return companyPage(
-        'SELECT c.id,c.revision,c.body FROM company_search s JOIN companies c ON c.id=s.company_id WHERE company_search MATCH ? AND c.id>? ORDER BY c.id LIMIT ?',
-        [literal, page.afterId ?? ''],
+      return recordPage(
+        'SELECT c.id,c.revision,c.body FROM companies c WHERE c.id IN (SELECT company_id FROM company_search WHERE company_search MATCH ? UNION SELECT company_id FROM company_identity_search WHERE company_identity_search MATCH ?) AND c.id>? ORDER BY c.id LIMIT ?',
+        [literal, literal, page.afterId ?? ''],
         page.limit,
+        companySchema,
       );
     },
     companyHistory(id: string, options: z.input<typeof historyOptions> = {}) {
-      assertOpen();
-      const page = historyOptions.parse(options);
-      db.exec('BEGIN;');
-      try {
-        const vaultRevision = readRevision();
-        const rows = db
-          .prepare(
-            "SELECT id,revision,body FROM record_history WHERE kind='companies' AND id=? AND revision>? ORDER BY revision LIMIT ?",
-          )
-          .all(id, page.afterRevision, page.limit + 1);
-        const items = rows.slice(0, page.limit).map((row) => decode(row, companySchema)!);
-        const nextRevision = rows.length > page.limit ? items.at(-1)!.record.revision : null;
-        db.exec('COMMIT;');
-        return { items, nextRevision, vaultRevision };
-      } catch (error) {
-        db.exec('ROLLBACK;');
-        throw error;
-      }
+      return history('companies', companySchema, id, options);
+    },
+    marketHistory(id: string, options: z.input<typeof historyOptions> = {}) {
+      return history('markets', marketSchema, id, options);
+    },
+    membershipHistory(id: string, options: z.input<typeof historyOptions> = {}) {
+      return history('memberships', membershipSchema, id, options);
     },
     integrity() {
       assertOpen();

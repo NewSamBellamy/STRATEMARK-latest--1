@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import console from 'node:console';
 import process from 'node:process';
 import { setInterval } from 'node:timers';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { openVault } from './vault.ts';
 import { inventorySchemaSql } from './vault-schema.ts';
 import { inspectLegacySnapshot } from './snapshot-inspection.ts';
+import { evidenceSchemaSql } from './vault-evidence-store.ts';
+import { researchSchemaSql } from './vault-research-store.ts';
+import { openAssetStore } from './vault-assets.ts';
 
 const marker = (name, data) => process.stdout.write(`${name} ${JSON.stringify(data)}\n`);
 
@@ -129,6 +133,148 @@ function openWal(databasePath) {
   return db;
 }
 
+async function proveInventoryContext(directory) {
+  const file = path.join(directory, 'context.sqlite');
+  const vaultId = 'vault_context';
+  const at = '2026-09-30T12:00:00.000Z';
+  const record = (id, revision = 1) => ({
+    contractVersion: '1',
+    vaultId,
+    id,
+    revision,
+    createdAt: at,
+    updatedAt: at,
+  });
+  const company = {
+    record: record('co_a'),
+    name: 'Fixture Labs',
+    officialDomain: 'fixture.example',
+  };
+  const prior = new DatabaseSync(file);
+  prior.exec(`BEGIN IMMEDIATE; ${inventorySchemaSql} ${evidenceSchemaSql}
+    CREATE TABLE writer_state(singleton INTEGER PRIMARY KEY CHECK(singleton=1),generation INTEGER NOT NULL,owner_nonce TEXT) STRICT;
+    INSERT INTO writer_state VALUES(1,7,'00000000-0000-0000-0000-000000000007');
+    ${researchSchemaSql}`);
+  prior.prepare('INSERT INTO vault_meta VALUES(1,?,1)').run(vaultId);
+  prior.prepare('INSERT INTO companies VALUES(?,?,?)').run('co_a', 1, JSON.stringify(company));
+  prior
+    .prepare('INSERT INTO record_history VALUES(?,?,?,?)')
+    .run('companies', 'co_a', 1, JSON.stringify(company));
+  prior
+    .prepare('INSERT INTO company_search VALUES(?,?,?)')
+    .run('co_a', company.name, company.officialDomain);
+  prior.exec('PRAGMA user_version=4; COMMIT;');
+  prior.close();
+  const vault = openVault(file, vaultId);
+  try {
+    assert.equal(vault.status().schemaVersion, 5);
+    assert.equal(vault.status().writerGeneration, 8);
+    assert.deepEqual(vault.getCompany('co_a'), company);
+    assert.deepEqual(vault.companyHistory('co_a').items, [company]);
+    const writer = vault.writer();
+    const rich = {
+      ...company,
+      record: record('co_a', 2),
+      profile: {
+        oneLiner: '  Precision robots\n',
+        hqLocation: 'Detroit',
+        websiteUrl: 'https://fixture.example/about',
+        logoUrl: null,
+        brandTheme: null,
+      },
+      identityHints: { aliases: ['Prior Robotics'], domains: ['prior.example'] },
+    };
+    writer.saveCompany(rich, 1);
+    assert.deepEqual(vault.getCompany('co_a'), rich);
+    assert.deepEqual(vault.searchCompanies('Fixture Prior').items, [rich]);
+    const scopeDraft = {
+      goal: 'Find industrial robot manufacturers',
+      inclusions: ['Manufacturers'],
+      exclusions: ['Consultants'],
+      region: 'US',
+      depth: 'standard',
+      seeds: [{ companyId: 'co_a', name: 'Fixture Labs' }],
+    };
+    const market = {
+      record: record('mkt_a'),
+      name: 'Robotics',
+      scopeDraft,
+      legacyScope: { vertical: 'Robots', geography: null, notes: 'Original scope' },
+    };
+    writer.saveMarket(market, 0);
+    const edited = {
+      ...market,
+      record: record('mkt_a', 2),
+      scopeDraft: { ...scopeDraft, region: 'Europe', seeds: [] },
+    };
+    writer.saveMarket(edited, 1);
+    assert.deepEqual(vault.getMarket('mkt_a'), edited);
+    assert.deepEqual(vault.marketHistory('mkt_a').items, [market, edited]);
+    assert.throws(
+      () =>
+        writer.saveMarket(
+          {
+            ...market,
+            record: record('mkt_bad'),
+            scopeDraft: { ...scopeDraft, seeds: [{ companyId: 'co_missing' }] },
+          },
+          0,
+        ),
+      /seed/i,
+    );
+    assert.equal(vault.getMarket('mkt_bad'), null);
+    const reader = new DatabaseSync(file, { readOnly: true });
+    assert.deepEqual(
+      reader
+        .prepare('SELECT market_id,market_revision,ordinal,company_id FROM market_scope_seeds')
+        .all()
+        .map((row) => ({ ...row })),
+      [{ market_id: 'mkt_a', market_revision: 1, ordinal: 0, company_id: 'co_a' }],
+    );
+    reader.close();
+    const backupPath = path.join(directory, 'context-backup.sqlite');
+    await vault.backup(backupPath);
+    const restored = openVault(backupPath, vaultId, 'reader');
+    try {
+      assert.deepEqual(restored.getCompany('co_a'), rich);
+      assert.deepEqual(restored.marketHistory('mkt_a').items, [market, edited]);
+    } finally {
+      restored.close();
+    }
+    let canWrite = true;
+    const root = path.join(directory, 'assets');
+    const assets = openAssetStore(root, () => {
+      assert.equal(canWrite, true, 'captured write authority is stale');
+    });
+    const bytes = Buffer.from('Synthetic local logo asset');
+    const ref = assets.publish(bytes);
+    assert.deepEqual(assets.read(ref), bytes);
+    assert.deepEqual(assets.publish(bytes), ref);
+    canWrite = false;
+    const late = Buffer.from('late asset');
+    assert.throws(() => assets.publish(late), /stale/i);
+    assert.equal(
+      existsSync(path.join(root, createHash('sha256').update(late).digest('hex'))),
+      false,
+    );
+    writeFileSync(path.join(root, ref.sha256), 'corrupt');
+    assert.throws(() => assets.read(ref));
+    return {
+      v4UpgradeRetained: true,
+      companyProfileAndHints: true,
+      mixedIdentitySearch: true,
+      scopeAndSeedsRetained: true,
+      seedForeignKeysAndHistory: true,
+      contextBackupReopened: true,
+      assetsPublishedAndVerified: true,
+      assetLateWriteRejected: true,
+      corruptAssetRefused: true,
+    };
+  } finally {
+    vault.close();
+  }
+}
+
 async function proveNativeVault(directory) {
   const vaultId = 'vault_spike';
   const at = '2026-09-30T12:00:00.000Z';
@@ -142,7 +288,7 @@ async function proveNativeVault(directory) {
   });
   const file = path.join(directory, 'inventory.sqlite');
   const company = { record: record('co_a'), name: 'Fixture Labs', officialDomain: 'a.example' };
-  // Create a P02-shaped synthetic vault, then prove the real v1 -> v2 -> v3 -> v4 upgrade.
+  // Create a P02-shaped synthetic vault, then prove the real v1 -> v2 -> v3 -> v4 -> v5 upgrade.
   const prior = new DatabaseSync(file);
   try {
     prior.exec(`BEGIN IMMEDIATE; ${inventorySchemaSql}`);
@@ -161,7 +307,7 @@ async function proveNativeVault(directory) {
   const handle = openVault(file, vaultId);
   const vault = { ...handle, ...handle.writer() };
   try {
-    assert.equal(vault.status().schemaVersion, 4);
+    assert.equal(vault.status().schemaVersion, 5);
     assert.deepEqual(vault.getCompany('co_a'), company);
     for (const marketId of ['mkt_a', 'mkt_b']) {
       vault.saveMarket({ record: record(marketId), name: marketId }, 0);
@@ -401,6 +547,7 @@ async function proveNativeVault(directory) {
 
 async function prepare(directory) {
   const nativeVault = await proveNativeVault(directory);
+  const inventoryContext = await proveInventoryContext(directory);
   const databasePath = path.join(directory, 'source.sqlite');
   const backupPath = path.join(directory, 'snapshot.sqlite');
   let db = openWal(databasePath);
@@ -461,6 +608,7 @@ async function prepare(directory) {
     },
     engine,
     nativeVault,
+    inventoryContext,
     legacyInspection: proveLegacyInspection(),
     fts5Match: true,
     walReopen: true,

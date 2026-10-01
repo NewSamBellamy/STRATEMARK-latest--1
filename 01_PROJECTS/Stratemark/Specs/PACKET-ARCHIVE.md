@@ -753,3 +753,106 @@ acceptance. Six original blockers remain: uncached-tab provider call, legacy
 period loss, premature cancellation, same-name/different-domain collapse,
 different-period conflict collapse, renderer plaintext-key retrieval. The broad
 G00-G08 goal remains active.
+
+## Closed packet — G01-P06
+
+Entry HEAD `ec8dcee`, September30, clean personal spin-off branch. The prior
+checkpoint was verified on GitHub with all49 other refs unchanged. Sol owns
+offline snapshot inspection, proof entry and integration; Luna/high worker
+Laplace owns the bounded legacy identity patch/tests. Coordinator review caught
+and corrected post-publication ID remapping before integration. Worker completed
+and closed; no active workers remain. No Astra, stored-key/customer-data reads,
+provider calls, live migration, UI restyle, installation or publication.
+US01/US13/US14/US16/US23; prepares A10/A44/A45, not action-service parity.
+
+Internal inspectLegacySnapshot accepts JSON text, not arbitrary filenames.
+It recognizes unversioned v1, explicit v1 and v2 and uses the registered version
+chain. Unknown/future versions and unrecognized top-level families fail closed;
+nothing is silently dropped or stamped current. Input ceilings are50MiB UTF8,
+64 container levels and200000 structural tokens. Duplicate object members,
+including escaped duplicate keys, fail before JSON.parse can lose a value.
+Invalid JSON, nonfinite parsed numbers and structural credential fields fail
+with safe code/family errors, not source-value/error-payload dumps. Credential
+field refusal is not a guarantee that arbitrary prose contains no sensitive text.
+
+Inspection covers all14 known array/map families plus dashboard-tab counts.
+Stable IDs and references are checked across companies, markets, decks, cards,
+metrics, risks, reports, saved cards, briefings, threads/memory and job partials.
+Minimal older job metadata remains readable history; present typed metadata
+validates. Uncommitted companies/decks/markets remain within their historical
+job rather than being inserted into main inventory. Duplicate partial-card and
+memory-fact IDs are refused. Site-audit subjects may be external URLs, not
+fabricated company IDs. Known display schemas validate, but their transformed
+output is NOT used as retained historical content: nested scope/period fields
+are preserved through a separate raw-data migration copy.
+
+Exact original JSON and its byte length/SHA256 are retained for future staging.
+Saved report prose, numeric zero, explicit periods, old confidence labels and
+job statuses are preserved, not normalized into new facts/authority. Imported
+attestations are counted as attributed assertions; no local attestations,
+runnable jobs, schedules, grants or budget approvals are proposed. URLs/snippets
+do not become supporting passages. External logo references and missing support
+remain review gaps; nothing is fetched. Company IDs are never merged by the
+inspector. Explicit card/deck links yield market-role proposals; a unique legacy
+market-name fallback is labeled legacy_name, not evidence of scope or identity.
+Ambiguous names/domains stay review groups. Private evidence disclosure still
+requires the future scoped service.
+
+canApply is always false. The returned snapshot/originalJson are internal,
+local-only staging inputs, NOT renderer/MCP read results or live repository
+hydration. No staged database was created and no live adapter was switched.
+storage.ts only exposes the existing validation schema additively (plus
+formatting); the old live parser's conversion behavior is unchanged. Thus the
+nested-field preservation fix here is NOT a claim that legacy live imports
+or cached UI projections are already corrected.
+
+Legacy repository ingestion/hydration no longer merges saved dossiers by name.
+Unique eligible normalized domain evidence can reuse an existing ID before
+stub publication; missing/ambiguous domains stay distinct. Conflicting supplied
+IDs allocate a separate unpublished identity instead of overwriting a dossier.
+After publication, later domain discovery cannot rekey/delete the dossier,
+dashboard, metrics or job partial. Explicit candidate-domain mismatch cannot
+fall back to a unique name. A conservative shared-profile-host guard excludes
+hostname-only reuse on common profile sites; it is not exhaustive semantic
+domain/ownership validation. Briefings dedupe company IDs and ambiguous names
+do not resolve to an arbitrary dossier. P04 ownership fences and P05 multi-market
+invalidation remain intact.
+
+Verification of final sources:
+
+- Inspection module missing RED first, then19/19 GREEN. Additional RED checks
+  reproduced duplicate partial identity, stripped nested scope/period fields,
+  numeric overflow, bare-domain review gaps and invalid catalog roles before
+  fixes. Public repository sample also passes inspection. A coordinator long-name
+  identity check was already GREEN and required no implementation change.
+- Luna identity tests RED before implementation and coordinator-requested
+  immutable-ID/conflicting-ID/shared-profile checks; final identity11/11.
+  Existing unchanged same-name baseline now passes. No baseline edits/skips,
+  relaxed timeouts, changed runners or fake live success.
+- Full pnpm check: all6 typechecks/root lint pass; contracts359/mocks16 pass;
+  research355 pass/4 original failures, root exit1. Independent desktop125
+  pass/1 original key retrieval failure; native inventory19/evidence18/schema18/
+  owner11/research11 =77/77; inspection19/19. Web153/153, both journeys2.990s.
+  API not rerun; keyless live fixtures are not live research-quality evidence.
+- New packaged assertions fail against P05's actual ASAR before implementation.
+  Native Electron and frozen fresh unsigned unpublished ASAR pass all known
+  inspection formats, exact-original preservation, history-not-resumed,
+  attribution-not-authority, shared memberships and future/duplicate refusal.
+  Prior schema1-to4/evidence/report/backup/owner contention/reader/SIGKILL takeover
+  proof remains GREEN: Electron44.4.5/Node24.21.0/SQLite3.53.4, same SQL source ID,
+  1582112 pending WAL bytes, integrity ok and replacement generation2.
+- Ignored artifact: apps/desktop/release/
+  sqlite-spike-20260930-ec8dcee-inspection/win-unpacked, actual proof inside
+  resources/app.asar/dist/sqlite-spike.cjs. Source frozen during packaging;
+  ordinary desktop main build passes and excludes the optional proof entry.
+  This is NOT new NSIS/install/full-GUI acceptance. Formatting/diff checks pass.
+
+Remaining: actual typed/passive legacy retention and staged conversion, complete
+company identity/scope, assets and backup/restore/import/export/trash/GC;
+service ownership/handoff/provider draining, durable task runtime, MCP and the
+card/journey overhaul. Legacy names still appear in some job checkpoints; this
+is not new durable-ID scheduler acceptance. Same-domain ownership resolution
+and human ambiguity/merge records remain G01/G03 work. Five original blockers
+remain: uncached-tab provider call, legacy period loss, premature cancellation,
+different-period conflict collapse and renderer plaintext-key retrieval.
+Full G00-G08 goal stays active; G01 is not complete.

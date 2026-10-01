@@ -157,6 +157,17 @@ try {
     sharedMembershipsPreserved: true,
     duplicateAndFutureRejected: true,
   });
+  assert.deepEqual(prepared.inventoryContext, {
+    v4UpgradeRetained: true,
+    companyProfileAndHints: true,
+    mixedIdentitySearch: true,
+    scopeAndSeedsRetained: true,
+    seedForeignKeysAndHistory: true,
+    contextBackupReopened: true,
+    assetsPublishedAndVerified: true,
+    assetLateWriteRejected: true,
+    corruptAssetRefused: true,
+  });
   for (const key of ['fts5Match', 'walReopen', 'backupFromOpenWal', 'backupReopen'])
     assert.equal(prepared[key], true);
   assert.deepEqual(prepared.backupValues, {

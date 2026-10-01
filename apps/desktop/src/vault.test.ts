@@ -38,7 +38,7 @@ describe('offline native vault foundation (no product cutover)', () => {
     const file = location();
     let vault = openVault(file, 'vault_fixture');
     vault.saveCompany(company(), 0);
-    expect(vault.status()).toMatchObject({ schemaVersion: 4, revision: 1 });
+    expect(vault.status()).toMatchObject({ schemaVersion: 5, revision: 1 });
     vault.close();
     vault = openVault(file, 'vault_fixture');
     expect(vault.getCompany('co_a')).toEqual(company());
@@ -156,6 +156,13 @@ describe('offline native vault foundation (no product cutover)', () => {
       'co_a',
       1,
       JSON.stringify(company('co_other')),
+    );
+    // Keep the v5 derived search row valid so this fixture still isolates
+    // the mismatched indexed ID, rather than failing earlier for missing FTS.
+    db.prepare('INSERT INTO company_identity_search VALUES(?,?,?)').run(
+      'co_a',
+      'Fixture Labs',
+      'a.example',
     );
     db.close();
     const vault = openVault(file, 'vault_fixture');

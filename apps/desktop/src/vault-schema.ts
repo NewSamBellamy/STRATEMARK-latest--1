@@ -1,7 +1,29 @@
 import type * as NodeSqlite from 'node:sqlite';
 import { researchSchemaSql } from './vault-research-store';
 
-export const currentVaultSchemaVersion = 4;
+export const currentVaultSchemaVersion = 5;
+
+const identitySearchProjection = `
+SELECT c.id,
+  trim(COALESCE(json_extract(c.body,'$.name'),'') || ' ' || COALESCE((SELECT group_concat(value,' ') FROM json_each(c.body,'$.identityHints.aliases')),'')),
+  trim(COALESCE(json_extract(c.body,'$.officialDomain'),'') || ' ' || COALESCE((SELECT group_concat(value,' ') FROM json_each(c.body,'$.identityHints.domains')),''))
+FROM companies c`;
+const identitySearchSchemaSql = `
+CREATE VIRTUAL TABLE company_identity_search USING fts5(company_id UNINDEXED, aliases, domains);
+INSERT INTO company_identity_search(company_id,aliases,domains) ${identitySearchProjection};
+CREATE TABLE market_scope_seeds (
+  kind TEXT NOT NULL CHECK(kind='market'), market_id TEXT NOT NULL, market_revision INTEGER NOT NULL,
+  ordinal INTEGER NOT NULL CHECK(ordinal>=0 AND ordinal<50), company_id TEXT NOT NULL REFERENCES companies(id),
+  FOREIGN KEY(kind,market_id,market_revision) REFERENCES retained_record_versions(kind,id,revision),
+  PRIMARY KEY(market_id,market_revision,ordinal)
+) STRICT;
+INSERT INTO market_scope_seeds
+SELECT 'market',h.id,h.revision,CAST(seed.key AS INTEGER),json_extract(seed.value,'$.companyId')
+FROM record_history h, json_each(h.body,'$.scopeDraft.seeds') seed
+WHERE h.kind='markets' AND json_extract(seed.value,'$.companyId') IS NOT NULL;
+CREATE TRIGGER scope_seeds_no_update BEFORE UPDATE ON market_scope_seeds BEGIN SELECT RAISE(ABORT,'Scope seed history is append-only'); END;
+CREATE TRIGGER scope_seeds_no_delete BEFORE DELETE ON market_scope_seeds BEGIN SELECT RAISE(ABORT,'Scope seed history is append-only'); END;
+`;
 
 export const inventorySchemaSql = `
 CREATE TABLE vault_meta (
@@ -143,6 +165,30 @@ export function inspectVaultSchema(db: NodeSqlite.DatabaseSync, vaultId: string)
       throw new Error('Vault writer generation is invalid.');
   }
   if (version >= 4) requireTableColumns(db, researchColumns, 'research');
+  if (version >= 5) {
+    requireTableColumns(
+      db,
+      {
+        company_identity_search: ['company_id', 'aliases', 'domains'],
+        market_scope_seeds: ['kind', 'market_id', 'market_revision', 'ordinal', 'company_id'],
+      },
+      'inventory context',
+    );
+    // Read-only validation: refuse damaged projections, never silently repair data.
+    const indexCount = db
+      .prepare('SELECT count(*) AS count FROM company_identity_search')
+      .get()?.count;
+    const companyCount = db.prepare('SELECT count(*) AS count FROM companies').get()?.count;
+    if (
+      indexCount !== companyCount ||
+      db
+        .prepare(
+          `SELECT 1 FROM (${identitySearchProjection} EXCEPT SELECT company_id,aliases,domains FROM company_identity_search) LIMIT 1`,
+        )
+        .get()
+    )
+      throw new Error('Company identity search index does not match retained records.');
+  }
   if (db.prepare('PRAGMA quick_check').get()?.quick_check !== 'ok')
     throw new Error('Vault integrity check failed.');
   if (db.prepare('PRAGMA foreign_key_check').all().length !== 0)
@@ -189,13 +235,23 @@ export function initializeVaultSchema(
     db.exec('PRAGMA user_version=2;');
     version = 2;
   }
-  if (version === 2)
+  if (version === 2) {
     db.exec(`CREATE TABLE writer_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
     generation INTEGER NOT NULL CHECK(generation>=0 AND generation<=9007199254740991),
     owner_nonce TEXT
   ) STRICT; INSERT INTO writer_state VALUES(1,0,NULL);`);
-  db.exec(researchSchemaSql);
-  db.exec(`PRAGMA user_version=${currentVaultSchemaVersion};`);
+    db.exec('PRAGMA user_version=3;');
+    version = 3;
+  }
+  if (version === 3) {
+    db.exec(researchSchemaSql);
+    db.exec('PRAGMA user_version=4;');
+    version = 4;
+  }
+  if (version === 4) {
+    db.exec(identitySearchSchemaSql);
+    db.exec('PRAGMA user_version=5;');
+  }
   inspectVaultSchema(db, vaultId);
 }
