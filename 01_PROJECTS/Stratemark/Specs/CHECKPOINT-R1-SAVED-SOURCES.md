@@ -1,6 +1,6 @@
-# R1 retained sources — checkpoint in progress
+# R1 retained sources — verified development checkpoint
 
-October 1, 2026. Exploration branch `feat/stratemark-spinoff-local-agents`; prior backed-up HEAD c354bbd. This report remains provisional until final verification, commit-bound recording and remote backup are recorded below. No R-goal is complete.
+October 1, 2026, 15:39 PDT. Exploration branch `feat/stratemark-spinoff-local-agents`; application checkpoint `d5052aae8e3c0d85e4a0ad30a8a8fae718ca352b`, verified on the authorized GitHub branch. Main unchanged at c945b31. Documentation follows separately. No R-goal is complete.
 
 ## User outcome
 
@@ -30,4 +30,15 @@ Normal desktop is still legacy-authoritative; native action parity, disposable m
 
 ## Final acceptance
 
-Gate/build passed. Pending: actual clean-commit full available journey including narrow reader, application commit, remote branch verification and plain-English checkpoint delivery.
+Actual desktop recording passed at clean application commit d5052aa, October 1 22:38:09–22:39:01 UTC. No renderer errors. Native SQLite, explicit synthetic responses, no keys/provider network calls. It visits settings, scope/approval, failed-company partial results, saved source text, retry, filters, second-deck cancel, keyless restart, exact retained text, narrow source reader, all seven synthetic compositions/available preview sections and reduced motion. The R2 compositions are not real research destinations. No migration/deployment/publication occurred.
+
+Artifacts outside the repository:
+
+- [Part 1: research, saved text and recovery](C:/Users/shann/Documents/Codex/2026-09-28/i-x20/outputs/checkpoints/native-journey-1uRNuJ/01-native-research-and-recovery.webm)
+- [Part 2: keyless reopen, narrow reading and compositions](C:/Users/shann/Documents/Codex/2026-09-28/i-x20/outputs/checkpoints/native-journey-1uRNuJ/02-reopen-and-seven-card-composition.webm)
+- [Receipt](C:/Users/shann/Documents/Codex/2026-09-28/i-x20/outputs/checkpoints/native-journey-1uRNuJ/receipt.json)
+- [Final gate log](C:/Users/shann/Documents/Codex/2026-09-28/i-x20/outputs/checkpoints/r1-source-final-check.log)
+
+SHA256: part1 `F84692806F6F87064BDCF9617BF1461561C99324C83A49293EEB3A5AC4F48921`; part2 `F1E7842C6DAA1AB0921C64F421177574307815293871163F453376A2523FAB60`; built main `212EE60CD3CBD690E9E72C27ADEDFB2606D8F531657D3DF0BD12E47CB0949782`.
+
+Red-team verdict: meaningful development user value, not backend-only scaffolding. Sources are now inspectable after restart, and interrupted capture/publication can recover without repeating company work. Continue toward the normal product; do not mistake safe capture for verified facts. Next useful parity slice: native save/remove cards and a keyless collection that opens the same evidence reader instead of legacy dashboard calls. Reuse existing save IPC and vault owner fences, preserve deck/role context, never delete research on unsave, and prove reopen/no-work reads. Canonical support, migration/cutover and R2–R8 stay open.

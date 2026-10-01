@@ -1,6 +1,14 @@
 # Active build handoff — October 1, 2026
 
-Read AGENTS, BUILD-STATE and relevant R-goal, not the full transcript. Preserve R0–R8. Expected branch `feat/stratemark-spinoff-local-agents`; verified application checkpoint `876c9ec`; documentation follows. Inspect actual Git before trusting this snapshot.
+Read AGENTS, BUILD-STATE and relevant R-goal, not the full transcript. Preserve R0–R8. Expected branch `feat/stratemark-spinoff-local-agents`; verified backed-up application checkpoint `d5052aa`; documentation follows. Inspect actual Git before trusting this snapshot.
+
+## Authoritative next action after saved-source checkpoint
+
+No implementation workers or test/app processes remain: their returned statuses and completed gate/build/recorder handles were observed. Final gate 27811 exit 0, build 8226 and final main rebuild exit 0, recorder 89237 exit 0. Clean recording `native-journey-1uRNuJ` at d5052aa passes exact retained text/restart, no-request cached reading and narrow source layout. CHECKPOINT-R1-SAVED-SOURCES records playable files, hashes and remaining gates. Astra final bounded review found no remaining significant issue in the repaired paths (static inspection only).
+
+Next bounded slice: native bookmark/unsave plus saved collection/reopen. Inspect native dispatch (main.ts listSavedCards placeholder/save/unsave unsupported), vault-work-store/vault migrations, existing saved-card contracts/hooks and SavedCardsPage. Do not wire legacy CardGrid as native without caller review: it uses unavailable dashboards and auto-merges identities. Reuse existing IPC names and stable card/deck/type context; persist with existing owner/revision fences. Add read-only/unknown-card/idempotent save/unsave/restart tests. Unsave changes only the saved reference, never research. Native collection opens the existing source reader, preserving return focus/context without provider work. Explicit owned-file packets; parent owns shared main/contracts/integration. All full-product support/cutover/live quality/R2–R8 gates remain open.
+
+The integration notes below are historical evidence for this checkpoint, not current pending tasks.
 
 ## Exact resume order
 
