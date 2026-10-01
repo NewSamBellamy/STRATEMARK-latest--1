@@ -245,6 +245,51 @@ describe('G00 UNRESOLVED baseline: cached reads, migration and writer fencing', 
       rejectProvider(new Error('Synthetic provider acknowledged abort'));
       await running;
     }
+    expect((await repo.getResearchJob('run_fixture'))?.status).toBe('cancelled');
+  });
+
+  it('a provider that ignores abort cannot commit a late success after cancellation', async () => {
+    const source = snapshot();
+    source.researchJobs = [
+      {
+        ...job('failed'),
+        marketPlan: {
+          marketName: 'Synthetic market',
+          vertical: 'Test',
+          geography: null,
+          notes: null,
+          searchThemes: [],
+        },
+        market: market('market_fixture', 'Synthetic market'),
+        deck: deck('deck_fixture', 'market_fixture'),
+        catalog: [],
+      },
+    ];
+    let release!: (result: { market: Market; deck: Deck; cards: [] }) => void;
+    let began!: () => void;
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    pipeline.run.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+          began();
+        }),
+    );
+    const data = memory(source);
+    const repo = new GeminiRepository({ client: client(), store: data.store });
+    const running = repo.resumeResearchJob('run_fixture');
+    await started;
+    expect((await repo.cancelResearchJob('run_fixture'))?.status).toBe('cancelling');
+    release({
+      market: market('market_fixture', 'Synthetic market'),
+      deck: deck('deck_fixture', 'market_fixture'),
+      cards: [],
+    });
+    await running;
+    expect((await repo.getResearchJob('run_fixture'))?.status).toBe('cancelled');
+    expect(data.read().decks).toEqual([]);
   });
 
   it('a shared company correction must invalidate both market projections', async () => {

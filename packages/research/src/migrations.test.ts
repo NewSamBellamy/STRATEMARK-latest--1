@@ -166,14 +166,19 @@ describe('GeminiRepository load path', () => {
     const initial = {
       ...legacySnapshot(),
       schemaVersion: REPO_SCHEMA_VERSION,
-      researchJobs: [{ id: 'job_1', status: 'running', error: null }],
+      researchJobs: [
+        { id: 'job_1', status: 'running', error: null },
+        { id: 'job_2', status: 'cancelling', error: 'Cancelled by user.' },
+      ],
     } as unknown as RepoSnapshot;
     const { store } = storeWith(initial);
     const inspected = migrateSnapshot(initial);
     expect(inspected.snapshot.researchJobs[0]?.status).toBe('running');
+    expect(inspected.snapshot.researchJobs[1]?.status).toBe('cancelling');
     const repo = new GeminiRepository({ apiKey: 'synthetic-test-key', store });
     expect((await repo.getResearchJob('job_1'))?.status).toBe('failed');
     expect((await repo.getResearchJob('job_1'))?.error).toBe('Interrupted by restart.');
+    expect((await repo.getResearchJob('job_2'))?.status).toBe('cancelled');
     expect(initial.researchJobs[0]?.status).toBe('running');
     expect(inspected.snapshot.researchJobs[0]?.status).toBe('running');
   });

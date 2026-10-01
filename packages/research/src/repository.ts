@@ -485,8 +485,18 @@ export class GeminiRepository implements MarketIntelRepository {
       ...migration.snapshot,
       researchJobs: migration.snapshot.researchJobs.map((job) => ({
         ...job,
-        status: job.status === 'running' ? ('failed' as const) : job.status,
-        error: job.status === 'running' ? (job.error ?? 'Interrupted by restart.') : job.error,
+        status:
+          job.status === 'running'
+            ? ('failed' as const)
+            : job.status === 'cancelling'
+              ? ('cancelled' as const)
+              : job.status,
+        error:
+          job.status === 'running'
+            ? (job.error ?? 'Interrupted by restart.')
+            : job.status === 'cancelling'
+              ? (job.error ?? 'Cancellation completed by restart.')
+              : job.error,
       })),
     };
     this.lastMigration = migration;
@@ -766,8 +776,12 @@ export class GeminiRepository implements MarketIntelRepository {
   async cancelResearchJob(id: string): Promise<ResearchJob | null> {
     const job = this.snap.researchJobs.find((candidate) => candidate.id === id);
     if (!job) return null;
-    this.jobControllers.get(id)?.abort();
-    job.status = 'cancelled';
+    if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+      return job;
+    }
+    const controller = this.jobControllers.get(id);
+    controller?.abort();
+    job.status = controller ? 'cancelling' : 'cancelled';
     job.error = 'Cancelled by user.';
     job.updatedAt = new Date().toISOString();
     this.persist();
@@ -777,7 +791,8 @@ export class GeminiRepository implements MarketIntelRepository {
   async resumeResearchJob(id: string): Promise<ResearchJob | null> {
     const job = this.snap.researchJobs.find((candidate) => candidate.id === id);
     if (!job) return null;
-    if (job.status === 'running' || job.status === 'completed') return job;
+    if (job.status === 'running' || job.status === 'cancelling' || job.status === 'completed')
+      return job;
     if (!job.marketPlan || !job.market || !job.deck || !job.catalog) return job;
     const controller = new AbortController();
     this.jobControllers.set(id, controller);
@@ -803,6 +818,14 @@ export class GeminiRepository implements MarketIntelRepository {
           ),
         },
       });
+      if (controller.signal.aborted) {
+        job.status = 'cancelled';
+        job.error = 'Cancelled by user.';
+        job.updatedAt = new Date().toISOString();
+        this.persist();
+        this.jobControllers.delete(id);
+        return job;
+      }
       job.status = 'completed';
       job.stage = 'signals';
       job.partialCards = result.cards;
@@ -2144,7 +2167,9 @@ export class GeminiRepository implements MarketIntelRepository {
     const cards = this.snap.cards.filter((c) => c.deckId === deckId);
     const baked = deckBakedState(cards);
     const active = this.snap.researchJobs.some(
-      (j) => j.deck?.id === deckId && (j.status === 'running' || j.status === 'queued'),
+      (j) =>
+        j.deck?.id === deckId &&
+        (j.status === 'running' || j.status === 'queued' || j.status === 'cancelling'),
     );
     if (active && !baked.baked) {
       throw new Error(

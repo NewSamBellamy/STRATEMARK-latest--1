@@ -97,7 +97,7 @@ const api: PreloadRepositoryApi = {
 contextBridge.exposeInMainWorld('mi', api);
 
 const secure: SecureApi = {
-  getApiKey: () => ipcRenderer.invoke(SECURE_CHANNELS.getApiKey),
+  getApiKeyStatus: () => ipcRenderer.invoke(SECURE_CHANNELS.getApiKeyStatus),
   setApiKey: (key) => ipcRenderer.invoke(SECURE_CHANNELS.setApiKey, key),
   exportResearch: () => ipcRenderer.invoke(SECURE_CHANNELS.exportResearch),
   importResearch: (json) => ipcRenderer.invoke(SECURE_CHANNELS.importResearch, json),

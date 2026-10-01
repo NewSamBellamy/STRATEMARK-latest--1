@@ -206,7 +206,7 @@ try {
       forceDenied: await denied(() => api.getDashboardTab('co_shared', 'overview', true)),
       researchDenied: await denied(() => api.refreshDeck('mkt_a')),
       editDenied: await denied(() => api.saveCard('card_0')),
-      keyDenied: await denied(() => secure.getApiKey()),
+      keyDenied: await denied(() => secure.getApiKeyStatus()),
       importDenied: await denied(() => secure.importResearch('{}')),
       jobs: await api.listResearchJobs(),
       metrics: await api.getCompanyMetrics('co_shared'),

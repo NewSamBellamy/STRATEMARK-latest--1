@@ -432,7 +432,7 @@ function registerIpc(): void {
   );
 
   // Secure key storage — persists to the OS keychain and hot-swaps the backend.
-  ipcMain.handle(SECURE_CHANNELS.getApiKey, (): string => loadApiKey());
+  ipcMain.handle(SECURE_CHANNELS.getApiKeyStatus, () => ({ hasKey: loadApiKey().length > 0 }));
   ipcMain.handle(SECURE_CHANNELS.setApiKey, (_e, key: unknown): void => {
     const validatedKey = z
       .string()
@@ -452,7 +452,11 @@ function registerIpc(): void {
   });
   ipcMain.handle(SECURE_CHANNELS.preflightResearchMigration, async () => {
     const jobs = (await repository.listResearchJobs?.()) ?? [];
-    if (jobs.some((job) => job.status === 'running' || job.status === 'queued'))
+    if (
+      jobs.some(
+        (job) => job.status === 'running' || job.status === 'queued' || job.status === 'cancelling',
+      )
+    )
       return {
         state: 'blocked',
         reason: 'active_research',
@@ -463,7 +467,11 @@ function registerIpc(): void {
   });
   ipcMain.handle(SECURE_CHANNELS.importResearch, async (_e, json: unknown) => {
     const jobs = (await repository.listResearchJobs?.()) ?? [];
-    if (jobs.some((job) => job.status === 'running' || job.status === 'queued'))
+    if (
+      jobs.some(
+        (job) => job.status === 'running' || job.status === 'queued' || job.status === 'cancelling',
+      )
+    )
       throw new Error('Finish or cancel active research before importing.');
     researchStore().write(
       parseResearchExport(

@@ -100,7 +100,7 @@ export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 
 /** Secure key storage channels (Electron main uses the OS keychain via safeStorage). */
 export const SECURE_CHANNELS = {
-  getApiKey: 'mi:secure:getApiKey',
+  getApiKeyStatus: 'mi:secure:getApiKeyStatus',
   setApiKey: 'mi:secure:setApiKey',
   exportResearch: 'mi:secure:exportResearch',
   importResearch: 'mi:secure:importResearch',
@@ -145,7 +145,7 @@ export type MigrationReadiness =
 
 /** Exposed on `window.miSecure` in the Electron shell; undefined on the web. */
 export interface SecureApi {
-  getApiKey(): Promise<string>;
+  getApiKeyStatus(): Promise<{ hasKey: boolean }>;
   setApiKey(key: string): Promise<void>;
   exportResearch(): Promise<string | null>;
   importResearch(json: string): Promise<void>;

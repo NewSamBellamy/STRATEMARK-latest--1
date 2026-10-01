@@ -16,7 +16,7 @@ deferred by the human; do not stop for missing API telemetry or require cost
 projections before worker dispatch. This overrides the historical campaign
 instructions in the archive, not product privacy, bounded execution, phase dependencies,
 context ceilings or live-research consent. Goal is active (verified via goal tool).
-Latest completed packet: G01-P14 below. G00 contracts and reproduced baseline
+Latest completed packet: G01-P15 below. G00 contracts and reproduced baseline
 are frozen for offline G01 work; this is not product-readiness or service parity.
 G01-P01 proves the native SQLite binding in an unsigned packaged app and the
 actual installer payload, plus fixes two legacy data-safety defects. G01-P02
@@ -36,7 +36,11 @@ offline read-only boundary. G01-P13 adds a hash-pinned, asset-aware lifecycle
 around that staged path and proves the packaged app can navigate a restored copy.
 G01-P14 adds truthful normal-startup storage status and an explicit, local,
 read-only native-vault readiness check. Recovery application and guarded cutover
-remain open.
+remain open. G01-P15 closes the four reproduced legacy release blockers: metric
+period loss, false cross-period conflicts, premature cancellation completion and
+renderer access to stored API-key bytes. It also shows why a normal-startup vault
+cutover must wait for shared write/action-service parity instead of creating a
+read-only authority dead end.
 No live cutover is authorized.
 The full goal remains active; do not restart planning.
 Earlier $50/Astra campaign instructions are historical, not current dispatch
@@ -46,15 +50,15 @@ preflight blocks this development goal; live product research still requires
 separate explicit approval and a numeric cap.
 
 - Planning: complete researched v1 north star, action catalogue, phase goals, and evidence ledger.
-- Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. Seven of the original 11 reproduced defects are fixed; 4 remain RED. Offline native vault retains inventory, hashed source versions/content, exact passages, immutable metric definitions, period-aware numeric observations, versioned qualitative claims/findings/reports and pinned report inputs, behind one native owner and captured-generation write capabilities. It is connected to the current app only through an explicit staged read-only preview. Normal startup can now inspect legacy storage and run a guarded read-only readiness check, but authority, service actions and live data still use the legacy path. Link validation is not semantic verification. G01 is not complete.
+- Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. All 11 reproduced legacy defects are now fixed and their regression suites pass. Offline native vault retains inventory, hashed source versions/content, exact passages, immutable metric definitions, period-aware numeric observations, versioned qualitative claims/findings/reports and pinned report inputs, behind one native owner and captured-generation write capabilities. It is connected to the current app only through an explicit staged read-only preview. Normal startup can inspect legacy storage and run a guarded read-only readiness check, but authority, shared write/service actions and live data still use the legacy path. Link validation is not semantic verification. G01 is not complete.
 - Branch: `feat/stratemark-spinoff-local-agents`, created from `b2c6398`; predecessor `feat/claim-level-signal-evidence` retained unchanged. Personal-fork checkpoint destination: remote newsam, `NewSamBellamy/STRATEMARK-latest--1`.
-- Original planning baseline: `3f18af2`. Latest packet entry: `3e591a9`; determine current HEAD/tree from Git. Neither historical value is a claim about current code forever.
+- Original planning baseline: `3f18af2`. P15 entry HEAD: `405f512`; determine current HEAD/tree from Git. Neither historical value is a claim about current code forever.
 - Goal tool: the production Northstar goal was recreated October 1 after the tracker returned no active goal. It preserves the personal-branch, no-deploy/no-live-migration boundaries. No billing blocker remains for development. Keep the full goal active at packet boundaries.
-- Next work: G01-P15 synthetic normal-startup recovery and reversible guarded cutover, with explicit human approval and rollback proof before any live workspace is eligible. P13 recovery is staged-candidate-only and P14 is inspection-only, not general A44/A46/A47 parity. No live migration/provider work; G04 visual acceptance remains open.
+- Next work: start G02 shared runtime/action-service and native write parity, which is a dependency for a safe G01 normal-startup recovery/cutover. Do not grant a read-only vault production authority while writes still use the legacy repository. P13 recovery is staged-candidate-only and P14 is inspection-only, not general A44/A46/A47 parity. No live migration/provider work; G03 research quality and G04 visual acceptance remain open.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
 - Push: latest human explicitly authorized periodic checkpoints ONLY to this new personal-fork branch. No overwriting existing refs, upstream/Tobi pushes, main merge, release or deployment. First upload verified at `73e61c0e0f9f20e063fd290ef9fb3a122f570061`; all 49 pre-existing remote branch refs remained unchanged, including main at `c945b31dee0095331b8487133c131c36e76ba601`. Verified owner NewSamBellamy, public fork of Maruf. The shorter old URL redirects to Maruf and is unsafe as a personal destination. Read actual local/remote tips before each later fast-forward checkpoint.
-- Current application tests: G01-P14 all6 typechecks/root lint and production build pass; contracts369/mocks16, web185/API158 pass; research361 pass/3 original failures and desktop205 pass/1 original key failure. Focused storage-preflight5, settings11 and actual Electron storage-status/readiness smoke pass. The Electron smoke proves demo guarding, workspace readiness, unchanged source bytes/timestamps, zero provider requests and zero page errors in a disposable profile. P13 lifecycle/staging/read-only packaged proofs remain valid. No installer/signing/live-provider acceptance. Four original release blockers remain.
+- Current application tests: G01-P15 full `pnpm check` passes all6 typechecks, root lint and every ordinary suite: contracts369, mocks16, research365, API158, desktop207 and web185. The production desktop build passes with a pre-existing large-chunk warning. Focused storage-preflight/settings/security regressions pass. Two actual Electron journeys pass in disposable profiles: Settings/storage readiness and library → deck → card reader → company → metrics → back/reload. Together they report zero provider/external requests, zero page errors, unchanged source/backup/restored fingerprints and enforced read-only denials. P13 packaged lifecycle proofs remain valid, but P15 did not rebuild an installer. No signing, updater, live-provider quality or customer-data acceptance.
 - Document verification: local links and balanced code fences passed; unique registers checked (22 defaults, 30 stories, 62 actions, 9 goals, 26 sources); JSON command example parsed; canonical files had no candidate credential patterns. Markdown formatting checked separately before commit.
 - Astra final planning review: seven substantive gaps identified and addressed (service lifetime, migration fences, imported authority, restored budgets, asset/evidence retention, asynchronous output retrieval, and human approval boundary). Re-review found no remaining material contract contradictions; this is planning consistency, not application verification.
 
@@ -71,17 +75,17 @@ separate explicit approval and a numeric cap.
 
 ## Execution ledger
 
-| Goal | State                             | Packet / commit evidence                 | Remaining                                                           |
-| ---- | --------------------------------- | ---------------------------------------- | ------------------------------------------------------------------- |
-| G00  | Contract/baseline freeze complete | [G00-P01-P05 archive](PACKET-ARCHIVE.md) | Legacy defects remain RED; enforcement/parity belong to G01/G02/G07 |
-| G01  | In progress                       | G01-P14 status/readiness preflight       | Normal-startup recovery and reversible guarded cutover              |
-| G02  | Not started                       | None                                     | Shared runtime, policies, secrets                                   |
-| G03  | Not started                       | None                                     | Progressive research and evaluation                                 |
-| G04  | Not started                       | None                                     | Cards and coherent frontend journey                                 |
-| G05  | Not started                       | None                                     | Decision outputs and findings                                       |
-| G06  | Not started                       | None                                     | Local monitored updates                                             |
-| G07  | Not started                       | None                                     | Scoped MCP                                                          |
-| G08  | Not started                       | None                                     | Production verification                                             |
+| Goal | State                             | Packet / commit evidence                 | Remaining                                                            |
+| ---- | --------------------------------- | ---------------------------------------- | -------------------------------------------------------------------- |
+| G00  | Contract/baseline freeze complete | [G00-P01-P05 archive](PACKET-ARCHIVE.md) | Reproduced defects green; broader enforcement belongs to G01/G02/G07 |
+| G01  | In progress                       | G01-P15 integrity/security closure       | Recovery/cutover after shared native write parity                    |
+| G02  | Not started                       | None                                     | Shared runtime, policies, secrets and native write/action parity     |
+| G03  | Not started                       | None                                     | Progressive research and evaluation                                  |
+| G04  | Not started                       | None                                     | Cards and coherent frontend journey                                  |
+| G05  | Not started                       | None                                     | Decision outputs and findings                                        |
+| G06  | Not started                       | None                                     | Local monitored updates                                              |
+| G07  | Not started                       | None                                     | Scoped MCP                                                           |
+| G08  | Not started                       | None                                     | Production verification                                              |
 
 Only one authoritative execution ledger lives here. Action schemas are authoritative in contracts once built; update this plan when implementation intentionally changes the design. Do not create competing status files in unrelated folders.
 
@@ -115,7 +119,62 @@ An existing human-created broad goal must retain its actual objective. Execute o
 
 User context ceiling: 200k tokens for every agent, not a spend allowance. Checkpoint around 100k; hand off before an estimated 150k to leave room for verification and recovery. Use the policy in [build-workflow.md](build-workflow.md). Cumulative goal tokens are usage, not necessarily the current context window. Exact occupancy and forced compaction are not exposed here; do not claim hard automatic enforcement. Keep packets small and start clean workers with a declared model, effort and exclusive scope; development cost projections are not a current gate. Unknown spending never becomes a claim of remaining funds.
 
-## Latest completed packet — G01-P14
+## Latest completed packet — G01-P15
+
+Entry HEAD `405f512`; final packet state is the immediately following local
+commit in branch history. October 1, 2026. Full production goal/G01 remain
+active. Sol integration in the existing personal
+branch. No live migration, provider call, credential read, installer, release,
+publication or main change.
+
+User outcome / seams: G00 defect closure and G01/G02 safety prerequisites. Metric
+observations now retain their reporting period. Observations for different periods
+coexist instead of being treated as contradictory, while same-period disagreement
+still creates a conflict. Structured periods are validated and bounded legacy
+period labels remain readable so existing snapshots are not silently damaged.
+
+Cancellation is now an acknowledged transition: an active job becomes
+`cancelling`, a provider that ignores abort cannot commit a late success, and only
+worker settlement (or restart recovery) makes the job `cancelled`. The UI/storage
+inspection treats `cancelling` as active, so migration cannot race an unfinished
+job. Stored desktop API-key bytes no longer cross the preload bridge into the
+renderer; the renderer receives only `hasKey`. One-time legacy plaintext migration
+remains bounded, removes the old browser value and clears the renderer copy after
+secure storage succeeds. Browser-only mode still retains the user-supplied key
+because its direct provider adapter requires it.
+
+Verification:
+
+- Full root `pnpm check` passes all6 typechecks, lint and contracts369/mocks16/
+  research365/API158/desktop207/web185 tests. The four previously original RED
+  assertions are green; no baseline was skipped or weakened.
+- The production desktop build passes. Vite reports a pre-existing large initial
+  chunk warning; this is a performance/release gap, not a compilation failure.
+- Actual Electron Settings → Data controls → migration-readiness smoke passes in
+  an isolated profile with demo guarding, unchanged source fingerprint/timestamp,
+  zero provider requests and zero page errors.
+- Actual Electron native-vault preview completes library → deck/role → card reader
+  → company → metrics → back/reload. It enforces write/key/research/import denials,
+  makes zero external requests, records zero page errors and preserves independent
+  fingerprints for the staged source, backup and restored candidate.
+
+### Checkpoint red team — moving the needle and remaining limits
+
+Needle moved: the known baseline data-integrity, cancellation and stored-secret
+failures are closed with both focused regressions and full-gate evidence. This
+removes false metric merging, late cancelled-run writes and an unnecessary key
+exposure from the production path.
+
+The initially proposed P15 cutover was rejected after inspecting the integration:
+the native vault is still read-only from the app, while writes and actions remain
+on the legacy repository. Making it normal-startup authority now would strand user
+edits/research or create split-brain state. The next safe dependency is G02's one
+shared runtime/action service with native write parity; only then can G01 recovery,
+rollback and guarded cutover be proved. No live provider research was run, so the
+quality of generated research remains unaccepted. No installer, signing, updater,
+production performance, visual acceptance, monitoring or MCP acceptance exists.
+
+## Previous completed packet — G01-P14
 
 Entry HEAD `3e591a9`; October 1, 2026. Full production goal/G01 remain active.
 Sol integration in the existing personal branch. No live migration, provider call,

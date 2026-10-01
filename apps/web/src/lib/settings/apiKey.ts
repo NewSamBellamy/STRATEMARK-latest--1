@@ -87,7 +87,7 @@ export const useApiKey = create<ApiKeyState>((set) => ({
       writeLocal(STORAGE_KEY, trimmed);
       localStorage.removeItem('mi.apiKey');
     }
-    set({ apiKey: trimmed, hasKey: trimmed.length > 0, storageError: null });
+    set({ apiKey: secure ? '' : trimmed, hasKey: trimmed.length > 0, storageError: null });
   },
   setModel: (model) => {
     writeLocal(MODEL_KEY, model.trim());
@@ -101,19 +101,18 @@ export const useApiKey = create<ApiKeyState>((set) => ({
   },
 }));
 
-// In Electron, hydrate the key from the OS keychain on boot (authoritative over
-// the localStorage cache).
+// In Electron, hydrate only capability state. Stored key bytes never cross into the renderer.
 if (secure) {
   hydration = (async () => {
-    let key = await secure.getApiKey();
+    let { hasKey } = await secure.getApiKeyStatus();
     // Migrate older plaintext caches only after encrypted persistence succeeds.
     const legacy = sanitizeApiKey(readLocal(STORAGE_KEY));
-    if (!key && legacy) {
+    if (!hasKey && legacy) {
       await secure.setApiKey(legacy);
-      key = legacy;
+      hasKey = true;
     }
     removePlaintextKeys();
-    useApiKey.setState({ apiKey: key, hasKey: !!key });
+    useApiKey.setState({ apiKey: '', hasKey });
   })().catch(() => {
     useApiKey.setState({
       storageError:

@@ -111,7 +111,7 @@ const partialCard = z
 const job = z
   .object({
     id,
-    status: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']),
+    status: z.enum(['queued', 'running', 'cancelling', 'completed', 'failed', 'cancelled']),
     stage: z.enum(['scope', 'catalog', 'summary', 'metrics', 'signals', 'dashboard']).optional(),
     brief: z.object({ prompt: z.string(), region: z.string().nullable() }).passthrough().optional(),
     market: marketSchema.passthrough().optional(),
@@ -508,7 +508,7 @@ export function inspectLegacySnapshot(json: string) {
     identityReview,
     review: {
       activeJobCount: snapshot.researchJobs.filter(
-        (row) => row.status === 'queued' || row.status === 'running',
+        (row) => row.status === 'queued' || row.status === 'running' || row.status === 'cancelling',
       ).length,
       attributedAttestationCount,
       externalLogoCount: logos.size,

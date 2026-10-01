@@ -227,6 +227,14 @@ describe('read-only staged migration inspection (not a cutover)', () => {
     );
   });
 
+  it('retains a pending cancellation as active during read-only inspection', () => {
+    const source = fixture();
+    source.researchJobs[0]!.status = 'cancelling';
+    const result = inspectLegacySnapshot(JSON.stringify(source));
+    expect(result.snapshot.researchJobs[0]?.status).toBe('cancelling');
+    expect(result.review.activeJobCount).toBe(1);
+  });
+
   it('retains original prose, true zero, periods and nested unknown research fields without upgrading support', () => {
     const source = fixture();
     const result = inspectLegacySnapshot(JSON.stringify(source));

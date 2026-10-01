@@ -90,7 +90,7 @@ it('routes trusted preview IPC before legacy listeners and denies an untrusted f
   const read = (channel: string, ...args: unknown[]) => host.handlers.get(channel)!(event, ...args);
   expect(read(IPC_CHANNELS.listMarkets) as unknown[]).toHaveLength(2);
   expect(() => read(IPC_CHANNELS.refreshDeck, 'mkt_a')).toThrow(/read-only/i);
-  expect(() => read(SECURE_CHANNELS.getApiKey)).toThrow(/read-only/i);
+  expect(() => read(SECURE_CHANNELS.getApiKeyStatus)).toThrow(/read-only/i);
   expect(() => read(SECURE_CHANNELS.importResearch, '{}')).toThrow(/read-only/i);
   expect(() =>
     host.handlers.get(IPC_CHANNELS.listMarkets)!({ sender: {}, senderFrame: {} }),

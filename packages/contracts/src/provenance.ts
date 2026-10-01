@@ -279,12 +279,14 @@ export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric
       confidence: current.confidence,
       source: current.source,
       capturedAt: current.capturedAt,
+      period: current.period,
     },
     {
       value: next.value,
       confidence: next.confidence,
       source: next.source,
       capturedAt: next.capturedAt,
+      period: next.period,
     },
   ];
   const preferredObservation = evidenceWeight(next) > evidenceWeight(current) ? 1 : 0;
@@ -318,8 +320,17 @@ export function reconcileMetrics(
   incoming: CompanyMetric[],
 ): CompanyMetric[] {
   const identity = (metric: CompanyMetric): string => {
-    if (metric.metricType !== 'users') return metric.metricType;
-    return `${metric.metricType}:${userFootprintIdentity(metric)}`;
+    const type =
+      metric.metricType === 'users'
+        ? `${metric.metricType}:${userFootprintIdentity(metric)}`
+        : metric.metricType;
+    const period =
+      typeof metric.period === 'string'
+        ? `legacy:${metric.period.trim().toLowerCase()}`
+        : metric.period
+          ? `${metric.period.start}/${metric.period.end}`
+          : 'unknown';
+    return `${type}:period:${period}`;
   };
   const normalize = (metric: CompanyMetric): CompanyMetric =>
     metric.metricType === 'users' && metric.userBasis === undefined

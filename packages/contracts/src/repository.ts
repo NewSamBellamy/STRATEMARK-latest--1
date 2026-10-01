@@ -44,7 +44,8 @@ export interface DeckResearchBrief {
 }
 
 export type ResearchStage = 'scope' | 'catalog' | 'summary' | 'metrics' | 'signals' | 'dashboard';
-export type ResearchJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type ResearchJobStatus =
+  'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
 
 export interface ResearchCatalogCandidate {
   name: string;
@@ -425,6 +426,7 @@ export interface MetricConflict {
     confidence: Confidence;
     source: string | null;
     capturedAt: string;
+    period?: { start: string; end: string } | string;
   }>;
   detectedAt: string;
   preferredObservation: number;

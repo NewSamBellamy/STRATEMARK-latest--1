@@ -51,7 +51,7 @@ describe('Research Engine Settings & Strict Execution', () => {
       performedWrites: false,
     });
     window.miSecure = {
-      getApiKey: vi.fn(),
+      getApiKeyStatus: vi.fn(),
       setApiKey: vi.fn(),
       exportResearch: vi.fn(),
       importResearch: vi.fn(),

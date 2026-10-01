@@ -142,6 +142,17 @@ export const cardEvidencePointSchema = z.object({
   timeWindow: z.string().nullable(),
 });
 
+export const metricReportingPeriodSchema = z
+  .object({
+    start: z.string().date(),
+    end: z.string().date(),
+  })
+  .refine((period) => period.start <= period.end, {
+    message: 'Metric reporting period must not end before it starts',
+    path: ['end'],
+  });
+const legacyMetricReportingPeriodSchema = z.string().trim().min(1).max(128);
+
 export const companyMetricSchema = z.object({
   id: z.string(),
   companyId: z.string(),
@@ -164,6 +175,8 @@ export const companyMetricSchema = z.object({
   /** Meaning of a user-footprint count; absent in legacy records. */
   userBasis: userFootprintBasisSchema.optional(),
   capturedAt: isoTimestamp,
+  /** Period described by the figure, independent from capture/retrieval time. */
+  period: z.union([metricReportingPeriodSchema, legacyMetricReportingPeriodSchema]).optional(),
   /**
    * When a source last CONFIRMED this figure, as opposed to when we wrote the
    * row (`capturedAt`). The two diverge on a refresh that re-confirms an
@@ -188,6 +201,9 @@ export const companyMetricSchema = z.object({
             confidence: confidenceSchema,
             source: z.string().nullable(),
             capturedAt: isoTimestamp,
+            period: z
+              .union([metricReportingPeriodSchema, legacyMetricReportingPeriodSchema])
+              .optional(),
           }),
         ),
         detectedAt: isoTimestamp,

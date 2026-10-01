@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SecureApi } from '@mi/contracts';
 
-function bridge(key = ''): SecureApi {
+function bridge(hasKey = false): SecureApi {
   return {
-    getApiKey: vi.fn().mockResolvedValue(key),
+    getApiKeyStatus: vi.fn().mockResolvedValue({ hasKey }),
     setApiKey: vi.fn().mockResolvedValue(undefined),
     exportResearch: vi.fn(),
     importResearch: vi.fn(),
@@ -29,6 +29,7 @@ describe('desktop key persistence', () => {
     expect(window.miSecure.setApiKey).toHaveBeenCalledWith('test-key');
     expect(localStorage.getItem('mi.geminiApiKey')).toBeNull();
     expect(useApiKey.getState().hasKey).toBe(true);
+    expect(useApiKey.getState().apiKey).toBe('');
   });
   it('does not claim success when encrypted storage fails', async () => {
     window.miSecure = bridge();
@@ -46,10 +47,10 @@ describe('desktop key persistence', () => {
     await apiKeyReady;
     expect(window.miSecure.setApiKey).toHaveBeenCalledWith('legacy-test-key');
     expect(localStorage.getItem('mi.apiKey')).toBeNull();
-    expect(useApiKey.getState().apiKey).toBe('legacy-test-key');
+    expect(useApiKey.getState().apiKey).toBe('');
   });
   it('removes both old key aliases', async () => {
-    window.miSecure = bridge('stored-test-key');
+    window.miSecure = bridge(true);
     const { useApiKey, apiKeyReady } = await import('./apiKey');
     await apiKeyReady;
     localStorage.setItem('mi.apiKey', 'old-test-key');
