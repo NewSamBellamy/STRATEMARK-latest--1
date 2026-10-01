@@ -4,15 +4,15 @@ Updated October 1, 2026. The founder authorized the complete R0–R8 build. MAST
 
 ## Current execution checkpoint
 
-- Branch `feat/stratemark-spinoff-local-agents`; last committed baseline `f6353e8`. R0/R1 application changes await integrated checkpoint commit and backup. Preserve all dirty work.
+- Branch `feat/stratemark-spinoff-local-agents`; application checkpoint `876c9ec0fdc51e60c8d7a1a6f0688c18052ddd63` saved and remote verified in NewSamBellamy/STRATEMARK-latest--1. Main remains `c945b31dee0095331b8487133c131c36e76ba601`. Documentation follows separately; inspect actual HEAD/tree.
 - R0: seven green/paper compositions plus long-name/sparse edge cases, hero entity identity, four editorial finding faces, no flips/ranks. `/design/cards` is explicitly synthetic, not a completed R2 portal. Owner aesthetic approval remains pending.
 - R1: actual development Electron → trusted IPC → pipeline → isolated SQLite create/research/partial-result/retry/read/reopen path. Review precedes dispatch. Selected tasks/outcomes persist; retries finish original unfinished work. Request identity survives reload; accepted duplicates reuse the run. Incremental bounded event replay drains terminal pages.
 - Absolute workspace validation precedes profile creation; shutdown is awaited. Saved reads do not initialize a provider. Unsupported native actions cannot fall through to legacy writes.
 - Immutable synthetic/live provenance survives restart. Without the fixture flag, synthetic work remains labeled and read-only. Mixed/unclassified runs are not relabeled live. Synthetic/live work cannot silently mix.
 - Library/New Deck and historical entry aliases work; three recipient creation links repaired. All seven types visible; Community labels historical culture wire values without rewriting stored semantics.
 - Provider citations are retained source leads, not semantic verification. Generated numbers remain estimated/unknown and withheld from faces. Operational projections are not canonical evidence-backed dossiers.
-- Pre-commit actual Electron walkthrough passed: fixture-backed partial failure, subset retry, consecutive decks, cancellation, restart without key/fixture flag, saved reads, seven compositions and narrow/reduced-motion layout. Receipt `native-journey-bj19UZ` has dirty baseline `f6353e8`; final clean commit-bound recording still required.
-- Fresh integrated `pnpm check` passed (session 42753, exit 0): all six typechecks, lint and recursive local test suites. Live benchmark/LLM judge paths report no-key skips, not live-quality success. Desktop build passed; final clean commit-bound recording/backup pending. No release readiness claim.
+- Final actual Electron walkthrough `native-journey-THV53Q` passed at clean application commit `876c9ec`: fixture-backed partial failure/subset retry, consecutive decks/cancellation, keyless/fixture-flag-free restart, saved reads, seven compositions and narrow/reduced motion. Actual native filter/control styling is checked. Playable two-part recordings and receipt links in CHECKPOINT-R0-R1-NATIVE.
+- Final integrated `pnpm check` passed (58601, exit 0), with log retained outside source: all six typechecks, lint, contracts370/mocks16/research391/API158/desktop271/web259 tests reported passing. Three optional live/LLM paths explicitly no-key skip execution; no live-quality proof. Final desktop build passed (90678), with 1.6 MB main web chunk warning retained as performance gap. No release readiness claim.
 - Founder monitors $100 development target; dollars/cache hits unknown. No paid live product evaluation calls in this slice.
 
 ## Red-team disposition
@@ -37,7 +37,7 @@ No R-goal is complete. COVERAGE retains U01–U66; partial proof does not make a
 
 ## Next outcome
 
-Finish gate, scoped commit, clean commit-bound actual recording and authorized backup. Then connect retained source passages and honest support status to the native reader and existing evidence store. Reuse retrieval safety/evidence APIs, not another framework. Port exposed actions and prove disposable migration before normal cutover. Never silently migrate live user data.
+Integrated development checkpoint is recorded and backed up; documentation reconciliation follows. Next connect retained source passages and honest support status to the native reader and existing evidence store. Inspect existing retrieval/URL safety rather than assume a ready-made safe source retriever exists. Reuse evidence APIs, not another framework. Port exposed actions and prove disposable migration before normal cutover. Never silently migrate live user data.
 
 ## Historical baseline
 
