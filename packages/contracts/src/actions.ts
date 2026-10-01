@@ -521,6 +521,13 @@ const marketDiscoveryExpandRequest = z
         exclusions: uniqueTexts(50),
         maxCompanies: z.number().int().min(1).max(50),
         maxSearchBatches: z.number().int().min(1).max(50),
+        limits: z
+          .object({
+            maxRequests: z.number().int().min(1).max(100_000),
+            maxInputTokens: z.number().int().min(1).max(10_000_000),
+            maxOutputTokens: z.number().int().min(1).max(2_000_000),
+          })
+          .strict(),
       })
       .strict(),
   })

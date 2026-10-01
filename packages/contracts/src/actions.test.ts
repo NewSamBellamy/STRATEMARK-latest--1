@@ -103,6 +103,7 @@ const newlyBackedActions = [
         exclusions: ['consumer products'],
         maxCompanies: 12,
         maxSearchBatches: 5,
+        limits: { maxRequests: 190, maxInputTokens: 7_600_000, maxOutputTokens: 1_520_000 },
       },
       'paid',
     ),
@@ -711,7 +712,11 @@ describe('shared action contracts', () => {
       actionRequestSchema.safeParse({ ...request, input: { ...input, focus: undefined } }).success,
     ).toBe(false);
     expect(
-      actionRequestSchema.safeParse({ ...request, input: { ...input, focus: { tier: 9 } } }).success,
+      actionRequestSchema.safeParse({ ...request, input: { ...input, limits: undefined } }).success,
+    ).toBe(false);
+    expect(
+      actionRequestSchema.safeParse({ ...request, input: { ...input, focus: { tier: 9 } } })
+        .success,
     ).toBe(false);
     expect(
       actionRequestSchema.safeParse({

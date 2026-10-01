@@ -68,8 +68,12 @@ import {
   type ViceClaim,
   actionRequestSchema,
   actionReceiptSchema,
+  budgetPolicySchema,
+  egressPolicySchema,
   type ActionReceipt,
   type ActionRequest,
+  type BudgetPolicy,
+  type EgressPolicy,
   type ResearchRunState,
 } from '@mi/contracts';
 import { createGeminiClient, type GeminiClientConfig } from './gemini';
@@ -107,12 +111,27 @@ type JobActionReceipt = Extract<ActionReceipt, { effect: 'job' }>;
 
 /** Durable acceptance record for the first action-service vertical slice (A15). */
 export interface DurableActionRun {
+  principalRef: string;
   request: DiscoveryExpandRequest;
   requestFingerprint: string;
   receipt: JobActionReceipt;
   status: ResearchRunState;
   result: { added: number } | null;
   error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BudgetReservation {
+  id: string;
+  runId: string;
+  principalRef: string;
+  policyRef: string;
+  budgetRef: string;
+  maxRequests: number;
+  maxInputTokens: number;
+  maxOutputTokens: number;
+  status: 'reserved' | 'settled';
   createdAt: string;
   updatedAt: string;
 }
@@ -144,6 +163,9 @@ export interface RepoSnapshot {
   researchJobs: ResearchJob[];
   /** Accepted action commands and their durable execution state. */
   actionRuns: DurableActionRun[];
+  actionPolicies: EgressPolicy[];
+  budgetPolicies: BudgetPolicy[];
+  budgetReservations: BudgetReservation[];
   /**
    * Research conversations — the analyst's accumulated questions and grounded
    * answers, anchored to decks/companies/cards. This is the "second brain":
@@ -186,6 +208,17 @@ function recordId(prefix: string): string {
   return `${prefix}_${uuid ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`}`;
 }
 
+/**
+ * Conservative request ceiling for the current delta-research pipeline.
+ * A provider call can attempt five HTTP requests, and structured calls can
+ * make a second provider call when otherwise-valid JSON misses the schema.
+ * Discovery uses one grounded and one structured call (15 attempts). Each
+ * requested company adds one grounded and two structured calls (25 attempts).
+ */
+function discoveryRequestCeiling(maxCompanies: number): number {
+  return 15 + 25 * maxCompanies;
+}
+
 export class IdempotencyConflictError extends Error {
   readonly code = 'IDEMPOTENCY_CONFLICT';
 
@@ -204,12 +237,15 @@ export class ActionNotImplementedError extends Error {
   }
 }
 
-export class ActionAuthorizationUnavailableError extends Error {
-  readonly code = 'ACTION_AUTHORIZATION_UNAVAILABLE';
+type ActionGuardCode = 'POLICY_REQUIRED' | 'BUDGET_REQUIRED' | 'BUDGET_EXCEEDED' | 'PRICE_UNKNOWN';
 
-  constructor() {
-    super('No trusted policy and budget authorizer is configured for paid actions.');
-    this.name = 'ActionAuthorizationUnavailableError';
+export class ActionGuardError extends Error {
+  constructor(
+    readonly code: ActionGuardCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ActionGuardError';
   }
 }
 
@@ -311,6 +347,9 @@ const empty = (): RepoSnapshot => ({
   opportunity: {},
   researchJobs: [],
   actionRuns: [],
+  actionPolicies: [],
+  budgetPolicies: [],
+  budgetReservations: [],
   threads: [],
 });
 
@@ -463,6 +502,9 @@ function normalize(raw: RepoSnapshot | null): RepoSnapshot {
     opportunity: raw.opportunity ?? {},
     researchJobs,
     actionRuns: raw.actionRuns ?? [],
+    actionPolicies: raw.actionPolicies ?? [],
+    budgetPolicies: raw.budgetPolicies ?? [],
+    budgetReservations: raw.budgetReservations ?? [],
     threads: raw.threads ?? [],
   };
 }
@@ -491,8 +533,6 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   coverage?: Partial<ResearchCoverage>;
   catalogMax?: number;
   catalogPasses?: number;
-  /** Trusted synchronous policy/budget gate. Absence fails paid actions closed. */
-  authorizeAction?: (request: DiscoveryExpandRequest) => void;
 }
 
 /** Injected provider-neutral clients do not need otherwise-unused Gemini credentials. */
@@ -516,7 +556,6 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly coverage?: Partial<ResearchCoverage>;
   private readonly catalogMax?: number;
   private readonly catalogPasses?: number;
-  private readonly authorizeAction?: (request: DiscoveryExpandRequest) => void;
   private readonly jobControllers = new Map<string, AbortController>();
   private readonly activeBackgroundJobs = new Map<string, Promise<void>>();
   private readonly activeActionRuns = new Map<string, Promise<void>>();
@@ -544,7 +583,6 @@ export class GeminiRepository implements MarketIntelRepository {
     this.coverage = options.coverage;
     this.catalogMax = options.catalogMax;
     this.catalogPasses = options.catalogPasses;
-    this.authorizeAction = options.authorizeAction;
     // Migrate on load, not on demand. A snapshot written by an older build is
     // brought forward once, here, so nothing downstream has to reason about
     // which format it is looking at.
@@ -569,11 +607,16 @@ export class GeminiRepository implements MarketIntelRepository {
               : job.error,
       })),
       actionRuns: migration.snapshot.actionRuns.map((run) =>
-        run.status === 'running'
+        run.status === 'running' || !run.principalRef
           ? {
               ...run,
+              principalRef: run.principalRef || 'legacy_unattributed',
               status: 'failed' as const,
-              error: run.error ?? 'Interrupted by restart before a durable lease was available.',
+              error:
+                run.error ??
+                (!run.principalRef
+                  ? 'Legacy action has no authenticated principal and cannot resume.'
+                  : 'Interrupted by restart before a durable lease was available.'),
               updatedAt: new Date().toISOString(),
             }
           : run,
@@ -848,19 +891,22 @@ export class GeminiRepository implements MarketIntelRepository {
    * idempotency key return the original immutable receipt and never spend twice.
    * A15 is intentionally the only executable action in this first vertical slice.
    */
-  async acceptAction(requestValue: unknown): Promise<ActionReceipt> {
+  async acceptAction(
+    requestValue: unknown,
+    caller: { principalRef: string },
+  ): Promise<ActionReceipt> {
     const request = actionRequestSchema.parse(requestValue);
     if (request.action !== 'market.discovery.expand') {
       throw new ActionNotImplementedError(request.action);
     }
-    if (!this.authorizeAction) {
-      throw new ActionAuthorizationUnavailableError();
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(caller.principalRef)) {
+      throw new ActionGuardError('POLICY_REQUIRED', 'Authenticated caller is unavailable.');
     }
-    this.authorizeAction(request);
 
     const fingerprint = actionFingerprint(request);
     const existing = this.snap.actionRuns.find(
       (run) =>
+        run.principalRef === caller.principalRef &&
         run.request.vaultId === request.vaultId &&
         run.request.idempotencyKey === request.idempotencyKey,
     );
@@ -873,7 +919,9 @@ export class GeminiRepository implements MarketIntelRepository {
     }
 
     const market = this.snap.markets.find((candidate) => candidate.id === request.target.marketId);
-    const deck = this.snap.decks.find((candidate) => candidate.marketId === request.target.marketId);
+    const deck = this.snap.decks.find(
+      (candidate) => candidate.marketId === request.target.marketId,
+    );
     if (!market || !deck) {
       throw new Error(`Market/deck not found: ${request.target.marketId}`);
     }
@@ -892,7 +940,9 @@ export class GeminiRepository implements MarketIntelRepository {
       status: 'queued',
       runId: recordId('run'),
     }) as JobActionReceipt;
+    const reservation = this.reserveBudget(request, caller.principalRef, receipt.runId, now);
     const run: DurableActionRun = {
+      principalRef: caller.principalRef,
       request,
       requestFingerprint: fingerprint,
       receipt,
@@ -903,14 +953,121 @@ export class GeminiRepository implements MarketIntelRepository {
       updatedAt: now,
     };
     this.snap.actionRuns.push(run);
+    this.snap.budgetReservations.push(reservation);
     try {
       this.persist();
     } catch (error) {
+      this.snap.budgetReservations.pop();
       this.snap.actionRuns.pop();
       throw error;
     }
     this.dispatchActionRun(run);
     return structuredClone(receipt);
+  }
+
+  private reserveBudget(
+    request: DiscoveryExpandRequest,
+    principalRef: string,
+    runId: string,
+    now: string,
+  ): BudgetReservation {
+    const policyResult = egressPolicySchema.safeParse(
+      this.snap.actionPolicies.find((candidate) => candidate.id === request.policyRef),
+    );
+    if (!policyResult.success) {
+      throw new ActionGuardError('POLICY_REQUIRED', 'Approved research policy was not found.');
+    }
+    const policy = policyResult.data;
+    const scopeMatches =
+      policy.scope.kind === 'records' &&
+      policy.scope.records.some(
+        (target) =>
+          target.kind === 'market' &&
+          target.marketId === request.target.marketId &&
+          target.revision === request.input.scopeRevision,
+      );
+    const policyActive =
+      policy.vaultId === request.vaultId &&
+      policy.budgetRef === request.budgetRef &&
+      Date.parse(policy.issuedAt) <= Date.parse(now) &&
+      Date.parse(policy.expiresAt) > Date.parse(now);
+    const capabilitiesMatch =
+      policy.purposes.includes('market_research') &&
+      policy.modelCapabilities.includes('model') &&
+      policy.modelCapabilities.includes('extraction') &&
+      policy.retrievalCapabilities.length > 0;
+    if (!scopeMatches || !policyActive || !capabilitiesMatch) {
+      throw new ActionGuardError('POLICY_REQUIRED', 'Research policy does not allow this command.');
+    }
+
+    const budgetResult = budgetPolicySchema.safeParse(
+      this.snap.budgetPolicies.find((candidate) => candidate.id === request.budgetRef),
+    );
+    if (!budgetResult.success) {
+      throw new ActionGuardError('BUDGET_REQUIRED', 'Approved research budget was not found.');
+    }
+    const budget = budgetResult.data;
+    const budgetScopeMatches =
+      budget.scope.kind === 'records' &&
+      budget.scope.records.some(
+        (target) =>
+          target.kind === 'market' &&
+          target.marketId === request.target.marketId &&
+          target.revision === request.input.scopeRevision,
+      );
+    const budgetActive =
+      budget.vaultId === request.vaultId &&
+      budget.state === 'active' &&
+      Date.parse(budget.issuedAt) <= Date.parse(now) &&
+      Date.parse(budget.expiresAt) > Date.parse(now) &&
+      policy.connectionIds.every((connectionId) => budget.connectionIds.includes(connectionId));
+    if (!budgetScopeMatches || !budgetActive) {
+      throw new ActionGuardError('BUDGET_REQUIRED', 'Research budget is inactive or out of scope.');
+    }
+    if (budget.currencyLimit) {
+      throw new ActionGuardError(
+        'PRICE_UNKNOWN',
+        'A strict currency cap requires current provider pricing metadata.',
+      );
+    }
+
+    const limits = request.input.limits;
+    if (limits.maxRequests < discoveryRequestCeiling(request.input.maxCompanies)) {
+      throw new ActionGuardError(
+        'BUDGET_REQUIRED',
+        'Research allowance does not cover the current provider retry ceiling.',
+      );
+    }
+
+    const used = this.snap.budgetReservations
+      .filter((reservation) => reservation.budgetRef === budget.id)
+      .reduce(
+        (total, reservation) => ({
+          requests: total.requests + reservation.maxRequests,
+          inputTokens: total.inputTokens + reservation.maxInputTokens,
+          outputTokens: total.outputTokens + reservation.maxOutputTokens,
+        }),
+        { requests: 0, inputTokens: 0, outputTokens: 0 },
+      );
+    if (
+      used.requests + limits.maxRequests > budget.maxRequests ||
+      used.inputTokens + limits.maxInputTokens > budget.maxInputTokens ||
+      used.outputTokens + limits.maxOutputTokens > budget.maxOutputTokens
+    ) {
+      throw new ActionGuardError('BUDGET_EXCEEDED', 'Research budget has insufficient capacity.');
+    }
+
+    return {
+      id: recordId('reservation'),
+      runId,
+      principalRef,
+      policyRef: policy.id,
+      budgetRef: budget.id,
+      ...limits,
+      status: 'reserved',
+      createdAt: now,
+      updatedAt: now,
+    };
   }
 
   getActionRun(runId: string): Promise<DurableActionRun | null> {
@@ -962,6 +1119,16 @@ export class GeminiRepository implements MarketIntelRepository {
       run.error = error instanceof Error ? error.message : 'Discovery expansion failed.';
     }
     run.updatedAt = new Date().toISOString();
+    const reservation = this.snap.budgetReservations.find(
+      (candidate) => candidate.runId === run.receipt.runId && candidate.status === 'reserved',
+    );
+    if (reservation) {
+      // Keep the full approved ceiling charged after either success or failure.
+      // Provider failures can still be billable; later runtime metering may
+      // safely reconcile this down only from observed adapter usage.
+      reservation.status = 'settled';
+      reservation.updatedAt = run.updatedAt;
+    }
     this.persist();
   }
 

@@ -1,10 +1,44 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ActionRequest } from '@mi/contracts';
+import type { ActionRequest, BudgetPolicy, EgressPolicy } from '@mi/contracts';
 import { GeminiRepository, type RepoSnapshot, type ResearchStore } from './repository';
 import type { LlmClient } from './types';
 
 function snapshot(): RepoSnapshot {
   const now = '2026-10-01T12:00:00.000Z';
+  const scope = {
+    kind: 'records' as const,
+    records: [{ kind: 'market' as const, marketId: 'mkt_frontier', revision: 0 }],
+  };
+  const actionPolicy: EgressPolicy = {
+    contractVersion: '1',
+    id: 'policy_local_explicit',
+    revision: 1,
+    vaultId: 'vault_local',
+    connectionIds: ['connection_local'],
+    modelCapabilities: ['model', 'extraction'],
+    retrievalCapabilities: ['native_grounding'],
+    scope,
+    purposes: ['market_research'],
+    budgetRef: 'budget_local_monthly',
+    issuedAt: '2026-09-30T00:00:00.000Z',
+    expiresAt: '2026-10-30T00:00:00.000Z',
+  };
+  const budgetPolicy: BudgetPolicy = {
+    contractVersion: '1',
+    id: 'budget_local_monthly',
+    revision: 1,
+    vaultId: 'vault_local',
+    maxRequests: 300,
+    maxInputTokens: 4_000_000,
+    maxOutputTokens: 800_000,
+    durationDays: 30,
+    connectionIds: ['connection_local'],
+    scope,
+    priceHandling: 'allow_unpriced',
+    issuedAt: '2026-09-30T00:00:00.000Z',
+    expiresAt: '2026-10-30T00:00:00.000Z',
+    state: 'active',
+  };
   return {
     schemaVersion: 2,
     markets: [
@@ -22,7 +56,9 @@ function snapshot(): RepoSnapshot {
         updatedAt: now,
       },
     ],
-    decks: [{ id: 'deck_frontier', marketId: 'mkt_frontier', createdAt: now, lastRefreshedAt: now }],
+    decks: [
+      { id: 'deck_frontier', marketId: 'mkt_frontier', createdAt: now, lastRefreshedAt: now },
+    ],
     companies: [],
     metrics: [],
     cards: [],
@@ -36,6 +72,9 @@ function snapshot(): RepoSnapshot {
     researchJobs: [],
     threads: [],
     actionRuns: [],
+    actionPolicies: [actionPolicy],
+    budgetPolicies: [budgetPolicy],
+    budgetReservations: [],
   } as unknown as RepoSnapshot;
 }
 
@@ -67,19 +106,21 @@ function command(overrides: Partial<ActionRequest> = {}): ActionRequest {
       exclusions: [],
       maxCompanies: 3,
       maxSearchBatches: 1,
+      limits: { maxRequests: 90, maxInputTokens: 2_000_000, maxOutputTokens: 400_000 },
     },
     ...overrides,
   } as ActionRequest;
 }
 
-function repository(store: ResearchStore, authorized = true): GeminiRepository {
+function repository(store: ResearchStore): GeminiRepository {
   const unavailable = vi.fn().mockRejectedValue(new Error('provider should be stubbed'));
   return new GeminiRepository({
     store,
     client: { ground: unavailable, structure: unavailable } as unknown as LlmClient,
-    ...(authorized ? { authorizeAction: () => undefined } : {}),
   });
 }
+
+const caller = { principalRef: 'desktop_owner' };
 
 describe('durable action acceptance', () => {
   it('persists before dispatch and returns one receipt for simultaneous and restart replay', async () => {
@@ -88,12 +129,13 @@ describe('durable action acceptance', () => {
     const expand = vi.spyOn(repo, 'expandDeck').mockImplementation(async () => {
       expect(store.current().actionRuns).toHaveLength(1);
       expect(store.current().actionRuns[0]?.status).toBe('running');
+      expect(store.current().budgetReservations[0]?.status).toBe('reserved');
       return { added: 2 };
     });
 
     const [first, replay] = await Promise.all([
-      repo.acceptAction(command()),
-      repo.acceptAction(command({ requestId: 'req_expand_retry' })),
+      repo.acceptAction(command(), caller),
+      repo.acceptAction(command({ requestId: 'req_expand_retry' }), caller),
     ]);
 
     expect(replay).toEqual(first);
@@ -104,6 +146,15 @@ describe('durable action acceptance', () => {
       target: { marketId: 'mkt_frontier' },
     });
     await vi.waitFor(() => expect(store.current().actionRuns[0]?.status).toBe('completed'));
+    expect(store.current().actionRuns[0]?.principalRef).toBe('desktop_owner');
+    expect(store.current().budgetReservations).toHaveLength(1);
+    expect(store.current().budgetReservations[0]).toMatchObject({
+      budgetRef: 'budget_local_monthly',
+      status: 'settled',
+      maxRequests: 90,
+      maxInputTokens: 2_000_000,
+      maxOutputTokens: 400_000,
+    });
     expect(store.current().actionRuns[0]?.result).toEqual({ added: 2 });
     expect(expand).toHaveBeenCalledTimes(1);
     expect(expand).toHaveBeenCalledWith('mkt_frontier', { cardType: 'infrastructure' }, undefined, {
@@ -113,7 +164,9 @@ describe('durable action acceptance', () => {
 
     const reopened = repository(store);
     const reopenedExpand = vi.spyOn(reopened, 'expandDeck').mockResolvedValue({ added: 99 });
-    expect(await reopened.acceptAction(command({ requestId: 'req_after_restart' }))).toEqual(first);
+    expect(
+      await reopened.acceptAction(command({ requestId: 'req_after_restart' }), caller),
+    ).toEqual(first);
     expect(reopenedExpand).not.toHaveBeenCalled();
   });
 
@@ -121,7 +174,7 @@ describe('durable action acceptance', () => {
     const store = memoryStore();
     const repo = repository(store);
     const expand = vi.spyOn(repo, 'expandDeck').mockResolvedValue({ added: 0 });
-    await repo.acceptAction(command());
+    await repo.acceptAction(command(), caller);
 
     await expect(
       repo.acceptAction(
@@ -133,8 +186,10 @@ describe('durable action acceptance', () => {
             exclusions: [],
             maxCompanies: 4,
             maxSearchBatches: 1,
+            limits: { maxRequests: 115, maxInputTokens: 2_500_000, maxOutputTokens: 500_000 },
           },
         } as Partial<ActionRequest>),
+        caller,
       ),
     ).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' });
     expect(expand).toHaveBeenCalledTimes(1);
@@ -148,20 +203,132 @@ describe('durable action acceptance', () => {
     const repo = repository(store);
     const expand = vi.spyOn(repo, 'expandDeck').mockResolvedValue({ added: 1 });
 
-    await expect(repo.acceptAction(command())).rejects.toThrow('disk full');
+    await expect(repo.acceptAction(command(), caller)).rejects.toThrow('disk full');
+    expect(expand).not.toHaveBeenCalled();
+    expect(store.current().actionRuns).toEqual([]);
+    expect(store.current().budgetReservations).toEqual([]);
+  });
+
+  it('fails paid actions closed when the referenced local policy is absent', async () => {
+    const state = snapshot();
+    state.actionPolicies = [];
+    const store = memoryStore(state);
+    const repo = repository(store);
+    const expand = vi.spyOn(repo, 'expandDeck').mockResolvedValue({ added: 1 });
+
+    await expect(repo.acceptAction(command(), caller)).rejects.toMatchObject({
+      code: 'POLICY_REQUIRED',
+    });
     expect(expand).not.toHaveBeenCalled();
     expect(store.current().actionRuns).toEqual([]);
   });
 
-  it('fails paid actions closed when no trusted policy and budget gate is configured', async () => {
-    const store = memoryStore();
-    const repo = repository(store, false);
+  it('rejects a command whose atomic reservation would exceed the remaining budget', async () => {
+    const state = snapshot();
+    state.budgetPolicies[0]!.maxRequests = 89;
+    const store = memoryStore(state);
+    const repo = repository(store);
     const expand = vi.spyOn(repo, 'expandDeck').mockResolvedValue({ added: 1 });
 
-    await expect(repo.acceptAction(command())).rejects.toMatchObject({
-      code: 'ACTION_AUTHORIZATION_UNAVAILABLE',
+    await expect(repo.acceptAction(command(), caller)).rejects.toMatchObject({
+      code: 'BUDGET_EXCEEDED',
     });
     expect(expand).not.toHaveBeenCalled();
-    expect(store.current().actionRuns).toEqual([]);
+    expect(store.current().budgetReservations).toEqual([]);
+  });
+
+  it('rejects a declared allowance below the current provider retry ceiling', async () => {
+    const store = memoryStore();
+    const repo = repository(store);
+    const expand = vi.spyOn(repo, 'expandDeck').mockResolvedValue({ added: 1 });
+
+    await expect(
+      repo.acceptAction(
+        command({
+          input: {
+            scopeRevision: 0,
+            focus: { cardType: 'infrastructure' },
+            exclusions: [],
+            maxCompanies: 3,
+            maxSearchBatches: 1,
+            limits: {
+              maxRequests: 89,
+              maxInputTokens: 2_000_000,
+              maxOutputTokens: 400_000,
+            },
+          },
+        } as Partial<ActionRequest>),
+        caller,
+      ),
+    ).rejects.toMatchObject({ code: 'BUDGET_REQUIRED' });
+    expect(expand).not.toHaveBeenCalled();
+    expect(store.current().budgetReservations).toEqual([]);
+  });
+
+  it('counts settled reservations when accepting later commands', async () => {
+    const state = snapshot();
+    state.budgetPolicies[0]!.maxRequests = 179;
+    const store = memoryStore(state);
+    const repo = repository(store);
+    vi.spyOn(repo, 'expandDeck').mockResolvedValue({ added: 1 });
+    await repo.acceptAction(command(), caller);
+
+    await expect(
+      repo.acceptAction(
+        command({
+          requestId: 'req_expand_2',
+          idempotencyKey: 'expand-frontier-2',
+        }),
+        caller,
+      ),
+    ).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' });
+    expect(store.current().budgetReservations).toHaveLength(1);
+  });
+
+  it('settles the conservative reservation when provider work fails', async () => {
+    const store = memoryStore();
+    const repo = repository(store);
+    vi.spyOn(repo, 'expandDeck').mockRejectedValue(new Error('provider unavailable'));
+
+    const receipt = await repo.acceptAction(command(), caller);
+    if (receipt.effect !== 'job') throw new Error('Expected a job receipt');
+    await vi.waitFor(() => expect(store.current().actionRuns[0]?.status).toBe('failed'));
+    expect(store.current().actionRuns[0]?.error).toBe('provider unavailable');
+    expect(store.current().budgetReservations[0]).toMatchObject({
+      runId: receipt.runId,
+      status: 'settled',
+      maxRequests: 90,
+    });
+  });
+
+  it('requires an authenticated local principal before reserving or dispatching', async () => {
+    const store = memoryStore();
+    const repo = repository(store);
+    const expand = vi.spyOn(repo, 'expandDeck').mockResolvedValue({ added: 1 });
+
+    await expect(
+      repo.acceptAction(command(), { principalRef: '../anonymous' }),
+    ).rejects.toMatchObject({
+      code: 'POLICY_REQUIRED',
+    });
+    expect(expand).not.toHaveBeenCalled();
+    expect(store.current().budgetReservations).toEqual([]);
+  });
+
+  it('rejects expired policy grants and strict money caps without price metadata', async () => {
+    const expired = snapshot();
+    expired.actionPolicies[0]!.expiresAt = '2026-09-30T00:00:00.000Z';
+    const expiredRepo = repository(memoryStore(expired));
+    await expect(expiredRepo.acceptAction(command(), caller)).rejects.toMatchObject({
+      code: 'POLICY_REQUIRED',
+    });
+
+    const priced = snapshot();
+    priced.budgetPolicies[0]!.currencyLimit = { amountMinor: 500, currency: 'USD' };
+    priced.budgetPolicies[0]!.priceHandling = 'reject_unknown';
+    const pricedRepo = repository(memoryStore(priced));
+    await expect(pricedRepo.acceptAction(command(), caller)).rejects.toMatchObject({
+      code: 'PRICE_UNKNOWN',
+    });
   });
 });
