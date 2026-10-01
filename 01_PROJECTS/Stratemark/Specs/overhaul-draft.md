@@ -1,5 +1,7 @@
 # Spec: Stratemark overhaul
 
+> Historical reference, superseded October 1, 2026: the authoritative product/build plan is 01_PROJECTS/Stratemark/Specs/MASTER-PLAN.md with EXPERIENCE-MAP.md and DELIVERY-PLAN.md. Preserve this file as evidence/input; its old next steps, model roles and release scope do not govern v2.
+
 SUPERSEDED September 30, 2026: the complete canonical specification is [NORTHSTAR.md](NORTHSTAR.md), with [ACTIONS.md](ACTIONS.md), [PHASES.md](PHASES.md), and [BUILD-STATE.md](BUILD-STATE.md). The scaffold below is historical only; its pending questions are not the current planning state. Do not use it as an alternate build plan.
 
 Status: review scaffold. No implementation authorization. Fill this specification after the founder comments on the journey and feature inventory, then have Astra plan the accepted scope.

@@ -1,5 +1,7 @@
 # Founder direction: persistent market and company research
 
+> Historical reference, superseded October 1, 2026: the authoritative product/build plan is 01_PROJECTS/Stratemark/Specs/MASTER-PLAN.md with EXPERIENCE-MAP.md and DELIVERY-PLAN.md. Preserve this file as evidence/input; its old next steps, model roles and release scope do not govern v2.
+
 Status: planning input, not implementation authorization. Recorded September 30, 2026.
 
 Historical extraction: the later researched [NORTHSTAR.md](NORTHSTAR.md) v1.0.0 resolves the proposed labels, defaults, report interpretation, and open questions below. Preserve this as source meaning, not a competing specification. Implementation remains unauthorized.

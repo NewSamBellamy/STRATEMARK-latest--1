@@ -1,5 +1,7 @@
 # Current caller migration map
 
+> Historical reference, superseded October 1, 2026: the authoritative product/build plan is 01_PROJECTS/Stratemark/Specs/MASTER-PLAN.md with EXPERIENCE-MAP.md and DELIVERY-PLAN.md. Preserve this file as evidence/input; its old next steps, model roles and release scope do not govern v2.
+
 G00-P03 inspection, September 30, 2026; entry HEAD `44bfeb8`. Paths below
 identify actual current seams, not a claim that any new action is wired.
 Repository interface calls, desktop IPC and renderer timers still bypass the

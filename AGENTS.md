@@ -117,40 +117,28 @@ compromised and rotate it immediately.
 
 ## Stratemark overhaul planning entry point
 
-Latest human backup instruction (September 30): continue this spin-off on
-`feat/stratemark-spinoff-local-agents`, with checkpoint pushes only to the
-verified personal fork `NewSamBellamy/STRATEMARK-latest--1` (remote `newsam`).
-The old NewSamBellamy/STRATEMARK-latest- URL redirects to Maruf; never use it as
-the personal backup destination. Preserve origin/tobi and the old local branch.
-Save meaningful verified slices locally, then push fast-forward checkpoints
-to this new branch. No overwrite/force-update of existing refs, no push to main,
-no PR/merge/release/deployment or live migration authority. Known RED baseline
-tests must be disclosed; a checkpoint is not a release-readiness claim.
+Current human direction (October 1): planning only for a complete v2 product overhaul.
+Read `01_PROJECTS/Stratemark/Specs/MASTER-PLAN.md`, `EXPERIENCE-MAP.md`,
+`DELIVERY-PLAN.md` and `BUILD-STATE.md`. These replace ALL older planning,
+phase-order and model-role instructions. Seven card types and their complete
+research destinations, sharing, provider access and agents are explicit scope.
+Astra is the requested planner/reviewer; earlier no-Astra rules are superseded.
+Do not start the build or resume an automation until a new build instruction.
 
-Latest human goal (September 30): GPT-6.1 Sol plans and integrates; bounded
-`gpt-6-luna` workers implement at `high` effort. Astra is off the table,
-including escalation. Development spend limits/projections are not a gate now;
-this supersedes the older $50 campaign defaults below. Keep context limits,
-verification, separate-branch work, and the prohibition on live data migration
-or publication. Live product research still requires its own explicit approval.
+The founder explicitly authorizes planning changes to UI/UX while retaining the
+original design language; Rule 8 is not a prohibition on this requested plan.
+A later build uses complete user outcomes and R0–R8 gates, not the old G00–G08
+queue. Historical code/test evidence remains useful; consult it selectively.
 
-Fresh sessions: read `01_PROJECTS/Stratemark/Specs/LAUNCH.md` for the current
-Sol/Luna execution handoff. No development billing preflight blocks this goal.
+Preserve `feat/stratemark-spinoff-local-agents`. Prior checkpoint authority is
+limited to fast-forward saves on the verified personal `newsam` branch,
+NewSamBellamy/STRATEMARK-latest--1. No force updates, main/origin/tobi changes,
+deployment or publication. Live product experiments need their numeric allowance;
+live data migration needs its applicable approval. Never expose credentials.
 
-For the separate founder-directed overhaul, start at
-`01_PROJECTS/Stratemark/Specs/BUILD-STATE.md` and read `NORTHSTAR.md` before work.
-The north star, action catalogue, and phase goals supersede conflicting earlier
-product proposals, not current human instructions or these repository rules.
-The founder authorized phased implementation (September 30, 2026); the active
-goal and BUILD-STATE record that authority. Do not infer authority from a plan
-alone. Keep worker scopes bounded, model/effort explicit, and unknown spend
-unknown. Live paid product research needs separate approval. Do not resume the
-earlier automation, migrate live research,
-publish, deploy, or merge without separate human authorization. Only the
-personal-fork checkpoint pushes specified above are now authorized.
-Follow the context/checkpoint limits in
-`01_PROJECTS/Stratemark/Specs/build-workflow.md`; never send the entire
-conversation to an executor.
+Use LAUNCH.md and build-workflow.md for context/role/verification discipline.
+A document cannot guarantee zero hallucinations, million-user capacity, automatic
+context enforcement or product readiness. Record actual evidence and gaps.
 
 ## PR body template
 

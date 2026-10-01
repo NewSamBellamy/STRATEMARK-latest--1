@@ -1,5 +1,7 @@
 # Stratemark overhaul decision register
 
+> Historical reference, superseded October 1, 2026: the authoritative product/build plan is 01_PROJECTS/Stratemark/Specs/MASTER-PLAN.md with EXPERIENCE-MAP.md and DELIVERY-PLAN.md. Preserve this file as evidence/input; its old next steps, model roles and release scope do not govern v2.
+
 Current specification: [NORTHSTAR.md](NORTHSTAR.md), plan v1.0.0. The founder authorized research and choosing the open planning defaults on September 30, 2026, but has not authorized implementation. Historical feedback below is retained; its pending labels are superseded by the selected defaults and goal order.
 
 ## Agreed constraints

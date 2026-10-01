@@ -1,70 +1,26 @@
-# Stratemark build workflow
+# Stratemark v2 build workflow
 
-Current human direction, September 30, 2026: continue the G00-G08 overhaul.
-GPT-6.1 Sol plans and integrates; GPT-6 Luna implements at high effort.
-Astra is disabled, including escalation. Development spending limits are
-deferred. The previous $50 campaign and Astra/Sol rules remain in Git history.
+Current task is planning only. MASTER-PLAN.md, EXPERIENCE-MAP.md and DELIVERY-PLAN.md replace the old execution rules. Astra is the founder's requested planner/reviewer; earlier Astra prohibition and mandatory Luna instructions are superseded.
 
-## Roles and packets
+## Execution after build authorization
 
-- Sol (gpt-6.1-sol) plans from the accepted north star and actual code,
-  integrates patches, reviews journeys, and verifies phase acceptance.
-- Luna (gpt-6-luna, high) implements bounded tasks with exclusive owned files,
-  tests, and a compact evidence handoff.
-- After three distinct failed technical approaches, Luna returns evidence to
-  Sol, never Astra. Repeating a command is not a distinct approach.
+- One integrator owns the actual user journey and shared runtime/contracts.
+- Bounded executors receive user outcome, R-goal/U-rows, owned paths, relevant invariants, needed interfaces, and acceptance scenario.
+- Select executor models explicitly at build launch. Do not claim a role/model was used unless actually dispatched.
+- Parallelize independent UI modules, fixtures or adapters when their contracts are stable; serialize shared writes and integration.
+- Three distinct unsuccessful technical approaches trigger a compact Astra review. External permission/auth failures do not warrant three wasteful retries.
+- No backend-only packet closes a product milestone. If two consecutive packets create no user capability, redirect to integration.
 
-Use the existing plan; do not launch broad repeated planning passes. Check
-requested models before dispatch; don't silently substitute. A packet names
-its user outcome, story/action IDs, owned paths, invariants, acceptance examples,
-verification commands and gaps. Immediate critical-path work stays local;
-sidecars run on disjoint scopes. Serialize shared contract/vault/runtime writes.
-Start with one Luna worker; expand only where there is truly independent work.
+## Verification and context
 
-## Context and authority
+Use targeted meaningful tests for runtime/data/security changes and visual review for presentation. Run the complete required gate at integrated milestones/PRs. Verify actual packaged behavior separately from mocks/browser demos. Do not rerun unchanged suites merely to fill time.
 
-Every agent has the founder's 200k context ceiling. Checkpoint around estimated
-100k; finish/handoff before 150k. Exact occupancy and forced compaction aren't
-exposed. Cumulative goal usage is not active context. Use short packets/outputs,
-not a claim of automatic enforcement. Do not fork the conversation.
+Checkpoint near estimated 100k context; hand off before 150k with margin below the user's 200k ceiling. Exact automatic context enforcement is unavailable. Store decisions, branch/commit, dirty paths, actual evidence, blockers and next action in BUILD-STATE. Send workers small relevant context rather than the transcript/archive.
 
-Workers receive repository instructions, relevant accepted decisions, exact
-scope and tests, not credentials, private research, transcripts or full logs.
-Persist branch/HEAD, owned dirty files, decisions, actual checks, known failures
-and next task in BUILD-STATE. Revalidate that checkpoint against disk.
-BUILD-STATE keeps current truth and the latest packet. Closed packet evidence
-lives in PACKET-ARCHIVE; read only relevant historical sections, not the entire
-archive for every worker. The archive never overrides current authority/state.
+## Spend and authority
 
-Missing API spend telemetry is not a blocker for this development goal. Actual
-spend remains unknown, not zero. Don't invent a hard cap or price projection.
-This doesn't authorize live product evaluations, new endpoints, user-data
-migration or stored-key exposure. Continue independent work around external
-blockers; don't burn three paid retries to prove missing authority or secrets.
+Planning does not authorize provider experiments. At build launch use the agreed development spend envelope; obtain one if absent. User-reported prior spend is not verified account billing. Record measurable cost and uncertainty; usage limits are not API invoices. The five-hour window is capacity, not a target to consume.
 
-## Verification and continuity
+Keep existing work and data. Checkpoints may fast-forward the previously authorized personal spin-off branch after verifying destination and remote state; never force push, merge main, publish or deploy on inference. Authentication failure leaves a local commit and an explicit backup gap. No credential inspection or secrets in output/docs.
 
-Use tests first for important rules, then implementation, review and targeted
-checks. Run pnpm check before integration; packaged builds and actual journeys
-are separate gates. G00 reproductions stay honestly RED while legacy defects
-remain; don't skip/invert them to claim production readiness. A worker's final
-report is not proof of completion; review diff and rerun proportionate checks.
-
-Commit finished slices on feat/stratemark-spinoff-local-agents, preserving
-unrelated work/data. Maintain BUILD-STATE as the single ledger and proceed to
-the next unfinished packet without requiring repeated founder approval. Keep
-the broad goal active. The latest human instruction authorizes checkpoint
-pushes only to remote newsam, NewSamBellamy/STRATEMARK-latest--1, on this new
-spin-off branch. Push meaningful verified slices, not unfinished micro-edits.
-Check the destination/remote tip first; subsequent pushes must fast-forward.
-If it diverges, preserve both histories and report it; no force update, branch
-deletion or automatic merge. Origin/Maruf, Tobi and all existing branches remain
-untouched. No release, deployment, main merge or other push without authority.
-
-Local Git backup note: its default first-run credential-helper selector stalls
-headless uploads. For a network Git invocation only, use the installed manager
-with `-c credential.helper= -c credential.helper=manager`, interactive prompts
-disabled and a bounded network timeout. Do not inspect credentials or change
-global settings. Escalated Git may also need a per-command safe.directory for
-this exact checkout because sandbox ownership differs; do not trust broad paths.
-If authentication fails, preserve the local checkpoint and report the blocker.
+Every checkpoint records: delivered U-rows, real demonstration, tests, limits, actual/unknown spend and red-team decision. Continue authorized build work between milestones; do not narrow the overall goal to make partial progress look complete.

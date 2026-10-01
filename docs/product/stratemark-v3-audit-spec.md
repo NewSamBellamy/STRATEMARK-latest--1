@@ -1,5 +1,7 @@
 # Stratemark v3 — Red-team findings and product/engineering plan
 
+> Historical reference, superseded October 1, 2026: the authoritative product/build plan is 01_PROJECTS/Stratemark/Specs/MASTER-PLAN.md with EXPERIENCE-MAP.md and DELIVERY-PLAN.md. Preserve this file as evidence/input; its old next steps, model roles and release scope do not govern v2.
+
 **Status:** living exploration spec
 **Design baseline:** `explore/stratemark-collectible-card-lab`
 **Current hardening slice:** `hardening/living-research-spend-guard`

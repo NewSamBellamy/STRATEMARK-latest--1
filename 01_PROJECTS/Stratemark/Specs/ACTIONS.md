@@ -1,5 +1,7 @@
 # Shared action contract
 
+> V2 notice (October 1, 2026): this file preserves the A01–A62 contract inventory. Product terminology, sequencing and new action requirements are governed by MASTER-PLAN.md and EXPERIENCE-MAP.md. In particular, seven card types, Community/Vice, typed non-company entities and publication are v2 scope. These schemas do not prove service or UI implementation.
+
 Plan version: 1.0.0. Normative companion to [NORTHSTAR.md](NORTHSTAR.md).
 Status: design, not implemented API. Catalogue IDs are stable; wire schemas are finalized and fixture-tested in G00 before executors change callers.
 

@@ -1,52 +1,25 @@
-# Fresh-session continuation: Stratemark overhaul
+# Stratemark v2 — fresh-session handoff
 
-Current human goal, September 30, 2026: keep building the accepted G00-G08
-north star. GPT-6.1 Sol plans/integrates; GPT-6 Luna workers implement at high
-effort. Astra is disabled. Development spending limits are deferred by the
-human; missing billing telemetry is not a stop condition. Actual spend remains
-unknown, not zero. Prior budgeted launch instructions remain in Git history.
+## Current authorization
 
-## Start from disk, not this conversation
+October 1: plan only. The replacement is ready for founder review. Do not implement or resume the historical automation until the founder requests the build. No goal is started by reading these files.
 
-Repository: C:\\Users\\shann\\Documents\\Codex\\2026-09-28\\i-x20\\work\\stratemark-cards
-Branch: feat/stratemark-spinoff-local-agents
-Checkpoint remote: newsam -> https://github.com/NewSamBellamy/STRATEMARK-latest--1
-Preserved local predecessor: feat/claim-level-signal-evidence
+## Read in order
 
-The human authorized periodic checkpoint pushes to this NEW branch in their
-personal fork. Commit meaningful verified slices, then fast-forward push only
-there. Do not alter existing remote branches or push to Maruf/Tobi/main. The
-shorter NewSamBellamy/STRATEMARK-latest- URL redirects to Maruf and is not this
-destination. If the checkpoint branch diverges, stop the push and investigate;
-never force-update or overwrite it. Record failing gates honestly.
+1. Repository AGENTS.md and BUILD-STATE.md.
+2. MASTER-PLAN.md.
+3. Relevant EXPERIENCE-MAP.md rows.
+4. The current R-goal in DELIVERY-PLAN.md.
+5. build-workflow.md.
 
-Read AGENTS.md, BUILD-STATE.md, NORTHSTAR.md and the active PHASES.md gate.
-BUILD-STATE is the compact current ledger; PACKET-ARCHIVE is historical evidence
-to consult selectively, not another current instruction set.
-Check actual HEAD/tree and active goal. Keep the full objective active; each
-packet is progress, not completion. Use build-workflow.md for current model,
-context, ownership, verification and escalation rules. Don't create a new goal
-merely to reset accounting or narrow the existing objective.
+Inspect actual branch/HEAD/working tree. Intended branch: `feat/stratemark-spinoff-local-agents`. Preserve existing work. Personal checkpoint destination is remote `newsam`, `NewSamBellamy/STRATEMARK-latest--1`; no force update or changes to main/origin/tobi.
 
-## Continuation prompt
+## Build kickoff after an explicit instruction to begin
 
-> Continue the active Stratemark overhaul goal from BUILD-STATE.md. Use GPT-6.1
-> Sol for planning and integration and bounded GPT-6 Luna high-effort workers.
-> No Astra. Development spend telemetry is not a blocker. Follow the accepted
-> north star and phased gates; inspect actual code, implement the highest-value
-> unfinished packet, verify meaningful behavior, record gaps and commit locally.
-> Use clean bounded worker context, 100k checkpoint / 150k handoff / 200k ceiling.
-> Do not ask me to repeat already accepted decisions. Preserve user data and
-> existing work. Save verified checkpoints to the personal spin-off branch above;
-> no other push, live paid product evaluation, live migration, main merge,
-> deployment or release publication without separate authority. Keep the goal
-> active until the full outcome is verified, not just until a slice is saved.
+> Execute the Stratemark v2 plan in MASTER-PLAN.md, EXPERIENCE-MAP.md and DELIVERY-PLAN.md. Use Astra for planning/review and the executor model selected for this build; never silently substitute. Start with R0 then deliver R1 as a complete real desktop journey. Reuse the vault, adapters, evidence and budget work. Every milestone must connect interface, service, storage and recovery and have a reviewable demonstration. Keep BUILD-STATE current. Preserve the separate branch and checkpoint meaningful verified work. Do not repeat historical testing without a relevant change. Treat live provider evaluation, live-data migration, public hosting and release publication as distinct operations requiring their applicable authority. Respect the 200k context ceiling, hand off by approximately 150k, and record actual versus unknown costs honestly.
 
-## Boundaries
+## Next concrete work
 
-No credentials in chat, repository, logs or worker handoffs. Development model
-usage is not product-research consent. Tests use synthetic data and injected
-providers. Any live evaluation still needs an explicit cap and approval; keys
-must stay behind a trusted boundary. No automation restart from old instructions.
-A full check, packaged desktop, live quality, recovery, visuals and real host
-integration each prove different things; never substitute one for another.
+R0 resolves the proposed seven-card composition and R1 consumed actions with a focused code check. R1 connects native market creation, research, progress, card/evidence reading and reopen. Do not restart the old G02-P06 sequence as an isolated infrastructure campaign.
+
+External dependencies to resolve during relevant build phases: approved live-evaluation allowance; chosen build executor/spend envelope if unset; exact Muse host; OpenAI sign-in eligibility; publication domain/operator/funding; signing credentials. Do independent work around them and never invent availability.

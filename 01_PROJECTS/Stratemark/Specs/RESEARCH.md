@@ -1,5 +1,7 @@
 # Research and decision evidence
 
+> Historical reference, superseded October 1, 2026: the authoritative product/build plan is 01_PROJECTS/Stratemark/Specs/MASTER-PLAN.md with EXPERIENCE-MAP.md and DELIVERY-PLAN.md. Preserve this file as evidence/input; its old next steps, model roles and release scope do not govern v2.
+
 Checked September 30, 2026. Plan version: 1.0.0.
 
 This ledger separates documentation facts, repository observations, and our recommended design. Official documentation is not a benchmark of Stratemark's current behavior. Astra performed a read-only architecture red team; the coordinating agent inspected the code and primary sources. No live provider research, paid quality comparison, security certification, or packaged installer verification was performed for this document.

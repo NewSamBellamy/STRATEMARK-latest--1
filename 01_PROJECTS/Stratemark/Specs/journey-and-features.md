@@ -1,5 +1,7 @@
 # Stratemark: journey and feature review
 
+> Historical reference, superseded October 1, 2026: the authoritative product/build plan is 01_PROJECTS/Stratemark/Specs/MASTER-PLAN.md with EXPERIENCE-MAP.md and DELIVERY-PLAN.md. Preserve this file as evidence/input; its old next steps, model roles and release scope do not govern v2.
+
 This is a code-backed inventory of the exploration branch as of September 30, 2026. It describes intended behavior present in the code; it is not a new end-to-end test or a claim that every feature is production ready. The target product is the free, open-source desktop app using the user's own provider keys. Browser previews and older cloud/account paths differ.
 
 ## The current user journey

@@ -1,5 +1,7 @@
 # Stratemark open research roadmap
 
+> Historical reference, superseded October 1, 2026: the authoritative product/build plan is 01_PROJECTS/Stratemark/Specs/MASTER-PLAN.md with EXPERIENCE-MAP.md and DELIVERY-PLAN.md. Preserve this file as evidence/input; its old next steps, model roles and release scope do not govern v2.
+
 **Product promise:** Stratemark is a free, open-source desktop research workspace. Users bring their own provider keys and keep their research library locally. Provider usage may still cost money under the selected provider's terms.
 
 The goal is not to imitate a one-shot deep-research report. Stratemark should feel like a small team of research agents that builds a durable, inspectable company-intelligence library: it scopes work, searches broadly, extracts claims, challenges weak evidence, saves partial progress, and shows what changed over time.
