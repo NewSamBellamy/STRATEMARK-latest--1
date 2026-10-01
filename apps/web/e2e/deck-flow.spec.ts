@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   await unlockPreview(page);
 });
 
-test('full journey: markets → deck → 2-level split → card reader → dashboard', async ({ page }) => {
+test('full journey: markets → deck → role filters → card reader → dashboard', async ({ page }) => {
   await page.goto('/#/history');
 
   // All decks → open the seeded zero-state deck (a REAL researched deck —
@@ -33,17 +33,18 @@ test('full journey: markets → deck → 2-level split → card reader → dashb
     .first()
     .click();
   await page.getByRole('button', { name: 'Ask about these' }).click();
-  await expect(page.getByText(/No answer will be generated without your key/i)).toBeVisible();
-  await expect(page.getByRole('button', { name: /Connect Gemini/i })).toBeVisible();
+  await page
+    .getByRole('button', { name: /Compare these head-to-head: strengths, weaknesses, momentum/i })
+    .click();
+  await expect(page.getByText(/Connect your Gemini API key in Settings/i)).toBeVisible();
   await expect(page.getByText(/Research Insight for/i)).toHaveCount(0);
   await page.getByRole('button', { name: 'Close AI panel' }).click();
 
-  // Level 1 → company-stage grouping. Recorded stages only appear when the
-  // evidence supports them; unsupported rankings stay in an explicit section.
-  await page.getByRole('button', { name: /group by stage/i }).click();
-  await expect(page.getByText('Category Leader').first()).toBeVisible();
-  await expect(page.getByText('Breakout').first()).toBeVisible();
-  await expect(page.getByTestId('unverified-stage')).toContainText('OpenAI');
+  // Role filters are local navigation and must not lose the company deck.
+  await page.getByRole('button', { name: /Infrastructure6/i }).click();
+  await expect(page.getByTestId('card-grid')).toBeVisible();
+  await page.getByRole('button', { name: /Company3/i }).click();
+  await expect(page.getByRole('button', { name: /OpenAI/ }).first()).toBeVisible();
 
   // Open a card → reader → dashboard.
   await page
@@ -51,14 +52,13 @@ test('full journey: markets → deck → 2-level split → card reader → dashb
     .first()
     .click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByRole('tab', { name: 'Company stage' }).click();
-  await expect(dialog.getByRole('heading', { name: 'Company stage' })).toBeVisible();
+  await expect(dialog).toBeVisible();
   await dialog.getByRole('link', { name: /explore research/i }).click();
 
   // Dashboard tabs.
-  await expect(page.getByText('At a glance')).toBeVisible();
+  await expect(page.getByText('Company brief', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Metrics', exact: true }).click();
-  await expect(page.getByText('ARR')).toBeVisible();
+  await expect(page.getByText('ARR').first()).toBeVisible();
   await page.getByRole('button', { name: 'More' }).click();
   await page.getByRole('link', { name: 'Team & Org Chart' }).click();
   await expect(page.locator('.react-flow')).toBeVisible();

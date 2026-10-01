@@ -58,7 +58,7 @@ separate explicit approval and a numeric cap.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
 - Push: latest human explicitly authorized periodic checkpoints ONLY to this new personal-fork branch. No overwriting existing refs, upstream/Tobi pushes, main merge, release or deployment. First upload verified at `73e61c0e0f9f20e063fd290ef9fb3a122f570061`; all 49 pre-existing remote branch refs remained unchanged, including main at `c945b31dee0095331b8487133c131c36e76ba601`. Verified owner NewSamBellamy, public fork of Maruf. The shorter old URL redirects to Maruf and is unsafe as a personal destination. Read actual local/remote tips before each later fast-forward checkpoint.
-- Current application tests: G01-P15 full `pnpm check` passes all6 typechecks, root lint and every ordinary suite: contracts369, mocks16, research365, API158, desktop207 and web185. The production desktop build passes with a pre-existing large-chunk warning. Focused storage-preflight/settings/security regressions pass. Two actual Electron journeys pass in disposable profiles: Settings/storage readiness and library → deck → card reader → company → metrics → back/reload. Together they report zero provider/external requests, zero page errors, unchanged source/backup/restored fingerprints and enforced read-only denials. P13 packaged lifecycle proofs remain valid, but P15 did not rebuild an installer. No signing, updater, live-provider quality or customer-data acceptance.
+- Current application tests: G01-P15 full `pnpm check` passes all6 typechecks, root lint and every ordinary suite: contracts369, mocks16, research365, API158, desktop207 and web185. The isolated browser end-to-end gate passes6 with1 conditional legacy single-file embed test skipped. The production desktop build passes with a pre-existing large-chunk warning. Focused storage-preflight/settings/security regressions pass. Two actual Electron journeys pass in disposable profiles: Settings/storage readiness and library → deck → card reader → company → metrics → back/reload. Together they report zero provider/external requests, zero page errors, unchanged source/backup/restored fingerprints and enforced read-only denials. P13 packaged lifecycle proofs remain valid, but P15 did not rebuild an installer. No signing, updater, live-provider quality or customer-data acceptance.
 - Document verification: local links and balanced code fences passed; unique registers checked (22 defaults, 30 stories, 62 actions, 9 goals, 26 sources); JSON command example parsed; canonical files had no candidate credential patterns. Markdown formatting checked separately before commit.
 - Astra final planning review: seven substantive gaps identified and addressed (service lifetime, migration fences, imported authority, restored budgets, asset/evidence retention, asynchronous output retrieval, and human approval boundary). Re-review found no remaining material contract contradictions; this is planning consistency, not application verification.
 
@@ -157,6 +157,14 @@ Verification:
   → company → metrics → back/reload. It enforces write/key/research/import denials,
   makes zero external requests, records zero page errors and preserves independent
   fingerprints for the staged source, backup and restored candidate.
+- Browser end-to-end verification initially attached to an unrelated Lumin server
+  already occupying the default port, making all six active journeys false
+  failures and exposing that `reuseExistingServer` could also create false passes.
+  The harness now owns its server and was rerun on an isolated port:6 active tests
+  pass and the conditional legacy single-file embed test remains skipped. Stale
+  company-stage/no-key assertions were updated to exercise the current role-filter,
+  explicit grounded-question rejection and company/metrics journey without
+  endorsing the Northstar-rejected universal ranking UI.
 
 ### Checkpoint red team — moving the needle and remaining limits
 

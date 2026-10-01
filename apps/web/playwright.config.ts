@@ -15,11 +15,12 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-  // Reuses the running preview if present; otherwise builds + serves the app.
+  // Own the server under test. Reusing this common port can silently test an
+  // unrelated local app and turn the whole suite into misleading evidence.
   webServer: {
     command: `pnpm run build && pnpm exec vite preview --host "${previewHost}" --port ${previewPort} --strictPort`,
     url: previewUrl,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 180_000,
   },
 });
