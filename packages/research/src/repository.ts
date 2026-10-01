@@ -66,6 +66,11 @@ import {
   type ResearchThread,
   type Unsubscribe,
   type ViceClaim,
+  actionRequestSchema,
+  actionReceiptSchema,
+  type ActionReceipt,
+  type ActionRequest,
+  type ResearchRunState,
 } from '@mi/contracts';
 import { createGeminiClient, type GeminiClientConfig } from './gemini';
 import { researchDashboardTab } from './dashboard';
@@ -97,6 +102,21 @@ interface CachedTab {
   lastRefreshedAt: string;
 }
 
+type DiscoveryExpandRequest = Extract<ActionRequest, { action: 'market.discovery.expand' }>;
+type JobActionReceipt = Extract<ActionReceipt, { effect: 'job' }>;
+
+/** Durable acceptance record for the first action-service vertical slice (A15). */
+export interface DurableActionRun {
+  request: DiscoveryExpandRequest;
+  requestFingerprint: string;
+  receipt: JobActionReceipt;
+  status: ResearchRunState;
+  result: { added: number } | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RepoSnapshot {
   /**
    * Storage format version. Absent on snapshots written before migrations
@@ -122,6 +142,8 @@ export interface RepoSnapshot {
   >;
   /** Active and completed research jobs, checkpointed for recovery and audit. */
   researchJobs: ResearchJob[];
+  /** Accepted action commands and their durable execution state. */
+  actionRuns: DurableActionRun[];
   /**
    * Research conversations — the analyst's accumulated questions and grounded
    * answers, anchored to decks/companies/cards. This is the "second brain":
@@ -136,18 +158,59 @@ export interface ResearchStore {
   write(snapshot: RepoSnapshot): void;
 }
 
-function snapshotContent(snapshot: RepoSnapshot | null): string {
+function canonicalContent(value: unknown): string {
   // JSON object field order is not an authority change. Keep array order and
   // JSON's normal value semantics, but compare all object keys consistently.
-  return JSON.stringify(snapshot, (_key, value: unknown) =>
-    value && typeof value === 'object' && !Array.isArray(value)
+  return JSON.stringify(value, (_key, nested: unknown) =>
+    nested && typeof nested === 'object' && !Array.isArray(nested)
       ? Object.fromEntries(
-          Object.entries(value).sort(([left], [right]) =>
+          Object.entries(nested).sort(([left], [right]) =>
             left < right ? -1 : left > right ? 1 : 0,
           ),
         )
-      : value,
+      : nested,
   );
+}
+
+function snapshotContent(snapshot: RepoSnapshot | null): string {
+  return canonicalContent(snapshot);
+}
+
+function actionFingerprint(request: DiscoveryExpandRequest): string {
+  const { requestId: _requestId, idempotencyKey: _idempotencyKey, ...semanticRequest } = request;
+  return canonicalContent(semanticRequest);
+}
+
+function recordId(prefix: string): string {
+  const uuid = globalThis.crypto?.randomUUID?.().replaceAll('-', '');
+  return `${prefix}_${uuid ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`}`;
+}
+
+export class IdempotencyConflictError extends Error {
+  readonly code = 'IDEMPOTENCY_CONFLICT';
+
+  constructor() {
+    super('This idempotency key was already used for a different action request.');
+    this.name = 'IdempotencyConflictError';
+  }
+}
+
+export class ActionNotImplementedError extends Error {
+  readonly code = 'ACTION_NOT_IMPLEMENTED';
+
+  constructor(action: string) {
+    super(`Action is not implemented by the local service: ${action}`);
+    this.name = 'ActionNotImplementedError';
+  }
+}
+
+export class ActionAuthorizationUnavailableError extends Error {
+  readonly code = 'ACTION_AUTHORIZATION_UNAVAILABLE';
+
+  constructor() {
+    super('No trusted policy and budget authorizer is configured for paid actions.');
+    this.name = 'ActionAuthorizationUnavailableError';
+  }
 }
 
 export class RepositoryOwnershipLostError extends Error {
@@ -247,6 +310,7 @@ const empty = (): RepoSnapshot => ({
   savedCards: [],
   opportunity: {},
   researchJobs: [],
+  actionRuns: [],
   threads: [],
 });
 
@@ -398,6 +462,7 @@ function normalize(raw: RepoSnapshot | null): RepoSnapshot {
     savedCards: raw.savedCards ?? [],
     opportunity: raw.opportunity ?? {},
     researchJobs,
+    actionRuns: raw.actionRuns ?? [],
     threads: raw.threads ?? [],
   };
 }
@@ -426,6 +491,8 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   coverage?: Partial<ResearchCoverage>;
   catalogMax?: number;
   catalogPasses?: number;
+  /** Trusted synchronous policy/budget gate. Absence fails paid actions closed. */
+  authorizeAction?: (request: DiscoveryExpandRequest) => void;
 }
 
 /** Injected provider-neutral clients do not need otherwise-unused Gemini credentials. */
@@ -449,8 +516,10 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly coverage?: Partial<ResearchCoverage>;
   private readonly catalogMax?: number;
   private readonly catalogPasses?: number;
+  private readonly authorizeAction?: (request: DiscoveryExpandRequest) => void;
   private readonly jobControllers = new Map<string, AbortController>();
   private readonly activeBackgroundJobs = new Map<string, Promise<void>>();
+  private readonly activeActionRuns = new Map<string, Promise<void>>();
   private listeners = new Set<DeckRefreshListener>();
 
   constructor(options: GeminiRepositoryOptions | ResearchRepositoryOptions) {
@@ -475,6 +544,7 @@ export class GeminiRepository implements MarketIntelRepository {
     this.coverage = options.coverage;
     this.catalogMax = options.catalogMax;
     this.catalogPasses = options.catalogPasses;
+    this.authorizeAction = options.authorizeAction;
     // Migrate on load, not on demand. A snapshot written by an older build is
     // brought forward once, here, so nothing downstream has to reason about
     // which format it is looking at.
@@ -498,6 +568,16 @@ export class GeminiRepository implements MarketIntelRepository {
               ? (job.error ?? 'Cancellation completed by restart.')
               : job.error,
       })),
+      actionRuns: migration.snapshot.actionRuns.map((run) =>
+        run.status === 'running'
+          ? {
+              ...run,
+              status: 'failed' as const,
+              error: run.error ?? 'Interrupted by restart before a durable lease was available.',
+              updatedAt: new Date().toISOString(),
+            }
+          : run,
+      ),
     };
     this.lastMigration = migration;
     // Persist immediately after an upgrade so the migration is not re-run on
@@ -761,6 +841,128 @@ export class GeminiRepository implements MarketIntelRepository {
   // Decks -------------------------------------------------------------------
   getDeckByMarket(marketId: string): Promise<Deck | null> {
     return Promise.resolve(this.snap.decks.find((d) => d.marketId === marketId) ?? null);
+  }
+
+  /**
+   * Persist one validated command before dispatch. Replays with the same
+   * idempotency key return the original immutable receipt and never spend twice.
+   * A15 is intentionally the only executable action in this first vertical slice.
+   */
+  acceptAction(requestValue: unknown): Promise<ActionReceipt> {
+    const request = actionRequestSchema.parse(requestValue);
+    if (request.action !== 'market.discovery.expand') {
+      return Promise.reject(new ActionNotImplementedError(request.action));
+    }
+    if (!this.authorizeAction) {
+      return Promise.reject(new ActionAuthorizationUnavailableError());
+    }
+    this.authorizeAction(request);
+
+    const fingerprint = actionFingerprint(request);
+    const existing = this.snap.actionRuns.find(
+      (run) =>
+        run.request.vaultId === request.vaultId &&
+        run.request.idempotencyKey === request.idempotencyKey,
+    );
+    if (existing) {
+      if (existing.requestFingerprint !== fingerprint) {
+        return Promise.reject(new IdempotencyConflictError());
+      }
+      if (existing.status === 'queued') this.dispatchActionRun(existing);
+      return Promise.resolve(structuredClone(existing.receipt));
+    }
+
+    const market = this.snap.markets.find((candidate) => candidate.id === request.target.marketId);
+    const deck = this.snap.decks.find((candidate) => candidate.marketId === request.target.marketId);
+    if (!market || !deck) {
+      return Promise.reject(new Error(`Market/deck not found: ${request.target.marketId}`));
+    }
+
+    const now = new Date().toISOString();
+    const receipt = actionReceiptSchema.parse({
+      contractVersion: '1',
+      actionId: recordId('act'),
+      requestId: request.requestId,
+      vaultId: request.vaultId,
+      action: request.action,
+      target: request.target,
+      acceptedAt: now,
+      resultingRevision: request.expectedRevision,
+      effect: 'job',
+      status: 'queued',
+      runId: recordId('run'),
+    }) as JobActionReceipt;
+    const run: DurableActionRun = {
+      request,
+      requestFingerprint: fingerprint,
+      receipt,
+      status: 'queued',
+      result: null,
+      error: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.snap.actionRuns.push(run);
+    try {
+      this.persist();
+    } catch (error) {
+      this.snap.actionRuns.pop();
+      return Promise.reject(error);
+    }
+    this.dispatchActionRun(run);
+    return Promise.resolve(structuredClone(receipt));
+  }
+
+  getActionRun(runId: string): Promise<DurableActionRun | null> {
+    const run = this.snap.actionRuns.find((candidate) => candidate.receipt.runId === runId);
+    return Promise.resolve(run ? structuredClone(run) : null);
+  }
+
+  private dispatchActionRun(run: DurableActionRun): void {
+    const runId = run.receipt.runId;
+    if (run.status !== 'queued' || this.activeActionRuns.has(runId)) return;
+    const execution = this.executeActionRun(run)
+      .catch((error: unknown) => {
+        run.status = 'failed';
+        run.error =
+          error instanceof Error ? error.message : 'Action result could not be durably recorded.';
+        run.updatedAt = new Date().toISOString();
+      })
+      .finally(() => this.activeActionRuns.delete(runId));
+    this.activeActionRuns.set(runId, execution);
+    void execution;
+  }
+
+  private async executeActionRun(run: DurableActionRun): Promise<void> {
+    run.status = 'running';
+    run.updatedAt = new Date().toISOString();
+    try {
+      this.persist();
+    } catch {
+      // The queued acceptance is already durable. Leave it queued on disk so a
+      // later trusted owner can retry without losing or duplicating the command.
+      run.status = 'queued';
+      return;
+    }
+
+    try {
+      run.result = await this.expandDeck(
+        run.request.target.marketId,
+        {},
+        undefined,
+        {
+          target: run.request.input.maxCompanies,
+          excludeNames: run.request.input.exclusions,
+        },
+      );
+      run.status = 'completed';
+      run.error = null;
+    } catch (error) {
+      run.status = 'failed';
+      run.error = error instanceof Error ? error.message : 'Discovery expansion failed.';
+    }
+    run.updatedAt = new Date().toISOString();
+    this.persist();
   }
 
   listResearchJobs(): Promise<ResearchJob[]> {
@@ -2910,6 +3112,7 @@ export class GeminiRepository implements MarketIntelRepository {
     marketId: string,
     focus: ExpandFocus,
     handlers?: ResearchHandlers,
+    limits?: { target?: number; excludeNames?: string[] },
   ): Promise<{ added: number }> {
     const market = this.snap.markets.find((m) => m.id === marketId);
     const deck = this.snap.decks.find((d) => d.marketId === marketId);
@@ -2937,9 +3140,10 @@ export class GeminiRepository implements MarketIntelRepository {
       geography: market.scopeDefinition.geography,
       focus,
       existingCompanies,
+      excludeNames: limits?.excludeNames,
       deckId: deck.id,
       userFootprintCohort,
-      target: 3,
+      target: limits?.target ?? 3,
       signal: handlers?.signal,
       onEvent: (evt) => {
         if (evt.type === 'status') handlers?.onProgress?.({ message: evt.message, kind: 'step' });

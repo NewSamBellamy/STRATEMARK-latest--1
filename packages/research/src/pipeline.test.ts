@@ -505,6 +505,7 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
         briefings: [],
         savedCards: [],
         opportunity: {},
+        actionRuns: [],
         researchJobs: [
           {
             id: 'job_interrupted',
@@ -562,6 +563,7 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
       briefings: [],
       savedCards: [{ cardId: first.card.id, savedAt: '2026-08-12T00:00:00.000Z' }],
       opportunity: {},
+      actionRuns: [],
       threads: [],
       researchJobs: [
         {
