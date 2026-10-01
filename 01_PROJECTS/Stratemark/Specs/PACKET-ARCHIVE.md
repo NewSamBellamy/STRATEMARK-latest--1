@@ -948,3 +948,84 @@ work. Then finish passive record retention and staged fixture conversion as the
 integration path to one native authority. Security/key retrieval, period loss/
 conflict and cancellation still block release. Visual prototype and full five-
 section journey must be reviewed against real sparse/error/keyboard cases.
+
+## Closed packet — G01-P08
+
+Entry HEAD `743d3f4`; September30. Sol fixes shared repository behavior and
+integrates Luna/high Hooke's bounded missing-section UI. Luna/high Socrates
+independently reviewed the focused diff (read-only; did not run tests), finding
+no additional concrete introduced regression. Both workers closed. G01 and the
+full production goal stay active; this is a legacy journey repair, not G02/G04
+acceptance. No provider calls, keys, live migration, release or deployment.
+
+User outcome: opening a company research section reads saved content or shows
+an explicit missing state. It never starts tab generation or joins an in-flight
+paid request. The six deeper views expose a visible research button, settings
+when disconnected, pending state and safe failure copy. Free saved-read retry
+and billable research retry are distinct; paid actions are disabled without a
+key. Overview and existing metric facts remain visible without deeper content.
+Original visual language retained; this is not the full five-section redesign.
+
+Shared `getDashboardTab` defaults to saved-only reads. Explicit true requests
+deduplicate by company/tab. Legacy ownership is checked before provider dispatch
+and after completion; a failed storage write restores the prior in-memory tab.
+The already-accepted deck run's warm-up uses explicit research intent only for
+missing sections. It is NOT a new durable job/budget/cancellation guarantee.
+Explicit baking/audit callers and paid fixture setup now pass true; the original
+A04 cached-navigation test and stale-writer expectations were not relaxed.
+
+The older cloud adapter no longer posts generation on read. Explicit results
+are cached for the current repository lifetime; failures are observable and do
+not replace saved content. Unmapped companies cannot silently select another
+market. This memory cache is NOT durable cloud/local vault storage or a security/
+budget retrofit of the old cloud server.
+
+Coordinator red-team tests found and fixed two integration bugs: navigating
+during a paid run could place its result under the new company/tab, and explicit
+results bypassed the display compatibility checks used by cached reads. Mutation
+identity now isolates pending/error state and completion routes by the validated
+original result. Display normalization is shared in behavior, not historical
+evidence rewriting. Null or mismatched research results fail visibly.
+
+Verification:
+
+- RED: original A04 plus missing-read/in-flight/ownership/dedup regressions
+  reproduced (5 failures). Cloud read/dedup regressions reproduced (2). Cross-
+  navigation and fresh-result compatibility failures each reproduced then fixed.
+- Research361 pass/3 original failures; contracts369/mocks16 pass. All six
+  typechecks and root lint pass. Full gate remains RED: legacy metric periods
+  are dropped, cancellation acknowledges too early, and different periods merge.
+- Independent desktop145 pass/1 original renderer plaintext-key failure; native
+  suites97/97 unchanged/green. API158/158 rerun/green. Web166/166 green, including
+  the rendered every-section missing-state journey and original two mock flows.
+  Final strengthened navigation test checks the new view is idle before the old
+  request resolves. Keyless live fixtures are not live-quality evidence.
+- Real Chromium public-sample browser journey passes: library/deck/reader/company/
+  reload, external requests blocked. Screenshots inspected for deck/company.
+  Production web build passes with existing chunk-size/Firebase splitting
+  warnings. No new packaged desktop/installer/MCP/live-provider proof.
+- Ignored browser artifacts: `apps/web/test-results/overhaul-baseline-G00-publ-7193e-eader-and-company-workspace-chromium`.
+  Public sample only; screenshot proves shown state, not customer data fidelity.
+
+### Checkpoint red team — needle, gaps and next direction
+
+Needle moved in the current app: tab navigation no longer causes surprise paid
+generation; missing sections have an actionable, honest state; failed research
+preserves useful data; cross-navigation results stay attached to their target.
+Do not turn these tests into a claim that all legacy background actions have
+approved budgets, durable ownership, cancellation or universal provider support.
+
+Visual review remains NOT accepted. Offline/blocked logo fallback makes
+Anthropic's mark almost invisible; the long company description is duplicated;
+header source counts versus overview credible-figure counts need distinct clear
+semantics. Sparse/error/keyboard/mobile/card-craft review and five-section
+consolidation remain. Fix the concrete fallback contrast defect as a bounded
+visible repair, then return to full passive legacy retention and staged fixture
+conversion toward one native authority; do not continue disconnected schema
+work indefinitely.
+
+Four original release blockers remain (three research tests + one secret test).
+Also unfinished: asset/database reference and backup integration, recovery/
+relocation, service/key/budget/job runtime, provider/retrieval quality evaluation,
+evidence-first Ask/comparison, monitored updates, scoped local MCP and installer/
+production journey acceptance. No live data or paid research is authorized.

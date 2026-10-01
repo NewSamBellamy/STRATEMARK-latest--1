@@ -39,13 +39,13 @@ separate explicit approval and a numeric cap.
 - Planning: complete researched v1 north star, action catalogue, phase goals, and evidence ledger.
 - Implementation: G00 contract/baseline freeze complete: 62 requests, 20 typed cached-read results, created-record receipts, run outputs, policies and versioned retained evidence records. Six of the original 11 reproduced defects are fixed; 5 remain RED. Offline native vault retains inventory, hashed source versions/content, exact passages, immutable metric definitions, period-aware numeric observations, versioned qualitative claims/findings/reports and pinned report inputs, behind one native owner and captured-generation write capabilities. It is NOT connected to the current app/data/service; link validation is not semantic verification. G01 is not complete.
 - Branch: `feat/stratemark-spinoff-local-agents`, created from `b2c6398`; predecessor `feat/claim-level-signal-evidence` retained unchanged. Personal-fork checkpoint destination: remote newsam, `NewSamBellamy/STRATEMARK-latest--1`.
-- Original planning baseline: `3f18af2`. Latest packet entry: `743d3f4`; determine current HEAD/tree from Git. Neither historical value is a claim about current code forever.
+- Original planning baseline: `3f18af2`. Latest packet entry: `9bfb4c9`; determine current HEAD/tree from Git. Neither historical value is a claim about current code forever.
 - Goal tool: the human's replacement Sol-planner/Luna-worker goal is active, verified at G00-P03 start. No billing blocker remains for development. Keep the full goal active at packet boundaries.
-- Next work: fix the observed offline card-monogram contrast defect as a bounded visible repair; then G01-P09 full typed/passive retention of jobs/nested partial results, saved items, decks/cards/dashboards/reports/threads/briefings/opportunity and metric candidates. Use P06 inspection and preserve exact original exports; do not use display schemas as historical content. Complete staged fixture conversion with count/content/relationship checks and disabled operational authority. No live cutover until all relevant families/assets are retained; no fabricated passage evidence or imported local verification. G02/G07 own runtime and adapter parity. No live migration is authorized.
+- Next work: G01-P10 full typed/passive retention of jobs/nested partial results, saved items, decks/cards/dashboards/reports/threads/briefings/opportunity and metric candidates, then staged fixture conversion and one-authority integration/recovery. Use P06 inspection, preserve exact original exports/IDs/relationships; never use display schemas as historical content. Disable imported operational authority; no live cutover until all relevant families/assets are retained, no fabricated passage evidence or imported local verification. No live migration is authorized. Visual description/count/loaded-white-art/sparse-keyboard-mobile acceptance remains G04 work.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
 - Push: latest human explicitly authorized periodic checkpoints ONLY to this new personal-fork branch. No overwriting existing refs, upstream/Tobi pushes, main merge, release or deployment. First upload verified at `73e61c0e0f9f20e063fd290ef9fb3a122f570061`; all 49 pre-existing remote branch refs remained unchanged, including main at `c945b31dee0095331b8487133c131c36e76ba601`. Verified owner NewSamBellamy, public fork of Maruf. The shorter old URL redirects to Maruf and is unsafe as a personal destination. Read actual local/remote tips before each later fast-forward checkpoint.
-- Current application tests: G01-P08 all6 typechecks/root lint pass; contracts369/mocks16 pass; research361 pass/3 original failures. Independent desktop145 pass/1 original key-boundary failure; native97/97, inspection19/19. Web166/166, new every-section rendered journey and existing mock flows green. API158/158 rerun/green. Real public-sample Chromium journey/web build pass; original P07 packaged native proof is historical, not a new GUI/installer/live-provider acceptance.
+- Current application tests: G01-P09 all6 typechecks/root lint pass, web174/174 and actual public-sample Chromium journey/web build pass. P08 unchanged backend evidence: contracts369/mocks16 pass; research361 pass/3 original failures; independent desktop145 pass/1 key failure, native97/97/inspection19, API158 pass. P07 packaged native proof is historical, not new GUI/installer/live-provider acceptance. Four original release blockers remain.
 - Document verification: local links and balanced code fences passed; unique registers checked (22 defaults, 30 stories, 62 actions, 9 goals, 26 sources); JSON command example parsed; canonical files had no candidate credential patterns. Markdown formatting checked separately before commit.
 - Astra final planning review: seven substantive gaps identified and addressed (service lifetime, migration fences, imported authority, restored budgets, asset/evidence retention, asynchronous output retrieval, and human approval boundary). Re-review found no remaining material contract contradictions; this is planning consistency, not application verification.
 
@@ -65,7 +65,7 @@ separate explicit approval and a numeric cap.
 | Goal | State                             | Packet / commit evidence                 | Remaining                                                           |
 | ---- | --------------------------------- | ---------------------------------------- | ------------------------------------------------------------------- |
 | G00  | Contract/baseline freeze complete | [G00-P01-P05 archive](PACKET-ARCHIVE.md) | Legacy defects remain RED; enforcement/parity belong to G01/G02/G07 |
-| G01  | In progress                       | G01-P08 cached-navigation/user journey   | Complete records, staged fixture migration, recovery/lifecycle      |
+| G01  | In progress                       | G01-P09 offline card contrast / journey  | Complete records, staged fixture migration, recovery/lifecycle      |
 | G02  | Not started                       | None                                     | Shared runtime, policies, secrets                                   |
 | G03  | Not started                       | None                                     | Progressive research and evaluation                                 |
 | G04  | Not started                       | None                                     | Cards and coherent frontend journey                                 |
@@ -106,90 +106,69 @@ An existing human-created broad goal must retain its actual objective. Execute o
 
 User context ceiling: 200k tokens for every agent, not a spend allowance. Checkpoint around 100k; hand off before an estimated 150k to leave room for verification and recovery. Use the policy in [build-workflow.md](build-workflow.md). Cumulative goal tokens are usage, not necessarily the current context window. Exact occupancy and forced compaction are not exposed here; do not claim hard automatic enforcement. Keep packets small and start clean workers with a declared model, effort and exclusive scope; development cost projections are not a current gate. Unknown spending never becomes a claim of remaining funds.
 
-## Latest completed packet — G01-P08
+## Latest completed packet — G01-P09
 
-Entry HEAD `743d3f4`; September30. Sol fixes shared repository behavior and
-integrates Luna/high Hooke's bounded missing-section UI. Luna/high Socrates
-independently reviewed the focused diff (read-only; did not run tests), finding
-no additional concrete introduced regression. Both workers closed. G01 and the
-full production goal stay active; this is a legacy journey repair, not G02/G04
-acceptance. No provider calls, keys, live migration, release or deployment.
+Entry HEAD `9bfb4c9`; September30. Coordinator's bounded visible repair after
+P08's actual browser inspection, without another worker/architectural detour.
+Separate exploration branch only; no brand/data changes, provider calls, live
+migration, installation or publication. Full production goal/G01 remain active.
 
-User outcome: opening a company research section reads saved content or shows
-an explicit missing state. It never starts tab generation or joins an in-flight
-paid request. The six deeper views expose a visible research button, settings
-when disconnected, pending state and safe failure copy. Free saved-read retry
-and billable research retry are distinct; paid actions are disabled without a
-key. Overview and existing metric facts remain visible without deeper content.
-Original visual language retained; this is not the full five-section redesign.
+Observed failure: Anthropic's pale palette made the offline lettermark almost
+invisible on the paper hero. The logo probe also rendered a blank block until
+network lookup settled, potentially leaving a company unidentified indefinitely.
 
-Shared `getDashboardTab` defaults to saved-only reads. Explicit true requests
-deduplicate by company/tab. Legacy ownership is checked before provider dispatch
-and after completion; a failed storage write restores the prior in-memory tab.
-The already-accepted deck run's warm-up uses explicit research intent only for
-missing sections. It is NOT a new durable job/budget/cancellation guarantee.
-Explicit baking/audit callers and paid fixture setup now pass true; the original
-A04 cached-navigation test and stale-writer expectations were not relaxed.
-
-The older cloud adapter no longer posts generation on read. Explicit results
-are cached for the current repository lifetime; failures are observable and do
-not replace saved content. Unmapped companies cannot silently select another
-market. This memory cache is NOT durable cloud/local vault storage or a security/
-budget retrofit of the old cloud server.
-
-Coordinator red-team tests found and fixed two integration bugs: navigating
-during a paid run could place its result under the new company/tab, and explicit
-results bypassed the display compatibility checks used by cached reads. Mutation
-identity now isolates pending/error state and completion routes by the validated
-original result. Display normalization is shared in behavior, not historical
-evidence rewriting. Null or mismatched research results fail visibly.
+Fix: preserve trusted stored palettes, real logos and the existing collectible
+style; choose readable monogram ink separately from decorative brand color.
+Existing contrast math evaluates ink against a conservative paper shade; light/
+neon accents use editorial ink while sufficiently dark accents keep their hue.
+The company monogram is visible immediately, including during unresolved lookup;
+usable real artwork still replaces it. No generated artwork or invented brand.
 
 Verification:
 
-- RED: original A04 plus missing-read/in-flight/ownership/dedup regressions
-  reproduced (5 failures). Cloud read/dedup regressions reproduced (2). Cross-
-  navigation and fresh-result compatibility failures each reproduced then fixed.
-- Research361 pass/3 original failures; contracts369/mocks16 pass. All six
-  typechecks and root lint pass. Full gate remains RED: legacy metric periods
-  are dropped, cancellation acknowledges too early, and different periods merge.
-- Independent desktop145 pass/1 original renderer plaintext-key failure; native
-  suites97/97 unchanged/green. API158/158 rerun/green. Web166/166 green, including
-  the rendered every-section missing-state journey and original two mock flows.
-  Final strengthened navigation test checks the new view is idle before the old
-  request resolves. Keyless live fixtures are not live-quality evidence.
-- Real Chromium public-sample browser journey passes: library/deck/reader/company/
-  reload, external requests blocked. Screenshots inspected for deck/company.
-  Production web build passes with existing chunk-size/Firebase splitting
-  warnings. No new packaged desktop/installer/MCP/live-provider proof.
-- Ignored browser artifacts: `apps/web/test-results/overhaul-baseline-G00-publ-7193e-eader-and-company-workspace-chromium`.
-  Public sample only; screenshot proves shown state, not customer data fidelity.
+- Seven palette tests reproduced RED before implementation; unresolved logo
+  lookup reproduced a separate RED. All8 new cases pass; GameCard16/16.
+- Full web174/174 pass, including original deck/reader/company journeys,
+  cached-only missing sections, explicit research, failure and navigation races.
+  All six typechecks/root lint pass.
+- Actual Chromium public-sample journey and production web build pass.
+  All external requests blocked; actual Anthropic monogram computed color is
+  asserted dark `rgb(28,43,40)`. Updated deck screenshot inspected: visible mark,
+  retained frame identity, no change to metric values or card-opening actions.
+- P08 research361 pass/3 original failures, desktop145 pass/1 key failure,
+  native97/97 and API158 pass are prior verified evidence, unchanged/not rerun
+  for this CSS/Logo-only slice. Entire release gate is still RED.
+- Public-sample screenshots remain ignored browser artifacts at
+  `apps/web/test-results/overhaul-baseline-G00-publ-7193e-eader-and-company-workspace-chromium`.
+  Not live output quality, customer-data preservation or packaged desktop proof.
 
-### Checkpoint red team — needle, gaps and next direction
+### Checkpoint red team — needle, limits and next direction
 
-Needle moved in the current app: tab navigation no longer causes surprise paid
-generation; missing sections have an actionable, honest state; failed research
-preserves useful data; cross-navigation results stay attached to their target.
-Do not turn these tests into a claim that all legacy background actions have
-approved budgets, durable ownership, cancellation or universal provider support.
+Needle moved visibly: failed or pending identity lookup no longer leaves blank/
+unreadable company artwork. Card facts, brand palette, real artwork, controls and
+no-flip behavior are unchanged. Shared Logo review confirms no new fetch, key,
+paid work or research mutation path; it removes one presentation-only state.
 
-Visual review remains NOT accepted. Offline/blocked logo fallback makes
-Anthropic's mark almost invisible; the long company description is duplicated;
-header source counts versus overview credible-figure counts need distinct clear
-semantics. Sparse/error/keyboard/mobile/card-craft review and five-section
-consolidation remain. Fix the concrete fallback contrast defect as a bounded
-visible repair, then return to full passive legacy retention and staged fixture
-conversion toward one native authority; do not continue disconnected schema
-work indefinitely.
+Remaining visual gaps: loaded transparent-white artwork is not universally
+adapted to its background; artwork optical-quality/network privacy/cache work
+needs the planned local asset integration. The description repeats in the
+company workspace; evidence/source count semantics, sparse metrics, density,
+keyboard/mobile and full five-section journey still need dedicated acceptance.
+Do not call this final card craft or full accessibility approval.
 
-Four original release blockers remain (three research tests + one secret test).
-Also unfinished: asset/database reference and backup integration, recovery/
-relocation, service/key/budget/job runtime, provider/retrieval quality evaluation,
-evidence-first Ask/comparison, monitored updates, scoped local MCP and installer/
-production journey acceptance. No live data or paid research is authorized.
+Return to G01-P10: complete typed/passive retention of every remaining legacy
+record family and nested partial job results; preserve exact original exports
+and original IDs/relationships. Staged fixture conversion must compare counts,
+content and links, retain historical evidence without display normalization,
+and import NO task/approval/budget/monitor authority. Keep active user data
+untouched. Then integrate one native authority/recovery rather than accumulating
+more disconnected modules. G02 handles shared runtime/secrets/provider budgets/
+cancellation; G03 quality/retrieval; G04 card/journey; G05 decision outputs;
+G06 monitors; G07 scoped local MCP; G08 production release acceptance.
 
 ## Historical evidence without context bloat
 
-Detailed closed packets G00-P01-P05 and G01-P01-P07 are preserved in
+Detailed closed packets G00-P01-P05 and G01-P01-P08 are preserved in
 [PACKET-ARCHIVE.md](PACKET-ARCHIVE.md), including their original failures and
 limits. That archive is historical evidence, NOT another execution ledger or
 current dispatch instructions. This file is the sole current-state ledger.

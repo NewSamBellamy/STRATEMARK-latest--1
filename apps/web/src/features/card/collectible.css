@@ -120,7 +120,7 @@
   place-items: center;
 }
 .collectible__brand .font-display {
-  color: var(--card-accent);
+  color: var(--card-mark-ink, #1c2b28);
 }
 .collectible__brand img {
   mix-blend-mode: multiply;

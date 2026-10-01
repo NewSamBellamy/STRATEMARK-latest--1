@@ -1,6 +1,6 @@
 {
   "campaignId": "stratemark-overhaul-sol-luna-v1",
-  "status": "G01_cached_navigation_verified_visible_contrast_fix_then_passive_retention_staged_integration_next_active_goal",
+  "status": "G01_cached_navigation_and_offline_identity_verified_passive_retention_staged_integration_next_active_goal",
   "executionAuthorization": "Human active goal defers development spend limits; Sol plans and integrates; Luna high-effort workers implement; Astra disabled",
   "enforcementMode": "development_spend_limits_deferred_by_human",
   "currency": "USD",
@@ -62,6 +62,7 @@
     "fullHistoryForksAllowed": false
   },
   "completedPackets": [
+    "G01-P09-offline-card-contrast-and-pending-identity-not-phase-completion",
     "G01-P08-cached-navigation-and-explicit-research-not-phase-completion",
     "G01-P07-inventory-context-assets-redteam-not-phase-completion",
     "G01-P06-readonly-inspection-and-legacy-identity-not-phase-completion",
@@ -75,6 +76,19 @@
     "G00-P05-contract-baseline-freeze-not-product-readiness"
   ],
   "checkpoints": [
+    {
+      "packetId": "G01-P09",
+      "date": "2026-09-30",
+      "fullGate": "all6_typechecks_root_lint_web174_passed; P08_backend_361_research_passed_3_known_failures_desktop145_passed_1_known_failure_native97_API158_unchanged_not_rerun",
+      "legacyReleaseBlockersUnfixed": 4,
+      "userOutcome": "offline_and_pending_logo_identity_visible_readable_original_palette_metrics_and_actions_unchanged",
+      "browserEvidence": "actual_public_sample_Chromium_computed_Anthropic_monogram_contrast_and_journey_passed_screenshot_inspected",
+      "redTeam": "8_RED_cases_fixed; no_new_provider_calls_or_key_paths; loaded_white_artwork_coverage_semantics_sparse_keyboard_mobile_full_card_craft_not_accepted",
+      "next": "G01-P10_full_passive_legacy_retention_then_staged_fixture_conversion_and_one_native_authority_integration",
+      "workersDispatched": 0,
+      "astraDispatched": false,
+      "campaignSpentKnown": null
+    },
     {
       "packetId": "G01-P08",
       "date": "2026-09-30",

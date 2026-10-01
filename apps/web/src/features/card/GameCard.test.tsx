@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react';
 import { buildDataset } from '@mi/mocks';
 import { renderWithProviders } from '@/test/test-utils';
 import { GameCard } from './GameCard';
+import { contrastRatio } from '@/lib/brand';
 
 const data = buildDataset();
 const companyCard = data.cards.find(
@@ -20,6 +21,47 @@ function hydrate(cardId: string) {
 }
 
 describe('GameCard', () => {
+  it('shows the company identity while a logo lookup is still unresolved', () => {
+    const cwc = hydrate(companyCard.id);
+    // jsdom image probes do not resolve this synthetic, non-routable URL.
+    renderWithProviders(
+      <GameCard
+        data={{
+          ...cwc,
+          company: { ...cwc.company!, logoUrl: 'https://fixture.invalid/logo.svg' },
+        }}
+      />,
+    );
+    expect(screen.getByLabelText(`${cwc.company!.name} monogram`)).toBeVisible();
+  });
+
+  it.each(['#FFFFFF', '#F6F3EF', '#FFFF00', '#00FF00', '#FF5A00', '#000000', '#123456'])(
+    'keeps an offline identity readable for a %s brand without changing its palette',
+    (primary) => {
+      const cwc = hydrate(companyCard.id);
+      renderWithProviders(
+        <GameCard
+          data={{
+            ...cwc,
+            company: {
+              ...cwc.company!,
+              websiteUrl: null,
+              logoUrl: null,
+              brandTheme: { ...cwc.company!.brandTheme!, primary, source: 'manual' },
+            },
+          }}
+        />,
+      );
+      const front = screen.getByTestId('collectible-card-front');
+      const ink = front.style.getPropertyValue('--card-mark-ink');
+      expect(contrastRatio(ink, '#d2d0c8')).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(ink, '#fffdfa')).toBeGreaterThanOrEqual(4.5);
+      expect(front.style.getPropertyValue('--card-accent')).toBe(primary);
+      const mark = screen.getByLabelText(`${cwc.company!.name} monogram`).querySelector('span');
+      expect(mark?.style.color).toBe('var(--card-mark-ink, #1c2b28)');
+    },
+  );
+
   it('shows a collectible face with truthful metrics, not a quality rating', () => {
     const cwc = hydrate(companyCard.id);
     renderWithProviders(<GameCard data={cwc} />);

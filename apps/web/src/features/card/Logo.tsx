@@ -152,14 +152,11 @@ export function Logo({
   }, [website, retryNonce, logoUrl]);
 
   const [best, setBest] = useState<Candidate | null>(null);
-  const [settled, setSettled] = useState(false);
   const key = sources.join('|');
 
   useEffect(() => {
     setBest(null);
-    setSettled(false);
     if (sources.length === 0) {
-      setSettled(true);
       return;
     }
     let cancelled = false;
@@ -175,7 +172,6 @@ export function Logo({
           if (hit.vector || hit.width >= GOOD_ENOUGH_PX) break;
         }
       }
-      if (!cancelled) setSettled(true);
     })();
     return () => {
       cancelled = true;
@@ -226,9 +222,6 @@ export function Logo({
           }
           referrerPolicy="no-referrer"
         />
-      ) : !settled ? (
-        // Probing — hold the space so cards don't jump as art resolves.
-        <span aria-hidden className="block h-full w-full" />
       ) : bare ? (
         // A crisp lettermark is preferable to stretching a tiny favicon.
         <span
@@ -237,7 +230,7 @@ export function Logo({
         >
           <span
             className="font-display text-[68px] font-bold leading-none tracking-[-.08em]"
-            style={{ color: 'var(--card-accent, var(--tcg-primary, #3F3F46))' }}
+            style={{ color: 'var(--card-mark-ink, #1c2b28)' }}
           >
             {initials(name)}
           </span>

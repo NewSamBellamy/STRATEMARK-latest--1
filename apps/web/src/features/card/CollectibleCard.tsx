@@ -4,6 +4,7 @@ import { buildCardView, type CardView } from './card-view';
 import { Logo } from './Logo';
 import { MarketCardArt } from './MarketCardArt';
 import './collectible.css';
+import { contrastRatio } from '@/lib/brand';
 
 const PALETTES = ['#466b61', '#6b5f76', '#8a6b4e', '#4d667c', '#7e5b58', '#5d7455'];
 
@@ -22,6 +23,9 @@ export function CollectibleCard({
   const color = (value: string | undefined, fallback: string) =>
     value && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
   const accent = color(brand?.primary, PALETTES[hash % PALETTES.length]!);
+  // The hero is pale paper, not a brand-colored surface. Preserve the palette
+  // but use editorial ink when its accent would make an offline mark disappear.
+  const markInk = contrastRatio(accent, '#d2d0c8') >= 4.5 ? accent : '#1c2b28';
   const highlight = color(brand?.accent, accent);
   const stage = view.position;
   const asOf = view.latestCapturedAt
@@ -39,7 +43,13 @@ export function CollectibleCard({
   return (
     <div
       className={`collectible ${view.signal ? 'collectible--signal' : ''}`}
-      style={{ '--card-accent': accent, '--card-highlight': highlight } as CSSProperties}
+      style={
+        {
+          '--card-accent': accent,
+          '--card-highlight': highlight,
+          '--card-mark-ink': markInk,
+        } as CSSProperties
+      }
       data-testid="collectible-card-front"
     >
       <div className="collectible__paper">

@@ -43,6 +43,11 @@ test('G00 public-sample baseline: library, deck, reader and company workspace', 
   await capture('01-library-public-sample');
   await sample.click();
   await expect(page.getByTestId('card-grid')).toBeVisible();
+  // All external logo requests are blocked in this isolated browser. A pale
+  // brand must still have a readable fallback on the card's paper artwork.
+  const offlineMark = page.locator('[aria-label="Anthropic monogram"] > span');
+  await expect(offlineMark).toBeVisible();
+  await expect(offlineMark).toHaveCSS('color', 'rgb(28, 43, 40)');
   await capture('02-deck-public-sample');
   await page
     .getByRole('button', { name: /OpenAI/ })
