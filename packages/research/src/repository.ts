@@ -848,13 +848,13 @@ export class GeminiRepository implements MarketIntelRepository {
    * idempotency key return the original immutable receipt and never spend twice.
    * A15 is intentionally the only executable action in this first vertical slice.
    */
-  acceptAction(requestValue: unknown): Promise<ActionReceipt> {
+  async acceptAction(requestValue: unknown): Promise<ActionReceipt> {
     const request = actionRequestSchema.parse(requestValue);
     if (request.action !== 'market.discovery.expand') {
-      return Promise.reject(new ActionNotImplementedError(request.action));
+      throw new ActionNotImplementedError(request.action);
     }
     if (!this.authorizeAction) {
-      return Promise.reject(new ActionAuthorizationUnavailableError());
+      throw new ActionAuthorizationUnavailableError();
     }
     this.authorizeAction(request);
 
@@ -866,16 +866,16 @@ export class GeminiRepository implements MarketIntelRepository {
     );
     if (existing) {
       if (existing.requestFingerprint !== fingerprint) {
-        return Promise.reject(new IdempotencyConflictError());
+        throw new IdempotencyConflictError();
       }
       if (existing.status === 'queued') this.dispatchActionRun(existing);
-      return Promise.resolve(structuredClone(existing.receipt));
+      return structuredClone(existing.receipt);
     }
 
     const market = this.snap.markets.find((candidate) => candidate.id === request.target.marketId);
     const deck = this.snap.decks.find((candidate) => candidate.marketId === request.target.marketId);
     if (!market || !deck) {
-      return Promise.reject(new Error(`Market/deck not found: ${request.target.marketId}`));
+      throw new Error(`Market/deck not found: ${request.target.marketId}`);
     }
 
     const now = new Date().toISOString();
@@ -907,10 +907,10 @@ export class GeminiRepository implements MarketIntelRepository {
       this.persist();
     } catch (error) {
       this.snap.actionRuns.pop();
-      return Promise.reject(error);
+      throw error;
     }
     this.dispatchActionRun(run);
-    return Promise.resolve(structuredClone(receipt));
+    return structuredClone(receipt);
   }
 
   getActionRun(runId: string): Promise<DurableActionRun | null> {
@@ -948,7 +948,7 @@ export class GeminiRepository implements MarketIntelRepository {
     try {
       run.result = await this.expandDeck(
         run.request.target.marketId,
-        {},
+        run.request.input.focus,
         undefined,
         {
           target: run.request.input.maxCompanies,

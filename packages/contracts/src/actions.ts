@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cardTypeSchema, maturityTierSchema } from './schemas';
 
 type ActionDefinition = {
   readonly id: string;
@@ -511,6 +512,12 @@ const marketDiscoveryExpandRequest = z
     input: z
       .object({
         scopeRevision: revision,
+        focus: z
+          .object({
+            tier: maturityTierSchema.optional(),
+            cardType: cardTypeSchema.optional(),
+          })
+          .strict(),
         exclusions: uniqueTexts(50),
         maxCompanies: z.number().int().min(1).max(50),
         maxSearchBatches: z.number().int().min(1).max(50),

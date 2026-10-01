@@ -63,6 +63,7 @@ function command(overrides: Partial<ActionRequest> = {}): ActionRequest {
     budgetRef: 'budget_local_monthly',
     input: {
       scopeRevision: 0,
+      focus: { cardType: 'infrastructure' },
       exclusions: [],
       maxCompanies: 3,
       maxSearchBatches: 1,
@@ -105,7 +106,7 @@ describe('durable action acceptance', () => {
     await vi.waitFor(() => expect(store.current().actionRuns[0]?.status).toBe('completed'));
     expect(store.current().actionRuns[0]?.result).toEqual({ added: 2 });
     expect(expand).toHaveBeenCalledTimes(1);
-    expect(expand).toHaveBeenCalledWith('mkt_frontier', {}, undefined, {
+    expect(expand).toHaveBeenCalledWith('mkt_frontier', { cardType: 'infrastructure' }, undefined, {
       target: 3,
       excludeNames: [],
     });
@@ -128,6 +129,7 @@ describe('durable action acceptance', () => {
           requestId: 'req_conflict',
           input: {
             scopeRevision: 0,
+            focus: { cardType: 'infrastructure' },
             exclusions: [],
             maxCompanies: 4,
             maxSearchBatches: 1,

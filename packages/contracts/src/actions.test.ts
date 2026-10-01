@@ -99,6 +99,7 @@ const newlyBackedActions = [
       { marketId: 'm_1' },
       {
         scopeRevision: 3,
+        focus: { cardType: 'infrastructure', tier: 4 },
         exclusions: ['consumer products'],
         maxCompanies: 12,
         maxSearchBatches: 5,
@@ -700,6 +701,24 @@ describe('shared action contracts', () => {
 
   it.each(newlyBackedActions)('accepts the bounded %s request shape', (_action, request) => {
     expect(actionRequestSchema.parse(request)).toEqual(request);
+  });
+
+  it('requires a bounded explicit focus object for discovery expansion', () => {
+    const request = newlyBackedActions.find(([name]) => name === 'market.discovery.expand')?.[1];
+    expect(request).toBeDefined();
+    const input = request!.input as Record<string, unknown>;
+    expect(
+      actionRequestSchema.safeParse({ ...request, input: { ...input, focus: undefined } }).success,
+    ).toBe(false);
+    expect(
+      actionRequestSchema.safeParse({ ...request, input: { ...input, focus: { tier: 9 } } }).success,
+    ).toBe(false);
+    expect(
+      actionRequestSchema.safeParse({
+        ...request,
+        input: { ...input, focus: { cardType: 'made_up_role' } },
+      }).success,
+    ).toBe(false);
   });
 
   it.each(remainingActions)(
