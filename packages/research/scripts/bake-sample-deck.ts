@@ -128,7 +128,7 @@ if (warmTabs) {
     }
     for (const tab of wanted) {
       try {
-        await repo.getDashboardTab(companyId, tab);
+        await repo.getDashboardTab(companyId, tab, true);
       } catch (err) {
         // A failed tab is a visible gap in the demo, not a reason to lose the run.
         console.log(`  ! ${name} / ${tab}: ${err instanceof Error ? err.message.slice(0, 90) : err}`);

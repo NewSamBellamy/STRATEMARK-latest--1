@@ -3,6 +3,69 @@ import { SentinelRepository } from './SentinelRepository';
 import * as sentinelApi from '@/lib/sentinelApi';
 import type { DeckResearchBrief } from '@mi/contracts';
 
+describe('Sentinel dashboard research intent', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  function repoWithCompany() {
+    const repo = new SentinelRepository();
+    repo.cacheCloudDeckResponse({
+      ok: true,
+      deckId: 'deck_synthetic',
+      market: { id: 'market_synthetic', name: 'Synthetic' },
+      deck: { id: 'deck_synthetic', marketId: 'market_synthetic' },
+      cards: [
+        {
+          id: 'card_synthetic',
+          deckId: 'deck_synthetic',
+          companyId: 'company_synthetic',
+          cardType: 'company',
+        },
+      ],
+      companies: [{ id: 'company_synthetic', name: 'Synthetic Company' }],
+    });
+    return repo;
+  }
+
+  it('a navigation cache miss makes no cloud calls', async () => {
+    const fetch = vi
+      .spyOn(sentinelApi, 'fetchSentinel')
+      .mockResolvedValue({ content: { markdown: 'Should not be requested' } });
+    const markets = vi.spyOn(sentinelApi, 'getCloudMarkets').mockResolvedValue([]);
+    const decks = vi.spyOn(sentinelApi, 'getCloudDecks').mockResolvedValue([]);
+    expect(await repoWithCompany().getDashboardTab('company_synthetic', 'overview')).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(markets).not.toHaveBeenCalled();
+    expect(decks).not.toHaveBeenCalled();
+  });
+
+  it('only an explicit action researches, concurrent actions share work, and saved reads work offline', async () => {
+    let finish!: (result: unknown) => void;
+    const pending = new Promise((resolve) => {
+      finish = resolve;
+    });
+    const fetch = vi
+      .spyOn(sentinelApi, 'fetchSentinel')
+      .mockReturnValue(pending as ReturnType<typeof sentinelApi.fetchSentinel>);
+    const repo = repoWithCompany();
+    const a = repo.getDashboardTab('company_synthetic', 'overview', true);
+    const b = repo.getDashboardTab('company_synthetic', 'overview', true);
+    expect(await repo.getDashboardTab('company_synthetic', 'overview')).toBeNull();
+    finish({ content: { markdown: 'Saved sourced overview' } });
+    const [first, second] = await Promise.all([a, b]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(first).toEqual(second);
+    fetch.mockRejectedValue(new Error('Offline'));
+    expect(await repo.getDashboardTab('company_synthetic', 'overview')).toEqual(first);
+    await expect(repo.getDashboardTab('company_synthetic', 'overview', true)).rejects.toThrow(
+      /research/i,
+    );
+    expect(await repo.getDashboardTab('company_synthetic', 'overview')).toEqual(first);
+  });
+});
+
 describe('SentinelRepository — Stale Local Cloud Deck Cache (#55)', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -105,7 +168,9 @@ describe('SentinelRepository — Stale Local Cloud Deck Cache (#55)', () => {
 
   it('rejects offline writes from claiming cloud persistence', async () => {
     const repo = new SentinelRepository();
-    vi.spyOn(sentinelApi, 'runCloudResearchDeck').mockRejectedValueOnce(new Error('Network unreachable'));
+    vi.spyOn(sentinelApi, 'runCloudResearchDeck').mockRejectedValueOnce(
+      new Error('Network unreachable'),
+    );
 
     const brief: DeckResearchBrief = {
       prompt: 'Autonomous Flying Taxis',
@@ -155,7 +220,9 @@ describe('SentinelRepository — Stale Local Cloud Deck Cache (#55)', () => {
     });
 
     // Offline deletion attempt fails network call
-    vi.spyOn(sentinelApi, 'deleteCloudDeck').mockRejectedValueOnce(new Error('Failed to reach server'));
+    vi.spyOn(sentinelApi, 'deleteCloudDeck').mockRejectedValueOnce(
+      new Error('Failed to reach server'),
+    );
 
     await repo.deleteDeck('deck_offline_del');
 
@@ -261,7 +328,11 @@ describe('SentinelRepository — Stale Local Cloud Deck Cache (#55)', () => {
   it('does not replace an empty running Cloud Deck with seeded sample cards', async () => {
     const repo = new SentinelRepository();
     vi.spyOn(sentinelApi, 'getCloudDeck').mockResolvedValueOnce({
-      deck: { id: 'dck_frontier-ai-ecosystem_ckgrf', marketId: 'dck_frontier-ai-ecosystem_ckgrf', revision: 1 },
+      deck: {
+        id: 'dck_frontier-ai-ecosystem_ckgrf',
+        marketId: 'dck_frontier-ai-ecosystem_ckgrf',
+        revision: 1,
+      },
       market: { id: 'dck_frontier-ai-ecosystem_ckgrf', name: 'Running Market' },
       cards: [],
       companies: [],
@@ -312,7 +383,13 @@ describe('SentinelRepository — Stale Local Cloud Deck Cache (#55)', () => {
       state: { status: 'partial' },
       cards: [
         {
-          card: { id: 'card_old', deckId: 'deck_partial', companyId: 'company_1', cardType: 'company', title: 'Old card' },
+          card: {
+            id: 'card_old',
+            deckId: 'deck_partial',
+            companyId: 'company_1',
+            cardType: 'company',
+            title: 'Old card',
+          },
           company: { id: 'company_1', name: 'Old Company', oneLiner: 'Old data' },
           metrics: [],
           viceClaims: [],
@@ -324,7 +401,13 @@ describe('SentinelRepository — Stale Local Cloud Deck Cache (#55)', () => {
       market: { id: 'deck_partial', name: 'Partial Market' },
       cards: [
         {
-          card: { id: 'card_new', deckId: 'deck_partial', companyId: 'company_1', cardType: 'company', title: 'New card' },
+          card: {
+            id: 'card_new',
+            deckId: 'deck_partial',
+            companyId: 'company_1',
+            cardType: 'company',
+            title: 'New card',
+          },
           company: { id: 'company_1', name: 'New Company', oneLiner: 'Hydrated data' },
           metrics: [],
           viceClaims: [],

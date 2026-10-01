@@ -856,3 +856,95 @@ and human ambiguity/merge records remain G01/G03 work. Five original blockers
 remain: uncached-tab provider call, legacy period loss, premature cancellation,
 different-period conflict collapse and renderer plaintext-key retrieval.
 Full G00-G08 goal stays active; G01 is not complete.
+
+## Closed packet — G01-P07
+
+Entry HEAD `f3e999e`, September30, existing open changes preserved. Sol integrates
+typed inventory/context, schema5, proof and review fixes. Luna/high Averroes built
+the bounded asset sidecar; Luna/high Beauvoir independently red-teamed it.
+Both workers closed. No Astra, live user-data access/migration, provider calls,
+visual acceptance, installation, main update, release or deployment.
+
+Shared additive inventory contracts replace desktop-private shapes. Existing
+minimal records retain their exact shape; optional profiles and identity hints
+retain descriptions, HQ, HTTP(S) references and brand metadata. Aliases/domains
+are search candidates, not verified identity, automatic merging or rekeying.
+Profiles are reported metadata, not evidence-backed claims. Market scope drafts
+reuse the established goal/inclusions/exclusions/region/depth/seeds contract;
+original legacy framing is separate. Seed IDs reference existing companies and
+each market revision retains its ordered seed foreign keys. No approved scope,
+budget, monitor schedule or task authority is minted by saving this metadata.
+
+Native schema5 has a derived full-text identity index and append-only scope-seed
+links. Real v1/v2/v3/v4 fixtures upgrade through explicit transactions without
+rewriting prior record bodies/history/research or owner state. Failed v4-to5
+DDL rolls back; read handles refuse upgrades. New market/membership reads and
+bounded pages/history use the same native snapshot and writer fences.
+Replacement saves are full records, not patches: accidentally omitting prior
+profile/hints/scope fields fails explicitly; history and current/search remain
+unchanged. Empty hint arrays explicitly clear hints. Missing/changed identity
+search rows fail read-only inspection rather than silently hiding companies.
+This validation is an O(collection-size) opening check, not a repair operation,
+all-index consistency guarantee or MCP disclosure filter.
+
+Internal asset sidecar uses fixed SHA256 filenames and an8MiB per-asset operating
+bound. Trusted caller chooses an absolute root with an existing parent. Bytes
+are staged/flushed, checked and linked without overwriting an existing hash.
+Reads verify file identity/length/hash and refuse ordinary symlink/root
+substitution, hardlinks and corrupt entries. Own ordinary-failure temps are
+cleaned; unrelated files are preserved. Write authority is injected and checked
+before creating a root and before publication; this primitive is NOT yet wired
+to a captured vault writer or database asset references.
+
+Verification:
+
+- Five initial context behavior failures reproduced before implementation.
+  Further RED cases reproduced split-field search and absent historical seed
+  indexes. Final context9/9 and asset9/9 pass, including coordinator RED fixes
+  for stale root creation and modified flushed temp content.
+- Independent red team reproduced omitted-context loss and damaged-index
+  silence. Both fixed with RED then GREEN tests. The existing indexed-ID
+  corruption fixture was given a valid new-schema FTS row so it still checks
+  identity mismatch; its original expectation was not relaxed.
+- Final desktop145 pass/1 original plaintext-key failure; native inventory19/
+  evidence18/schema20/owner11/research11/context9/assets9 =97/97.
+  Contracts369/mocks16 pass, research355 pass/4 original failures.
+  Web153/153, both mock journeys3.655s. Full engineering gate remains RED;
+  API unchanged/not rerun; keyless live fixtures are not live quality evidence.
+- New context assertions fail against P06's unchanged actual ASAR first.
+  Fresh unsigned unpublished ASAR passes schema1-to5 and actualv4 upgrade,
+  context/history/seed FK/backup/search, asset publication/corruption/late-write,
+  and prior evidence/report/owner/reader/forcedSIGKILL checks.
+  Electron44.4.5/Node24.21.0/SQLite3.53.4, same SQL source ID,
+  1582112 uncommitted WAL bytes, integrity ok, replacement generation2.
+  Native row prototypes were normalized only in the proof comparison; exact
+  expected fields remain asserted.
+- Frozen ignored package: apps/desktop/release/
+  sqlite-spike-20260930-f3e999e-context/win-unpacked, actual
+  resources/app.asar/dist/sqlite-spike.cjs. Ordinary main build passes and
+  excludes proof entry. This is NOT new NSIS/install/full-GUI verification.
+
+### Checkpoint red team — value, risks and next direction
+
+Needle moved: a necessary migration gap is smaller; rich inventory and scopes
+no longer have to be discarded. Ordinary omitted-field and index corruption
+cases now fail safely. No user-facing live vault improvement is claimed:
+the current app still uses its legacy repository. Do not count module/test
+volume as research quality or UI acceptance.
+
+Unfixed limitations: no asset-reference transaction or asset-aware backup/
+restore/manifest; file flush/link tests do not prove power-loss directory
+durability on Windows or hostile filesystem race immunity. No parent/subsidiary
+merge/review record, full passive legacy retention, staged conversion/cutover,
+trash/purge/relocation, service runtime or read-scoped MCP yet. The whole goal
+remains active and G01 remains incomplete.
+
+Next implementation should pair migration completion with demonstrable journey
+improvement, not another unbounded schema detour. First fix existing cached
+navigation: opening a missing company section must return a visible missing
+state with an explicit research action and zero provider calls. Preserve
+deliberate accepted-run warm-up; do not convert it to silent user-navigation
+work. Then finish passive record retention and staged fixture conversion as the
+integration path to one native authority. Security/key retrieval, period loss/
+conflict and cancellation still block release. Visual prototype and full five-
+section journey must be reviewed against real sparse/error/keyboard cases.

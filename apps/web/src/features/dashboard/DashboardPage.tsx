@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useIsFetching } from '@tanstack/react-query';
-import { ArrowLeft, ChevronDown, FileText, KeyRound, Search } from 'lucide-react';
+import { ArrowLeft, ChevronDown, FileText, KeyRound, Loader2, Search } from 'lucide-react';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
-import { useCard, useCompany, useReports, useRerunDashboardTab } from '@/hooks/data';
+import {
+  useCard,
+  useCompany,
+  useDashboardTab,
+  useReports,
+  useRerunDashboardTab,
+} from '@/hooks/data';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
 import { ReportButton, ThreadHistoryButton } from '@/features/research/ResearchControls';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
@@ -24,6 +30,7 @@ import { HistoryTab } from './tabs/HistoryTab';
 import { ProductsRoadmapTab } from './tabs/ProductsRoadmapTab';
 import NotFoundPage from '@/features/NotFoundPage';
 import { SettingsLink } from '@/components/SettingsLink';
+import { DashboardResearchState } from './DashboardResearchState';
 
 /**
  * "You're already halfway there" — free-text grounded research from inside the
@@ -131,6 +138,14 @@ const MORE_TABS: DashboardTab[] = [
   'mission_governance',
   'live_landing',
 ];
+const CACHED_RESEARCH_TABS: DashboardTab[] = [
+  'team_org',
+  'live_intel',
+  'history',
+  'mission_governance',
+  'live_landing',
+  'products_roadmap',
+];
 
 /**
  * A quiet, honest signal for the view the user explicitly opened.
@@ -138,22 +153,21 @@ const MORE_TABS: DashboardTab[] = [
 function AgentWorkingPill({
   companyId,
   activeTab,
+  researching,
 }: {
   companyId: string;
   activeTab: DashboardTab;
+  researching: boolean;
 }) {
   const inFlight = useIsFetching({ queryKey: ['dashboard', companyId, activeTab], exact: true });
-  if (inFlight === 0) return null;
+  if (!researching && inFlight === 0) return null;
   return (
     <span
+      role="status"
       className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap pb-1 text-[11px] font-medium text-muted"
-      title="Researching this company view from live sources"
     >
-      <span className="relative flex h-1.5 w-1.5">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-      </span>
-      Researching this view…
+      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+      {researching ? 'Researching this section…' : 'Loading saved research…'}
     </span>
   );
 }
@@ -161,12 +175,14 @@ function AgentWorkingPill({
 function DashboardTabNav({
   companyId,
   activeTab,
+  researching,
   fromMarketId,
   fromCardId,
   fromDeckView,
 }: {
   companyId: string;
   activeTab: DashboardTab;
+  researching: boolean;
   fromMarketId: string | null;
   fromCardId: string | null;
   fromDeckView: string | null;
@@ -246,7 +262,7 @@ function DashboardTabNav({
           </div>
         )}
       </div>
-      <AgentWorkingPill companyId={companyId} activeTab={activeTab} />
+      <AgentWorkingPill companyId={companyId} activeTab={activeTab} researching={researching} />
     </nav>
   );
 }
@@ -268,6 +284,8 @@ export default function DashboardPage() {
   const hasKey = useApiKey((s) => s.hasKey);
   const activeTab = tab as DashboardTab;
   const rerunTab = useRerunDashboardTab(companyId, activeTab);
+  const isCachedResearchTab = CACHED_RESEARCH_TABS.includes(activeTab);
+  const cachedResearch = useDashboardTab(isCachedResearchTab ? companyId : undefined, activeTab);
   const sourceCard = useCard(fromCardId ?? undefined);
   const sourceView = sourceCard.data ? buildCardView(sourceCard.data) : null;
 
@@ -357,6 +375,7 @@ export default function DashboardPage() {
             <DashboardTabNav
               companyId={companyId}
               activeTab={activeTab}
+              researching={rerunTab.isPending}
               fromMarketId={fromMarketId}
               fromCardId={fromCardId}
               fromDeckView={fromDeckView}
@@ -368,7 +387,59 @@ export default function DashboardPage() {
               running={rerunTab.isPending}
               disabled={!hasKey}
             >
-              <TabView tab={activeTab} companyId={companyId} />
+              {isCachedResearchTab && cachedResearch.isError ? (
+                <DashboardResearchState
+                  loading={false}
+                  hasKey={hasKey}
+                  researching={false}
+                  readError={cachedResearch.error}
+                  onResearch={() => rerunTab.mutate()}
+                  onRetry={() => void cachedResearch.refetch()}
+                />
+              ) : isCachedResearchTab ? (
+                <QueryBoundary
+                  query={cachedResearch}
+                  loading={
+                    <DashboardResearchState
+                      loading
+                      hasKey={hasKey}
+                      researching={false}
+                      onResearch={() => rerunTab.mutate()}
+                      onRetry={() => rerunTab.mutate()}
+                    />
+                  }
+                  empty={
+                    <DashboardResearchState
+                      loading={false}
+                      hasKey={hasKey}
+                      researching={rerunTab.isPending}
+                      researchError={rerunTab.error}
+                      onResearch={() => rerunTab.mutate()}
+                      onRetry={() => rerunTab.mutate()}
+                    />
+                  }
+                >
+                  {() => (
+                    <>
+                      {rerunTab.isError && (
+                        <div className="mb-4">
+                          <DashboardResearchState
+                            loading={false}
+                            hasKey={hasKey}
+                            researching={rerunTab.isPending}
+                            researchError={rerunTab.error}
+                            onResearch={() => rerunTab.mutate()}
+                            onRetry={() => rerunTab.mutate()}
+                          />
+                        </div>
+                      )}
+                      <TabView tab={activeTab} companyId={companyId} />
+                    </>
+                  )}
+                </QueryBoundary>
+              ) : (
+                <TabView tab={activeTab} companyId={companyId} />
+              )}
             </ContextRerun>
           </>
         )}

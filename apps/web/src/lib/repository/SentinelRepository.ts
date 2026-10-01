@@ -40,8 +40,7 @@ import type {
   Unsubscribe,
   ViceClaim,
 } from '@mi/contracts';
-import {
-  MockRepository, type SeedSnapshot } from '@mi/mocks';
+import { MockRepository, type SeedSnapshot } from '@mi/mocks';
 import sampleSnapshot from '@/sample/frontier-snapshot.json';
 
 /** A Market/Deck object that optionally carries a runtime `engine` tag. */
@@ -65,8 +64,18 @@ interface CloudCardPayload {
 }
 
 export interface CachedCloudEntry {
-  deck?: CloudDeck & { revision?: number; lastSyncedAt?: string; stale?: boolean; isOffline?: boolean };
-  market?: CloudMarket & { revision?: number; lastSyncedAt?: string; stale?: boolean; isOffline?: boolean };
+  deck?: CloudDeck & {
+    revision?: number;
+    lastSyncedAt?: string;
+    stale?: boolean;
+    isOffline?: boolean;
+  };
+  market?: CloudMarket & {
+    revision?: number;
+    lastSyncedAt?: string;
+    stale?: boolean;
+    isOffline?: boolean;
+  };
   cards?: CardWithCompany[];
   lastSyncedAt: string;
   revision: number;
@@ -126,6 +135,8 @@ export class SentinelRepository implements MarketIntelRepository {
   private memoryMarkets = new Map<string, Market>();
   private memoryDecks = new Map<string, Deck>();
   private memoryCards = new Map<string, CardWithCompany[]>();
+  private memoryDashboard = new Map<string, DashboardTabResult<DashboardTab>>();
+  private dashboardResearch = new Map<string, Promise<DashboardTabResult<DashboardTab>>>();
 
   constructor() {
     this.fallbackRepo = new MockRepository({
@@ -136,19 +147,23 @@ export class SentinelRepository implements MarketIntelRepository {
 
   async listMarkets(): Promise<Market[]> {
     try {
-      const [cloudDecks, cloudMarkets] = await Promise.all([
-        getCloudDecks(),
-        getCloudMarkets(),
-      ]);
+      const [cloudDecks, cloudMarkets] = await Promise.all([getCloudDecks(), getCloudMarkets()]);
       const marketList = cloudMarkets.length > 0 ? cloudMarkets : cloudDecks;
       if (marketList && marketList.length > 0) {
         const cache = readCloudCache();
         const now = new Date().toISOString();
         const remoteMarkets: Market[] = marketList.map((d: CloudRecord) => {
           const marketId = String(d.marketId || d.id || `mkt_${String(d.id)}`);
-          const status = (d.status as string) || (d.state as { status?: string } | undefined)?.status;
+          const status =
+            (d.status as string) || (d.state as { status?: string } | undefined)?.status;
           const revision = typeof d.revision === 'number' ? d.revision : 1;
-          const market: CloudMarket & { status?: string; revision?: number; lastSyncedAt?: string; stale?: boolean; isOffline?: boolean } = {
+          const market: CloudMarket & {
+            status?: string;
+            revision?: number;
+            lastSyncedAt?: string;
+            stale?: boolean;
+            isOffline?: boolean;
+          } = {
             id: marketId,
             name: String(d.marketName || d.name || d.title || d.prompt || 'Sentinel Cloud Market'),
             scopeDefinition: {
@@ -165,7 +180,8 @@ export class SentinelRepository implements MarketIntelRepository {
           };
           this.memoryMarkets.set(marketId, market);
 
-          const existingCache = cache.get(marketId) || cache.get(`dck_${marketId}`) || cache.get(`deck_${marketId}`);
+          const existingCache =
+            cache.get(marketId) || cache.get(`dck_${marketId}`) || cache.get(`deck_${marketId}`);
           cache.set(marketId, {
             ...existingCache,
             market,
@@ -196,7 +212,7 @@ export class SentinelRepository implements MarketIntelRepository {
     const cachedMarkets: Market[] = [];
     for (const [id, entry] of cache.entries()) {
       if (entry.pendingDeletion) continue;
-      if (entry.market && !cachedMarkets.some(m => m.id === id || m.id === entry.market?.id)) {
+      if (entry.market && !cachedMarkets.some((m) => m.id === id || m.id === entry.market?.id)) {
         const staleMarket: Market = {
           ...entry.market,
           stale: true,
@@ -353,7 +369,13 @@ export class SentinelRepository implements MarketIntelRepository {
     const isPartial = deckStatus === 'partial' || deckState === 'partial';
     const isRefreshing = deckStatus === 'refreshing' || deckState === 'refreshing';
 
-    if (cached && !isRunning && !isPartial && !isRefreshing && !(cached as { stale?: boolean }).stale) {
+    if (
+      cached &&
+      !isRunning &&
+      !isPartial &&
+      !isRefreshing &&
+      !(cached as { stale?: boolean }).stale
+    ) {
       return cached;
     }
 
@@ -371,7 +393,14 @@ export class SentinelRepository implements MarketIntelRepository {
         const status = (stateRecord?.status as string) || (d.status as string) || 'ready';
         const revision = typeof d.revision === 'number' ? d.revision : 1;
         const now = new Date().toISOString();
-        const deck: CloudDeck & { status?: string; error?: string; revision?: number; lastSyncedAt?: string; stale?: boolean; isOffline?: boolean } = {
+        const deck: CloudDeck & {
+          status?: string;
+          error?: string;
+          revision?: number;
+          lastSyncedAt?: string;
+          stale?: boolean;
+          isOffline?: boolean;
+        } = {
           id: String(d.id || `dck_${marketId}`),
           marketId: String(d.marketId || marketId),
           createdAt: String(d.createdAt || now),
@@ -421,7 +450,8 @@ export class SentinelRepository implements MarketIntelRepository {
 
     // Offline / outage cache recovery
     const cache = readCloudCache();
-    const cachedEntry = cache.get(marketId) || cache.get(`dck_${marketId}`) || cache.get(`deck_${marketId}`);
+    const cachedEntry =
+      cache.get(marketId) || cache.get(`dck_${marketId}`) || cache.get(`deck_${marketId}`);
     if (cachedEntry && !cachedEntry.pendingDeletion && cachedEntry.deck) {
       const staleDeck: Deck = {
         ...cachedEntry.deck,
@@ -512,7 +542,9 @@ export class SentinelRepository implements MarketIntelRepository {
 
     // Cloud enqueued decks return deckId directly. Synchronous runs return market/deck objects.
     const returnedDeckId = res.deckId as string | undefined;
-    const marketId = String(m.id || m.marketId || returnedDeckId || `mkt_${Date.now().toString(36)}`);
+    const marketId = String(
+      m.id || m.marketId || returnedDeckId || `mkt_${Date.now().toString(36)}`,
+    );
     const marketName = String(m.name || brief.prompt);
     const scopeDef = m.scopeDefinition as CloudRecord | undefined;
 
@@ -531,8 +563,16 @@ export class SentinelRepository implements MarketIntelRepository {
 
     const deckRecord: CloudRecord = (res.deck as CloudRecord | undefined) ?? {};
     const stateRecord = res.state as CloudRecord | undefined;
-    const deckId = String(returnedDeckId || deckRecord.id || res.result?.deck?.id || `dck_${marketId.replace(/^mkt_/, '')}`);
-    const status = (stateRecord?.status as string) || (deckRecord.status as string) || (res.deckId ? 'running' : 'ready');
+    const deckId = String(
+      returnedDeckId ||
+        deckRecord.id ||
+        res.result?.deck?.id ||
+        `dck_${marketId.replace(/^mkt_/, '')}`,
+    );
+    const status =
+      (stateRecord?.status as string) ||
+      (deckRecord.status as string) ||
+      (res.deckId ? 'running' : 'ready');
     const deck: CloudDeck & { status?: string; error?: string } = {
       id: deckId,
       marketId,
@@ -600,7 +640,7 @@ export class SentinelRepository implements MarketIntelRepository {
         this.memoryDecks.set(deckId, cachedDeck);
       }
     }
-    const cachedStatus = (cachedDeck as { status?: string; state?: { status?: string } } | undefined);
+    const cachedStatus = cachedDeck as { status?: string; state?: { status?: string } } | undefined;
     const deckInProgress = ['running', 'partial', 'refreshing'].includes(
       cachedStatus?.status ?? cachedStatus?.state?.status ?? '',
     );
@@ -690,8 +730,30 @@ export class SentinelRepository implements MarketIntelRepository {
   async getDashboardTab<T extends DashboardTab>(
     companyId: string,
     tab: T,
-    _force?: boolean,
+    force?: boolean,
   ): Promise<DashboardTabResult<T> | null> {
+    const key = `${companyId}:${tab}`;
+    if (force !== true) {
+      const saved = this.memoryDashboard.get(key);
+      return (saved as DashboardTabResult<T> | undefined) ?? null;
+    }
+    const pending = this.dashboardResearch.get(key);
+    if (pending) return pending as Promise<DashboardTabResult<T>>;
+    const run = this.researchDashboardTab(companyId, tab);
+    this.dashboardResearch.set(key, run);
+    try {
+      const result = await run;
+      this.memoryDashboard.set(key, result);
+      return result;
+    } finally {
+      this.dashboardResearch.delete(key);
+    }
+  }
+
+  private async researchDashboardTab<T extends DashboardTab>(
+    companyId: string,
+    tab: T,
+  ): Promise<DashboardTabResult<T>> {
     let deckId: string | null = null;
 
     // 1. Resolve deckId from in-memory cache
@@ -713,28 +775,26 @@ export class SentinelRepository implements MarketIntelRepository {
       }
     }
 
-    // 3. Fallback to active market
-    if (!deckId) {
-      const market = await this.listMarkets().then((m) => m[0]);
-      if (market) deckId = market.id;
-    }
-
-    if (!deckId) return null;
+    if (!deckId) throw new Error('Research requires a company in a saved cloud deck.');
 
     try {
-      const res = await fetchSentinel<{ content: DashboardTabResult<T>['content'] }>('/api/research/tab', {
-        method: 'POST',
-        body: JSON.stringify({ deckId, companyId, tab }),
-      });
+      const res = await fetchSentinel<{ content: DashboardTabResult<T>['content'] }>(
+        '/api/research/tab',
+        {
+          method: 'POST',
+          body: JSON.stringify({ deckId, companyId, tab }),
+        },
+      );
       return {
         companyId,
         tab,
         content: res.content,
         lastRefreshedAt: new Date().toISOString(),
       };
-    } catch (e) {
-      console.error('Failed to fetch cloud dashboard tab:', e);
-      return null;
+    } catch {
+      // Do not log or expose provider responses/credentials in the renderer.
+      // A failed explicit refresh must be observable, not a successful null result.
+      throw new Error('Research could not complete. Check your connection and provider settings.');
     }
   }
 
@@ -828,7 +888,10 @@ export class SentinelRepository implements MarketIntelRepository {
     throw new Error('Sentinel returned an invalid research thread.');
   }
 
-  async listResearchThreads(filter?: { deckId?: string; companyId?: string }): Promise<ResearchThread[]> {
+  async listResearchThreads(filter?: {
+    deckId?: string;
+    companyId?: string;
+  }): Promise<ResearchThread[]> {
     void filter;
     return [];
   }
@@ -841,7 +904,9 @@ export class SentinelRepository implements MarketIntelRepository {
   async saveThreadAsReport(threadId: string, focus?: string | null): Promise<Report> {
     void threadId;
     void focus;
-    throw new Error('Cloud report creation from research threads is not available through Sentinel yet.');
+    throw new Error(
+      'Cloud report creation from research threads is not available through Sentinel yet.',
+    );
   }
 
   async listResearchJobs(): Promise<ResearchJob[]> {
@@ -885,7 +950,9 @@ export class SentinelRepository implements MarketIntelRepository {
     const rawM = res.market ?? res.result?.market ?? res.deck;
     const m: CloudRecord = (rawM as CloudRecord | undefined) ?? {};
     const returnedDeckId = res.deckId as string | undefined;
-    const marketId = String(m.id || m.marketId || returnedDeckId || `mkt_${Date.now().toString(36)}`);
+    const marketId = String(
+      m.id || m.marketId || returnedDeckId || `mkt_${Date.now().toString(36)}`,
+    );
     const marketName = String(m.name || 'Sentinel Cloud Market');
     const scopeDef = m.scopeDefinition as CloudRecord | undefined;
 
@@ -904,8 +971,16 @@ export class SentinelRepository implements MarketIntelRepository {
 
     const deckRecord: CloudRecord = (res.deck as CloudRecord | undefined) ?? {};
     const stateRecord = res.state as CloudRecord | undefined;
-    const deckId = String(returnedDeckId || deckRecord.id || res.result?.deck?.id || `dck_${marketId.replace(/^mkt_/, '')}`);
-    const status = (stateRecord?.status as string) || (deckRecord.status as string) || (res.deckId ? 'running' : 'ready');
+    const deckId = String(
+      returnedDeckId ||
+        deckRecord.id ||
+        res.result?.deck?.id ||
+        `dck_${marketId.replace(/^mkt_/, '')}`,
+    );
+    const status =
+      (stateRecord?.status as string) ||
+      (deckRecord.status as string) ||
+      (res.deckId ? 'running' : 'ready');
     const deck: CloudDeck & { status?: string; error?: string } = {
       id: deckId,
       marketId,
@@ -990,7 +1065,9 @@ export class SentinelRepository implements MarketIntelRepository {
     for (const rawItem of rawCards) {
       if (!rawItem) continue;
       const item = rawItem as CloudRecord;
-      const primaryCard = item.primaryCard as { card?: Card; company?: Company; metrics?: CompanyMetric[]; viceClaims?: ViceClaim[] } | undefined;
+      const primaryCard = item.primaryCard as
+        | { card?: Card; company?: Company; metrics?: CompanyMetric[]; viceClaims?: ViceClaim[] }
+        | undefined;
       // Handle HydrateCompanyCardResult objects (with primaryCard and cards arrays)
       if (primaryCard?.card && primaryCard?.company) {
         results.push({
@@ -1000,7 +1077,14 @@ export class SentinelRepository implements MarketIntelRepository {
           viceClaims: (item.viceClaims as ViceClaim[] | undefined) || primaryCard.viceClaims || [],
         });
         if (Array.isArray(item.cards)) {
-          for (const facet of (item.cards as Array<{ card?: Card; company?: Company; metrics?: CompanyMetric[]; viceClaims?: ViceClaim[] }>).slice(1)) {
+          for (const facet of (
+            item.cards as Array<{
+              card?: Card;
+              company?: Company;
+              metrics?: CompanyMetric[];
+              viceClaims?: ViceClaim[];
+            }>
+          ).slice(1)) {
             if (facet?.card && facet?.company) {
               results.push({
                 card: { ...facet.card, engine: 'cloud' } as Card,
@@ -1073,10 +1157,13 @@ export class SentinelRepository implements MarketIntelRepository {
 
       const companyObj = company ?? null;
       const metrics = companyObj
-        ? (rawMetrics.filter((m: CloudRecord) => m.companyId === companyObj.id) as unknown as CompanyMetric[])
+        ? (rawMetrics.filter(
+            (m: CloudRecord) => m.companyId === companyObj.id,
+          ) as unknown as CompanyMetric[])
         : [];
       const viceClaims = rawViceClaims.filter(
-        (vc: CloudRecord) => vc.cardId === c.id || (companyObj != null && vc.companyId === companyObj.id),
+        (vc: CloudRecord) =>
+          vc.cardId === c.id || (companyObj != null && vc.companyId === companyObj.id),
       ) as unknown as ViceClaim[];
 
       results.push({

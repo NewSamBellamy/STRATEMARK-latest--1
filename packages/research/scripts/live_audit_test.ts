@@ -116,7 +116,7 @@ async function runLiveAudit() {
     for (const tab of DASHBOARD_TABS) {
       const tabStart = Date.now();
       try {
-        const result = await repo.getDashboardTab(company.id, tab);
+        const result = await repo.getDashboardTab(company.id, tab, true);
         const tabLatency = Date.now() - tabStart;
         const keys = result && typeof result.content === 'object' && result.content !== null ? Object.keys(result.content).length : 1;
         tabAuditResults[tab] = { status: 'SUCCESS', keysFound: keys, latencyMs: tabLatency };
@@ -169,4 +169,3 @@ runLiveAudit().catch(err => {
   console.error('Audit run failed with error:', err);
   process.exit(1);
 });
-

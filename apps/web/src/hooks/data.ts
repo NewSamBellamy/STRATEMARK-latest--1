@@ -444,9 +444,23 @@ export function useRerunDashboardTab(companyId: string | undefined, tab: Dashboa
   const repo = useRepository();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => repo.getDashboardTab(companyId as string, tab, true),
+    mutationKey: ['dashboard-research', companyId, tab],
+    mutationFn: async () => {
+      if (!companyId) throw new Error('Select a company before researching this section.');
+      const result = await repo.getDashboardTab(companyId, tab, true);
+      if (!result) throw new Error('The company is no longer available for research.');
+      if (result.companyId !== companyId || result.tab !== tab) {
+        throw new Error('The research result did not match the requested section.');
+      }
+      return {
+        ...result,
+        content: DASHBOARD_CONTENT_SCHEMAS[tab].parse(result.content),
+      };
+    },
     onSuccess: (result) => {
-      if (result) qc.setQueryData(qk.dashboard(companyId as string, tab), result);
+      // The observer may have moved to a different company/tab while paid work
+      // was pending. Route its result by the completed request, not current UI.
+      if (result) qc.setQueryData(qk.dashboard(result.companyId, result.tab), result);
     },
   });
 }

@@ -1,6 +1,6 @@
 {
   "campaignId": "stratemark-overhaul-sol-luna-v1",
-  "status": "G01_inventory_context_assets_verified_cached_navigation_and_staged_integration_next_active_goal",
+  "status": "G01_cached_navigation_verified_visible_contrast_fix_then_passive_retention_staged_integration_next_active_goal",
   "executionAuthorization": "Human active goal defers development spend limits; Sol plans and integrates; Luna high-effort workers implement; Astra disabled",
   "enforcementMode": "development_spend_limits_deferred_by_human",
   "currency": "USD",
@@ -62,6 +62,7 @@
     "fullHistoryForksAllowed": false
   },
   "completedPackets": [
+    "G01-P08-cached-navigation-and-explicit-research-not-phase-completion",
     "G01-P07-inventory-context-assets-redteam-not-phase-completion",
     "G01-P06-readonly-inspection-and-legacy-identity-not-phase-completion",
     "G01-P05-typed-research-versions-and-shared-correction-not-phase-completion",
@@ -74,6 +75,23 @@
     "G00-P05-contract-baseline-freeze-not-product-readiness"
   ],
   "checkpoints": [
+    {
+      "packetId": "G01-P08",
+      "date": "2026-09-30",
+      "fullGate": "typecheck_lint_contracts369_mocks16_passed; research361_passed_3_known_failures; independent_desktop145_passed_1_known_failure_web166_passed_API158_passed",
+      "nativeVaultTestsPassed": 97,
+      "legacyReleaseBlockersUnfixed": 4,
+      "userOutcome": "six_missing_research_sections_visible_explicit_actions_no_tab_generation_on_navigation_original_overview_and_metric_facts_retained",
+      "browserEvidence": "public_sample_Chromium_journey_and_production_web_build_passed_external_network_blocked_no_live_or_installer_proof",
+      "redTeam": "cross_navigation_cache_poisoning_and_fresh_result_display_normalization_RED_fixed; independent_readonly_review_no_new_concrete_regression; offline_card_contrast_description_duplication_coverage_count_semantics_remain",
+      "next": "bounded_offline_monogram_contrast_repair_then_full_passive_retention_and_staged_fixture_conversion",
+      "workersDispatched": 2,
+      "maxConcurrentWorkers": 1,
+      "workerModel": "gpt-6-luna",
+      "workerReasoningEffort": "high",
+      "astraDispatched": false,
+      "campaignSpentKnown": null
+    },
     {
       "packetId": "G01-P07",
       "date": "2026-09-30",

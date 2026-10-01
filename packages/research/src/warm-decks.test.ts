@@ -1,11 +1,6 @@
 /**
- * Warm decks — the latency fix for "click a tab, wait 30 seconds".
- *
- * The load-bearing correctness piece is the in-flight dedupe: a user click,
- * the living runtime's prefetch, and the creation-time warm worker can all
- * race on the SAME company tab. Before this, each racer fired its own full
- * grounded research pass — double/triple spend and a slower answer for the
- * user. Now the second caller awaits the first caller's promise.
+ * Navigation reads saved research only. Accepted research-run warm-ups and
+ * explicit section research share in-flight work without duplicate spend.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { GeminiRepository, type RepoSnapshot, type ResearchStore } from './repository';
@@ -50,7 +45,121 @@ function memoryStore(initial: RepoSnapshot): ResearchStore {
   };
 }
 
-describe('getDashboardTab in-flight dedupe', () => {
+describe('getDashboardTab cached reads', () => {
+  function withSavedOverview(): RepoSnapshot {
+    const saved = snapshotWithCompany();
+    saved.dashboards.cmp_1 = {
+      overview: {
+        content: { markdown: 'Saved earlier' },
+        lastRefreshedAt: '2026-01-01T00:00:00.000Z',
+      },
+    };
+    return saved;
+  }
+
+  it('a missing saved section does not call a provider or write', async () => {
+    const ground = vi.fn().mockRejectedValue(new Error('must not call'));
+    const structure = vi.fn();
+    const store = memoryStore(snapshotWithCompany());
+    const write = vi.spyOn(store, 'write');
+    const repo = new GeminiRepository({
+      store,
+      client: { ground, structure } as unknown as LlmClient,
+    });
+
+    expect(await repo.getDashboardTab('cmp_1', 'overview')).toBeNull();
+    expect(await repo.getDashboardTab('cmp_1', 'overview', false)).toBeNull();
+    expect(ground).not.toHaveBeenCalled();
+    expect(structure).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('reading during an explicit research pass does not wait for or start research', async () => {
+    let finish!: (value: { text: string; citations: never[]; queries: string[] }) => void;
+    const pending = new Promise((resolve) => {
+      finish = resolve;
+    });
+    const ground = vi.fn().mockReturnValue(pending);
+    const structure = vi.fn().mockResolvedValue({ markdown: 'sourced overview' });
+    const repo = new GeminiRepository({
+      store: memoryStore(snapshotWithCompany()),
+      client: { ground, structure } as unknown as LlmClient,
+    });
+    const research = repo.getDashboardTab('cmp_1', 'overview', true);
+    const savedRead = repo.getDashboardTab('cmp_1', 'overview');
+    // Fail quickly on the old implementation without leaving an unresolved test.
+    const result = await Promise.race([savedRead, Promise.resolve('joined research')]);
+    finish({ text: 'notes', citations: [], queries: [] });
+    await research;
+    expect(result).toBeNull();
+    expect(ground).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses explicit paid work before dispatch when the stored snapshot was replaced', async () => {
+    const ground = vi.fn().mockResolvedValue({ text: 'notes', citations: [], queries: [] });
+    const store = memoryStore(snapshotWithCompany());
+    const repo = new GeminiRepository({
+      store,
+      client: { ground, structure: vi.fn() } as unknown as LlmClient,
+    });
+    store.write({ ...snapshotWithCompany(), companyMarket: { cmp_1: 'Replaced' } });
+    await expect(repo.getDashboardTab('cmp_1', 'overview', true)).rejects.toMatchObject({
+      code: 'REPOSITORY_OWNERSHIP_LOST',
+    });
+    expect(ground).not.toHaveBeenCalled();
+  });
+
+  it('saved content remains readable during and after a failed refresh; retry starts one new run', async () => {
+    let fail!: (reason: Error) => void;
+    const pending = new Promise((_resolve, reject) => {
+      fail = reject;
+    });
+    const ground = vi
+      .fn()
+      .mockReturnValueOnce(pending)
+      .mockResolvedValue({ text: 'new notes', citations: [], queries: [] });
+    const repo = new GeminiRepository({
+      store: memoryStore(withSavedOverview()),
+      client: {
+        ground,
+        structure: vi.fn().mockResolvedValue({ markdown: 'New sourced overview' }),
+      } as unknown as LlmClient,
+    });
+    const saved = await repo.getDashboardTab('cmp_1', 'overview');
+    const refresh = repo.getDashboardTab('cmp_1', 'overview', true);
+    const failed = expect(refresh).rejects.toThrow('Provider unavailable');
+    expect(await repo.getDashboardTab('cmp_1', 'overview')).toEqual(saved);
+    fail(new Error('Provider unavailable'));
+    await failed;
+    expect(await repo.getDashboardTab('cmp_1', 'overview')).toEqual(saved);
+    const retried = await repo.getDashboardTab('cmp_1', 'overview', true);
+    expect(retried?.content).toEqual({ markdown: 'New sourced overview' });
+    expect(ground).toHaveBeenCalledTimes(2);
+  });
+
+  it('a storage failure cannot replace the saved view in memory', async () => {
+    const store = memoryStore(withSavedOverview());
+    const ground = vi.fn().mockResolvedValue({ text: 'new notes', citations: [], queries: [] });
+    const repo = new GeminiRepository({
+      store,
+      client: {
+        ground,
+        structure: vi.fn().mockResolvedValue({ markdown: 'Uncommitted' }),
+      } as unknown as LlmClient,
+    });
+    const saved = await repo.getDashboardTab('cmp_1', 'overview');
+    vi.spyOn(store, 'write').mockImplementationOnce(() => {
+      throw new Error('Disk unavailable');
+    });
+    await expect(repo.getDashboardTab('cmp_1', 'overview', true)).rejects.toThrow(
+      'Disk unavailable',
+    );
+    expect(await repo.getDashboardTab('cmp_1', 'overview')).toEqual(saved);
+    expect(store.read()?.dashboards.cmp_1?.overview?.content).toEqual(saved?.content);
+  });
+});
+
+describe('getDashboardTab explicit research in-flight dedupe', () => {
   it('two concurrent requests for the same tab share ONE research pass', async () => {
     let resolveGround: (v: { text: string; citations: never[]; queries: string[] }) => void;
     const groundPromise = new Promise((r) => {
@@ -66,8 +175,8 @@ describe('getDashboardTab in-flight dedupe', () => {
     });
 
     // Fire both BEFORE the research resolves — a true race.
-    const a = repo.getDashboardTab('cmp_1', 'overview');
-    const b = repo.getDashboardTab('cmp_1', 'overview');
+    const a = repo.getDashboardTab('cmp_1', 'overview', true);
+    const b = repo.getDashboardTab('cmp_1', 'overview', true);
     resolveGround!({ text: 'notes', citations: [], queries: [] });
     const [ra, rb] = await Promise.all([a, b]);
 
@@ -76,9 +185,7 @@ describe('getDashboardTab in-flight dedupe', () => {
   });
 
   it('after completion the result is served from cache with no new research', async () => {
-    const ground = vi
-      .fn()
-      .mockResolvedValue({ text: 'notes', citations: [], queries: [] });
+    const ground = vi.fn().mockResolvedValue({ text: 'notes', citations: [], queries: [] });
     const structure = vi.fn().mockResolvedValue({ markdown: 'sourced overview' });
     const client = { ground, structure } as unknown as LlmClient;
     const repo = new GeminiRepository({
@@ -87,18 +194,14 @@ describe('getDashboardTab in-flight dedupe', () => {
       client,
     });
 
-    await repo.getDashboardTab('cmp_1', 'overview');
+    await repo.getDashboardTab('cmp_1', 'overview', true);
     await repo.getDashboardTab('cmp_1', 'overview');
     expect(ground).toHaveBeenCalledTimes(1);
   });
 
   it('different tabs research independently (no false sharing)', async () => {
-    const ground = vi
-      .fn()
-      .mockResolvedValue({ text: 'notes', citations: [], queries: [] });
-    const structure = vi
-      .fn()
-      .mockResolvedValue({ markdown: 'x', nodes: [], items: [] });
+    const ground = vi.fn().mockResolvedValue({ text: 'notes', citations: [], queries: [] });
+    const structure = vi.fn().mockResolvedValue({ markdown: 'x', nodes: [], items: [] });
     const client = { ground, structure } as unknown as LlmClient;
     const repo = new GeminiRepository({
       apiKey: 'k',
@@ -107,8 +210,8 @@ describe('getDashboardTab in-flight dedupe', () => {
     });
 
     await Promise.all([
-      repo.getDashboardTab('cmp_1', 'overview'),
-      repo.getDashboardTab('cmp_1', 'live_intel'),
+      repo.getDashboardTab('cmp_1', 'overview', true),
+      repo.getDashboardTab('cmp_1', 'live_intel', true),
     ]);
     expect(ground.mock.calls.length).toBeGreaterThanOrEqual(2);
   });

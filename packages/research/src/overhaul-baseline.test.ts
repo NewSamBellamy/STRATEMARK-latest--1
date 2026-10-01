@@ -163,7 +163,7 @@ describe('G00 UNRESOLVED baseline: cached reads, migration and writer fencing', 
       }),
     );
     const oldOwner = new GeminiRepository({ client: llm, store: data.store });
-    const oldRead = oldOwner.getDashboardTab('co_fixture', 'overview');
+    const oldRead = oldOwner.getDashboardTab('co_fixture', 'overview', true);
     await started;
     const replacement = migrateSnapshot(null).snapshot;
     data.replace(replacement);

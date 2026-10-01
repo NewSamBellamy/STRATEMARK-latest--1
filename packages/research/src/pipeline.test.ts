@@ -445,9 +445,9 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
     expect(cards.length).toBeGreaterThan(0);
 
     const company = cards.find((c) => c.company)!.company!;
-    const overview = await repo.getDashboardTab(company.id, 'overview');
+    const overview = await repo.getDashboardTab(company.id, 'overview', true);
     // metrics tab is built locally from stored figures (no fabricated series).
-    const metrics = await repo.getDashboardTab(company.id, 'metrics');
+    const metrics = await repo.getDashboardTab(company.id, 'metrics', true);
     expect(overview?.tab).toBe('overview');
     expect(metrics?.tab).toBe('metrics');
 

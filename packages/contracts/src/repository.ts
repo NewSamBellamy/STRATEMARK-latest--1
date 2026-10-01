@@ -516,11 +516,12 @@ export interface MarketIntelRepository {
   getCompanyMetrics(companyId: string): Promise<CompanyMetric[]>;
   getViceClaims(cardId: string): Promise<ViceClaim[]>;
 
-  // Dashboard (spec §8)
+  // Dashboard (spec §8). Ordinary reads return saved content or null;
+  // opening a section, retrying a read, and prefetching never start paid work.
   getDashboardTab<T extends DashboardTab>(
     companyId: string,
     tab: T,
-    /** Bypass the cached result and re-research this tab (user-directed rerun). */
+    /** Explicit research intent; may call a paid provider. Concurrent requests deduplicate. */
     force?: boolean,
   ): Promise<DashboardTabResult<T> | null>;
 

@@ -520,14 +520,18 @@ export class GeminiRepository implements MarketIntelRepository {
     }
   }
 
-  private persist(): void {
+  private assertWriteOwnership(): void {
     if (!this.store) return;
     if (this.writeOwnershipLost) throw new RepositoryOwnershipLostError();
     if (snapshotContent(this.store.read()) !== this.lastPersistedContent) {
       this.writeOwnershipLost = true;
       throw new RepositoryOwnershipLostError();
     }
+  }
 
+  private persist(): void {
+    if (!this.store) return;
+    this.assertWriteOwnership();
     const next = structuredClone(this.snap);
     const nextContent = snapshotContent(next);
     this.store.write(next);
@@ -1062,7 +1066,11 @@ export class GeminiRepository implements MarketIntelRepository {
               for (const tab of WARM_TABS) {
                 if (controller.signal.aborted) return;
                 try {
-                  await this.getDashboardTab(next.id, tab);
+                  // This warm-up belongs to the accepted deck research run.
+                  // Ordinary reads (including navigation/prefetch) never start research.
+                  if (!(await this.getDashboardTab(next.id, tab))) {
+                    await this.getDashboardTab(next.id, tab, true);
+                  }
                   if (!deckResolved) {
                     handlers?.onProgress?.({
                       message: `${next.name} desk pre-researched ${tab === 'team_org' ? 'Team & Org' : tab === 'live_intel' ? 'Live Intel' : 'Overview'} — will open instantly`,
@@ -1071,7 +1079,7 @@ export class GeminiRepository implements MarketIntelRepository {
                     });
                   }
                 } catch {
-                  // A failed warm-up is invisible; the tab researches on open.
+                  // Keep the gap visible; opening the tab must not retry paid work.
                 }
               }
             }
@@ -1295,8 +1303,8 @@ export class GeminiRepository implements MarketIntelRepository {
           // deck arrives with tabs that open instantly instead of 20-40s
           // spinners. Deliberately NOT awaited by the run: deck completion is
           // never delayed; the worker keeps draining after the deck returns.
-          // The in-flight dedupe on getDashboardTab makes any race with a user
-          // click or the living runtime's prefetch cost a single research pass.
+          // Explicit section research shares a warm-up's in-flight work;
+          // navigation/prefetch only reads saved results and never starts a pass.
           // Track 2: Background Macro Signals (BarrierToEntryAgent, MarketInsightAgent)
           (async () => {
             checkpoint({
@@ -1578,10 +1586,8 @@ export class GeminiRepository implements MarketIntelRepository {
 
   // Dashboard (lazy, cached) -----------------------------------------------
   /**
-   * In-flight tab research, keyed `companyId:tab`. A user click and the warm-up
-   * worker (or the living runtime's prefetch) can race on the SAME tab; without
-   * this, both fire a full grounded research pass — double spend, double wait.
-   * The second caller now awaits the first caller's promise.
+   * Only explicit research requests share this in-flight work. Navigation and
+   * prefetch read saved content immediately, even while a refresh is pending.
    */
   private tabResearchInFlight = new Map<string, Promise<unknown>>();
 
@@ -1592,20 +1598,21 @@ export class GeminiRepository implements MarketIntelRepository {
   ): Promise<DashboardTabResult<T> | null> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company) return null;
-    const cached = force ? undefined : this.snap.dashboards[companyId]?.[tab];
-    if (cached) {
-      return {
-        companyId,
-        tab,
-        content: cached.content as DashboardTabResult<T>['content'],
-        lastRefreshedAt: cached.lastRefreshedAt,
-      };
+    if (force !== true) {
+      const cached = this.snap.dashboards[companyId]?.[tab];
+      return cached
+        ? {
+            companyId,
+            tab,
+            content: cached.content as DashboardTabResult<T>['content'],
+            lastRefreshedAt: cached.lastRefreshedAt,
+          }
+        : null;
     }
+    this.assertWriteOwnership();
     const flightKey = `${companyId}:${tab}`;
-    if (!force) {
-      const inFlight = this.tabResearchInFlight.get(flightKey);
-      if (inFlight) return inFlight as Promise<DashboardTabResult<T> | null>;
-    }
+    const inFlight = this.tabResearchInFlight.get(flightKey);
+    if (inFlight) return inFlight as Promise<DashboardTabResult<T> | null>;
     const run = (async (): Promise<DashboardTabResult<T> | null> => {
       const content = await researchDashboardTab(tab, {
         company,
@@ -1613,12 +1620,20 @@ export class GeminiRepository implements MarketIntelRepository {
         storedMetrics: this.snap.metrics.filter((m) => m.companyId === companyId),
         client: this.client,
       });
+      this.assertWriteOwnership();
       const lastRefreshedAt = new Date().toISOString();
+      const previous = this.snap.dashboards[companyId];
       this.snap.dashboards[companyId] = {
         ...this.snap.dashboards[companyId],
         [tab]: { content, lastRefreshedAt },
       };
-      this.persist();
+      try {
+        this.persist();
+      } catch (error) {
+        if (previous) this.snap.dashboards[companyId] = previous;
+        else delete this.snap.dashboards[companyId];
+        throw error;
+      }
       return { companyId, tab, content, lastRefreshedAt };
     })();
     this.tabResearchInFlight.set(flightKey, run);

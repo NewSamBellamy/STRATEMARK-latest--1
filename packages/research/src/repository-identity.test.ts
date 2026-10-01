@@ -414,7 +414,7 @@ describe('legacy repository company identity', () => {
       false,
     );
     await hydrationStarted;
-    await repo.getDashboardTab(placeholder.id, 'overview');
+    await repo.getDashboardTab(placeholder.id, 'overview', true);
     finishHydration();
     const activeJob = (await repo.listResearchJobs())[0];
     if (activeJob) await repo.waitForBackgroundJobs(activeJob.id);
