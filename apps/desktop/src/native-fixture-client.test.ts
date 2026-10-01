@@ -1,9 +1,34 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { createNativeFixtureClient, nativeFixtureFetch } from './native-fixture-client';
+import * as fixture from './native-fixture-client';
 
 afterEach(() => vi.useRealTimers());
 describe('explicit synthetic provider', () => {
+  it('retains only the explicit canned source, accounting for one source request with no network', async () => {
+    const beforeRequest = vi.fn();
+    const result = await fixture.nativeFixtureRetrieveSource(
+      'https://research-fixture.invalid/repair',
+      {
+        signal: new AbortController().signal,
+        beforeRequest,
+      },
+    );
+    expect(beforeRequest).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      retrievalStatus: 'retrieved',
+      text: expect.stringContaining('Synthetic source text'),
+    });
+    expect(
+      (
+        await fixture.nativeFixtureRetrieveSource('https://other.invalid/source', {
+          signal: new AbortController().signal,
+          beforeRequest,
+        })
+      ).retrievalStatus,
+    ).toBe('blocked');
+    expect(beforeRequest).toHaveBeenCalledTimes(1);
+  });
   it('uses a metered synthetic response and fails one unfinished company only once', async () => {
     vi.useFakeTimers();
     const client = createNativeFixtureClient();

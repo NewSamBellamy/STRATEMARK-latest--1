@@ -33,7 +33,12 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import { IPC_CHANNELS, SECURE_CHANNELS, nativeResearchStartSchema } from '@mi/contracts';
+import {
+  IPC_CHANNELS,
+  SECURE_CHANNELS,
+  nativeResearchStartSchema,
+  nativeCardEvidenceSchema,
+} from '@mi/contracts';
 import { z } from 'zod';
 import {
   createMarketInputSchema,
@@ -64,7 +69,11 @@ import { acceptDesktopAction } from './desktop-action.js';
 import { NativeResearchService } from './native-service.js';
 import { openVault } from './vault.js';
 import { inspectResearchStorage, preflightCurrentResearch } from './storage-preflight.js';
-import { createNativeFixtureClient, nativeFixtureFetch } from './native-fixture-client';
+import {
+  createNativeFixtureClient,
+  nativeFixtureFetch,
+  nativeFixtureRetrieveSource,
+} from './native-fixture-client';
 import { resolveNativeWorkspaceMode } from './native-workspace-mode';
 
 // Explicit preview only. Never silently migrate/select a candidate or load a provider.
@@ -300,6 +309,12 @@ function dispatchNative(channel: string, args: unknown[]) {
       return reads.listRuns();
     case IPC_CHANNELS.getNativeRun:
       return reads.getRun(oneId());
+    case IPC_CHANNELS.getNativeCardEvidence: {
+      const cardId = oneId();
+      const saved = nativeCardEvidenceSchema.parse(nativeService.getCardEvidence(cardId));
+      if (saved.cardId !== cardId) throw new Error('Saved evidence identity mismatch.');
+      return saved;
+    }
     case IPC_CHANNELS.nativeRunEvents: {
       const [runId, after] = z.tuple([recordId, z.number().int().min(0)]).parse(args);
       return reads.listEvents(runId, after, 100).map((event) => {
@@ -390,6 +405,7 @@ function registerIpc(): void {
     IPC_CHANNELS.startNativeResearch,
     IPC_CHANNELS.listNativeRuns,
     IPC_CHANNELS.getNativeRun,
+    IPC_CHANNELS.getNativeCardEvidence,
     IPC_CHANNELS.nativeRunEvents,
     IPC_CHANNELS.controlNativeRun,
   ]) {
@@ -761,7 +777,9 @@ void app
             });
         },
         {
-          ...(nativeFixture ? { fetchImpl: nativeFixtureFetch } : {}),
+          ...(nativeFixture
+            ? { fetchImpl: nativeFixtureFetch, retrieveSource: nativeFixtureRetrieveSource }
+            : {}),
           researchProvenance: nativeFixture ? 'synthetic_fixture' : 'live_provider',
           writable: nativeMode.writable,
         },

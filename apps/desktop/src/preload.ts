@@ -38,6 +38,7 @@ const api: PreloadRepositoryApi = {
   startNativeResearch: (input) => ipcRenderer.invoke(IPC_CHANNELS.startNativeResearch, input),
   listNativeRuns: () => ipcRenderer.invoke(IPC_CHANNELS.listNativeRuns),
   getNativeRun: (runId) => ipcRenderer.invoke(IPC_CHANNELS.getNativeRun, runId),
+  getNativeCardEvidence: (cardId) => ipcRenderer.invoke(IPC_CHANNELS.getNativeCardEvidence, cardId),
   nativeRunEvents: (runId, after) => ipcRenderer.invoke(IPC_CHANNELS.nativeRunEvents, runId, after),
   controlNativeRun: (runId, command) =>
     ipcRenderer.invoke(IPC_CHANNELS.controlNativeRun, runId, command),

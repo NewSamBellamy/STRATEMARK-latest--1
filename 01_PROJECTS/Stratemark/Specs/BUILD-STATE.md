@@ -4,6 +4,8 @@ Updated October 1, 2026. The founder authorized the complete R0–R8 build. MAST
 
 ## Current execution checkpoint
 
+R1 retained-source slice is integrated after c354bbd, pending final checkpoint proof. Explicit public-source ceilings, bounded saved evidence IPC, secure public retrieval, source/passages, offline reader and recovery are wired in the isolated native preview. UI31, service38, retrieval198 and combined270 targeted checks pass. Dirty diagnostic Electron source-text/keyless restart passed. Astra's interrupted capture, persistent passage publication and unnecessary connection findings repaired; final bounded review found no remaining significant issue in those paths (static review only). Final full gate/clean-commit recording/backup pending; see CHECKPOINT-R1-SAVED-SOURCES and ACTIVE-HANDOFF. No R-goal completion claim.
+
 - Branch `feat/stratemark-spinoff-local-agents`; application checkpoint `876c9ec0fdc51e60c8d7a1a6f0688c18052ddd63` saved and remote verified in NewSamBellamy/STRATEMARK-latest--1. Main remains `c945b31dee0095331b8487133c131c36e76ba601`. Documentation follows separately; inspect actual HEAD/tree.
 - R0: seven green/paper compositions plus long-name/sparse edge cases, hero entity identity, four editorial finding faces, no flips/ranks. `/design/cards` is explicitly synthetic, not a completed R2 portal. Owner aesthetic approval remains pending.
 - R1: actual development Electron → trusted IPC → pipeline → isolated SQLite create/research/partial-result/retry/read/reopen path. Review precedes dispatch. Selected tasks/outcomes persist; retries finish original unfinished work. Request identity survives reload; accepted duplicates reuse the run. Incremental bounded event replay drains terminal pages.

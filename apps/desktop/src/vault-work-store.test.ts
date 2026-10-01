@@ -112,6 +112,39 @@ afterEach(() => {
 });
 
 describe('native bounded operational ledger', () => {
+  it('keeps source capture reservations monotonic and within the explicitly approved ceiling', () => {
+    const vault = open();
+    const current = start(vault, { limits: { ...run().limits, maxSourceRequests: 2 } });
+    const work = vault.writer().work;
+    const used = work.updateRun({ ...current, usage: { ...current.usage, sourceRequests: 1 } }, 0);
+    expect(vault.work.getRun(used.id)?.usage.sourceRequests).toBe(1);
+    expect(() =>
+      work.updateRun({ ...used, usage: { ...used.usage, sourceRequests: 0 } }, 0),
+    ).toThrow();
+    expect(() =>
+      work.updateRun({ ...used, usage: { ...used.usage, sourceRequests: 3 } }, 0),
+    ).toThrow();
+    expect(vault.work.getRun(used.id)?.usage.sourceRequests).toBe(1);
+  });
+
+  it('rejects a corrupt saved source reservation exceeding its original approval', () => {
+    const file = location();
+    const vault = open(file);
+    const current = start(vault, { limits: { ...run().limits, maxSourceRequests: 2 } });
+    const direct = new DatabaseSync(file);
+    try {
+      direct
+        .prepare('UPDATE work_runs SET body=? WHERE id=?')
+        .run(
+          JSON.stringify({ ...current, usage: { ...current.usage, sourceRequests: 3 } }),
+          current.id,
+        );
+    } finally {
+      direct.close();
+    }
+    expect(() => vault.work.getRun(current.id)).toThrow(/source|allowance/i);
+  });
+
   it('accepts atomically, dedupes by key/fingerprint, and retains native scope versions', () => {
     const vault = open();
     const work = vault.writer().work;

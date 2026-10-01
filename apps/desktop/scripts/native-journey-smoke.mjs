@@ -46,6 +46,8 @@ let application;
 let page;
 let video;
 let deckPath;
+let savedSource;
+let sourceCardId;
 const mark = (name) => {
   steps.push({ name, at: new Date().toISOString() });
   process.stdout.write(`JOURNEY ${name}\n`);
@@ -116,6 +118,23 @@ try {
   deckPath = await page.evaluate(() => location.hash);
   await expect(page.getByText('Research failed', { exact: true })).toBeVisible({ timeout: 30000 });
   await expect(page.getByRole('button', { name: /Alder Works.*card/ })).toBeVisible();
+  sourceCardId = await page.evaluate(async () => {
+    const run = (await window.mi.listNativeRuns())[0];
+    return (await window.mi.listCards(run.deckId)).find(
+      (entry) => entry.company?.name === 'Alder Works',
+    ).card.id;
+  });
+  savedSource = await page.evaluate(
+    async (cardId) => (await window.mi.getNativeCardEvidence(cardId)).sources[0],
+    sourceCardId,
+  );
+  assert.equal(
+    savedSource.retrievalStatus,
+    'retrieved',
+    'Synthetic source must be retained, not just linked.',
+  );
+  assert.equal(savedSource.support, 'unreviewed', 'Fetching text is not semantic verification.');
+  assert.ok(savedSource.sourceId && savedSource.passageId && savedSource.fetchedAt);
   await page.getByText('Research activity', { exact: true }).click();
   await expect(page.getByText(/Could not complete Birch Works/)).toBeVisible();
   await page.screenshot({ path: path.join(output, 'partial-research.png') });
@@ -126,6 +145,8 @@ try {
   await expect(
     page.getByRole('link', { name: 'Synthetic fixture source — not live research' }),
   ).toBeVisible();
+  await page.getByRole('button', { name: 'Show retained text', exact: true }).click();
+  await expect(page.getByText(/Synthetic source text — not live research\./)).toBeVisible();
   await page.screenshot({ path: path.join(output, 'retained-source-leads.png') });
   await hold(1800);
   await page.keyboard.press('Escape');
@@ -187,6 +208,41 @@ try {
   await expect(page.getByRole('button', { name: /Birch Works.*card/ })).toBeVisible();
   await page.screenshot({ path: path.join(output, 'reopened-without-key.png') });
   mark('Both saved cards reopened without constructing a provider');
+  const beforeRead = await page.evaluate(() => window.mi.listNativeRuns());
+  const reopenedSource = await page.evaluate(
+    async (cardId) => (await window.mi.getNativeCardEvidence(cardId)).sources[0],
+    sourceCardId,
+  );
+  assert.deepEqual(
+    reopenedSource,
+    savedSource,
+    'Exact source text and capture identity survive restart.',
+  );
+  await page.getByRole('button', { name: /Alder Works.*card/ }).click();
+  await page.getByRole('button', { name: 'Show retained text', exact: true }).click();
+  await expect(page.getByText(/Synthetic source text — not live research\./)).toBeVisible();
+  await hold(1800);
+  await page.screenshot({ path: path.join(output, 'reopened-retained-source.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    true,
+    'Saved source reader must fit a narrow window.',
+  );
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByText(/Synthetic source text — not live research\./).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(output, 'narrow-retained-source.png') });
+  await hold();
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.keyboard.press('Escape');
+  assert.deepEqual(
+    await page.evaluate(() => window.mi.listNativeRuns()),
+    beforeRead,
+    'Opening saved evidence must not cause provider/source requests or change runs.',
+  );
+  mark(
+    'Retained source text reopened offline with no provider/source dispatch; support remains unreviewed',
+  );
   await hold(1800);
   await page.evaluate(() => {
     location.hash = '#/design/cards';
@@ -263,7 +319,7 @@ try {
         steps,
         failures,
         unavailable: [
-          'verified source passages',
+          'claim-level semantic support review',
           'normal native cutover',
           'R2 real portals/story destinations',
           'broad provider configuration',

@@ -49,6 +49,7 @@ const runSchema = nativeResearchStartSchema
         inputTokens: integer,
         outputTokens: integer,
         complete: z.boolean(),
+        sourceRequests: integer.optional(),
       })
       .strict(),
     createdAt: timestamp,
@@ -62,6 +63,10 @@ const runSchema = nativeResearchStartSchema
       (run.tasks.length <= run.maxCompanies &&
         new Set(run.tasks.map((task) => task.companyId)).size === run.tasks.length),
     'Run tasks must be unique and within the company allowance.',
+  )
+  .refine(
+    (run) => (run.usage.sourceRequests ?? 0) <= (run.limits.maxSourceRequests ?? 0),
+    'Source requests exceed the approved allowance.',
   )
   .refine(
     (run) => compareRecordTimestamps(run.createdAt, run.updatedAt) <= 0,
@@ -484,7 +489,8 @@ export function createWorkStore(
             run.status !== 'queued' ||
             run.usage.requests ||
             run.usage.inputTokens ||
-            run.usage.outputTokens
+            run.usage.outputTokens ||
+            run.usage.sourceRequests
           )
             throw new Error('New run must be queued with no consumed usage.');
           if (run.tasks) throw new Error('New run cannot supply selected task outcomes.');
@@ -635,6 +641,8 @@ export function createWorkStore(
         // A new generation must carry its previous attempt's charged totals forward.
         if (
           run.usage.requests < old.usage.requests ||
+          (run.usage.sourceRequests ?? 0) < (old.usage.sourceRequests ?? 0) ||
+          (run.usage.sourceRequests ?? 0) > (run.limits.maxSourceRequests ?? 0) ||
           (run.generation !== old.generation &&
             (run.usage.inputTokens < old.usage.inputTokens ||
               run.usage.outputTokens < old.usage.outputTokens))

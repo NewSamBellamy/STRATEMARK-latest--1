@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CARD_TYPE_LABELS,
   type CardType,
+  type NativeCardEvidence,
   type NativeResearchEvent,
   type NativeResearchRun,
 } from '@mi/contracts';
@@ -18,6 +19,164 @@ type EventLog = { after: number; items: NativeResearchEvent[] };
 // ponytail: keep the last 200 lightweight activity entries; full history remains in the vault.
 const MAX_ACTIVITY = 200;
 
+type Source = NativeCardEvidence['sources'][number];
+const captureDate = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  timeZoneName: 'short',
+});
+const SOURCE_STATES: Record<Source['retrievalStatus'], string> = {
+  lead_only: 'Lead only · not captured',
+  retrieved: 'Retrieved · support unreviewed',
+  partial: 'Partial capture · support unreviewed',
+  failed: 'Capture failed · no retained text',
+  blocked: 'Capture blocked · no retained text',
+};
+function SavedSource({ source }: { source: Source }) {
+  const [expanded, setExpanded] = useState(false);
+  const excerptId = useId();
+  const candidate = sourceUrl(source.url);
+  const url =
+    candidate && !new URL(candidate).username && !new URL(candidate).password ? candidate : null;
+  const label = source.title || (url ? new URL(url).hostname : 'Unavailable source URL');
+  const retained = ['retrieved', 'partial'].includes(source.retrievalStatus) && !!source.text;
+  return (
+    <li className="rounded-xl border border-border bg-surface p-4">
+      {url ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="break-words font-semibold text-primary underline"
+        >
+          {label}
+        </a>
+      ) : (
+        <span className="break-words font-semibold">{label}</span>
+      )}
+      <p className="mt-1 text-xs text-muted">{SOURCE_STATES[source.retrievalStatus]}</p>
+      <p className="mt-1 text-xs text-muted">
+        {source.fetchedAt ? (
+          <>
+            Captured:{' '}
+            <time dateTime={source.fetchedAt} title={source.fetchedAt}>
+              {captureDate.format(new Date(source.fetchedAt))}
+            </time>
+          </>
+        ) : (
+          'No capture date recorded'
+        )}
+      </p>
+      {retained && (
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-3"
+            aria-expanded={expanded}
+            aria-controls={excerptId}
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? 'Hide retained text' : 'Show retained text'}
+          </Button>
+          {expanded && (
+            <div id={excerptId} className="mt-3 rounded-lg border border-border bg-surface-2 p-5">
+              <p className="mb-3 text-xs text-muted">Saved plain text · unreviewed</p>
+              <p className="max-h-80 overflow-y-auto whitespace-pre-wrap break-words font-serif leading-7 text-content">
+                {source.text}
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </li>
+  );
+}
+function NativeCardSources({
+  cardId,
+  leads,
+  active,
+}: {
+  cardId: string;
+  leads: { url: string; title: string }[];
+  active: boolean;
+}) {
+  const evidence = useQuery({
+    queryKey: ['native-card-evidence', cardId],
+    enabled: !!window.mi?.getNativeCardEvidence,
+    // Local IPC remains readable offline. This is never a page/provider retrieval endpoint.
+    networkMode: 'always',
+    staleTime: 30_000,
+    queryFn: async () => {
+      const saved = await window.mi!.getNativeCardEvidence!(cardId);
+      if (saved.cardId !== cardId) throw new Error('Saved evidence belongs to a different card.');
+      return saved;
+    },
+    refetchInterval: active ? 1000 : false,
+  });
+  const wasActive = useRef(active);
+  const { refetch } = evidence;
+  useEffect(() => {
+    // Drain the final saved receipt when completion stops polling.
+    if (wasActive.current && !active && window.mi?.getNativeCardEvidence) void refetch();
+    wasActive.current = active;
+  }, [active, refetch]);
+  const sources: Source[] = evidence.data?.sources.length
+    ? evidence.data.sources
+    : leads.map((lead) => ({
+        ...lead,
+        retrievalStatus: 'lead_only',
+        fetchedAt: null,
+        text: null,
+        sourceId: null,
+        sourceRevision: null,
+        passageId: null,
+        support: 'unreviewed',
+      }));
+  return (
+    <section
+      aria-label="Source evidence"
+      className="rounded-xl border border-border bg-surface-2 p-5"
+    >
+      <h2 className="font-display text-lg font-semibold">Sources to inspect</h2>
+      <p className="mt-2 text-xs text-muted">
+        Saved source material only. Capture does not verify a claim or its exact passage support.
+        Opening this reader never fetches a public page or calls a provider.
+      </p>
+      {!window.mi?.getNativeCardEvidence && (
+        <p className="mt-2 text-xs text-muted">
+          Saved page evidence is unavailable in this bridge. These links are leads only.
+        </p>
+      )}
+      {evidence.isFetching && !evidence.data && (
+        <p role="status" className="mt-2 text-xs text-muted">
+          Reading saved source evidence…
+        </p>
+      )}
+      {evidence.isError && (
+        <p role="alert" className="mt-2 text-sm text-amber-800">
+          Saved source evidence could not be read. Citation leads and any previously retained text
+          remain available.
+        </p>
+      )}
+      {sources.length ? (
+        <ul className="mt-4 space-y-3">
+          {sources.map((source, index) => (
+            <SavedSource key={`${cardId}:${source.url}:${index}`} source={source} />
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-muted">
+          No source links or page text were retained for this result.
+        </p>
+      )}
+    </section>
+  );
+}
+
 export default function NativeDeckPage() {
   const { marketId } = useParams();
   const fixture =
@@ -28,6 +187,8 @@ export default function NativeDeckPage() {
   const deck = useDeckByMarket(marketId);
   const cards = useCards(deck.data?.id);
   const [params, setParams] = useSearchParams();
+  const selectedId = params.get('card');
+  const opener = useRef<HTMLElement | null>(null);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
   const qc = useQueryClient();
@@ -76,15 +237,17 @@ export default function NativeDeckPage() {
         void qc.invalidateQueries({ queryKey: qk.markets });
         if (event.marketId === marketId && runId) {
           void qc.invalidateQueries({ queryKey: ['native-events', runId] });
+          if (selectedId)
+            void qc.invalidateQueries({ queryKey: ['native-card-evidence', selectedId] });
         }
       }),
-    [qc, marketId, runId],
+    [qc, marketId, runId, selectedId],
   );
   const viewType = params.get('type');
   const visible = (cards.data ?? []).filter(
     (entry) => !viewType || entry.card.cardType === viewType,
   );
-  const selected = cards.data?.find((entry) => entry.card.id === params.get('card'));
+  const selected = cards.data?.find((entry) => entry.card.id === selectedId);
   const view = selected ? buildCardView(selected) : null;
   async function control(command: 'pause' | 'resume' | 'cancel') {
     if (!run || pending) return;
@@ -191,6 +354,10 @@ export default function NativeDeckPage() {
           {run.error && <p className="mt-2 text-sm text-amber-800">{run.error}</p>}
           <p className="mt-3 text-xs text-muted">
             {run.usage.requests} provider attempts ·{' '}
+            {run.usage.sourceRequests == null
+              ? 'Source attempts not recorded'
+              : `${run.usage.sourceRequests} source attempts`}{' '}
+            ·{' '}
             {run.usage.complete
               ? 'reported usage'
               : 'usage may include reserved or unreported tokens'}{' '}
@@ -255,6 +422,8 @@ export default function NativeDeckPage() {
             data={entry}
             hideActions
             onOpen={() => {
+              opener.current =
+                document.activeElement instanceof HTMLElement ? document.activeElement : null;
               const next = new URLSearchParams(params);
               next.set('card', entry.card.id);
               setParams(next);
@@ -272,9 +441,18 @@ export default function NativeDeckPage() {
           }
         }}
       >
-        <DialogContent size="2xl">
+        <DialogContent
+          size="2xl"
+          onCloseAutoFocus={(event) => {
+            if (opener.current?.isConnected) {
+              event.preventDefault();
+              opener.current.focus();
+            }
+          }}
+        >
           <DialogTitle>{view?.title ?? 'Saved research'}</DialogTitle>
           <DialogDescription>
+            {fixture && 'Synthetic fixture material · no live research. '}
             Company research retained from this bounded pass. Source links are research leads; exact
             passage support is still pending.
           </DialogDescription>
@@ -291,25 +469,12 @@ export default function NativeDeckPage() {
                   ))}
                 </ul>
               )}
-              <h2 className="font-display text-lg font-semibold">Sources to inspect</h2>
-              {view.citations.length ? (
-                <ul className="space-y-2">
-                  {view.citations.map((citation, index) => (
-                    <li key={index}>
-                      <a
-                        href={sourceUrl(citation.url) ?? undefined}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary underline"
-                      >
-                        {citation.title || new URL(citation.url).hostname}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-muted">No source links were retained for this result.</p>
-              )}
+              <NativeCardSources
+                key={selected.card.id}
+                cardId={selected.card.id}
+                leads={view.citations}
+                active={['queued', 'running'].includes(run?.status ?? '')}
+              />
               <p className="text-xs text-muted">
                 Model-extracted numeric claims have been withheld from the card face until exact
                 evidence support is reviewed.

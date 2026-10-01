@@ -6,6 +6,7 @@ import type * as NodeSqlite from 'node:sqlite';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { buildDataset } from '@mi/mocks';
 import type { NativeResearchStart, CardWithCompany } from '@mi/contracts';
+import { sourceVersionRecordSchema, evidencePassageRecordSchema } from '@mi/contracts';
 import type { LlmClient, CompanyCandidate } from '@mi/research';
 import type * as Research from '@mi/research';
 import { openVault } from './vault';
@@ -55,6 +56,23 @@ function card(candidate: CompanyCandidate, deckId: string): CardWithCompany {
     metrics: fixture.metrics.filter((metric) => metric.companyId === company.id),
     viceClaims: [],
   };
+}
+function sourceCards(urls: string[], duplicateRole = false) {
+  pipeline.discover.mockImplementation(async () => ({ candidates: [candidates[0]] }));
+  pipeline.hydrate.mockImplementation(async ({ candidate, client, deckId }) => {
+    await client.ground('Fixture company');
+    const data = card(candidate, deckId);
+    data.card.citations = urls.map((url, index) => ({
+      title: `Source ${index}`,
+      url,
+      credibility: 'unknown',
+    }));
+    return {
+      cards: duplicateRole
+        ? [data, { ...data, card: { ...data.card, cardType: 'infrastructure' } }]
+        : [data],
+    };
+  });
 }
 function open(
   client: LlmClient | null = testClient(),
@@ -122,6 +140,784 @@ afterEach(async () => {
   for (const service of services.splice(0)) await service.close();
   for (const directory of roots.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
+
+it('retains bounded source text after progressive cards and reads it after a keyless reopen', async () => {
+  const url = 'https://sources.example/alder';
+  pipeline.discover.mockImplementation(async () => ({ candidates: [candidates[0]] }));
+  pipeline.hydrate.mockImplementation(async ({ candidate, client, deckId }) => {
+    await client.ground('Fixture company');
+    const data = card(candidate, deckId);
+    data.card.citations = [{ title: 'Alder source', url, credibility: 'unknown' }];
+    return { cards: [data] };
+  });
+  const retrieveSource = vi.fn(
+    async (
+      originalUrl: string,
+      options: {
+        signal: AbortSignal;
+        beforeRequest?: () => void;
+      },
+    ) => {
+      expect(service.vault.work.listCards(service.vault.work.listRuns()[0]!.deckId)).toHaveLength(
+        1,
+      );
+      options.beforeRequest!();
+      expect(service.vault.work.listRuns()[0]!.usage.sourceRequests).toBe(1);
+      return {
+        originalUrl,
+        canonicalUrl: originalUrl,
+        text: 'Retained fixture text, not a verified claim.',
+        retrievalStatus: 'retrieved' as const,
+        reason: null,
+      };
+    },
+  );
+  const opened = open(testClient(), undefined, { retrieveSource });
+  const service = opened.service;
+  const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 2 } });
+  await service.waitForIdle();
+  expect(retrieveSource).toHaveBeenCalledTimes(1);
+  const saved = service.vault.work.listCards(run.deckId)[0]!;
+  const evidence = service.getCardEvidence(saved.card.id);
+  expect(evidence.sources).toEqual([
+    expect.objectContaining({
+      url,
+      retrievalStatus: 'retrieved',
+      text: 'Retained fixture text, not a verified claim.',
+      fetchedAt: expect.any(String),
+      sourceId: expect.any(String),
+      sourceRevision: 1,
+      passageId: expect.any(String),
+      support: 'unreviewed',
+    }),
+  ]);
+  const source = service.vault.getSourceVersion(evidence.sources[0]!.sourceId!, 1)!;
+  expect(source.record.visibilityScope).toEqual({ marketIds: [run.marketId], companyIds: [] });
+  await service.close();
+  services.splice(services.indexOf(service), 1);
+  const connection = vi.fn(() => null);
+  const reader = new NativeResearchService(
+    openVault(opened.file, 'fixture_native', 'reader'),
+    connection,
+    undefined,
+    { researchProvenance: 'synthetic_fixture', writable: false, retrieveSource },
+  );
+  services.push(reader);
+  expect(reader.getCardEvidence(saved.card.id)).toEqual(evidence);
+  expect(connection).not.toHaveBeenCalled();
+  expect(retrieveSource).toHaveBeenCalledTimes(1);
+});
+
+it('captures only two unique public leads across role duplicates and bounds retained excerpts', async () => {
+  const urls = [
+    'file:///not-public',
+    'https://user:secret@sources.example/private',
+    'https://sources.example/one',
+    'https://sources.example/one',
+    'https://sources.example/two',
+    'https://sources.example/three',
+  ];
+  sourceCards(urls, true);
+  const text = `${'x'.repeat(19_999)}😀 beyond the excerpt`;
+  const retrieveSource = vi.fn(
+    async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+      options.beforeRequest!();
+      return {
+        originalUrl,
+        canonicalUrl: originalUrl,
+        text,
+        retrievalStatus: 'retrieved' as const,
+        reason: null,
+      };
+    },
+  );
+  const { service } = open(testClient(), undefined, { retrieveSource });
+  const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 10 } });
+  await service.waitForIdle();
+  expect(retrieveSource.mock.calls.map(([url]) => url)).toEqual(
+    urls
+      .slice(2)
+      .filter((url, i, all) => all.indexOf(url) === i)
+      .slice(0, 2),
+  );
+  expect(service.vault.work.getRun(run.id)?.usage.sourceRequests).toBe(2);
+  const cards = service.vault.work.listCards(run.deckId);
+  expect(cards).toHaveLength(2);
+  const sources = cards.map((entry) => service.getCardEvidence(entry.card.id).sources);
+  for (const evidence of sources) {
+    expect(evidence.map((item) => item.retrievalStatus)).toEqual([
+      'partial',
+      'partial',
+      'lead_only',
+    ]);
+    for (const retained of evidence.slice(0, 2)) {
+      expect(retained.text).toBe('x'.repeat(19_999));
+      expect(service.vault.getSourceVersion(retained.sourceId!, 1)!.content).toBe(retained.text);
+    }
+  }
+  expect(sources[0]![0]!.sourceId).not.toBe(sources[1]![0]!.sourceId);
+  expect(
+    cards.every((entry) =>
+      entry.metrics.every(
+        (metric) => metric.confidence === 'estimated' || metric.confidence === 'unknown',
+      ),
+    ),
+  ).toBe(true);
+});
+
+it.each(['failed', 'blocked', 'throws'] as const)(
+  'keeps successful cards when source retrieval %s',
+  async (outcome) => {
+    sourceCards(['https://sources.example/unavailable']);
+    const retrieveSource = vi.fn(
+      async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+        options.beforeRequest!();
+        if (outcome === 'throws') throw new Error('Fixture retrieval failure');
+        return {
+          originalUrl,
+          canonicalUrl: originalUrl,
+          text: null,
+          retrievalStatus: outcome,
+          reason: 'Fixture unavailable',
+        };
+      },
+    );
+    const { service } = open(testClient(), undefined, { retrieveSource });
+    const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 2 } });
+    await service.waitForIdle();
+    expect(service.vault.work.getRun(run.id)).toMatchObject({
+      status: 'completed',
+      usage: { sourceRequests: 1 },
+    });
+    const saved = service.vault.work.listCards(run.deckId);
+    expect(saved).toHaveLength(1);
+    expect(service.getCardEvidence(saved[0]!.card.id).sources[0]).toMatchObject({
+      retrievalStatus: outcome === 'throws' ? 'failed' : outcome,
+      fetchedAt: expect.any(String),
+      text: null,
+      passageId: null,
+      support: 'unreviewed',
+    });
+  },
+);
+
+it.each([undefined, 0])(
+  'never calls retrieval without an explicit positive source allowance (%s)',
+  async (maxSourceRequests) => {
+    sourceCards(['https://sources.example/lead']);
+    const retrieveSource = vi.fn();
+    const { service } = open(testClient(), undefined, { retrieveSource });
+    const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests } });
+    await service.waitForIdle();
+    expect(retrieveSource).not.toHaveBeenCalled();
+    const saved = service.vault.work.listCards(run.deckId)[0]!;
+    expect(service.vault.work.getRun(run.id)?.usage.sourceRequests ?? 0).toBe(0);
+    expect(service.getCardEvidence(saved.card.id).sources[0]).toMatchObject({
+      retrievalStatus: 'lead_only',
+      fetchedAt: null,
+      text: null,
+      sourceId: null,
+      sourceRevision: null,
+      passageId: null,
+    });
+  },
+);
+
+it('reserves every simulated redirect durably and stops at the source request ceiling', async () => {
+  sourceCards(['https://sources.example/redirect', 'https://sources.example/next']);
+  const dispatchCounts: number[] = [];
+  const retrieveSource = vi.fn(
+    async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+      for (let redirect = 0; redirect < 3; redirect++) {
+        options.beforeRequest!();
+        dispatchCounts.push(service.vault.work.listRuns()[0]!.usage.sourceRequests!);
+      }
+      return {
+        originalUrl,
+        canonicalUrl: originalUrl,
+        text: 'Not reached',
+        retrievalStatus: 'retrieved' as const,
+        reason: null,
+      };
+    },
+  );
+  const { service } = open(testClient(), undefined, { retrieveSource });
+  const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 2 } });
+  await service.waitForIdle();
+  expect(dispatchCounts).toEqual([1, 2]);
+  expect(retrieveSource).toHaveBeenCalledTimes(1);
+  expect(service.vault.work.getRun(run.id)).toMatchObject({
+    status: 'completed',
+    usage: { sourceRequests: 2 },
+  });
+  const saved = service.vault.work.listCards(run.deckId)[0]!;
+  expect(
+    service.getCardEvidence(saved.card.id).sources.map((item) => item.retrievalStatus),
+  ).toEqual(['failed', 'lead_only']);
+});
+
+it.each(['cancel', 'pause'] as const)(
+  'fences late source text on %s while preserving progressive output and draining close',
+  async (command) => {
+    sourceCards(['https://sources.example/delayed']);
+    let release!: () => void;
+    let began!: () => void;
+    const delayed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    let pendingSignal: AbortSignal | undefined;
+    let lateRequestRejected = false;
+    const retrieveSource = vi.fn(
+      async (originalUrl: string, options: { signal: AbortSignal; beforeRequest?: () => void }) => {
+        options.beforeRequest!();
+        pendingSignal = options.signal;
+        began();
+        await delayed;
+        try {
+          options.beforeRequest!();
+        } catch {
+          lateRequestRejected = true;
+        }
+        return {
+          originalUrl,
+          canonicalUrl: originalUrl,
+          text: 'Late text must never be retained',
+          retrievalStatus: 'retrieved' as const,
+          reason: null,
+        };
+      },
+    );
+    const { service, file } = open(testClient(), undefined, { retrieveSource });
+    const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 2 } });
+    await started;
+    const saved = service.vault.work.listCards(run.deckId)[0]!;
+    service.control(run.id, command);
+    expect(pendingSignal?.aborted).toBe(true);
+    const revision = service.vault.status().revision;
+    let closed = false;
+    const closing = service.close().then(() => {
+      closed = true;
+    });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    release();
+    await closing;
+    expect(lateRequestRejected).toBe(true);
+    services.splice(services.indexOf(service), 1);
+    const reader = new NativeResearchService(
+      openVault(file, 'fixture_native', 'reader'),
+      () => null,
+      undefined,
+      { researchProvenance: 'synthetic_fixture', writable: false },
+    );
+    services.push(reader);
+    expect(reader.vault.status().revision).toBe(revision);
+    expect(reader.vault.work.getRun(run.id)).toMatchObject({
+      status: command === 'cancel' ? 'cancelled' : 'paused',
+      usage: { sourceRequests: 1 },
+    });
+    expect(reader.vault.work.listCards(run.deckId)).toHaveLength(1);
+    expect(reader.getCardEvidence(saved.card.id).sources[0]).toMatchObject({
+      retrievalStatus: 'lead_only',
+      text: null,
+    });
+  },
+);
+
+it.each([1, request.limits.maxRequests])(
+  'resumes interrupted source capture for completed companies without rehydration (model allowance %i)',
+  async (maxRequests) => {
+    sourceCards(['https://sources.example/interrupted-capture']);
+    let release!: () => void;
+    let began!: () => void;
+    const delayed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    let attempts = 0;
+    const retrieveSource = vi.fn(
+      async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+        options.beforeRequest!();
+        if (++attempts === 1) {
+          began();
+          await delayed;
+        }
+        return {
+          originalUrl,
+          canonicalUrl: originalUrl,
+          text: 'Captured on the remaining allowance',
+          retrievalStatus: 'retrieved' as const,
+          reason: null,
+        };
+      },
+    );
+    const { service, file } = open(testClient(), undefined, { retrieveSource });
+    const run = service.start({
+      ...request,
+      limits: { ...request.limits, maxRequests, maxSourceRequests: 2 },
+    });
+    await started;
+    const saved = service.vault.work.listCards(run.deckId)[0]!;
+    expect(service.vault.work.getRun(run.id)?.tasks?.[0]?.status).toBe('completed');
+    service.control(run.id, 'pause');
+    release();
+    await service.close();
+    services.splice(services.indexOf(service), 1);
+    const connection = vi.fn(() => null);
+    const restarted = new NativeResearchService(
+      openVault(file, 'fixture_native'),
+      connection,
+      undefined,
+      { researchProvenance: 'synthetic_fixture', retrieveSource },
+    );
+    services.push(restarted);
+    restarted.control(run.id, 'resume');
+    await restarted.waitForIdle();
+    expect(restarted.getCardEvidence(saved.card.id).sources[0]).toMatchObject({
+      retrievalStatus: 'retrieved',
+      text: 'Captured on the remaining allowance',
+    });
+    expect(restarted.vault.work.getRun(run.id)).toMatchObject({
+      status: 'completed',
+      usage: { requests: 1, sourceRequests: 2, complete: true },
+    });
+    expect(connection).not.toHaveBeenCalled();
+    expect(pipeline.hydrate).toHaveBeenCalledTimes(1);
+    expect(pipeline.discover).toHaveBeenCalledTimes(1);
+    expect(retrieveSource).toHaveBeenCalledTimes(2);
+  },
+);
+
+it.each([1, request.limits.maxRequests])(
+  'keeps persistent passage failure resumable and repairs keylessly after reopen (model allowance %i)',
+  async (maxRequests) => {
+    sourceCards(['https://sources.example/passage-repair']);
+    const directory = mkdtempSync(path.join(tmpdir(), 'stratemark-native-evidence-repair-'));
+    roots.push(directory);
+    const file = path.join(directory, 'vault.sqlite');
+    const vault = openVault(file, 'fixture_native');
+    const writer = vault.writer();
+    let passageAttempts = 0;
+    vi.spyOn(vault, 'writer').mockReturnValue({
+      ...writer,
+      savePassage: () => {
+        passageAttempts++;
+        throw new Error('Fixture interrupted passage');
+      },
+    });
+    const retrieveSource = vi.fn(
+      async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+        options.beforeRequest!();
+        return {
+          originalUrl,
+          canonicalUrl: originalUrl,
+          text: 'Repair this exact retained source',
+          retrievalStatus: 'retrieved' as const,
+          reason: null,
+        };
+      },
+    );
+    const service = new NativeResearchService(vault, testClient, undefined, {
+      researchProvenance: 'synthetic_fixture',
+      retrieveSource,
+    });
+    services.push(service);
+    const run = service.start({
+      ...request,
+      limits: { ...request.limits, maxRequests, maxSourceRequests: 1 },
+    });
+    await service.waitForIdle();
+    const saved = vault.work.listCards(run.deckId)[0]!;
+    const unavailable = service.getCardEvidence(saved.card.id).sources[0]!;
+    expect(unavailable).toMatchObject({ retrievalStatus: 'failed', text: null, passageId: null });
+    expect(vault.work.getRun(run.id)).toMatchObject({
+      status: 'failed',
+      usage: { sourceRequests: 1, complete: true },
+    });
+    expect(vault.work.getRun(run.id)?.error).toMatch(/source.*publication|passage/i);
+    expect(passageAttempts).toBe(2);
+    const failed = vault.work.getRun(run.id)!;
+    expect(failed.tasks?.[0]?.status).toBe('completed');
+    await service.close();
+    services.splice(services.indexOf(service), 1);
+    const connection = vi.fn(() => null);
+    const unexpectedRetrieval = vi.fn(async () => {
+      throw new Error('Local repair must not retrieve');
+    });
+    const restarted = new NativeResearchService(
+      openVault(file, 'fixture_native'),
+      connection,
+      undefined,
+      { researchProvenance: 'synthetic_fixture', retrieveSource: unexpectedRetrieval },
+    );
+    services.push(restarted);
+    restarted.control(run.id, 'resume');
+    await restarted.waitForIdle();
+    const repaired = restarted.getCardEvidence(saved.card.id).sources[0]!;
+    expect(repaired).toMatchObject({
+      retrievalStatus: 'retrieved',
+      text: 'Repair this exact retained source',
+      fetchedAt: unavailable.fetchedAt,
+      sourceRevision: 1,
+      passageId: expect.any(String),
+    });
+    expect(restarted.vault.work.getRun(run.id)).toMatchObject({
+      status: 'completed',
+      usage: { requests: 1, sourceRequests: 1, complete: true },
+    });
+    expect(restarted.vault.work.getRun(run.id)?.usage).toEqual(failed.usage);
+    expect(restarted.vault.work.getRun(run.id)?.tasks).toEqual(failed.tasks);
+    expect(restarted.vault.work.getCard(saved.card.id)).toEqual(saved);
+    expect(connection).not.toHaveBeenCalled();
+    expect(unexpectedRetrieval).not.toHaveBeenCalled();
+    expect(retrieveSource).toHaveBeenCalledTimes(1);
+    expect(pipeline.hydrate).toHaveBeenCalledTimes(1);
+  },
+);
+
+it('repairs a one-off passage write failure before completing, without repeating retrieval', async () => {
+  sourceCards(['https://sources.example/transient-passage']);
+  const directory = mkdtempSync(path.join(tmpdir(), 'stratemark-native-evidence-transient-'));
+  roots.push(directory);
+  const vault = openVault(path.join(directory, 'vault.sqlite'), 'fixture_native');
+  const writer = vault.writer();
+  let attempts = 0;
+  vi.spyOn(vault, 'writer').mockReturnValue({
+    ...writer,
+    savePassage: (input) => {
+      if (++attempts === 1) throw new Error('Fixture transient passage failure');
+      writer.savePassage(input);
+    },
+  });
+  const retrieveSource = vi.fn(
+    async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+      options.beforeRequest!();
+      return {
+        originalUrl,
+        canonicalUrl: originalUrl,
+        text: 'Repair without HTTP',
+        retrievalStatus: 'retrieved' as const,
+        reason: null,
+      };
+    },
+  );
+  const service = new NativeResearchService(vault, testClient, undefined, {
+    researchProvenance: 'synthetic_fixture',
+    retrieveSource,
+  });
+  services.push(service);
+  const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 1 } });
+  await service.waitForIdle();
+  const saved = vault.work.listCards(run.deckId)[0]!;
+  expect(service.getCardEvidence(saved.card.id).sources[0]).toMatchObject({
+    retrievalStatus: 'retrieved',
+    text: 'Repair without HTTP',
+  });
+  expect(vault.work.getRun(run.id)).toMatchObject({
+    status: 'completed',
+    usage: { sourceRequests: 1 },
+  });
+  expect(attempts).toBe(2);
+  expect(retrieveSource).toHaveBeenCalledTimes(1);
+});
+
+it('fences simultaneous redirect reservations competing for the last source allowance', async () => {
+  pipeline.hydrate.mockImplementation(async ({ candidate, client, deckId }) => {
+    await client.ground(`Fixture ${candidate.name}`);
+    const data = card(candidate, deckId);
+    data.card.citations = [
+      {
+        title: candidate.name,
+        url: `https://sources.example/${candidate.name}`,
+        credibility: 'unknown',
+      },
+    ];
+    return { cards: [data] };
+  });
+  let release!: () => void;
+  const bothStarted = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let initialRequests = 0;
+  const dispatchCounts: number[] = [];
+  const retrieveSource = vi.fn(
+    async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+      options.beforeRequest!();
+      dispatchCounts.push(service.vault.work.listRuns()[0]!.usage.sourceRequests!);
+      if (++initialRequests === 2) release();
+      await bothStarted;
+      options.beforeRequest!();
+      dispatchCounts.push(service.vault.work.listRuns()[0]!.usage.sourceRequests!);
+      return {
+        originalUrl,
+        canonicalUrl: `${originalUrl}/redirected`,
+        text: 'Last-slot fixture',
+        retrievalStatus: 'retrieved' as const,
+        reason: null,
+      };
+    },
+  );
+  const { service } = open(testClient(), undefined, { retrieveSource });
+  const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 3 } });
+  await service.waitForIdle();
+  expect(dispatchCounts).toEqual([1, 2, 3]);
+  expect(service.vault.work.getRun(run.id)).toMatchObject({
+    status: 'completed',
+    usage: { requests: 3, inputTokens: 90, outputTokens: 60, sourceRequests: 3 },
+  });
+  expect(
+    service.vault.work
+      .listCards(run.deckId)
+      .map((entry) => service.getCardEvidence(entry.card.id).sources[0]!.retrievalStatus)
+      .sort(),
+  ).toEqual(['failed', 'retrieved']);
+});
+
+it('preserves the source allowance through restart and retries only unfinished company work', async () => {
+  let birchAttempts = 0;
+  pipeline.hydrate.mockImplementation(async ({ candidate, client, deckId }) => {
+    await client.ground(`Fixture ${candidate.name}`);
+    if (candidate.name === 'Birch' && ++birchAttempts === 1)
+      throw new Error('Fixture interrupted company');
+    const data = card(candidate, deckId);
+    data.card.citations = [
+      {
+        title: candidate.name,
+        url: `https://sources.example/${candidate.name}`,
+        credibility: 'unknown',
+      },
+    ];
+    return { cards: [data] };
+  });
+  const retrieveSource = vi.fn(
+    async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+      options.beforeRequest!();
+      return {
+        originalUrl,
+        canonicalUrl: originalUrl,
+        text: 'Retained before restart',
+        retrievalStatus: 'retrieved' as const,
+        reason: null,
+      };
+    },
+  );
+  const { service, file } = open(testClient(), undefined, { retrieveSource });
+  const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 1 } });
+  await service.waitForIdle();
+  expect(service.vault.work.getRun(run.id)).toMatchObject({
+    status: 'failed',
+    usage: { sourceRequests: 1 },
+  });
+  await service.close();
+  services.splice(services.indexOf(service), 1);
+  const restarted = new NativeResearchService(
+    openVault(file, 'fixture_native'),
+    testClient,
+    undefined,
+    { researchProvenance: 'synthetic_fixture', retrieveSource },
+  );
+  services.push(restarted);
+  restarted.control(run.id, 'resume');
+  await restarted.waitForIdle();
+  expect(restarted.vault.work.getRun(run.id)).toMatchObject({
+    status: 'completed',
+    usage: { requests: 4, sourceRequests: 1 },
+    limits: { maxSourceRequests: 1 },
+  });
+  expect(retrieveSource).toHaveBeenCalledTimes(1);
+  expect(pipeline.hydrate.mock.calls.map(([input]) => input.candidate.name)).toEqual([
+    'Alder',
+    'Birch',
+    'Birch',
+  ]);
+  for (const saved of restarted.vault.work.listCards(run.deckId)) {
+    expect(restarted.getCardEvidence(saved.card.id).sources[0]!.retrievalStatus).toBe(
+      saved.company!.name === 'Alder' ? 'retrieved' : 'lead_only',
+    );
+  }
+});
+
+it('bounds saved-only evidence reads to twenty unique leads and five-thousand-character titles', async () => {
+  sourceCards(Array.from({ length: 25 }, (_, index) => `https://sources.example/${index}`));
+  const hydrate = pipeline.hydrate.getMockImplementation()!;
+  pipeline.hydrate.mockImplementation(async (...args) => {
+    const result = await hydrate(...args);
+    result.cards[0].card.citations[0].title = 't'.repeat(6000);
+    return result;
+  });
+  const { service } = open();
+  const run = service.start(request);
+  await service.waitForIdle();
+  const saved = service.vault.work.listCards(run.deckId)[0]!;
+  const evidence = service.getCardEvidence(saved.card.id);
+  expect(evidence.cardId).toBe(saved.card.id);
+  expect(evidence.sources).toHaveLength(20);
+  expect(evidence.sources[0]!.title).toHaveLength(5000);
+  expect(evidence.sources.every((lead) => lead.retrievalStatus === 'lead_only')).toBe(true);
+  expect(() => service.getCardEvidence('crd_missing')).toThrow(/not found/i);
+});
+
+it('preserves source reservations through concurrent provider-meter updates', async () => {
+  let firstRequest!: () => void;
+  let secondRequest!: () => void;
+  const first = new Promise<void>((resolve) => {
+    firstRequest = resolve;
+  });
+  const second = new Promise<void>((resolve) => {
+    secondRequest = resolve;
+  });
+  pipeline.hydrate.mockImplementation(async ({ candidate, client, deckId }) => {
+    if (candidate.name === 'Birch') await first;
+    await client.ground(`Fixture ${candidate.name}`);
+    const data = card(candidate, deckId);
+    data.card.citations = [
+      {
+        title: candidate.name,
+        url: `https://sources.example/${candidate.name}`,
+        credibility: 'unknown',
+      },
+    ];
+    return { cards: [data] };
+  });
+  const retrieveSource = vi.fn(
+    async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+      options.beforeRequest!();
+      if (originalUrl.endsWith('Alder')) {
+        firstRequest();
+        await second;
+      } else secondRequest();
+      return {
+        originalUrl,
+        canonicalUrl: originalUrl,
+        text: 'Fixture text',
+        retrievalStatus: 'retrieved' as const,
+        reason: null,
+      };
+    },
+  );
+  const { service } = open(testClient(), undefined, { retrieveSource });
+  const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 2 } });
+  await service.waitForIdle();
+  expect(service.vault.work.getRun(run.id)).toMatchObject({
+    status: 'completed',
+    usage: { requests: 3, inputTokens: 90, outputTokens: 60, sourceRequests: 2 },
+  });
+  expect(retrieveSource).toHaveBeenCalledTimes(2);
+});
+
+it('does not expose retained text or passage references if the passage write failed', async () => {
+  sourceCards(['https://sources.example/interrupted']);
+  const directory = mkdtempSync(path.join(tmpdir(), 'stratemark-native-evidence-'));
+  roots.push(directory);
+  const vault = openVault(path.join(directory, 'vault.sqlite'), 'fixture_native');
+  const writer = vault.writer();
+  vi.spyOn(vault, 'writer').mockReturnValue({
+    ...writer,
+    savePassage: () => {
+      throw new Error('Fixture interrupted passage write');
+    },
+  });
+  const retrieveSource = vi.fn(
+    async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+      options.beforeRequest!();
+      return {
+        originalUrl,
+        canonicalUrl: originalUrl,
+        text: 'Stored source, missing passage',
+        retrievalStatus: 'retrieved' as const,
+        reason: null,
+      };
+    },
+  );
+  const service = new NativeResearchService(vault, testClient, undefined, {
+    researchProvenance: 'synthetic_fixture',
+    retrieveSource,
+  });
+  services.push(service);
+  const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 1 } });
+  await service.waitForIdle();
+  expect(vault.work.getRun(run.id)?.status).toBe('failed');
+  const saved = vault.work.listCards(run.deckId)[0]!;
+  expect(service.getCardEvidence(saved.card.id).sources[0]).toMatchObject({
+    retrievalStatus: 'failed',
+    fetchedAt: expect.any(String),
+    text: null,
+    sourceId: null,
+    sourceRevision: null,
+    passageId: null,
+    support: 'unreviewed',
+  });
+});
+
+it.each(['source_scope', 'passage_scope', 'origin'] as const)(
+  'refuses retained text with mismatched %s',
+  async (mismatch) => {
+    sourceCards(['https://sources.example/wrong-scope']);
+    const directory = mkdtempSync(path.join(tmpdir(), 'stratemark-native-evidence-scope-'));
+    roots.push(directory);
+    const vault = openVault(path.join(directory, 'vault.sqlite'), 'fixture_native');
+    const writer = vault.writer();
+    vi.spyOn(vault, 'writer').mockReturnValue({
+      ...writer,
+      saveSourceVersion: (input, content, revision) => {
+        const record = sourceVersionRecordSchema.parse(input);
+        writer.saveSourceVersion(
+          {
+            ...record,
+            origin: mismatch === 'origin' ? 'imported' : record.origin,
+            visibilityScope:
+              mismatch === 'source_scope'
+                ? { marketIds: [], companyIds: [] }
+                : record.visibilityScope,
+          },
+          content,
+          revision,
+        );
+      },
+      savePassage: (input) => {
+        const record = evidencePassageRecordSchema.parse(input);
+        writer.savePassage({
+          ...record,
+          origin: mismatch === 'origin' ? 'imported' : record.origin,
+          visibilityScope:
+            mismatch !== 'origin' ? { marketIds: [], companyIds: [] } : record.visibilityScope,
+        });
+      },
+    });
+    const retrieveSource = vi.fn(
+      async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+        options.beforeRequest!();
+        return {
+          originalUrl,
+          canonicalUrl: originalUrl,
+          text: 'Do not cross this scope boundary',
+          retrievalStatus: 'retrieved' as const,
+          reason: null,
+        };
+      },
+    );
+    const service = new NativeResearchService(vault, testClient, undefined, {
+      researchProvenance: 'synthetic_fixture',
+      retrieveSource,
+    });
+    services.push(service);
+    const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 1 } });
+    await service.waitForIdle();
+    expect(vault.work.getRun(run.id)?.status).toBe('completed');
+    const saved = vault.work.listCards(run.deckId)[0]!;
+    const evidence = service.getCardEvidence(saved.card.id).sources[0]!;
+    expect(evidence.retrievalStatus).not.toBe('retrieved');
+    expect(evidence.text).toBeNull();
+    expect(evidence.sourceId).toBeNull();
+    expect(evidence.sourceRevision).toBeNull();
+    expect(evidence.passageId).toBeNull();
+  },
+);
 
 it('accepts once, preserves the approved market, persists partial cards/events and reopens without a key', async () => {
   const client = testClient();

@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import type {
   CardWithCompany,
   DeckRefreshListener,
   Market,
   MarketIntelRepository,
+  NativeCardEvidence,
   NativeResearchEvent,
   NativeResearchRun,
   NativeResearchStart,
@@ -20,6 +21,8 @@ import NativeDeckPage from './NativeDeckPage';
 
 const DRAFT = 'mi.native.scope-draft';
 const at = '2026-10-01T12:00:00.000Z';
+const syntheticText =
+  'Synthetic source text — not live research. Alder Works schedules repairs. Birch Works supplies repair tooling. This page is a fictional retained source for recovery tests, not evidence of real companies or numeric claims.';
 const clients: QueryClient[] = [];
 function client() {
   const value = new QueryClient({
@@ -77,7 +80,11 @@ function event(sequence: number): NativeResearchEvent {
 }
 function bridge(initialRuns: NativeResearchRun[] = []) {
   const listeners = new Set<DeckRefreshListener>();
-  const state = { runs: initialRuns, events: [] as NativeResearchEvent[] };
+  const state = {
+    runs: initialRuns,
+    events: [] as NativeResearchEvent[],
+    cards: [] as CardWithCompany[],
+  };
   const api = {
     storageMode: 'native' as const,
     listNativeRuns: vi.fn(async () => [...state.runs]),
@@ -121,7 +128,9 @@ function bridge(initialRuns: NativeResearchRun[] = []) {
         ? { id: found.deckId, marketId: id, createdAt: at, lastRefreshedAt: null }
         : null;
     }),
-    listCards: vi.fn(async () => []),
+    listCards: vi.fn(async (deckId: string) =>
+      state.cards.filter((item) => item.card.deckId === deckId),
+    ),
   };
   Object.defineProperty(window, 'mi', { configurable: true, value: api });
   return {
@@ -204,12 +213,317 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  onlineManager.setOnline(true);
   for (const qc of clients.splice(0)) qc.clear();
   expect(fetch).not.toHaveBeenCalled();
   Reflect.deleteProperty(window, 'mi');
   useApiKey.setState({ apiKey: '', hasKey: false });
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+function savedCard(): CardWithCompany {
+  return {
+    card: {
+      id: 'card-1',
+      deckId: 'deck-1',
+      companyId: 'company-1',
+      cardType: 'company',
+      title: 'Saved company',
+      summary: 'Saved market relevance.',
+      tier: null,
+      tierReason: null,
+      citations: [{ url: 'https://fixture.invalid/source', title: 'Saved source lead' }],
+      keyPoints: [],
+      createdAt: at,
+    },
+    company: {
+      id: 'company-1',
+      name: 'Saved company',
+      oneLiner: 'Offline purpose.',
+      hqLocation: null,
+      logoUrl: null,
+      websiteUrl: null,
+      brandTheme: null,
+    },
+    metrics: [],
+    viceClaims: [],
+  };
+}
+function source(
+  overrides: Partial<NativeCardEvidence['sources'][number]> = {},
+): NativeCardEvidence['sources'][number] {
+  return {
+    url: 'https://fixture.invalid/source',
+    title: 'Retained public page',
+    retrievalStatus: 'retrieved',
+    fetchedAt: at,
+    text: 'A saved plain text passage.',
+    sourceId: 'source-1',
+    sourceRevision: 1,
+    passageId: 'passage-1',
+    support: 'unreviewed',
+    ...overrides,
+  };
+}
+function evidenceBridge(sources = [source()], status: NativeResearchRun['status'] = 'completed') {
+  const native = bridge([run(1, status)]);
+  native.state.cards = [savedCard()];
+  const read = vi.fn(async (): Promise<NativeCardEvidence> => ({ cardId: 'card-1', sources }));
+  // These forbidden write paths make the reader's saved-read-only contract observable.
+  const capture = vi.fn(() => {
+    throw new Error('Reader must not capture a page');
+  });
+  Object.assign(native.api, { getNativeCardEvidence: read, captureSource: capture });
+  return { ...native, read, capture };
+}
+
+describe('explicit source capture allowance', () => {
+  it('reviews and persists a separate 12-source ceiling before dispatch', async () => {
+    const native = bridge();
+    const { user } = mount(native);
+    await review(user);
+    expect(screen.getByText(/12 source requests/)).toBeVisible();
+    expect(screen.getByText(/public pages during research.*at most 2.*per company/i)).toBeVisible();
+    expect(storedDraft().reviewed?.limits.maxSourceRequests).toBe(12);
+    expect(native.api.startNativeResearch).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Approve and start research' }));
+    await screen.findByRole('button', { name: 'Pause' });
+    expect(native.api.startNativeResearch.mock.calls[0]![0].limits).toEqual({
+      maxRequests: 315,
+      maxInputTokens: 2_000_000,
+      maxOutputTokens: 300_000,
+      maxSourceRequests: 12,
+    });
+  });
+
+  it('does not add source approval to an older unconfirmed request on reload/retry', async () => {
+    const native = bridge();
+    const old = request();
+    localStorage.setItem(
+      DRAFT,
+      JSON.stringify({ goal: old.scope.goal, reviewed: old, submitted: true }),
+    );
+    const { user } = mount(native);
+    await screen.findByText(/previous start is not confirmed/i);
+    expect(screen.getByText(/No public page capture was approved/)).toBeVisible();
+    expect(storedDraft().reviewed).toEqual(old);
+    await user.click(screen.getByRole('button', { name: 'Approve and start research' }));
+    await screen.findByRole('button', { name: 'Pause' });
+    expect(native.api.startNativeResearch.mock.calls[0]![0]).toEqual(old);
+    expect(native.api.startNativeResearch.mock.calls[0]![0].limits).not.toHaveProperty(
+      'maxSourceRequests',
+    );
+  });
+
+  it.each([undefined, 0, 3])(
+    'reports source attempts %s separately without inventing dollars',
+    async (count) => {
+      const current = run(1, 'completed');
+      current.usage.requests = 7;
+      if (count !== undefined) current.usage.sourceRequests = count;
+      mount(bridge([current]), client(), '/markets/market-1/deck');
+      const usage = await screen.findByText(/7 provider attempts/);
+      expect(usage).toHaveTextContent(
+        count === undefined ? 'Source attempts not recorded' : `${count} source attempts`,
+      );
+      expect(usage).toHaveTextContent('Dollar cost not available');
+    },
+  );
+});
+
+describe('native saved source reader', () => {
+  it('reads retained evidence lazily offline, expands plain text, and restores card focus/filter on Escape', async () => {
+    const native = evidenceBridge([source({ text: syntheticText })]);
+    Object.assign(native.api, { researchProvenance: 'synthetic_fixture' });
+    const initialUsage = { ...native.state.runs[0]!.usage };
+    const { user } = mount(native, client(), '/markets/market-1/deck?type=company');
+    const opener = await screen.findByRole('button', { name: 'Saved company — Company card' });
+    expect(native.read).not.toHaveBeenCalled();
+    onlineManager.setOnline(false);
+    await user.click(opener);
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByText('Retained public page');
+    expect(native.read).toHaveBeenCalledTimes(1);
+    expect(native.read).toHaveBeenCalledWith('card-1');
+    expect(within(dialog).getByText('Retrieved · support unreviewed')).toBeVisible();
+    const date = within(dialog).getByTitle(at);
+    expect(date).toHaveAttribute('datetime', at);
+    expect(date).not.toHaveTextContent(at);
+    expect(date.textContent).toContain('2026');
+    expect(within(dialog).queryByText(syntheticText)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Show retained text' }));
+    expect(within(dialog).getByText(syntheticText)).toBeVisible();
+    expect(within(dialog).getByText(/Synthetic fixture material · no live research/)).toBeVisible();
+    expect(within(dialog).getByRole('link', { name: 'Retained public page' })).toHaveAttribute(
+      'rel',
+      'noopener noreferrer',
+    );
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(opener).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Company', pressed: true })).toBeVisible();
+    await user.click(opener);
+    const reopened = within(await screen.findByRole('dialog'));
+    await reopened.findByText('Retained public page');
+    await user.click(reopened.getByRole('button', { name: 'Show retained text' }));
+    expect(reopened.getByText(syntheticText)).toBeVisible();
+    expect(native.read).toHaveBeenCalledTimes(1);
+    expect(native.state.runs[0]!.usage).toEqual(initialUsage);
+    expect(native.capture).not.toHaveBeenCalled();
+    expect(native.api.startNativeResearch).not.toHaveBeenCalled();
+    expect(native.api.controlNativeRun).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['lead_only', 'Lead only · not captured'],
+    ['failed', 'Capture failed · no retained text'],
+    ['blocked', 'Capture blocked · no retained text'],
+  ] as const)(
+    'distinguishes %s without offering text or implying verification',
+    async (retrievalStatus, label) => {
+      const native = evidenceBridge([
+        source({
+          retrievalStatus,
+          fetchedAt: null,
+          text: null,
+          sourceId: null,
+          sourceRevision: null,
+          passageId: null,
+        }),
+      ]);
+      const { user } = mount(native, client(), '/markets/market-1/deck');
+      await user.click(await screen.findByRole('button', { name: 'Saved company — Company card' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(await within(dialog).findByText(label)).toBeVisible();
+      expect(
+        within(dialog).queryByRole('button', { name: 'Show retained text' }),
+      ).not.toBeInTheDocument();
+      expect(within(dialog).getByText('No capture date recorded')).toBeVisible();
+      expect(native.capture).not.toHaveBeenCalled();
+    },
+  );
+
+  it('labels partial text and renders hostile HTML/markdown literally, with unsafe URLs unlinked', async () => {
+    const text =
+      '<script>window.paidCall()</script> <img src=x onerror=alert(1)> [Pay](javascript:alert(1))';
+    const native = evidenceBridge([
+      source({ retrievalStatus: 'partial', text }),
+      source({ url: 'javascript:alert(1)', title: 'Unsafe URL' }),
+      source({ url: 'https://name:secret@fixture.invalid/', title: 'Credential URL' }),
+    ]);
+    const { user } = mount(native, client(), '/markets/market-1/deck');
+    await user.click(await screen.findByRole('button', { name: 'Saved company — Company card' }));
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByText('Partial capture · support unreviewed');
+    await user.click(within(dialog).getAllByRole('button', { name: 'Show retained text' })[0]!);
+    expect(within(dialog).getByText(text)).toBeVisible();
+    expect(dialog.querySelector('script, img')).toBeNull();
+    expect(within(dialog).queryByRole('link', { name: 'Pay' })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('link', { name: 'Unsafe URL' })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('link', { name: 'Credential URL' })).not.toBeInTheDocument();
+    expect(native.capture).not.toHaveBeenCalled();
+  });
+
+  it.each(['missing bridge', 'failed read', 'empty evidence'] as const)(
+    'keeps citation leads honest for %s',
+    async (mode) => {
+      const native = evidenceBridge([]);
+      if (mode === 'missing bridge') Reflect.deleteProperty(native.api, 'getNativeCardEvidence');
+      if (mode === 'failed read')
+        native.read.mockRejectedValue(new Error('Vault read unavailable'));
+      const { user } = mount(native, client(), '/markets/market-1/deck');
+      await user.click(await screen.findByRole('button', { name: 'Saved company — Company card' }));
+      const dialog = await screen.findByRole('dialog');
+      await within(dialog).findByRole('link', { name: 'Saved source lead' });
+      expect(within(dialog).getByText('Lead only · not captured')).toBeVisible();
+      expect(
+        within(dialog).queryByRole('button', { name: 'Show retained text' }),
+      ).not.toBeInTheDocument();
+      if (mode === 'failed read')
+        expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+          /Saved source evidence could not be read/,
+        );
+      if (mode === 'missing bridge') expect(native.read).not.toHaveBeenCalled();
+      expect(native.capture).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects a saved evidence response bound to a different card', async () => {
+    const native = evidenceBridge();
+    native.read.mockResolvedValue({
+      cardId: 'other-card',
+      sources: [source({ text: 'Wrong card passage' })],
+    });
+    const { user } = mount(native, client(), '/markets/market-1/deck');
+    await user.click(await screen.findByRole('button', { name: 'Saved company — Company card' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      /Saved source evidence could not be read/,
+    );
+    expect(within(dialog).getByText('Lead only · not captured')).toBeVisible();
+    expect(
+      within(dialog).queryByRole('button', { name: 'Show retained text' }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('Wrong card passage')).not.toBeInTheDocument();
+    expect(native.capture).not.toHaveBeenCalled();
+  });
+
+  it('retains already saved text and its exact capture date when a subsequent local read fails', async () => {
+    const native = evidenceBridge([source({ text: syntheticText })]);
+    const { user, qc } = mount(native, client(), '/markets/market-1/deck');
+    await user.click(await screen.findByRole('button', { name: 'Saved company — Company card' }));
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByText('Retrieved · support unreviewed');
+    await user.click(within(dialog).getByRole('button', { name: 'Show retained text' }));
+    native.read.mockRejectedValueOnce(new Error('Temporary vault read failure'));
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ['native-card-evidence', 'card-1'] });
+    });
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      /previously retained text remain available/,
+    );
+    expect(within(dialog).getByText(syntheticText)).toBeVisible();
+    expect(within(dialog).getByTitle(at)).toHaveAttribute('datetime', at);
+    expect(native.capture).not.toHaveBeenCalled();
+    expect(native.api.startNativeResearch).not.toHaveBeenCalled();
+  });
+
+  it('polls saved evidence while research is active and retains its final text after completion', async () => {
+    const native = evidenceBridge(
+      [
+        source({
+          retrievalStatus: 'lead_only',
+          fetchedAt: null,
+          text: null,
+          sourceId: null,
+          sourceRevision: null,
+          passageId: null,
+        }),
+      ],
+      'running',
+    );
+    const { user } = mount(native, client(), '/markets/market-1/deck');
+    await user.click(await screen.findByRole('button', { name: 'Saved company — Company card' }));
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByText('Lead only · not captured');
+    native.read.mockResolvedValue({ cardId: 'card-1', sources: [source()] });
+    await within(dialog).findByText('Retrieved · support unreviewed', {}, { timeout: 2500 });
+    expect(native.read.mock.calls.length).toBeGreaterThan(1);
+    native.state.runs[0] = { ...native.state.runs[0]!, status: 'completed' };
+    await act(async () => native.notify());
+    await screen.findByText('Research completed');
+    await waitFor(() => expect(native.read.mock.results.at(-1)?.type).toBe('return'));
+    const count = native.read.mock.calls.length;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    });
+    expect(native.read).toHaveBeenCalledTimes(count);
+    await user.click(within(dialog).getByRole('button', { name: 'Show retained text' }));
+    expect(within(dialog).getByText('A saved plain text passage.')).toBeVisible();
+    expect(native.capture).not.toHaveBeenCalled();
+    expect(native.api.startNativeResearch).not.toHaveBeenCalled();
+  });
 });
 
 describe('native run acceptance and notifications', () => {

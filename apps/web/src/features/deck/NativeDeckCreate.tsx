@@ -8,6 +8,7 @@ import {
 } from '@mi/contracts';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { SettingsLink } from '@/components/SettingsLink';
+import { Button } from '@/components/ui/button';
 import { qk } from '@/lib/query/keys';
 
 const DRAFT = 'mi.native.scope-draft';
@@ -185,7 +186,12 @@ export default function NativeDeckCreate() {
             seeds: lines(seeds).map((name) => ({ name })),
           },
           maxCompanies: 12,
-          limits: { maxRequests: 315, maxInputTokens: 2_000_000, maxOutputTokens: 300_000 },
+          limits: {
+            maxRequests: 315,
+            maxInputTokens: 2_000_000,
+            maxOutputTokens: 300_000,
+            maxSourceRequests: 12,
+          },
         });
         if (retain(input, false)) setReview(input);
         return;
@@ -307,10 +313,17 @@ export default function NativeDeckCreate() {
               including retries. These are maximum allowances, not expected usage or a guaranteed
               dollar cap.
             </p>
+            <p className="mt-2">
+              {review.limits.maxSourceRequests == null || review.limits.maxSourceRequests === 0
+                ? 'No public page capture was approved for this saved request. Retrying keeps that allowance unchanged.'
+                : fixture
+                  ? `Source ceiling: ${review.limits.maxSourceRequests} source requests. This synthetic fixture uses canned source material, not public page retrieval.`
+                  : `Source ceiling: ${review.limits.maxSourceRequests} source requests, including failed or blocked attempts. Approving allows capture of public pages during research, at most 2 citation pages per company after cards are saved. Reading saved evidence never starts a capture.`}
+            </p>
             <p className="mt-2 text-muted">
               Only this scope is sent for research. Missing companies and failed steps will be
               shown. This preview does not yet generate all seven categories or verify exact source
-              passages.
+              passages. Retained page text is source material, not verified support for a claim.
             </p>
           </div>
         )}
@@ -325,9 +338,9 @@ export default function NativeDeckCreate() {
             {error}
           </p>
         )}
-        <button
+        <Button
           type="submit"
-          className="btn-primary"
+          variant="blue"
           disabled={
             window.mi?.nativeResearchWritable === false ||
             pending ||
@@ -343,7 +356,7 @@ export default function NativeDeckCreate() {
               : review
                 ? 'Approve and start research'
                 : 'Review scope'}
-        </button>
+        </Button>
       </form>
     </section>
   );

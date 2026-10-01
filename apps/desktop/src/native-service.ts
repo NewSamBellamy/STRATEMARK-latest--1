@@ -2,7 +2,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   nativeResearchStartSchema,
+  nativeCardEvidenceSchema,
+  nativeSourceEvidenceSchema,
   isEntityCardType,
+  type NativeCardEvidence,
   type NativeResearchRun,
   type NativeResearchTask,
   type NativeResearchStart,
@@ -21,6 +24,7 @@ import {
   type UsageMeter,
 } from '@mi/research';
 import type { openVault } from './vault';
+import { retrievePublicSource } from './native-source-retrieval';
 
 const id = (prefix: string) => `${prefix}_${randomUUID().replaceAll('-', '')}`;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -28,11 +32,57 @@ const timestamp = () => new Date().toISOString();
 const companyId = (candidate: CompanyCandidate) =>
   `cmp_${hash(JSON.stringify([candidate.name.toLowerCase(), candidate.domain?.toLowerCase() ?? null])).slice(0, 24)}`;
 type Vault = ReturnType<typeof openVault>;
+type RetainedSource = NonNullable<ReturnType<Vault['getSourceVersion']>>;
+const sourceId = (cardId: string, url: string) => `src_${hash(JSON.stringify([cardId, url]))}`;
+const passageId = (source: string) => `psg_${hash(source)}`;
+function sourceMatches(
+  source: RetainedSource['record'],
+  expectedId: string,
+  url: string,
+  marketId: string,
+) {
+  return (
+    source.id === expectedId &&
+    source.revision === 1 &&
+    source.origin === 'web' &&
+    source.originalUrl === url &&
+    source.visibilityScope.marketIds.includes(marketId)
+  );
+}
+function retainedExcerpt(text: string): string | null {
+  let excerpt = text.trim().slice(0, 20_000);
+  // Do not split a surrogate pair at the retained excerpt boundary.
+  if (/[\uD800-\uDBFF]$/.test(excerpt)) excerpt = excerpt.slice(0, -1);
+  excerpt = excerpt.trim();
+  return excerpt && Buffer.from(excerpt, 'utf8').toString('utf8') === excerpt ? excerpt : null;
+}
+function sourceLeads(cards: CardWithCompany[]): NativeCardEvidence['sources'] {
+  const leads = new Map<string, NativeCardEvidence['sources'][number]>();
+  for (const { card } of cards) {
+    for (const citation of card.citations) {
+      const parsed = nativeSourceEvidenceSchema.safeParse({
+        url: citation.url,
+        title: citation.title.slice(0, 5000),
+        retrievalStatus: 'lead_only',
+        fetchedAt: null,
+        text: null,
+        sourceId: null,
+        sourceRevision: null,
+        passageId: null,
+        support: 'unreviewed',
+      });
+      if (parsed.success && !leads.has(parsed.data.url)) leads.set(parsed.data.url, parsed.data);
+      if (leads.size === 20) return [...leads.values()];
+    }
+  }
+  return [...leads.values()];
+}
 
 export class NativeResearchService {
   private readonly controllers = new Map<string, AbortController>();
   private readonly active = new Map<string, Promise<void>>();
   private readonly writes: ReturnType<Vault['writer']>['work'] | null;
+  private readonly writer: ReturnType<Vault['writer']> | null;
   private readonly provenance: NonNullable<NativeResearchRun['researchProvenance']>;
   private readonly writable: boolean;
   private closing: Promise<void> | null = null;
@@ -43,6 +93,7 @@ export class NativeResearchService {
     private readonly notify: (run: NativeResearchRun) => void = () => {},
     private readonly hydrationOptions: {
       fetchImpl?: typeof fetch;
+      retrieveSource?: typeof retrievePublicSource;
       researchProvenance?: 'synthetic_fixture' | 'live_provider';
       writable?: boolean;
     } = {},
@@ -50,10 +101,11 @@ export class NativeResearchService {
     this.provenance = hydrationOptions.researchProvenance ?? 'live_provider';
     this.writable = hydrationOptions.writable ?? true;
     const runs = vault.work.listRuns();
-    this.writes =
+    this.writer =
       this.writable && runs.every((run) => run.researchProvenance === this.provenance)
-        ? vault.writer().work
+        ? vault.writer()
         : null;
+    this.writes = this.writer?.work ?? null;
     if (!this.writes) return;
     for (const run of runs) {
       if (run.status === 'running' || run.status === 'queued') {
@@ -78,6 +130,50 @@ export class NativeResearchService {
       throw new Error('Stored workspace research provenance does not match this service.');
     if (!this.writes) throw new Error('Native research workspace is read-only.');
     return this.writes;
+  }
+
+  getCardEvidence(cardId: string): NativeCardEvidence {
+    const card = this.vault.work.getCard(cardId);
+    if (!card) throw new Error('Saved card was not found.');
+    const run = this.vault.work.listRuns().find((run) => run.deckId === card.card.deckId);
+    const deck = run && this.vault.work.getDeckByMarket(run.marketId);
+    if (!deck || deck.id !== card.card.deckId) throw new Error('Saved card market was not found.');
+    const sources = sourceLeads([card]).map((lead) => {
+      const expectedSource = sourceId(cardId, lead.url);
+      const retained = this.vault.getSourceVersion(expectedSource, 1);
+      if (!retained) return lead;
+      const source = retained.record;
+      if (!sourceMatches(source, expectedSource, lead.url, deck.marketId)) return lead;
+      const base = { ...lead, fetchedAt: source.fetchedAt };
+      if (source.retrievalStatus === 'failed' || source.retrievalStatus === 'blocked') {
+        return {
+          ...base,
+          retrievalStatus: source.retrievalStatus,
+          sourceId: source.id,
+          sourceRevision: source.revision,
+        };
+      }
+      const expectedPassage = passageId(source.id);
+      const passage = this.vault.getPassage(expectedPassage);
+      if (
+        !passage ||
+        passage.id !== expectedPassage ||
+        passage.sourceId !== source.id ||
+        passage.sourceRevision !== source.revision ||
+        passage.origin !== source.origin ||
+        !passage.visibilityScope.marketIds.includes(deck.marketId)
+      )
+        return { ...base, retrievalStatus: 'failed' as const };
+      return {
+        ...base,
+        retrievalStatus: source.retrievalStatus,
+        text: passage.text,
+        sourceId: source.id,
+        sourceRevision: source.revision,
+        passageId: passage.id,
+      };
+    });
+    return nativeCardEvidenceSchema.parse({ cardId, sources });
   }
 
   start(input: NativeResearchStart): NativeResearchRun {
@@ -134,7 +230,13 @@ export class NativeResearchService {
       scope: request.scope,
       maxCompanies: request.maxCompanies,
       limits: request.limits,
-      usage: { requests: 0, inputTokens: 0, outputTokens: 0, complete: false },
+      usage: {
+        requests: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        complete: false,
+        ...(request.limits.maxSourceRequests ? { sourceRequests: 0 } : {}),
+      },
       createdAt: at,
       updatedAt: at,
       error: null,
@@ -152,13 +254,15 @@ export class NativeResearchService {
       if (this.closing) throw new Error('Research service is closing.');
       if (run.status === 'completed' || run.status === 'cancelled' || this.active.has(runId))
         return run;
-      const client = this.connection();
-      if (!client) throw new Error('Reconnect your Gemini key before resuming.');
+      const needsModel = !run.tasks || run.tasks.some((task) => task.status !== 'completed');
+      const client = needsModel ? this.connection() : null;
+      if (needsModel && !client) throw new Error('Reconnect your Gemini key before resuming.');
       // Reservations from interrupted attempts remain charged to the original limits.
       if (
-        run.usage.requests >= run.limits.maxRequests ||
-        run.usage.inputTokens >= run.limits.maxInputTokens ||
-        run.usage.outputTokens >= run.limits.maxOutputTokens
+        needsModel &&
+        (run.usage.requests >= run.limits.maxRequests ||
+          run.usage.inputTokens >= run.limits.maxInputTokens ||
+          run.usage.outputTokens >= run.limits.maxOutputTokens)
       ) {
         throw new Error(
           'This run has used its approved allowance. Retained research remains readable.',
@@ -196,7 +300,7 @@ export class NativeResearchService {
     return current;
   }
 
-  private dispatch(run: NativeResearchRun, client: LlmClient) {
+  private dispatch(run: NativeResearchRun, client: LlmClient | null) {
     this.assertWritable();
     if (this.active.has(run.id)) return;
     const controller = new AbortController();
@@ -210,7 +314,7 @@ export class NativeResearchService {
     void work.catch(() => {});
   }
 
-  private async execute(initial: NativeResearchRun, raw: LlmClient, signal: AbortSignal) {
+  private async execute(initial: NativeResearchRun, raw: LlmClient | null, signal: AbortSignal) {
     const writes = this.assertWritable();
     let run = {
       ...initial,
@@ -228,10 +332,14 @@ export class NativeResearchService {
       ) {
         throw new Error('Research attempt is no longer active.');
       }
+      return current;
     };
     const saveUsage = (usage: NativeResearchRun['usage']) => {
-      guard();
-      run = writes.updateRun({ ...run, usage, updatedAt: timestamp() }, run.generation);
+      const current = guard();
+      run = writes.updateRun(
+        { ...current, usage: { ...current.usage, ...usage }, updatedAt: timestamp() },
+        run.generation,
+      );
     };
     const saveTask = (
       entityId: string,
@@ -256,6 +364,178 @@ export class NativeResearchService {
       writes.appendEvent(run.id, run.generation, progress);
       this.notify(run);
     };
+    let publicationFailed = false;
+    const captureSources = async (cards: CardWithCompany[]) => {
+      const ceiling = run.limits.maxSourceRequests ?? 0;
+      if (!ceiling) return;
+      const warn = () => {
+        guard();
+        publicationFailed = true;
+        emit({
+          kind: 'warn',
+          message: 'Source capture was unavailable. Saved cards remain unreviewed.',
+        });
+      };
+      const repairPassage = (retained: RetainedSource) => {
+        const source = retained.record;
+        if (
+          retained.content === null ||
+          !['retrieved', 'partial'].includes(source.retrievalStatus) ||
+          this.vault.getPassage(passageId(source.id))
+        )
+          return;
+        const text = retainedExcerpt(String(retained.content));
+        if (!text) return;
+        const at = timestamp();
+        guard();
+        this.writer!.savePassage({
+          contractVersion: '1',
+          vaultId: source.vaultId,
+          id: passageId(source.id),
+          revision: 1,
+          createdAt: at,
+          updatedAt: at,
+          sourceId: source.id,
+          sourceRevision: source.revision,
+          text,
+          contentHash: hash(text),
+          origin: source.origin,
+          visibilityScope: source.visibilityScope,
+        });
+      };
+      const beforeRequest = () => {
+        const current = guard();
+        const used = current.usage.sourceRequests ?? 0;
+        if (used >= ceiling) throw new Error('Source request allowance exhausted.');
+        run = writes.updateRun(
+          {
+            ...current,
+            usage: { ...current.usage, sourceRequests: used + 1 },
+            updatedAt: timestamp(),
+          },
+          current.generation,
+        );
+      };
+      for (const lead of sourceLeads(cards).slice(0, 2)) {
+        guard();
+        const targets = cards
+          .filter(({ card }) => card.citations.some((citation) => citation.url === lead.url))
+          .map(({ card }) => ({
+            card,
+            retained: this.vault.getSourceVersion(sourceId(card.id, lead.url), 1),
+          }));
+        let cached: RetainedSource | undefined;
+        for (const { card, retained } of targets) {
+          if (
+            !retained ||
+            !sourceMatches(retained.record, sourceId(card.id, lead.url), lead.url, run.marketId)
+          )
+            continue;
+          cached ??= retained;
+          try {
+            repairPassage(retained);
+          } catch {
+            warn();
+          }
+        }
+        const missing = targets.filter((target) => !target.retained);
+        if (!missing.length) continue;
+        let result: Awaited<ReturnType<typeof retrievePublicSource>>;
+        let fetchedAt: string;
+        if (cached) {
+          result = {
+            originalUrl: lead.url,
+            canonicalUrl: cached.record.canonicalUrl!,
+            text: cached.content === null ? null : String(cached.content),
+            retrievalStatus: cached.record.retrievalStatus,
+            reason: null,
+          };
+          fetchedAt = cached.record.fetchedAt;
+        } else {
+          if ((guard().usage.sourceRequests ?? 0) >= ceiling) continue;
+          try {
+            result = await (this.hydrationOptions.retrieveSource ?? retrievePublicSource)(
+              lead.url,
+              {
+                signal,
+                beforeRequest,
+              },
+            );
+          } catch (error) {
+            guard();
+            result = {
+              originalUrl: lead.url,
+              canonicalUrl: lead.url,
+              text: null,
+              retrievalStatus: 'failed',
+              reason: error instanceof Error ? error.message : 'Source retrieval failed.',
+            };
+          }
+          fetchedAt = timestamp();
+        }
+        guard();
+        const fullText = result.text?.trim() ?? '';
+        const text = retainedExcerpt(fullText);
+        const retained = ['retrieved', 'partial'].includes(result.retrievalStatus) && text !== null;
+        const status = retained
+          ? fullText.length > text!.length || result.retrievalStatus === 'partial'
+            ? 'partial'
+            : 'retrieved'
+          : result.retrievalStatus === 'blocked'
+            ? 'blocked'
+            : 'failed';
+        const content = retained ? text : null;
+        const at = timestamp();
+        const version = {
+          contractVersion: '1',
+          vaultId: this.vault.status().vaultId,
+          revision: 1,
+          createdAt: at,
+          updatedAt: at,
+        };
+        const visibilityScope = { marketIds: [run.marketId], companyIds: [] };
+        for (const { card } of missing) {
+          try {
+            const source = sourceId(card.id, lead.url);
+            guard();
+            this.writer!.saveSourceVersion(
+              {
+                ...version,
+                id: source,
+                originalUrl: lead.url,
+                canonicalUrl: result.canonicalUrl,
+                fetchedAt,
+                publishedAt: null,
+                eventAt: null,
+                retrievalStatus: status,
+                contentHash: content === null ? null : hash(content),
+                origin: 'web',
+                visibilityScope,
+              },
+              content,
+              0,
+            );
+            repairPassage(this.vault.getSourceVersion(source, 1)!);
+          } catch {
+            guard();
+            const retained = this.vault.getSourceVersion(sourceId(card.id, lead.url), 1);
+            if (
+              !retained ||
+              !sourceMatches(retained.record, sourceId(card.id, lead.url), lead.url, run.marketId)
+            ) {
+              warn();
+              continue;
+            }
+            // One local repair handles a transient passage write; never repeat HTTP here.
+            try {
+              repairPassage(retained);
+            } catch {
+              warn();
+            }
+          }
+        }
+      }
+    };
     try {
       writes.updateRun(run, run.generation);
       const charged = { ...run.usage };
@@ -270,7 +550,10 @@ export class NativeResearchService {
           requests: charged.requests + usage.requests,
           inputTokens: charged.inputTokens + usage.inputTokens,
           outputTokens: charged.outputTokens + usage.outputTokens,
-          complete: (charged.requests === 0 || charged.complete) && usage.complete,
+          complete:
+            usage.requests === 0
+              ? charged.complete
+              : (charged.requests === 0 || charged.complete) && usage.complete,
         });
       };
       const usageMeter: UsageMeter = {
@@ -289,10 +572,12 @@ export class NativeResearchService {
       const client: LlmClient = {
         ground: (prompt, options) => {
           guard();
+          if (!raw) throw new Error('Company research requires a provider connection.');
           return raw.ground(prompt, { ...options, signal, usageMeter });
         },
         structure: (prompt, schema, options) => {
           guard();
+          if (!raw) throw new Error('Company research requires a provider connection.');
           return raw.structure(prompt, schema, { ...options, signal, usageMeter });
         },
       };
@@ -379,6 +664,11 @@ export class NativeResearchService {
           run.generation,
         );
       }
+      // Company output commits before capture. Resume that independent work without rehydration.
+      const savedCards = this.vault.work.listCards(run.deckId);
+      for (const task of run.tasks!.filter((task) => task.status === 'completed')) {
+        await captureSources(savedCards.filter((entry) => task.cardIds.includes(entry.card.id)));
+      }
       const tasks = run.tasks!.filter((task) => task.status !== 'completed');
       let index = 0;
       let failedCompanies = 0;
@@ -393,6 +683,7 @@ export class NativeResearchService {
             cardIds: [],
             error: null,
           });
+          let savedCards: CardWithCompany[] = [];
           try {
             emit({ stage: 'summary', kind: 'step', message: `Researching ${candidate.name}…` });
             const result = await hydrateCompanyCard({
@@ -428,7 +719,7 @@ export class NativeResearchService {
                     citations,
                   },
                   company: entry.company ? { ...entry.company, id: entityId } : null,
-                  // Provider citations are leads; native passage support is still a release gap.
+                  // Capturing a source never verifies a model-extracted figure.
                   metrics: entry.company
                     ? entry.metrics.map((metric) => ({
                         ...metric,
@@ -449,6 +740,7 @@ export class NativeResearchService {
               { status: 'completed', cardIds: cards.map((entry) => entry.card.id), error: null },
               cards,
             );
+            savedCards = cards;
             emit({
               stage: 'summary',
               kind: 'find',
@@ -467,6 +759,8 @@ export class NativeResearchService {
               message: `Could not complete ${candidate.name}. ${error instanceof Error ? error.message : 'Provider failed.'}`,
             });
           }
+          // Source failure cannot undo the already durable company output/task.
+          await captureSources(savedCards);
         }
       };
       // Keep the run active until both workers settle, including an abort or budget failure.
@@ -484,13 +778,15 @@ export class NativeResearchService {
       writes.updateRun(
         {
           ...run,
-          status: failedCompanies || !retained ? 'failed' : 'completed',
+          status: failedCompanies || publicationFailed || !retained ? 'failed' : 'completed',
           updatedAt: timestamp(),
           error: failedCompanies
             ? `${failedCompanies} company tasks failed. Partial research is retained.`
-            : !retained
-              ? 'No company cards could be retained.'
-              : null,
+            : publicationFailed
+              ? 'Local source publication failed. Saved cards and retained text are kept; resume to repair.'
+              : !retained
+                ? 'No company cards could be retained.'
+                : null,
         },
         run.generation,
       );

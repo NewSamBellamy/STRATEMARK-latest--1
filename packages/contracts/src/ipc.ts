@@ -19,6 +19,7 @@ import type {
   NativeResearchStart,
   NativeResearchRun,
   NativeResearchEvent,
+  NativeCardEvidence,
 } from './native-research';
 
 export interface ResearchProgressEvent {
@@ -48,6 +49,8 @@ export type PreloadRepositoryApi = Omit<
   startNativeResearch?(input: NativeResearchStart): Promise<NativeResearchRun>;
   listNativeRuns?(): Promise<NativeResearchRun[]>;
   getNativeRun?(runId: string): Promise<NativeResearchRun | null>;
+  /** Saved, bounded evidence read only; never performs retrieval or provider work. */
+  getNativeCardEvidence?(cardId: string): Promise<NativeCardEvidence>;
   /** At most 100 lightweight entries. Replay using the last sequence; no card bodies. */
   nativeRunEvents?(runId: string, afterSequence: number): Promise<NativeResearchEvent[]>;
   controlNativeRun?(
@@ -77,6 +80,7 @@ export const IPC_CHANNELS = {
   startNativeResearch: 'mi:startNativeResearch',
   listNativeRuns: 'mi:listNativeRuns',
   getNativeRun: 'mi:getNativeRun',
+  getNativeCardEvidence: 'mi:getNativeCardEvidence',
   nativeRunEvents: 'mi:nativeRunEvents',
   controlNativeRun: 'mi:controlNativeRun',
   acceptAction: 'mi:acceptAction',

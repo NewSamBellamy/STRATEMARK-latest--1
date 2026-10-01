@@ -9,6 +9,8 @@ export const nativeResearchLimitsSchema = z
     maxRequests: z.number().int().min(1).max(500),
     maxInputTokens: z.number().int().min(1).max(5_000_000),
     maxOutputTokens: z.number().int().min(1).max(1_000_000),
+    /** Explicit public page capture ceiling; absent on older approvals means zero. */
+    maxSourceRequests: z.number().int().min(0).max(100).optional(),
   })
   .strict();
 export const nativeResearchStartSchema = z
@@ -72,7 +74,13 @@ export interface NativeResearchRun {
   scope: z.infer<typeof scopeDraftSchema>;
   maxCompanies: number;
   limits: NativeResearchLimits;
-  usage: { requests: number; inputTokens: number; outputTokens: number; complete: boolean };
+  usage: {
+    requests: number;
+    inputTokens: number;
+    outputTokens: number;
+    complete: boolean;
+    sourceRequests?: number;
+  };
   /** Absent before selection, and on records created before durable queues existed. */
   tasks?: NativeResearchTask[];
   createdAt: string;
@@ -84,3 +92,60 @@ export interface NativeResearchEvent {
   progress: ResearchProgress;
   createdAt: string;
 }
+
+/** Retained text is inspectable source material, not a semantically verified claim. */
+export const nativeSourceEvidenceSchema = z
+  .object({
+    url: z
+      .string()
+      .url()
+      .max(2048)
+      .refine((value) => {
+        const url = new URL(value);
+        return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
+      }, 'Source URL must be HTTP(S) without credentials'),
+    title: z.string().max(5000),
+    retrievalStatus: z.enum(['lead_only', 'retrieved', 'partial', 'failed', 'blocked']),
+    fetchedAt: z.string().datetime().nullable(),
+    text: z.string().trim().min(1).max(20_000).nullable(),
+    sourceId: taskId.nullable(),
+    sourceRevision: z.number().int().min(1).nullable(),
+    passageId: taskId.nullable(),
+    support: z.literal('unreviewed'),
+  })
+  .strict()
+  .superRefine((source, context) => {
+    const retained = ['retrieved', 'partial'].includes(source.retrievalStatus);
+    if (
+      retained &&
+      (!source.text ||
+        !source.fetchedAt ||
+        !source.sourceId ||
+        !source.sourceRevision ||
+        !source.passageId)
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Retained text needs its source, passage and capture identity.',
+      });
+    if (!retained && (source.text !== null || source.passageId !== null))
+      context.addIssue({
+        code: 'custom',
+        message: 'Uncaptured or unavailable sources cannot claim retained passages.',
+      });
+    if (
+      source.retrievalStatus === 'lead_only' &&
+      [source.fetchedAt, source.sourceId, source.sourceRevision].some((value) => value !== null)
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Uncaptured leads do not claim retained versions.',
+      });
+  });
+export const nativeCardEvidenceSchema = z
+  .object({
+    cardId: taskId,
+    sources: z.array(nativeSourceEvidenceSchema).max(20),
+  })
+  .strict();
+export type NativeCardEvidence = z.infer<typeof nativeCardEvidenceSchema>;

@@ -12,7 +12,7 @@ const host = vi.hoisted(() => ({
   temp: '',
   options: {} as Record<string, unknown>,
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
-  events: new Map<string, () => void>(),
+  events: new Map<string, (event?: { preventDefault: () => void }) => void>(),
   legacyStore: vi.fn(),
   loadEnv: vi.fn(),
   contents: {
@@ -69,7 +69,7 @@ const originalArgs = [...process.argv];
 const originalTitle = process.title;
 let root: string | undefined;
 afterEach(() => {
-  host.events.get('before-quit')?.();
+  host.events.get('before-quit')?.({ preventDefault: vi.fn() });
   process.argv = originalArgs;
   process.title = originalTitle;
   if (root) rmSync(root, { recursive: true, force: true });
@@ -159,4 +159,41 @@ it('routes a normal desktop action to the durable service with host-owned identi
   await expect(invoke(event, { ...request, principalRef: 'forged' })).rejects.toThrow();
   expect(() => invoke({ sender: {}, senderFrame: {} }, request)).toThrow(/untrusted/i);
   expect(accept).toHaveBeenCalledTimes(1);
+});
+
+it('binds a native evidence read to the trusted frame and rejects malformed input and output', async () => {
+  vi.resetModules();
+  host.handlers.clear();
+  host.events.clear();
+  root = mkdtempSync(path.join(tmpdir(), 'stratemark-evidence-host-'));
+  host.temp = root;
+  const { NativeResearchService } = await import('./native-service');
+  const evidence = vi
+    .spyOn(NativeResearchService.prototype, 'getCardEvidence')
+    .mockReturnValue({ cardId: 'card_fixture', sources: [] });
+  process.argv = [
+    ...originalArgs,
+    `--native-vault-dir=${path.join(root, 'isolated')}`,
+    '--native-fixture',
+  ];
+  await import('./main');
+  await vi.waitFor(() => expect(host.handlers.has(IPC_CHANNELS.getNativeCardEvidence)).toBe(true));
+  const invoke = host.handlers.get(IPC_CHANNELS.getNativeCardEvidence)!;
+  const event = { sender: host.contents, senderFrame: host.contents.mainFrame };
+  expect(invoke(event, 'card_fixture')).toEqual({ cardId: 'card_fixture', sources: [] });
+  try {
+    expect(evidence).toHaveBeenCalledWith('card_fixture');
+    expect(() => invoke({ sender: {}, senderFrame: {} }, 'card_fixture')).toThrow(/untrusted/i);
+    expect(() => invoke(event, '../private')).toThrow();
+    expect(() => invoke(event, 'card_fixture', 'extra')).toThrow();
+    evidence.mockReturnValue({ cardId: 'another_card', sources: [] });
+    expect(() => invoke(event, 'card_fixture')).toThrow(/identity/i);
+    evidence.mockReturnValue({ cardId: 'card_fixture', sources: [], unexpected: true } as never);
+    expect(() => invoke(event, 'card_fixture')).toThrow();
+  } finally {
+    // Await cleanup even on assertion failure before removing this disposable workspace.
+    await NativeResearchService.prototype.close.call(
+      evidence.mock.contexts[0] as InstanceType<typeof NativeResearchService>,
+    );
+  }
 });

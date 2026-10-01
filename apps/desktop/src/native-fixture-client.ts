@@ -2,6 +2,7 @@
  * No credentials, network, real companies or live research are used.
  */
 import type { CallOptions, LlmClient } from '@mi/research';
+import type { retrievePublicSource } from './native-source-retrieval';
 
 export function createNativeFixtureClient(): LlmClient {
   let birchFailed = false;
@@ -87,3 +88,24 @@ export function createNativeFixtureClient(): LlmClient {
 
 /** Keeps logo resolution local during fixture runs; never used for live research. */
 export const nativeFixtureFetch: typeof fetch = async () => new Response(null, { status: 404 });
+
+/** Explicit synthetic source adapter; never resolves DNS or reaches a public endpoint. */
+export const nativeFixtureRetrieveSource: typeof retrievePublicSource = async (url, options) => {
+  options.signal.throwIfAborted();
+  if (url !== 'https://research-fixture.invalid/repair')
+    return {
+      originalUrl: url,
+      canonicalUrl: url,
+      text: null,
+      retrievalStatus: 'blocked',
+      reason: 'Not an explicit fixture source.',
+    };
+  options.beforeRequest?.();
+  return {
+    originalUrl: url,
+    canonicalUrl: url,
+    retrievalStatus: 'retrieved',
+    reason: null,
+    text: 'Synthetic source text — not live research. Alder Works schedules repairs. Birch Works supplies repair tooling. This page is a fictional retained source for recovery tests, not evidence of real companies or numeric claims.',
+  };
+};
