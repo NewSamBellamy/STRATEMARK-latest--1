@@ -2,7 +2,15 @@
 
 Read AGENTS, BUILD-STATE and the relevant R-goal, not the transcript/archive. Preserve full R0–R8 coverage. Expected branch `feat/stratemark-spinoff-local-agents`; inspect actual Git before trusting this snapshot. Founder monitors the $100 development target externally; no budget setup prerequisite. Dollars/cache hits unknown unless observed.
 
-## Active ordinary Astra build — retained research briefs and local deck search
+## Current checkpoint and next outcome — native first-run startup
+
+Verified application `28f393044c2d750fc9ed103436c5c5cafdc2d0e7` on `feat/stratemark-spinoff-local-agents`, backed up on authorized personal GitHub branch; main unchangedc945b31. Stable gate80704 andbuild90541 passed. Real clean-commit recording2138 `native-journey-aEbNPG`: dirty=false/failures=[], exact retained briefs andsources survived keyless reopen, search/filter/return/saved/Undo worked, narrow Close stayed reachable. Desktop/narrow images inspected. CHECKPOINT-R1-R2-RETAINED-BRIEFS is the acceptance record; no R-goal complete, no livequality/packaged acceptance. Development API spend/cache savings unobserved; founder monitors externally.
+
+Active next slice: native by default ONLY for genuinely new desktop profiles, preserving existing legacy/recovery data. Backendworker Averroes `01a0f955-b55e-72d0-8324-49479087ada4` owns main.ts +newnative-startup.ts/test (helpername mayvary), implementing conservativeauthorityselection and existingnativepath reuse; noactualuserprofilemigration. UIworker Halley `01a0f952-232e-7033-b87c-1a1a63ced35a` owns routes.tsx/newguard/test, RepositoryProvider.tsx/test, AppShellnativebannerwording. Must blockunsupportednativedeeplinks fromlegacywriters andskiprendererIndexedDB/localStorage hydration. Parent owns settings/recorder/sharedcontracts/docs/integration. Pascal andCarver idle. Noactiveparentprocess fromverifiedcheckpoint. Collectowners, focusedchecks then boundedreview/fullgate/build/realjourney/branchbackup. No paidproductcalls orsecretcopying.
+
+Important nextproof: ordinary emptyprofile startup withoutnativeflag, keylessread/restart, retainedinterruptedwork, noJSONseeding, existinglegacy/backups untouched, ambiguous/corruptnative state failsclosed, native unsupportedroutes explainavailability. Packaged proof stillrequired; syntheticfixture mustremain developmentisolated. Defaultnative fornewprofiles is NOTexistinglibrarymigration or completedproductioncutover. CurrentUIfeatures stilllimited; keepR0–R8 scope.
+
+## Retained-brief implementation history (superseded by checkpoint above)
 
 Founder launched the hands-on pass; no new goal/automation. This section supersedes the preparation snapshot below. Current branch remains `feat/stratemark-spinoff-local-agents`, inspected HEAD `e5f1e3`; last verified application `330d67b`. Current application changes are not yet a verified checkpoint.
 
