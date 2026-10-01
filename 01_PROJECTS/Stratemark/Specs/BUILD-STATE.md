@@ -16,7 +16,7 @@ deferred by the human; do not stop for missing API telemetry or require cost
 projections before worker dispatch. This overrides the historical campaign
 instructions in the archive, not product privacy, bounded execution, phase dependencies,
 context ceilings or live-research consent. Goal is active (verified via goal tool).
-Latest completed packet: G01-P15 below. G00 contracts and reproduced baseline
+Latest completed packet: G02-P01 below. G00 contracts and reproduced baseline
 are frozen for offline G01 work; this is not product-readiness or service parity.
 G01-P01 proves the native SQLite binding in an unsigned packaged app and the
 actual installer payload, plus fixes two legacy data-safety defects. G01-P02
@@ -40,7 +40,8 @@ remain open. G01-P15 closes the four reproduced legacy release blockers: metric
 period loss, false cross-period conflicts, premature cancellation completion and
 renderer access to stored API-key bytes. It also shows why a normal-startup vault
 cutover must wait for shared write/action-service parity instead of creating a
-read-only authority dead end.
+read-only authority dead end. G02-P01 removes the two hidden renderer timers that
+could start refresh and briefing provider work merely because the app was open.
 No live cutover is authorized.
 The full goal remains active; do not restart planning.
 Earlier $50/Astra campaign instructions are historical, not current dispatch
@@ -54,11 +55,11 @@ separate explicit approval and a numeric cap.
 - Branch: `feat/stratemark-spinoff-local-agents`, created from `b2c6398`; predecessor `feat/claim-level-signal-evidence` retained unchanged. Personal-fork checkpoint destination: remote newsam, `NewSamBellamy/STRATEMARK-latest--1`.
 - Original planning baseline: `3f18af2`. P15 entry HEAD: `405f512`; determine current HEAD/tree from Git. Neither historical value is a claim about current code forever.
 - Goal tool: the production Northstar goal was recreated October 1 after the tracker returned no active goal. It preserves the personal-branch, no-deploy/no-live-migration boundaries. No billing blocker remains for development. Keep the full goal active at packet boundaries.
-- Next work: start G02 shared runtime/action-service and native write parity, which is a dependency for a safe G01 normal-startup recovery/cutover. Do not grant a read-only vault production authority while writes still use the legacy repository. P13 recovery is staged-candidate-only and P14 is inspection-only, not general A44/A46/A47 parity. No live migration/provider work; G03 research quality and G04 visual acceptance remain open.
+- Next work: G02-P02 durable action acceptance/idempotency for one explicit research command, then route the renderer hunt queue through it. This is a dependency for native write parity and a safe G01 normal-startup recovery/cutover. Do not grant a read-only vault production authority while writes still use the legacy repository. P13 recovery is staged-candidate-only and P14 is inspection-only, not general A44/A46/A47 parity. No live migration/provider work; G03 research quality and G04 visual acceptance remain open.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
 - Push: latest human explicitly authorized periodic checkpoints ONLY to this new personal-fork branch. No overwriting existing refs, upstream/Tobi pushes, main merge, release or deployment. First upload verified at `73e61c0e0f9f20e063fd290ef9fb3a122f570061`; all 49 pre-existing remote branch refs remained unchanged, including main at `c945b31dee0095331b8487133c131c36e76ba601`. Verified owner NewSamBellamy, public fork of Maruf. The shorter old URL redirects to Maruf and is unsafe as a personal destination. Read actual local/remote tips before each later fast-forward checkpoint.
-- Current application tests: G01-P15 full `pnpm check` passes all6 typechecks, root lint and every ordinary suite: contracts369, mocks16, research365, API158, desktop207 and web185. The isolated browser end-to-end gate passes6 with1 conditional legacy single-file embed test skipped. The production desktop build passes with a pre-existing large-chunk warning. Focused storage-preflight/settings/security regressions pass. Two actual Electron journeys pass in disposable profiles: Settings/storage readiness and library → deck → card reader → company → metrics → back/reload. Together they report zero provider/external requests, zero page errors, unchanged source/backup/restored fingerprints and enforced read-only denials. P13 packaged lifecycle proofs remain valid, but P15 did not rebuild an installer. No signing, updater, live-provider quality or customer-data acceptance.
+- Current application tests: G02-P01 full `pnpm check` passes all6 typechecks, root lint and every ordinary suite: contracts369, mocks16, research365, API158, desktop207 and web185. The isolated browser end-to-end gate passes6 with1 conditional legacy single-file embed test skipped. The production desktop build passes with a pre-existing large-chunk warning. The automatic-dispatch regression advances61 simulated minutes with a connected key and observes zero market lists, refreshes or generated briefings. P15 storage/settings/security and two actual Electron journey proofs remain valid; P01 did not rerun those unchanged native journeys or rebuild an installer. No signing, updater, live-provider quality or customer-data acceptance.
 - Document verification: local links and balanced code fences passed; unique registers checked (22 defaults, 30 stories, 62 actions, 9 goals, 26 sources); JSON command example parsed; canonical files had no candidate credential patterns. Markdown formatting checked separately before commit.
 - Astra final planning review: seven substantive gaps identified and addressed (service lifetime, migration fences, imported authority, restored budgets, asset/evidence retention, asynchronous output retrieval, and human approval boundary). Re-review found no remaining material contract contradictions; this is planning consistency, not application verification.
 
@@ -79,7 +80,7 @@ separate explicit approval and a numeric cap.
 | ---- | --------------------------------- | ---------------------------------------- | -------------------------------------------------------------------- |
 | G00  | Contract/baseline freeze complete | [G00-P01-P05 archive](PACKET-ARCHIVE.md) | Reproduced defects green; broader enforcement belongs to G01/G02/G07 |
 | G01  | In progress                       | G01-P15 integrity/security closure       | Recovery/cutover after shared native write parity                    |
-| G02  | Not started                       | None                                     | Shared runtime, policies, secrets and native write/action parity     |
+| G02  | In progress                       | G02-P01 hidden timer removal             | Durable acceptance, jobs, budgets and native write/action parity     |
 | G03  | Not started                       | None                                     | Progressive research and evaluation                                  |
 | G04  | Not started                       | None                                     | Cards and coherent frontend journey                                  |
 | G05  | Not started                       | None                                     | Decision outputs and findings                                        |
@@ -119,7 +120,47 @@ An existing human-created broad goal must retain its actual objective. Execute o
 
 User context ceiling: 200k tokens for every agent, not a spend allowance. Checkpoint around 100k; hand off before an estimated 150k to leave room for verification and recovery. Use the policy in [build-workflow.md](build-workflow.md). Cumulative goal tokens are usage, not necessarily the current context window. Exact occupancy and forced compaction are not exposed here; do not claim hard automatic enforcement. Keep packets small and start clean workers with a declared model, effort and exclusive scope; development cost projections are not a current gate. Unknown spending never becomes a claim of remaining funds.
 
-## Latest completed packet — G01-P15
+## Latest completed packet — G02-P01
+
+Entry HEAD `1402df8`; final packet state is the immediately following local
+commit in branch history. October 1, 2026. Full production goal/G02 remain active.
+No provider call, credential read, live migration, installer, publication or main
+change.
+
+User outcome / seams: NS03/NS15 and G02 renderer-authority removal. Opening the
+app no longer schedules `refreshDeck` after eight seconds/every fifteen minutes,
+and a previous manually generated briefing no longer silently becomes consent for
+hourly automatic briefing generation. Both hidden hooks and their production shell
+wiring were deleted. Cached navigation and visible provider status remain; the
+explicit per-deck verification control still requires a fresh user opt-in.
+
+Verification:
+
+- RED: with a connected key, advancing the mounted production shell by61 simulated
+  minutes called `listMarkets` seven times through the competing refresh/briefing
+  timers.
+- GREEN: the same shell-level regression observes zero market lists, refreshes or
+  generated briefings. Focused shell and explicit living-deck opt-in tests pass3/3.
+- Full root `pnpm check` passes all6 typechecks, lint and contracts369/mocks16/
+  research365/API158/desktop207/web185 tests. Production desktop build passes with
+  the existing large-chunk warning. Isolated browser journeys pass6 with1
+  conditional single-file embed test skipped.
+
+### Checkpoint red team — moving the needle and remaining limits
+
+Needle moved: possessing a key or opening Stratemark is no longer treated as
+permission to spend it. This removes two real competing schedulers before the
+single local action service is introduced.
+
+This is not the G02 scheduler. The explicit renderer hunt queue still owns
+`expandDeck`, and per-deck verification still runs a session-only renderer runtime
+after user opt-in. They must move behind persisted action receipts, task state,
+budgets and one trusted dispatcher. Removing the hidden timers temporarily removes
+their automatic behavior; monitoring returns only through G06's approved durable
+schedule. No live provider quality, cost, restart recovery, action dedupe, budget
+or native write parity was proved in this packet.
+
+## Previous completed packet — G01-P15
 
 Entry HEAD `405f512`; final packet state is the immediately following local
 commit in branch history. October 1, 2026. Full production goal/G01 remain

@@ -6,19 +6,15 @@ import { TopBar } from './TopBar';
 import { ErrorBoundary } from '@/components/states/ErrorBoundary';
 import { FullPageLoader } from '@/components/states/FullPageLoader';
 import { useDeckRefreshSubscription } from '@/hooks/data';
-import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { useHuntRunner } from '@/lib/agentic/useHuntRunner';
-import { useSentinel } from '@/lib/agentic/useSentinel';
 import { SettingsModal } from '@/features/settings/SettingsModal';
 import { isReadOnlyResearch } from '@/lib/settings/runtime';
 
 export function AppShell() {
   useDeckRefreshSubscription();
-  useAutoRefresh();
   // Queued hunts keep draining across navigation — the runner lives here.
   useHuntRunner();
-  useSentinel();
   const { isOpen: aiPanelOpen, closePanel } = useDeepDive();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);

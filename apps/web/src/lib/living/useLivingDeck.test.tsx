@@ -9,8 +9,6 @@ import { RepositoryProvider } from '@/lib/repository/RepositoryProvider';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useLivingDeck } from './useLivingDeck';
 import { LivingDeckRuntime } from './runtime';
-import { useAutoRefresh } from '@/hooks/useAutoRefresh';
-import { useSentinel } from '@/lib/agentic/useSentinel';
 
 afterEach(() => {
   cleanup();
@@ -20,31 +18,6 @@ afterEach(() => {
   useApiKey.setState({ apiKey: '', hasKey: false });
 });
 describe('keyless desktop browsing', () => {
-  it('does not schedule automatic refresh or briefings without a user key', async () => {
-    vi.useFakeTimers();
-    vi.stubEnv('VITE_DESKTOP', '1');
-    useApiKey.setState({ apiKey: '', hasKey: false });
-    const repository = new MockRepository({ latencyMs: 0 });
-    const liveRepository = Object.assign(repository, {
-      generateDeckBriefing: vi.fn(),
-      listDeckBriefings: vi.fn().mockResolvedValue([]),
-    });
-    const listMarkets = vi.spyOn(repository, 'listMarkets');
-    const wrapper = ({ children }: { children: ReactNode }) => (
-      <RepositoryProvider repository={liveRepository}>
-        <QueryClientProvider client={createQueryClient()}>{children}</QueryClientProvider>
-      </RepositoryProvider>
-    );
-    renderHook(
-      () => {
-        useAutoRefresh();
-        useSentinel();
-      },
-      { wrapper },
-    );
-    await vi.advanceTimersByTimeAsync(10000);
-    expect(listMarkets).not.toHaveBeenCalled();
-  });
   it('does not start background model research without a user key', async () => {
     vi.stubEnv('VITE_DESKTOP', '1');
     useApiKey.setState({ apiKey: '', hasKey: false });
