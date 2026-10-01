@@ -1029,3 +1029,63 @@ Also unfinished: asset/database reference and backup integration, recovery/
 relocation, service/key/budget/job runtime, provider/retrieval quality evaluation,
 evidence-first Ask/comparison, monitored updates, scoped local MCP and installer/
 production journey acceptance. No live data or paid research is authorized.
+
+## Closed packet — G01-P09
+
+Entry HEAD `9bfb4c9`; September30. Coordinator's bounded visible repair after
+P08's actual browser inspection, without another worker/architectural detour.
+Separate exploration branch only; no brand/data changes, provider calls, live
+migration, installation or publication. Full production goal/G01 remain active.
+
+Observed failure: Anthropic's pale palette made the offline lettermark almost
+invisible on the paper hero. The logo probe also rendered a blank block until
+network lookup settled, potentially leaving a company unidentified indefinitely.
+
+Fix: preserve trusted stored palettes, real logos and the existing collectible
+style; choose readable monogram ink separately from decorative brand color.
+Existing contrast math evaluates ink against a conservative paper shade; light/
+neon accents use editorial ink while sufficiently dark accents keep their hue.
+The company monogram is visible immediately, including during unresolved lookup;
+usable real artwork still replaces it. No generated artwork or invented brand.
+
+Verification:
+
+- Seven palette tests reproduced RED before implementation; unresolved logo
+  lookup reproduced a separate RED. All8 new cases pass; GameCard16/16.
+- Full web174/174 pass, including original deck/reader/company journeys,
+  cached-only missing sections, explicit research, failure and navigation races.
+  All six typechecks/root lint pass.
+- Actual Chromium public-sample journey and production web build pass.
+  All external requests blocked; actual Anthropic monogram computed color is
+  asserted dark `rgb(28,43,40)`. Updated deck screenshot inspected: visible mark,
+  retained frame identity, no change to metric values or card-opening actions.
+- P08 research361 pass/3 original failures, desktop145 pass/1 key failure,
+  native97/97 and API158 pass are prior verified evidence, unchanged/not rerun
+  for this CSS/Logo-only slice. Entire release gate is still RED.
+- Public-sample screenshots remain ignored browser artifacts at
+  `apps/web/test-results/overhaul-baseline-G00-publ-7193e-eader-and-company-workspace-chromium`.
+  Not live output quality, customer-data preservation or packaged desktop proof.
+
+### Checkpoint red team — needle, limits and next direction
+
+Needle moved visibly: failed or pending identity lookup no longer leaves blank/
+unreadable company artwork. Card facts, brand palette, real artwork, controls and
+no-flip behavior are unchanged. Shared Logo review confirms no new fetch, key,
+paid work or research mutation path; it removes one presentation-only state.
+
+Remaining visual gaps: loaded transparent-white artwork is not universally
+adapted to its background; artwork optical-quality/network privacy/cache work
+needs the planned local asset integration. The description repeats in the
+company workspace; evidence/source count semantics, sparse metrics, density,
+keyboard/mobile and full five-section journey still need dedicated acceptance.
+Do not call this final card craft or full accessibility approval.
+
+Return to G01-P10: complete typed/passive retention of every remaining legacy
+record family and nested partial job results; preserve exact original exports
+and original IDs/relationships. Staged fixture conversion must compare counts,
+content and links, retain historical evidence without display normalization,
+and import NO task/approval/budget/monitor authority. Keep active user data
+untouched. Then integrate one native authority/recovery rather than accumulating
+more disconnected modules. G02 handles shared runtime/secrets/provider budgets/
+cancellation; G03 quality/retrieval; G04 card/journey; G05 decision outputs;
+G06 monitors; G07 scoped local MCP; G08 production release acceptance.

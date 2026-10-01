@@ -1,7 +1,12 @@
 import type * as NodeSqlite from 'node:sqlite';
 import { researchSchemaSql } from './vault-research-store';
+import {
+  legacySchemaSql,
+  legacySchemaColumns,
+  assertLegacySchemaGuards,
+} from './vault-legacy-store';
 
-export const currentVaultSchemaVersion = 5;
+export const currentVaultSchemaVersion = 6;
 
 const identitySearchProjection = `
 SELECT c.id,
@@ -189,6 +194,10 @@ export function inspectVaultSchema(db: NodeSqlite.DatabaseSync, vaultId: string)
     )
       throw new Error('Company identity search index does not match retained records.');
   }
+  if (version >= 6) {
+    requireTableColumns(db, legacySchemaColumns, 'passive legacy history');
+    assertLegacySchemaGuards(db);
+  }
   if (db.prepare('PRAGMA quick_check').get()?.quick_check !== 'ok')
     throw new Error('Vault integrity check failed.');
   if (db.prepare('PRAGMA foreign_key_check').all().length !== 0)
@@ -252,6 +261,11 @@ export function initializeVaultSchema(
   if (version === 4) {
     db.exec(identitySearchSchemaSql);
     db.exec('PRAGMA user_version=5;');
+    version = 5;
+  }
+  if (version === 5) {
+    db.exec(legacySchemaSql);
+    db.exec('PRAGMA user_version=6;');
   }
   inspectVaultSchema(db, vaultId);
 }

@@ -18,6 +18,7 @@ import {
 } from '@mi/contracts';
 import { createEvidenceStore, evidenceSchemaSql } from './vault-evidence-store';
 import { createResearchStore } from './vault-research-store';
+import { createLegacyStore } from './vault-legacy-store';
 import { acquireVaultOwner, canonicalVaultPath, vaultFileFence } from './vault-owner';
 import {
   currentVaultSchemaVersion,
@@ -341,7 +342,12 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
   };
   const evidence = createEvidenceStore(db, vaultId, assertOpen, readRevision, noWrite);
   const research = createResearchStore(db, vaultId, assertOpen, readRevision, noWrite, evidence);
+  const legacy = createLegacyStore(db, assertOpen, readRevision, noWrite);
   return {
+    listLegacySnapshots: legacy.listLegacySnapshots,
+    readLegacyRecords: legacy.readLegacyRecords,
+    verifyLegacySnapshot: legacy.verifyLegacySnapshot,
+    exportLegacySnapshot: legacy.exportLegacySnapshot,
     getSourceVersion: evidence.getSourceVersion,
     getPassage: evidence.getPassage,
     getObservation: evidence.getObservation,
@@ -370,6 +376,7 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
       const captured = state;
       const check = () => assertWriter(captured);
       const writes = createEvidenceStore(db, vaultId, assertOpen, readRevision, check);
+      const legacyWrites = createLegacyStore(db, assertOpen, readRevision, check);
       const researchWrites = createResearchStore(
         db,
         vaultId,
@@ -379,6 +386,7 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
         evidence,
       );
       return {
+        retainLegacySnapshot: legacyWrites.retainLegacySnapshot,
         saveCompany(value: VaultCompany, expectedRevision: number) {
           check();
           save('companies', companySchema.parse(value), expectedRevision, check);

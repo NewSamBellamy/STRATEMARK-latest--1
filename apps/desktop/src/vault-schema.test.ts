@@ -6,6 +6,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { evidenceSchemaSql } from './vault-evidence-store';
 import { researchSchemaSql } from './vault-research-store';
+import { legacyFamilies } from './vault-legacy-store';
 import {
   currentVaultSchemaVersion,
   initializeVaultSchema,
@@ -102,6 +103,14 @@ function createVersionFour(file: string) {
   db.exec(`BEGIN IMMEDIATE; ${researchSchemaSql} PRAGMA user_version=4; COMMIT;`);
   closeDatabase(db);
 }
+function createVersionFive(file: string) {
+  createCurrent(file);
+  const db = openDatabase(file);
+  db.exec('BEGIN IMMEDIATE;');
+  for (const family of legacyFamilies) db.exec(`DROP TABLE legacy_${family};`);
+  db.exec('DROP TABLE legacy_sources; PRAGMA user_version=5; COMMIT;');
+  closeDatabase(db);
+}
 
 function expectInspectionRefusal(file: string, requestedId: string, message: RegExp) {
   const before = readFileSync(file);
@@ -120,15 +129,15 @@ afterEach(() => {
 });
 
 describe('offline vault schema migrations', () => {
-  it('creates schema version 5 in an empty database and leaves the transaction open', () => {
+  it('creates schema version 6 in an empty database and leaves the transaction open', () => {
     const db = openDatabase(location());
     db.exec('BEGIN IMMEDIATE;');
 
     initializeVaultSchema(db, vaultId, true, evidenceSchemaSql);
 
-    expect(currentVaultSchemaVersion).toBe(5);
+    expect(currentVaultSchemaVersion).toBe(6);
     expect(db.isTransaction).toBe(true);
-    expect(inspectVaultSchema(db, vaultId)).toBe(5);
+    expect(inspectVaultSchema(db, vaultId)).toBe(6);
     expect(db.prepare('SELECT revision FROM vault_meta WHERE singleton=1').get()).toEqual({
       revision: 0,
     });
@@ -144,7 +153,7 @@ describe('offline vault schema migrations', () => {
     initializeVaultSchema(db, vaultId, false, evidenceSchemaSql);
 
     expect(db.isTransaction).toBe(true);
-    expect(inspectVaultSchema(db, vaultId)).toBe(5);
+    expect(inspectVaultSchema(db, vaultId)).toBe(6);
     expect(db.prepare('SELECT * FROM companies').all()).toEqual([
       { id: 'fixture_company', revision: 2, body: '{"fixture":"company-v1"}' },
     ]);
@@ -179,19 +188,19 @@ describe('offline vault schema migrations', () => {
     db.exec('COMMIT;');
   });
 
-  it('inspects a current v5 database without changing its bytes', () => {
+  it('inspects a current v6 database without changing its bytes', () => {
     const file = location();
     createCurrent(file);
     const before = readFileSync(file);
     const db = openDatabase(file);
 
-    expect(inspectVaultSchema(db, vaultId)).toBe(5);
+    expect(inspectVaultSchema(db, vaultId)).toBe(6);
 
     closeDatabase(db);
     expect(readFileSync(file)).toEqual(before);
   });
 
-  it('inspects an existing v5 schema without executing the supplied SQL', () => {
+  it('inspects an existing v6 schema without executing the supplied SQL', () => {
     const file = location();
     createCurrent(file);
     const db = openDatabase(file);
@@ -228,7 +237,7 @@ describe('offline vault schema migrations', () => {
     const old = db.prepare('SELECT * FROM record_history').all();
     db.exec('BEGIN IMMEDIATE;');
     initializeVaultSchema(db, vaultId, false, 'INVALID SQL MUST NOT RUN;');
-    expect(inspectVaultSchema(db, vaultId)).toBe(5);
+    expect(inspectVaultSchema(db, vaultId)).toBe(6);
     expect(db.prepare('SELECT * FROM record_history').all()).toEqual(old);
     expect(db.prepare('SELECT * FROM writer_state').all()).toEqual([
       { singleton: 1, generation: 0, owner_nonce: null },
@@ -251,7 +260,7 @@ describe('offline vault schema migrations', () => {
     const owner = db.prepare('SELECT * FROM writer_state').get();
     db.exec('BEGIN IMMEDIATE;');
     initializeVaultSchema(db, vaultId, false, 'INVALID EVIDENCE SQL MUST NOT RUN;');
-    expect(inspectVaultSchema(db, vaultId)).toBe(5);
+    expect(inspectVaultSchema(db, vaultId)).toBe(6);
     expect(db.prepare('SELECT * FROM writer_state').get()).toEqual(owner);
     expect(db.prepare('SELECT * FROM retained_record_versions').all()).toEqual([
       { kind: 'company', id: 'fixture_company', revision: 2 },
@@ -291,7 +300,7 @@ describe('offline vault schema migrations', () => {
     const versions = db.prepare('SELECT * FROM retained_record_versions').all();
     db.exec('BEGIN IMMEDIATE;');
     initializeVaultSchema(db, vaultId, false, 'INVALID SQL MUST NOT RUN;');
-    expect(inspectVaultSchema(db, vaultId)).toBe(5);
+    expect(inspectVaultSchema(db, vaultId)).toBe(6);
     expect(db.prepare('SELECT * FROM companies').all()).toEqual(bodies);
     expect(db.prepare('SELECT * FROM record_history').all()).toEqual(history);
     expect(db.prepare('SELECT * FROM writer_state').all()).toEqual(owner);
@@ -318,6 +327,60 @@ describe('offline vault schema migrations', () => {
     ).toBeUndefined();
   });
 
+  it('upgrades a real v5 fixture without rewriting inventory, evidence or its owner generation', () => {
+    const file = location();
+    createVersionFive(file);
+    const db = openDatabase(file);
+    db.exec('INSERT INTO companies VALUES(\'retained\',1,\'{"name":"Keep"}\');');
+    db.exec("INSERT INTO company_identity_search VALUES('retained','Keep','');");
+    const bodies = db.prepare('SELECT * FROM companies').all();
+    const owner = db.prepare('SELECT * FROM writer_state').all();
+    expect(inspectVaultSchema(db, vaultId)).toBe(5);
+    db.exec('BEGIN IMMEDIATE;');
+    initializeVaultSchema(db, vaultId, false, 'INVALID EVIDENCE SQL MUST NOT RUN;');
+    expect(inspectVaultSchema(db, vaultId)).toBe(6);
+    expect(db.prepare('SELECT * FROM companies').all()).toEqual(bodies);
+    expect(db.prepare('SELECT * FROM writer_state').all()).toEqual(owner);
+    expect(db.prepare('SELECT * FROM legacy_sources').all()).toEqual([]);
+    db.exec('COMMIT;');
+  });
+  it('rolls a failed v5 migration back without stamping v6 or changing existing records', () => {
+    const file = location();
+    createVersionFive(file);
+    const db = openDatabase(file);
+    db.exec('CREATE TABLE legacy_threads(unrelated TEXT);');
+    const owner = db.prepare('SELECT * FROM writer_state').all();
+    db.exec('BEGIN IMMEDIATE;');
+    expect(() => initializeVaultSchema(db, vaultId, false, 'INVALID SQL;')).toThrow(
+      /already exists/i,
+    );
+    db.exec('ROLLBACK;');
+    expect(inspectVaultSchema(db, vaultId)).toBe(5);
+    expect(db.prepare('SELECT * FROM writer_state').all()).toEqual(owner);
+    expect(
+      db.prepare("SELECT 1 FROM sqlite_schema WHERE name='legacy_sources'").get(),
+    ).toBeUndefined();
+  });
+  it('refuses a damaged v6 history table without changing database bytes', () => {
+    const file = location();
+    createCurrent(file);
+    const db = openDatabase(file);
+    db.exec('DROP TABLE legacy_threads;');
+    closeDatabase(db);
+    expectInspectionRefusal(file, vaultId, /legacy_threads/i);
+  });
+  it.each(['missing', 'replaced'])('refuses %s legacy immutability guards read-only', (mode) => {
+    const file = location();
+    createCurrent(file);
+    const db = openDatabase(file);
+    db.exec('DROP TRIGGER legacy_sources_no_update;');
+    if (mode === 'replaced')
+      db.exec(
+        'CREATE TRIGGER legacy_sources_no_update BEFORE UPDATE ON legacy_sources BEGIN SELECT 1; END;',
+      );
+    closeDatabase(db);
+    expectInspectionRefusal(file, vaultId, /legacy.*guard/i);
+  });
   it('refuses future schema versions without changing database bytes', () => {
     const file = location();
     const db = openDatabase(file);

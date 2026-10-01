@@ -13,6 +13,73 @@ import { inspectLegacySnapshot } from './snapshot-inspection.ts';
 import { evidenceSchemaSql } from './vault-evidence-store.ts';
 import { researchSchemaSql } from './vault-research-store.ts';
 import { openAssetStore } from './vault-assets.ts';
+import { legacyRetentionFixture, minimalLegacyJobFixture } from './legacy-retention-fixture.ts';
+
+async function proveLegacyRetention(directory) {
+  const file = path.join(directory, 'legacy-retention.sqlite');
+  const vault = openVault(file, 'vault_legacy_retention');
+  const fixtures = [undefined, 1, 2].map((version) => legacyRetentionFixture(version));
+  fixtures.push(minimalLegacyJobFixture(1));
+  const receipts = [];
+  try {
+    for (const fixture of fixtures) {
+      const json = JSON.stringify(fixture);
+      const receipt = vault.writer().retainLegacySnapshot(json, vault.status().revision);
+      receipts.push(receipt);
+      assert.equal(receipt.sourceSha256, createHash('sha256').update(json).digest('hex'));
+      assert.equal(receipt.authority, 'disabled');
+      assert.deepEqual(JSON.parse(vault.exportLegacySnapshot(receipt.sourceSha256)), fixture);
+      const verified = vault.verifyLegacySnapshot(receipt.sourceSha256);
+      assert.equal(verified.canApply, false);
+      assert.equal(verified.proposedAuthority.runnableJobs, 0);
+      assert.equal(verified.proposedAuthority.localAttestations, 0);
+    }
+    const before = vault.status().revision;
+    const duplicate = vault.writer().retainLegacySnapshot(JSON.stringify(fixtures[0]), 0);
+    assert.equal(duplicate.vaultRevision, before);
+    assert.equal(vault.getCompany('co_shared'), null);
+    assert.equal(vault.getObservation('metric_a'), null);
+    assert.equal(vault.listReports({ kind: 'market', id: 'mkt_a' }).items.length, 0);
+    const stale = vault.writer();
+    vault.advanceWriterGeneration();
+    assert.throws(() => stale.retainLegacySnapshot('{ malformed', before), /fenced/i);
+    const backupFile = path.join(directory, 'legacy-retention-backup.sqlite');
+    await vault.backup(backupFile);
+    const reader = openVault(backupFile, 'vault_legacy_retention', 'reader');
+    try {
+      for (const [index, receipt] of receipts.entries())
+        assert.deepEqual(
+          JSON.parse(reader.exportLegacySnapshot(receipt.sourceSha256)),
+          fixtures[index],
+        );
+      assert.equal(reader.integrity(), 'ok');
+      assert.equal(reader.status().schemaVersion, 6);
+    } finally {
+      reader.close();
+    }
+  } finally {
+    vault.close();
+  }
+  const reopened = openVault(file, 'vault_legacy_retention', 'reader');
+  try {
+    assert.deepEqual(
+      JSON.parse(reopened.exportLegacySnapshot(receipts[0].sourceSha256)),
+      fixtures[0],
+    );
+  } finally {
+    reopened.close();
+  }
+  return {
+    allFamiliesRetained: true,
+    rawNestedHistory: true,
+    minimalJobOmissions: true,
+    attributionNotAuthority: true,
+    idempotentSource: true,
+    oldCapabilityFenced: true,
+    consistentBackupReopened: true,
+    closedVaultReopened: true,
+  };
+}
 
 const marker = (name, data) => process.stdout.write(`${name} ${JSON.stringify(data)}\n`);
 
@@ -167,7 +234,7 @@ async function proveInventoryContext(directory) {
   prior.close();
   const vault = openVault(file, vaultId);
   try {
-    assert.equal(vault.status().schemaVersion, 5);
+    assert.equal(vault.status().schemaVersion, 6);
     assert.equal(vault.status().writerGeneration, 8);
     assert.deepEqual(vault.getCompany('co_a'), company);
     assert.deepEqual(vault.companyHistory('co_a').items, [company]);
@@ -288,7 +355,7 @@ async function proveNativeVault(directory) {
   });
   const file = path.join(directory, 'inventory.sqlite');
   const company = { record: record('co_a'), name: 'Fixture Labs', officialDomain: 'a.example' };
-  // Create a P02-shaped synthetic vault, then prove the real v1 -> v2 -> v3 -> v4 -> v5 upgrade.
+  // Create a P02-shaped synthetic vault, then prove the real v1 -> v2 -> v3 -> v4 -> v5 -> v6 upgrade.
   const prior = new DatabaseSync(file);
   try {
     prior.exec(`BEGIN IMMEDIATE; ${inventorySchemaSql}`);
@@ -307,7 +374,7 @@ async function proveNativeVault(directory) {
   const handle = openVault(file, vaultId);
   const vault = { ...handle, ...handle.writer() };
   try {
-    assert.equal(vault.status().schemaVersion, 5);
+    assert.equal(vault.status().schemaVersion, 6);
     assert.deepEqual(vault.getCompany('co_a'), company);
     for (const marketId of ['mkt_a', 'mkt_b']) {
       vault.saveMarket({ record: record(marketId), name: marketId }, 0);
@@ -610,6 +677,7 @@ async function prepare(directory) {
     nativeVault,
     inventoryContext,
     legacyInspection: proveLegacyInspection(),
+    legacyRetention: await proveLegacyRetention(directory),
     fts5Match: true,
     walReopen: true,
     backupFromOpenWal: true,

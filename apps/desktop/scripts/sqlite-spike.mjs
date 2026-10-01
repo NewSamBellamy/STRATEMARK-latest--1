@@ -168,6 +168,16 @@ try {
     assetLateWriteRejected: true,
     corruptAssetRefused: true,
   });
+  assert.deepEqual(prepared.legacyRetention, {
+    allFamiliesRetained: true,
+    rawNestedHistory: true,
+    minimalJobOmissions: true,
+    attributionNotAuthority: true,
+    idempotentSource: true,
+    oldCapabilityFenced: true,
+    consistentBackupReopened: true,
+    closedVaultReopened: true,
+  });
   for (const key of ['fts5Match', 'walReopen', 'backupFromOpenWal', 'backupReopen'])
     assert.equal(prepared[key], true);
   assert.deepEqual(prepared.backupValues, {
