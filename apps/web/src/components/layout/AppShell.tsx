@@ -9,7 +9,7 @@ import { useDeckRefreshSubscription } from '@/hooks/data';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { useHuntRunner } from '@/lib/agentic/useHuntRunner';
 import { SettingsModal } from '@/features/settings/SettingsModal';
-import { isReadOnlyResearch } from '@/lib/settings/runtime';
+import { isReadOnlyResearch, isNativeResearch } from '@/lib/settings/runtime';
 
 export function AppShell() {
   useDeckRefreshSubscription();
@@ -71,6 +71,21 @@ export function AppShell() {
               disabled. Archived reports, findings, and saved items remain retained but are
               unavailable in this preview.
             </span>
+          </div>
+        )}
+        {isNativeResearch() && (
+          <div
+            role="status"
+            className="border-b border-border bg-surface-2 px-4 py-2 text-center text-xs text-muted"
+          >
+            {window.mi?.researchProvenance === 'synthetic_fixture' && (
+              <strong>SYNTHETIC FIXTURE · No live research or provider calls · </strong>
+            )}
+            {window.mi?.researchProvenance === 'unclassified' && (
+              <strong>Unclassified earlier preview · Research disabled · </strong>
+            )}
+            Native research preview · Separate workspace · Evidence review and other product
+            features are still in development
           </div>
         )}
         <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">

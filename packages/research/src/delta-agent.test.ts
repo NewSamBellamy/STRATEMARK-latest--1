@@ -248,7 +248,7 @@ describe('Incremental Delta Search Agent — Precision Focus Translation', () =>
 
     const culture = translateExpandFocus({ cardType: 'culture' });
     expect(culture.primaryCardType).toBe('culture');
-    expect(culture.focusPrompt).toContain('Culture');
+    expect(culture.focusPrompt).toContain('Community');
     expect(culture.focusPrompt).toContain('community');
   });
 

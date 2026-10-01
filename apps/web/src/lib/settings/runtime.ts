@@ -3,6 +3,10 @@ export function isReadOnlyResearch(): boolean {
   return typeof window !== 'undefined' && window.mi?.storageMode === 'staged_readonly';
 }
 
+export function isNativeResearch(): boolean {
+  return typeof window !== 'undefined' && window.mi?.storageMode === 'native';
+}
+
 /** Explicit local development handoff: bundled data only, never a provider-backed repository. */
 export function isDemoPreview(): boolean {
   return (

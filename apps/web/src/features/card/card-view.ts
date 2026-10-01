@@ -79,7 +79,12 @@ export function buildCardView(data: CardWithCompany, userFootprintCohort?: UserF
   const ranked = signal
     ? []
     : metrics
-        .filter((m) => m.metric.value != null && facePriority.includes(m.metric.metricType))
+        .filter(
+          (m) =>
+            m.metric.value != null &&
+            ['verified', 'user_verified'].includes(m.metric.confidence) &&
+            facePriority.includes(m.metric.metricType),
+        )
         .sort((a, b) => {
           const strength = (m: typeof a) =>
             (m.metric.confidence === 'user_verified'

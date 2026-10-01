@@ -13,6 +13,13 @@ import type {
   ResearchProgress,
   Unsubscribe,
 } from './repository';
+import type { ActionRequest } from './actions';
+import type { ActionReceipt } from './action-results';
+import type {
+  NativeResearchStart,
+  NativeResearchRun,
+  NativeResearchEvent,
+} from './native-research';
 
 export interface ResearchProgressEvent {
   requestId: string;
@@ -30,8 +37,23 @@ export type PreloadRepositoryApi = Omit<
   MarketIntelRepository,
   'subscribeDeckRefresh' | 'createResearchedDeck'
 > & {
+  /** Durable command entry; main binds identity and the service enforces stored policy/budget. */
+  acceptAction(request: ActionRequest): Promise<ActionReceipt>;
   /** Trusted desktop mode metadata; not a grant or permission supplied by a caller. */
-  storageMode?: 'legacy' | 'staged_readonly';
+  storageMode?: 'legacy' | 'staged_readonly' | 'native';
+  /** Main-selected development provenance, never a connection/key status. */
+  researchProvenance?: 'synthetic_fixture' | 'live_provider' | 'unclassified';
+  /** Research dispatch disabled on a provenance-preserving read-only reopen. */
+  nativeResearchWritable?: boolean;
+  startNativeResearch?(input: NativeResearchStart): Promise<NativeResearchRun>;
+  listNativeRuns?(): Promise<NativeResearchRun[]>;
+  getNativeRun?(runId: string): Promise<NativeResearchRun | null>;
+  /** At most 100 lightweight entries. Replay using the last sequence; no card bodies. */
+  nativeRunEvents?(runId: string, afterSequence: number): Promise<NativeResearchEvent[]>;
+  controlNativeRun?(
+    runId: string,
+    command: 'pause' | 'resume' | 'cancel',
+  ): Promise<NativeResearchRun>;
   createResearchedDeck(
     brief: Parameters<MarketIntelRepository['createResearchedDeck']>[0],
     requestId: string,
@@ -52,6 +74,12 @@ export type PreloadRepositoryApi = Omit<
 
 /** Canonical IPC channel names (used by both preload and main). */
 export const IPC_CHANNELS = {
+  startNativeResearch: 'mi:startNativeResearch',
+  listNativeRuns: 'mi:listNativeRuns',
+  getNativeRun: 'mi:getNativeRun',
+  nativeRunEvents: 'mi:nativeRunEvents',
+  controlNativeRun: 'mi:controlNativeRun',
+  acceptAction: 'mi:acceptAction',
   listMarkets: 'mi:listMarkets',
   getMarket: 'mi:getMarket',
   createMarket: 'mi:createMarket',

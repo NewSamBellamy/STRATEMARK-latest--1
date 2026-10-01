@@ -486,6 +486,8 @@ export function useDeckRefreshSubscription(onEvent?: (evt: DeckRefreshEvent) => 
   const qc = useQueryClient();
   useEffect(() => {
     const unsub = repo.subscribeDeckRefresh((evt) => {
+      qc.invalidateQueries({ queryKey: ['native-runs'] });
+      qc.invalidateQueries({ queryKey: qk.markets });
       qc.invalidateQueries({ queryKey: ['cards', evt.deckId] });
       qc.invalidateQueries({ queryKey: qk.deck(evt.marketId) });
       onEvent?.(evt);

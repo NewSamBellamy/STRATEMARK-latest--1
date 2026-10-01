@@ -1,6 +1,6 @@
 # Stratemark v2 build workflow
 
-Current task is planning only. MASTER-PLAN.md, EXPERIENCE-MAP.md and DELIVERY-PLAN.md replace the old execution rules. Astra is the founder's requested planner/reviewer; earlier Astra prohibition and mandatory Luna instructions are superseded.
+Current task is the authorized full build. MASTER-PLAN.md, EXPERIENCE-MAP.md and DELIVERY-PLAN.md replace the old execution rules. Astra is the founder's requested planner/reviewer; GPT 6.1 Sol executes bounded assignments. Earlier Astra prohibition and mandatory Luna instructions are superseded.
 
 ## Execution after build authorization
 
@@ -11,6 +11,12 @@ Current task is planning only. MASTER-PLAN.md, EXPERIENCE-MAP.md and DELIVERY-PL
 - Three distinct unsuccessful technical approaches trigger a compact Astra review. External permission/auth failures do not warrant three wasteful retries.
 - No backend-only packet closes a product milestone. If two consecutive packets create no user capability, redirect to integration.
 
+## Priority and durable execution
+
+Keep every R0–R8 requirement in the coverage ledger. Choose the next slice by user impact: data loss/security and broken core journeys first, then a complete create → research → browse → evidence → save/reopen journey, then deeper useful research and sharing/agent access, then remaining polish and release gates. Dependencies may change the order; record why. High-impact-first is sequencing, not permission to omit lower-priority coverage.
+
+Before each bounded assignment, state the user outcome, owned paths, acceptance check and stopping condition. After each slice, update BUILD-STATE and ACTIVE-HANDOFF with branch/HEAD, owned uncommitted work, what actually works, evidence and its limits, decisions, blockers, active workers/processes and the exact next action. Preserve planned versus implemented versus verified versus release-ready distinctions. Red-team each integrated checkpoint for actual user value; do not count scaffolding, documents or passing mocks alone as a completed journey.
+
 ## Verification and context
 
 Use targeted meaningful tests for runtime/data/security changes and visual review for presentation. Run the complete required gate at integrated milestones/PRs. Verify actual packaged behavior separately from mocks/browser demos. Do not rerun unchanged suites merely to fill time.
@@ -19,7 +25,13 @@ Checkpoint near estimated 100k context; hand off before 150k with margin below t
 
 ## Spend and authority
 
-Planning does not authorize provider experiments. At build launch use the agreed development spend envelope; obtain one if absent. User-reported prior spend is not verified account billing. Record measurable cost and uncertainty; usage limits are not API invoices. The five-hour window is capacity, not a target to consume.
+The founder monitors the $100 development target externally; no agent-enforced cap is configured. Continue useful implementation without repeated budget confirmations. Report meaningful unexpected cost increases when observable. Product provider experiments remain separately bounded. Record measurable cost and uncertainty; usage limits are not API invoices.
+
+Keep stable request instructions consistent before changing task details where request construction is controllable. Use compact worker context, retained evaluation results and focused reads. Verify provider caching support and observed cache usage before claiming savings. Persist state at logical slice/investigation boundaries and before context compaction. Never depend on the chat transcript as the only handoff.
+
+Where controllable, keep reusable instructions/tool definitions and stable project context at the start of requests; append changing task details afterward. Do not rotate models or rewrite stable prefixes gratuitously. Do not pad prompts to manufacture cache hits. Runtime-managed requests may not expose cache controls or telemetry; record caching as unverified when it cannot be observed.
+
+Use completed investigation, integrated slice and worker ownership transfer as natural compaction points. Before compacting, persist the handoff above; afterward, read that handoff and only the relevant plan/code sections. Do not re-ingest the entire conversation, repeat completed research or rerun unchanged tests. If automatic compaction is unavailable, prepare a fresh-session handoff rather than pretending context was reset. Context thresholds apply to each agent's active context, not the goal's cumulative token count.
 
 Keep existing work and data. Checkpoints may fast-forward the previously authorized personal spin-off branch after verifying destination and remote state; never force push, merge main, publish or deploy on inference. Authentication failure leaves a local commit and an explicit backup gap. No credential inspection or secrets in output/docs.
 

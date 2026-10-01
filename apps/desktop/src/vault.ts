@@ -18,6 +18,7 @@ import {
 } from '@mi/contracts';
 import { createEvidenceStore, evidenceSchemaSql } from './vault-evidence-store';
 import { createResearchStore } from './vault-research-store';
+import { createWorkStore } from './vault-work-store';
 import { createLegacyStore } from './vault-legacy-store';
 import { acquireVaultOwner, canonicalVaultPath, vaultFileFence } from './vault-owner';
 import {
@@ -343,7 +344,15 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
   const evidence = createEvidenceStore(db, vaultId, assertOpen, readRevision, noWrite);
   const research = createResearchStore(db, vaultId, assertOpen, readRevision, noWrite, evidence);
   const legacy = createLegacyStore(db, assertOpen, readRevision, noWrite);
+  const {
+    acceptRun: _acceptRun,
+    updateRun: _updateRun,
+    appendEvent: _appendEvent,
+    saveCard: _saveCard,
+    ...work
+  } = createWorkStore(db, vaultId, assertOpen, noWrite);
   return {
+    work,
     listLegacySnapshots: legacy.listLegacySnapshots,
     readLegacyRecords: legacy.readLegacyRecords,
     readLegacyRecord: legacy.readLegacyRecord,
@@ -388,6 +397,7 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
       );
       return {
         // Trusted internal asset publication binds to this captured generation.
+        work: createWorkStore(db, vaultId, assertOpen, check),
         assertCurrent: check,
         retainLegacySnapshot: legacyWrites.retainLegacySnapshot,
         saveCompany(value: VaultCompany, expectedRevision: number) {

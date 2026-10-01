@@ -1,58 +1,44 @@
 # Stratemark build state — v2
 
-Updated October 1, 2026. Current authority: founder requested planning only. No application changes, new research, migration, publication or test reruns were performed for this replacement plan.
+Updated October 1, 2026. The founder authorized the complete R0–R8 build. MASTER-PLAN, EXPERIENCE-MAP and DELIVERY-PLAN govern scope; this file records actual progress. Inspect Git and ACTIVE-HANDOFF before resuming.
 
-## Current plan
+## Current execution checkpoint
 
-Latest founder instruction: push the v2 planning checkpoint to the personal spin-off GitHub branch. Future integrated build checkpoints must include a verified GitHub push, real full-journey screen recording tied to the commit, and timestamped plain-English done/improved/tested/gaps/next breakdown. See build-workflow.md. This documentation checkpoint introduces no new app behavior and does not itself start implementation.
+- Branch `feat/stratemark-spinoff-local-agents`; last committed baseline `f6353e8`. R0/R1 application changes await integrated checkpoint commit and backup. Preserve all dirty work.
+- R0: seven green/paper compositions plus long-name/sparse edge cases, hero entity identity, four editorial finding faces, no flips/ranks. `/design/cards` is explicitly synthetic, not a completed R2 portal. Owner aesthetic approval remains pending.
+- R1: actual development Electron → trusted IPC → pipeline → isolated SQLite create/research/partial-result/retry/read/reopen path. Review precedes dispatch. Selected tasks/outcomes persist; retries finish original unfinished work. Request identity survives reload; accepted duplicates reuse the run. Incremental bounded event replay drains terminal pages.
+- Absolute workspace validation precedes profile creation; shutdown is awaited. Saved reads do not initialize a provider. Unsupported native actions cannot fall through to legacy writes.
+- Immutable synthetic/live provenance survives restart. Without the fixture flag, synthetic work remains labeled and read-only. Mixed/unclassified runs are not relabeled live. Synthetic/live work cannot silently mix.
+- Library/New Deck and historical entry aliases work; three recipient creation links repaired. All seven types visible; Community labels historical culture wire values without rewriting stored semantics.
+- Provider citations are retained source leads, not semantic verification. Generated numbers remain estimated/unknown and withheld from faces. Operational projections are not canonical evidence-backed dossiers.
+- Pre-commit actual Electron walkthrough passed: fixture-backed partial failure, subset retry, consecutive decks, cancellation, restart without key/fixture flag, saved reads, seven compositions and narrow/reduced-motion layout. Receipt `native-journey-bj19UZ` has dirty baseline `f6353e8`; final clean commit-bound recording still required.
+- Fresh integrated `pnpm check` passed (session 42753, exit 0): all six typechecks, lint and recursive local test suites. Live benchmark/LLM judge paths report no-key skips, not live-quality success. Desktop build passed; final clean commit-bound recording/backup pending. No release readiness claim.
+- Founder monitors $100 development target; dollars/cache hits unknown. No paid live product evaluation calls in this slice.
 
-MASTER-PLAN.md v2.0.0 is authoritative, with EXPERIENCE-MAP.md and DELIVERY-PLAN.md. R0–R8 replace G00–G08. Astra is requested for planning/review; earlier no-Astra/Sol-Luna directives are superseded. A later build instruction is required before starting implementation. Old automation remains inactive.
+## Red-team disposition
 
-## Verified repository baseline for this plan
-
-- Branch: `feat/stratemark-spinoff-local-agents`.
-- Application HEAD at inspection: `2f45ed6`; planning changes follow it.
-- Working tree clean before this documentation work.
-- Eight local commits ahead of the locally known `newsam/feat/stratemark-spinoff-local-agents` tip. Remote not fetched in this planning task; do not claim fresh remote verification.
-- Personal backup remote configured for NewSamBellamy/STRATEMARK-latest--1. Main/origin/tobi untouched.
-- Goal tool returned no active goal in the previous audit; no new build goal created for planning.
-
-## Actual implemented state
-
-Native SQLite evidence/inventory/history and staged legacy retention/recovery exist. Native owner/stale-write protection, local asset support, secret-boundary fixes and safe cached navigation exist. First durable discovery action has policy checks, dedupe, budget reservation and request/token metering in the legacy repository. Hidden frontend timers were removed.
-
-Normal desktop writes still use GeminiRepository/repo.json. New action transport, shared native operational writes and production cutover remain unfinished. The new research destinations, seven-type coherence, broad provider onboarding, publication service, monitoring, MCP and release acceptance remain unfinished. Existing earlier UI/provider components are reusable work, not completed v2 goals.
-
-## Historical evidence
-
-[BUILD-STATE-V1.md](BUILD-STATE-V1.md) preserves the previous detailed ledger. PACKET-ARCHIVE.md preserves older packets. Their commands and continuation instructions are historical, not current authority.
-
-Last recorded application verification at G02-P05: all six typechecks/lint; contracts370, mocks16, research388, API158, desktop207, web185; six browser passes/one conditional skip; desktop build passed. These were not rerun for planning. No live benchmark or signed production acceptance is claimed.
-
-Known product defects include missing /markets route, prominent tiers, weak source alignment on visible sample metrics, missing market-share denominator/period, mixed estimates/sourced facts, unsupported long-form assertions, old company navigation and dated Live Intel.
+Seven prior Astra findings repaired: scope prompt omission, unstable retry candidates, second-run controls, lost source leads, repeated pause/cleanup, reload dedupe and repeated event replay. Additional regressions repaired lazy-route Suspense failure and fixture provenance/read-only reopening. The remaining challenge is useful supported research in the normal product, not persistence alone.
 
 ## V2 delivery ledger
 
-| Goal | State | Next proof |
-| --- | --- | --- |
-| R0 Product slice | Planned | Concrete seven-card/workspace composition and scoped R1 packet |
-| R1 Real deck/reopen | Planned; reuses foundations | Native desktop create/research/read/reopen |
-| R2 Seven card destinations | Planned; reuses prior UI | Seven correct useful destinations, evidence and visual review |
-| R3 Providers/depth/questions | Planned; reuses adapters | Advertised routes and decision outputs actually work |
-| R4 Sharing | Planned; reuses codec/viewer | Anonymous mobile recipient and attributed copy |
-| R5 Monitoring/return | Planned | Meaningful changes, durable controls and limits |
-| R6 Local MCP | Planned | Real host read/research/revoke |
-| R7 Remote/plugins | Planned | Actual advertised host connection journeys |
-| R8 Production | Planned | Packaged release and evidence matrix |
+| Goal                         | Current state                                                                | Next proof                                                                        |
+| ---------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| R0 Product slice             | Compositions wired; development walkthrough checked; visual approval pending | Owner review and real entity/story integration                                    |
+| R1 Real deck/reopen          | Isolated development fixture journey works; incomplete milestone             | Passage/claim support, native parity/cutover, approved live run, packaged journey |
+| R2 Seven destinations        | Composition only; production destinations unfinished                         | Seven useful role/story destinations with source-backed content                   |
+| R3 Providers/depth/questions | Reusable adapters/legacy UI, not native acceptance                           | Advertised routes, deeper research, chat, comparison and briefs                   |
+| R4 Sharing                   | Legacy codec/viewer reusable; publication unfinished                         | Anonymous mobile snapshots, attributed copy and revoke                            |
+| R5 Monitoring/return         | Planned                                                                      | Meaningful changes, durable controls and recovery                                 |
+| R6 Local MCP                 | Planned                                                                      | Actual host read/research/revoke through shared authority                         |
+| R7 Remote/plugins            | Planned; host/eligibility/operator decisions remain                          | Actual host journeys and bridge threat review                                     |
+| R8 Production                | Planned                                                                      | Signed packaged release and evidence matrix                                       |
 
-## Planning checkpoint — v2 complete
+No R-goal is complete. COVERAGE retains U01–U66; partial proof does not make a complete interaction release-ready.
 
-Created MASTER-PLAN, EXPERIENCE-MAP and DELIVERY-PLAN; replaced the old Northstar/phase entry points, README, launch and workflow instructions; updated AGENTS precedence; preserved the former detailed ledger in BUILD-STATE-V1; marked historical references superseded. Source review covered current routes, component inventory, card component, theme/font tokens, provider adapters and existing audit evidence. Official OpenAI sign-in/plugin documentation was consulted for current integration constraints.
+## Next outcome
 
-Document validation passed: local links resolve, fenced blocks balance, U01–U66 each appear exactly once in the interaction register, and Git whitespace checks pass. No application tests, benchmarks, provider calls, runtime edits, live migrations or deployment were performed. This verifies the plan's structure, not software completion. All R-goals remain planned. No usage percentage is treated as a dollar-spend record.
+Finish gate, scoped commit, clean commit-bound actual recording and authorized backup. Then connect retained source passages and honest support status to the native reader and existing evidence store. Reuse retrieval safety/evidence APIs, not another framework. Port exposed actions and prove disposable migration before normal cutover. Never silently migrate live user data.
 
-## Resume safely — next session
+## Historical baseline
 
-Read LAUNCH.md and the three v2 plan files. Inspect actual HEAD/tree before writes. On founder build instruction, start R0/R1, reuse verified foundations, and make a complete user journey the next proof. Do not return to isolated infrastructure packets as the measure of progress.
-
-Checkpoint template: R-goal/U-rows; user capability delivered; commit/files; demonstration and actual backend mode; checks run/results; gaps/external dependencies; known/unknown spend; red-team continue/repair/redirect; next concrete step.
+Planning baseline `2f45ed6`, documentation checkpoint `f6353e8`. Old planning-only instructions do not suspend this build. BUILD-STATE-V1 and PACKET-ARCHIVE preserve historical evidence; Git retains earlier ledgers. Normal desktop still uses GeminiRepository/repo.json; native preview is development-only.

@@ -6,11 +6,12 @@ import { renderWithProviders } from '@/test/test-utils';
 import { buildCardShare, encodeSharePayload, type SharePayload } from '@/lib/share/codec';
 import SharePage from './SharePage';
 
-async function openSharedCard(payload: SharePayload) {
+async function openShare(payload: SharePayload) {
   const blob = await encodeSharePayload(payload);
   const rendered = renderWithProviders(
     <Routes>
       <Route path="/share/:blob" element={<SharePage />} />
+      <Route path="/new" element={<h1>New deck</h1>} />
     </Routes>,
     { route: `/share/${blob}` },
   );
@@ -45,7 +46,7 @@ describe('shared market finding evidence', () => {
       metrics: [],
       viceClaims: [],
     } as CardWithCompany;
-    const { user } = await openSharedCard(buildCardShare(finding, 'Frontier AI'));
+    const { user } = await openShare(buildCardShare(finding, 'Frontier AI'));
 
     await user.click(
       await screen.findByRole('button', { name: /inference pricing shift — insight card/i }),
@@ -83,7 +84,7 @@ describe('shared market finding evidence', () => {
         },
       ],
     };
-    const { user } = await openSharedCard(payload);
+    const { user } = await openShare(payload);
 
     await user.click(await screen.findByRole('button', { name: /older finding — insight card/i }));
     expect(screen.getAllByText('The card summary remains available.')).toHaveLength(2);
@@ -94,4 +95,50 @@ describe('shared market finding evidence', () => {
     ).toBeInTheDocument();
     expect(screen.queryByText('This older claim has no source link.')).not.toBeInTheDocument();
   });
+});
+
+describe('shared research navigation', () => {
+  it.each(['card', 'deck', 'briefing', 'report'] as const)(
+    'opens New Deck from a shared %s',
+    async (kind) => {
+      const sharedAt = '2026-10-01T12:00:00.000Z';
+      const payload: SharePayload = {
+        v: 1,
+        kind,
+        market: 'Frontier AI',
+        sharedAt,
+        cards: [
+          {
+            type: 'insight',
+            title: 'Shared finding',
+            summary: 'Saved research snapshot.',
+            tier: null,
+            keyPoints: [],
+            citations: [],
+            claims: [],
+            company: null,
+            metrics: [],
+          },
+        ],
+      };
+      if (kind === 'briefing') {
+        payload.briefing = { h: 'Saved briefing', at: sharedAt, w: 24, u: [], i: [] };
+      }
+      if (kind === 'report') {
+        payload.report = {
+          t: 'Saved report',
+          k: 'deck',
+          at: sharedAt,
+          md: 'Saved research.',
+          c: [],
+        };
+      }
+      const { user } = await openShare(payload);
+
+      const link = await screen.findByRole('link', { name: 'Research your own market' });
+      expect(link).toHaveAttribute('href', '/new');
+      await user.click(link);
+      expect(await screen.findByRole('heading', { name: 'New deck' })).toBeInTheDocument();
+    },
+  );
 });

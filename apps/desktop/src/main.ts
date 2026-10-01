@@ -33,7 +33,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import { IPC_CHANNELS, SECURE_CHANNELS, type MarketIntelRepository } from '@mi/contracts';
+import { IPC_CHANNELS, SECURE_CHANNELS, nativeResearchStartSchema } from '@mi/contracts';
 import { z } from 'zod';
 import {
   createMarketInputSchema,
@@ -50,15 +50,30 @@ import {
   refreshCadenceSchema,
   dashboardTabSchema,
 } from './ipc-schemas.js';
-import { GeminiRepository, migrateSnapshot, type RepoSnapshot } from '@mi/research';
+import {
+  GeminiRepository,
+  createGeminiClient,
+  migrateSnapshot,
+  type RepoSnapshot,
+} from '@mi/research';
 import sampleSnapshot from '../../web/src/sample/frontier-snapshot.json';
 import { createFileStore, parseResearchExport } from './storage.js';
 import { performGoogleOAuthFlow, loadDesktopEnv, type OAuthUser } from './oauth.js';
 import { openStagedAppReads } from './staged-app-reads.js';
+import { acceptDesktopAction } from './desktop-action.js';
+import { NativeResearchService } from './native-service.js';
+import { openVault } from './vault.js';
 import { inspectResearchStorage, preflightCurrentResearch } from './storage-preflight.js';
+import { createNativeFixtureClient, nativeFixtureFetch } from './native-fixture-client';
+import { resolveNativeWorkspaceMode } from './native-workspace-mode';
 
 // Explicit preview only. Never silently migrate/select a candidate or load a provider.
 const stagedArguments = process.argv.filter((arg) => arg.startsWith('--staged-vault-dir='));
+const nativeArguments = process.argv.filter((arg) => arg.startsWith('--native-vault-dir='));
+const nativeFixture = process.argv.includes('--native-fixture');
+if (nativeFixture && (app.isPackaged || nativeArguments.length !== 1 || stagedArguments.length)) {
+  throw new Error('Synthetic research fixtures require one isolated development workspace.');
+}
 if (stagedArguments.length === 0) loadDesktopEnv();
 
 const DESKTOP_DIST = path.join(app.getAppPath(), 'dist');
@@ -73,7 +88,18 @@ process.title = 'Stratemark';
 // Development previews use a separate workspace so testing never touches a
 // previously installed app's research or saved key. Ignored by packaged builds.
 const previewData = process.argv.find((arg) => arg.startsWith('--preview-data-dir='));
-if (stagedArguments.length > 0) {
+if (nativeArguments.length > 0) {
+  if (nativeArguments.length !== 1 || stagedArguments.length || app.isPackaged) {
+    throw new Error('Use one native development workspace, separately from a migration preview.');
+  }
+  const nativeDirectory = nativeArguments[0]!.slice('--native-vault-dir='.length);
+  if (!path.isAbsolute(nativeDirectory)) {
+    throw new Error('Native preview requires an absolute workspace directory.');
+  }
+  const directory = path.join(nativeDirectory, 'profile');
+  mkdirSync(directory, { recursive: true });
+  app.setPath('userData', directory);
+} else if (stagedArguments.length > 0) {
   // Disposable session profile: Chromium/settings cannot touch the installed library/key.
   app.setPath('userData', mkdtempSync(path.join(app.getPath('temp'), 'stratemark-stage-session-')));
 } else if (!app.isPackaged && previewData) {
@@ -215,10 +241,12 @@ function saveApiKey(key: string): void {
 // Repository host — live GeminiRepository when a key exists, demo otherwise.
 // Hot-swapped when the key changes; refresh events re-wired on swap.
 // ---------------------------------------------------------------------------
-let repository: MarketIntelRepository;
+let repository: GeminiRepository;
 let unwireRefresh: (() => void) | null = null;
 let mainWin: BrowserWindow | null = null;
 let stagedReads: ReturnType<typeof openStagedAppReads> | null = null;
+let nativeService: NativeResearchService | null = null;
+let nativeMode: ReturnType<typeof resolveNativeWorkspaceMode> | null = null;
 
 // Every native method is restricted to our main frame, never an embedded website.
 const ipcMain = {
@@ -233,12 +261,87 @@ const ipcMain = {
       }
       // One native dispatch boundary, before ANY legacy listener, key/store, auth or job.
       if (stagedReads) return stagedReads.read(channel, args);
+      if (
+        nativeService &&
+        channel !== SECURE_CHANNELS.getApiKeyStatus &&
+        channel !== SECURE_CHANNELS.setApiKey
+      ) {
+        return dispatchNative(channel, args);
+      }
       return listener(event, ...args);
     });
   },
 };
 
-function makeRepository(): MarketIntelRepository {
+/** Native preview never falls through to a JSON writer or renderer-owned paid work. */
+function dispatchNative(channel: string, args: unknown[]) {
+  if (!nativeService) throw new Error('Native research is unavailable.');
+  if (
+    nativeMode?.writable === false &&
+    (channel === IPC_CHANNELS.startNativeResearch || channel === IPC_CHANNELS.controlNativeRun)
+  ) {
+    throw new Error(
+      'Research is disabled for this provenance-preserving workspace reopen. Use a separate live workspace; saved results remain readable.',
+    );
+  }
+  const reads = nativeService.vault.work;
+  const recordId = z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/);
+  const oneId = () => z.tuple([recordId]).parse(args)[0];
+  const noArgs = () => z.tuple([]).parse(args);
+  switch (channel) {
+    case IPC_CHANNELS.startNativeResearch:
+      return nativeService.start(z.tuple([nativeResearchStartSchema]).parse(args)[0]);
+    case IPC_CHANNELS.listNativeRuns:
+      noArgs();
+      return reads.listRuns();
+    case IPC_CHANNELS.getNativeRun:
+      return reads.getRun(oneId());
+    case IPC_CHANNELS.nativeRunEvents: {
+      const [runId, after] = z.tuple([recordId, z.number().int().min(0)]).parse(args);
+      return reads.listEvents(runId, after, 100).map((event) => {
+        const { message, stage, progress, kind } = event.progress;
+        return { ...event, progress: { message, stage, progress, kind } };
+      });
+    }
+    case IPC_CHANNELS.controlNativeRun: {
+      const [runId, command] = z
+        .tuple([recordId, z.enum(['pause', 'resume', 'cancel'])])
+        .parse(args);
+      return nativeService.control(runId, command);
+    }
+    case IPC_CHANNELS.listMarkets:
+      noArgs();
+      return reads.listMarkets();
+    case IPC_CHANNELS.getMarket:
+      return reads.getMarket(oneId());
+    case IPC_CHANNELS.getDeckByMarket:
+      return reads.getDeckByMarket(oneId());
+    case IPC_CHANNELS.getCard:
+      return reads.getCard(oneId());
+    case IPC_CHANNELS.listCards: {
+      const [deckId, filter] = z.tuple([recordId, cardFilterSchema]).parse(args);
+      return reads
+        .listCards(deckId)
+        .filter((entry) => !filter?.cardType || entry.card.cardType === filter.cardType);
+    }
+    case IPC_CHANNELS.listResearchJobs:
+      noArgs();
+      return [];
+    case IPC_CHANNELS.listSavedCards:
+      noArgs();
+      return [];
+    default:
+      throw new Error(
+        'This action is not yet available in the native research preview. Your saved research has not changed.',
+      );
+  }
+}
+
+function makeRepository(): GeminiRepository {
   const apiKey = loadApiKey();
   const store = researchStore();
   if (!store.read()) store.write(demoSnapshot);
@@ -259,7 +362,7 @@ function makeRepository(): MarketIntelRepository {
 
 function wireRefreshForwarding(): void {
   unwireRefresh?.();
-  if (stagedReads) return;
+  if (stagedReads || nativeService) return;
   unwireRefresh = repository.subscribeDeckRefresh((evt) => {
     if (mainWin && !mainWin.isDestroyed()) {
       mainWin.webContents.send(IPC_CHANNELS.deckRefreshEvent, evt);
@@ -280,6 +383,20 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.createMarket, (_e, input: unknown) =>
     repository.createMarket(createMarketInputSchema.parse(input)),
   );
+  ipcMain.handle(IPC_CHANNELS.acceptAction, (_e, request: unknown) =>
+    acceptDesktopAction(repository, request),
+  );
+  for (const channel of [
+    IPC_CHANNELS.startNativeResearch,
+    IPC_CHANNELS.listNativeRuns,
+    IPC_CHANNELS.getNativeRun,
+    IPC_CHANNELS.nativeRunEvents,
+    IPC_CHANNELS.controlNativeRun,
+  ]) {
+    ipcMain.handle(channel, () => {
+      throw new Error('Open the native research preview to use this action.');
+    });
+  }
   ipcMain.handle(IPC_CHANNELS.updateMarketCadence, (_e, id: unknown, cadence: unknown) =>
     repository.updateMarketCadence(
       z.string().min(1).parse(id),
@@ -440,8 +557,15 @@ function registerIpc(): void {
       .regex(/^[\x20-\x7E]*$/)
       .parse(key)
       .trim();
+    if (
+      nativeService?.vault.work
+        .listRuns()
+        .some((run) => run.status === 'running' || run.status === 'queued')
+    ) {
+      throw new Error('Pause or cancel active research before changing your provider key.');
+    }
     saveApiKey(validatedKey);
-    swapRepository();
+    if (!nativeService) swapRepository();
   });
   ipcMain.handle(SECURE_CHANNELS.exportResearch, () => {
     const snapshot = researchStore().read();
@@ -525,7 +649,20 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
-      additionalArguments: stagedReads ? ['--staged-research-readonly'] : [],
+      additionalArguments: nativeService
+        ? [
+            '--native-research',
+            ...(nativeMode?.provenance === 'synthetic_fixture'
+              ? ['--native-research-fixture']
+              : []),
+            ...(nativeMode?.provenance === 'unclassified'
+              ? ['--native-research-unclassified']
+              : []),
+            ...(nativeMode?.writable === false ? ['--native-research-disabled'] : []),
+          ]
+        : stagedReads
+          ? ['--staged-research-readonly']
+          : [],
     },
   });
 
@@ -590,7 +727,46 @@ void app
       return net.fetch(pathToFileURL(filePath).toString());
     });
 
-    if (stagedArguments.length > 0) {
+    if (nativeArguments.length > 0) {
+      if (nativeArguments.length !== 1 || stagedArguments.length || app.isPackaged) {
+        throw new Error(
+          'Use one native development workspace, separately from a migration preview.',
+        );
+      }
+      const directory = nativeArguments[0]!.slice('--native-vault-dir='.length);
+      if (!path.isAbsolute(directory))
+        throw new Error('Native preview requires an absolute workspace directory.');
+      mkdirSync(directory, { recursive: true });
+      const nativeVault = openVault(path.join(directory, 'vault.sqlite'), 'vault_native');
+      try {
+        nativeMode = resolveNativeWorkspaceMode(nativeVault.work.listRuns(), nativeFixture);
+      } catch (error) {
+        nativeVault.close();
+        throw error;
+      }
+      const fixtureClient = nativeFixture ? createNativeFixtureClient() : null;
+      nativeService = new NativeResearchService(
+        nativeVault,
+        () => {
+          if (!nativeMode?.writable) return null;
+          if (fixtureClient) return fixtureClient;
+          const apiKey = loadApiKey();
+          return apiKey ? createGeminiClient({ apiKey, groundedRpm: 8, structureRpm: 8 }) : null;
+        },
+        (run) => {
+          if (mainWin && !mainWin.isDestroyed())
+            mainWin.webContents.send(IPC_CHANNELS.deckRefreshEvent, {
+              marketId: run.marketId,
+              deckId: run.deckId,
+            });
+        },
+        {
+          ...(nativeFixture ? { fetchImpl: nativeFixtureFetch } : {}),
+          researchProvenance: nativeFixture ? 'synthetic_fixture' : 'live_provider',
+          writable: nativeMode.writable,
+        },
+      );
+    } else if (stagedArguments.length > 0) {
       if (stagedArguments.length !== 1)
         throw new Error('Only one migration candidate can be previewed.');
       const directory = stagedArguments[0]!.slice('--staged-vault-dir='.length);
@@ -619,6 +795,24 @@ void app
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
-app.on('before-quit', () => {
+let nativeShutdownFinished = false;
+let nativeShutdown: Promise<void> | null = null;
+app.on('before-quit', (event) => {
   stagedReads?.close();
+  if (!nativeService || nativeShutdownFinished) return;
+  event.preventDefault();
+  if (!nativeShutdown) {
+    nativeShutdown = nativeService
+      .close()
+      .catch(() => {
+        dialog.showErrorBox(
+          'Research shutdown was interrupted',
+          'Saved research has been retained. Review the interrupted run before resuming next time.',
+        );
+      })
+      .finally(() => {
+        nativeShutdownFinished = true;
+        app.quit();
+      });
+  }
 });

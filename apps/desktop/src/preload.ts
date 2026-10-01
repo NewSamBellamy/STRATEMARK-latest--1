@@ -19,7 +19,28 @@ import {
 } from '@mi/contracts';
 
 const api: PreloadRepositoryApi = {
-  storageMode: process.argv.includes('--staged-research-readonly') ? 'staged_readonly' : 'legacy',
+  researchProvenance: process.argv.includes('--native-research-fixture')
+    ? 'synthetic_fixture'
+    : process.argv.includes('--native-research-unclassified')
+      ? 'unclassified'
+      : process.argv.includes('--native-research')
+        ? 'live_provider'
+        : undefined,
+  nativeResearchWritable: process.argv.includes('--native-research')
+    ? !process.argv.includes('--native-research-disabled')
+    : undefined,
+  acceptAction: (request) => ipcRenderer.invoke(IPC_CHANNELS.acceptAction, request),
+  storageMode: process.argv.includes('--native-research')
+    ? 'native'
+    : process.argv.includes('--staged-research-readonly')
+      ? 'staged_readonly'
+      : 'legacy',
+  startNativeResearch: (input) => ipcRenderer.invoke(IPC_CHANNELS.startNativeResearch, input),
+  listNativeRuns: () => ipcRenderer.invoke(IPC_CHANNELS.listNativeRuns),
+  getNativeRun: (runId) => ipcRenderer.invoke(IPC_CHANNELS.getNativeRun, runId),
+  nativeRunEvents: (runId, after) => ipcRenderer.invoke(IPC_CHANNELS.nativeRunEvents, runId, after),
+  controlNativeRun: (runId, command) =>
+    ipcRenderer.invoke(IPC_CHANNELS.controlNativeRun, runId, command),
   listMarkets: () => ipcRenderer.invoke(IPC_CHANNELS.listMarkets),
   getMarket: (id) => ipcRenderer.invoke(IPC_CHANNELS.getMarket, id),
   createMarket: (input) => ipcRenderer.invoke(IPC_CHANNELS.createMarket, input),

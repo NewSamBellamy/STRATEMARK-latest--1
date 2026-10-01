@@ -1,8 +1,7 @@
 import type { CSSProperties } from 'react';
-import type { CardWithCompany } from '@mi/contracts';
-import { buildCardView, type CardView } from './card-view';
+import { isSignalCardType, usableCitations, type CardWithCompany } from '@mi/contracts';
+import { buildCardView, sourceUrl, type CardView } from './card-view';
 import { Logo } from './Logo';
-import { MarketCardArt } from './MarketCardArt';
 import './collectible.css';
 import { contrastRatio } from '@/lib/brand';
 
@@ -16,7 +15,60 @@ export function CollectibleCard({
   data: CardWithCompany;
   view?: CardView;
 }) {
-  const hash = Array.from(view.title).reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 0);
+  const { card, company } = data;
+  const finding = isSignalCardType(card.cardType);
+  const unreviewed = data.evidenceState === 'legacy_unreviewed';
+  const type = card.cardType === 'culture' ? 'Community' : view.type;
+  const evidence = card.evidencePoints?.find(
+    (point) =>
+      usableCitations(point.citations.filter((citation) => sourceUrl(citation.url))).length > 0,
+  );
+  const viceClaim = data.viceClaims.find((claim) => sourceUrl(claim.sourceUrl));
+  // Findings own their support. Associated company figures never establish a story.
+  const citations = finding
+    ? usableCitations([
+        ...(card.citations ?? []).filter((citation) => sourceUrl(citation.url)),
+        ...(card.evidencePoints ?? []).flatMap((point) =>
+          point.citations.filter((citation) => sourceUrl(citation.url)),
+        ),
+        ...(card.cardType === 'vice' && viceClaim
+          ? [{ url: viceClaim.sourceUrl, title: viceClaim.sourceTitle ?? '' }]
+          : []),
+      ])
+    : view.citations;
+  const unsupportedVice = card.cardType === 'vice' && (unreviewed || citations.length === 0);
+  const title = unsupportedVice
+    ? 'Risk finding needs review'
+    : finding
+      ? card.title || view.title
+      : view.title;
+  const description = unsupportedVice ? null : finding ? card.summary : view.description;
+  const contextLabel = {
+    company: 'Market relevance',
+    infrastructure: 'What it enables',
+    distribution: 'Audience & access',
+    culture: 'Public activity',
+    vice: 'Attributed event',
+    insight: 'Supporting observation',
+    barrier: 'Entry requirement',
+  }[card.cardType];
+  const context = unreviewed
+    ? 'Saved research has not been revalidated.'
+    : unsupportedVice
+      ? 'Add an attributed source before displaying this event.'
+      : (finding
+          ? evidence?.text || (card.cardType === 'vice' ? viceClaim?.claimText : null)
+          : card.summary || evidence?.text) ||
+        {
+          company: 'Market relevance has not been recorded.',
+          infrastructure: 'Capabilities and dependencies need research.',
+          distribution: 'Audience and access terms need research.',
+          culture: 'Participants and public activity need research.',
+          vice: 'An attributed event has not been recorded.',
+          insight: 'Supporting observations need research.',
+          barrier: 'Requirements and affected entrants need research.',
+        }[card.cardType];
+  const hash = Array.from(title).reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 0);
   const brand = ['scraped', 'manual'].includes(data.company?.brandTheme?.source ?? '')
     ? data.company?.brandTheme
     : null;
@@ -27,24 +79,28 @@ export function CollectibleCard({
   // but use editorial ink when its accent would make an offline mark disappear.
   const markInk = contrastRatio(accent, '#d2d0c8') >= 4.5 ? accent : '#1c2b28';
   const highlight = color(brand?.accent, accent);
-  const stage = data.evidenceState === 'legacy_unreviewed' ? 'Saved profile' : view.position;
-  const asOf = view.latestCapturedAt
-    ? new Intl.DateTimeFormat('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      }).format(view.latestCapturedAt)
-    : null;
-  const provenance =
-    view.citations.length > 0
-      ? `${view.citations.length} ${view.citations.length === 1 ? 'source' : 'sources'}${asOf ? ` · ${asOf}` : ''}`
-      : data.evidenceState === 'legacy_unreviewed'
-        ? 'Unreviewed'
-        : 'Research needed';
+  const status = unreviewed
+    ? 'Unreviewed'
+    : citations.length
+      ? 'Source links saved'
+      : 'Research needed';
+  const asOf =
+    !finding && !unreviewed && view.latestCapturedAt
+      ? new Intl.DateTimeFormat('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        }).format(view.latestCapturedAt)
+      : null;
+  const provenance = unreviewed
+    ? 'Not revalidated'
+    : citations.length > 0
+      ? `${citations.length} ${citations.length === 1 ? 'source' : 'sources'}${asOf ? ` · Captured ${asOf}` : ''}`
+      : 'No sources saved';
 
   return (
     <div
-      className={`collectible ${view.signal ? 'collectible--signal' : ''}`}
+      className={`collectible collectible--${card.cardType} ${finding ? 'collectible--finding' : 'collectible--entity'} ${!finding && !unreviewed && view.faceMetrics.length ? 'collectible--with-metrics' : ''}`}
       style={
         {
           '--card-accent': accent,
@@ -53,20 +109,18 @@ export function CollectibleCard({
         } as CSSProperties
       }
       data-testid="collectible-card-front"
+      data-card-type={card.cardType}
     >
       <div className="collectible__paper">
         <div className="collectible__edition">
           <span>STRATEMARK / RESEARCH</span>
+          {finding && <span>{type}</span>}
         </div>
-        <div className="collectible__art" aria-hidden="true">
-          {view.signal ? (
-            <div className="collectible__signal-art">
-              <MarketCardArt type={data.card.cardType} seed={view.title} />
-            </div>
-          ) : (
+        {!finding && (
+          <div className="collectible__art">
             <div className="collectible__brand">
               <Logo
-                name={view.title}
+                name={title}
                 website={
                   data.evidenceState === 'legacy_unreviewed' ? null : data.company?.websiteUrl
                 }
@@ -75,32 +129,48 @@ export function CollectibleCard({
                 className="h-full w-full"
               />
             </div>
-          )}
-          <span className="collectible__art-label">{view.type}</span>
-        </div>
+            <span className="collectible__art-label">{type}</span>
+          </div>
+        )}
         <div className="collectible__identity">
           <span className="collectible__eyebrow">
-            {data.marketRoles?.join(' · ') || data.company?.hqLocation || view.type}
+            {finding
+              ? {
+                  culture: 'Participants & significance',
+                  vice: 'Risk finding',
+                  insight: 'Implication & scope',
+                  barrier: 'Obstacle to entering the market',
+                  company: '',
+                  infrastructure: '',
+                  distribution: '',
+                }[card.cardType]
+              : company?.hqLocation
+                ? `${type} · ${company.hqLocation}`
+                : type}
           </span>
-          <span className="collectible__name">{view.title}</span>
-          {view.description && <p className="collectible__description">{view.description}</p>}
+          <span className="collectible__name" title={title}>
+            {title}
+          </span>
+          {description && <p className="collectible__description">{description}</p>}
         </div>
-        {data.evidenceState === 'legacy_unreviewed' ? (
-          <div className="collectible__signal-copy">
-            <span className="collectible__eyebrow">Legacy research</span>
-            <p>Not revalidated</p>
-          </div>
-        ) : view.signal ? (
-          <div className="collectible__signal-copy">
-            <span className="collectible__eyebrow">
-              {data.card.cardType === 'vice' ? 'Risk finding' : 'Market finding'}
+        <div className="collectible__context">
+          <span className="collectible__eyebrow">
+            {unreviewed ? 'Legacy research' : contextLabel}
+          </span>
+          <p>{context}</p>
+        </div>
+        {finding && (
+          <div className="collectible__orientation">
+            <span>{company ? `Subject · ${company.name}` : 'Market-level finding'}</span>
+            <span>
+              {!unreviewed && evidence?.timeWindow
+                ? `Reported period · ${evidence.timeWindow}`
+                : 'Event / scope date not recorded'}
             </span>
-            <p>
-              {data.card.evidencePoints?.[0]?.text ||
-                'Open to inspect this finding and its sources.'}
-            </p>
+            {card.cardType === 'vice' && <span>Response / resolution · inspect sources</span>}
           </div>
-        ) : view.faceMetrics.length ? (
+        )}
+        {!finding && !unreviewed && view.faceMetrics.length ? (
           <div className="collectible__metrics">
             {view.faceMetrics.map((m) => (
               <div key={m.metric.id}>
@@ -112,7 +182,7 @@ export function CollectibleCard({
           </div>
         ) : null}
         <div className="collectible__footer">
-          <span>{stage}</span>
+          <span>{status}</span>
           <span>{provenance}</span>
         </div>
       </div>

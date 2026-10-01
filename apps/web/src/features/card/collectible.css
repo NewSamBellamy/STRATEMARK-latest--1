@@ -50,6 +50,7 @@
 .collectible {
   position: relative;
   isolation: isolate;
+  container-type: inline-size;
   width: 100%;
   aspect-ratio: 2.5 / 3.5;
   padding: 7px;
@@ -84,11 +85,17 @@
   font: 650 8px/1.2 sans-serif;
   letter-spacing: 1.55px;
   color: #465850;
+  gap: 8px;
+}
+.collectible__edition > span:last-child:not(:first-child) {
+  letter-spacing: 0.6px;
+  text-align: right;
 }
 .collectible__art {
   position: relative;
-  height: 47%;
-  min-height: 125px;
+  flex: 1;
+  min-height: clamp(80px, 35cqi, 140px);
+  max-height: 42%;
   margin: 0 7px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--card-accent) 22%, #d5d0c4);
@@ -107,11 +114,6 @@
   inset: 8px;
   border: 1px solid color-mix(in srgb, var(--card-accent) 13%, transparent);
   border-radius: 4px;
-}
-.collectible--signal .collectible__art {
-  background:
-    radial-gradient(ellipse at 62% 28%, var(--card-accent), transparent 66%),
-    linear-gradient(135deg, #152e2b, #233d3b 60%, #102825);
 }
 .collectible__brand {
   position: absolute;
@@ -140,15 +142,6 @@
   letter-spacing: 1px;
   text-transform: uppercase;
 }
-.collectible__signal-art {
-  position: absolute;
-  width: 65%;
-  height: 120%;
-  left: 18%;
-  top: -10%;
-  filter: brightness(1.25);
-}
-
 .collectible__identity {
   padding: 12px 16px 0;
 }
@@ -163,14 +156,15 @@
 .collectible__name {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   overflow: hidden;
   margin-top: 5px;
   font-family: 'Parkinsans', sans-serif;
-  font-size: clamp(19px, 1.9vw, 23px);
+  font-size: clamp(17px, 7cqi, 23px);
   line-height: 1.13;
   font-weight: 650;
   letter-spacing: -0.65px;
+  overflow-wrap: anywhere;
 }
 .collectible__description {
   display: -webkit-box;
@@ -186,7 +180,7 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 11px;
-  margin: auto 16px 8px;
+  margin: 8px 16px;
   padding-top: 9px;
   border-top: 1px solid color-mix(in srgb, var(--card-accent) 15%, #cdd3c8);
 }
@@ -226,20 +220,270 @@
   background: color-mix(in srgb, var(--card-accent) 7%, #e8eade);
   font-size: 8px;
   font-weight: 650;
+  flex-shrink: 0;
 }
-.collectible__signal-copy {
-  margin: auto 16px 14px;
-  padding-top: 10px;
+.collectible__footer > span:last-child {
+  text-align: right;
+}
+.collectible__context {
+  margin: 12px 16px 10px;
+  padding-top: 8px;
   border-top: 1px solid #cdd3c8;
 }
-.collectible__signal-copy p {
+.collectible__context p {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   overflow: hidden;
   margin-top: 6px;
   font-size: 10.5px;
   line-height: 1.45;
+}
+.collectible--finding .collectible__identity {
+  padding-top: 22px;
+}
+.collectible--finding .collectible__name {
+  margin-top: 12px;
+  font-size: clamp(21px, 8.5cqi, 29px);
+  line-height: 1.16;
+  -webkit-line-clamp: 4;
+}
+.collectible--finding .collectible__description {
+  margin-top: 12px;
+  font-size: clamp(10.5px, 3.8cqi, 12px);
+  line-height: 1.5;
+  -webkit-line-clamp: 3;
+}
+.collectible--finding .collectible__context {
+  margin-top: auto;
+}
+.collectible--finding .collectible__context p {
+  -webkit-line-clamp: 3;
+}
+.collectible__orientation {
+  display: grid;
+  gap: 4px;
+  margin: 0 16px 14px;
+  color: #5a6962;
+  font-size: 9px;
+  line-height: 1.4;
+}
+.collectible--with-metrics .collectible__art {
+  min-height: 0;
+}
+.collectible--with-metrics .collectible__name {
+  -webkit-line-clamp: 2;
+}
+.collectible--with-metrics .collectible__brand {
+  inset: 4px 10px;
+  container-type: size;
+}
+.collectible--with-metrics .collectible__brand .font-display {
+  font-size: min(68px, 60cqw, 75cqh);
+}
+@container (max-width: 260px) {
+  .collectible__identity {
+    padding: 8px 12px 0;
+  }
+  .collectible__description {
+    font-size: 9px;
+  }
+  .collectible__context {
+    margin: 8px 12px;
+  }
+  .collectible__context p {
+    font-size: 9px;
+    -webkit-line-clamp: 2;
+  }
+  .collectible__metrics {
+    margin: 4px 12px;
+    padding-top: 5px;
+  }
+  .collectible__metric-value {
+    font-size: 17px;
+  }
+  .collectible--finding .collectible__identity {
+    padding-top: 10px;
+  }
+  .collectible--finding .collectible__name {
+    margin-top: 8px;
+    -webkit-line-clamp: 3;
+  }
+  .collectible--finding .collectible__description {
+    margin-top: 8px;
+    -webkit-line-clamp: 2;
+  }
+  .collectible--finding .collectible__context p {
+    -webkit-line-clamp: 2;
+  }
+  .collectible__orientation {
+    margin: 0 12px 8px;
+    font-size: 8px;
+  }
+  .collectible--with-metrics .collectible__edition {
+    padding: 8px 10px;
+    font-size: 7px;
+  }
+  .collectible--with-metrics .collectible__description,
+  .collectible--with-metrics .collectible__context p {
+    -webkit-line-clamp: 1;
+  }
+  .collectible--with-metrics .collectible__context {
+    margin-block: 6px;
+    padding-top: 4px;
+  }
+  .collectible--with-metrics .collectible__context p {
+    margin-top: 4px;
+  }
+  .collectible--with-metrics .collectible__footer {
+    padding: 6px 10px;
+    font-size: 7px;
+  }
+  .collectible--with-metrics .collectible__art-label {
+    display: none;
+  }
+  .collectible--with-metrics .collectible__brand .font-display {
+    font-size: min(52px, 60cqw, 75cqh);
+  }
+}
+
+/* Disposable R0 composition, isolated from the production readers and controls. */
+.card-composition {
+  min-height: 100vh;
+  padding: clamp(20px, 5vw, 64px);
+  color: #0f2b26;
+  background: #f7f6f1;
+  font-family: 'Google Sans Flex', sans-serif;
+}
+.card-composition__intro,
+.card-composition__section {
+  max-width: 1440px;
+  margin-inline: auto;
+}
+.card-composition__label {
+  color: #466b61;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+.card-composition h1,
+.card-composition h2,
+.card-composition h3 {
+  font-family: 'Parkinsans', sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+}
+.card-composition h1 {
+  margin-top: 12px;
+  font-size: clamp(28px, 4vw, 44px);
+}
+.card-composition h2 {
+  font-size: 24px;
+}
+.card-composition h3 {
+  font-size: 16px;
+}
+.card-composition__intro > p,
+.card-composition__section > p {
+  max-width: 760px;
+  margin-top: 12px;
+  color: #4e5b55;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.card-composition__notice {
+  margin-block: 24px;
+  padding: 16px 20px;
+  border: 1px solid #cbd2c7;
+  border-radius: 12px;
+  background: #f4f7f3;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.card-composition__section {
+  margin-top: 40px;
+}
+.card-composition__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  align-items: start;
+  gap: 32px 24px;
+  margin-top: 24px;
+}
+.card-composition__sample {
+  min-width: 0;
+}
+.card-composition__sample > button {
+  display: block;
+  width: 100%;
+  max-width: 350px;
+  margin-inline: auto;
+  border-radius: 18px;
+  text-align: left;
+}
+.card-composition__sample > button:focus-visible,
+.card-composition__tabs button:focus-visible {
+  outline: 3px solid #087d6b;
+  outline-offset: 4px;
+}
+.card-composition__caption {
+  max-width: 350px;
+  margin: 12px auto 0;
+  color: #4e5b55;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.card-composition__workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(200px, 1fr);
+  gap: 32px;
+  margin-top: 24px;
+  padding: clamp(20px, 4vw, 40px);
+  border: 1px solid #cbd2c7;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 12px 28px -20px #102c2540;
+}
+.card-composition__workspace h3,
+.card-composition__workspace p {
+  margin-top: 16px;
+}
+.card-composition__workspace p {
+  color: #4e5b55;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.card-composition__workspace aside {
+  padding-left: 24px;
+  border-left: 1px solid #cbd2c7;
+}
+.card-composition__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.card-composition__tabs button {
+  padding: 8px 14px;
+  border: 1px solid #cbd2c7;
+  border-radius: 999px;
+  background: #f4f7f3;
+  font-size: 12px;
+}
+.card-composition__tabs button[aria-pressed='true'] {
+  color: #fff;
+  background: #087d6b;
+}
+@media (max-width: 720px) {
+  .card-composition__workspace {
+    grid-template-columns: 1fr;
+  }
+  .card-composition__workspace aside {
+    padding: 16px 0 0;
+    border-left: 0;
+    border-top: 1px solid #cbd2c7;
+  }
 }
 .card-stage {
   position: relative;
@@ -410,9 +654,6 @@
     max-height: none;
     min-height: 0;
     overflow: visible;
-  }
-  .collectible__name {
-    font-size: 19px;
   }
   .card-researcher {
     align-items: flex-start;

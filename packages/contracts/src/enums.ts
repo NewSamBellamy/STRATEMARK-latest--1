@@ -24,7 +24,7 @@ export const CARD_TYPE_LABELS: Record<CardType, string> = {
   company: 'Company',
   infrastructure: 'Infrastructure',
   distribution: 'Distribution',
-  culture: 'Culture',
+  culture: 'Community',
   vice: 'Vice',
   insight: 'Insight',
   barrier: 'Barrier to Entry',
@@ -58,7 +58,7 @@ export const ENTITY_CARD_TYPES = ['company', 'infrastructure', 'distribution'] a
  * valuation, ARR and user count as *unsourced* "verified" figures. Signal cards
  * must carry their claim and its sources, never borrowed numbers.
  */
-export const SIGNAL_CARD_TYPES = ['culture', 'vice', 'insight'] as const;
+export const SIGNAL_CARD_TYPES = ['culture', 'vice', 'insight', 'barrier'] as const;
 
 /** True when a card type describes a real business that can own metrics. */
 export function isEntityCardType(type: CardType): boolean {

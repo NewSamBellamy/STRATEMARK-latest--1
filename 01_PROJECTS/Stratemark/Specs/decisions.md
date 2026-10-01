@@ -1,6 +1,20 @@
 # Stratemark overhaul decision register
 
-> Historical reference, superseded October 1, 2026: the authoritative product/build plan is 01_PROJECTS/Stratemark/Specs/MASTER-PLAN.md with EXPERIENCE-MAP.md and DELIVERY-PLAN.md. Preserve this file as evidence/input; its old next steps, model roles and release scope do not govern v2.
+## Current v2 execution decisions — October 1
+
+MASTER-PLAN, EXPERIENCE-MAP and DELIVERY-PLAN govern the full authorized R0–R8 build. BUILD-STATE records implementation evidence.
+
+- Reuse Electron, SQLite, research adapters and original green/paper tokens; no replacement framework. Seven distinct faces, no flips or universal rank.
+- First native journey is an isolated development workspace to protect existing research. Normal cutover remains required after exposed-action parity and disposable migration proof; isolation is not the end product.
+- Selected research candidates/tasks persist before company work. Resume retries unfinished candidates, not fresh discovery; interruption billing uncertainty remains visible.
+- Provider citations are source leads, not verified facts. Withhold unsupported numeric face facts; retain estimates/unknowns for explicit review. Next slice connects retained passages and claim support.
+- Persist immutable synthetic/live provenance. Do not relabel fixture data live when flags disappear or initialize providers for cached reads; mixed/unclassified work is read-only pending an explicit transition.
+- Founder externally monitors $100 development target. No budget setup prerequisite; no measured dollar/cache savings claim. Stable context, bounded assignments and logical handoffs limit waste without dropping coverage.
+- Authorized backups are personal exploration-branch fast-forwards only. Record actual commit-bound app journeys; do not commit recordings/vaults or deploy/publish on inference.
+
+## Historical v1 decisions — not current execution authority
+
+The following entries preserve original planning input. Their no-build/no-push instructions and old release scope are superseded by the authorized v2 build above.
 
 Current specification: [NORTHSTAR.md](NORTHSTAR.md), plan v1.0.0. The founder authorized research and choosing the open planning defaults on September 30, 2026, but has not authorized implementation. Historical feedback below is retained; its pending labels are superseded by the selected defaults and goal order.
 

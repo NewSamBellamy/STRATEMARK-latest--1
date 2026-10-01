@@ -226,6 +226,8 @@ export interface ResearchCoverage {
 }
 
 export interface RunResearchOptions extends GeminiConfig {
+  /** Approved native scope: avoid replacing it with a new model-interpreted market. */
+  confirmedPlan?: MarketPlan;
   onEvent?: OnResearchEvent;
   signal?: AbortSignal;
   /** Cap concurrent enrichment calls (free-tier friendly). Default 2. */

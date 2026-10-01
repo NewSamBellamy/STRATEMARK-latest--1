@@ -1,6 +1,6 @@
 # Stratemark: the complete product plan
 
-Version 2.0.0 — October 1, 2026. Authoritative replacement plan. Planning only; implementation has not resumed.
+Version 2.0.0 — October 1, 2026. Authoritative replacement plan. The founder has activated implementation through the full build goal; see BUILD-STATE.md for verified progress.
 
 ## Authority and reading order
 
@@ -8,7 +8,7 @@ The founder's October 1 direction supersedes all prior product plans, G00–G08 
 
 Read MASTER-PLAN.md for decisions; EXPERIENCE-MAP.md for interaction coverage; DELIVERY-PLAN.md for build goals and proof; BUILD-STATE.md for actual code status; LAUNCH.md for fresh-session entry. Existing ACTIONS.md is a compatibility inventory of A01–A62, not proof of implementation. V2 changes and additions are listed in EXPERIENCE-MAP.md.
 
-The present authorization is to plan and update documentation. Do not start the build, spend on product research, migrate live data or resume the old automation during this planning task. A subsequent build instruction activates the ordered goals. Publication/deployment still needs its own authorization. The requested planning/review role is Astra; prior instructions forbidding Astra are superseded. Do not claim a model was used unless the actual session or dispatch establishes that.
+The full build goal now authorizes implementation and periodic exploration-branch backups. The founder monitors the $100 development target externally. Live product research, live-data migration and publication/deployment retain their specific approval requirements. The requested planning/review role is Astra; prior instructions forbidding Astra are superseded. Do not claim a model was used unless the actual session or dispatch establishes that.
 
 ## Product promise and audience
 
@@ -20,17 +20,17 @@ Stratemark is free, open-source software. Saved research lives on the user's mac
 
 ## Decisions replacing v1
 
-| Topic | V2 decision |
-| --- | --- |
-| Deck | Seven first-class card types: Company, Infrastructure, Distribution, Vice, Barrier to entry, Insight, Community. |
-| Destinations | Entity cards lead to role-specific research workspaces; four finding types share a polished story workspace with type-specific sections. |
-| Community | User-facing Community replaces Culture; historical records retain original meaning/provenance until reviewed, not blindly relabeled. |
-| Vice | Keep the requested name; show attributed events, risk, responses and resolutions without sensational scoring. |
-| Cards | No flip. Collectibility comes from identity, composition, information quality and interaction craft. |
-| Order | Explained relevance to the saved question; no universal strength score or prominent T1–T8 hierarchy. |
-| Sharing | A short link that works for an uninstalled, anonymous mobile recipient is a launch requirement. Plan a thin optional publication service. |
-| OpenAI | Plan official Sign in with ChatGPT separately from the ChatGPT plugin/MCP integration. Verify actual eligibility and capabilities. |
-| Delivery | Each milestone connects backend, frontend and a user outcome. Avoid completing every infrastructure abstraction before users see value. |
+| Topic        | V2 decision                                                                                                                               |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Deck         | Seven first-class card types: Company, Infrastructure, Distribution, Vice, Barrier to entry, Insight, Community.                          |
+| Destinations | Entity cards lead to role-specific research workspaces; four finding types share a polished story workspace with type-specific sections.  |
+| Community    | User-facing Community replaces Culture; historical records retain original meaning/provenance until reviewed, not blindly relabeled.      |
+| Vice         | Keep the requested name; show attributed events, risk, responses and resolutions without sensational scoring.                             |
+| Cards        | No flip. Collectibility comes from identity, composition, information quality and interaction craft.                                      |
+| Order        | Explained relevance to the saved question; no universal strength score or prominent T1–T8 hierarchy.                                      |
+| Sharing      | A short link that works for an uninstalled, anonymous mobile recipient is a launch requirement. Plan a thin optional publication service. |
+| OpenAI       | Plan official Sign in with ChatGPT separately from the ChatGPT plugin/MCP integration. Verify actual eligibility and capabilities.        |
+| Delivery     | Each milestone connects backend, frontend and a user outcome. Avoid completing every infrastructure abstraction before users see value.   |
 
 ## The complete user journeys
 
@@ -63,15 +63,15 @@ The connected assistant searches authorized saved research, proposes a scope if 
 
 Every deck item has a stable ID, type, market context, source references, research timestamps and save/share/chat actions. Each enabled category ends with supported results, no supported result, not applicable, incomplete or failed. Never invent entries to fill seven categories.
 
-| Card | Face | Research destination |
-| --- | --- | --- |
-| Company | Hero logo/name, purpose, market relevance, up to three supported facts | Business, products, customers, positioning, metrics, people/governance, history, updates and evidence. |
-| Infrastructure | Resource/provider identity, what it enables, dependency and relevant facts | Capabilities, access/pricing, supported capacity/performance, constraints and ecosystem relationships. |
-| Distribution | Channel/entity identity, audience, mechanism and supported reach/access | Audience, routes to market, access/commercial terms, coverage, dependencies and relationships. |
-| Vice | Neutral headline, attributed event/subject, event date and status | What happened, allegations versus established facts, response, resolution, market relevance and evidence. |
-| Barrier to entry | Named obstacle, affected entrants, why it matters | Mechanism, requirements, affected segments, evidence and clearly labeled strategic analysis. |
-| Insight | Specific finding, implication, scope/date | Thesis, supporting observations, counterevidence, uncertainty and next questions. |
-| Community | Community/ecosystem identity or development, participants, significance | Public activity, participants, culture/adoption signals, access, significance and limitations. |
+| Card             | Face                                                                       | Research destination                                                                                      |
+| ---------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Company          | Hero logo/name, purpose, market relevance, up to three supported facts     | Business, products, customers, positioning, metrics, people/governance, history, updates and evidence.    |
+| Infrastructure   | Resource/provider identity, what it enables, dependency and relevant facts | Capabilities, access/pricing, supported capacity/performance, constraints and ecosystem relationships.    |
+| Distribution     | Channel/entity identity, audience, mechanism and supported reach/access    | Audience, routes to market, access/commercial terms, coverage, dependencies and relationships.            |
+| Vice             | Neutral headline, attributed event/subject, event date and status          | What happened, allegations versus established facts, response, resolution, market relevance and evidence. |
+| Barrier to entry | Named obstacle, affected entrants, why it matters                          | Mechanism, requirements, affected segments, evidence and clearly labeled strategic analysis.              |
+| Insight          | Specific finding, implication, scope/date                                  | Thesis, supporting observations, counterevidence, uncertainty and next questions.                         |
+| Community        | Community/ecosystem identity or development, participants, significance    | Public activity, participants, culture/adoption signals, access, significance and limitations.            |
 
 One company can play several market roles without duplicate dossiers. Infrastructure/distribution can also refer to non-company resources/channels; use typed entity references rather than fake company records. Finding cards reference their own evidence, never inherited company metrics. Distinct role cards can share a dossier while preserving market context.
 
@@ -120,15 +120,15 @@ Desktop / local MCP / approved remote connector
 
 The trusted service owns writes, jobs, policies and credentials. UI state is presentation only. Saved reads cause no provider work. AI answers over saved evidence may still cost model usage and disclose it. No external integration creates an independent research backend.
 
-| Data domain | Records |
-| --- | --- |
-| Inventory | Scopes, canonical entities, aliases/domains, memberships/roles, seeds and derived card views. |
-| Evidence | Source versions/passages, definitions, observations, claims, conflicts, corrections, rights/visibility. |
-| Stories | Typed findings, supported blocks, related entities, counterevidence, lifecycle and revisions. |
-| Work | Runs, child tasks, attempts, ordered events, leases, checkpoints, output manifests, dedupe records, cancellation fences. |
-| Authority | Connection metadata without secret bytes, grants, egress policies, budgets, reservations, known/uncertain usage. |
-| User work | Saved items, collections, conversations, annotations, briefs, preferences, schedules. |
-| Publication | Selected revisions, redaction manifest, assets, hash/version, owner, share state and revocation receipt. |
+| Data domain | Records                                                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Inventory   | Scopes, canonical entities, aliases/domains, memberships/roles, seeds and derived card views.                            |
+| Evidence    | Source versions/passages, definitions, observations, claims, conflicts, corrections, rights/visibility.                  |
+| Stories     | Typed findings, supported blocks, related entities, counterevidence, lifecycle and revisions.                            |
+| Work        | Runs, child tasks, attempts, ordered events, leases, checkpoints, output manifests, dedupe records, cancellation fences. |
+| Authority   | Connection metadata without secret bytes, grants, egress policies, budgets, reservations, known/uncertain usage.         |
+| User work   | Saved items, collections, conversations, annotations, briefs, preferences, schedules.                                    |
+| Publication | Selected revisions, redaction manifest, assets, hash/version, owner, share state and revocation receipt.                 |
 
 Existing SQLite records, append-only evidence and ownership fences are reused. Add operational tables as actual journeys consume them. Keep indexed relationships plus validated content bodies where appropriate; do not over-normalize every paragraph.
 

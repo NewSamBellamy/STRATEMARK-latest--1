@@ -11,8 +11,7 @@ function LegacySettingsRoute() {
   useEffect(() => {
     if (!readOnly) open();
   }, [open, readOnly]);
-  if (readOnly) return <Navigate to="/history" replace />;
-  return <Navigate to="/" replace />;
+  return <Navigate to="/library" replace />;
 }
 
 // Route-level code splitting (Phase 7 perf).
@@ -28,14 +27,20 @@ const ReportViewerPage = lazy(() => import('@/features/reports/ReportViewerPage'
 const SavedCardsPage = lazy(() => import('@/features/saved/SavedCardsPage'));
 const SharePage = lazy(() => import('@/features/share/SharePage'));
 const NotFoundPage = lazy(() => import('@/features/NotFoundPage'));
+const CardCompositionPage = lazy(() =>
+  import('@/features/card/CardCompositionPage').then((module) => ({
+    default: module.CardCompositionPage,
+  })),
+);
 
 /** Shared route tree, used by both the app (HashRouter) and tests (MemoryRouter). */
 export function AppRoutes() {
   const readOnly = isReadOnlyResearch();
   const previewOnly = (element: JSX.Element) =>
-    readOnly ? <Navigate to="/history" replace /> : element;
+    readOnly ? <Navigate to="/library" replace /> : element;
   return (
     <Routes>
+      <Route path="/design/cards" element={<CardCompositionPage />} />
       {/* Shared-research links render OUTSIDE the app shell: recipients get a
           clean read-only snapshot — no sidebar, no auth, no AI layer. */}
       <Route path="/share/:blob" element={previewOnly(<SharePage />)} />
@@ -47,11 +52,11 @@ export function AppRoutes() {
           </RequireAuth>
         }
       >
-        <Route
-          index
-          element={isReadOnlyResearch() ? <Navigate to="/history" replace /> : <NewDeckPage />}
-        />
-        <Route path="history" element={<MarketsListPage />} />
+        <Route index element={<Navigate to="/library" replace />} />
+        <Route path="library" element={<MarketsListPage />} />
+        <Route path="new" element={previewOnly(<NewDeckPage />)} />
+        <Route path="history" element={<Navigate to="/library" replace />} />
+        <Route path="markets" element={<Navigate to="/library" replace />} />
         <Route path="saved" element={previewOnly(<SavedCardsPage />)} />
         <Route path="settings" element={<LegacySettingsRoute />} />
         <Route path="reports" element={previewOnly(<ReportsListPage />)} />

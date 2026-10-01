@@ -24,3 +24,4 @@ export * from './vault-evidence';
 export * from './vault-research';
 export * from './action-reads';
 export * from './vault-inventory';
+export * from './native-research';

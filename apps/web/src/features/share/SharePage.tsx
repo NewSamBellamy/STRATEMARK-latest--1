@@ -289,7 +289,7 @@ function SharedBriefingView({
             full app.
           </p>
           <Link
-            to="/"
+            to="/new"
             className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
           >
             <Layers className="h-3.5 w-3.5 text-primary-ink" />
@@ -388,7 +388,7 @@ function SharedReportView({
             app.
           </p>
           <Link
-            to="/"
+            to="/new"
             className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
           >
             <Layers className="h-3.5 w-3.5 text-primary-ink" />
@@ -499,7 +499,7 @@ export default function SharePage() {
             </p>
           </div>
           <Link
-            to="/"
+            to="/new"
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
           >
             <Layers className="h-3.5 w-3.5 text-primary-ink" />

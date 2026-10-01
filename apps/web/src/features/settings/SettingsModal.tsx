@@ -35,7 +35,7 @@ import { useAuth } from '@/lib/auth/AuthContext';
 import { Modal } from '@/components/ui/Modal';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { cn } from '@/lib/cn';
-import { isCommunityDesktop } from '@/lib/settings/runtime';
+import { isCommunityDesktop, isNativeResearch } from '@/lib/settings/runtime';
 
 type TestState = { status: 'idle' | 'testing' | 'ok' | 'fail'; detail?: string };
 
@@ -107,8 +107,26 @@ export function SettingsModal() {
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8">
           {activeTab === 'general' && <GeneralTab />}
           {activeTab === 'engine' && !communityDesktop && <EngineTab />}
-          {activeTab === 'data' && (communityDesktop ? <DesktopDataPanel /> : <DataSafetyPanel />)}
-          {activeTab === 'usage' && <UsageBillingPanel />}
+          {activeTab === 'data' &&
+            (isNativeResearch() ? (
+              <p className="text-sm text-muted">
+                This preview uses a separate native workspace. Backup, restore and migration
+                controls are not connected yet; your existing library is unchanged.
+              </p>
+            ) : communityDesktop ? (
+              <DesktopDataPanel />
+            ) : (
+              <DataSafetyPanel />
+            ))}
+          {activeTab === 'usage' &&
+            (isNativeResearch() ? (
+              <p className="text-sm text-muted">
+                Each deck shows its persisted research allowance and request/token usage. Provider
+                billing is separate; this preview does not claim an accurate dollar total.
+              </p>
+            ) : (
+              <UsageBillingPanel />
+            ))}
           {activeTab === 'pricing' && (communityDesktop ? <CommunityPanel /> : <PricingPanel />)}
         </div>
       </div>
@@ -147,6 +165,7 @@ function TabButton({
 }
 
 function GeneralTab() {
+  const native = isNativeResearch();
   const { model, hasKey, setApiKey, setModel, clear, apiKey, storageError } = useApiKey();
   const [draft, setDraft] = useState(apiKey);
   const [saved, setSaved] = useState(false);
@@ -175,7 +194,10 @@ function GeneralTab() {
     if (!key) return;
     setTest({ status: 'testing' });
     try {
-      const client = createGeminiClient({ apiKey: key, model: model || undefined });
+      const client = createGeminiClient({
+        apiKey: key,
+        model: native ? undefined : model || undefined,
+      });
       const res = await client.ground(
         "In one short sentence, what is today's date according to search results?",
       );
@@ -202,6 +224,19 @@ function GeneralTab() {
     }
   };
 
+  if (native && window.mi?.researchProvenance === 'synthetic_fixture')
+    return (
+      <div className="space-y-3">
+        <h2 className="font-display text-lg">Synthetic fixture connection</h2>
+        <p className="text-sm text-muted">
+          This development walkthrough uses canned research responses with no key, search or
+          provider calls. It does not test live research quality or billing. Use a separate live
+          workspace to configure your own key; synthetic results cannot continue with a live
+          provider.
+        </p>
+      </div>
+    );
+
   return (
     <div className="space-y-6 pb-6">
       <div>
@@ -209,7 +244,7 @@ function GeneralTab() {
           <h2 className="font-display text-lg text-content">Google AI Studio API key</h2>
           {hasKey && (
             <span className="chip border-emerald-300 bg-emerald-50 text-emerald-700">
-              <CheckCircle2 className="h-3.5 w-3.5" /> Connected
+              <CheckCircle2 className="h-3.5 w-3.5" /> {native ? 'Key saved' : 'Connected'}
             </span>
           )}
         </div>
@@ -262,20 +297,27 @@ function GeneralTab() {
         </p>
       </div>
 
-      <details className="text-sm">
-        <summary className="cursor-pointer text-muted hover:text-content">
-          Advanced: model override
-        </summary>
-        <div className="mt-2">
-          <input
-            className="input font-mono w-full"
-            placeholder="gemini-flash-latest (default)"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-          />
-          <p className="mt-1 text-xs text-muted">Leave blank for the default rolling alias.</p>
-        </div>
-      </details>
+      {native ? (
+        <p className="text-xs text-muted">
+          This native preview uses the default Gemini research model. Provider and model selection
+          will be connected in the provider milestone.
+        </p>
+      ) : (
+        <details className="text-sm">
+          <summary className="cursor-pointer text-muted hover:text-content">
+            Advanced: model override
+          </summary>
+          <div className="mt-2">
+            <input
+              className="input font-mono w-full"
+              placeholder="gemini-flash-latest (default)"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-muted">Leave blank for the default rolling alias.</p>
+          </div>
+        </details>
+      )}
 
       {test.status !== 'idle' && (
         <div
@@ -322,7 +364,7 @@ function GeneralTab() {
           type="button"
           className="btn-ghost"
           onClick={testKey}
-          disabled={!draft.trim() || test.status === 'testing'}
+          disabled={native || !draft.trim() || test.status === 'testing'}
         >
           {test.status === 'testing' ? 'Testing…' : 'Test key'}
         </button>
@@ -345,6 +387,12 @@ function GeneralTab() {
           </button>
         )}
       </div>
+      {native && (
+        <p className="text-xs text-muted">
+          Standalone key testing is not connected to native run controls yet. Starting a reviewed
+          research run uses its approved request/token allowance.
+        </p>
+      )}
 
       <div className="flex items-start gap-2 rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />

@@ -1,6 +1,6 @@
 # Stratemark v2 — outcome-based delivery and release
 
-Authority: MASTER-PLAN.md v2.0.0, October 1. This replaces G00–G08 as the execution plan. R0–R8 below are proposed build goals, not currently active tools or completed work. Current task is planning only.
+Authority: MASTER-PLAN.md v2.0.0, October 1. This replaces G00–G08 as the execution plan. The full build goal activates R0–R8; their completion remains subject to actual evidence in BUILD-STATE.md.
 
 ## Baseline: reuse evidence, do not relabel progress
 
@@ -167,19 +167,19 @@ Proposed release gates: all seeds accounted for; at least 90% entity precision o
 
 ### Resolved defaults and external decisions
 
-| Topic | Chosen default | Remaining evidence/decision and owner |
-| --- | --- | --- |
-| Core hosting | Local authoritative SQLite and trusted Electron service | Integrator proves consumed-action parity and migration. |
-| Design | Existing editorial green/paper language, seven card family, no flips | Founder reviews one concrete R0 composition and integrated R2 result. |
-| Finding naming | Vice/Barrier to entry/Insight/Community visible | Integrator migrates old Culture/vice semantics without data loss. |
-| Initial research | Gemini first, 12 entities/two workers, explicit scope/limits | Quality pilot may revise defaults with measured rationale. |
-| Sharing | Anonymous guest snapshot, unlisted by default, separate publication service | Founder/operator selects domain, host funding and retention before public launch. |
-| Publisher management | Recoverable authenticated ownership, viewer access anonymous | Choose supported passkey/federated implementation during R4 and test recovery. |
-| OpenAI inference | Official Sign in with ChatGPT plus BYOK fallback | Real account/app eligibility and supported capabilities during R3. |
-| Remote agents | Optional outbound authenticated bridge, no replicated vault | R7 threat/cost review and specific deployment approval. |
-| Muse | Adapter to actual supported host | Founder provides exact product identity if unavailable from project context; do not guess. |
-| Release platform | Windows first; mobile browser guest reader | Signing account/certificate and updater distribution owner before R8. |
-| Scope completeness | All seven card types and all U-rows have explicit disposition | Core beta can precede integrations; full completion cannot silently omit promised hosts. |
+| Topic                | Chosen default                                                              | Remaining evidence/decision and owner                                                      |
+| -------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Core hosting         | Local authoritative SQLite and trusted Electron service                     | Integrator proves consumed-action parity and migration.                                    |
+| Design               | Existing editorial green/paper language, seven card family, no flips        | Founder reviews one concrete R0 composition and integrated R2 result.                      |
+| Finding naming       | Vice/Barrier to entry/Insight/Community visible                             | Integrator migrates old Culture/vice semantics without data loss.                          |
+| Initial research     | Gemini first, 12 entities/two workers, explicit scope/limits                | Quality pilot may revise defaults with measured rationale.                                 |
+| Sharing              | Anonymous guest snapshot, unlisted by default, separate publication service | Founder/operator selects domain, host funding and retention before public launch.          |
+| Publisher management | Recoverable authenticated ownership, viewer access anonymous                | Choose supported passkey/federated implementation during R4 and test recovery.             |
+| OpenAI inference     | Official Sign in with ChatGPT plus BYOK fallback                            | Real account/app eligibility and supported capabilities during R3.                         |
+| Remote agents        | Optional outbound authenticated bridge, no replicated vault                 | R7 threat/cost review and specific deployment approval.                                    |
+| Muse                 | Adapter to actual supported host                                            | Founder provides exact product identity if unavailable from project context; do not guess. |
+| Release platform     | Windows first; mobile browser guest reader                                  | Signing account/certificate and updater distribution owner before R8.                      |
+| Scope completeness   | All seven card types and all U-rows have explicit disposition               | Core beta can precede integrations; full completion cannot silently omit promised hosts.   |
 
 Unresolved external decisions are not reasons to restart the plan or block unrelated core work. Record owner and milestone; request the needed information when the dependency becomes actionable.
 
@@ -189,4 +189,4 @@ Astra plans/reviews at milestone boundaries. Future executors receive bounded pa
 
 Checkpoint around estimated 100k context and hand off before 150k; every agent stays under the founder's 200k ceiling. Exact occupancy is not guaranteed by these files. Handoffs contain branch/commit/dirty paths, decisions, evidence and next action, not transcripts. Do not reload the entire archive for each worker.
 
-Measure development cost where telemetry exists and record unknown where it does not. Do not treat a five-hour quota as a work target or a guarantee of completion. Ask for a new total development cap at build launch only if none has been set; willingness to spend is not a numeric limit. Each checkpoint includes delivered outcome and available cost evidence so the founder can judge value. No automatic quota-exhaustion loop from this plan.
+Measure development cost where telemetry exists and record unknown where it does not. Do not treat a five-hour quota as a work target or a guarantee of completion. The founder monitors the $100 development target externally; no agent-enforced cap or repeated budget setup confirmation blocks useful implementation. Separately bounded paid product evaluations retain their approval requirement. Each checkpoint includes delivered outcome and available cost evidence so the founder can judge value. No automatic quota-exhaustion loop from this plan.

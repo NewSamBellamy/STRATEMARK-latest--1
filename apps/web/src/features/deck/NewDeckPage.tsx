@@ -19,7 +19,8 @@ import logoMark from '@/assets/logo-mark.svg';
 import { MicButton } from '@/components/ui/MicButton';
 import { NotificationToast } from '@/components/ui/NotificationToast';
 import { SettingsLink } from '@/components/SettingsLink';
-import { isCommunityDesktop } from '@/lib/settings/runtime';
+import { isCommunityDesktop, isNativeResearch } from '@/lib/settings/runtime';
+import NativeDeckCreate from './NativeDeckCreate';
 import { useResearchSession } from './research-session';
 import { ResearchStage, type LogLine } from './ResearchStage';
 import { qk } from '@/lib/query/keys';
@@ -319,6 +320,10 @@ function timeLabel(): string {
 }
 
 export default function NewDeckPage() {
+  return isNativeResearch() ? <NativeDeckCreate /> : <LegacyNewDeckPage />;
+}
+
+function LegacyNewDeckPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const repo = useRepository();

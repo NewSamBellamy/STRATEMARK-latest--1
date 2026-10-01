@@ -1,4 +1,5 @@
 export * from './types';
+export * from './usage-meter';
 export * from './util';
 export * from './schemas';
 export * from './prompts';

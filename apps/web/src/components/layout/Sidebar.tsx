@@ -16,7 +16,7 @@ import { useResearchSession } from '@/features/deck/research-session';
 import wordmark from '@/assets/wordmark.svg';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { SettingsLink } from '@/components/SettingsLink';
-import { isReadOnlyResearch } from '@/lib/settings/runtime';
+import { isReadOnlyResearch, isNativeResearch } from '@/lib/settings/runtime';
 
 export function SettingsTrigger({ collapsed }: { collapsed: boolean }) {
   const { open } = useSettingsModal();
@@ -39,6 +39,7 @@ export function SettingsTrigger({ collapsed }: { collapsed: boolean }) {
 export function Sidebar() {
   const hasKey = useApiKey((s) => s.hasKey);
   const readOnly = isReadOnlyResearch();
+  const native = isNativeResearch();
   const [collapsed, setCollapsed] = useState(false);
   const markets = useMarkets();
   // A deck being researched RIGHT NOW belongs in this list already —
@@ -92,7 +93,7 @@ export function Sidebar() {
       <nav className="flex shrink-0 flex-col gap-0.5" aria-label="Primary">
         {!readOnly && (
           <SidebarLink
-            to="/"
+            to="/new"
             end
             icon={PlusCircle}
             label="New Deck"
@@ -101,15 +102,13 @@ export function Sidebar() {
           />
         )}
         {/* Collapsed: no room for the inline list, so keep a link to the full history page. */}
-        {(collapsed || readOnly) && (
-          <SidebarLink
-            to="/history"
-            icon={ClockCounterClockwise}
-            label={readOnly ? 'Library' : 'Deck History'}
-            collapsed={collapsed}
-          />
-        )}
-        {!readOnly && (
+        <SidebarLink
+          to="/library"
+          icon={ClockCounterClockwise}
+          label="Library"
+          collapsed={collapsed}
+        />
+        {!readOnly && !native && (
           <SidebarLink
             to="/saved"
             icon={BookmarkSimple}
@@ -117,7 +116,7 @@ export function Sidebar() {
             collapsed={collapsed}
           />
         )}
-        {!readOnly && (
+        {!readOnly && !native && (
           <SidebarLink to="/reports" icon={FileText} label="Reports" collapsed={collapsed} />
         )}
         {!readOnly && <SettingsTrigger collapsed={collapsed} />}
@@ -130,7 +129,7 @@ export function Sidebar() {
             <p className="text-[10px] font-medium text-faint">Recent Decks</p>
             {recentDecks.length > 0 && (
               <NavLink
-                to="/history"
+                to="/library"
                 className="text-[10px] font-medium text-faint transition-colors hover:text-content"
               >
                 View all
@@ -149,7 +148,7 @@ export function Sidebar() {
                 {researching && (
                   <li>
                     <NavLink
-                      to="/"
+                      to="/new"
                       title={`Researching now: ${researching}`}
                       className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-content"
                     >

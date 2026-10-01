@@ -26,6 +26,7 @@ import { inspectLegacySnapshot } from './snapshot-inspection';
 import { legacyFamilies } from './vault-legacy-store';
 import { openAssetStore } from './vault-assets';
 import { openVault } from './vault';
+import { currentVaultSchemaVersion } from './vault-schema';
 
 const maxChunkBytes = 8 * 1024 * 1024;
 const maxSourceBytes = 50 * 1024 * 1024;
@@ -45,7 +46,7 @@ const stageManifestSchema = z
   .object({
     format: z.literal('stratemark-stage-v1'),
     vaultId: id,
-    schemaVersion: z.literal(6),
+    schemaVersion: z.literal(currentVaultSchemaVersion),
     vaultRevision: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
     sourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
     sourceByteLength: z.number().int().positive().max(maxSourceBytes),

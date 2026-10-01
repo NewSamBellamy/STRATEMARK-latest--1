@@ -46,6 +46,8 @@ describe('end-to-end deck flow (markets → deck → 2-level split → card → 
   it('navigates the full journey against the mock repository', { timeout: 20000 }, async () => {
     const { user, dashboardResearch } = renderApp();
 
+    expect(await screen.findByRole('heading', { name: 'All decks' }, FIND)).toBeInTheDocument();
+
     // Navigate directly to the deck via the inline recent decks sidebar link.
     const marketLink = await screen.findByRole('link', { name: /Christian Apparel/i }, FIND);
     await user.click(marketLink);

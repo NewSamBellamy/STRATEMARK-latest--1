@@ -117,16 +117,19 @@ compromised and rotate it immediately.
 
 ## Stratemark overhaul planning entry point
 
-Current human direction (October 1): planning only for a complete v2 product overhaul.
+Current human direction (October 1): execute the complete v2 product overhaul under
+the active build goal. The founder monitors the $100 development spending target
+externally; do not block ordinary implementation on setting an agent-side cap.
 Read `01_PROJECTS/Stratemark/Specs/MASTER-PLAN.md`, `EXPERIENCE-MAP.md`,
 `DELIVERY-PLAN.md` and `BUILD-STATE.md`. These replace ALL older planning,
 phase-order and model-role instructions. Seven card types and their complete
 research destinations, sharing, provider access and agents are explicit scope.
 Astra is the requested planner/reviewer; earlier no-Astra rules are superseded.
-Do not start the build or resume an automation until a new build instruction.
+The explicit build goal activates R0–R8. Historical automation instructions are
+not the current build queue.
 
-The founder explicitly authorizes planning changes to UI/UX while retaining the
-original design language; Rule 8 is not a prohibition on this requested plan.
+The founder explicitly authorizes UI/UX implementation while retaining the
+original design language; Rule 8 is not a prohibition on this requested build.
 A later build uses complete user outcomes and R0–R8 gates, not the old G00–G08
 queue. Historical code/test evidence remains useful; consult it selectively.
 

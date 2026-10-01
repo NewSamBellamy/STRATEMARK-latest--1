@@ -1,12 +1,13 @@
 import type * as NodeSqlite from 'node:sqlite';
 import { researchSchemaSql } from './vault-research-store';
+import { workSchemaColumns, workSchemaSql } from './vault-work-store';
 import {
   legacySchemaSql,
   legacySchemaColumns,
   assertLegacySchemaGuards,
 } from './vault-legacy-store';
 
-export const currentVaultSchemaVersion = 6;
+export const currentVaultSchemaVersion = 7;
 
 const identitySearchProjection = `
 SELECT c.id,
@@ -198,6 +199,7 @@ export function inspectVaultSchema(db: NodeSqlite.DatabaseSync, vaultId: string)
     requireTableColumns(db, legacySchemaColumns, 'passive legacy history');
     assertLegacySchemaGuards(db);
   }
+  if (version >= 7) requireTableColumns(db, workSchemaColumns, 'operational research');
   if (db.prepare('PRAGMA quick_check').get()?.quick_check !== 'ok')
     throw new Error('Vault integrity check failed.');
   if (db.prepare('PRAGMA foreign_key_check').all().length !== 0)
@@ -266,6 +268,11 @@ export function initializeVaultSchema(
   if (version === 5) {
     db.exec(legacySchemaSql);
     db.exec('PRAGMA user_version=6;');
+    version = 6;
+  }
+  if (version === 6) {
+    db.exec(workSchemaSql);
+    db.exec('PRAGMA user_version=7;');
   }
   inspectVaultSchema(db, vaultId);
 }

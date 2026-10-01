@@ -1,6 +1,8 @@
+import { Suspense } from 'react';
 import { HashRouter, MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from './routes';
 import { DeepDiveProviderWithPanel } from '@/features/deepdive/DeepDive';
+import { FullPageLoader } from '@/components/states/FullPageLoader';
 
 /**
  * Can this document support a URL-based router?
@@ -30,7 +32,10 @@ export function App() {
   // The panel reads route/search state, so it must live under either router.
   const content = (
     <DeepDiveProviderWithPanel>
-      <AppRoutes />
+      {/* Share/design destinations sit outside AppShell's loading boundary. */}
+      <Suspense fallback={<FullPageLoader label="Opening research…" />}>
+        <AppRoutes />
+      </Suspense>
     </DeepDiveProviderWithPanel>
   );
   if (!supportsUrlRouting()) {

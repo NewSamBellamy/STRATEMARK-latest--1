@@ -162,7 +162,7 @@ describe('collectible card evidence model', () => {
         card: { ...card, tier: 8 },
       },
     );
-    expect(result.faceMetrics[0]!.display).toBe('$9M');
+    expect(result.faceMetrics).toEqual([]);
     expect(result.maturity).toBeNull();
     expect(result.position).toBe('Scale unverified');
   });
@@ -188,12 +188,14 @@ describe('collectible card evidence model', () => {
       expect(result.metrics[0]!.note).toMatch(/invalid/i);
     }
   });
-  it('does not inherit company stats or a size band on signal cards', () => {
-    const result = view([metric({})], { card: { ...card, cardType: 'vice', tier: 8 } });
-    expect(result.metrics).toEqual([]);
-    expect(result.faceMetrics).toEqual([]);
-    expect(result.maturity).toBeNull();
-    expect(result.signal).toBe(true);
+  it('does not inherit company stats or a size band on any finding card', () => {
+    for (const cardType of ['vice', 'insight', 'culture', 'barrier'] as const) {
+      const result = view([metric({})], { card: { ...card, cardType, tier: 8 } });
+      expect(result.metrics).toEqual([]);
+      expect(result.faceMetrics).toEqual([]);
+      expect(result.maturity).toBeNull();
+      expect(result.signal).toBe(true);
+    }
   });
 
   it('orders company cards by sourced stage, then title, without mutating the input', () => {

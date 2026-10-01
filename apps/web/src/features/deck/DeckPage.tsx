@@ -46,14 +46,14 @@ import { EmptyState } from '@/components/states/EmptyState';
 import { CardGrid } from './CardGrid';
 import { TierBadge } from '@/features/card/TierBadge';
 import { buildCardView, sortCompanyCardsForBrowse } from '@/features/card/card-view';
-import { isReadOnlyResearch } from '@/lib/settings/runtime';
+import { isReadOnlyResearch, isNativeResearch } from '@/lib/settings/runtime';
+import NativeDeckPage from './NativeDeckPage';
 
 /**
- * Retired for now (founder's call): Vice and Culture read as too ambiguous
- * next to company cards. Barrier and Insight stay. Cards remain in storage —
- * this is a display retirement, reversible by deleting two entries.
+ * V2 includes all seven card types. Historical Culture is labeled Community;
+ * existing records retain their wire values and provenance.
  */
-const HIDDEN_CARD_TYPES: ReadonlySet<CardType> = new Set(['vice', 'culture'] as CardType[]);
+const HIDDEN_CARD_TYPES: ReadonlySet<CardType> = new Set();
 const VISIBLE_CARD_TYPE_ORDER = CARD_TYPE_ORDER.filter((t) => !HIDDEN_CARD_TYPES.has(t));
 const DISPLAY_STAGES = [...MATURITY_TIERS].reverse();
 type MarketRole = 'company' | 'infrastructure' | 'distribution';
@@ -82,6 +82,10 @@ function cardCountNoun(type: CardType, count: number): string {
 }
 
 export default function DeckPage() {
+  return isNativeResearch() ? <NativeDeckPage /> : <LegacyDeckPage />;
+}
+
+function LegacyDeckPage() {
   const { marketId } = useParams();
   const readOnly = isReadOnlyResearch();
   const market = useMarket(marketId);

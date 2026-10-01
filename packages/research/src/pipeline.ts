@@ -51,9 +51,7 @@ import type {
   RunResearchOptions,
 } from './types';
 import { faviconUrl } from './logos';
-import {
-  AbortError, mapWithConcurrency, rootDomain, slugify, throwIfAborted
-} from './util';
+import { AbortError, mapWithConcurrency, rootDomain, slugify, throwIfAborted } from './util';
 import {
   hydrateCompanyCard,
   primaryEntityType,
@@ -524,7 +522,7 @@ export async function discoverDeckStubs(
   const coverage = resolveCoverage(options);
 
   emit({ type: 'status', step: 'interpret', message: 'Understanding the market…' });
-  const plan = await interpret(client, brief, signal);
+  const plan = options.confirmedPlan ?? (await interpret(client, brief, signal));
   emit({ type: 'market', market: plan });
 
   emit({
@@ -569,8 +567,7 @@ export async function discoverDeckStubs(
         primaryEntityType(c.cardTypes, c.name, c.descriptor, c.primaryRole) === 'infrastructure',
     ).length,
     distribution: candidates.filter(
-      (c) =>
-        primaryEntityType(c.cardTypes, c.name, c.descriptor, c.primaryRole) === 'distribution',
+      (c) => primaryEntityType(c.cardTypes, c.name, c.descriptor, c.primaryRole) === 'distribution',
     ).length,
     vice: candidates.filter((c) => c.cardTypes.includes('vice')).length,
     culture: candidates.filter((c) => c.cardTypes.includes('culture')).length,
@@ -604,7 +601,7 @@ export async function discoverDeckStubs(
   const stubCards: CardWithCompany[] = candidates.map((candidate) => {
     const slug = slugify(candidate.name);
     const companyId = uid('cmp', slug);
-    const domain = candidate.domain ? rootDomain(candidate.domain) ?? candidate.domain : null;
+    const domain = candidate.domain ? (rootDomain(candidate.domain) ?? candidate.domain) : null;
     const website = candidate.domain ? `https://${candidate.domain}` : null;
     const logoUrl =
       faviconUrl(domain) ??

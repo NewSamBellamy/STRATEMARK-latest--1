@@ -8,7 +8,7 @@ import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
 import { useResearchSession } from '@/features/deck/research-session';
 import logoMark from '@/assets/wordmark.svg';
-import { isReadOnlyResearch } from '@/lib/settings/runtime';
+import { isReadOnlyResearch, isNativeResearch } from '@/lib/settings/runtime';
 
 type MarketWithEngine = Market & { engine?: string };
 
@@ -141,7 +141,7 @@ function DeckTile({
 
 function ResearchingTile({ query }: { query: string }) {
   return (
-    <Link to="/" className="group block">
+    <Link to="/new" className="group block">
       <div className="relative mx-2 aspect-[3/4] overflow-hidden rounded-[20px] border border-dashed border-primary/40 bg-[#edf6f1] p-5 shadow-card transition-transform hover:-translate-y-1">
         <span className="absolute inset-3 rounded-[14px] border border-primary/10" />
         <span className="relative text-[9px] font-semibold uppercase tracking-[0.2em] text-primary">
@@ -163,11 +163,12 @@ function ResearchingTile({ query }: { query: string }) {
 
 export default function MarketsListPage() {
   const readOnly = isReadOnlyResearch();
+  const native = isNativeResearch();
   const markets = useMarkets();
   const deleteDeck = useDeleteDeck();
   const navigate = useNavigate();
   const session = useResearchSession((state) => state.session);
-  const researching = session?.running ? session.query : null;
+  const researching = !native && session?.running ? session.query : null;
   const sorted = useMemo(
     () =>
       [...((markets.data ?? []) as MarketWithEngine[])].sort(
@@ -195,7 +196,7 @@ export default function MarketsListPage() {
             </span>
           )}
           {!readOnly && (
-            <Link to="/" className="btn-primary">
+            <Link to="/new" className="btn-primary">
               <PlusCircle className="h-4 w-4" />
               New deck
             </Link>
@@ -218,7 +219,7 @@ export default function MarketsListPage() {
             icon={<img src={logoMark} alt="" className="h-6 w-6 opacity-40 grayscale" />}
             action={
               !readOnly && (
-                <Link to="/" className="btn-primary mt-2">
+                <Link to="/new" className="btn-primary mt-2">
                   <PlusCircle className="h-4 w-4" />
                   Create your first deck
                 </Link>
@@ -237,7 +238,7 @@ export default function MarketsListPage() {
               <DeckTile
                 key={market.id}
                 market={market}
-                readOnly={readOnly}
+                readOnly={readOnly || native}
                 onOpen={() => navigate('/markets/' + market.id + '/deck')}
                 onDelete={() => {
                   if (readOnly) return;

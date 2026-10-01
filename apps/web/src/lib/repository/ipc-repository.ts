@@ -8,6 +8,8 @@
  * back end a zero-UI-change swap. It is intentionally a thin pass-through.
  */
 import type {
+  ActionRequest,
+  ActionReceipt,
   CardFilter,
   CardWithCompany,
   Company,
@@ -50,6 +52,10 @@ export function isElectron(): boolean {
 
 export class IpcRepository implements MarketIntelRepository {
   constructor(private readonly api: PreloadRepositoryApi) {}
+
+  acceptAction(request: ActionRequest): Promise<ActionReceipt> {
+    return this.api.acceptAction(request);
+  }
 
   listMarkets(): Promise<Market[]> {
     return this.api.listMarkets();
@@ -162,18 +168,21 @@ export class IpcRepository implements MarketIntelRepository {
     return this.api.listReports();
   }
   huntCompanyMetrics(id: string): Promise<HuntMetricsResult> {
-    if (!this.api.huntCompanyMetrics) return Promise.reject(new Error('Update the desktop shell to hunt metrics.'));
+    if (!this.api.huntCompanyMetrics)
+      return Promise.reject(new Error('Update the desktop shell to hunt metrics.'));
     return this.api.huntCompanyMetrics(id);
   }
   generateDeckBriefing(id: string, opts?: { windowHours?: number }): Promise<DeckBriefing> {
-    if (!this.api.generateDeckBriefing) return Promise.reject(new Error('Update the desktop shell to generate briefings.'));
+    if (!this.api.generateDeckBriefing)
+      return Promise.reject(new Error('Update the desktop shell to generate briefings.'));
     return this.api.generateDeckBriefing(id, opts);
   }
   listDeckBriefings(id: string): Promise<DeckBriefing[]> {
     return this.api.listDeckBriefings?.(id) ?? Promise.resolve([]);
   }
   auditSite(input: SiteAuditInput): Promise<Report> {
-    if (!this.api.auditSite) return Promise.reject(new Error('Update the desktop shell to audit sites.'));
+    if (!this.api.auditSite)
+      return Promise.reject(new Error('Update the desktop shell to audit sites.'));
     return this.api.auditSite(input);
   }
   getReport(id: string): Promise<Report | null> {

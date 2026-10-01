@@ -8,7 +8,7 @@ import path from 'node:path';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { openVault } from './vault.ts';
-import { inventorySchemaSql } from './vault-schema.ts';
+import { inventorySchemaSql, currentVaultSchemaVersion } from './vault-schema.ts';
 import { inspectLegacySnapshot } from './snapshot-inspection.ts';
 import { evidenceSchemaSql } from './vault-evidence-store.ts';
 import { researchSchemaSql } from './vault-research-store.ts';
@@ -225,7 +225,7 @@ async function proveLegacyRetention(directory) {
           fixtures[index],
         );
       assert.equal(reader.integrity(), 'ok');
-      assert.equal(reader.status().schemaVersion, 6);
+      assert.equal(reader.status().schemaVersion, currentVaultSchemaVersion);
     } finally {
       reader.close();
     }
@@ -406,7 +406,7 @@ async function proveInventoryContext(directory) {
   prior.close();
   const vault = openVault(file, vaultId);
   try {
-    assert.equal(vault.status().schemaVersion, 6);
+    assert.equal(vault.status().schemaVersion, currentVaultSchemaVersion);
     assert.equal(vault.status().writerGeneration, 8);
     assert.deepEqual(vault.getCompany('co_a'), company);
     assert.deepEqual(vault.companyHistory('co_a').items, [company]);
@@ -546,7 +546,7 @@ async function proveNativeVault(directory) {
   const handle = openVault(file, vaultId);
   const vault = { ...handle, ...handle.writer() };
   try {
-    assert.equal(vault.status().schemaVersion, 6);
+    assert.equal(vault.status().schemaVersion, currentVaultSchemaVersion);
     assert.deepEqual(vault.getCompany('co_a'), company);
     for (const marketId of ['mkt_a', 'mkt_b']) {
       vault.saveMarket({ record: record(marketId), name: marketId }, 0);

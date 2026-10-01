@@ -796,6 +796,31 @@ describe('discovery coverage contract', () => {
 });
 
 describe('Progressive Fast-Boot & Continual Background Research Architecture', () => {
+  it('passes approved seed and exclusion constraints to the grounded adapter without reinterpreting scope', async () => {
+    const client = fakeClient();
+    await discoverDeckStubs({ prompt: 'An approved brief', region: 'CA' }, client, {
+      confirmedPlan: {
+        marketName: 'Approved Sensors',
+        vertical: 'Industrial sensors',
+        geography: 'CA',
+        searchThemes: ['industrial sensing'],
+        notes: 'Must include if identity can be confirmed: Alpha Inc\nExclude: Consumer gadgets',
+      },
+      coverage: testCoverage,
+      catalogMax: 3,
+      catalogPasses: 0,
+    });
+    const groundedPrompts = vi.mocked(client.ground).mock.calls.map(([prompt]) => prompt);
+    expect(
+      groundedPrompts.some(
+        (prompt) =>
+          prompt.includes('Must include if identity can be confirmed: Alpha Inc') &&
+          prompt.includes('Exclude: Consumer gadgets'),
+      ),
+    ).toBe(true);
+    expect(groundedPrompts.some((prompt) => prompt.includes('A user wants to build'))).toBe(false);
+  });
+
   it('discoverDeckStubs generates unhydrated stub cards with names, logos, and domains', async () => {
     const events: string[] = [];
     const result = await discoverDeckStubs(

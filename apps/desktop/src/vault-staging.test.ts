@@ -8,6 +8,7 @@ import { legacyRetentionFixture } from './legacy-retention-fixture';
 import { openAssetStore } from './vault-assets';
 import { openVault } from './vault';
 import { stageLegacySnapshot, verifyStagedCandidate } from './vault-staging';
+import { currentVaultSchemaVersion } from './vault-schema';
 
 const at = '2026-09-30T12:00:00.000Z';
 const roots: string[] = [];
@@ -38,6 +39,7 @@ describe('offline staged legacy conversion (never a live cutover)', () => {
       expect(manifest).toEqual(result.manifest);
       expect(manifest).toMatchObject({
         format: 'stratemark-stage-v1',
+        schemaVersion: currentVaultSchemaVersion,
         authority: 'disabled',
         canApply: false,
         sourceSha256: createHash('sha256').update(before).digest('hex'),
@@ -88,6 +90,22 @@ describe('offline staged legacy conversion (never a live cutover)', () => {
       true,
     );
     expect(verified.sourceByteLength).toBe(Buffer.byteLength(json));
+  });
+  it('refuses an old v6 preview manifest without opening or upgrading the candidate', () => {
+    const result = stageLegacySnapshot(
+      JSON.stringify(legacyRetentionFixture(2)),
+      parent(),
+      'vault_old_preview',
+      at,
+    );
+    const databaseFile = path.join(result.directory, 'vault.sqlite');
+    const before = readFileSync(databaseFile);
+    writeFileSync(
+      path.join(result.directory, 'manifest.json'),
+      JSON.stringify({ ...result.manifest, schemaVersion: 6 }),
+    );
+    expect(() => verifyStagedCandidate(result.directory)).toThrow();
+    expect(readFileSync(databaseFile)).toEqual(before);
   });
   it('validates malformed/future/credential inputs before making any candidate directory', () => {
     const root = parent();
