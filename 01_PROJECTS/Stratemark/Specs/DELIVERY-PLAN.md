@@ -12,6 +12,8 @@ Known product gaps from the existing red-team: /markets 404; T1–T8 prominence;
 
 ## Milestone contract
 
+Founder checkpoint delivery requirement (October 1): every integrated build checkpoint includes a verified fast-forward GitHub backup on the personal spin-off branch, a playable real full-user-journey recording tied to the exact commit, and a timestamped report of improvements, completed work, validation, gaps and next work. Follow build-workflow.md for scope, recording privacy and unavailable-feature disclosure. Documentation-only checkpoints report no new app behavior; the first build checkpoint establishes the recorded baseline.
+
 Every R-goal delivers a user experience with interface, service, persistence, error recovery and proof. Each goal may use small internal commits, but infrastructure commits do not close it. Build with disposable data first; live library migration is a distinct approved action. A runtime defect gets a targeted regression; cosmetic edits get proportionate visual review. Full suite at integrated milestones/PR gates, not after unchanged documentation or every tiny edit.
 
 Record for every checkpoint: branch/commit, U-rows changed, visible demonstration, actual adapter/storage mode, test evidence, known limitations, cost evidence if available, and red-team decision continue/repair/redirect. No automatic claim of release readiness from passing tests. Keep screenshots/traces with an artifact location without committing private content.

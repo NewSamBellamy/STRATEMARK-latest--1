@@ -4,6 +4,8 @@ Updated October 1, 2026. Current authority: founder requested planning only. No 
 
 ## Current plan
 
+Latest founder instruction: push the v2 planning checkpoint to the personal spin-off GitHub branch. Future integrated build checkpoints must include a verified GitHub push, real full-journey screen recording tied to the commit, and timestamped plain-English done/improved/tested/gaps/next breakdown. See build-workflow.md. This documentation checkpoint introduces no new app behavior and does not itself start implementation.
+
 MASTER-PLAN.md v2.0.0 is authoritative, with EXPERIENCE-MAP.md and DELIVERY-PLAN.md. R0–R8 replace G00–G08. Astra is requested for planning/review; earlier no-Astra/Sol-Luna directives are superseded. A later build instruction is required before starting implementation. Old automation remains inactive.
 
 ## Verified repository baseline for this plan

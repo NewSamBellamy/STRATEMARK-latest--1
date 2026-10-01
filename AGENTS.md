@@ -137,6 +137,9 @@ deployment or publication. Live product experiments need their numeric allowance
 live data migration needs its applicable approval. Never expose credentials.
 
 Use LAUNCH.md and build-workflow.md for context/role/verification discipline.
+The founder requires a verified personal-branch GitHub backup, full real journey
+screen recording and plain-English done/improved/gaps/next report at each
+integrated build checkpoint. Follow the recording rules in build-workflow.md.
 A document cannot guarantee zero hallucinations, million-user capacity, automatic
 context enforcement or product readiness. Record actual evidence and gaps.
 
