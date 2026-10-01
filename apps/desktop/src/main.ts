@@ -8,9 +8,29 @@
  * persists to a JSON snapshot in userData. (SQLite/Drizzle remains the
  * documented upgrade path — same ResearchStore seam.)
  */
-import { app, BrowserWindow, ipcMain as electronIpcMain, Menu, type MenuItemConstructorOptions, nativeImage, net, protocol, safeStorage, shell, dialog } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain as electronIpcMain,
+  Menu,
+  type MenuItemConstructorOptions,
+  nativeImage,
+  net,
+  protocol,
+  safeStorage,
+  shell,
+  dialog,
+} from 'electron';
 import { pathToFileURL } from 'node:url';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { IPC_CHANNELS, SECURE_CHANNELS, type MarketIntelRepository } from '@mi/contracts';
 import { z } from 'zod';
@@ -33,8 +53,11 @@ import { GeminiRepository, migrateSnapshot, type RepoSnapshot } from '@mi/resear
 import sampleSnapshot from '../../web/src/sample/frontier-snapshot.json';
 import { createFileStore, parseResearchExport } from './storage.js';
 import { performGoogleOAuthFlow, loadDesktopEnv, type OAuthUser } from './oauth.js';
+import { openStagedAppReads } from './staged-app-reads.js';
 
-loadDesktopEnv();
+// Explicit preview only. Never silently migrate/select a candidate or load a provider.
+const stagedArguments = process.argv.filter((arg) => arg.startsWith('--staged-vault-dir='));
+if (stagedArguments.length === 0) loadDesktopEnv();
 
 const DESKTOP_DIST = path.join(app.getAppPath(), 'dist');
 const WEB_DIST = app.isPackaged
@@ -48,7 +71,10 @@ process.title = 'Stratemark';
 // Development previews use a separate workspace so testing never touches a
 // previously installed app's research or saved key. Ignored by packaged builds.
 const previewData = process.argv.find((arg) => arg.startsWith('--preview-data-dir='));
-if (!app.isPackaged && previewData) {
+if (stagedArguments.length > 0) {
+  // Disposable session profile: Chromium/settings cannot touch the installed library/key.
+  app.setPath('userData', mkdtempSync(path.join(app.getPath('temp'), 'stratemark-stage-session-')));
+} else if (!app.isPackaged && previewData) {
   const directory = path.resolve(previewData.slice('--preview-data-dir='.length));
   mkdirSync(directory, { recursive: true });
   app.setPath('userData', directory);
@@ -123,7 +149,8 @@ protocol.registerSchemesAsPrivileged([
 // ---------------------------------------------------------------------------
 const researchFile = () => path.join(app.getPath('userData'), 'research', 'repo.json');
 const researchStore = () => createFileStore(researchFile());
-const encryptionAvailable = () => safeStorage.isEncryptionAvailable() &&
+const encryptionAvailable = () =>
+  safeStorage.isEncryptionAvailable() &&
   (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
 
 const keyFile = (): string => path.join(app.getPath('userData'), 'gemini.key.enc');
@@ -187,14 +214,21 @@ function saveApiKey(key: string): void {
 let repository: MarketIntelRepository;
 let unwireRefresh: (() => void) | null = null;
 let mainWin: BrowserWindow | null = null;
+let stagedReads: ReturnType<typeof openStagedAppReads> | null = null;
 
 // Every native method is restricted to our main frame, never an embedded website.
 const ipcMain = {
   handle(channel: string, listener: Parameters<typeof electronIpcMain.handle>[1]) {
     electronIpcMain.handle(channel, (event, ...args: unknown[]) => {
-      if (!mainWin || event.sender !== mainWin.webContents || event.senderFrame !== mainWin.webContents.mainFrame) {
+      if (
+        !mainWin ||
+        event.sender !== mainWin.webContents ||
+        event.senderFrame !== mainWin.webContents.mainFrame
+      ) {
         throw new Error('Untrusted IPC sender.');
       }
+      // One native dispatch boundary, before ANY legacy listener, key/store, auth or job.
+      if (stagedReads) return stagedReads.read(channel, args);
       return listener(event, ...args);
     });
   },
@@ -203,8 +237,11 @@ const ipcMain = {
 function makeRepository(): MarketIntelRepository {
   const apiKey = loadApiKey();
   const store = researchStore();
-  if (!store.read()) store.write(migrateSnapshot(sampleSnapshot as unknown as RepoSnapshot).snapshot);
-  const requireKey = async (): Promise<never> => { throw new Error('Add your Gemini API key in Settings to run live research.'); };
+  if (!store.read())
+    store.write(migrateSnapshot(sampleSnapshot as unknown as RepoSnapshot).snapshot);
+  const requireKey = async (): Promise<never> => {
+    throw new Error('Add your Gemini API key in Settings to run live research.');
+  };
   return new GeminiRepository({
     apiKey,
     ...(apiKey ? {} : { client: { ground: requireKey, structure: requireKey } }),
@@ -219,6 +256,7 @@ function makeRepository(): MarketIntelRepository {
 
 function wireRefreshForwarding(): void {
   unwireRefresh?.();
+  if (stagedReads) return;
   unwireRefresh = repository.subscribeDeckRefresh((evt) => {
     if (mainWin && !mainWin.isDestroyed()) {
       mainWin.webContents.send(IPC_CHANNELS.deckRefreshEvent, evt);
@@ -287,12 +325,14 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getViceClaims, (_e, cardId: unknown) =>
     repository.getViceClaims(z.string().min(1).parse(cardId)),
   );
-  ipcMain.handle(IPC_CHANNELS.getDashboardTab, (_e, companyId: unknown, tab: unknown, force?: unknown) =>
-    repository.getDashboardTab(
-      z.string().min(1).parse(companyId),
-      dashboardTabSchema.parse(tab),
-      z.boolean().optional().parse(force),
-    ),
+  ipcMain.handle(
+    IPC_CHANNELS.getDashboardTab,
+    (_e, companyId: unknown, tab: unknown, force?: unknown) =>
+      repository.getDashboardTab(
+        z.string().min(1).parse(companyId),
+        dashboardTabSchema.parse(tab),
+        z.boolean().optional().parse(force),
+      ),
   );
   ipcMain.handle(IPC_CHANNELS.deepDive, (_e, input: unknown) =>
     repository.deepDive(deepDiveInputSchema.parse(input)),
@@ -314,21 +354,38 @@ function registerIpc(): void {
   });
   ipcMain.handle(IPC_CHANNELS.generateDeckBriefing, (_e, id: unknown, opts: unknown) => {
     if (!repository.generateDeckBriefing) throw new Error('Briefings are unavailable.');
-    return repository.generateDeckBriefing(z.string().min(1).parse(id), z.object({ windowHours: z.number().int().min(1).max(720).optional() }).optional().parse(opts));
+    return repository.generateDeckBriefing(
+      z.string().min(1).parse(id),
+      z
+        .object({ windowHours: z.number().int().min(1).max(720).optional() })
+        .optional()
+        .parse(opts),
+    );
   });
-  ipcMain.handle(IPC_CHANNELS.listDeckBriefings, (_e, id: unknown) => repository.listDeckBriefings?.(z.string().min(1).parse(id)) ?? []);
+  ipcMain.handle(
+    IPC_CHANNELS.listDeckBriefings,
+    (_e, id: unknown) => repository.listDeckBriefings?.(z.string().min(1).parse(id)) ?? [],
+  );
   ipcMain.handle(IPC_CHANNELS.auditSite, (_e, input: unknown) => {
     if (!repository.auditSite) throw new Error('Site audits are unavailable.');
-    return repository.auditSite(z.object({ url: z.string().url().refine((url) => /^https?:\/\//.test(url)), siteName: z.string().nullable().optional(), companyId: z.string().nullable().optional() }).parse(input));
+    return repository.auditSite(
+      z
+        .object({
+          url: z
+            .string()
+            .url()
+            .refine((url) => /^https?:\/\//.test(url)),
+          siteName: z.string().nullable().optional(),
+          companyId: z.string().nullable().optional(),
+        })
+        .parse(input),
+    );
   });
   ipcMain.handle(IPC_CHANNELS.getReport, (_e, id: unknown) =>
     repository.getReport(z.string().min(1).parse(id)),
   );
   ipcMain.handle(IPC_CHANNELS.expandDeck, (_e, marketId: unknown, focus: unknown) =>
-    repository.expandDeck(
-      z.string().min(1).parse(marketId),
-      expandFocusSchema.parse(focus),
-    ),
+    repository.expandDeck(z.string().min(1).parse(marketId), expandFocusSchema.parse(focus)),
   );
   ipcMain.handle(IPC_CHANNELS.overrideMetric, (_e, input: unknown) =>
     repository.overrideMetric(overrideMetricInputSchema.parse(input)),
@@ -342,11 +399,14 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.askResearch, (_e, input: unknown) =>
     repository.askResearch?.(askResearchInputSchema.parse(input)),
   );
-  ipcMain.handle(IPC_CHANNELS.listResearchThreads, (_e, filter: unknown) =>
-    repository.listResearchThreads?.(listResearchThreadsFilterSchema.parse(filter)) ?? [],
+  ipcMain.handle(
+    IPC_CHANNELS.listResearchThreads,
+    (_e, filter: unknown) =>
+      repository.listResearchThreads?.(listResearchThreadsFilterSchema.parse(filter)) ?? [],
   );
-  ipcMain.handle(IPC_CHANNELS.getResearchThread, (_e, id: unknown) =>
-    repository.getResearchThread?.(z.string().min(1).parse(id)) ?? null,
+  ipcMain.handle(
+    IPC_CHANNELS.getResearchThread,
+    (_e, id: unknown) => repository.getResearchThread?.(z.string().min(1).parse(id)) ?? null,
   );
   ipcMain.handle(IPC_CHANNELS.saveThreadAsReport, (_e, threadId: unknown, focus?: unknown) =>
     repository.saveThreadAsReport?.(
@@ -355,20 +415,28 @@ function registerIpc(): void {
     ),
   );
   ipcMain.handle(IPC_CHANNELS.listResearchJobs, () => repository.listResearchJobs?.() ?? []);
-  ipcMain.handle(IPC_CHANNELS.getResearchJob, (_e, id: unknown) =>
-    repository.getResearchJob?.(z.string().min(1).parse(id)) ?? null,
+  ipcMain.handle(
+    IPC_CHANNELS.getResearchJob,
+    (_e, id: unknown) => repository.getResearchJob?.(z.string().min(1).parse(id)) ?? null,
   );
-  ipcMain.handle(IPC_CHANNELS.cancelResearchJob, (_e, id: unknown) =>
-    repository.cancelResearchJob?.(z.string().min(1).parse(id)) ?? null,
+  ipcMain.handle(
+    IPC_CHANNELS.cancelResearchJob,
+    (_e, id: unknown) => repository.cancelResearchJob?.(z.string().min(1).parse(id)) ?? null,
   );
-  ipcMain.handle(IPC_CHANNELS.resumeResearchJob, (_e, id: unknown) =>
-    repository.resumeResearchJob?.(z.string().min(1).parse(id)) ?? null,
+  ipcMain.handle(
+    IPC_CHANNELS.resumeResearchJob,
+    (_e, id: unknown) => repository.resumeResearchJob?.(z.string().min(1).parse(id)) ?? null,
   );
 
   // Secure key storage — persists to the OS keychain and hot-swaps the backend.
   ipcMain.handle(SECURE_CHANNELS.getApiKey, (): string => loadApiKey());
   ipcMain.handle(SECURE_CHANNELS.setApiKey, (_e, key: unknown): void => {
-    const validatedKey = z.string().max(256).regex(/^[\x20-\x7E]*$/).parse(key).trim();
+    const validatedKey = z
+      .string()
+      .max(256)
+      .regex(/^[\x20-\x7E]*$/)
+      .parse(key)
+      .trim();
     saveApiKey(validatedKey);
     swapRepository();
   });
@@ -378,12 +446,24 @@ function registerIpc(): void {
   });
   ipcMain.handle(SECURE_CHANNELS.getResearchStorageInfo, () => {
     const snapshot = researchStore().read();
-    return { marketCount: snapshot?.markets.length ?? 0, sizeBytes: snapshot ? Buffer.byteLength(JSON.stringify(snapshot)) : 0, hasBackup: existsSync(`${researchFile()}.bak`) };
+    return {
+      marketCount: snapshot?.markets.length ?? 0,
+      sizeBytes: snapshot ? Buffer.byteLength(JSON.stringify(snapshot)) : 0,
+      hasBackup: existsSync(`${researchFile()}.bak`),
+    };
   });
   ipcMain.handle(SECURE_CHANNELS.importResearch, async (_e, json: unknown) => {
-    const jobs = await repository.listResearchJobs?.() ?? [];
-    if (jobs.some((job) => job.status === 'running' || job.status === 'queued')) throw new Error('Finish or cancel active research before importing.');
-    researchStore().write(parseResearchExport(z.string().max(50 * 1024 * 1024).parse(json)));
+    const jobs = (await repository.listResearchJobs?.()) ?? [];
+    if (jobs.some((job) => job.status === 'running' || job.status === 'queued'))
+      throw new Error('Finish or cancel active research before importing.');
+    researchStore().write(
+      parseResearchExport(
+        z
+          .string()
+          .max(50 * 1024 * 1024)
+          .parse(json),
+      ),
+    );
     swapRepository();
   });
 
@@ -428,6 +508,7 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
+      additionalArguments: stagedReads ? ['--staged-research-readonly'] : [],
     },
   });
 
@@ -435,10 +516,22 @@ function createWindow(): void {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
-  mainWin.webContents.on('will-navigate', (event) => { event.preventDefault(); });
-  mainWin.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  mainWin.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+  mainWin.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) =>
+    callback(false),
+  );
+  if (stagedReads) {
+    // Cached migration preview is offline, including fonts/logos/legacy renderer fetches.
+    mainWin.webContents.session.webRequest.onBeforeRequest(
+      { urls: ['http://*/*', 'https://*/*'] },
+      (_details, callback) => callback({ cancel: true }),
+    );
+  }
 
   mainWin.once('ready-to-show', () => {
+    if (stagedReads && process.argv.includes('--staged-preview-hidden')) return;
     mainWin?.show();
     mainWin?.focus();
     if (process.platform === 'darwin') {
@@ -456,36 +549,59 @@ function createWindow(): void {
 
   wireRefreshForwarding();
 
-  const devUrl = !app.isPackaged ? (process.env.VITE_DEV_SERVER_URL ?? (process.argv.includes('--dev-server') ? 'http://localhost:5173' : undefined)) : undefined;
+  const devUrl =
+    !app.isPackaged && !stagedReads
+      ? (process.env.VITE_DEV_SERVER_URL ??
+        (process.argv.includes('--dev-server') ? 'http://localhost:5173' : undefined))
+      : undefined;
   if (devUrl) void mainWin.loadURL(devUrl);
   else void mainWin.loadURL('app://bundle/index.html');
 }
 
-void app.whenReady().then(() => {
-  // Serve the web build under app:// (raw file:// blocks ES modules).
-  protocol.handle('app', (request) => {
-    const { pathname, hostname } = new URL(request.url);
-    if (hostname !== 'bundle') return new Response('Not found', { status: 404 });
-    const rel = pathname === '/' ? '/index.html' : pathname;
-    const filePath = path.resolve(WEB_DIST, `.${decodeURIComponent(rel)}`);
-    const relative = path.relative(WEB_DIST, filePath);
-    if (relative.startsWith('..') || path.isAbsolute(relative)) return new Response('Forbidden', { status: 403 });
-    return net.fetch(pathToFileURL(filePath).toString());
-  });
+void app
+  .whenReady()
+  .then(() => {
+    // Serve the web build under app:// (raw file:// blocks ES modules).
+    protocol.handle('app', (request) => {
+      const { pathname, hostname } = new URL(request.url);
+      if (hostname !== 'bundle') return new Response('Not found', { status: 404 });
+      const rel = pathname === '/' ? '/index.html' : pathname;
+      const filePath = path.resolve(WEB_DIST, `.${decodeURIComponent(rel)}`);
+      const relative = path.relative(WEB_DIST, filePath);
+      if (relative.startsWith('..') || path.isAbsolute(relative))
+        return new Response('Forbidden', { status: 403 });
+      return net.fetch(pathToFileURL(filePath).toString());
+    });
 
-  repository = makeRepository();
-  createApplicationMenu();
-  registerIpc();
-  createWindow();
+    if (stagedArguments.length > 0) {
+      if (stagedArguments.length !== 1)
+        throw new Error('Only one migration candidate can be previewed.');
+      const directory = stagedArguments[0]!.slice('--staged-vault-dir='.length);
+      if (!path.isAbsolute(directory))
+        throw new Error('Migration preview requires an absolute directory.');
+      stagedReads = openStagedAppReads(directory);
+    } else {
+      repository = makeRepository();
+    }
+    createApplicationMenu();
+    registerIpc();
+    createWindow();
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  })
+  .catch(() => {
+    dialog.showErrorBox(
+      'Stratemark could not start',
+      'Your saved research could not be opened. No data was deleted. Restore a valid backup or upgrade to the version that saved it.',
+    );
+    app.quit();
   });
-}).catch(() => {
-  dialog.showErrorBox('Stratemark could not start', 'Your saved research could not be opened. No data was deleted. Restore a valid backup or upgrade to the version that saved it.');
-  app.quit();
-});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+app.on('before-quit', () => {
+  stagedReads?.close();
 });

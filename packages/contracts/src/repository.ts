@@ -455,6 +455,10 @@ export interface CardWithCompany {
   company: Company | null; // null for Barrier cards (not company-specific, spec §4)
   metrics: CompanyMetric[];
   viceClaims: ViceClaim[]; // populated only for Vice cards
+  /** One company may fill several roles in this deck without duplicate cards. */
+  marketRoles?: readonly ('company' | 'infrastructure' | 'distribution')[];
+  /** Passive migration history is not passage-supported research. */
+  evidenceState?: 'legacy_unreviewed';
 }
 
 export interface DashboardTabResult<T extends DashboardTab> {

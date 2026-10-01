@@ -24,6 +24,7 @@ import { DASHBOARD_CONTENT_SCHEMAS } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { traceAgent } from '@/lib/agentic/agentTrace';
 import { qk } from '@/lib/query/keys';
+import { isReadOnlyResearch } from '@/lib/settings/runtime';
 
 export function useMarkets(): UseQueryResult<Market[]> {
   const repo = useRepository();
@@ -46,6 +47,7 @@ export function useDeckByMarket(marketId: string | undefined): UseQueryResult<De
     queryFn: () => repo.getDeckByMarket(marketId as string),
     enabled: !!marketId,
     refetchInterval: (query) => {
+      if (isReadOnlyResearch()) return false;
       const deck = query.state.data as { status?: string } | null;
       if (
         deck?.status === 'running' ||
@@ -80,6 +82,7 @@ export function useCards(
     staleTime: 60_000,
     gcTime: 30 * 60_000,
     refetchInterval: (query) => {
+      if (isReadOnlyResearch()) return false;
       const cards = query.state.data;
       if (cards && cards.some((c) => c.card.tier === null)) {
         return 3000;

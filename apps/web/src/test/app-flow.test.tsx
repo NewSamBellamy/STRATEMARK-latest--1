@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -9,9 +9,10 @@ import { AuthProvider } from '@/lib/auth/AuthContext';
 import { DeepDiveProvider } from '@/features/deepdive/DeepDive';
 import { createQueryClient } from '@/lib/query/queryClient';
 import { makeRepo } from './test-utils';
+import { useApiKey } from '@/lib/settings/apiKey';
+import { useAgentTrace } from '@/lib/agentic/agentTrace';
 
-function renderApp() {
-  const repository = makeRepo();
+function renderApp(repository = makeRepo(), initialRoute = '/') {
   const dashboardResearch = vi.spyOn(repository, 'getDashboardTab');
   return {
     user: userEvent.setup(),
@@ -21,7 +22,7 @@ function renderApp() {
         <QueryClientProvider client={createQueryClient()}>
           <AuthProvider>
             <DeepDiveProvider>
-              <MemoryRouter initialEntries={['/']}>
+              <MemoryRouter initialEntries={[initialRoute]}>
                 <AppRoutes />
               </MemoryRouter>
             </DeepDiveProvider>
@@ -32,7 +33,14 @@ function renderApp() {
   };
 }
 
+afterEach(() => {
+  Reflect.deleteProperty(window, 'mi');
+  useApiKey.setState({ apiKey: '', hasKey: false });
+  useAgentTrace.setState({ jobs: [] });
+});
+
 const FIND = { timeout: 20000 } as const;
+const STAGE_FIND = { timeout: 2500 } as const;
 
 describe('end-to-end deck flow (markets → deck → 2-level split → card → dashboard)', () => {
   it('navigates the full journey against the mock repository', { timeout: 20000 }, async () => {
@@ -85,4 +93,142 @@ describe('end-to-end deck flow (markets → deck → 2-level split → card → 
     expect(screen.getByText('2 cards selected')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /ask about these/i })).toBeEnabled();
   });
+
+  it(
+    'keeps staged archive navigation read-only and labels unreviewed research',
+    { timeout: 20000 },
+    async () => {
+      Object.defineProperty(window, 'mi', {
+        configurable: true,
+        value: { storageMode: 'staged_readonly' },
+      });
+      const repository = makeRepo();
+      const createMarket = vi.spyOn(repository, 'createMarket');
+      const refreshDeck = vi.spyOn(repository, 'refreshDeck');
+      const saveCard = vi.spyOn(repository, 'saveCard');
+      const listCards = repository.listCards.bind(repository);
+      vi.spyOn(repository, 'listCards').mockImplementation(async (deckId, filter) =>
+        (await listCards(deckId, filter)).map((card) => ({
+          ...card,
+          marketRoles: ['company', 'infrastructure'],
+          evidenceState: 'legacy_unreviewed',
+          company: card.company ? { ...card.company, logoUrl: null } : null,
+          metrics: [],
+          citations: [],
+        })),
+      );
+      const deleteMarket = vi.spyOn(repository, 'deleteMarket');
+      const { user } = renderApp(repository);
+
+      expect(await screen.findByText('Read-only migration preview')).toBeInTheDocument();
+      expect(
+        within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', {
+          name: 'Library',
+        }),
+      ).toHaveTextContent('Library');
+      expect(screen.getByText(/Older research has not been revalidated/)).toBeInTheDocument();
+      const marketLink = await screen.findByRole(
+        'button',
+        { name: /Open Christian Apparel/i },
+        STAGE_FIND,
+      );
+      await user.click(marketLink);
+      expect(await screen.findByTestId('role-nav', undefined, STAGE_FIND)).toBeInTheDocument();
+      const infrastructure = screen.getByRole('button', { name: /Infrastructure/i });
+      await user.click(infrastructure);
+
+      const card = await screen.findByRole('button', { name: /GraceWear Global/i }, STAGE_FIND);
+      await user.click(card);
+      expect(await screen.findByRole('dialog', undefined, STAGE_FIND)).toBeInTheDocument();
+      expect(screen.getByText(/legacy research has not been reviewed/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /share/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /save card/i })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('link', { name: /explore research/i }));
+      expect(await screen.findByRole('heading', { name: 'GraceWear Global' })).toBeInTheDocument();
+      await user.click(screen.getByRole('link', { name: 'Metrics' }));
+      expect(
+        await screen.findByText(/saved detail for this section is not available/i),
+      ).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /back to card/i }));
+      expect(await screen.findByRole('dialog', undefined, STAGE_FIND)).toBeInTheDocument();
+
+      expect(createMarket).not.toHaveBeenCalled();
+      expect(refreshDeck).not.toHaveBeenCalled();
+      expect(saveCard).not.toHaveBeenCalled();
+      expect(deleteMarket).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not dispatch a queued hunt or refresh in staged mode even when an old key exists', () => {
+    Object.defineProperty(window, 'mi', {
+      configurable: true,
+      value: { storageMode: 'staged_readonly' },
+    });
+    useApiKey.setState({ apiKey: 'retained-key', hasKey: true });
+    useAgentTrace.setState({
+      jobs: [
+        {
+          id: 'queued-hunt',
+          marketId: 'market-1',
+          focus: {},
+          label: 'Queued hunt',
+          status: 'queued',
+          added: null,
+        },
+      ],
+    });
+    const repository = makeRepo();
+    const expandDeck = vi.spyOn(repository, 'expandDeck');
+    const refreshDeck = vi.spyOn(repository, 'refreshDeck');
+
+    renderApp(repository);
+
+    expect(useAgentTrace.getState().jobs[0]?.status).toBe('queued');
+    expect(expandDeck).not.toHaveBeenCalled();
+    expect(refreshDeck).not.toHaveBeenCalled();
+  });
+  it('opens a legacy distribution deep link as a role filter without hiding its company', async () => {
+    Object.defineProperty(window, 'mi', {
+      configurable: true,
+      value: { storageMode: 'staged_readonly' },
+    });
+    const repository = makeRepo();
+    const listCards = repository.listCards.bind(repository);
+    vi.spyOn(repository, 'listCards').mockImplementation(async (deckId, filter) =>
+      (await listCards(deckId, filter)).map((card) => ({
+        ...card,
+        marketRoles: ['company', 'distribution'],
+        evidenceState: 'legacy_unreviewed',
+      })),
+    );
+    const market = (await repository.listMarkets())[0]!;
+    renderApp(repository, `/markets/${market.id}/deck?type=distribution`);
+    expect(
+      await screen.findByRole('button', { name: /GraceWear Global/i }, STAGE_FIND),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('role-nav')).toBeInTheDocument();
+  });
+
+  it.each([
+    '/reports',
+    '/saved',
+    '/markets/market-1/briefing',
+    '/share/not-a-preview-route',
+  ] as const)(
+    'routes archived or unsupported direct link %s back to the preview library',
+    async (initialRoute) => {
+      Object.defineProperty(window, 'mi', {
+        configurable: true,
+        value: { storageMode: 'staged_readonly' },
+      });
+      renderApp(makeRepo(), initialRoute);
+      expect(
+        await screen.findByRole('heading', { name: 'All decks' }, STAGE_FIND),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/Archived reports, findings, and saved items remain retained/i),
+      ).toBeInTheDocument();
+    },
+  );
 });

@@ -19,6 +19,7 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { isLowPower } from '@/lib/usage';
 import { traceAgent } from './agentTrace';
+import { isReadOnlyResearch } from '@/lib/settings/runtime';
 
 const CHECK_EVERY_MS = 60 * 60 * 1000; // re-check hourly while the app is open
 
@@ -30,6 +31,7 @@ export function useSentinel(): void {
   const busy = useRef(false);
 
   useEffect(() => {
+    if (isReadOnlyResearch()) return;
     if (isCommunityDesktop() && !hasKey) return;
     if (
       typeof repo.generateDeckBriefing !== 'function' ||

@@ -346,6 +346,7 @@ export function openVault(file: string, vaultId: string, mode: 'owner' | 'reader
   return {
     listLegacySnapshots: legacy.listLegacySnapshots,
     readLegacyRecords: legacy.readLegacyRecords,
+    readLegacyRecord: legacy.readLegacyRecord,
     verifyLegacySnapshot: legacy.verifyLegacySnapshot,
     exportLegacySnapshot: legacy.exportLegacySnapshot,
     getSourceVersion: evidence.getSourceVersion,

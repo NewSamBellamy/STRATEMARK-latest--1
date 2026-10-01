@@ -20,6 +20,7 @@ import { hydrateFromVault } from './vault';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
 import { recordCall } from '@/lib/usage';
+import { isReadOnlyResearch } from '@/lib/settings/runtime';
 
 const RepositoryContext = createContext<MarketIntelRepository | null>(null);
 
@@ -76,10 +77,10 @@ export function RepositoryProvider({
   // working copy was wiped (co-tenant clear, eviction) the IndexedDB replica
   // restores it first. Skipped instantly when injected (tests) or no IDB.
   const [hydrated, setHydrated] = useState(
-    () => repository != null || typeof indexedDB === 'undefined',
+    () => repository != null || isReadOnlyResearch() || typeof indexedDB === 'undefined',
   );
   useEffect(() => {
-    if (hydrated) return;
+    if (hydrated || isReadOnlyResearch()) return;
     let live = true;
     void hydrateFromVault().finally(() => {
       if (live) setHydrated(true);

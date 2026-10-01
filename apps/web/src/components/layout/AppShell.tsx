@@ -11,6 +11,7 @@ import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { useHuntRunner } from '@/lib/agentic/useHuntRunner';
 import { useSentinel } from '@/lib/agentic/useSentinel';
 import { SettingsModal } from '@/features/settings/SettingsModal';
+import { isReadOnlyResearch } from '@/lib/settings/runtime';
 
 export function AppShell() {
   useDeckRefreshSubscription();
@@ -21,6 +22,7 @@ export function AppShell() {
   const { isOpen: aiPanelOpen, closePanel } = useDeepDive();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const readOnly = isReadOnlyResearch();
 
   // Close AI panel and mobile menu on route change.
   useEffect(() => {
@@ -62,6 +64,19 @@ export function AppShell() {
           <TopBar />
         </header>
 
+        {readOnly && (
+          <div
+            role="status"
+            className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs text-amber-950"
+          >
+            <strong>Read-only migration preview</strong>
+            <span className="ml-2">
+              Older research has not been revalidated. Original library unchanged; research/editing
+              disabled. Archived reports, findings, and saved items remain retained but are
+              unavailable in this preview.
+            </span>
+          </div>
+        )}
         <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
           <ErrorBoundary>
             <Suspense fallback={<FullPageLoader />}>
@@ -70,7 +85,7 @@ export function AppShell() {
           </ErrorBoundary>
         </main>
       </div>
-      <SettingsModal />
+      {!readOnly && <SettingsModal />}
     </div>
   );
 }

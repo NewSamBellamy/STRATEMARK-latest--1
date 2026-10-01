@@ -25,12 +25,25 @@
         }
       })();
     </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400;500;600;700&family=Parkinsans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
+    <script>
+      // The native preload runs first. A cached migration preview must not even
+      // request remote fonts; the host also denies network as defense in depth.
+      (function () {
+        if (window.mi && window.mi.storageMode === 'staged_readonly') return;
+        ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'].forEach(function (url) {
+          var link = document.createElement('link');
+          link.rel = 'preconnect';
+          link.href = url;
+          if (url.indexOf('gstatic') !== -1) link.crossOrigin = '';
+          document.head.appendChild(link);
+        });
+        var font = document.createElement('link');
+        font.rel = 'stylesheet';
+        font.href =
+          'https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400;500;600;700&family=Parkinsans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap';
+        document.head.appendChild(font);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -27,7 +27,7 @@ export function CollectibleCard({
   // but use editorial ink when its accent would make an offline mark disappear.
   const markInk = contrastRatio(accent, '#d2d0c8') >= 4.5 ? accent : '#1c2b28';
   const highlight = color(brand?.accent, accent);
-  const stage = view.position;
+  const stage = data.evidenceState === 'legacy_unreviewed' ? 'Saved profile' : view.position;
   const asOf = view.latestCapturedAt
     ? new Intl.DateTimeFormat('en-US', {
         month: 'short',
@@ -38,7 +38,9 @@ export function CollectibleCard({
   const provenance =
     view.citations.length > 0
       ? `${view.citations.length} ${view.citations.length === 1 ? 'source' : 'sources'}${asOf ? ` · ${asOf}` : ''}`
-      : 'Research needed';
+      : data.evidenceState === 'legacy_unreviewed'
+        ? 'Unreviewed'
+        : 'Research needed';
 
   return (
     <div
@@ -65,7 +67,9 @@ export function CollectibleCard({
             <div className="collectible__brand">
               <Logo
                 name={view.title}
-                website={data.company?.websiteUrl}
+                website={
+                  data.evidenceState === 'legacy_unreviewed' ? null : data.company?.websiteUrl
+                }
                 bare
                 logoUrl={data.company?.logoUrl}
                 className="h-full w-full"
@@ -75,11 +79,18 @@ export function CollectibleCard({
           <span className="collectible__art-label">{view.type}</span>
         </div>
         <div className="collectible__identity">
-          <span className="collectible__eyebrow">{data.company?.hqLocation || view.type}</span>
+          <span className="collectible__eyebrow">
+            {data.marketRoles?.join(' · ') || data.company?.hqLocation || view.type}
+          </span>
           <span className="collectible__name">{view.title}</span>
           {view.description && <p className="collectible__description">{view.description}</p>}
         </div>
-        {view.signal ? (
+        {data.evidenceState === 'legacy_unreviewed' ? (
+          <div className="collectible__signal-copy">
+            <span className="collectible__eyebrow">Legacy research</span>
+            <p>Not revalidated</p>
+          </div>
+        ) : view.signal ? (
           <div className="collectible__signal-copy">
             <span className="collectible__eyebrow">
               {data.card.cardType === 'vice' ? 'Risk finding' : 'Market finding'}

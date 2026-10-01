@@ -8,6 +8,7 @@ import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
 import { useResearchSession } from '@/features/deck/research-session';
 import logoMark from '@/assets/wordmark.svg';
+import { isReadOnlyResearch } from '@/lib/settings/runtime';
 
 type MarketWithEngine = Market & { engine?: string };
 
@@ -29,10 +30,12 @@ function DeckTile({
   market,
   onOpen,
   onDelete,
+  readOnly,
 }: {
   market: MarketWithEngine;
   onOpen: () => void;
   onDelete: () => void;
+  readOnly: boolean;
 }) {
   const hash = hashOf(market.id);
   const [start, end, accent] = PALETTES[hash % PALETTES.length]!;
@@ -96,15 +99,17 @@ function DeckTile({
             </span>
           </span>
         </button>
-        <button
-          type="button"
-          title={'Delete "' + market.name + '"'}
-          aria-label={'Delete ' + market.name}
-          onClick={onDelete}
-          className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full border border-white/15 bg-black/20 text-white/55 opacity-0 backdrop-blur-sm transition-all hover:bg-red-500/80 hover:text-white focus:opacity-100 group-hover:opacity-100"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            title={'Delete "' + market.name + '"'}
+            aria-label={'Delete ' + market.name}
+            onClick={onDelete}
+            className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full border border-white/15 bg-black/20 text-white/55 opacity-0 backdrop-blur-sm transition-all hover:bg-red-500/80 hover:text-white focus:opacity-100 group-hover:opacity-100"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
       <div className="mt-4 px-2">
         <div className="flex items-center justify-between gap-2 text-[11px] text-muted">
@@ -157,6 +162,7 @@ function ResearchingTile({ query }: { query: string }) {
 }
 
 export default function MarketsListPage() {
+  const readOnly = isReadOnlyResearch();
   const markets = useMarkets();
   const deleteDeck = useDeleteDeck();
   const navigate = useNavigate();
@@ -188,10 +194,12 @@ export default function MarketsListPage() {
               {sorted.length} {sorted.length === 1 ? 'deck' : 'decks'}
             </span>
           )}
-          <Link to="/" className="btn-primary">
-            <PlusCircle className="h-4 w-4" />
-            New deck
-          </Link>
+          {!readOnly && (
+            <Link to="/" className="btn-primary">
+              <PlusCircle className="h-4 w-4" />
+              New deck
+            </Link>
+          )}
         </div>
       </header>
 
@@ -202,13 +210,19 @@ export default function MarketsListPage() {
         empty={
           <EmptyState
             title="No decks yet"
-            description="Describe a market in plain language and Stratemark will research it into a deck."
+            description={
+              readOnly
+                ? 'No saved markets are available in this migration preview.'
+                : 'Describe a market in plain language and Stratemark will research it into a deck.'
+            }
             icon={<img src={logoMark} alt="" className="h-6 w-6 opacity-40 grayscale" />}
             action={
-              <Link to="/" className="btn-primary mt-2">
-                <PlusCircle className="h-4 w-4" />
-                Create your first deck
-              </Link>
+              !readOnly && (
+                <Link to="/" className="btn-primary mt-2">
+                  <PlusCircle className="h-4 w-4" />
+                  Create your first deck
+                </Link>
+              )
             }
           />
         }
@@ -218,13 +232,15 @@ export default function MarketsListPage() {
             className="grid gap-x-7 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
             aria-label="Research decks"
           >
-            {researching && <ResearchingTile query={researching} />}
+            {!readOnly && researching && <ResearchingTile query={researching} />}
             {sorted.map((market) => (
               <DeckTile
                 key={market.id}
                 market={market}
+                readOnly={readOnly}
                 onOpen={() => navigate('/markets/' + market.id + '/deck')}
                 onDelete={() => {
+                  if (readOnly) return;
                   if (confirm('Are you sure you want to delete "' + market.name + '"?')) {
                     deleteDeck.mutate(market.id);
                   }

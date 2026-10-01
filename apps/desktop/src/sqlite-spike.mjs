@@ -937,6 +937,21 @@ function recover(directory) {
 
 async function main() {
   const [mode, directory] = process.argv.slice(3);
+  if (mode === 'prepare-preview' && directory) {
+    const source = legacyRetentionFixture(2);
+    source.cards.push({ ...source.cards[0], id: 'card_z_distribution', cardType: 'distribution' });
+    const candidate = stageLegacySnapshot(
+      JSON.stringify(source),
+      directory,
+      'vault_ui_preview',
+      '2026-09-30T12:00:00.000Z',
+    );
+    marker('SQLITE_PREVIEW_READY', {
+      directory: candidate.directory,
+      sourceSha256: candidate.manifest.sourceSha256,
+    });
+    return;
+  }
   if (
     !directory ||
     !['prepare', 'crash', 'contend', 'recover', 'stage-crash', 'stage-recover'].includes(mode)

@@ -16,6 +16,7 @@ import { useResearchSession } from '@/features/deck/research-session';
 import wordmark from '@/assets/wordmark.svg';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { SettingsLink } from '@/components/SettingsLink';
+import { isReadOnlyResearch } from '@/lib/settings/runtime';
 
 export function SettingsTrigger({ collapsed }: { collapsed: boolean }) {
   const { open } = useSettingsModal();
@@ -23,20 +24,21 @@ export function SettingsTrigger({ collapsed }: { collapsed: boolean }) {
     <button
       type="button"
       onClick={open}
-      title={collapsed ? "Settings" : undefined}
+      title={collapsed ? 'Settings' : undefined}
       className={cn(
         'flex items-center gap-3 rounded-lg transition-colors text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-content',
-        collapsed ? 'justify-center px-0 py-2.5 w-full' : 'px-3 py-2 w-full text-left'
+        collapsed ? 'justify-center px-0 py-2.5 w-full' : 'px-3 py-2 w-full text-left',
       )}
     >
       <Gear weight="duotone" size={collapsed ? 22 : 20} />
-      {!collapsed && "Settings"}
+      {!collapsed && 'Settings'}
     </button>
   );
 }
 
 export function Sidebar() {
   const hasKey = useApiKey((s) => s.hasKey);
+  const readOnly = isReadOnlyResearch();
   const [collapsed, setCollapsed] = useState(false);
   const markets = useMarkets();
   // A deck being researched RIGHT NOW belongs in this list already —
@@ -53,18 +55,27 @@ export function Sidebar() {
   }, [markets.data]);
 
   return (
-    <aside className={cn(
-      'flex h-full shrink-0 flex-col border-r border-border bg-surface py-6 transition-all duration-200',
-      collapsed ? 'w-16 px-2' : 'w-56 px-4',
-    )}>
+    <aside
+      className={cn(
+        'flex h-full shrink-0 flex-col border-r border-border bg-surface py-6 transition-all duration-200',
+        collapsed ? 'w-16 px-2' : 'w-56 px-4',
+      )}
+    >
       {/* Logo + collapse toggle */}
-      <div className={cn('mb-6 flex items-center', collapsed ? 'flex-col gap-2' : 'justify-between px-2')}>
+      <div
+        className={cn(
+          'mb-6 flex items-center',
+          collapsed ? 'flex-col gap-2' : 'justify-between px-2',
+        )}
+      >
         {collapsed ? (
           <img src={wordmark} alt="Stratemark" className="h-8 w-8" />
         ) : (
           <div className="flex items-center gap-2">
             <img src={wordmark} alt="" className="h-7 w-7" />
-            <span className="font-display text-[15px] font-bold tracking-tight text-content">Stratemark</span>
+            <span className="font-display text-[15px] font-bold tracking-tight text-content">
+              Stratemark
+            </span>
           </div>
         )}
         <button
@@ -79,23 +90,49 @@ export function Sidebar() {
 
       {/* Primary Navigation */}
       <nav className="flex shrink-0 flex-col gap-0.5" aria-label="Primary">
-        <SidebarLink to="/" end icon={PlusCircle} label="New Deck" collapsed={collapsed} primary />
-        {/* Collapsed: no room for the inline list, so keep a link to the full history page. */}
-        {collapsed && (
-          <SidebarLink to="/history" icon={ClockCounterClockwise} label="Deck History" collapsed />
+        {!readOnly && (
+          <SidebarLink
+            to="/"
+            end
+            icon={PlusCircle}
+            label="New Deck"
+            collapsed={collapsed}
+            primary
+          />
         )}
-        <SidebarLink to="/saved" icon={BookmarkSimple} label="Saved Cards" collapsed={collapsed} />
-        <SidebarLink to="/reports" icon={FileText} label="Reports" collapsed={collapsed} />
-        <SettingsTrigger collapsed={collapsed} />
+        {/* Collapsed: no room for the inline list, so keep a link to the full history page. */}
+        {(collapsed || readOnly) && (
+          <SidebarLink
+            to="/history"
+            icon={ClockCounterClockwise}
+            label={readOnly ? 'Library' : 'Deck History'}
+            collapsed={collapsed}
+          />
+        )}
+        {!readOnly && (
+          <SidebarLink
+            to="/saved"
+            icon={BookmarkSimple}
+            label="Saved Cards"
+            collapsed={collapsed}
+          />
+        )}
+        {!readOnly && (
+          <SidebarLink to="/reports" icon={FileText} label="Reports" collapsed={collapsed} />
+        )}
+        {!readOnly && <SettingsTrigger collapsed={collapsed} />}
       </nav>
 
       {/* Recent decks — inline history (expanded only) */}
-      {!collapsed && (
+      {!collapsed && !readOnly && (
         <div className="mt-6 flex min-h-0 flex-1 flex-col">
           <div className="mb-2 flex items-center justify-between px-3">
             <p className="text-[10px] font-medium text-faint">Recent Decks</p>
             {recentDecks.length > 0 && (
-              <NavLink to="/history" className="text-[10px] font-medium text-faint transition-colors hover:text-content">
+              <NavLink
+                to="/history"
+                className="text-[10px] font-medium text-faint transition-colors hover:text-content"
+              >
                 View all
               </NavLink>
             )}
@@ -128,12 +165,14 @@ export function Sidebar() {
                       <NavLink
                         to={`/markets/${m.id}/deck`}
                         title={isRunning ? `Researching: ${m.name}` : m.name}
-                        className={({ isActive }) => cn(
-                          'flex items-center justify-between truncate rounded-lg px-3 py-1.5 text-[13px] transition-colors',
-                          isActive
-                            ? 'bg-primary/8 font-medium text-primary'
-                            : 'text-muted hover:bg-surface-2 hover:text-content',
-                        )}
+                        className={({ isActive }) =>
+                          cn(
+                            'flex items-center justify-between truncate rounded-lg px-3 py-1.5 text-[13px] transition-colors',
+                            isActive
+                              ? 'bg-primary/8 font-medium text-primary'
+                              : 'text-muted hover:bg-surface-2 hover:text-content',
+                          )
+                        }
                       >
                         <span className="truncate">{m.name}</span>
                         {isRunning && (
@@ -153,12 +192,10 @@ export function Sidebar() {
       )}
       {collapsed && <div className="flex-1" />}
 
-      {(!hasKey) && (
+      {!readOnly && !hasKey && (
         <div className="shrink-0 px-2 pt-4">
           {!collapsed ? (
-            <SettingsLink
-              className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted hover:text-content"
-            >
+            <SettingsLink className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted hover:text-content">
               <span className="h-1.5 w-1.5 rounded-full bg-neutral" />
               Add your API key
             </SettingsLink>
@@ -174,29 +211,45 @@ export function Sidebar() {
 }
 
 function SidebarLink({
-  to, end, icon: Icon, label, collapsed, primary,
+  to,
+  end,
+  icon: Icon,
+  label,
+  collapsed,
+  primary,
 }: {
-  to: string; end?: boolean; icon: React.ElementType;
-  label: string; collapsed: boolean; primary?: boolean;
+  to: string;
+  end?: boolean;
+  icon: React.ElementType;
+  label: string;
+  collapsed: boolean;
+  primary?: boolean;
 }) {
   return (
     <NavLink
-      to={to} end={end}
+      to={to}
+      end={end}
       title={collapsed ? label : undefined}
-      className={({ isActive }) => cn(
-        'flex items-center gap-3 rounded-lg transition-colors',
-        collapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2',
-        'text-[13px]',
-        isActive
-          ? 'bg-primary/8 font-semibold text-primary'
-          : primary
-            ? 'font-medium text-content hover:bg-surface-2'
-            : 'font-medium text-muted hover:bg-surface-2 hover:text-content',
-      )}
+      className={({ isActive }) =>
+        cn(
+          'flex items-center gap-3 rounded-lg transition-colors',
+          collapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2',
+          'text-[13px]',
+          isActive
+            ? 'bg-primary/8 font-semibold text-primary'
+            : primary
+              ? 'font-medium text-content hover:bg-surface-2'
+              : 'font-medium text-muted hover:bg-surface-2 hover:text-content',
+        )
+      }
     >
       {({ isActive }) => (
         <>
-          <Icon weight="duotone" size={collapsed ? 22 : 20} className={isActive ? 'text-primary' : ''} />
+          <Icon
+            weight="duotone"
+            size={collapsed ? 22 : 20}
+            className={isActive ? 'text-primary' : ''}
+          />
           {!collapsed && label}
         </>
       )}

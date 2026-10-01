@@ -46,6 +46,7 @@ import { EmptyState } from '@/components/states/EmptyState';
 import { CardGrid } from './CardGrid';
 import { TierBadge } from '@/features/card/TierBadge';
 import { buildCardView, sortCompanyCardsForBrowse } from '@/features/card/card-view';
+import { isReadOnlyResearch } from '@/lib/settings/runtime';
 
 /**
  * Retired for now (founder's call): Vice and Culture read as too ambiguous
@@ -55,6 +56,7 @@ import { buildCardView, sortCompanyCardsForBrowse } from '@/features/card/card-v
 const HIDDEN_CARD_TYPES: ReadonlySet<CardType> = new Set(['vice', 'culture'] as CardType[]);
 const VISIBLE_CARD_TYPE_ORDER = CARD_TYPE_ORDER.filter((t) => !HIDDEN_CARD_TYPES.has(t));
 const DISPLAY_STAGES = [...MATURITY_TIERS].reverse();
+type MarketRole = 'company' | 'infrastructure' | 'distribution';
 
 /** Human count noun per card type — fixes the old "20 company companies" bug. */
 function cardCountNoun(type: CardType, count: number): string {
@@ -81,6 +83,7 @@ function cardCountNoun(type: CardType, count: number): string {
 
 export default function DeckPage() {
   const { marketId } = useParams();
+  const readOnly = isReadOnlyResearch();
   const market = useMarket(marketId);
   const deck = useDeckByMarket(marketId);
   const deckId = deck.data?.id;
@@ -124,17 +127,28 @@ export default function DeckPage() {
   };
 
   const [params, setParams] = useSearchParams();
-  const split = params.get('split'); // 'types' | 'company' | null
-  const typeParam = params.get('type') as CardType | null;
+  const split = readOnly ? null : params.get('split'); // 'types' | 'company' | null
+  const legacyType = params.get('type') as CardType | null;
+  const typeParam = readOnly ? 'company' : legacyType;
+  const roleParam = (params.get('role') ||
+    (readOnly && (legacyType === 'infrastructure' || legacyType === 'distribution')
+      ? legacyType
+      : null)) as MarketRole | null;
 
   const all = useMemo(
     () => (cards.data ?? []).filter((c) => !HIDDEN_CARD_TYPES.has(c.card.cardType)),
     [cards.data],
   );
-  const sortedCompanies = useMemo(
-    () => sortCompanyCardsForBrowse(all.filter((c) => c.card.cardType === 'company')),
-    [all],
-  );
+  const sortedCompanies = useMemo(() => {
+    const companies = all.filter((c) => c.card.cardType === 'company');
+    return readOnly
+      ? [...companies].sort((a, b) =>
+          (a.company?.name ?? a.card.title ?? '').localeCompare(
+            b.company?.name ?? b.card.title ?? '',
+          ),
+        )
+      : sortCompanyCardsForBrowse(companies);
+  }, [all, readOnly]);
   // A market whose deck record is gone (or a stale link) must NEVER render a
   // blank screen (audit 7:44): show a recovery path instead.
   const deckMissing = market.isSuccess && deck.isSuccess && (!market.data || !deck.data);
@@ -194,7 +208,10 @@ export default function DeckPage() {
             {market.data?.scopeDefinition && (
               <p className="mt-0.5 text-[12px] text-faint">
                 {[
-                  all.filter((c) => c.card.cardType === 'company').length + ' companies',
+                  (() => {
+                    const count = all.filter((c) => c.card.cardType === 'company').length;
+                    return `${count} ${cardCountNoun('company', count)}`;
+                  })(),
                   market.data.scopeDefinition.geography,
                 ]
                   .filter(Boolean)
@@ -204,65 +221,68 @@ export default function DeckPage() {
           </div>
 
           {/* Compact action bar */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-              disabled={!deckId}
-              onClick={() =>
-                deckId && chat({ kind: 'deck', deckId }, { placeholder: 'Ask about this market…' })
-              }
-            >
-              <MessagesSquare className="h-3.5 w-3.5" />
-              Ask
-            </button>
-            {(!split || split === 'company') && (!typeParam || typeParam === 'company') && (
+          {!readOnly && (
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2',
-                  compare && 'border-primary bg-primary/10 text-primary-ink',
-                )}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
                 disabled={!deckId}
-                aria-pressed={compare}
-                onClick={() => (compare ? exitCompare() : setCompare(true))}
+                onClick={() =>
+                  deckId &&
+                  chat({ kind: 'deck', deckId }, { placeholder: 'Ask about this market…' })
+                }
               >
-                <SquareMousePointer className="h-3.5 w-3.5" />
-                {compare ? 'Cancel' : 'Compare'}
+                <MessagesSquare className="h-3.5 w-3.5" />
+                Ask
               </button>
-            )}
-            <Link
-              to={`/markets/${marketId}/briefing`}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-              title="Generate a cited update across every tracked company"
-            >
-              <Newspaper className="h-3.5 w-3.5" />
-              Briefing
-            </Link>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-              disabled={all.length === 0}
-              title="Share this whole deck as a clean interactive snapshot — all the research travels inside the link, AI layer removed."
-              onClick={() => setShareOpen(true)}
-            >
-              <Share2 className="h-3.5 w-3.5" />
-              Share
-            </button>
-            <ShareDialog
-              open={shareOpen}
-              onOpenChange={setShareOpen}
-              title={market.data?.name ?? 'Market deck'}
-              subtitle="Full deck — research snapshot"
-              build={async () => buildDeckShare(all, market.data?.name ?? null)}
-            />
-            <ThreadHistoryButton deckId={deckId} />
-            <MoreMenu marketId={marketId} refreshDeck={refreshDeck} />
-          </div>
+              {(!split || split === 'company') && (!typeParam || typeParam === 'company') && (
+                <button
+                  type="button"
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2',
+                    compare && 'border-primary bg-primary/10 text-primary-ink',
+                  )}
+                  disabled={!deckId}
+                  aria-pressed={compare}
+                  onClick={() => (compare ? exitCompare() : setCompare(true))}
+                >
+                  <SquareMousePointer className="h-3.5 w-3.5" />
+                  {compare ? 'Cancel' : 'Compare'}
+                </button>
+              )}
+              <Link
+                to={`/markets/${marketId}/briefing`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
+                title="Generate a cited update across every tracked company"
+              >
+                <Newspaper className="h-3.5 w-3.5" />
+                Briefing
+              </Link>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
+                disabled={all.length === 0}
+                title="Share this whole deck as a clean interactive snapshot — all the research travels inside the link, AI layer removed."
+                onClick={() => setShareOpen(true)}
+              >
+                <Share2 className="h-3.5 w-3.5" />
+                Share
+              </button>
+              <ShareDialog
+                open={shareOpen}
+                onOpenChange={setShareOpen}
+                title={market.data?.name ?? 'Market deck'}
+                subtitle="Full deck — research snapshot"
+                build={async () => buildDeckShare(all, market.data?.name ?? null)}
+              />
+              <ThreadHistoryButton deckId={deckId} />
+              <MoreMenu marketId={marketId} refreshDeck={refreshDeck} />
+            </div>
+          )}
         </div>
 
         {/* The visible heartbeat: desks verifying, correcting, and warming tabs live. */}
-        <AgentActivityFeed living={living} />
+        {!readOnly && <AgentActivityFeed living={living} />}
       </div>
 
       {deckMissing && (
@@ -277,7 +297,7 @@ export default function DeckPage() {
               : 'This link points at a deck that no longer exists in your library.'}
           </p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">
-            {market.data && marketId && (
+            {!readOnly && market.data && marketId && (
               <button
                 type="button"
                 className="btn-primary"
@@ -288,7 +308,7 @@ export default function DeckPage() {
                 {refreshDeck.isPending ? 'Researching…' : 'Re-run research'}
               </button>
             )}
-            <SettingsLink className="btn-ghost">Data safety</SettingsLink>
+            {!readOnly && <SettingsLink className="btn-ghost">Data safety</SettingsLink>}
             <Link to="/history" className="btn-ghost">
               All decks
             </Link>
@@ -302,7 +322,13 @@ export default function DeckPage() {
           loading={<CardGridSkeleton />}
           isEmpty={(list) => list.length === 0}
           empty={
-            isRunning ? (
+            readOnly ? (
+              <EmptyState
+                title="No staged company records"
+                description="This saved market has no readable company profiles in the migration preview. The original archive remains unchanged."
+                icon={<Layers className="h-6 w-6" />}
+              />
+            ) : isRunning ? (
               <div className="panel mx-auto max-w-xl p-8 text-center glow-border my-6">
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
                   <Radar className="h-6 w-6 animate-pulse text-primary" />
@@ -428,7 +454,7 @@ export default function DeckPage() {
         >
           {(list) => {
             // Level 2 — Company sub-deck grouped by the 8 size-signal bands.
-            if (split === 'company') {
+            if (!readOnly && split === 'company') {
               return (
                 <section>
                   <TypeNav
@@ -465,7 +491,7 @@ export default function DeckPage() {
               );
             }
             // Level 1 leaf — a specific non-company sub-deck's cards.
-            if (split === 'types' && typeParam) {
+            if (!readOnly && split === 'types' && typeParam) {
               const filtered =
                 typeParam === 'company'
                   ? sortedCompanies
@@ -502,7 +528,7 @@ export default function DeckPage() {
               );
             }
             // Level 1 — six card-type sub-decks.
-            if (split === 'types') {
+            if (!readOnly && split === 'types') {
               return (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {VISIBLE_CARD_TYPE_ORDER.map((t) => (
@@ -525,22 +551,48 @@ export default function DeckPage() {
             const defaultType: CardType = typeParam ?? 'company';
             const filtered =
               defaultType === 'company'
-                ? sortedCompanies
+                ? sortedCompanies.filter(
+                    (c) => !readOnly || !roleParam || c.marketRoles?.includes(roleParam),
+                  )
                 : list.filter((c) => c.card.cardType === defaultType);
             return (
               <section>
-                <TypeNav
-                  cards={list}
-                  active={defaultType}
-                  onSelect={(t) => setSplit(t ? { type: t } : {})}
-                  split={split}
-                  onToggleSplit={() => setSplit(split === 'company' ? {} : { split: 'company' })}
-                />
+                {readOnly && defaultType === 'company' ? (
+                  <RoleNav
+                    cards={sortedCompanies}
+                    active={roleParam}
+                    onSelect={(role) => {
+                      const next = new URLSearchParams(params);
+                      if (role) next.set('role', role);
+                      else next.delete('role');
+                      setParams(next, { replace: true });
+                    }}
+                  />
+                ) : (
+                  !readOnly && (
+                    <TypeNav
+                      cards={list}
+                      active={defaultType}
+                      onSelect={(t) => setSplit(t ? { type: t } : {})}
+                      split={split}
+                      onToggleSplit={() =>
+                        setSplit(split === 'company' ? {} : { split: 'company' })
+                      }
+                    />
+                  )
+                )}
                 <div className="mb-4">
                   <p className="text-[12px] text-muted">
-                    {filtered.length} {cardCountNoun(defaultType, filtered.length)}
-                    <span className="text-faint"> — {CARD_TYPE_DESCRIPTIONS[defaultType]}</span>
-                    {defaultType === 'company' && (
+                    {filtered.length}{' '}
+                    {readOnly
+                      ? filtered.length === 1
+                        ? 'saved profile'
+                        : 'saved profiles'
+                      : cardCountNoun(defaultType, filtered.length)}
+                    {!readOnly && (
+                      <span className="text-faint"> — {CARD_TYPE_DESCRIPTIONS[defaultType]}</span>
+                    )}
+                    {defaultType === 'company' && !readOnly && (
                       <span className="text-faint">
                         {' '}
                         · Ordered by size-signal band, not company quality
@@ -560,19 +612,25 @@ export default function DeckPage() {
                       onToggle={toggleSelected}
                     />
                     {/* The deck never "just stops": hunting more of this type is always one click. */}
-                    <div className="mt-6">
-                      <ExpandPrompt
-                        marketId={marketId}
-                        focus={typeParam ? { cardType: typeParam } : {}}
-                        label={
-                          typeParam
-                            ? `Hunt for more ${CARD_TYPE_LABELS[typeParam].toLowerCase()} players`
-                            : 'Hunt for more companies in this market'
-                        }
-                        compact
-                      />
-                    </div>
+                    {!readOnly && (
+                      <div className="mt-6">
+                        <ExpandPrompt
+                          marketId={marketId}
+                          focus={typeParam ? { cardType: typeParam } : {}}
+                          label={
+                            typeParam
+                              ? `Hunt for more ${CARD_TYPE_LABELS[typeParam].toLowerCase()} players`
+                              : 'Hunt for more companies in this market'
+                          }
+                          compact
+                        />
+                      </div>
+                    )}
                   </>
+                ) : readOnly ? (
+                  <p className="py-4 text-sm text-muted">
+                    No saved profiles match this role filter.
+                  </p>
                 ) : (
                   <ExpandPrompt
                     marketId={marketId}
@@ -723,6 +781,54 @@ function SubDeckTile({
         <ChevronRight className="h-3.5 w-3.5" />
       </span>
     </button>
+  );
+}
+
+function RoleNav({
+  cards,
+  active,
+  onSelect,
+}: {
+  cards: CardWithCompany[];
+  active: MarketRole | null;
+  onSelect: (role: MarketRole | null) => void;
+}) {
+  const roles: Array<{ id: MarketRole | null; label: string }> = [
+    { id: null, label: 'All profiles' },
+    { id: 'company', label: 'Companies' },
+    { id: 'infrastructure', label: 'Infrastructure' },
+    { id: 'distribution', label: 'Distribution' },
+  ];
+  return (
+    <nav
+      className="mb-5 flex flex-wrap gap-1 border-b border-border"
+      aria-label="Filter by market role"
+      data-testid="role-nav"
+    >
+      {roles.map(({ id, label }) => {
+        const count =
+          id === null
+            ? cards.length
+            : cards.filter((card) => card.marketRoles?.includes(id)).length;
+        return (
+          <button
+            key={id ?? 'all'}
+            type="button"
+            aria-pressed={active === id}
+            onClick={() => onSelect(id)}
+            className={cn(
+              'whitespace-nowrap border-b-2 px-4 py-2 text-[13px] font-medium transition-colors',
+              active === id
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted hover:text-content',
+            )}
+          >
+            {label}
+            <span className="ml-1.5 text-[11px] text-faint">{count}</span>
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 

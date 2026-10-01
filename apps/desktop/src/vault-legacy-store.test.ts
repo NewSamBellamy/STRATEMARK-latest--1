@@ -91,6 +91,20 @@ afterEach(() => {
 });
 
 describe('offline retained legacy snapshots (passive staging only)', () => {
+  it('looks up one bounded historical record by its indexed identity without granting authority', () => {
+    const { api } = createVault();
+    const source = legacyRetentionFixture(2);
+    const { manifest } = retain(api, source);
+    const result = api.readLegacyRecord(
+      manifest.sourceSha256,
+      'companies',
+      source.companies[0]!.id,
+    );
+    expect(result.item).toMatchObject({ payload: source.companies[0], authority: 'disabled' });
+    expect(result.vaultRevision).toBe(manifest.vaultRevision);
+    expect(api.readLegacyRecord(manifest.sourceSha256, 'companies', 'missing').item).toBeNull();
+    expect(() => api.readLegacyRecord(manifest.sourceSha256, 'companies', '')).toThrow();
+  });
   it.each([undefined, 1, 2] as const)(
     'round-trips schema version %s and retains raw nested history',
     (version) => {
@@ -334,7 +348,8 @@ describe('offline retained legacy snapshots (passive staging only)', () => {
   });
   it('keeps immutable imported history and refuses checksum-damaged records on read/export', () => {
     const { file, api } = createVault();
-    const { manifest } = retain(api, legacyRetentionFixture(2));
+    const source = legacyRetentionFixture(2);
+    const { manifest } = retain(api, source);
     const fault = new DatabaseSync(file);
     try {
       expect(() => fault.exec('DELETE FROM legacy_reports')).toThrow(/append-only/i);
@@ -349,6 +364,9 @@ describe('offline retained legacy snapshots (passive staging only)', () => {
         .run('{"id":"report_a","markdown":"corrupt"}', manifest.sourceSha256);
       fault.exec(guardSql);
       expect(() => api.readLegacyRecords(manifest.sourceSha256, 'reports')).toThrow(/checksum/i);
+      expect(() =>
+        api.readLegacyRecord(manifest.sourceSha256, 'reports', source.reports[0]!.id),
+      ).toThrow(/checksum/i);
       expect(() => api.exportLegacySnapshot(manifest.sourceSha256)).toThrow(/checksum/i);
       expect(() => api.verifyLegacySnapshot(manifest.sourceSha256)).toThrow(/checksum/i);
     } finally {
@@ -402,6 +420,9 @@ describe('offline retained legacy snapshots (passive staging only)', () => {
     source.reports[0]!.markdown = 'x'.repeat(9 * 1024 * 1024);
     const { manifest } = retain(api, source);
     expect(() => api.readLegacyRecords(manifest.sourceSha256, 'reports')).toThrow(/page.*byte/i);
+    expect(() =>
+      api.readLegacyRecord(manifest.sourceSha256, 'reports', source.reports[0]!.id),
+    ).toThrow(/record.*byte/i);
     expect(JSON.parse(api.exportLegacySnapshot(manifest.sourceSha256)).reports[0].markdown).toBe(
       source.reports[0]!.markdown,
     );

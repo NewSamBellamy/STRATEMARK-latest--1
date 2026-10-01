@@ -24,7 +24,7 @@ import {
 } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useApiKey } from '@/lib/settings/apiKey';
-import { isCommunityDesktop } from '@/lib/settings/runtime';
+import { isCommunityDesktop, isReadOnlyResearch } from '@/lib/settings/runtime';
 import { qk } from '@/lib/query/keys';
 import { traceAgent } from '@/lib/agentic/agentTrace';
 import { formatMetricValue } from '@/lib/format';
@@ -75,7 +75,7 @@ export function useLivingDeck(
   );
   const deskCount = companyCards.length;
   const hasKey = useApiKey((state) => state.hasKey);
-  const researchAvailable = !isCommunityDesktop() || hasKey;
+  const researchAvailable = !isReadOnlyResearch() && (!isCommunityDesktop() || hasKey);
   const canVerify = researchAvailable && typeof repo.verifyMetric === 'function';
 
   useEffect(() => {

@@ -348,6 +348,27 @@ export function createLegacyStore(
         throw error;
       }
     },
+    readLegacyRecord(sourceSha256: string, family: LegacyFamily, key: string) {
+      familySchema.parse(family);
+      z.string().min(1).max(4096).parse(key);
+      return readTransaction((vaultRevision) => {
+        source(sourceSha256);
+        const size = db
+          .prepare(
+            `SELECT length(CAST(body AS BLOB)) AS bytes FROM ${table(family)} WHERE source_sha=? AND record_key=?`,
+          )
+          .get(sourceSha256, key);
+        if (!size) return { item: null, vaultRevision };
+        if (Number(size.bytes) > maxPageBytes)
+          throw new Error(
+            'Retained legacy record exceeds its byte limit. Use a trusted export instead.',
+          );
+        const row = db
+          .prepare(`SELECT * FROM ${table(family)} WHERE source_sha=? AND record_key=?`)
+          .get(sourceSha256, key)!;
+        return { item: decode(family, row), vaultRevision };
+      });
+    },
     readLegacyRecords(
       sourceSha256: string,
       family: LegacyFamily,

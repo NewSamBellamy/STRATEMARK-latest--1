@@ -20,36 +20,38 @@ export const metricLabel = metricDisplayLabel;
 /** A single read-only boundary for deck and inspection. Never updates stored research. */
 export function buildCardView(data: CardWithCompany, userFootprintCohort?: UserFootprintCohort) {
   const signal = isSignalCardType(data.card.cardType) || !data.company;
-  const metrics = (signal ? [] : data.metrics).map((original) => {
-    const legacy = sourceUrl(original.source);
-    const citations = usableCitations([
-      ...original.citations.filter((c) => sourceUrl(c.url)),
-      ...(legacy ? [{ url: legacy, title: '' }] : []),
-    ]);
-    let metric = enforceMetricProvenance({ ...original, citations });
-    let note = metric.methodNote;
-    if (metric.confidence === 'verified' && citations.length === 0) {
-      metric = { ...metric, confidence: 'estimated' };
-      note = 'No clickable source was recorded. Treat this figure as an estimate until checked.';
-    }
-    if (
-      metric.value != null &&
-      (!Number.isFinite(metric.value) ||
-        metric.value < 0 ||
-        (metric.metricType === 'market_share' && metric.value > 100))
-    ) {
-      metric = { ...metric, value: null, confidence: 'unknown' };
-      note = 'Invalid stored value. Not displayed or used in this card’s scale-band calculation.';
-    }
-    return {
-      metric,
-      label: metricLabel(metric),
-      display: displayValue(metric),
-      confidence: CONFIDENCE_LABELS[metric.confidence],
-      note,
-      citations,
-    };
-  });
+  const metrics = (signal || data.evidenceState === 'legacy_unreviewed' ? [] : data.metrics).map(
+    (original) => {
+      const legacy = sourceUrl(original.source);
+      const citations = usableCitations([
+        ...original.citations.filter((c) => sourceUrl(c.url)),
+        ...(legacy ? [{ url: legacy, title: '' }] : []),
+      ]);
+      let metric = enforceMetricProvenance({ ...original, citations });
+      let note = metric.methodNote;
+      if (metric.confidence === 'verified' && citations.length === 0) {
+        metric = { ...metric, confidence: 'estimated' };
+        note = 'No clickable source was recorded. Treat this figure as an estimate until checked.';
+      }
+      if (
+        metric.value != null &&
+        (!Number.isFinite(metric.value) ||
+          metric.value < 0 ||
+          (metric.metricType === 'market_share' && metric.value > 100))
+      ) {
+        metric = { ...metric, value: null, confidence: 'unknown' };
+        note = 'Invalid stored value. Not displayed or used in this card’s scale-band calculation.';
+      }
+      return {
+        metric,
+        label: metricLabel(metric),
+        display: displayValue(metric),
+        confidence: CONFIDENCE_LABELS[metric.confidence],
+        note,
+        citations,
+      };
+    },
+  );
   const knownCount = metrics.filter((m) => m.metric.value != null).length;
   const sourcedCount = metrics.filter(
     (m) => m.metric.value != null && m.citations.length > 0,
@@ -116,13 +118,16 @@ export function buildCardView(data: CardWithCompany, userFootprintCohort?: UserF
     sourcedStageFamilies.size >= 1
       ? { tier: data.card.tier, label: TIER_LABELS[data.card.tier] }
       : null;
-  const position = signal
-    ? 'Market signal'
-    : data.card.cardType !== 'company'
-      ? 'Entity profile'
-      : !maturity
-        ? 'Scale unverified'
-        : `T${maturity.tier} · ${maturity.label}`;
+  const position =
+    data.evidenceState === 'legacy_unreviewed'
+      ? 'Older research · unreviewed'
+      : signal
+        ? 'Market signal'
+        : data.card.cardType !== 'company'
+          ? 'Entity profile'
+          : !maturity
+            ? 'Scale unverified'
+            : `T${maturity.tier} · ${maturity.label}`;
   return {
     title: data.company?.name ?? data.card.title ?? 'Research card',
     description: signal ? data.card.summary : data.company?.oneLiner,

@@ -10,7 +10,7 @@ import { useEffect } from 'react';
 import { REFRESH_CADENCE_HOURS } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useApiKey } from '@/lib/settings/apiKey';
-import { isCommunityDesktop } from '@/lib/settings/runtime';
+import { isCommunityDesktop, isReadOnlyResearch } from '@/lib/settings/runtime';
 
 const TICK_MS = 15 * 60 * 1000;
 const BOOT_DELAY_MS = 8 * 1000;
@@ -27,7 +27,7 @@ export function useAutoRefresh(): void {
   const hasKey = useApiKey((state) => state.hasKey);
 
   useEffect(() => {
-    if (isCommunityDesktop() && !hasKey) return;
+    if (isReadOnlyResearch() || (isCommunityDesktop() && !hasKey)) return;
     let disposed = false;
     let running = false;
 

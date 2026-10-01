@@ -30,15 +30,24 @@ export type PreloadRepositoryApi = Omit<
   MarketIntelRepository,
   'subscribeDeckRefresh' | 'createResearchedDeck'
 > & {
+  /** Trusted desktop mode metadata; not a grant or permission supplied by a caller. */
+  storageMode?: 'legacy' | 'staged_readonly';
   createResearchedDeck(
     brief: Parameters<MarketIntelRepository['createResearchedDeck']>[0],
     requestId: string,
   ): ReturnType<MarketIntelRepository['createResearchedDeck']>;
   onDeckRefresh(listener: DeckRefreshListener): Unsubscribe;
   onResearchProgress(listener: ResearchProgressListener): Unsubscribe;
-  googleSignIn?(): Promise<{ id: string; name: string; email: string | null; photoURL?: string | null } | null>;
+  googleSignIn?(): Promise<{
+    id: string;
+    name: string;
+    email: string | null;
+    photoURL?: string | null;
+  } | null>;
   googleSignOut?(): Promise<void>;
-  onAuthCallback?(listener: (data: { token?: string; user?: Record<string, unknown> }) => void): Unsubscribe;
+  onAuthCallback?(
+    listener: (data: { token?: string; user?: Record<string, unknown> }) => void,
+  ): Unsubscribe;
 };
 
 /** Canonical IPC channel names (used by both preload and main). */
@@ -107,7 +116,12 @@ export interface SecureApi {
   exportResearch(): Promise<string | null>;
   importResearch(json: string): Promise<void>;
   getResearchStorageInfo(): Promise<{ marketCount: number; sizeBytes: number; hasBackup: boolean }>;
-  googleSignIn?(): Promise<{ id: string; name: string; email: string | null; photoURL?: string | null } | null>;
+  googleSignIn?(): Promise<{
+    id: string;
+    name: string;
+    email: string | null;
+    photoURL?: string | null;
+  } | null>;
   googleSignOut?(): Promise<void>;
 }
 

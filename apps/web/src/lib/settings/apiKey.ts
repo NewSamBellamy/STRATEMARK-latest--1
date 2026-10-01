@@ -6,6 +6,7 @@
  * build persistence is exclusively through OS-backed safeStorage (main process).
  */
 import { create } from 'zustand';
+import { isReadOnlyResearch } from './runtime';
 
 const STORAGE_KEY = 'mi.geminiApiKey';
 const MODEL_KEY = 'mi.geminiModel';
@@ -64,7 +65,7 @@ interface ApiKeyState {
   clear: () => Promise<void>;
 }
 
-const secure = typeof window !== 'undefined' ? window.miSecure : undefined;
+const secure = !isReadOnlyResearch() && typeof window !== 'undefined' ? window.miSecure : undefined;
 let hydration: Promise<void> = Promise.resolve();
 function removePlaintextKeys(): void {
   localStorage.removeItem(STORAGE_KEY);
@@ -72,9 +73,9 @@ function removePlaintextKeys(): void {
 }
 
 export const useApiKey = create<ApiKeyState>((set) => ({
-  apiKey: secure ? '' : readLocal(STORAGE_KEY),
-  model: readLocal(MODEL_KEY),
-  hasKey: !secure && readLocal(STORAGE_KEY).length > 0,
+  apiKey: secure || isReadOnlyResearch() ? '' : readLocal(STORAGE_KEY),
+  model: isReadOnlyResearch() ? '' : readLocal(MODEL_KEY),
+  hasKey: !secure && !isReadOnlyResearch() && readLocal(STORAGE_KEY).length > 0,
   storageError: null,
   setApiKey: async (key) => {
     await hydration;
@@ -114,7 +115,10 @@ if (secure) {
     removePlaintextKeys();
     useApiKey.setState({ apiKey: key, hasKey: !!key });
   })().catch(() => {
-    useApiKey.setState({ storageError: 'Could not open secure key storage. Save your key again after checking your system keyring.' });
+    useApiKey.setState({
+      storageError:
+        'Could not open secure key storage. Save your key again after checking your system keyring.',
+    });
   });
 }
 

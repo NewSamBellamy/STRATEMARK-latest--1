@@ -3,10 +3,15 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { RequireAuth } from '@/lib/auth/RequireAuth';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
+import { isReadOnlyResearch } from '@/lib/settings/runtime';
 
 function LegacySettingsRoute() {
   const open = useSettingsModal((state) => state.open);
-  useEffect(() => { open(); }, [open]);
+  const readOnly = isReadOnlyResearch();
+  useEffect(() => {
+    if (!readOnly) open();
+  }, [open, readOnly]);
+  if (readOnly) return <Navigate to="/history" replace />;
   return <Navigate to="/" replace />;
 }
 
@@ -26,11 +31,14 @@ const NotFoundPage = lazy(() => import('@/features/NotFoundPage'));
 
 /** Shared route tree, used by both the app (HashRouter) and tests (MemoryRouter). */
 export function AppRoutes() {
+  const readOnly = isReadOnlyResearch();
+  const previewOnly = (element: JSX.Element) =>
+    readOnly ? <Navigate to="/history" replace /> : element;
   return (
     <Routes>
       {/* Shared-research links render OUTSIDE the app shell: recipients get a
           clean read-only snapshot — no sidebar, no auth, no AI layer. */}
-      <Route path="/share/:blob" element={<SharePage />} />
+      <Route path="/share/:blob" element={previewOnly(<SharePage />)} />
       <Route
         path="/"
         element={
@@ -39,16 +47,19 @@ export function AppRoutes() {
           </RequireAuth>
         }
       >
-        <Route index element={<NewDeckPage />} />
+        <Route
+          index
+          element={isReadOnlyResearch() ? <Navigate to="/history" replace /> : <NewDeckPage />}
+        />
         <Route path="history" element={<MarketsListPage />} />
-        <Route path="saved" element={<SavedCardsPage />} />
+        <Route path="saved" element={previewOnly(<SavedCardsPage />)} />
         <Route path="settings" element={<LegacySettingsRoute />} />
-        <Route path="reports" element={<ReportsListPage />} />
-        <Route path="reports/:reportId" element={<ReportViewerPage />} />
+        <Route path="reports" element={previewOnly(<ReportsListPage />)} />
+        <Route path="reports/:reportId" element={previewOnly(<ReportViewerPage />)} />
         <Route path="markets/:marketId/deck" element={<DeckPage />} />
-        <Route path="markets/:marketId/opportunity" element={<OpportunityPage />} />
-        <Route path="markets/:marketId/briefing" element={<BriefingPage />} />
-        <Route path="markets/:marketId/settings" element={<MarketSettingsPage />} />
+        <Route path="markets/:marketId/opportunity" element={previewOnly(<OpportunityPage />)} />
+        <Route path="markets/:marketId/briefing" element={previewOnly(<BriefingPage />)} />
+        <Route path="markets/:marketId/settings" element={previewOnly(<MarketSettingsPage />)} />
         <Route path="company/:companyId/dashboard" element={<Navigate to="overview" replace />} />
         <Route path="company/:companyId/dashboard/:tab" element={<DashboardPage />} />
         <Route path="*" element={<NotFoundPage />} />

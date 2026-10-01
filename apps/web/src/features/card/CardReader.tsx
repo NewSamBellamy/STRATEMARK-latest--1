@@ -54,6 +54,7 @@ function CardReaderBody({
   const { chat } = useDeepDive();
   const [shareOpen, setShareOpen] = useState(false);
   const isCompanyCard = card.cardType === 'company' && !view.signal;
+  const unreviewed = data.evidenceState === 'legacy_unreviewed';
   const hasClaimEvidencePoints = card.cardType === 'barrier' || card.cardType === 'insight';
   const researcherLabel = view.signal ? 'Market researcher' : 'Company researcher';
   const evidenceCount = hasClaimEvidencePoints
@@ -125,24 +126,26 @@ function CardReaderBody({
                     : ''}
                 </span>
               </span>
-              <button
-                type="button"
-                onClick={() => {
-                  onOpenChange(false);
-                  chat(
-                    {
-                      kind: 'cards',
-                      deckId: card.deckId,
-                      cardIds: [card.id],
-                      cardType: card.cardType,
-                      subject: view.title,
-                    },
-                    { placeholder: `Ask the ${view.title} researcher…`, returnToCard: card.id },
-                  );
-                }}
-              >
-                Ask researcher <ArrowUpRight size={13} aria-hidden="true" />
-              </button>
+              {!unreviewed && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenChange(false);
+                    chat(
+                      {
+                        kind: 'cards',
+                        deckId: card.deckId,
+                        cardIds: [card.id],
+                        cardType: card.cardType,
+                        subject: view.title,
+                      },
+                      { placeholder: `Ask the ${view.title} researcher…`, returnToCard: card.id },
+                    );
+                  }}
+                >
+                  Ask researcher <ArrowUpRight size={13} aria-hidden="true" />
+                </button>
+              )}
             </div>
             <div
               className="card-inspector__panel"
@@ -150,15 +153,26 @@ function CardReaderBody({
               aria-label={`${view.signal ? 'Finding' : 'Company'} summary and sources`}
               tabIndex={0}
             >
+              {unreviewed && (
+                <p
+                  role="note"
+                  className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-950"
+                >
+                  This legacy research has not been reviewed. Facts, sources, and evidence are not
+                  presented as validated.
+                </p>
+              )}
               <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">
                 {view.signal ? 'Research finding' : 'Company snapshot'}
               </p>
               <p className="mt-2 text-[13px] leading-relaxed text-content">
-                {card.summary ||
-                  view.description ||
-                  'A research summary has not been recorded yet.'}
+                {unreviewed
+                  ? company?.oneLiner || 'No reviewed research details are available.'
+                  : card.summary ||
+                    view.description ||
+                    'A research summary has not been recorded yet.'}
               </p>
-              {hasClaimEvidencePoints && (card.evidencePoints?.length ?? 0) > 0 && (
+              {!unreviewed && hasClaimEvidencePoints && (card.evidencePoints?.length ?? 0) > 0 && (
                 <div className="mt-4 border-t border-border pt-3">
                   <p className="mb-3 text-[10px] leading-relaxed text-muted">
                     Sources and periods are AI-attributed from research notes; they have not been
@@ -198,7 +212,7 @@ function CardReaderBody({
                   </ul>
                 </div>
               )}
-              {!hasClaimEvidencePoints && card.keyPoints.length > 0 && (
+              {!unreviewed && !hasClaimEvidencePoints && card.keyPoints.length > 0 && (
                 <ul className="mt-4 space-y-2 border-t border-border pt-3">
                   {card.keyPoints.slice(0, 4).map((point, i) => (
                     <li key={i} className="flex gap-3 text-[12px] leading-relaxed text-content">
@@ -208,7 +222,8 @@ function CardReaderBody({
                   ))}
                 </ul>
               )}
-              {hasClaimEvidencePoints &&
+              {!unreviewed &&
+                hasClaimEvidencePoints &&
                 !card.evidencePoints?.length &&
                 card.keyPoints.length > 0 && (
                   <p className="mt-4 border-t border-border pt-3 text-[11px] leading-relaxed text-muted">
@@ -216,7 +231,7 @@ function CardReaderBody({
                     links.
                   </p>
                 )}
-              {detailCitations.length > 0 && (
+              {!unreviewed && detailCitations.length > 0 && (
                 <div className="mt-4 border-t border-border pt-3">
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">
                     {hasClaimEvidencePoints
@@ -243,12 +258,12 @@ function CardReaderBody({
                   </div>
                 </div>
               )}
-              {sourcedViceClaims.length > 0 && (
+              {!unreviewed && sourcedViceClaims.length > 0 && (
                 <div className="mt-4 border-t border-border pt-3">
                   <ViceClaims claims={sourcedViceClaims} companyName={company?.name} />
                 </div>
               )}
-              {isCompanyCard && (
+              {isCompanyCard && !unreviewed && (
                 <>
                   <p className="mt-4 rounded-lg bg-surface-2 p-3 text-[11px] leading-relaxed text-muted">
                     {view.knownCount === 0
@@ -289,12 +304,14 @@ function CardReaderBody({
                 <span>
                   Explore research{' '}
                   <span className="ml-2 font-normal opacity-75">
-                    Sources, metrics & live signals
+                    {unreviewed
+                      ? 'Saved profile & research gaps'
+                      : 'Sources, metrics & live signals'}
                   </span>
                 </span>
                 <ArrowUpRight size={17} />
               </Link>
-            ) : (
+            ) : !unreviewed ? (
               <button
                 type="button"
                 className="card-inspector__cta"
@@ -322,19 +339,23 @@ function CardReaderBody({
                     : 'Discuss this finding'}{' '}
                 <ArrowUpRight size={17} />
               </button>
-            )}
+            ) : null}
             <div className="mt-4 flex items-center justify-between gap-2">
               <div className="flex items-center gap-1">
-                <SaveCardButton cardId={card.id} />
-                <button
-                  type="button"
-                  className="card-control"
-                  aria-label="Share card"
-                  onClick={() => setShareOpen(true)}
-                >
-                  <Share2 size={15} />
-                </button>
-                <span className="ml-2 text-[11px] text-muted">Keep or share this card</span>
+                {!unreviewed && <SaveCardButton cardId={card.id} />}
+                {!unreviewed && (
+                  <button
+                    type="button"
+                    className="card-control"
+                    aria-label="Share card"
+                    onClick={() => setShareOpen(true)}
+                  >
+                    <Share2 size={15} />
+                  </button>
+                )}
+                {!unreviewed && (
+                  <span className="ml-2 text-[11px] text-muted">Keep or share this card</span>
+                )}
               </div>
               {(onPrevious || onNext) && (
                 <div className="flex items-center gap-1">
@@ -361,18 +382,20 @@ function CardReaderBody({
             </div>
           </div>
         </div>
-        <ShareDialog
-          open={shareOpen}
-          onOpenChange={setShareOpen}
-          title={view.title}
-          subtitle={
-            marketName ? `${marketName} — market research snapshot` : 'Market research snapshot'
-          }
-          build={async (onStage) => {
-            const fresh = await verifyCardForShare(repo, data, onStage);
-            return buildCardShare(fresh, marketName);
-          }}
-        />
+        {!unreviewed && (
+          <ShareDialog
+            open={shareOpen}
+            onOpenChange={setShareOpen}
+            title={view.title}
+            subtitle={
+              marketName ? `${marketName} — market research snapshot` : 'Market research snapshot'
+            }
+            build={async (onStage) => {
+              const fresh = await verifyCardForShare(repo, data, onStage);
+              return buildCardShare(fresh, marketName);
+            }}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -19,6 +19,7 @@ import {
 } from '@mi/contracts';
 
 const api: PreloadRepositoryApi = {
+  storageMode: process.argv.includes('--staged-research-readonly') ? 'staged_readonly' : 'legacy',
   listMarkets: () => ipcRenderer.invoke(IPC_CHANNELS.listMarkets),
   getMarket: (id) => ipcRenderer.invoke(IPC_CHANNELS.getMarket, id),
   createMarket: (input) => ipcRenderer.invoke(IPC_CHANNELS.createMarket, input),
@@ -45,7 +46,8 @@ const api: PreloadRepositoryApi = {
   generateReport: (request) => ipcRenderer.invoke(IPC_CHANNELS.generateReport, request),
   listReports: () => ipcRenderer.invoke(IPC_CHANNELS.listReports),
   huntCompanyMetrics: (id) => ipcRenderer.invoke(IPC_CHANNELS.huntCompanyMetrics, id),
-  generateDeckBriefing: (id, opts) => ipcRenderer.invoke(IPC_CHANNELS.generateDeckBriefing, id, opts),
+  generateDeckBriefing: (id, opts) =>
+    ipcRenderer.invoke(IPC_CHANNELS.generateDeckBriefing, id, opts),
   listDeckBriefings: (id) => ipcRenderer.invoke(IPC_CHANNELS.listDeckBriefings, id),
   auditSite: (input) => ipcRenderer.invoke(IPC_CHANNELS.auditSite, input),
   getReport: (id) => ipcRenderer.invoke(IPC_CHANNELS.getReport, id),
@@ -69,7 +71,8 @@ const api: PreloadRepositoryApi = {
   googleSignIn: () => ipcRenderer.invoke(IPC_CHANNELS.googleSignIn),
   googleSignOut: () => ipcRenderer.invoke(IPC_CHANNELS.googleSignOut),
   onAuthCallback: (listener) => {
-    const handler = (_event: unknown, data: { token?: string; user?: Record<string, unknown> }) => listener(data);
+    const handler = (_event: unknown, data: { token?: string; user?: Record<string, unknown> }) =>
+      listener(data);
     ipcRenderer.on(IPC_CHANNELS.authCallbackEvent, handler);
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.authCallbackEvent, handler);

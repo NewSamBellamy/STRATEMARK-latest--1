@@ -9,6 +9,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useAgentTrace } from './agentTrace';
 import { isLowPower } from '@/lib/usage';
+import { isReadOnlyResearch } from '@/lib/settings/runtime';
 
 let lowPowerAnnounced = false;
 
@@ -18,6 +19,7 @@ export function useHuntRunner(): void {
   const jobs = useAgentTrace((s) => s.jobs);
 
   useEffect(() => {
+    if (isReadOnlyResearch()) return;
     if (jobs.some((j) => j.status === 'running')) return;
     const next = jobs.find((j) => j.status === 'queued');
     if (!next) return;
@@ -28,7 +30,11 @@ export function useHuntRunner(): void {
         lowPowerAnnounced = true;
         useAgentTrace
           .getState()
-          .trace('Sentinel', 'Low power mode — spending cap reached; queued hunts are paused', 'Raise or clear the cap in Settings → Usage & billing to resume.');
+          .trace(
+            'Sentinel',
+            'Low power mode — spending cap reached; queued hunts are paused',
+            'Raise or clear the cap in Settings → Usage & billing to resume.',
+          );
       }
       return;
     }

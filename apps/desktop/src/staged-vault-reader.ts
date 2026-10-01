@@ -50,7 +50,10 @@ export function openStagedVault(directory: string) {
       throw new Error('Staged candidate revision changed after reader opened.');
   }
 
-  function findLegacy(family: 'decks' | 'cards', predicate: (item: unknown) => boolean) {
+  function findLegacy(
+    family: 'markets' | 'decks' | 'cards',
+    predicate: (item: unknown) => boolean,
+  ) {
     let afterOrdinal: number | undefined;
     const matches: LegacyPayload[] = [];
     while (true) {
@@ -146,6 +149,14 @@ export function openStagedVault(directory: string) {
       return page;
     },
     getCompany: company,
+    getMarket: market,
+    /** Internal metadata lookup; the app boundary must project/validate and bound output. */
+    getLegacyRecord(family: 'markets' | 'decks' | 'cards', id: string) {
+      checkRevision();
+      const result = vault.readLegacyRecord(manifest.sourceSha256, family, id);
+      checkRevision(result.vaultRevision);
+      return result.item ? record(result.item.payload) : null;
+    },
     getDeckByMarket(marketId: string) {
       const nativeMarket = market(marketId);
       if (!nativeMarket) return null;

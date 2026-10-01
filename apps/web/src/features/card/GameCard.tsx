@@ -39,7 +39,7 @@ export function GameCard({
       ) : (
         <CollectibleCard data={data} view={view} />
       )}
-      {!hideActions && (
+      {!hideActions && data.evidenceState !== 'legacy_unreviewed' && (
         <div className="card-sleeve__actions">
           <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted">
             {onOpen && (

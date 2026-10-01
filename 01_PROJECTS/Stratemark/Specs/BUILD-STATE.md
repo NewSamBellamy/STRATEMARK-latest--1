@@ -16,7 +16,7 @@ deferred by the human; do not stop for missing API telemetry or require cost
 projections before worker dispatch. This overrides the historical campaign
 instructions in the archive, not product privacy, bounded execution, phase dependencies,
 context ceilings or live-research consent. Goal is active (verified via goal tool).
-Latest completed packet: G01-P11 below. G00 contracts and reproduced baseline
+Latest completed packet: G01-P12 below. G00 contracts and reproduced baseline
 are frozen for offline G01 work; this is not product-readiness or service parity.
 G01-P01 proves the native SQLite binding in an unsigned packaged app and the
 actual installer payload, plus fixes two legacy data-safety defects. G01-P02
@@ -30,8 +30,9 @@ G01-P07 retains richer inventory/scope context and a bounded local asset primiti
 G01-P08 makes cached navigation free; P09 fixes missing/unreadable identity.
 G01-P10 retains all14 legacy families passively, with packaged roundtrips.
 G01-P11 proves byte-exact synthetic staging, fixed-revision navigation and
-interrupted-converter refusal in the packaged runtime. Current app/service
-integration, guarded cutover and complete lifecycle remain open.
+interrupted-converter refusal in the packaged runtime. G01-P12 connects that
+candidate to the existing desktop library/deck/card/company journey under one
+offline read-only boundary. Guarded cutover and complete lifecycle remain open.
 No live cutover is authorized.
 The full goal remains active; do not restart planning.
 Earlier $50/Astra campaign instructions are historical, not current dispatch
@@ -45,11 +46,11 @@ separate explicit approval and a numeric cap.
 - Branch: `feat/stratemark-spinoff-local-agents`, created from `b2c6398`; predecessor `feat/claim-level-signal-evidence` retained unchanged. Personal-fork checkpoint destination: remote newsam, `NewSamBellamy/STRATEMARK-latest--1`.
 - Original planning baseline: `3f18af2`. Latest packet entry: `f9a82df`; determine current HEAD/tree from Git. Neither historical value is a claim about current code forever.
 - Goal tool: the human's replacement Sol-planner/Luna-worker goal is active, verified at G00-P03 start. No billing blocker remains for development. Keep the full goal active at packet boundaries.
-- Next work: G01-P12 connect synthetic candidate reads to the existing local app/navigation seam, with bounded responses and explicit unreviewed/unknown states; then asset-aware backup/restore and lifecycle recovery. P11 staging is NOT current app data or supported evidence. No live migration/provider work; G04 visual acceptance remains open. Red-team must reject another disconnected foundation slice.
+- Next work: G01-P13 asset-aware backup/restore and lifecycle recovery around the now-integrated candidate path. P12 preview is NOT a cutover or supported evidence. No live migration/provider work; G04 visual acceptance remains open.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
 - Push: latest human explicitly authorized periodic checkpoints ONLY to this new personal-fork branch. No overwriting existing refs, upstream/Tobi pushes, main merge, release or deployment. First upload verified at `73e61c0e0f9f20e063fd290ef9fb3a122f570061`; all 49 pre-existing remote branch refs remained unchanged, including main at `c945b31dee0095331b8487133c131c36e76ba601`. Verified owner NewSamBellamy, public fork of Maruf. The shorter old URL redirects to Maruf and is unsafe as a personal destination. Read actual local/remote tips before each later fast-forward checkpoint.
-- Current application tests: G01-P11 all6 typechecks/root lint, contracts369/mocks16, web174/API158 pass; research361 pass/3 original failures, desktop185 pass/1 key failure, native137/137/inspection19 pass. Actual unsigned packaged ASAR synthetic staging/navigation/migration-interruption proof passes; no full GUI/installer/live-provider acceptance. Four original release blockers remain.
+- Current application tests: G01-P12 all6 typechecks/root lint, contracts369/mocks16, web183/API158 pass; research361 pass/3 original failures and desktop192 pass/1 original key failure. Focused app-flow9, font-boundary2 and native preview31 pass. Actual unsigned Windows directory-package GUI journey passes with zero external requests and unchanged candidate bytes; no installer/signing/live-provider acceptance. Four original release blockers remain.
 - Document verification: local links and balanced code fences passed; unique registers checked (22 defaults, 30 stories, 62 actions, 9 goals, 26 sources); JSON command example parsed; canonical files had no candidate credential patterns. Markdown formatting checked separately before commit.
 - Astra final planning review: seven substantive gaps identified and addressed (service lifetime, migration fences, imported authority, restored budgets, asset/evidence retention, asynchronous output retrieval, and human approval boundary). Re-review found no remaining material contract contradictions; this is planning consistency, not application verification.
 
@@ -66,17 +67,17 @@ separate explicit approval and a numeric cap.
 
 ## Execution ledger
 
-| Goal | State                             | Packet / commit evidence                   | Remaining                                                           |
-| ---- | --------------------------------- | ------------------------------------------ | ------------------------------------------------------------------- |
-| G00  | Contract/baseline freeze complete | [G00-P01-P05 archive](PACKET-ARCHIVE.md)   | Legacy defects remain RED; enforcement/parity belong to G01/G02/G07 |
-| G01  | In progress                       | G01-P11 synthetic staging/navigation/crash | App reads, asset-aware backup/restore, recovery/lifecycle           |
-| G02  | Not started                       | None                                       | Shared runtime, policies, secrets                                   |
-| G03  | Not started                       | None                                       | Progressive research and evaluation                                 |
-| G04  | Not started                       | None                                       | Cards and coherent frontend journey                                 |
-| G05  | Not started                       | None                                       | Decision outputs and findings                                       |
-| G06  | Not started                       | None                                       | Local monitored updates                                             |
-| G07  | Not started                       | None                                       | Scoped MCP                                                          |
-| G08  | Not started                       | None                                       | Production verification                                             |
+| Goal | State                             | Packet / commit evidence                 | Remaining                                                           |
+| ---- | --------------------------------- | ---------------------------------------- | ------------------------------------------------------------------- |
+| G00  | Contract/baseline freeze complete | [G00-P01-P05 archive](PACKET-ARCHIVE.md) | Legacy defects remain RED; enforcement/parity belong to G01/G02/G07 |
+| G01  | In progress                       | G01-P12 packaged read-only app journey   | Asset-aware backup/restore, recovery/lifecycle, guarded cutover     |
+| G02  | Not started                       | None                                     | Shared runtime, policies, secrets                                   |
+| G03  | Not started                       | None                                     | Progressive research and evaluation                                 |
+| G04  | Not started                       | None                                     | Cards and coherent frontend journey                                 |
+| G05  | Not started                       | None                                     | Decision outputs and findings                                       |
+| G06  | Not started                       | None                                     | Local monitored updates                                             |
+| G07  | Not started                       | None                                     | Scoped MCP                                                          |
+| G08  | Not started                       | None                                     | Production verification                                             |
 
 Only one authoritative execution ledger lives here. Action schemas are authoritative in contracts once built; update this plan when implementation intentionally changes the design. Do not create competing status files in unrelated folders.
 
@@ -110,7 +111,78 @@ An existing human-created broad goal must retain its actual objective. Execute o
 
 User context ceiling: 200k tokens for every agent, not a spend allowance. Checkpoint around 100k; hand off before an estimated 150k to leave room for verification and recovery. Use the policy in [build-workflow.md](build-workflow.md). Cumulative goal tokens are usage, not necessarily the current context window. Exact occupancy and forced compaction are not exposed here; do not claim hard automatic enforcement. Keep packets small and start clean workers with a declared model, effort and exclusive scope; development cost projections are not a current gate. Unknown spending never becomes a claim of remaining funds.
 
-## Latest completed packet — G01-P11
+## Latest completed packet — G01-P12
+
+Entry HEAD `03ca399`; October 1, 2026. Full production goal/G01 remain active.
+Sol integration; two serial Luna/high workers (renderer implementation, then
+read-only red team), max one active, no history fork/Astra. Separate personal
+branch only. No live migration, paid product research, keys, installation,
+publication or main change.
+
+User outcome / seams: G01, US13/14/16/23/30, A44 preparation. An explicitly
+selected staged candidate now opens inside the existing desktop app as a
+read-only Library. The existing route flow reaches library → deck → card reader
+→ company workspace/metrics → back/reload. A persistent banner says older
+research is unreviewed, the original library is unchanged, and archived reports,
+findings and saved items remain retained but unavailable in this preview.
+
+One trusted native dispatch guard runs before every legacy repository, key,
+auth and job listener. Preview startup does not load provider configuration,
+the old store, IndexedDB hydration or stored-key bootstrap. It uses a disposable
+Chromium profile and denies HTTP(S). Research, edits, sharing, settings, import,
+auth, keys, forced dashboard generation and unknown channels fail closed. Old
+queued hunts, auto-refresh, Sentinel and living-deck work do not start.
+
+Native reads are fixed-revision and response-bounded (500 items / 512KiB), with
+explicit errors instead of truncation. Indexed legacy identity lookup avoids a
+whole-family scan per card/market. Shared companies group once with a role union;
+the canonical UI card remains a company profile while company/infrastructure/
+distribution roles remain filterable. Original card aliases resolve to that
+profile. Imported rank, metrics, citations and claims are not promoted. Remote
+logos/themes/fonts are not retrieved. Unsupported tabs show an unknown/missing
+state rather than implying the archive contained no research.
+
+Verification:
+
+- Focused app-flow9/9, font-boundary2/2 and native preview/reader/host/legacy
+  tests31/31 pass. All6 typechecks and root lint pass.
+- Full contracts369, mocks16, web183 and API158 pass. Research361 pass with the
+  same3 ORIGINAL failures; desktop192 pass with the same1 ORIGINAL stored-key
+  failure. No original gate was weakened. Live audits skip without credentials.
+- Actual development Electron and a fresh unsigned Windows directory package
+  both pass the synthetic GUI journey. It exercises role selection, reader close,
+  company Metrics, Back to card and reload; native IPC denial checks also pass.
+  Both runs report pageErrors0, externalRequests0, no jobs/promoted metrics and
+  sourceCandidateUnchanged. Fresh screenshots were visually inspected.
+- Ordinary desktop output was rebuilt afterward with `sqlite-spike.cjs` absent.
+  Ignored proof artifacts live under `apps/desktop/release/staged-ui-*`; they are
+  not installers or release deliverables.
+
+### Checkpoint red team — moving the needle and remaining limits
+
+Needle moved: P11's internal reader is now usable through the real current app
+and an actual packaged executable, not a disconnected storage demo. Red-team
+reproduced and fixed infrastructure-only companies disappearing, old
+`?type=distribution` links hiding grouped companies, an unclear icon-only
+Library entry, and remote font requests in offline preview. The first hidden
+screenshot capture also exposed a compositor race; the proof harness now retries
+that evidence-only capture three times without weakening product assertions.
+Independent review found the legacy-role-link defect and no other concrete issue
+within its bounded static scope; main independently ran all runtime evidence.
+
+Important limits: this is explicit preview, not import approval or live cutover.
+Archived reports/findings/saved items are retained but not projected. Existing
+array IPC still needs real pagination beyond preview caps. Managed source chunks
+are not yet integrated with backup/restore/GC. External assets are not fetched.
+No installer, signing, network drive, live provider, customer-data or production
+visual acceptance is claimed. G01-P13 must complete asset-aware backup/restore
+and lifecycle recovery before guarded cutover can be considered.
+
+Four ORIGINAL release blockers remain: legacy reporting-period loss,
+cross-period reconciliation, cancellation acknowledgment, renderer stored-key
+retrieval. G02-G08 remain unaccepted. The broad production goal remains active.
+
+## Previous completed packet — G01-P11
 
 Entry HEAD `f9a82df`; September30. Full production goal/G01 remain active.
 Sol integration; two serial Luna/high workers (reader, then read-only red team),

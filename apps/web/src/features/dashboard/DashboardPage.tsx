@@ -20,6 +20,7 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { Logo } from '@/features/card/Logo';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { buildCardView } from '@/features/card/card-view';
+import { isReadOnlyResearch } from '@/lib/settings/runtime';
 import { OverviewTab } from './tabs/OverviewTab';
 import { LiveIntelTab } from './tabs/LiveIntelTab';
 import { TeamOrgTab } from './tabs/TeamOrgTab';
@@ -274,6 +275,7 @@ export default function DashboardPage() {
   const fromMarketId = params.get('deck');
   const fromCardId = params.get('card');
   const fromDeckView = params.get('view');
+  const readOnly = isReadOnlyResearch();
   const returnToDeck = () => {
     if (!fromMarketId) return navigate(-1);
     const deckParams = new URLSearchParams(fromDeckView ?? '');
@@ -335,16 +337,21 @@ export default function DashboardPage() {
               <div className="flex flex-wrap items-start gap-4">
                 <Logo
                   name={c.name}
-                  website={c.websiteUrl}
-                  logoUrl={c.logoUrl}
+                  website={readOnly ? null : c.websiteUrl}
+                  logoUrl={readOnly ? null : c.logoUrl}
                   className="h-16 w-16 border border-[#bfd8cf] bg-white"
                 />
                 <div className="min-w-[240px] flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
-                      Company research
+                      {readOnly ? 'Company profile · legacy research' : 'Company research'}
                     </span>
-                    {sourceView && (
+                    {readOnly && (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-950">
+                        Older research · unreviewed
+                      </span>
+                    )}
+                    {!readOnly && sourceView && (
                       <>
                         <span className="rounded-full border border-[#c7ddd5] bg-white/70 px-2 py-0.5 text-[10px] font-medium text-muted">
                           {sourceView.position}
@@ -362,14 +369,25 @@ export default function DashboardPage() {
                   <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted">{c.oneLiner}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <ThreadHistoryButton companyId={c.id} />
-                  <ReportButton kind="company" subjectId={c.id} />
+                  {!readOnly && <ThreadHistoryButton companyId={c.id} />}
+                  {!readOnly && <ReportButton kind="company" subjectId={c.id} />}
                 </div>
               </div>
-              <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-[#cbded7] pt-4">
-                <ResearchComposer companyId={companyId} companyName={c.name} />
-                <IntelFile companyId={companyId} />
-              </div>
+              {!readOnly && (
+                <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-[#cbded7] pt-4">
+                  <ResearchComposer companyId={companyId} companyName={c.name} />
+                  <IntelFile companyId={companyId} />
+                </div>
+              )}
+              {readOnly && (
+                <p
+                  role="note"
+                  className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-950"
+                >
+                  Older research has not been reviewed. Company tabs show saved content only;
+                  unsupported sections remain unavailable.
+                </p>
+              )}
             </header>
 
             <DashboardTabNav
@@ -381,66 +399,87 @@ export default function DashboardPage() {
               fromDeckView={fromDeckView}
             />
             {/* Right-click any tab's content → rerun just that research. */}
-            <ContextRerun
-              label={`the ${DASHBOARD_TAB_LABELS[activeTab]} tab`}
-              onRerun={() => rerunTab.mutate()}
-              running={rerunTab.isPending}
-              disabled={!hasKey}
-            >
-              {isCachedResearchTab && cachedResearch.isError ? (
+            {readOnly ? (
+              cachedResearch.isError ? (
                 <DashboardResearchState
                   loading={false}
-                  hasKey={hasKey}
+                  hasKey={false}
                   researching={false}
                   readError={cachedResearch.error}
-                  onResearch={() => rerunTab.mutate()}
+                  onResearch={() => undefined}
                   onRetry={() => void cachedResearch.refetch()}
                 />
-              ) : isCachedResearchTab ? (
-                <QueryBoundary
-                  query={cachedResearch}
-                  loading={
-                    <DashboardResearchState
-                      loading
-                      hasKey={hasKey}
-                      researching={false}
-                      onResearch={() => rerunTab.mutate()}
-                      onRetry={() => rerunTab.mutate()}
-                    />
-                  }
-                  empty={
-                    <DashboardResearchState
-                      loading={false}
-                      hasKey={hasKey}
-                      researching={rerunTab.isPending}
-                      researchError={rerunTab.error}
-                      onResearch={() => rerunTab.mutate()}
-                      onRetry={() => rerunTab.mutate()}
-                    />
-                  }
-                >
-                  {() => (
-                    <>
-                      {rerunTab.isError && (
-                        <div className="mb-4">
-                          <DashboardResearchState
-                            loading={false}
-                            hasKey={hasKey}
-                            researching={rerunTab.isPending}
-                            researchError={rerunTab.error}
-                            onResearch={() => rerunTab.mutate()}
-                            onRetry={() => rerunTab.mutate()}
-                          />
-                        </div>
-                      )}
-                      <TabView tab={activeTab} companyId={companyId} />
-                    </>
-                  )}
-                </QueryBoundary>
               ) : (
-                <TabView tab={activeTab} companyId={companyId} />
-              )}
-            </ContextRerun>
+                <p
+                  role="status"
+                  className="rounded-xl border border-border bg-surface p-5 text-sm leading-relaxed text-muted"
+                >
+                  Saved detail for this section is not available in the read-only preview. This does
+                  not mean the original archive lacked research.
+                </p>
+              )
+            ) : (
+              <ContextRerun
+                label={`the ${DASHBOARD_TAB_LABELS[activeTab]} tab`}
+                onRerun={() => rerunTab.mutate()}
+                running={rerunTab.isPending}
+                disabled={!hasKey}
+              >
+                {isCachedResearchTab && cachedResearch.isError ? (
+                  <DashboardResearchState
+                    loading={false}
+                    hasKey={hasKey}
+                    researching={false}
+                    readError={cachedResearch.error}
+                    onResearch={() => rerunTab.mutate()}
+                    onRetry={() => void cachedResearch.refetch()}
+                  />
+                ) : isCachedResearchTab ? (
+                  <QueryBoundary
+                    query={cachedResearch}
+                    loading={
+                      <DashboardResearchState
+                        loading
+                        hasKey={hasKey}
+                        researching={false}
+                        onResearch={() => rerunTab.mutate()}
+                        onRetry={() => rerunTab.mutate()}
+                      />
+                    }
+                    empty={
+                      <DashboardResearchState
+                        loading={false}
+                        hasKey={hasKey}
+                        researching={rerunTab.isPending}
+                        researchError={rerunTab.error}
+                        onResearch={() => rerunTab.mutate()}
+                        onRetry={() => rerunTab.mutate()}
+                      />
+                    }
+                  >
+                    {() => (
+                      <>
+                        {rerunTab.isError && (
+                          <div className="mb-4">
+                            <DashboardResearchState
+                              loading={false}
+                              hasKey={hasKey}
+                              researching={rerunTab.isPending}
+                              researchError={rerunTab.error}
+                              onResearch={() => rerunTab.mutate()}
+                              onRetry={() => rerunTab.mutate()}
+                            />
+                          </div>
+                        )}
+                        <TabView tab={activeTab} companyId={companyId} />
+                      </>
+                    )}
+                  </QueryBoundary>
+                ) : (
+                  <TabView tab={activeTab} companyId={companyId} />
+                )}
+              </ContextRerun>
+            )}
           </>
         )}
       </QueryBoundary>
