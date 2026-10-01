@@ -99,7 +99,8 @@ import {
   siteAuditOutSchema,
   verifyMetricOutSchema,
 } from './schemas';
-import type { LlmClient, ResearchCoverage, RunResearchOptions } from './types';
+import type { LlmClient, ResearchCoverage, RunResearchOptions, UsageMeter } from './types';
+import { createResearchUsageMeter } from './usage-meter';
 
 interface CachedTab {
   content: unknown;
@@ -131,6 +132,10 @@ export interface BudgetReservation {
   maxRequests: number;
   maxInputTokens: number;
   maxOutputTokens: number;
+  actualRequests: number;
+  actualInputTokens: number;
+  actualOutputTokens: number;
+  usageComplete: boolean;
   status: 'reserved' | 'settled';
   createdAt: string;
   updatedAt: string;
@@ -504,7 +509,13 @@ function normalize(raw: RepoSnapshot | null): RepoSnapshot {
     actionRuns: raw.actionRuns ?? [],
     actionPolicies: raw.actionPolicies ?? [],
     budgetPolicies: raw.budgetPolicies ?? [],
-    budgetReservations: raw.budgetReservations ?? [],
+    budgetReservations: (raw.budgetReservations ?? []).map((reservation) => ({
+      ...reservation,
+      actualRequests: reservation.actualRequests ?? 0,
+      actualInputTokens: reservation.actualInputTokens ?? 0,
+      actualOutputTokens: reservation.actualOutputTokens ?? 0,
+      usageComplete: reservation.usageComplete ?? false,
+    })),
     threads: raw.threads ?? [],
   };
 }
@@ -1042,11 +1053,20 @@ export class GeminiRepository implements MarketIntelRepository {
     const used = this.snap.budgetReservations
       .filter((reservation) => reservation.budgetRef === budget.id)
       .reduce(
-        (total, reservation) => ({
-          requests: total.requests + reservation.maxRequests,
-          inputTokens: total.inputTokens + reservation.maxInputTokens,
-          outputTokens: total.outputTokens + reservation.maxOutputTokens,
-        }),
+        (total, reservation) => {
+          const reconciled = reservation.status === 'settled' && reservation.usageComplete;
+          return {
+            requests:
+              total.requests +
+              (reconciled ? reservation.actualRequests : reservation.maxRequests),
+            inputTokens:
+              total.inputTokens +
+              (reconciled ? reservation.actualInputTokens : reservation.maxInputTokens),
+            outputTokens:
+              total.outputTokens +
+              (reconciled ? reservation.actualOutputTokens : reservation.maxOutputTokens),
+          };
+        },
         { requests: 0, inputTokens: 0, outputTokens: 0 },
       );
     if (
@@ -1064,6 +1084,10 @@ export class GeminiRepository implements MarketIntelRepository {
       policyRef: policy.id,
       budgetRef: budget.id,
       ...limits,
+      actualRequests: 0,
+      actualInputTokens: 0,
+      actualOutputTokens: 0,
+      usageComplete: false,
       status: 'reserved',
       createdAt: now,
       updatedAt: now,
@@ -1102,6 +1126,7 @@ export class GeminiRepository implements MarketIntelRepository {
       return;
     }
 
+    const usageMeter = createResearchUsageMeter(run.request.input.limits);
     try {
       run.result = await this.expandDeck(
         run.request.target.marketId,
@@ -1110,6 +1135,7 @@ export class GeminiRepository implements MarketIntelRepository {
         {
           target: run.request.input.maxCompanies,
           excludeNames: run.request.input.exclusions,
+          usageMeter,
         },
       );
       run.status = 'completed';
@@ -1127,6 +1153,11 @@ export class GeminiRepository implements MarketIntelRepository {
       // Provider failures can still be billable; later runtime metering may
       // safely reconcile this down only from observed adapter usage.
       reservation.status = 'settled';
+      const usage = usageMeter.snapshot();
+      reservation.actualRequests = usage.requests;
+      reservation.actualInputTokens = usage.inputTokens;
+      reservation.actualOutputTokens = usage.outputTokens;
+      reservation.usageComplete = usage.complete;
       reservation.updatedAt = run.updatedAt;
     }
     this.persist();
@@ -3279,7 +3310,7 @@ export class GeminiRepository implements MarketIntelRepository {
     marketId: string,
     focus: ExpandFocus,
     handlers?: ResearchHandlers,
-    limits?: { target?: number; excludeNames?: string[] },
+    limits?: { target?: number; excludeNames?: string[]; usageMeter?: UsageMeter },
   ): Promise<{ added: number }> {
     const market = this.snap.markets.find((m) => m.id === marketId);
     const deck = this.snap.decks.find((d) => d.marketId === marketId);
@@ -3311,6 +3342,7 @@ export class GeminiRepository implements MarketIntelRepository {
       deckId: deck.id,
       userFootprintCohort,
       target: limits?.target ?? 3,
+      usageMeter: limits?.usageMeter,
       signal: handlers?.signal,
       onEvent: (evt) => {
         if (evt.type === 'status') handlers?.onProgress?.({ message: evt.message, kind: 'step' });

@@ -24,8 +24,15 @@
 import type { ZodType, ZodTypeDef } from 'zod';
 import { GoogleGenAI, Type } from '@google/genai';
 import type { GenerateContentResponse } from '@google/genai';
-import type { Citation, IntelligenceModel, LlmClient, NativeResearchProvider } from './types';
+import type {
+  CallOptions,
+  Citation,
+  IntelligenceModel,
+  LlmClient,
+  NativeResearchProvider,
+} from './types';
 import { createRateLimiter, extractJson, withRetry, type RetryableError } from './util';
+import { inputTokenUpperBound, ResearchUsageLimitError } from './usage-meter';
 import {
   DEFAULT_GROUNDED_MODEL,
   DEFAULT_GROUNDED_RPM,
@@ -70,6 +77,8 @@ export interface GenAiLike {
     }): Promise<GenerateContentResponse>;
   };
 }
+
+const MAX_OUTPUT_TOKENS_PER_CALL = 8_192;
 
 /** A DOMException's legacy numeric `.code` is not an HTTP status (ABORT_ERR === 20). */
 export function isAbortError(err: unknown): boolean {
@@ -203,25 +212,51 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     model: string,
     contents: string,
     cfg: Record<string, unknown>,
-    signal: AbortSignal | undefined,
+    opts: CallOptions | undefined,
     kind: 'ground' | 'structure',
   ): Promise<GenerateContentResponse> {
-    await (kind === 'ground' ? groundLimiter : structureLimiter)?.acquire(signal);
+    await (kind === 'ground' ? groundLimiter : structureLimiter)?.acquire(opts?.signal);
     const res = await withRetry(
       async () => {
+        const attempt = opts?.usageMeter?.beginAttempt({
+          kind: 'model',
+          estimatedInputTokens: inputTokenUpperBound({ model, contents, config: cfg }),
+          maxOutputTokens: MAX_OUTPUT_TOKENS_PER_CALL,
+        });
         const timeoutSignal = AbortSignal.timeout(60_000);
-        const reqSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+        const reqSignal = opts?.signal
+          ? AbortSignal.any([opts.signal, timeoutSignal])
+          : timeoutSignal;
         try {
-          return await ai.models.generateContent({
+          const response = await ai.models.generateContent({
             model,
             contents,
-            config: { ...cfg, abortSignal: reqSignal },
+            config: {
+              ...cfg,
+              ...(attempt ? { maxOutputTokens: attempt.maxOutputTokens } : {}),
+              abortSignal: reqSignal,
+            },
           });
+          const usage = response.usageMetadata;
+          if (attempt) {
+            opts?.usageMeter?.settleAttempt(
+              attempt.id,
+              typeof usage?.promptTokenCount === 'number' &&
+                typeof usage?.candidatesTokenCount === 'number'
+                ? {
+                    inputTokens: usage.promptTokenCount,
+                    outputTokens: usage.candidatesTokenCount,
+                  }
+                : undefined,
+            );
+          }
+          return response;
         } catch (err) {
-          if (isAbortError(err) && signal?.aborted) {
+          if (err instanceof ResearchUsageLimitError) throw err;
+          if (isAbortError(err) && opts?.signal?.aborted) {
             throw err;
           }
-          if (timeoutSignal.aborted && (!signal || !signal.aborted)) {
+          if (timeoutSignal.aborted && !opts?.signal?.aborted) {
             const wrapped = new Error('Gemini API request timed out after 60s') as RetryableError;
             wrapped.status = 504;
             throw wrapped;
@@ -236,7 +271,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
           throw wrapped;
         }
       },
-      { signal },
+      { signal: opts?.signal },
     );
 
     const usageMeta = res.usageMetadata;
@@ -270,7 +305,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
         temperature: 0.2,
       };
       if (opts?.system) cfg.systemInstruction = opts.system;
-      const res = await call(groundedModel, prompt, cfg, opts?.signal, 'ground');
+      const res = await call(groundedModel, prompt, cfg, opts, 'ground');
       if (res.promptFeedback?.blockReason) {
         throw new Error(`Gemini blocked the request: ${res.promptFeedback.blockReason}`);
       }
@@ -284,7 +319,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     async structure<T>(
       prompt: string,
       schema: ZodType<T, ZodTypeDef, unknown>,
-      opts?: { system?: string; signal?: AbortSignal },
+      opts?: CallOptions,
     ): Promise<T> {
       const cfg: Record<string, unknown> = {
         responseMimeType: 'application/json',
@@ -295,7 +330,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
       let lastError: unknown;
       // One reparse retry, matching gemini.ts: JSON mode is reliable, not infallible.
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const res = await call(structureModel, prompt, cfg, opts?.signal, 'structure');
+        const res = await call(structureModel, prompt, cfg, opts, 'structure');
         try {
           return schema.parse(extractJson((res.text ?? '').trim()));
         } catch (err) {

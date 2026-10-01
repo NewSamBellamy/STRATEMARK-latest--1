@@ -16,7 +16,7 @@ deferred by the human; do not stop for missing API telemetry or require cost
 projections before worker dispatch. This overrides the historical campaign
 instructions in the archive, not product privacy, bounded execution, phase dependencies,
 context ceilings or live-research consent. Goal is active (verified via goal tool).
-Latest completed packet: G02-P04 below. G00 contracts and reproduced baseline
+Latest completed packet: G02-P05 below. G00 contracts and reproduced baseline
 are frozen for offline G01 work; this is not product-readiness or service parity.
 G01-P01 proves the native SQLite binding in an unsigned packaged app and the
 actual installer payload, plus fixes two legacy data-safety defects. G01-P02
@@ -52,6 +52,11 @@ G02-P04 resolves stored local policy and budget records, binds acceptance to an
 authenticated principal, and persists one conservative budget reservation in the
 same write as the accepted run before dispatch. It is still intentionally closed
 to UI/IPC until provider-attempt and token metering can enforce those ceilings.
+G02-P05 adds one action-owned usage meter across discovery, company hydration,
+tier review, search retries and the Gemini/OpenAI-compatible model adapters. It
+blocks exhausted request/input/output allowances before the next dispatch, caps
+model output, and reconciles a reservation only when every observed attempt has
+reported usage. Unreported or failed work keeps the approved ceiling charged.
 No live cutover is authorized.
 The full goal remains active; do not restart planning.
 Earlier $50/Astra campaign instructions are historical, not current dispatch
@@ -65,11 +70,11 @@ separate explicit approval and a numeric cap.
 - Branch: `feat/stratemark-spinoff-local-agents`, created from `b2c6398`; predecessor `feat/claim-level-signal-evidence` retained unchanged. Personal-fork checkpoint destination: remote newsam, `NewSamBellamy/STRATEMARK-latest--1`.
 - Original planning baseline: `3f18af2`. P15 entry HEAD: `405f512`; determine current HEAD/tree from Git. Neither historical value is a claim about current code forever.
 - Goal tool: the production Northstar goal was recreated October 1 after the tracker returned no active goal. It preserves the personal-branch, no-deploy/no-live-migration boundaries. No billing blocker remains for development. Keep the full goal active at packet boundaries.
-- Next work: G02-P05 add provider-attempt/token metering and safe reservation reconciliation, then expose A15 through the shared repository/desktop IPC boundary. Do not wire the renderer while declared token ceilings are not enforced at every adapter request. After that, replace the old renderer hunt queue and add revision/lease/cancellation/event replay. This is a dependency for native write parity and a safe G01 normal-startup recovery/cutover. P13 recovery is staged-candidate-only and P14 is inspection-only, not general A44/A46/A47 parity. No live migration/provider work; G03 research quality and G04 visual acceptance remain open.
+- Next work: G02-P06 expose A15 through the shared repository/desktop IPC boundary without reviving renderer-owned dispatch. Then replace the old renderer hunt queue and add revision/lease/cancellation/event replay. This is a dependency for native write parity and a safe G01 normal-startup recovery/cutover. P13 recovery is staged-candidate-only and P14 is inspection-only, not general A44/A46/A47 parity. No live migration/provider work; G03 research quality and G04 visual acceptance remain open.
 - Paid research: zero calls in this planning pass. Any live evaluation requires an approved numeric cap and secure keys.
 - Automation: previously paused; do not resume it or change its execution model without current human authorization and an updated prompt aligned to these goals.
 - Push: latest human explicitly authorized periodic checkpoints ONLY to this new personal-fork branch. No overwriting existing refs, upstream/Tobi pushes, main merge, release or deployment. First upload verified at `73e61c0e0f9f20e063fd290ef9fb3a122f570061`; all 49 pre-existing remote branch refs remained unchanged, including main at `c945b31dee0095331b8487133c131c36e76ba601`. Verified owner NewSamBellamy, public fork of Maruf. The shorter old URL redirects to Maruf and is unsafe as a personal destination. Read actual local/remote tips before each later fast-forward checkpoint.
-- Current application tests: G02-P04 full `pnpm check` passes all6 typechecks, root lint and every ordinary suite: contracts370, mocks16, research375, API158, desktop207 and web185. The real production browser gate passes6 with1 conditional legacy single-file embed test skipped on a dedicated non-conflicting port. The desktop production build passes with the existing large-chunk warning. Manual browser smoke verifies deck → card reader → Overview → Metrics → Live Intel. Direct `/markets` still renders 404; use `/history` or a deck URL. P15 storage/settings/security and actual Electron journey proofs remain valid. No signing, updater, live-provider quality or customer-data acceptance.
+- Current application tests: G02-P05 final `pnpm check` passes all6 typechecks, root lint and every ordinary suite: contracts370, mocks16, research388, API158, desktop207 and web185. The real production browser gate passes6 with1 conditional legacy single-file embed test skipped on isolated port4176. The desktop production build passes with the existing large-chunk warning. Manual browser smoke verifies deck → card reader → Overview → Metrics → Live Intel → Products & Roadmap with no browser console errors. Direct `/markets` still renders404; use `/history` or a deck URL. P15 storage/settings/security and actual Electron journey proofs remain valid. No signing, updater, live-provider quality or customer-data acceptance.
 - Document verification: local links and balanced code fences passed; unique registers checked (22 defaults, 30 stories, 62 actions, 9 goals, 26 sources); JSON command example parsed; canonical files had no candidate credential patterns. Markdown formatting checked separately before commit.
 - Astra final planning review: seven substantive gaps identified and addressed (service lifetime, migration fences, imported authority, restored budgets, asset/evidence retention, asynchronous output retrieval, and human approval boundary). Re-review found no remaining material contract contradictions; this is planning consistency, not application verification.
 
@@ -90,7 +95,7 @@ separate explicit approval and a numeric cap.
 | ---- | --------------------------------- | ---------------------------------------- | -------------------------------------------------------------------- |
 | G00  | Contract/baseline freeze complete | [G00-P01-P05 archive](PACKET-ARCHIVE.md) | Reproduced defects green; broader enforcement belongs to G01/G02/G07 |
 | G01  | In progress                       | G01-P15 integrity/security closure       | Recovery/cutover after shared native write parity                    |
-| G02  | In progress                       | G02-P04 atomic local budget reservation  | Runtime metering, transport, leases and native write/action parity    |
+| G02  | In progress                       | G02-P05 provider-attempt/token metering  | Transport, revisions, leases and native write/action parity           |
 | G03  | Not started                       | None                                     | Progressive research and evaluation                                  |
 | G04  | Not started                       | None                                     | Cards and coherent frontend journey                                  |
 | G05  | Not started                       | None                                     | Decision outputs and findings                                        |
@@ -130,7 +135,61 @@ An existing human-created broad goal must retain its actual objective. Execute o
 
 User context ceiling: 200k tokens for every agent, not a spend allowance. Checkpoint around 100k; hand off before an estimated 150k to leave room for verification and recovery. Use the policy in [build-workflow.md](build-workflow.md). Cumulative goal tokens are usage, not necessarily the current context window. Exact occupancy and forced compaction are not exposed here; do not claim hard automatic enforcement. Keep packets small and start clean workers with a declared model, effort and exclusive scope; development cost projections are not a current gate. Unknown spending never becomes a claim of remaining funds.
 
-## Latest completed packet — G02-P04
+## Latest completed packet — G02-P05
+
+Entry HEAD `90efffd`; final packet state is the immediately following local
+commit in branch history. October 1, 2026. Full production goal/G02 remain active.
+No live provider call, credential read, live migration, renderer/IPC/MCP cutover,
+release, publication or main change.
+
+User outcome / seams: A15 now owns one runtime usage meter for the accepted run.
+The same meter follows discovery, each search retry, company hydration, output
+repair and tier review through raw Gemini, the Google SDK and OpenAI-compatible
+adapters. Every outbound attempt reserves request/input/output allowance before
+dispatch. Model output is capped to the remaining allowance. Provider-reported
+usage reconciles conservative reservations; reconciliation is allowed only when
+every observed attempt reports usage. A failed, interrupted or unreported attempt
+keeps the full action ceiling charged, so incomplete telemetry cannot create new
+budget capacity. Search adapters currently consume request allowance and report
+zero model tokens; provider money pricing is not inferred from that.
+
+Verification: RED tests reproduced the missing action-to-delta meter handoff,
+unmetered retries, uncapped OpenAI-compatible output, stale exact-call assertions,
+an Electron type-boundary leak from DOM-only `BodyInit`, and SDK budget errors
+being rewritten as generic model errors. Focused action, adapter, client, delta
+and meter tests pass. Final `pnpm check` passes all6 typechecks, lint and
+contracts370/mocks16/research388/API158/desktop207/web185. The production desktop
+bundle passes with the existing large-chunk warning. Isolated Playwright passes6
+with1 conditional single-file embed test skipped. No live benchmark ran because
+no product provider key was supplied; those tests explicitly skipped.
+
+### Checkpoint red team — moving the needle and remaining limits
+
+This closes a real enforcement gap: an accepted discovery action can no longer
+silently bypass its request/output allowance inside retries or downstream company
+work, and fully observed use no longer burns the entire approved ceiling. Typed
+budget failures now survive the SDK boundary. Whole-project verification caught
+an integration failure that the research package alone missed, so package-local
+green is not treated as release evidence.
+
+This still does not make the visible product production-ready. A15 remains absent
+from renderer/desktop IPC/MCP, and the old visible hunt flow is not yet replaced.
+Input is reserved pre-dispatch from serialized UTF-8 bytes plus bounded overhead;
+provider-reported input is known only after response. Any reported overrun fails
+the action and prevents reconciliation, but this is not price certainty. No
+current provider price table or currency charging exists. Leases, optimistic
+revision checks, durable event replay, pause/resume and action-service cancellation
+remain open.
+
+Manual product red team confirms G03/G04 are still unaccepted: Mistral's five
+figures point to one source redirect; market share lacks a visible denominator and
+period; estimated ARR appears beside sourced facts; T1–T8 bands remain prominent;
+the company navigation does not match the five Northstar sections; and the long
+Products & Roadmap view presents strong claims without visible claim-level support.
+Live Intel is a dated sample, not a verified monitor. Next is G02-P06 shared
+desktop transport, not visual polish or live migration.
+
+## Previous completed packet — G02-P04
 
 Entry HEAD `35f8763`; final packet state is the immediately following local
 commit in branch history. October 1, 2026. Full production goal/G02 remain active.

@@ -7,7 +7,9 @@ import {
   type IntelligenceModel,
   type LlmClient,
   type SearchConnector,
+  type UsageMeter,
 } from './types';
+import { createResearchUsageMeter } from './usage-meter';
 
 function queuedModel(
   outputs: unknown[],
@@ -16,8 +18,12 @@ function queuedModel(
   return {
     id: 'model-test',
     structureSpy,
-    async structure<T>(_prompt: string, schema: ZodType<T, ZodTypeDef, unknown>): Promise<T> {
-      structureSpy(_prompt, schema);
+    async structure<T>(
+      _prompt: string,
+      schema: ZodType<T, ZodTypeDef, unknown>,
+      opts?: { usageMeter?: UsageMeter },
+    ): Promise<T> {
+      structureSpy(_prompt, schema, opts);
       const value = outputs.shift();
       return schema.parse(value);
     },
@@ -105,6 +111,31 @@ describe('research client composition', () => {
     expect(warnings).toEqual([
       { provider: 'second', query: 'alpha products 2026', code: 'RATE_LIMIT' },
     ]);
+  });
+
+  it('propagates one action meter through planning, searches, and synthesis', async () => {
+    const meter = createResearchUsageMeter({
+      maxRequests: 10,
+      maxInputTokens: 100_000,
+      maxOutputTokens: 10_000,
+    });
+    const model = queuedModel([
+      { queries: ['alpha'] },
+      { text: 'Supported.', sourceIds: ['S1'] },
+    ]);
+    const search = vi.fn(async () => [
+      { url: 'https://example.com/alpha', title: 'Alpha', snippet: 'Supported fact.' },
+    ]);
+    const client = createResearchClient({
+      model,
+      search: [{ id: 'search', search }],
+    });
+
+    await client.ground('alpha', { usageMeter: meter });
+
+    expect(model.structureSpy).toHaveBeenCalledTimes(2);
+    expect(model.structureSpy.mock.calls.every((call) => call[2]?.usageMeter === meter)).toBe(true);
+    expect(search).toHaveBeenCalledWith('alpha', { limit: 5, signal: undefined, usageMeter: meter });
   });
 
   it('repairs invented source IDs once and never accepts them as citations', async () => {

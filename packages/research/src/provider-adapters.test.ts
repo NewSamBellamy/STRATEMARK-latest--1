@@ -4,6 +4,7 @@ import { createHttpSearchConnector } from './http-search';
 import { createOpenAiCompatibleModel } from './openai-compatible';
 import { fetchProviderJson } from './provider-http';
 import { ResearchProviderError } from './types';
+import { createResearchUsageMeter } from './usage-meter';
 
 describe('provider HTTP boundary', () => {
   it('retries transient failures without exposing response bodies', async () => {
@@ -64,6 +65,27 @@ describe('provider HTTP boundary', () => {
       }),
     ).rejects.toMatchObject({ name: 'AbortError' });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('charges every search retry and blocks an over-budget retry before fetch', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('', { status: 503, headers: { 'retry-after': '0' } }),
+    );
+    const meter = createResearchUsageMeter({
+      maxRequests: 1,
+      maxInputTokens: 1,
+      maxOutputTokens: 1,
+    });
+
+    await expect(
+      fetchProviderJson({
+        provider: 'test',
+        url: 'https://provider.example',
+        fetchImpl,
+        usageMeter: meter,
+      }),
+    ).rejects.toThrow(/request limit/i);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -133,6 +155,43 @@ describe('provider adapters', () => {
     expect(body).toMatchObject({
       model: 'test-model',
       response_format: { type: 'json_object' },
+    });
+  });
+
+  it('caps and reconciles OpenAI-compatible model usage through the shared meter', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: '{"answer":"yes"}' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+        }),
+        { status: 200 },
+      ),
+    );
+    const meter = createResearchUsageMeter({
+      maxRequests: 1,
+      maxInputTokens: 10_000,
+      maxOutputTokens: 6,
+    });
+    const model = createOpenAiCompatibleModel({
+      baseUrl: 'https://models.example/v1',
+      model: 'test-model',
+      fetchImpl,
+    });
+
+    await model.structure('Return an answer.', z.object({ answer: z.string() }), {
+      usageMeter: meter,
+    });
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      max_tokens?: number;
+    };
+    expect(body.max_tokens).toBe(6);
+    expect(meter.snapshot()).toEqual({
+      requests: 1,
+      inputTokens: 10,
+      outputTokens: 2,
+      complete: true,
     });
   });
 });

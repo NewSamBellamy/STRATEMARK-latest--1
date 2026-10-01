@@ -46,9 +46,40 @@ export interface Citation {
   credibility?: SourceCredibility;
 }
 
+export interface UsageAttemptRequest {
+  kind: 'model' | 'search';
+  estimatedInputTokens: number;
+  maxOutputTokens: number;
+}
+
+export interface UsageAttemptGrant {
+  id: number;
+  maxOutputTokens: number;
+}
+
+export interface UsageReport {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface UsageSnapshot {
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  complete: boolean;
+}
+
+/** One action-owned meter shared by model and search adapters. */
+export interface UsageMeter {
+  beginAttempt(request: UsageAttemptRequest): UsageAttemptGrant;
+  settleAttempt(attemptId: number, usage?: UsageReport): void;
+  snapshot(): UsageSnapshot;
+}
+
 export interface CallOptions {
   system?: string;
   signal?: AbortSignal;
+  usageMeter?: UsageMeter;
 }
 
 /** Provider-neutral search result before provenance is stamped by Stratemark. */
@@ -96,7 +127,7 @@ export interface SearchConnector {
   readonly id: string;
   search(
     query: string,
-    opts: { limit: number; signal?: AbortSignal },
+    opts: { limit: number; signal?: AbortSignal; usageMeter?: UsageMeter },
   ): Promise<readonly SearchHit[]>;
 }
 

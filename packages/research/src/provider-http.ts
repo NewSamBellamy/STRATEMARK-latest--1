@@ -1,10 +1,24 @@
-import { ResearchProviderError, type ResearchProviderErrorCode } from './types';
+import {
+  ResearchProviderError,
+  type ResearchProviderErrorCode,
+  type UsageMeter,
+  type UsageReport,
+} from './types';
+import { ResearchUsageLimitError } from './usage-meter';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_ATTEMPTS = 3;
 const MAX_RETRY_AFTER_MS = 30_000;
 
-export interface ProviderHttpOptions {
+export interface ProviderHttpUsage<T> {
+  kind: 'model' | 'search';
+  estimatedInputTokens: number;
+  maxOutputTokens: number;
+  bodyWithOutputLimit?: (maxOutputTokens: number) => NonNullable<RequestInit['body']>;
+  report?: (body: T) => UsageReport | undefined;
+}
+
+export interface ProviderHttpOptions<T = unknown> {
   provider: string;
   url: string;
   init?: Omit<RequestInit, 'signal'>;
@@ -12,6 +26,8 @@ export interface ProviderHttpOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   attempts?: number;
+  usageMeter?: UsageMeter;
+  usage?: ProviderHttpUsage<T>;
 }
 
 function abortReason(signal: AbortSignal): unknown {
@@ -74,13 +90,20 @@ function retryableStatus(status: number): boolean {
  * Small safe HTTP boundary shared by new provider adapters. It deliberately
  * omits response bodies, URLs, and headers from public failures.
  */
-export async function fetchProviderJson<T = unknown>(options: ProviderHttpOptions): Promise<T> {
+export async function fetchProviderJson<T = unknown>(
+  options: ProviderHttpOptions<T>,
+): Promise<T> {
   const doFetch = options.fetchImpl ?? fetch;
   const attempts = Math.max(1, Math.min(options.attempts ?? DEFAULT_ATTEMPTS, DEFAULT_ATTEMPTS));
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     if (options.signal?.aborted) throw abortReason(options.signal);
+    const usageAttempt = options.usageMeter?.beginAttempt({
+      kind: options.usage?.kind ?? 'search',
+      estimatedInputTokens: options.usage?.estimatedInputTokens ?? 0,
+      maxOutputTokens: options.usage?.maxOutputTokens ?? 0,
+    });
     const timeoutController = new AbortController();
     const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
     const signal = options.signal
@@ -88,7 +111,14 @@ export async function fetchProviderJson<T = unknown>(options: ProviderHttpOption
       : timeoutController.signal;
 
     try {
-      const response = await doFetch(options.url, { ...options.init, signal });
+      const init =
+        usageAttempt && options.usage?.bodyWithOutputLimit
+          ? {
+              ...options.init,
+              body: options.usage.bodyWithOutputLimit(usageAttempt.maxOutputTokens),
+            }
+          : options.init;
+      const response = await doFetch(options.url, { ...init, signal });
       if (!response.ok) {
         const code = codeForStatus(response.status);
         const retryable = retryableStatus(response.status);
@@ -106,8 +136,17 @@ export async function fetchProviderJson<T = unknown>(options: ProviderHttpOption
         throw error;
       }
       try {
-        return (await response.json()) as T;
+        const body = (await response.json()) as T;
+        if (usageAttempt) {
+          options.usageMeter?.settleAttempt(
+            usageAttempt.id,
+            options.usage?.report?.(body) ??
+              (options.usage?.kind === 'model' ? undefined : { inputTokens: 0, outputTokens: 0 }),
+          );
+        }
+        return body;
       } catch (cause) {
+        if (cause instanceof ResearchUsageLimitError) throw cause;
         throw new ResearchProviderError(`${options.provider} returned invalid JSON.`, {
           code: 'BAD_RESPONSE',
           provider: options.provider,
@@ -117,6 +156,7 @@ export async function fetchProviderJson<T = unknown>(options: ProviderHttpOption
       }
     } catch (cause) {
       if (options.signal?.aborted) throw abortReason(options.signal);
+      if (cause instanceof ResearchUsageLimitError) throw cause;
       if (cause instanceof ResearchProviderError) throw cause;
 
       const timedOut = timeoutController.signal.aborted;

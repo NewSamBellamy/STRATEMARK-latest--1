@@ -8,8 +8,15 @@
  * them). Retries 429/5xx with backoff. Free-tier default models below.
  */
 import type { ZodType, ZodTypeDef } from 'zod';
-import type { Citation, IntelligenceModel, LlmClient, NativeResearchProvider } from './types';
+import type {
+  CallOptions,
+  Citation,
+  IntelligenceModel,
+  LlmClient,
+  NativeResearchProvider,
+} from './types';
 import { createRateLimiter, extractJson, withRetry, type RetryableError } from './util';
+import { inputTokenUpperBound } from './usage-meter';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -60,7 +67,14 @@ interface GeminiCandidate {
 interface GeminiResponse {
   candidates?: GeminiCandidate[];
   promptFeedback?: { blockReason?: string };
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  };
 }
+
+const MAX_OUTPUT_TOKENS_PER_CALL = 8_192;
 
 function extractText(data: GeminiResponse): string {
   const parts = data.candidates?.[0]?.content?.parts ?? [];
@@ -99,19 +113,33 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
   async function call(
     model: string,
     body: Record<string, unknown>,
-    signal?: AbortSignal,
+    opts?: CallOptions,
     kind: 'ground' | 'structure' = 'ground',
   ): Promise<GeminiResponse> {
     // Pace before sending; retry is only the safety net.
-    await (kind === 'ground' ? groundLimiter : structureLimiter)?.acquire(signal);
+    await (kind === 'ground' ? groundLimiter : structureLimiter)?.acquire(opts?.signal);
     config.onCall?.({ model, kind });
     return withRetry(
       async () => {
+        const attempt = opts?.usageMeter?.beginAttempt({
+          kind: 'model',
+          estimatedInputTokens: inputTokenUpperBound(body),
+          maxOutputTokens: MAX_OUTPUT_TOKENS_PER_CALL,
+        });
+        const requestBody = attempt
+          ? {
+              ...body,
+              generationConfig: {
+                ...((body.generationConfig as Record<string, unknown> | undefined) ?? {}),
+                maxOutputTokens: attempt.maxOutputTokens,
+              },
+            }
+          : body;
         const res = await doFetch(`${BASE}/${model}:generateContent`, {
           method: 'POST',
           headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal,
+          body: JSON.stringify(requestBody),
+          signal: opts?.signal,
         });
         if (!res.ok) {
           const detail = await res.text().catch(() => '');
@@ -123,9 +151,23 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           if (retryAfter) err.retryAfterMs = Number(retryAfter) * 1000;
           throw err;
         }
-        return (await res.json()) as GeminiResponse;
+        const data = (await res.json()) as GeminiResponse;
+        const usage = data.usageMetadata;
+        if (attempt) {
+          opts?.usageMeter?.settleAttempt(
+            attempt.id,
+            typeof usage?.promptTokenCount === 'number' &&
+              typeof usage?.candidatesTokenCount === 'number'
+              ? {
+                  inputTokens: usage.promptTokenCount,
+                  outputTokens: usage.candidatesTokenCount,
+                }
+              : undefined,
+          );
+        }
+        return data;
       },
-      { signal },
+      { signal: opts?.signal },
     );
   }
 
@@ -137,7 +179,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         generationConfig: { temperature: 0.2 },
       };
       if (opts?.system) body.systemInstruction = { parts: [{ text: opts.system }] };
-      const data = await call(groundedModel, body, opts?.signal, 'ground');
+      const data = await call(groundedModel, body, opts, 'ground');
       if (data.promptFeedback?.blockReason) {
         throw new Error(`Gemini blocked the request: ${data.promptFeedback.blockReason}`);
       }
@@ -151,7 +193,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
     async structure<T>(
       prompt: string,
       schema: ZodType<T, ZodTypeDef, unknown>,
-      opts?: { system?: string; signal?: AbortSignal },
+      opts?: CallOptions,
     ): Promise<T> {
       // No `responseSchema` here, deliberately (issue #48). The SDK client
       // (`genai.ts`) sends one, because it can derive it without cost. Doing the
@@ -171,7 +213,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
       let lastError: unknown;
       // One reparse retry: JSON-mode is reliable but not infallible.
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const data = await call(structureModel, body, opts?.signal, 'structure');
+        const data = await call(structureModel, body, opts, 'structure');
         try {
           return schema.parse(extractJson(extractText(data)));
         } catch (err) {

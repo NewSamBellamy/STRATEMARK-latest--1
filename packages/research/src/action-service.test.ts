@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ActionRequest, BudgetPolicy, EgressPolicy } from '@mi/contracts';
 import { GeminiRepository, type RepoSnapshot, type ResearchStore } from './repository';
-import type { LlmClient } from './types';
+import type { LlmClient, UsageMeter } from './types';
 
 function snapshot(): RepoSnapshot {
   const now = '2026-10-01T12:00:00.000Z';
@@ -126,10 +126,18 @@ describe('durable action acceptance', () => {
   it('persists before dispatch and returns one receipt for simultaneous and restart replay', async () => {
     const store = memoryStore();
     const repo = repository(store);
-    const expand = vi.spyOn(repo, 'expandDeck').mockImplementation(async () => {
+    const expand = vi.spyOn(repo, 'expandDeck').mockImplementation(async (...args) => {
       expect(store.current().actionRuns).toHaveLength(1);
       expect(store.current().actionRuns[0]?.status).toBe('running');
       expect(store.current().budgetReservations[0]?.status).toBe('reserved');
+      const usageMeter = (args[3] as { usageMeter?: UsageMeter } | undefined)?.usageMeter;
+      expect(usageMeter).toBeDefined();
+      const attempt = usageMeter!.beginAttempt({
+        kind: 'model',
+        estimatedInputTokens: 2_000,
+        maxOutputTokens: 500,
+      });
+      usageMeter!.settleAttempt(attempt.id, { inputTokens: 120, outputTokens: 40 });
       return { added: 2 };
     });
 
@@ -154,13 +162,23 @@ describe('durable action acceptance', () => {
       maxRequests: 90,
       maxInputTokens: 2_000_000,
       maxOutputTokens: 400_000,
+      actualRequests: 1,
+      actualInputTokens: 120,
+      actualOutputTokens: 40,
+      usageComplete: true,
     });
     expect(store.current().actionRuns[0]?.result).toEqual({ added: 2 });
     expect(expand).toHaveBeenCalledTimes(1);
-    expect(expand).toHaveBeenCalledWith('mkt_frontier', { cardType: 'infrastructure' }, undefined, {
-      target: 3,
-      excludeNames: [],
-    });
+    expect(expand).toHaveBeenCalledWith(
+      'mkt_frontier',
+      { cardType: 'infrastructure' },
+      undefined,
+      expect.objectContaining({
+        target: 3,
+        excludeNames: [],
+        usageMeter: expect.any(Object),
+      }),
+    );
 
     const reopened = repository(store);
     const reopenedExpand = vi.spyOn(reopened, 'expandDeck').mockResolvedValue({ added: 99 });
@@ -283,6 +301,33 @@ describe('durable action acceptance', () => {
       ),
     ).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' });
     expect(store.current().budgetReservations).toHaveLength(1);
+  });
+
+  it('uses fully reported usage instead of the conservative ceiling for later commands', async () => {
+    const state = snapshot();
+    state.budgetPolicies[0]!.maxRequests = 91;
+    const store = memoryStore(state);
+    const repo = repository(store);
+    vi.spyOn(repo, 'expandDeck').mockImplementation(async (...args) => {
+      const usageMeter = (args[3] as { usageMeter?: UsageMeter } | undefined)?.usageMeter;
+      const attempt = usageMeter!.beginAttempt({
+        kind: 'model',
+        estimatedInputTokens: 100,
+        maxOutputTokens: 10,
+      });
+      usageMeter!.settleAttempt(attempt.id, { inputTokens: 10, outputTokens: 2 });
+      return { added: 1 };
+    });
+    await repo.acceptAction(command(), caller);
+    await vi.waitFor(() => expect(store.current().budgetReservations[0]?.usageComplete).toBe(true));
+
+    await expect(
+      repo.acceptAction(
+        command({ requestId: 'req_expand_2', idempotencyKey: 'expand-frontier-2' }),
+        caller,
+      ),
+    ).resolves.toMatchObject({ status: 'queued' });
+    expect(store.current().budgetReservations).toHaveLength(2);
   });
 
   it('settles the conservative reservation when provider work fails', async () => {

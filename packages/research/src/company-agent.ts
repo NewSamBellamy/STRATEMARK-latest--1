@@ -62,7 +62,7 @@ import {
   type FundingRoundInput,
   type PrivateCompanyResearchData,
 } from './proxy-estimator';
-import type { Citation, CompanyCandidate, LlmClient, MarketPlan } from './types';
+import type { Citation, CompanyCandidate, LlmClient, MarketPlan, UsageMeter } from './types';
 
 // ============================================================================
 // 1. Domain Types & State Contracts
@@ -103,6 +103,7 @@ export interface HydrateCompanyCardOptions {
   deckId?: string;
   userFootprintCohort?: UserFootprintCohort;
   signal?: AbortSignal;
+  usageMeter?: UsageMeter;
   fetchImpl?: typeof fetch;
   includeUnknowns?: boolean;
   customArrPerFte?: number;
@@ -669,6 +670,7 @@ export async function hydrateCompanyCard(
   const grounded = await client.ground(enrichPrompt(candidate, plan), {
     system: GROUNDED_SYSTEM,
     signal: options.signal,
+    usageMeter: options.usageMeter,
   });
 
   throwIfAborted(options.signal);
@@ -677,7 +679,7 @@ export async function hydrateCompanyCard(
   const enrichment = await client.structure(
     structureEnrichPrompt(candidate, grounded.text, grounded.citations),
     enrichmentOutSchema,
-    { system: STRUCTURE_SYSTEM, signal: options.signal },
+    { system: STRUCTURE_SYSTEM, signal: options.signal, usageMeter: options.usageMeter },
   );
 
   // 3. Company Entity Construction & Inline Logo Resolution

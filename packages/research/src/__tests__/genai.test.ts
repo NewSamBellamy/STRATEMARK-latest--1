@@ -4,6 +4,7 @@ import type { GenerateContentResponse } from '@google/genai';
 import { createGenAiClient, zodToGenAiSchema, type GenAiLike } from '../genai';
 import { enrichmentOutSchema, metricOutSchema } from '../schemas';
 import type { LlmClient } from '../types';
+import { createResearchUsageMeter } from '../usage-meter';
 
 /**
  * Minimal SDK response shaped like the real one.
@@ -194,6 +195,62 @@ describe('createGenAiClient', () => {
         totalTokens: 200,
       },
     });
+  });
+
+  it('enforces and reconciles the action meter at every SDK attempt', async () => {
+    const spy = vi.fn(async (params: GenerateArgs) => {
+      expect(params.config?.maxOutputTokens).toBe(7);
+      return res({
+        text: 'grounded output',
+        usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 3, totalTokenCount: 23 },
+      });
+    });
+    const meter = createResearchUsageMeter({
+      maxRequests: 1,
+      maxInputTokens: 10_000,
+      maxOutputTokens: 7,
+    });
+    const client = createGenAiClient({
+      apiKey: 'k',
+      groundedRpm: 0,
+      structureRpm: 0,
+      clientImpl: stub(spy),
+    });
+
+    await client.ground('meter this', { usageMeter: meter });
+
+    expect(meter.snapshot()).toEqual({
+      requests: 1,
+      inputTokens: 20,
+      outputTokens: 3,
+      complete: true,
+    });
+  });
+
+  it('preserves a provider usage overrun as a budget error without retrying it', async () => {
+    const spy = vi.fn(async () =>
+      res({
+        text: 'too much output',
+        usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 8, totalTokenCount: 28 },
+      }),
+    );
+    const meter = createResearchUsageMeter({
+      maxRequests: 3,
+      maxInputTokens: 10_000,
+      maxOutputTokens: 7,
+    });
+    const client = createGenAiClient({
+      apiKey: 'k',
+      groundedRpm: 0,
+      structureRpm: 0,
+      clientImpl: stub(spy),
+    });
+
+    await expect(client.ground('meter this', { usageMeter: meter })).rejects.toMatchObject({
+      code: 'BUDGET_EXCEEDED',
+      limit: 'output token',
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
   it('preserves the HTTP status from SDK errors so backoff behaves', async () => {

@@ -43,6 +43,7 @@ export function createHttpSearchConnector(config: HttpSearchConnectorConfig): Se
         init: request.init,
         fetchImpl: config.fetchImpl,
         signal: opts.signal,
+        usageMeter: opts.usageMeter,
       });
 
       let hits: readonly SearchHit[];

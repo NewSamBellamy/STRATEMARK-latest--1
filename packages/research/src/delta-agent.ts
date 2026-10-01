@@ -59,6 +59,7 @@ import type {
   LlmClient,
   MarketPlan,
   OnResearchEvent,
+  UsageMeter,
 } from './types';
 
 // ============================================================================
@@ -108,6 +109,7 @@ export interface DeltaSearchOptions {
   target?: number;
   exclude?: EntityExclusionInput;
   signal?: AbortSignal;
+  usageMeter?: UsageMeter;
   onEvent?: OnResearchEvent;
   customArrPerFte?: number;
   customFundingMultiplier?: number;
@@ -139,6 +141,7 @@ export interface ExpandDeckWithDeltaAgentArgs {
   target?: number;
   onEvent?: OnResearchEvent;
   signal?: AbortSignal;
+  usageMeter?: UsageMeter;
   customArrPerFte?: number;
   customFundingMultiplier?: number;
   includeUnknowns?: boolean;
@@ -508,6 +511,7 @@ export class IncrementalDeltaAgent {
     const grounded = await this.client.ground(groundPrompt, {
       system: GROUNDED_SYSTEM,
       signal: options.signal,
+      usageMeter: options.usageMeter,
     });
 
     throwIfAborted(options.signal);
@@ -516,7 +520,7 @@ export class IncrementalDeltaAgent {
     const structured = await this.client.structure(
       structureDiscoveryPrompt(grounded.text, translated.discoveryFocus),
       discoveryOutSchema,
-      { system: STRUCTURE_SYSTEM, signal: options.signal },
+      { system: STRUCTURE_SYSTEM, signal: options.signal, usageMeter: options.usageMeter },
     );
 
     // 5. Diffing, Filtering & Candidate Deduplication
@@ -612,6 +616,7 @@ export class IncrementalDeltaAgent {
         deckId: this.context.deckId,
         userFootprintCohort: this.context.userFootprintCohort,
         signal: options.signal,
+        usageMeter: options.usageMeter,
         includeUnknowns: options.includeUnknowns ?? true,
         customArrPerFte: options.customArrPerFte,
         customFundingMultiplier: options.customFundingMultiplier,
@@ -637,7 +642,11 @@ export class IncrementalDeltaAgent {
               evidence,
             ),
             tierReviewOutSchema,
-            { system: STRUCTURE_SYSTEM, signal: options.signal },
+            {
+              system: STRUCTURE_SYSTEM,
+              signal: options.signal,
+              usageMeter: options.usageMeter,
+            },
           );
 
           if (review.nudge !== 0 || review.reason) {
@@ -760,6 +769,7 @@ export async function expandDeckWithDeltaAgent(
     target: args.target ?? 3,
     exclude: excludeItems,
     signal: args.signal,
+    usageMeter: args.usageMeter,
     onEvent: args.onEvent,
     customArrPerFte: args.customArrPerFte,
     customFundingMultiplier: args.customFundingMultiplier,

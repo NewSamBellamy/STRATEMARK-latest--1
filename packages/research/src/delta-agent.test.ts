@@ -9,6 +9,7 @@ import {
   normalizeEntityName,
   translateExpandFocus,
 } from './delta-agent';
+import { createResearchUsageMeter } from './usage-meter';
 
 function fakeClient(mockOverrides?: {
   discoveryCompanies?: Array<{
@@ -445,6 +446,40 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
 
     expect(cards.length).toBeGreaterThan(0);
     expect(client.ground).toHaveBeenCalled();
+  });
+
+  it('propagates one usage meter through discovery, hydration, and tier review', async () => {
+    const client = fakeClient({
+      discoveryCompanies: [
+        {
+          name: 'Metered Labs',
+          domain: 'metered.example',
+          descriptor: 'Metered research company',
+          cardTypes: ['company'],
+        },
+      ],
+    });
+    const usageMeter = createResearchUsageMeter({
+      maxRequests: 20,
+      maxInputTokens: 1_000_000,
+      maxOutputTokens: 100_000,
+    });
+
+    await expandDeckWithDeltaAgent({
+      client,
+      marketName: 'Metered Market',
+      vertical: 'technology',
+      deckId: 'deck_metered',
+      target: 1,
+      usageMeter,
+    });
+
+    expect(
+      vi.mocked(client.ground).mock.calls.every((call) => call[1]?.usageMeter === usageMeter),
+    ).toBe(true);
+    expect(
+      vi.mocked(client.structure).mock.calls.every((call) => call[2]?.usageMeter === usageMeter),
+    ).toBe(true);
   });
 
   it('applies LLM tier review nudges to adjust base tier and attach reason', async () => {

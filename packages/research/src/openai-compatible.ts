@@ -3,6 +3,7 @@ import { fetchProviderJson } from './provider-http';
 import { normalizeHttpUrl } from './sources';
 import { ResearchProviderError, type CallOptions, type IntelligenceModel } from './types';
 import { extractJson } from './util';
+import { inputTokenUpperBound } from './usage-meter';
 
 export interface OpenAiCompatibleConfig {
   /** API root; `/chat/completions` is appended. */
@@ -17,7 +18,10 @@ export interface OpenAiCompatibleConfig {
 
 interface ChatCompletionsResponse {
   choices?: Array<{ message?: { content?: string | null } }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
 }
+
+const MAX_OUTPUT_TOKENS_PER_CALL = 8_192;
 
 export function createOpenAiCompatibleModel(config: OpenAiCompatibleConfig): IntelligenceModel {
   const model = (config.structureModel ?? config.model).trim();
@@ -67,6 +71,22 @@ export function createOpenAiCompatibleModel(config: OpenAiCompatibleConfig): Int
         fetchImpl: config.fetchImpl,
         signal: opts?.signal,
         timeoutMs: 60_000,
+        usageMeter: opts?.usageMeter,
+        usage: {
+          kind: 'model',
+          estimatedInputTokens: inputTokenUpperBound(body),
+          maxOutputTokens: MAX_OUTPUT_TOKENS_PER_CALL,
+          bodyWithOutputLimit: (maxOutputTokens) =>
+            JSON.stringify({ ...body, max_tokens: maxOutputTokens }),
+          report: (value) =>
+            typeof value.usage?.prompt_tokens === 'number' &&
+            typeof value.usage?.completion_tokens === 'number'
+              ? {
+                  inputTokens: value.usage.prompt_tokens,
+                  outputTokens: value.usage.completion_tokens,
+                }
+              : undefined,
+        },
       });
       const content = response.choices?.[0]?.message?.content?.trim();
       if (!content) {
