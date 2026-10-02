@@ -110,7 +110,6 @@ export function CardGrid({
         onOpenChange={(o) => {
           if (!o) setActiveId(null);
         }}
-        deckUserValues={deckUserValues}
         marketId={marketId}
         deckView={deckView.toString()}
         position={activeIndex >= 0 ? activeIndex + 1 : undefined}

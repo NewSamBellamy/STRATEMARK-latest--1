@@ -96,6 +96,9 @@ describe('collectible card evidence model', () => {
     ]);
     expect(result.profileMetrics[1]!.label).toBe('Annual revenue');
     expect(result.profileMetrics[2]!.label).toBe('GitHub stars');
+    expect(result.profileMetrics[1]!.label).not.toBe('ARR');
+    const runRate = view([metric({ id: 'run-rate', metricType: 'arr', value: 70_000_000, methodNote: 'Annualized revenue run-rate' })]);
+    expect(runRate.profileMetrics[1]!.label).toBe('Revenue run-rate');
   });
   it('shows unknown placeholders instead of hiding missing core facts or assigning an unsupported position', () => {
     const result = view([]);

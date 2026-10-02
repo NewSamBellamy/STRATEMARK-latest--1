@@ -29,12 +29,11 @@ export function CollectibleCard({
     value && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
   const accent = color(brand?.primary, PALETTES[hash % PALETTES.length]!);
   const highlight = color(brand?.accent, accent);
-  const serial = hash.toString(16).slice(-4).toUpperCase().padStart(4, '0');
   const stage = view.maturity?.label ?? view.position;
   const provenance = view.signal
     ? `${view.citations.length} ${view.citations.length === 1 ? 'source' : 'sources'}`
     : view.sourcedCount > 0
-      ? `${view.sourcedCount} sourced ${view.sourcedCount === 1 ? 'fact' : 'facts'}`
+      ? `${view.sourcedCount} sourced ${view.sourcedCount === 1 ? 'figure' : 'figures'}`
       : 'Research needed';
 
   return (
@@ -45,8 +44,7 @@ export function CollectibleCard({
     >
       <div className="collectible__paper">
         <div className="collectible__edition">
-          <span>STRATEMARK / RESEARCH</span>
-          <span>{serial}</span>
+          <span>STRATEMARK</span>
         </div>
         <div className="collectible__art" aria-hidden="true">
           {view.signal ? (
@@ -67,7 +65,6 @@ export function CollectibleCard({
             </div>
           )}
           <span className="collectible__art-label">{view.type}</span>
-          <span className="collectible__art-index">FIELD NOTE / {serial}</span>
         </div>
         <div className="collectible__identity">
           <span className="collectible__eyebrow">
@@ -94,7 +91,9 @@ export function CollectibleCard({
               >
                 <span className="collectible__metric-value">{m.display}</span>
                 <span className="collectible__metric-label">{m.label}</span>
-                <span className="collectible__confidence">{m.confidence}</span>
+                <span className="collectible__confidence">
+                  {m.metric?.confidence === 'user_verified' ? 'Human checked' : m.citations.length ? 'Source linked' : 'Not confirmed'}
+                </span>
               </div>
             ))}
           </div>

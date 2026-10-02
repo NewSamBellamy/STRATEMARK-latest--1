@@ -27,9 +27,9 @@ test('full journey: markets → deck → 2-level split → card reader → dashb
   // Open a card → reader → dashboard.
   await page.getByRole('button', { name: /OpenAI/ }).first().click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByRole('tab', { name: 'Maturity' }).click();
-  await expect(dialog.getByText('Company Maturity Score')).toBeVisible();
-  await dialog.getByRole('link', { name: /explore research/i }).click();
+  await expect(dialog.getByRole('tab')).toHaveCount(0);
+  await expect(dialog.getByRole('region', { name: 'Core company figures' })).toBeVisible();
+  await dialog.getByRole('link', { name: /open full company dashboard/i }).click();
 
   // Dashboard tabs.
   await expect(page.getByText('At a glance')).toBeVisible();

@@ -13,7 +13,7 @@ function profileLabel(key: string, metric: CompanyMetric | undefined): string {
   if (key === 'employees') return 'Employees';
   if (key === 'revenue') {
     const note = metric?.methodNote?.toLowerCase() ?? '';
-    if (/\brun[- ]?rate\b/.test(note)) return 'Run-rate';
+    if (/\brun[- ]?rate\b/.test(note)) return 'Revenue run-rate';
     if (/\bannual revenue\b/.test(note)) return 'Annual revenue';
     if (/\barr\b|recurring revenue/.test(note)) return 'ARR';
     return 'Revenue / ARR';
@@ -76,9 +76,10 @@ export function buildCardView(data: CardWithCompany) {
         { key: 'company_value', types: ['valuation', 'market_cap'] as MetricType[] },
       ].map(({ key, types }) => {
         const candidates = types.flatMap((type) => metrics.filter((m) => m.metric.metricType === type));
-        const confirmed = candidates.find((m) =>
-          m.metric.value != null && m.metric.confidence !== 'estimated'
-        );
+        const confirmed = candidates.find((m) => m.metric.value != null && (
+          m.metric.confidence === 'user_verified' ||
+          (m.metric.confidence === 'verified' && m.citations.length > 0)
+        ));
         if (confirmed) return { ...confirmed, key, label: profileLabel(key, confirmed.metric) };
         const estimate = candidates.find((m) => m.metric.value != null);
         if (estimate) {

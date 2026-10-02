@@ -81,10 +81,10 @@
 }
 .collectible__edition {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   padding: 10px 12px;
-  font: 650 8px/1.2 sans-serif;
-  letter-spacing: 1.55px;
+  font: 700 8px/1.2 'Parkinsans', sans-serif;
+  letter-spacing: 0.7px;
   color: #465850;
 }
 .collectible__art {
@@ -143,15 +143,6 @@
   font-weight: 650;
   letter-spacing: 1px;
   text-transform: uppercase;
-}
-.collectible__art-index {
-  position: absolute;
-  z-index: 1;
-  right: 12px;
-  bottom: 10px;
-  color: #53615a;
-  font-size: 7px;
-  letter-spacing: 1.25px;
 }
 .collectible__signal-art {
   position: absolute;
@@ -358,35 +349,153 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   padding: 15px 10px 8px 0;
 }
-.card-inspector__intro {
+.card-inspector__summary {
+  display: grid;
+  gap: 5px;
+  margin-top: 14px;
+}
+.card-inspector__summary-text {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   overflow: hidden;
 }
-.card-inspector__tabs {
+.card-inspector__site {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 5px;
+  color: rgb(var(--c-primary-ink));
+  font-size: 10px;
+}
+.card-inspector__site:hover,
+.card-inspector__summary-sources a:hover,
+.card-inspector__fact-meta a:hover,
+.card-inspector__findings a:hover,
+.card-inspector__source-list a:hover {
+  text-decoration: underline;
+}
+.card-inspector__summary-sources {
   display: flex;
-  gap: 18px;
-  border-bottom: 1px solid rgb(var(--c-border));
-  margin: 24px 0 18px;
-}
-.card-inspector__tab {
-  padding-bottom: 10px;
-  border-bottom: 2px solid transparent;
-  font-size: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
   color: rgb(var(--c-muted));
+  font-size: 9px;
 }
-.card-inspector__tab[data-state='active'] {
-  border-color: rgb(var(--c-primary));
+.card-inspector__summary-sources a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: rgb(var(--c-primary-ink));
+}
+.card-inspector__summary-warning {
+  color: rgb(var(--c-muted));
+  font-size: 9px;
+}
+.card-inspector__fact-section {
+  margin-top: 15px;
+}
+.card-inspector__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.card-inspector__fact {
+  min-width: 0;
+  padding: 9px 10px 8px;
+  border: 1px solid rgb(var(--c-border));
+  border-radius: 9px;
+  background: rgb(var(--c-surface-2));
+}
+.card-inspector__fact-label {
+  display: block;
+  color: rgb(var(--c-muted));
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.card-inspector__fact-value {
+  display: block;
+  margin-top: 3px;
   color: rgb(var(--c-content));
+  font-family: 'Parkinsans', sans-serif;
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
-.card-inspector__panel {
+.card-inspector__fact-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 8px;
+  margin-top: 6px;
+  color: rgb(var(--c-muted));
+  font-size: 9px;
+  line-height: 1.25;
+}
+.card-inspector__fact-meta a,
+.card-inspector__findings a,
+.card-inspector__source-list a {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  color: rgb(var(--c-primary-ink));
+}
+.card-inspector__fact-meta a span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-inspector__trust-note {
+  margin-top: 6px;
+  color: rgb(var(--c-muted));
+  font-size: 9px;
+  line-height: 1.35;
+}
+.card-inspector__signals {
+  display: grid;
+  gap: 10px;
+  margin-top: 15px;
   min-height: 0;
-  flex: 1;
-  overflow-y: auto;
-  padding-right: 8px;
+  overflow: hidden;
+}
+.card-inspector__findings {
+  display: grid;
+  gap: 8px;
+}
+.card-inspector__findings li {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgb(var(--c-border));
+  border-radius: 8px;
+  color: rgb(var(--c-content));
+  font-size: 11px;
+  line-height: 1.4;
+}
+.card-inspector__findings li p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.card-inspector__findings a,
+.card-inspector__source-list a {
+  margin-top: 5px;
+  font-size: 10px;
+}
+.card-inspector__source-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
 }
 .card-inspector__cta {
   display: flex;
@@ -394,7 +503,8 @@
   justify-content: space-between;
   padding: 14px 18px;
   border-radius: 9px;
-  margin-top: 20px;
+  margin-top: auto;
+  flex-shrink: 0;
   background: #213e33;
   color: #f5f8ee;
   font-size: 13px;
@@ -406,6 +516,14 @@
 .card-inspector__cta:focus-visible {
   outline: 3px solid rgb(var(--c-primary));
   outline-offset: 3px;
+}
+.card-inspector__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 @media (max-width: 720px) {
@@ -421,6 +539,7 @@
   }
   .card-inspector__detail {
     padding: 4px;
+    overflow: visible;
   }
   .card-stage {
     padding: 20px;
@@ -428,13 +547,71 @@
   .card-stage__perspective {
     max-width: 270px;
   }
-  .card-inspector__panel {
-    max-height: none;
-    min-height: 0;
-    overflow: visible;
+  .card-inspector__cta {
+    margin-top: 16px;
   }
   .collectible__name {
     font-size: 19px;
+  }
+}
+@media (max-height: 600px) and (min-width: 721px) {
+  .card-inspector {
+    height: calc(100vh - 28px);
+    padding: 14px !important;
+  }
+  .card-inspector__layout {
+    gap: 18px;
+  }
+  .card-inspector__detail {
+    padding: 4px 4px 2px 0;
+  }
+  .card-inspector__detail h2 {
+    margin-top: 8px;
+    font-size: 21px;
+    line-height: 1.12;
+  }
+  .card-inspector__summary {
+    gap: 3px;
+    margin-top: 8px;
+  }
+  .card-inspector__fact-section,
+  .card-inspector__signals {
+    margin-top: 8px;
+  }
+  .card-inspector__facts {
+    gap: 5px;
+    margin-top: 5px;
+  }
+  .card-inspector__fact {
+    padding: 6px 8px;
+  }
+  .card-inspector__fact-value {
+    margin-top: 2px;
+    font-size: 18px;
+  }
+  .card-inspector__fact-meta {
+    gap: 2px 6px;
+    margin-top: 4px;
+    font-size: 8px;
+    line-height: 1.15;
+  }
+  .card-inspector__trust-note {
+    margin-top: 4px;
+    font-size: 8px;
+    line-height: 1.25;
+  }
+  .card-inspector__findings {
+    gap: 5px;
+  }
+  .card-inspector__findings li {
+    padding: 7px 8px;
+    line-height: 1.3;
+  }
+  .card-inspector__cta {
+    padding: 10px 14px;
+  }
+  .card-inspector__actions {
+    margin-top: 8px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
