@@ -143,7 +143,9 @@ export function Logo({
     // source and is usually vector, so there's nothing better to look for.
     const preferredLogo = knownCompanyLogoUrl(name) ?? logoUrl;
     const preferred = preferredLogo ? [preferredLogo + (bust ? (preferredLogo.includes('?') ? `&${bust}` : `?${bust}`) : '')] : [];
-    const domain = domainOf(website) ?? knownCompanyDomain(name);
+    // A reviewed alias beats a model-researched URL. The latter may point at a
+    // product, regional site, or similarly named company and return the wrong mark.
+    const domain = knownCompanyDomain(name) ?? domainOf(website);
     if (!domain) return preferred;
     // NOTE: icon.horse is deliberately absent (returns its own grey placeholder
     // with HTTP 200) and gstatic runs WITHOUT fallback_opts (so it 404s instead

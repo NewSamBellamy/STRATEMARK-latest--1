@@ -40,12 +40,29 @@ const COMPANY_DOMAIN_ALIASES: Array<{
   wikidataName: string;
   logoUrl?: string;
 }> = [
+  { domain: 'openai.com', aliases: ['openai', 'openai inc'], wikidataName: 'OpenAI' },
+  { domain: 'anthropic.com', aliases: ['anthropic', 'anthropic pbc'], wikidataName: 'Anthropic' },
+  {
+    domain: 'deepmind.google',
+    aliases: ['deepmind', 'google deepmind'],
+    wikidataName: 'Google DeepMind',
+  },
   {
     domain: 'meta.com',
     aliases: ['meta', 'meta platforms', 'meta platforms inc', 'meta ai'],
     wikidataName: 'Meta Platforms',
     // Verified Meta mark from the P8972 Wikidata record / Commons source.
     logoUrl: 'https://commons.wikimedia.org/wiki/Special:FilePath/Meta_Platforms_Inc._logo_(cropped).svg',
+  },
+  { domain: 'x.ai', aliases: ['xai'], wikidataName: 'xAI' },
+  { domain: 'mistral.ai', aliases: ['mistral', 'mistral ai'], wikidataName: 'Mistral AI' },
+  { domain: 'cohere.com', aliases: ['cohere'], wikidataName: 'Cohere' },
+  { domain: 'deepseek.com', aliases: ['deepseek', 'deepseek ai'], wikidataName: 'DeepSeek' },
+  { domain: 'moonshot.ai', aliases: ['moonshot', 'moonshot ai'], wikidataName: 'Moonshot AI' },
+  {
+    domain: 'ssi.inc',
+    aliases: ['safe superintelligence', 'safe superintelligence inc'],
+    wikidataName: 'Safe Superintelligence Inc.',
   },
   { domain: 'minimax.io', aliases: ['minimax', 'minimax group', 'minimax group inc'], wikidataName: 'MiniMax Group' },
   { domain: 'z.ai', aliases: ['z ai', 'zhipu ai'], wikidataName: 'Zhipu AI' },

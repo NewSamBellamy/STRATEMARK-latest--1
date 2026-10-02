@@ -1,5 +1,6 @@
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import type { CardWithCompany } from '@mi/contracts';
+import { deriveTriad } from '@/lib/brand';
 import { buildCardView, type CardView } from './card-view';
 import { Logo } from './Logo';
 import { MarketCardArt } from './MarketCardArt';
@@ -22,13 +23,24 @@ export function CollectibleCard({
   onLogoAvailabilityChange?: (available: boolean) => void;
 }) {
   const hash = Array.from(view.title).reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 0);
+  const companyKey = data.company?.id ?? view.title;
+  const [extractedBrand, setExtractedBrand] = useState<{ key: string; color: string } | null>(null);
+  const logoColor = extractedBrand?.key === companyKey ? extractedBrand.color : null;
   const brand = ['scraped', 'manual'].includes(data.company?.brandTheme?.source ?? '')
     ? data.company?.brandTheme
     : null;
-  const color = (value: string | undefined, fallback: string) =>
-    value && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
-  const accent = color(brand?.primary, PALETTES[hash % PALETTES.length]!);
-  const highlight = color(brand?.accent, accent);
+  const triad = deriveTriad(brand ?? null, logoColor);
+  const hasBrandEvidence = Boolean(logoColor || brand?.primary);
+  const accent = view.signal
+    ? PALETTES[hash % PALETTES.length]!
+    : hasBrandEvidence
+      ? triad.primary
+      : '#46524e';
+  const highlight = view.signal
+    ? accent
+    : hasBrandEvidence
+      ? triad.accent
+      : '#6a756f';
   const stage = view.maturity?.label ?? view.position;
   const provenance = view.signal
     ? `${view.citations.length} ${view.citations.length === 1 ? 'source' : 'sources'}`
@@ -59,6 +71,7 @@ export function CollectibleCard({
                 bare
                 logoUrl={logoUrlOverride ?? data.company?.logoUrl}
                 retryNonce={logoRetryNonce}
+                onColor={(color) => setExtractedBrand({ key: companyKey, color })}
                 onAvailabilityChange={onLogoAvailabilityChange}
                 className="h-full w-full"
               />
