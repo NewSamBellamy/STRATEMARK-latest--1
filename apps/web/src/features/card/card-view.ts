@@ -9,6 +9,32 @@ const LABELS: Record<MetricType, string> = {
 };
 const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 
+function sentences(value: string | null | undefined): string[] {
+  const normalized = value?.replace(/\s+/g, ' ').trim();
+  if (!normalized) return [];
+  return (normalized.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [normalized])
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function uniqueLines(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  return values.flatMap(sentences).filter((line) => {
+    const key = line.toLocaleLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function frontTitle(value: string): string {
+  if (value.length <= 64) return value;
+  const withoutParenthetical = value.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  if (withoutParenthetical.length > 0 && withoutParenthetical.length <= 64) return withoutParenthetical;
+  const firstClause = withoutParenthetical.split(/\s+(?:—|–|vs\.)\s+|:\s+/i)[0]?.trim();
+  return firstClause && firstClause.length >= 16 && firstClause.length <= 64 ? firstClause : value;
+}
+
 function profileLabel(key: string, metric: CompanyMetric | undefined): string {
   if (key === 'employees') return 'Employees';
   if (key === 'revenue') {
@@ -120,13 +146,31 @@ export function buildCardView(data: CardWithCompany) {
     ? { tier: data.card.tier, label: TIER_LABELS[data.card.tier] } : null;
   const position = signal ? 'Market signal' : data.card.cardType !== 'company' ? 'Entity profile' : !maturity ? 'Stage pending' :
     sourcedCount >= 2 ? `Maturity · T${maturity.tier}` : `Indicative · T${maturity.tier}`;
+  const viceCitations = data.viceClaims.flatMap((claim) => sourceUrl(claim.sourceUrl)
+    ? [{ url: claim.sourceUrl, title: claim.sourceTitle || 'Source' }]
+    : []);
+  const citations = usableCitations([
+    ...(data.card.citations ?? []).filter((c) => sourceUrl(c.url)),
+    ...viceCitations,
+    ...metrics.flatMap((m) => m.citations),
+  ]);
+  const signalLines = signal ? uniqueLines([
+    data.card.summary,
+    ...data.viceClaims.map((claim) => claim.claimText),
+    ...data.card.keyPoints,
+  ]) : [];
+  const description = signal
+    ? data.card.summary ?? data.viceClaims[0]?.claimText ?? data.card.keyPoints[0] ?? null
+    : data.company?.oneLiner;
+  const title = data.company?.name ?? data.card.title ?? 'Research card';
   return {
-    title: data.company?.name ?? data.card.title ?? 'Research card',
-    description: signal ? data.card.summary : data.company?.oneLiner,
+    title,
+    frontTitle: signal ? frontTitle(title) : title,
+    description,
+    frontDescription: signal ? signalLines[0] ?? null : description,
+    frontFinding: signal ? signalLines[1] ?? null : null,
     type: CARD_TYPE_LABELS[data.card.cardType], signal, maturity, position, metrics,
-    profileMetrics, knownCount, sourcedCount,
-    citations: usableCitations([...(data.card.citations ?? []).filter((c) => sourceUrl(c.url)),
-      ...metrics.flatMap((m) => m.citations)]),
+    profileMetrics, knownCount, sourcedCount, sourceCount: citations.length, citations,
   };
 }
 

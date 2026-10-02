@@ -42,7 +42,6 @@ function domainOf(website: string | null | undefined): string | null {
 const GOOD_ENOUGH_PX = 96;
 const MIN_USABLE_PX = 24;
 /** Below this the mark can't fill the window without visible blur. */
-const CRISP_PX = 64;
 /** Hard ceiling on upscaling — past ~2x, raster marks turn to mush. */
 const MAX_UPSCALE = 2;
 
@@ -77,6 +76,11 @@ interface Candidate {
   height: number;
   /** Vector art is sharp at ANY size, so resolution heuristics don't apply. */
   vector: boolean;
+}
+
+/** Honest 24px+ marks remain useful when capped at 2×; smaller tab icons do not. */
+export function isHeroLogoUsable(candidate: Pick<Candidate, 'width' | 'height' | 'vector'>): boolean {
+  return candidate.vector || Math.min(candidate.width, candidate.height) >= MIN_USABLE_PX;
 }
 
 const isSvg = (src: string): boolean => /\.svg(\?|$)|image\/svg/i.test(src);
@@ -135,7 +139,6 @@ export function Logo({
   /** Lets the card show a retry control only after every candidate has failed. */
   onAvailabilityChange?: (available: boolean) => void;
 }) {
-  const heroThreshold = knownCompanyDomain(name) === 'minimax.io' ? 32 : CRISP_PX;
   const sources = useMemo(() => {
     const bust = retryNonce > 0 ? `r=${retryNonce}` : '';
     const q = (sep: string) => (bust ? `${sep}${bust}` : '');
@@ -186,14 +189,14 @@ export function Logo({
       }
       if (!cancelled) {
         setSettled(true);
-        onAvailabilityChange?.(Boolean(winner && (winner.vector || winner.width >= (bare ? heroThreshold : MIN_USABLE_PX))));
+        onAvailabilityChange?.(Boolean(winner && (bare ? isHeroLogoUsable(winner) : winner.vector || winner.width >= MIN_USABLE_PX)));
       }
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, bare, heroThreshold, onAvailabilityChange]);
+  }, [key, bare, onAvailabilityChange]);
 
   // Brand-color extraction runs on the winning source only.
   useEffect(() => {
@@ -210,7 +213,7 @@ export function Logo({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [best?.src]);
 
-  const usable = best && (best.vector || best.width >= (bare ? heroThreshold : MIN_USABLE_PX)) ? best : null;
+  const usable = best && (bare ? isHeroLogoUsable(best) : best.vector || best.width >= MIN_USABLE_PX) ? best : null;
 
   return (
     <div

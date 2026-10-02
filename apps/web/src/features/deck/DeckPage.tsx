@@ -51,6 +51,7 @@ import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
 import { CardGrid } from './CardGrid';
 import { TierBadge } from '@/features/card/TierBadge';
+import { deckActionPolicy } from './deck-actions';
 
 /** Human count noun per card type — fixes the old "20 company companies" bug. */
 function cardCountNoun(type: CardType, count: number): string {
@@ -129,6 +130,7 @@ export default function DeckPage() {
   const [params, setParams] = useSearchParams();
   const split = params.get('split'); // 'types' | 'company' | null
   const typeParam = params.get('type') as CardType | null;
+  const actionPolicy = deckActionPolicy(typeParam);
 
   const all = useMemo(() => cards.data ?? [], [cards.data]);
   // A market whose deck record is gone (or a stale link) must NEVER render a
@@ -199,17 +201,26 @@ export default function DeckPage() {
               className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
               disabled={!deckId}
               onClick={() =>
-                deckId &&
-                chat(
-                  { kind: 'deck', deckId },
-                  { placeholder: 'Ask about this market…' },
-                )
+                deckId && (actionPolicy.compare
+                  ? chat(
+                    { kind: 'deck', deckId },
+                    { placeholder: 'Ask about this market…' },
+                  )
+                  : chat(
+                    {
+                      kind: 'cards',
+                      deckId,
+                      cardIds: all.filter((item) => item.card.cardType === typeParam).map((item) => item.card.id),
+                      subject: typeParam ? `${CARD_TYPE_LABELS[typeParam]} findings` : 'market findings',
+                    },
+                    { placeholder: 'Ask about these findings…' },
+                  ))
               }
             >
               <MessagesSquare className="h-3.5 w-3.5" />
-              Ask
+              {actionPolicy.askLabel}
             </button>
-            <button
+            {actionPolicy.compare && <button
               type="button"
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2',
@@ -221,15 +232,15 @@ export default function DeckPage() {
             >
               <SquareMousePointer className="h-3.5 w-3.5" />
               {compare ? 'Cancel' : 'Compare'}
-            </button>
-            <Link
+            </button>}
+            {actionPolicy.briefing && <Link
               to={`/markets/${marketId}/briefing`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
               title="The Daily Briefing — the desk hunts the last 24h across every tracked company and unboxes it as an editorial report"
             >
               <Newspaper className="h-3.5 w-3.5" />
               Briefing
-            </Link>
+            </Link>}
             <button
               type="button"
               className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
@@ -539,7 +550,7 @@ export default function DeckPage() {
       )}
 
       {/* Compare mode action bar */}
-      {compare && (
+      {compare && actionPolicy.compare && (
         <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full border border-border bg-surface px-4 py-2.5 shadow-card">
           <span className="text-sm tabular-nums text-muted">
             {selected.size} card{selected.size === 1 ? '' : 's'} selected
@@ -750,17 +761,35 @@ function TypeNav({
         ))}
       </nav>
       {onToggleSplit && (
-        <button
-          type="button"
-          onClick={onToggleSplit}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2 mb-1',
-            split === 'company' && 'border-primary bg-primary/10 text-primary-ink',
-          )}
-        >
-          <Layers className="h-3.5 w-3.5" />
-          {split === 'company' ? 'Ungroup' : 'Group by Tier'}
-        </button>
+        <div className="mb-1 flex shrink-0 items-center gap-1.5">
+          <details className="group relative">
+            <summary className="cursor-pointer list-none rounded-lg px-2 py-1.5 text-[11px] font-medium text-muted hover:bg-surface-2 hover:text-content">
+              Tier guide
+            </summary>
+            <div className="absolute right-0 top-full z-30 mt-1 w-72 rounded-xl border border-border bg-surface p-3 shadow-card">
+              <p className="mb-2 text-[10px] leading-relaxed text-muted">
+                Tiers combine source-backed scale signals. Missing figures are excluded, never scored as zero.
+              </p>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                {[...MATURITY_TIERS].reverse().map((tier) => <div key={tier} className="flex items-baseline gap-1.5 text-[10px]">
+                  <strong className="w-5 text-content">T{tier}</strong>
+                  <span className="truncate text-muted">{TIER_LABELS[tier]}</span>
+                </div>)}
+              </div>
+            </div>
+          </details>
+          <button
+            type="button"
+            onClick={onToggleSplit}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2',
+              split === 'company' && 'border-primary bg-primary/10 text-primary-ink',
+            )}
+          >
+            <Layers className="h-3.5 w-3.5" />
+            {split === 'company' ? 'Ungroup' : 'Group by Tier'}
+          </button>
+        </div>
       )}
     </div>
   );

@@ -6,6 +6,13 @@ import { Logo } from './Logo';
 import { DEFAULT_CARD_ART, MarketCardArt } from './MarketCardArt';
 import './collectible.css';
 
+const SIGNAL_FINDING_LABEL = {
+  culture: 'Why it matters',
+  vice: 'Risk signal',
+  insight: 'Market evidence',
+  barrier: 'Barrier evidence',
+} as const;
+
 /** One evidence-led collectible face. Deeper research belongs in the inspector. */
 export function CollectibleCard({
   data,
@@ -40,10 +47,8 @@ export function CollectibleCard({
       ? triad.accent
       : '#6a756f';
   const stage = view.maturity?.label ?? view.position;
-  const provenance = view.signal
-    ? `${view.citations.length} ${view.citations.length === 1 ? 'source' : 'sources'}`
-    : view.sourcedCount > 0
-      ? `${view.sourcedCount} sourced ${view.sourcedCount === 1 ? 'figure' : 'figures'}`
+  const provenance = view.sourceCount > 0
+    ? `${view.sourceCount} ${view.sourceCount === 1 ? 'source' : 'sources'} tracked`
       : 'Research needed';
 
   return (
@@ -75,23 +80,21 @@ export function CollectibleCard({
               />
             </div>
           )}
-          <span className="collectible__art-label">{view.type}</span>
+          {!view.signal && <span className="collectible__art-label">{view.type}</span>}
         </div>
         <div className="collectible__identity">
           <span className="collectible__eyebrow">
             {view.signal ? view.type : data.company?.hqLocation?.trim() || 'Location unknown'}
           </span>
-          <span className="collectible__name">{view.title}</span>
-          {view.description && <p className="collectible__description">{view.description}</p>}
+          <span className="collectible__name">{view.frontTitle}</span>
+          {view.frontDescription && <p className="collectible__description">{view.frontDescription}</p>}
         </div>
-        {view.signal ? (
+        {view.signal && view.frontFinding ? (
           <div className="collectible__signal-copy">
             <span className="collectible__eyebrow">
-              {data.card.cardType === 'vice' ? 'Risk finding' : 'Market finding'}
+              {SIGNAL_FINDING_LABEL[data.card.cardType as keyof typeof SIGNAL_FINDING_LABEL] ?? 'Research finding'}
             </span>
-            <p>
-              {data.card.keyPoints[0] || 'Open the card to inspect the finding and its evidence.'}
-            </p>
+            <p>{view.frontFinding}</p>
           </div>
         ) : view.profileMetrics.length ? (
           <div className="collectible__metrics">

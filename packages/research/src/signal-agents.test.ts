@@ -21,6 +21,7 @@ import {
   researchCompanyVice,
   researchMarketInsights,
   researchMarketSignals,
+  resolveClaimCitations,
   resolveClaimCitation,
 } from './signal-agents';
 
@@ -214,6 +215,14 @@ describe('Signal Agents Deep Module', () => {
       expect(resolveClaimCitation(null, sampleCitations)).toEqual([]);
       expect(resolveClaimCitation(-1, sampleCitations)).toEqual([]);
       expect(resolveClaimCitation(99, sampleCitations)).toEqual([]);
+    });
+
+    it('retains multiple distinct source receipts for one market finding', () => {
+      const citations = resolveClaimCitations(0, [0, 1, 99], sampleCitations);
+      expect(citations.map((citation) => citation.url)).toEqual([
+        'https://reuters.com/article/ai-compute-moats',
+        'https://sec.gov/edgar/filings/10k',
+      ]);
     });
 
     it('extracts sourced vice claims dropping unsourced claims', () => {

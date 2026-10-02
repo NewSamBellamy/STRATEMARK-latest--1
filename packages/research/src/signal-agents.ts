@@ -29,6 +29,7 @@
 import { z } from 'zod';
 import {
   classifySource,
+  usableCitations,
   type Card,
   type CardWithCompany,
   type Company,
@@ -71,6 +72,7 @@ export interface RawMarketClaim {
   title: string;
   summary: string;
   sourceIndex: number | null;
+  sourceIndexes?: number[];
   keyPoints?: string[];
   category?: string;
 }
@@ -111,6 +113,7 @@ const rawClaimSchema = z.object({
   title: z.string().min(1),
   summary: z.string().default(''),
   sourceIndex: z.number().int().nullable().default(null),
+  sourceIndexes: z.array(z.number().int()).default([]),
   keyPoints: z.array(z.string()).default([]),
 });
 
@@ -187,14 +190,28 @@ export function deduplicateClaims<T extends { title: string }>(
 /**
  * Adjusts sourceIndex values when chaining multiple research passes.
  */
-export function offsetClaimSourceIndices<T extends { sourceIndex: number | null }>(
+export function offsetClaimSourceIndices<T extends { sourceIndex: number | null; sourceIndexes?: number[] }>(
   claims: T[],
   offset: number,
 ): T[] {
   return claims.map((claim) => ({
     ...claim,
     sourceIndex: claim.sourceIndex == null ? null : claim.sourceIndex + offset,
+    sourceIndexes: claim.sourceIndexes?.map((index) => index + offset),
   }));
+}
+
+/** Resolves all distinct, valid receipts attached to one finding. */
+export function resolveClaimCitations(
+  sourceIndex: number | null | undefined,
+  sourceIndexes: readonly number[] | null | undefined,
+  citations: readonly Citation[],
+): Citation[] {
+  const indices = Array.from(new Set([
+    ...(sourceIndex == null ? [] : [sourceIndex]),
+    ...(sourceIndexes ?? []),
+  ]));
+  return usableCitations(indices.flatMap((index) => resolveClaimCitation(index, citations)));
 }
 
 /**
@@ -470,11 +487,14 @@ export class BarrierToEntryAgent {
     const sourcesText =
       citations.map((c, i) => `[${i}] ${c.title} — ${c.url}`).join('\n') || '(none)';
     return [
-      `Convert the research notes into JSON: { "barriers": [ { "title": string, "summary": string, "sourceIndex": number | null, "keyPoints": string[] } ] }.`,
+      `Convert the research notes into JSON: { "barriers": [ { "title": string, "summary": string, "sourceIndex": number | null, "sourceIndexes": number[], "keyPoints": string[] } ] }.`,
       `Rules:`,
       `- Return 4-10 distinct structural barrier cards.`,
+      `- "title" is a plain-language card headline of 3-8 words (maximum 64 characters).`,
+      `- "summary" is exactly one concise sentence (maximum 160 characters) explaining the barrier.`,
       `- "sourceIndex" must be the 0-based index into SOURCES supporting the barrier. Null if unsourced.`,
-      `- "keyPoints" must contain 4-8 bullet points (1-2 sentences each) with concrete specifics: metrics, regulatory names, capital requirements, dates, and named entities.`,
+      `- "sourceIndexes" contains every additional listed source that directly supports the barrier; use distinct valid indexes only.`,
+      `- "keyPoints" must contain 4-8 one-sentence points with concrete specifics: metrics, regulatory names, capital requirements, dates, and named entities. Put the strongest card-worthy evidence first.`,
       `- Deduplicate overlapping barriers.`,
       ``,
       `SOURCES:`,
@@ -514,7 +534,7 @@ export class BarrierToEntryAgent {
     const cards: CardWithCompany[] = [];
 
     for (const item of deduplicated) {
-      const claimCitations = resolveClaimCitation(item.sourceIndex, grounded.citations);
+      const claimCitations = resolveClaimCitations(item.sourceIndex, item.sourceIndexes, grounded.citations);
       // Grounding discipline: drop unsupported claims lacking a real citation
       if (claimCitations.length === 0) continue;
 
@@ -585,11 +605,14 @@ export class MarketInsightAgent {
     const sourcesText =
       citations.map((c, i) => `[${i}] ${c.title} — ${c.url}`).join('\n') || '(none)';
     return [
-      `Convert the research notes into JSON: { "insights": [ { "title": string, "summary": string, "sourceIndex": number | null, "keyPoints": string[] } ] }.`,
+      `Convert the research notes into JSON: { "insights": [ { "title": string, "summary": string, "sourceIndex": number | null, "sourceIndexes": number[], "keyPoints": string[] } ] }.`,
       `Rules:`,
       `- Return 4-10 non-obvious macro insight cards.`,
+      `- "title" is a plain-language card headline of 3-8 words (maximum 64 characters).`,
+      `- "summary" is exactly one concise sentence (maximum 160 characters) explaining the insight.`,
       `- "sourceIndex" must be the 0-based index into SOURCES supporting the insight. Null if unsourced.`,
-      `- "keyPoints" must contain 4-8 bullet points (1-2 sentences each) explaining the underlying mechanism and evidence.`,
+      `- "sourceIndexes" contains every additional listed source that directly supports the insight; use distinct valid indexes only.`,
+      `- "keyPoints" must contain 4-8 one-sentence points explaining the mechanism and evidence. Put the strongest card-worthy evidence first.`,
       `- Deduplicate overlapping insight themes.`,
       ``,
       `SOURCES:`,
@@ -629,7 +652,7 @@ export class MarketInsightAgent {
     const cards: CardWithCompany[] = [];
 
     for (const item of deduplicated) {
-      const claimCitations = resolveClaimCitation(item.sourceIndex, grounded.citations);
+      const claimCitations = resolveClaimCitations(item.sourceIndex, item.sourceIndexes, grounded.citations);
       // Grounding discipline: drop unsupported claims lacking a real citation
       if (claimCitations.length === 0) continue;
 
@@ -687,6 +710,7 @@ export class CultureAgent {
   static formatStructurePrompt(groundedText: string): string {
     return [
       `From the notes, extract any notable community or culture signal as JSON: { "cultureNote": string | null }.`,
+      `When a signal exists, "cultureNote" must be exactly two concise sentences: what is documented, then why it matters (maximum 150 characters each).`,
       `If no distinct culture signal was found, return { "cultureNote": null }.`,
       ``,
       `NOTES:`,
@@ -778,6 +802,7 @@ export class ViceAgent {
       `Convert the research notes into JSON: { "viceClaims": [ { "text": string, "sourceIndex": number | null } ] }.`,
       `Rules:`,
       `- Every claim MUST have a sourceIndex pointing to a listed source in SOURCES.`,
+      `- Each claim is one plain-language sentence (maximum 180 characters) that names the concrete risk or event.`,
       `- Drop any rumor or unverified assertion.`,
       ``,
       `SOURCES:`,
@@ -902,10 +927,12 @@ export async function researchMarketSignals(
     });
 
     const structurePrompt = [
-      `From the notes, output JSON { "barriers": [ { "title", "summary", "sourceIndex", "keyPoints" } ], "insights": [ { "title", "summary", "sourceIndex", "keyPoints" } ] }.`,
+      `From the notes, output JSON { "barriers": [ { "title", "summary", "sourceIndex", "sourceIndexes", "keyPoints" } ], "insights": [ { "title", "summary", "sourceIndex", "sourceIndexes", "keyPoints" } ] }.`,
       `Return 4-10 distinct sourced items for each requested category. If the notes do not support four, return fewer rather than inventing.`,
+      `Every title is 3-8 words (maximum 64 characters); every summary is one concise sentence (maximum 160 characters).`,
       `"sourceIndex" is the 0-based index of the source that supports the point, or null if none of the listed sources do.`,
-      `"keyPoints" is 4-8 short entries (1-2 sentences each) carrying the substance behind the headline — concrete specifics drawn ONLY from the notes: figures, named companies, dates, mechanisms. No filler.`,
+      `"sourceIndexes" lists every additional distinct source index that directly supports the finding.`,
+      `"keyPoints" is 4-8 one-sentence entries carrying the substance behind the headline — concrete specifics drawn ONLY from the notes: figures, named companies, dates, mechanisms. Put the strongest card-worthy evidence first. No filler.`,
       ``,
       `SOURCES:`,
       grounded.citations.map((c, i) => `[${i}] ${c.title} — ${c.url}`).join('\n') || '(none)',
@@ -976,7 +1003,7 @@ export async function researchMarketSignals(
   const assembledCards: CardWithCompany[] = [];
 
   for (const barrier of deduplicatedBarriers) {
-    const claimCitations = resolveClaimCitation(barrier.sourceIndex, allCitations);
+    const claimCitations = resolveClaimCitations(barrier.sourceIndex, barrier.sourceIndexes, allCitations);
     if (claimCitations.length === 0) continue; // Grounding contract: drop unsourced cards
 
     assembledCards.push(
@@ -991,7 +1018,7 @@ export async function researchMarketSignals(
   }
 
   for (const insight of deduplicatedInsights) {
-    const claimCitations = resolveClaimCitation(insight.sourceIndex, allCitations);
+    const claimCitations = resolveClaimCitations(insight.sourceIndex, insight.sourceIndexes, allCitations);
     if (claimCitations.length === 0) continue; // Grounding contract: drop unsourced cards
 
     assembledCards.push(

@@ -82,4 +82,17 @@ describe('CollectibleCard illustrated defaults', () => {
       expect(front.getAttribute('style')).toBe(finish);
     },
   );
+
+  it('does not repeat the signal type over the artwork', () => {
+    renderWithProviders(<CollectibleCard data={{
+      card: { ...signalCard, cardType: 'culture', title: 'Open source stewardship' },
+      company: null,
+      metrics: [],
+      viceClaims: [],
+    }} />);
+
+    const front = screen.getByTestId('collectible-card-front');
+    expect(front.querySelector('.collectible__art-label')).toBeNull();
+    expect(front.querySelector('.collectible__eyebrow')).toHaveTextContent('Culture');
+  });
 });

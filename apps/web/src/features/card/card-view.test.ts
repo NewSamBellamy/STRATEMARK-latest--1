@@ -151,4 +151,52 @@ describe('collectible card evidence model', () => {
     expect(result.maturity).toBeNull();
     expect(result.signal).toBe(true);
   });
+
+  it('counts distinct source receipts rather than sourced metric fields', () => {
+    const result = view([
+      metric({ id: 'people', metricType: 'employees', value: 120, citations: [
+        { title: 'Annual report', url: 'https://example.com/annual', credibility: 'primary' },
+      ] }),
+      metric({ id: 'revenue', metricType: 'arr', value: 9_000_000, citations: [
+        { title: 'Annual report', url: 'https://example.com/annual', credibility: 'primary' },
+        { title: 'Press coverage', url: 'https://news.example.com/company', credibility: 'reputable_secondary' },
+      ] }),
+    ], { card: { ...card, citations: [
+      { title: 'Company profile', url: 'https://example.com/profile', credibility: 'primary' },
+    ] } });
+
+    expect(result.sourcedCount).toBe(2);
+    expect(result.sourceCount).toBe(3);
+  });
+
+  it('turns signal research into concise front-of-card lines and counts vice receipts', () => {
+    const result = buildCardView({
+      card: { ...card, cardType: 'vice', title: null, summary: null, citations: [], keyPoints: [] },
+      company,
+      metrics: [],
+      viceClaims: [{
+        id: 'vice-1', cardId: card.id,
+        claimText: 'A regulator opened a documented inquiry.',
+        sourceTitle: 'Regulator filing', sourceUrl: 'https://regulator.example.gov/filing',
+        capturedAt: '2026-10-01T00:00:00.000Z',
+      }],
+    });
+
+    expect(result.frontDescription).toBe('A regulator opened a documented inquiry.');
+    expect(result.frontFinding).toBeNull();
+    expect(result.sourceCount).toBe(1);
+  });
+
+  it('keeps parenthetical detail in the report while using a complete short card headline', () => {
+    const title = 'Bifurcation of Token Economics (The Sub-$1 Commodity Floor vs. High-End Inflation)';
+    const result = buildCardView({
+      card: { ...card, cardType: 'insight', companyId: null, title },
+      company: null,
+      metrics: [],
+      viceClaims: [],
+    });
+
+    expect(result.title).toBe(title);
+    expect(result.frontTitle).toBe('Bifurcation of Token Economics');
+  });
 });

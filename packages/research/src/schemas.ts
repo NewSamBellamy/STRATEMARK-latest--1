@@ -233,13 +233,14 @@ export const huntMetricsOutSchema = z.preprocess(
  * about the market rather than about a company, so they share a research call —
  * two card types for the price of one against a 15 RPM free-tier ceiling.
  *
- * `sourceIndex` points into the grounded citation list so each claim keeps its
- * evidence, the same discipline metrics and vice claims already follow.
+ * `sourceIndex` preserves the primary receipt; `sourceIndexes` retains every
+ * additional grounded source that directly supports the same finding.
  */
 const marketClaimSchema = z.object({
   title: z.string(),
   summary: z.string(),
   sourceIndex: z.number().int().nullable().default(null),
+  sourceIndexes: z.array(z.number().int()).default([]),
   /** The scannable substance behind the headline — 1-2 sentences each. */
   keyPoints: z.array(z.string()).default([]),
 });

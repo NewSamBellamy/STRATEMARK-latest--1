@@ -100,6 +100,19 @@ describe('CardReader', () => {
     expect(dialog.queryByRole('link', { name: /open full company dashboard/i })).not.toBeInTheDocument();
   });
 
+  it('expands a signal into a sourced, printable report without inventing new claims', async () => {
+    const cwc = hydrate((c) => c.cardType === 'insight');
+    const { user } = renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
+    const dialog = within(screen.getByRole('dialog'));
+
+    await user.click(dialog.getByRole('button', { name: /read full finding/i }));
+
+    expect(dialog.getByRole('region', { name: /full research finding/i })).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: /save as pdf/i })).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: /share report/i })).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: /ask ai about this finding/i })).toBeInTheDocument();
+  });
+
   it('keeps the card one-sided and preserves the selected card in its dashboard link', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} marketId="market-test" />);

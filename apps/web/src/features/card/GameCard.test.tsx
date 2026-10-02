@@ -110,7 +110,7 @@ describe('GameCard', () => {
 
   it('shows a sourced-risk indicator on a Vice card', () => {
     renderWithProviders(<GameCard data={hydrate(viceCard.id)} />);
-    expect(screen.getByText(/risk finding/i)).toBeInTheDocument();
+    expect(screen.getByText(/risk signal/i)).toBeInTheDocument();
   });
 
   it('renders a non-company Barrier card with its title, no metrics', () => {

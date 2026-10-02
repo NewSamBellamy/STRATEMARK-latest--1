@@ -245,6 +245,15 @@
   font-size: 9.5px;
   line-height: 1.38;
 }
+.collectible--signal .collectible__name {
+  -webkit-line-clamp: 3;
+  font-size: clamp(16px, 1.55vw, 19px);
+}
+.collectible--signal .collectible__description {
+  -webkit-line-clamp: 3;
+  font-size: 9px;
+  line-height: 1.35;
+}
 .collectible__metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -309,11 +318,37 @@
 .collectible__signal-copy p {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   overflow: hidden;
   margin-top: 6px;
   font-size: 10.5px;
   line-height: 1.45;
+}
+.card-inspector__read-more {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgb(var(--c-border));
+  border-radius: 10px;
+  color: rgb(var(--c-content));
+  background: rgb(var(--c-surface-2));
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+.card-inspector__read-more:hover {
+  border-color: color-mix(in srgb, rgb(var(--c-primary)) 45%, rgb(var(--c-border)));
+}
+.finding-report {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid rgb(var(--c-border));
+  border-radius: 12px;
+  background: rgb(var(--c-surface-2));
+  overflow-y: auto;
 }
 .collectible__foil {
   display: block;
