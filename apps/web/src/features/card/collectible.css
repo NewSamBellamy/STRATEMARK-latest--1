@@ -293,19 +293,32 @@
   padding: 24px;
   overflow: hidden;
   border-radius: 14px;
-  background: radial-gradient(ellipse at 50% 34%, #365049, #17302a 76%);
+  background:
+    radial-gradient(120% 80% at 50% -10%, #0c3a34 0%, transparent 58%),
+    radial-gradient(90% 60% at 82% 8%, #12312c 0%, transparent 62%),
+    #0c0e0d;
 }
 .card-stage::before {
   content: '';
   position: absolute;
+  z-index: -2;
+  top: -40%;
+  left: 50%;
+  width: min(1180px, 200%);
+  aspect-ratio: 1;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: url('../../assets/hero-bloom.png') center / 100% 100% no-repeat;
+  opacity: 0.85;
+}
+.card-stage::after {
+  content: '';
+  position: absolute;
   z-index: -1;
-  width: 420px;
-  height: 420px;
-  border: 1px solid #bfd0c21a;
-  border-radius: 50%;
-  box-shadow:
-    0 0 0 44px #bfd0c208,
-    0 0 0 88px #bfd0c207;
+  inset: 0;
+  pointer-events: none;
+  background: url('../../assets/hero-grain.png') repeat;
+  opacity: 0.5;
 }
 .card-stage__perspective {
   width: min(100%, 310px, calc(71vh - 108px));
@@ -319,7 +332,10 @@
 }
 .card-stage .collectible {
   box-shadow:
-    0 24px 40px -12px #0009,
+    0 3px 6px #00000030,
+    0 18px 38px -14px #0009,
+    0 36px 70px -24px #0007,
+    inset 0 1px 0 #ffffffb3,
     inset 0 0 0 1px #ffffff80;
 }
 
