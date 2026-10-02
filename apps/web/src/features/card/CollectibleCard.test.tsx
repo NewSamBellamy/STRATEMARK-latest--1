@@ -51,3 +51,35 @@ describe('CollectibleCard brand chrome', () => {
     expect(screen.getByTestId('collectible-card-front')).toHaveStyle('--card-accent: #d6724e');
   });
 });
+
+describe('CollectibleCard illustrated defaults', () => {
+  const signalCard = data.cards.find((card) => card.cardType === 'vice')!;
+
+  it.each(['vice', 'barrier', 'culture', 'insight'] as const)(
+    'keeps the %s artwork and finish consistent when research titles change',
+    (cardType) => {
+      const signal = {
+        card: { ...signalCard, cardType, title: 'First research finding' },
+        company: null,
+        metrics: [],
+        viceClaims: [],
+      };
+      const { rerender } = renderWithProviders(<CollectibleCard data={signal} />);
+      const front = screen.getByTestId('collectible-card-front');
+      const artwork = front.querySelector('.collectible__signal-art img');
+      const source = artwork?.getAttribute('src');
+      const finish = front.getAttribute('style');
+
+      expect(artwork).not.toBeNull();
+      rerender(
+        <CollectibleCard
+          data={{ ...signal, card: { ...signal.card, title: 'A completely different finding' } }}
+        />,
+      );
+
+      expect(screen.getByText('A completely different finding')).toBeInTheDocument();
+      expect(front.querySelector('.collectible__signal-art img')).toHaveAttribute('src', source);
+      expect(front.getAttribute('style')).toBe(finish);
+    },
+  );
+});

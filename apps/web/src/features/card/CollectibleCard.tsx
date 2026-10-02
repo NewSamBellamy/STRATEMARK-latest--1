@@ -3,10 +3,8 @@ import type { CardWithCompany } from '@mi/contracts';
 import { deriveTriad } from '@/lib/brand';
 import { buildCardView, type CardView } from './card-view';
 import { Logo } from './Logo';
-import { MarketCardArt } from './MarketCardArt';
+import { DEFAULT_CARD_ART, MarketCardArt } from './MarketCardArt';
 import './collectible.css';
-
-const PALETTES = ['#466b61', '#6b5f76', '#8a6b4e', '#4d667c', '#7e5b58', '#5d7455'];
 
 /** One evidence-led collectible face. Deeper research belongs in the inspector. */
 export function CollectibleCard({
@@ -22,7 +20,7 @@ export function CollectibleCard({
   logoUrlOverride?: string | null;
   onLogoAvailabilityChange?: (available: boolean) => void;
 }) {
-  const hash = Array.from(view.title).reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 0);
+  const artwork = DEFAULT_CARD_ART[data.card.cardType];
   const companyKey = data.company?.id ?? view.title;
   const [extractedBrand, setExtractedBrand] = useState<{ key: string; color: string } | null>(null);
   const logoColor = extractedBrand?.key === companyKey ? extractedBrand.color : null;
@@ -31,13 +29,13 @@ export function CollectibleCard({
     : null;
   const triad = deriveTriad(brand ?? null, logoColor);
   const hasBrandEvidence = Boolean(logoColor || brand?.primary);
-  const accent = view.signal
-    ? PALETTES[hash % PALETTES.length]!
+  const accent = artwork
+    ? artwork.accent
     : hasBrandEvidence
       ? triad.primary
       : '#46524e';
-  const highlight = view.signal
-    ? accent
+  const highlight = artwork
+    ? artwork.highlight
     : hasBrandEvidence
       ? triad.accent
       : '#6a756f';
@@ -50,7 +48,7 @@ export function CollectibleCard({
 
   return (
     <div
-      className={`collectible ${view.signal ? 'collectible--signal' : ''} ${view.maturity && view.maturity.tier >= 7 && view.sourcedCount >= 2 ? 'collectible--foil' : ''}`}
+      className={`collectible ${view.signal || artwork ? 'collectible--signal' : ''} ${view.maturity && view.maturity.tier >= 7 && view.sourcedCount >= 2 ? 'collectible--foil' : ''}`}
       style={{ '--card-accent': accent, '--card-highlight': highlight } as CSSProperties}
       data-testid="collectible-card-front"
     >
@@ -59,9 +57,9 @@ export function CollectibleCard({
           <span>STRATEMARK</span>
         </div>
         <div className="collectible__art" aria-hidden="true">
-          {view.signal ? (
+          {view.signal || artwork ? (
             <div className="collectible__signal-art">
-              <MarketCardArt type={data.card.cardType} seed={view.title} />
+              <MarketCardArt type={data.card.cardType} />
             </div>
           ) : (
             <div className="collectible__brand">
