@@ -1,6 +1,6 @@
 # Live quality and interface simplification
 
-October 1, 2026. Exploration branch only. Production acceptance: **not granted**. Final integration/recording evidence is required below.
+October 1, 2026. Exploration branch only. Application checkpoint: `da42f7a559df0640b44db6f6e124c1c60ea903c3`. Production acceptance: **not granted**.
 
 ## Delivered changes
 
@@ -36,8 +36,18 @@ Two funding claims were spot-checked against primary announcements: https://www.
 
 Dirty diagnostic recording checkpoints/live-review-m6nIEo passed actual desktop search, all four sections for all three second-run cards, saved-source viewing and narrow layout. Renderer HTTP disabled; monograms demonstrate offline fallback, not successful live logo loading. It exposed oversized titles and source-list clutter, prompting the final refinements.
 
-Still unaccepted: normal native first-run/cutover, consistent retained primary evidence, semantic claim validation, seven complete role/story destinations, native multi-provider setup, deeper questions, sharing, monitoring, MCP, signed packaging/recovery/update, accessibility/performance release checks. No90%-ready claim.
+Still unaccepted: normal native first-run/cutover, consistent retained primary evidence, semantic claim validation, seven complete role/story destinations, native multi-provider setup, deeper questions, sharing, monitoring, MCP, signed packaging/recovery/update, accessibility/performance release checks. The saved evidence endpoint exposes up to20links whereas a face may count more; clarify this subset/pagination in the next reader pass. Narrow reader identity/action copy still consumes substantial vertical space. No90%-ready claim.
 
 ## Final checkpoint evidence
 
-Final gate32364 exited0: all six typechecks, lint and1926reported tests (381contracts/16mocks/492research/158API/545desktop/334web). Log: outputs/live-quality/final-quality-gate-2.log. Prior gate68947 failed four stale composition-copy assertions after the honest source-link label changed; the matching expectation was corrected, then the full gate rerun. Optional no-key LLM checks are distinct from the three paid evaluations. Final build/clean commit/recording/backup still pending at this edit.
+Final gate32364 exited0: all six typechecks, lint and1926reported tests (381contracts/16mocks/492research/158API/545desktop/334web). Log: outputs/live-quality/final-quality-gate-2.log. Prior gate68947 failed four stale composition-copy assertions after the honest source-link label changed; the matching expectation was corrected, then the full gate rerun. Optional no-key LLM checks are distinct from the three paid evaluations.
+
+Final build87704 passed; log outputs/live-quality/final-build.log. Existing1.63MB entry-chunk performance warning remains. Final static review: no remaining scoped P1/P2 after scope/format repairs; not a full product/security audit.
+
+Both final recordings identify clean application da42f7a, dirty=false, failures=[]; desktop and narrow screenshots visually inspected:
+
+- [Actual live research review](C:/Users/shann/Documents/Codex/2026-09-28/i-x20/outputs/checkpoints/live-review-Hya4pe/live-research-review.webm), receipt in same directory. Third live run's original Mistral result intentionally still has one section; parser replay is separate, not a hidden historical rewrite. SHA256: 829C50FC5AAE6B787A41B9860ECDEF6B101B7296469EA9241D682CC86D64EC69.
+- Synthetic recovery journey, **not live research**: outputs/checkpoints/native-journey-g9TeVj/01-native-research-and-recovery.webm and02-reopen-and-seven-card-composition.webm. Actual desktop/IPC/SQLite, injected model responses. Covers failed-company preservation/subset retry, controls, search/filter, collection removal/Undo, keyless read-only reopen, seven compositions and narrow reduced motion. These are not seven complete research portals.
+- Synthetic video SHA256s: A1673A9184B4F9C8CECDB2814368317F1C8B96229124C307C819FC76328C8269; 98465332504A819FCA2A6028B285A60DB84E24CC99B2790E3811DF0C6BDCAC32.
+
+Personal exploration branch backup follows this documentation commit; verify its remote tip. Main was c945b31dee0095331b8487133c131c36e76ba601 before backup and must remain unchanged. No deploy/release or merge.

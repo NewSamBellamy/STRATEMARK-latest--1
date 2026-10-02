@@ -12,13 +12,13 @@ Integration: thinking-token accounting; business-first research/retention prompt
 
 ## Verification/ownership
 
-All workers returned ownership. Final bounded static review has no remaining P1/P2. Scope disclosure defect repaired; citation wrapper replay passed. Final gate32364 exited0, all six typechecks/lint and1926reported tests; log outputs/live-quality/final-quality-gate-2.log. Prior gate68947 failed only stale composition-copy expectations, corrected before full rerun. Build87704 is pending. Parent must finish clean app commit/recording/backup. Dirty diagnostic checkpoints/live-review-m6nIEo predates final refinements and is not final acceptance.
+All workers returned ownership. Final bounded static review has no remaining P1/P2. Scope disclosure defect repaired; citation wrapper replay passed. Final gate32364 exited0, all six typechecks/lint and1926reported tests; log outputs/live-quality/final-quality-gate-2.log. Build87704 passed with known1.63MB entry warning. Verified app da42f7a559df0640b44db6f6e124c1c60ea903c3: final clean actual live review61188 at checkpoints/live-review-Hya4pe and synthetic recovery journey15370 at checkpoints/native-journey-g9TeVj both dirty=false/failures=[]; screenshots inspected. CHECKPOINT-LIVE-QUALITY has paths/hashes/proof limits. No running worker/test/recording process remains. Personal branch backup follows this documentation commit; verify remote before new work.
 
 No paid process remains. Actual data lives outside checkout in outputs/live-quality/frontier-baseline-01, frontier-focused-02, frontier-retention-03. Never commit credentials, research outputs or recordings. live-research-eval.ts is opt-in/paid, not an automatic test. record-live-review.mjs reads completed evaluation vaults keylessly with renderer HTTP disabled and no model dispatch.
 
 ## Next
 
-1. Final gate/build, clean app commit, real recordings, screenshot/receipt inspection, fast-forward personal exploration branch backup. Update checkpoint with exact evidence. No main/origin/Tobi mutation.
+1. Inspect Git and verify personal exploration branch backup; app da42f7a is integrated and recorded. No main/origin/Tobi mutation. Do not repeat unchanged fixture checks as progress.
 2. Remaining real-quality defects: stale product examples, secondary sourcing, poor page retention, no claim-level support validation, no cross-market quality benchmark.
 3. Ordinary native first-run/provider setup, preserving legacy data with no silent migration. Role/story destinations, deeper questions, sharing, monitoring and MCP remain full R0–R8 scope. Current native entity briefs are not all-seven complete destinations.
 
