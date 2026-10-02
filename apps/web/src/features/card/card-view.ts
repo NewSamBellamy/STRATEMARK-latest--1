@@ -8,7 +8,33 @@ const LABELS: Record<MetricType, string> = {
   market_share: 'Market share', users: 'Users', employees: 'Employees',
 };
 const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
-const facePriority: MetricType[] = ['arr', 'market_cap', 'valuation', 'users', 'employees'];
+
+function profileLabel(key: string, metric: CompanyMetric | undefined): string {
+  if (key === 'employees') return 'Employees';
+  if (key === 'revenue') {
+    const note = metric?.methodNote?.toLowerCase() ?? '';
+    if (/\brun[- ]?rate\b/.test(note)) return 'Run-rate';
+    if (/\bannual revenue\b/.test(note)) return 'Annual revenue';
+    if (/\barr\b|recurring revenue/.test(note)) return 'ARR';
+    return 'Revenue / ARR';
+  }
+  if (key === 'reach') {
+    const note = metric?.methodNote?.toLowerCase() ?? '';
+    if (/\bgit\s?hub stars?\b/.test(note)) return 'GitHub stars';
+    if (/\b(downloads?|installs?)\b/.test(note)) return 'Installs / downloads';
+    if (/\bfollowers?\b/.test(note)) return 'Followers';
+    if (/\bcustomers?\b/.test(note) && !/\busers?\b/.test(note)) return 'Customers';
+    if (/\b(active|monthly|daily) users?\b/.test(note)) return 'Active users';
+    if (/\busers?\b/.test(note) && !/\bcustomers?\b/.test(note)) return 'Users';
+    return 'Users / customers';
+  }
+  if (key === 'company_value') {
+    if (metric?.metricType === 'market_cap') return 'Market cap';
+    if (metric?.metricType === 'valuation') return 'Valuation';
+    return 'Valuation / market cap';
+  }
+  return key;
+}
 
 /** A single read-only boundary for deck and inspection. Never updates stored research. */
 export function buildCardView(data: CardWithCompany) {
@@ -41,25 +67,55 @@ export function buildCardView(data: CardWithCompany) {
   });
   const knownCount = metrics.filter((m) => m.metric.value != null).length;
   const sourcedCount = metrics.filter((m) => m.metric.value != null && m.citations.length > 0).length;
-  // Face space goes to the strongest usable facts, not a fixed ARR/valuation template.
-  // Market share stays in Evidence until the research records its market scope.
-  const ranked = signal ? [] : metrics.filter((m) => m.metric.value != null &&
-    facePriority.includes(m.metric.metricType)).sort((a, b) => {
-    const strength = (m: typeof a) =>
-      (m.metric.confidence === 'user_verified' ? 6 : m.metric.confidence === 'verified' ? 4 : 2) +
-      (m.citations.length > 0 ? 1 : 0);
-    return strength(b) - strength(a) ||
-      facePriority.indexOf(a.metric.metricType) - facePriority.indexOf(b.metric.metricType);
-  });
-  const seen = new Set<string>();
-  const faceMetrics = ranked.filter((m) => {
-    const family = ['valuation', 'market_cap'].includes(m.metric.metricType) ? 'company_value' : m.metric.metricType;
-    if (seen.has(family)) return false;
-    seen.add(family);
-    return true;
-  }).slice(0, 2);
+  const profileMetrics = signal
+    ? []
+    : [
+        { key: 'employees', types: ['employees'] as MetricType[] },
+        { key: 'revenue', types: ['arr'] as MetricType[] },
+        { key: 'reach', types: ['users'] as MetricType[] },
+        { key: 'company_value', types: ['valuation', 'market_cap'] as MetricType[] },
+      ].map(({ key, types }) => {
+        const candidates = types.flatMap((type) => metrics.filter((m) => m.metric.metricType === type));
+        const confirmed = candidates.find((m) =>
+          m.metric.value != null && m.metric.confidence !== 'estimated'
+        );
+        if (confirmed) return { ...confirmed, key, label: profileLabel(key, confirmed.metric) };
+        const estimate = candidates.find((m) => m.metric.value != null);
+        if (estimate) {
+          return {
+            ...estimate,
+            key,
+            label: profileLabel(key, estimate.metric),
+            display: 'Unknown',
+            confidence: 'Unknown',
+            note: 'An estimate exists in research, but no confirmed company figure is available.',
+            citations: [],
+            metric: undefined,
+          };
+        }
+        const unknown = candidates[0];
+        if (unknown) {
+          return {
+            ...unknown,
+            key,
+            label: profileLabel(key, unknown.metric),
+            display: 'Unknown',
+            confidence: 'Unknown',
+            metric: undefined,
+          };
+        }
+        return {
+          key,
+          label: profileLabel(key, undefined),
+          display: 'Unknown',
+          confidence: 'Unknown',
+          note: 'No reliable figure is recorded yet.',
+          citations: [],
+          metric: undefined,
+        };
+      });
   const maturity = data.card.cardType === 'company' && !signal && data.card.tier != null &&
-    faceMetrics.some((m) => m.citations.length > 0)
+    profileMetrics.some((m) => m.metric?.value != null && m.citations.length > 0)
     ? { tier: data.card.tier, label: TIER_LABELS[data.card.tier] } : null;
   const position = signal ? 'Market signal' : data.card.cardType !== 'company' ? 'Entity profile' : !maturity ? 'Stage pending' :
     sourcedCount >= 2 ? `Maturity · T${maturity.tier}` : `Indicative · T${maturity.tier}`;
@@ -67,7 +123,7 @@ export function buildCardView(data: CardWithCompany) {
     title: data.company?.name ?? data.card.title ?? 'Research card',
     description: signal ? data.card.summary : data.company?.oneLiner,
     type: CARD_TYPE_LABELS[data.card.cardType], signal, maturity, position, metrics,
-    faceMetrics, knownCount, sourcedCount,
+    profileMetrics, knownCount, sourcedCount,
     citations: usableCitations([...(data.card.citations ?? []).filter((c) => sourceUrl(c.url)),
       ...metrics.flatMap((m) => m.citations)]),
   };

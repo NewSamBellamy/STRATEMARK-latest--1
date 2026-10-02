@@ -70,7 +70,9 @@ export function CollectibleCard({
           <span className="collectible__art-index">FIELD NOTE / {serial}</span>
         </div>
         <div className="collectible__identity">
-          <span className="collectible__eyebrow">{data.company?.hqLocation || view.type}</span>
+          <span className="collectible__eyebrow">
+            {view.signal ? view.type : data.company?.hqLocation?.trim() || 'Location unknown'}
+          </span>
           <span className="collectible__name">{view.title}</span>
           {view.description && <p className="collectible__description">{view.description}</p>}
         </div>
@@ -83,10 +85,13 @@ export function CollectibleCard({
               {data.card.keyPoints[0] || 'Open the card to inspect the finding and its evidence.'}
             </p>
           </div>
-        ) : view.faceMetrics.length ? (
+        ) : view.profileMetrics.length ? (
           <div className="collectible__metrics">
-            {view.faceMetrics.map((m) => (
-              <div key={m.metric.id}>
+            {view.profileMetrics.map((m) => (
+              <div
+                key={m.key}
+                className={m.metric?.value == null ? 'collectible__metric--unknown' : undefined}
+              >
                 <span className="collectible__metric-value">{m.display}</span>
                 <span className="collectible__metric-label">{m.label}</span>
                 <span className="collectible__confidence">{m.confidence}</span>

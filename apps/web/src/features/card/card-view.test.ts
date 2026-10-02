@@ -21,6 +21,12 @@ describe('collectible card evidence model', () => {
     expect(result.metrics[0]!.display).toBe('Unknown');
     expect(result.knownCount).toBe(0);
     expect(result.metrics[0]!.metric.value).toBeNull();
+    expect(result.profileMetrics[2]!.display).toBe('Unknown');
+  });
+  it('never presents an unverified zero-user claim as fact', () => {
+    const result = view([metric({ value: 0, confidence: 'verified' })]);
+    expect(result.profileMetrics[2]!.display).toBe('Unknown');
+    expect(result.profileMetrics[2]!.confidence).toBe('Unknown');
   });
   it('never relabels users as customers or invents a plus sign', () => {
     const result = view([metric({ value: 1_200_000_000 })]);
@@ -45,35 +51,56 @@ describe('collectible card evidence model', () => {
     expect(result.metrics.map((m) => m.metric.confidence)).toEqual(['verified', 'estimated', 'user_verified']);
     expect(result.sourcedCount).toBe(2);
   });
-  it('falls back to known market cap when the valuation row is unknown', () => {
+  it('keeps a fixed four-field profile and falls back to market cap when valuation is unknown', () => {
     const result = view([
       metric({ id: 'v', metricType: 'valuation', value: null, confidence: 'unknown' }),
       metric({ id: 'c', metricType: 'market_cap', value: 100_000_000 }),
     ]);
-    expect(result.faceMetrics[0]!.label).toBe('Market cap');
-    expect(result.faceMetrics[0]!.display).toBe('$100M');
+    expect(result.profileMetrics).toHaveLength(4);
+    expect(result.profileMetrics[3]!.label).toBe('Market cap');
+    expect(result.profileMetrics[3]!.display).toBe('$100M');
   });
-  it('puts the strongest usable company facts on the face across market types', () => {
+  it('shows the same core company fields across companies, independent of which facts were found', () => {
     const result = view([
       metric({ id: 'arr', metricType: 'arr', value: 9_000_000, confidence: 'estimated', citations: [] }),
       metric({ id: 'share', metricType: 'market_share', value: 24 }),
       metric({ id: 'people', metricType: 'employees', value: 270 }),
       metric({ id: 'reach', metricType: 'users', value: 2_400_000 }),
     ]);
-    expect(result.faceMetrics.map((m) => m.label)).toEqual(['Users', 'Employees']);
+    expect(result.profileMetrics.map((m) => m.key)).toEqual([
+      'employees',
+      'revenue',
+      'reach',
+      'company_value',
+    ]);
+    expect(result.profileMetrics.map((m) => m.display)).toEqual(['270', 'Unknown', '2.4M', 'Unknown']);
+    expect(result.profileMetrics[0]!.label).toBe('Employees');
+    expect(result.profileMetrics[3]!.display).toBe('Unknown');
+    expect(result.profileMetrics[1]!.confidence).toBe('Unknown');
     expect(result.metrics.some((m) => m.label === 'Market share')).toBe(true);
   });
-  it('never uses both valuation and market cap as the two headline facts', () => {
+  it('uses one company-value field rather than duplicating valuation and market cap', () => {
     const result = view([
       metric({ id: 'private', metricType: 'valuation', value: 100_000_000 }),
       metric({ id: 'public', metricType: 'market_cap', value: 90_000_000 }),
       metric({ id: 'revenue', metricType: 'arr', value: 8_000_000 }),
     ]);
-    expect(result.faceMetrics.map((m) => m.label)).toEqual(['ARR', 'Market cap']);
+    expect(result.profileMetrics).toHaveLength(4);
+    expect(result.profileMetrics[3]!.label).toBe('Valuation');
+    expect(result.profileMetrics[3]!.display).toBe('$100M');
   });
-  it('does not fill the card with unknown figures or assign an unsupported position', () => {
+  it('preserves annual-revenue and public-footprint labels instead of calling them ARR or users', () => {
+    const result = view([
+      metric({ id: 'revenue', metricType: 'arr', value: 12_000_000, methodNote: 'Reported annual revenue, FY2025' }),
+      metric({ id: 'reach', metricType: 'users', value: 50_000, methodNote: 'GitHub stars' }),
+    ]);
+    expect(result.profileMetrics[1]!.label).toBe('Annual revenue');
+    expect(result.profileMetrics[2]!.label).toBe('GitHub stars');
+  });
+  it('shows unknown placeholders instead of hiding missing core facts or assigning an unsupported position', () => {
     const result = view([]);
-    expect(result.faceMetrics).toEqual([]);
+    expect(result.profileMetrics).toHaveLength(4);
+    expect(result.profileMetrics.every((m) => m.display === 'Unknown')).toBe(true);
     expect(result.position).toBe('Stage pending');
     expect(result.maturity).toBeNull();
   });
@@ -87,7 +114,7 @@ describe('collectible card evidence model', () => {
     const result = view([metric({ metricType: 'arr', value: 9_000_000, confidence: 'estimated', citations: [] })], {
       card: { ...card, tier: 8 },
     });
-    expect(result.faceMetrics[0]!.display).toBe('$9M');
+    expect(result.profileMetrics[1]!.display).toBe('Unknown');
     expect(result.maturity).toBeNull();
     expect(result.position).toBe('Stage pending');
   });
@@ -95,7 +122,7 @@ describe('collectible card evidence model', () => {
     const result = view([metric({ metricType: 'market_share', value: 24 })], {
       card: { ...card, tier: 7 },
     });
-    expect(result.faceMetrics).toEqual([]);
+    expect(result.profileMetrics[3]!.display).toBe('Unknown');
     expect(result.maturity).toBeNull();
     expect(result.metrics[0]!.display).toBe('24%');
   });
@@ -105,6 +132,7 @@ describe('collectible card evidence model', () => {
     });
     expect(result.position).toBe('Entity profile');
     expect(result.maturity).toBeNull();
+    expect(result.profileMetrics).toHaveLength(4);
   });
   it('shows invalid inputs as unknown rather than painting false precision', () => {
     for (const value of [NaN, Infinity, -1, 101]) {
@@ -116,7 +144,7 @@ describe('collectible card evidence model', () => {
   it('does not inherit company stats or a maturity tier on signal cards', () => {
     const result = view([metric({})], { card: { ...card, cardType: 'vice', tier: 8 } });
     expect(result.metrics).toEqual([]);
-    expect(result.faceMetrics).toEqual([]);
+    expect(result.profileMetrics).toEqual([]);
     expect(result.maturity).toBeNull();
     expect(result.signal).toBe(true);
   });
