@@ -39,6 +39,33 @@ test('full journey: markets → deck → 2-level split → card reader → dashb
   await expect(page.locator('.react-flow')).toBeVisible();
 });
 
+test('culture and vice tabs open signal research instead of company dashboards', async ({ page }) => {
+  await page.goto('/#/history');
+  await page.getByRole('button', { name: /Frontier AI Ecosystem/ }).first().click();
+
+  const nav = page.getByTestId('type-nav');
+  await nav.getByRole('button', { name: /Culture/ }).click();
+  const cultureCard = page.getByTestId('card-grid').getByRole('button', { name: /Culture card/i }).first();
+  await expect(cultureCard).toBeVisible();
+  await cultureCard.click();
+
+  let dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('region', { name: 'Research summary' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /ask about this finding/i })).toBeVisible();
+  await expect(dialog.getByRole('region', { name: 'Core company figures' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+
+  await nav.getByRole('button', { name: /Vice/ }).click();
+  const viceCard = page.getByTestId('card-grid').getByRole('button', { name: /Vice card/i }).first();
+  await expect(viceCard).toBeVisible();
+  await viceCard.click();
+
+  dialog = page.getByRole('dialog');
+  await expect(dialog.getByText(/not asserted as unverified fact/i)).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /ask about this finding/i })).toBeVisible();
+  await expect(dialog.getByRole('region', { name: 'Core company figures' })).toHaveCount(0);
+});
+
 test('new deck flow without a key shows the honest gate — never fabricates research', async ({ page }) => {
   // Product law: research runs on your own Gemini key or it doesn't run at
   // all. A prior "demo mode" silently fabricated a sample deck for whatever

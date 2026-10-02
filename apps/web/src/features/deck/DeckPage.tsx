@@ -52,14 +52,6 @@ import { EmptyState } from '@/components/states/EmptyState';
 import { CardGrid } from './CardGrid';
 import { TierBadge } from '@/features/card/TierBadge';
 
-/**
- * Retired for now (founder's call): Vice and Culture read as too ambiguous
- * next to company cards. Barrier and Insight stay. Cards remain in storage —
- * this is a display retirement, reversible by deleting two entries.
- */
-const HIDDEN_CARD_TYPES: ReadonlySet<CardType> = new Set(['vice', 'culture'] as CardType[]);
-const VISIBLE_CARD_TYPE_ORDER = CARD_TYPE_ORDER.filter((t) => !HIDDEN_CARD_TYPES.has(t));
-
 /** Human count noun per card type — fixes the old "20 company companies" bug. */
 function cardCountNoun(type: CardType, count: number): string {
   const one: Record<CardType, string> = {
@@ -138,10 +130,7 @@ export default function DeckPage() {
   const split = params.get('split'); // 'types' | 'company' | null
   const typeParam = params.get('type') as CardType | null;
 
-  const all = useMemo(
-    () => (cards.data ?? []).filter((c) => !HIDDEN_CARD_TYPES.has(c.card.cardType)),
-    [cards.data],
-  );
+  const all = useMemo(() => cards.data ?? [], [cards.data]);
   // A market whose deck record is gone (or a stale link) must NEVER render a
   // blank screen (audit 7:44): show a recovery path instead.
   const deckMissing = market.isSuccess && deck.isSuccess && (!market.data || !deck.data);
@@ -464,16 +453,16 @@ export default function DeckPage() {
                 {filtered.length > 0 ? (
                   <CardGrid cards={filtered} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} />
                 ) : (
-                  <ExpandPrompt marketId={marketId} focus={{ cardType: typeParam }} label={`Hunt for ${CARD_TYPE_LABELS[typeParam].toLowerCase()} players in this market`} />
+                  <ExpandPrompt marketId={marketId} focus={{ cardType: typeParam }} label={`Hunt for ${cardCountNoun(typeParam, 2)} in this market`} />
                 )}
               </section>
             );
           }
-          // Level 1 — six card-type sub-decks.
+          // Level 1 — seven card-type sub-decks.
           if (split === 'types') {
             return (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {VISIBLE_CARD_TYPE_ORDER.map((t) => (
+                {CARD_TYPE_ORDER.map((t) => (
                   <SubDeckTile
                     key={t}
                     type={t}
@@ -523,7 +512,7 @@ export default function DeckPage() {
                       focus={typeParam ? { cardType: typeParam } : {}}
                       label={
                         typeParam
-                          ? `Hunt for more ${CARD_TYPE_LABELS[typeParam].toLowerCase()} players`
+                          ? `Hunt for more ${cardCountNoun(typeParam, 2)} in this market`
                           : 'Hunt for more companies in this market'
                       }
                       compact
@@ -705,7 +694,7 @@ function TypeNav({
   for (const c of cards) counts.set(c.card.cardType, (counts.get(c.card.cardType) ?? 0) + 1);
   // EVERY card class keeps its tab, even at zero (audit: "the tab should
   // still be there") — an empty class opens its hunt prompt, never vanishes.
-  const present = VISIBLE_CARD_TYPE_ORDER;
+  const present = CARD_TYPE_ORDER;
 
   const Tab = ({
     label,

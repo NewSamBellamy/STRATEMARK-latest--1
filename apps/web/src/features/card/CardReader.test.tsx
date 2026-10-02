@@ -83,8 +83,21 @@ describe('CardReader', () => {
     const dialog = within(screen.getByRole('dialog'));
     expect(dialog.queryByRole('tab')).not.toBeInTheDocument();
     expect(dialog.getByText(/not asserted as unverified fact/i)).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: /ask about this finding/i })).toBeInTheDocument();
+    expect(dialog.queryByRole('link', { name: /open full company dashboard/i })).not.toBeInTheDocument();
+    expect(dialog.queryByRole('region', { name: 'Core company figures' })).not.toBeInTheDocument();
     const sources = dialog.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('http'));
     expect(sources.length).toBeGreaterThan(0);
+  });
+
+  it('opens culture cards as signal research, not as a company dashboard', () => {
+    const cwc = hydrate((c) => c.cardType === 'culture');
+    renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByRole('region', { name: 'Research summary' })).toBeInTheDocument();
+    expect(dialog.queryByRole('region', { name: 'Core company figures' })).not.toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: /ask about this finding/i })).toBeInTheDocument();
+    expect(dialog.queryByRole('link', { name: /open full company dashboard/i })).not.toBeInTheDocument();
   });
 
   it('keeps the card one-sided and preserves the selected card in its dashboard link', () => {

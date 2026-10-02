@@ -38,7 +38,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
   const repo = useRepository();
   const { chat } = useDeepDive();
   const [shareOpen, setShareOpen] = useState(false);
-  const dashboardUrl = company ? `/company/${company.id}/dashboard/overview?${new URLSearchParams({
+  const dashboardUrl = company && !view.signal ? `/company/${company.id}/dashboard/overview?${new URLSearchParams({
     ...(marketId ? { deck: marketId } : {}), card: card.id, ...(deckView ? { view: deckView } : {}),
   })}` : null;
   const companySite = sourceUrl(company?.websiteUrl);
