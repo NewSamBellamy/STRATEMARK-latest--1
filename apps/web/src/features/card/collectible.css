@@ -57,15 +57,16 @@
   border-radius: 18px;
   color: #1c2b28;
   background: linear-gradient(
-    145deg,
-    color-mix(in srgb, var(--card-accent) 72%, #ddd5bf),
-    #d8d1c0 52%,
-    color-mix(in srgb, var(--card-highlight) 58%, #ddd5bf)
+    152deg,
+    color-mix(in srgb, var(--card-accent) 43%, #e5e1d5),
+    #d4d1c6 54%,
+    color-mix(in srgb, var(--card-highlight) 36%, #e5e1d5)
   );
   box-shadow:
-    0 2px 2px #102c2524,
-    0 16px 28px -14px #102c2561,
-    inset 0 0 0 1px #ffffff8f;
+    0 1px 2px #102c251c,
+    0 14px 24px -16px #102c2554,
+    inset 0 1px 0 #ffffffb3,
+    inset 0 0 0 1px #ffffff78;
 }
 .collectible__paper {
   position: relative;
@@ -75,7 +76,8 @@
   overflow: hidden;
   border: 1px solid #fffdf2c7;
   border-radius: 12px;
-  background: #f7f4eb;
+  background: linear-gradient(148deg, #fbf9f2 0%, #f7f4eb 58%, #f0eddf 100%);
+  box-shadow: inset 0 1px 0 #ffffffa8, 0 1px 2px #4c55421c;
 }
 .collectible__edition {
   display: flex;
@@ -95,10 +97,12 @@
   border-radius: 7px;
   background: radial-gradient(
     ellipse at 50% 40%,
-    #fffdfa 8%,
-    color-mix(in srgb, var(--card-accent) 7%, #eeece4) 100%
+    #fffefa 8%,
+    color-mix(in srgb, var(--card-accent) 5%, #eeece4) 100%
   );
-  box-shadow: inset 0 0 28px color-mix(in srgb, var(--card-accent) 7%, transparent);
+  box-shadow:
+    inset 0 0 24px color-mix(in srgb, var(--card-accent) 5%, transparent),
+    inset 0 1px 0 #ffffff9c;
 }
 .collectible__art::after {
   content: '';
@@ -110,8 +114,8 @@
 }
 .collectible--signal .collectible__art {
   background:
-    radial-gradient(ellipse at 62% 28%, var(--card-accent), transparent 66%),
-    linear-gradient(135deg, #152e2b, #233d3b 60%, #102825);
+    radial-gradient(ellipse at 62% 28%, color-mix(in srgb, var(--card-accent) 76%, #66756a), transparent 68%),
+    linear-gradient(138deg, #20332f, #2a3c37 58%, #1b2d29);
 }
 .collectible__brand {
   position: absolute;

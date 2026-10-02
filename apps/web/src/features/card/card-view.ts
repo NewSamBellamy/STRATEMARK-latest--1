@@ -21,6 +21,10 @@ export function buildCardView(data: CardWithCompany) {
     ]);
     let metric = enforceMetricProvenance({ ...original, citations });
     let note = metric.methodNote;
+    if (metric.metricType === 'users' && metric.value === 0 && metric.confidence !== 'user_verified') {
+      metric = { ...metric, value: null, confidence: 'unknown' };
+      note = 'A zero user count was not explicitly established by its source. Shown as unknown until confirmed.';
+    }
     if (metric.confidence === 'verified' && citations.length === 0) {
       metric = { ...metric, confidence: 'estimated' };
       note = 'No clickable source was recorded. Treat this figure as an estimate until checked.';

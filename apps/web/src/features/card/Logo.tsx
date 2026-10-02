@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { knownCompanyDomain, knownCompanyLogoUrl } from '@mi/research';
 import { cn } from '@/lib/cn';
 import { initials } from '@/lib/format';
 
@@ -114,6 +115,7 @@ export function Logo({
   bare = false,
   retryNonce = 0,
   logoUrl,
+  onAvailabilityChange,
 }: {
   name: string;
   website: string | null | undefined;
@@ -130,14 +132,18 @@ export function Logo({
   bare?: boolean;
   /** Bump to re-walk the source chain with fresh (cache-busted) requests. */
   retryNonce?: number;
+  /** Lets the card show a retry control only after every candidate has failed. */
+  onAvailabilityChange?: (available: boolean) => void;
 }) {
+  const heroThreshold = knownCompanyDomain(name) === 'minimax.io' ? 32 : CRISP_PX;
   const sources = useMemo(() => {
     const bust = retryNonce > 0 ? `r=${retryNonce}` : '';
     const q = (sep: string) => (bust ? `${sep}${bust}` : '');
     // Pre-resolved art wins: it was chosen at research time from a trusted
     // source and is usually vector, so there's nothing better to look for.
-    const preferred = logoUrl ? [logoUrl + (bust ? (logoUrl.includes('?') ? `&${bust}` : `?${bust}`) : '')] : [];
-    const domain = domainOf(website);
+    const preferredLogo = knownCompanyLogoUrl(name) ?? logoUrl;
+    const preferred = preferredLogo ? [preferredLogo + (bust ? (preferredLogo.includes('?') ? `&${bust}` : `?${bust}`) : '')] : [];
+    const domain = domainOf(website) ?? knownCompanyDomain(name);
     if (!domain) return preferred;
     // NOTE: icon.horse is deliberately absent (returns its own grey placeholder
     // with HTTP 200) and gstatic runs WITHOUT fallback_opts (so it 404s instead
@@ -149,7 +155,7 @@ export function Logo({
       `https://unavatar.io/${domain}?fallback=false${q('&')}`,
       `https://icons.duckduckgo.com/ip3/${domain}.ico${q('?')}`,
     ];
-  }, [website, retryNonce, logoUrl]);
+  }, [website, retryNonce, logoUrl, name]);
 
   const [best, setBest] = useState<Candidate | null>(null);
   const [settled, setSettled] = useState(false);
@@ -160,6 +166,7 @@ export function Logo({
     setSettled(false);
     if (sources.length === 0) {
       setSettled(true);
+      onAvailabilityChange?.(false);
       return;
     }
     let cancelled = false;
@@ -175,13 +182,16 @@ export function Logo({
           if (hit.vector || hit.width >= GOOD_ENOUGH_PX) break;
         }
       }
-      if (!cancelled) setSettled(true);
+      if (!cancelled) {
+        setSettled(true);
+        onAvailabilityChange?.(Boolean(winner && (winner.vector || winner.width >= (bare ? heroThreshold : MIN_USABLE_PX))));
+      }
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, bare, heroThreshold, onAvailabilityChange]);
 
   // Brand-color extraction runs on the winning source only.
   useEffect(() => {
@@ -198,7 +208,7 @@ export function Logo({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [best?.src]);
 
-  const usable = best && (best.vector || best.width >= (bare ? CRISP_PX : MIN_USABLE_PX)) ? best : null;
+  const usable = best && (best.vector || best.width >= (bare ? heroThreshold : MIN_USABLE_PX)) ? best : null;
 
   return (
     <div

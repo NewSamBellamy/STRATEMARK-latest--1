@@ -11,9 +11,15 @@ const PALETTES = ['#466b61', '#6b5f76', '#8a6b4e', '#4d667c', '#7e5b58', '#5d745
 export function CollectibleCard({
   data,
   view = buildCardView(data),
+  logoRetryNonce,
+  logoUrlOverride,
+  onLogoAvailabilityChange,
 }: {
   data: CardWithCompany;
   view?: CardView;
+  logoRetryNonce?: number;
+  logoUrlOverride?: string | null;
+  onLogoAvailabilityChange?: (available: boolean) => void;
 }) {
   const hash = Array.from(view.title).reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 0);
   const brand = ['scraped', 'manual'].includes(data.company?.brandTheme?.source ?? '')
@@ -53,7 +59,9 @@ export function CollectibleCard({
                 name={view.title}
                 website={data.company?.websiteUrl}
                 bare
-                logoUrl={data.company?.logoUrl}
+                logoUrl={logoUrlOverride ?? data.company?.logoUrl}
+                retryNonce={logoRetryNonce}
+                onAvailabilityChange={onLogoAvailabilityChange}
                 className="h-full w-full"
               />
             </div>
