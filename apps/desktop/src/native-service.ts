@@ -37,6 +37,27 @@ type Vault = ReturnType<typeof openVault>;
 type RetainedSource = NonNullable<ReturnType<Vault['getSourceVersion']>>;
 const sourceId = (cardId: string, url: string) => `src_${hash(JSON.stringify([cardId, url]))}`;
 const passageId = (source: string) => `psg_${hash(source)}`;
+const sourceFailureReasons = new Set([
+  'Source retrieval failed.',
+  'Source target is not allowed.',
+  'Too many source redirects.',
+  'Unsupported source encoding.',
+  'Unsupported source type.',
+  'Unsupported source type or charset.',
+  'PDF sources are unsupported.',
+  'Source exceeds size limit.',
+  'Source contains no text.',
+  'Source retrieval timed out.',
+  'Source request allowance exhausted.',
+]);
+function safeSourceFailureReason(reason: unknown): string {
+  if (typeof reason === 'string') {
+    const status = /^Source HTTP status ([1345][0-9]{2})\.$/.exec(reason);
+    if (status) return `Source HTTP status ${status[1]}.`;
+    if (sourceFailureReasons.has(reason)) return reason;
+  }
+  return 'Source retrieval failed.';
+}
 function sourceMatches(
   source: RetainedSource['record'],
   expectedId: string,
@@ -526,6 +547,14 @@ export class NativeResearchService {
               0,
             );
             repairPassage(this.vault.getSourceVersion(source, 1)!);
+            if (status === 'failed' || status === 'blocked') {
+              // Fixed reasons + a hashed identity keep this under 256 characters, without
+              // echoing provider-supplied titles, URLs, error bodies or injected diagnostics.
+              emit({
+                kind: 'warn',
+                message: `Source capture ${status} [${source}]: ${safeSourceFailureReason(result.reason)} Saved cards remain unreviewed.`,
+              });
+            }
           } catch {
             guard();
             const retained = this.vault.getSourceVersion(sourceId(card.id, lead.url), 1);

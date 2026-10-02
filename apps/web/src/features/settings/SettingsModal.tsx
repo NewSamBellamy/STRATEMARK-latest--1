@@ -110,8 +110,8 @@ export function SettingsModal() {
           {activeTab === 'data' &&
             (isNativeResearch() ? (
               <p className="text-sm text-muted">
-                This preview uses a separate native workspace. Backup, restore and migration
-                controls are not connected yet; your existing library is unchanged.
+                Research is stored in this local workspace. Backup, restore and migration controls
+                are not connected yet. Existing legacy libraries are not automatically migrated.
               </p>
             ) : communityDesktop ? (
               <DesktopDataPanel />
@@ -122,7 +122,7 @@ export function SettingsModal() {
             (isNativeResearch() ? (
               <p className="text-sm text-muted">
                 Each deck shows its persisted research allowance and request/token usage. Provider
-                billing is separate; this preview does not claim an accurate dollar total.
+                billing is separate; an accurate dollar total is not available here.
               </p>
             ) : (
               <UsageBillingPanel />
@@ -299,8 +299,8 @@ function GeneralTab() {
 
       {native ? (
         <p className="text-xs text-muted">
-          This native preview uses the default Gemini research model. Provider and model selection
-          will be connected in the provider milestone.
+          New research currently uses the default Gemini research model. Additional providers and
+          per-agent model selection are not connected yet. Saved research needs no key.
         </p>
       ) : (
         <details className="text-sm">

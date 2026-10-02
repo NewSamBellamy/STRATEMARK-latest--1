@@ -26,6 +26,130 @@ const map = (input: unknown, sources = citations) =>
   mapResearchBrief(enrichmentOutSchema.parse({ researchBrief: input }).researchBrief, sources);
 
 describe('bounded indexed research brief mapping', () => {
+  it('retains the live four-section provider shape with singleton-wrapped own indices', () => {
+    const input = packet([], {
+      sections: [
+        {
+          section: 'overview',
+          blocks: [
+            note({ text: 'Foundation models and developer tooling.', sourceIndices: [[0]] }),
+          ],
+        },
+        {
+          section: 'offering',
+          blocks: [
+            note({ text: 'Open-weight and proprietary model catalog.', sourceIndices: [[2]] }),
+            note({ text: 'Serverless inference and fine-tuning platform.', sourceIndices: [[2]] }),
+            note({ text: 'Enterprise chat and code assistants.', sourceIndices: [[2]] }),
+          ],
+        },
+        {
+          section: 'position',
+          blocks: [
+            note({
+              text: 'Open weights may distinguish the offering; this is analysis.',
+              kind: 'analysis',
+              sourceIndices: [],
+            }),
+          ],
+        },
+        {
+          section: 'updates',
+          blocks: [
+            note({
+              text: 'A dated funding announcement.',
+              sourceIndices: [[6]],
+              timeWindow: 'September 2026',
+            }),
+            note({
+              text: 'A dated infrastructure announcement.',
+              sourceIndices: [[8]],
+              timeWindow: 'March 2026',
+            }),
+          ],
+        },
+      ],
+    });
+    const sources = Array.from({ length: 9 }, (_, index) => ({
+      title: `Synthetic grounded lead ${index}`,
+      url: `https://fixtures.invalid/source-${index}`,
+    }));
+    const draft = enrichmentOutSchema.parse({ researchBrief: input }).researchBrief!;
+    expect(
+      draft.sections.flatMap((section) => section.blocks.map((block) => block.sourceIndices)),
+    ).toEqual([[0], [2], [2], [2], [], [6], [8]]);
+    const mapped = mapResearchBrief(draft, sources).researchBrief!;
+    expect(mapped.sections.map((section) => section.section)).toEqual([
+      'overview',
+      'offering',
+      'position',
+      'updates',
+    ]);
+    const blocks = mapped.sections.flatMap((section) => section.blocks);
+    expect(blocks.map((block) => block.citations)).toEqual([
+      [sources[0]],
+      [sources[2]],
+      [sources[2]],
+      [sources[2]],
+      [],
+      [sources[6]],
+      [sources[8]],
+    ]);
+    expect(blocks.every((block) => block.support === 'unreviewed')).toBe(true);
+    expect(mapped.sections[3]!.blocks.map((block) => block.timeWindow)).toEqual([
+      'September 2026',
+      'March 2026',
+    ]);
+    expect(mapped.limitations).toEqual(input.limitations);
+  });
+
+  it.each([
+    { indices: [[0], [2]], expected: [0, 2] },
+    { indices: [0, [2]], expected: [0, 2] },
+    { indices: [[0], 2, [1]], expected: [0, 2, 1] },
+  ])(
+    'normalizes only singleton integer wrappers without changing indices %#',
+    ({ indices, expected }) => {
+      const wrapped = map(packet([note({ sourceIndices: indices })]));
+      const flat = map(packet([note({ sourceIndices: expected })]));
+      expect(wrapped).toEqual(flat);
+      expect(wrapped.researchBrief!.sections[0]!.blocks[0]!.citations).toEqual(
+        expected.map((index) => citations[index]),
+      );
+    },
+  );
+
+  it.each([
+    { indices: [[]] },
+    { indices: [[0, 2]] },
+    { indices: [[[0]]] },
+    { indices: [['0']] },
+    { indices: [[null]] },
+    { indices: [[0.5]] },
+    { indices: [[Number.MAX_SAFE_INTEGER + 1]] },
+    { indices: [[0], [1], [2], [0]] },
+  ])(
+    'rejects ambiguous/noninteger/deeper wrappers and preserves the three-entry bound %#',
+    ({ indices }) => {
+      const mapped = map(packet([note({ sourceIndices: indices })]));
+      expect(mapped.researchBrief).toBeUndefined();
+      expect(mapped.gapNotes.join(' ')).toMatch(/sourceIndices/);
+    },
+  );
+
+  it.each([{ indices: [[-1]] }, { indices: [[99]] }])(
+    'leaves wrapped out-of-range indices to own-source validation %#',
+    ({ indices }) => {
+      const draft = enrichmentOutSchema.parse({
+        researchBrief: packet([note({ sourceIndices: indices })]),
+      }).researchBrief!;
+      expect(draft.sections[0]!.blocks[0]!.sourceIndices).toEqual([indices[0]![0]]);
+      const mapped = mapResearchBrief(draft, citations);
+      expect(mapped.researchBrief).toBeUndefined();
+      expect(mapped.gapNotes.join(' ')).toMatch(/unavailable source index|own source attribution/);
+    },
+  );
+
   it("maps only a block's own sources and stamps local IDs/unreviewed status", () => {
     const mapped = map(packet()).researchBrief!;
     expect(researchBriefSchema.safeParse(mapped).success).toBe(true);

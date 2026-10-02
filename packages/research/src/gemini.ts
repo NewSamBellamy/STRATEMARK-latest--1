@@ -14,6 +14,7 @@ import type {
   IntelligenceModel,
   LlmClient,
   NativeResearchProvider,
+  UsageReport,
 } from './types';
 import { createRateLimiter, extractJson, withRetry, type RetryableError } from './util';
 import { inputTokenUpperBound } from './usage-meter';
@@ -70,11 +71,34 @@ interface GeminiResponse {
   usageMetadata?: {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
+    thoughtsTokenCount?: number;
     totalTokenCount?: number;
   };
 }
 
 const MAX_OUTPUT_TOKENS_PER_CALL = 8_192;
+
+function isTokenCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function reportedUsage(usage: GeminiResponse['usageMetadata']): UsageReport | undefined {
+  if (!isTokenCount(usage?.promptTokenCount) || !isTokenCount(usage?.candidatesTokenCount))
+    return undefined;
+  // Thinking is separately reported but billed as generated output. Absent means zero;
+  // a contradictory total must never release a conservative attempt reservation.
+  const thoughts = usage.thoughtsTokenCount === undefined ? 0 : usage.thoughtsTokenCount;
+  if (!isTokenCount(thoughts)) return undefined;
+  const outputTokens = usage.candidatesTokenCount + thoughts;
+  const totalTokens = usage.promptTokenCount + outputTokens;
+  if (!isTokenCount(outputTokens) || !isTokenCount(totalTokens)) return undefined;
+  if (
+    usage.totalTokenCount !== undefined &&
+    (!isTokenCount(usage.totalTokenCount) || usage.totalTokenCount !== totalTokens)
+  )
+    return undefined;
+  return { inputTokens: usage.promptTokenCount, outputTokens };
+}
 
 function extractText(data: GeminiResponse): string {
   const parts = data.candidates?.[0]?.content?.parts ?? [];
@@ -152,18 +176,8 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           throw err;
         }
         const data = (await res.json()) as GeminiResponse;
-        const usage = data.usageMetadata;
         if (attempt) {
-          opts?.usageMeter?.settleAttempt(
-            attempt.id,
-            typeof usage?.promptTokenCount === 'number' &&
-              typeof usage?.candidatesTokenCount === 'number'
-              ? {
-                  inputTokens: usage.promptTokenCount,
-                  outputTokens: usage.candidatesTokenCount,
-                }
-              : undefined,
-          );
+          opts?.usageMeter?.settleAttempt(attempt.id, reportedUsage(data.usageMetadata));
         }
         return data;
       },

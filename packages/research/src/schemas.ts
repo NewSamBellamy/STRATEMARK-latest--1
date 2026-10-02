@@ -94,7 +94,18 @@ const researchBriefNoteOutSchema = z
   .object({
     text: z.string().trim().min(1).max(2000),
     kind: z.enum(['reported', 'analysis', 'estimate']),
-    sourceIndices: z.array(z.number().int().safe()).max(3).default([]),
+    sourceIndices: z
+      .array(
+        z.preprocess(
+          (value) =>
+            Array.isArray(value) && value.length === 1 && Number.isSafeInteger(value[0])
+              ? value[0]
+              : value,
+          z.number().int().safe(),
+        ),
+      )
+      .max(3)
+      .default([]),
     timeWindow: z.string().trim().min(1).max(240).nullable().default(null),
     method: briefString.nullable().default(null),
     assumptions: z.array(briefString).max(6).default([]),

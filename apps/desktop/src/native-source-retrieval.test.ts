@@ -643,6 +643,61 @@ describe('redirect boundary', () => {
 });
 
 describe('bounded decoding and inert text extraction', () => {
+  it.each([199, 300, 304, 400, 401, 403, 404, 429, 500, 503])(
+    'reports only the HTTP status for an unsuccessful response (%i)',
+    async (status) => {
+      const r = rig([
+        {
+          status,
+          headers: { 'content-type': 'text/plain', 'x-error': 'secret response diagnostics' },
+          chunks: [Buffer.from('secret error page https://example.com/?key=secret')],
+        },
+      ]);
+      const result = await retrievePublicSource('https://example.com/?key=secret', r.options);
+      expect(result).toMatchObject({
+        retrievalStatus: 'failed',
+        text: null,
+        reason: `Source HTTP status ${status}.`,
+      });
+      expect(result.reason).not.toMatch(/secret|https?:/);
+      expect(r.calls).toHaveLength(1);
+      expect(r.responses[0]!.destroyed).toBe(true);
+    },
+  );
+
+  it('keeps a redirect-to-403 diagnosable while counting both requests and retaining no page', async () => {
+    const r = rig([
+      { status: 302, headers: { location: 'https://publisher.com/article' } },
+      { status: 403, chunks: [Buffer.from('Not retained')] },
+    ]);
+    expect(
+      await retrievePublicSource('https://example.com/grounding-redirect', r.options),
+    ).toMatchObject({
+      canonicalUrl: 'https://publisher.com/article',
+      retrievalStatus: 'failed',
+      reason: 'Source HTTP status 403.',
+      text: null,
+    });
+    expect(r.events).toEqual(['before', 'request', 'before', 'request']);
+  });
+
+  it.each([0, 600, NaN, '403 secret https://private.example/?key=secret'])(
+    'does not echo invalid or injected response status %#',
+    async (status) => {
+      const r = rig();
+      r.options.testDependencies!.request = (options, receive) =>
+        r.request!(options, (incoming) => {
+          incoming.statusCode = status as number;
+          receive(incoming);
+        });
+      expect(await retrievePublicSource('https://example.com', r.options)).toMatchObject({
+        retrievalStatus: 'failed',
+        reason: 'Source retrieval failed.',
+        text: null,
+      });
+    },
+  );
+
   it('keeps unknown named entities literal, including object prototype names', async () => {
     const r = rig([
       {

@@ -95,7 +95,7 @@ describe('R0 card composition', () => {
       const { container } = render(<CollectibleCard data={data} view={buildCardView(entity)} />);
       expect(screen.getByText('Synthetic finding headline')).toBeVisible();
       expect(container.querySelector('.collectible__metrics, .collectible__art')).toBeNull();
-      expect(screen.getByText('1 source')).toBeVisible();
+      expect(screen.getByText('1 source link')).toBeVisible();
       expect(screen.queryByText(/T8|Scale unverified/)).toBeNull();
       if (type === 'culture') {
         expect(screen.getByText('Community')).toBeVisible();

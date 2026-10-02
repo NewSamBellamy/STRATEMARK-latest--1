@@ -51,7 +51,7 @@ function SavedSource({ source }: { source: Source }) {
       <p className="mt-1 text-xs text-muted">
         {source.fetchedAt ? (
           <>
-            Captured:{' '}
+            {retained ? 'Captured:' : 'Attempted:'}{' '}
             <time dateTime={source.fetchedAt} title={source.fetchedAt}>
               {captureDate.format(new Date(source.fetchedAt))}
             </time>
@@ -94,6 +94,8 @@ function NativeCardSources({
   leads: { url: string; title: string }[];
   active: boolean;
 }) {
+  const [showAll, setShowAll] = useState(false);
+  const sourceListId = useId();
   const evidence = useQuery({
     queryKey: ['native-card-evidence', cardId],
     enabled: !!window.mi?.getNativeCardEvidence,
@@ -126,12 +128,24 @@ function NativeCardSources({
         passageId: null,
         support: 'unreviewed',
       }));
+  const retainedCount = sources.filter(
+    (source) => ['retrieved', 'partial'].includes(source.retrievalStatus) && !!source.text,
+  ).length;
+  const failedCount = sources.filter((source) =>
+    ['failed', 'blocked'].includes(source.retrievalStatus),
+  ).length;
   return (
     <section
       aria-label="Source evidence"
       className="rounded-xl border border-border bg-surface-2 p-5"
     >
       <h2 className="font-display text-lg font-semibold">Sources to inspect</h2>
+      {!!sources.length && (
+        <p className="mt-2 text-xs leading-5 text-muted">
+          {sources.length} source links · {retainedCount} with retained text
+          {failedCount > 0 && ` · ${failedCount} capture failed or blocked`}
+        </p>
+      )}
       <p className="mt-2 text-xs text-muted">
         Saved source material only. Capture does not verify a claim or its exact passage support.
         Opening this reader never fetches a public page or calls a provider.
@@ -153,8 +167,8 @@ function NativeCardSources({
         </p>
       )}
       {sources.length ? (
-        <ul className="mt-4 space-y-3">
-          {sources.map((source, index) => (
+        <ul id={sourceListId} className="mt-4 space-y-3">
+          {(showAll ? sources : sources.slice(0, 3)).map((source, index) => (
             <SavedSource key={`${cardId}:${source.url}:${index}`} source={source} />
           ))}
         </ul>
@@ -162,6 +176,18 @@ function NativeCardSources({
         <p className="mt-3 text-muted">
           No source links or page text were retained for this result.
         </p>
+      )}
+      {sources.length > 3 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mt-3"
+          aria-expanded={showAll}
+          aria-controls={sourceListId}
+          onClick={() => setShowAll(!showAll)}
+        >
+          {showAll ? 'Show fewer source links' : `Show all ${sources.length} source links`}
+        </Button>
       )}
     </section>
   );

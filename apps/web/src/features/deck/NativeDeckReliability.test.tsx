@@ -345,6 +345,40 @@ describe('explicit source capture allowance', () => {
 });
 
 describe('native saved source reader', () => {
+  it('labels a failed capture timestamp as an attempt, not a successful capture', async () => {
+    const native = evidenceBridge([source({ retrievalStatus: 'failed', text: null })]);
+    mount(native, client(), '/markets/market-1/deck?card=card-1');
+    const dialog = within(await screen.findByRole('dialog'));
+    await dialog.findByText('Capture failed · no retained text');
+    expect(dialog.getByText(/^Attempted:/)).toBeVisible();
+    expect(dialog.queryByText(/^Captured:/)).not.toBeInTheDocument();
+  });
+  it('keeps large source lists compact and expands saved links without fetching pages', async () => {
+    const native = evidenceBridge(
+      Array.from({ length: 7 }, (_, index) =>
+        source({
+          url: `https://fixture.invalid/source-${index}`,
+          title: `Evidence page ${index + 1}`,
+          retrievalStatus: index === 6 ? 'failed' : 'retrieved',
+          text: index === 6 ? null : 'Retained passage.',
+        }),
+      ),
+    );
+    const { user } = mount(native, client(), '/markets/market-1/deck?card=card-1');
+    const dialog = within(await screen.findByRole('dialog'));
+    await dialog.findByRole('link', { name: 'Evidence page 1' });
+    expect(dialog.queryByRole('link', { name: 'Evidence page 7' })).not.toBeInTheDocument();
+    expect(
+      dialog.getByText('7 source links · 6 with retained text · 1 capture failed or blocked'),
+    ).toBeVisible();
+    await user.click(dialog.getByRole('button', { name: 'Show all 7 source links' }));
+    expect(dialog.getByRole('link', { name: 'Evidence page 7' })).toBeVisible();
+    await user.click(dialog.getByRole('button', { name: 'Show fewer source links' }));
+    expect(dialog.queryByRole('link', { name: 'Evidence page 7' })).not.toBeInTheDocument();
+    expect(native.read).toHaveBeenCalledTimes(1);
+    expect(native.capture).not.toHaveBeenCalled();
+    expect(native.api.startNativeResearch).not.toHaveBeenCalled();
+  });
   it('shows retained brief sections keyless from the deck without restarting sources or invoking dashboard research', async () => {
     const native = evidenceBridge();
     native.state.cards[0]!.researchBrief = {

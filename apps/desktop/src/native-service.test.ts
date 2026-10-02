@@ -57,13 +57,13 @@ function card(candidate: CompanyCandidate, deckId: string): CardWithCompany {
     viceClaims: [],
   };
 }
-function sourceCards(urls: string[], duplicateRole = false) {
+function sourceCards(urls: string[], duplicateRole = false, title?: string) {
   pipeline.discover.mockImplementation(async () => ({ candidates: [candidates[0]] }));
   pipeline.hydrate.mockImplementation(async ({ candidate, client, deckId }) => {
     await client.ground('Fixture company');
     const data = card(candidate, deckId);
     data.card.citations = urls.map((url, index) => ({
-      title: `Source ${index}`,
+      title: title ?? `Source ${index}`,
       url,
       credibility: 'unknown',
     }));
@@ -511,6 +511,162 @@ it('captures only two unique public leads across role duplicates and bounds reta
     ),
   ).toBe(true);
 });
+
+it.each([
+  ['failed', 'Source HTTP status 403.', 'Source HTTP status 403.'],
+  ['blocked', 'Too many source redirects.', 'Too many source redirects.'],
+  ['failed', 'Source retrieval timed out.', 'Source retrieval timed out.'],
+  ['failed', 'Source exceeds size limit.', 'Source exceeds size limit.'],
+  [
+    'failed',
+    'Source HTTP status 403. https://private.example/?key=DO_NOT_LOG',
+    'Source retrieval failed.',
+  ],
+  ['blocked', 'DO_NOT_LOG'.repeat(10_000), 'Source retrieval failed.'],
+  ['throws', 'DO_NOT_LOG https://private.example/?key=DO_NOT_LOG', 'Source retrieval failed.'],
+] as const)(
+  'persists a bounded safe warning for source outcome %s (%#)',
+  async (outcome, reason, safeReason) => {
+    const url = 'https://sources.example/unavailable?token=DO_NOT_LOG';
+    sourceCards([url], false, 'DO_NOT_LOG https://private.example/'.repeat(150));
+    const retrieveSource = vi.fn(
+      async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+        options.beforeRequest!();
+        if (outcome === 'throws') throw new Error(reason);
+        return {
+          originalUrl,
+          canonicalUrl: originalUrl,
+          retrievalStatus: outcome,
+          reason,
+          text: 'Untrusted failed page DO_NOT_LOG',
+        };
+      },
+    );
+    const { service, file } = open(testClient(), undefined, { retrieveSource });
+    const input = { ...request, limits: { ...request.limits, maxSourceRequests: 2 } };
+    const run = service.start(input);
+    await service.waitForIdle();
+    const saved = service.vault.work.listCards(run.deckId)[0]!;
+    const savedEvidence = service.getCardEvidence(saved.card.id);
+    const evidence = savedEvidence.sources[0]!;
+    const warnings = service.vault.work
+      .listEvents(run.id)
+      .filter((event) => event.progress.kind === 'warn');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.progress.message).toBe(
+      `Source capture ${outcome === 'blocked' ? 'blocked' : 'failed'} [${evidence.sourceId}]: ${safeReason} Saved cards remain unreviewed.`,
+    );
+    expect(warnings[0]!.progress.message.length).toBeLessThanOrEqual(256);
+    expect(warnings[0]!.progress.message).not.toMatch(/DO_NOT_LOG|https?:|private\.example/);
+    expect(evidence).toMatchObject({ text: null, passageId: null, support: 'unreviewed' });
+    expect(service.vault.getSourceVersion(evidence.sourceId!, 1)?.content).toBeNull();
+    expect(service.vault.work.getRun(run.id)).toMatchObject({
+      status: 'completed',
+      usage: { sourceRequests: 1 },
+    });
+    expect(service.start(input).id).toBe(run.id);
+    await service.waitForIdle();
+    expect(retrieveSource).toHaveBeenCalledTimes(1);
+    await service.close();
+    services.splice(services.indexOf(service), 1);
+    const connection = vi.fn(() => null);
+    const reader = new NativeResearchService(
+      openVault(file, 'fixture_native', 'reader'),
+      connection,
+      undefined,
+      { researchProvenance: 'synthetic_fixture', writable: false },
+    );
+    services.push(reader);
+    expect(
+      reader.vault.work.listEvents(run.id).filter((event) => event.progress.kind === 'warn'),
+    ).toEqual(warnings);
+    expect(reader.vault.work.getCard(saved.card.id)).toEqual(saved);
+    expect(reader.getCardEvidence(saved.card.id)).toEqual(savedEvidence);
+    expect(connection).not.toHaveBeenCalled();
+  },
+);
+
+it('emits one warning per failed saved source without duplicate HTTP for role projections', async () => {
+  sourceCards(
+    [
+      'https://sources.example/one',
+      'https://sources.example/one',
+      'https://sources.example/two',
+      'https://sources.example/three',
+    ],
+    true,
+  );
+  const retrieveSource = vi.fn(
+    async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+      options.beforeRequest!();
+      return {
+        originalUrl,
+        canonicalUrl: originalUrl,
+        retrievalStatus: 'failed' as const,
+        text: null,
+        reason: 'Source HTTP status 429.',
+      };
+    },
+  );
+  const { service } = open(testClient(), undefined, { retrieveSource });
+  const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 2 } });
+  await service.waitForIdle();
+  const sources = service.vault.work
+    .listCards(run.deckId)
+    .flatMap((entry) =>
+      service.getCardEvidence(entry.card.id).sources.filter((source) => source.sourceId),
+    );
+  const warnings = service.vault.work
+    .listEvents(run.id)
+    .filter((event) => event.progress.kind === 'warn');
+  expect(sources).toHaveLength(4);
+  expect(warnings).toHaveLength(4);
+  for (const source of sources)
+    expect(
+      warnings.filter((event) => event.progress.message.includes(source.sourceId!)),
+    ).toHaveLength(1);
+  expect(retrieveSource).toHaveBeenCalledTimes(2);
+  expect(service.vault.work.getRun(run.id)?.usage.sourceRequests).toBe(2);
+});
+
+it.each(['pause', 'cancel'] as const)(
+  'fences delayed failed-source warnings after %s',
+  async (command) => {
+    sourceCards(['https://sources.example/delayed-failure']);
+    let release!: () => void;
+    let began!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    const retrieveSource = vi.fn(
+      async (originalUrl: string, options: { beforeRequest?: () => void }) => {
+        options.beforeRequest!();
+        began();
+        await pending;
+        return {
+          originalUrl,
+          canonicalUrl: originalUrl,
+          retrievalStatus: 'failed' as const,
+          text: null,
+          reason: 'Source HTTP status 403.',
+        };
+      },
+    );
+    const { service } = open(testClient(), undefined, { retrieveSource });
+    const run = service.start({ ...request, limits: { ...request.limits, maxSourceRequests: 2 } });
+    await started;
+    service.control(run.id, command);
+    const events = service.vault.work.listEvents(run.id);
+    release();
+    await service.waitForIdle();
+    expect(service.vault.work.listEvents(run.id)).toEqual(events);
+    expect(service.vault.work.getRun(run.id)?.usage.sourceRequests).toBe(1);
+    expect(service.vault.work.listCards(run.deckId)).toHaveLength(1);
+  },
+);
 
 it.each(['failed', 'blocked', 'throws'] as const)(
   'keeps successful cards when source retrieval %s',

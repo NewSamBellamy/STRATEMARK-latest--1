@@ -94,7 +94,7 @@ describe('GameCard', () => {
     const footer = front.querySelector('.collectible__footer')!;
     expect(Array.from(footer.children, (child) => child.textContent)).toEqual([
       'Research needed',
-      'No sources saved',
+      'No source links saved',
     ]);
     expect(front.querySelector('.collectible__metrics')).toBeNull();
     expect(within(front).queryByText('ARR')).not.toBeInTheDocument();
@@ -121,10 +121,43 @@ describe('GameCard', () => {
         front.querySelector('.collectible__footer')!.children,
         (child) => child.textContent,
       ),
-    ).toEqual(['Source links saved', '2 sources · Captured Oct 1, 2026']);
+    ).toEqual(['Source links saved', '2 source links · Recorded Oct 1, 2026']);
     expect(
       within(front).queryByText(/T[1-8]\b|Scale unverified|Market Defining|Very Strong|Very Weak/),
     ).not.toBeInTheDocument();
+  });
+
+  it('labels unreviewed link leads and a metric record date without implying captured pages', () => {
+    const cwc = sourcedCompany();
+    renderWithProviders(
+      <GameCard
+        data={{
+          ...cwc,
+          card: {
+            ...cwc.card,
+            citations: Array.from({ length: 39 }, (_, index) => ({
+              title: `Unreviewed lead ${index}`,
+              url: `https://fixtures.invalid/lead-${index}`,
+            })),
+          },
+          metrics: cwc.metrics.map((metric) => ({
+            ...metric,
+            confidence: 'unknown',
+            value: null,
+            source: null,
+            citations: [],
+          })),
+        }}
+      />,
+    );
+    const front = screen.getByTestId('collectible-card-front');
+    const footer = front.querySelector('.collectible__footer')!;
+    expect(Array.from(footer.children, (child) => child.textContent)).toEqual([
+      'Source links saved',
+      '39 source links · Recorded Oct 1, 2026',
+    ]);
+    expect(footer.textContent).not.toMatch(/\bsources\b|Captured/);
+    expect(front.querySelector('.collectible__metrics')).toBeNull();
   });
 
   it.each(['unsourced', 'estimated', 'unknown', 'invalid'] as const)(
@@ -279,7 +312,7 @@ describe('GameCard', () => {
       expect(within(front).getByText('Synthetic finding headline')).toBeVisible();
       expect(front.querySelector('.collectible__metrics')).toBeNull();
       expect(within(front).queryByText(/ARR|Market Cap|\$6\.2B|\$120B|T8\b/)).toBeNull();
-      expect(within(front).getByText('1 source')).toBeVisible();
+      expect(within(front).getByText('1 source link')).toBeVisible();
     },
   );
 });

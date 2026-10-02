@@ -304,14 +304,21 @@ function requestHop(
         });
         try {
           check();
-          const status = incoming.statusCode ?? 0;
+          const status = incoming.statusCode;
+          if (
+            typeof status !== 'number' ||
+            !Number.isInteger(status) ||
+            status < 100 ||
+            status > 599
+          )
+            fail();
           if (REDIRECTS.has(status)) {
             const location = incoming.headers.location;
             if (typeof location !== 'string' || !location) fail();
             finish(null, { redirect: location });
             return;
           }
-          if (status < 200 || status >= 300) fail();
+          if (status < 200 || status >= 300) fail(`Source HTTP status ${status}.`);
           const encoding = incoming.headers['content-encoding'];
           if (
             encoding !== undefined &&

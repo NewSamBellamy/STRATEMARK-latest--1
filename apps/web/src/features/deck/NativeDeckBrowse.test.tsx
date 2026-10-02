@@ -3,7 +3,12 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import type { CardWithCompany, MarketIntelRepository, NativeResearchRun } from '@mi/contracts';
+import type {
+  CardWithCompany,
+  MarketIntelRepository,
+  NativeResearchEvent,
+  NativeResearchRun,
+} from '@mi/contracts';
 import { RepositoryProvider } from '@/lib/repository/RepositoryProvider';
 import NativeDeckPage from './NativeDeckPage';
 
@@ -90,7 +95,7 @@ function fixture(status: NativeResearchRun['status'] = 'completed', empty = fals
     researchProvenance: 'synthetic_fixture',
     nativeResearchWritable: false,
     listNativeRuns: vi.fn(async () => [run]),
-    nativeRunEvents: vi.fn(async () => []),
+    nativeRunEvents: vi.fn(async (): Promise<NativeResearchEvent[]> => []),
     onDeckRefresh: vi.fn(() => () => {}),
     listSavedCards: vi.fn(async () => []),
     getNativeCardEvidence: vi.fn(async (cardId: string) => ({ cardId, sources: [] })),
@@ -118,7 +123,7 @@ function fixture(status: NativeResearchRun['status'] = 'completed', empty = fals
     refreshDeck: forbidden,
   };
   Object.defineProperty(window, 'mi', { configurable: true, value: api });
-  return { api, repository, forbidden };
+  return { api, repository, forbidden, run };
 }
 function mount(native: ReturnType<typeof fixture>, route = path) {
   const qc = new QueryClient({
@@ -171,6 +176,166 @@ afterEach(() => {
 });
 
 describe('native deck local browsing', () => {
+  it('shortens a retained long goal in the deck and reader, preserving its full scope locally', async () => {
+    const native = fixture();
+    const original =
+      'Find repair software providers serving independent maintenance teams across Europe and compare tools, distribution channels, current products, and the limitations of public source material. Preserve unknowns instead of inferring revenue or market share.';
+    expect(original.length).toBeGreaterThan(240);
+    const marketName = original.slice(0, 240);
+    native.run.scope.goal = original;
+    const title = 'Find repair software providers serving independent maintenance teams across…';
+    native.repository.getMarket.mockResolvedValue({
+      id: 'market-1',
+      name: marketName,
+      createdAt: at,
+      refreshCadence: 'weekly',
+      scopeDefinition: { vertical: 'Repair', geography: null, notes: null },
+    });
+    const { user, router } = mount(native, `${path}?q=Alder&type=infrastructure`);
+    expect(await screen.findByRole('heading', { level: 1, name: title })).toBeVisible();
+    const scope = screen.getByText(original);
+    expect(scope).not.toBeVisible();
+    await user.click(screen.getByText('Research scope'));
+    expect(scope).toBeVisible();
+    expect(scope.textContent).toBe(original);
+    expectLocalOnly(native);
+    await user.click(screen.getByRole('button', { name: 'Alder Works — Infrastructure card' }));
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(dialog.getByText(`From ${title}`)).toBeVisible();
+    expect(dialog.queryByText(`From ${original}`)).not.toBeInTheDocument();
+    await user.click(dialog.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(scope).toBeVisible();
+    expect(Object.fromEntries(new URLSearchParams(router.location.search))).toEqual({
+      q: 'Alder',
+      type: 'infrastructure',
+    });
+    expect(screen.getByText('Showing 1 of 4 cards')).toBeVisible();
+    expect(native.forbidden).not.toHaveBeenCalled();
+    expect(window.fetch).not.toHaveBeenCalled();
+    expect(await native.repository.getMarket.mock.results[0]?.value).toMatchObject({
+      name: marketName,
+    });
+    expect(native.run.scope.goal).toBe(original);
+  });
+
+  it('discloses the saved run goal even when the market title itself is not shortened', async () => {
+    const native = fixture();
+    const goal = 'Compare independent repair scheduling tools, excluding replacement inventory.';
+    native.run.scope.goal = goal;
+    const { user } = mount(native);
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Repair ecosystem' }),
+    ).toBeVisible();
+    await user.click(await screen.findByText('Research scope'));
+    const scope = screen.getByText(goal);
+    expect(scope).toBeVisible();
+    expect(scope.textContent).toBe(goal);
+    expectLocalOnly(native);
+  });
+
+  it('preserves a short title exactly without adding a redundant Research scope disclosure', async () => {
+    const native = fixture();
+    mount(native);
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Repair ecosystem' }),
+    ).toBeVisible();
+    expect(screen.queryByText('Research scope')).not.toBeInTheDocument();
+    expectLocalOnly(native);
+  });
+
+  it('discloses completed usage and last activity only when Research activity is expanded', async () => {
+    const native = fixture();
+    native.api.nativeRunEvents.mockResolvedValue([
+      {
+        sequence: 1,
+        createdAt: at,
+        progress: { kind: 'step', message: 'Retained fixture activity' },
+      },
+    ]);
+    const { user } = mount(native);
+    expect(await screen.findByText('Research completed')).toBeVisible();
+    const usage = screen.getByText(/3 provider attempts · 2 source attempts/);
+    expect(usage).not.toBeVisible();
+    const activity = await screen.findAllByText('Retained fixture activity');
+    for (const entry of activity) expect(entry).not.toBeVisible();
+    expect(screen.getAllByRole('button', { name: / — .+ card$/ })).toHaveLength(4);
+    const summary = screen.getByText('Research activity');
+    // jsdom supports the native summary click, but not its browser keyboard default action.
+    await user.click(summary);
+    expect(usage).toBeVisible();
+    for (const entry of activity) expect(entry).toBeVisible();
+    expect(usage).toHaveTextContent('Dollar cost not available');
+    await user.click(summary);
+    expect(usage).not.toBeVisible();
+    expectLocalOnly(native);
+  });
+
+  it.each(['reserved tokens', 'missing source count'] as const)(
+    'keeps completed %s uncertainty visible without opening activity',
+    async (uncertainty) => {
+      const native = fixture();
+      if (uncertainty === 'reserved tokens') native.run.usage.complete = false;
+      else delete native.run.usage.sourceRequests;
+      mount(native);
+      await screen.findByText('Research completed');
+      const usage = screen.getByText(/3 provider attempts/);
+      expect(usage).toBeVisible();
+      expect(usage).toHaveTextContent(
+        uncertainty === 'reserved tokens'
+          ? 'usage may include reserved or unreported tokens'
+          : 'Source attempts not recorded',
+      );
+      expect(usage).toHaveTextContent('Dollar cost not available');
+      expectLocalOnly(native);
+    },
+  );
+
+  it.each(['running', 'paused', 'failed'] as const)(
+    'keeps %s progress, errors, usage and controls visible',
+    async (status) => {
+      const native = fixture(status);
+      native.api.nativeRunEvents.mockResolvedValue([
+        {
+          sequence: 1,
+          createdAt: at,
+          progress: { kind: 'step', message: 'Retained fixture progress' },
+        },
+      ]);
+      mount(native);
+      await screen.findByText(`Research ${status}`);
+      expect(await screen.findByText('Retained fixture progress', { selector: 'p' })).toBeVisible();
+      expect(screen.getByText(/3 provider attempts · 2 source attempts/)).toBeVisible();
+      expect(
+        screen.getByRole('button', {
+          name: status === 'running' ? 'Pause' : 'Resume remaining work',
+        }),
+      ).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeVisible();
+      if (status === 'failed') expect(screen.getByText('Saved fixture failure')).toBeVisible();
+      expectLocalOnly(native);
+    },
+  );
+
+  it('keeps a retained-activity read failure visible even on a completed run', async () => {
+    const native = fixture();
+    native.api.nativeRunEvents.mockRejectedValue(new Error('Fixture activity read failure'));
+    mount(native);
+    expect(
+      await screen.findByText('Research activity could not be read. Saved cards remain available.'),
+    ).toBeVisible();
+    expect(screen.getAllByRole('button', { name: / — .+ card$/ })).toHaveLength(4);
+    expectLocalOnly(native);
+  });
+
+  it('does not hide a completed run error behind activity', async () => {
+    const native = fixture();
+    native.run.error = 'Retained source capture failed';
+    mount(native);
+    expect(await screen.findByText('Retained source capture failed')).toBeVisible();
+    expectLocalOnly(native);
+  });
+
   it.each([
     ['  aLdEr  ', 2],
     ['dispatch', 1],

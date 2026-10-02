@@ -95,8 +95,8 @@ export function CollectibleCard({
   const provenance = unreviewed
     ? 'Not revalidated'
     : citations.length > 0
-      ? `${citations.length} ${citations.length === 1 ? 'source' : 'sources'}${asOf ? ` · Captured ${asOf}` : ''}`
-      : 'No sources saved';
+      ? `${citations.length} ${citations.length === 1 ? 'source link' : 'source links'}${asOf ? ` · Recorded ${asOf}` : ''}`
+      : 'No source links saved';
 
   return (
     <div

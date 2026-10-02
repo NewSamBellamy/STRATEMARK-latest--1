@@ -1,0 +1,174 @@
+// HELD DRAFT: native-by-default startup is not implemented. Preserve for a later milestone.
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import * as fs from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { selectNativeStartup } from './native-startup';
+import { openVault } from './vault';
+
+const roots: string[] = [];
+function profile() {
+  const directory = mkdtempSync(path.join(tmpdir(), 'stratemark-startup-'));
+  roots.push(directory);
+  return directory;
+}
+function put(directory: string, relative: string, text = 'retained bytes') {
+  const file = path.join(directory, relative);
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, text);
+  return file;
+}
+afterEach(() => {
+  vi.restoreAllMocks();
+  for (const directory of roots.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
+
+describe('normal desktop authority selection (no migration)', () => {
+  it('selects a stable native path for an absent or empty profile without creating anything', () => {
+    const root = profile();
+    const absent = path.join(root, 'new-profile');
+    expect(selectNativeStartup(absent)).toEqual({
+      mode: 'native',
+      vaultFile: path.join(absent, 'research', 'vault.sqlite'),
+    });
+    expect(existsSync(absent)).toBe(false);
+    expect(selectNativeStartup(root)).toEqual({
+      mode: 'native',
+      vaultFile: path.join(root, 'research', 'vault.sqlite'),
+    });
+    expect(readdirSync(root)).toEqual([]);
+  });
+
+  it.each(['repo.json', 'repo.json.bak'])('keeps %s legacy, including empty/corrupt snapshots', (name) => {
+    const root = profile();
+    const file = put(root, `research/${name}`, '{ unreadable old data');
+    const before = { bytes: readFileSync(file), mtime: statSync(file).mtimeMs };
+    expect(selectNativeStartup(root)).toEqual({ mode: 'legacy' });
+    expect(readFileSync(file)).toEqual(before.bytes);
+    expect(statSync(file).mtimeMs).toBe(before.mtime);
+    expect(readdirSync(path.dirname(file))).toEqual([name]);
+  });
+
+  it.each(['repo.json.tmp', 'repo.json.corrupt-123', 'repo.json.backup'])('rejects orphan %s without seeding over it', (name) => {
+    const root = profile();
+    const file = put(root, `research/${name}`);
+    expect(() => selectNativeStartup(root)).toThrow(/recovery/i);
+    expect(readFileSync(file, 'utf8')).toBe('retained bytes');
+    expect(existsSync(path.join(root, 'research', 'repo.json'))).toBe(false);
+  });
+
+  it.each([
+    'IndexedDB', 'Local Storage', 'Session Storage', 'WebStorage', 'Storage',
+    'Partitions', 'databases', 'File System',
+  ])('does not classify renderer %s remnants as a new profile', (name) => {
+    const root = profile();
+    mkdirSync(path.join(root, name));
+    expect(() => selectNativeStartup(root)).toThrow(/renderer/i);
+    expect(readdirSync(root)).toEqual([name]);
+  });
+
+  it('checks an independently configured Chromium session directory before first-run selection', () => {
+    const root = profile();
+    const session = profile();
+    put(session, 'Local Storage/leveldb/000003.log');
+    expect(() => selectNativeStartup(root, session)).toThrow(/renderer/i);
+    expect(readdirSync(root)).toEqual([]);
+  });
+
+  it('keeps an existing native vault authoritative across reopen and native renderer preferences', () => {
+    const root = profile();
+    const selection = selectNativeStartup(root);
+    if (selection.mode !== 'native') throw new Error('Expected a new native profile.');
+    mkdirSync(path.dirname(selection.vaultFile), { recursive: true });
+    const vault = openVault(selection.vaultFile, 'vault_native');
+    vault.close();
+    put(root, 'Local Storage/leveldb/000003.log', 'native scope preferences');
+    expect(selectNativeStartup(root)).toEqual(selection);
+    const reopened = openVault(selection.vaultFile, 'vault_native');
+    expect(reopened.work.listMarkets()).toEqual([]);
+    reopened.close();
+    expect(existsSync(path.join(root, 'research', 'repo.json'))).toBe(false);
+  });
+
+  it.each(['repo.json', 'repo.json.bak', 'repo.json.tmp', 'repo.json.corrupt-1'])('rejects native plus %s as ambiguous authority', (name) => {
+    const root = profile();
+    const native = put(root, 'research/vault.sqlite');
+    const legacy = put(root, `research/${name}`);
+    expect(() => selectNativeStartup(root)).toThrow(/mixed|ambiguous/i);
+    expect(readFileSync(native, 'utf8')).toBe('retained bytes');
+    expect(readFileSync(legacy, 'utf8')).toBe('retained bytes');
+  });
+
+  it.each(['-wal', '-shm', '-journal', '.owner.sqlite', '.owner.sqlite-journal'])('rejects orphan vault sidecar %s', (suffix) => {
+    const root = profile();
+    put(root, `research/vault.sqlite${suffix}`);
+    expect(() => selectNativeStartup(root)).toThrow(/orphan|missing/i);
+    expect(existsSync(path.join(root, 'research', 'vault.sqlite'))).toBe(false);
+  });
+
+  it.each(['vault.sqlite', 'research/unknown.sqlite', 'research/import.pending'])('rejects unclassified retained storage %s', (relative) => {
+    const root = profile();
+    put(root, relative);
+    expect(() => selectNativeStartup(root)).toThrow(/unclassified|unexpected/i);
+  });
+
+  it('selects corrupt native bytes only for native validation, never a legacy fallback', () => {
+    const root = profile();
+    const file = put(root, 'research/vault.sqlite', 'not a SQLite database');
+    expect(selectNativeStartup(root)).toEqual({ mode: 'native', vaultFile: file });
+    expect(() => openVault(file, 'vault_native')).toThrow();
+    expect(readFileSync(file, 'utf8')).toBe('not a SQLite database');
+    expect(existsSync(path.join(root, 'research', 'repo.json'))).toBe(false);
+  });
+
+  it('rejects a hard-linked native file', () => {
+    const root = profile();
+    const target = put(root, 'outside.sqlite');
+    mkdirSync(path.join(root, 'research'));
+    linkSync(target, path.join(root, 'research', 'vault.sqlite'));
+    expect(() => selectNativeStartup(root)).toThrow(/link|regular/i);
+  });
+
+  it('rejects a symlinked profile ancestor even when the child profile is missing', () => {
+    const root = profile();
+    const target = profile();
+    symlinkSync(target, path.join(root, 'linked'), 'junction');
+    expect(() => selectNativeStartup(path.join(root, 'linked', 'new'))).toThrow(/link/i);
+    expect(readdirSync(target)).toEqual([]);
+  });
+
+  it('rejects symlinked renderer storage without following it', () => {
+    const root = profile();
+    const target = profile();
+    symlinkSync(target, path.join(root, 'IndexedDB'), 'junction');
+    expect(() => selectNativeStartup(root)).toThrow(/link/i);
+    expect(readdirSync(target)).toEqual([]);
+  });
+
+  it('fails closed when inspection is denied rather than treating the profile as absent', () => {
+    const root = profile();
+    const original = fs.readdirSync;
+    vi.spyOn(fs, 'readdirSync').mockImplementation(((directory: fs.PathLike, ...args: unknown[]) => {
+      if (directory === root) throw Object.assign(new Error('Unreadable profile'), { code: 'EACCES' });
+      return Reflect.apply(original, fs, [directory, ...args]);
+    }) as typeof fs.readdirSync);
+    expect(() => selectNativeStartup(root)).toThrow(/unreadable/i);
+    expect(existsSync(path.join(root, 'research'))).toBe(false);
+  });
+
+  it('rejects relative profile paths', () => {
+    expect(() => selectNativeStartup('relative-profile')).toThrow(/absolute/i);
+  });
+});
