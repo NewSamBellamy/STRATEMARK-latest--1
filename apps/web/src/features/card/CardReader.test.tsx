@@ -24,7 +24,7 @@ describe('CardReader', () => {
     expect(dialog.queryByRole('tab')).not.toBeInTheDocument();
     expect(facts).toHaveTextContent('Employees');
     expect(facts).toHaveTextContent(/Revenue|ARR/);
-    expect(facts).toHaveTextContent(/Users|Customers/);
+    expect(facts).toHaveTextContent(/Users|Customers|Installs|Downloads|Followers|GitHub stars/);
     expect(facts).toHaveTextContent(/Valuation|Market cap/);
     expect(dialog.queryByText('Company Maturity Score')).not.toBeInTheDocument();
     expect(dialog.getByText(/No source receipt is attached to this summary/i)).toBeInTheDocument();

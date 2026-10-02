@@ -91,9 +91,6 @@ export function CollectibleCard({
               >
                 <span className="collectible__metric-value">{m.display}</span>
                 <span className="collectible__metric-label">{m.label}</span>
-                <span className="collectible__confidence">
-                  {m.metric?.confidence === 'user_verified' ? 'Human checked' : m.citations.length ? 'Source linked' : 'Not confirmed'}
-                </span>
               </div>
             ))}
           </div>

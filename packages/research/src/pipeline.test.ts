@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
-import type { DeckRefreshEvent } from '@mi/contracts';
+import type { Deck, DeckRefreshEvent } from '@mi/contracts';
 import type { CompanyCandidate, LlmClient } from './types';
 import {
   discoverDeckStubs,
@@ -884,6 +884,7 @@ describe('Progressive Fast-Boot & Continual Background Research Architecture', (
 
     expect(market.id).toBeTruthy();
     expect(deck.id).toBeTruthy();
+    expect((await repo.getDeckByMarket(market.id) as Deck & { status?: string }).status).toBe('running');
 
     // 2. Initial state in store: stub cards are already stored and accessible
     const initialCards = await repo.listCards(deck.id);
@@ -905,6 +906,7 @@ describe('Progressive Fast-Boot & Continual Background Research Architecture', (
 
     // 3. Wait for continual background worker pool to finish
     await repo.waitForBackgroundJobs();
+    expect((await repo.getDeckByMarket(market.id) as Deck & { status?: string }).status).toBe('ready');
 
     // 4. Verify live DeckRefreshEvent emissions were fired
     expect(refreshEvents.length).toBeGreaterThanOrEqual(1);
@@ -925,5 +927,10 @@ describe('Progressive Fast-Boot & Continual Background Research Architecture', (
     const insights = finalCards.filter((c) => c.card.cardType === 'insight');
     expect(barriers.length).toBeGreaterThan(0);
     expect(insights.length).toBeGreaterThan(0);
+
+    // A settled run with an unhydrated company is partial, never silently ready.
+    const finishedJob = storeState.value!.researchJobs.at(-1)!;
+    finishedJob.completedEntityNames = finishedJob.completedEntityNames.slice(1);
+    expect((await repo.getDeckByMarket(market.id) as Deck & { status?: string }).status).toBe('partial');
   });
 });

@@ -28,7 +28,7 @@ describe('GameCard', () => {
     renderWithProviders(<GameCard data={cwc} deckUserValues={deckUserValues} />);
     expect(screen.getAllByText('GraceWear Global').length).toBeGreaterThan(0);
     expect(screen.getByText(cwc.company!.oneLiner)).toBeInTheDocument();
-    expect(screen.getByText('ARR')).toBeInTheDocument();
+    expect(screen.getByText('Revenue / ARR')).toBeInTheDocument();
     expect(screen.getByText('Stage pending')).toBeInTheDocument();
     expect(screen.queryByText(/Very Strong|Very Weak/)).not.toBeInTheDocument();
     expect(screen.getByText(/research needed/i)).toBeInTheDocument();
@@ -41,8 +41,10 @@ describe('GameCard', () => {
     // own digits. Growth indicators are banned until real history exists.
     renderWithProviders(<GameCard data={hydrate(companyCard.id)} />);
     expect(screen.queryByText(/%\s*YoY/i)).not.toBeInTheDocument();
-    // Confidence provenance chips render instead (Verified / Estimated).
-    expect(screen.getAllByText(/Verified|Estimated|User verified/).length).toBeGreaterThan(0);
+    // Dense provenance labels stay off the collectible face; its footer carries
+    // the source count and the first-look inspector owns source receipts.
+    expect(screen.queryByText(/Source linked|Not confirmed|Human checked/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/sourced figures|research needed/i)).toBeInTheDocument();
   });
 
   it('fires onOpen when clicked', async () => {
@@ -50,7 +52,7 @@ describe('GameCard', () => {
     const { user } = renderWithProviders(
       <GameCard data={hydrate(companyCard.id)} onOpen={onOpen} />,
     );
-    await user.click(screen.getByRole('button', { name: /GraceWear Global/ }));
+    await user.click(screen.getByRole('button', { name: /^GraceWear Global — Company card$/ }));
     expect(onOpen).toHaveBeenCalledOnce();
   });
 
@@ -99,7 +101,7 @@ describe('GameCard', () => {
     const { user } = renderWithProviders(
       <GameCard data={hydrate(companyCard.id)} onOpen={onOpen} onShare={onShare} />,
     );
-    const inspect = screen.getByRole('button', { name: /GraceWear Global/ });
+    const inspect = screen.getByRole('button', { name: /^GraceWear Global — Company card$/ });
     expect(inspect.querySelector('button')).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Share card' }));
     expect(onShare).toHaveBeenCalledOnce();

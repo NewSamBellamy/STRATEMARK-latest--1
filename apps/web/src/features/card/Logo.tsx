@@ -240,17 +240,12 @@ export function Logo({
         // Probing — hold the space so cards don't jump as art resolves.
         <span aria-hidden className="block h-full w-full" />
       ) : bare ? (
-        // A crisp lettermark is preferable to stretching a tiny favicon.
+        // A designed lettermark plate is preferable to stretching a tiny favicon.
         <span
           aria-label={`${name} monogram`}
-          className="flex max-w-full items-center justify-center px-2 text-center"
+          className="collectible__monogram"
         >
-          <span
-            className="font-display text-[68px] font-bold leading-none tracking-[-.08em]"
-            style={{ color: 'var(--card-accent, var(--tcg-primary, #3F3F46))' }}
-          >
-            {initials(name)}
-          </span>
+          {initials(name)}
         </span>
       ) : (
         <span aria-label={`${name} monogram`}>{initials(name)}</span>

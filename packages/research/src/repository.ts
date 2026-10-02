@@ -469,7 +469,27 @@ export class GeminiRepository implements MarketIntelRepository {
 
   // Decks -------------------------------------------------------------------
   getDeckByMarket(marketId: string): Promise<Deck | null> {
-    return Promise.resolve(this.snap.decks.find((d) => d.marketId === marketId) ?? null);
+    const deck = this.snap.decks.find((d) => d.marketId === marketId) ?? null;
+    if (!deck) return Promise.resolve(null);
+
+    // Local/BYOK runs persist their job separately from the deck. Surface the
+    // same small status contract as cloud runs so the UI never mistakes fast
+    // discovery stubs for finished, evidence-ready cards.
+    const job = [...this.snap.researchJobs]
+      .reverse()
+      .find((candidate) => candidate.market?.id === marketId || candidate.deck?.id === deck.id);
+    if (!job) return Promise.resolve(deck);
+    const expectedEntities = new Set(job.catalogNames.map(companyKey)).size;
+    const completedEntities = new Set(job.completedEntityNames.map(companyKey)).size;
+    const cardPreviewsReady = expectedEntities > 0 && completedEntities >= expectedEntities;
+    const status = cardPreviewsReady ? 'ready' :
+      job.status === 'completed' ? 'partial' :
+        job.status === 'running' || job.status === 'queued' ? 'running' : 'failed';
+    return Promise.resolve({
+      ...deck,
+      status,
+      ...(job.error ? { error: job.error } : {}),
+    } as Deck);
   }
 
   listResearchJobs(): Promise<ResearchJob[]> {

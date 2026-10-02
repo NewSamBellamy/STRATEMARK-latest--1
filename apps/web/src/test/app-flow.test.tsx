@@ -30,7 +30,7 @@ function renderApp() {
   };
 }
 
-const FIND = { timeout: 20000 } as const;
+const FIND = { timeout: 5000 } as const;
 
 describe('end-to-end deck flow (markets → deck → 2-level split → card → dashboard)', () => {
   it('navigates the full journey against the mock repository', { timeout: 20000 }, async () => {
@@ -45,14 +45,15 @@ describe('end-to-end deck flow (markets → deck → 2-level split → card → 
     expect(await screen.findByTestId('type-nav', undefined, FIND)).toBeInTheDocument();
 
     // Open a company card → reader → dashboard.
-    const card = await screen.findByRole('button', { name: /GraceWear Global/ }, FIND);
+    const card = await screen.findByRole('button', { name: /^GraceWear Global — Company card$/ }, FIND);
     await user.click(card);
     const dialog = await screen.findByRole('dialog', undefined, FIND);
-    await user.click(within(dialog).getByRole('link', { name: /explore research/i }));
+    await user.click(within(dialog).getByRole('link', { name: /open full company dashboard/i }));
 
-    // Dashboard — overview content + tab switch to Metrics.
-    expect(await screen.findByText(/What they do/i, undefined, FIND)).toBeInTheDocument();
-    await user.click(screen.getByRole('link', { name: 'Metrics' }));
+    // Dashboard — route shell + tab switch to Metrics. The overview copy is
+    // research-authored, so the journey should not depend on a specific heading.
+    expect(await screen.findByRole('button', { name: 'Back to card' }, FIND)).toBeInTheDocument();
+    await user.click(await screen.findByRole('link', { name: 'Metrics' }, FIND));
     expect(await screen.findByText(/Revenue trend/i, undefined, FIND)).toBeInTheDocument();
     expect(screen.getByText('Cap table')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Back to card' }));

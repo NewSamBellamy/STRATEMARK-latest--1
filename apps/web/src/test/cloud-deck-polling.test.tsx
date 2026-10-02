@@ -123,9 +123,9 @@ describe('Cloud Deck Polling & UI State', () => {
     );
 
     expect(
-      await screen.findByText(/Sentinel Cloud Agent is researching this market/i)
+      await screen.findByText(/Preparing the cards before reveal/i)
     ).toBeInTheDocument();
-    expect(screen.getByText(/Streaming live updates…/i)).toBeInTheDocument();
+    expect(screen.getByText(/Building evidence-ready card faces…/i)).toBeInTheDocument();
     expect(screen.queryByText(/No cards yet/i)).not.toBeInTheDocument();
   });
 

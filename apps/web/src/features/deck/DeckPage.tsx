@@ -286,44 +286,45 @@ export default function DeckPage() {
       )}
 
       {!deckMissing && (
-            <QueryBoundary
+        isRunning || isPartial ? (
+          <div className={cn(
+            'panel mx-auto my-6 max-w-xl p-8 text-center',
+            isPartial ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50' : 'glow-border',
+          )}>
+            <div className={cn(
+              'mx-auto flex h-12 w-12 items-center justify-center rounded-full',
+              isPartial ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300' : 'bg-primary/10 text-primary',
+            )}>
+              {isPartial ? <AlertCircle className="h-6 w-6" /> : <Radar className="h-6 w-6 animate-pulse" />}
+            </div>
+            <h2 className="mt-4 font-display text-xl font-semibold text-content">
+              {isPartial ? 'This deck needs another research pass' : 'Preparing the cards before reveal'}
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              {isPartial
+                ? 'Some card faces or first-look summaries did not finish. Stratemark is keeping unfinished cards out of view instead of presenting partial research as complete.'
+                : 'Researching each company’s identity, core business figures, sources, and first-look summary. The deck opens when those card-ready essentials are complete.'}
+            </p>
+            {isPartial ? (
+              <button type="button" className="btn-primary mt-5" disabled={refreshDeck.isPending || !marketId}
+                onClick={() => marketId && refreshDeck.mutate(marketId)}>
+                <RefreshCw className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
+                {refreshDeck.isPending ? 'Researching…' : 'Retry incomplete research'}
+              </button>
+            ) : (
+              <div className="mt-6 flex items-center justify-center gap-2 text-xs font-medium text-primary">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Building evidence-ready card faces…</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <QueryBoundary
         query={cards}
         loading={<CardGridSkeleton />}
         isEmpty={(list) => list.length === 0}
         empty={
-          isRunning ? (
-            <div className="panel mx-auto max-w-xl p-8 text-center glow-border my-6">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <Radar className="h-6 w-6 animate-pulse text-primary" />
-              </div>
-              <h2 className="mt-4 font-display text-xl font-semibold text-content">
-                Sentinel Cloud Agent is researching this market
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-muted">
-                Running multi-vector discovery, 24/7 web scraping, and CourtListener legal monitors. Verified company cards and proxy estimates will appear automatically as they are built.
-              </p>
-              <div className="mt-6 flex items-center justify-center gap-2 text-xs text-primary font-medium">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Streaming live updates…</span>
-              </div>
-            </div>
-          ) : isPartial ? (
-            <div className="panel mx-auto max-w-xl p-8 text-center glow-border my-6">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <Radar className="h-6 w-6 animate-pulse text-primary" />
-              </div>
-              <h2 className="mt-4 font-display text-xl font-semibold text-content">
-                Research in progress — partial results below
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-muted">
-                More cards are being added as they are discovered. Partial cards are marked incomplete.
-              </p>
-              <div className="mt-6 flex items-center justify-center gap-2 text-xs text-primary font-medium">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Streaming live updates…</span>
-              </div>
-            </div>
-          ) : isRefreshing ? (
+          isRefreshing ? (
             <div className="panel mx-auto max-w-xl p-8 text-center border-teal-200 bg-teal-50 my-6 dark:border-teal-800 dark:bg-teal-950/50">
               <RefreshCw className="mx-auto h-8 w-8 text-teal-600 animate-spin" />
               <h2 className="mt-3 font-display text-xl font-semibold text-teal-800 dark:text-teal-200">
@@ -533,7 +534,8 @@ export default function DeckPage() {
             </section>
           );
         }}
-      </QueryBoundary>
+          </QueryBoundary>
+        )
       )}
 
       {/* Compare mode action bar */}
