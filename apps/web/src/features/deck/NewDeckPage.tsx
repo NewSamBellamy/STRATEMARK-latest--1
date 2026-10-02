@@ -18,6 +18,7 @@ import {
   Globe2,
   Loader2,
   Radar,
+  RefreshCw,
   ScanSearch,
   TrendingUp,
   X,
@@ -38,14 +39,40 @@ import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { useResearchSession } from './research-session';
 import { qk } from '@/lib/query/keys';
 
-const SUGGESTIONS = [
-  'Christian apparel companies',
-  'AI code-review startups',
-  'Non-alcoholic spirits brands',
-  'Precision fermentation companies',
-  'Direct-to-consumer pet food',
-  'Vertical farming startups',
-];
+const SUGGESTION_SETS = [
+  [
+    'Christian apparel companies',
+    'AI code-review startups',
+    'Non-alcoholic spirits brands',
+    'Precision fermentation companies',
+    'Direct-to-consumer pet food',
+    'Vertical farming startups',
+  ],
+  [
+    'Space infrastructure companies',
+    'Independent game studios',
+    'Climate-risk software',
+    'Modern dental groups',
+    'Creator economy tools',
+    'Battery recycling companies',
+  ],
+  [
+    'Private credit platforms',
+    'Robotics foundation models',
+    'Luxury resale marketplaces',
+    'Next-generation nuclear energy',
+    'Women’s health startups',
+    'Warehouse automation companies',
+  ],
+  [
+    'Sustainable packaging companies',
+    'AI-native accounting software',
+    'Functional beverage brands',
+    'Commercial drone platforms',
+    'Alternative protein companies',
+    'Industrial cybersecurity startups',
+  ],
+] as const;
 
 const REGIONS = [
   'Global',
@@ -380,6 +407,9 @@ export default function NewDeckPage() {
 
   const [prompt, setPrompt] = useState('');
   const [region, setRegion] = useState('');
+  const [suggestionSet, setSuggestionSet] = useState(() =>
+    Math.floor(Math.random() * SUGGESTION_SETS.length),
+  );
   const { engine, setEngine } = useEngineChoice();
   const [logsOpen, setLogsOpen] = useState(false);
 
@@ -438,7 +468,7 @@ export default function NewDeckPage() {
         } catch {
           /* opaque origin — keep default */
         }
-        
+
         addLog('Connecting to Sentinel Cloud Agent…', { stage: 'interpret' });
         const authToken = await getToken();
         const res = await runCloudResearchDeck(q, regionStr || null, targetCompanies, authToken);
@@ -450,10 +480,16 @@ export default function NewDeckPage() {
           (res.deck?.id ? { id: res.deck.id as string } : null);
         if (res.ok && market && (market as { id?: string }).id) {
           const m = market as { id: string };
-          if ('cacheCloudDeckResponse' in repo && typeof repo.cacheCloudDeckResponse === 'function') {
-            (repo as { cacheCloudDeckResponse: (r: typeof res) => void }).cacheCloudDeckResponse(res);
+          if (
+            'cacheCloudDeckResponse' in repo &&
+            typeof repo.cacheCloudDeckResponse === 'function'
+          ) {
+            (repo as { cacheCloudDeckResponse: (r: typeof res) => void }).cacheCloudDeckResponse(
+              res,
+            );
           }
-          const cardCount = res.cards?.length || res.candidates?.length || res.result?.cards?.length || 0;
+          const cardCount =
+            res.cards?.length || res.candidates?.length || res.result?.cards?.length || 0;
           finish(`/markets/${m.id}/deck`, cardCount);
           // The deck exists NOW — every deck list refetches immediately.
           void qc.invalidateQueries({ queryKey: qk.markets });
@@ -533,7 +569,8 @@ export default function NewDeckPage() {
                 <SettingsLink className="font-semibold underline hover:opacity-80">
                   Add your key in Settings
                 </SettingsLink>{' '}
-                (free tier works), then come back and run “{prompt.trim() || 'this market'}” for real.
+                (free tier works), then come back and run “{prompt.trim() || 'this market'}” for
+                real.
               </span>
             }
             onClose={() => setDemoGate(false)}
@@ -549,8 +586,9 @@ export default function NewDeckPage() {
             <div className="mb-6">
               <div className="flex items-center gap-2.5">
                 <img src={logoMark} alt="Stratemark" className="h-8 w-8" />
-                <span className="font-display text-lg font-bold tracking-tight text-content">Stratemark</span>
-                <span className="text-[13px] text-muted ml-1">{timeLabel()}</span>
+                <span className="font-display text-lg font-bold tracking-tight text-content">
+                  Stratemark
+                </span>
               </div>
               <h1 className="mt-2 font-display text-2xl font-semibold text-content md:text-3xl">
                 What market should we dive into?
@@ -573,8 +611,8 @@ export default function NewDeckPage() {
               />
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              {SUGGESTIONS.map((ex) => (
+            <div className="flex flex-wrap items-center gap-2">
+              {SUGGESTION_SETS[suggestionSet]!.map((ex) => (
                 <button
                   key={ex}
                   type="button"
@@ -584,6 +622,17 @@ export default function NewDeckPage() {
                   {ex}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() =>
+                  setSuggestionSet((current) => (current + 1) % SUGGESTION_SETS.length)
+                }
+                className="grid h-8 w-8 place-items-center rounded-full text-faint transition-colors hover:bg-surface hover:text-muted"
+                aria-label="Show different suggestions"
+                title="Refresh suggestions"
+              >
+                <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.7} />
+              </button>
             </div>
           </div>
         ) : (
@@ -686,8 +735,8 @@ export default function NewDeckPage() {
                     {session.done.count > 0
                       ? `${session.done.count} cards built`
                       : 'cards are built'}
-                    , metrics sourced, tiers scored. Desks are pre-researching dashboard
-                    tabs in the background, so company pages open instantly.
+                    , metrics sourced, tiers scored. Desks are pre-researching dashboard tabs in the
+                    background, so company pages open instantly.
                   </p>
                   <div className="mt-3 flex items-center gap-3">
                     <Link

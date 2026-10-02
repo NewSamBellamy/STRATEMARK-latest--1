@@ -21,9 +21,7 @@ function TestWrapper({ children }: { children: React.ReactNode }) {
       <GoogleAuthProvider>
         <TaskManagerProvider>
           <RepositoryProvider repository={new MockRepository()}>
-            <MemoryRouter initialEntries={['/']}>
-              {children}
-            </MemoryRouter>
+            <MemoryRouter initialEntries={['/']}>{children}</MemoryRouter>
           </RepositoryProvider>
         </TaskManagerProvider>
       </GoogleAuthProvider>
@@ -44,7 +42,7 @@ describe('Research Engine Settings & Strict Execution', () => {
     render(
       <TestWrapper>
         <SettingsModal />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     await user.click(screen.getByRole('button', { name: /^engine$/i }));
@@ -66,7 +64,7 @@ describe('Research Engine Settings & Strict Execution', () => {
     useEngineChoice.setState({ engine: 'cloud' });
 
     vi.spyOn(sentinelApi, 'runCloudResearchDeck').mockRejectedValueOnce(
-      new Error('Sentinel Cloud Run service temporary 503 error')
+      new Error('Sentinel Cloud Run service temporary 503 error'),
     );
 
     const user = userEvent.setup();
@@ -75,7 +73,7 @@ describe('Research Engine Settings & Strict Execution', () => {
         <Routes>
           <Route path="/" element={<NewDeckPage />} />
         </Routes>
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const input = screen.getByPlaceholderText(/describe a market/i);
@@ -85,7 +83,9 @@ describe('Research Engine Settings & Strict Execution', () => {
     await user.click(submitBtn);
 
     expect(
-      await screen.findByText(/Sentinel Cloud Agent error: Sentinel Cloud Run service temporary 503 error/i)
+      await screen.findByText(
+        /Sentinel Cloud Agent error: Sentinel Cloud Run service temporary 503 error/i,
+      ),
     ).toBeInTheDocument();
   });
 
@@ -110,5 +110,30 @@ describe('Research Engine Settings & Strict Execution', () => {
     await user.click(screen.getByRole('button', { name: /research this market/i }));
 
     expect(await screen.findByText('running cloud deck')).toBeInTheDocument();
+  });
+
+  it('keeps the welcome header timeless and refreshes the market suggestions', async () => {
+    const user = userEvent.setup();
+    render(
+      <TestWrapper>
+        <Routes>
+          <Route path="/" element={<NewDeckPage />} />
+        </Routes>
+      </TestWrapper>,
+    );
+
+    expect(screen.queryByText(/^\d{1,2}:\d{2}\s?(AM|PM)?$/i)).not.toBeInTheDocument();
+
+    const before = screen
+      .getAllByRole('button')
+      .map((button) => button.textContent)
+      .filter(Boolean);
+    await user.click(screen.getByRole('button', { name: /show different suggestions/i }));
+    const after = screen
+      .getAllByRole('button')
+      .map((button) => button.textContent)
+      .filter(Boolean);
+
+    expect(after).not.toEqual(before);
   });
 });

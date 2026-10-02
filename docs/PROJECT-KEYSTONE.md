@@ -23,7 +23,8 @@ Project Keystone is the hands-on Stratemark product line built from the approved
 | Date | Checkpoint | Status |
 | --- | --- | --- |
 | 2026-10-01 | Restored and founder-approved initial card redesign | Baseline |
+| 2026-10-01 | Removed welcome-screen clock and added rotating market suggestions | Verified |
 
 ## Next slice
 
-Choose one narrow improvement with the founder, implement it, test the affected journey, review it visually, and only then save the checkpoint.
+Replace browser speech recognition with optional local Whisper large-v3-turbo transcription through whisper.cpp. The model must download only with explicit user consent, report its disk requirement, stay on-device, and retain a clear no-model state rather than silently using a hosted browser service.
