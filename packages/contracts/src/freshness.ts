@@ -132,13 +132,18 @@ export function isUnauditedAtBirth(metric: CompanyMetric): boolean {
 /** Epoch ms when this figure next needs attention, or null if never. */
 export function nextRefreshDueAtMs(metric: CompanyMetric): number | null {
   if (isHumanAuthored(metric)) return null;
+  const attempted = Date.parse(metric.lastVerificationAttemptAt ?? '');
+  const attemptMs = Number.isFinite(attempted) ? attempted : null;
   // BIRTH AUDIT: soft figures with no verification history are due NOW, not
   // after a decay window. The deck starts fact-checking itself the moment it
   // lands, instead of trusting first-pass research for hours.
-  if (isUnauditedAtBirth(metric)) return 0;
+  if (isUnauditedAtBirth(metric) && attemptMs === null) return 0;
   const seconds = metric.staleAfterSeconds ?? staleAfterSecondsFor(metric);
   if (seconds === null) return null;
-  const from = verifiedAtMs(metric);
+  const supported = verifiedAtMs(metric);
+  // Scheduling cooldown is not factual freshness: inconclusive attempts delay
+  // another paid query but never change lastVerifiedAt or capturedAt.
+  const from = attemptMs === null ? supported : Math.max(attemptMs, supported ?? attemptMs);
   // An unparseable or missing timestamp means we cannot vouch for the figure's
   // age, so it is due immediately rather than treated as fresh.
   if (from === null) return 0;

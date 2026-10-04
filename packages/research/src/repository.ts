@@ -1362,10 +1362,10 @@ export class GeminiRepository implements MarketIntelRepository {
    * deck-refresh event so every open view reconciles.
    *
    * No-fabrication invariants held here:
-   *  - a revision requires grounded citations; otherwise we record verification
-   *    time only and leave the value untouched
+   *  - a revision requires a consistent verdict, concrete value and grounded
+   *    citations; otherwise record an attempt, not successful support
    *  - 'user_verified' is never assigned by this path (humans only)
-   *  - an inconclusive check ('unverified') changes nothing but the timestamp
+   *  - an inconclusive check never advances the last successful support time
    */
   async verifyMetric(input: VerifyMetricInput): Promise<VerifyMetricResult> {
     const company = this.snap.companies.find((c) => c.id === input.companyId);
@@ -1384,7 +1384,10 @@ export class GeminiRepository implements MarketIntelRepository {
     // events — and skip both LLM calls.
     if (input.correction && input.correction.value != null) {
       const hintCited = usableCitations(input.correction.citations);
-      if (hasVerificationGradeCitation(hintCited) && metric.confidence !== 'user_verified') {
+      const correctionValue = input.correction.value;
+      const validCorrection = Number.isFinite(correctionValue) && correctionValue >= 0 &&
+        (input.metricType !== 'market_share' || correctionValue <= 100);
+      if (validCorrection && hasVerificationGradeCitation(hintCited) && metric.confidence !== 'user_verified') {
         const nowIso = new Date().toISOString();
         const prior = metric.value;
         const differs =
@@ -1404,6 +1407,7 @@ export class GeminiRepository implements MarketIntelRepository {
           changed = true;
           this.snap.dashboards[input.companyId] = {};
         }
+        metric.lastVerificationAttemptAt = nowIso;
         Object.assign(metric, markVerified(metric, nowIso));
         const retieredCardIds = changed
           ? this.retierCompany(input.companyId, `Re-tiered after a fact-check correction of ${label}.`)
@@ -1451,7 +1455,9 @@ export class GeminiRepository implements MarketIntelRepository {
         `Use Google Search. Prefer primary sources and recent reputable coverage; name the figure, its as-of date, and the source. If coverage disagrees, say which figure is best supported. If no reliable current figure exists, say so plainly. Never guess.`,
         `MEASUREMENT BASIS: the figure must describe the WHOLE legal company — for a conglomerate, total company revenue/valuation/headcount, never a division's figure presented as the company's.`,
       ].join('\n'),
-      { system: GROUNDED_SYSTEM },
+      { system: GROUNDED_SYSTEM, researchContext: {
+        companyId: company.id, companyName: company.name, topic: `verify:${input.metricType}`,
+      } },
     );
     const out = await this.client.structure(
       [
@@ -1474,17 +1480,24 @@ export class GeminiRepository implements MarketIntelRepository {
     const nowIso = new Date().toISOString();
     const cited = usableCitations(g.citations);
     let changed = false;
+    const prior = metric.value;
+    const value = out.currentValue;
+    const validValue = value != null && Number.isFinite(value) && value >= 0 &&
+      (input.metricType !== 'market_share' || value <= 100);
+    const differs = value != null && (prior == null ||
+      Math.abs(value - prior) / Math.max(Math.abs(prior), 1) > 0.02);
+    // A source link is necessary, not sufficient. Never apply an unverified
+    // number or a verdict that contradicts its own value. Original-passage
+    // validation is the next evidence gate; this closes the verdict loophole.
+    const corroborated = validValue && hasVerificationGradeCitation(cited) &&
+      ((out.verdict === 'supported' && !differs) || (out.verdict === 'contradicted' && differs));
+    const verdict = corroborated ? out.verdict : 'unverified';
 
     // Revise ONLY on a grounded, concrete figure backed by a
     // VERIFICATION-GRADE citation (junk domains and user-generated content
     // carry no verification weight) that differs beyond noise (2% relative
     // tolerance absorbs rounding between sources).
-    if (out.currentValue != null && hasVerificationGradeCitation(cited)) {
-      const prior = metric.value;
-      const differs =
-        prior == null ||
-        prior === 0 ||
-        Math.abs(out.currentValue - prior) / Math.max(Math.abs(prior), 1) > 0.02;
+    if (corroborated) {
       // A human-verified figure outranks machine re-verification — never
       // overwrite user_verified rows; the human resolves those.
       if (differs && metric.confidence !== 'user_verified') {
@@ -1507,16 +1520,18 @@ export class GeminiRepository implements MarketIntelRepository {
     // exact contradiction that breaks user trust.
     if (
       !changed &&
-      out.verdict === 'unverified' &&
+      verdict === 'unverified' &&
       metric.confidence === 'verified'
     ) {
       metric.confidence = 'estimated';
       metric.methodNote = `Could not re-corroborate from live sources on ${nowIso.slice(0, 10)}; badge downgraded pending fresh evidence.`;
-      metric.capturedAt = nowIso;
       changed = true;
       this.snap.dashboards[input.companyId] = {};
     }
-    Object.assign(metric, markVerified(metric, nowIso));
+    metric.lastVerificationAttemptAt = nowIso;
+    if (corroborated && metric.confidence !== 'user_verified') {
+      Object.assign(metric, markVerified(metric, nowIso));
+    }
 
     const retieredCardIds = changed
       ? this.retierCompany(input.companyId, `Re-tiered after live verification of ${label}.`)
@@ -1540,7 +1555,7 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     return {
       metric,
-      verdict: out.verdict ?? 'unverified',
+      verdict,
       changed,
       retieredCardIds,
       rationale: out.rationale ?? '',

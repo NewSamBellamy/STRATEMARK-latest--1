@@ -1,6 +1,6 @@
 # Keystone build status / next-session handoff
 
-Updated: 2026-10-03. This is a planning checkpoint; K0-K9 are not implemented by the new plan.
+Updated: 2026-10-03 (local date). Implementation started; no full milestone is complete.
 
 ## Read first
 
@@ -17,18 +17,23 @@ Branch: `revival/initial-card-redesign`. Preserve main and unrelated local work.
 - `a3f2216`: architecture audit and phased specification.
 - `60ca414`: proposed 1-99 deck-relative scoring methodology, common-basis/reranking rules. Not implemented.
 - Current planning slice: consolidated company/finding journeys, four finding-card requirements, execution order, acceptance gates, performance/cost measurements and continuity notes. No application code changed.
+- First K1 implementation slice: verification rejects inconclusive/inconsistent verdict-value pairs and invalid negative/non-finite shortcut values. Completed attempts have a separate additive `lastVerificationAttemptAt`; only supported outcomes advance `lastVerifiedAt`, and inconclusive downgrades preserve the original capture date. Scheduling respects attempt cooldown without claiming renewed support. Scoped verification notes persist before structuring, including structuring failure. Valid cited corrections retain the zero-additional-call shortcut. Original-document validation is NOT implemented by this slice.
 
 ## Known verification / blockers
 
-Previous `pnpm check` had a failing web full-journey Back-to-card assertion. Its cause remains unconfirmed. Research/contracts tests passed at that checkpoint; live provider audits self-skipped. Do not reuse those results as proof of current production readiness.
+The previous Back-to-card failure did not reproduce: isolated journey and the complete 133-test web suite passed. Do not claim it was fixed; cause remains unconfirmed. First implementation regressions were observed failing before the fix: unsupported number mutation, false successful-verification timestamps, retry backoff, invalid shortcut values and loss of notes on structuring failure. Focused verification suite now passes 20 tests; freshness suite passes 17. Full-project gate results are recorded in the checkpoint document. Live provider audits without credentials self-skip and are NOT RUN, not accuracy evidence.
+
+[Checkpoint 01](KEYSTONE-CHECKPOINT-01.md): final `pnpm check` exited 0 (types, lint and all unit suites). No measured live latency gain or independent factual-accuracy claim. No installer run or full browser recording yet.
+
+Preview `http://127.0.0.1:4174/` was already served from this worktree; no process was killed/replaced. Homepage/sidebar render in the in-app browser. Shared-module hot reload emitted RepositoryProvider context errors during edits; a clean reload rendered correctly, with no newer errors observed. Keep this development limitation on the K0 investigation list. No paid deck/dashboard journey was triggered in the browser; card visual baselines, recording and latency benchmarks remain pending.
 
 GitHub push was blocked by Windows/Git authentication. Local checkpoint is not a remote backup. Existing untracked `.pnpm-store/` and `docs/KEYSTONE-CATEGORY-BASELINE.md` must not be swept into commits or deleted casually.
 
 ## Next bounded task
 
-K0: inspect worktree and scripts, restore working preview, reproduce/resolve the dashboard journey issue, capture approved card/reader baseline and collect labelled timing/call-count measurements without paid live research.
+K0 remaining: capture approved card/reader baseline and affected-journey recording using isolated no-key fixture state; measure labelled timings/call counts; investigate hot-reload context identity. Keep trying to reproduce prior navigation failure without weakening its assertion.
 
-Then K1: one trustworthy company enrichment/verification -> evidence receipt -> accepted fact -> matching card/reader slice. Close prose-only/irrelevant-citation verification, verdict/value and false-freshness defects with adversarial tests. No scoring UI/provider fleet/connector scaffolding yet.
+K1 next: original-source retrieval and typed evidence receipts with entity/value/period/definition checks -> accepted fact -> matching card/reader. Current citation-grade filtering still does not prove an original page supports a figure. Audit other ingestion/verification paths before calling this shared or complete. No scoring UI/provider fleet/connector scaffolding yet.
 
 Live tests need explicit scope/spend approval before invoking user research credits. Never expose keys. Source count is not confidence; an unrated private company is not a weak company. Save full evidence while compacting session notes well before the context boundary.
 
@@ -36,8 +41,8 @@ Live tests need explicit scope/spend approval before invoking user research cred
 
 | Milestone | State |
 | --- | --- |
-| K0 Baseline and navigation | Not started |
-| K1 Evidence correctness, card+reader | Not started |
+| K0 Baseline and navigation | In progress: tests/homepage checked; visual journey and timings pending |
+| K1 Evidence correctness, card+reader | In progress: verdict/freshness integrity slice implemented |
 | K2 Durable queryable dossiers | Not started |
 | K3 Sentinel/Scouts, first-ready latency, branding | Not started |
 | K4 Complete coherent company dashboards | Not started |

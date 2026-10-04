@@ -7,7 +7,7 @@
  * component state; nothing ever revised the stored metric. These tests pin the
  * new contract: grounded evidence + citations → the stored figure REVISES,
  * freshness stamps, the company re-tiers, and a deck event fires. No evidence →
- * nothing changes but the verification timestamp.
+ * no successful-verification timestamp advances; only the attempt is recorded.
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { Citation, DeckRefreshEvent } from '@mi/contracts';
@@ -124,6 +124,20 @@ function stubClient(overrides: {
 }
 
 describe('verifyMetric', () => {
+  it('retains scoped grounded notes even when structuring fails', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ groundText: 'An original report needs further review.', structured: {} });
+    vi.mocked(client.structure).mockRejectedValueOnce(new Error('Invalid structured response'));
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    await expect(repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' })).rejects.toThrow('Invalid structured response');
+    const persisted = store.read()!;
+    expect(persisted.researchEvidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ companyId: 'cmp_openai', companyName: 'OpenAI', topic: 'verify:arr',
+        text: 'An original report needs further review.' }),
+    ]));
+    expect(persisted.metrics.find((m) => m.metricType === 'arr')!.value).toBe(990_000_000);
+  });
+
   it('revises a contradicted figure with citations, re-tiers, and emits a deck event', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({
@@ -238,7 +252,7 @@ describe('verifyMetric', () => {
     expect(result.metric.methodNote).toContain('Could not re-corroborate');
   });
 
-  it('treats an inconclusive check as timestamp-only', async () => {
+  it('records an inconclusive attempt without claiming successful verification', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({
       structured: { verdict: 'unverified', currentValue: null, rationale: 'No reliable figure.', methodNote: null },
@@ -250,7 +264,34 @@ describe('verifyMetric', () => {
     expect(result.changed).toBe(false);
     expect(result.verdict).toBe('unverified');
     expect(result.metric.value).toBe(990_000_000);
-    expect(result.metric.lastVerifiedAt).toBeTruthy();
+    expect(result.metric.lastVerifiedAt).toBeFalsy();
+    expect(result.metric).toHaveProperty('lastVerificationAttemptAt', expect.any(String));
+  });
+
+  it.each([
+    { verdict: 'unverified', currentValue: 40_000_000_000, citations: CITED },
+    { verdict: 'supported', currentValue: null, citations: CITED },
+    { verdict: 'supported', currentValue: 990_000_000, citations: [] },
+    { verdict: 'supported', currentValue: 40_000_000_000, citations: CITED },
+    { verdict: 'contradicted', currentValue: -10, citations: CITED },
+  ])('rejects an unsupported verification outcome: $verdict / $currentValue', async ({ verdict, currentValue, citations }) => {
+    const snap = seededSnapshot();
+    const arr = snap.metrics.find((m) => m.metricType === 'arr')!;
+    const priorCapture = arr.capturedAt;
+    const priorVerification = '2026-01-01T00:00:00.000Z';
+    arr.lastVerifiedAt = priorVerification;
+    const { store } = memoryStore(snap);
+    const client = stubClient({ citations, structured: { verdict, currentValue, rationale: 'Inconclusive', methodNote: null } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+
+    expect(result.metric.value).toBe(990_000_000);
+    expect(result.metric.confidence).toBe('estimated');
+    expect(result.metric.capturedAt).toBe(priorCapture);
+    expect(result.metric.lastVerifiedAt).toBe(priorVerification);
+    expect(result.verdict).toBe('unverified');
+    expect(result.changed).toBe(false);
   });
 });
 
@@ -301,6 +342,17 @@ describe('factCheck metric corrections', () => {
 });
 
 describe('verifyMetric fast-path correction (fact-check evidence applied directly)', () => {
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid shortcut values: %s', async (value) => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { verdict: 'unverified', currentValue: null } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr',
+      correction: { value, citations: CITED } });
+    expect(result.metric.value).toBe(990_000_000);
+    expect(result.verdict).toBe('unverified');
+    expect(client.ground).toHaveBeenCalledTimes(1);
+  });
+
   it('applies a cited correction with ZERO research calls — the latency fix', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({ structured: {} });

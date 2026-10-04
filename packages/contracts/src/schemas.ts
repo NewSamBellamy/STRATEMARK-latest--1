@@ -156,6 +156,8 @@ export const companyMetricSchema = z.object({
    * Defaulted so snapshots written before freshness tracking still parse.
    */
   lastVerifiedAt: isoTimestamp.nullish(),
+  /** Last completed check, including inconclusive attempts; not evidence of support. */
+  lastVerificationAttemptAt: isoTimestamp.nullish(),
   /**
    * This figure's own decay window. Written onto the row rather than derived at
    * read time, so a later policy change cannot silently reinterpret the
