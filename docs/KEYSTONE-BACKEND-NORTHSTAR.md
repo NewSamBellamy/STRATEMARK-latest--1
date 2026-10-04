@@ -4,6 +4,8 @@ The active backend audit and build specification is:
 
 [Evidence-first research architecture](../01_PROJECTS/Stratemark/Specs/Keystone-Research-Architecture.md)
 
+Scoring companion (proposed, not built): [Market Position and Sentinel ranking](../01_PROJECTS/Stratemark/Specs/Keystone-Market-Position-Scoring.md). This governs deck-relative 1-99 scores, common evidence bases, full-cohort recalculation, small-set ranks and honest unrated cases; it does not replace evidence quality with a score.
+
 Reviewed at checkpoint `a8f0d15` on 2026-10-03. This is a plan, not a claim that the proposed architecture has shipped.
 
 ## What wins

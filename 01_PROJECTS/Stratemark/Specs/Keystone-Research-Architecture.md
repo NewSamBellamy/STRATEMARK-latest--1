@@ -4,6 +4,8 @@ Status: proposed implementation plan, not shipped capabilities.
 Reviewed: 2026-10-03. Audited checkpoint: `a8f0d15`, branch `revival/initial-card-redesign`.
 Scope: research backend and its user-visible contracts. Preserve the approved card design. This document supersedes conflicting backend recommendations in older Keystone notes, not unrelated frontend work or historical records.
 
+Scoring addendum: [Market Position and Sentinel ranking](Keystone-Market-Position-Scoring.md) defines the proposed 1-99 relative index, cohort-wide reranking and evidence gates. Read both documents before building; ranking is a cohort projection, not absolute company quality or an LLM-assigned tier.
+
 ## 1. Problem statement
 
 Stratemark must make a company understandable quickly, then become the local place a researcher returns to for trustworthy depth and meaningful changes. The card is the entrance to a company dossier, not a substitute for it. A deck organizes a market; evidence connects everything.
