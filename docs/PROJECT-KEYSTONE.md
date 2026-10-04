@@ -28,4 +28,4 @@ Project Keystone is the hands-on Stratemark product line built from the approved
 
 ## Next slice
 
-Follow [KEYSTONE-BACKEND-NORTHSTAR.md](KEYSTONE-BACKEND-NORTHSTAR.md) and its complete evidence-first specification. Active category: Phase A, claim-level verification and reporting periods through one complete card-and-reader slice. [SOURCE-QUALITY.md](SOURCE-QUALITY.md) records the shipped foundation and remaining gaps. Fix the failing full-journey navigation check before any production claim. Do not redesign the cards during this backend slice.
+Read [KEYSTONE-BUILD-STATUS.md](KEYSTONE-BUILD-STATUS.md), then the [consolidated build and test plan](../01_PROJECTS/Stratemark/Specs/Keystone-Build-and-Test-Plan.md). Start K0 baseline/navigation and one complete K1 card-and-reader evidence slice. [KEYSTONE-BACKEND-NORTHSTAR.md](KEYSTONE-BACKEND-NORTHSTAR.md) links the architecture/scoring decisions; [SOURCE-QUALITY.md](SOURCE-QUALITY.md) records the shipped foundation. No wholesale card redesign; no production claim before full-journey and live quality gates pass.

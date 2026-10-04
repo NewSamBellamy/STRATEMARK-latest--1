@@ -2,6 +2,8 @@
 
 The active backend audit and build specification is:
 
+Execution entry point: [Consolidated build and test plan](../01_PROJECTS/Stratemark/Specs/Keystone-Build-and-Test-Plan.md). Read [build status](KEYSTONE-BUILD-STATUS.md) first for the next bounded task. This includes the founder-approved four finding-card journeys, implementation order, measurable quality/latency gates and checkpoint protocol.
+
 [Evidence-first research architecture](../01_PROJECTS/Stratemark/Specs/Keystone-Research-Architecture.md)
 
 Scoring companion (proposed, not built): [Market Position and Sentinel ranking](../01_PROJECTS/Stratemark/Specs/Keystone-Market-Position-Scoring.md). This governs deck-relative 1-99 scores, common evidence bases, full-cohort recalculation, small-set ranks and honest unrated cases; it does not replace evidence quality with a score.
