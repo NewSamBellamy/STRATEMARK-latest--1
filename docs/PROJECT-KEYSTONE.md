@@ -28,4 +28,4 @@ Project Keystone is the hands-on Stratemark product line built from the approved
 
 ## Next slice
 
-Continue the source-quality category in [SOURCE-QUALITY.md](SOURCE-QUALITY.md): claim-level original evidence and reporting periods first, followed by a small user-approved live research audit. Fix the failing full-journey navigation check before any production claim. Do not redesign the cards during this backend slice.
+Follow [KEYSTONE-BACKEND-NORTHSTAR.md](KEYSTONE-BACKEND-NORTHSTAR.md) and its complete evidence-first specification. Active category: Phase A, claim-level verification and reporting periods through one complete card-and-reader slice. [SOURCE-QUALITY.md](SOURCE-QUALITY.md) records the shipped foundation and remaining gaps. Fix the failing full-journey navigation check before any production claim. Do not redesign the cards during this backend slice.
