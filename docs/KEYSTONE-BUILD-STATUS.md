@@ -21,6 +21,7 @@ Branch: `revival/initial-card-redesign`. Preserve main and unrelated local work.
 - Second K1 slice: shared provenance recalculates credibility from URLs rather than trusting supplied labels, rejects malformed/credential-bearing citation URLs and removes machine verification from prose-only or unrecognized-source claims. Unknown niche citations remain inspectable. Reconciliation preserves human checks and stronger support/history when weaker automated observations repeat a value. Card/reader projections reject forged authority without rewriting legacy stored data. See [checkpoint 02](KEYSTONE-CHECKPOINT-02.md).
 - Third K1 slice: local and cloud verification (including correction shortcuts) now use one pure shared transition. Invalid/inconsistent observations cannot revise numbers or refresh support dates; every completed attempt persists cooldown, human-reviewed fields remain locked, and real zero is not automatically a changed figure. Confirming an existing estimate now attaches evidence and updates confidence so views can reconcile, rather than only changing a timestamp. See [checkpoint 03](KEYSTONE-CHECKPOINT-03.md). Checkpoint 02 commit: `1b8c920`.
 - Fourth K1 slice: both Gemini adapters preserve provider passage-to-source mappings; scoped local records save them before structuring and return deep copies on retrieval. Original chunk indices survive missing-URL chunks; invalid mappings and text absent from the provider answer are excluded. No independent original-page validation or promotion from mappings alone. See [checkpoint 04](KEYSTONE-CHECKPOINT-04.md). Checkpoint 03 commit: `300008b`.
+- Fifth checkpoint, bounded K2 safety detour: browser quota handling no longer discards researched dashboards/reports or acknowledges an unconfirmed vault backup. Full-snapshot writes succeed or throw a readable failure while retaining the prior primary copy. Retry and rejected-replica tests added; transactional storage and higher-level recovery are NOT complete. See [checkpoint 05](KEYSTONE-CHECKPOINT-05.md). Checkpoint 04 commit: `4e45476`.
 
 ## Known verification / blockers
 
@@ -33,6 +34,8 @@ The previous Back-to-card failure did not reproduce: isolated journey and the co
 [Checkpoint 03](KEYSTONE-CHECKPOINT-03.md): final `pnpm check` exited 0. Types and lint passed; contracts 92, mocks 15, research 296, desktop 27, API 172 and web 134 tests reported passing. Live credential-dependent audits returned early and remain NOT RUN. No paid research or UI redesign; fourteen API regression cases cover the shared transition and correction shortcut.
 
 [Checkpoint 04](KEYSTONE-CHECKPOINT-04.md): final `pnpm check` exited 0. Types and lint passed; contracts 92, mocks 15, research 305, desktop 27, API 172 and web 134 tests reported passing. Nine provider/persistence regressions cover both adapters; eight failed before implementation. Live audits remain NOT RUN; no paid research or design change.
+
+[Checkpoint 05](KEYSTONE-CHECKPOINT-05.md): multi-angle review prioritized removal of destructive browser quota fallback. Final `pnpm check` exited 0: types/lint and contracts 92, mocks 15, research 305, desktop 27, API 172, web 139 tests reported passing. The eight-case store suite covers failure preservation and retry. Live audits remain NOT RUN. No paid research or visual redesign. Storage capacity and transactional recovery are still unfinished; resume K1 original-source validation next.
 
 Preview `http://127.0.0.1:4174/` was already served from this worktree; no process was killed/replaced. Homepage/sidebar render in the in-app browser. Shared-module hot reload emitted RepositoryProvider context errors during edits; a clean reload rendered correctly, with no newer errors observed. Keep this development limitation on the K0 investigation list. No paid deck/dashboard journey was triggered in the browser; card visual baselines, recording and latency benchmarks remain pending.
 
@@ -54,7 +57,7 @@ The founder authorized use of the configured Gemini key for needed testing on ch
 | --- | --- |
 | K0 Baseline and navigation | In progress: tests/homepage checked; visual journey and timings pending |
 | K1 Evidence correctness, card+reader | In progress: shared local/cloud verdict/freshness and attribution/reconciliation protections; original-passage proof pending |
-| K2 Durable queryable dossiers | Not started |
+| K2 Durable queryable dossiers | In progress: destructive browser quota fallback removed; asynchronous transactional store, recovery and migration pending |
 | K3 Sentinel/Scouts, first-ready latency, branding | Not started |
 | K4 Complete coherent company dashboards | Not started |
 | K5 Specialist stories/reports/shards | Not started |
