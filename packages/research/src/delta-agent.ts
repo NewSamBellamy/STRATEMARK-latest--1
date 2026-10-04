@@ -52,6 +52,7 @@ import {
 } from './prompts';
 import { rootDomain, throwIfAborted } from './util';
 import { hydrateCompanyCard } from './company-agent';
+import type { OriginalSourceServices } from './original-source';
 import type {
   Citation,
   CompanyCandidate,
@@ -103,6 +104,7 @@ export interface DeltaExecutionStats {
 }
 
 export interface DeltaSearchOptions {
+  originalSources?: OriginalSourceServices;
   focus: ExpandFocus | string;
   target?: number;
   exclude?: EntityExclusionInput;
@@ -123,6 +125,7 @@ export interface DeltaSearchResult {
 }
 
 export interface ExpandDeckWithDeltaAgentArgs {
+  originalSources?: OriginalSourceServices;
   client: LlmClient;
   marketName: string;
   vertical: string;
@@ -612,6 +615,7 @@ export class IncrementalDeltaAgent {
 
       // Hydrate via deep module company-agent
       const hydration = await hydrateCompanyCard({
+        originalSources: options.originalSources,
         candidate,
         client: this.client,
         plan,
@@ -627,6 +631,7 @@ export class IncrementalDeltaAgent {
 
       // Perform tier review if candidate was scored and tier review is enabled
       if (
+        !options.originalSources &&
         options.reviewTiers !== false &&
         hydration.cmsResult.baseTier != null &&
         hydration.cmsResult.finalTier != null
@@ -759,6 +764,7 @@ export async function expandDeckWithDeltaAgent(
     args.focus ?? (args.focusPrompt || 'notable companies missed in the initial pass');
 
   const result = await agent.searchDelta({
+    originalSources: args.originalSources,
     focus: focusInput,
     target: args.target ?? 3,
     exclude: excludeItems,

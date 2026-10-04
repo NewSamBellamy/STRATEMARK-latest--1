@@ -2372,6 +2372,7 @@ export class GeminiRepository implements MarketIntelRepository {
       .map((m) => m.value as number);
 
     const cards = await expandDeckWithDeltaAgent({
+      originalSources: this.originalSources,
       client: this.client,
       marketName: market.name,
       vertical: market.scopeDefinition.vertical,

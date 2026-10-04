@@ -482,6 +482,7 @@ export async function researchMarketCards(
  * Returns fully-assembled cards; the caller stamps deckId and ingests.
  */
 export async function expandDeckResearch(args: {
+  originalSources?: OriginalSourceServices;
   client: LlmClient;
   marketName: string;
   vertical: string;
@@ -495,6 +496,7 @@ export async function expandDeckResearch(args: {
   signal?: AbortSignal;
 }): Promise<CardWithCompany[]> {
   return expandDeckWithDeltaAgent({
+    originalSources: args.originalSources,
     client: args.client,
     marketName: args.marketName,
     vertical: args.vertical,
