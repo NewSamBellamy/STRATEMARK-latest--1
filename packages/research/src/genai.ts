@@ -25,6 +25,7 @@ import type { ZodType, ZodTypeDef } from 'zod';
 import { GoogleGenAI, Type } from '@google/genai';
 import type { GenerateContentResponse } from '@google/genai';
 import type { Citation, LlmClient } from './types';
+import { extractProviderGrounding } from './grounding-support';
 import { createRateLimiter, extractJson, withRetry, type RetryableError } from './util';
 import {
   DEFAULT_GROUNDED_MODEL,
@@ -269,6 +270,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
         text: (res.text ?? '').trim(),
         citations: citationsOf(res),
         queries: res.candidates?.[0]?.groundingMetadata?.webSearchQueries ?? [],
+        grounding: extractProviderGrounding(res.text ?? '', res.candidates?.[0]?.groundingMetadata),
       };
     },
 

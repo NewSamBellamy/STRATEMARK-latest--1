@@ -10,6 +10,7 @@
 import type { ZodType, ZodTypeDef } from 'zod';
 import type { Citation, LlmClient } from './types';
 import { createRateLimiter, extractJson, withRetry, type RetryableError } from './util';
+import { extractProviderGrounding } from './grounding-support';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -55,6 +56,7 @@ interface GeminiCandidate {
   groundingMetadata?: {
     groundingChunks?: { web?: { uri?: string; title?: string } }[];
     webSearchQueries?: string[];
+    groundingSupports?: unknown[];
   };
 }
 interface GeminiResponse {
@@ -66,8 +68,7 @@ function extractText(data: GeminiResponse): string {
   const parts = data.candidates?.[0]?.content?.parts ?? [];
   return parts
     .map((p) => p.text ?? '')
-    .join('')
-    .trim();
+    .join('');
 }
 
 function extractCitations(data: GeminiResponse): Citation[] {
@@ -142,9 +143,10 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         throw new Error(`Gemini blocked the request: ${data.promptFeedback.blockReason}`);
       }
       return {
-        text: extractText(data),
+        text: extractText(data).trim(),
         citations: extractCitations(data),
         queries: data.candidates?.[0]?.groundingMetadata?.webSearchQueries ?? [],
+        grounding: extractProviderGrounding(extractText(data), data.candidates?.[0]?.groundingMetadata),
       };
     },
 

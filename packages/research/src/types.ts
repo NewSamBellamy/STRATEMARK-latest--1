@@ -117,6 +117,21 @@ export interface RunResearchOptions extends GeminiConfig {
 }
 
 /** The abstraction the pipeline steps talk to (implemented by the Gemini client). */
+export interface ProviderGrounding {
+  /** Provider attribution on generated answer text, NOT original-page evidence. */
+  provider: 'google-search';
+  answerText: string;
+  supports: Array<{
+    supportIndex: number;
+    text: string;
+    /** Provider offsets retained verbatim; never slice JS strings with them. */
+    startIndex?: number;
+    endIndex?: number;
+    partIndex?: number;
+    sources: Array<{ chunkIndex: number; url: string; title: string }>;
+  }>;
+}
+
 export interface LlmClient {
   /**
    * Grounded generation — ALWAYS sends the Google Search tool. Returns the
@@ -126,7 +141,7 @@ export interface LlmClient {
   ground(
     prompt: string,
     opts?: { system?: string; signal?: AbortSignal; researchContext?: { companyId?: string; companyName?: string; topic: string } },
-  ): Promise<{ text: string; citations: Citation[]; queries: string[] }>;
+  ): Promise<{ text: string; citations: Citation[]; queries: string[]; grounding?: ProviderGrounding }>;
 
   /**
    * Structured extraction — converts prior grounded text into strict JSON,

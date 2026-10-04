@@ -1,5 +1,6 @@
 import { usableCitations, type Citation } from '@mi/contracts';
-import type { LlmClient } from './types';
+import type { LlmClient, ProviderGrounding } from './types';
+import { copyProviderGrounding } from './grounding-support';
 
 /** Grounded model notes, NOT raw source pages or independently verified claims. */
 export interface ResearchEvidence {
@@ -11,6 +12,7 @@ export interface ResearchEvidence {
   text: string;
   citations: Citation[];
   queries: string[];
+  grounding?: ProviderGrounding;
 }
 
 export function recordResearchEvidence(
@@ -31,6 +33,7 @@ export function recordResearchEvidence(
           text: result.text,
           citations,
           queries: [...result.queries],
+          ...(result.grounding ? { grounding: copyProviderGrounding(result.grounding) } : {}),
         });
       }
       return result;
@@ -58,5 +61,7 @@ export function searchResearchEvidence(
     .filter(({ score }) => !terms.length || score > 0)
     .sort((a, b) => b.score - a.score || b.record.capturedAt.localeCompare(a.record.capturedAt))
     .slice(0, limit)
-    .map(({ record }) => ({ ...record, citations: record.citations.map((c) => ({ ...c })), queries: [...record.queries] }));
+    .map(({ record }) => ({ ...record, citations: record.citations.map((c) => ({ ...c })), queries: [...record.queries],
+      ...(record.grounding ? { grounding: copyProviderGrounding(record.grounding) } : {}),
+    }));
 }
