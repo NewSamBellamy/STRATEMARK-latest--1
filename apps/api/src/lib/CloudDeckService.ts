@@ -9,6 +9,8 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import * as crypto from 'node:crypto';
+import { coalesceOriginalSources, type OriginalSourceServices } from '@mi/research';
+import { retrieveOriginalSource } from './original-source';
 
 export interface AuthAdapter {
   verifyIdToken(token: string): Promise<string | null>;
@@ -128,6 +130,27 @@ export class CloudDeckService {
   async checkEntitlement(uid: string): Promise<boolean> {
     if (!uid || typeof uid !== 'string') return false;
     return this.entitlement.hasActiveEntitlement(uid);
+  }
+
+  getOriginalSources(uid: string, deckId: string, read = retrieveOriginalSource): OriginalSourceServices {
+    const retrieve = coalesceOriginalSources(read);
+    const authorize = async () => {
+      if (!await this.getDeck(uid, deckId)) throw new Error('Deck not found');
+      if (!await this.checkEntitlement(uid)) throw new Error('Entitlement lost');
+    };
+    return {
+      retrieve: async (url) => { await authorize(); return retrieve(url); },
+      save: async (attempt) => { await authorize(); await this.store.saveCompanyOriginal(uid, deckId, attempt); },
+      list: async ({ companyId, metricType, limit = 20 }) => {
+        const deck = await this.getDeck(uid, deckId);
+        if (!deck) return [];
+        const count = Number.isFinite(limit) ? Math.max(0, Math.min(100, Math.floor(limit))) : 20;
+        if (!count) return [];
+        return structuredClone((deck.companySourceAttempts ?? [])
+          .filter((entry) => entry.companyId === companyId && (!metricType || entry.metricType === metricType))
+          .slice(-count).reverse());
+      },
+    };
   }
 
   async checkEntitlementStatus(uid: string): Promise<{

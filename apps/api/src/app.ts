@@ -791,6 +791,8 @@ export function createApp(
 
     try {
       const updatedCards = await expandDeckWithDeltaAgent({
+        originalSources: cloudDeckService.getOriginalSources(userId!, deckId, readOriginalSource),
+        deckId,
         client: resolved.client,
         marketName,
         vertical,

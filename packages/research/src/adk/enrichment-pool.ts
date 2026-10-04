@@ -27,6 +27,7 @@ import type { LivingDeckDelta } from '@mi/contracts';
 import { hydrateCompanyCard, type HydrateCompanyCardResult } from '../company-agent';
 import { sleep, throwIfAborted, type RateLimiter } from '../util';
 import type { CompanyCandidate, LlmClient, MarketPlan } from '../types';
+import type { OriginalSourceServices } from '../original-source';
 import { toTraceError, type AdkSpan, type AdkTelemetryHub } from './telemetry';
 import type { AdkTaskNode } from './task-graph';
 import { TOPOLOGY_STATE_KEY, isMarketTopology } from './discovery-agent';
@@ -50,6 +51,7 @@ export interface EnrichmentPoolResult {
 }
 
 export interface EnrichmentPoolOptions {
+  originalSources?: OriginalSourceServices;
   client: LlmClient;
   plan: MarketPlan;
   telemetry: AdkTelemetryHub;
@@ -246,6 +248,7 @@ export async function runEnrichmentPool(
 
         workerSpan.toolCall('hydrate_company_card', { company: candidate.name });
         const result = await hydrateCompanyCard({
+          originalSources: options.originalSources,
           candidate,
           client,
           plan,

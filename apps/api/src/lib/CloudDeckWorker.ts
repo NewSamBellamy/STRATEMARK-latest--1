@@ -83,6 +83,7 @@ export class CloudDeckWorker {
     try {
       const resolved = resolveClient({ env: this.env });
       run = await runLivingDeckEngine({
+        originalSources: this.service.getOriginalSources(userId, deckId),
         client: resolved.client,
         plan,
         deckId,
@@ -250,6 +251,8 @@ export class CloudDeckWorker {
       const vertical = plan?.vertical ?? 'market-intel';
 
       const updatedCards = await expandDeckWithDeltaAgent({
+        originalSources: this.service.getOriginalSources(userId, deckId),
+        deckId,
         client: resolved.client,
         marketName: query,
         vertical: vertical,

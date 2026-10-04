@@ -12,7 +12,7 @@ import type {
   CardWithCompany,
   LivingDeckNodeStatus,
 } from '@mi/contracts';
-import type { MarketPlan } from '@mi/research';
+import type { MarketPlan, OriginalSourceAttempt } from '@mi/research';
 import type { RefreshWorklistDeck, WorklistStore } from './worklist';
 import type { ServiceEnv } from '../env';
 import type { OriginalSourceReceipt } from './original-source';
@@ -31,6 +31,8 @@ export interface StoredDeckRecord {
   watch?: boolean;
   revision?: number;
   schemaVersion?: number;
+  /** Initial/added company originals; never evicted by metric verification. */
+  companySourceAttempts?: OriginalSourceAttempt[];
   /** Bounded diagnostic history, not an immutable full-document vault. */
   originalSourceAttempts?: Array<{
     companyId: string;
@@ -46,6 +48,18 @@ export interface StoredDeckRecord {
 }
 
 export const FIRESTORE_MAX_DOCUMENT_BYTES = 1048576;
+
+function appendCompanyOriginals(previous: OriginalSourceAttempt[], attempt: OriginalSourceAttempt): OriginalSourceAttempt[] {
+  assertPayloadSize(attempt, 65536);
+  if (!/^src_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(attempt.id) ||
+      !attempt.companyId || attempt.metricType !== 'company_profile' ||
+      !Number.isFinite(Date.parse(attempt.capturedAt)) || !Array.isArray(attempt.receipts) || attempt.receipts.length > 2) {
+    throw new Error('Invalid company source attempt');
+  }
+  const existing = previous.find((saved) => saved.id === attempt.id);
+  if (existing && JSON.stringify(existing) !== JSON.stringify(attempt)) throw new Error('Original source attempt cannot be overwritten');
+  return structuredClone(existing ? previous : [...previous, attempt]);
+}
 
 export function assertPayloadSize(payload: unknown, limit = FIRESTORE_MAX_DOCUMENT_BYTES): void {
   try {
@@ -95,6 +109,7 @@ export interface EntitlementRecord {
 }
 
 export interface StratemarkDataStore extends WorklistStore {
+  saveCompanyOriginal(userId: string, deckId: string, attempt: OriginalSourceAttempt): Promise<void>;
   saveDeck(deckId: string, record: StoredDeckRecord, expectedRevision?: number): Promise<void>;
   getDeck(deckId: string): Promise<StoredDeckRecord | null>;
   listDecks(userId?: string): Promise<Array<Record<string, unknown>>>;
@@ -141,6 +156,15 @@ export class MemoryDataStore implements StratemarkDataStore {
   private shares = new Map<string, StoredShareRecord>();
   private entitlements = new Map<string, EntitlementRecord>();
 
+  async saveCompanyOriginal(userId: string, deckId: string, attempt: OriginalSourceAttempt): Promise<void> {
+    const deck = this.decks.get(deckId);
+    if (!deck || deck.userId !== userId) throw new Error('Deck not found');
+    const next = { ...deck, companySourceAttempts: appendCompanyOriginals(deck.companySourceAttempts ?? [], attempt) };
+    // Reserve headroom for Firestore encoding; fail closed instead of evicting originals.
+    assertPayloadSize(next, 800000);
+    this.decks.set(deckId, next);
+  }
+
   async saveDeck(deckId: string, record: StoredDeckRecord, expectedRevision?: number): Promise<void> {
     assertPayloadSize(record);
     const existing = this.decks.get(deckId);
@@ -163,12 +187,14 @@ export class MemoryDataStore implements StratemarkDataStore {
 
     const newRecord = { 
       ...record, 
+      companySourceAttempts: existing?.companySourceAttempts ?? record.companySourceAttempts,
       userId: existing?.userId ?? record.userId,
       revision: nextRev,
       createdAt: existing?.createdAt ?? record.createdAt ?? now,
       updatedAt: now,
       refreshedAt: record.refreshedAt ?? now
     };
+    assertPayloadSize(newRecord);
     
     this.decks.set(deckId, newRecord);
     if (record.market) {
@@ -485,6 +511,18 @@ export class FirestoreDataStore implements StratemarkDataStore {
     this.entitlementsCol = options?.entitlementsCollection ?? 'entitlements';
   }
 
+  async saveCompanyOriginal(userId: string, deckId: string, attempt: OriginalSourceAttempt): Promise<void> {
+    await this.firestore.runTransaction(async (t) => {
+      const ref = this.firestore.collection(this.decksCol).doc(deckId);
+      const doc = await t.get(ref);
+      const data = doc.data();
+      if (!doc.exists || data?.userId !== userId) throw new Error('Deck not found');
+      const companySourceAttempts = appendCompanyOriginals(data.companySourceAttempts ?? [], attempt);
+      assertPayloadSize({ ...data, companySourceAttempts }, 800000);
+      t.set(ref, { companySourceAttempts }, { merge: true });
+    });
+  }
+
   async saveDeck(deckId: string, record: StoredDeckRecord, expectedRevision?: number): Promise<void> {
     try {
       assertPayloadSize(record);
@@ -517,6 +555,9 @@ export class FirestoreDataStore implements StratemarkDataStore {
           plan: record.plan ?? null,
           state: record.state ?? null,
           ...(record.researchTrace ? { researchTrace: record.researchTrace } : {}),
+          ...(record.originalSourceAttempts ? { originalSourceAttempts: record.originalSourceAttempts } : {}),
+          // Company originals are append-only through saveCompanyOriginal, not snapshot replacement.
+          ...(!deckDoc.exists && record.companySourceAttempts ? { companySourceAttempts: record.companySourceAttempts } : {}),
           query:
             record.query ??
             (typeof record.plan?.marketName === 'string' ? record.plan.marketName : '') ??
@@ -529,6 +570,7 @@ export class FirestoreDataStore implements StratemarkDataStore {
           revision: nextRev,
           schemaVersion: 1,
         };
+        assertPayloadSize({ ...(deckDoc.exists ? deckDoc.data() : {}), ...payload });
         
         t.set(deckRef, payload, { merge: true });
 
@@ -588,6 +630,7 @@ export class FirestoreDataStore implements StratemarkDataStore {
       state: data.state as Record<string, unknown> | undefined,
       researchTrace: data.researchTrace as StoredDeckRecord['researchTrace'] | undefined,
       originalSourceAttempts: Array.isArray(data.originalSourceAttempts) ? data.originalSourceAttempts as StoredDeckRecord['originalSourceAttempts'] : undefined,
+      companySourceAttempts: Array.isArray(data.companySourceAttempts) ? data.companySourceAttempts as OriginalSourceAttempt[] : undefined,
       userId: typeof data.userId === 'string' ? data.userId : undefined,
       createdAt: tsToStr(data.createdAt),
       updatedAt: tsToStr(data.updatedAt),

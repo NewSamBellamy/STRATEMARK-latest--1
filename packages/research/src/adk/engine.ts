@@ -46,6 +46,7 @@ import {
 } from '@mi/contracts';
 import { createRateLimiter, type RateLimiter } from '../util';
 import type { LlmClient, MarketPlan } from '../types';
+import type { OriginalSourceServices } from '../original-source';
 import type { HydrateCompanyCardResult } from '../company-agent';
 import { createAdkTelemetry, type AdkTelemetryHub } from './telemetry';
 import { AdkSession, runAdkTaskGraph, type AdkTaskNode } from './task-graph';
@@ -109,6 +110,7 @@ export type OnLivingDeckEvent = (event: LivingDeckEngineEvent) => void;
 // ============================================================================
 
 export interface LivingDeckEngineOptions {
+  originalSources?: OriginalSourceServices;
   client: LlmClient;
   plan: MarketPlan;
   deckId: string;
@@ -307,6 +309,7 @@ export class LivingDeckEngine {
     };
 
     const enrichmentNode = createEnrichmentNode({
+      originalSources: this.options.originalSources,
       client,
       plan,
       telemetry,
@@ -338,6 +341,7 @@ export class LivingDeckEngine {
     if (watchEnabled) {
       nodes.push(
         createWatcherNode({
+          originalSources: this.options.originalSources,
           client,
           plan,
           telemetry,
