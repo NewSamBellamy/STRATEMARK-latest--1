@@ -14,6 +14,33 @@ import type { Citation, DeckRefreshEvent } from '@mi/contracts';
 import { GeminiRepository, type RepoSnapshot, type ResearchStore } from './repository';
 import type { LlmClient } from './types';
 
+describe('local verification original-source handoff', () => {
+  it('saves company-scoped originals before interpretation and supplies their text', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { verdict: 'unverified', currentValue: null } });
+    const save = vi.fn(async () => {});
+    const retrieve = vi.fn(async (url: string) => ({ requestedUrl: url, finalUrl: url, status: 'retrieved' as const, retrievedAt: new Date().toISOString(), contentHash: 'a'.repeat(64), text: 'Original reported revenue passage.' }));
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSources: { retrieve, save, list: async () => [] } });
+    await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ companyId: 'cmp_openai', metricType: 'arr', receipts: [expect.objectContaining({ text: 'Original reported revenue passage.' })] }));
+    expect(save.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(client.structure).mock.invocationCallOrder[0]!);
+    expect(vi.mocked(client.structure).mock.calls[0]![0]).toContain('UNTRUSTED ORIGINAL EXTRACTS');
+    expect(vi.mocked(client.structure).mock.calls[0]![0]).toContain('Original reported revenue passage.');
+  });
+
+  it('does not interpret or revise a metric when the artifact cannot be saved', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 123 } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSources: {
+      retrieve: async (url) => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString() }),
+      save: async () => { throw new Error('Cannot save original evidence'); }, list: async () => [],
+    } });
+    await expect(repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' })).rejects.toThrow('Cannot save original evidence');
+    expect(client.structure).not.toHaveBeenCalled();
+    expect((await repo.getCompanyMetrics('cmp_openai')).find((m) => m.metricType === 'arr')!.value).toBe(990_000_000);
+  });
+});
+
 function seededSnapshot(): RepoSnapshot {
   const now = new Date().toISOString();
   return {

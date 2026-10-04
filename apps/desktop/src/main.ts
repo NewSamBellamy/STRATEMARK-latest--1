@@ -32,6 +32,7 @@ import {
 import { GeminiRepository, migrateSnapshot, type RepoSnapshot } from '@mi/research';
 import sampleSnapshot from '../../web/src/sample/frontier-snapshot.json';
 import { createFileStore, parseResearchExport } from './storage.js';
+import { createOriginalSourceServices } from './original-sources.js';
 import { performGoogleOAuthFlow, loadDesktopEnv, type OAuthUser } from './oauth.js';
 
 loadDesktopEnv();
@@ -210,6 +211,7 @@ function makeRepository(): MarketIntelRepository {
     ...(apiKey ? {} : { client: { ground: requireKey, structure: requireKey } }),
     store,
     targetCompanies: 10,
+    originalSources: createOriginalSourceServices(path.join(app.getPath('userData'), 'original-sources')),
     // Broad markets are researched as a sequential queue to stay predictable on free tier.
     concurrency: 1,
     groundedRpm: 8,

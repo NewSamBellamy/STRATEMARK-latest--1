@@ -10,6 +10,7 @@ export * from './dashboard';
 export * from './repository';
 export * from './source-policy';
 export * from './research-evidence';
+export type { OriginalSourceReceipt, OriginalSourceAttempt, OriginalSourceServices } from './original-source';
 export * from './proxy-estimator';
 export * from './company-agent';
 export * from './signal-agents';

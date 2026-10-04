@@ -287,12 +287,15 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
+      '@types/node':
+        specifier: 20.19.43
+        version: 20.19.43
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
       vitest:
         specifier: ^2.1.8
-        version: 2.1.9(@types/node@26.1.2)(jsdom@25.0.1)(msw@2.15.0(@types/node@26.1.2)(typescript@5.9.3))
+        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1)(msw@2.15.0(@types/node@20.19.43)(typescript@5.9.3))
 
 packages:
 
