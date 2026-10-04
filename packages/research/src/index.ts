@@ -11,6 +11,8 @@ export * from './repository';
 export * from './source-policy';
 export * from './research-evidence';
 export type { OriginalSourceReceipt, OriginalSourceAttempt, OriginalSourceServices } from './original-source';
+export { coalesceOriginalSources } from './original-source';
+export { acceptedMetricPassage } from './metric-support';
 export * from './proxy-estimator';
 export * from './company-agent';
 export * from './signal-agents';

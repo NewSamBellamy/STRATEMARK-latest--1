@@ -195,6 +195,11 @@ export const verifyMetricOutSchema = z.object({
   rationale: z.string().default(''),
   /** One-line method note explaining where the figure comes from. */
   methodNote: z.string().nullable().default(null),
+  passageSupport: z.object({
+    sourceUrl: z.string(), quote: z.string().max(600), asOf: z.string(),
+    basis: z.enum(['arr', 'valuation', 'market_cap', 'users', 'employees', 'market_share']),
+    unit: z.enum(['USD', 'count', 'percent']),
+  }).nullable().default(null),
 });
 
 /**

@@ -3,6 +3,7 @@ import { link, lstat, mkdir, open, readFile, readdir, unlink } from 'node:fs/pro
 import path from 'node:path';
 import { z } from 'zod';
 import type { OriginalSourceServices } from '@mi/research';
+import { coalesceOriginalSources } from '@mi/research';
 import { retrieveOriginalSource } from '@mi/research/original-source-node';
 
 const ID = /^src_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
@@ -28,7 +29,7 @@ const attemptSchema = z.object({
 export function createOriginalSourceServices(directory: string): OriginalSourceServices {
   const root = path.resolve(directory);
   return {
-    retrieve: retrieveOriginalSource,
+    retrieve: coalesceOriginalSources(retrieveOriginalSource),
     async save(attempt) {
       const record = attemptSchema.parse(attempt);
       const json = JSON.stringify(record);

@@ -1,6 +1,6 @@
 # Keystone build status / next-session handoff
 
-Updated: 2026-10-03 (local date). Implementation started; no full milestone is complete.
+Updated: 2026-10-04 (local date). Implementation started; no full milestone is complete.
 
 ## Read first
 
@@ -24,6 +24,7 @@ Branch: `revival/initial-card-redesign`. Preserve main and unrelated local work.
 - Fifth checkpoint, bounded K2 safety detour: browser quota handling no longer discards researched dashboards/reports or acknowledges an unconfirmed vault backup. Full-snapshot writes succeed or throw a readable failure while retaining the prior primary copy. Retry and rejected-replica tests added; transactional storage and higher-level recovery are NOT complete. See [checkpoint 05](KEYSTONE-CHECKPOINT-05.md). Checkpoint 04 commit: `4e45476`.
 - Sixth K1 slice: authenticated cloud metric verification retrieves up to two originals through a DNS-pinned, bounded HTTPS transport, saves scoped receipts before interpretation and supplies untrusted extracts to the existing model step. Firestore reload retains receipts; unavailable fetches do not manufacture text. Eight-attempt diagnostic retention only, not a permanent/local vault or exact claim verification. See [checkpoint 06](KEYSTONE-CHECKPOINT-06.md). Checkpoint 05 commit: `452abfa`.
 - Seventh K1 slice: the same protected native transport is wired into desktop metric verification. Original extracts save as separately validated, non-overwritten local files before interpretation and are queryable by company/metric after restart. Browser entry stays native-free. Failed artifact saves stop interpretation; exact claim acceptance and artifact export/lifecycle remain unfinished. See [checkpoint 07](KEYSTONE-CHECKPOINT-07.md). Checkpoint 06 commit: `00a6f7c`.
+- Eighth K1 slice: native/cloud single-metric promotion requires mechanically matched original passage support, including source URL, company, value/scale, metric, unit and literal reporting date. Citation-only correction shortcuts are closed on those paths; browser-only/other ingestion paths remain legacy. Bounded 30-second source-read coalescing reduces duplicate network work. See [checkpoint 08](KEYSTONE-CHECKPOINT-08.md). Checkpoint 07 commit: `932b70a`.
 
 ## Known verification / blockers
 
@@ -43,6 +44,8 @@ The previous Back-to-card failure did not reproduce: isolated journey and the co
 
 [Checkpoint 07](KEYSTONE-CHECKPOINT-07.md): final `pnpm check` exited 0: types/lint and contracts 92, mocks 15, research 307, desktop 32, API 204, web 139 tests reported passing. Seven added cases, six observed behavioral failures before implementation; a real-filesystem repository restart test preserves originals through interpretation failure. Browser and desktop main bundles build; native transport markers absent from web/present in main. Existing large-chunk/Firebase import warnings persist. No live provider/source accuracy, installer journey, recording or visual change. Artifacts are not yet in JSON export/import/deletion; exact claim matching remains next.
 
+[Checkpoint 08](KEYSTONE-CHECKPOINT-08.md): final `pnpm check` exited 0: types/lint and contracts 92, mocks 15, research 337, desktop 32, API 205, web 139 tests reported passing. Thirty-one added cases cover original-passage acceptance/rejection, native write-back, correction bypass closure and bounded read reuse. A live no-key HTTPS/cache smoke on one simple public page measured 88 ms first fetch and rounded 0 ms repeat with one total network read. This is not an end-to-end research benchmark or factual-accuracy evaluation. Credential-dependent provider audits remain NOT RUN as live audits. No UI changes; browser-only verification and other ingestion routes remain outside the new gate.
+
 Preview `http://127.0.0.1:4174/` was already served from this worktree; no process was killed/replaced. Homepage/sidebar render in the in-app browser. Shared-module hot reload emitted RepositoryProvider context errors during edits; a clean reload rendered correctly, with no newer errors observed. Keep this development limitation on the K0 investigation list. No paid deck/dashboard journey was triggered in the browser; card visual baselines, recording and latency benchmarks remain pending.
 
 GitHub push was blocked by Windows/Git authentication. Local checkpoint is not a remote backup. Existing untracked `.pnpm-store/` and `docs/KEYSTONE-CATEGORY-BASELINE.md` must not be swept into commits or deleted casually.
@@ -51,7 +54,7 @@ GitHub push was blocked by Windows/Git authentication. Local checkpoint is not a
 
 K0 remaining: capture approved card/reader baseline and affected-journey recording using isolated no-key fixture state; measure labelled timings/call counts; investigate hot-reload context identity. Keep trying to reproduce prior navigation failure without weakening its assertion.
 
-K1 next: enforce entity/passage/value/period/definition checks -> accepted fact -> matching card/reader, including correction shortcuts. Checkpoint 07 connects protected original retrieval to local desktop verification and separate files, but citation-grade filtering and retrieved extracts still do not prove a page supports a figure. Official small-company sites not in the publisher list need identity-bound source validation, not blanket rejection or a model-supplied primary label. Matching-value observations also need explicit period/definition checks and immutable accepted-fact history. Cloud provider notes/cached-dashboard invalidation and other ingestion routes still need auditing. Add artifact bundle export/import, lifecycle and corruption recovery before scaling unattended research; existing JSON exports do not include native originals. No scoring UI/provider fleet/connector scaffolding yet.
+K1 next: improve targeted source extraction/canonical identities, evaluate supported/unavailable/conflicting examples with a securely configured key and expand typed period/definition/semantic acceptance to every ingestion path. Checkpoint 08 gates native/cloud single-metric checks on mechanical original passage support and closes their correction shortcut; it is not semantic proof or coverage of browser-only/enrichment/hunts/dashboards. Official small-company sites need identity-bound validation, not blanket rejection/model authority. Matching-value observations need explicit period/definition reconciliation and immutable accepted-fact history. Cloud cached-dashboard invalidation still needs auditing. Add artifact export/import/lifecycle and corruption recovery before unattended research; JSON exports do not include native originals. No scoring UI/provider fleet/connector scaffolding yet.
 
 Checkpoint 04 closed the discarded-provider-support prerequisite; checkpoint 06 wires bounded originals into cloud verification; checkpoint 07 adds desktop retrieval and separate artifact persistence. Provider mappings remain generated-answer attribution, not original quotations. Verify one supported and one unavailable figure end-to-end with the authorized configured key once securely available; do not claim live accuracy from fixture tests. Current shell has no configured Gemini/Google key; do not extract encrypted desktop credentials.
 
@@ -62,7 +65,7 @@ The founder authorized use of the configured Gemini key for needed testing on ch
 | Milestone | State |
 | --- | --- |
 | K0 Baseline and navigation | In progress: tests/homepage checked; visual journey and timings pending |
-| K1 Evidence correctness, card+reader | In progress: shared transitions/attribution and cloud+desktop original retrieval; exact passage proof and other ingestion routes pending |
+| K1 Evidence correctness, card+reader | In progress: mechanical passage gate for native/cloud verification; semantic/period/identity validation, live evaluation and other ingestion routes pending |
 | K2 Durable queryable dossiers | In progress: browser quota safety and separate native originals; complete export/lifecycle, indexed transactional store and recovery pending |
 | K3 Sentinel/Scouts, first-ready latency, branding | Not started |
 | K4 Complete coherent company dashboards | Not started |

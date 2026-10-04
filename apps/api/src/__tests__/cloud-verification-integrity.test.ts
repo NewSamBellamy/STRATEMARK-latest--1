@@ -20,7 +20,7 @@ vi.mock('../lib/client', async (original) => ({
 const citation = { title: 'Filing', url: 'https://sec.gov/Archives/report', credibility: 'primary' as const };
 const capturedAt = '2026-08-01T00:00:00.000Z';
 const lastVerifiedAt = '2026-08-02T00:00:00.000Z';
-afterEach(() => vi.clearAllMocks());
+afterEach(() => { vi.clearAllMocks(); vi.mocked(retrieveOriginalSource).mockReset(); });
 
 async function run(out: { verdict: string; currentValue: number | null }, patch: Partial<CompanyMetric> = {}, correction?: unknown, failStructure = false, manySources = false) {
   const store = new MemoryDataStore();
@@ -30,7 +30,10 @@ async function run(out: { verdict: string; currentValue: number | null }, patch:
     store, cloudDeckService: service, forceMemoryStore: true,
   });
   const ground = vi.fn().mockResolvedValue({ text: 'Research notes', citations: manySources ? [citation, { ...citation, url: `${citation.url}/second` }, { ...citation, url: `${citation.url}/third` }] : [citation] });
-  const structure = vi.fn().mockResolvedValue({ ...out, rationale: 'Test result', methodNote: null });
+  const quote = `Example Company reports ARR of USD ${out.currentValue ?? 100} as of 2026-10-01.`;
+  vi.mocked(retrieveOriginalSource).mockImplementation(async (url) => ({ requestedUrl: url, finalUrl: url, status: 'retrieved', text: quote, httpStatus: 200, contentHash: 'a'.repeat(64), retrievedAt: '2026-10-03T00:00:00.000Z' }));
+  const structure = vi.fn().mockResolvedValue({ ...out, rationale: 'Test result', methodNote: null,
+    passageSupport: { sourceUrl: citation.url, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' } });
   if (failStructure) structure.mockRejectedValue(new Error('Interpretation failed'));
   vi.mocked(resolveClient).mockReturnValue({ client: { ground, structure }, keySource: 'server' } as unknown as ReturnType<typeof resolveClient>);
   await service.saveDeck('user_123', 'deck_test', {
@@ -56,18 +59,25 @@ async function run(out: { verdict: string; currentValue: number | null }, patch:
 }
 
 describe('cloud metric verification integrity', () => {
+  it('does not accept a citation-only correction when its original page is unavailable', async () => {
+    vi.mocked(retrieveOriginalSource).mockResolvedValueOnce({ requestedUrl: citation.url, status: 'unavailable', retrievedAt: '2026-10-03T00:00:00.000Z' });
+    const { result, stored, ground } = await run({ verdict: 'contradicted', currentValue: 900 }, {}, { value: 900, citations: [citation] });
+    expect(result.verdict).toBe('unverified');
+    expect(stored.value).toBe(100);
+    expect(ground).toHaveBeenCalledTimes(1);
+  });
   it('persists scoped originals before interpretation and keeps them on model failure', async () => {
     const { attempt } = await run({ verdict: 'unverified', currentValue: null }, {}, undefined, true);
     expect(attempt).toHaveProperty('originalSourceAttempts', [expect.objectContaining({
       companyId: 'company_test', metricType: 'arr',
-      receipts: [expect.objectContaining({ status: 'retrieved', text: 'Example Company annual revenue is 100.' })],
+      receipts: [expect.objectContaining({ status: 'retrieved', text: 'Example Company reports ARR of USD 100 as of 2026-10-01.' })],
     })]);
   });
 
   it('supplies retrieved originals as untrusted content, not as automatic verification', async () => {
     const { structure, result } = await run({ verdict: 'unverified', currentValue: null });
     expect(structure.mock.calls[0]![0]).toContain('UNTRUSTED ORIGINAL EXTRACTS');
-    expect(structure.mock.calls[0]![0]).toContain('Example Company annual revenue is 100.');
+    expect(structure.mock.calls[0]![0]).toContain('Example Company reports ARR of USD 100 as of 2026-10-01.');
     expect(result!.verdict).toBe('unverified');
     expect(retrieveOriginalSource).toHaveBeenCalledTimes(1);
   });
@@ -131,13 +141,13 @@ describe('cloud metric verification integrity', () => {
     expect(stored.value).toBe(20);
   });
 
-  it('keeps the valid correction shortcut free of additional model calls', async () => {
+  it('does not let a correction hint override an inconclusive original check', async () => {
     const { stored, ground, structure } = await run({ verdict: 'unverified', currentValue: null }, {}, { value: 200, citations: [citation] });
-    expect(stored.value).toBe(200);
+    expect(stored.value).toBe(100);
     expect(stored.lastVerificationAttemptAt).toBeTruthy();
-    expect(stored.lastVerifiedAt).not.toBe(lastVerifiedAt);
-    expect(ground).not.toHaveBeenCalled();
-    expect(structure).not.toHaveBeenCalled();
+    expect(stored.lastVerifiedAt).toBe(lastVerifiedAt);
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(structure).toHaveBeenCalledTimes(1);
   });
 
   it('supports a real zero without declaring it a changed value', async () => {
@@ -156,7 +166,7 @@ describe('cloud metric verification integrity', () => {
     expect(stored.value).toBe(100);
     expect(stored.confidence).toBe('verified');
     expect(stored.source).toBe(citation.url);
-    expect(stored.citations).toEqual([citation]);
+    expect(stored.citations).toEqual([expect.objectContaining({ url: citation.url, credibility: 'primary' })]);
     expect(stored.capturedAt).toBe(capturedAt);
   });
 });

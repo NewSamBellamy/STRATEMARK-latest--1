@@ -16,6 +16,19 @@ vi.mock('@mi/research', async (importOriginal) => {
   };
 });
 
+vi.mock('../lib/client', async (original) => ({
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+  ...await original<typeof import('../lib/client')>(),
+  resolveClient: () => ({ keySource: 'server', client: {
+    ground: async () => ({ text: 'Fixture notes', citations: [{ title: 'Filing', url: 'https://sec.gov/Archives/filing' }], queries: [] }),
+    structure: async () => ({ verdict: 'contradicted', currentValue: 200, rationale: 'Fixture original supports 200.', methodNote: null,
+      passageSupport: { sourceUrl: 'https://sec.gov/Archives/filing', quote: 'Example Co reports ARR of USD 200 as of 2026-10-01.', asOf: '2026-10-01', basis: 'arr', unit: 'USD' } }),
+  } }),
+}));
+vi.mock('../lib/original-source', () => ({ retrieveOriginalSource: async (url: string) => ({ requestedUrl: url, finalUrl: url,
+  status: 'retrieved', httpStatus: 200, text: 'Example Co reports ARR of USD 200 as of 2026-10-01.',
+  contentHash: 'a'.repeat(64), retrievedAt: '2026-10-03T00:00:00.000Z' }) }));
+
 async function json<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }

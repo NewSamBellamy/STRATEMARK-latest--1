@@ -15,6 +15,35 @@ import { GeminiRepository, type RepoSnapshot, type ResearchStore } from './repos
 import type { LlmClient } from './types';
 
 describe('local verification original-source handoff', () => {
+  it('writes a supported native correction with its original URL and reported date', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const quote = 'OpenAI reports ARR of USD 40 billion as of 2026-10-01.';
+    const url = CITED[0]!.url;
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 40_000_000_000,
+      passageSupport: { sourceUrl: url, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' } } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSources: {
+      retrieve: async () => ({ requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: quote, retrievedAt: '2026-10-03T00:00:00.000Z' }),
+      save: async () => {}, list: async () => [],
+    } });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.metric.value).toBe(40_000_000_000);
+    expect(result.metric.source).toBe(url);
+    expect(result.metric.methodNote).toContain('2026-10-01');
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(1);
+  });
+  it('does not promote a credible citation without literal original passage support', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 40_000_000_000 } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSources: {
+      retrieve: async (url) => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString() }),
+      save: async () => {}, list: async () => [],
+    } });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr', correction: { value: 40_000_000_000, citations: CITED } });
+    expect(result.verdict).toBe('unverified');
+    expect(result.metric.value).toBe(990_000_000);
+    expect(client.ground).toHaveBeenCalledTimes(1);
+  });
   it('saves company-scoped originals before interpretation and supplies their text', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({ structured: { verdict: 'unverified', currentValue: null } });
