@@ -168,7 +168,7 @@ describe('verifyMetric', () => {
     expect(persisted.dashboards['cmp_openai']).toEqual({});
   });
 
-  it('confirms a supported figure: freshness stamps, value untouched, no event', async () => {
+  it('confirms an estimated figure: support attaches, value stays, and views reconcile', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({
       structured: {
@@ -184,11 +184,12 @@ describe('verifyMetric', () => {
 
     const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
 
-    expect(result.changed).toBe(false);
+    expect(result.changed).toBe(true);
     expect(result.metric.value).toBe(990_000_000);
-    expect(result.metric.confidence).toBe('estimated'); // unchanged
-    expect(result.metric.lastVerifiedAt).toBeTruthy(); // but freshness recorded
-    expect(events).toHaveLength(0);
+    expect(result.metric.confidence).toBe('verified');
+    expect(result.metric.citations).toEqual(CITED);
+    expect(result.metric.lastVerifiedAt).toBeTruthy();
+    expect(events).toHaveLength(1);
   });
 
   it('NEVER revises without citations, even when a figure is offered (no-fabrication)', async () => {

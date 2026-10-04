@@ -15,6 +15,9 @@ import {
   hasVerificationGradeCitation,
   isJunkSource,
   markVerified,
+  applyMetricVerification,
+  validMetricVerificationValue,
+  metricVerificationDiffers,
   reconcileMetrics,
   usableCitations,
   type Card,
@@ -1385,30 +1388,20 @@ export class GeminiRepository implements MarketIntelRepository {
     if (input.correction && input.correction.value != null) {
       const hintCited = usableCitations(input.correction.citations);
       const correctionValue = input.correction.value;
-      const validCorrection = Number.isFinite(correctionValue) && correctionValue >= 0 &&
-        (input.metricType !== 'market_share' || correctionValue <= 100);
+      const validCorrection = validMetricVerificationValue(input.metricType, correctionValue);
       if (validCorrection && hasVerificationGradeCitation(hintCited) && metric.confidence !== 'user_verified') {
         const nowIso = new Date().toISOString();
         const prior = metric.value;
-        const differs =
-          prior == null ||
-          prior === 0 ||
-          Math.abs(input.correction.value - prior) / Math.max(Math.abs(prior), 1) > 0.02;
-        let changed = false;
-        if (differs) {
-          metric.value = input.correction.value;
-          metric.confidence = 'verified';
-          metric.citations = hintCited;
-          metric.source = hintCited[0]?.url ?? metric.source;
-          metric.methodNote =
-            input.correction.rationale ??
-            `Corrected from a grounded fact-check${input.correction.asOf ? ` (as of ${input.correction.asOf})` : ''}.`;
-          metric.capturedAt = nowIso;
-          changed = true;
-          this.snap.dashboards[input.companyId] = {};
-        }
-        metric.lastVerificationAttemptAt = nowIso;
-        Object.assign(metric, markVerified(metric, nowIso));
+        const differs = metricVerificationDiffers(prior, correctionValue);
+        const verification = applyMetricVerification(metric, {
+          verdict: differs ? 'contradicted' : 'supported', currentValue: correctionValue,
+          rationale: input.correction.rationale ?? 'Applied cited correction.',
+          methodNote: input.correction.rationale ??
+            `Corrected from a grounded fact-check${input.correction.asOf ? ` (as of ${input.correction.asOf})` : ''}.`,
+        }, hintCited, nowIso);
+        const { changed, verdict } = verification;
+        Object.assign(metric, verification.metric);
+        if (changed) this.snap.dashboards[input.companyId] = {};
         const retieredCardIds = changed
           ? this.retierCompany(input.companyId, `Re-tiered after a fact-check correction of ${label}.`)
           : [];
@@ -1431,7 +1424,7 @@ export class GeminiRepository implements MarketIntelRepository {
         }
         return {
           metric,
-          verdict: changed ? 'contradicted' : 'supported',
+          verdict,
           changed,
           retieredCardIds,
           rationale:
@@ -1478,60 +1471,11 @@ export class GeminiRepository implements MarketIntelRepository {
     );
 
     const nowIso = new Date().toISOString();
-    const cited = usableCitations(g.citations);
-    let changed = false;
-    const prior = metric.value;
-    const value = out.currentValue;
-    const validValue = value != null && Number.isFinite(value) && value >= 0 &&
-      (input.metricType !== 'market_share' || value <= 100);
-    const differs = value != null && (prior == null ||
-      Math.abs(value - prior) / Math.max(Math.abs(prior), 1) > 0.02);
-    // A source link is necessary, not sufficient. Never apply an unverified
-    // number or a verdict that contradicts its own value. Original-passage
-    // validation is the next evidence gate; this closes the verdict loophole.
-    const corroborated = validValue && hasVerificationGradeCitation(cited) &&
-      ((out.verdict === 'supported' && !differs) || (out.verdict === 'contradicted' && differs));
-    const verdict = corroborated ? out.verdict : 'unverified';
-
-    // Revise ONLY on a grounded, concrete figure backed by a
-    // VERIFICATION-GRADE citation (junk domains and user-generated content
-    // carry no verification weight) that differs beyond noise (2% relative
-    // tolerance absorbs rounding between sources).
-    if (corroborated) {
-      // A human-verified figure outranks machine re-verification — never
-      // overwrite user_verified rows; the human resolves those.
-      if (differs && metric.confidence !== 'user_verified') {
-        metric.value = out.currentValue;
-        metric.confidence = 'verified';
-        metric.citations = cited;
-        metric.source = cited[0]?.url ?? metric.source;
-        metric.methodNote = out.methodNote ?? `Live verification: ${out.rationale}`;
-        metric.capturedAt = nowIso;
-        changed = true;
-        // Researched tabs quoting the stale figure re-research on next open.
-        this.snap.dashboards[input.companyId] = {};
-      }
-    }
-    // Close the two-truth-systems hole: a stored 'verified' badge that live
-    // research can no longer corroborate must not keep wearing the badge. The
-    // value stays (we found nothing better), but the confidence honestly
-    // downgrades to 'estimated' with an audit note. Without this, a metric can
-    // show "Verified" while a fact-check beside it says "Unverified" — the
-    // exact contradiction that breaks user trust.
-    if (
-      !changed &&
-      verdict === 'unverified' &&
-      metric.confidence === 'verified'
-    ) {
-      metric.confidence = 'estimated';
-      metric.methodNote = `Could not re-corroborate from live sources on ${nowIso.slice(0, 10)}; badge downgraded pending fresh evidence.`;
-      changed = true;
-      this.snap.dashboards[input.companyId] = {};
-    }
-    metric.lastVerificationAttemptAt = nowIso;
-    if (corroborated && metric.confidence !== 'user_verified') {
-      Object.assign(metric, markVerified(metric, nowIso));
-    }
+    const verification = applyMetricVerification(metric, out, g.citations, nowIso);
+    const { changed, verdict } = verification;
+    Object.assign(metric, verification.metric);
+    // Researched tabs quoting a changed/downgraded fact re-research on next open.
+    if (changed) this.snap.dashboards[input.companyId] = {};
 
     const retieredCardIds = changed
       ? this.retierCompany(input.companyId, `Re-tiered after live verification of ${label}.`)

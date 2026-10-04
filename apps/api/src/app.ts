@@ -33,7 +33,9 @@ import type { DashboardTab, CardWithCompany, Company } from '@mi/contracts';
 import { 
   usableCitations, 
   hasVerificationGradeCitation, 
-  markVerified,
+  applyMetricVerification,
+  validMetricVerificationValue,
+  metricVerificationDiffers,
   buildCmsInput,
   computeCms,
   METRIC_TYPE_LABELS,
@@ -849,20 +851,16 @@ export function createApp(
 
     if (correction && correction.value != null) {
       const hintCited = usableCitations(correction.citations);
-      if (hasVerificationGradeCitation(hintCited) && metric.confidence !== 'user_verified') {
+      if (validMetricVerificationValue(metric.metricType, correction.value) && hasVerificationGradeCitation(hintCited) && metric.confidence !== 'user_verified') {
         const prior = metric.value;
-        const differs = prior == null || prior === 0 || Math.abs(correction.value - prior) / Math.max(Math.abs(prior), 1) > 0.02;
-        let changed = false;
-        if (differs) {
-          metric.value = correction.value;
-          metric.confidence = 'verified';
-          metric.citations = hintCited;
-          metric.source = hintCited[0]?.url ?? metric.source;
-          metric.methodNote = correction.rationale ?? `Corrected from a grounded fact-check${correction.asOf ? ` (as of ${correction.asOf})` : ''}.`;
-          metric.capturedAt = nowIso;
-          changed = true;
-        }
-        Object.assign(metric, markVerified(metric as CompanyMetric, nowIso));
+        const differs = metricVerificationDiffers(prior, correction.value);
+        const verification = applyMetricVerification(metric, {
+          verdict: differs ? 'contradicted' : 'supported', currentValue: correction.value,
+          rationale: correction.rationale ?? 'Applied cited correction.',
+          methodNote: correction.rationale ?? `Corrected from a grounded fact-check${correction.asOf ? ` (as of ${correction.asOf})` : ''}.`,
+        }, hintCited, nowIso);
+        const { changed, verdict } = verification;
+        Object.assign(metric, verification.metric);
         const priorTier = companyCard.card.tier;
         companyCard.card.tier = computeCms(buildCmsInput(companyCard.metrics), { deckUserValues: [] }).finalTier;
         const retieredCardIds = changed && priorTier !== companyCard.card.tier ? [companyCard.card.id] : [];
@@ -874,7 +872,7 @@ export function createApp(
         
         return c.json({
           metric,
-          verdict: changed ? 'contradicted' : 'supported',
+          verdict,
           changed,
           retieredCardIds,
           rationale: correction.rationale ?? 'Applied the correction from the grounded fact-check that just ran.',
@@ -927,30 +925,9 @@ export function createApp(
       { system: STRUCTURE_SYSTEM },
     );
 
-    const cited = usableCitations(g.citations);
-    let changed = false;
-
-    if (out.currentValue != null && hasVerificationGradeCitation(cited)) {
-      const prior = metric.value;
-      const differs = prior == null || prior === 0 || Math.abs(out.currentValue - prior) / Math.max(Math.abs(prior), 1) > 0.02;
-      
-      if (differs && metric.confidence !== 'user_verified') {
-        metric.value = out.currentValue;
-        metric.confidence = 'verified';
-        metric.citations = cited;
-        metric.source = cited[0]?.url ?? metric.source;
-        metric.methodNote = out.methodNote ?? `Live verification: ${out.rationale}`;
-        metric.capturedAt = nowIso;
-        changed = true;
-      }
-    }
-    
-    if (!changed && out.verdict === 'unverified' && metric.confidence === 'verified') {
-      metric.confidence = 'estimated';
-      metric.methodNote = `Could not re-corroborate from live sources on ${nowIso.slice(0, 10)}; badge downgraded pending fresh evidence.`;
-      metric.capturedAt = nowIso;
-      changed = true;
-    }
+    const verification = applyMetricVerification(metric, out, g.citations, new Date().toISOString());
+    const { changed, verdict } = verification;
+    Object.assign(metric, verification.metric);
 
     const priorTier = companyCard.card.tier;
     companyCard.card.tier = computeCms(buildCmsInput(companyCard.metrics), { deckUserValues: [] }).finalTier;
@@ -959,14 +936,12 @@ export function createApp(
       companyCard.card.tierReason = 'Re-tiered after live metric verification.';
     }
 
-    if (changed || out.verdict !== 'unverified') {
-      Object.assign(metric, markVerified(metric as CompanyMetric, nowIso));
-      await cloudDeckService.saveDeck(userId, deckId!, existingDeck, existingDeck.revision);
-    }
+    // Persist attempt cooldown even when no fact changed; it is not support freshness.
+    await cloudDeckService.saveDeck(userId, deckId!, existingDeck, existingDeck.revision);
 
     return c.json({
       metric,
-      verdict: out.verdict,
+      verdict,
       changed,
       retieredCardIds,
       rationale: out.rationale,
