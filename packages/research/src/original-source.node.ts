@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { request } from 'node:https';
 import { BlockList, isIP } from 'node:net';
+import { selectSourceExcerpt } from './source-excerpt';
 
 const MAX_BYTES = 262144;
 const MAX_TEXT = 4000;
@@ -109,7 +110,7 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
       }
       const text = pageText(body, type === 'text/html');
       if (!text) return { ...receipt, reason: 'No readable source text' };
-      return { ...receipt, status: 'retrieved', contentHash: createHash('sha256').update(response.body).digest('hex'), text: text.slice(0, MAX_TEXT), truncated: text.length > MAX_TEXT };
+      return { ...receipt, status: 'retrieved', contentHash: createHash('sha256').update(response.body).digest('hex'), text: selectSourceExcerpt(text), truncated: text.length > MAX_TEXT };
     }
     return receipt;
   };

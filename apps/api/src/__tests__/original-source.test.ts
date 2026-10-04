@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { retrieveOriginalSource } from '../lib/original-source';
+import { acceptedMetricPassage } from '@mi/research';
 
 const url = 'https://www.sec.gov/Archives/report';
 const lookup = vi.fn(async () => ['8.8.8.8']);
@@ -71,5 +72,35 @@ describe('bounded original-source retrieval', () => {
     const result = await retrieveOriginalSource(url, { lookup, read: async () => ({ status: 200, headers: { 'content-type': 'text/plain' }, body: Buffer.from('a'.repeat(5000)) }) });
     expect(result.text).toHaveLength(4000);
     expect(result.truncated).toBe(true);
+  });
+
+  it('retains business evidence beyond a long navigation prefix without another fetch', async () => {
+    const passage = 'Acme Inc. reported 450 employees on October 1, 2026.';
+    const body = `${'Navigation links and legal menus. '.repeat(240)}${passage}${' Appendix text.'.repeat(500)}`;
+    const pageRead = vi.fn(async () => ({ status: 200, headers: { 'content-type': 'text/plain' }, body: Buffer.from(body) }));
+    const result = await retrieveOriginalSource(url, { lookup, read: pageRead });
+    expect(result.text).toContain(passage);
+    expect(body).toContain(result.text);
+    expect(result.text).toHaveLength(4000);
+    expect(result.truncated).toBe(true);
+    expect(pageRead).toHaveBeenCalledTimes(1);
+  });
+
+  it('feeds an intact late original passage into the shared verification gate', async () => {
+    const quote = 'Acme Inc. reported 450 employees on October 1, 2026.';
+    const body = `${'Menu. '.repeat(1500)}${quote}${' Appendix.'.repeat(500)}`;
+    const receipt = await retrieveOriginalSource(url, { lookup, read: async () => ({ status: 200, headers: { 'content-type': 'text/plain' }, body: Buffer.from(body) }) });
+    const input = { companyName: 'Acme Inc.', metricType: 'employees' as const, value: 450, originals: [receipt], support: { sourceUrl: url, quote, asOf: '2026-10-01', basis: 'employees' as const, unit: 'count' as const } };
+    expect(acceptedMetricPassage(input)).toHaveLength(1);
+    expect(acceptedMetricPassage({ ...input, companyName: 'Other Inc.' })).toEqual([]);
+    expect(acceptedMetricPassage({ ...input, value: 451 })).toEqual([]);
+  });
+
+  it('does not select business figures hidden in scripts, styles or comments', async () => {
+    const hidden = 'Acme Inc. reported 450 employees on October 1, 2026.';
+    const body = `<p>${'Menu. '.repeat(1000)}</p><script>${hidden}</script><style>${hidden}</style><!-- ${hidden} --><p>Visible narrative.</p>`;
+    const result = await retrieveOriginalSource(url, { lookup, read: async () => ({ status: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from(body) }) });
+    expect(result.text).not.toContain('450 employees');
+    expect(result.text).toBe('Menu. '.repeat(1000).trim().slice(0, 4000));
   });
 });
