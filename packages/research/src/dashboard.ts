@@ -20,6 +20,7 @@ import {
 } from '@mi/contracts';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { LlmClient } from './types';
+import { companySourceTargets } from './source-policy';
 
 export interface TabResearchArgs {
   company: Company;
@@ -30,7 +31,7 @@ export interface TabResearchArgs {
 }
 
 const ctx = (a: TabResearchArgs): string =>
-  `${a.company.name}${a.company.websiteUrl ? ` (${a.company.websiteUrl})` : ''}, a company in the market "${a.marketName}".`;
+  `${a.company.name}${a.company.websiteUrl ? ` (${a.company.websiteUrl})` : ''}, a company in the market "${a.marketName}".\n${companySourceTargets(a.company.websiteUrl)}`;
 
 // Loose intermediate for live intel (server sets timestamps/stale).
 // Tolerant to the model returning the item list bare instead of wrapped in
@@ -74,7 +75,8 @@ export async function researchDashboardTab<T extends DashboardTab>(
   args: TabResearchArgs,
 ): Promise<DashboardContentMap[T]> {
   const { client, signal } = args;
-  const system = { system: GROUNDED_SYSTEM, signal };
+  const system = { system: GROUNDED_SYSTEM, signal,
+    researchContext: { companyId: args.company.id, companyName: args.company.name, topic: tab } };
   const structSys = { system: STRUCTURE_SYSTEM, signal };
 
   switch (tab) {

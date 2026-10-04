@@ -80,6 +80,7 @@ import {
 import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import { briefingOutSchema, factCheckOutSchema, huntMetricsOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { LlmClient, ResearchCoverage, RunResearchOptions } from './types';
+import { recordResearchEvidence, searchResearchEvidence, type ResearchEvidence } from './research-evidence';
 
 interface CachedTab {
   content: unknown;
@@ -118,6 +119,8 @@ export interface RepoSnapshot {
    * their threads differ.
    */
   threads: ResearchThread[];
+  /** Local source-backed research notes, searchable independently of the UI. */
+  researchEvidence?: ResearchEvidence[];
 }
 
 export interface ResearchStore {
@@ -209,6 +212,7 @@ const empty = (): RepoSnapshot => ({
   opportunity: {},
   researchJobs: [],
   threads: [],
+  researchEvidence: [],
 });
 
 function companyKey(name: string): string {
@@ -250,6 +254,7 @@ function normalize(raw: RepoSnapshot | null): RepoSnapshot {
     opportunity: raw.opportunity ?? {},
     researchJobs,
     threads: raw.threads ?? [],
+    researchEvidence: raw.researchEvidence ?? [],
   };
 }
 
@@ -295,7 +300,6 @@ export class GeminiRepository implements MarketIntelRepository {
   private listeners = new Set<DeckRefreshListener>();
 
   constructor(options: GeminiRepositoryOptions) {
-    this.client = options.client ?? createGeminiClient(options);
     this.store = options.store;
     this.targetCompanies = options.targetCompanies;
     this.concurrency = options.concurrency ?? 3;
@@ -308,6 +312,10 @@ export class GeminiRepository implements MarketIntelRepository {
     // which format it is looking at.
     const migration = migrateSnapshot(this.store?.read() ?? null);
     this.snap = migration.snapshot;
+    this.client = recordResearchEvidence(options.client ?? createGeminiClient(options), (evidence) => {
+      this.snap.researchEvidence = [...(this.snap.researchEvidence ?? []), evidence];
+      this.persist();
+    });
     this.lastMigration = migration;
     // Persist immediately after an upgrade so the migration is not re-run on
     // every launch, and so a later downgrade sees an honest version stamp.
@@ -321,6 +329,11 @@ export class GeminiRepository implements MarketIntelRepository {
    */
   getMigrationOutcome(): MigrationOutcome | null {
     return this.lastMigration;
+  }
+
+  /** Reads saved evidence without a paid model call; citations remain attached. */
+  getResearchEvidence(input: { companyId?: string; companyName?: string; query?: string; limit?: number }): ResearchEvidence[] {
+    return searchResearchEvidence(this.snap.researchEvidence ?? [], input);
   }
 
   /** Apply the optional BYOK writer pass; on ANY failure return the draft untouched. */
@@ -359,6 +372,9 @@ export class GeminiRepository implements MarketIntelRepository {
       const stableCompanyId = name ? companyIdByName.get(companyKey(name)) : undefined;
       const stableCardId = previousByKey.get(keyFor(entry.card, name))?.id;
       if (stableCompanyId && entry.company) {
+        const researchedCompanyId = entry.company.id;
+        this.snap.researchEvidence = (this.snap.researchEvidence ?? []).map((evidence) =>
+          evidence.companyId === researchedCompanyId ? { ...evidence, companyId: stableCompanyId } : evidence);
         entry.company = { ...entry.company, id: stableCompanyId };
         entry.metrics = entry.metrics.map((metric) => ({ ...metric, companyId: stableCompanyId }));
       }
@@ -2262,10 +2278,27 @@ export class GeminiRepository implements MarketIntelRepository {
       ),
     ].join('\n\n');
 
+    const evidenceCompanyIds = new Set<string>();
+    if (thread.scope.companyId) evidenceCompanyIds.add(thread.scope.companyId);
+    else {
+      for (const card of this.snap.cards) {
+        const inScope = thread.scope.kind === 'cards'
+          ? thread.scope.cardIds?.includes(card.id)
+          : Boolean(thread.scope.deckId && card.deckId === thread.scope.deckId);
+        if (inScope && card.companyId) evidenceCompanyIds.add(card.companyId);
+      }
+    }
+    const evidence = [...evidenceCompanyIds].flatMap((companyId) =>
+      this.getResearchEvidence({ companyId, query: input.question, limit: 2 })).slice(0, 4);
+    const evidenceNotes = evidence.map((entry) =>
+      `STORED GROUNDED NOTES — ${entry.companyName ?? entry.companyId}, ${entry.topic}, captured ${entry.capturedAt} (not a source publication date):\n${entry.text.slice(0, 1200)}\nSOURCES:\n${entry.citations.slice(0, 6).map((c) => `${c.title}: ${c.url}`).join('\n')}`,
+    ).join('\n\n');
+
     const g = await this.client.ground(
       [
         `DECK DATA (this deck's prior grounded research — confidence tags and publishers are part of the record):`,
         this.scopeDigest(thread.scope),
+        evidenceNotes ? `\nLOCAL EVIDENCE LIBRARY (stored model research notes, not raw source documents; recheck freshness and cite the supplied sources):\n${evidenceNotes}` : '',
         thread.scope.subject ? `\nTHE ANALYST IS FOCUSED ON: ${thread.scope.subject}` : '',
         context.distilledFactsSummary ? `\n${context.distilledFactsSummary}` : '',
         references
@@ -2284,7 +2317,9 @@ export class GeminiRepository implements MarketIntelRepository {
       id: `msg_${rid()}`,
       role: 'assistant',
       text: g.text,
-      citations: g.citations,
+      // Stored sources are context, not automatically sources for this answer.
+      citations: usableCitations([...g.citations, ...evidence.flatMap((entry) =>
+        entry.citations.slice(0, 6).filter((citation) => g.text.includes(citation.url)))]),
       at: new Date().toISOString(),
     });
     thread.updatedAt = new Date().toISOString();

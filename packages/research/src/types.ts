@@ -125,7 +125,7 @@ export interface LlmClient {
    */
   ground(
     prompt: string,
-    opts?: { system?: string; signal?: AbortSignal },
+    opts?: { system?: string; signal?: AbortSignal; researchContext?: { companyId?: string; companyName?: string; topic: string } },
   ): Promise<{ text: string; citations: Citation[]; queries: string[] }>;
 
   /**

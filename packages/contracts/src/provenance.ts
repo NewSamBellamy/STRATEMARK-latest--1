@@ -83,26 +83,31 @@ export const UNRECORDED_PUBLISHER = 'Publisher not recorded';
  * publisher is always correct: verified still requires the source to state the
  * exact figure and survive provenance enforcement.
  */
-export function classifySource(url: string, title?: string | null): SourceCredibility {
-  const haystack = `${url} ${title ?? ''}`.toLowerCase();
-  if (/sec\.gov|secfilings|edgar|pacer\.uscourts\.gov|investor\.[^\s/]+/.test(haystack))
-    return 'primary';
-  if (
-    /reuters|bloomberg|wsj\.com|ft\.com|apnews|nytimes|bbc\.com|economist\.com|associated press/.test(
-      haystack,
-    )
-  ) {
-    return 'reputable_secondary';
+export function classifySource(url: string, title?: string | null, officialWebsite?: string | null): SourceCredibility {
+  const hostOf = (value: string): string | null => {
+    try {
+      const parsed = new URL(value.includes('://') ? value : `https://${value}`);
+      return ['http:', 'https:'].includes(parsed.protocol) ? parsed.hostname.toLowerCase().replace(/^www\./, '') : null;
+    } catch { return null; }
+  };
+  let host = hostOf(url);
+  // Grounding's opaque redirect carries a publisher domain in its metadata.
+  // Accept only a bare domain, never free-form titles such as "Reuters says...".
+  if (host === 'vertexaisearch.cloud.google.com') {
+    host = /^[a-z0-9.-]+\.[a-z]{2,}$/i.test((title ?? '').trim()) ? hostOf(title!.trim()) : null;
   }
-  if (
-    /techcrunch|theinformation|crunchbase|pitchbook|venturebeat|wired|arstechnica|statista|counterpointresearch|canalys|gartner|idc\.com|similarweb|sacra\.com|cbinsights|sensortower/.test(
-      haystack,
-    )
-  ) {
-    return 'industry';
-  }
-  if (/reddit|twitter\.com|x\.com|facebook|instagram|tiktok|quora|forum/.test(haystack))
+  if (!host) return 'unknown';
+  const belongsTo = (domain: string) => host === domain || host!.endsWith(`.${domain}`);
+  if (['reddit.com', 'twitter.com', 'x.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'quora.com', 'stocktwits.com'].some(belongsTo))
     return 'user_generated';
+  if (['sec.gov', 'uscourts.gov', 'companieshouse.gov.uk', 'find-and-update.company-information.service.gov.uk', 'sedarplus.ca', 'hkexnews.hk'].some(belongsTo))
+    return 'primary';
+  const official = officialWebsite ? hostOf(officialWebsite) : null;
+  if (official && belongsTo(official)) return 'primary';
+  if (['reuters.com', 'bloomberg.com', 'wsj.com', 'ft.com', 'apnews.com', 'nytimes.com', 'bbc.com', 'bbc.co.uk', 'economist.com'].some(belongsTo))
+    return 'reputable_secondary';
+  if (['techcrunch.com', 'theinformation.com', 'crunchbase.com', 'pitchbook.com', 'venturebeat.com', 'wired.com', 'arstechnica.com', 'statista.com', 'counterpointresearch.com', 'canalys.com', 'gartner.com', 'idc.com', 'similarweb.com', 'sacra.com', 'cbinsights.com', 'sensortower.com', 'tradingview.com', 'morningstar.com', 'factset.com'].some(belongsTo))
+    return 'industry';
   return 'unknown';
 }
 

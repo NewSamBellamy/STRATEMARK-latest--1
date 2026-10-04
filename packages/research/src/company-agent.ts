@@ -229,7 +229,7 @@ export function metricRows(
     if (!m) continue;
     const attached = cited(m.sourceIndex).map((citation) => ({
       ...citation,
-      credibility: classifySource(citation.url, citation.title),
+      credibility: classifySource(citation.url, citation.title, enrich.website),
     }));
     rows.push({
       id: uid('met', `${companyId}-${type}`),
@@ -600,10 +600,13 @@ export async function hydrateCompanyCard(
 
   throwIfAborted(options.signal);
 
+  const slug = slugify(candidate.name);
+  const companyId = options.companyId ?? options.existingMemory?.companyId ?? uid('cmp', slug);
   // 1. Grounded Search Research Pass
   const grounded = await client.ground(enrichPrompt(candidate, plan), {
     system: GROUNDED_SYSTEM,
     signal: options.signal,
+    researchContext: { companyId, companyName: candidate.name, topic: 'company_profile' },
   });
 
   throwIfAborted(options.signal);
@@ -616,8 +619,6 @@ export async function hydrateCompanyCard(
   );
 
   // 3. Company Entity Construction & Inline Logo Resolution
-  const slug = slugify(candidate.name);
-  const companyId = options.companyId ?? options.existingMemory?.companyId ?? uid('cmp', slug);
   const website = enrichment.website ?? (candidate.domain ? `https://${candidate.domain}` : null);
   const domain = rootDomain(website) ?? candidate.domain;
 

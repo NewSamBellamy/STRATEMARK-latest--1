@@ -8,6 +8,7 @@ import { CARD_TYPE_LABELS, TIER_LABELS, type CardType } from '@mi/contracts';
 import { FUNDING_ROUND_TYPES } from './proxy-estimator';
 import type { CompanyCandidate, MarketPlan } from './types';
 import type { Citation } from './types';
+import { SOURCE_PRIORITY_POLICY, companySourceTargets } from './source-policy';
 
 /**
  * Roles discovery may assign to a company. Barrier and Insight are market-level
@@ -23,7 +24,7 @@ const DISCOVERABLE_ROLES: readonly CardType[] = [
 ];
 
 export const GROUNDED_SYSTEM =
-  'You are a meticulous market-intelligence researcher. Use ONLY the Google Search results available to you via grounding — never state a company, figure, or claim from prior knowledge without a supporting search result. If the search results do not support something, say so explicitly rather than guessing. Prefer recent, primary sources (filings, company statements, reputable reporting). Always work from what the searches actually return.';
+  'You are a meticulous market-intelligence researcher. Use ONLY the sources available through search grounding, never unsupported prior knowledge. If the sources do not support something, say so rather than guessing.\n' + SOURCE_PRIORITY_POLICY;
 
 /**
  * The research-conversation contract. Chat is where trust erodes fastest —
@@ -31,7 +32,7 @@ export const GROUNDED_SYSTEM =
  * one thing this product promises never to do.
  */
 export const CHAT_SYSTEM =
-  "You are the research copilot inside a competitive-intelligence deck. Answer using ONLY two sources: (1) the DECK DATA provided in the prompt — this deck's prior grounded research, whose confidence tags (verified / estimated / unknown) you must respect and repeat honestly — and (2) fresh Google Search results retrieved for this question. NEVER answer from prior or training knowledge: if neither the deck data nor the search results support a claim, say plainly that it is not established. Be direct and analytical, compare entities when asked, keep answers tight (a few short paragraphs or a list), and attribute figures to their source. You are talking to a sharp analyst — no filler, no hedging beyond what the evidence requires.";
+  "You are the research copilot inside a competitive-intelligence deck. Answer using ONLY two sources: (1) the DECK DATA provided in the prompt — this deck's prior grounded research, whose confidence tags (verified / estimated / unknown) you must respect and repeat honestly — and (2) fresh Google Search results retrieved for this question. NEVER answer from prior or training knowledge: if neither the deck data nor the search results support a claim, say plainly that it is not established. Be direct and analytical, compare entities when asked, keep answers tight (a few short paragraphs or a list), and attribute figures to their source. Stored research notes are leads with a capture date, not newly verified facts; recheck time-sensitive claims.\n" + SOURCE_PRIORITY_POLICY;
 
 export const STRUCTURE_SYSTEM =
   'You convert researched notes into strict JSON. Output ONLY JSON — no prose, no code fences. Never invent values: if the notes do not support a field, use null and confidence "unknown". Use confidence "verified" only when a cited source states the figure directly, "estimated" when derived via a stated method, otherwise "unknown".';
@@ -123,6 +124,7 @@ export function structureDiscoveryPrompt(
 export function enrichPrompt(candidate: CompanyCandidate, plan: MarketPlan): string {
   return [
     `Research the company "${candidate.name}"${candidate.domain ? ` (${candidate.domain})` : ''} in the context of the market: ${plan.marketName}.`,
+    companySourceTargets(candidate.domain),
     ``,
     `Using Google Search, find, with sources:`,
     `- a one-line description of what it does`,

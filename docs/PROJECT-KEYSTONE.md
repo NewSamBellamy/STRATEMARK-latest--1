@@ -24,7 +24,8 @@ Project Keystone is the hands-on Stratemark product line built from the approved
 | --- | --- | --- |
 | 2026-10-01 | Restored and founder-approved initial card redesign | Baseline |
 | 2026-10-01 | Removed welcome-screen clock and added rotating market suggestions | Verified |
+| 2026-10-03 | Source-first research policy, safer publisher classification, persistent scoped company research notes and Ask retrieval | Backend tests verified; full check blocked by app-flow navigation test |
 
 ## Next slice
 
-Replace browser speech recognition with optional local Whisper large-v3-turbo transcription through whisper.cpp. The model must download only with explicit user consent, report its disk requirement, stay on-device, and retain a clear no-model state rather than silently using a hosted browser service.
+Continue the source-quality category in [SOURCE-QUALITY.md](SOURCE-QUALITY.md): claim-level original evidence and reporting periods first, followed by a small user-approved live research audit. Fix the failing full-journey navigation check before any production claim. Do not redesign the cards during this backend slice.
