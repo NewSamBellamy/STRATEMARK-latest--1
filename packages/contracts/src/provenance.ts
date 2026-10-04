@@ -17,7 +17,7 @@ import type { CompanyMetric } from './types';
 
 /** Reason text stamped on a figure that lost its "verified" claim. */
 export const UNSOURCED_DOWNGRADE_NOTE =
-  'Confidence lowered automatically: the research pass claimed this figure was verified but returned no source for it.';
+  'Confidence lowered automatically: the research pass claimed this figure was verified but returned no usable clickable source for it.';
 
 /**
  * Confidence levels a model is allowed to assert on its own.
@@ -44,11 +44,16 @@ export function usableCitations(citations: readonly Citation[] | undefined): Cit
   for (const c of citations) {
     const url = (c?.url ?? '').trim();
     if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    try {
+      const parsed = new URL(url);
+      if (!parsed.hostname || parsed.username || parsed.password) continue;
+    } catch { continue; }
     seen.add(url);
     out.push({
       url,
       title: (c.title ?? '').trim() || publisherOf(url),
-      credibility: c.credibility ?? classifySource(url, c.title),
+      // Supplied labels are untrusted (model output and imported snapshots).
+      credibility: classifySource(url, c.title),
     });
   }
   return out;
@@ -134,22 +139,23 @@ export function isJunkSource(url: string, title?: string | null): boolean {
 }
 
 /**
- * True when at least one citation is fit to stand behind a "verified" badge:
- * not a junk domain, and not user-generated content.
+ * Recognized publisher gate, NOT proof that a page supports a claim. Unknown
+ * sources remain inspectable but need independent review before verification.
+ * Ignore supplied credibility; never let it override the URL classification.
  */
 export function hasVerificationGradeCitation(
   citations: readonly Citation[] | undefined,
 ): boolean {
   if (!citations) return false;
-  return citations.some(
+  return usableCitations(citations).some(
     (c) =>
       !isJunkSource(c.url, c.title) &&
-      (c.credibility ?? classifySource(c.url, c.title)) !== 'user_generated',
+      ['primary', 'reputable_secondary', 'industry'].includes(classifySource(c.url, c.title)),
   );
 }
 
 const JUNK_DOWNGRADE_NOTE =
-  'Downgraded: the only sources behind this figure are low-credibility domains (SEO/content-mill class); a verification-grade source is required for a Verified badge.';
+  'Downgraded: sources are low-credibility, user-generated or not independently classified; a recognized source and claim-support review are required for verification.';
 
 /**
  * Bring a freshly-researched metric in line with the provenance rules.
@@ -162,12 +168,9 @@ const JUNK_DOWNGRADE_NOTE =
  */
 export function enforceMetricProvenance(metric: CompanyMetric): CompanyMetric {
   const citations = usableCitations(metric.citations);
-  // Evidence is either a clickable citation OR a written attribution the reader
-  // can weigh ("company's published team page"). What's forbidden is a
-  // "verified" claim backed by *nothing* — that's indistinguishable from an
-  // invented number, and it's the bug the 2026-07-29 audit found 3 of.
+  // Prose attribution survives for transparency but cannot earn verification.
   const proseSource = (metric.source ?? '').trim();
-  const hasEvidence = citations.length > 0 || proseSource.length > 0;
+  const hasEvidence = citations.length > 0;
 
   let confidence = metric.confidence;
   let methodNote = metric.methodNote;
@@ -274,11 +277,14 @@ function evidenceWeight(metric: CompanyMetric): number {
 export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric): CompanyMetric {
   const current = enforceMetricProvenance(existing);
   const next = enforceMetricProvenance(incoming);
+  const humanLocked = current.confidence === 'user_verified' && next.confidence !== 'user_verified';
+  const preferNext = !humanLocked && (next.confidence === 'user_verified' || evidenceWeight(next) > evidenceWeight(current));
   if (current.value === next.value || next.value === null) {
+    const preferred = next.value !== null && preferNext ? next : current;
     return {
-      ...current,
-      ...(next.value !== null ? next : {}),
-      revision: (current.revision ?? 0) + 1,
+      ...preferred,
+      conflicts: [...(current.conflicts ?? []), ...(next.conflicts ?? [])],
+      revision: Math.max(current.revision ?? 0, next.revision ?? 0) + 1,
     };
   }
   const observations = [
@@ -295,7 +301,7 @@ export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric
       capturedAt: next.capturedAt,
     },
   ];
-  const preferredObservation = evidenceWeight(next) > evidenceWeight(current) ? 1 : 0;
+  const preferredObservation = preferNext ? 1 : 0;
   const conflict: MetricConflict = {
     metricType: current.metricType,
     observations,

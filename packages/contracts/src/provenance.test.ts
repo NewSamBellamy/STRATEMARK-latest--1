@@ -13,6 +13,7 @@ import {
   publisherOf,
   usableCitations,
   isJunkSource,
+  hasVerificationGradeCitation,
 } from './provenance';
 import type { CompanyMetric } from './types';
 
@@ -38,13 +39,13 @@ describe('provenance enforcement', () => {
     expect(out.value).toBe(base.value); // the number survives; only the claim changes
   });
 
-  it('keeps "verified" when real evidence is attached', () => {
+  it('keeps "verified" when a recognized source is attached', () => {
     const out = enforceMetricProvenance({
       ...base,
-      citations: [cite('https://carnegieendowment.org/report', 'carnegieendowment.org')],
+      citations: [cite('https://reuters.com/report', 'reuters.com')],
     });
     expect(out.confidence).toBe('verified');
-    expect(out.source).toBe('https://carnegieendowment.org/report');
+    expect(out.source).toBe('https://reuters.com/report');
   });
 
   it('never lets a model-supplied confidence outrank the evidence', () => {
@@ -54,16 +55,65 @@ describe('provenance enforcement', () => {
     expect(out.citations).toEqual([]);
   });
 
-  it('accepts a written attribution as evidence, not just a clickable link', () => {
-    // An analyst-style attribution is inspectable even without a URL, so it
-    // keeps "verified" — only evidence-FREE claims get demoted.
+  it('retains written attribution without treating prose as verification', () => {
     const out = enforceMetricProvenance({
       ...base,
       source: 'Headcount published on the company team page.',
     });
-    expect(out.confidence).toBe('verified');
+    expect(out.confidence).toBe('estimated');
     expect(out.source).toBe('Headcount published on the company team page.');
     expect(out.citations).toEqual([]);
+  });
+
+  it.each([
+    'https://reddit.com/r/stocks/example',
+    'https://reuters.com.attacker.test/report',
+    'https://unknown-publisher.test/report',
+    'https://',
+    'https://analyst:secret@reuters.com/report',
+  ])('does not trust a forged primary label: %s', (url) => {
+    const citation = { url, title: 'Reuters verified filing', credibility: 'primary' as const };
+    expect(hasVerificationGradeCitation([citation])).toBe(false);
+    expect(enforceMetricProvenance({ ...base, citations: [citation] }).confidence).toBe('estimated');
+  });
+
+  it('preserves unknown niche citations for attribution without granting verification', () => {
+    const out = enforceMetricProvenance({ ...base, citations: [cite('https://niche-analyst.test/report')] });
+    expect(out.confidence).toBe('estimated');
+    expect(out.citations).toHaveLength(1);
+    expect(out.citations[0]!.credibility).toBe('unknown');
+  });
+
+  it('does not replace a human-checked row with a same-value automated observation', () => {
+    const current = { ...base, confidence: 'user_verified' as const, source: 'Confirmed by analyst',
+      methodNote: 'Human review', citations: [], lastVerifiedAt: '2026-07-29T00:00:00.000Z' };
+    const incoming = { ...base, citations: [cite('https://reuters.com/report')], capturedAt: '2026-08-01T00:00:00.000Z' };
+    const merged = reconcileMetric(current, incoming);
+    expect(merged.confidence).toBe('user_verified');
+    expect(merged.source).toBe(current.source);
+    expect(merged.methodNote).toBe(current.methodNote);
+    expect(merged.lastVerifiedAt).toBe(current.lastVerifiedAt);
+  });
+
+  it('does not erase a stronger source or previous conflicts when a weaker observation repeats the value', () => {
+    const conflict = { metricType: 'arr' as const, observations: [], detectedAt: base.capturedAt, preferredObservation: 0 };
+    const current = { ...base, citations: [cite('https://sec.gov/Archives/report')], conflicts: [conflict] };
+    const incoming = { ...base, confidence: 'estimated' as const,
+      citations: [cite('https://niche-analyst.test/report')], capturedAt: '2026-08-01T00:00:00.000Z' };
+    const merged = reconcileMetric(current, incoming);
+    expect(merged.confidence).toBe('verified');
+    expect(merged.citations[0]!.url).toBe(current.citations[0]!.url);
+    expect(merged.conflicts).toEqual([conflict]);
+  });
+
+  it('retains a human value when a higher-ranked automated publisher disagrees', () => {
+    const current = { ...base, confidence: 'user_verified' as const, source: 'Analyst override' };
+    const incoming = { ...base, value: 40_000_000_000, citations: [cite('https://sec.gov/report')] };
+    const merged = reconcileMetric(current, incoming);
+    expect(merged.value).toBe(current.value);
+    expect(merged.confidence).toBe('user_verified');
+    expect(merged.conflicts?.[0]?.preferredObservation).toBe(0);
+    expect(merged.conflicts?.[0]?.observations[1]?.value).toBe(incoming.value);
   });
 
   it('preserves a human override even without citations', () => {

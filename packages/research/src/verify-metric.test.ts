@@ -210,6 +210,18 @@ describe('verifyMetric', () => {
     expect(result.metric.value).toBe(990_000_000); // untouched
   });
 
+  it('does not revise from a forged high-credibility citation', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ citations: [{ url: 'https://reddit.com/r/stocks/example', title: 'SEC filing', credibility: 'primary' }],
+      structured: { verdict: 'contradicted', currentValue: 40_000_000_000, rationale: 'Claimed correction', methodNote: null } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.verdict).toBe('unverified');
+    expect(result.changed).toBe(false);
+    expect(result.metric.value).toBe(990_000_000);
+    expect(result.metric.lastVerifiedAt).toBeFalsy();
+  });
+
   it('never overwrites a user_verified figure — the human outranks the machine', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({

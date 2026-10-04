@@ -439,7 +439,12 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
     expect(arr).toBeDefined();
     expect(arr.value).toBe(11_000_000);
     expect(arr.confidence).toBe('estimated');
-    expect(arr.methodNote).toContain('50 FTEs × $220k AI / Infra / Compute benchmark');
+    // The fixture's techcrunch.example URL is not TechCrunch. Its headcount
+    // is now correctly unverified; retain that caveat in the proxy explanation.
+    expect(arr.methodNote).toContain('50 FTEs');
+    expect(arr.methodNote).toContain('not independently classified');
+    expect(arr.methodNote).toContain('× $220k AI / Infra / Compute benchmark');
+    expect(result.metrics.find((m) => m.metricType === 'employees')!.confidence).toBe('estimated');
 
     // 3. CMS Scoring and Tier Assignment
     expect(result.cmsResult.baseTier).not.toBeNull();

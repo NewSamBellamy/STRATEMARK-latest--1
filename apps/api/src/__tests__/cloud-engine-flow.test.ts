@@ -182,7 +182,8 @@ describe('Cloud Engine creation-to-worker flow', () => {
         metricType: 'arr',
         correction: {
           value: 200,
-          citations: [{ title: 'Example Co filing', url: 'https://example.com/filing', credibility: 'primary' }],
+          // Recognized-source shortcut fixture; no live source request is made.
+          citations: [{ title: 'Example Co filing', url: 'https://sec.gov/Archives/filing', credibility: 'primary' }],
           rationale: 'Latest filing reports updated revenue.',
         },
       }),

@@ -9,13 +9,22 @@ const company = dataset.companies.find((c) => c.id === card.companyId)!;
 const seed = dataset.metrics.find((m) => m.companyId === company.id)!;
 function metric(patch: Partial<CompanyMetric>): CompanyMetric {
   return { ...seed, value: 1200, metricType: 'users', confidence: 'verified', source: null,
-    citations: [{ title: 'Annual report', url: 'https://investor.example.com/report', credibility: 'primary' }], ...patch };
+    citations: [{ title: 'Annual report', url: 'https://sec.gov/Archives/report', credibility: 'primary' }], ...patch };
 }
 function view(metrics: CompanyMetric[], overrides: Partial<CardWithCompany> = {}) {
   return buildCardView({ card, company, metrics, viceClaims: [], ...overrides });
 }
 
 describe('collectible card evidence model', () => {
+  it('keeps unrecognized or forged authority unknown on both card and reader profiles', () => {
+    const input = metric({ citations: [{ title: 'Reuters annual report', url: 'https://reuters.com.attacker.test/report', credibility: 'primary' }] });
+    const result = view([input]);
+    expect(result.metrics[0]!.metric.confidence).toBe('estimated');
+    expect(result.profileMetrics[2]!.display).toBe('Unknown');
+    expect(result.profileMetrics[2]!.metric).toBeUndefined();
+    expect(input.confidence).toBe('verified'); // do not mutate legacy stored rows
+  });
+
   it('keeps unknown figures unknown, including contradictory non-null values', () => {
     const result = view([metric({ confidence: 'unknown', value: 500 })]);
     expect(result.metrics[0]!.display).toBe('Unknown');
@@ -44,7 +53,7 @@ describe('collectible card evidence model', () => {
   });
   it('accepts legacy source URLs but does not promote estimates or human verification', () => {
     const result = view([
-      metric({ id: 'a', citations: [], source: 'https://investor.example.com/report' }),
+      metric({ id: 'a', citations: [], source: 'https://sec.gov/Archives/report' }),
       metric({ id: 'b', confidence: 'estimated' }),
       metric({ id: 'c', confidence: 'user_verified', citations: [], source: null }),
     ]);

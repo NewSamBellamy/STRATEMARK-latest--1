@@ -41,8 +41,9 @@ describe('CardReader', () => {
         metricType: 'employees' as const,
         value: 123,
         confidence: 'verified' as const,
-        source: 'https://investor.example.com/report',
-        citations: [{ title: 'Annual filing', url: 'https://investor.example.com/report', credibility: 'primary' as const }],
+        // Recognized publisher fixture, not an independently fetched filing.
+        source: 'https://sec.gov/Archives/report',
+        citations: [{ title: 'Annual filing', url: 'https://sec.gov/Archives/report', credibility: 'primary' as const }],
         methodNote: null,
         capturedAt: '2026-09-29T12:00:00.000Z',
       }, {
@@ -68,7 +69,7 @@ describe('CardReader', () => {
     const facts = dialog.getByRole('region', { name: 'Core company figures' });
 
     expect(dialog.getByRole('link', { name: /source for employees: annual filing/i })).toHaveAttribute(
-      'href', 'https://investor.example.com/report',
+      'href', 'https://sec.gov/Archives/report',
     );
     expect(facts).toHaveTextContent('Primary source');
     expect(facts).toHaveTextContent('Recorded Sep 29, 2026');

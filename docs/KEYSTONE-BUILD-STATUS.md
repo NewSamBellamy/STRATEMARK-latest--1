@@ -18,12 +18,15 @@ Branch: `revival/initial-card-redesign`. Preserve main and unrelated local work.
 - `60ca414`: proposed 1-99 deck-relative scoring methodology, common-basis/reranking rules. Not implemented.
 - Current planning slice: consolidated company/finding journeys, four finding-card requirements, execution order, acceptance gates, performance/cost measurements and continuity notes. No application code changed.
 - First K1 implementation slice: verification rejects inconclusive/inconsistent verdict-value pairs and invalid negative/non-finite shortcut values. Completed attempts have a separate additive `lastVerificationAttemptAt`; only supported outcomes advance `lastVerifiedAt`, and inconclusive downgrades preserve the original capture date. Scheduling respects attempt cooldown without claiming renewed support. Scoped verification notes persist before structuring, including structuring failure. Valid cited corrections retain the zero-additional-call shortcut. Original-document validation is NOT implemented by this slice.
+- Second K1 slice: shared provenance recalculates credibility from URLs rather than trusting supplied labels, rejects malformed/credential-bearing citation URLs and removes machine verification from prose-only or unrecognized-source claims. Unknown niche citations remain inspectable. Reconciliation preserves human checks and stronger support/history when weaker automated observations repeat a value. Card/reader projections reject forged authority without rewriting legacy stored data. See [checkpoint 02](KEYSTONE-CHECKPOINT-02.md).
 
 ## Known verification / blockers
 
 The previous Back-to-card failure did not reproduce: isolated journey and the complete 133-test web suite passed. Do not claim it was fixed; cause remains unconfirmed. First implementation regressions were observed failing before the fix: unsupported number mutation, false successful-verification timestamps, retry backoff, invalid shortcut values and loss of notes on structuring failure. Focused verification suite now passes 20 tests; freshness suite passes 17. Full-project gate results are recorded in the checkpoint document. Live provider audits without credentials self-skip and are NOT RUN, not accuracy evidence.
 
 [Checkpoint 01](KEYSTONE-CHECKPOINT-01.md): final `pnpm check` exited 0 (types, lint and all unit suites). No measured live latency gain or independent factual-accuracy claim. No installer run or full browser recording yet.
+
+[Checkpoint 02](KEYSTONE-CHECKPOINT-02.md): final `pnpm check` exited 0 after the source-authority changes and fixture corrections. Types and lint passed; contracts 92, mocks 15, research 296, desktop 27, API 158 and web 134 tests reported passing. Three credential-dependent research audits returned early and remain NOT RUN as live audits. No additional paid application research or visual redesign. Last preceding commit: `00ffad6`; checkpoint 02 is the subsequent local integrity slice.
 
 Preview `http://127.0.0.1:4174/` was already served from this worktree; no process was killed/replaced. Homepage/sidebar render in the in-app browser. Shared-module hot reload emitted RepositoryProvider context errors during edits; a clean reload rendered correctly, with no newer errors observed. Keep this development limitation on the K0 investigation list. No paid deck/dashboard journey was triggered in the browser; card visual baselines, recording and latency benchmarks remain pending.
 
@@ -33,7 +36,7 @@ GitHub push was blocked by Windows/Git authentication. Local checkpoint is not a
 
 K0 remaining: capture approved card/reader baseline and affected-journey recording using isolated no-key fixture state; measure labelled timings/call counts; investigate hot-reload context identity. Keep trying to reproduce prior navigation failure without weakening its assertion.
 
-K1 next: original-source retrieval and typed evidence receipts with entity/value/period/definition checks -> accepted fact -> matching card/reader. Current citation-grade filtering still does not prove an original page supports a figure. Audit other ingestion/verification paths before calling this shared or complete. No scoring UI/provider fleet/connector scaffolding yet.
+K1 next: unify the separate cloud `/api/research/verify` route with local verdict/value/attempt-date protections; its current alternate path can still accept inconclusive structured values and refresh support timestamps. Then original-source retrieval and typed evidence receipts with entity/value/period/definition checks -> accepted fact -> matching card/reader. Current citation-grade filtering still does not prove an original page supports a figure. Official small-company sites not in the publisher list need identity-bound source validation, not blanket rejection or a model-supplied primary label. Matching-value observations also need explicit period/definition checks and immutable evidence history. No scoring UI/provider fleet/connector scaffolding yet.
 
 Live tests need explicit scope/spend approval before invoking user research credits. Never expose keys. Source count is not confidence; an unrated private company is not a weak company. Save full evidence while compacting session notes well before the context boundary.
 
@@ -42,7 +45,7 @@ Live tests need explicit scope/spend approval before invoking user research cred
 | Milestone | State |
 | --- | --- |
 | K0 Baseline and navigation | In progress: tests/homepage checked; visual journey and timings pending |
-| K1 Evidence correctness, card+reader | In progress: verdict/freshness integrity slice implemented |
+| K1 Evidence correctness, card+reader | In progress: local verdict/freshness and shared attribution/reconciliation protections; original-passage proof and cloud parity pending |
 | K2 Durable queryable dossiers | Not started |
 | K3 Sentinel/Scouts, first-ready latency, branding | Not started |
 | K4 Complete coherent company dashboards | Not started |
