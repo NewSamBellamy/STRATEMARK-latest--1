@@ -128,6 +128,12 @@ describe('MemoryDataStore', () => {
 });
 
 describe('FirestoreDataStore', () => {
+  it('loads original source receipts instead of silently discarding them', async () => {
+    const originalSourceAttempts = [{ companyId: 'company_1', metricType: 'arr', capturedAt: '2026-10-03', receipts: [{ requestedUrl: 'https://sec.gov/report', status: 'retrieved', retrievedAt: '2026-10-03', text: 'Annual revenue' }] }];
+    const firestore = { collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({ deck: {}, market: {}, cards: [], originalSourceAttempts }) }) }) }) } as unknown as Firestore;
+    expect((await new FirestoreDataStore({ firestore }).getDeck('deck_1'))!.originalSourceAttempts).toEqual(originalSourceAttempts);
+  });
+
   it('interacts with Firestore API collections for decks and markets', async () => {
     const researchTrace = {
       events: [],

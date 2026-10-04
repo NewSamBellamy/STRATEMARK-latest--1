@@ -5,6 +5,12 @@ import { CloudDeckService, MockFirebaseAdapter } from '../lib/CloudDeckService';
 import { MemoryDataStore } from '../lib/firestoreStore';
 import { resolveClient } from '../lib/client';
 import type { CardWithCompany, CompanyMetric } from '@mi/contracts';
+import { retrieveOriginalSource } from '../lib/original-source';
+
+vi.mock('../lib/original-source', () => ({ retrieveOriginalSource: vi.fn(async (url: string) => ({
+  requestedUrl: url, finalUrl: url, status: 'retrieved', text: 'Example Company annual revenue is 100.',
+  contentHash: 'a'.repeat(64), retrievedAt: '2026-10-03T00:00:00.000Z',
+})) }));
 
 vi.mock('../lib/client', async (original) => ({
   // eslint-disable-next-line @typescript-eslint/consistent-type-imports
@@ -16,18 +22,20 @@ const capturedAt = '2026-08-01T00:00:00.000Z';
 const lastVerifiedAt = '2026-08-02T00:00:00.000Z';
 afterEach(() => vi.clearAllMocks());
 
-async function run(out: { verdict: string; currentValue: number | null }, patch: Partial<CompanyMetric> = {}, correction?: unknown) {
+async function run(out: { verdict: string; currentValue: number | null }, patch: Partial<CompanyMetric> = {}, correction?: unknown, failStructure = false, manySources = false) {
   const store = new MemoryDataStore();
   const auth = new MockFirebaseAdapter();
   const service = new CloudDeckService(store, auth, auth);
   const app = createApp(readEnv({ GEMINI_API_KEY: 'test-key', APP_TOKEN: 'app-token' }), {
     store, cloudDeckService: service, forceMemoryStore: true,
   });
-  const ground = vi.fn().mockResolvedValue({ text: 'Research notes', citations: [citation] });
+  const ground = vi.fn().mockResolvedValue({ text: 'Research notes', citations: manySources ? [citation, { ...citation, url: `${citation.url}/second` }, { ...citation, url: `${citation.url}/third` }] : [citation] });
   const structure = vi.fn().mockResolvedValue({ ...out, rationale: 'Test result', methodNote: null });
+  if (failStructure) structure.mockRejectedValue(new Error('Interpretation failed'));
   vi.mocked(resolveClient).mockReturnValue({ client: { ground, structure }, keySource: 'server' } as unknown as ReturnType<typeof resolveClient>);
   await service.saveDeck('user_123', 'deck_test', {
     deck: { id: 'deck_test' }, market: { id: 'deck_test' }, state: { status: 'ready' },
+    ...(manySources ? { originalSourceAttempts: Array.from({ length: 8 }, (_, index) => ({ companyId: `old_${index}`, metricType: 'arr', capturedAt, receipts: [] })) } : {}),
     cards: [{
       card: { id: 'card_test', deckId: 'deck_test', companyId: 'company_test', cardType: 'company' },
       company: { id: 'company_test', name: 'Example Company', oneLiner: 'Test company' },
@@ -40,13 +48,45 @@ async function run(out: { verdict: string; currentValue: number | null }, patch:
     method: 'POST', headers: { Authorization: 'Bearer valid_token', 'X-Stratemark-Token': 'app-token', 'Content-Type': 'application/json' },
     body: JSON.stringify({ deckId: 'deck_test', companyId: 'company_test', metricType: patch.metricType ?? 'arr', correction }),
   });
-  expect(response.status).toBe(200);
+  expect(response.status).toBe(failStructure ? 500 : 200);
   const result = await response.json() as { metric: CompanyMetric; verdict: string; changed: boolean };
   const stored = (await service.getDeck('user_123', 'deck_test'))!.cards![0]!.metrics[0]!;
-  return { result, stored, ground, structure };
+  const attempt = await service.getDeck('user_123', 'deck_test');
+  return { result, stored, ground, structure, attempt };
 }
 
 describe('cloud metric verification integrity', () => {
+  it('persists scoped originals before interpretation and keeps them on model failure', async () => {
+    const { attempt } = await run({ verdict: 'unverified', currentValue: null }, {}, undefined, true);
+    expect(attempt).toHaveProperty('originalSourceAttempts', [expect.objectContaining({
+      companyId: 'company_test', metricType: 'arr',
+      receipts: [expect.objectContaining({ status: 'retrieved', text: 'Example Company annual revenue is 100.' })],
+    })]);
+  });
+
+  it('supplies retrieved originals as untrusted content, not as automatic verification', async () => {
+    const { structure, result } = await run({ verdict: 'unverified', currentValue: null });
+    expect(structure.mock.calls[0]![0]).toContain('UNTRUSTED ORIGINAL EXTRACTS');
+    expect(structure.mock.calls[0]![0]).toContain('Example Company annual revenue is 100.');
+    expect(result!.verdict).toBe('unverified');
+    expect(retrieveOriginalSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains unavailable receipt without interpreting it as absence or changing the number', async () => {
+    vi.mocked(retrieveOriginalSource).mockResolvedValueOnce({ requestedUrl: citation.url, status: 'unavailable', retrievedAt: '2026-10-03T00:00:00.000Z', reason: 'Source did not return a readable public page' });
+    const { stored, attempt } = await run({ verdict: 'unverified', currentValue: null });
+    expect(stored.value).toBe(100);
+    expect(stored.lastVerifiedAt).toBe(lastVerifiedAt);
+    expect(attempt!.originalSourceAttempts![0]!.receipts[0]!.status).toBe('unavailable');
+  });
+
+  it('caps automatic reads at two and keeps only the explicit rolling diagnostic history', async () => {
+    const { attempt } = await run({ verdict: 'unverified', currentValue: null }, {}, undefined, false, true);
+    expect(retrieveOriginalSource).toHaveBeenCalledTimes(2);
+    expect(attempt!.originalSourceAttempts).toHaveLength(8);
+    expect(attempt!.originalSourceAttempts![0]!.companyId).toBe('old_1');
+    expect(attempt!.originalSourceAttempts![7]!.receipts).toHaveLength(2);
+  });
   it.each([
     { verdict: 'unverified', currentValue: 900 },
     { verdict: 'supported', currentValue: 900 },

@@ -15,6 +15,7 @@ import type {
 import type { MarketPlan } from '@mi/research';
 import type { RefreshWorklistDeck, WorklistStore } from './worklist';
 import type { ServiceEnv } from '../env';
+import type { OriginalSourceReceipt } from './original-source';
 
 export interface StoredDeckRecord {
   deck: Record<string, unknown>;
@@ -30,6 +31,13 @@ export interface StoredDeckRecord {
   watch?: boolean;
   revision?: number;
   schemaVersion?: number;
+  /** Bounded diagnostic history, not an immutable full-document vault. */
+  originalSourceAttempts?: Array<{
+    companyId: string;
+    metricType: string;
+    capturedAt: string;
+    receipts: OriginalSourceReceipt[];
+  }>;
   researchTrace?: {
     events: readonly AdkTraceEvent[];
     statuses: readonly LivingDeckNodeStatus[];
@@ -579,6 +587,7 @@ export class FirestoreDataStore implements StratemarkDataStore {
       plan: data.plan as Record<string, unknown> | undefined,
       state: data.state as Record<string, unknown> | undefined,
       researchTrace: data.researchTrace as StoredDeckRecord['researchTrace'] | undefined,
+      originalSourceAttempts: Array.isArray(data.originalSourceAttempts) ? data.originalSourceAttempts as StoredDeckRecord['originalSourceAttempts'] : undefined,
       userId: typeof data.userId === 'string' ? data.userId : undefined,
       createdAt: tsToStr(data.createdAt),
       updatedAt: tsToStr(data.updatedAt),
