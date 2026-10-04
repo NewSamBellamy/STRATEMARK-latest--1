@@ -26,6 +26,12 @@ function normalizeFundingRound(raw: unknown): unknown {
   return { amount: round.amount, roundType };
 }
 
+const metricPassageSchema = z.object({
+  sourceUrl: z.string(), quote: z.string().max(600), asOf: z.string(),
+  basis: z.enum(['arr', 'valuation', 'market_cap', 'users', 'employees', 'market_share']),
+  unit: z.enum(['USD', 'count', 'percent']),
+});
+
 export const metricOutSchema = z.object({
   value: z.number().nullable().default(null),
   // Model-facing vocabulary: `user_verified` is human-only and is excluded from
@@ -35,6 +41,7 @@ export const metricOutSchema = z.object({
   sourceIndex: z.number().int().nullable().default(null),
   /** One-line "how we got this" note for estimated figures. */
   method: z.string().nullable().default(null),
+  passageSupport: metricPassageSchema.nullable().optional(),
 });
 export type MetricOut = z.infer<typeof metricOutSchema>;
 
@@ -195,11 +202,7 @@ export const verifyMetricOutSchema = z.object({
   rationale: z.string().default(''),
   /** One-line method note explaining where the figure comes from. */
   methodNote: z.string().nullable().default(null),
-  passageSupport: z.object({
-    sourceUrl: z.string(), quote: z.string().max(600), asOf: z.string(),
-    basis: z.enum(['arr', 'valuation', 'market_cap', 'users', 'employees', 'market_share']),
-    unit: z.enum(['USD', 'count', 'percent']),
-  }).nullable().default(null),
+  passageSupport: metricPassageSchema.nullable().default(null),
 });
 
 /**

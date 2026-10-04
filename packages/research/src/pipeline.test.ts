@@ -252,6 +252,32 @@ const testCoverage = {
 };
 
 describe('runDeckResearch (full orchestration, fake LLM)', () => {
+  it('keeps unsupported initial figures unknown through stored deck, card and reader queries', async () => {
+    let snapshot: RepoSnapshot | null = null;
+    const save = vi.fn(async () => {});
+    const repo = new GeminiRepository({
+      apiKey: 'test-key', client: fakeClient(), coverage: testCoverage, catalogMax: 3, catalogPasses: 0,
+      store: { read: () => snapshot, write: (next) => { snapshot = next; } },
+      originalSources: {
+        retrieve: async (url) => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString() }),
+        save, list: async () => [],
+      },
+    });
+    const { market, deck } = await repo.createResearchedDeck({ prompt: 'Software', region: null });
+    await repo.waitForBackgroundJobs();
+    const entries = (await repo.listCards(deck.id)).filter((entry) => entry.company);
+    expect(entries.length).toBeGreaterThanOrEqual(3);
+    expect(save.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect((await repo.getDeckByMarket(market.id) as Deck & { status?: string }).status).toBe('ready');
+    for (const entry of entries) {
+      expect(entry.metrics.length).toBeGreaterThan(0);
+      expect(entry.metrics.every((metric) => metric.value === null && metric.confidence === 'unknown')).toBe(true);
+      expect((await repo.getCard(entry.card.id))!.metrics).toEqual(entry.metrics);
+      expect(await repo.getCompanyMetrics(entry.company!.id)).toEqual(entry.metrics);
+      expect(entry.card.tier).toBeNull();
+    }
+  }, 20000);
+
   it(
     'produces company, vice, and barrier cards with grounded sources',
     async () => {

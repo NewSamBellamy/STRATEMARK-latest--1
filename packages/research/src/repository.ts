@@ -555,6 +555,7 @@ export class GeminiRepository implements MarketIntelRepository {
     this.persist();
     try {
       const result = await runDeckResearch(job.brief, this.client, {
+        originalSources: this.originalSources,
         apiKey: '',
         signal: controller.signal,
         concurrency: this.concurrency,
@@ -834,6 +835,7 @@ export class GeminiRepository implements MarketIntelRepository {
                   const existingCompanyId = stub?.company?.id;
 
                   const hydrated = await hydrateCompanyCard({
+                    originalSources: this.originalSources,
                     candidate,
                     client: this.client,
                     plan: stubsResult.plan,

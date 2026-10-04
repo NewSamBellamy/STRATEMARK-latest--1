@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createOriginalSourceServices } from './original-sources';
 import type { OriginalSourceAttempt } from '@mi/research';
-import { GeminiRepository } from '@mi/research';
+import { GeminiRepository, hydrateCompanyCard } from '@mi/research';
+import type { LlmClient } from '@mi/research';
 import sample from '../../web/src/sample/frontier-snapshot.json';
 import { createFileStore, parseResearchExport } from './storage';
 
@@ -22,6 +23,28 @@ function attempt(companyId = 'acme'): OriginalSourceAttempt {
 }
 
 describe('native original source artifacts', () => {
+  it('stores initial company originals with a valid identity and reloads them after restart', async () => {
+    const { directory, store } = await setup();
+    const quote = 'Acme Inc. reported 45 employees as of 2026-10-01.';
+    const url = 'https://sec.gov/report';
+    const client: LlmClient = {
+      ground: async () => ({ text: 'Provider notes', citations: [{ title: 'SEC', url }], queries: [] }),
+      structure: (async (_prompt, schema) => schema.parse({ metrics: { employees: { value: 45, confidence: 'verified', sourceIndex: 0,
+        passageSupport: { sourceUrl: url, quote, asOf: '2026-10-01', basis: 'employees', unit: 'count' } } } })) as LlmClient['structure'],
+    };
+    const result = await hydrateCompanyCard({
+      candidate: { name: 'Acme Inc.', domain: null, descriptor: 'Software', cardTypes: ['company'] },
+      client, plan: { marketName: 'Software', vertical: 'SaaS', geography: null, notes: null, searchThemes: [] }, companyId: 'cmp_acme',
+      originalSources: { ...store, retrieve: async () => ({ ...attempt().receipts[0]!, text: quote }) },
+      fetchImpl: async () => new Response('', { status: 404 }),
+    });
+    expect(result.metrics.find((m) => m.metricType === 'employees')).toMatchObject({ value: 45, confidence: 'verified' });
+    const restarted = createOriginalSourceServices(directory);
+    const records = await restarted.list({ companyId: 'cmp_acme', metricType: 'company_profile' });
+    expect(records).toHaveLength(1);
+    expect(records[0]!.id).toMatch(/^src_[a-f0-9-]{36}$/);
+    expect(records[0]!.receipts[0]!.text).toBe(quote);
+  });
   it('saves a separate artifact and reloads scoped evidence after restart', async () => {
     const { directory, store } = await setup();
     const record = attempt();

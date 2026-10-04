@@ -4,6 +4,7 @@
  * (and is Zod-validated before it does).
  */
 import type { ZodType, ZodTypeDef } from 'zod';
+import type { OriginalSourceServices } from './original-source';
 import type {
   CardType,
   CardWithCompany,
@@ -100,6 +101,7 @@ export interface ResearchCoverage {
 }
 
 export interface RunResearchOptions extends GeminiConfig {
+  originalSources?: OriginalSourceServices;
   onEvent?: OnResearchEvent;
   signal?: AbortSignal;
   /** Cap concurrent enrichment calls (free-tier friendly). Default 2. */

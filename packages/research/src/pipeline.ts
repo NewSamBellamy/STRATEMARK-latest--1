@@ -59,6 +59,7 @@ import {
 } from './company-agent';
 import { researchMarketSignals } from './signal-agents';
 import { expandDeckWithDeltaAgent } from './delta-agent';
+import type { OriginalSourceServices } from './original-source';
 
 export interface ResearchResult {
   market: Market;
@@ -77,6 +78,7 @@ export interface DeckStubsResult {
 }
 
 export interface HydrateDeckCardsOptions {
+  originalSources?: OriginalSourceServices;
   concurrency?: number;
   coverage?: Partial<ResearchCoverage>;
   signal?: AbortSignal;
@@ -776,6 +778,7 @@ export async function hydrateDeckCards(
             throwIfAborted(signal);
             try {
               const result = await hydrateCompanyCard({
+                originalSources: options.originalSources,
                 candidate,
                 client,
                 plan,
@@ -924,6 +927,7 @@ export async function runDeckResearch(
   }
 
   const cards = await hydrateDeckCards(plan, deck, candidates, client, {
+    originalSources: options.originalSources,
     concurrency,
     coverage,
     signal,
