@@ -64,6 +64,22 @@ function harness(overrides: Partial<LivingDeckDeps> = {}) {
 }
 
 describe('LivingDeckRuntime', () => {
+  it.each(['resolve', 'reject'] as const)('preserves pause when an in-flight turn finishes (%s)', async outcome => {
+    let finish!: () => void;
+    const verify = vi.fn(() => new Promise<{ changed: boolean; citations: number; summary: string }>((resolve, reject) => {
+      finish = () => outcome === 'resolve' ? resolve({ changed: false, citations: 0, summary: 'unverified' }) : reject(new Error('failed'));
+    }));
+    const { runtime, pending, runNext } = harness({ verify,
+      plan: () => ({ consistencyTargets: [], staleTargets: [target('Example', 'arr', 'stale')], freshFindings: [] }) });
+    runtime.start(1);
+    await runNext();
+    runtime.pause();
+    finish();
+    await runNext();
+    expect(runtime.status).toBe('paused');
+    expect(pending).toHaveLength(0);
+    expect(verify).toHaveBeenCalledTimes(1);
+  });
   it('announces itself on start and prioritizes consistency doubt over freshness decay', async () => {
     const verify = vi.fn().mockResolvedValue({ changed: false, citations: 2, summary: 'holds' });
     const { runtime, events, runNext } = harness({

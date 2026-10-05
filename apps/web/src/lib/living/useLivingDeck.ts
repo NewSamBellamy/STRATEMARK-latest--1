@@ -27,6 +27,7 @@ import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { qk } from '@/lib/query/keys';
 import { traceAgent } from '@/lib/agentic/agentTrace';
 import { formatMetricValue } from '@/lib/format';
+import { useResearchControl } from './researchControl';
 import {
   LivingDeckRuntime,
   type AgentActivityEvent,
@@ -68,6 +69,7 @@ export function useLivingDeck(
   const [status, setStatus] = useState<LivingStatus>('stopped');
   const [actionCount, setActionCount] = useState(0);
   const runtimeRef = useRef<LivingDeckRuntime | null>(null);
+  const paused = useResearchControl(state => state.paused);
 
   // Latest cards without retriggering the effect — the runtime re-plans every
   // tick, so data refreshes flow in without a restart.
@@ -169,6 +171,7 @@ export function useLivingDeck(
         : null,
 
       nextPrefetch: (): PrefetchTarget | null => {
+        if (isLowPower() || useResearchControl.getState().paused) return null;
         const current = cardsRef.current
           .filter((c) => c.card.cardType === 'company' && c.company)
           .slice(0, PREFETCH_COMPANY_LIMIT);
@@ -211,10 +214,21 @@ export function useLivingDeck(
     });
 
     runtimeRef.current = runtime;
-    runtime.start(deskCount);
-    setStatus(runtime.status);
+    const syncControl = () => {
+      if (useResearchControl.getState().paused) {
+        runtime.pause();
+        setStatus('paused');
+      } else {
+        if (runtime.status === 'stopped') runtime.start(deskCount);
+        else runtime.resume();
+        setStatus(runtime.status);
+      }
+    };
+    syncControl();
+    const unsubscribe = useResearchControl.subscribe(syncControl);
 
     return () => {
+      unsubscribe();
       runtime.stop();
       runtimeRef.current = null;
     };
@@ -224,17 +238,15 @@ export function useLivingDeck(
 
   return {
     events,
-    status,
+    status: paused ? 'paused' : status,
     deskCount,
     actionCount,
     canVerify,
     pause: () => {
-      runtimeRef.current?.pause();
-      setStatus(runtimeRef.current?.status ?? 'paused');
+      useResearchControl.getState().setPaused(true);
     },
     resume: () => {
-      runtimeRef.current?.resume();
-      setStatus(runtimeRef.current?.status ?? 'running');
+      useResearchControl.getState().setPaused(false);
     },
   };
 }

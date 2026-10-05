@@ -167,6 +167,7 @@ export class LivingDeckRuntime {
 
   private schedule(ms: number): void {
     this.clear();
+    if (this.statusValue === 'paused' || this.statusValue === 'stopped') return;
     this.timer = this.deps.setTimer(() => {
       void this.tick();
     }, ms);

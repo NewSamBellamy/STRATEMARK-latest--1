@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MockRepository, type SeedSnapshot } from '@mi/mocks';
 import sample from '@/sample/frontier-snapshot.json';
@@ -11,8 +11,63 @@ import { useLivingDeck } from './useLivingDeck';
 import { LivingDeckRuntime } from './runtime';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useSentinel } from '@/lib/agentic/useSentinel';
+import { useResearchControl } from './researchControl';
 
-afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.restoreAllMocks(); useApiKey.setState({ apiKey: '', hasKey: false }); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.restoreAllMocks(); useApiKey.setState({ apiKey: '', hasKey: false }); act(() => useResearchControl.setState({ paused: false, storageError: null })); });
+describe('shared background research pause', () => {
+  it('does not dispatch refreshes or briefings if pause happens during a scheduled read', async () => {
+    vi.useFakeTimers();
+    const repository = new MockRepository({ latencyMs: 0 });
+    const markets = await repository.listMarkets();
+    const pending: Array<() => void> = [];
+    vi.spyOn(repository, 'listMarkets').mockImplementation(() => new Promise(resolve => { pending.push(() => resolve(markets)); }));
+    const refreshDeck = vi.spyOn(repository, 'refreshDeck');
+    const generateDeckBriefing = vi.fn();
+    const getDeck = vi.spyOn(repository, 'getDeckByMarket');
+    const wrapper = ({ children }: { children: ReactNode }) => <RepositoryProvider repository={Object.assign(repository, {
+      generateDeckBriefing, listDeckBriefings: vi.fn().mockResolvedValue([]),
+    })}><QueryClientProvider client={createQueryClient()}>{children}</QueryClientProvider></RepositoryProvider>;
+    renderHook(() => { useAutoRefresh(); useSentinel(); }, { wrapper });
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
+    expect(pending).toHaveLength(2);
+    await act(async () => { useResearchControl.getState().setPaused(true); pending.forEach(finish => finish()); });
+    expect(getDeck).not.toHaveBeenCalled();
+    expect(refreshDeck).not.toHaveBeenCalled();
+    expect(generateDeckBriefing).not.toHaveBeenCalled();
+  });
+  it('suppresses scheduled refresh and briefing checks while paused', async () => {
+    vi.useFakeTimers();
+    useResearchControl.getState().setPaused(true);
+    const repository = new MockRepository({ latencyMs: 0 });
+    const listMarkets = vi.spyOn(repository, 'listMarkets');
+    const wrapper = ({ children }: { children: ReactNode }) => <RepositoryProvider repository={Object.assign(repository, {
+      generateDeckBriefing: vi.fn(), listDeckBriefings: vi.fn().mockResolvedValue([]),
+    })}><QueryClientProvider client={createQueryClient()}>{children}</QueryClientProvider></RepositoryProvider>;
+    renderHook(() => { useAutoRefresh(); useSentinel(); }, { wrapper });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(listMarkets).not.toHaveBeenCalled();
+  });
+  it('survives deck remount and permits explicit resume without an automatic first turn', async () => {
+    vi.useFakeTimers();
+    const repository = new MockRepository({ seedSnapshot: sample as unknown as SeedSnapshot, latencyMs: 0 });
+    const cards = await repository.listCards(sample.decks[0]!.id);
+    const verifyMetric = vi.fn().mockRejectedValue(new Error('test only'));
+    const getDashboardTab = vi.spyOn(repository, 'getDashboardTab');
+    const client = createQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => <RepositoryProvider repository={Object.assign(repository, { verifyMetric })}><QueryClientProvider client={client}>{children}</QueryClientProvider></RepositoryProvider>;
+    const first = renderHook(() => useLivingDeck(sample.decks[0]!.id, cards), { wrapper });
+    act(() => first.result.current.pause());
+    first.unmount();
+    const reopened = renderHook(() => useLivingDeck(sample.decks[0]!.id, cards), { wrapper });
+    await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
+    expect(reopened.result.current.status).toBe('paused');
+    expect(verifyMetric).not.toHaveBeenCalled();
+    expect(getDashboardTab).not.toHaveBeenCalled();
+    act(() => reopened.result.current.resume());
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    expect(verifyMetric.mock.calls.length + getDashboardTab.mock.calls.length).toBe(1);
+  });
+});
 describe('keyless desktop browsing', () => {
   it('does not schedule automatic refresh or briefings without a user key', async () => {
     vi.useFakeTimers();

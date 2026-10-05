@@ -21,18 +21,22 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { isLowPower } from '@/lib/usage';
 import { traceAgent } from './agentTrace';
+import { useResearchControl } from '@/lib/living/researchControl';
 
 const CHECK_EVERY_MS = 60 * 60 * 1000; // re-check hourly while the app is open
 
 export function useSentinel(): void {
   const repo = useRepository();
   const hasKey = useApiKey((state) => state.hasKey);
+  const paused = useResearchControl(state => state.paused);
   const qc = useQueryClient();
   const handled = useRef(new Set<string>());
   const busy = useRef(false);
 
   useEffect(() => {
-    if (isCommunityDesktop() && !hasKey) return;
+    if (paused || (isCommunityDesktop() && !hasKey)) return;
+    let disposed = false;
+    const allowed = () => !disposed && !useResearchControl.getState().paused && !isLowPower();
     if (
       typeof repo.generateDeckBriefing !== 'function' ||
       typeof repo.listDeckBriefings !== 'function'
@@ -41,14 +45,16 @@ export function useSentinel(): void {
     }
 
     const check = async (): Promise<void> => {
-      if (busy.current || isLowPower()) return;
+      if (busy.current || !allowed()) return;
       busy.current = true;
       try {
         const markets = await repo.listMarkets();
         for (const m of markets) {
+          if (!allowed()) break;
           const hours = REFRESH_CADENCE_HOURS[m.refreshCadence];
           if (!hours || handled.current.has(m.id)) continue;
           const briefings = await repo.listDeckBriefings!(m.id);
+          if (!allowed()) break;
           // Opt-in rule: the first briefing is always run by hand.
           if (briefings.length === 0) continue;
           const lastAt = new Date(briefings[0]!.generatedAt).getTime();
@@ -88,8 +94,9 @@ export function useSentinel(): void {
     const kickoff = setTimeout(() => void check(), 8_000);
     const interval = setInterval(() => void check(), CHECK_EVERY_MS);
     return () => {
+      disposed = true;
       clearTimeout(kickoff);
       clearInterval(interval);
     };
-  }, [repo, qc, hasKey]);
+  }, [repo, qc, hasKey, paused]);
 }

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useIsFetching, useQueryClient } from '@tanstack/react-query';
+import { useIsFetching } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, FileText, Search } from 'lucide-react';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
 import { useCompany, useReports, useRerunDashboardTab } from '@/hooks/data';
-import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
-import { qk } from '@/lib/query/keys';
+import { useDashboardWarm } from '@/lib/living/useDashboardWarm';
+import { BackgroundResearchControl } from '@/lib/living/BackgroundResearchControl';
 import { ReportButton, ThreadHistoryButton } from '@/features/research/ResearchControls';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { ContextRerun } from '@/components/ui/ContextRerun';
@@ -254,71 +254,17 @@ export default function DashboardPage() {
   const hasKey = useApiKey((s) => s.hasKey);
   const activeTab = tab as DashboardTab;
   const rerunTab = useRerunDashboardTab(companyId, activeTab);
-  const repo = useRepository();
-  const qc = useQueryClient();
-  const [prefetchFailed, setPrefetchFailed] = useState<string[]>([]);
-
-  // Warm EVERY tab the moment the dashboard opens (founder's audit: "as I'm
-  // reading the overview I want all the other tabs to start loading"). Runs
-  // sequentially so the free-tier rate limiter never sees a burst; each tab is
-  // cached in the snapshot, so revisits cost nothing.
-  // CLICK PRIORITY (founder's video audit: Live Intel spun for 30s while the
-  // background quietly warmed other tabs ahead of it). The warm loop re-checks
-  // the CURRENTLY ACTIVE tab before every step and always researches it first,
-  // so a user's click jumps the queue instead of waiting behind prefetch work.
-  const activeTabRef = useRef(activeTab);
-  activeTabRef.current = activeTab;
+  const prefetchFailed = useDashboardWarm(companyId, activeTab, company.data?.name);
 
   // Anchor the floating presence's "Chat" to THIS company's research context.
   const setChatContext = useAgentTrace((s) => s.setChatContext);
   const companyName = company.data?.name;
-  // Ref for the warm loop below: the loop must not restart when the name loads.
-  const companyNameRef = useRef(companyName);
-  companyNameRef.current = companyName;
   useEffect(() => {
     if (companyId && companyName) {
       setChatContext({ kind: 'company', companyId, subject: companyName });
     }
     return () => setChatContext(null);
   }, [companyId, companyName, setChatContext]);
-
-  useEffect(() => {
-    if (!companyId) return;
-    setPrefetchFailed([]);
-    let cancelled = false;
-    const warm = async (t: DashboardTab) => {
-      if (qc.getQueryData(qk.dashboard(companyId, t)) != null) return;
-      try {
-        useAgentTrace
-          .getState()
-          .trace(
-            `${companyNameRef.current ?? 'Company'} desk`,
-            `Researching ${DASHBOARD_TAB_LABELS[t]} in the background`,
-          );
-        await qc.prefetchQuery({
-          queryKey: qk.dashboard(companyId, t),
-          queryFn: () => repo.getDashboardTab(companyId, t),
-          staleTime: Infinity,
-        });
-      } catch {
-        if (!cancelled) setPrefetchFailed((failed) => [...new Set([...failed, t])]);
-      }
-    };
-    void (async () => {
-      const pending = new Set<DashboardTab>(DASHBOARD_TABS);
-      while (pending.size > 0 && !cancelled) {
-        // Whatever the user is looking at RIGHT NOW always wins.
-        const next = pending.has(activeTabRef.current)
-          ? activeTabRef.current
-          : (DASHBOARD_TABS.find((t) => pending.has(t)) as DashboardTab);
-        pending.delete(next);
-        await warm(next);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [companyId, qc, repo]);
 
   if (!companyId || !DASHBOARD_TABS.includes(activeTab)) return <NotFoundPage />;
 
@@ -388,6 +334,7 @@ export default function DashboardPage() {
               fromCardId={fromCardId}
               fromDeckView={fromDeckView}
             />
+            <BackgroundResearchControl />
             {prefetchFailed.length > 0 && (
               <div className="mb-3 rounded-lg border border-negative/30 bg-negative/5 px-3 py-2 text-[12px] text-negative">
                 Some dashboard research did not finish in the background:{' '}
