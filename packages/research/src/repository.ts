@@ -2,7 +2,7 @@
  * GeminiRepository — a full MarketIntelRepository backed by the live research
  * pipeline. Deck creation runs grounded research; dashboard tabs are researched
  * lazily on first open and cached. State persists through a pluggable store
- * (localStorage in the web app; SQLite/electron-store later). Because it
+ * (acknowledged IndexedDB in the web app; atomic local files on desktop). Because it
  * satisfies the same interface as MockRepository, the app swaps to it simply by
  * having an API key present — no UI changes.
  */
@@ -130,7 +130,7 @@ export interface RepoSnapshot {
 
 export interface ResearchStore {
   read(): RepoSnapshot | null;
-  write(snapshot: RepoSnapshot): void;
+  write: ((snapshot: RepoSnapshot) => void) | ((snapshot: RepoSnapshot) => Promise<void>);
 }
 
 /**
@@ -305,6 +305,8 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly jobControllers = new Map<string, AbortController>();
   private readonly activeBackgroundJobs = new Map<string, Promise<void>>();
   private listeners = new Set<DeckRefreshListener>();
+  private startupWrite: Promise<void> = Promise.resolve();
+  private startupError: unknown;
 
   constructor(options: GeminiRepositoryOptions) {
     this.store = options.store;
@@ -320,14 +322,24 @@ export class GeminiRepository implements MarketIntelRepository {
     // which format it is looking at.
     const migration = migrateSnapshot(this.store?.read() ?? null);
     this.snap = migration.snapshot;
-    this.client = recordResearchEvidence(options.client ?? createGeminiClient(options), (evidence) => {
+    this.client = recordResearchEvidence(options.client ?? createGeminiClient(options), async (evidence) => {
       this.snap.researchEvidence = [...(this.snap.researchEvidence ?? []), evidence];
-      this.persist();
+      await this.persist();
     });
     this.lastMigration = migration;
     // Persist immediately after an upgrade so the migration is not re-run on
     // every launch, and so a later downgrade sees an honest version stamp.
-    if (migration.applied.length > 0) this.store?.write(this.snap);
+    if (migration.applied.length > 0) {
+      this.startupWrite = Promise.resolve(this.store?.write(this.snap)).catch((error: unknown) => {
+        this.startupError = error;
+      });
+    }
+  }
+
+  /** Startup migration must be acknowledged before this workspace can be used. */
+  async ready(): Promise<void> {
+    await this.startupWrite;
+    if (this.startupError) throw this.startupError;
   }
 
   /**
@@ -365,12 +377,13 @@ export class GeminiRepository implements MarketIntelRepository {
     }
   }
 
-  private persist(): void {
-    this.store?.write(this.snap);
+  private async persist(): Promise<void> {
+    await this.ready();
+    await this.store?.write(this.snap);
   }
 
   /** Flatten a pipeline result into the normalized store. */
-  private ingest(result: ResearchResult): void {
+  private async ingest(result: ResearchResult): Promise<void> {
     const previous = this.snap.cards.filter((card) => card.deckId === result.deck.id);
     const nameFor = (card: Card) => this.snap.companies.find((company) => company.id === card.companyId)?.name;
     const keyFor = (card: Card, name?: string) =>
@@ -457,7 +470,7 @@ export class GeminiRepository implements MarketIntelRepository {
     // so a newly detected contradiction cannot leave one tab on stale evidence
     // while the card and Metrics tab show a different canonical value.
     for (const companyId of companyById.keys()) this.snap.dashboards[companyId] = {};
-    this.persist();
+    await this.persist();
   }
 
   // Markets -----------------------------------------------------------------
@@ -467,7 +480,7 @@ export class GeminiRepository implements MarketIntelRepository {
   getMarket(id: string): Promise<Market | null> {
     return Promise.resolve(this.snap.markets.find((m) => m.id === id) ?? null);
   }
-  createMarket(input: CreateMarketInput): Promise<Market> {
+  async createMarket(input: CreateMarketInput): Promise<Market> {
     const market: Market = {
       id: `mkt_${Date.now().toString(36)}`,
       name: input.name,
@@ -485,14 +498,14 @@ export class GeminiRepository implements MarketIntelRepository {
         lastRefreshedAt: null,
       },
     ];
-    this.persist();
+    await this.persist();
     return Promise.resolve(market);
   }
-  updateMarketCadence(id: string, cadence: RefreshCadence): Promise<Market> {
+  async updateMarketCadence(id: string, cadence: RefreshCadence): Promise<Market> {
     const market = this.snap.markets.find((m) => m.id === id);
     if (!market) return Promise.reject(new Error(`Market not found: ${id}`));
     market.refreshCadence = cadence;
-    this.persist();
+    await this.persist();
     return Promise.resolve(market);
   }
 
@@ -538,7 +551,7 @@ export class GeminiRepository implements MarketIntelRepository {
     job.status = 'cancelled';
     job.error = 'Cancelled by user.';
     job.updatedAt = new Date().toISOString();
-    this.persist();
+    await this.persist();
     return job;
   }
 
@@ -552,7 +565,7 @@ export class GeminiRepository implements MarketIntelRepository {
     job.status = 'running';
     job.error = null;
     job.updatedAt = new Date().toISOString();
-    this.persist();
+    await this.persist();
     try {
       const result = await runDeckResearch(job.brief, this.client, {
         originalSources: this.originalSources,
@@ -582,15 +595,15 @@ export class GeminiRepository implements MarketIntelRepository {
         .map((card) => card.company!.name)
         .filter((name, index, names) => names.indexOf(name) === index);
       job.updatedAt = new Date().toISOString();
-      this.persist();
+      await this.persist();
       this.jobControllers.delete(id);
-      this.ingest(result);
+      await this.ingest(result);
       return job;
     } catch (error) {
       job.status = controller.signal.aborted ? 'cancelled' : 'failed';
       job.error = error instanceof Error ? error.message : 'Resume failed.';
       job.updatedAt = new Date().toISOString();
-      this.persist();
+      await this.persist();
       this.jobControllers.delete(id);
       return job;
     }
@@ -629,9 +642,9 @@ export class GeminiRepository implements MarketIntelRepository {
       else handlers.signal.addEventListener('abort', () => controller.abort(), { once: true });
     }
     this.snap.researchJobs = [...this.snap.researchJobs.slice(-49), job];
-    this.persist();
+    await this.persist();
 
-    const checkpoint = (evt: Parameters<NonNullable<RunResearchOptions['onEvent']>>[0]): void => {
+    const checkpoint = async (evt: Parameters<NonNullable<RunResearchOptions['onEvent']>>[0]): Promise<void> => {
       job.updatedAt = new Date().toISOString();
       if (evt.type === 'status') job.stage = stageForStep(evt.step);
       if (evt.type === 'market') job.marketPlan = evt.market;
@@ -654,7 +667,7 @@ export class GeminiRepository implements MarketIntelRepository {
           job.completedEntityNames.push(evt.card.company.name);
         }
       }
-      this.persist();
+      await this.persist();
     };
 
     let stubsResult: DeckStubsResult;
@@ -666,8 +679,8 @@ export class GeminiRepository implements MarketIntelRepository {
         coverage: this.coverage,
         catalogMax: this.catalogMax,
         catalogPasses: 0,
-        onEvent: (evt) => {
-          checkpoint(evt);
+        onEvent: async (evt) => {
+          await checkpoint(evt);
           const p = handlers?.onProgress;
           if (!p) return;
           if (evt.type === 'status')
@@ -699,7 +712,7 @@ export class GeminiRepository implements MarketIntelRepository {
       job.status = controller.signal.aborted ? 'cancelled' : 'failed';
       job.error = error instanceof Error ? error.message : 'Research failed.';
       job.updatedAt = new Date().toISOString();
-      this.persist();
+      await this.persist();
       this.jobControllers.delete(job.id);
       throw error;
     }
@@ -708,7 +721,7 @@ export class GeminiRepository implements MarketIntelRepository {
       job.status = 'cancelled';
       job.error = 'Cancelled by user.';
       job.updatedAt = new Date().toISOString();
-      this.persist();
+      await this.persist();
       this.jobControllers.delete(job.id);
       throw new Error('Research cancelled');
     }
@@ -775,7 +788,7 @@ export class GeminiRepository implements MarketIntelRepository {
     job.stage = 'summary';
     job.partialCards = [...stubsResult.cards];
     job.updatedAt = new Date().toISOString();
-    this.persist();
+    await this.persist();
 
     // Continual Background Hydration
     const backgroundPromise = (async () => {
@@ -844,7 +857,7 @@ export class GeminiRepository implements MarketIntelRepository {
                     signal: controller.signal,
                   });
                   done += 1;
-                  checkpoint({
+                  await checkpoint({
                     type: 'status',
                     step: 'enrich',
                     message: `Researched ${candidate.name} (${done}/${stubsResult.candidates.length})`,
@@ -937,7 +950,7 @@ export class GeminiRepository implements MarketIntelRepository {
                   // Invalidate dashboard caches for company
                   this.snap.dashboards[hydrated.company.id] = {};
 
-                  this.persist();
+                  await this.persist();
 
                   // Real-time live board hydration event
                   this.emit({
@@ -965,7 +978,7 @@ export class GeminiRepository implements MarketIntelRepository {
                   }
                 } catch (err) {
                   if (controller.signal.aborted) throw err;
-                  checkpoint({
+                  await checkpoint({
                     type: 'warning',
                     message: `Could not enrich ${candidate.name}; preserving the rest of the deck. ${err instanceof Error ? err.message : 'Research failed.'}`,
                   });
@@ -984,7 +997,7 @@ export class GeminiRepository implements MarketIntelRepository {
           // click or the living runtime's prefetch cost a single research pass.
           // Track 2: Background Macro Signals (BarrierToEntryAgent, MarketInsightAgent)
           (async () => {
-            checkpoint({
+            await checkpoint({
               type: 'status',
               step: 'barriers',
               message: 'Identifying barriers and market insights…',
@@ -1002,6 +1015,11 @@ export class GeminiRepository implements MarketIntelRepository {
                 this.snap.cards.push(mc.card);
                 addedSignalIds.push(mc.card.id);
                 job.partialCards.push(mc);
+              }
+
+              await this.persist();
+
+              for (const mc of marketCards) {
                 handlers?.onProgress?.({
                   message: `+ ${mc.card.cardType} card: ${mc.card.title ?? 'Macro Signal'}`,
                   stage: 'signals',
@@ -1009,8 +1027,6 @@ export class GeminiRepository implements MarketIntelRepository {
                   kind: 'find',
                 });
               }
-
-              this.persist();
 
               if (addedSignalIds.length > 0) {
                 this.emit({
@@ -1024,7 +1040,7 @@ export class GeminiRepository implements MarketIntelRepository {
               }
             } catch (err) {
               if (controller.signal.aborted) throw err;
-              checkpoint({
+              await checkpoint({
                 type: 'warning',
                 message: 'Could not research market-level barriers and insights.',
               });
@@ -1087,7 +1103,7 @@ export class GeminiRepository implements MarketIntelRepository {
         }
 
         if (retieredCardIds.length > 0) {
-          this.persist();
+          await this.persist();
           this.emit({
             marketId: stubsResult.market.id,
             deckId: stubsResult.deck.id,
@@ -1101,7 +1117,7 @@ export class GeminiRepository implements MarketIntelRepository {
         job.status = 'completed';
         job.stage = 'signals';
         job.updatedAt = new Date().toISOString();
-        this.persist();
+        await this.persist();
         this.jobControllers.delete(job.id);
         this.activeBackgroundJobs.delete(job.id);
         // The deck is done; the warm worker drains what's left of its queue
@@ -1112,13 +1128,21 @@ export class GeminiRepository implements MarketIntelRepository {
         job.status = controller.signal.aborted ? 'cancelled' : 'failed';
         job.error = error instanceof Error ? error.message : 'Research failed.';
         job.updatedAt = new Date().toISOString();
-        this.persist();
-        this.jobControllers.delete(job.id);
-        this.activeBackgroundJobs.delete(job.id);
+        try {
+          await this.persist();
+        } finally {
+          this.jobControllers.delete(job.id);
+          this.activeBackgroundJobs.delete(job.id);
+        }
       }
     })();
 
     this.activeBackgroundJobs.set(job.id, backgroundPromise);
+    // The UI observes job status rather than awaiting this background promise.
+    // Attach a rejection observer without pretending a failed save succeeded.
+    void backgroundPromise.catch(() => {
+      console.error('Background research could not save its final status. Previously committed research is retained.');
+    });
     return { market: stubsResult.market, deck: stubsResult.deck };
   }
 
@@ -1179,7 +1203,7 @@ export class GeminiRepository implements MarketIntelRepository {
     if (deckIdx >= 0) {
       this.snap.decks[deckIdx] = { ...this.snap.decks[deckIdx]!, lastRefreshedAt: nowIso };
     }
-    this.persist();
+    await this.persist();
     this.emit({
       marketId,
       deckId: deck.id,
@@ -1215,7 +1239,7 @@ export class GeminiRepository implements MarketIntelRepository {
     );
   }
 
-  saveCard(cardId: string): Promise<SavedCard> {
+  async saveCard(cardId: string): Promise<SavedCard> {
     if (!this.snap.cards.some((card) => card.id === cardId)) {
       return Promise.reject(new Error(`Card not found: ${cardId}`));
     }
@@ -1223,13 +1247,13 @@ export class GeminiRepository implements MarketIntelRepository {
     if (existing) return Promise.resolve(existing);
     const saved = { cardId, savedAt: new Date().toISOString() };
     this.snap.savedCards.push(saved);
-    this.persist();
+    await this.persist();
     return Promise.resolve(saved);
   }
 
-  unsaveCard(cardId: string): Promise<void> {
+  async unsaveCard(cardId: string): Promise<void> {
     this.snap.savedCards = this.snap.savedCards.filter((saved) => saved.cardId !== cardId);
-    this.persist();
+    await this.persist();
     return Promise.resolve();
   }
 
@@ -1297,7 +1321,7 @@ export class GeminiRepository implements MarketIntelRepository {
         ...this.snap.dashboards[companyId],
         [tab]: { content, lastRefreshedAt },
       };
-      this.persist();
+      await this.persist();
       return { companyId, tab, content, lastRefreshedAt };
     })();
     this.tabResearchInFlight.set(flightKey, run);
@@ -1417,7 +1441,7 @@ export class GeminiRepository implements MarketIntelRepository {
         const retieredCardIds = changed
           ? this.retierCompany(input.companyId, `Re-tiered after a fact-check correction of ${label}.`)
           : [];
-        this.persist();
+        await this.persist();
         if (changed) {
           const card = this.snap.cards.find(
             (c) => c.companyId === input.companyId && c.cardType === 'company',
@@ -1511,7 +1535,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const retieredCardIds = changed
       ? this.retierCompany(input.companyId, `Re-tiered after live verification of ${label}.`)
       : [];
-    this.persist();
+    await this.persist();
     if (changed) {
       const card = this.snap.cards.find(
         (c) => c.companyId === input.companyId && c.cardType === 'company',
@@ -1629,7 +1653,7 @@ export class GeminiRepository implements MarketIntelRepository {
     if (filledTypes.length > 0) {
       // Researched tabs quoting the old gaps re-research on next open.
       this.snap.dashboards[companyId] = {};
-      this.persist();
+      await this.persist();
       const card = this.snap.cards.find(
         (c) => c.companyId === companyId && c.cardType === 'company',
       );
@@ -1888,7 +1912,7 @@ export class GeminiRepository implements MarketIntelRepository {
       createdAt: new Date().toISOString(),
     };
     this.snap.reports = [report, ...this.snap.reports];
-    this.persist();
+    await this.persist();
     return report;
   }
 
@@ -2010,7 +2034,7 @@ export class GeminiRepository implements MarketIntelRepository {
       insights: out.insights.map((x) => x.trim()).filter(Boolean).slice(0, 5),
     };
     this.snap.briefings = [briefing, ...this.snap.briefings].slice(0, 20);
-    this.persist();
+    await this.persist();
     return briefing;
   }
 
@@ -2126,7 +2150,7 @@ export class GeminiRepository implements MarketIntelRepository {
       createdAt: new Date().toISOString(),
     };
     this.snap.reports = [report, ...this.snap.reports];
-    this.persist();
+    await this.persist();
     return report;
   }
 
@@ -2227,7 +2251,7 @@ export class GeminiRepository implements MarketIntelRepository {
       citations: [],
       at: now,
     });
-    this.persist();
+    await this.persist();
 
     // Semantic Memory Distillation (Issue #56):
     // After 20 conversation turns, distill durable semantic facts to bound context
@@ -2313,7 +2337,7 @@ export class GeminiRepository implements MarketIntelRepository {
       at: new Date().toISOString(),
     });
     thread.updatedAt = new Date().toISOString();
-    this.persist();
+    await this.persist();
     return { ...thread, messages: [...thread.messages] };
   }
 
@@ -2349,7 +2373,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const report = await this.generateReport(request);
     thread.reportId = report.id;
     thread.updatedAt = new Date().toISOString();
-    this.persist();
+    await this.persist();
     return report;
   }
 
@@ -2402,7 +2426,7 @@ export class GeminiRepository implements MarketIntelRepository {
       }
       this.snap.cards.push(cwc.card);
     }
-    this.persist();
+    await this.persist();
     if (cards.length > 0) {
       this.emit({
         marketId,
@@ -2416,7 +2440,7 @@ export class GeminiRepository implements MarketIntelRepository {
     return { added: cards.length };
   }
 
-  overrideMetric(input: OverrideMetricInput): Promise<CompanyMetric> {
+  async overrideMetric(input: OverrideMetricInput): Promise<CompanyMetric> {
     const company = this.snap.companies.find((c) => c.id === input.companyId);
     if (!company) return Promise.reject(new Error(`Company not found: ${input.companyId}`));
     let metric = this.snap.metrics.find(
@@ -2461,7 +2485,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const companyCards = this.snap.cards.filter(
       (c) => c.companyId === input.companyId && c.cardType === 'company',
     );
-    this.persist();
+    await this.persist();
     if (updatedIds.length > 0) {
       const deck = this.snap.decks.find((d) => companyCards.some((c) => c.deckId === d.id));
       if (deck) {
@@ -2509,7 +2533,7 @@ export class GeminiRepository implements MarketIntelRepository {
       citations: g.citations,
       at: new Date().toISOString(),
     };
-    this.persist();
+    await this.persist();
     return { markdown: g.text, citations: g.citations };
   }
 

@@ -75,7 +75,7 @@ export type ResearchEvent =
 
 export type ResearchStep = 'interpret' | 'discover' | 'enrich' | 'barriers' | 'score' | 'assemble';
 
-export type OnResearchEvent = (event: ResearchEvent) => void;
+export type OnResearchEvent = ((event: ResearchEvent) => void) | ((event: ResearchEvent) => Promise<void>);
 
 export interface GeminiConfig {
   apiKey: string;

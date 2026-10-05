@@ -1,6 +1,6 @@
 # Keystone build status / next-session handoff
 
-Updated: 2026-10-04 (local date). Implementation started; no full milestone is complete.
+Updated: 2026-10-05 (local date). Implementation started; no full milestone is complete.
 
 ## Read first
 
@@ -12,6 +12,8 @@ Repository: `C:/Users/shann/Documents/Codex/2026-09-28/i-x20/work/stratemark-car
 Branch: `revival/initial-card-redesign`. Preserve main and unrelated local work.
 
 ## Actually completed
+
+- Thirteenth checkpoint, K2 live-run blocker: browser BYOK now uses acknowledged IndexedDB snapshot transactions with prior-version backup, revision-based stale-writer rejection and preserved legacy copies. Repository mutations/grounded-note retention/checkpoints await saves; Settings export/import/restore reads and writes the same authoritative store. Basic invalid/future imports and active-workspace replacement are rejected. Larger-than-localStorage fixtures and transaction-abort/retry are tested. Final `pnpm check` passed all workspace typecheck, lint and unit suites, including 152 web tests. Production web build passed with existing bundle warnings. The first full run hit the recorded navigation flake; unchanged isolated/final reruns passed. No visual redesign or live metric-accuracy claim. See [checkpoint 13](KEYSTONE-CHECKPOINT-13.md).
 
 - `a8f0d15`: source-priority prompts, hostname-based classification hardening, local scoped grounded notes and Ask reuse. Not independent claim verification or a raw-document vault.
 - `a3f2216`: architecture audit and phased specification.
@@ -64,6 +66,8 @@ GitHub push was blocked by Windows/Git authentication. Local checkpoint is not a
 
 ## Next bounded task
 
+Checkpoint 13 immediate follow-up: exercise real-browser large-workspace save/reload/export and two-window conflicts using isolated fixtures, then a small authorized Gemini run with measured first-ready latency/call counts and support outcomes. The browser now has acknowledged snapshot persistence, not per-artifact indexed dossiers. Keep legacy data; do not clear storage to make live runs succeed. Resume K1 free/BYOK local receipt delivery after the durability smoke test.
+
 K0 remaining: capture approved card/reader baseline and affected-journey recording using isolated no-key fixture state; measure labelled timings/call counts; investigate hot-reload context identity. Keep trying to reproduce prior navigation failure without weakening its assertion.
 
 K1 next: close free/BYOK cloud-compute receipt delivery and confirmed local persistence before numeric publication, without requiring a subscription or silently persisting research to cloud. Checkpoint 12 wires persisted cloud ADK creation/expansion/watch growth; checkpoints 10/11 protect native initial/added metrics. Browser-only and synchronous BYOK routes, narrative claims and existing completed records remain legacy. Then add company/metric-scoped extraction with matching cache/storage identity and canonical entities. Evaluate supported/unavailable/conflicting examples with a securely configured key and expand typed period/definition/semantic acceptance. Checkpoint 09 closes prefix-only extraction but query-independent relevance can still miss target passages. Checkpoint 08 gates native/cloud single-metric checks on mechanical original passage support; it is not semantic proof. Official small-company sites need identity-bound validation, not blanket rejection/model authority. Matching-value observations need period/definition reconciliation and immutable accepted-fact history. Cloud cached-dashboard invalidation still needs auditing. Company originals currently share the cloud parent document and stop safely at capacity; migrate to separately indexed artifacts with lifecycle/export/recovery tests before large unattended decks. JSON exports do not include native originals. No scoring UI/provider fleet/connector scaffolding yet.
@@ -78,7 +82,7 @@ The founder authorized use of the configured Gemini key for needed testing on ch
 | --- | --- |
 | K0 Baseline and navigation | In progress: tests/homepage checked; visual journey and timings pending |
 | K1 Evidence correctness, card+reader | In progress: native initial/additions, persisted cloud creation/expansion/growth, and native/cloud verification gated; BYOK/browser, narrative/semantic/period/identity acceptance and live evaluation pending |
-| K2 Durable queryable dossiers | In progress: browser quota safety and separate native originals; complete export/lifecycle, indexed transactional store and recovery pending |
+| K2 Durable queryable dossiers | In progress: acknowledged browser snapshot transactions/backup/export/import and separate native originals; per-artifact indexes, full validation/export/lifecycle/recovery and real-browser verification pending |
 | K3 Sentinel/Scouts, first-ready latency, branding | Not started |
 | K4 Complete coherent company dashboards | Not started |
 | K5 Specialist stories/reports/shards | Not started |

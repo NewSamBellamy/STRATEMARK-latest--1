@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { createGeminiClient } from '@mi/research';
 import { exportSnapshot, importSnapshot, marketCountOf } from '@/lib/repository/vault';
+import { readBrowserResearchData } from '@/lib/repository/browserResearchStore';
 import { clearAccess, getAccessProfile } from '@/lib/access';
 import {
   DAILY_REQUEST_CAP,
@@ -373,44 +374,38 @@ function DataSafetyPanel() {
   const KEY = 'mi.repo.v1';
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const read = (k: string): string | null => {
-    try {
-      return localStorage.getItem(k);
-    } catch {
-      return null;
-    }
-  };
-  const current = read(KEY);
-  const backup = read(`${KEY}.backup`);
+  const [data, setData] = useState<{ current: string | null; backup: string | null }>({ current: null, backup: null });
+  useEffect(() => {
+    let live = true;
+    void readBrowserResearchData().then((saved) => { if (live) setData(saved); })
+      .catch((error: unknown) => { if (live) setMsg(error instanceof Error ? error.message : 'Storage could not be read.'); });
+    return () => { live = false; };
+  }, []);
+  const { current, backup } = data;
   const currentMarkets = marketCountOf(current);
   const backupMarkets = marketCountOf(backup);
   const sizeKb = current ? Math.round(current.length / 1024) : 0;
 
-  const restoreBackup = () => {
+  const restoreBackup = async () => {
     if (!backup) return;
-    if (current) {
-      try {
-        localStorage.setItem(`${KEY}.backup`, current);
-      } catch {
-        /* best effort */
-      }
-    }
+    if (!window.confirm('Replace this workspace with the saved backup? Your current research will become the backup.')) return;
     try {
-      localStorage.setItem(KEY, backup);
+      await importSnapshot(backup, KEY);
       window.location.reload();
-    } catch {
-      setMsg('Restore failed — storage is full. Export your research first.');
+    } catch (error) {
+      setMsg(error instanceof Error ? error.message : 'Restore failed; previous saved research is intact.');
     }
   };
 
   const onImportFile = async (file: File) => {
-    const text = await file.text();
-    const markets = await importSnapshot(text, KEY);
-    if (markets < 0) {
-      setMsg("That file isn't a Stratemark research export.");
-      return;
+    if (!window.confirm('Replace this workspace with this export? Your current research will become the backup.')) return;
+    try {
+      const text = await file.text();
+      await importSnapshot(text, KEY);
+      window.location.reload();
+    } catch (error) {
+      setMsg(error instanceof Error ? error.message : 'Import failed; previous saved research is intact.');
     }
-    window.location.reload();
   };
 
   return (
@@ -418,7 +413,7 @@ function DataSafetyPanel() {
       <div>
         <h2 className="font-display text-lg text-content">Data safety</h2>
         <p className="mt-1 text-sm text-muted">
-          Your research is written to three places: this browser, an IndexedDB vault, and an automatic backup.
+          Your research is saved locally in this browser’s research vault. Each committed update keeps the previous saved version as a backup. Export a copy to protect against browser data removal.
         </p>
       </div>
 
@@ -441,7 +436,8 @@ function DataSafetyPanel() {
           className="btn-ghost text-sm border border-border"
           disabled={!current}
           onClick={() => {
-            if (!exportSnapshot(KEY)) setMsg('Nothing to export yet.');
+              void exportSnapshot(KEY).then((saved) => { if (!saved) setMsg('Nothing to export yet.'); })
+                .catch((error: unknown) => setMsg(error instanceof Error ? error.message : 'Export failed.'));
           }}
         >
           <Download className="h-4 w-4" /> Export my research

@@ -8,22 +8,21 @@
  * The whole app talks only to the MarketIntelRepository interface, so flipping
  * between demo and live research is exactly this one decision — no UI changes.
  */
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { MarketIntelRepository } from '@mi/contracts';
 import { MockRepository, type SeedSnapshot } from '@mi/mocks';
 import sampleSnapshot from '@/sample/frontier-snapshot.json';
-import { GeminiRepository } from '@mi/research';
+import { GeminiRepository, type ResearchStore } from '@mi/research';
 import { IpcRepository, isElectron } from './ipc-repository';
 import { SentinelRepository } from './SentinelRepository';
-import { createLocalStore } from './localStore';
-import { hydrateFromVault } from './vault';
+import { openBrowserResearchStore } from './browserResearchStore';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
 import { recordCall } from '@/lib/usage';
 
 const RepositoryContext = createContext<MarketIntelRepository | null>(null);
 
-export function selectRepository(apiKey: string, model: string, engine?: string): MarketIntelRepository {
+export function selectRepository(apiKey: string, model: string, engine?: string, store?: ResearchStore): MarketIntelRepository {
   if (isElectron() && window.mi) {
     return new IpcRepository(window.mi);
   }
@@ -31,6 +30,7 @@ export function selectRepository(apiKey: string, model: string, engine?: string)
     return new SentinelRepository();
   }
   if (apiKey) {
+    if (!store) throw new Error('Research storage must be opened before starting research.');
     // Power-user knob (also used by scripted demos): localStorage 'mi.targetCompanies'.
     let targetCompanies = 10;
     try {
@@ -42,7 +42,7 @@ export function selectRepository(apiKey: string, model: string, engine?: string)
     return new GeminiRepository({
       apiKey,
       model: model || undefined,
-      store: createLocalStore(),
+      store,
       targetCompanies,
       concurrency: 3,
       // Count every request locally so the user can see their free-tier headroom.
@@ -68,27 +68,30 @@ export function RepositoryProvider({
   const apiKey = useApiKey((s) => s.apiKey);
   const model = useApiKey((s) => s.model);
   const { engine } = useEngineChoice();
-  // Vault hydration runs BEFORE the repository ever reads localStorage: if the
-  // working copy was wiped (co-tenant clear, eviction) the IndexedDB replica
-  // restores it first. Skipped instantly when injected (tests) or no IDB.
-  const [hydrated, setHydrated] = useState(
-    () => repository != null || typeof indexedDB === 'undefined',
-  );
+  const [value, setValue] = useState<MarketIntelRepository | null>(repository ?? null);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
-    if (hydrated) return;
     let live = true;
-    void hydrateFromVault().finally(() => {
-      if (live) setHydrated(true);
-    });
+    setValue(repository ?? null);
+    setError(null);
+    void (async () => {
+      try {
+        const store = !repository && !isElectron() && engine !== 'cloud' && apiKey
+          ? await openBrowserResearchStore() : undefined;
+        const selected = repository ?? selectRepository(apiKey, model, engine, store);
+        if (selected instanceof GeminiRepository) await selected.ready();
+        if (live) setValue(selected);
+      } catch (cause) {
+        if (live) setError(cause instanceof Error ? cause.message : 'Research storage could not be opened.');
+      }
+    })();
     return () => {
       live = false;
     };
-  }, [hydrated]);
-  const value = useMemo(
-    () => (hydrated ? (repository ?? selectRepository(apiKey, model, engine)) : null),
-    [hydrated, repository, apiKey, model, engine],
-  );
-  if (!value) return null; // a few ms while the vault check runs
+  }, [repository, apiKey, model, engine, retry]);
+  if (error) return <div role="alert" className="m-8 space-y-3 text-content"><p>{error}</p><p>Your existing research has not been deleted.</p><button className="btn-ghost" onClick={() => setRetry((n) => n + 1)}>Retry</button></div>;
+  if (!value) return <p role="status" className="m-8 text-muted">Opening your research…</p>;
   return <RepositoryContext.Provider value={value}>{children}</RepositoryContext.Provider>;
 }
 

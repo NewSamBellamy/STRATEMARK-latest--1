@@ -499,7 +499,7 @@ export class IncrementalDeltaAgent {
     // 2. Build Exclusion Clause & Identity Key Set
     const exclusion = buildExclusionClause(options.exclude);
 
-    emit({
+    await emit({
       type: 'status',
       step: 'discover',
       message: `Hunting: ${translated.focusPrompt}`,
@@ -598,7 +598,7 @@ export class IncrementalDeltaAgent {
       }
     }
 
-    emit({ type: 'candidates', candidates });
+    await emit({ type: 'candidates', candidates });
 
     // 6. Full Subagent Hydration via CompanyAgent
     const resultCards: CardWithCompany[] = [];
@@ -607,7 +607,7 @@ export class IncrementalDeltaAgent {
     for (const candidate of candidates) {
       throwIfAborted(options.signal);
 
-      emit({
+      await emit({
         type: 'status',
         step: 'enrich',
         message: `Researched ${candidate.name}`,
@@ -685,7 +685,7 @@ export class IncrementalDeltaAgent {
       // Collect emitted cards
       for (const cwc of hydration.cards) {
         resultCards.push(cwc);
-        emit({ type: 'card', card: cwc });
+        await emit({ type: 'card', card: cwc });
       }
     }
 

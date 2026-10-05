@@ -17,7 +17,7 @@ export interface ResearchEvidence {
 
 export function recordResearchEvidence(
   client: LlmClient,
-  record: (evidence: ResearchEvidence) => void,
+  record: ((evidence: ResearchEvidence) => void) | ((evidence: ResearchEvidence) => Promise<void>),
 ): LlmClient {
   return {
     structure: client.structure.bind(client),
@@ -26,7 +26,7 @@ export function recordResearchEvidence(
       const citations = usableCitations(result.citations);
       // Unscoped discovery/chat output must not enter a company's evidence vault.
       if (opts?.researchContext && result.text.trim() && citations.length) {
-        record({
+        await record({
           id: `ev_${globalThis.crypto.randomUUID()}`,
           ...opts.researchContext,
           capturedAt: new Date().toISOString(),

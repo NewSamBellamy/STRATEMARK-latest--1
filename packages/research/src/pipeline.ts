@@ -525,11 +525,11 @@ export async function discoverDeckStubs(
   const signal = options.signal;
   const coverage = resolveCoverage(options);
 
-  emit({ type: 'status', step: 'interpret', message: 'Understanding the market…' });
+  await emit({ type: 'status', step: 'interpret', message: 'Understanding the market…' });
   const plan = await interpret(client, brief, signal);
-  emit({ type: 'market', market: plan });
+  await emit({ type: 'market', market: plan });
 
-  emit({
+  await emit({
     type: 'status',
     step: 'discover',
     message: 'Discovering companies via 3-vector Google ADK topology mapping…',
@@ -551,13 +551,13 @@ export async function discoverDeckStubs(
   rejected = discovery.rejected;
   minimumCompaniesSatisfied = discovery.minimumCompaniesSatisfied;
   if (rejected.length > 0) {
-    emit({
+    await emit({
       type: 'warning',
       message: `Skipped ${rejected.length} result${rejected.length === 1 ? '' : 's'} that ${rejected.length === 1 ? 'was' : 'were'} a topic rather than a company: ${rejected.join(', ')}.`,
     });
   }
   if (!minimumCompaniesSatisfied) {
-    emit({
+    await emit({
       type: 'warning',
       message: `Primary discovery remained below the ${coverage.companies.min}-company minimum after bounded fallback passes. The deck will continue with sourced entities only.`,
     });
@@ -580,13 +580,13 @@ export async function discoverDeckStubs(
   for (const [role, count] of Object.entries(roleCounts)) {
     const minimum = coverage[role as keyof typeof coverage]?.min;
     if (minimum != null && count < minimum) {
-      emit({
+      await emit({
         type: 'warning',
         message: `Coverage shortfall for ${role}: found ${count}, minimum is ${minimum}. No unsupported entities were invented.`,
       });
     }
   }
-  emit({ type: 'candidates', candidates });
+  await emit({ type: 'candidates', candidates });
 
   const marketSlug = slugify(plan.marketName);
   const market: Market = {
@@ -729,7 +729,7 @@ export async function hydrateDeckCards(
   // Concurrently run market signals alongside entity enrichment via Promise.all
   const [marketCards, entityCards] = await Promise.all([
     (async () => {
-      emit({
+      await emit({
         type: 'status',
         step: 'barriers',
         message: 'Identifying barriers and market insights…',
@@ -742,14 +742,14 @@ export async function hydrateDeckCards(
         for (const cardType of ['barrier', 'insight'] as const) {
           const count = mc.filter((card) => card.card.cardType === cardType).length;
           if (count < coverage[cardType].min) {
-            emit({
+            await emit({
               type: 'warning',
               message: `Coverage shortfall for ${cardType}: found ${count}, minimum is ${coverage[cardType].min}. No unsupported market claims were invented.`,
             });
           }
         }
         for (const b of mc) {
-          emit({ type: 'card', card: b });
+          await emit({ type: 'card', card: b });
         }
         await options.onMarketSignals?.(mc);
         return mc;
@@ -757,7 +757,7 @@ export async function hydrateDeckCards(
         // Same rule: degrade on real failure, stop on cancellation. Previously
         // an abort here let entity enrichment carry on burning search quota.
         if (err instanceof AbortError) throw err;
-        emit({
+        await emit({
           type: 'warning',
           message: 'Could not research market-level barriers and insights.',
         });
@@ -766,7 +766,7 @@ export async function hydrateDeckCards(
     })(),
 
     (async () => {
-      emit({
+      await emit({
         type: 'status',
         step: 'enrich',
         message: 'Researching company summaries and headline metrics…',
@@ -788,7 +788,7 @@ export async function hydrateDeckCards(
                 signal,
               });
               done += 1;
-              emit({
+              await emit({
                 type: 'status',
                 step: 'enrich',
                 message: `Researched ${candidate.name} (${done}/${candidates.length})`,
@@ -798,7 +798,7 @@ export async function hydrateDeckCards(
               return result;
             } catch (error) {
               if (signal?.aborted) throw error;
-              emit({
+              await emit({
                 type: 'warning',
                 message: `Could not enrich ${candidate.name}; preserving the rest of the deck. ${error instanceof Error ? error.message : 'Research failed.'}`,
               });
@@ -809,7 +809,7 @@ export async function hydrateDeckCards(
         )
       ).filter((entry): entry is HydrateCompanyCardResult => entry !== null);
 
-      emit({ type: 'status', step: 'score', message: 'Scoring maturity tiers…' });
+      await emit({ type: 'status', step: 'score', message: 'Scoring maturity tiers…' });
 
       // Score: relative user values across the whole deck
       const allMetrics = [
@@ -871,7 +871,7 @@ export async function hydrateDeckCards(
             cwc.card.tierReason = tierReason;
           }
           assembledCompanyCards.push(cwc);
-          emit({ type: 'card', card: cwc });
+          await emit({ type: 'card', card: cwc });
         }
       }
 
@@ -913,13 +913,13 @@ export async function runDeckResearch(
     candidates = candidates.filter(
       (candidate) => !completedNames.has(candidate.name.toLowerCase()),
     );
-    emit({
+    await emit({
       type: 'status',
       step: 'enrich',
       message: `Resuming research with ${candidates.length} remaining players…`,
     });
-    emit({ type: 'market', market: plan });
-    emit({ type: 'candidates', candidates: [...options.resume.candidates] });
+    await emit({ type: 'market', market: plan });
+    await emit({ type: 'candidates', candidates: [...options.resume.candidates] });
   } else {
     const stubs = await discoverDeckStubs(brief, client, options);
     plan = stubs.plan;
@@ -937,6 +937,6 @@ export async function runDeckResearch(
     existingCompletedCards: completedCards,
   });
 
-  emit({ type: 'done', total: cards.length });
+  await emit({ type: 'done', total: cards.length });
   return { market, deck, cards };
 }
