@@ -4,6 +4,7 @@ import { CheckCheck, ExternalLink, Loader2, ShieldAlert, ShieldCheck, ShieldQues
 import type { FactCheckResult, FactCheckVerdict, MetricType, VerifyMetricResult } from '@mi/contracts';
 import { useFactCheck, useVerifyMetric } from '@/hooks/data';
 import { cn } from '@/lib/cn';
+import { sourceUrl } from '@/features/card/card-view';
 
 const VERDICT_STYLE: Record<FactCheckVerdict, { label: string; cls: string; Icon: typeof ShieldCheck }> = {
   supported: { label: 'Supported', cls: 'border-emerald-300 bg-emerald-50 text-emerald-800', Icon: ShieldCheck },
@@ -59,6 +60,30 @@ export function FactCheck({ claim, companyName, context, companyId, metricType, 
       </p>}
       {outcome?.verdict === 'unverified' && <button type="button" onClick={run} disabled={pending}
         className="mt-2 block text-[11px] text-primary-ink hover:underline">Retry verification</button>}
+      {outcome?.originalSources && (outcome.originalSources.length === 0 ?
+        <p className="mt-2 text-[11px] text-muted">No original pages were attempted; search returned no usable source links. This does not mean no information exists.</p> :
+        <details className="mt-2 text-[11px] text-muted">
+          <summary className="cursor-pointer text-primary-ink">Inspect source checks ({outcome.originalSources.length})</summary>
+          <p className="mt-2">Reading a page does not confirm the figure. These are retrieval results, separate from the verdict above.</p>
+          <ul className="mt-2 space-y-3">
+            {outcome.originalSources.map((source, index) => {
+              const url = sourceUrl(source.finalUrl) ?? sourceUrl(source.requestedUrl);
+              return <li key={index} className="border-t border-border pt-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{source.status === 'retrieved' ? 'Readable' : source.status === 'blocked' ? 'Blocked' : 'Unavailable'}</span>
+                  {url ? <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary-ink hover:underline"
+                    onClick={event => event.stopPropagation()}>{new URL(url).hostname}</a> : <span>Source link unavailable</span>}
+                </div>
+                <p className="mt-1">Retrieval attempted: {source.retrievedAt}</p>
+                {source.reason && <p className="mt-1">{source.reason}</p>}
+                {source.status === 'retrieved' && source.text && <>
+                  <p className="mt-1">{source.truncated ? 'Partial page extract' : 'Retained page extract'} · not a confirmed claim</p>
+                  <blockquote className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words border-l-2 border-border pl-2">{source.text}</blockquote>
+                </>}
+              </li>;
+            })}
+          </ul>
+        </details>)}
       {result.citations.length > 0 && <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
         {result.citations.slice(0, 4).map((citation, index) => <a key={index} href={citation.url}
           target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"

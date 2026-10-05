@@ -14,6 +14,8 @@ Branch: `revival/initial-card-redesign`. Preserve main and unrelated local work.
 
 ## Actually completed
 
+- Twentieth checkpoint: two bounded configured-browser employee checks exposed blocked Google grounding redirect originals, not accepted-source accuracy. Metric Fact-check now shows inspectable retrieval statuses/reasons and safe plain-text extracts via an additive browser/native/cloud result field. Stored figure and shared pause survived reload; no card redesign. Full check passed (182 web tests). See [checkpoint 20](KEYSTONE-CHECKPOINT-20.md).
+
 - Nineteenth checkpoint: shared original readers and short excerpt caches are company/metric-scoped across native, browser and cloud wiring. Long multi-company pages can prioritize the target section rather than a richer unrelated section; acceptance rules and card aesthetics are unchanged. Added a whole-product delivery map so integrity work is not mistaken for complete dashboards/Scouts/reports/providers/connectors. See [checkpoint 19](KEYSTONE-CHECKPOINT-19.md).
 
 - Eighteenth checkpoint: shared local background pause now persists across route/app reopen and gates deck runtime, dashboard warming, client scheduled refresh and briefings. In-flight success/failure cannot reschedule paused/stopped deck work. Dashboard has the same explicit control; storage failures stay locally paused and visibly warn. Opening tabs/manual requests/already-sent work and independent cloud schedules are not canceled. Card aesthetic unchanged. See [checkpoint 18](KEYSTONE-CHECKPOINT-18.md).
@@ -79,7 +81,7 @@ GitHub push was blocked by Windows/Git authentication. Local checkpoint is not a
 
 ## Next bounded task
 
-Checkpoint 19 follow-up takes priority: finish the source-to-card vertical slice, including inspectable original-source coverage, canonical company identity and typed metric period/definition acceptance, then one coherent deeper dashboard section. Target-aware extraction/cache wiring is now implemented, not live coverage certification. Use the shared background pause for small explicit checks. Follow KEYSTONE-DELIVERY-MAP for the wider product; no broad agent fleet or relaxed evidence gates to fill cards.
+Checkpoint 20 follow-up takes priority: validate actual grounding-link resolution through protected native retrieval and improve source relevance/selection, then establish one accepted and one unavailable figure through card/reader/dashboard/reopen. Browser checks now expose blocked-source reasons but do not certify accuracy. Finish canonical identity and typed metric period/definition acceptance, then one coherent deeper dashboard section. Use shared pause for small explicit checks; follow KEYSTONE-DELIVERY-MAP rather than adding a broad fleet or relaxing evidence gates.
 
 Live evaluation status from checkpoint 17: the current desktop launches, but two native capture failures prevented secure UI inspection. Browser configured-key testing demonstrated honest unavailable behavior when originals could not be read, not accepted-source accuracy. Do not extract keys or substitute an older binary. Keep paid tests small and explicitly user-controlled. Browser CORS limits require an explicitly configured source capability, never a silent proxy/key relay.
 

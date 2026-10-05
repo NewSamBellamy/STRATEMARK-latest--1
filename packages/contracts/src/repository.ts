@@ -191,6 +191,16 @@ export interface VerifyMetricResult {
   retieredCardIds: string[];
   rationale: string;
   citations: Citation[];
+  /** Original-page attempts, not accepted claims. Optional for older transports. */
+  originalSources?: {
+    requestedUrl: string;
+    finalUrl?: string;
+    status: 'retrieved' | 'blocked' | 'unavailable';
+    retrievedAt: string;
+    reason?: string;
+    text?: string;
+    truncated?: boolean;
+  }[];
 }
 
 /**

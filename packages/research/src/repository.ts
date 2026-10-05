@@ -1621,6 +1621,7 @@ export class GeminiRepository implements MarketIntelRepository {
       retieredCardIds,
       rationale: out.rationale ?? '',
       citations: g.citations,
+      ...(this.originalSources ? { originalSources: structuredClone(originals) } : {}),
     };
   }
 

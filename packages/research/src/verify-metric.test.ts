@@ -15,6 +15,18 @@ import { GeminiRepository, type RepoSnapshot, type ResearchStore } from './repos
 import type { LlmClient } from './types';
 
 describe('local verification original-source handoff', () => {
+  it('returns retained source failures for inspection without another model call', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ citations: CITED, structured: {} });
+    const receipt = { requestedUrl: CITED[0]!.url, status: 'blocked' as const,
+      retrievedAt: '2026-10-05T00:00:00.000Z', reason: 'Browser source requires protected desktop retrieval.' };
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSourceReader: async () => receipt });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result).toHaveProperty('originalSources', [receipt]);
+    expect(client.structure).not.toHaveBeenCalled();
+    const reopened = new GeminiRepository({ apiKey: 'k', store, client });
+    expect((await reopened.getOriginalSourceEvidence({ companyId: 'cmp_openai', metricType: 'arr' }))[0]!.receipts).toEqual([receipt]);
+  });
   it('retains browser-reader originals before synthesis and reloads detached scoped evidence', async () => {
     let committed = seededSnapshot();
     const quote = 'OpenAI reports ARR of USD 40 billion as of 2026-10-01.';

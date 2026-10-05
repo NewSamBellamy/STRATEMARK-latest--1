@@ -21,6 +21,36 @@ function setup(patch: Partial<VerifyMetricResult> = {}) {
 }
 
 describe('metric fact-check evidence route', () => {
+  it('explains blocked original sources without triggering another research call', async () => {
+    const { user, verifyMetric } = setup({ verdict: 'unverified', originalSources: [{
+      requestedUrl: 'https://reuters.com/report', status: 'blocked', retrievedAt: '2026-10-05T00:00:00.000Z',
+      reason: 'Browser source requires protected desktop retrieval.',
+    }] });
+    await user.click(screen.getByRole('button', { name: 'Fact-check' }));
+    await user.click(await screen.findByText('Inspect source checks (1)'));
+    expect(screen.getByText('Blocked')).toBeInTheDocument();
+    expect(screen.getByText('Browser source requires protected desktop retrieval.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'reuters.com' })).toHaveAttribute('href', 'https://reuters.com/report');
+    expect(verifyMetric).toHaveBeenCalledTimes(1);
+  });
+  it('renders a retained extract as text, not executable markup or proof', async () => {
+    const { user, container } = setup({ verdict: 'unverified', originalSources: [{
+      requestedUrl: 'javascript:alert(1)', status: 'retrieved', retrievedAt: '2026-10-05T00:00:00.000Z',
+      text: '<img src=x onerror=alert(1)> Unrelated company has 100 employees.', truncated: true,
+    }] });
+    await user.click(screen.getByRole('button', { name: 'Fact-check' }));
+    await user.click(await screen.findByText('Inspect source checks (1)'));
+    expect(screen.getByText(/Unrelated company has 100 employees/)).toBeInTheDocument();
+    expect(screen.getByText(/Reading a page does not confirm the figure/)).toBeInTheDocument();
+    expect(screen.getByText(/Partial page extract/)).toBeInTheDocument();
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
+  });
+  it('distinguishes an empty search from an unreadable page', async () => {
+    const { user } = setup({ verdict: 'unverified', originalSources: [] });
+    await user.click(screen.getByRole('button', { name: 'Fact-check' }));
+    expect(await screen.findByText(/No original pages were attempted/)).toBeInTheDocument();
+  });
   it('uses the protected verification route once, not summary-only fact-checking first', async () => {
     const { user, verifyMetric, factCheck } = setup();
     await user.click(screen.getByRole('button', { name: 'Fact-check' }));
