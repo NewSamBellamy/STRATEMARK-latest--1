@@ -3,7 +3,19 @@ import { classifySource, isRedirectCitation, usableCitations, type Citation } fr
 /** Routing priority only, never evidence acceptance. Preserve the two-read budget. */
 export function selectOriginalSourceCitations(citations: readonly Citation[], officialWebsite?: string | null): Citation[] {
   const priority = { primary: 4, reputable_secondary: 3, industry: 2, unknown: 1, user_generated: 0 };
-  return usableCitations(citations).map((citation, index) => ({
+  const pages = new Set<string>();
+  // Both original readers require public HTTPS on the standard TLS port.
+  // Do not promote HTTP to HTTPS: that would invent a different source URL.
+  return usableCitations(citations).filter(citation => {
+    const url = new URL(citation.url);
+    if (url.protocol !== 'https:' || (url.port && url.port !== '443')) return false;
+    // Readers strip fragments. URL also normalizes an explicit :443, but query
+    // parameters remain part of identity because they may select another report.
+    url.hash = '';
+    if (pages.has(url.href)) return false;
+    pages.add(url.href);
+    return true;
+  }).map((citation, index) => ({
     citation, index,
     priority: priority[classifySource(citation.url, citation.title, officialWebsite)],
     redirect: Number(isRedirectCitation(citation.url)),

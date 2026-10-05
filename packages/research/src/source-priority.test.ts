@@ -35,4 +35,29 @@ describe('bounded original source priority', () => {
     const citations = [1, 2, 3].map(index => ({ url: `https://niche.example/${index}`, title: `Article ${index}` }));
     expect(selectOriginalSourceCitations(citations).map(source => source.url)).toEqual(citations.slice(0, 2).map(source => source.url));
   });
+  it('does not spend source slots on protocols or ports neither reader supports', () => {
+    const citations = [
+      { url: 'http://sec.gov/Archives/report', title: 'Filing' },
+      { url: 'https://sec.gov:8443/Archives/report', title: 'Filing' },
+      { url: 'https://reuters.com/report', title: 'Reporting' },
+      { url: 'https://niche.example/report', title: 'Article' },
+    ];
+    expect(selectOriginalSourceCitations(citations).map(source => source.url))
+      .toEqual(['https://reuters.com/report', 'https://niche.example/report']);
+  });
+  it('reads one page once even when citations use fragments or an explicit default port', () => {
+    const citations = [
+      { url: 'https://sec.gov:443/Archives/report#employees', title: 'Headcount' },
+      { url: 'https://sec.gov/Archives/report#revenue', title: 'Revenue' },
+      { url: 'https://reuters.com/report', title: 'Reporting' },
+    ];
+    const before = structuredClone(citations);
+    expect(selectOriginalSourceCitations(citations).map(source => source.url))
+      .toEqual([citations[0]!.url, citations[2]!.url]);
+    expect(citations).toEqual(before);
+    expect(selectOriginalSourceCitations([
+      { url: 'https://sec.gov/report?year=2025', title: '2025 report' },
+      { url: 'https://sec.gov/report?year=2026', title: '2026 report' },
+    ])).toHaveLength(2);
+  });
 });

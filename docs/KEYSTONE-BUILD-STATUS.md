@@ -14,6 +14,8 @@ Branch: `revival/initial-card-redesign`. Preserve main and unrelated local work.
 
 ## Actually completed
 
+- Twenty-second checkpoint: shared source selection no longer wastes its two original-read slots on unsupported HTTP/nonstandard ports or duplicate page fragments/default-port variants. Full quality gate passed; no design, schema or model-budget change. Native app opened, but secure capture failed twice, so the real native figure/save/reopen journey remains unverified. See [checkpoint 22](KEYSTONE-CHECKPOINT-22.md). Preceding checkpoint commit: `e861cc7`.
+
 - Twenty-first checkpoint: one shared two-source priority policy now drives initial card hydration and local/browser/native/persisted-cloud verification, replacing arbitrary first-two selection. No extra model/page-read budget, design or schema changes. Two no-key native probes distinguished a resolved publisher HTTP 403 from a downstream redirect failure; neither validates a real figure. See [checkpoint 21](KEYSTONE-CHECKPOINT-21.md).
 
 - Twentieth checkpoint: two bounded configured-browser employee checks exposed blocked Google grounding redirect originals, not accepted-source accuracy. Metric Fact-check now shows inspectable retrieval statuses/reasons and safe plain-text extracts via an additive browser/native/cloud result field. Stored figure and shared pause survived reload; no card redesign. Full check passed (182 web tests). See [checkpoint 20](KEYSTONE-CHECKPOINT-20.md).
