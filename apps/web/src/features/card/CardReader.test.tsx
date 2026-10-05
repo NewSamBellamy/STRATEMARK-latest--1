@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import { buildDataset } from '@mi/mocks';
 import { renderWithProviders } from '@/test/test-utils';
@@ -15,6 +15,15 @@ function hydrate(predicate: (c: (typeof data.cards)[number]) => boolean) {
 }
 
 describe('CardReader', () => {
+  it('opens the dashboard without also issuing a deck-close URL change', async () => {
+    const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
+    const onOpenChange = vi.fn();
+    const { user } = renderWithProviders(<CardReader data={cwc} open onOpenChange={onOpenChange} marketId="mkt_apparel" />);
+    const link = screen.getByRole('link', { name: /open full company dashboard/i });
+    expect(link).toHaveAttribute('href', expect.stringContaining(`/company/${cwc.company!.id}/dashboard/overview?`));
+    await user.click(link);
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
   it('shows one concise overview, the four core figures, and a clear dashboard action', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);

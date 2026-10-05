@@ -891,7 +891,14 @@ export function createApp(
     await cloudDeckService.saveDeck(userId, deckId!, existingDeck, evidenceRevision);
     existingDeck.revision = evidenceRevision + 1;
 
-    const out = await client.structure(
+    const noReadableOriginal = !originalSources.some(
+      (source) => source.status === 'retrieved' && Boolean(source.text?.trim()),
+    );
+    const out = noReadableOriginal ? verifyMetricOutSchema.parse({
+      verdict: 'unverified', currentValue: null, passageSupport: null,
+      rationale: 'No readable original source was available to verify this figure. The existing value has not been replaced.',
+      methodNote: 'Original-source retrieval was insufficient; this is not evidence that the figure is absent.',
+    }) : await client.structure(
       [
         `Based ONLY on these verification notes about ${company.name}'s ${label}, output JSON {`,
         `  "verdict": "supported" (stored figure holds) | "contradicted" (evidence names a different figure) | "unverified" (no reliable current figure),`,

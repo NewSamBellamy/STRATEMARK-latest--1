@@ -77,6 +77,26 @@ describe('local verification original-source handoff', () => {
     expect(result.verdict).toBe('unverified');
     expect(result.metric.value).toBe(990_000_000);
     expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).not.toHaveBeenCalled();
+    expect(result.metric.lastVerificationAttemptAt).toBeTruthy();
+  });
+  it.each(['empty', 'unavailable', 'blank'] as const)('skips synthesis for %s originals and retains the attempt across reopen', async (kind) => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ citations: kind === 'empty' ? [] : CITED,
+      structured: { verdict: 'contradicted', currentValue: 123 } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client,
+      originalSourceReader: async url => ({ requestedUrl: url,
+        status: kind === 'blank' ? 'retrieved' : 'unavailable',
+        ...(kind === 'blank' ? { text: '   ', finalUrl: url, httpStatus: 200, contentHash: 'a'.repeat(64) } : {}),
+        retrievedAt: new Date().toISOString() }) });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.verdict).toBe('unverified');
+    expect(result.metric.value).toBe(990_000_000);
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).not.toHaveBeenCalled();
+    const reopened = new GeminiRepository({ apiKey: 'k', store, client });
+    expect(await reopened.getOriginalSourceEvidence({ companyId: 'cmp_openai', metricType: 'arr' })).toHaveLength(1);
+    expect((await reopened.getCompanyMetrics('cmp_openai')).find(metric => metric.metricType === 'arr')!.lastVerificationAttemptAt).toBeTruthy();
   });
   it('saves company-scoped originals before interpretation and supplies their text', async () => {
     const { store } = memoryStore(seededSnapshot());

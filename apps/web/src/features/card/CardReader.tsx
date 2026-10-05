@@ -212,7 +212,9 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
             </div>
           </section>}
 
-          {dashboardUrl ? <Link to={dashboardUrl} className="card-inspector__cta" onClick={() => onOpenChange(false)}>
+          {/* Route departure unmounts the reader. Closing it separately also
+              navigates the deck query and competes with this destination. */}
+          {dashboardUrl ? <Link to={dashboardUrl} className="card-inspector__cta">
             <span>Open full company dashboard</span><ArrowUpRight size={17} />
           </Link> : !fullFinding && <button type="button" className="card-inspector__cta" onClick={() => {
             onOpenChange(false);

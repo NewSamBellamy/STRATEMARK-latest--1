@@ -61,10 +61,11 @@ async function run(out: { verdict: string; currentValue: number | null }, patch:
 describe('cloud metric verification integrity', () => {
   it('does not accept a citation-only correction when its original page is unavailable', async () => {
     vi.mocked(retrieveOriginalSource).mockResolvedValueOnce({ requestedUrl: citation.url, status: 'unavailable', retrievedAt: '2026-10-03T00:00:00.000Z' });
-    const { result, stored, ground } = await run({ verdict: 'contradicted', currentValue: 900 }, {}, { value: 900, citations: [citation] });
+    const { result, stored, ground, structure } = await run({ verdict: 'contradicted', currentValue: 900 }, {}, { value: 900, citations: [citation] });
     expect(result.verdict).toBe('unverified');
     expect(stored.value).toBe(100);
     expect(ground).toHaveBeenCalledTimes(1);
+    expect(structure).not.toHaveBeenCalled();
   });
   it('persists scoped originals before interpretation and keeps them on model failure', async () => {
     const { attempt } = await run({ verdict: 'unverified', currentValue: null }, {}, undefined, true);

@@ -1547,7 +1547,16 @@ export class GeminiRepository implements MarketIntelRepository {
       id: `src_${globalThis.crypto.randomUUID()}`, companyId: company.id, metricType: input.metricType,
       capturedAt: new Date().toISOString(), receipts: originals,
     });
-    const out = await this.client.structure(
+    // No readable original means the protected gate cannot accept a figure.
+    // Keep the attempt and normal write-back path, without paying to interpret nothing.
+    const noReadableOriginal = this.originalSources && !originals.some(
+      (source) => source.status === 'retrieved' && Boolean(source.text?.trim()),
+    );
+    const out = noReadableOriginal ? verifyMetricOutSchema.parse({
+      verdict: 'unverified', currentValue: null, passageSupport: null,
+      rationale: 'No readable original source was available to verify this figure. The existing value has not been replaced.',
+      methodNote: 'Original-source retrieval was insufficient; this is not evidence that the figure is absent.',
+    }) : await this.client.structure(
       [
         `Based ONLY on these verification notes about ${company.name}'s ${label}, output JSON {`,
         `  "verdict": "supported" (stored figure holds) | "contradicted" (evidence names a different figure) | "unverified" (no reliable current figure),`,
