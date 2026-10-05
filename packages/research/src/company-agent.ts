@@ -27,7 +27,6 @@ import {
   enforceModelMetricsProvenance,
   isHumanAuthored,
   isEntityCardType,
-  usableCitations,
   type BrandTheme,
   type Card,
   type CardType,
@@ -66,7 +65,7 @@ import type {
   LlmClient,
   MarketPlan,
 } from './types';
-import type { OriginalSourceServices } from './original-source';
+import { selectOriginalSourceCitations, type OriginalSourceServices } from './original-source';
 import { acceptedMetricPassage } from './metric-support';
 
 // ============================================================================
@@ -617,7 +616,7 @@ export async function hydrateCompanyCard(
   throwIfAborted(options.signal);
 
   const originals = options.originalSources ? await Promise.all(
-    usableCitations(grounded.citations).slice(0, 2).map((citation) => options.originalSources!.retrieve(citation.url, { companyId, companyName: candidate.name, metricType: 'company_profile' })),
+    selectOriginalSourceCitations(grounded.citations, candidate.domain ? `https://${candidate.domain}` : null).map((citation) => options.originalSources!.retrieve(citation.url, { companyId, companyName: candidate.name, metricType: 'company_profile' })),
   ) : [];
   throwIfAborted(options.signal);
   if (options.originalSources) await options.originalSources.save({

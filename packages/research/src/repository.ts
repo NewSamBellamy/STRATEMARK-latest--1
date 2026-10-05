@@ -84,7 +84,7 @@ import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import { briefingOutSchema, factCheckOutSchema, huntMetricsOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { LlmClient, ResearchCoverage, RunResearchOptions } from './types';
 import { recordResearchEvidence, searchResearchEvidence, type ResearchEvidence } from './research-evidence';
-import { coalesceOriginalSources, isOriginalSourceAttempt, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
+import { coalesceOriginalSources, isOriginalSourceAttempt, selectOriginalSourceCitations, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { acceptedMetricPassage } from './metric-support';
 
 interface CachedTab {
@@ -1541,7 +1541,7 @@ export class GeminiRepository implements MarketIntelRepository {
         companyId: company.id, companyName: company.name, topic: `verify:${input.metricType}`,
       } },
     );
-    const originals = this.originalSources ? await Promise.all(usableCitations(g.citations).slice(0, 2)
+    const originals = this.originalSources ? await Promise.all(selectOriginalSourceCitations(g.citations, company.websiteUrl)
       .map((citation) => this.originalSources!.retrieve(citation.url, { companyId: company.id, companyName: company.name, metricType: input.metricType }))) : [];
     if (this.originalSources) await this.originalSources.save({
       id: `src_${globalThis.crypto.randomUUID()}`, companyId: company.id, metricType: input.metricType,

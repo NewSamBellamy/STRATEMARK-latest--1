@@ -15,6 +15,21 @@ import { GeminiRepository, type RepoSnapshot, type ResearchStore } from './repos
 import type { LlmClient } from './types';
 
 describe('local verification original-source handoff', () => {
+  it('spends its two original reads on priority sources, not the first two search links', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ citations: [
+      { url: 'https://reddit.com/r/example', title: 'SEC filing', credibility: 'primary' },
+      { url: 'https://retailer.example/report', title: 'Reuters', credibility: 'primary' },
+      { url: 'https://reuters.com/report', title: 'Reporting' },
+      { url: 'https://sec.gov/Archives/report', title: 'Filing' },
+    ], structured: {} });
+    const retrieve = vi.fn(async (url: string) => ({ requestedUrl: url, status: 'unavailable' as const, retrievedAt: new Date().toISOString() }));
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSources: { retrieve, save: async () => {}, list: async () => [] } });
+    await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(retrieve.mock.calls.map(([url]) => url)).toEqual(['https://sec.gov/Archives/report', 'https://reuters.com/report']);
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).not.toHaveBeenCalled();
+  });
   it('returns retained source failures for inspection without another model call', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({ citations: CITED, structured: {} });

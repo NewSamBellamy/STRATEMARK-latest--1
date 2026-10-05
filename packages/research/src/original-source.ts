@@ -1,3 +1,16 @@
+import { classifySource, isRedirectCitation, usableCitations, type Citation } from '@mi/contracts';
+
+/** Routing priority only, never evidence acceptance. Preserve the two-read budget. */
+export function selectOriginalSourceCitations(citations: readonly Citation[], officialWebsite?: string | null): Citation[] {
+  const priority = { primary: 4, reputable_secondary: 3, industry: 2, unknown: 1, user_generated: 0 };
+  return usableCitations(citations).map((citation, index) => ({
+    citation, index,
+    priority: priority[classifySource(citation.url, citation.title, officialWebsite)],
+    redirect: Number(isRedirectCitation(citation.url)),
+  })).sort((a, b) => b.priority - a.priority || a.redirect - b.redirect || a.index - b.index)
+    .slice(0, 2).map(row => row.citation);
+}
+
 /** Original page extract; retrieval alone never establishes claim accuracy. */
 export interface OriginalSourceScope {
   companyId: string;

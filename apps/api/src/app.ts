@@ -26,6 +26,7 @@ import {
   researchDashboardTab,
   verifyMetricOutSchema, 
   coalesceOriginalSources,
+  selectOriginalSourceCitations,
   acceptedMetricPassage,
   huntMetricsOutSchema,
   GROUNDED_SYSTEM, 
@@ -882,7 +883,7 @@ export function createApp(
 
     // Two parallel bounded public-source reads; no provider key is forwarded.
     // Commit originals before interpretation so a model failure cannot erase them.
-    const originalSources = await Promise.all(usableCitations(g.citations).slice(0, 2)
+    const originalSources = await Promise.all(selectOriginalSourceCitations(g.citations, company.websiteUrl)
       .map((citation) => readOriginalSource(citation.url, { companyId, companyName: company.name, metricType })));
     existingDeck.originalSourceAttempts = [...(existingDeck.originalSourceAttempts ?? []), {
       companyId, metricType, capturedAt: new Date().toISOString(), receipts: originalSources,

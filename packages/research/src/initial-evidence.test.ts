@@ -28,6 +28,20 @@ function fixture(proof = true, text = quote) {
 }
 
 describe('initial company original-evidence publication', () => {
+  it('uses the same two-source priority policy before filling the first company card', async () => {
+    const { client, originals } = fixture();
+    client.ground = vi.fn(async () => ({ text: 'Provider says 45 employees.', queries: [], citations: [
+      { title: 'Discussion', url: 'https://reddit.com/r/company' },
+      { title: 'Unrelated shop', url: 'https://retailer.example/report' },
+      { title: 'SEC', url },
+      { title: 'Company results', url: 'https://acme.com/results' },
+    ] }));
+    const result = await hydrateCompanyCard({ candidate, client, plan, originalSources: originals });
+    expect(vi.mocked(originals.retrieve).mock.calls.map(([target]) => target)).toEqual([url, 'https://acme.com/results']);
+    expect(result.metrics.find(metric => metric.metricType === 'employees')).toMatchObject({ value: 45, confidence: 'verified' });
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(1);
+  });
   it.each([
     'Acme Inc. partners with Beta. Beta reported 45 employees as of 2026-10-01.',
     'Acme Inc. reported 45 employees in an article published on 2026-10-01.',

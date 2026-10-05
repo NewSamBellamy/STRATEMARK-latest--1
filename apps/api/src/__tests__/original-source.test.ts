@@ -7,6 +7,21 @@ const lookup = vi.fn(async () => ['8.8.8.8']);
 const read = vi.fn(async () => ({ status: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from('<h1>Company</h1><script>ignore</script><p>Revenue &amp; customers</p>') }));
 
 describe('bounded original-source retrieval', () => {
+  it('resolves grounding through the existing pinned transport and accepts only the final publisher passage', async () => {
+    const redirect = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/report';
+    const publisher = 'https://reuters.com/company-report';
+    const quote = 'Acme Inc. reported 45 employees as of 2026-10-01.';
+    const pageRead = vi.fn(async ({ url: target }: { url: URL }) => target.hostname === 'vertexaisearch.cloud.google.com'
+      ? { status: 302, headers: { location: publisher }, body: Buffer.alloc(0) }
+      : { status: 200, headers: { 'content-type': 'text/plain' }, body: Buffer.from(quote) });
+    const receipt = await retrieveOriginalSource(redirect, { lookup, read: pageRead });
+    expect(receipt).toMatchObject({ requestedUrl: redirect, finalUrl: publisher, status: 'retrieved', text: quote });
+    expect(pageRead).toHaveBeenCalledTimes(2);
+    expect(acceptedMetricPassage({ companyName: 'Acme Inc.', metricType: 'employees', value: 45, originals: [receipt],
+      support: { sourceUrl: redirect, quote, asOf: '2026-09-30', basis: 'employees', unit: 'count' } })).toEqual([]);
+    expect(acceptedMetricPassage({ companyName: 'Acme Inc.', metricType: 'employees', value: 45, originals: [receipt],
+      support: { sourceUrl: redirect, quote, asOf: '2026-10-01', basis: 'employees', unit: 'count' } })[0]?.url).toBe(publisher);
+  });
   it('retains a distinct original-text receipt and pins the resolved address', async () => {
     const result = await retrieveOriginalSource(url, { lookup, read });
     expect(result.status).toBe('retrieved');
