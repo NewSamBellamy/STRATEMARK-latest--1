@@ -62,10 +62,9 @@ function profileLabel(key: string, metric: CompanyMetric | undefined): string {
   return key;
 }
 
-/** A single read-only boundary for deck and inspection. Never updates stored research. */
-export function buildCardView(data: CardWithCompany) {
-  const signal = isSignalCardType(data.card.cardType) || !data.company;
-  const metrics = (signal ? [] : data.metrics).map((original) => {
+/** Shared read-only evidence projection for cards, readers and quantitative dashboards. */
+export function buildMetricViews(input: readonly CompanyMetric[]) {
+  return input.map((original) => {
     const legacy = sourceUrl(original.source);
     const citations = usableCitations([
       ...original.citations.filter((c) => sourceUrl(c.url)),
@@ -91,6 +90,12 @@ export function buildCardView(data: CardWithCompany) {
       confidence: CONFIDENCE_LABELS[metric.confidence], note, citations,
     };
   });
+}
+
+/** A single read-only boundary for deck and inspection. Never updates stored research. */
+export function buildCardView(data: CardWithCompany) {
+  const signal = isSignalCardType(data.card.cardType) || !data.company;
+  const metrics = buildMetricViews(signal ? [] : data.metrics);
   const knownCount = metrics.filter((m) => m.metric.value != null).length;
   const sourcedCount = metrics.filter((m) => m.metric.value != null && m.citations.length > 0).length;
   const profileMetrics = signal

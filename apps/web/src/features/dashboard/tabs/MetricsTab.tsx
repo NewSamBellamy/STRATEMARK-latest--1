@@ -19,6 +19,7 @@ import { Modal } from '@/components/ui/Modal';
 import { formatMetricValue } from '@/lib/format';
 import { METRIC_COLORS } from '@/lib/theme';
 import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
+import { buildMetricViews } from '@/features/card/card-view';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { FactCheck } from '@/features/factcheck/FactCheck';
 import { BandGauge, ChartPanel, CompositionDonut, Delta, ShareDonut, TrendArea, TrendBar } from './metricViz';
@@ -226,7 +227,7 @@ function UnknownSlot() {
         Unknown
       </span>
       <span className="text-[11px] leading-snug text-faint">
-        No credible public figure found — we don’t invent data. Dig deeper or correct it if you know it.
+        No confirmed figure is recorded. Missing evidence does not mean the figure is zero or unavailable publicly.
       </span>
     </div>
   );
@@ -388,7 +389,8 @@ export function MetricsTab({ companyId }: { companyId: string }) {
     >
       {(metrics) => {
         const seen = new Set<MetricType>();
-        const tiles = ORDER.map((t) => metrics.find((m) => m.metricType === t))
+        const projected = buildMetricViews(metrics).map(({ metric }) => metric);
+        const tiles = ORDER.map((t) => projected.find((m) => m.metricType === t))
           .filter((m): m is CompanyMetric => !!m && !seen.has(m.metricType) && !!seen.add(m.metricType));
         const series = seriesQ.data?.content;
         const hasSeries = !!series && (series.revenue.length > 1 || series.users.length > 1);
