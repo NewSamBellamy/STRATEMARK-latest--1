@@ -617,7 +617,7 @@ export async function hydrateCompanyCard(
   throwIfAborted(options.signal);
 
   const originals = options.originalSources ? await Promise.all(
-    usableCitations(grounded.citations).slice(0, 2).map((citation) => options.originalSources!.retrieve(citation.url)),
+    usableCitations(grounded.citations).slice(0, 2).map((citation) => options.originalSources!.retrieve(citation.url, { companyId, companyName: candidate.name, metricType: 'company_profile' })),
   ) : [];
   throwIfAborted(options.signal);
   if (options.originalSources) await options.originalSources.save({

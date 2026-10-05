@@ -130,7 +130,7 @@ export function createApp(
   },
 ): Hono {
   const app = new Hono();
-  const readOriginalSource = coalesceOriginalSources(retrieveOriginalSource);
+  const readOriginalSource = coalesceOriginalSources((url, scope) => retrieveOriginalSource(url, undefined, scope));
   const store = createDataStore(env, {
     store: options?.store,
     forceMemory: options?.forceMemoryStore,
@@ -883,7 +883,7 @@ export function createApp(
     // Two parallel bounded public-source reads; no provider key is forwarded.
     // Commit originals before interpretation so a model failure cannot erase them.
     const originalSources = await Promise.all(usableCitations(g.citations).slice(0, 2)
-      .map((citation) => readOriginalSource(citation.url)));
+      .map((citation) => readOriginalSource(citation.url, { companyId, companyName: company.name, metricType })));
     existingDeck.originalSourceAttempts = [...(existingDeck.originalSourceAttempts ?? []), {
       companyId, metricType, capturedAt: new Date().toISOString(), receipts: originalSources,
     }].slice(-8);

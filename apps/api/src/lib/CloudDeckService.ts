@@ -132,14 +132,14 @@ export class CloudDeckService {
     return this.entitlement.hasActiveEntitlement(uid);
   }
 
-  getOriginalSources(uid: string, deckId: string, read = retrieveOriginalSource): OriginalSourceServices {
+  getOriginalSources(uid: string, deckId: string, read: OriginalSourceServices['retrieve'] = (url, scope) => retrieveOriginalSource(url, undefined, scope)): OriginalSourceServices {
     const retrieve = coalesceOriginalSources(read);
     const authorize = async () => {
       if (!await this.getDeck(uid, deckId)) throw new Error('Deck not found');
       if (!await this.checkEntitlement(uid)) throw new Error('Entitlement lost');
     };
     return {
-      retrieve: async (url) => { await authorize(); return retrieve(url); },
+      retrieve: async (url, scope) => { await authorize(); return retrieve(url, scope); },
       save: async (attempt) => { await authorize(); await this.store.saveCompanyOriginal(uid, deckId, attempt); },
       list: async ({ companyId, metricType, limit = 20 }) => {
         const deck = await this.getDeck(uid, deckId);

@@ -53,6 +53,16 @@ describe('cloud company originals', () => {
     expect(read).toHaveBeenCalledTimes(1);
     expect(await sources.list({ companyId: 'cmp_acme' })).toEqual([]);
   });
+  it('forwards company/metric scope and separates cloud excerpt cache entries', async () => {
+    const { service, read } = await fixture();
+    const sources = service.getOriginalSources('user_pro', 'deck_a', read);
+    const scope = { companyId: 'cmp_acme', companyName: 'Acme Inc.', metricType: 'employees' };
+    const url = 'https://sec.gov/Archives/acme';
+    await sources.retrieve(url, scope);
+    await sources.retrieve(url, { ...scope, metricType: 'arr' });
+    expect(read).toHaveBeenCalledWith(url, scope);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
   it('rejects overwrites and oversized receipts without losing saved evidence', async () => {
     const { service, read } = await fixture();
     const sources = service.getOriginalSources('user_pro', 'deck_a', read);

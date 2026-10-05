@@ -1,5 +1,5 @@
 /** One unchanged contiguous slice: retrieval relevance is not claim verification. */
-export function selectSourceExcerpt(text: string): string {
+export function selectSourceExcerpt(text: string, scope?: { companyName: string; metricType?: string }): string {
   const limit = 4000;
   if (text.length <= limit) return text;
   const cues = [
@@ -22,6 +22,28 @@ export function selectSourceExcerpt(text: string): string {
     }
   });
   hits.sort((a, b) => a.index - b.index);
+  // Literal company windows, never aliases or stitched quotes. This is relevance
+  // selection only: the original-passage gate still decides whether a claim holds.
+  const name = scope?.companyName.trim().toLowerCase();
+  if (name && name.length <= 300) {
+    const categories = ['employees', 'arr', 'users', 'valuation', 'market_cap', 'market_share'];
+    const category = categories.indexOf(scope?.metricType ?? '');
+    let best = -1;
+    let start = 0;
+    const counts = cues.map(() => 0);
+    let left = 0;
+    let right = 0;
+    const escaped = [...name].map(char => '^$.*+?()[]{}|'.includes(char) || char.charCodeAt(0) === 92 ? String.fromCharCode(92) + char : char).join('');
+    for (const match of text.matchAll(new RegExp(escaped, 'gi'))) {
+      const index = match.index!;
+      const candidate = Math.min(Math.max(0, index - 600), text.length - limit);
+      while (right < hits.length && hits[right]!.index < candidate + limit) counts[hits[right++]!.category]!++;
+      while (left < right && hits[left]!.index < candidate) counts[hits[left++]!.category]!--;
+      const score = category < 0 ? counts.filter(count => count > 0).length : counts[category]! > 0 ? 1 : 0;
+      if (score > best) { best = score; start = candidate; }
+    }
+    if (best > 0) return text.slice(start, start + limit);
+  }
   const starts = [...new Set([0, ...hits.map((hit) => Math.min(Math.max(0, hit.index - 600), text.length - limit))])].sort((a, b) => a - b);
   // A sliding count keeps long/repetitive documents linear after sorting.
   // Each category earns at most one point; repeating a menu cannot outweigh

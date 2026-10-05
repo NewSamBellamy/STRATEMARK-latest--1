@@ -2,6 +2,26 @@ import { describe, expect, it, vi } from 'vitest';
 import { coalesceOriginalSources } from './original-source';
 const receipt = (url: string) => ({ requestedUrl: url, status: 'retrieved' as const, retrievedAt: '2026-10-03T00:00:00.000Z', text: 'Original extract' });
 describe('bounded original read coalescing', () => {
+  it('captures scope before an asynchronous caller can change its cache identity', async () => {
+    const read = vi.fn(async (url: string, scope?: { companyName: string }) => ({ ...receipt(url), text: scope!.companyName }));
+    const cached = coalesceOriginalSources(read);
+    const scope = { companyId: 'a', companyName: 'Acme', metricType: 'employees' };
+    const pending = cached('https://sec.gov/shared', scope);
+    scope.companyName = 'Other';
+    expect((await pending).text).toBe('Acme');
+  });
+  it('does not reuse a different company or metric excerpt for the same URL', async () => {
+    const read = vi.fn(async (url: string, scope?: { companyName: string; metricType?: string }) => ({ ...receipt(url), text: `${scope?.companyName}:${scope?.metricType}` }));
+    const cached = coalesceOriginalSources(read);
+    const a = { companyId: 'a', companyName: 'Acme', metricType: 'employees' };
+    const b = { companyId: 'b', companyName: 'Other', metricType: 'employees' };
+    const url = 'https://sec.gov/shared';
+    expect((await cached(url, a)).text).toBe('Acme:employees');
+    expect((await cached(url, b)).text).toBe('Other:employees');
+    expect((await cached(url, { ...a, metricType: 'arr' })).text).toBe('Acme:arr');
+    await cached(url, { ...a });
+    expect(read).toHaveBeenCalledTimes(3);
+  });
   it('coalesces concurrent reads and returns isolated copies', async () => {
     const read = vi.fn(async (url: string) => receipt(url));
     const cached = coalesceOriginalSources(read);

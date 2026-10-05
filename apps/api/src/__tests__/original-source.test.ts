@@ -73,6 +73,20 @@ describe('bounded original-source retrieval', () => {
     expect(result.text).toHaveLength(4000);
     expect(result.truncated).toBe(true);
   });
+  it('passes scope into the shared native transport without another network request', async () => {
+    const quote = 'Acme Inc. reported 45 employees as of 2026-10-01.';
+    const body = `Other Inc. reported 900 employees, USD 50 million ARR and 100 active users.${' filler '.repeat(1100)}${quote}${' appendix '.repeat(600)}`;
+    const pageRead = vi.fn(async () => ({ status: 200, headers: { 'content-type': 'text/plain' }, body: Buffer.from(body) }));
+    const receipt = await retrieveOriginalSource(url, { lookup, read: pageRead }, { companyId: 'acme', companyName: 'Acme Inc.', metricType: 'employees' });
+    expect(receipt.text).toContain(quote);
+    expect(receipt.text).not.toContain('Other Inc.');
+    expect(body.replace(/\s+/g, ' ').trim()).toContain(receipt.text);
+    expect(pageRead).toHaveBeenCalledTimes(1);
+    const support = { sourceUrl: url, quote, asOf: '2026-10-01', basis: 'employees' as const, unit: 'count' as const };
+    const claim = { companyName: 'Acme Inc.', metricType: 'employees' as const, value: 45, originals: [receipt], support };
+    expect(acceptedMetricPassage(claim)).toHaveLength(1);
+    expect(acceptedMetricPassage({ ...claim, companyName: 'Other Inc.' })).toEqual([]);
+  });
 
   it('retains business evidence beyond a long navigation prefix without another fetch', async () => {
     const passage = 'Acme Inc. reported 450 employees on October 1, 2026.';

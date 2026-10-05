@@ -2,6 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { selectSourceExcerpt } from './source-excerpt';
 
 describe('bounded contiguous source excerpt', () => {
+  it('prioritizes the requested company over a richer unrelated company section', () => {
+    const wanted = 'Acme Inc. reported 450 employees on October 1, 2026.';
+    const text = `Other Inc. has 900 employees, USD 20 million ARR and 500 active users.${' filler '.repeat(1100)}${wanted}${' appendix '.repeat(600)}`;
+    const result = selectSourceExcerpt(text, { companyName: 'Acme Inc.', metricType: 'employees' });
+    expect(result).toContain(wanted);
+    expect(result).not.toContain('Other Inc.');
+    expect(text).toContain(result);
+    expect(result.length).toBeLessThanOrEqual(4000);
+  });
+  it('prioritizes the requested metric when the company has distant sections', () => {
+    const wanted = 'Acme Inc. reported USD 50 million ARR on October 1, 2026.';
+    const text = `Acme Inc. has 450 employees, 1000 active users and a valuation of USD 200 million.${' filler '.repeat(1100)}${wanted}${' appendix '.repeat(600)}`;
+    expect(selectSourceExcerpt(text, { companyName: 'Acme Inc.', metricType: 'arr' })).toContain(wanted);
+  });
+  it('matches a company name literally, not as a regular expression', () => {
+    const wanted = 'Acme (UK) Ltd. has 40 employees on October 1, 2026.';
+    const text = `Wrong Ltd. has 500 employees and 40 users.${' filler '.repeat(1100)}${wanted}${' appendix '.repeat(600)}`;
+    expect(selectSourceExcerpt(text, { companyName: 'Acme (UK) Ltd.', metricType: 'employees' })).toContain(wanted);
+  });
   it('preserves short pages exactly', () => {
     const text = 'Acme Inc. has 450 employees. Published October 1, 2026.';
     expect(selectSourceExcerpt(text)).toBe(text);

@@ -1,4 +1,4 @@
-import type { OriginalSourceReceipt } from './original-source';
+import type { OriginalSourceReceipt, OriginalSourceScope } from './original-source';
 import { selectSourceExcerpt } from './source-excerpt';
 
 // Browser networking cannot pin DNS like the native transport. Only these
@@ -8,7 +8,7 @@ const hosts = ['sec.gov', 'uscourts.gov', 'companieshouse.gov.uk', 'find-and-upd
 const limit = 262144;
 
 /** Direct public CORS retrieval only. No proxy, key, cookies or redirect bypass. */
-export async function retrieveBrowserOriginalSource(raw: string, fetchImpl: typeof fetch = fetch): Promise<OriginalSourceReceipt> {
+export async function retrieveBrowserOriginalSource(raw: string, fetchImpl: typeof fetch = fetch, scope?: OriginalSourceScope): Promise<OriginalSourceReceipt> {
   const receipt: OriginalSourceReceipt = { requestedUrl: raw.slice(0, 2048), status: 'unavailable', retrievedAt: new Date().toISOString() };
   let url: URL;
   try {
@@ -56,7 +56,7 @@ export async function retrieveBrowserOriginalSource(raw: string, fetchImpl: type
     const text = plain.replace(/&(?:amp|lt|gt|quot|apos|nbsp);/g, entity => ({ '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'", '&nbsp;': ' ' })[entity] ?? entity).replace(/\s+/g, ' ').trim();
     if (!text) return { ...resolved, reason: 'No readable source text' };
     const hash = await globalThis.crypto.subtle.digest('SHA-256', bytes);
-    return { ...resolved, status: 'retrieved', contentHash: Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join(''), text: selectSourceExcerpt(text), truncated: text.length > 4000 };
+    return { ...resolved, status: 'retrieved', contentHash: Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join(''), text: selectSourceExcerpt(text, scope), truncated: text.length > 4000 };
   };
   try {
     return await Promise.race([work(), new Promise<OriginalSourceReceipt>(resolve => {

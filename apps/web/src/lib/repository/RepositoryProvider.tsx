@@ -43,7 +43,7 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       apiKey,
       model: model || undefined,
       store,
-      originalSourceReader: retrieveBrowserOriginalSource,
+      originalSourceReader: (url, scope) => retrieveBrowserOriginalSource(url, undefined, scope),
       targetCompanies,
       concurrency: 3,
       // Count every request locally so the user can see their free-tier headroom.

@@ -84,7 +84,7 @@ import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import { briefingOutSchema, factCheckOutSchema, huntMetricsOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { LlmClient, ResearchCoverage, RunResearchOptions } from './types';
 import { recordResearchEvidence, searchResearchEvidence, type ResearchEvidence } from './research-evidence';
-import { coalesceOriginalSources, isOriginalSourceAttempt, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt } from './original-source';
+import { coalesceOriginalSources, isOriginalSourceAttempt, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { acceptedMetricPassage } from './metric-support';
 
 interface CachedTab {
@@ -294,7 +294,7 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   catalogPasses?: number;
   originalSources?: OriginalSourceServices;
   /** Reader capability only; this repository owns acknowledged local retention. */
-  originalSourceReader?: (url: string) => Promise<OriginalSourceReceipt>;
+  originalSourceReader?: (url: string, scope?: OriginalSourceScope) => Promise<OriginalSourceReceipt>;
 }
 
 export class GeminiRepository implements MarketIntelRepository {
@@ -333,7 +333,7 @@ export class GeminiRepository implements MarketIntelRepository {
     if (!options.originalSources && options.originalSourceReader) {
       if (!this.store) throw new Error('Original-source research requires acknowledged local storage.');
       this.originalSources = {
-        retrieve: coalesceOriginalSources(async url => { await this.ready(); return options.originalSourceReader!(url); }),
+        retrieve: coalesceOriginalSources(async (url, scope) => { await this.ready(); return options.originalSourceReader!(url, scope); }),
         save: async attempt => {
           await this.ready();
           const retained = structuredClone(attempt);
@@ -1542,7 +1542,7 @@ export class GeminiRepository implements MarketIntelRepository {
       } },
     );
     const originals = this.originalSources ? await Promise.all(usableCitations(g.citations).slice(0, 2)
-      .map((citation) => this.originalSources!.retrieve(citation.url))) : [];
+      .map((citation) => this.originalSources!.retrieve(citation.url, { companyId: company.id, companyName: company.name, metricType: input.metricType }))) : [];
     if (this.originalSources) await this.originalSources.save({
       id: `src_${globalThis.crypto.randomUUID()}`, companyId: company.id, metricType: input.metricType,
       capturedAt: new Date().toISOString(), receipts: originals,

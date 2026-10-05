@@ -29,7 +29,7 @@ const attemptSchema = z.object({
 export function createOriginalSourceServices(directory: string): OriginalSourceServices {
   const root = path.resolve(directory);
   return {
-    retrieve: coalesceOriginalSources(retrieveOriginalSource),
+    retrieve: coalesceOriginalSources((url, scope) => retrieveOriginalSource(url, undefined, scope)),
     async save(attempt) {
       const record = attemptSchema.parse(attempt);
       const json = JSON.stringify(record);

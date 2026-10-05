@@ -1,4 +1,10 @@
 /** Original page extract; retrieval alone never establishes claim accuracy. */
+export interface OriginalSourceScope {
+  companyId: string;
+  companyName: string;
+  metricType?: string;
+}
+
 export interface OriginalSourceReceipt {
   requestedUrl: string;
   finalUrl?: string;
@@ -41,30 +47,32 @@ export function isOriginalSourceAttempt(value: unknown): value is OriginalSource
 
 /** Native host supplies durable storage and network; renderer gets neither. */
 export interface OriginalSourceServices {
-  retrieve(url: string): Promise<OriginalSourceReceipt>;
+  retrieve(url: string, scope?: OriginalSourceScope): Promise<OriginalSourceReceipt>;
   save(attempt: OriginalSourceAttempt): Promise<void>;
   list(input: { companyId: string; metricType?: string; limit?: number }): Promise<OriginalSourceAttempt[]>;
 }
 
 /** Public-page receipts only. Short reuse never changes their retrieval date. */
-export function coalesceOriginalSources(read: (url: string) => Promise<OriginalSourceReceipt>, now = Date.now): (url: string) => Promise<OriginalSourceReceipt> {
+export function coalesceOriginalSources(read: (url: string, scope?: OriginalSourceScope) => Promise<OriginalSourceReceipt>, now = Date.now): (url: string, scope?: OriginalSourceScope) => Promise<OriginalSourceReceipt> {
   const cache = new Map<string, { receipt: OriginalSourceReceipt; expires: number }>();
   const pending = new Map<string, Promise<OriginalSourceReceipt>>();
-  return async (url) => {
-    const hit = cache.get(url);
+  return async (url, scope) => {
+    scope = scope ? { ...scope } : undefined;
+    const key = JSON.stringify([url, scope?.companyId ?? null, scope?.companyName ?? null, scope?.metricType ?? null]);
+    const hit = cache.get(key);
     if (hit && hit.expires > now()) return { ...hit.receipt };
-    cache.delete(url);
-    let work = pending.get(url);
+    cache.delete(key);
+    let work = pending.get(key);
     if (!work) {
-      if (pending.size >= 32) return { ...await read(url) };
-      work = Promise.resolve().then(() => read(url)).then((receipt) => {
+      if (pending.size >= 32) return { ...await read(url, scope) };
+      work = Promise.resolve().then(() => read(url, scope)).then((receipt) => {
         if (receipt.status === 'retrieved') {
-          cache.set(url, { receipt: { ...receipt }, expires: now() + 30000 });
+          cache.set(key, { receipt: { ...receipt }, expires: now() + 30000 });
           if (cache.size > 32) cache.delete(cache.keys().next().value!);
         }
         return { ...receipt };
-      }).finally(() => pending.delete(url));
-      pending.set(url, work);
+      }).finally(() => pending.delete(key));
+      pending.set(key, work);
     }
     return { ...await work };
   };

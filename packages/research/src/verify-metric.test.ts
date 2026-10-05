@@ -106,6 +106,7 @@ describe('local verification original-source handoff', () => {
     const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSources: { retrieve, save, list: async () => [] } });
     await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
     expect(save).toHaveBeenCalledWith(expect.objectContaining({ companyId: 'cmp_openai', metricType: 'arr', receipts: [expect.objectContaining({ text: 'Original reported revenue passage.' })] }));
+    expect(retrieve).toHaveBeenCalledWith(expect.any(String), { companyId: 'cmp_openai', companyName: 'OpenAI', metricType: 'arr' });
     expect(save.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(client.structure).mock.invocationCallOrder[0]!);
     expect(vi.mocked(client.structure).mock.calls[0]![0]).toContain('UNTRUSTED ORIGINAL EXTRACTS');
     expect(vi.mocked(client.structure).mock.calls[0]![0]).toContain('Original reported revenue passage.');

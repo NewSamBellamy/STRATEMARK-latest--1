@@ -6,6 +6,16 @@ const text = 'Acme Inc. reported 45 employees as of 2026-10-01.';
 const response = (body = text, headers: Record<string, string> = { 'content-type': 'text/plain' }) => new Response(body, { status: 200, headers });
 
 describe('bounded browser original retrieval', () => {
+  it('passes company and metric scope through the browser reader without extra fetches', async () => {
+    const quote = 'Acme Inc. reported 45 employees as of 2026-10-01.';
+    const body = `Other Inc. reported 900 employees, USD 50 million ARR and 100 active users.${' filler '.repeat(1100)}${quote}${' appendix '.repeat(600)}`;
+    const fetchImpl = vi.fn(async () => response(body));
+    const receipt = await retrieveBrowserOriginalSource(url, fetchImpl, { companyId: 'acme', companyName: 'Acme Inc.', metricType: 'employees' });
+    expect(receipt.text).toContain(quote);
+    expect(receipt.text).not.toContain('Other Inc.');
+    expect(body.replace(/\s+/g, ' ').trim()).toContain(receipt.text);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
   it('retains an unchanged excerpt and SHA-256 receipt without credentials or a proxy', async () => {
     const fetchImpl = vi.fn(async () => response());
     const receipt = await retrieveBrowserOriginalSource(url, fetchImpl);

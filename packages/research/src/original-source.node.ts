@@ -25,7 +25,7 @@ export interface SourceTransport {
   read(target: { url: URL; address: string; signal: AbortSignal }): Promise<SourceRead>;
 }
 export type { OriginalSourceReceipt } from './original-source';
-import type { OriginalSourceReceipt } from './original-source';
+import type { OriginalSourceReceipt, OriginalSourceScope } from './original-source';
 // Pin the socket to the validated IPv4 address, but retain the original Host and
 // TLS servername/certificate verification. No second DNS resolution or proxy.
 const transport: SourceTransport = {
@@ -75,7 +75,7 @@ function pageText(body: string, html: boolean): string {
 }
 
 /** Retrieval is a receipt, NOT proof of entity, metric, period or truth. */
-export async function retrieveOriginalSource(raw: string, io: SourceTransport = transport): Promise<OriginalSourceReceipt> {
+export async function retrieveOriginalSource(raw: string, io: SourceTransport = transport, scope?: OriginalSourceScope): Promise<OriginalSourceReceipt> {
   const receipt: OriginalSourceReceipt = { requestedUrl: raw.slice(0, 2048), status: 'unavailable', retrievedAt: new Date().toISOString() };
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -110,7 +110,7 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
       }
       const text = pageText(body, type === 'text/html');
       if (!text) return { ...receipt, reason: 'No readable source text' };
-      return { ...receipt, status: 'retrieved', contentHash: createHash('sha256').update(response.body).digest('hex'), text: selectSourceExcerpt(text), truncated: text.length > MAX_TEXT };
+      return { ...receipt, status: 'retrieved', contentHash: createHash('sha256').update(response.body).digest('hex'), text: selectSourceExcerpt(text, scope), truncated: text.length > MAX_TEXT };
     }
     return receipt;
   };
