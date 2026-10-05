@@ -15,6 +15,40 @@ import { GeminiRepository, type RepoSnapshot, type ResearchStore } from './repos
 import type { LlmClient } from './types';
 
 describe('local verification original-source handoff', () => {
+  it('retains browser-reader originals before synthesis and reloads detached scoped evidence', async () => {
+    let committed = seededSnapshot();
+    const quote = 'OpenAI reports ARR of USD 40 billion as of 2026-10-01.';
+    const url = CITED[0]!.url;
+    const store: ResearchStore = { read: () => structuredClone(committed), write: async snapshot => { committed = structuredClone(snapshot); } };
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 40_000_000_000,
+      passageSupport: { sourceUrl: url, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' } } });
+    const structure = client.structure;
+    client.structure = vi.fn(async (prompt, schema, options) => {
+      expect((committed as RepoSnapshot & { originalSourceAttempts?: unknown[] }).originalSourceAttempts).toHaveLength(1);
+      return structure(prompt, schema, options);
+    }) as LlmClient['structure'];
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSourceReader: async () => ({ requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: quote, retrievedAt: '2026-10-03T00:00:00.000Z' }) });
+    expect((await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' })).metric.value).toBe(40_000_000_000);
+    const reopened = new GeminiRepository({ apiKey: 'k', store, client, originalSourceReader: async () => { throw new Error('Offline reads must not fetch'); } });
+    const evidence = await reopened.getOriginalSourceEvidence({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]!.receipts[0]!.text).toBe(quote);
+    evidence[0]!.receipts[0]!.text = 'External mutation';
+    expect((await reopened.getOriginalSourceEvidence({ companyId: 'cmp_openai' }))[0]!.receipts[0]!.text).toBe(quote);
+    expect(await reopened.getOriginalSourceEvidence({ companyId: 'other' })).toEqual([]);
+  });
+  it('refuses browser synthesis if local original retention fails', async () => {
+    let committed = seededSnapshot();
+    const store: ResearchStore = { read: () => structuredClone(committed), write: async snapshot => {
+      if ((snapshot as RepoSnapshot & { originalSourceAttempts?: unknown[] }).originalSourceAttempts?.length) throw new Error('Original storage full');
+      committed = structuredClone(snapshot);
+    } };
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 123 } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSourceReader: async url => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString() }) });
+    await expect(repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' })).rejects.toThrow('Original storage full');
+    expect(client.structure).not.toHaveBeenCalled();
+    expect((await repo.getCompanyMetrics('cmp_openai')).find(metric => metric.metricType === 'arr')!.value).toBe(990_000_000);
+  });
   it('writes a supported native correction with its original URL and reported date', async () => {
     const { store } = memoryStore(seededSnapshot());
     const quote = 'OpenAI reports ARR of USD 40 billion as of 2026-10-01.';

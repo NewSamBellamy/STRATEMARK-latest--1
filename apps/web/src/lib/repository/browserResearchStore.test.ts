@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
-import { GeminiRepository, migrateSnapshot } from '@mi/research';
+import { GeminiRepository, migrateSnapshot, type LlmClient } from '@mi/research';
 import { installBrowserResearch, openBrowserResearchStore, readBrowserResearchData } from './browserResearchStore';
 
 const KEY = 'mi.repo.v1';
@@ -84,6 +84,33 @@ describe('acknowledged browser research storage', () => {
     expect(await reopened.getMarket(saved.id)).toEqual(saved);
   });
 
+  it('acknowledges original receipts before verification and preserves them through reopen and JSON import', async () => {
+    const snapshot = data();
+    const url = 'https://www.sec.gov/Archives/acme';
+    const quote = 'Acme Inc. reported 45 employees as of 2026-10-01.';
+    snapshot.companies = [{ id: 'acme', name: 'Acme Inc.', oneLiner: 'Software', websiteUrl: 'https://acme.example', logoUrl: null, hqLocation: null, brandTheme: null }];
+    snapshot.metrics = [{ id: 'headcount', companyId: 'acme', metricType: 'employees', value: null, confidence: 'unknown', source: null, citations: [], methodNote: null, capturedAt: '2026-10-01T00:00:00.000Z' }];
+    const store = await openBrowserResearchStore();
+    await store.write(snapshot);
+    const client: LlmClient = {
+      ground: vi.fn(async () => ({ text: quote, citations: [{ title: 'SEC', url }], queries: [] })),
+      structure: vi.fn(async (_prompt, schema) => {
+        expect((await openBrowserResearchStore()).read()!.originalSourceAttempts).toHaveLength(1);
+        return schema.parse({ verdict: 'contradicted', currentValue: 45, passageSupport: { sourceUrl: url, quote, asOf: '2026-10-01', basis: 'employees', unit: 'count' } });
+      }) as LlmClient['structure'],
+    };
+    const repo = new GeminiRepository({ apiKey: 'secret-test-only', store, client, originalSourceReader: async () => ({ requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200, text: quote, contentHash: 'a'.repeat(64), retrievedAt: '2026-10-03T00:00:00.000Z' }) });
+    expect((await repo.verifyMetric({ companyId: 'acme', metricType: 'employees' })).metric.value).toBe(45);
+    const exported = (await readBrowserResearchData()).current!;
+    expect(exported).toContain(quote);
+    expect(exported).not.toContain('secret-test-only');
+    await installBrowserResearch(exported);
+    const reopened = new GeminiRepository({ apiKey: 'test', store: await openBrowserResearchStore(), client });
+    expect((await reopened.getOriginalSourceEvidence({ companyId: 'acme' }))[0]!.receipts[0]!.text).toBe(quote);
+    expect((await reopened.getCompanyMetrics('acme'))[0]!.value).toBe(45);
+    expect(client.ground).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps both previous records when a transaction aborts and allows a real retry', async () => {
     const store = await openBrowserResearchStore();
     const first = data();
@@ -139,7 +166,7 @@ describe('acknowledged browser research storage', () => {
     const store = await openBrowserResearchStore();
     await store.write(data());
     const before = await readBrowserResearchData();
-    for (const patch of [{ researchJobs: {} }, { dashboards: [] }, { schemaVersion: '2' }, { markets: [null] }]) {
+    for (const patch of [{ researchJobs: {} }, { dashboards: [] }, { schemaVersion: '2' }, { markets: [null] }, { originalSourceAttempts: {} }, { originalSourceAttempts: [{ id: 'broken' }] }]) {
       await expect(installBrowserResearch(JSON.stringify({ ...data(), ...patch }))).rejects.toThrow(/unreadable/i);
       expect(await readBrowserResearchData()).toEqual(before);
     }

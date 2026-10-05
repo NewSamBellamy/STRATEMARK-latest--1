@@ -19,6 +19,26 @@ export interface OriginalSourceAttempt {
   receipts: OriginalSourceReceipt[];
 }
 
+/** Storage shape/size validation only; never proof of a document's authenticity. */
+export function isOriginalSourceAttempt(value: unknown): value is OriginalSourceAttempt {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Partial<OriginalSourceAttempt>;
+  const bounded = (text: unknown, max: number) => typeof text === 'string' && text.length > 0 && text.length <= max;
+  const date = (text: unknown) => bounded(text, 40) && Number.isFinite(Date.parse(text as string));
+  return bounded(row.id, 200) && bounded(row.companyId, 200) && bounded(row.metricType, 80) && date(row.capturedAt) &&
+    Array.isArray(row.receipts) && row.receipts.length <= 2 && row.receipts.every(receipt => {
+      if (!receipt || typeof receipt !== 'object' || !bounded(receipt.requestedUrl, 2048) || !date(receipt.retrievedAt) ||
+        !['retrieved', 'blocked', 'unavailable'].includes(receipt.status) ||
+        (receipt.finalUrl !== undefined && !bounded(receipt.finalUrl, 2048)) ||
+        (receipt.reason !== undefined && !bounded(receipt.reason, 1000)) ||
+        (receipt.truncated !== undefined && typeof receipt.truncated !== 'boolean') ||
+        (receipt.httpStatus !== undefined && (!Number.isInteger(receipt.httpStatus) || receipt.httpStatus < 100 || receipt.httpStatus > 599))) return false;
+      return receipt.status === 'retrieved'
+        ? receipt.httpStatus === 200 && bounded(receipt.finalUrl, 2048) && /^[a-f0-9]{64}$/.test(receipt.contentHash ?? '') && bounded(receipt.text, 4000)
+        : receipt.text === undefined && receipt.contentHash === undefined;
+    });
+}
+
 /** Native host supplies durable storage and network; renderer gets neither. */
 export interface OriginalSourceServices {
   retrieve(url: string): Promise<OriginalSourceReceipt>;

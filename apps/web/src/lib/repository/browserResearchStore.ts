@@ -1,4 +1,4 @@
-import { migrateSnapshot, REPO_SCHEMA_VERSION, type RepoSnapshot, type ResearchStore } from '@mi/research';
+import { migrateSnapshot, isOriginalSourceAttempt, REPO_SCHEMA_VERSION, type RepoSnapshot, type ResearchStore } from '@mi/research';
 
 const LEGACY = 'mi.repo.v1';
 const CURRENT = `${LEGACY}.committed`;
@@ -34,13 +34,15 @@ export function parseResearchSnapshot(json: string): RepoSnapshot {
     }
     const object = (value: unknown) => value != null && typeof value === 'object' && !Array.isArray(value);
     if (snapshot.schemaVersion !== undefined && (!Number.isSafeInteger(snapshot.schemaVersion) || snapshot.schemaVersion < 1)) throw new Error('Invalid version');
-    for (const field of ['markets', 'decks', 'companies', 'cards', 'metrics', 'viceClaims', 'reports', 'briefings', 'savedCards', 'researchJobs', 'threads', 'researchEvidence'] as const) {
+    for (const field of ['markets', 'decks', 'companies', 'cards', 'metrics', 'viceClaims', 'reports', 'briefings', 'savedCards', 'researchJobs', 'threads', 'researchEvidence', 'originalSourceAttempts'] as const) {
       const rows = snapshot[field];
       if (rows !== undefined && (!Array.isArray(rows) || rows.some((row: unknown) => !object(row)))) throw new Error(`Invalid ${field}`);
     }
     for (const field of ['dashboards', 'companyMarket', 'opportunity'] as const) {
       if (snapshot[field] !== undefined && !object(snapshot[field])) throw new Error(`Invalid ${field}`);
     }
+    if (snapshot.originalSourceAttempts?.some(row => !isOriginalSourceAttempt(row)) ||
+      new Set(snapshot.originalSourceAttempts?.map(row => row.id)).size !== (snapshot.originalSourceAttempts?.length ?? 0)) throw new Error('Invalid original-source attempts');
     return snapshot;
   } catch (cause) {
     throw new Error('Your saved research is unreadable. Export or recover it before continuing; nothing has been overwritten.', { cause });

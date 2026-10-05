@@ -252,6 +252,25 @@ const testCoverage = {
 };
 
 describe('runDeckResearch (full orchestration, fake LLM)', () => {
+  it('uses local reader retention in real deck creation before publishing unsupported company numbers', async () => {
+    let snapshot: RepoSnapshot | null = null;
+    const repo = new GeminiRepository({
+      apiKey: 'test-key', client: fakeClient(), coverage: testCoverage, catalogMax: 3, catalogPasses: 0,
+      store: { read: () => snapshot ? structuredClone(snapshot) : null, write: async next => { snapshot = structuredClone(next); } },
+      originalSourceReader: async url => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'Browser CORS restriction' }),
+    });
+    const { deck } = await repo.createResearchedDeck({ prompt: 'Software', region: null });
+    await repo.waitForBackgroundJobs();
+    const entries = (await repo.listCards(deck.id)).filter(entry => entry.company);
+    expect(entries.length).toBeGreaterThanOrEqual(3);
+    for (const entry of entries) {
+      expect(entry.metrics.every(metric => metric.value === null && metric.confidence === 'unknown')).toBe(true);
+      expect((await repo.getCard(entry.card.id))!.metrics).toEqual(entry.metrics);
+      const receipts = await repo.getOriginalSourceEvidence({ companyId: entry.company!.id, metricType: 'company_profile' });
+      expect(receipts).toHaveLength(1);
+      expect(receipts[0]!.receipts.every(receipt => receipt.status === 'unavailable')).toBe(true);
+    }
+  }, 20000);
   it('keeps unsupported initial figures unknown through stored deck, card and reader queries', async () => {
     let snapshot: RepoSnapshot | null = null;
     const save = vi.fn(async () => {});

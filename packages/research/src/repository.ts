@@ -84,7 +84,7 @@ import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import { briefingOutSchema, factCheckOutSchema, huntMetricsOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { LlmClient, ResearchCoverage, RunResearchOptions } from './types';
 import { recordResearchEvidence, searchResearchEvidence, type ResearchEvidence } from './research-evidence';
-import type { OriginalSourceServices, OriginalSourceAttempt } from './original-source';
+import { coalesceOriginalSources, isOriginalSourceAttempt, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt } from './original-source';
 import { acceptedMetricPassage } from './metric-support';
 
 interface CachedTab {
@@ -126,6 +126,8 @@ export interface RepoSnapshot {
   threads: ResearchThread[];
   /** Local source-backed research notes, searchable independently of the UI. */
   researchEvidence?: ResearchEvidence[];
+  /** Original receipts retained before interpretation on local browser routes. */
+  originalSourceAttempts?: OriginalSourceAttempt[];
 }
 
 export interface ResearchStore {
@@ -219,6 +221,7 @@ const empty = (): RepoSnapshot => ({
   researchJobs: [],
   threads: [],
   researchEvidence: [],
+  originalSourceAttempts: [],
 });
 
 function companyKey(name: string): string {
@@ -261,6 +264,7 @@ function normalize(raw: RepoSnapshot | null): RepoSnapshot {
     researchJobs,
     threads: raw.threads ?? [],
     researchEvidence: raw.researchEvidence ?? [],
+    originalSourceAttempts: raw.originalSourceAttempts ?? [],
   };
 }
 
@@ -289,6 +293,8 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   catalogMax?: number;
   catalogPasses?: number;
   originalSources?: OriginalSourceServices;
+  /** Reader capability only; this repository owns acknowledged local retention. */
+  originalSourceReader?: (url: string) => Promise<OriginalSourceReceipt>;
 }
 
 export class GeminiRepository implements MarketIntelRepository {
@@ -324,6 +330,22 @@ export class GeminiRepository implements MarketIntelRepository {
     // which format it is looking at.
     const migration = migrateSnapshot(this.store?.read() ?? null);
     this.snap = migration.snapshot;
+    if (!options.originalSources && options.originalSourceReader) {
+      if (!this.store) throw new Error('Original-source research requires acknowledged local storage.');
+      this.originalSources = {
+        retrieve: coalesceOriginalSources(async url => { await this.ready(); return options.originalSourceReader!(url); }),
+        save: async attempt => {
+          await this.ready();
+          const retained = structuredClone(attempt);
+          if (!isOriginalSourceAttempt(retained) || JSON.stringify(retained).length > 20000) throw new Error('Invalid original-source attempt.');
+          const previous = (this.snap.originalSourceAttempts ?? []).find(row => row.id === retained.id);
+          if (previous && JSON.stringify(previous) !== JSON.stringify(retained)) throw new Error('Original-source attempt cannot be overwritten.');
+          if (!previous) this.snap.originalSourceAttempts = [...(this.snap.originalSourceAttempts ?? []), retained];
+          await this.persist();
+        },
+        list: async input => this.listLocalOriginals(input),
+      };
+    }
     const provider = options.client ?? createGeminiClient(options);
     const guardedProvider: LlmClient = {
       ground: async (prompt, opts) => {
@@ -370,9 +392,16 @@ export class GeminiRepository implements MarketIntelRepository {
     return searchResearchEvidence(this.snap.researchEvidence ?? [], input);
   }
 
-  /** Scoped native artifacts can be queried without a provider call. */
+  private listLocalOriginals(input: { companyId: string; metricType?: string; limit?: number }): OriginalSourceAttempt[] {
+    const limit = Number.isFinite(input.limit) ? Math.max(1, Math.min(100, Math.floor(input.limit!))) : 20;
+    return structuredClone((this.snap.originalSourceAttempts ?? [])
+      .filter(row => row.companyId === input.companyId && (!input.metricType || row.metricType === input.metricType))
+      .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt)).slice(0, limit));
+  }
+
+  /** Scoped originals can be read offline without invoking a provider. */
   getOriginalSourceEvidence(input: { companyId: string; metricType?: string; limit?: number }): Promise<OriginalSourceAttempt[]> {
-    return this.originalSources?.list(input) ?? Promise.resolve([]);
+    return this.originalSources?.list(input) ?? Promise.resolve(this.listLocalOriginals(input));
   }
 
   /** Apply the optional BYOK writer pass; on ANY failure return the draft untouched. */
