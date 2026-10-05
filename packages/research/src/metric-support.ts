@@ -26,10 +26,20 @@ export function acceptedMetricPassage(input: { companyName: string; metricType: 
     new Intl.DateTimeFormat('en-US', { year: 'numeric', month, day: 'numeric', timeZone: 'UTC' }).format(date),
     new Intl.DateTimeFormat('en-GB', { year: 'numeric', month, day: 'numeric', timeZone: 'UTC' }).format(date),
   ])];
-  const literalDate = dateForms.find((value) => quote.toLowerCase().includes(value.toLowerCase()));
+  const literalDate = dateForms.find((value) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(value)}(?![\\p{L}\\p{N}])`, 'iu').test(quote));
   if (quote.length < 10 || quote.length > 600 || !company ||
     !new RegExp(`(?<![\\p{L}\\p{N}])${escape(company)}(?![\\p{L}\\p{N}])`, 'iu').test(quote) || !literalDate ||
     !basis[input.metricType].test(quote) || /\b(?:not|estimated?|projects?|projected|forecasts?|targets?|expects?|expected|might|could|would|may|approximately|about)\b|~/i.test(quote)) return [];
+  // Keyword co-occurrence is not attribution: the company, metric and date
+  // must form one direct statement. Ambiguous prose stays unknown rather than
+  // borrowing a partner's figure or mistaking an article date for an as-of date.
+  const subject = new RegExp(`(?<![\\p{L}\\p{N}])${escape(company)}(?![\\p{L}\\p{N}])(?:['’]s)?\\s+(?:reports?|reported|has|had|recorded|disclosed|announced|employs?|employed|was|is)\\b`, 'iu');
+  const withoutCompany = quote.replace(new RegExp(`${escape(company)}(?:['’]s)?`, 'giu'), 'COMPANY');
+  if (!subject.test(quote) || /[.!?;]\s+/.test(withoutCompany) ||
+    /\bthat\b|[\p{L}\p{N}]+['’]s\b/iu.test(withoutCompany) ||
+    /\b(?:article|published|publication|posted|retrieved|updated)\b/i.test(quote) ||
+    !new RegExp(`\\b(?:as of|on|at)\\s+${escape(literalDate)}(?![\\p{L}\\p{N}])`, 'iu').test(quote) ||
+    Object.entries(basis).some(([type, pattern]) => type !== input.metricType && pattern.test(quote))) return [];
   const expectedUnit = ['arr', 'valuation', 'market_cap'].includes(input.metricType) ? 'USD' : input.metricType === 'market_share' ? 'percent' : 'count';
   if (proof.unit !== expectedUnit || (expectedUnit === 'USD' && !/\bUSD\b|US\$|U\.S\. dollars/i.test(quote)) ||
     (expectedUnit === 'percent' && !/%|\bpercent\b/i.test(quote))) return [];

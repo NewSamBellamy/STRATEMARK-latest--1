@@ -8,6 +8,22 @@ const source: OriginalSourceReceipt = { requestedUrl: 'https://sec.gov/acme', fi
 const support: MetricPassageSupport = { sourceUrl: source.finalUrl!, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' };
 const input = { companyName: 'Acme Inc.', metricType: 'arr' as const, value: 40_000_000, support, originals: [source] };
 describe('original metric passage gate', () => {
+  it.each([
+    'Acme Inc. partners with Beta. Beta reports ARR of USD 40 million as of 2026-10-01.',
+    'Acme Inc. partners with Beta; Beta reports ARR of USD 40 million as of 2026-10-01.',
+    "Acme Inc. reports Beta's ARR of USD 40 million as of 2026-10-01.",
+    'Acme Inc. reports that Beta has ARR of USD 40 million as of 2026-10-01.',
+    'Acme Inc. reports ARR of USD 40 million. This article was published as of 2026-10-01.',
+    'Acme Inc. reports ARR of USD 40 million in an article published on 2026-10-01.',
+    'Acme Inc. reports ARR of USD 40 million and valuation of USD 40 million as of 2026-10-01.',
+    'Acme Inc. reports ARR of USD 40 million as of 2026-10-010.',
+  ])('rejects a borrowed subject, publication date or ambiguous metric: %s', (text) => {
+    expect(acceptedMetricPassage({ ...input, support: { ...support, quote: text }, originals: [{ ...source, text }] })).toEqual([]);
+  });
+  it('accepts a directly attributed dated figure with an abbreviated company name', () => {
+    const text = 'Acme Inc. reported ARR of USD 40 million on October 1, 2026.';
+    expect(acceptedMetricPassage({ ...input, support: { ...support, quote: text }, originals: [{ ...source, text }] })).toHaveLength(1);
+  });
   it('accepts a literal matching reported figure from the retrieved final source', () => {
     expect(acceptedMetricPassage(input)[0]!.url).toBe(source.finalUrl);
   });

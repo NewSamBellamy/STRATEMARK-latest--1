@@ -28,6 +28,24 @@ function fixture(proof = true, text = quote) {
 }
 
 describe('initial company original-evidence publication', () => {
+  it.each([
+    'Acme Inc. partners with Beta. Beta reported 45 employees as of 2026-10-01.',
+    'Acme Inc. reported 45 employees in an article published on 2026-10-01.',
+  ])('keeps ambiguous original claims unknown on both card and retained memory: %s', async (text) => {
+    const { client, originals } = fixture(true, text);
+    client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: {
+      employees: { value: 45, confidence: 'verified', sourceIndex: 0, passageSupport: {
+        sourceUrl: url, quote: text, asOf: '2026-10-01', basis: 'employees', unit: 'count',
+      } },
+    } })) as LlmClient['structure'];
+    const result = await hydrateCompanyCard({ candidate, client, plan, originalSources: originals });
+    expect(result.metrics.find((metric) => metric.metricType === 'employees')).toMatchObject({ value: null, confidence: 'unknown' });
+    expect(result.primaryCard.metrics).toEqual(result.metrics);
+    expect(result.memory.card.metrics).toEqual(result.metrics);
+    expect(originals.save).toHaveBeenCalledTimes(1);
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(1);
+  });
   it('does not publish citation-only model figures on the protected path', async () => {
     const { client, originals } = fixture(false);
     const result = await hydrateCompanyCard({ candidate, client, plan, originalSources: originals });

@@ -13,6 +13,8 @@ Branch: `revival/initial-card-redesign`. Preserve main and unrelated local work.
 
 ## Actually completed
 
+- Fourteenth checkpoint: storage-failure rollback and a session-wide stop on later model requests; tighter shared original-passage attribution/date/basis checks; actual company hydration cases proving ambiguous numbers remain unknown on face and retained memory. The consolidated plan now has a remaining-backend execution queue. Gate results are recorded in [checkpoint 14](KEYSTONE-CHECKPOINT-14.md). These are connected safety improvements, not a completed Sentinel/Scout architecture or live accuracy claim.
+
 - Thirteenth checkpoint, K2 live-run blocker: browser BYOK now uses acknowledged IndexedDB snapshot transactions with prior-version backup, revision-based stale-writer rejection and preserved legacy copies. Repository mutations/grounded-note retention/checkpoints await saves; Settings export/import/restore reads and writes the same authoritative store. Basic invalid/future imports and active-workspace replacement are rejected. Larger-than-localStorage fixtures and transaction-abort/retry are tested. Final `pnpm check` passed all workspace typecheck, lint and unit suites, including 152 web tests. Production web build passed with existing bundle warnings. The first full run hit the recorded navigation flake; unchanged isolated/final reruns passed. No visual redesign or live metric-accuracy claim. See [checkpoint 13](KEYSTONE-CHECKPOINT-13.md).
 
 - `a8f0d15`: source-priority prompts, hostname-based classification hardening, local scoped grounded notes and Ask reuse. Not independent claim verification or a raw-document vault.
@@ -66,7 +68,9 @@ GitHub push was blocked by Windows/Git authentication. Local checkpoint is not a
 
 ## Next bounded task
 
-Checkpoint 13 immediate follow-up: exercise real-browser large-workspace save/reload/export and two-window conflicts using isolated fixtures, then a small authorized Gemini run with measured first-ready latency/call counts and support outcomes. The browser now has acknowledged snapshot persistence, not per-artifact indexed dossiers. Keep legacy data; do not clear storage to make live runs succeed. Resume K1 free/BYOK local receipt delivery after the durability smoke test.
+Checkpoint 14 follow-up: close K1 original-receipt retrieval and acknowledged local retention on the actual direct-Gemini browser BYOK path. It currently has no original-source service; synchronous API BYOK is a separate legacy path, not the current browser implementation. Use a native host or explicitly configured retrieval capability without silently sending keys/research to another service. Then one small authorized Gemini company journey with inspected support outcomes and measured calls/first-ready timing, not another broad census.
+
+An isolated real-browser 6 MB save/reopen and stale second-handle rejection passed. Independent-window conflict and actual export download remain unverified (download observer timed out). The configured key's UI test succeeded but returned zero grounded sources; no completed live company/deck accuracy run is established. See checkpoint 14 for exact measurement boundaries. The browser now has acknowledged snapshots, not per-artifact indexed dossiers; keep legacy data and never clear storage to make research succeed.
 
 K0 remaining: capture approved card/reader baseline and affected-journey recording using isolated no-key fixture state; measure labelled timings/call counts; investigate hot-reload context identity. Keep trying to reproduce prior navigation failure without weakening its assertion.
 

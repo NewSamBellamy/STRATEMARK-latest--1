@@ -129,6 +129,7 @@ export interface RepoSnapshot {
 }
 
 export interface ResearchStore {
+  /** Return the last acknowledged snapshot, not a reference to a caller's mutable state. */
   read(): RepoSnapshot | null;
   write: ((snapshot: RepoSnapshot) => void) | ((snapshot: RepoSnapshot) => Promise<void>);
 }
@@ -307,6 +308,7 @@ export class GeminiRepository implements MarketIntelRepository {
   private listeners = new Set<DeckRefreshListener>();
   private startupWrite: Promise<void> = Promise.resolve();
   private startupError: unknown;
+  private persistenceError: Error | null = null;
 
   constructor(options: GeminiRepositoryOptions) {
     this.store = options.store;
@@ -322,7 +324,18 @@ export class GeminiRepository implements MarketIntelRepository {
     // which format it is looking at.
     const migration = migrateSnapshot(this.store?.read() ?? null);
     this.snap = migration.snapshot;
-    this.client = recordResearchEvidence(options.client ?? createGeminiClient(options), async (evidence) => {
+    const provider = options.client ?? createGeminiClient(options);
+    const guardedProvider: LlmClient = {
+      ground: async (prompt, opts) => {
+        await this.ready();
+        return provider.ground(prompt, opts);
+      },
+      structure: async (prompt, schema, opts) => {
+        await this.ready();
+        return provider.structure(prompt, schema, opts);
+      },
+    };
+    this.client = recordResearchEvidence(guardedProvider, async (evidence) => {
       this.snap.researchEvidence = [...(this.snap.researchEvidence ?? []), evidence];
       await this.persist();
     });
@@ -340,6 +353,7 @@ export class GeminiRepository implements MarketIntelRepository {
   async ready(): Promise<void> {
     await this.startupWrite;
     if (this.startupError) throw this.startupError;
+    if (this.persistenceError) throw this.persistenceError;
   }
 
   /**
@@ -379,7 +393,17 @@ export class GeminiRepository implements MarketIntelRepository {
 
   private async persist(): Promise<void> {
     await this.ready();
-    await this.store?.write(this.snap);
+    try {
+      await this.store?.write(this.snap);
+    } catch (cause) {
+      // Never keep spending on a workspace that cannot retain its evidence.
+      this.persistenceError ??= new Error(`Research could not be saved. Reopen the workspace before continuing. ${cause instanceof Error ? cause.message : 'Storage failed.'}`, { cause });
+      for (const controller of this.jobControllers.values()) controller.abort();
+      // The acknowledged store remains authoritative after a rejected mutation.
+      // Do not clear data if even recovery reading fails.
+      try { this.snap = migrateSnapshot(this.store?.read() ?? null).snapshot; } catch { /* Preserve the recovery material; never overwrite it. */ }
+      throw this.persistenceError;
+    }
   }
 
   /** Flatten a pipeline result into the normalized store. */
