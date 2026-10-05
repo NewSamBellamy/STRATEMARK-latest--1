@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { buildDataset } from '@mi/mocks';
 import type { CompanyMetric } from '@mi/contracts';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
@@ -18,6 +18,12 @@ function show(patch: Partial<CompanyMetric>) {
 }
 
 describe('dashboard metric evidence projection', () => {
+  it('keeps headline figures in a dedicated region separate from research actions', async () => {
+    show({ confidence: 'estimated' });
+    const band = await screen.findByRole('region', { name: 'Company headline metrics' });
+    expect(within(band).getByText('Employees')).toBeInTheDocument();
+    expect(within(band).queryByRole('button')).not.toBeInTheDocument();
+  });
   it('does not label unsupported legacy figures as verified when cards reject them', async () => {
     const metric = show({ source: 'https://reuters.com.attacker.test/figure',
       citations: [{ title: 'Reuters', url: 'https://reuters.com.attacker.test/figure', credibility: 'primary' }] });

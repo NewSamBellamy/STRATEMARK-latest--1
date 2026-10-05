@@ -246,9 +246,9 @@ function KpiBand({ tiles }: { tiles: CompanyMetric[] }) {
     user_verified: '#0284C7',
   };
   return (
-    <div className="panel grid grid-cols-2 divide-border sm:grid-cols-3 sm:divide-x lg:grid-cols-5">
+    <section aria-label="Company headline metrics" className="panel grid w-full min-w-0 grid-cols-2 divide-border sm:grid-cols-3 sm:divide-x lg:grid-cols-5">
       {tiles.map((m) => (
-        <div key={m.id} className="px-4 py-3.5">
+        <div key={m.id} className="min-w-0 px-4 py-3.5">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-semibold uppercase tracking-widest text-muted">
               {METRIC_TYPE_LABELS[m.metricType]}
@@ -272,7 +272,7 @@ function KpiBand({ tiles }: { tiles: CompanyMetric[] }) {
           </div>
         </div>
       ))}
-    </div>
+    </section>
   );
 }
 
@@ -338,7 +338,7 @@ function HuntMetricsButton({
     ).length + Math.max(0, 5 - metrics.length);
   if (!hunt.isAvailable || (softCount === 0 && !outcome)) return null;
   return (
-    <span className="flex items-center gap-2">
+    <span className="flex min-w-0 flex-wrap items-center gap-2">
       {outcome && <span className="text-[11px] font-medium text-positive">{outcome}</span>}
       {softCount > 0 && (
         <button
@@ -396,9 +396,9 @@ export function MetricsTab({ companyId }: { companyId: string }) {
         const hasSeries = !!series && (series.revenue.length > 1 || series.users.length > 1);
         return (
           <div className="space-y-5">
-            <div className="flex items-center justify-between gap-3">
+            <div className="space-y-3">
               <KpiBand tiles={tiles} />
-              <span className="flex shrink-0 items-center gap-1.5">
+              <span className="flex flex-wrap items-center justify-end gap-1.5">
                 <HuntMetricsButton
                   companyId={companyId}
                   metrics={metrics}

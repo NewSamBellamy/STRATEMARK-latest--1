@@ -229,6 +229,7 @@ export const huntMetricsOutSchema = z.preprocess(
           value: z.number().nullable().default(null),
           /** One line naming where the figure comes from. */
           methodNote: z.string().nullable().default(null),
+          passageSupport: metricPassageSchema.nullable().default(null),
         }),
       )
       .default([]),

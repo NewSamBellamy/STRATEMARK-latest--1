@@ -91,6 +91,88 @@ function repoWith(client: LlmClient): GeminiRepository {
 }
 
 describe('huntCompanyMetrics — one pass fills every soft figure', () => {
+  it('retains unavailable originals and skips interpretation without promoting figures', async () => {
+    const store = memoryStore(snapshot());
+    const ground = vi.fn().mockResolvedValue({ text: 'OpenAI has 3500 employees.',
+      citations: [{ title: 'Reuters', url: 'https://reuters.com/report' }], queries: [] });
+    const structure = vi.fn().mockResolvedValue({ figures: [{ metricType: 'employees', value: 3500 }] });
+    const read = vi.fn(async (url: string) => ({ requestedUrl: url, status: 'unavailable' as const,
+      retrievedAt: new Date().toISOString(), reason: 'Public page unavailable' }));
+    const repo = new GeminiRepository({ apiKey: 'k', store, client: { ground, structure } as unknown as LlmClient,
+      originalSourceReader: read });
+    const result = await repo.huntCompanyMetrics('cmp_1');
+    expect(result.filledTypes).toEqual([]);
+    expect(structure).not.toHaveBeenCalled();
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(result.metrics.find(m => m.metricType === 'employees')?.value).toBeNull();
+    const reopened = new GeminiRepository({ apiKey: 'k', store, client: { ground, structure } as unknown as LlmClient });
+    expect((await reopened.getOriginalSourceEvidence({ companyId: 'cmp_1' }))[0]?.receipts[0]?.reason)
+      .toBe('Public page unavailable');
+  });
+  it('accepts each figure from its own retained passage, not from an unrelated citation', async () => {
+    const store = memoryStore(snapshot());
+    const url = 'https://reuters.com/report';
+    const quote = 'OpenAI reported 3500 employees as of 2026-10-01.';
+    const ground = vi.fn().mockResolvedValue({ text: 'Provider notes contain multiple proposed metrics.',
+      citations: [{ title: 'Reuters', url }], queries: [] });
+    const structure = vi.fn(async (_prompt, schema) => {
+      expect((store.read() as RepoSnapshot).originalSourceAttempts).toHaveLength(1);
+      return schema.parse({ figures: [
+        { metricType: 'employees', value: 3500, passageSupport: { sourceUrl: url, quote,
+          asOf: '2026-10-01', basis: 'employees', unit: 'count' } },
+        { metricType: 'valuation', value: 500_000_000_000, methodNote: 'Trust the provider' },
+        { metricType: 'market_cap', value: 99, passageSupport: { sourceUrl: url,
+          quote: 'Other Company reported market cap of USD 99 as of 2026-10-01.',
+          asOf: '2026-10-01', basis: 'market_cap', unit: 'USD' } },
+      ] });
+    }) as LlmClient['structure'];
+    const reader = vi.fn(async (requestedUrl: string) => ({ requestedUrl, finalUrl: url, status: 'retrieved' as const,
+      httpStatus: 200, contentHash: 'a'.repeat(64), text: quote, retrievedAt: '2026-10-05T00:00:00.000Z' }));
+    const client = { ground, structure } as LlmClient;
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSourceReader: reader });
+    const result = await repo.huntCompanyMetrics('cmp_1');
+    expect(result.filledTypes).toEqual(['employees']);
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(structure).toHaveBeenCalledTimes(1);
+    expect(reader).toHaveBeenCalledTimes(1);
+    const reopened = new GeminiRepository({ apiKey: 'k', store, client });
+    const metrics = await reopened.getCompanyMetrics('cmp_1');
+    expect(metrics.find(m => m.metricType === 'employees')).toMatchObject({ value: 3500,
+      confidence: 'verified', source: url, methodNote: 'Original reported employees as of 2026-10-01.' });
+    expect(metrics.find(m => m.metricType === 'valuation')).toBeUndefined();
+    expect(metrics.find(m => m.metricType === 'market_cap')).toBeUndefined();
+    expect(reopened.getResearchEvidence({ companyId: 'cmp_1' })).toHaveLength(1);
+  });
+  it('does not overwrite a human correction made while the hunt is in flight', async () => {
+    const url = 'https://reuters.com/report';
+    const quote = 'OpenAI reported 3500 employees as of 2026-10-01.';
+    const ground = vi.fn().mockResolvedValue({ text: quote, citations: [{ title: 'Reuters', url }], queries: [] });
+    const structure = vi.fn(async (_prompt, schema) => {
+      await repo.overrideMetric({ companyId: 'cmp_1', metricType: 'employees', value: 4000, note: 'HR confirmed' });
+      return schema.parse({ figures: [{ metricType: 'employees', value: 3500,
+        passageSupport: { sourceUrl: url, quote, asOf: '2026-10-01', basis: 'employees', unit: 'count' } }] });
+    }) as LlmClient['structure'];
+    const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snapshot()), client: { ground, structure } as LlmClient,
+      originalSourceReader: async requestedUrl => ({ requestedUrl, finalUrl: url, status: 'retrieved',
+        httpStatus: 200, contentHash: 'a'.repeat(64), text: quote, retrievedAt: '2026-10-05T00:00:00.000Z' }) });
+    const result = await repo.huntCompanyMetrics('cmp_1');
+    expect(result.filledTypes).toEqual([]);
+    expect(result.metrics.find(m => m.metricType === 'employees')).toMatchObject({ value: 4000, confidence: 'user_verified' });
+  });
+  it('does not interpret or publish if saving original evidence fails', async () => {
+    const url = 'https://reuters.com/report';
+    const ground = vi.fn().mockResolvedValue({ text: 'Notes', citations: [{ title: 'Reuters', url }], queries: [] });
+    const structure = vi.fn();
+    const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snapshot()), client: { ground, structure } as LlmClient,
+      originalSources: {
+        retrieve: async requestedUrl => ({ requestedUrl, finalUrl: url, status: 'retrieved', httpStatus: 200,
+          contentHash: 'a'.repeat(64), text: 'Original text', retrievedAt: new Date().toISOString() }),
+        save: async () => { throw new Error('Evidence storage unavailable'); }, list: async () => [],
+      } });
+    await expect(repo.huntCompanyMetrics('cmp_1')).rejects.toThrow('Evidence storage unavailable');
+    expect(structure).not.toHaveBeenCalled();
+    expect((await repo.getCompanyMetrics('cmp_1')).find(m => m.metricType === 'employees')?.value).toBeNull();
+  });
   it('fills missing + unknown figures from a verification-grade pass; verified/user rows untouched', async () => {
     const ground = vi.fn().mockResolvedValue({
       text: 'notes',

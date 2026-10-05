@@ -14,6 +14,8 @@ Branch: `revival/initial-card-redesign`. Preserve main and unrelated local work.
 
 ## Actually completed
 
+- Twenty-third checkpoint: three bounded live configured-browser checks exposed unavailable originals and a persistent dashboard/card user-count mismatch. Broad Find more metrics now uses saved originals and per-figure passage support, skips synthesis on unreadable pages, and preserves in-flight human corrections. Headline metrics also have their own full-width region so research controls cannot squeeze them into overlapping text. Full gate passed (425 research / 183 web); the cross-surface mismatch and native accepted-source journey remain unresolved. See [checkpoint 23](KEYSTONE-CHECKPOINT-23.md). Preceding checkpoint commit: `c800102`.
+
 - Twenty-second checkpoint: shared source selection no longer wastes its two original-read slots on unsupported HTTP/nonstandard ports or duplicate page fragments/default-port variants. Full quality gate passed; no design, schema or model-budget change. Native app opened, but secure capture failed twice, so the real native figure/save/reopen journey remains unverified. See [checkpoint 22](KEYSTONE-CHECKPOINT-22.md). Preceding checkpoint commit: `e861cc7`.
 
 - Twenty-first checkpoint: one shared two-source priority policy now drives initial card hydration and local/browser/native/persisted-cloud verification, replacing arbitrary first-two selection. No extra model/page-read budget, design or schema changes. Two no-key native probes distinguished a resolved publisher HTTP 403 from a downstream redirect failure; neither validates a real figure. See [checkpoint 21](KEYSTONE-CHECKPOINT-21.md).
