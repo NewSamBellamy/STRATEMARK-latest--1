@@ -46,6 +46,7 @@ import type {
   LlmClient,
   MarketPlan,
   OnResearchEvent,
+  ResearchBrief,
   ResearchCoverage,
   RunResearchOptions,
 } from './types';
@@ -96,7 +97,7 @@ const now = (): string => new Date().toISOString();
 
 async function interpret(
   client: LlmClient,
-  brief: { prompt: string; region: string | null },
+  brief: ResearchBrief,
   signal?: AbortSignal,
 ): Promise<MarketPlan> {
   const grounded = await client.ground(interpretMarketPrompt(brief.prompt, brief.region), {
@@ -117,7 +118,14 @@ async function interpret(
     geography: plan.geography ?? brief.region,
     notes: plan.notes,
     searchThemes: plan.searchThemes,
-    companyScope: plan.companyScope,
+    companyScope: brief.companyScope
+      ? {
+          mode: brief.companyScope.mode,
+          names: brief.companyScope.mode === 'selected_only'
+            ? [...new Set(brief.companyScope.names.map((name) => name.trim()).filter(Boolean))].slice(0, 30)
+            : [],
+        }
+      : plan.companyScope,
   };
 }
 
@@ -533,7 +541,7 @@ export async function expandDeckResearch(args: {
  * UI can navigate immediately.
  */
 export async function discoverDeckStubs(
-  brief: { prompt: string; region: string | null },
+  brief: ResearchBrief,
   client: LlmClient,
   options: Partial<RunResearchOptions> = {},
 ): Promise<DeckStubsResult> {
@@ -932,7 +940,7 @@ export async function hydrateDeckCards(
 
 /** Run the full deck-research pipeline. Streams progress via `onEvent`. */
 export async function runDeckResearch(
-  brief: { prompt: string; region: string | null },
+  brief: ResearchBrief,
   client: LlmClient,
   options: RunResearchOptions,
 ): Promise<ResearchResult> {

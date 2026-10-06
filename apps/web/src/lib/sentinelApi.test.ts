@@ -39,4 +39,25 @@ describe('Sentinel Cloud transport', () => {
     const headers = (init?.headers ?? {}) as Record<string, string>;
     expect(headers.Authorization).toBeUndefined();
   });
+
+  it('transmits an explicit selected-company scope to the cloud engine', async () => {
+    localStorage.setItem('mi.sentinelApiUrl', 'https://sentinel.test');
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, deckId: 'deck_1', state: { status: 'running' } }),
+    } as Response);
+
+    await runCloudResearchDeck(
+      'Compare two frontier AI labs',
+      null,
+      10,
+      'firebase-token',
+      undefined,
+      { mode: 'selected_only', names: ['OpenAI', 'Anthropic'] },
+    );
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    const body = JSON.parse(String(init?.body)) as { companyScope?: { mode: string; names: string[] } };
+    expect(body.companyScope).toEqual({ mode: 'selected_only', names: ['OpenAI', 'Anthropic'] });
+  });
 });

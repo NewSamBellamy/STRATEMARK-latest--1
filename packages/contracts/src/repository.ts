@@ -37,9 +37,16 @@ export interface CreateMarketInput {
 }
 
 /** A user's free-text request to research a new deck (the "New deck" screen). */
+export type CompanyScope = {
+  mode: 'market' | 'selected_only';
+  names: string[];
+};
+
 export interface DeckResearchBrief {
   prompt: string;
   region: string | null;
+  /** Optional hard scope from the user's explicit company selection. */
+  companyScope?: CompanyScope;
 }
 
 export type ResearchStage = 'scope' | 'catalog' | 'summary' | 'metrics' | 'signals' | 'dashboard';

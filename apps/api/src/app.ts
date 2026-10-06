@@ -76,12 +76,24 @@ import { CloudTasksAdapter, MockTasksAdapter, type TasksAdapter } from './lib/Cl
 import { AgentObservabilityLogger, parseTraceContext } from './lib/observability';
 import { cloudChatSchema, prepareCloudChat, researchIdSchema } from './lib/cloudChat';
 
+const companyScopeSchema = z.discriminatedUnion('mode', [
+  z.object({
+    mode: z.literal('market'),
+    names: z.array(z.string().trim().min(1).max(100)).max(30).default([]),
+  }),
+  z.object({
+    mode: z.literal('selected_only'),
+    names: z.array(z.string().trim().min(1).max(100)).min(1).max(30),
+  }),
+]);
+
 const planSchema = z.object({
   marketName: z.string().min(1),
   vertical: z.string().min(1),
   geography: z.string().nullable().default(null),
   notes: z.string().nullable().default(null),
   searchThemes: z.array(z.string()).default([]),
+  companyScope: companyScopeSchema.optional(),
 });
 
 const researchSchema = z.object({
@@ -89,6 +101,7 @@ const researchSchema = z.object({
   plan: planSchema.optional(),
   deckId: z.string().min(1).optional(),
   maxCandidates: z.number().int().min(1).max(30).optional(),
+  companyScope: companyScopeSchema.optional(),
   watch: z.boolean().optional(),
 });
 
@@ -107,16 +120,18 @@ const pdfSchema = z.object({
 async function planFromQuery(
   client: Awaited<ReturnType<typeof resolveClient>>['client'],
   query: string,
+  companyScope?: { mode: 'market' | 'selected_only'; names: string[] },
 ): Promise<MarketPlan> {
   const grounded = await client.ground(
     `Identify the market implied by this request: "${query}". ` +
       'Name the market, its vertical, and its geography if one is implied. ' +
       'Suggest four distinct angles worth searching to find the companies in it.',
   );
-  return client.structure(
+  const plan = await client.structure(
     `From this research, produce the market plan.\n\n${grounded.text}`,
     planSchema as unknown as z.ZodType<MarketPlan, z.ZodTypeDef, unknown>,
   );
+  return companyScope ? { ...plan, companyScope } : plan;
 }
 
 /** Estimated cost of one full deck run — checked before work begins. */
@@ -470,6 +485,7 @@ export function createApp(
       ...(queryStr ? { query: queryStr } : {}),
       ...(json.plan ? { plan: json.plan } : {}),
       ...(json.deckId ? { deckId: json.deckId } : {}),
+      ...(json.companyScope ? { companyScope: json.companyScope } : {}),
       ...(json.maxCandidates || json.targetCompanies
         ? { maxCandidates: json.maxCandidates || json.targetCompanies }
         : {}),
@@ -542,7 +558,14 @@ export function createApp(
       throw err;
     }
 
-    const plan = body.data.plan ?? (await planFromQuery(resolved.client, body.data.query ?? ''));
+    const interpretedPlan = body.data.plan ?? (await planFromQuery(
+      resolved.client,
+      body.data.query ?? '',
+      body.data.companyScope,
+    ));
+    const plan = body.data.companyScope
+      ? { ...interpretedPlan, companyScope: body.data.companyScope }
+      : interpretedPlan;
     const deckId = body.data.deckId ?? `deck_${Date.now().toString(36)}`;
     const traceHeader = c.req.header('x-cloud-trace-context') || c.req.header('traceparent');
     const traceContext = parseTraceContext(traceHeader);

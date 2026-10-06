@@ -3,7 +3,7 @@
  * connecting the Web / Desktop client to the deployed Sentinel Cloud Run backend.
  */
 
-import type { VerifyMetricInput, VerifyMetricResult, HuntMetricsResult } from '@mi/contracts';
+import type { CompanyScope, VerifyMetricInput, VerifyMetricResult, HuntMetricsResult } from '@mi/contracts';
 
 export interface SentinelAlert {
   id: string;
@@ -208,6 +208,7 @@ export async function runCloudResearchDeck(
   targetCompanies?: number,
   token?: string | null,
   deckId?: string,
+  companyScope?: CompanyScope,
 ): Promise<CloudResearchDeckResponse> {
   return fetchSentinel<CloudResearchDeckResponse>('/api/research/deck', {
     method: 'POST',
@@ -216,6 +217,7 @@ export async function runCloudResearchDeck(
       query: prompt,
       region,
       targetCompanies,
+      ...(companyScope ? { companyScope } : {}),
       ...(deckId ? { deckId } : {}),
     }),
     token,

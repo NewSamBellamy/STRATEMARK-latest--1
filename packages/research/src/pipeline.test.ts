@@ -697,6 +697,48 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
 });
 
 describe('discovery coverage contract', () => {
+  it('honors an explicit whole-market choice over a model guess of selected-company scope', async () => {
+    const structure = vi.fn(async (prompt: string, schema: ZodType<unknown>) => {
+      if (prompt.includes('market definition')) {
+        return schema.parse({
+          marketName: 'Frontier AI labs',
+          vertical: 'Frontier model companies',
+          geography: null,
+          notes: null,
+          searchThemes: ['foundation models'],
+          companyScope: { mode: 'selected_only', names: ['Meta', 'Anthropic'] },
+        });
+      }
+      return schema.parse({
+        companies: [
+          { name: 'Meta Platforms, Inc.', domain: 'meta.com', descriptor: 'AI lab', cardTypes: ['company'] },
+          { name: 'Anthropic, PBC', domain: 'anthropic.com', descriptor: 'AI lab', cardTypes: ['company'] },
+          { name: 'OpenAI, Inc.', domain: 'openai.com', descriptor: 'AI lab', cardTypes: ['company'] },
+        ],
+      });
+    });
+    const client: LlmClient = {
+      ground: vi.fn(async () => ({ text: 'grounded company evidence', citations: [], queries: [] })),
+      structure: structure as LlmClient['structure'],
+    };
+
+    const result = await discoverDeckStubs(
+      {
+        prompt: 'Research frontier AI labs',
+        region: null,
+        companyScope: { mode: 'market', names: [] },
+      },
+      client,
+      { coverage: testCoverage, catalogMax: 10, catalogPasses: 0 },
+    );
+
+    expect(result.candidates.map((candidate) => candidate.name)).toEqual([
+      'Meta Platforms, Inc.',
+      'Anthropic, PBC',
+      'OpenAI, Inc.',
+    ]);
+  });
+
   it('keeps an explicitly selected-company deck scoped to those companies', async () => {
     const requested = ['Meta', 'Anthropic'];
     const structure = vi.fn(async (prompt: string, schema: ZodType<unknown>) => {
@@ -707,7 +749,8 @@ describe('discovery coverage contract', () => {
           geography: null,
           notes: null,
           searchThemes: ['foundation models'],
-          companyScope: { mode: 'selected_only', names: requested },
+          // The UI's explicit choice must win even if interpretation suggests a market scan.
+          companyScope: { mode: 'market', names: [] },
         });
       }
       return schema.parse({
@@ -726,7 +769,11 @@ describe('discovery coverage contract', () => {
     const client: LlmClient = { ground, structure: structure as LlmClient['structure'] };
 
     const result = await discoverDeckStubs(
-      { prompt: 'Compare Meta and Anthropic only', region: null },
+      {
+        prompt: 'Research frontier AI labs',
+        region: null,
+        companyScope: { mode: 'selected_only', names: requested },
+      },
       client,
       { coverage: testCoverage, catalogMax: 10, catalogPasses: 0 },
     );
@@ -738,7 +785,7 @@ describe('discovery coverage contract', () => {
     expect(ground).toHaveBeenCalledTimes(2);
     expect(ground.mock.calls[1]?.[0]).toContain('Meta');
     expect(ground.mock.calls[1]?.[0]).toContain('Anthropic');
-    expect(String(structure.mock.calls[0]?.[0])).toContain('Compare Meta and Anthropic only');
+    expect(String(structure.mock.calls[0]?.[0])).toContain('Research frontier AI labs');
   });
 
   it('uses bounded fallback passes to fill underfilled entity roles', async () => {

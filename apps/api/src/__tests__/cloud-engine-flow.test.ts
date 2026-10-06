@@ -34,6 +34,43 @@ async function json<T>(response: Response): Promise<T> {
 }
 
 describe('Cloud Engine creation-to-worker flow', () => {
+  it('preserves the user-selected whole-market mode over a plan guess of exact-company scope', async () => {
+    const store = new MemoryDataStore();
+    const auth = new MockFirebaseAdapter();
+    const tasks = new MockTasksAdapter();
+    const service = new CloudDeckService(store, auth, auth, tasks);
+    const app = createApp(readEnv({ GEMINI_API_KEY: 'server-key', APP_TOKEN: 'app-token' }), {
+      store,
+      cloudDeckService: service,
+      tasksAdapter: tasks,
+      forceMemoryStore: true,
+    });
+
+    const response = await app.request('/api/research/deck', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer valid_pro_token',
+        'X-Stratemark-Token': 'app-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        deckId: 'deck_market_scope',
+        plan: {
+          marketName: 'Frontier AI',
+          vertical: 'artificial intelligence',
+          geography: null,
+          notes: null,
+          searchThemes: ['companies'],
+          companyScope: { mode: 'selected_only', names: ['Example Co'] },
+        },
+        companyScope: { mode: 'market', names: [] },
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    expect(tasks.queuedTasks[0]?.plan.companyScope).toEqual({ mode: 'market', names: [] });
+  });
+
   it('persists hydrated cards when the browser creates a Cloud Deck', async () => {
     const store = new MemoryDataStore();
     const auth = new MockFirebaseAdapter();
@@ -112,11 +149,16 @@ describe('Cloud Engine creation-to-worker flow', () => {
     const createResponse = await app.request('/api/research/deck', {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deckId: 'deck_flow', plan }),
+      body: JSON.stringify({
+        deckId: 'deck_flow',
+        plan: { ...plan, companyScope: { mode: 'market', names: [] } },
+        companyScope: { mode: 'selected_only', names: ['Example Co'] },
+      }),
     });
 
     expect(createResponse.status).toBe(202);
     expect(tasks.queuedTasks).toHaveLength(1);
+    expect(tasks.queuedTasks[0]?.plan.companyScope).toEqual({ mode: 'selected_only', names: ['Example Co'] });
 
     const workerResponse = await app.request('/tasks/worker/research', {
       method: 'POST',
@@ -125,6 +167,13 @@ describe('Cloud Engine creation-to-worker flow', () => {
     });
 
     expect(workerResponse.status).toBe(200);
+    expect(vi.mocked(runLivingDeckEngine)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          companyScope: { mode: 'selected_only', names: ['Example Co'] },
+        }),
+      }),
+    );
     const deckResponse = await app.request('/api/decks/deck_flow', { headers });
     const deck = await json<{
       state: { status: string };

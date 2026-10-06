@@ -516,7 +516,14 @@ export class SentinelRepository implements MarketIntelRepository {
       /* opaque origin — keep default */
     }
 
-    const res = await runCloudResearchDeck(brief.prompt, brief.region, targetCompanies);
+    const res = await runCloudResearchDeck(
+      brief.prompt,
+      brief.region,
+      targetCompanies,
+      undefined,
+      undefined,
+      brief.companyScope,
+    );
     if (!res.ok) {
       throw new Error(res.error || 'Sentinel Cloud Agent failed to create research deck.');
     }

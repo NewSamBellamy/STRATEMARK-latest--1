@@ -8,6 +8,7 @@ import type { OriginalSourceServices } from './original-source';
 import type {
   CardType,
   CardWithCompany,
+  CompanyScope,
   DashboardTab,
   Deck,
   Market,
@@ -20,6 +21,8 @@ export interface ResearchBrief {
   prompt: string;
   /** Optional geography/region scope, e.g. "California, USA". */
   region: string | null;
+  /** Explicit company-only scope; absent means discover the whole market. */
+  companyScope?: CompanyScope;
 }
 
 /** Normalized market definition (output of the scope-interpreter step). */
@@ -31,10 +34,7 @@ export interface MarketPlan {
   /** Angles the discovery step should search along. */
   searchThemes: string[];
   /** Named companies are priority anchors by default; exact scope prevents market expansion. */
-  companyScope?: {
-    mode: 'market' | 'selected_only';
-    names: string[];
-  };
+  companyScope?: CompanyScope;
 }
 
 export interface ResearchResumeState {
