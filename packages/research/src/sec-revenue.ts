@@ -5,11 +5,23 @@ import type { OriginalSourceReceipt } from './original-source';
 export const MAX_SEC_CONCEPT_TEXT = 32000;
 const concept = 'RevenueFromContractWithCustomerExcludingAssessedTax';
 const path = new RegExp(`^/api/xbrl/companyconcept/CIK(\\d{10})/us-gaap/${concept}\\.json$`);
+const filingPath = /^\/(?:Archives\/)?edgar\/data\/(\d{1,10})\/.+$/;
 export function secRevenueCik(raw: string): string | null {
   try {
     const url = new URL(raw);
     return url.protocol === 'https:' && url.hostname === 'data.sec.gov' && !url.username && !url.password &&
       !url.port && !url.search && !url.hash ? path.exec(url.pathname)?.[1] ?? null : null;
+  } catch { return null; }
+}
+
+/** A direct HTML filing that can carry disclosures outside XBRL concepts. */
+export function secFilingCik(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:' || !['sec.gov', 'www.sec.gov'].includes(url.hostname) ||
+      url.username || url.password || url.port || url.search || url.hash) return null;
+    const cik = filingPath.exec(url.pathname)?.[1];
+    return cik && Number(cik) > 0 ? cik.padStart(10, '0') : null;
   } catch { return null; }
 }
 
@@ -79,6 +91,40 @@ export function secRevenueObservation(companyName: string, originals: readonly O
     { title: `SEC filing-reported annual revenue (${latest.fact.start} to ${latest.fact.end}); not independently audited`, url: latest.source.finalUrl! },
     { title: `SEC filing ${latest.fact.accn}`, url: filing },
   ]) };
+}
+
+/**
+ * A reported SEC headcount, not a model-derived estimate. The filing's inline
+ * registrant name is retained independently from the selected text excerpt, so
+ * a first-person disclosure ("we had … employees") cannot be attributed to a
+ * different issuer.
+ */
+export function secFilingHeadcountObservation(companyName: string, originals: readonly OriginalSourceReceipt[], nowMs = Date.now()) {
+  if (!Number.isFinite(nowMs) || !name(companyName)) return null;
+  const candidates = originals.flatMap(source => {
+    const cik = secFilingCik(source.finalUrl ?? '');
+    if (!cik || source.format !== 'sec-filing' || source.status !== 'retrieved' || source.httpStatus !== 200 ||
+      source.truncated || !/^[a-f0-9]{64}$/.test(source.contentHash ?? '') || !source.text || !source.issuerName ||
+      source.text.length > 4000 || !Number.isFinite(Date.parse(source.retrievedAt)) || Date.parse(source.retrievedAt) > nowMs ||
+      name(source.issuerName) !== name(companyName)) return [];
+    const match = /As of ([A-Z][a-z]+ \d{1,2}, \d{4}), we had (approximately )?([\d,]+) full-time employees\./g.exec(source.text);
+    if (!match) return [];
+    const asOf = new Date(`${match[1]} UTC`);
+    const value = Number(match[3]!.replaceAll(',', ''));
+    if (!Number.isSafeInteger(value) || value < 1 || !Number.isFinite(asOf.getTime()) || asOf.getTime() > nowMs ||
+      nowMs - asOf.getTime() > 366 * 86400000) return [];
+    const iso = asOf.toISOString().slice(0, 10);
+    return [{ value, asOf: iso, approximate: Boolean(match[2]), quote: match[0], source }];
+  }).sort((a, b) => b.asOf.localeCompare(a.asOf));
+  const latest = candidates[0];
+  if (!latest || candidates.some(row => row.asOf === latest.asOf && row.value !== latest.value)) return null;
+  const passageSupport: NonNullable<CompanyMetric['passageSupport']> = {
+    sourceUrl: latest.source.finalUrl!, quote: latest.quote, asOf: latest.asOf,
+    basis: 'employees', unit: 'count', definition: 'employees', format: 'sec-filing',
+  };
+  return { value: latest.value, passageSupport, citations: usableCitations([
+    { title: `SEC filing-reported ${latest.approximate ? 'approximate ' : ''}full-time employees (${latest.asOf})`, url: latest.source.finalUrl! },
+  ]), methodNote: `Company-reported ${latest.approximate ? 'approximate ' : ''}full-time employees as of ${latest.asOf}.` };
 }
 
 /** Keep large financial originals on disk, not in every model context. This

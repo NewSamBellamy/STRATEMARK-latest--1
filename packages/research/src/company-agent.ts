@@ -68,7 +68,7 @@ import type {
 } from './types';
 import { selectOriginalSourceCitations, type OriginalSourceServices } from './original-source';
 import { sourceBackedCompanySummary, UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
-import { originalSourcePromptViews, secRevenueObservation } from './sec-revenue';
+import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueObservation } from './sec-revenue';
 import { acceptedMetricPassage } from './metric-support';
 import { recoverInitialMetrics } from './initial-metric-recovery';
 
@@ -704,6 +704,7 @@ export async function hydrateCompanyCard(
         value: null, confidence: 'unknown', source: null, citations: [], methodNote: null, capturedAt: now() });
     }
     const financial = secRevenueObservation(candidate.name, originals);
+    const headcount = secFilingHeadcountObservation(candidate.name, originals);
     if (financial && !rows.some(row => row.metricType === 'arr')) rows.push({ id: uid('met', `${companyId}-arr`),
       companyId, metricType: 'arr', value: null, confidence: 'unknown', source: null, citations: [], methodNote: null, capturedAt: now() });
     return rows.map((row): CompanyMetric => {
@@ -712,6 +713,8 @@ export async function hydrateCompanyCard(
         value: proposal?.value ?? null, support: proposal?.passageSupport, originals });
       if (!citations.length && row.metricType === 'arr' && financial) return { ...row, ...financial, confidence: 'verified',
         source: financial.citations[0]!.url, methodNote: 'Annual revenue reported in SEC XBRL; not ARR or independent audit.', lastVerifiedAt: now() };
+      if (!citations.length && row.metricType === 'employees' && headcount) return { ...row, ...headcount, confidence: 'verified',
+        source: headcount.citations[0]!.url, methodNote: headcount.methodNote, lastVerifiedAt: now() };
       if (!citations.length) return { ...row, value: null, confidence: 'unknown', source: null, citations: [],
         methodNote: recovery === 'unavailable'
           ? 'Unknown: automatic follow-up was unavailable; no accepted original evidence. Retry research.'

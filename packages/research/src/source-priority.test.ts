@@ -17,7 +17,10 @@ describe('bounded original source priority', () => {
     ], 'https://microsoft.com', true, undefined,
     'Original source: https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm');
     expect(chosen[0]?.url).toContain('data.sec.gov/api/xbrl/companyconcept/CIK0000789019/');
-    expect(chosen).toHaveLength(2);
+    expect(chosen.map(row => row.url)).toEqual([
+      expect.stringContaining('data.sec.gov/api/xbrl/companyconcept/CIK0000789019/'),
+      'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm',
+    ]);
   });
   it('does not turn arbitrary URLs in untrusted notes into source candidates', () => {
     const original = { title: 'Homepage', url: 'https://microsoft.com/' };
@@ -33,7 +36,10 @@ describe('bounded original source priority', () => {
     const before = structuredClone(citations);
     const notes = 'Original source: https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm';
     expect(selectOriginalSourceCitations(citations, 'https://microsoft.com', true,
-      candidate => !candidate.startsWith('https://data.sec.gov/'), notes).map(row => row.url)).toEqual([citations[0]!.url]);
+      candidate => !candidate.startsWith('https://data.sec.gov/'), notes).map(row => row.url)).toEqual([
+      'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm',
+      citations[0]!.url,
+    ]);
     expect(citations).toEqual(before);
   });
   it('does not let the homepage and newsroom crowd out a cited financial original', () => {
@@ -44,7 +50,7 @@ describe('bounded original source priority', () => {
       { url: filing, title: 'Annual filing' },
     ], 'https://microsoft.com', true);
     expect(chosen[0]?.url).toContain('data.sec.gov/api/xbrl/companyconcept/CIK0000789019/');
-    expect(chosen).toHaveLength(2);
+    expect(chosen[1]?.url).toBe(filing);
   });
   it('prefers discovered official investor and company-profile pages over general homepages', () => {
     expect(selectOriginalSourceCitations([

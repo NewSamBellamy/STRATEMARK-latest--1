@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { hydrateCompanyCard } from './company-agent';
 import { projectCompanyFactsFromOriginals } from './company-facts';
 import type { LlmClient, MarketPlan } from './types';
-import { secRevenueObservation, secRevenueVerification, secRevenueSourceUrl } from './sec-revenue';
+import { secFilingHeadcountObservation, secRevenueObservation, secRevenueVerification, secRevenueSourceUrl } from './sec-revenue';
 import { acceptedMetricPassage } from './metric-support';
 import { selectOriginalSourceCitations, type OriginalSourceReceipt } from './original-source';
 
@@ -50,7 +50,10 @@ describe('first company financial hydration', () => {
     });
     expect(retrieve).toHaveBeenCalledTimes(2);
     expect(retrieve.mock.calls.map(call => call[0])).toContain(url);
-    expect(result.company.oneLiner).toBe('Microsoft Corporation develops software and provides cloud services for businesses.');
+    // The two protected reads are spent on the XBRL fact and its underlying
+    // filing. A homepage sentence is less valuable than retaining the filing
+    // needed for other verifiable disclosures such as headcount.
+    expect(result.company.oneLiner).toBe('No source-backed company snapshot is ready yet.');
     const reopened = projectCompanyFactsFromOriginals(result.company, result.metrics, structuredClone(originals));
     expect(reopened.find(metric => metric.metricType === 'arr')).toMatchObject({
       value: latest.val, confidence: 'verified', passageSupport: { definition: 'annual_revenue', periodStart: latest.start, asOf: latest.end },
@@ -63,6 +66,19 @@ describe('regulator-reported annual revenue', () => {
     expect(secRevenueSourceUrl('https://www.sec.gov/edgar/data/789019/000078901925000028/msft-20250630.htm')).toBe(url);
     expect(secRevenueSourceUrl('https://sec.gov.attacker.test/edgar/data/789019/report.htm')).toBeNull();
     expect(secRevenueSourceUrl('https://www.sec.gov/edgar/data/not-an-id/report.htm')).toBeNull();
+  });
+  it('derives a current reported headcount only from an issuer-matched SEC filing', () => {
+    const filing = 'https://www.sec.gov/edgar/data/789019/000119312526323660/msft.htm';
+    const headcount: OriginalSourceReceipt = { requestedUrl: filing, finalUrl: filing, status: 'retrieved', httpStatus: 200,
+      contentHash: 'c'.repeat(64), issuerName: 'MICROSOFT CORPORATION', format: 'sec-filing', truncated: false,
+      text: 'Microsoft Corporation Form 10-K. As of June 30, 2026, we had approximately 228,000 full-time employees.',
+      retrievedAt: '2026-10-06T00:00:00.000Z' };
+    const observed = secFilingHeadcountObservation('Microsoft Corporation', [headcount], now)!;
+    expect(observed).toMatchObject({ value: 228000, passageSupport: { sourceUrl: filing, asOf: '2026-06-30',
+      basis: 'employees', definition: 'employees', format: 'sec-filing' } });
+    expect(acceptedMetricPassage({ companyName: 'Microsoft Corporation', metricType: 'employees', value: 228000,
+      support: observed.passageSupport, originals: [headcount], nowMs: now })).toEqual(observed.citations);
+    expect(secFilingHeadcountObservation('Other Corporation', [headcount], now)).toBeNull();
   });
   it('rechecks the same annual measurement without model interpretation, but never contradicts a known ARR with annual revenue', () => {
     const common = { metricType: 'arr' as const, value: latest.val };
@@ -110,6 +126,6 @@ describe('regulator-reported annual revenue', () => {
       { title: 'Issuer', url: 'https://microsoft.com/results' },
       { title: 'Discussion', url: 'https://reddit.com/r/msft' },
     ], 'https://microsoft.com', true);
-    expect(chosen.map(c => c.url)).toEqual([url, 'https://microsoft.com/results']);
+    expect(chosen.map(c => c.url)).toEqual([url, 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm']);
   });
 });

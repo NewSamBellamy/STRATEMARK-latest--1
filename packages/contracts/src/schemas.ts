@@ -139,8 +139,8 @@ export const metricPassageSupportSchema = z.object({
     'daily_active_users', 'customers', 'paying_customers', 'employees', 'valuation', 'market_cap', 'market_share']).optional(),
   /** Inclusive annual reporting interval; asOf is its end, not retrieval time. */
   periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  /** Complete SEC companyconcept JSON, not generated prose. */
-  format: z.literal('sec-companyconcept').optional(),
+  /** Deterministic retained SEC evidence, never generated prose. */
+  format: z.enum(['sec-companyconcept', 'sec-filing']).optional(),
 });
 
 export const companyMetricSchema = z.object({

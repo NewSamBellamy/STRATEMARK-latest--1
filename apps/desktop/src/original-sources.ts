@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import type * as Sqlite from 'node:sqlite';
 import { z } from 'zod';
 import type { OriginalSourceServices } from '@mi/research';
-import { coalesceOriginalSources, MAX_SEC_CONCEPT_TEXT, secRevenueCik, normalizeSourceText, validatedOriginalSupport } from '@mi/research';
+import { coalesceOriginalSources, MAX_SEC_CONCEPT_TEXT, secFilingCik, secRevenueCik, normalizeSourceText, validatedOriginalSupport } from '@mi/research';
 import { retrieveOriginalSource } from '@mi/research/original-source-node';
 
 const ID = /^src_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
@@ -16,10 +16,12 @@ const receiptSchema = z.object({
   httpStatus: z.number().int().min(100).max(599).optional(),
   contentHash: z.string().regex(/^[a-f0-9]{64}$/).optional(), text: z.string().max(MAX_SEC_CONCEPT_TEXT).optional(),
   truncated: z.boolean().optional(), reason: z.string().max(256).optional(),
-  format: z.literal('sec-companyconcept').optional(),
+  format: z.enum(['sec-companyconcept', 'sec-filing']).optional(),
+  issuerName: z.string().max(256).optional(),
 }).superRefine((receipt, ctx) => {
-  if (receipt.format ? !secRevenueCik(receipt.finalUrl ?? '') || receipt.truncated === true
-    : (receipt.text?.length ?? 0) > 4000) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid retained document format or limit' });
+  if (receipt.format === 'sec-companyconcept' ? !secRevenueCik(receipt.finalUrl ?? '') || receipt.truncated === true
+    : receipt.format === 'sec-filing' ? !secFilingCik(receipt.finalUrl ?? '') || receipt.truncated === true || !receipt.issuerName
+      : (receipt.text?.length ?? 0) > 4000) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid retained document format or limit' });
   if (receipt.status === 'retrieved' ? !receipt.text?.trim() || !receipt.contentHash || receipt.httpStatus !== 200
     : receipt.text !== undefined || receipt.contentHash !== undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid original-source outcome' });

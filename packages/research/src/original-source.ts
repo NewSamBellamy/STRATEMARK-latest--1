@@ -1,10 +1,14 @@
 import { classifySource, isRedirectCitation, usableCitations, currentMetricRevision, metricPassageSupportSchema, METRIC_TYPES, type CompanyMetric, type Citation } from '@mi/contracts';
-import { MAX_SEC_CONCEPT_TEXT, secRevenueSourceUrl, secRevenueCik } from './sec-revenue';
+import { MAX_SEC_CONCEPT_TEXT, secFilingCik, secRevenueSourceUrl, secRevenueCik } from './sec-revenue';
 
 /** Discovery hints only. Never trust a title, fabricate a URL or accept a fact
  * because a page looks like a financial document. Original gates still apply. */
 function companyDocumentPriority(raw: string, officialWebsite?: string | null): number {
   if (secRevenueCik(raw)) return 4;
+  // Preserve the underlying filing after adding its structured XBRL sibling.
+  // It carries disclosures such as employee count that company-concept JSON
+  // intentionally does not expose.
+  if (secRevenueSourceUrl(raw)) return 3;
   if (!officialWebsite) return 0;
   try {
     const source = new URL(raw);
@@ -41,8 +45,16 @@ export function selectOriginalSourceCitations(citations: readonly Citation[], of
   }
   // Both original readers require public HTTPS on the standard TLS port.
   // Do not promote HTTP to HTTPS: that would invent a different source URL.
-  return usableCitations([...citations, ...locators].map(citation => preferAnnualRevenue && secRevenueSourceUrl(citation.url)
-    ? { ...citation, url: secRevenueSourceUrl(citation.url)! } : citation)).filter(citation => {
+  // A filing lead has two separate, useful jobs: its deterministic XBRL
+  // counterpart can establish annual revenue, while the filed document can
+  // establish disclosures XBRL does not carry (for example headcount). Keep
+  // both candidates inside the existing two-read budget. Replacing the filing
+  // outright made one public-company source incapable of ever filling both.
+  const routed = [...citations, ...locators].flatMap(citation => {
+    const financial = preferAnnualRevenue ? secRevenueSourceUrl(citation.url) : null;
+    return financial ? [{ ...citation, url: financial }, citation] : [citation];
+  });
+  return usableCitations(routed).filter(citation => {
     const url = new URL(citation.url);
     if (url.protocol !== 'https:' || (url.port && url.port !== '443')) return false;
     if (supportsUrl && !supportsUrl(citation.url)) return false;
@@ -54,7 +66,12 @@ export function selectOriginalSourceCitations(citations: readonly Citation[], of
     return true;
   }).map((citation, index) => ({
     citation, index,
-    priority: priority[classifySource(citation.url, citation.title, officialWebsite)],
+    // A direct SEC filing is a primary regulator document even though the
+    // generic host classifier is intentionally conservative. This only
+    // affects the annual-revenue routing mode, where the filing and its XBRL
+    // counterpart must be considered as a pair.
+    priority: preferAnnualRevenue && secRevenueSourceUrl(citation.url)
+      ? priority.primary : priority[classifySource(citation.url, citation.title, officialWebsite)],
     documentPriority: preferAnnualRevenue ? companyDocumentPriority(citation.url, officialWebsite) : 0,
     redirect: Number(isRedirectCitation(citation.url)),
   })).sort((a, b) => b.priority - a.priority || b.documentPriority - a.documentPriority || a.redirect - b.redirect || a.index - b.index)
@@ -78,9 +95,11 @@ export interface OriginalSourceReceipt {
   httpStatus?: number;
   contentHash?: string;
   text?: string;
+  /** Issuer identity extracted directly from an SEC inline-XBRL filing. */
+  issuerName?: string;
   truncated?: boolean;
   reason?: string;
-  format?: 'sec-companyconcept';
+  format?: 'sec-companyconcept' | 'sec-filing';
 }
 
 export interface OriginalSourceAttempt {
@@ -107,7 +126,12 @@ export function isOriginalSourceAttempt(value: unknown): value is OriginalSource
         (receipt.httpStatus !== undefined && (!Number.isInteger(receipt.httpStatus) || receipt.httpStatus < 100 || receipt.httpStatus > 599))) return false;
       return receipt.status === 'retrieved'
         ? receipt.httpStatus === 200 && bounded(receipt.finalUrl, 2048) && /^[a-f0-9]{64}$/.test(receipt.contentHash ?? '') &&
-          (receipt.format === undefined ? bounded(receipt.text, 4000) : receipt.format === 'sec-companyconcept' && Boolean(secRevenueCik(receipt.finalUrl!)) && receipt.truncated !== true && bounded(receipt.text, MAX_SEC_CONCEPT_TEXT))
+          (receipt.format === undefined ? bounded(receipt.text, 4000)
+            : receipt.format === 'sec-companyconcept'
+              ? Boolean(secRevenueCik(receipt.finalUrl!)) && receipt.truncated !== true && bounded(receipt.text, MAX_SEC_CONCEPT_TEXT)
+              : receipt.format === 'sec-filing'
+                ? Boolean(secFilingCik(receipt.finalUrl!)) && bounded(receipt.issuerName, 256) && receipt.truncated !== true && bounded(receipt.text, 4000)
+                : false)
         : receipt.text === undefined && receipt.contentHash === undefined;
     });
 }

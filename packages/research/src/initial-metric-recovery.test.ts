@@ -101,5 +101,6 @@ describe('automatic initial metric recovery', () => {
       .mockResolvedValueOnce({ text: 'No new direct locator.', citations: [], queries: [] });
     await run();
     expect(vi.mocked(originals.save).mock.calls[1]![0].receipts).toContainEqual(expect.objectContaining({ requestedUrl: url }));
+    expect(vi.mocked(originals.retrieve).mock.calls.at(-1)?.[1]).toMatchObject({ metricType: 'arr' });
   });
 });

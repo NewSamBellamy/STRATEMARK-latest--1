@@ -5,7 +5,7 @@ import { request } from 'node:https';
 import { BlockList, isIP } from 'node:net';
 import { setTimeout as wait } from 'node:timers/promises';
 import { selectSourceExcerpt } from './source-excerpt';
-import { MAX_SEC_CONCEPT_TEXT, secRevenueCik } from './sec-revenue';
+import { MAX_SEC_CONCEPT_TEXT, secFilingCik, secRevenueCik } from './sec-revenue';
 
 // Annual filings routinely exceed 256 KB (Microsoft's 2025 HTML is ~601 KB).
 // Keep whole-document hashing bounded; retained excerpts remain only 4,000 chars.
@@ -90,6 +90,14 @@ function pageText(body: string, html: boolean): string {
   })[entity] ?? entity).replace(/\s+/g, ' ').trim();
 }
 
+function secRegistrantName(body: string): string | null {
+  const match = /<ix:nonNumeric\b[^>]*\bname\s*=\s*['"]dei:EntityRegistrantName['"][^>]*>([^<]{1,256})<\/ix:nonNumeric\s*>/i.exec(body);
+  const value = match?.[1]?.replace(/&(?:amp|lt|gt|quot|apos|nbsp);/g, (entity) => ({
+    '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'", '&nbsp;': ' ',
+  })[entity] ?? entity).replace(/\s+/g, ' ').trim();
+  return value && value.length <= 256 ? value : null;
+}
+
 /** Retrieval is a receipt, NOT proof of entity, metric, period or truth. */
 export async function retrieveOriginalSource(raw: string, io: SourceTransport = transport, scope?: OriginalSourceScope): Promise<OriginalSourceReceipt> {
   const receipt: OriginalSourceReceipt = { requestedUrl: raw.slice(0, 2048), status: 'unavailable', retrievedAt: new Date().toISOString() };
@@ -134,6 +142,16 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
       }
       const text = pageText(body, type === 'text/html');
       if (!text) return { ...receipt, reason: 'No readable source text' };
+      const issuerName = type === 'text/html' ? secRegistrantName(body) : null;
+      const filingCik = secFilingCik(url.href);
+      if (filingCik && issuerName) {
+        const excerptScope = scope?.companyName
+          ? { companyName: scope.companyName, metricType: scope.metricType === 'company_profile' ? 'employees' : scope.metricType }
+          : undefined;
+        return { ...receipt, status: 'retrieved', format: 'sec-filing', issuerName,
+          contentHash: createHash('sha256').update(response.body).digest('hex'),
+          text: selectSourceExcerpt(text, excerptScope), truncated: false };
+      }
       return { ...receipt, status: 'retrieved', contentHash: createHash('sha256').update(response.body).digest('hex'), text: selectSourceExcerpt(text, scope), truncated: text.length > MAX_TEXT };
     }
     return receipt;

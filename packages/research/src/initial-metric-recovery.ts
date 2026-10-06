@@ -2,7 +2,7 @@ import type { MetricType } from '@mi/contracts';
 import type { EnrichmentOut } from './schemas';
 import { huntMetricsOutSchema } from './schemas';
 import { acceptedMetricPassage } from './metric-support';
-import { originalSourcePromptViews, secRevenueObservation } from './sec-revenue';
+import { originalSourcePromptViews, secRevenueCik, secFilingHeadcountObservation, secRevenueObservation } from './sec-revenue';
 import { selectOriginalSourceCitations, type OriginalSourceReceipt, type OriginalSourceServices } from './original-source';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS } from './prompts';
 import { companySourceTargets } from './source-policy';
@@ -24,7 +24,8 @@ export async function recoverInitialMetrics(input: {
       value: proposal?.value ?? null, support: proposal?.passageSupport, originals }).length > 0;
   };
   const missing = (['employees', 'arr', 'users', 'valuation'] as const).filter(type =>
-    !supported(type) && !(type === 'arr' && secRevenueObservation(companyName, originals)) &&
+    !supported(type) && !(type === 'employees' && secFilingHeadcountObservation(companyName, originals)) &&
+    !(type === 'arr' && secRevenueObservation(companyName, originals)) &&
     !(type === 'valuation' && supported('market_cap')));
   if (!missing.length) return 'complete';
   throwIfAborted(signal);
@@ -47,9 +48,18 @@ export async function recoverInitialMetrics(input: {
   throwIfAborted(signal);
   const priorLeads = originals.map(receipt => ({ url: receipt.finalUrl ?? receipt.requestedUrl,
     title: 'Previously discovered original; recheck required' }));
+  // A retained page can only carry one contiguous evidence excerpt. Ask the
+  // reader to keep the most valuable still-missing disclosure in view, rather
+  // than a generic financial table (which routinely discarded headcount).
+  // SEC XBRL uses its own complete structured format and does not need a text
+  // focus hint.
+  const focus = missing.includes('employees') ? 'employees'
+    : missing.includes('arr') ? 'arr'
+      : missing.includes('users') ? 'users' : 'valuation';
   const receipts = await Promise.all(selectOriginalSourceCitations([...grounded.citations, ...priorLeads], website,
     missing.includes('arr'), sources.supports, grounded.text).map(citation => sources.retrieve(citation.url,
-      { companyId: input.companyId, companyName, metricType: 'metrics_hunt' })));
+      { companyId: input.companyId, companyName, metricType: secRevenueCik(citation.url)
+        ? 'metrics_hunt' : focus })));
   throwIfAborted(signal);
   // Save before interpreting. A write failure must not publish unsupported data.
   await sources.save({ id: `src_${globalThis.crypto.randomUUID()}`, companyId: input.companyId,
