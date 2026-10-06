@@ -29,7 +29,7 @@ describe('actual HTTPS transport configuration', () => {
     expect(request).toHaveBeenCalledWith(expect.objectContaining({
       hostname: '8.8.8.8', servername: 'sec.gov', port: 443, agent: false,
       path: '/Archives/report?year=2026',
-      headers: { Host: 'sec.gov', Accept: 'text/html, text/plain', 'Accept-Encoding': 'identity', 'User-Agent': 'Stratemark-Research/1.0' },
+      headers: { Host: 'sec.gov', Accept: 'text/html, text/plain, application/json', 'Accept-Encoding': 'identity', 'User-Agent': 'Stratemark-Research/1.0 (+https://getstratemark.com)' },
     }), expect.any(Function));
     const options = vi.mocked(request).mock.calls[0]![0] as unknown as Record<string, unknown>;
     expect(options).not.toHaveProperty('rejectUnauthorized'); // retain Node TLS verification default

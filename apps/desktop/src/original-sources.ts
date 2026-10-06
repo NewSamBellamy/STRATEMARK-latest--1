@@ -3,18 +3,21 @@ import { link, lstat, mkdir, open, readFile, readdir, unlink } from 'node:fs/pro
 import path from 'node:path';
 import { z } from 'zod';
 import type { OriginalSourceServices } from '@mi/research';
-import { coalesceOriginalSources } from '@mi/research';
+import { coalesceOriginalSources, MAX_SEC_CONCEPT_TEXT, secRevenueCik } from '@mi/research';
 import { retrieveOriginalSource } from '@mi/research/original-source-node';
 
 const ID = /^src_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
-const MAX_FILE_BYTES = 64 * 1024;
+const MAX_FILE_BYTES = 128 * 1024;
 const receiptSchema = z.object({
   requestedUrl: z.string().max(2048), finalUrl: z.string().max(2048).optional(),
   status: z.enum(['retrieved', 'blocked', 'unavailable']), retrievedAt: z.string().datetime(),
   httpStatus: z.number().int().min(100).max(599).optional(),
-  contentHash: z.string().regex(/^[a-f0-9]{64}$/).optional(), text: z.string().max(4000).optional(),
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/).optional(), text: z.string().max(MAX_SEC_CONCEPT_TEXT).optional(),
   truncated: z.boolean().optional(), reason: z.string().max(256).optional(),
+  format: z.literal('sec-companyconcept').optional(),
 }).superRefine((receipt, ctx) => {
+  if (receipt.format ? !secRevenueCik(receipt.finalUrl ?? '') || receipt.truncated === true
+    : (receipt.text?.length ?? 0) > 4000) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid retained document format or limit' });
   if (receipt.status === 'retrieved' ? !receipt.text?.trim() || !receipt.contentHash || receipt.httpStatus !== 200
     : receipt.text !== undefined || receipt.contentHash !== undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid original-source outcome' });

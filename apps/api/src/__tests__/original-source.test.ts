@@ -7,6 +7,17 @@ const lookup = vi.fn(async () => ['8.8.8.8']);
 const read = vi.fn(async () => ({ status: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from('<h1>Company</h1><script>ignore</script><p>Revenue &amp; customers</p>') }));
 
 describe('bounded original-source retrieval', () => {
+  it('retains complete bounded SEC concept JSON with the original byte hash, but does not enable arbitrary JSON sources', async () => {
+    const target = 'https://data.sec.gov/api/xbrl/companyconcept/CIK0000789019/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax.json';
+    const body = Buffer.from(JSON.stringify({ cik: 789019, entityName: 'MICROSOFT CORPORATION', padding: 'x'.repeat(6000) }));
+    const jsonRead = vi.fn(async () => ({ status: 200, headers: { 'content-type': 'application/json' }, body }));
+    const receipt = await retrieveOriginalSource(target, { lookup, read: jsonRead });
+    expect(receipt).toMatchObject({ status: 'retrieved', format: 'sec-companyconcept', text: body.toString('utf8'), truncated: false });
+    expect(receipt.contentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect((await retrieveOriginalSource('https://example.com/data.json', { lookup, read: jsonRead })).status).toBe('unavailable');
+    const tooBig = vi.fn(async () => ({ status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from(' '.repeat(32001)) }));
+    expect((await retrieveOriginalSource(target, { lookup, read: tooBig })).status).toBe('unavailable');
+  });
   it('resolves grounding through the existing pinned transport and accepts only the final publisher passage', async () => {
     const redirect = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/report';
     const publisher = 'https://reuters.com/company-report';

@@ -3,12 +3,15 @@ import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { request } from 'node:https';
 import { BlockList, isIP } from 'node:net';
+import { setTimeout as wait } from 'node:timers/promises';
 import { selectSourceExcerpt } from './source-excerpt';
+import { MAX_SEC_CONCEPT_TEXT, secRevenueCik } from './sec-revenue';
 
 // Annual filings routinely exceed 256 KB (Microsoft's 2025 HTML is ~601 KB).
 // Keep whole-document hashing bounded; retained excerpts remain only 4,000 chars.
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_TEXT = 4000;
+let nextSecReadAt = 0;
 const denied = new BlockList();
 for (const [address, prefix] of [
   ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
@@ -32,11 +35,21 @@ import type { OriginalSourceReceipt, OriginalSourceScope } from './original-sour
 // TLS servername/certificate verification. No second DNS resolution or proxy.
 const transport: SourceTransport = {
   lookup: async (host) => (await lookup(host, { all: true, family: 4 })).map((entry) => entry.address),
-  read: ({ url, address, signal }) => new Promise((resolve, reject) => {
+  read: async ({ url, address, signal }) => {
+    // Shared per-process courtesy limit; no unbounded retry/fetch fanout. A
+    // multi-instance cloud rollout must coordinate its aggregate SEC budget.
+    if (url.hostname === 'sec.gov' || url.hostname.endsWith('.sec.gov')) {
+      const delay = Math.max(0, nextSecReadAt - Date.now());
+      if (delay > 5000) throw new Error('SEC retrieval queue is busy');
+      nextSecReadAt = Date.now() + delay + 500;
+      await wait(delay, undefined, { signal });
+    }
+    signal.throwIfAborted();
+    return new Promise((resolve, reject) => {
     const req = request({
       hostname: address, port: 443, servername: url.hostname,
       path: `${url.pathname}${url.search}`, method: 'GET', agent: false, signal,
-      headers: { Host: url.hostname, Accept: 'text/html, text/plain', 'Accept-Encoding': 'identity', 'User-Agent': 'Stratemark-Research/1.0' },
+      headers: { Host: url.hostname, Accept: 'text/html, text/plain, application/json', 'Accept-Encoding': 'identity', 'User-Agent': 'Stratemark-Research/1.0 (+https://getstratemark.com)' },
     }, (res) => {
       const headers: Record<string, string | undefined> = {};
       for (const [key, value] of Object.entries(res.headers)) headers[key] = Array.isArray(value) ? value.join(',') : value;
@@ -52,7 +65,8 @@ const transport: SourceTransport = {
     });
     req.on('error', reject);
     req.end();
-  }),
+    });
+  },
 };
 
 function safeUrl(raw: string): URL | null {
@@ -102,7 +116,8 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
       if (response.status !== 200) return { ...receipt, reason: 'Source did not return a readable public page' };
       const type = (response.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
       if (response.body.length > MAX_BYTES) return { ...receipt, reason: 'Source exceeds the 2 MB document limit' };
-      if (!['text/html', 'text/plain'].includes(type) ||
+      const secJson = type === 'application/json' && Boolean(secRevenueCik(url.href));
+      if ((!['text/html', 'text/plain'].includes(type) && !secJson) ||
         (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity')) {
         return { ...receipt, reason: 'Unsupported or oversized source content' };
       }
@@ -110,6 +125,12 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
       if (/noarchive|nosnippet/i.test(response.headers['x-robots-tag'] ?? '') ||
         /<meta\b(?=[^>]*\bname\s*=\s*["']?(?:robots|googlebot)\b)(?=[^>]*\bcontent\s*=\s*["'][^"']*(?:noarchive|nosnippet))[^>]*>/i.test(body)) {
         return { ...receipt, status: 'blocked', reason: 'Source prohibits retained extracts' };
+      }
+      if (secJson) {
+        if (body.length > MAX_SEC_CONCEPT_TEXT) return { ...receipt, reason: 'SEC concept exceeds the retained document limit' };
+        try { JSON.parse(body); } catch { return { ...receipt, reason: 'SEC source did not return valid JSON' }; }
+        return { ...receipt, status: 'retrieved', format: 'sec-companyconcept', text: body, truncated: false,
+          contentHash: createHash('sha256').update(response.body).digest('hex') };
       }
       const text = pageText(body, type === 'text/html');
       if (!text) return { ...receipt, reason: 'No readable source text' };

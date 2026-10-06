@@ -11,7 +11,7 @@ const normalize = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').
 const escapeMarkdown = (text: string) => text.replace(/[\\`*_{}[\]<>#|]/g, '\\$&');
 const markdownUrl = (url: string) => new URL(url).href.replace(/[()]/g, character => character === '(' ? '%28' : '%29');
 const hostname = (url?: string | null) => { try { return new URL(url ?? '').hostname.toLowerCase().replace(/^www\./, ''); } catch { return null; } };
-const readable = (source: OriginalSourceReceipt) => source.status === 'retrieved' && source.httpStatus === 200 &&
+const readable = (source: OriginalSourceReceipt) => !source.format && source.status === 'retrieved' && source.httpStatus === 200 &&
   Boolean(source.text?.trim()) && /^[a-f0-9]{64}$/.test(source.contentHash ?? '') && usableCitations([{ title: 'Original', url: source.finalUrl ?? '' }]).length > 0;
 const overviewSources = (args: TabResearchArgs, originals: readonly OriginalSourceReceipt[]) => originals.filter(readable).filter(source => {
   const rank = classifySource(source.finalUrl!, 'Original', args.company.websiteUrl);

@@ -1,5 +1,6 @@
 import { hasVerificationGradeCitation, usableCitations, validMetricVerificationValue, type Citation, type MetricType, type CompanyMetric } from '@mi/contracts';
 import type { OriginalSourceReceipt } from './original-source';
+import { secRevenueObservation } from './sec-revenue';
 
 export type MetricPassageSupport = NonNullable<CompanyMetric['passageSupport']>;
 const normalize = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim();
@@ -23,6 +24,15 @@ export function acceptedMetricPassage(input: { companyName: string; officialWebs
 export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPassage>[0]): { citations: Citation[]; reason: string | null } {
   const reject = (reason: string) => ({ citations: [] as Citation[], reason });
   const proof = input.support;
+  if (proof?.format === 'sec-companyconcept') {
+    const observed = secRevenueObservation(input.companyName, input.originals.filter(source => source.finalUrl === proof.sourceUrl), input.nowMs);
+    return input.metricType === 'arr' && observed && input.value === observed.value &&
+      proof.basis === 'arr' && proof.unit === 'USD' && proof.definition === 'annual_revenue' &&
+      proof.asOf === observed.passageSupport.asOf && proof.periodStart === observed.passageSupport.periodStart &&
+      proof.quote === observed.passageSupport.quote
+      ? { citations: observed.citations, reason: null }
+      : reject('SEC financial observation does not match the retained issuer, revenue definition, value and reporting interval.');
+  }
   if (!proof || !validMetricVerificationValue(input.metricType, input.value) || proof.basis !== input.metricType ||
     !/^\d{4}-\d{2}-\d{2}$/.test(proof.asOf)) return reject('Missing or incompatible claim evidence. Research needs a dated passage for this metric and unit.');
   const date = new Date(`${proof.asOf}T00:00:00.000Z`);

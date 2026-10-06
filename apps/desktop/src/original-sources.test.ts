@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createOriginalSourceServices } from './original-sources';
 import type { OriginalSourceAttempt } from '@mi/research';
-import { GeminiRepository, hydrateCompanyCard } from '@mi/research';
+import { GeminiRepository, hydrateCompanyCard, migrateSnapshot, secRevenueObservation } from '@mi/research';
 import type { LlmClient } from '@mi/research';
 import sample from '../../web/src/sample/frontier-snapshot.json';
 import { createFileStore, parseResearchExport } from './storage';
@@ -23,6 +23,53 @@ function attempt(companyId = 'acme'): OriginalSourceAttempt {
 }
 
 describe('native original source artifacts', () => {
+  it('retains complete SEC records beyond excerpt size and reopens their typed company facts offline', async () => {
+    const { directory, store } = await setup();
+    const url = 'https://data.sec.gov/api/xbrl/companyconcept/CIK0000789019/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax.json';
+    const text = JSON.stringify({ cik: 789019, entityName: 'MICROSOFT CORPORATION', taxonomy: 'us-gaap',
+      tag: 'RevenueFromContractWithCustomerExcludingAssessedTax', description: 'Original context '.repeat(400), units: { USD: [{
+        start: '2025-07-01', end: '2026-06-30', val: 331839000000, accn: '0001193125-26-323660',
+        fy: 2026, fp: 'FY', form: '10-K', filed: '2026-07-29', frame: 'CY2026',
+      }] } });
+    const record = attempt('cmp');
+    record.receipts = [{ ...record.receipts[0]!, requestedUrl: url, finalUrl: url, text, format: 'sec-companyconcept', truncated: false }];
+    await store.save(record);
+    const reloaded = createOriginalSourceServices(directory);
+    const receipts = (await reloaded.list({ companyId: 'cmp', limit: 20 }))[0]!.receipts;
+    expect(receipts[0]!.text).toBe(text);
+    expect(receipts[0]!.text!.length).toBeGreaterThan(4000);
+    const observation = secRevenueObservation('Microsoft Corporation', receipts)!;
+    const snapshot = migrateSnapshot(null).snapshot;
+    snapshot.companies = [{ id: 'cmp', name: 'Microsoft Corporation', oneLiner: 'Software', websiteUrl: 'https://microsoft.com', logoUrl: null, hqLocation: null, brandTheme: null }];
+    snapshot.metrics = [{ id: 'revenue', companyId: 'cmp', metricType: 'arr', value: observation.value,
+      confidence: 'verified', citations: observation.citations, source: url, passageSupport: observation.passageSupport, methodNote: 'Annual revenue', capturedAt: record.capturedAt }];
+    const statePath = path.join(directory, 'snapshot.json');
+    await createFileStore(statePath).write(snapshot);
+    const ground = vi.fn(), structure = vi.fn();
+    const repo = new GeminiRepository({ apiKey: 'test', client: { ground, structure }, store: createFileStore(statePath), originalSources: reloaded });
+    expect((await repo.getCompanyFacts('cmp'))[0]).toMatchObject({ value: 331839000000,
+      confidence: 'verified', passageSupport: { format: 'sec-companyconcept', definition: 'annual_revenue' } });
+    expect((await repo.getDashboardTab('cmp', 'metrics'))!.content.revenue).toEqual([]);
+    expect(ground).not.toHaveBeenCalled();
+    expect(structure).not.toHaveBeenCalled();
+    // Actual repository refresh must fill an unknown slot from the complete
+    // original without asking a model to reinterpret the financial JSON.
+    snapshot.metrics[0] = { ...snapshot.metrics[0]!, value: null, confidence: 'unknown', passageSupport: undefined };
+    await createFileStore(statePath).write(snapshot);
+    const refreshGround = vi.fn(async () => ({ text: 'Filing locator', citations: [{ title: 'SEC',
+      url: 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm' }], queries: [] }));
+    const refreshStructure = vi.fn(async () => { throw new Error('Financial interpretation must not call the model'); });
+    const refresh = new GeminiRepository({ apiKey: 'test', client: { ground: refreshGround, structure: refreshStructure },
+      store: createFileStore(statePath), originalSources: { ...reloaded,
+        retrieve: async requestedUrl => ({ ...receipts[0]!, requestedUrl }) } });
+    expect(await refresh.verifyMetric({ companyId: 'cmp', metricType: 'arr' })).toMatchObject({ changed: true,
+      metric: { value: 331839000000, confidence: 'verified', passageSupport: { definition: 'annual_revenue' } } });
+    const afterRefresh = new GeminiRepository({ apiKey: 'test', client: { ground, structure },
+      store: createFileStore(statePath), originalSources: createOriginalSourceServices(directory) });
+    expect((await afterRefresh.getCompanyFacts('cmp'))[0]).toMatchObject({ value: 331839000000, confidence: 'verified' });
+    expect(refreshGround).toHaveBeenCalledTimes(1);
+    expect(refreshStructure).not.toHaveBeenCalled();
+  });
   it.each(['https://sec.gov/report', 'https://acme.com/report'])('stores initial originals from %s with a valid identity and reloads them after restart', async (url) => {
     const { directory, store } = await setup();
     const quote = 'Acme Inc. reported 45 employees as of 2026-10-01.';

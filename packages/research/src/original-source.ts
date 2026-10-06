@@ -1,12 +1,14 @@
 import { classifySource, isRedirectCitation, usableCitations, type Citation } from '@mi/contracts';
+import { MAX_SEC_CONCEPT_TEXT, secRevenueSourceUrl, secRevenueCik } from './sec-revenue';
 
 /** Routing priority only, never evidence acceptance. Preserve the two-read budget. */
-export function selectOriginalSourceCitations(citations: readonly Citation[], officialWebsite?: string | null): Citation[] {
+export function selectOriginalSourceCitations(citations: readonly Citation[], officialWebsite?: string | null, preferAnnualRevenue = false): Citation[] {
   const priority = { primary: 4, reputable_secondary: 3, industry: 2, unknown: 1, user_generated: 0 };
   const pages = new Set<string>();
   // Both original readers require public HTTPS on the standard TLS port.
   // Do not promote HTTP to HTTPS: that would invent a different source URL.
-  return usableCitations(citations).filter(citation => {
+  return usableCitations(citations.map(citation => preferAnnualRevenue && secRevenueSourceUrl(citation.url)
+    ? { ...citation, url: secRevenueSourceUrl(citation.url)! } : citation)).filter(citation => {
     const url = new URL(citation.url);
     if (url.protocol !== 'https:' || (url.port && url.port !== '443')) return false;
     // Readers strip fragments. URL also normalizes an explicit :443, but query
@@ -40,6 +42,7 @@ export interface OriginalSourceReceipt {
   text?: string;
   truncated?: boolean;
   reason?: string;
+  format?: 'sec-companyconcept';
 }
 
 export interface OriginalSourceAttempt {
@@ -65,7 +68,8 @@ export function isOriginalSourceAttempt(value: unknown): value is OriginalSource
         (receipt.truncated !== undefined && typeof receipt.truncated !== 'boolean') ||
         (receipt.httpStatus !== undefined && (!Number.isInteger(receipt.httpStatus) || receipt.httpStatus < 100 || receipt.httpStatus > 599))) return false;
       return receipt.status === 'retrieved'
-        ? receipt.httpStatus === 200 && bounded(receipt.finalUrl, 2048) && /^[a-f0-9]{64}$/.test(receipt.contentHash ?? '') && bounded(receipt.text, 4000)
+        ? receipt.httpStatus === 200 && bounded(receipt.finalUrl, 2048) && /^[a-f0-9]{64}$/.test(receipt.contentHash ?? '') &&
+          (receipt.format === undefined ? bounded(receipt.text, 4000) : receipt.format === 'sec-companyconcept' && Boolean(secRevenueCik(receipt.finalUrl!)) && receipt.truncated !== true && bounded(receipt.text, MAX_SEC_CONCEPT_TEXT))
         : receipt.text === undefined && receipt.contentHash === undefined;
     });
 }

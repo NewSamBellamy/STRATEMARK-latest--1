@@ -29,6 +29,30 @@ function fixture(proof = true, text = quote) {
 }
 
 describe('initial company original-evidence publication', () => {
+  it('fills first-ready annual revenue from a retained SEC original even when the model proposes no revenue', async () => {
+    const financialUrl = 'https://data.sec.gov/api/xbrl/companyconcept/CIK0000789019/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax.json';
+    const reported = { start: '2025-07-01', end: '2026-06-30', val: 331839000000, accn: '0001193125-26-323660',
+      fy: 2026, fp: 'FY', form: '10-K', filed: '2026-07-29', frame: 'CY2026' };
+    const text = JSON.stringify({ cik: 789019, entityName: 'MICROSOFT CORPORATION', taxonomy: 'us-gaap',
+      tag: 'RevenueFromContractWithCustomerExcludingAssessedTax', units: { USD: [reported] } });
+    const { client, originals } = fixture(false);
+    client.ground = vi.fn(async () => ({ text: 'Company notes', citations: [{ title: 'Filing',
+      url: 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm' }], queries: [] }));
+    client.structure = vi.fn(async (prompt, schema) => {
+      expect(prompt).not.toContain('"units"'); // do not spend context on historical records
+      expect(prompt).toContain('parsedFinancialObservation');
+      return schema.parse({ oneLiner: 'Software company', metrics: { arr: { value: null, confidence: 'unknown' } } });
+    }) as LlmClient['structure'];
+    originals.retrieve = vi.fn(async (requestedUrl: string) => ({ requestedUrl, finalUrl: requestedUrl, status: 'retrieved' as const, httpStatus: 200,
+      format: 'sec-companyconcept' as const, contentHash: 'a'.repeat(64), text, retrievedAt: '2026-10-04T00:00:00.000Z', truncated: false }));
+    const result = await hydrateCompanyCard({ candidate: { ...candidate, name: 'Microsoft Corporation', domain: 'microsoft.com' }, client, plan, originalSources: originals });
+    expect(originals.retrieve).toHaveBeenCalledWith(financialUrl, expect.objectContaining({ companyName: 'Microsoft Corporation' }));
+    expect(result.metrics.find(row => row.metricType === 'arr')).toMatchObject({ value: reported.val, confidence: 'verified',
+      passageSupport: { definition: 'annual_revenue', format: 'sec-companyconcept', periodStart: reported.start, asOf: reported.end } });
+    expect(result.primaryCard.metrics).toEqual(result.metrics);
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(1);
+  });
   it('keeps a typed customer population from first hydration through memory and offline facts', async () => {
     const text = 'Acme Inc. reported 120 monthly active users as of 2026-10-01.';
     const { client, originals } = fixture(true, text);

@@ -61,6 +61,42 @@ async function run(out: { verdict: string; currentValue: number | null; figures?
 }
 
 describe('cloud metric verification integrity', () => {
+  it.each(['verify', 'hunt-metrics'])('fills unknown annual revenue through the authorized %s route from a retained SEC record', async route => {
+    const url = 'https://data.sec.gov/api/xbrl/companyconcept/CIK0000789019/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax.json';
+    const text = JSON.stringify({ cik: 789019, entityName: 'MICROSOFT CORPORATION', taxonomy: 'us-gaap',
+      tag: 'RevenueFromContractWithCustomerExcludingAssessedTax', units: { USD: [{ start: '2025-07-01', end: '2026-06-30',
+        val: 331839000000, accn: '0001193125-26-323660', fy: 2026, fp: 'FY', form: '10-K', filed: '2026-07-29' }] } });
+    const store = new MemoryDataStore(), auth = new MockFirebaseAdapter();
+    const service = new CloudDeckService(store, auth, auth);
+    const app = createApp(readEnv({ GEMINI_API_KEY: 'test-key', APP_TOKEN: 'app-token' }), {
+      store, cloudDeckService: service, forceMemoryStore: true,
+    });
+    const ground = vi.fn().mockResolvedValue({ text: 'Financial filing locator', citations: [{ title: 'SEC filing',
+      url: 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm' }], queries: [] });
+    const structure = vi.fn().mockResolvedValue({ figures: [] });
+    vi.mocked(resolveClient).mockReturnValue({ client: { ground, structure }, keySource: 'server' } as unknown as ReturnType<typeof resolveClient>);
+    vi.mocked(retrieveOriginalSource).mockImplementation(async requestedUrl => ({ requestedUrl, finalUrl: requestedUrl,
+      status: 'retrieved', text, format: 'sec-companyconcept', truncated: false, httpStatus: 200,
+      contentHash: 'a'.repeat(64), retrievedAt: '2026-10-03T00:00:00.000Z' }));
+    await service.saveDeck('user_123', 'deck_sec', { deck: { id: 'deck_sec' }, market: { id: 'deck_sec' }, state: { status: 'ready' },
+      cards: [{ card: { id: 'card_sec', deckId: 'deck_sec', companyId: 'cmp_sec', cardType: 'company' },
+        company: { id: 'cmp_sec', name: 'Microsoft Corporation', oneLiner: 'Software', websiteUrl: 'https://microsoft.com' },
+        metrics: [{ id: 'metric_sec', companyId: 'cmp_sec', metricType: 'arr', value: null, confidence: 'unknown',
+          citations: [], source: null, methodNote: null, capturedAt }], viceClaims: [] }] as unknown as CardWithCompany[],
+    });
+    const response = await app.request(`/api/research/${route}`, { method: 'POST',
+      headers: { Authorization: 'Bearer valid_token', 'X-Stratemark-Token': 'app-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deckId: 'deck_sec', companyId: 'cmp_sec', metricType: 'arr' }) });
+    expect(response.status).toBe(200);
+    const persisted = await new CloudDeckService(store, auth, auth).getDeck('user_123', 'deck_sec');
+    expect(persisted!.cards![0]!.metrics[0]).toMatchObject({ value: 331839000000, confidence: 'verified',
+      passageSupport: { sourceUrl: url, definition: 'annual_revenue', format: 'sec-companyconcept',
+        periodStart: '2025-07-01', asOf: '2026-06-30' } });
+    expect(persisted!.originalSourceAttempts![0]!.receipts[0]).toMatchObject({ text, format: 'sec-companyconcept' });
+    expect(retrieveOriginalSource).toHaveBeenCalledWith(url, undefined, expect.objectContaining({ companyId: 'cmp_sec', companyName: 'Microsoft Corporation' }));
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(structure).toHaveBeenCalledTimes(route === 'verify' ? 0 : 1);
+  });
   it('persists a typed annual reporting interval through the authorized verification route without treating it as ARR', async () => {
     const proof: NonNullable<CompanyMetric['passageSupport']> = { sourceUrl: citation.url,
       quote: 'Example Company reports annual revenue of USD 100 for the period 2025-10-01 to 2026-09-30.',
