@@ -26,6 +26,7 @@ import {
   MATURITY_TIERS,
   TIER_BLURBS,
   TIER_LABELS,
+  isEntityCardType,
   type CardType,
   type CardWithCompany,
   type MaturityTier,
@@ -133,6 +134,12 @@ export default function DeckPage() {
   const actionPolicy = deckActionPolicy(typeParam);
 
   const all = useMemo(() => cards.data ?? [], [cards.data]);
+  const companyCount = useMemo(
+    () => new Set(all.filter((entry) => isEntityCardType(entry.card.cardType))
+      .map((entry) => entry.company?.id)
+      .filter((id): id is string => Boolean(id))).size,
+    [all],
+  );
   // A market whose deck record is gone (or a stale link) must NEVER render a
   // blank screen (audit 7:44): show a recovery path instead.
   const deckMissing = market.isSuccess && deck.isSuccess && (!market.data || !deck.data);
@@ -187,7 +194,7 @@ export default function DeckPage() {
             {market.data?.scopeDefinition && (
               <p className="mt-0.5 text-[12px] text-faint">
                 {[
-                  all.filter(c => c.card.cardType === 'company').length + ' companies',
+                  `${companyCount} ${companyCount === 1 ? 'company' : 'companies'}`,
                   market.data.scopeDefinition.geography,
                 ].filter(Boolean).join(' · ')}
               </p>
@@ -487,9 +494,14 @@ export default function DeckPage() {
               </div>
             );
           }
-          // Level 0 — show company cards by default (the primary view).
-          // Other types are accessible via the category nav.
-          const defaultType: CardType = typeParam ?? 'company';
+          // Level 0 — prefer company cards, but never land on an empty category
+          // when an exact-scope deck's only valid lead card is infrastructure or
+          // distribution. Signal-only decks also fall back to their first
+          // populated category; a genuinely empty/running deck remains Company.
+          const firstPopulatedType = CARD_TYPE_ORDER.find((type) =>
+            list.some((card) => card.card.cardType === type),
+          );
+          const defaultType: CardType = typeParam ?? firstPopulatedType ?? 'company';
           const filtered = list.filter((c) => c.card.cardType === defaultType);
           return (
             <section>

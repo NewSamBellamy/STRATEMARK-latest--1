@@ -868,6 +868,34 @@ export default function NewDeckPage() {
               {session.error && (
                 <div className="rounded-xl border border-negative/30 bg-negative/5 p-4">
                   <p className="text-[13px] text-negative">{session.error}</p>
+                  {session.logLines.length > 0 && (
+                    <div className="mt-3 border-t border-negative/15 pt-2.5">
+                      <button
+                        type="button"
+                        aria-expanded={logsOpen}
+                        onClick={() => setLogsOpen(!logsOpen)}
+                        className="flex items-center gap-1 text-[12px] text-muted hover:text-content"
+                      >
+                        <ChevronRight
+                          className={cn('h-3 w-3 transition-transform', logsOpen && 'rotate-90')}
+                        />
+                        Show research steps ({session.logLines.length})
+                      </button>
+                      {logsOpen && (
+                        <div
+                          role="log"
+                          aria-label="Research steps before failure"
+                          className="mt-2 max-h-48 overflow-y-auto text-[12px] text-muted"
+                        >
+                          {session.logLines.map((line, index) => (
+                            <div key={`${index}-${line}`} className="py-0.5">
+                              {line}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={clear}

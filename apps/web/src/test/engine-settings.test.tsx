@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -14,6 +14,7 @@ import { useEngineChoice } from '@/lib/settings/engine';
 import * as sentinelApi from '@/lib/sentinelApi';
 
 import { useSettingsModal } from '@/lib/settings/settingsModal';
+import { useResearchSession } from '@/features/deck/research-session';
 
 function TestWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -33,6 +34,7 @@ describe('Research Engine Settings & Strict Execution', () => {
   beforeEach(() => {
     localStorage.clear();
     useEngineChoice.setState({ engine: 'local' });
+    useResearchSession.getState().clear();
     vi.restoreAllMocks();
   });
 
@@ -87,6 +89,54 @@ describe('Research Engine Settings & Strict Execution', () => {
         /Sentinel Cloud Agent error: Sentinel Cloud Run service temporary 503 error/i,
       ),
     ).toBeInTheDocument();
+  });
+
+  it('keeps the captured research steps available after a run fails', async () => {
+    const failedSession = {
+      query: 'Microsoft Corporation',
+      time: '1:14 AM',
+      running: true,
+      logLines: [
+        'Discovered 1 entities: Microsoft Corporation',
+        'Could not enrich Microsoft Corporation; preserving the rest of the deck. Original-source retrieval timed out.',
+      ],
+      done: null,
+      error: null,
+      stage: null,
+      progress: null,
+      found: ['Microsoft Corporation'],
+    };
+    useResearchSession.setState({ session: failedSession });
+
+    const user = userEvent.setup();
+    render(
+      <TestWrapper>
+        <Routes>
+          <Route path="/" element={<NewDeckPage />} />
+        </Routes>
+      </TestWrapper>,
+    );
+
+    act(() => {
+      useResearchSession.setState({
+        session: {
+          ...failedSession,
+          running: false,
+          error: 'No company, infrastructure, or distribution card completed its first research pass; the deck was not opened.',
+        },
+      });
+    });
+
+    expect(
+      screen.getByText(/No company, infrastructure, or distribution card completed/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Original-source retrieval timed out/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /show research steps/i }));
+
+    expect(screen.getByRole('log', { name: /research steps before failure/i })).toHaveTextContent(
+      /Original-source retrieval timed out/,
+    );
   });
 
   it('uses the asynchronous cloud deckId and opens the running deck', async () => {

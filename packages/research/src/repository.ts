@@ -14,6 +14,7 @@ import {
   computeCms,
   deckBakedState,
   hasVerificationGradeCitation,
+  isEntityCardType,
   isJunkSource,
   isSignalCardType,
   markVerified,
@@ -1020,11 +1021,14 @@ export class GeminiRepository implements MarketIntelRepository {
                     job.partialCards.push(hydrated.primaryCard);
                   }
 
-                  const isFirstCompanyReady =
-                    !leadCardReadyClaimed &&
-                    (candidate.primaryRole === 'company' ||
-                      (!candidate.primaryRole && candidate.cardTypes.includes('company')));
-                  if (isFirstCompanyReady) {
+                  // Exact-company scope can correctly classify a requested business
+                  // as infrastructure or distribution. Any fully hydrated core
+                  // entity card is a valid first deck entry; gating only on the
+                  // literal `company` role strands those runs after every card has
+                  // actually been researched.
+                  const isFirstEntityReady =
+                    !leadCardReadyClaimed && isEntityCardType(hydrated.primaryCard.card.cardType);
+                  if (isFirstEntityReady) {
                     leadCardReadyClaimed = true;
                     // The first visible company card is the one that completed
                     // research, not whichever unhydrated stub happened to be
@@ -1075,7 +1079,7 @@ export class GeminiRepository implements MarketIntelRepository {
                     card: hydrated.primaryCard,
                     kind: 'find',
                   });
-                  if (isFirstCompanyReady) {
+                  if (isFirstEntityReady) {
                     leadCardReadySettled = true;
                     resolveLeadCardReady();
                   }
@@ -1100,7 +1104,9 @@ export class GeminiRepository implements MarketIntelRepository {
             if (!leadCardReadySettled) {
               leadCardReadySettled = true;
               rejectLeadCardReady(
-                new Error('No company card completed its first research pass; the deck was not opened.'),
+                new Error(
+                  'No company, infrastructure, or distribution card completed its first research pass; the deck was not opened.',
+                ),
               );
             }
           })(),

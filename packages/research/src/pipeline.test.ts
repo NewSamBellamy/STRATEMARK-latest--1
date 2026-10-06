@@ -815,6 +815,58 @@ describe('discovery coverage contract', () => {
     expect(result.minimumCompaniesSatisfied).toBe(true);
   });
 
+  it('opens an exact-scope deck after its only requested infrastructure entity is hydrated', async () => {
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
+    const client = fakeClient();
+    const originalStructure = client.structure.bind(client);
+    client.structure = (async (
+      prompt: string,
+      schema: ZodType<unknown>,
+      options?: Parameters<LlmClient['structure']>[2],
+    ) => {
+      if (prompt.includes('"companies"')) {
+        return schema.parse({ companies: [{
+          name: 'Alpha Inc',
+          domain: 'alpha.com',
+          descriptor: 'Cloud and AI infrastructure provider',
+          primaryRole: 'infrastructure',
+          cardTypes: ['infrastructure'],
+        }] });
+      }
+      return originalStructure(prompt, schema, options);
+    }) as LlmClient['structure'];
+    let snapshot: RepoSnapshot | null = null;
+    const repo = new GeminiRepository({
+      apiKey: 'test-key',
+      client,
+      coverage: testCoverage,
+      catalogMax: 3,
+      catalogPasses: 0,
+      store: {
+        read: () => snapshot,
+        write: (next) => { snapshot = next; },
+      },
+    });
+
+    try {
+      const { market, deck } = await repo.createResearchedDeck({
+        prompt: 'Research Alpha Inc',
+        region: null,
+        companyScope: { mode: 'selected_only', names: ['Alpha Inc'] },
+      });
+
+      expect(market.id).toBeTruthy();
+      const firstCards = await repo.listCards(deck.id);
+      const leadInfrastructureCard = firstCards.find((entry) => entry.card.cardType === 'infrastructure');
+      expect(leadInfrastructureCard).toBeTruthy();
+      expect(leadInfrastructureCard!.metrics.length).toBeGreaterThan(0);
+      await repo.waitForBackgroundJobs();
+    } finally {
+      vi.stubGlobal('fetch', originalFetch);
+    }
+  });
+
   it('uses bounded fallback passes to fill underfilled entity roles', async () => {
     const client: LlmClient = {
       ground: vi.fn(async () => ({ text: 'grounded', citations: [], queries: [] })),

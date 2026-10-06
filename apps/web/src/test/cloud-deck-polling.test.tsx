@@ -129,6 +129,81 @@ describe('Cloud Deck Polling & UI State', () => {
     expect(screen.queryByText(/No cards yet/i)).not.toBeInTheDocument();
   });
 
+  it('opens on the first populated core category when an exact-scope deck has no company-role card', async () => {
+    const repo = new SentinelRepository();
+    const card = {
+      id: 'card_microsoft_infrastructure',
+      deckId: 'deck_test_cloud',
+      companyId: 'company_microsoft',
+      cardType: 'infrastructure' as const,
+      title: null,
+      summary: 'Microsoft provides cloud and AI infrastructure.',
+      tier: null,
+      tierReason: null,
+      citations: [],
+      keyPoints: [],
+      createdAt: new Date().toISOString(),
+    };
+    const company = {
+      id: 'company_microsoft',
+      name: 'Microsoft Corporation',
+      oneLiner: 'Cloud and AI infrastructure provider.',
+      logoUrl: null,
+      hqLocation: 'Redmond, Washington',
+      websiteUrl: 'https://microsoft.com',
+      brandTheme: null,
+    };
+    const secondCard = {
+      ...card,
+      id: 'card_coreweave_infrastructure',
+      companyId: 'company_coreweave',
+      title: 'CoreWeave',
+      summary: 'CoreWeave provides cloud and AI infrastructure.',
+    };
+    const secondCompany = {
+      ...company,
+      id: 'company_coreweave',
+      name: 'CoreWeave, Inc.',
+      oneLiner: 'AI cloud infrastructure provider.',
+      hqLocation: 'Livingston, New Jersey',
+      websiteUrl: 'https://coreweave.com',
+    };
+    repo.cacheCloudDeckResponse({
+      ok: true,
+      deckId: 'deck_test_cloud',
+      market: { id: 'deck_test_cloud', name: 'Selected company market' },
+      cards: [card, secondCard],
+      companies: [company, secondCompany],
+    });
+    vi.spyOn(sentinelApi, 'getCloudDeck').mockResolvedValue({
+      deck: { id: 'deck_test_cloud', marketId: 'deck_test_cloud', status: 'ready' },
+      market: {
+        id: 'deck_test_cloud',
+        name: 'Selected company market',
+        scopeDefinition: { vertical: 'AI infrastructure', geography: null, notes: null },
+        refreshCadence: 'weekly',
+        createdAt: new Date().toISOString(),
+      },
+      cards: [card, secondCard],
+      companies: [company, secondCompany],
+      metrics: [],
+      viceClaims: [],
+    });
+
+    render(
+      <TestWrapper repo={repo}>
+        <Routes>
+          <Route path="/markets/:marketId/deck" element={<DeckPage />} />
+        </Routes>
+      </TestWrapper>,
+    );
+
+    expect(await screen.findByRole('button', { name: /microsoft corporation — infrastructure card/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /coreweave, inc\. — infrastructure card/i })).toBeInTheDocument();
+    expect(screen.getByText(/2 infrastructure providers/i)).toBeInTheDocument();
+    expect(screen.getByText('2 companies')).toBeInTheDocument();
+  });
+
   it('DeckPage renders failed state when research fails', async () => {
     const repo = new SentinelRepository();
     repo.cacheCloudDeckResponse({
