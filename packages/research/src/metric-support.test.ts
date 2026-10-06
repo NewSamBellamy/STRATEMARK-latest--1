@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acceptedMetricPassage } from './metric-support';
+import { acceptedMetricPassage, inspectMetricPassage } from './metric-support';
 import type { MetricPassageSupport } from './metric-support';
 import type { OriginalSourceReceipt } from './original-source';
 
@@ -8,6 +8,29 @@ const source: OriginalSourceReceipt = { requestedUrl: 'https://sec.gov/acme', fi
 const support: MetricPassageSupport = { sourceUrl: source.finalUrl!, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' };
 const input = { companyName: 'Acme Inc.', metricType: 'arr' as const, value: 40_000_000, support, originals: [source] };
 describe('original metric passage gate', () => {
+  it('keeps diagnostic acceptance identical to the existing gate', () => {
+    const candidates = [input, { ...input, support: null }, { ...input, originals: [] },
+      { ...input, originals: [{ ...source, text: 'Different passage' }] },
+      { ...input, support: { ...support, unit: 'count' as const } },
+      { ...input, support: { ...support, quote: quote.replace('40 million', '80 million') } },
+      { ...input, support: { ...support, quote: quote.replace('reports', 'projects') } },
+      { ...input, support: { ...support, asOf: '2026-02-30' } },
+      { ...input, originals: [{ ...source, contentHash: 'invalid' }] }];
+    for (const candidate of candidates) {
+      const fixed = { ...candidate, nowMs: Date.parse('2026-10-05T00:00:00.000Z') };
+      const result = inspectMetricPassage(fixed);
+      expect(result.citations).toEqual(acceptedMetricPassage(fixed));
+      expect(result.reason === null).toBe(result.citations.length > 0);
+    }
+  });
+  it('does not disclose raw source errors or present an unavailable page as a public-data absence', () => {
+    const result = inspectMetricPassage({ ...input, nowMs: Date.parse('2026-10-05T00:00:00.000Z'), originals: [
+      { requestedUrl: source.requestedUrl, status: 'blocked', retrievedAt: source.retrievedAt, reason: 'private-network-detail' },
+    ] });
+    expect(result.reason).toContain('Original source could not be read');
+    expect(result.reason).not.toContain('private-network-detail');
+    expect(result.citations).toEqual([]);
+  });
   it.each(['2026-09-30T00:00:00.000Z', '2028-01-01T00:00:00.000Z'])('does not treat future or aged reporting periods as current: %s', now => {
     expect(acceptedMetricPassage({ ...input, nowMs: Date.parse(now) })).toEqual([]);
   });

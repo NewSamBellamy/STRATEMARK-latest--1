@@ -18,6 +18,12 @@ function show(patch: Partial<CompanyMetric>) {
 }
 
 describe('dashboard metric evidence projection', () => {
+  it('makes the retained evidence failure available on the existing Unknown badge', async () => {
+    show({ value: null, confidence: 'unknown', methodNote: 'Original source could not be read. Try an accessible original publisher.' });
+    await screen.findByRole('button', { name: 'Correct Employees' });
+    expect(screen.getByLabelText('Confidence: Unknown. Original source could not be read. Try an accessible original publisher.')).toBeInTheDocument();
+    expect(screen.queryByText('123')).not.toBeInTheDocument();
+  });
   it('keeps headline figures in a dedicated region separate from research actions', async () => {
     show({ confidence: 'estimated' });
     const band = await screen.findByRole('region', { name: 'Company headline metrics' });

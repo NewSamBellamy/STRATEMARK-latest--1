@@ -29,6 +29,33 @@ const assertFacts = (rows: CompanyMetric[]) => {
   expect(rows.find(row => row.metricType === 'arr')).toMatchObject({ value: null, confidence: 'unknown' });
 };
 describe('one current company facts projection', () => {
+  it.each([
+    ['missing', 'No saved original passage'],
+    ['blocked', 'Original source could not be read'],
+    ['mismatch', 'Claim is not present in the saved original'],
+    ['stale', 'Reporting date is outside the current evidence window'],
+  ])('explains %s evidence on facts, cards and reopen without provider calls', async (fault, reason) => {
+    const { store, client } = setup();
+    const snapshot = store.read()!;
+    const receipt = snapshot.originalSourceAttempts![0]!.receipts[0]!;
+    if (fault === 'missing') snapshot.originalSourceAttempts = [];
+    if (fault === 'blocked') snapshot.originalSourceAttempts![0]!.receipts = [{ requestedUrl: url, status: 'blocked', retrievedAt: employee.capturedAt, reason: 'HTTP 403' }];
+    if (fault === 'mismatch') receipt.text = 'An unrelated company report.';
+    if (fault === 'stale') {
+      snapshot.metrics[0]!.passageSupport!.asOf = '2024-10-01';
+      snapshot.metrics[0]!.passageSupport!.quote = quote.replace('2026-10-01', '2024-10-01');
+      receipt.text = snapshot.metrics[0]!.passageSupport!.quote;
+    }
+    await store.write(snapshot);
+    const reopened = new GeminiRepository({ apiKey: 'test', store, client });
+    const fact = (await reopened.getCompanyFacts('cmp')).find(row => row.metricType === 'employees')!;
+    expect(fact).toMatchObject({ value: null, confidence: 'unknown' });
+    expect(fact.methodNote).toContain(reason);
+    expect((await reopened.listSavedCards())[0]!.metrics.find(row => row.metricType === 'employees')!.methodNote).toBe(fact.methodNote);
+    expect(store.read()!.metrics[0]!.value).toBe(45);
+    expect(client.ground).not.toHaveBeenCalled();
+    expect(client.structure).not.toHaveBeenCalled();
+  });
   it('carries literal issuer ARR into the current chart without rewriting history or paying for research', async () => {
     const { store, client } = setup();
     const snapshot = store.read()!;

@@ -1,6 +1,6 @@
 import { METRIC_TYPES, companyMetricSchema, currentMetricRevision, metricPassageSupportSchema,
   validMetricVerificationValue, isSignalCardType, type CardWithCompany, type Company, type CompanyMetric } from '@mi/contracts';
-import { acceptedMetricPassage } from './metric-support';
+import { inspectMetricPassage } from './metric-support';
 import { isOriginalSourceAttempt, type OriginalSourceAttempt, type OriginalSourceReceipt } from './original-source';
 
 /** Read adapter for the existing retained cloud verification ledger. Synthetic
@@ -48,9 +48,10 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
     const proof = metricPassageSupportSchema.safeParse(metric.passageSupport);
     // Market share needs a defined market/denominator/period contract. A dated
     // percentage in a sentence is not that contract; automatic shares wait.
-    const citations = !current.ambiguous && bounded && metric.confidence === 'verified' && proof.success && type !== 'market_share' &&
+    const assessment = !current.ambiguous && bounded && metric.confidence === 'verified' && proof.success && type !== 'market_share' &&
       !(type === 'users' && metric.value === 0)
-      ? acceptedMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl, metricType: type, value: metric.value, support: proof.data, originals }) : [];
+      ? inspectMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl, metricType: type, value: metric.value, support: proof.data, originals }) : null;
+    const citations = assessment?.citations ?? [];
     if (citations.length) return [{ ...structuredClone(metric), citations, source: citations[0]!.url,
       methodNote: citations[0]!.title.startsWith('Issuer-reported')
         ? `Issuer-reported figure; original passage checked, not independently corroborated. ${metric.methodNote ?? ''}`.trim()
@@ -59,6 +60,6 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
       passageSupport: null, lastVerifiedAt: null,
       methodNote: current.ambiguous ? 'Conflicting current observations; confirm before displaying a fact.'
         : type === 'market_share' ? 'No accepted market definition, denominator and reporting-period evidence. Raw observations remain saved.'
-          : 'No accepted original-backed current fact. Raw observations remain saved for inspection and correction.' }];
+          : `${assessment?.reason ?? 'No accepted original-backed current fact.'} Raw observations remain saved for inspection and correction.` }];
   });
 }

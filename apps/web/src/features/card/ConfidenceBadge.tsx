@@ -60,7 +60,7 @@ export function ConfidenceBadge({
       ? (note ?? 'Estimated from indirect signals via a stated method.')
       : confidence === 'user_verified'
         ? (note ?? 'Manually corrected by you — treated as ground truth for scoring.')
-        : 'No usable signal found — shown as Unknown (never scored as zero).';
+        : (note?.trim() || 'No usable signal found — shown as Unknown (never scored as zero).');
 
   const badge = (
     <span
