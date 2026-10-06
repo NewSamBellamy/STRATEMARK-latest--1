@@ -30,6 +30,31 @@ async function setup(cap = '10') {
   return { post, ground, structure, service, store };
 }
 describe('actual cloud dashboard source transport and authorization', () => {
+  it('retains product originals on the authorized route and reuses them without repeating search', async () => {
+    const { post, ground, structure, service } = await setup();
+    const url = 'https://example.com/atlas';
+    const quote = 'Atlas is now available for independent company researchers.';
+    ground.mockResolvedValue({ text: 'Invented adoption numbers', citations: [{ title: 'Official product', url }], queries: [] });
+    structure.mockResolvedValue({ products: [{ name: 'Atlas', status: 'live', sourceUrl: url, quote,
+      description: 'Invented financials', revenueNote: '$999B', url: 'https://fake.example' }], roadmap: [] } as never);
+    vi.mocked(retrieveOriginalSource).mockResolvedValue({ requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200,
+      contentHash: 'a'.repeat(64), text: quote, retrievedAt: new Date().toISOString() });
+    const response = await post({ ...input, tab: 'products_roadmap' });
+    expect(response.status).toBe(200);
+    const result = await response.json() as { content: { products: Array<{ description: string; revenueNote: string; url: string }> }; citations: Array<{ url: string }> };
+    expect(result.content.products[0]).toMatchObject({ description: expect.stringContaining(quote), revenueNote: '', url });
+    expect(JSON.stringify(result)).not.toContain('Invented');
+    expect(result.citations[0]!.url).toBe(url);
+    const retained = await service.getOriginalSources('user_123', 'deck_test').list({ companyId: 'cmp', metricType: 'products_roadmap' });
+    expect(retained).toHaveLength(1);
+    expect(retained[0]!.receipts[0]!.text).toBe(quote);
+    expect((await post({ ...input, tab: 'products_roadmap' })).status).toBe(200);
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(retrieveOriginalSource).toHaveBeenCalledTimes(1);
+    expect((await post({ ...input, tab: 'products_roadmap', force: true })).status).toBe(200);
+    expect(ground).toHaveBeenCalledTimes(2);
+    expect(retrieveOriginalSource).toHaveBeenCalledTimes(2);
+  });
   it('reads and retains the authorized official page before paid search on the actual overview route', async () => {
     const { post, structure, ground, service } = await setup();
     const url = 'https://example.com/';

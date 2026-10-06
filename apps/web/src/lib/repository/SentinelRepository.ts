@@ -719,7 +719,7 @@ export class SentinelRepository implements MarketIntelRepository {
   async getDashboardTab<T extends DashboardTab>(
     companyId: string,
     tab: T,
-    _force?: boolean,
+    force?: boolean,
   ): Promise<DashboardTabResult<T> | null> {
     let deckId: string | null = null;
 
@@ -753,7 +753,7 @@ export class SentinelRepository implements MarketIntelRepository {
     try {
       const res = await fetchSentinel<Pick<DashboardTabResult<T>, 'content' | 'citations'>>('/api/research/tab', {
         method: 'POST',
-        body: JSON.stringify({ deckId, companyId, tab }),
+        body: JSON.stringify({ deckId, companyId, tab, ...(force ? { force: true } : {}) }),
       });
       return {
         companyId,

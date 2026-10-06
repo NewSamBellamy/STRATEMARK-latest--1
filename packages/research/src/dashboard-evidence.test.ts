@@ -15,7 +15,8 @@ function setup() {
     excerpts: [{ sourceUrl: url, quote: 'Example sells research software.' }],
     citations: [{ title: 'Fabricated', url: 'https://invented.example/report' }],
     nodes: Array.from({ length: 5 }, (_, i) => ({ id: String(i), parentId: null })),
-    board: [], fundingRounds: [{ round: 'Seed' }], products: [], timeline: [], items: [] });
+    board: [], fundingRounds: [{ round: 'Seed' }], products: [{ name: 'Atlas', status: 'live', sourceUrl: url,
+      quote: 'Atlas is now available for company research.' }], roadmap: [], timeline: [], items: [] });
   const client = { ground, structure } as unknown as LlmClient;
   const repo = () => new GeminiRepository({ apiKey: 'test', client, store,
     // These cases exercise SEARCH lineage. Make the direct homepage explicitly
@@ -23,7 +24,7 @@ function setup() {
     originalSourceReader: async sourceUrl => sourceUrl === 'https://example.com'
       ? { requestedUrl: sourceUrl, status: 'unavailable', retrievedAt: new Date().toISOString() }
       : ({ requestedUrl: sourceUrl, finalUrl: sourceUrl,
-      status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: 'Example sells research software.', retrievedAt: new Date().toISOString() }) });
+      status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: 'Example sells research software. Atlas is now available for company research.', retrievedAt: new Date().toISOString() }) });
   return { store, ground, structure, repo };
 }
 
@@ -58,7 +59,7 @@ describe('dashboard source lineage', () => {
       const result = await repo().getDashboardTab('cmp', tab);
       expect(result).toHaveProperty('citations', [expect.objectContaining({ url })]);
       expect(structure.mock.calls[0]![0]).toContain(url);
-      expect(structure.mock.calls[0]![0]).toContain(tab === 'overview' ? 'UNTRUSTED ORIGINAL EXTRACTS' : 'not independent claim verification');
+      expect(structure.mock.calls[0]![0]).toContain(['overview', 'products_roadmap'].includes(tab) ? 'UNTRUSTED ORIGINAL EXTRACTS' : 'not independent claim verification');
       const reopened = await repo().getDashboardTab('cmp', tab);
       expect(reopened).toEqual(result);
       expect(ground).toHaveBeenCalledTimes(1);

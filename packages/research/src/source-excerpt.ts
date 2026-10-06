@@ -2,7 +2,12 @@
 export function selectSourceExcerpt(text: string, scope?: { companyName: string; metricType?: string }): string {
   const limit = 4000;
   if (text.length <= limit) return text;
-  const cues = [
+  const products = scope?.metricType === 'products_roadmap';
+  const cues = products ? [
+    /\b(?:available|launched|released|beta|discontinued|retired)\b/gi,
+    /\b(?:roadmap|planned|plans|announced|upcoming)\b/gi,
+    /\b(?:product|pricing|documentation|download)\b/gi,
+  ] : [
     /\b(?:employees|headcount)\b/gi,
     /\b(?:ARR|annual recurring revenue|annual revenue)\b/gi,
     /\b(?:active users|users|customers)\b/gi,
@@ -16,7 +21,7 @@ export function selectSourceExcerpt(text: string, scope?: { companyName: string;
       const index = match.index!;
       // Relevance only: dates or unrelated numbers can match here. The separate
       // passage gate must still check the original company, figure and basis.
-      if (/\d/.test(text.slice(Math.max(0, index - 200), index + match[0].length + 200))) {
+      if (products || /\d/.test(text.slice(Math.max(0, index - 200), index + match[0].length + 200))) {
         hits.push({ index, category });
       }
     }

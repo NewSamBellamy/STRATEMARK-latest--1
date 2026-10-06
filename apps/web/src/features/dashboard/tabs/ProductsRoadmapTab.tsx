@@ -76,7 +76,7 @@ function ProductReader({
           {hasUrl ? (
             <a href={product.url!} target="_blank" rel="noopener noreferrer" className="btn-primary">
               <ExternalLink className="h-4 w-4" />
-              Open the product
+              Open official source
             </a>
           ) : (
             <span className="text-[11px] text-faint">No official page surfaced yet.</span>
@@ -110,8 +110,9 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                 <div>
                   <h3 className="font-display text-sm font-semibold text-content">Product lineup</h3>
                   <p className="text-xs text-muted">
-                    Ranked by reported revenue contribution — breadwinners first, loss-leaders last.
-                    Ranking follows what sources actually say; “not disclosed” stays honest.
+                    {c.products.length
+                      ? 'Company-reported product disclosures, not a revenue ranking. Revenue contribution is not established.'
+                      : 'No original-backed product details are available yet. Refresh research to check official sources; earlier notes remain saved.'}
                   </p>
                 </div>
                 <DigDeeperMenu
@@ -136,7 +137,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                           setOpenProduct(p);
                         }
                       }}
-                      title="Open this product — capture, full description, research"
+                      title="Open this product — source disclosure and research"
                     >
                       <span
                         className={cn(
@@ -230,7 +231,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                           </li>
                         ))}
                         {items.length === 0 && (
-                          <li className="py-1 text-xs text-faint">Nothing announced for this horizon.</li>
+                          <li className="py-1 text-xs text-faint">No source-backed plan retained for this horizon.</li>
                         )}
                       </ul>
                     </div>

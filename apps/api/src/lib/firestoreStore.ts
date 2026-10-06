@@ -80,7 +80,7 @@ function nextResearchThread(userId: string, thread: ResearchThread, expectedRevi
 function appendCompanyOriginals(previous: OriginalSourceAttempt[], attempt: OriginalSourceAttempt): OriginalSourceAttempt[] {
   assertPayloadSize(attempt, 65536);
   if (!/^src_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(attempt.id) ||
-      !attempt.companyId || !['company_profile', 'overview'].includes(attempt.metricType) ||
+      !attempt.companyId || !['company_profile', 'overview', 'products_roadmap'].includes(attempt.metricType) ||
       !Number.isFinite(Date.parse(attempt.capturedAt)) || !Array.isArray(attempt.receipts) || attempt.receipts.length > 2) {
     throw new Error('Invalid company source attempt');
   }

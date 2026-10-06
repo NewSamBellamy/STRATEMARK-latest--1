@@ -2,6 +2,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { coalesceOriginalSources } from './original-source';
 const receipt = (url: string) => ({ requestedUrl: url, status: 'retrieved' as const, retrievedAt: '2026-10-03T00:00:00.000Z', text: 'Original extract' });
 describe('bounded original read coalescing', () => {
+  it('bypasses completed caches through nested adapters for explicit refresh, but joins active reads', async () => {
+    const read = vi.fn(async (url: string) => ({ ...receipt(url), text: `Revision ${read.mock.calls.length}` }));
+    const cached = coalesceOriginalSources(coalesceOriginalSources(read));
+    const scope = { companyId: 'a', companyName: 'Acme', metricType: 'products_roadmap' };
+    const url = 'https://acme.com/products';
+    expect((await cached(url, scope)).text).toBe('Revision 1');
+    const [first, joined] = await Promise.all([cached(url, { ...scope, forceRefresh: true }), cached(url, { ...scope, forceRefresh: true })]);
+    expect(first.text).toBe('Revision 2');
+    expect(joined.text).toBe('Revision 2');
+    expect((await cached(url, scope)).text).toBe('Revision 2');
+    expect(read).toHaveBeenCalledTimes(2);
+  });
   it('captures scope before an asynchronous caller can change its cache identity', async () => {
     const read = vi.fn(async (url: string, scope?: { companyName: string }) => ({ ...receipt(url), text: scope!.companyName }));
     const cached = coalesceOriginalSources(read);

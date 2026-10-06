@@ -1,6 +1,6 @@
 # Keystone delivery map — keep the whole product in view
 
-Updated 2026-10-05. This is the current execution map, not a replacement product vision or a claim of production readiness. Read the consolidated build/test plan and architecture specs referenced in KEYSTONE-BUILD-STATUS first. Preserve the approved collectible card visual baseline and separate revival branch.
+Updated 2026-10-06. This is the current execution map, not a replacement product vision or a claim of production readiness. Read the consolidated build/test plan and architecture specs referenced in KEYSTONE-BUILD-STATUS first. Preserve the approved collectible card visual baseline and separate revival branch.
 
 ## What progress means
 
@@ -20,7 +20,9 @@ A slice must improve an actual connected user action, retain the result locally,
 
 ## Ordered next slices
 
-Checkpoint 37 connects exact current-proof retention to native/browser/cloud facts and readers and adds a transactional native source index over immutable files. Real parallel Electron migration/save audit and a 1,031-artifact local lookup comparison pass; live research latency and the full vault lifecycle are not proved. Next return to a bounded public/private first-ready journey and one useful deeper dossier, using the indexed evidence lane rather than adding another isolated integrity layer. Durable Scouts/jobs, specialist reports, scoring, any-key routing, export/import/MCP and release remain in scope. See [checkpoint 37](KEYSTONE-CHECKPOINT-37.md).
+Checkpoint 38 completes a narrow source-backed Products & Roadmap path, including official-original retention, explicit lifecycle checks, literal roadmap dates, refresh behavior and honest unknown states. Full `pnpm check` and desktop/browser builds pass; there is no live Gemini acceptance run. Next return to the bounded public/private first-ready journey and one useful deeper dossier, using the indexed evidence lane. Durable Scouts/jobs, specialist reports, scoring, any-key routing, export/import/MCP and release remain in scope. See [checkpoint 38](KEYSTONE-CHECKPOINT-38.md).
+
+Checkpoint 37 connects exact current-proof retention to native/browser/cloud facts and readers and adds a transactional native source index over immutable files. Real parallel Electron migration/save audit and a 1,031-artifact local lookup comparison pass; live research latency and the full vault lifecycle are not proved. See [checkpoint 37](KEYSTONE-CHECKPOINT-37.md).
 
 Checkpoint 36 delivers one real SEC annual-revenue lane through first hydration, native disk retention/offline facts and authorized local/cloud refresh/hunts. It selects actual annual period, never treats annual revenue as ARR, and avoids historical JSON/model re-interpretation spend. A real source/native-persistence probe passed; discovery/synthesis were controlled, not a full live Gemini journey. Next measure bounded public/private first-ready accepted coverage and improve indexed/pinned observation retention; then finish one coherent deeper dossier and specialist report. Exact legal names, one US-GAAP USD concept and native/cloud transport are deliberate limits, not universal coverage. All nine delivery areas remain in scope.
 

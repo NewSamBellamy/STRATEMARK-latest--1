@@ -4,6 +4,15 @@ import { SentinelRepository } from './SentinelRepository';
 
 afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 describe('cloud dashboard citation transport', () => {
+  it('forwards an explicit forced refresh to cloud research', async () => {
+    localStorage.setItem('mi.sentinelApiUrl', 'https://sentinel.test');
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({ content: { products: [], roadmap: [] }, citations: [] }) } as Response);
+    const repository = new SentinelRepository();
+    vi.spyOn(repository, 'listMarkets').mockResolvedValue([{ id: 'deck_test' }] as Market[]);
+    await repository.getDashboardTab('cmp', 'products_roadmap', true);
+    expect(fetch).toHaveBeenCalledWith('https://sentinel.test/api/research/tab', expect.objectContaining({
+      body: JSON.stringify({ deckId: 'deck_test', companyId: 'cmp', tab: 'products_roadmap', force: true }) }));
+  });
   it('retains actual server attribution in the result consumed by every dashboard section', async () => {
     localStorage.setItem('mi.sentinelApiUrl', 'https://sentinel.test');
     const citations = [{ title: 'Official', url: 'https://example.com/report' }];

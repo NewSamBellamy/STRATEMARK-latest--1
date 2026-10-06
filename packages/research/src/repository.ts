@@ -93,6 +93,7 @@ import { originalSourcePromptViews, secRevenueObservation, secRevenueVerificatio
 import { acceptedMetricPassage } from './metric-support';
 import { overviewFigures, renderCompanyOverview } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
+import { renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
 
 interface CachedTab {
   content: unknown;
@@ -102,6 +103,7 @@ interface CachedTab {
   /** Legacy artifact retained for compatibility; never trusted for rendering. */
   overviewBackground?: string;
   overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>;
+  productSelections?: ProductEvidenceSelections;
 }
 
 export interface RepoSnapshot {
@@ -1384,6 +1386,13 @@ export class GeminiRepository implements MarketIntelRepository {
       // Preserve legacy notes on disk, but don't present unchecked historical
       // prose as today's factual overview or silently spend to replace it.
       const metrics = this.snap.metrics.filter(row => row.companyId === companyId);
+      if (tab === 'products_roadmap') {
+        const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20, support: productSupportReferences(cached.productSelections) });
+        const originals = attempts.filter(isOriginalSourceAttempt).filter(row => row.companyId === companyId).flatMap(row => row.receipts);
+        const result = renderCompanyProducts(company, originals, cached.productSelections);
+        return { companyId, tab, lastRefreshedAt: cached.lastRefreshedAt, citations: result.citations,
+          content: result.content as DashboardContentMap[T] };
+      }
       if (tab === 'overview') {
         const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20, support: [
           ...originalSupportReferences(metrics, companyId), ...(Array.isArray(cached.overviewExcerpts) ? cached.overviewExcerpts.flatMap(ref => {
@@ -1413,19 +1422,21 @@ export class GeminiRepository implements MarketIntelRepository {
     const inFlight = this.tabResearchInFlight.get(flightKey);
     if (inFlight) return structuredClone(await inFlight) as DashboardTabResult<T> | null;
     const run = (async (): Promise<DashboardTabResult<T> | null> => {
-      const { content, citations, overviewExcerpts } = await researchDashboardWithSources(tab, {
+      const { content, citations, overviewExcerpts, productSelections } = await researchDashboardWithSources(tab, {
         company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
         storedMetrics: this.snap.metrics.filter((m) => m.companyId === companyId),
         client: this.client,
-        ...(tab === 'overview' ? { originalSources: this.originalSources,
+        refreshOriginals: Boolean(force),
+        ...(['overview', 'products_roadmap'].includes(tab) ? { originalSources: this.originalSources,
           ...(!this.originalSources ? { originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20, support: originalSupportReferences(this.snap.metrics, companyId) }) } : {}) } : {}),
       });
       const lastRefreshedAt = new Date().toISOString();
       this.snap.dashboards[companyId] = {
         ...this.snap.dashboards[companyId],
         [tab]: { content, citations, lastRefreshedAt,
-          ...(tab === 'overview' ? { overviewEvidenceVersion: 2, overviewExcerpts } : {}) },
+          ...(tab === 'overview' ? { overviewEvidenceVersion: 2, overviewExcerpts } : {}),
+          ...(tab === 'products_roadmap' ? { productSelections } : {}) },
       };
       await this.persist();
       return { companyId, tab, content, citations, lastRefreshedAt };

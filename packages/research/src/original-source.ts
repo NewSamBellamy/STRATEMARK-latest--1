@@ -30,6 +30,8 @@ export interface OriginalSourceScope {
   companyId: string;
   companyName: string;
   metricType?: string;
+  /** Explicit user refresh bypasses completed reuse, not an active read. */
+  forceRefresh?: boolean;
 }
 
 export interface OriginalSourceReceipt {
@@ -129,7 +131,7 @@ export function coalesceOriginalSources(read: (url: string, scope?: OriginalSour
     scope = scope ? { ...scope } : undefined;
     const key = JSON.stringify([url, scope?.companyId ?? null, scope?.companyName ?? null, scope?.metricType ?? null]);
     const hit = cache.get(key);
-    if (hit && hit.expires > now()) return { ...hit.receipt };
+    if (hit && hit.expires > now() && !scope?.forceRefresh) return { ...hit.receipt };
     cache.delete(key);
     let work = pending.get(key);
     if (!work) {

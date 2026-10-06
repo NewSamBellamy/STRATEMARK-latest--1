@@ -3,6 +3,15 @@ import { selectSourceExcerpt } from './source-excerpt';
 import { acceptedMetricPassage } from './metric-support';
 
 describe('bounded contiguous source excerpt', () => {
+  it('targets product/roadmap research rather than a richer financial section', () => {
+    const wanted = 'Acme Inc. says Atlas is now available. Atlas Connect is on the announced roadmap. Product pricing and documentation are published here.';
+    const text = `Acme Inc. has 900 employees, USD 20 million ARR and 500 active users.${' filler '.repeat(1100)}${wanted}${' appendix '.repeat(600)}`;
+    const result = selectSourceExcerpt(text, { companyName: 'Acme Inc.', metricType: 'products_roadmap' });
+    expect(result).toContain(wanted);
+    expect(result).not.toContain('900 employees');
+    expect(text).toContain(result);
+    expect(result).toHaveLength(4000);
+  });
   it('prioritizes the requested company over a richer unrelated company section', () => {
     const wanted = 'Acme Inc. reported 450 employees on October 1, 2026.';
     const text = `Other Inc. has 900 employees, USD 20 million ARR and 500 active users.${' filler '.repeat(1100)}${wanted}${' appendix '.repeat(600)}`;

@@ -14,7 +14,6 @@ import {
   validMetricVerificationValue,
   historyContentSchema,
   missionGovernanceContentSchema,
-  productsRoadmapContentSchema,
   teamOrgContentSchema,
   type Company,
   type CompanyMetric,
@@ -30,6 +29,7 @@ import { companySourceTargets } from './source-policy';
 import { originalSupportReferences, type OriginalSourceAttempt, type OriginalSourceServices } from './original-source';
 import { researchCompanyOverview } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
+import { researchCompanyProducts, type ProductEvidenceSelections } from './company-products';
 
 export interface TabResearchArgs {
   company: Company;
@@ -39,6 +39,7 @@ export interface TabResearchArgs {
   signal?: AbortSignal;
   originalSources?: OriginalSourceServices;
   originalAttempts?: OriginalSourceAttempt[];
+  refreshOriginals?: boolean;
 }
 
 const ctx = (a: TabResearchArgs): string =>
@@ -93,9 +94,13 @@ function metricsFromStored(metrics: CompanyMetric[], companyId: string, official
 /** Preserve attribution outside model-generated content on every research tab.
  * Existing content-only callers keep their contract; real repositories use this
  * envelope so sources survive synthesis, caching, IPC and cloud transport. */
-export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, args: TabResearchArgs): Promise<{ content: DashboardContentMap[T]; citations: Citation[]; overviewExcerpts?: Array<{ sourceUrl: string; quote: string }> }> {
+export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, args: TabResearchArgs): Promise<{ content: DashboardContentMap[T]; citations: Citation[]; overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>; productSelections?: ProductEvidenceSelections }> {
   if (tab === 'overview') {
     const result = await researchCompanyOverview(args);
+    return { ...result, content: result.content as DashboardContentMap[T] };
+  }
+  if (tab === 'products_roadmap') {
+    const result = await researchCompanyProducts(args);
     return { ...result, content: result.content as DashboardContentMap[T] };
   }
   let citations: Citation[] = [];
@@ -263,15 +268,7 @@ export async function researchDashboardTab<T extends DashboardTab>(
     }
 
     case 'products_roadmap': {
-      const g = await client.ground(
-        `Research the full product lineup of ${ctx(args)} — every distinct product/line, what each consists of, its OFFICIAL product page URL when one exists, and anything REPORTED about how much revenue each drives (filings, earnings coverage, credible reporting). Then the announced roadmap: every upcoming product, model, expansion, or infrastructure plan reported by credible sources, each with its announced timeframe (e.g. "2026 H2", "early 2027") when one was given. Cite sources.`,
-        system,
-      );
-      return client.structure(
-        `Convert to JSON { "products": [ { "name", "description", "status": "live"|"beta"|"sunset", "revenueNote" (what the notes REPORT about its revenue contribution, e.g. "~78% of FY25 revenue per 10-K" — or "" when nothing is reported; NEVER an invented figure), "url": string|null (the OFFICIAL product page URL from the notes; null when none was named — NEVER guess a URL) } ] ordered from biggest reported breadwinner to smallest/loss-leaders (keep unranked ones last), "roadmap": [ { "title", "horizon": "now"|"next"|"later", "detail", "date": string|null (the ANNOUNCED timeframe from the notes, e.g. "2026 H2"; null when none was reported) } ] — include every announced plan the notes support }.\n\nNOTES:\n${g.text}`,
-        productsRoadmapContentSchema,
-        structSys,
-      ) as Promise<DashboardContentMap[T]>;
+      return (await researchCompanyProducts(args)).content as DashboardContentMap[T];
     }
   }
   // Exhaustive — all tabs handled above.

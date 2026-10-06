@@ -688,10 +688,10 @@ export function createApp(
 
   app.post('/api/research/tab', async (c) => {
     try {
-      const parsed = z.object({ deckId: researchIdSchema, companyId: researchIdSchema, tab: dashboardTabSchema })
+      const parsed = z.object({ deckId: researchIdSchema, companyId: researchIdSchema, tab: dashboardTabSchema, force: z.boolean().optional() })
         .strict().safeParse(await c.req.json().catch(() => null));
       if (!parsed.success) return c.json({ error: 'Invalid dashboard research scope' }, 400);
-      const { deckId, companyId, tab } = parsed.data;
+      const { deckId, companyId, tab, force } = parsed.data;
       const access = await authorizeCloudResearch(c, 2 * METRIC_RESEARCH_ESTIMATE_USD);
       let ownedDeckId = deckId;
       let deckRec = await cloudDeckService.getDeck(access.userId, deckId);
@@ -716,7 +716,8 @@ export function createApp(
         marketName: deckRec.market.name as string,
         storedMetrics: card.metrics || [],
         client: resolved.client,
-        ...(['overview', 'metrics'].includes(tab) ? { originalSources: cloudDeckService.getOriginalSources(access.userId, ownedDeckId, readOriginalSource) } : {}),
+        refreshOriginals: Boolean(force),
+        ...(['overview', 'metrics', 'products_roadmap'].includes(tab) ? { originalSources: cloudDeckService.getOriginalSources(access.userId, ownedDeckId, readOriginalSource) } : {}),
       });
 
       return c.json({ content: result.content, citations: result.citations });
