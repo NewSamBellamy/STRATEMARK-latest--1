@@ -117,6 +117,15 @@ describe('dashboard source lineage', () => {
     expect(structure.mock.calls[1]![0]).toContain(url);
     expect(structure.mock.calls[1]![0]).toContain('https://example.com/team');
   });
+
+  it('keeps Team & Org research to reported facts and forbids subjective executive profiles', async () => {
+    const { repo, ground, structure } = setup();
+    await repo().getDashboardTab('cmp', 'team_org');
+    expect(ground.mock.calls[0]![0]).toContain('Do not infer personality, working style');
+    expect(ground.mock.calls[0]![0]).toContain('Only describe reporting lines when a source explicitly states them');
+    expect(structure.mock.calls[0]![0]).toContain('no personality or working-style interpretation');
+    expect(structure.mock.calls[0]![0]).not.toContain('a clearly-hedged reading of their working style');
+  });
 });
 
 describe('team and org gap-fill merge', () => {
