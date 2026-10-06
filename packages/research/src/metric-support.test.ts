@@ -8,6 +8,25 @@ const source: OriginalSourceReceipt = { requestedUrl: 'https://sec.gov/acme', fi
 const support: MetricPassageSupport = { sourceUrl: source.finalUrl!, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' };
 const input = { companyName: 'Acme Inc.', metricType: 'arr' as const, value: 40_000_000, support, originals: [source] };
 describe('original metric passage gate', () => {
+  it('accepts a normal fiscal-year disclosure without requiring invented ISO prose', () => {
+    const text = 'Acme Inc. reported annual revenue of USD 40 million for the fiscal year ended September 30, 2026.';
+    const candidate = { ...input, support: { ...support, quote: text, asOf: '2026-09-30',
+      definition: 'annual_revenue' as const, periodStart: '2025-10-01' }, originals: [{ ...source, text }] };
+    expect(acceptedMetricPassage(candidate)).toHaveLength(1);
+    expect(acceptedMetricPassage({ ...candidate, support: { ...candidate.support, periodStart: '2025-09-01' } })).toEqual([]);
+    expect(acceptedMetricPassage({ ...candidate, support: { ...candidate.support, asOf: '2026-09-29' } })).toEqual([]);
+    expect(acceptedMetricPassage({ ...candidate, support: { ...candidate.support, definition: 'arr' } })).toEqual([]);
+  });
+  it('accepts the explicit brand subject on its own issuer website, not an inferred alias on third-party pages', () => {
+    const text = 'Acme reported 120 customers as of October 1, 2026.';
+    const url = 'https://acme.com/reports/customers';
+    const candidate = { ...input, officialWebsite: 'https://acme.com', metricType: 'users' as const, value: 120,
+      support: { ...support, sourceUrl: url, quote: text, basis: 'users' as const, unit: 'count' as const, definition: 'customers' as const },
+      originals: [{ ...source, requestedUrl: url, finalUrl: url, text }] };
+    expect(acceptedMetricPassage(candidate)).toHaveLength(1);
+    expect(acceptedMetricPassage({ ...candidate, officialWebsite: 'https://other.com' })).toEqual([]);
+    expect(acceptedMetricPassage({ ...candidate, companyName: 'Acme Holdings Inc.' })).toEqual([]);
+  });
   it('accepts an explicit legal suffix abbreviation without borrowing a trade name or another entity', () => {
     const text = 'Acme Corp. reported 45 employees as of 2026-10-01.';
     const candidate = { ...input, companyName: 'Acme Corporation', metricType: 'employees' as const, value: 45,

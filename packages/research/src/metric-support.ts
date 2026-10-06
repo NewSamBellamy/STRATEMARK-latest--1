@@ -5,6 +5,17 @@ import { secFilingHeadcountObservation, secRevenueObservation } from './sec-reve
 export type MetricPassageSupport = NonNullable<CompanyMetric['passageSupport']>;
 const normalize = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim();
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function isIssuerOriginal(input: Parameters<typeof acceptedMetricPassage>[0]): boolean {
+  try {
+    const host = new URL(input.officialWebsite ?? '').hostname.toLowerCase().replace(/^www\./, '');
+    return input.originals.some(source => {
+      if (source.status !== 'retrieved' || !source.finalUrl || source.finalUrl !== input.support?.sourceUrl) return false;
+      const url = new URL(source.finalUrl);
+      const publisher = url.hostname.toLowerCase().replace(/^www\./, '');
+      return url.protocol === 'https:' && (publisher === host || publisher.endsWith(`.${host}`));
+    });
+  } catch { return false; }
+}
 /** Explicit terminal legal suffixes only. Never strip a suffix or infer a trade
  * name: Acme Corp. may match Acme Corporation, not Acme Holdings or Acme Inc. */
 function legalCompanyPattern(company: string): string {
@@ -59,6 +70,11 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
   const nowMs = input.nowMs ?? Date.now();
   if (!Number.isFinite(nowMs) || date.getTime() > nowMs || nowMs - date.getTime() > 366 * 86400000) return reject('Reporting date is outside the current evidence window. Find a current, explicitly dated source.');
   const quote = normalize(proof.quote);
+  const dateForms = [proof.asOf, ...(['long', 'short'] as const).flatMap((month) => [
+    new Intl.DateTimeFormat('en-US', { year: 'numeric', month, day: 'numeric', timeZone: 'UTC' }).format(date),
+    new Intl.DateTimeFormat('en-GB', { year: 'numeric', month, day: 'numeric', timeZone: 'UTC' }).format(date),
+  ])];
+  const literalDate = dateForms.find((value) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(value)}(?![\\p{L}\\p{N}])`, 'iu').test(quote));
   const definition = proof.definition ?? input.metricType;
   const definitions: Record<string, RegExp> = {
     arr: /\b(?:ARR|annual recurring revenue)\b/i,
@@ -85,15 +101,17 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
     const start = new Date(`${intervalDate}T00:00:00.000Z`);
     const days = (date.getTime() - start.getTime()) / 86400000 + 1;
     if (!intervalDate || !Number.isFinite(start.getTime()) || start.toISOString().slice(0, 10) !== intervalDate ||
-      ![364, 365, 366, 371].includes(days) || !quote.includes(`for the period ${intervalDate} to ${proof.asOf}`)) return reject('Annual revenue requires a literal matching annual reporting interval, not a collection date.');
+      ![364, 365, 366, 371].includes(days) ||
+      !(quote.includes(`for the period ${intervalDate} to ${proof.asOf}`) ||
+        literalDate && new RegExp(`\\bfor (?:the )?(?:fiscal )?year ended ${escape(literalDate)}(?![\\p{L}\\p{N}])`, 'iu').test(quote))) return reject('Annual revenue requires a literal matching annual reporting interval, not a collection date.');
   } else if (proof.periodStart) return reject('This measurement does not support an annual reporting interval.');
   const company = normalize(input.companyName);
-  const companyPattern = legalCompanyPattern(company);
-  const dateForms = [proof.asOf, ...(['long', 'short'] as const).flatMap((month) => [
-    new Intl.DateTimeFormat('en-US', { year: 'numeric', month, day: 'numeric', timeZone: 'UTC' }).format(date),
-    new Intl.DateTimeFormat('en-GB', { year: 'numeric', month, day: 'numeric', timeZone: 'UTC' }).format(date),
-  ])];
-  const literalDate = dateForms.find((value) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(value)}(?![\\p{L}\\p{N}])`, 'iu').test(quote));
+  // An issuer may use its exact brand without its terminal legal designation.
+  // This is allowed only on a retained original from that issuer's own host;
+  // never infer aliases, remove Holdings/Group, or borrow a partner's figure.
+  const brand = company.replace(/,?\s+(?:Corporation|Corp\.?|Incorporated|Inc\.?|Limited|Ltd\.?|PBC|PLC|LLC)$/i, '').trim();
+  const companyPattern = isIssuerOriginal(input) && brand.length >= 3 && brand !== company
+    ? `(?:${legalCompanyPattern(company)}|${escape(brand)})` : legalCompanyPattern(company);
   if (quote.length < 10 || quote.length > 600 || !company ||
     !new RegExp(`(?<![\\p{L}\\p{N}])${companyPattern}(?![\\p{L}\\p{N}])`, 'iu').test(quote) || !literalDate ||
     !basis[input.metricType].test(quote) || /\b(?:not|estimated?|projects?|projected|forecasts?|targets?|expects?|expected|might|could|would|may|approximately|about)\b|~/i.test(quote)) return reject('Passage does not explicitly support this company, metric and reporting date, or describes an estimate.');

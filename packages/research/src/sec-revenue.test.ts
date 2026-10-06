@@ -48,12 +48,10 @@ describe('first company financial hydration', () => {
       candidate: { name: 'Microsoft Corporation', domain: 'microsoft.com', descriptor: 'Enterprise software', cardTypes: ['infrastructure'] },
       client, plan, originalSources: { retrieve, save: async () => {}, list: async () => [] },
     });
-    expect(retrieve).toHaveBeenCalledTimes(2);
+    expect(retrieve).toHaveBeenCalledTimes(3);
     expect(retrieve.mock.calls.map(call => call[0])).toContain(url);
-    // The two protected reads are spent on the XBRL fact and its underlying
-    // filing. A homepage sentence is less valuable than retaining the filing
-    // needed for other verifiable disclosures such as headcount.
-    expect(result.company.oneLiner).toBe('No source-backed company snapshot is ready yet.');
+    // An issuer profile must not be sacrificed to the complementary SEC pair.
+    expect(result.company.oneLiner).toBe('Microsoft Corporation develops software and provides cloud services for businesses.');
     const reopened = projectCompanyFactsFromOriginals(result.company, result.metrics, structuredClone(originals));
     expect(reopened.find(metric => metric.metricType === 'arr')).toMatchObject({
       value: latest.val, confidence: 'verified', passageSupport: { definition: 'annual_revenue', periodStart: latest.start, asOf: latest.end },
@@ -62,6 +60,26 @@ describe('first company financial hydration', () => {
   });
 });
 describe('regulator-reported annual revenue', () => {
+  it('reads the filed company-wide workforce, not regional breakdowns, in current full-time-basis wording', () => {
+    const filing = 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft-20260630.htm';
+    const receipt: OriginalSourceReceipt = { requestedUrl: filing, finalUrl: filing, status: 'retrieved', httpStatus: 200,
+      contentHash: 'c'.repeat(64), issuerName: 'MICROSOFT CORPORATION', format: 'sec-filing', truncated: false,
+      text: 'As of June 30, 2026, we employed approximately 223,000 people on a full-time basis, 121,000 in the U.S. and 102,000 internationally.',
+      retrievedAt: '2026-10-06T00:00:00.000Z' };
+    const observed = secFilingHeadcountObservation('Microsoft Corporation', [receipt], now)!;
+    expect(observed?.value).toBe(223000);
+    expect(receipt.text).toContain(observed.passageSupport.quote);
+    expect(acceptedMetricPassage({ companyName: 'Microsoft Corporation', metricType: 'employees', value: 223000,
+      support: observed.passageSupport, originals: [receipt], nowMs: now })).toEqual(observed.citations);
+    expect(secFilingHeadcountObservation('Other Corporation', [receipt], now)).toBeNull();
+  });
+  it('routes a discovered issuer browse page by its explicit CIK rather than treating its navigation as financial proof', () => {
+    expect(secRevenueSourceUrl('https://www.sec.gov/edgar/browse/?CIK=0000789019')).toBe(url);
+    expect(secRevenueSourceUrl('https://www.sec.gov/edgar/browse/?CIK=789019&owner=exclude')).toBe(url);
+    for (const bad of ['https://www.sec.gov/edgar/browse/?CIK=MSFT',
+      'https://sec.gov.attacker.test/edgar/browse/?CIK=789019',
+      'https://www.sec.gov/edgar/browse/?CIK=789019&CIK=320193']) expect(secRevenueSourceUrl(bad)).toBeNull();
+  });
   it('routes a discovered SEC edgar/data filing lead without treating it as issuer proof', () => {
     expect(secRevenueSourceUrl('https://www.sec.gov/edgar/data/789019/000078901925000028/msft-20250630.htm')).toBe(url);
     expect(secRevenueSourceUrl('https://sec.gov.attacker.test/edgar/data/789019/report.htm')).toBeNull();

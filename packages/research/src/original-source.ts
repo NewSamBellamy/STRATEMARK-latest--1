@@ -27,7 +27,7 @@ function companyDocumentPriority(raw: string, officialWebsite?: string | null): 
 
 /** Routing priority only, never evidence acceptance. Preserve the two-read budget. */
 export function selectOriginalSourceCitations(citations: readonly Citation[], officialWebsite?: string | null, preferAnnualRevenue = false,
-  supportsUrl?: (url: string) => boolean, discoveryText = ''): Citation[] {
+  supportsUrl?: (url: string) => boolean, discoveryText = '', maxSources = 2): Citation[] {
   const priority = { primary: 4, reputable_secondary: 3, industry: 2, unknown: 1, user_generated: 0 };
   const pages = new Set<string>();
   // Grounding metadata can expose only opaque redirect URLs even when the
@@ -39,7 +39,7 @@ export function selectOriginalSourceCitations(citations: readonly Citation[], of
   for (const match of discoveryText.slice(0, 40000).matchAll(/^Original source:[ \t]*(https:\/\/\S+)[ \t]*$/gim)) {
     const url = match[1]!;
     if (url.length > 2048 || isRedirectCitation(url)) continue;
-    if (classifySource(url, '', officialWebsite) !== 'primary') continue;
+    if (!['primary', 'reputable_secondary', 'industry'].includes(classifySource(url, '', officialWebsite))) continue;
     locators.push({ url, title: 'Discovered original locator (not verified)' });
     if (locators.length === 20) break;
   }
@@ -52,7 +52,9 @@ export function selectOriginalSourceCitations(citations: readonly Citation[], of
   // outright made one public-company source incapable of ever filling both.
   const routed = [...citations, ...locators].flatMap(citation => {
     const financial = preferAnnualRevenue ? secRevenueSourceUrl(citation.url) : null;
-    return financial ? [{ ...citation, url: financial }, citation] : [citation];
+    // A browse page identifies an issuer but has no disclosure body. Do not
+    // spend a second source slot on its menus after routing to actual records.
+    return financial ? [{ ...citation, url: financial }, ...(secFilingCik(citation.url) ? [citation] : [])] : [citation];
   });
   return usableCitations(routed).filter(citation => {
     const url = new URL(citation.url);
@@ -75,7 +77,7 @@ export function selectOriginalSourceCitations(citations: readonly Citation[], of
     documentPriority: preferAnnualRevenue ? companyDocumentPriority(citation.url, officialWebsite) : 0,
     redirect: Number(isRedirectCitation(citation.url)),
   })).sort((a, b) => b.priority - a.priority || b.documentPriority - a.documentPriority || a.redirect - b.redirect || a.index - b.index)
-    .slice(0, 2).map(row => row.citation);
+    .slice(0, Math.max(1, Math.min(4, maxSources))).map(row => row.citation);
 }
 
 /** Original page extract; retrieval alone never establishes claim accuracy. */

@@ -2,6 +2,18 @@
 export function selectSourceExcerpt(text: string, scope?: { companyName: string; metricType?: string }): string {
   const limit = 4000;
   if (text.length <= limit) return text;
+  if (scope?.metricType === 'employees') {
+    // A numbered workforce statement outranks incidental dates beside benefits
+    // menus. This only selects unchanged text; the separate claim/issuer gate
+    // still decides attribution, reporting date and whether a figure is usable.
+    const statements = [...text.matchAll(/\b(?:had|have|has|employs?|employed|reported)\s+(?:approximately\s+)?\d[\d,]*\s+(?:(?:full[- ]time\s+)?employees\b|people on a full[- ]time basis\b)/gi)];
+    const name = scope.companyName.trim().toLowerCase();
+    const selected = statements.find(match => name && text.slice(Math.max(0, match.index! - 300), match.index! + 300).toLowerCase().includes(name)) ?? statements[0];
+    if (selected) {
+      const start = Math.min(Math.max(0, selected.index! - 600), text.length - limit);
+      return text.slice(start, start + limit);
+    }
+  }
   const products = scope?.metricType === 'products_roadmap';
   const cues = products ? [
     /\b(?:available|launched|released|beta|discontinued|retired)\b/gi,

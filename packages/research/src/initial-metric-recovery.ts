@@ -2,12 +2,13 @@ import type { MetricType } from '@mi/contracts';
 import type { EnrichmentOut } from './schemas';
 import { huntMetricsOutSchema } from './schemas';
 import { acceptedMetricPassage } from './metric-support';
-import { originalSourcePromptViews, secRevenueCik, secFilingHeadcountObservation, secRevenueObservation } from './sec-revenue';
+import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueObservation } from './sec-revenue';
 import { selectOriginalSourceCitations, type OriginalSourceReceipt, type OriginalSourceServices } from './original-source';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS } from './prompts';
 import { companySourceTargets } from './source-policy';
 import type { LlmClient } from './types';
 import { throwIfAborted } from './util';
+import { readCompanyOriginals } from './core-source-coverage';
 
 /** One bounded follow-up, not an open-ended agent loop. Keep the initial
  * evidence if a provider fails; never conceal persistence errors or cancellation.
@@ -56,14 +57,10 @@ export async function recoverInitialMetrics(input: {
   const focus = missing.includes('employees') ? 'employees'
     : missing.includes('arr') ? 'arr'
       : missing.includes('users') ? 'users' : 'valuation';
-  const receipts = await Promise.all(selectOriginalSourceCitations([...grounded.citations, ...priorLeads], website,
-    missing.includes('arr'), sources.supports, grounded.text).map(citation => sources.retrieve(citation.url,
-      { companyId: input.companyId, companyName, metricType: secRevenueCik(citation.url)
-        ? 'metrics_hunt' : focus })));
-  throwIfAborted(signal);
-  // Save before interpreting. A write failure must not publish unsupported data.
-  await sources.save({ id: `src_${globalThis.crypto.randomUUID()}`, companyId: input.companyId,
-    metricType: 'metrics_hunt', capturedAt: new Date().toISOString(), receipts });
+  const receipts = await readCompanyOriginals({ sources, companyId: input.companyId, companyName,
+    topic: 'metrics_hunt', missing: [focus, ...missing.filter(type => type !== focus)], maxSources: 4, signal,
+    citations: selectOriginalSourceCitations([...grounded.citations, ...priorLeads], website,
+      missing.includes('arr') || missing.includes('employees'), sources.supports, grounded.text, 4) });
   originals.push(...receipts);
   throwIfAborted(signal);
   if (!originals.some(receipt => receipt.status === 'retrieved' && receipt.text?.trim())) return 'unavailable';

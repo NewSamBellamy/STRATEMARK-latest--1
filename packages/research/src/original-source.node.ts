@@ -10,6 +10,9 @@ import { MAX_SEC_CONCEPT_TEXT, secFilingCik, secRevenueCik } from './sec-revenue
 // Annual filings routinely exceed 256 KB (Microsoft's 2025 HTML is ~601 KB).
 // Keep whole-document hashing bounded; retained excerpts remain only 4,000 chars.
 const MAX_BYTES = 2 * 1024 * 1024;
+// Current inline-XBRL 10-Ks can exceed 8 MB. Only direct SEC filing
+// documents get this larger bounded download; retained text stays 4 KB.
+const MAX_SEC_FILING_BYTES = 12 * 1024 * 1024;
 const MAX_TEXT = 4000;
 let nextSecReadAt = 0;
 const denied = new BlockList();
@@ -57,7 +60,7 @@ const transport: SourceTransport = {
       let size = 0;
       res.on('data', (chunk: Buffer) => {
         size += chunk.length;
-        if (size > MAX_BYTES) req.destroy(Object.assign(new Error('Source exceeds byte limit'), { code: 'SOURCE_TOO_LARGE' }));
+        if (size > (secFilingCik(url.href) ? MAX_SEC_FILING_BYTES : MAX_BYTES)) req.destroy(Object.assign(new Error('Source exceeds byte limit'), { code: 'SOURCE_TOO_LARGE' }));
         else chunks.push(chunk);
       });
       res.on('error', reject);
@@ -85,17 +88,41 @@ function pageText(body: string, html: boolean): string {
   const plain = html ? body.replace(/<!--[^]*?-->/g, ' ')
     .replace(/<(script|style|noscript)\b[^>]*>[^]*?<\/\1\s*>/gi, ' ')
     .replace(/<[^>]*>/g, ' ') : body;
-  return plain.replace(/&(?:amp|lt|gt|quot|apos|nbsp);/g, (entity) => ({
+  return plain.replace(/&#(x[\da-f]+|\d+);/gi, (entity, digits: string) => {
+    const code = /^x/i.test(digits) ? parseInt(digits.slice(1), 16) : Number(digits);
+    return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : entity;
+  }).replace(/&(?:amp|lt|gt|quot|apos|nbsp);/g, (entity) => ({
     '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'", '&nbsp;': ' ',
   })[entity] ?? entity).replace(/\s+/g, ' ').trim();
 }
 
 function secRegistrantName(body: string): string | null {
-  const match = /<ix:nonNumeric\b[^>]*\bname\s*=\s*['"]dei:EntityRegistrantName['"][^>]*>([^<]{1,256})<\/ix:nonNumeric\s*>/i.exec(body);
-  const value = match?.[1]?.replace(/&(?:amp|lt|gt|quot|apos|nbsp);/g, (entity) => ({
-    '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'", '&nbsp;': ' ',
-  })[entity] ?? entity).replace(/\s+/g, ' ').trim();
+  const match = /<ix:nonNumeric\b[^>]*\bname\s*=\s*['"]dei:EntityRegistrantName['"][^>]*>([^]{1,4096}?)<\/ix:nonNumeric\s*>/i.exec(body);
+  const value = match?.[1] ? pageText(match[1], true) : null;
   return value && value.length <= 256 ? value : null;
+}
+
+/** An index is only a locator. Follow one actual 10-K link in its own
+ * accession directory; never external URLs, another issuer, or an exhibit. */
+function secIndexDocument(body: string, index: URL): string | null {
+  if (!secFilingCik(index.href) || !/\/\d{10}-\d{2}-\d{6}-index\.html?$/.test(index.pathname)) return null;
+  const directory = index.pathname.slice(0, index.pathname.lastIndexOf('/') + 1);
+  const visible = body.replace(/<!--[^]*?-->/g, '').replace(/<(script|style)\b[^>]*>[^]*?<\/\1\s*>/gi, '');
+  const candidates = new Set<string>();
+  for (const row of visible.matchAll(/<tr\b[^>]*>([^]*?)<\/tr\s*>/gi)) {
+    if (!/<td\b[^>]*>\s*10-K(?:\/A)?\s*<\/td\s*>/i.test(row[1]!)) continue;
+    const href = /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/i.exec(row[1]!)?.[1];
+    if (!href) continue;
+    try {
+      let document = new URL(href.replaceAll('&amp;', '&'), index);
+      if (document.origin === index.origin && document.pathname === '/ix' && document.searchParams.getAll('doc').length === 1)
+        document = new URL(document.searchParams.get('doc')!, index);
+      if (document.origin === index.origin && !document.username && !document.password && !document.search && !document.hash &&
+        document.pathname.startsWith(directory) && !document.pathname.slice(directory.length).includes('/') &&
+        /\.html?$/.test(document.pathname) && document.href !== index.href) candidates.add(document.href);
+    } catch { /* Malformed locators are never followed. */ }
+  }
+  return candidates.size === 1 ? [...candidates][0]! : null;
 }
 
 /** Retrieval is a receipt, NOT proof of entity, metric, period or truth. */
@@ -123,7 +150,8 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
       }
       if (response.status !== 200) return { ...receipt, reason: 'Source did not return a readable public page' };
       const type = (response.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
-      if (response.body.length > MAX_BYTES) return { ...receipt, reason: 'Source exceeds the 2 MB document limit' };
+      const byteLimit = secFilingCik(url.href) ? MAX_SEC_FILING_BYTES : MAX_BYTES;
+      if (response.body.length > byteLimit) return { ...receipt, reason: `Source exceeds the ${byteLimit / 1024 / 1024} MB document limit` };
       const secJson = type === 'application/json' && Boolean(secRevenueCik(url.href));
       if ((!['text/html', 'text/plain'].includes(type) && !secJson) ||
         (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity')) {
@@ -140,6 +168,8 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
         return { ...receipt, status: 'retrieved', format: 'sec-companyconcept', text: body, truncated: false,
           contentHash: createHash('sha256').update(response.body).digest('hex') };
       }
+      const filingDocument = type === 'text/html' && scope?.metricType === 'employees' ? secIndexDocument(body, url) : null;
+      if (filingDocument && hop < 3) { target = filingDocument; continue; }
       const text = pageText(body, type === 'text/html');
       if (!text) return { ...receipt, reason: 'No readable source text' };
       const issuerName = type === 'text/html' ? secRegistrantName(body) : null;

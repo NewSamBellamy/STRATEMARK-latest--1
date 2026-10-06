@@ -5,6 +5,7 @@
  * company's figures current and defensible." While the deck is open, the
  * runtime gives one desk at a time a turn to act, in strict priority order:
  *
+ *   0. RECOVER GAPS — one bounded company hunt for absent core profile figures.
  *   1. RESOLVE DOUBT — cross-metric consistency findings (shares summing past
  *      100%, valuation below ARR…) name the figures most likely to be wrong;
  *      re-verify those first.
@@ -27,7 +28,10 @@
 export type LivingActionKind =
   | 'started'
   | 'verified'
+  | 'checked'
   | 'corrected'
+  | 'hunted'
+  | 'hunting'
   | 'prefetched'
   | 'finding'
   | 'resting'
@@ -62,7 +66,17 @@ export interface PrefetchTarget {
   tabLabel: string;
 }
 
+export interface RecoveryTarget {
+  companyId: string;
+  companyName: string;
+}
+
 export interface LivingDeckDeps {
+  /** Readiness gate for automatic work only; deferral spends no action budget. */
+  canAct?(): Promise<boolean>;
+  /** Caller enforces per-company attempt limits, including failures/remounts. */
+  nextRecovery?(): RecoveryTarget | null;
+  recover?: ((target: RecoveryTarget) => Promise<{ filled: number }>) | null;
   /** Recompute the audit + stale queue. Called at most once per tick. */
   plan(nowMs: number): {
     /** Doubt first: findings-driven targets, most severe first. */
@@ -87,7 +101,7 @@ export interface LivingDeckDeps {
   prefetchIntervalMs?: number;
   /** Re-check cadence while resting. */
   idleIntervalMs?: number;
-  /** Hard per-session action budget (verifications + prefetches). */
+  /** Hard per-session action budget (hunts + verifications + prefetches). */
   maxActions?: number;
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (t: ReturnType<typeof setTimeout>) => void;
@@ -133,10 +147,12 @@ export class LivingDeckRuntime {
     return this.actionsTaken;
   }
 
-  start(deskCount: number): void {
+  start(deskCount: number, liveResearch = true): void {
     if (this.statusValue === 'running') return;
     this.statusValue = 'running';
-    this.emit('started', null, `Live research on — ${deskCount} company desks watching this deck.`);
+    this.emit('started', null, liveResearch
+      ? `Live research on — ${deskCount} company desks watching this deck.`
+      : `Dashboard warming on — ${deskCount} company desks; live research unavailable.`);
     // First action almost immediately; pacing applies between actions.
     this.schedule(400);
   }
@@ -207,11 +223,39 @@ export class LivingDeckRuntime {
 
     this.acting = true;
     try {
+      if (this.deps.canAct) {
+        const ready = await this.deps.canAct();
+        // Pause/stop may occur while the readiness read is in flight.
+        if (!['running', 'resting'].includes(this.statusValue)) return;
+        if (!ready) {
+          if (this.statusValue !== 'resting') {
+            this.statusValue = 'resting';
+            this.emit('resting', null, 'Automatic research deferred — waiting for initial deck research readiness.');
+          }
+          this.schedule(this.deps.idleIntervalMs);
+          return;
+        }
+      }
       const plan = this.deps.plan(this.deps.now());
 
       // Surface fresh audit findings even when we cannot act on them.
       for (const finding of plan.freshFindings) {
         this.emit('finding', null, finding.message, { severity: finding.severity });
+      }
+
+      const recoveryTarget = this.deps.recover ? this.deps.nextRecovery?.() : null;
+      if (recoveryTarget && this.deps.recover) {
+        this.statusValue = 'running';
+        this.emit('hunting', recoveryTarget.companyName,
+          `${recoveryTarget.companyName} desk is hunting missing figures — research in progress.`);
+        const result = await this.deps.recover(recoveryTarget);
+        this.actionsTaken += 1;
+        this.emit('hunted', recoveryTarget.companyName,
+          result.filled > 0
+            ? `${recoveryTarget.companyName} desk: Filled ${result.filled} soft figure${result.filled === 1 ? '' : 's'} from live sources.`
+            : `${recoveryTarget.companyName} desk hunted missing figures — nothing met the sourcing bar; gaps remain unknown.`);
+        this.schedule(this.deps.intervalMs);
+        return;
       }
 
       const verifyTarget = this.deps.verify
@@ -231,9 +275,9 @@ export class LivingDeckRuntime {
           );
         } else {
           this.emit(
-            'verified',
+            'checked',
             verifyTarget.companyName,
-            `${verifyTarget.companyName} desk re-verified ${verifyTarget.metricLabel} — ${
+            `${verifyTarget.companyName} desk checked ${verifyTarget.metricLabel} — ${
               verifyTarget.reason === 'consistency' ? 'consistency check' : 'freshness sweep'
             }: ${result.summary}`,
             { citations: result.citations },
@@ -260,7 +304,7 @@ export class LivingDeckRuntime {
       // Nothing to do: rest and re-check slowly.
       if (this.statusValue !== 'resting') {
         this.statusValue = 'resting';
-        this.emit('resting', null, 'All figures fresh and every tab warmed — watching for decay.');
+        this.emit('resting', null, 'No further automatic research queued — unresolved gaps may remain.');
       }
       this.schedule(this.deps.idleIntervalMs);
     } catch (err) {

@@ -31,7 +31,9 @@ export function secRevenueSourceUrl(raw: string): string | null {
     if (secRevenueCik(raw)) return raw;
     const url = new URL(raw);
     if (url.protocol !== 'https:' || !['sec.gov', 'www.sec.gov'].includes(url.hostname) || url.port || url.username || url.password) return null;
-    const cik = /^\/(?:Archives\/)?edgar\/data\/(\d{1,10})\//.exec(url.pathname)?.[1];
+    const browseIds = /^\/edgar\/browse\/?$/.test(url.pathname) ? url.searchParams.getAll('CIK') : [];
+    const browseCik = browseIds.length === 1 && /^\d{1,10}$/.test(browseIds[0]!) ? browseIds[0] : undefined;
+    const cik = /^\/(?:Archives\/)?edgar\/data\/(\d{1,10})\//.exec(url.pathname)?.[1] ?? browseCik;
     return cik && Number(cik) > 0 ? `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik.padStart(10, '0')}/us-gaap/${concept}.json` : null;
   } catch { return null; }
 }
@@ -107,7 +109,7 @@ export function secFilingHeadcountObservation(companyName: string, originals: re
       source.truncated || !/^[a-f0-9]{64}$/.test(source.contentHash ?? '') || !source.text || !source.issuerName ||
       source.text.length > 4000 || !Number.isFinite(Date.parse(source.retrievedAt)) || Date.parse(source.retrievedAt) > nowMs ||
       name(source.issuerName) !== name(companyName)) return [];
-    const match = /As of ([A-Z][a-z]+ \d{1,2}, \d{4}), we had (approximately )?([\d,]+) full-time employees\./g.exec(source.text);
+    const match = /As of ([A-Z][a-z]+ \d{1,2}, \d{4}), we (?:had|employed) (approximately )?([\d,]+) (?:full-time employees\.|people on a full-time basis(?=[,.]))/g.exec(source.text);
     if (!match) return [];
     const asOf = new Date(`${match[1]} UTC`);
     const value = Number(match[3]!.replaceAll(',', ''));

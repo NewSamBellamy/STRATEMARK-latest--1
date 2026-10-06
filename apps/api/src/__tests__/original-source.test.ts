@@ -7,6 +7,32 @@ const lookup = vi.fn(async () => ['8.8.8.8']);
 const read = vi.fn(async () => ({ status: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from('<h1>Company</h1><script>ignore</script><p>Revenue &amp; customers</p>') }));
 
 describe('bounded original-source retrieval', () => {
+  it('follows only the same-accession annual filing document from an SEC index, not its navigation or exhibits', async () => {
+    const index = 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/0001193125-26-323660-index.htm';
+    const document = 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft-20260630.htm';
+    const quote = 'As of June 30, 2026, we had approximately 223,000 full-time employees.';
+    const indexHtml = '<table><tr><td>1</td><td>10-K</td><td><a href="/ix?doc=/Archives/edgar/data/789019/000119312526323660/msft-20260630.htm">msft-20260630.htm</a></td><td>10-K</td><td>8585501</td></tr></table>';
+    const filingHtml = '<ix:nonNumeric name="dei:EntityRegistrantName"><span>MICROSOFT CORPORATION</span></ix:nonNumeric>' + ' filler '.repeat(300000) + quote.replace('full-time employees', 'full-time&#160;employees');
+    const filingRead = vi.fn(async ({ url: target }: { url: URL }) => ({ status: 200,
+      headers: { 'content-type': 'text/html' }, body: Buffer.from(target.href === index ? indexHtml : filingHtml) }));
+    const receipt = await retrieveOriginalSource(index, { lookup, read: filingRead },
+      { companyId: 'microsoft', companyName: 'Microsoft Corporation', metricType: 'employees' });
+    expect(filingRead).toHaveBeenCalledTimes(2);
+    expect(receipt).toMatchObject({ requestedUrl: index, finalUrl: document, status: 'retrieved',
+      format: 'sec-filing', issuerName: 'MICROSOFT CORPORATION' });
+    expect(receipt.text).toContain(quote);
+    expect(receipt.text?.length).toBeLessThanOrEqual(4000);
+  });
+  it.each(['https://evil.example/steal.htm', '/Archives/edgar/data/42/000119312526323660/wrong.htm',
+    '/Archives/edgar/data/789019/000119312526000001/wrong.htm'])('does not follow an SEC index document outside its accession: %s', async href => {
+    const index = 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/0001193125-26-323660-index.htm';
+    const indexRead = vi.fn(async () => ({ status: 200, headers: { 'content-type': 'text/html' },
+      body: Buffer.from(`<table><tr><td><a href="${href}">report.htm</a></td><td>10-K</td></tr></table>`) }));
+    const receipt = await retrieveOriginalSource(index, { lookup, read: indexRead },
+      { companyId: 'microsoft', companyName: 'Microsoft Corporation', metricType: 'employees' });
+    expect(indexRead).toHaveBeenCalledTimes(1);
+    expect(receipt.format).toBeUndefined();
+  });
   it('retains complete bounded SEC concept JSON with the original byte hash, but does not enable arbitrary JSON sources', async () => {
     const target = 'https://data.sec.gov/api/xbrl/companyconcept/CIK0000789019/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax.json';
     const body = Buffer.from(JSON.stringify({ cik: 789019, entityName: 'MICROSOFT CORPORATION', padding: 'x'.repeat(6000) }));

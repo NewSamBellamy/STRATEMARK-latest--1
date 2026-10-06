@@ -8,6 +8,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GeminiRepository, type RepoSnapshot, type ResearchStore } from './repository';
 import type { LlmClient } from './types';
+import type { OriginalSourceReceipt } from './original-source';
 
 function snapshot(): RepoSnapshot {
   const now = new Date().toISOString();
@@ -90,6 +91,35 @@ function repoWith(client: LlmClient): GeminiRepository {
   return new GeminiRepository({ apiKey: 'k', store: memoryStore(snapshot()), client });
 }
 
+it('keeps annual filing routing for missing workforce even when revenue is already protected', async () => {
+  const snap = snapshot();
+  snap.companies[0]!.name = 'Microsoft Corporation';
+  snap.companies[0]!.websiteUrl = 'https://microsoft.com';
+  snap.metrics[0]!.confidence = 'user_verified';
+  const concept = 'https://data.sec.gov/api/xbrl/companyconcept/CIK0000789019/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax.json';
+  const index = 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/0001193125-26-323660-index.htm';
+  const document = index.replace('0001193125-26-323660-index.htm', 'msft-20260630.htm');
+  const read = vi.fn(async (url: string): Promise<OriginalSourceReceipt> => ({ requestedUrl: url, finalUrl: url,
+    status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), retrievedAt: '2026-10-06T00:00:00.000Z',
+    ...(url === concept ? { format: 'sec-companyconcept', truncated: false, text: JSON.stringify({
+      cik: 789019, entityName: 'MICROSOFT CORPORATION', taxonomy: 'us-gaap', tag: 'RevenueFromContractWithCustomerExcludingAssessedTax',
+      units: { USD: [{ start: '2025-07-01', end: '2026-06-30', val: 331839000000, accn: '0001193125-26-323660',
+        form: '10-K', filed: '2026-07-29', fp: 'FY' }] } }) }
+      : url === index ? { finalUrl: document, format: 'sec-filing', truncated: false, issuerName: 'MICROSOFT CORPORATION',
+        text: 'As of June 30, 2026, we employed approximately 223,000 people on a full-time basis, 121,000 in the U.S. and 102,000 internationally.' }
+        : { text: 'Investor navigation. No current disclosure here.' }) }));
+  const ground = vi.fn(async () => ({ text: 'Original source: https://www.sec.gov/edgar/browse/?CIK=0000789019',
+    citations: Array.from({ length: 4 }, (_, i) => ({ url: `https://microsoft.com/investor/page-${i}`, title: 'Investor menu' })), queries: [] }));
+  const client: LlmClient = { ground, structure: async (_prompt, schema) => schema.parse({ figures: [] }) };
+  const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snap), client, originalSourceReader: read });
+  const result = await repo.huntCompanyMetrics('cmp_1');
+  expect(result.filledTypes).toEqual(['employees']);
+  expect(read.mock.calls.map(([url]) => url)).toContain(index);
+  expect(read).toHaveBeenCalledTimes(4);
+  expect((await repo.getCompanyFacts('cmp_1')).find(m => m.metricType === 'employees'))
+    .toMatchObject({ value: 223000, confidence: 'verified' });
+});
+
 describe('huntCompanyMetrics — one pass fills every soft figure', () => {
   it('retains a full-sized regulator receipt and publishes its annual observation after reopening', async () => {
     const snap = snapshot();
@@ -116,7 +146,7 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
     const repo = new GeminiRepository({ apiKey: 'k', store, client: { ground, structure }, originalSourceReader: reader });
     expect((await repo.huntCompanyMetrics('cmp_1')).filledTypes).toEqual(['arr']);
     expect(reader.mock.calls.map(call => call[0])).toContain(conceptUrl);
-    expect(reader.mock.calls.length).toBeLessThanOrEqual(2);
+    expect(reader.mock.calls.length).toBeLessThanOrEqual(4);
     const reopened = new GeminiRepository({ apiKey: 'k', store, client: { ground, structure }, originalSourceReader: reader });
     expect((await reopened.getCompanyFacts('cmp_1')).find(row => row.metricType === 'arr')).toMatchObject({
       value: 331839000000, confidence: 'verified', passageSupport: { definition: 'annual_revenue' },

@@ -3,6 +3,21 @@ import { selectSourceExcerpt } from './source-excerpt';
 import { acceptedMetricPassage } from './metric-support';
 
 describe('bounded contiguous source excerpt', () => {
+  it('keeps the actual workforce disclosure over a named benefits section with incidental numbers', () => {
+    const wanted = 'As of June 30, 2026, we had approximately 223,000 full-time employees.';
+    const text = `Acme Inc. pays employees benefits in 2026.${' filler '.repeat(1100)}${wanted}${' appendix '.repeat(600)}`;
+    const result = selectSourceExcerpt(text, { companyName: 'Acme Inc.', metricType: 'employees' });
+    expect(result).toContain(wanted);
+    expect(text).toContain(result);
+    expect(result).toHaveLength(4000);
+  });
+  it('selects a full-time-basis workforce disclosure ahead of incidental employees in a company introduction', () => {
+    const wanted = 'As of June 30, 2026, we employed approximately 223,000 people on a full-time basis, 121,000 in the U.S. and 102,000 internationally.';
+    const text = `Microsoft Corporation empowers employees through its 2026 products.${' filler '.repeat(1100)}${wanted}${' appendix '.repeat(600)}`;
+    const result = selectSourceExcerpt(text, { companyName: 'Microsoft Corporation', metricType: 'employees' });
+    expect(result).toContain(wanted);
+    expect(text).toContain(result);
+  });
   it('targets product/roadmap research rather than a richer financial section', () => {
     const wanted = 'Acme Inc. says Atlas is now available. Atlas Connect is on the announced roadmap. Product pricing and documentation are published here.';
     const text = `Acme Inc. has 900 employees, USD 20 million ARR and 500 active users.${' filler '.repeat(1100)}${wanted}${' appendix '.repeat(600)}`;
