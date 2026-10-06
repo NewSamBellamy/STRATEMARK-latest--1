@@ -36,6 +36,7 @@ import {
   type OverrideMetricInput,
   type DashboardTab,
   type DashboardTabResult,
+  type DashboardContentMap,
   type DeepDiveInput,
   type DeepDiveResult,
   type FactCheckInput,
@@ -89,11 +90,16 @@ import type { LlmClient, ResearchCoverage, RunResearchOptions } from './types';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { coalesceOriginalSources, isOriginalSourceAttempt, selectOriginalSourceCitations, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { acceptedMetricPassage } from './metric-support';
+import { overviewFigures, renderCompanyOverview } from './company-overview';
 
 interface CachedTab {
   content: unknown;
   lastRefreshedAt: string;
   citations?: Citation[];
+  overviewEvidenceVersion?: number;
+  /** Legacy artifact retained for compatibility; never trusted for rendering. */
+  overviewBackground?: string;
+  overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>;
 }
 
 export interface RepoSnapshot {
@@ -1362,6 +1368,20 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     const cached = force ? undefined : this.snap.dashboards[companyId]?.[tab];
     if (cached) {
+      // Preserve legacy notes on disk, but don't present unchecked historical
+      // prose as today's factual overview or silently spend to replace it.
+      const metrics = this.snap.metrics.filter(row => row.companyId === companyId);
+      if (tab === 'overview') {
+        const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20 });
+        const originals = attempts.filter(isOriginalSourceAttempt).filter(row => row.companyId === companyId).flatMap(row => row.receipts);
+        if (cached.overviewEvidenceVersion === 2) {
+          const result = renderCompanyOverview({ company, storedMetrics: metrics, client: this.client, marketName: '' }, originals, cached.overviewExcerpts);
+          return { companyId, tab, lastRefreshedAt: cached.lastRefreshedAt, citations: result.citations,
+            content: result.content as DashboardContentMap[T] };
+        }
+        return { companyId, tab, lastRefreshedAt: cached.lastRefreshedAt, citations: [],
+          content: { markdown: `## Company background\n\nSaved background needs an evidence-backed refresh. Earlier notes remain stored; no paid refresh was started.\n\n${overviewFigures({ company, storedMetrics: metrics, client: this.client, marketName: '' }, originals)}` } as DashboardContentMap[T] };
+      }
       return structuredClone({
         companyId,
         tab,
@@ -1376,16 +1396,19 @@ export class GeminiRepository implements MarketIntelRepository {
     const inFlight = this.tabResearchInFlight.get(flightKey);
     if (inFlight) return structuredClone(await inFlight) as DashboardTabResult<T> | null;
     const run = (async (): Promise<DashboardTabResult<T> | null> => {
-      const { content, citations } = await researchDashboardWithSources(tab, {
+      const { content, citations, overviewExcerpts } = await researchDashboardWithSources(tab, {
         company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
         storedMetrics: this.snap.metrics.filter((m) => m.companyId === companyId),
         client: this.client,
+        ...(tab === 'overview' ? { originalSources: this.originalSources,
+          ...(!this.originalSources ? { originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20 }) } : {}) } : {}),
       });
       const lastRefreshedAt = new Date().toISOString();
       this.snap.dashboards[companyId] = {
         ...this.snap.dashboards[companyId],
-        [tab]: { content, citations, lastRefreshedAt },
+        [tab]: { content, citations, lastRefreshedAt,
+          ...(tab === 'overview' ? { overviewEvidenceVersion: 2, overviewExcerpts } : {}) },
       };
       await this.persist();
       return { companyId, tab, content, citations, lastRefreshedAt };
@@ -1617,6 +1640,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const verification = applyMetricVerification(metric, verifiedObservation, passageCitations, nowIso);
     const { changed, verdict } = verification;
     Object.assign(metric, verification.metric);
+    metric.passageSupport = verdict !== 'unverified' && passageCitations.length && this.originalSources ? out.passageSupport : null;
     // Researched tabs quoting a changed/downgraded fact re-research on next open.
     if (changed) this.snap.dashboards[input.companyId] = {};
 
@@ -1755,6 +1779,7 @@ export class GeminiRepository implements MarketIntelRepository {
         }
         metric.value = fig.value;
         metric.confidence = 'verified';
+        metric.passageSupport = this.originalSources ? fig.passageSupport : null;
         metric.citations = supported;
         metric.source = supported[0]?.url ?? metric.source;
         metric.methodNote = this.originalSources

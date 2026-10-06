@@ -130,6 +130,12 @@ export const citationSchema = z.object({
     .optional(),
 });
 
+/** Retained extraction evidence, never a model assertion of verification. */
+export const metricPassageSupportSchema = z.object({
+  sourceUrl: z.string().max(2048), quote: z.string().max(600), asOf: z.string().max(40),
+  basis: metricTypeSchema, unit: z.enum(['USD', 'count', 'percent']),
+});
+
 export const companyMetricSchema = z.object({
   id: z.string(),
   companyId: z.string(),
@@ -147,6 +153,7 @@ export const companyMetricSchema = z.object({
    */
   citations: z.array(citationSchema).default([]),
   methodNote: z.string().nullable(), // "how we got this number" for estimated figures
+  passageSupport: metricPassageSupportSchema.nullish(),
   capturedAt: isoTimestamp,
   /**
    * When a source last CONFIRMED this figure, as opposed to when we wrote the

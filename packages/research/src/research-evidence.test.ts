@@ -45,7 +45,8 @@ describe('source-first research evidence', () => {
     const store: ResearchStore = { read: () => snapshot, write: (value) => { snapshot = value as typeof snapshot; } };
     const ground = vi.fn().mockResolvedValue({ text: 'Revenue grew according to the annual report.', citations: [citation], queries: ['annual report'] });
     const client = { ground, structure: vi.fn().mockResolvedValue({ markdown: 'Company overview.' }) } as unknown as LlmClient;
-    const first = new GeminiRepository({ apiKey: 'test', store, client });
+    const first = new GeminiRepository({ apiKey: 'test', store, client,
+      originalSourceReader: async url => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString() }) });
     await first.getDashboardTab('cmp_a', 'overview');
     expect(first.getResearchEvidence({ companyId: 'cmp_a', query: 'revenue' })).toHaveLength(1);
     snapshot.researchEvidence!.push(receipt('cmp_b', 'Revenue unrelated confidential details'));

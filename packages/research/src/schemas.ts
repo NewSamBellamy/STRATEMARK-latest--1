@@ -5,7 +5,7 @@
  * permissive (missing → Unknown/null) to honor the missing-data protocol.
  */
 import { z } from 'zod';
-import { cardTypeSchema, modelConfidenceSchema } from '@mi/contracts';
+import { cardTypeSchema, modelConfidenceSchema, metricPassageSupportSchema } from '@mi/contracts';
 import { FUNDING_ROUND_TYPES, parseFundingRoundType } from './proxy-estimator';
 
 /**
@@ -26,11 +26,7 @@ function normalizeFundingRound(raw: unknown): unknown {
   return { amount: round.amount, roundType };
 }
 
-const metricPassageSchema = z.object({
-  sourceUrl: z.string(), quote: z.string().max(600), asOf: z.string(),
-  basis: z.enum(['arr', 'valuation', 'market_cap', 'users', 'employees', 'market_share']),
-  unit: z.enum(['USD', 'count', 'percent']),
-});
+const metricPassageSchema = metricPassageSupportSchema;
 
 export const metricOutSchema = z.object({
   value: z.number().nullable().default(null),

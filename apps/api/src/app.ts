@@ -669,10 +669,13 @@ export function createApp(
       if (!parsed.success) return c.json({ error: 'Invalid dashboard research scope' }, 400);
       const { deckId, companyId, tab } = parsed.data;
       const access = await authorizeCloudResearch(c, 2 * METRIC_RESEARCH_ESTIMATE_USD);
+      let ownedDeckId = deckId;
       let deckRec = await cloudDeckService.getDeck(access.userId, deckId);
       if (!deckRec && deckId.startsWith('mkt_')) {
-        deckRec = (await cloudDeckService.getDeck(access.userId, `deck_${deckId.slice(4)}`)) ||
-          (await cloudDeckService.getDeck(access.userId, `dck_${deckId.slice(4)}`));
+        for (const candidateId of [`deck_${deckId.slice(4)}`, `dck_${deckId.slice(4)}`]) {
+          deckRec = await cloudDeckService.getDeck(access.userId, candidateId);
+          if (deckRec) { ownedDeckId = candidateId; break; }
+        }
       }
       if (!deckRec) return c.json({ error: 'Deck not found' }, 404);
       const card = deckRec.cards?.find((c: CardWithCompany) => c.company?.id === companyId);
@@ -689,9 +692,10 @@ export function createApp(
         marketName: deckRec.market.name as string,
         storedMetrics: card.metrics || [],
         client: resolved.client,
+        ...(tab === 'overview' ? { originalSources: cloudDeckService.getOriginalSources(access.userId, ownedDeckId, readOriginalSource) } : {}),
       });
 
-      return c.json(result);
+      return c.json({ content: result.content, citations: result.citations });
     } catch (error) {
       const mapped = guardError(error);
       if (mapped) return c.json(mapped.body, mapped.status);
@@ -892,6 +896,7 @@ export function createApp(
     const verification = applyMetricVerification(metric, observation, passageCitations, new Date().toISOString());
     const { changed, verdict } = verification;
     Object.assign(metric, verification.metric);
+    metric.passageSupport = verdict !== 'unverified' && passageCitations.length ? out.passageSupport : null;
 
     const priorTier = companyCard.card.tier;
     companyCard.card.tier = computeCms(buildCmsInput(companyCard.metrics), { deckUserValues: [] }).finalTier;
@@ -1044,6 +1049,7 @@ export function createApp(
         metric.citations = supported;
         metric.source = supported[0]!.url;
         metric.methodNote = `Original reported ${fig.metricType} as of ${fig.passageSupport!.asOf}.`;
+        metric.passageSupport = fig.passageSupport;
         metric.capturedAt = nowIso;
         Object.assign(metric, markVerified(metric, nowIso));
         filledTypes.push(fig.metricType);

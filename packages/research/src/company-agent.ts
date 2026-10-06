@@ -679,6 +679,7 @@ export async function hydrateCompanyCard(
       if (!citations.length) return { ...row, value: null, confidence: 'unknown', source: null, citations: [],
         methodNote: 'Unknown: no accepted original passage for this company, figure, definition and reporting date.' };
       return { ...row, value: proposal!.value, confidence: 'verified', source: citations[0]!.url, citations,
+        passageSupport: proposal!.passageSupport,
         methodNote: `Original reported ${row.metricType} as of ${proposal!.passageSupport!.asOf}.`, lastVerifiedAt: now() };
     });
   })() : enrichCompanyWithProxies(

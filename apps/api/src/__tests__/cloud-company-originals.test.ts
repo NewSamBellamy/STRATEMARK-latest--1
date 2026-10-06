@@ -18,6 +18,15 @@ async function fixture() {
   return { store, auth, service, read };
 }
 describe('cloud company originals', () => {
+  it('retains overview receipts under the same owned-deck authorization and append-only rules', async () => {
+    const { service, read } = await fixture();
+    const sources = service.getOriginalSources('user_pro', 'deck_a', read);
+    const overview = { ...attempt, metricType: 'overview' };
+    await sources.save(overview);
+    expect(await sources.list({ companyId: 'cmp_acme', metricType: 'overview' })).toEqual([overview]);
+    await expect(sources.save({ ...overview, receipts: [] })).rejects.toThrow('cannot be overwritten');
+    await expect(sources.save({ ...attempt, id: 'src_00000000-0000-4000-8000-000000000002', metricType: 'invented' })).rejects.toThrow('Invalid company source attempt');
+  });
   it('keeps concurrent company receipts on reload, separate from published deck updates', async () => {
     const { store, auth, service, read } = await fixture();
     const sources = service.getOriginalSources('user_pro', 'deck_a', read);

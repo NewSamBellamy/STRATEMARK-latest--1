@@ -12,7 +12,7 @@ vi.mock('../lib/client', async original => ({
 }));
 afterEach(() => vi.clearAllMocks());
 const headers = { Authorization: 'Bearer valid_token', 'X-Stratemark-Token': 'app-token', 'Content-Type': 'application/json' };
-const input = { deckId: 'deck_test', companyId: 'cmp', tab: 'overview' };
+const input = { deckId: 'deck_test', companyId: 'cmp', tab: 'history' };
 async function setup(cap = '10') {
   const store = new MemoryDataStore();
   const auth = new MockFirebaseAdapter();
@@ -24,9 +24,25 @@ async function setup(cap = '10') {
   await service.saveDeck('user_123', 'deck_test', { deck: { id: 'deck_test', marketId: 'market' }, market: { id: 'market', name: 'Software' },
     cards: [{ card: { id: 'card', companyId: 'cmp' }, company: { id: 'cmp', name: 'Example', websiteUrl: 'https://example.com' }, metrics: [], viceClaims: [] }] as unknown as CardWithCompany[] });
   const post = (body: unknown = input, requestHeaders = headers) => app.request('/api/research/tab', { method: 'POST', headers: requestHeaders, body: JSON.stringify(body) });
-  return { post, ground, structure, service };
+  return { post, ground, structure, service, store };
 }
 describe('actual cloud dashboard source transport and authorization', () => {
+  it('uses scoped persisted originals for overview instead of unchecked provider prose', async () => {
+    const { post, structure, ground, store } = await setup();
+    const url = 'https://example.com/report';
+    const quote = 'Example sells research software for independent analysts.';
+    await store.saveCompanyOriginal('user_123', 'deck_test', { id: 'src_00000000-0000-4000-8000-000000000001', companyId: 'cmp', metricType: 'company_profile', capturedAt: '2026-10-02T00:00:00.000Z',
+      receipts: [{ requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), retrievedAt: '2026-10-02T00:00:00.000Z', text: quote }] });
+    structure.mockResolvedValueOnce({ excerpts: [{ sourceUrl: url, quote }], markdown: 'Fabricated $999B valuation' } as never);
+    const response = await post({ ...input, tab: 'overview' });
+    expect(response.status).toBe(200);
+    const result = await response.json() as { content: { markdown: string }; citations: Array<{ url: string }> };
+    expect(result.content.markdown).toContain(quote);
+    expect(result.content.markdown).toContain('ARR (USD): Unknown');
+    expect(result.content.markdown).not.toContain('999B');
+    expect(result.citations[0]!.url).toBe(url);
+    expect(ground).not.toHaveBeenCalled();
+  });
   it('returns the retained source envelope and passes sources to synthesis', async () => {
     const { post, structure } = await setup();
     const response = await post();

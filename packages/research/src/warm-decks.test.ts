@@ -10,6 +10,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GeminiRepository, type RepoSnapshot, type ResearchStore } from './repository';
 import type { LlmClient } from './types';
+const unavailableOriginal = async (url: string) => ({ requestedUrl: url, status: 'unavailable' as const, retrievedAt: new Date().toISOString() });
 
 function snapshotWithCompany(): RepoSnapshot {
   return {
@@ -63,6 +64,7 @@ describe('getDashboardTab in-flight dedupe', () => {
       apiKey: 'k',
       store: memoryStore(snapshotWithCompany()),
       client,
+      originalSourceReader: unavailableOriginal,
     });
 
     // Fire both BEFORE the research resolves — a true race.
@@ -85,6 +87,7 @@ describe('getDashboardTab in-flight dedupe', () => {
       apiKey: 'k',
       store: memoryStore(snapshotWithCompany()),
       client,
+      originalSourceReader: unavailableOriginal,
     });
 
     await repo.getDashboardTab('cmp_1', 'overview');
@@ -104,6 +107,7 @@ describe('getDashboardTab in-flight dedupe', () => {
       apiKey: 'k',
       store: memoryStore(snapshotWithCompany()),
       client,
+      originalSourceReader: unavailableOriginal,
     });
 
     await Promise.all([

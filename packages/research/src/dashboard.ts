@@ -13,7 +13,6 @@ import {
   validMetricVerificationValue,
   historyContentSchema,
   missionGovernanceContentSchema,
-  overviewContentSchema,
   productsRoadmapContentSchema,
   teamOrgContentSchema,
   type Company,
@@ -27,6 +26,8 @@ import {
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { LlmClient } from './types';
 import { companySourceTargets } from './source-policy';
+import type { OriginalSourceAttempt, OriginalSourceServices } from './original-source';
+import { researchCompanyOverview } from './company-overview';
 
 export interface TabResearchArgs {
   company: Company;
@@ -34,6 +35,8 @@ export interface TabResearchArgs {
   storedMetrics: CompanyMetric[];
   client: LlmClient;
   signal?: AbortSignal;
+  originalSources?: OriginalSourceServices;
+  originalAttempts?: OriginalSourceAttempt[];
 }
 
 const ctx = (a: TabResearchArgs): string =>
@@ -88,7 +91,11 @@ function metricsFromStored(metrics: CompanyMetric[], companyId: string): Metrics
 /** Preserve attribution outside model-generated content on every research tab.
  * Existing content-only callers keep their contract; real repositories use this
  * envelope so sources survive synthesis, caching, IPC and cloud transport. */
-export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, args: TabResearchArgs) {
+export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, args: TabResearchArgs): Promise<{ content: DashboardContentMap[T]; citations: Citation[]; overviewExcerpts?: Array<{ sourceUrl: string; quote: string }> }> {
+  if (tab === 'overview') {
+    const result = await researchCompanyOverview(args);
+    return { ...result, content: result.content as DashboardContentMap[T] };
+  }
   let citations: Citation[] = [];
   const client: LlmClient = {
     async ground(prompt, opts) {
@@ -125,15 +132,7 @@ export async function researchDashboardTab<T extends DashboardTab>(
       return metricsFromStored(args.storedMetrics, args.company.id) as DashboardContentMap[T];
 
     case 'overview': {
-      const g = await client.ground(
-        `Write a concise, sourced one-page overview of ${ctx(args)} — what it does, how it competes, why it matters, and WHO ITS TARGET CUSTOMER IS (the buyer it actually sells to, as specifically as the sources support). Ground every claim.`,
-        system,
-      );
-      return client.structure(
-        `Convert to JSON { "markdown": string } using GitHub-flavored markdown with a short intro, then "## What they do", "## Who they sell to" (their target customer, from the notes), and "## Why it matters" sections.\n\nNOTES:\n${g.text}`,
-        overviewContentSchema,
-        structSys,
-      ) as Promise<DashboardContentMap[T]>;
+      return (await researchCompanyOverview(args)).content as DashboardContentMap[T];
     }
 
     case 'live_intel': {

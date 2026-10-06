@@ -25,7 +25,8 @@ describe('durability before research publication', () => {
     const committed = migrateSnapshot(null).snapshot;
     committed.companies = [{ id: 'cmp', name: 'Nintendo', oneLiner: 'Game studio', websiteUrl: 'https://www.nintendo.com', logoUrl: null, hqLocation: null, brandTheme: null }];
     const client = { ground: vi.fn().mockResolvedValue({ text: 'notes', citations: [], queries: [] }), structure: vi.fn().mockResolvedValue({ markdown: 'unsaved overview' }) } as unknown as LlmClient;
-    const repo = new GeminiRepository({ apiKey: 'test', client, store: { read: () => structuredClone(committed), write: async () => { throw new Error('Disk full'); } } });
+    const repo = new GeminiRepository({ apiKey: 'test', client, store: { read: () => structuredClone(committed), write: async () => { throw new Error('Disk full'); } },
+      originalSourceReader: async url => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString() }) });
     await expect(repo.getDashboardTab('cmp', 'overview')).rejects.toThrow(/saved/i);
     await expect(repo.getDashboardTab('cmp', 'overview')).rejects.toThrow(/saved/i);
     expect(client.ground).toHaveBeenCalledTimes(1);

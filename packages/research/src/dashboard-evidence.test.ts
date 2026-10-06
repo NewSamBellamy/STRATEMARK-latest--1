@@ -12,22 +12,49 @@ function setup() {
     { title: 'Annual report', url }, { title: 'Duplicate', url }, { title: 'Bad', url: 'javascript:alert(1)' },
   ], queries: [] });
   const structure = vi.fn().mockResolvedValue({ markdown: 'Example sells research software.',
+    excerpts: [{ sourceUrl: url, quote: 'Example sells research software.' }],
     citations: [{ title: 'Fabricated', url: 'https://invented.example/report' }],
     nodes: Array.from({ length: 5 }, (_, i) => ({ id: String(i), parentId: null })),
     board: [], fundingRounds: [{ round: 'Seed' }], products: [], timeline: [], items: [] });
   const client = { ground, structure } as unknown as LlmClient;
-  const repo = () => new GeminiRepository({ apiKey: 'test', client, store });
+  const repo = () => new GeminiRepository({ apiKey: 'test', client, store,
+    originalSourceReader: async sourceUrl => ({ requestedUrl: sourceUrl, finalUrl: sourceUrl,
+      status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: 'Example sells research software.', retrievedAt: new Date().toISOString() }) });
   return { store, ground, structure, repo };
 }
 
 describe('dashboard source lineage', () => {
+  it('does not trust fabricated cached overview text or selections when the originals do not match', async () => {
+    const { store, repo, ground, structure } = setup();
+    const snapshot = store.read()!;
+    snapshot.dashboards.cmp = { overview: { content: { markdown: 'Fabricated $999B valuation' }, lastRefreshedAt: '2026-10-01T00:00:00.000Z',
+      overviewEvidenceVersion: 1, overviewBackground: 'Fabricated $999B valuation' } };
+    await store.write(snapshot);
+    const result = await repo().getDashboardTab('cmp', 'overview');
+    expect(result!.content.markdown).not.toContain('999B');
+    expect(ground).not.toHaveBeenCalled();
+    expect(structure).not.toHaveBeenCalled();
+  });
+  it('rechecks cached selections against originals, not a claimed evidence version', async () => {
+    const { store, repo, ground, structure } = setup();
+    const snapshot = store.read()!;
+    snapshot.dashboards.cmp = { overview: { content: { markdown: 'Fabricated $999B valuation' }, lastRefreshedAt: '2026-10-01T00:00:00.000Z',
+      overviewEvidenceVersion: 2, overviewExcerpts: [{ sourceUrl: url, quote: 'Example has a fabricated business story without an original source.' }] } };
+    await store.write(snapshot);
+    const result = await repo().getDashboardTab('cmp', 'overview');
+    expect(result!.content.markdown).not.toContain('fabricated');
+    expect(result!.content.markdown).not.toContain('999B');
+    expect(result!.citations).toEqual([]);
+    expect(ground).not.toHaveBeenCalled();
+    expect(structure).not.toHaveBeenCalled();
+  });
   it.each(['overview', 'live_intel', 'team_org', 'mission_governance', 'history', 'products_roadmap'] as DashboardTab[])(
     'retains actual search citations through %s synthesis and reopen without another paid pass', async tab => {
       const { repo, ground, structure } = setup();
       const result = await repo().getDashboardTab('cmp', tab);
       expect(result).toHaveProperty('citations', [expect.objectContaining({ url })]);
       expect(structure.mock.calls[0]![0]).toContain(url);
-      expect(structure.mock.calls[0]![0]).toContain('not independent claim verification');
+      expect(structure.mock.calls[0]![0]).toContain(tab === 'overview' ? 'UNTRUSTED ORIGINAL EXTRACTS' : 'not independent claim verification');
       const reopened = await repo().getDashboardTab('cmp', tab);
       expect(reopened).toEqual(result);
       expect(ground).toHaveBeenCalledTimes(1);
@@ -43,7 +70,8 @@ describe('dashboard source lineage', () => {
     caller!.content.markdown = 'Caller overwrite';
     const cached = await repository.getDashboardTab('cmp', 'overview');
     expect(cached).toHaveProperty('citations.0.url', url);
-    expect(cached!.content.markdown).toBe('Example sells research software.');
+    expect(cached!.content.markdown).toContain('Example sells research software.');
+    expect(cached!.content.markdown).not.toContain('Caller overwrite');
   });
 
   it('a forced rerun joins research already in flight and returns isolated results', async () => {
@@ -66,7 +94,8 @@ describe('dashboard source lineage', () => {
     const snapshot = store.read()!;
     snapshot.dashboards.cmp = { overview: { content: { markdown: 'Legacy notes' }, lastRefreshedAt: '2026-09-01T00:00:00.000Z' } };
     await store.write(snapshot);
-    expect((await repo().getDashboardTab('cmp', 'overview'))!.content.markdown).toBe('Legacy notes');
+    expect((await repo().getDashboardTab('cmp', 'overview'))!.content.markdown).toContain('evidence-backed refresh');
+    expect(store.read()!.dashboards.cmp!.overview!.content).toEqual({ markdown: 'Legacy notes' });
     expect(ground).not.toHaveBeenCalled();
   });
 

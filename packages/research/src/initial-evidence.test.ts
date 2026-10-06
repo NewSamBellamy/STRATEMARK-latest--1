@@ -3,6 +3,7 @@ import { hydrateCompanyCard } from './company-agent';
 import type { LlmClient, CompanyCandidate, MarketPlan } from './types';
 import type { OriginalSourceServices } from './original-source';
 import { discoverDeckStubs, runDeckResearch } from './pipeline';
+import { GeminiRepository, migrateSnapshot, type ResearchStore } from './repository';
 
 vi.mock('./logos', () => ({ faviconUrl: () => null, resolveLogo: async () => ({ url: null }) }));
 const url = 'https://sec.gov/Archives/acme';
@@ -28,6 +29,32 @@ function fixture(proof = true, text = quote) {
 }
 
 describe('initial company original-evidence publication', () => {
+  it('retains the accepted proof from first card through overview and offline reopen', async () => {
+    const { client, originals } = fixture();
+    const card = await hydrateCompanyCard({ candidate, client, plan, originalSources: originals });
+    expect(card.metrics.find(row => row.metricType === 'employees')!.passageSupport).toMatchObject({ quote, asOf: '2026-10-01', basis: 'employees' });
+    let snapshot = migrateSnapshot(null).snapshot;
+    snapshot.companies = [card.company!];
+    snapshot.metrics = card.metrics;
+    snapshot.originalSourceAttempts = [vi.mocked(originals.save).mock.calls[0]![0]];
+    const store: ResearchStore = { read: () => structuredClone(snapshot), write: async value => { snapshot = structuredClone(value); } };
+    const overviewClient: LlmClient = { ground: vi.fn(), structure: vi.fn(async (_prompt, schema) => schema.parse({ excerpts: [] })) as LlmClient['structure'] };
+    const repository = new GeminiRepository({ apiKey: 'test', store, client: overviewClient });
+    const result = await repository.getDashboardTab(card.company!.id, 'overview');
+    expect(result!.content.markdown).toContain('Employees: 45');
+    expect(result!.content.markdown).toContain('2026-10-01');
+    expect(result!.content.markdown).toContain('ARR (USD): Unknown');
+    const reopened = new GeminiRepository({ apiKey: 'test', store, client: overviewClient });
+    expect(await reopened.getDashboardTab(card.company!.id, 'overview')).toEqual(result);
+    expect(overviewClient.ground).not.toHaveBeenCalled();
+    expect(overviewClient.structure).toHaveBeenCalledTimes(1);
+    // Loss of backing evidence after a saved overview must not resurrect its
+    // cached financial prose. Historical originals/notes are not overwritten.
+    snapshot.originalSourceAttempts = [];
+    const withoutEvidence = new GeminiRepository({ apiKey: 'test', store, client: overviewClient });
+    expect((await withoutEvidence.getDashboardTab(card.company!.id, 'overview'))!.content.markdown).toContain('Employees: Unknown');
+    expect(overviewClient.structure).toHaveBeenCalledTimes(1);
+  });
   it('uses the same two-source priority policy before filling the first company card', async () => {
     const { client, originals } = fixture();
     client.ground = vi.fn(async () => ({ text: 'Provider says 45 employees.', queries: [], citations: [
