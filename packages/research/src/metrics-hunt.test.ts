@@ -91,6 +91,38 @@ function repoWith(client: LlmClient): GeminiRepository {
 }
 
 describe('huntCompanyMetrics — one pass fills every soft figure', () => {
+  it('retains a full-sized regulator receipt and publishes its annual observation after reopening', async () => {
+    const snap = snapshot();
+    snap.companies[0]!.name = 'Microsoft Corporation';
+    snap.companies[0]!.websiteUrl = 'https://microsoft.com';
+    snap.metrics = [];
+    const filing = 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm';
+    snap.originalSourceAttempts = [{ id: 'prior_financial', companyId: 'cmp_1', metricType: 'metrics_hunt',
+      capturedAt: '2026-10-01T00:00:00.000Z', receipts: [{ requestedUrl: filing, finalUrl: filing,
+        status: 'retrieved', httpStatus: 200, text: 'Previous filing locator, not current proof.',
+        contentHash: 'b'.repeat(64), retrievedAt: '2026-10-01T00:00:00.000Z' }] }];
+    const conceptUrl = 'https://data.sec.gov/api/xbrl/companyconcept/CIK0000789019/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax.json';
+    const text = JSON.stringify({ cik: 789019, entityName: 'MICROSOFT CORPORATION', taxonomy: 'us-gaap',
+      tag: 'RevenueFromContractWithCustomerExcludingAssessedTax', description: 'Public concept metadata. '.repeat(1000),
+      units: { USD: [{ start: '2025-07-01', end: '2026-06-30', val: 331839000000,
+        accn: '0001193125-26-323660', fy: 2026, fp: 'FY', form: '10-K', filed: '2026-07-29' }] } });
+    expect(text.length).toBeGreaterThan(20000);
+    const ground = vi.fn(async () => ({ text: 'Search hub only.', citations: [{ title: 'SEC', url: 'https://www.sec.gov/edgar/searchedgar/companysearch' }], queries: [] }));
+    const structure = vi.fn(async (_prompt, schema) => schema.parse({ figures: [] })) as LlmClient['structure'];
+    const store = memoryStore(snap);
+    const reader = vi.fn(async (url: string) => url === conceptUrl ? ({ requestedUrl: url, finalUrl: conceptUrl, status: 'retrieved' as const,
+      httpStatus: 200, text, format: 'sec-companyconcept' as const, contentHash: 'a'.repeat(64), retrievedAt: new Date().toISOString() })
+      : ({ requestedUrl: url, status: 'unavailable' as const, retrievedAt: new Date().toISOString() }));
+    const repo = new GeminiRepository({ apiKey: 'k', store, client: { ground, structure }, originalSourceReader: reader });
+    expect((await repo.huntCompanyMetrics('cmp_1')).filledTypes).toEqual(['arr']);
+    expect(reader.mock.calls.map(call => call[0])).toContain(conceptUrl);
+    expect(reader.mock.calls.length).toBeLessThanOrEqual(2);
+    const reopened = new GeminiRepository({ apiKey: 'k', store, client: { ground, structure }, originalSourceReader: reader });
+    expect((await reopened.getCompanyFacts('cmp_1')).find(row => row.metricType === 'arr')).toMatchObject({
+      value: 331839000000, confidence: 'verified', passageSupport: { definition: 'annual_revenue' },
+    });
+    expect(ground).toHaveBeenCalledTimes(1);
+  });
   it('does not spend a hunt on accepted original-backed facts or human corrections', async () => {
     const snap = snapshot();
     const url = 'https://reuters.com/report';

@@ -4,13 +4,16 @@ import { MAX_SEC_CONCEPT_TEXT, secRevenueSourceUrl, secRevenueCik } from './sec-
 /** Discovery hints only. Never trust a title, fabricate a URL or accept a fact
  * because a page looks like a financial document. Original gates still apply. */
 function companyDocumentPriority(raw: string, officialWebsite?: string | null): number {
-  if (secRevenueCik(raw)) return 3;
+  if (secRevenueCik(raw)) return 4;
   if (!officialWebsite) return 0;
   try {
     const source = new URL(raw);
     const host = new URL(officialWebsite).hostname.toLowerCase().replace(/^www\./, '');
     const sourceHost = source.hostname.toLowerCase().replace(/^www\./, '');
     if (sourceHost !== host && !sourceHost.endsWith(`.${host}`)) return 0;
+    // A disclosure is more useful than an investor navigation hub. Match only
+    // a discovered official URL; this is routing, never evidence acceptance.
+    if (/\/(?:reports?\/|annual-reports?(?:[/.-]|$)|earnings\/|financial-results?\/)/i.test(source.pathname)) return 3;
     if (/^(?:investor|investors|ir)\./i.test(sourceHost) ||
       /\/(?:investor(?:s|-relations)?|annual-report(?:s)?|financial(?:s|-results)?|earnings)(?:[/.-]|$)/i.test(source.pathname)) return 2;
     if (/\/(?:about(?:-us)?|company(?:-profile)?|corporate)(?:[/.-]|$)/i.test(source.pathname)) return 1;

@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { selectOriginalSourceCitations } from './original-source';
 
 describe('bounded original source priority', () => {
+  it('uses actual financial disclosures before generic regulator search and investor hubs', () => {
+    const report = 'https://www.microsoft.com/investor/reports/ar25/index.html';
+    const earnings = 'https://www.microsoft.com/en-us/investor/earnings/fy-2026-q4/press-release-webcast';
+    expect(selectOriginalSourceCitations([
+      { url: 'https://www.sec.gov/edgar/searchedgar/companysearch', title: 'SEC' },
+      { url: 'https://www.microsoft.com/investor', title: 'Investor relations' },
+      { url: report, title: 'Annual report' }, { url: earnings, title: 'Earnings release' },
+    ], 'https://microsoft.com', true).map(row => row.url)).toEqual([report, earnings]);
+  });
   it('recovers a discovered direct filing locator from notes when grounding metadata only has redirects', () => {
     const chosen = selectOriginalSourceCitations([
       { title: 'sec.gov', url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/token' },

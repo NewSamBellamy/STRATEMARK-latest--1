@@ -1,7 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ExternalLink, MapPin } from 'lucide-react';
-import { METRIC_TYPE_LABELS } from '@mi/contracts';
+import { METRIC_TYPE_LABELS, metricDefinitionLabel } from '@mi/contracts';
 import { useCompany, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { formatMetricValue } from '@/lib/format';
@@ -51,7 +51,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
                         className="h-2 w-2 rounded-full"
                         style={{ background: METRIC_COLORS[m.metricType] }}
                       />
-                      {METRIC_TYPE_LABELS[m.metricType]}
+                      {metricDefinitionLabel(m) ?? METRIC_TYPE_LABELS[m.metricType]}
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="font-semibold tabular-nums text-content">

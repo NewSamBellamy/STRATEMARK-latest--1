@@ -4,20 +4,31 @@ import { buildDataset } from '@mi/mocks';
 import type { CompanyMetric } from '@mi/contracts';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
 import { MetricsTab } from './MetricsTab';
+import { OverviewTab } from './OverviewTab';
 
 const seed = buildDataset().metrics[0]!;
-function show(patch: Partial<CompanyMetric>) {
+function show(patch: Partial<CompanyMetric>, overview = false) {
   const metric: CompanyMetric = { ...seed, metricType: 'employees', value: 123,
     confidence: 'verified', source: null, citations: [], ...patch };
   const repository = Object.assign(makeRepo(), {
     getCompanyMetrics: vi.fn().mockResolvedValue([metric]),
-    getDashboardTab: vi.fn().mockResolvedValue(null),
+    getDashboardTab: vi.fn().mockResolvedValue(overview ? { companyId: metric.companyId, tab: 'overview', content: { markdown: 'Source-reported overview.' }, citations: [] } : null),
   });
-  renderWithProviders(<MetricsTab companyId={metric.companyId} />, { repository });
+  renderWithProviders(overview ? <OverviewTab companyId={metric.companyId} /> : <MetricsTab companyId={metric.companyId} />, { repository });
   return metric;
 }
 
 describe('dashboard metric evidence projection', () => {
+  it.each([false, true])('preserves annual revenue rather than relabeling it ARR (overview: %s)', async overview => {
+    show({ metricType: 'arr', value: 331839000000, confidence: 'verified',
+      source: 'https://data.sec.gov/report', citations: [{ title: 'SEC filing', url: 'https://data.sec.gov/report' }],
+      passageSupport: { sourceUrl: 'https://data.sec.gov/report', quote: 'Retained annual observation.',
+        basis: 'arr', unit: 'USD', definition: 'annual_revenue', asOf: '2026-06-30', periodStart: '2025-07-01' },
+    }, overview);
+    expect((await screen.findAllByText('Annual revenue')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('ARR', { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Where this value sits on the T1–T8 signal band')).not.toBeInTheDocument();
+  });
   it('makes the retained evidence failure available on the existing Unknown badge', async () => {
     show({ value: null, confidence: 'unknown', methodNote: 'Original source could not be read. Try an accessible original publisher.' });
     await screen.findByRole('button', { name: 'Correct Employees' });

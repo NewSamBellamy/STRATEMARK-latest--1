@@ -95,6 +95,7 @@ import { originalSourcePromptViews, secRevenueObservation, secRevenueVerificatio
 import { acceptedMetricPassage } from './metric-support';
 import { overviewFigures, renderCompanyOverview } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
+import { companySourceTargets } from './source-policy';
 import { renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
 import { renderCompanyTeamOrg, teamOrgOriginalAttempts, teamOrgSupportReferences, type TeamOrgSelections } from './company-team';
 
@@ -358,7 +359,10 @@ export class GeminiRepository implements MarketIntelRepository {
         save: async attempt => {
           await this.ready();
           const retained = structuredClone(attempt);
-          if (!isOriginalSourceAttempt(retained) || JSON.stringify(retained).length > 20000) throw new Error('Invalid original-source attempt.');
+          // Two bounded 32K SEC documents can exceed the old 20K HTML envelope.
+          // Allow JSON escaping overhead while retaining a hard transport bound;
+          // the receipt validator still enforces format-specific text limits.
+          if (!isOriginalSourceAttempt(retained) || JSON.stringify(retained).length > 400000) throw new Error('Invalid original-source attempt.');
           const previous = (this.snap.originalSourceAttempts ?? []).find(row => row.id === retained.id);
           if (previous && JSON.stringify(previous) !== JSON.stringify(retained)) throw new Error('Original-source attempt cannot be overwritten.');
           if (!previous) this.snap.originalSourceAttempts = [...(this.snap.originalSourceAttempts ?? []), retained];
@@ -1825,10 +1829,20 @@ export class GeminiRepository implements MarketIntelRepository {
     }
 
     const wanted = softTypes.map((t) => `- ${METRIC_TYPE_LABELS[t]}`).join('\n');
+    // Prior originals supply fetch leads, never current proof. Keep retries
+    // company-scoped and bounded instead of forgetting discovered disclosures.
+    const priorLeads: Citation[] = this.originalSources
+      ? (await this.originalSources.list({ companyId, limit: 20 })).filter(attempt => attempt.companyId === companyId)
+        .flatMap(attempt => attempt.receipts.filter(receipt => receipt.status === 'retrieved' && receipt.finalUrl)
+          .map(receipt => ({ url: receipt.finalUrl!, title: 'Previously retrieved original (recheck required)' }))) : [];
+    const priorTargets = selectOriginalSourceCitations(priorLeads, company.websiteUrl, softTypes.includes('arr'), this.originalSources?.supports);
     const g = await this.client.ground(
       [
         `Find the most current, reliable figures for these metrics of ${company.name}:`,
         wanted,
+        companySourceTargets(company.websiteUrl),
+        ...(softTypes.includes('arr') ? ['Find the latest whole-company fiscal annual revenue OR explicitly reported ARR. Keep them distinct. Find the actual dated annual report, earnings disclosure or company-specific regulatory filing, not an investor homepage or regulator search page. Include the direct filing URL actually discovered; do not guess identifiers.'] : []),
+        ...(priorTargets.length ? ['Previously retrieved URLs are leads only. Check for the latest reporting period and actual disclosure:', ...priorTargets.map(source => source.url)] : []),
         `Company: ${company.name} — ${company.oneLiner}`,
         `Use Google Search. For each figure name the value, its as-of date, and the source. Prefer primary sources and recent reputable coverage. If no reliable current figure exists for a metric, say so plainly for that metric. Never guess.`,
         `MEASUREMENT BASIS: every figure must describe the WHOLE legal company — for a conglomerate, total company revenue/valuation/headcount, never a division's figure presented as the company's.`,
@@ -1838,8 +1852,8 @@ export class GeminiRepository implements MarketIntelRepository {
         companyId: company.id, companyName: company.name, topic: 'metrics_hunt',
       } },
     );
-    const originals = this.originalSources ? await Promise.all(selectOriginalSourceCitations(g.citations, company.websiteUrl, softTypes.includes('arr'), this.originalSources.supports, g.text)
-      .map(citation => this.originalSources!.retrieve(citation.url, { companyId: company.id, companyName: company.name }))) : [];
+    const originals = this.originalSources ? await Promise.all(selectOriginalSourceCitations([...g.citations, ...priorTargets], company.websiteUrl, softTypes.includes('arr'), this.originalSources.supports, g.text)
+      .map(citation => this.originalSources!.retrieve(citation.url, { companyId: company.id, companyName: company.name, metricType: 'metrics_hunt', forceRefresh: true }))) : [];
     if (this.originalSources) {
       await this.originalSources.save({ id: `src_${globalThis.crypto.randomUUID()}`, companyId: company.id,
         metricType: 'metrics_hunt', capturedAt: new Date().toISOString(), receipts: originals });

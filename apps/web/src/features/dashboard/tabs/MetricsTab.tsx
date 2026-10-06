@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Loader2, Pencil, Radar, SearchX } from 'lucide-react';
 import {
   METRIC_TYPE_LABELS,
+  metricDefinitionLabel,
+  comparableMetricBasis,
   type SIGNAL_BANDS,
   type CompanyMetric,
   type MetricType,
@@ -44,6 +46,7 @@ const BAND_KEY: Partial<Record<MetricType, keyof typeof SIGNAL_BANDS>> = {
 
 /** The display order; valuation/market_cap collapse to whichever is present. */
 const ORDER: MetricType[] = ['market_share', 'valuation', 'market_cap', 'arr', 'users', 'employees'];
+const metricLabel = (metric: CompanyMetric) => metricDefinitionLabel(metric) ?? METRIC_TYPE_LABELS[metric.metricType];
 
 /** Human-in-the-loop correction: value + source note → user_verified → re-tier. */
 function OverrideModal({
@@ -70,7 +73,7 @@ function OverrideModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title={`Correct ${METRIC_TYPE_LABELS[metric.metricType]}`}
+      title={`Correct ${metricLabel(metric)}`}
       description={`${companyName} — your value becomes ground truth (User verified) and the maturity tier recomputes instantly.`}
     >
       <div className="space-y-4">
@@ -155,7 +158,7 @@ function MetricTile({
     >
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted">
-            {METRIC_TYPE_LABELS[metric.metricType]}
+            {metricLabel(metric)}
             {highlight && (
               <span className="rounded-full border border-emerald-300 bg-emerald-50 px-1.5 py-px text-[9px] font-semibold normal-case tracking-normal text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
                 Updated from live sources
@@ -168,13 +171,13 @@ function MetricTile({
               note={metric.methodNote}
               source={metric.source}
               citations={metric.citations}
-              metricLabel={METRIC_TYPE_LABELS[metric.metricType]}
+              metricLabel={metricLabel(metric)}
             />
             <button
               type="button"
               className="rounded-md p-1 text-faint transition-colors hover:bg-surface-2 hover:text-content"
               title="Correct this figure (you know better)"
-              aria-label={`Correct ${METRIC_TYPE_LABELS[metric.metricType]}`}
+              aria-label={`Correct ${metricLabel(metric)}`}
               onClick={() => setEditing(true)}
             >
               <Pencil className="h-3.5 w-3.5" />
@@ -206,7 +209,7 @@ function MetricTile({
           <div className="flex items-center gap-1.5">
             {metric.value != null && metric.confidence !== 'unknown' && (
               <FactCheck
-                claim={`${companyName}'s ${METRIC_TYPE_LABELS[metric.metricType]} is ${formatMetricValue(metric.metricType, metric.value)}`}
+                claim={`${companyName}'s ${metricLabel(metric)} is ${formatMetricValue(metric.metricType, metric.value)}`}
                 companyName={companyName}
                 companyId={companyId}
                 metricType={metric.metricType}
@@ -251,7 +254,7 @@ function KpiBand({ tiles }: { tiles: CompanyMetric[] }) {
         <div key={m.id} className="min-w-0 px-4 py-3.5">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-semibold uppercase tracking-widest text-muted">
-              {METRIC_TYPE_LABELS[m.metricType]}
+              {metricLabel(m)}
             </span>
             <span
               className="h-1.5 w-1.5 rounded-full"
@@ -298,7 +301,7 @@ function MetricBody({ metric }: { metric: CompanyMetric }) {
     );
   }
 
-  const bandKey = BAND_KEY[metric.metricType];
+  const bandKey = comparableMetricBasis(metric) ? BAND_KEY[metric.metricType] : undefined;
   return (
     <div>
       <div className="font-display text-3xl font-semibold tabular-nums leading-none text-content">
@@ -353,7 +356,10 @@ function HuntMetricsButton({
                 // change was the filmed confusion.
                 setOutcome(
                   r.filledTypes.length > 0
-                    ? `Filled ${r.filledTypes.map((t) => METRIC_TYPE_LABELS[t]).join(' & ')} from live sources — highlighted below.`
+                    ? `Filled ${r.filledTypes.map((t) => {
+                      const metric = r.metrics.find(m => m.metricType === t);
+                      return metric ? metricLabel(metric) : METRIC_TYPE_LABELS[t];
+                    }).join(' & ')} from live sources — highlighted below.`
                     : 'No additional figures met the sourcing bar — gaps stay honest.',
                 );
                 if (r.filledTypes.length > 0) onFilled?.(r.filledTypes);
@@ -406,7 +412,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
                   onFilled={(types) => setJustFilled(new Set(types))}
                 />
                 <DigDeeperMenu
-                  topics={tiles.map((m) => DEEP_TOPIC[m.metricType])}
+                  topics={tiles.map((m) => m.passageSupport?.definition === 'annual_revenue' ? 'Annual revenue & growth' : DEEP_TOPIC[m.metricType])}
                   companyId={companyId}
                   companyName={companyName}
                 />
