@@ -758,7 +758,7 @@ export class SentinelRepository implements MarketIntelRepository {
     if (!deckId) return null;
 
     try {
-      const res = await fetchSentinel<Pick<DashboardTabResult<T>, 'content' | 'citations'>>('/api/research/tab', {
+      const res = await fetchSentinel<Pick<DashboardTabResult<T>, 'content' | 'citations' | 'sourceDiagnostics'>>('/api/research/tab', {
         method: 'POST',
         body: JSON.stringify({ deckId, companyId, tab, ...(force ? { force: true } : {}) }),
       });
@@ -767,6 +767,7 @@ export class SentinelRepository implements MarketIntelRepository {
         tab,
         content: res.content,
         citations: res.citations,
+        ...(res.sourceDiagnostics ? { sourceDiagnostics: res.sourceDiagnostics } : {}),
         lastRefreshedAt: new Date().toISOString(),
       };
     } catch (e) {

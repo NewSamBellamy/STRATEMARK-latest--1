@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { classifySource, usableCitations, metricDefinitionLabel, type Citation, type MetricType } from '@mi/contracts';
+import { classifySource, usableCitations, metricDefinitionLabel, type Citation, type DashboardSourceDiagnostics, type MetricType } from '@mi/contracts';
 import { selectOriginalSourceCitations, originalSupportReferences, type OriginalSourceReceipt } from './original-source';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { TabResearchArgs } from './dashboard';
@@ -72,7 +72,21 @@ export function renderCompanyOverview(args: TabResearchArgs, originals: readonly
   const markdown = `${overviewBackground}\n\n${overviewFigures(args, originals)}`;
   citations = usableCitations([...citations, ...projectCompanyFactsFromOriginals(args.company, args.storedMetrics, originals)
     .filter(row => row.confidence === 'verified').flatMap(row => row.citations)], args.company.websiteUrl);
-  return { content: { markdown }, citations, overviewExcerpts };
+  const sourceDiagnostics: DashboardSourceDiagnostics = {
+    // A host and transport status are enough to explain an empty section; do
+    // not expose raw URLs, query strings, page text, or adapter error messages.
+    reads: originals.flatMap(source => {
+      try {
+        const parsed = new URL(source.finalUrl ?? source.requestedUrl);
+        if (parsed.protocol !== 'https:') return [];
+        return [{ host: parsed.hostname.toLowerCase().replace(/^www\./, ''), outcome: source.status,
+          ...(source.httpStatus ? { httpStatus: source.httpStatus } : {}) }];
+      } catch { return []; }
+    }).slice(-20),
+    eligibleSourceCount: candidates.length,
+    acceptedExcerptCount: overviewExcerpts.length,
+  };
+  return { content: { markdown }, citations, overviewExcerpts, sourceDiagnostics };
 }
 
 /** Actual repository overview: retained source quotations plus accepted

@@ -1460,7 +1460,7 @@ export class GeminiRepository implements MarketIntelRepository {
         const originals = attempts.filter(isOriginalSourceAttempt).filter(row => row.companyId === companyId).flatMap(row => row.receipts);
         if (cached.overviewEvidenceVersion === 2) {
           const result = renderCompanyOverview({ company, storedMetrics: metrics, client: this.client, marketName: '' }, originals, cached.overviewExcerpts);
-          return { companyId, tab, lastRefreshedAt: cached.lastRefreshedAt, citations: result.citations,
+          return { companyId, tab, lastRefreshedAt: cached.lastRefreshedAt, citations: result.citations, sourceDiagnostics: result.sourceDiagnostics,
             content: result.content as DashboardContentMap[T] };
         }
         return { companyId, tab, lastRefreshedAt: cached.lastRefreshedAt, citations: [],
@@ -1480,7 +1480,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const inFlight = this.tabResearchInFlight.get(flightKey);
     if (inFlight) return structuredClone(await inFlight) as DashboardTabResult<T> | null;
     const run = (async (): Promise<DashboardTabResult<T> | null> => {
-      const { content, citations, overviewExcerpts, productSelections } = await researchDashboardWithSources(tab, {
+      const { content, citations, sourceDiagnostics, overviewExcerpts, productSelections } = await researchDashboardWithSources(tab, {
         company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
         storedMetrics: this.snap.metrics.filter((m) => m.companyId === companyId),
@@ -1497,7 +1497,7 @@ export class GeminiRepository implements MarketIntelRepository {
           ...(tab === 'products_roadmap' ? { productSelections } : {}) },
       };
       await this.persist();
-      return { companyId, tab, content, citations, lastRefreshedAt };
+      return { companyId, tab, content, citations, ...(sourceDiagnostics ? { sourceDiagnostics } : {}), lastRefreshedAt };
     })();
     this.tabResearchInFlight.set(flightKey, run);
     try {

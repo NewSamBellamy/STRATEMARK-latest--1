@@ -472,6 +472,18 @@ export interface DashboardTabResult<T extends DashboardTab> {
   /** Search attribution for this section, not independently verified claims.
    * Absent on legacy cached sections; never inferred from unrelated research. */
   citations?: Citation[];
+  /** Sanitized original-page acquisition outcomes; not citations or proof of claims. */
+  sourceDiagnostics?: DashboardSourceDiagnostics;
+}
+
+export interface DashboardSourceDiagnostics {
+  reads: Array<{
+    host: string;
+    outcome: 'retrieved' | 'blocked' | 'unavailable';
+    httpStatus?: number;
+  }>;
+  eligibleSourceCount: number;
+  acceptedExcerptCount: number;
 }
 
 /** Emitted after a deck refresh so the UI can reconcile without a full refetch (spec §9). */

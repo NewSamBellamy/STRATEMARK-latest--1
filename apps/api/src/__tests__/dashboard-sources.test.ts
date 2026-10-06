@@ -64,9 +64,10 @@ describe('actual cloud dashboard source transport and authorization', () => {
     structure.mockResolvedValue({ excerpts: [{ sourceUrl: url, quote }] } as never);
     const response = await post({ ...input, tab: 'overview' });
     expect(response.status).toBe(200);
-    const result = await response.json() as { content: { markdown: string }; citations: Array<{ url: string }> };
+    const result = await response.json() as { content: { markdown: string }; citations: Array<{ url: string }>; sourceDiagnostics: { reads: Array<{ host: string; outcome: string }>; acceptedExcerptCount: number } };
     expect(result.content.markdown).toContain(quote);
     expect(result.citations).toEqual([expect.objectContaining({ url })]);
+    expect(result.sourceDiagnostics).toMatchObject({ reads: [expect.objectContaining({ host: 'example.com', outcome: 'retrieved' })], acceptedExcerptCount: 1 });
     expect(retrieveOriginalSource).toHaveBeenCalledTimes(1);
     expect(retrieveOriginalSource).toHaveBeenCalledWith('https://example.com', undefined,
       { companyId: 'cmp', companyName: 'Example', metricType: 'overview' });

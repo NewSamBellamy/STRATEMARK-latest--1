@@ -97,6 +97,22 @@ describe('source-backed company overview', () => {
     expect(result.content.markdown).not.toContain('invented.example');
     expect(result.content.markdown).toContain('Background unavailable');
   });
+  it('returns sanitized read outcomes separately from citations and accepted excerpts', async () => {
+    const { run, sources, structure } = setup([]);
+    sources.retrieve.mockResolvedValueOnce({ requestedUrl: company.websiteUrl, status: 'blocked', httpStatus: 403,
+      reason: 'private adapter detail must not leave the repository', retrievedAt: attempt.capturedAt });
+    structure.mockResolvedValue({ excerpts: [] });
+
+    const result = await run([]);
+
+    expect(result.sourceDiagnostics).toMatchObject({
+      reads: expect.arrayContaining([expect.objectContaining({ host: 'acme.com', outcome: 'blocked', httpStatus: 403 })]),
+      eligibleSourceCount: 1,
+      acceptedExcerptCount: 0,
+    });
+    expect(JSON.stringify(result.sourceDiagnostics)).not.toContain('private adapter detail');
+    expect(result.citations).toEqual([]);
+  });
   it('fetches at most two originals and saves the receipts before synthesis', async () => {
     const { run, ground, sources, structure } = setup([]);
     sources.retrieve.mockResolvedValueOnce({ requestedUrl: company.websiteUrl, status: 'unavailable', retrievedAt: attempt.capturedAt });

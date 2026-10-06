@@ -19,6 +19,7 @@ import {
   type CompanyMetric,
   type DashboardContentMap,
   type DashboardTab,
+  type DashboardSourceDiagnostics,
   type MetricsContent,
   type Citation,
   type MetricType,
@@ -94,7 +95,7 @@ function metricsFromStored(metrics: CompanyMetric[], companyId: string, official
 /** Preserve attribution outside model-generated content on every research tab.
  * Existing content-only callers keep their contract; real repositories use this
  * envelope so sources survive synthesis, caching, IPC and cloud transport. */
-export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, args: TabResearchArgs): Promise<{ content: DashboardContentMap[T]; citations: Citation[]; overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>; productSelections?: ProductEvidenceSelections }> {
+export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, args: TabResearchArgs): Promise<{ content: DashboardContentMap[T]; citations: Citation[]; sourceDiagnostics?: DashboardSourceDiagnostics; overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>; productSelections?: ProductEvidenceSelections }> {
   if (tab === 'overview') {
     const result = await researchCompanyOverview(args);
     return { ...result, content: result.content as DashboardContentMap[T] };

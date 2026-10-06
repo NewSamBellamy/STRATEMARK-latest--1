@@ -743,7 +743,7 @@ export function createApp(
         ...(['overview', 'metrics', 'products_roadmap'].includes(tab) ? { originalSources: cloudDeckService.getOriginalSources(access.userId, ownedDeckId, readOriginalSource) } : {}),
       });
 
-      return c.json({ content: result.content, citations: result.citations });
+      return c.json({ content: result.content, citations: result.citations, ...(result.sourceDiagnostics ? { sourceDiagnostics: result.sourceDiagnostics } : {}) });
     } catch (error) {
       const mapped = guardError(error);
       if (mapped) return c.json(mapped.body, mapped.status);
