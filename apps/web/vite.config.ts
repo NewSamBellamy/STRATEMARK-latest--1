@@ -3,6 +3,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import { fileURLToPath, URL } from 'node:url';
+import { localSourcePlugin } from './local-source-plugin';
 
 // SINGLEFILE=1 inlines all JS/CSS into one index.html — used to publish a
 // self-contained public demo (works with the user's own key, client-side).
@@ -13,7 +14,7 @@ const isElectron = process.env.ELECTRON === '1';
 const base = isElectron || singleFile ? './' : '/';
 
 export default defineConfig({
-  plugins: [react(), ...(singleFile ? [viteSingleFile()] : [])],
+  plugins: [react(), localSourcePlugin(), ...(singleFile ? [viteSingleFile()] : [])],
   base,
   // Visible build stamp: browsers cache the published single-file HTML hard,
   // and a stale build looks exactly like "you broke my features". The stamp in

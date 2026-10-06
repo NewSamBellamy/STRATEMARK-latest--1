@@ -130,9 +130,13 @@ describe('CardReader', () => {
     await user.click(dialog.getByRole('button', { name: /read full finding/i }));
 
     expect(dialog.getByRole('region', { name: /full research finding/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toHaveClass('card-inspector--report');
+    expect(dialog.queryByTestId('collectible-card-front')).not.toBeInTheDocument();
     expect(dialog.getByRole('button', { name: /save as pdf/i })).toBeInTheDocument();
     expect(dialog.getByRole('button', { name: /share report/i })).toBeInTheDocument();
     expect(dialog.getByRole('button', { name: /ask ai about this finding/i })).toBeInTheDocument();
+    await user.click(dialog.getByRole('button', { name: /back to overview/i }));
+    expect(dialog.getByTestId('collectible-card-front')).toBeInTheDocument();
   });
 
   it('keeps the card one-sided and preserves the selected card in its dashboard link', () => {

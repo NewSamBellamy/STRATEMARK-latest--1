@@ -173,6 +173,8 @@ describe('Research Engine Settings & Strict Execution', () => {
     );
 
     expect(screen.queryByText(/^\d{1,2}:\d{2}\s?(AM|PM)?$/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Whole market' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Only these companies' })).not.toBeInTheDocument();
 
     const before = screen
       .getAllByRole('button')

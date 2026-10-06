@@ -39,7 +39,7 @@ function domainOf(website: string | null | undefined): string | null {
  * Below MIN_USABLE_PX it isn't brand art at all — it's a tab icon — and the
  * designed lettermark plate beats an upscaled smear.
  */
-const GOOD_ENOUGH_PX = 96;
+const GOOD_ENOUGH_PX = 256;
 const MIN_USABLE_PX = 24;
 /** Below this the mark can't fill the window without visible blur. */
 /** Hard ceiling on upscaling — past ~2x, raster marks turn to mush. */
@@ -86,12 +86,23 @@ export function isHeroLogoUsable(candidate: Pick<Candidate, 'width' | 'height' |
 const isSvg = (src: string): boolean => /\.svg(\?|$)|image\/svg/i.test(src);
 
 /** Load an image off-screen just to learn whether it exists and how big it is. */
-function probe(src: string): Promise<Candidate | null> {
+export function probe(src: string): Promise<Candidate | null> {
   return new Promise((resolve) => {
     const img = new Image();
+    const finish = (candidate: Candidate | null) => {
+      clearTimeout(timer);
+      img.onload = null;
+      img.onerror = null;
+      resolve(candidate);
+    };
+    // One stalled image must not prevent the remaining logo sources or retry UI.
+    const timer = setTimeout(() => {
+      finish(null);
+      img.src = '';
+    }, 4000);
     img.referrerPolicy = 'no-referrer';
     img.onload = () =>
-      resolve(
+      finish(
         img.naturalWidth > 0
           ? {
               src,
@@ -101,7 +112,7 @@ function probe(src: string): Promise<Candidate | null> {
             }
           : null,
       );
-    img.onerror = () => resolve(null);
+    img.onerror = () => finish(null);
     img.src = src;
   });
 }
@@ -180,11 +191,11 @@ export function Logo({
       for (const src of sources) {
         const hit = await probe(src);
         if (cancelled) return;
-        if (hit && (!winner || hit.vector || hit.width > winner.width)) {
+        if (hit && (!winner || hit.vector || Math.min(hit.width, hit.height) > Math.min(winner.width, winner.height))) {
           winner = hit;
           setBest(winner);
           // Vector wins outright; raster only if it's already sharp enough.
-          if (hit.vector || hit.width >= GOOD_ENOUGH_PX) break;
+          if (hit.vector || Math.min(hit.width, hit.height) >= GOOD_ENOUGH_PX) break;
         }
       }
       if (!cancelled) {

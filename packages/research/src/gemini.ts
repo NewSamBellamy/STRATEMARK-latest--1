@@ -174,6 +174,14 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           return schema.parse(extractJson(extractText(data)));
         } catch (err) {
           lastError = err;
+          // A blind identical retry often repeats the same missing field. Give
+          // the model the validation failure, not invented fallback values.
+          if (attempt === 0) body.contents = [{ parts: [{ text: [
+            prompt,
+            'Your previous JSON failed schema validation. Return a corrected JSON object, not an explanation.',
+            'Do not invent research facts to satisfy the schema. Use null only where the contract allows it.',
+            `Validation errors: ${err instanceof Error ? err.message.slice(0, 4000) : String(err).slice(0, 4000)}`,
+          ].join('\n\n') }] }];
         }
       }
       throw new Error(

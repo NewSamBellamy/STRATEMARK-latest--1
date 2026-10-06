@@ -50,6 +50,11 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
   const findingPoints = card.cardType === 'vice'
     ? viceClaims.map((claim) => claim.claimText)
     : card.keyPoints;
+  // The first click should add detail, not repeat the front's one-liner.
+  const previewSummary = view.signal && summary === view.description?.trim()
+    ? findingPoints.find((point) => ![summary, view.frontDescription?.trim(), view.frontFinding?.trim()].includes(point.trim()))?.trim()
+    : summary;
+  const previewPoints = findingPoints.filter((point) => ![previewSummary, view.frontDescription?.trim(), view.frontFinding?.trim()].includes(point.trim()));
   const findingMarkdown = [
     `# ${view.title}`,
     summary ?? '',
@@ -59,13 +64,13 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
   ].filter(Boolean).join('\n\n');
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent size="2xl" className="card-inspector">
+    <DialogContent size="2xl" className={fullFinding ? 'card-inspector card-inspector--report' : 'card-inspector'}>
       <DialogTitle className="sr-only">Inspect {view.title} card</DialogTitle>
       <DialogDescription className="sr-only">
         A concise research summary with sourced figures. Open the full dashboard for deeper evidence and analysis.
       </DialogDescription>
       <div className="card-inspector__layout">
-        <CardStage data={data} view={view} />
+        {!fullFinding && <CardStage data={data} view={view} />}
         <div className="card-inspector__detail">
           <div className="flex items-center justify-between gap-3 pr-8">
             <span className="text-[10px] font-semibold uppercase tracking-[.16em] text-muted">From your research deck</span>
@@ -80,7 +85,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                 {view.signal ? 'Research finding' : 'Company snapshot'}
               </p>
               <p className="card-inspector__summary-text text-[13px] leading-relaxed text-content">
-                {summary || 'No concise research summary has been recorded for this card.'}
+                {previewSummary || (view.signal ? 'No extended finding has been recorded yet.' : 'No concise research summary has been recorded for this card.')}
               </p>
               {companySite && <a className="card-inspector__site" href={companySite} target="_blank" rel="noopener noreferrer">
                 Company website <ExternalLink size={11} aria-hidden="true" />
@@ -145,8 +150,8 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                 </li>)}
               </ul>
             </> : <>
-              {card.keyPoints.slice(0, 2).length > 0 && <ul className="card-inspector__findings">
-                {card.keyPoints.slice(0, 2).map((point, i) => <li key={i}><p>{point}</p></li>)}
+              {previewPoints.slice(0, 2).length > 0 && <ul className="card-inspector__findings">
+                {previewPoints.slice(0, 2).map((point, i) => <li key={i}><p>{point}</p></li>)}
               </ul>}
               {view.citations.length > 0 ? <div className="card-inspector__source-list">
                 {view.citations.slice(0, 3).map((citation) => <a key={citation.url} href={citation.url}

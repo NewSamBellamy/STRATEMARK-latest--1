@@ -1,7 +1,15 @@
-import { describe, expect, it } from 'vitest';
-import { isHeroLogoUsable } from './Logo';
+import { describe, expect, it, vi } from 'vitest';
+import { isHeroLogoUsable, probe } from './Logo';
 
 describe('hero logo quality floor', () => {
+  it('times out a stalled logo so fallback discovery can continue', async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = probe('https://example.invalid/stalled.svg');
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(await pending).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
   it('accepts a real 32px company mark instead of discarding it for initials', () => {
     expect(isHeroLogoUsable({ width: 32, height: 32, vector: false })).toBe(true);
   });

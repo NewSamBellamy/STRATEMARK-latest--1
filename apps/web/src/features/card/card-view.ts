@@ -12,7 +12,8 @@ const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFra
 function sentences(value: string | null | undefined): string[] {
   const normalized = value?.replace(/\s+/g, ' ').trim();
   if (!normalized) return [];
-  return (normalized.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [normalized])
+  // Decimal prices, ratios and domain names are not sentence boundaries.
+  return normalized.split(/(?<=[.!?])\s+(?=[A-Z“"‘'])/u)
     .map((sentence) => sentence.trim())
     .filter(Boolean);
 }

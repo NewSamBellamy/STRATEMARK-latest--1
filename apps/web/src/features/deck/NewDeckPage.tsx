@@ -125,15 +125,6 @@ function useResearchPhase(active: boolean) {
   return RESEARCH_PHASES[index]!;
 }
 
-function parseCompanyNames(value: string): string[] {
-  return [...new Set(value.split(/\r?\n/).map((name) => name.trim()).filter(Boolean))];
-}
-
-function hasValidCompanyScope(value: string): boolean {
-  const names = parseCompanyNames(value);
-  return names.length > 0 && names.length <= 30;
-}
-
 // ── Region picker ────────────────────────────────────────────────────────────
 
 function RegionPicker({
@@ -324,10 +315,6 @@ function EnginePicker({
 function InputPill({
   prompt,
   setPrompt,
-  scopeMode,
-  setScopeMode,
-  companiesText,
-  setCompaniesText,
   region,
   setRegion,
   engine,
@@ -340,10 +327,6 @@ function InputPill({
 }: {
   prompt: string;
   setPrompt: (v: string) => void;
-  scopeMode: 'market' | 'selected_only';
-  setScopeMode: (v: 'market' | 'selected_only') => void;
-  companiesText: string;
-  setCompaniesText: (v: string) => void;
   region: string;
   setRegion: (v: string) => void;
   engine: EngineChoice;
@@ -372,51 +355,6 @@ function InputPill({
           disabled={disabled}
           autoFocus
         />
-        <div className="mt-2 flex w-fit items-center gap-1 rounded-full border border-border/70 bg-surface-2/50 p-0.5" aria-label="Research scope">
-          <button
-            type="button"
-            aria-pressed={scopeMode === 'market'}
-            onClick={() => setScopeMode('market')}
-            disabled={disabled}
-            className={cn(
-              'rounded-full px-3 py-1 text-[11px] font-medium transition-colors',
-              scopeMode === 'market' ? 'bg-surface text-content shadow-soft' : 'text-muted hover:text-content',
-            )}
-          >
-            Whole market
-          </button>
-          <button
-            type="button"
-            aria-pressed={scopeMode === 'selected_only'}
-            onClick={() => setScopeMode('selected_only')}
-            disabled={disabled}
-            className={cn(
-              'rounded-full px-3 py-1 text-[11px] font-medium transition-colors',
-              scopeMode === 'selected_only' ? 'bg-surface text-content shadow-soft' : 'text-muted hover:text-content',
-            )}
-          >
-            Only these companies
-          </button>
-        </div>
-        {scopeMode === 'selected_only' && (
-          <div className="mt-2">
-            <label htmlFor="selected-companies" className="mb-1 block text-[11px] font-medium text-muted">
-              Companies to include <span className="font-normal text-faint">(one per line)</span>
-            </label>
-            <textarea
-              id="selected-companies"
-              value={companiesText}
-              onChange={(event) => setCompaniesText(event.target.value)}
-              rows={2}
-              disabled={disabled}
-              placeholder={'OpenAI\nAnthropic'}
-              className="w-full resize-y rounded-xl border border-border/70 bg-surface-2/40 px-3 py-2 text-[13px] text-content placeholder:text-faint focus:outline-none focus:ring-1 focus:ring-primary/40"
-            />
-            <p className="mt-1 text-[10px] text-faint">
-              Only these companies are researched; no competitors are added. Up to 30 names, one per line.
-            </p>
-          </div>
-        )}
         <div className="mt-1.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img src={wordmark} alt="" className="h-3.5 opacity-40" />
@@ -430,9 +368,9 @@ function InputPill({
             />
             <button
               type="submit"
-              disabled={!prompt.trim() || disabled || (scopeMode === 'selected_only' && !hasValidCompanyScope(companiesText))}
+              disabled={!prompt.trim() || disabled}
               className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary text-primary-fg transition-opacity disabled:opacity-30"
-              aria-label={scopeMode === 'selected_only' ? 'Research selected companies' : 'Research this market'}
+              aria-label="Research this market"
             >
               <ArrowUp className="h-4 w-4" />
             </button>
@@ -469,8 +407,6 @@ export default function NewDeckPage() {
 
   const [prompt, setPrompt] = useState('');
   const [region, setRegion] = useState('');
-  const [scopeMode, setScopeMode] = useState<'market' | 'selected_only'>('market');
-  const [companiesText, setCompaniesText] = useState('');
   const [suggestionSet, setSuggestionSet] = useState(() =>
     Math.floor(Math.random() * SUGGESTION_SETS.length),
   );
@@ -509,13 +445,9 @@ export default function NewDeckPage() {
     e.preventDefault();
     const q = prompt.trim();
     if (!q || session?.running) return;
-    const selectedCompanies = parseCompanyNames(companiesText);
-    if (scopeMode === 'selected_only' && !hasValidCompanyScope(companiesText)) return;
     const restoreSubmittedRequest = () => {
       setPrompt(q);
       setRegion(region);
-      setScopeMode(scopeMode);
-      if (scopeMode === 'selected_only') setCompaniesText(selectedCompanies.join('\n'));
     };
 
     if (engine !== 'cloud' && !hasKey) {
@@ -525,16 +457,11 @@ export default function NewDeckPage() {
     setDemoGate(false);
 
     const regionStr = region.trim();
-    const scopeText = scopeMode === 'selected_only'
-      ? `Only these companies: ${selectedCompanies.join(', ')}`
-      : '';
-    const userText = [q, regionStr, scopeText].filter(Boolean).join(' — ');
+    const userText = [q, regionStr].filter(Boolean).join(' — ');
 
     startSession(userText, timeLabel());
     setPrompt('');
     setRegion('');
-    setCompaniesText('');
-    if (scopeMode === 'selected_only') setScopeMode('market');
 
     if (engine === 'cloud') {
       try {
@@ -553,11 +480,6 @@ export default function NewDeckPage() {
           regionStr || null,
           targetCompanies,
           authToken,
-          undefined,
-          {
-            mode: scopeMode,
-            names: scopeMode === 'selected_only' ? selectedCompanies : [],
-          },
         );
         const market =
           res.market ||
@@ -579,8 +501,6 @@ export default function NewDeckPage() {
             res.cards?.length || res.candidates?.length || res.result?.cards?.length || 0;
           setPrompt('');
           setRegion('');
-          setCompaniesText('');
-          if (scopeMode === 'selected_only') setScopeMode('market');
           finish(`/markets/${m.id}/deck`, cardCount);
           // The deck exists NOW — every deck list refetches immediately.
           void qc.invalidateQueries({ queryKey: qk.markets });
@@ -609,10 +529,6 @@ export default function NewDeckPage() {
         {
           prompt: q,
           region: regionStr || null,
-          companyScope: {
-            mode: scopeMode,
-            names: scopeMode === 'selected_only' ? selectedCompanies : [],
-          },
         },
         {
           onProgress: (p) => {
@@ -645,8 +561,6 @@ export default function NewDeckPage() {
       );
       setPrompt('');
       setRegion('');
-      setCompaniesText('');
-      if (scopeMode === 'selected_only') setScopeMode('market');
       finish(`/markets/${market.id}/deck`, cardCount);
       // Belt & braces: the finished deck must be in every list before we land on it.
       void qc.invalidateQueries({ queryKey: qk.markets });
@@ -704,10 +618,6 @@ export default function NewDeckPage() {
               <InputPill
                 prompt={prompt}
                 setPrompt={setPrompt}
-                scopeMode={scopeMode}
-                setScopeMode={setScopeMode}
-                companiesText={companiesText}
-                setCompaniesText={setCompaniesText}
                 region={region}
                 setRegion={setRegion}
                 engine={engine}
@@ -919,10 +829,6 @@ export default function NewDeckPage() {
           <InputPill
             prompt={prompt}
             setPrompt={setPrompt}
-            scopeMode={scopeMode}
-            setScopeMode={setScopeMode}
-            companiesText={companiesText}
-            setCompaniesText={setCompaniesText}
             region={region}
             setRegion={setRegion}
             engine={engine}

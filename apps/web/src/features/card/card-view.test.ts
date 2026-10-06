@@ -16,6 +16,11 @@ function view(metrics: CompanyMetric[], overrides: Partial<CardWithCompany> = {}
 }
 
 describe('collectible card evidence model', () => {
+  it('keeps decimal prices and ratios intact on specialist card fronts', () => {
+    const result = view([], { company: null, card: { ...card, cardType: 'insight', companyId: null,
+      summary: 'Pricing shifts matter.', keyPoints: ['Reported tokens cost $0.97/M with a 3.5 month lag. More detail follows.'] } });
+    expect(result.frontFinding).toBe('Reported tokens cost $0.97/M with a 3.5 month lag.');
+  });
   it('uses typed measurement labels rather than conflicting model notes on cards and readers', () => {
     const input = metric({ methodNote: 'Users: annual revenue', passageSupport: { sourceUrl: 'https://sec.gov/report',
       quote: 'Acme reports 1200 monthly active users as of 2026-10-01.', asOf: '2026-10-01', basis: 'users', unit: 'count', definition: 'monthly_active_users' } });
