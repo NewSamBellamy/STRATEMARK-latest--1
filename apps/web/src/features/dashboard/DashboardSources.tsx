@@ -27,10 +27,11 @@ export function DashboardSources({ companyId, tab }: { companyId: string; tab: D
   const readDetails = reads.length > 0 && <details className="mt-3 rounded-lg border border-border bg-surface px-4 py-3 text-xs text-muted">
     <summary className="cursor-pointer font-medium text-content">Original source checks · {reads.length}</summary>
     <p className="mt-2 leading-relaxed">A successful page read is not independent verification of its claims.</p>
+    <p className="mt-2 leading-relaxed">A blocked or unavailable read can reflect this app’s reader limits, network-safety rules, or source-retention policy; it does not by itself mean the publisher refused access.</p>
     <ul className="mt-3 space-y-1">
       {reads.map((read, index) => <li key={`${read.host}-${read.outcome}-${read.httpStatus ?? ''}-${index}`}>
         <span className="font-medium text-content">{read.host}</span>{' · '}
-        {read.outcome}{read.httpStatus ? ` · HTTP ${read.httpStatus}` : ''}
+        {read.outcome}{read.httpStatus ? ` · HTTP ${read.httpStatus}` : read.outcome !== 'retrieved' ? ' · no HTTP response recorded' : ''}
       </li>)}
     </ul>
   </details>;

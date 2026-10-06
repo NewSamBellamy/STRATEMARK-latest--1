@@ -45,11 +45,13 @@ describe('dashboard research source disclosure', () => {
       { host: 'example.com', outcome: 'blocked', httpStatus: 403 },
       { host: 'archive.example', outcome: 'unavailable' },
     ], eligibleSourceCount: 0, acceptedExcerptCount: 0 });
-    expect(await screen.findByText('No original page text was retained (1 blocked, 1 unavailable).')).toBeInTheDocument();
+    expect(await screen.findByText(/No original page text was retained \(1 blocked, 1 unavailable\)/)).toBeInTheDocument();
+    expect(screen.getByText(/does not by itself mean the publisher refused access/)).toBeInTheDocument();
     const checks = screen.getByText('Original source checks · 2');
     await user.click(checks);
     expect(screen.getByText('example.com')).toBeInTheDocument();
     expect(screen.getByText('example.com').closest('li')).toHaveTextContent('blocked · HTTP 403');
+    expect(screen.getByText('archive.example').closest('li')).toHaveTextContent('unavailable · no HTTP response recorded');
     expect(screen.queryByRole('link', { name: /example\.com/ })).not.toBeInTheDocument();
   });
   it('distinguishes retrieved pages from a quote accepted by the overview evidence checks', async () => {

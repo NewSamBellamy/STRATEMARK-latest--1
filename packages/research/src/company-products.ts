@@ -61,7 +61,14 @@ export function renderCompanyProducts(company: Company, originals: readonly Orig
         : '(?:now available|generally available|available(?: now| today)?|launched|released)';
     // Tie the predicate to this exact name, not another product elsewhere in a
     // selected paragraph. Negated/future predicates cannot match this relation.
-    const supported = new RegExp(`(?<![\\p{L}\\p{N}])${name}(?:\\s*[,—–:]\\s*|\\s+)(?:${predicate}\\s+)?${lifecycle}\\b`, 'iu').test(quote);
+    const futureAvailability = row.data.status === 'live' && (
+      /\b(?:next\s+(?:week|month|quarter|year)|coming\s+soon|upcoming|not\s+yet\s+available|will\s+(?:be\s+)?(?:available|launch|release)|plans?\s+to\s+(?:make|launch|release)|scheduled\s+to\s+(?:be\s+)?(?:available|launch|release)|expected\s+to\s+(?:be\s+)?(?:available|launch|release))\b/i.test(quote) ||
+      [...quote.matchAll(/\b(?:starting|beginning|from|on)\s+(20\d{2}(?:-\d{2}-\d{2})?)\b/gi)].some(match => {
+        const date = Date.parse(`${match[1]}${match[1]!.length === 4 ? '-01-01' : ''}T00:00:00.000Z`);
+        return Number.isFinite(date) && date > now;
+      })
+    );
+    const supported = !futureAvailability && new RegExp(`(?<![\\p{L}\\p{N}])${name}(?:\\s*[,—–:]\\s*|\\s+)(?:${predicate}\\s+)?${lifecycle}\\b`, 'iu').test(quote);
     if (!supported || seen.has(key)) continue;
     seen.add(key);
     content.products.push({ name: row.data.name, status: row.data.status, description: citedDescription(quote, source), revenueNote: '', url: source.finalUrl! });

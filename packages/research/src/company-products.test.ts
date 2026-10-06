@@ -104,6 +104,15 @@ describe('original-backed company product dossier', () => {
     structure.mockResolvedValue({ products: [{ name: 'Atlas', status: fault === 'different-product' ? 'live' : 'sunset', sourceUrl: url, quote: text }], roadmap: [] });
     expect((await run()).content.products).toEqual([]);
   });
+  it.each([
+    ['future-availability', 'Atlas is available next year for independent analysts.'],
+    ['future-dated-availability', 'Atlas is generally available starting 2027-01-15.'],
+  ])('does not label %s as live', async (_fault, text) => {
+    const { run, sources, structure } = setup();
+    sources.retrieve.mockResolvedValue({ ...receipt, text });
+    structure.mockResolvedValue({ products: [{ name: 'Atlas', status: 'live', sourceUrl: url, quote: text }], roadmap: [] });
+    expect((await run()).content.products).toEqual([]);
+  });
   it.each(['invented-date', 'overdue', 'invalid-date'])( 'does not publish %s roadmap dates', async fault => {
     const { run, sources, structure } = setup();
     const date = fault === 'invented-date' ? '2027-01-16' : fault === 'overdue' ? '2025-01-15' : '2027-02-30';
