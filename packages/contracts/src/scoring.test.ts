@@ -116,6 +116,15 @@ describe('computeCms — LLM review nudge (spec §6.3)', () => {
 });
 
 describe('buildCmsInput', () => {
+  it('does not score annual revenue as ARR or customers/active populations as comparable total users', () => {
+    const proof = { sourceUrl: 'https://sec.gov/report', quote: 'Reported figure', asOf: '2026-10-01', basis: 'arr' as const, unit: 'USD' as const };
+    const result = buildCmsInput([
+      { metricType: 'arr', value: 40_000_000, confidence: 'verified', passageSupport: { ...proof, definition: 'annual_revenue', periodStart: '2025-10-01' } },
+      { metricType: 'users', value: 120, confidence: 'verified', passageSupport: { ...proof, basis: 'users', unit: 'count', definition: 'customers' } },
+    ]);
+    expect(result.arr).toEqual({ value: null, confidence: 'unknown' });
+    expect(result.users).toEqual({ value: null, confidence: 'unknown' });
+  });
   it('maps flat metric rows to the five weighted signals and prefers valuation over cap', () => {
     const input = buildCmsInput([
       { metricType: 'market_share', value: 3, confidence: 'estimated' },

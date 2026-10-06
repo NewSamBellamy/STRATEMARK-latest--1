@@ -10,6 +10,9 @@ import type { CompanyCandidate, MarketPlan } from './types';
 import type { Citation } from './types';
 import { SOURCE_PRIORITY_POLICY, companySourceTargets } from './source-policy';
 
+/** Shared across first hydration, verification and targeted hunts, local/cloud. */
+export const METRIC_MEASUREMENT_INSTRUCTIONS = 'In passageSupport also set definition to the actual measurement: arr, annual_revenue, users, active_users, monthly_active_users, daily_active_users, customers, paying_customers, employees, valuation, market_cap or market_share. basis remains the storage key (arr for annual_revenue, users for the listed user/customer populations). Do not put downloads, followers, registrations or stars in users. Do not annualize monthly revenue or convert annual revenue to ARR. For annual_revenue only, include periodStart YYYY-MM-DD and asOf as the interval end; the unchanged quote must explicitly say "annual revenue" and "for the period YYYY-MM-DD to YYYY-MM-DD" spanning an annual period. All other measurements require a literal as-of date and no periodStart. Use whole-company observations only. Missing literal definition/date/interval support means unknown; do not rewrite source text to fit this contract.';
+
 /**
  * Roles discovery may assign to a company. Barrier and Insight are market-level
  * findings produced by their own grounded pass, so offering them here only

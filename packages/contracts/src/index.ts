@@ -15,3 +15,4 @@ export * from './living-deck';
 export * from './freshness';
 export * from './consistency';
 export * from './metric-verification';
+export * from './metric-definition';

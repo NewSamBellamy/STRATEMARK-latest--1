@@ -1,6 +1,6 @@
 import {
   CARD_TYPE_LABELS, CONFIDENCE_LABELS, TIER_LABELS, enforceMetricProvenance, currentMetricRevision,
-  isSignalCardType, usableCitations, type CardWithCompany, type CompanyMetric, type MetricType,
+  isSignalCardType, usableCitations, metricDefinitionLabel, type CardWithCompany, type CompanyMetric, type MetricType,
 } from '@mi/contracts';
 
 const LABELS: Record<MetricType, string> = {
@@ -36,6 +36,7 @@ function frontTitle(value: string): string {
 }
 
 function profileLabel(key: string, metric: CompanyMetric | undefined): string {
+  if (metric && metricDefinitionLabel(metric)) return metricDefinitionLabel(metric)!;
   if (key === 'employees') return 'Employees';
   if (key === 'revenue') {
     const note = metric?.methodNote?.toLowerCase() ?? '';
@@ -100,7 +101,7 @@ export function buildMetricViews(input: readonly CompanyMetric[], officialWebsit
       note = 'Invalid stored value. Not displayed or used in this card’s maturity breakdown.';
     }
     return {
-      metric, label: LABELS[metric.metricType], display: displayValue(metric),
+      metric, label: metricDefinitionLabel(metric) ?? LABELS[metric.metricType], display: displayValue(metric),
       confidence: CONFIDENCE_LABELS[metric.confidence], note, citations,
     };
   });

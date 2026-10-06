@@ -16,6 +16,14 @@ function view(metrics: CompanyMetric[], overrides: Partial<CardWithCompany> = {}
 }
 
 describe('collectible card evidence model', () => {
+  it('uses typed measurement labels rather than conflicting model notes on cards and readers', () => {
+    const input = metric({ methodNote: 'Users: annual revenue', passageSupport: { sourceUrl: 'https://sec.gov/report',
+      quote: 'Acme reports 1200 monthly active users as of 2026-10-01.', asOf: '2026-10-01', basis: 'users', unit: 'count', definition: 'monthly_active_users' } });
+    expect(view([input]).profileMetrics[2]!.label).toBe('Monthly active users');
+    const revenue = metric({ metricType: 'arr', methodNote: 'ARR', passageSupport: { ...input.passageSupport!,
+      basis: 'arr', unit: 'USD', definition: 'annual_revenue', periodStart: '2025-10-01' } });
+    expect(view([revenue]).profileMetrics[1]!.label).toBe('Annual revenue');
+  });
   it('preserves accepted issuer figures with matching company context only', () => {
     const input = metric({ metricType: 'employees', value: 45, citations: [{ title: 'Original passage', url: 'https://acme.com/report' }] });
     const issuer = { ...company, websiteUrl: 'https://acme.com' };

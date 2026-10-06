@@ -14,6 +14,7 @@
 import { MODEL_PROPOSABLE_CONFIDENCE, type Confidence } from './enums';
 import type { Citation, MetricConflict, SourceCredibility } from './repository';
 import type { CompanyMetric } from './types';
+import { metricObservationIdentity } from './metric-definition';
 
 /** Reason text stamped on a figure that lost its "verified" claim. */
 export const UNSOURCED_DOWNGRADE_NOTE =
@@ -300,7 +301,7 @@ export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric
   const next = enforceMetricProvenance(incoming, officialWebsite);
   const humanLocked = current.confidence === 'user_verified' && next.confidence !== 'user_verified';
   const preferNext = !humanLocked && (next.confidence === 'user_verified' || evidenceWeight(next) > evidenceWeight(current));
-  if (current.value === next.value || next.value === null) {
+  if ((current.value === next.value && metricObservationIdentity(current) === metricObservationIdentity(next)) || next.value === null) {
     const preferred = next.value !== null && preferNext ? next : current;
     return {
       ...preferred,
@@ -314,12 +315,14 @@ export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric
       confidence: current.confidence,
       source: current.source,
       capturedAt: current.capturedAt,
+      passageSupport: current.passageSupport,
     },
     {
       value: next.value,
       confidence: next.confidence,
       source: next.source,
       capturedAt: next.capturedAt,
+      passageSupport: next.passageSupport,
     },
   ];
   const preferredObservation = preferNext ? 1 : 0;

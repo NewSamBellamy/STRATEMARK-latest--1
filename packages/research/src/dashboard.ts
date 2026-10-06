@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import {
   currentMetricRevision,
+  comparableMetricBasis,
   enforceMetricProvenance,
   usableCitations,
   validMetricVerificationValue,
@@ -73,7 +74,7 @@ function metricsFromStored(metrics: CompanyMetric[], companyId: string, official
     const metric = enforceMetricProvenance(revision.metric, officialWebsite);
     // A chart has no estimate/confidence annotation. Only established, bounded
     // current points belong here; retain all raw observations in the vault.
-    return (metric.confidence === 'verified' || metric.confidence === 'user_verified') &&
+      return comparableMetricBasis(metric) && (metric.confidence === 'verified' || metric.confidence === 'user_verified') &&
       validMetricVerificationValue(t, metric.value) &&
       !(t === 'users' && metric.value === 0 && metric.confidence !== 'user_verified') ? metric.value : null;
   };

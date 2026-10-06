@@ -134,6 +134,11 @@ export const citationSchema = z.object({
 export const metricPassageSupportSchema = z.object({
   sourceUrl: z.string().max(2048), quote: z.string().max(600), asOf: z.string().max(40),
   basis: metricTypeSchema, unit: z.enum(['USD', 'count', 'percent']),
+  /** basis is the legacy storage slot; definition is the actual measurement. */
+  definition: z.enum(['arr', 'annual_revenue', 'users', 'active_users', 'monthly_active_users',
+    'daily_active_users', 'customers', 'paying_customers', 'employees', 'valuation', 'market_cap', 'market_share']).optional(),
+  /** Inclusive annual reporting interval; asOf is its end, not retrieval time. */
+  periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 export const companyMetricSchema = z.object({
@@ -181,6 +186,7 @@ export const companyMetricSchema = z.object({
             confidence: confidenceSchema,
             source: z.string().nullable(),
             capturedAt: isoTimestamp,
+            passageSupport: metricPassageSupportSchema.nullish(),
           }),
         ),
         detectedAt: isoTimestamp,

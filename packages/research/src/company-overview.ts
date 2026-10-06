@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { classifySource, usableCitations, type Citation, type MetricType } from '@mi/contracts';
+import { classifySource, usableCitations, metricDefinitionLabel, type Citation, type MetricType } from '@mi/contracts';
 import { selectOriginalSourceCitations, type OriginalSourceReceipt } from './original-source';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { TabResearchArgs } from './dashboard';
@@ -29,11 +29,13 @@ export function overviewFigures(args: TabResearchArgs, originals: readonly Origi
   const facts = projectCompanyFactsFromOriginals(args.company, args.storedMetrics, originals);
   const rows = (Object.keys(metricLabels) as MetricType[]).map(type => {
     const metric = facts.find(row => row.metricType === type);
+    const label = metric ? metricDefinitionLabel(metric) ?? metricLabels[type] : metricLabels[type];
     if (!metric || metric.value === null) return `- ${metricLabels[type]}: Unknown`;
-    if (metric.confidence === 'user_verified') return `- ${metricLabels[type]}: ${metric.value!.toLocaleString('en-US')} — human-confirmed, not independently verified`;
+    if (metric.confidence === 'user_verified') return `- ${label}: ${metric.value!.toLocaleString('en-US')} — human-confirmed, not independently verified`;
     if (metric.confidence !== 'verified' || !metric.passageSupport || !metric.citations.length) return `- ${metricLabels[type]}: Unknown`;
     const attribution = metric.citations[0]!.title.startsWith('Issuer-reported') ? ' — issuer-reported, not independently corroborated' : '';
-    return `- ${metricLabels[type]}: ${metric.value.toLocaleString('en-US')} — reported ${metric.passageSupport.asOf}${attribution} ([original passage](${markdownUrl(metric.citations[0]!.url)}))`;
+    const period = metric.passageSupport.periodStart ? `${metric.passageSupport.periodStart} to ${metric.passageSupport.asOf}` : metric.passageSupport.asOf;
+    return `- ${label}${metric.passageSupport.definition && metric.passageSupport.unit === 'USD' ? ' (USD)' : ''}: ${metric.value.toLocaleString('en-US')} — reported ${period}${attribution} ([original passage](${markdownUrl(metric.citations[0]!.url)}))`;
   });
   return `## Business figures\n\n${rows.join('\n')}\n\nUnknown means no accepted current observation with matching original evidence. It does not mean zero.`;
 }

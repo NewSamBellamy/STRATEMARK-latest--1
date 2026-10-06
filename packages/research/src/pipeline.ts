@@ -13,6 +13,7 @@
 import type { infer as ZodInfer } from 'zod';
 import {
   buildCmsInput,
+  comparableMetricBasis,
   computeCms,
   type Card,
   type CardType,
@@ -820,6 +821,7 @@ export async function hydrateDeckCards(
         .filter(
           (metric) =>
             metric.metricType === 'users' &&
+            comparableMetricBasis(metric) &&
             metric.confidence !== 'unknown' &&
             metric.value !== null,
         )

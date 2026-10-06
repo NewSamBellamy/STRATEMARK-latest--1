@@ -3,6 +3,7 @@ import type { CompanyMetric } from '@mi/contracts';
 import { GeminiRepository, migrateSnapshot, type ResearchStore } from './repository';
 import type { LlmClient } from './types';
 import { projectCompanyFacts } from './company-facts';
+import { overviewFigures } from './company-overview';
 
 const url = 'https://sec.gov/Archives/acme';
 const quote = 'Acme reported 45 employees as of 2026-10-01.';
@@ -29,6 +30,36 @@ const assertFacts = (rows: CompanyMetric[]) => {
   expect(rows.find(row => row.metricType === 'arr')).toMatchObject({ value: null, confidence: 'unknown' });
 };
 describe('one current company facts projection', () => {
+  it('retains typed revenue intervals and customer populations across facts, saved cards and reopen without mischarting them', async () => {
+    const { store, client } = setup();
+    const snapshot = store.read()!;
+    const annual = 'Acme reports annual revenue of USD 40 million for the period 2025-10-01 to 2026-09-30.';
+    const reach = 'Acme reports 120 paying customers as of 2026-10-01.';
+    snapshot.metrics = [
+      { ...employee, id: 'annual', metricType: 'arr', value: 40_000_000, methodNote: 'ARR', passageSupport: {
+        sourceUrl: url, quote: annual, asOf: '2026-09-30', basis: 'arr', unit: 'USD', definition: 'annual_revenue', periodStart: '2025-10-01' } },
+      { ...employee, id: 'customers', metricType: 'users', value: 120, methodNote: 'Total users', passageSupport: {
+        sourceUrl: url, quote: reach, asOf: '2026-10-01', basis: 'users', unit: 'count', definition: 'paying_customers' } },
+    ];
+    snapshot.originalSourceAttempts![0]!.receipts[0]!.text = `${annual} ${reach}`;
+    await store.write(snapshot);
+    const reopened = new GeminiRepository({ apiKey: 'test', store, client });
+    const facts = await reopened.getCompanyFacts('cmp');
+    expect(facts.map(row => row.value)).toEqual([40_000_000, 120]);
+    expect((await reopened.getCard('card'))!.metrics).toEqual(facts);
+    expect((await reopened.listSavedCards())[0]!.metrics).toEqual(facts);
+    const chart = (await reopened.getDashboardTab('cmp', 'metrics'))!.content;
+    expect(chart.revenue).toEqual([]);
+    expect(chart.users).toEqual([]);
+    const figures = overviewFigures({ company: snapshot.companies[0]!, storedMetrics: snapshot.metrics,
+      marketName: 'Software', client }, snapshot.originalSourceAttempts![0]!.receipts);
+    expect(figures).toContain('Annual revenue (USD): 40,000,000 — reported 2025-10-01 to 2026-09-30');
+    expect(figures).toContain('Paying customers: 120');
+    expect(figures).not.toContain('Users: 120');
+    expect(store.read()!.metrics).toEqual(snapshot.metrics);
+    expect(client.ground).not.toHaveBeenCalled();
+    expect(client.structure).not.toHaveBeenCalled();
+  });
   it.each([
     ['missing', 'No saved original passage'],
     ['blocked', 'Original source could not be read'],

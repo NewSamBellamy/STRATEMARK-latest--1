@@ -8,6 +8,43 @@ const source: OriginalSourceReceipt = { requestedUrl: 'https://sec.gov/acme', fi
 const support: MetricPassageSupport = { sourceUrl: source.finalUrl!, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' };
 const input = { companyName: 'Acme Inc.', metricType: 'arr' as const, value: 40_000_000, support, originals: [source] };
 describe('original metric passage gate', () => {
+  it.each([
+    ['monthly_active_users', 'monthly active users'],
+    ['daily_active_users', 'daily active users'],
+    ['customers', 'customers'],
+    ['paying_customers', 'paying customers'],
+  ] as const)('accepts an explicitly defined %s population but not a relabelled one', (definition, population) => {
+    const text = `Acme Inc. reports 120 ${population} as of 2026-10-01.`;
+    const candidate = { ...input, metricType: 'users' as const, value: 120,
+      support: { ...support, basis: 'users' as const, unit: 'count' as const, quote: text, definition }, originals: [{ ...source, text }] };
+    expect(acceptedMetricPassage(candidate)).toHaveLength(1);
+    expect(acceptedMetricPassage({ ...candidate, support: { ...candidate.support, definition: 'users' } })).toEqual([]);
+    const { definition: _definition, ...untyped } = candidate.support;
+    expect(acceptedMetricPassage({ ...candidate, support: untyped })).toEqual([]);
+  });
+  it('accepts annual revenue only with an explicit matching reporting interval, never as ARR', () => {
+    const text = 'Acme Inc. reports annual revenue of USD 40 million for the period 2025-10-01 to 2026-09-30.';
+    const candidate = { ...input, support: { ...support, quote: text, asOf: '2026-09-30',
+      definition: 'annual_revenue' as const, periodStart: '2025-10-01' }, originals: [{ ...source, text }] };
+    expect(acceptedMetricPassage(candidate)).toHaveLength(1);
+    expect(acceptedMetricPassage({ ...candidate, support: { ...candidate.support, definition: 'arr' } })).toEqual([]);
+    expect(acceptedMetricPassage({ ...candidate, support: { ...candidate.support, periodStart: '2025-09-01' } })).toEqual([]);
+    expect(acceptedMetricPassage({ ...candidate, support: { ...candidate.support, periodStart: undefined } })).toEqual([]);
+    expect(acceptedMetricPassage({ ...candidate, support: { ...candidate.support, asOf: '2026-02-30' } })).toEqual([]);
+  });
+  it('does not accept an annualized monthly figure, ambiguous populations or a division as a whole-company observation', () => {
+    for (const text of [
+      'Acme Inc. reports 120 monthly and daily active users as of 2026-10-01.',
+      'Acme Inc. reports 120 monthly active users for its research division as of 2026-10-01.',
+      'Acme Inc. reports 120 monthly active users and customers as of 2026-10-01.',
+    ]) expect(acceptedMetricPassage({ ...input, metricType: 'users', value: 120, support: { ...support,
+      basis: 'users', unit: 'count', quote: text, definition: 'monthly_active_users' }, originals: [{ ...source, text }] })).toEqual([]);
+  });
+  it.each(['monthly users', 'daily users', 'paying users', 'new users', 'registered users', 'users and downloads'])('does not disguise %s as generic users', population => {
+    const text = `Acme Inc. reports 120 ${population} as of 2026-10-01.`;
+    expect(acceptedMetricPassage({ ...input, metricType: 'users', value: 120, support: { ...support,
+      basis: 'users', unit: 'count', quote: text, definition: 'users' }, originals: [{ ...source, text }] })).toEqual([]);
+  });
   it('keeps diagnostic acceptance identical to the existing gate', () => {
     const candidates = [input, { ...input, support: null }, { ...input, originals: [] },
       { ...input, originals: [{ ...source, text: 'Different passage' }] },

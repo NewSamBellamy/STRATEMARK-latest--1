@@ -1,14 +1,14 @@
-import { hasVerificationGradeCitation, usableCitations, validMetricVerificationValue, type Citation, type MetricType } from '@mi/contracts';
+import { hasVerificationGradeCitation, usableCitations, validMetricVerificationValue, type Citation, type MetricType, type CompanyMetric } from '@mi/contracts';
 import type { OriginalSourceReceipt } from './original-source';
 
-export interface MetricPassageSupport { sourceUrl: string; quote: string; asOf: string; basis: MetricType; unit: 'USD' | 'count' | 'percent' }
+export type MetricPassageSupport = NonNullable<CompanyMetric['passageSupport']>;
 const normalize = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim();
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const basis: Record<MetricType, RegExp> = {
-  arr: /\b(?:ARR|annual recurring revenue)\b/i,
+  arr: /\b(?:ARR|annual recurring revenue|annual revenue)\b/i,
   valuation: /\b(?:valuation|valued at)\b/i,
   market_cap: /\b(?:market cap|market capitalization)\b/i,
-  users: /\b(?:users|active users)\b/i,
+  users: /\b(?:users|customers)\b/i,
   employees: /\b(?:employees|headcount)\b/i,
   market_share: /\bmarket share\b/i,
 };
@@ -32,6 +32,34 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
   const nowMs = input.nowMs ?? Date.now();
   if (!Number.isFinite(nowMs) || date.getTime() > nowMs || nowMs - date.getTime() > 366 * 86400000) return reject('Reporting date is outside the current evidence window. Find a current, explicitly dated source.');
   const quote = normalize(proof.quote);
+  const definition = proof.definition ?? input.metricType;
+  const definitions: Record<string, RegExp> = {
+    arr: /\b(?:ARR|annual recurring revenue)\b/i,
+    annual_revenue: /\bannual revenue\b/i,
+    users: /\busers\b/i, active_users: /\bactive users\b/i,
+    monthly_active_users: /\bmonthly active users\b/i, daily_active_users: /\bdaily active users\b/i,
+    customers: /\bcustomers\b/i, paying_customers: /\bpaying customers\b/i,
+  };
+  const definitionBasis = definition === 'annual_revenue' ? 'arr'
+    : ['active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition) ? 'users' : definition;
+  if (definitionBasis !== input.metricType || !(definitions[definition] ?? basis[input.metricType]).test(quote) ||
+    /\b(?:division|subsidiary|segment|department|business unit)\b/i.test(quote)) return reject('Measurement definition or whole-company scope is not explicitly supported.');
+  if (input.metricType === 'users') {
+    const populationPattern = /\b(?:monthly active users|daily active users|active users|paying customers|customers|users)\b/gi;
+    const population = quote.match(populationPattern) ?? [];
+    const populationName = definition.replaceAll('_', ' ');
+    if (!population.length || population.some(value => value.toLowerCase() !== populationName) ||
+      /\b(?:weekly|monthly|daily|active|paying|new|registered|downloads|installs|followers)\b/i.test(quote.replace(populationPattern, ''))) return reject('User/customer populations are not interchangeable; an explicit matching definition is required.');
+  }
+  if (input.metricType === 'arr' && (definition === 'arr' ? /\bannual revenue|run[- ]?rate\b/i.test(quote) : /\bARR|annual recurring revenue|run[- ]?rate\b/i.test(quote))) return reject('Annual revenue, recurring revenue and run-rate are different measurements.');
+  let intervalDate: string | undefined;
+  if (definition === 'annual_revenue') {
+    intervalDate = proof.periodStart;
+    const start = new Date(`${intervalDate}T00:00:00.000Z`);
+    const days = (date.getTime() - start.getTime()) / 86400000 + 1;
+    if (!intervalDate || !Number.isFinite(start.getTime()) || start.toISOString().slice(0, 10) !== intervalDate ||
+      ![364, 365, 366, 371].includes(days) || !quote.includes(`for the period ${intervalDate} to ${proof.asOf}`)) return reject('Annual revenue requires a literal matching annual reporting interval, not a collection date.');
+  } else if (proof.periodStart) return reject('This measurement does not support an annual reporting interval.');
   const company = normalize(input.companyName);
   const dateForms = [proof.asOf, ...(['long', 'short'] as const).flatMap((month) => [
     new Intl.DateTimeFormat('en-US', { year: 'numeric', month, day: 'numeric', timeZone: 'UTC' }).format(date),
@@ -49,14 +77,14 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
   if (!subject.test(quote) || /[.!?;]\s+/.test(withoutCompany) ||
     /\bthat\b|[\p{L}\p{N}]+['’]s\b/iu.test(withoutCompany) ||
     /\b(?:article|published|publication|posted|retrieved|updated)\b/i.test(quote) ||
-    !new RegExp(`\\b(?:as of|on|at)\\s+${escape(literalDate)}(?![\\p{L}\\p{N}])`, 'iu').test(quote) ||
+    (!intervalDate && !new RegExp(`\\b(?:as of|on|at)\\s+${escape(literalDate)}(?![\\p{L}\\p{N}])`, 'iu').test(quote)) ||
     Object.entries(basis).some(([type, pattern]) => type !== input.metricType && pattern.test(quote))) return reject('Claim attribution is ambiguous. A direct company statement and metric reporting date are required, not an article date or another company’s figure.');
   const expectedUnit = ['arr', 'valuation', 'market_cap'].includes(input.metricType) ? 'USD' : input.metricType === 'market_share' ? 'percent' : 'count';
   if (proof.unit !== expectedUnit || (expectedUnit === 'USD' && !/\bUSD\b|US\$|U\.S\. dollars/i.test(quote)) ||
     (expectedUnit === 'percent' && !/%|\bpercent\b/i.test(quote))) return reject('Metric unit is not explicitly supported. Revenue, ARR and currencies are not interchangeable.');
   // Exactly one distinct number (apart from the explicit date) avoids choosing
   // among conflicting/adjacent figures. Do not coerce revenue into ARR.
-  const withoutDate = quote.replace(new RegExp(escape(literalDate), 'gi'), '');
+  const withoutDate = quote.replace(new RegExp(escape(literalDate), 'gi'), '').replace(intervalDate ? new RegExp(escape(intervalDate), 'g') : /$^/, '');
   const numbers = [...withoutDate.matchAll(/\b(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|thousand|[TBMK])?\b/gi)]
     .map((match) => Number(match[1]!.replaceAll(',', '')) * ({ trillion: 1e12, billion: 1e9, million: 1e6, thousand: 1e3, t: 1e12, b: 1e9, m: 1e6, k: 1e3 }[match[2]?.toLowerCase() ?? ''] ?? 1));
   if (!numbers.length || numbers.some((number) => Math.abs(number - input.value!) > Math.max(1, input.value!) * 1e-9)) return reject('Passage contains a different or ambiguous numeric value.');

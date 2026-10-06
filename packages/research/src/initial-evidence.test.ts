@@ -29,6 +29,30 @@ function fixture(proof = true, text = quote) {
 }
 
 describe('initial company original-evidence publication', () => {
+  it('keeps a typed customer population from first hydration through memory and offline facts', async () => {
+    const text = 'Acme Inc. reported 120 monthly active users as of 2026-10-01.';
+    const { client, originals } = fixture(true, text);
+    client.structure = vi.fn(async (prompt, schema) => {
+      expect(prompt).toContain('definition to the actual measurement');
+      return schema.parse({ metrics: { users: { value: 120, confidence: 'verified', sourceIndex: 0, passageSupport: {
+        sourceUrl: url, quote: text, asOf: '2026-10-01', basis: 'users', unit: 'count', definition: 'monthly_active_users',
+      } } } });
+    }) as LlmClient['structure'];
+    const result = await hydrateCompanyCard({ candidate, client, plan, originalSources: originals });
+    const userMetric = result.metrics.find(row => row.metricType === 'users')!;
+    expect(userMetric).toMatchObject({ value: 120, confidence: 'verified', passageSupport: { definition: 'monthly_active_users' } });
+    expect(result.primaryCard.metrics).toEqual(result.metrics);
+    expect(result.memory.card.metrics).toEqual(result.metrics);
+    const snapshot = migrateSnapshot(null).snapshot;
+    snapshot.companies = [result.company!]; snapshot.metrics = result.metrics;
+    snapshot.originalSourceAttempts = [vi.mocked(originals.save).mock.calls[0]![0]];
+    const repository = new GeminiRepository({ apiKey: 'test', client, store: {
+      read: () => structuredClone(snapshot), write: async () => {},
+    } });
+    expect((await repository.getCompanyFacts(result.company!.id)).find(row => row.metricType === 'users')).toMatchObject(userMetric);
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(1);
+  });
   it('retains the accepted proof from first card through overview and offline reopen', async () => {
     const { client, originals } = fixture();
     const card = await hydrateCompanyCard({ candidate, client, plan, originalSources: originals });

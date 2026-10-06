@@ -22,7 +22,7 @@ const capturedAt = '2026-08-01T00:00:00.000Z';
 const lastVerifiedAt = '2026-08-02T00:00:00.000Z';
 afterEach(() => { vi.clearAllMocks(); vi.mocked(retrieveOriginalSource).mockReset(); });
 
-async function run(out: { verdict: string; currentValue: number | null; figures?: unknown[] }, patch: Partial<CompanyMetric> = {}, correction?: unknown, failStructure = false, manySources = false, duplicates: CompanyMetric[] = [], route = 'verify', issuerReported = false) {
+async function run(out: { verdict: string; currentValue: number | null; figures?: unknown[] }, patch: Partial<CompanyMetric> = {}, correction?: unknown, failStructure = false, manySources = false, duplicates: CompanyMetric[] = [], route = 'verify', issuerReported = false, measuredProof?: CompanyMetric['passageSupport']) {
   const activeCitation = issuerReported ? { ...citation, url: 'https://example-company.com/report' } : citation;
   const store = new MemoryDataStore();
   const auth = new MockFirebaseAdapter();
@@ -31,10 +31,10 @@ async function run(out: { verdict: string; currentValue: number | null; figures?
     store, cloudDeckService: service, forceMemoryStore: true,
   });
   const ground = vi.fn().mockResolvedValue({ text: 'Research notes', citations: manySources ? [activeCitation, { ...activeCitation, url: `${activeCitation.url}/second` }, { ...activeCitation, url: `${activeCitation.url}/third` }] : [activeCitation] });
-  const quote = `Example Company reports ARR of USD ${out.currentValue ?? 100} as of 2026-10-01.`;
+  const quote = measuredProof?.quote ?? `Example Company reports ARR of USD ${out.currentValue ?? 100} as of 2026-10-01.`;
   vi.mocked(retrieveOriginalSource).mockImplementation(async (url) => ({ requestedUrl: url, finalUrl: url, status: 'retrieved', text: quote, httpStatus: 200, contentHash: 'a'.repeat(64), retrievedAt: '2026-10-03T00:00:00.000Z' }));
   const structure = vi.fn().mockResolvedValue({ ...out, rationale: 'Test result', methodNote: null,
-    passageSupport: { sourceUrl: activeCitation.url, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' } });
+    passageSupport: measuredProof ?? { sourceUrl: activeCitation.url, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' } });
   if (failStructure) structure.mockRejectedValue(new Error('Interpretation failed'));
   vi.mocked(resolveClient).mockReturnValue({ client: { ground, structure }, keySource: 'server' } as unknown as ReturnType<typeof resolveClient>);
   await service.saveDeck('user_123', 'deck_test', {
@@ -61,6 +61,16 @@ async function run(out: { verdict: string; currentValue: number | null; figures?
 }
 
 describe('cloud metric verification integrity', () => {
+  it('persists a typed annual reporting interval through the authorized verification route without treating it as ARR', async () => {
+    const proof: NonNullable<CompanyMetric['passageSupport']> = { sourceUrl: citation.url,
+      quote: 'Example Company reports annual revenue of USD 100 for the period 2025-10-01 to 2026-09-30.',
+      asOf: '2026-09-30', basis: 'arr', unit: 'USD', definition: 'annual_revenue', periodStart: '2025-10-01' };
+    const { result, stored, structure } = await run({ verdict: 'supported', currentValue: 100 }, {}, undefined, false, false, [], 'verify', false, proof);
+    expect(result.verdict).toBe('supported');
+    expect(result.changed).toBe(true);
+    expect(stored.passageSupport).toEqual(proof);
+    expect(structure.mock.calls[0]![0]).toContain('Do not annualize monthly revenue');
+  });
   it('persists a checked issuer figure without claiming independent corroboration', async () => {
     const { result, stored } = await run({ verdict: 'contradicted', currentValue: 900 },
       { confidence: 'estimated' }, undefined, false, false, [], 'verify', true);
