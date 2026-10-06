@@ -503,7 +503,7 @@ export class GeminiRepository implements MarketIntelRepository {
     for (const companyId of companyById.keys()) {
       const existingForCo = this.snap.metrics.filter((m) => m.companyId === companyId);
       const incomingForCo = metrics.filter((m) => m.companyId === companyId);
-      mergedCompanyMetrics.push(...reconcileMetrics(existingForCo, incomingForCo));
+      mergedCompanyMetrics.push(...reconcileMetrics(existingForCo, incomingForCo, companyById.get(companyId)?.websiteUrl));
     }
     this.snap.metrics = [...otherMetrics, ...mergedCompanyMetrics];
     const deckUserValues = this.snap.metrics
@@ -949,7 +949,7 @@ export class GeminiRepository implements MarketIntelRepository {
                   );
                   this.snap.metrics = [
                     ...otherCompanyMetrics,
-                    ...reconcileMetrics(existingForCo, hydrated.metrics),
+                    ...reconcileMetrics(existingForCo, hydrated.metrics, hydrated.company.websiteUrl),
                   ];
 
                   // Update primary entity card in snap
@@ -1645,13 +1645,13 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     const nowIso = new Date().toISOString();
     const passageCitations = this.originalSources ? acceptedMetricPassage({
-      companyName: company.name, metricType: metric.metricType, value: out.currentValue,
+      companyName: company.name, officialWebsite: company.websiteUrl, metricType: metric.metricType, value: out.currentValue,
       support: out.passageSupport, originals,
     }) : g.citations;
     const verifiedObservation = this.originalSources && passageCitations.length ? {
       ...out, methodNote: `Original reported ${metric.metricType} as of ${out.passageSupport!.asOf}. ${out.methodNote ?? ''}`.trim(),
     } : out;
-    const verification = applyMetricVerification(metric, verifiedObservation, passageCitations, nowIso);
+    const verification = applyMetricVerification(metric, verifiedObservation, passageCitations, nowIso, this.originalSources ? company.websiteUrl : null);
     const { changed, verdict } = verification;
     Object.assign(metric, verification.metric);
     metric.passageSupport = verdict !== 'unverified' && passageCitations.length && this.originalSources ? out.passageSupport : null;
@@ -1767,7 +1767,7 @@ export class GeminiRepository implements MarketIntelRepository {
       for (const fig of out.figures) {
         if (!validMetricVerificationValue(fig.metricType, fig.value)) continue;
         if (!softTypes.includes(fig.metricType)) continue;
-        const supported = this.originalSources ? acceptedMetricPassage({ companyName: company.name,
+        const supported = this.originalSources ? acceptedMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl,
           metricType: fig.metricType, value: fig.value, support: fig.passageSupport, originals }) : cited;
         if (!supported.length) continue;
         if (JSON.stringify(mine().filter(m => m.metricType === fig.metricType)) !== revisions.get(fig.metricType)) continue;

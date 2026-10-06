@@ -15,6 +15,21 @@ const keys = [qk.companyMetrics(companyId), qk.cards('deck'), qk.card('card'), q
   qk.dashboard(companyId, 'metrics')];
 
 describe('metric updates refresh every metric-bearing card cache', () => {
+  it('preserves issuer context after company loading without rewriting the raw facts cache', async () => {
+    const data = buildDataset();
+    const company = { ...data.companies[0]!, id: companyId, websiteUrl: 'https://acme.com' };
+    const facts = [{ ...metric, metricType: 'employees' as const, confidence: 'verified' as const, value: 45,
+      source: 'https://acme.com/report', citations: [{ title: 'Issuer-reported original', url: 'https://acme.com/report' }] }];
+    const repo = Object.assign(makeRepo(), { getCompany: vi.fn().mockResolvedValue(company), getCompanyFacts: vi.fn().mockResolvedValue(facts) });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => <RepositoryProvider repository={repo}>
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    </RepositoryProvider>;
+    const { result, unmount } = renderHook(() => useCompanyMetrics(companyId), { wrapper });
+    await waitFor(() => expect(result.current.data?.[0]).toMatchObject({ value: 45, confidence: 'verified' }));
+    expect(client.getQueryData(qk.companyMetrics(companyId))).toEqual(facts);
+    unmount(); client.clear();
+  });
   it('reads accepted company facts rather than raw observations for dashboard figures', async () => {
     const raw = vi.fn().mockResolvedValue([{ ...metric, value: 999 }]);
     const facts = vi.fn().mockResolvedValue([{ ...metric, value: null, confidence: 'unknown', citations: [] }]);

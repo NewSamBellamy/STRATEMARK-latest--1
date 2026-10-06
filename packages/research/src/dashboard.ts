@@ -66,11 +66,11 @@ const liveIntelItemsSchema = z.preprocess(
   }),
 );
 
-function metricsFromStored(metrics: CompanyMetric[], companyId: string): MetricsContent {
+function metricsFromStored(metrics: CompanyMetric[], companyId: string, officialWebsite?: string | null): MetricsContent {
   const val = (t: MetricType) => {
     const revision = currentMetricRevision(metrics, companyId, t);
     if (!revision || revision.ambiguous) return null;
-    const metric = enforceMetricProvenance(revision.metric);
+    const metric = enforceMetricProvenance(revision.metric, officialWebsite);
     // A chart has no estimate/confidence annotation. Only established, bounded
     // current points belong here; retain all raw observations in the vault.
     return (metric.confidence === 'verified' || metric.confidence === 'user_verified') &&
@@ -132,7 +132,7 @@ export async function researchDashboardTab<T extends DashboardTab>(
     case 'metrics': {
       const attempts = args.originalSources
         ? await args.originalSources.list({ companyId: args.company.id, limit: 20 }) : args.originalAttempts;
-      return metricsFromStored(projectCompanyFacts(args.company, args.storedMetrics, attempts), args.company.id) as DashboardContentMap[T];
+      return metricsFromStored(projectCompanyFacts(args.company, args.storedMetrics, attempts), args.company.id, args.company.websiteUrl) as DashboardContentMap[T];
     }
 
     case 'overview': {

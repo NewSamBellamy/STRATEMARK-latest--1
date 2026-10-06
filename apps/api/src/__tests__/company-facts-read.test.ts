@@ -15,14 +15,18 @@ const card: CardWithCompany = { card: { id: 'card', deckId: 'deck', companyId: '
     citations: [{ title: 'SEC', url }], source: url, capturedAt: date, methodNote: null,
     passageSupport: { sourceUrl: url, quote, basis: 'employees', unit: 'count', asOf: '2026-10-01' } }], viceClaims: [] };
 beforeEach(() => vi.restoreAllMocks());
-async function setup(withOriginal: boolean) {
+async function setup(withOriginal: boolean, sourceUrl = url) {
   const store = new MemoryDataStore();
   const auth = new MockFirebaseAdapter();
   const service = new CloudDeckService(store, auth, auth);
-  await service.saveDeck('user_123', 'deck', { deck: { id: 'deck' }, market: {}, cards: [structuredClone(card)] });
+  const savedCard = structuredClone(card);
+  savedCard.metrics[0]!.source = sourceUrl;
+  savedCard.metrics[0]!.citations[0]!.url = sourceUrl;
+  savedCard.metrics[0]!.passageSupport!.sourceUrl = sourceUrl;
+  await service.saveDeck('user_123', 'deck', { deck: { id: 'deck' }, market: {}, cards: [savedCard] });
   if (withOriginal) await store.saveCompanyOriginal('user_123', 'deck', { id: 'src_00000000-0000-4000-8000-000000000001',
     companyId: 'cmp', metricType: 'company_profile', capturedAt: date,
-    receipts: [{ requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: quote, retrievedAt: date }] });
+    receipts: [{ requestedUrl: sourceUrl, finalUrl: sourceUrl, status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: quote, retrievedAt: date }] });
   const app = createApp(readEnv({ APP_TOKEN: 'app-token' }), { store, cloudDeckService: service, forceMemoryStore: true });
   await service.saveCard('user_123', 'card', { deckId: 'deck' });
   return { service, app };
@@ -38,6 +42,18 @@ it.each([false, true])('serves consistent card facts from owned originals, not l
     expect(result.cards[0]!.metrics[0]!.value).toBe(withOriginal ? 45 : null);
   }
   expect((await service.getDeck('user_123', 'deck'))!.cards[0]!.metrics[0]!.value).toBe(45);
+});
+
+it.each([false, true])('serves scoped issuer-backed facts only with owned original support; originals=%s', async withOriginal => {
+  const { app } = await setup(withOriginal, 'https://acme.com/report');
+  for (const route of ['/api/cards?deckId=deck', '/api/cards/saved']) {
+    const response = await app.request(route, { headers: { Authorization: 'Bearer valid_token' } });
+    expect(response.status).toBe(200);
+    const result = await response.json() as { cards: CardWithCompany[] };
+    const metric = result.cards[0]!.metrics[0]!;
+    expect(metric.value).toBe(withOriginal ? 45 : null);
+    if (withOriginal) expect(metric.methodNote).toContain('not independently corroborated');
+  }
 });
 
 it('does not expose another owner’s cards or originals', async () => {

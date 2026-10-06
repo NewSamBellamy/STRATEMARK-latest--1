@@ -27,8 +27,8 @@ import { buildMetricViews } from '@/features/card/card-view';
 
 // All UI consumers (including reports/compare/overview) share the same
 // read-only revision and provenance rules; raw cache/storage stays intact.
-const projectMetrics = (metrics: CompanyMetric[]) => buildMetricViews(metrics).map(view => view.metric);
-const projectCard = (card: CardWithCompany): CardWithCompany => ({ ...card, metrics: projectMetrics(card.metrics) });
+const projectMetrics = (metrics: CompanyMetric[], website?: string | null) => buildMetricViews(metrics, website).map(view => view.metric);
+const projectCard = (card: CardWithCompany): CardWithCompany => ({ ...card, metrics: projectMetrics(card.metrics, card.company?.websiteUrl) });
 
 export function invalidateMetricSurfaces(qc: QueryClient, companyId: string, dashboard: boolean) {
   return Promise.all([
@@ -167,13 +167,14 @@ export function useCompany(companyId: string | undefined): UseQueryResult<Compan
 
 export function useCompanyMetrics(companyId: string | undefined): UseQueryResult<CompanyMetric[]> {
   const repo = useRepository();
+  const company = useCompany(companyId);
   return useQuery({
     queryKey: qk.companyMetrics(companyId ?? ''),
     queryFn: () => {
       if (!repo.getCompanyFacts) throw new Error('Accepted company facts are unavailable. Update or restart the app.');
       return repo.getCompanyFacts(companyId as string);
     },
-    select: projectMetrics,
+    select: metrics => projectMetrics(metrics, company.data?.websiteUrl),
     enabled: !!companyId,
   });
 }

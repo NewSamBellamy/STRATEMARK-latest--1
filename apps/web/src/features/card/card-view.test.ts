@@ -16,6 +16,12 @@ function view(metrics: CompanyMetric[], overrides: Partial<CardWithCompany> = {}
 }
 
 describe('collectible card evidence model', () => {
+  it('preserves accepted issuer figures with matching company context only', () => {
+    const input = metric({ metricType: 'employees', value: 45, citations: [{ title: 'Original passage', url: 'https://acme.com/report' }] });
+    const issuer = { ...company, websiteUrl: 'https://acme.com' };
+    expect(view([input], { company: issuer }).profileMetrics[0]!.display).toBe('45');
+    expect(view([input], { company: { ...issuer, websiteUrl: 'https://other.com' } }).profileMetrics[0]!.display).toBe('Unknown');
+  });
   it.each([false, true])('never resurrects an older sourced duplicate after a newer downgrade (reversed=%s)', reverse => {
     const old = metric({ id: 'old', value: 1_000_000_000, capturedAt: '2026-10-01T00:00:00Z' });
     const checked = metric({ id: 'checked', value: 900_000_000, confidence: 'estimated',

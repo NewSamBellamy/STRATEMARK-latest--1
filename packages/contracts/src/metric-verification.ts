@@ -37,13 +37,14 @@ export function applyMetricVerification(
   observation: { verdict: 'supported' | 'contradicted' | 'unverified'; currentValue: number | null; rationale: string; methodNote: string | null },
   citations: readonly Citation[],
   nowIso: string,
+  officialWebsite?: string | null,
 ): { metric: CompanyMetric; verdict: 'supported' | 'contradicted' | 'unverified'; changed: boolean } {
   const metric = { ...current, lastVerificationAttemptAt: nowIso };
-  const cited = usableCitations(citations);
+  const cited = usableCitations(citations, officialWebsite);
   const value = observation.currentValue;
   const valid = validMetricVerificationValue(current.metricType, value);
   const differs = valid && metricVerificationDiffers(current.value, value);
-  const corroborated = valid && hasVerificationGradeCitation(cited) &&
+  const corroborated = valid && hasVerificationGradeCitation(cited, officialWebsite) &&
     ((observation.verdict === 'supported' && !differs) || (observation.verdict === 'contradicted' && differs));
   const verdict = corroborated ? observation.verdict : 'unverified';
   let changed = false;

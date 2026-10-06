@@ -37,7 +37,7 @@ export const HUMAN_ONLY_CONFIDENCE_NOTE =
   'Human-verification claim removed automatically: only a person can mark a figure user-verified, and no person did.';
 
 /** Drop citations that can't be shown or clicked. */
-export function usableCitations(citations: readonly Citation[] | undefined): Citation[] {
+export function usableCitations(citations: readonly Citation[] | undefined, officialWebsite?: string | null): Citation[] {
   if (!Array.isArray(citations)) return [];
   const seen = new Set<string>();
   const out: Citation[] = [];
@@ -57,10 +57,26 @@ export function usableCitations(citations: readonly Citation[] | undefined): Cit
       url,
       title: title || publisherOf(url),
       // Supplied labels are untrusted (model output and imported snapshots).
-      credibility: classifySource(url, title),
+      credibility: classifySource(url, title, scopedIssuerWebsite(url, officialWebsite)),
     });
   }
   return out;
+}
+
+/** A declared issuer is contextual attribution, not independent corroboration.
+ * Match the exact website host (www alias only); do not grant an entire public
+ * suffix, shared hosting service or unreviewed subdomain authority. */
+function scopedIssuerWebsite(sourceUrl: string, website?: string | null): string | null {
+  const host = (raw: string) => {
+    try {
+      const url = new URL(raw);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+        (url.port && !['80', '443'].includes(url.port))) return null;
+      return url.hostname.toLowerCase().replace(/^www\./, '');
+    } catch { return null; }
+  };
+  const issuer = website ? host(website) : null;
+  return issuer && issuer.includes('.') && host(sourceUrl) === issuer ? website! : null;
 }
 
 /**
@@ -107,7 +123,7 @@ export function classifySource(url: string, title?: string | null, officialWebsi
   }
   if (!host) return 'unknown';
   const belongsTo = (domain: string) => host === domain || host!.endsWith(`.${domain}`);
-  if (['reddit.com', 'twitter.com', 'x.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'quora.com', 'stocktwits.com'].some(belongsTo))
+  if (['reddit.com', 'twitter.com', 'x.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'quora.com', 'stocktwits.com', 'github.com', 'wikipedia.org'].some(belongsTo))
     return 'user_generated';
   if (['sec.gov', 'uscourts.gov', 'companieshouse.gov.uk', 'find-and-update.company-information.service.gov.uk', 'sedarplus.ca', 'hkexnews.hk'].some(belongsTo))
     return 'primary';
@@ -149,12 +165,13 @@ export function isJunkSource(url: string, title?: string | null): boolean {
  */
 export function hasVerificationGradeCitation(
   citations: readonly Citation[] | undefined,
+  officialWebsite?: string | null,
 ): boolean {
   if (!citations) return false;
-  return usableCitations(citations).some(
+  return usableCitations(citations, officialWebsite).some(
     (c) =>
       !isJunkSource(c.url, c.title) &&
-      ['primary', 'reputable_secondary', 'industry'].includes(classifySource(c.url, c.title)),
+      ['primary', 'reputable_secondary', 'industry'].includes(c.credibility ?? 'unknown'),
   );
 }
 
@@ -170,8 +187,8 @@ const JUNK_DOWNGRADE_NOTE =
  * - `unknown` must not carry a value (an unknown with a number is a contradiction).
  * - `source` is kept in sync with the first citation.
  */
-export function enforceMetricProvenance(metric: CompanyMetric): CompanyMetric {
-  const citations = usableCitations(metric.citations);
+export function enforceMetricProvenance(metric: CompanyMetric, officialWebsite?: string | null): CompanyMetric {
+  const citations = usableCitations(metric.citations, officialWebsite);
   // Prose attribution survives for transparency but cannot earn verification.
   const proseSource = (metric.source ?? '').trim();
   const hasEvidence = citations.length > 0;
@@ -191,7 +208,7 @@ export function enforceMetricProvenance(metric: CompanyMetric): CompanyMetric {
   if (
     confidence === 'verified' &&
     citations.length > 0 &&
-    !hasVerificationGradeCitation(citations)
+    !hasVerificationGradeCitation(citations, officialWebsite)
   ) {
     confidence = 'estimated';
     methodNote = methodNote
@@ -278,9 +295,9 @@ function evidenceWeight(metric: CompanyMetric): number {
  * are never silently discarded: both observations are retained, while the most
  * credible observation becomes the canonical value used by existing cards/tabs.
  */
-export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric): CompanyMetric {
-  const current = enforceMetricProvenance(existing);
-  const next = enforceMetricProvenance(incoming);
+export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric, officialWebsite?: string | null): CompanyMetric {
+  const current = enforceMetricProvenance(existing, officialWebsite);
+  const next = enforceMetricProvenance(incoming, officialWebsite);
   const humanLocked = current.confidence === 'user_verified' && next.confidence !== 'user_verified';
   const preferNext = !humanLocked && (next.confidence === 'user_verified' || evidenceWeight(next) > evidenceWeight(current));
   if (current.value === next.value || next.value === null) {
@@ -334,6 +351,7 @@ export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric
 export function reconcileMetrics(
   existing: CompanyMetric[],
   incoming: CompanyMetric[],
+  officialWebsite?: string | null,
 ): CompanyMetric[] {
   const byType = new Map<string, CompanyMetric>();
   // Stored duplicates must pass the same conflict/human-lock rules, not a
@@ -343,7 +361,7 @@ export function reconcileMetrics(
     const current = byType.get(key);
     byType.set(
       key,
-      current ? reconcileMetric(current, metric) : enforceMetricProvenance(metric),
+      current ? reconcileMetric(current, metric, officialWebsite) : enforceMetricProvenance(metric, officialWebsite),
     );
   }
   return [...byType.values()];
@@ -351,5 +369,5 @@ export function reconcileMetrics(
 
 /** Convenience for whole rows at once. */
 export function enforceMetricsProvenance(metrics: CompanyMetric[]): CompanyMetric[] {
-  return metrics.map(enforceMetricProvenance);
+  return metrics.map(metric => enforceMetricProvenance(metric));
 }

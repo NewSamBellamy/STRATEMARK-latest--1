@@ -31,7 +31,8 @@ export function overviewFigures(args: TabResearchArgs, originals: readonly Origi
     if (!metric || metric.value === null) return `- ${metricLabels[type]}: Unknown`;
     if (metric.confidence === 'user_verified') return `- ${metricLabels[type]}: ${metric.value!.toLocaleString('en-US')} — human-confirmed, not independently verified`;
     if (metric.confidence !== 'verified' || !metric.passageSupport || !metric.citations.length) return `- ${metricLabels[type]}: Unknown`;
-    return `- ${metricLabels[type]}: ${metric.value.toLocaleString('en-US')} — reported ${metric.passageSupport.asOf} ([original passage](${markdownUrl(metric.citations[0]!.url)}))`;
+    const attribution = metric.citations[0]!.title.startsWith('Issuer-reported') ? ' — issuer-reported, not independently corroborated' : '';
+    return `- ${metricLabels[type]}: ${metric.value.toLocaleString('en-US')} — reported ${metric.passageSupport.asOf}${attribution} ([original passage](${markdownUrl(metric.citations[0]!.url)}))`;
   });
   return `## Business figures\n\n${rows.join('\n')}\n\nUnknown means no accepted current observation with matching original evidence. It does not mean zero.`;
 }
@@ -67,7 +68,7 @@ export function renderCompanyOverview(args: TabResearchArgs, originals: readonly
   const overviewBackground = `## Source-reported background\n\n${background.length ? background.join('\n\n') : 'Background unavailable: no eligible original excerpt was retained. Search notes and legacy summaries are not treated as verified facts.'}\n\nQuotations describe what sources report, not independent verification.`;
   const markdown = `${overviewBackground}\n\n${overviewFigures(args, originals)}`;
   citations = usableCitations([...citations, ...projectCompanyFactsFromOriginals(args.company, args.storedMetrics, originals)
-    .filter(row => row.confidence === 'verified').flatMap(row => row.citations)]);
+    .filter(row => row.confidence === 'verified').flatMap(row => row.citations)], args.company.websiteUrl);
   return { content: { markdown }, citations, overviewExcerpts };
 }
 

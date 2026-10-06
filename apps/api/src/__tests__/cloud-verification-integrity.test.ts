@@ -22,18 +22,19 @@ const capturedAt = '2026-08-01T00:00:00.000Z';
 const lastVerifiedAt = '2026-08-02T00:00:00.000Z';
 afterEach(() => { vi.clearAllMocks(); vi.mocked(retrieveOriginalSource).mockReset(); });
 
-async function run(out: { verdict: string; currentValue: number | null; figures?: unknown[] }, patch: Partial<CompanyMetric> = {}, correction?: unknown, failStructure = false, manySources = false, duplicates: CompanyMetric[] = [], route = 'verify') {
+async function run(out: { verdict: string; currentValue: number | null; figures?: unknown[] }, patch: Partial<CompanyMetric> = {}, correction?: unknown, failStructure = false, manySources = false, duplicates: CompanyMetric[] = [], route = 'verify', issuerReported = false) {
+  const activeCitation = issuerReported ? { ...citation, url: 'https://example-company.com/report' } : citation;
   const store = new MemoryDataStore();
   const auth = new MockFirebaseAdapter();
   const service = new CloudDeckService(store, auth, auth);
   const app = createApp(readEnv({ GEMINI_API_KEY: 'test-key', APP_TOKEN: 'app-token' }), {
     store, cloudDeckService: service, forceMemoryStore: true,
   });
-  const ground = vi.fn().mockResolvedValue({ text: 'Research notes', citations: manySources ? [citation, { ...citation, url: `${citation.url}/second` }, { ...citation, url: `${citation.url}/third` }] : [citation] });
+  const ground = vi.fn().mockResolvedValue({ text: 'Research notes', citations: manySources ? [activeCitation, { ...activeCitation, url: `${activeCitation.url}/second` }, { ...activeCitation, url: `${activeCitation.url}/third` }] : [activeCitation] });
   const quote = `Example Company reports ARR of USD ${out.currentValue ?? 100} as of 2026-10-01.`;
   vi.mocked(retrieveOriginalSource).mockImplementation(async (url) => ({ requestedUrl: url, finalUrl: url, status: 'retrieved', text: quote, httpStatus: 200, contentHash: 'a'.repeat(64), retrievedAt: '2026-10-03T00:00:00.000Z' }));
   const structure = vi.fn().mockResolvedValue({ ...out, rationale: 'Test result', methodNote: null,
-    passageSupport: { sourceUrl: citation.url, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' } });
+    passageSupport: { sourceUrl: activeCitation.url, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' } });
   if (failStructure) structure.mockRejectedValue(new Error('Interpretation failed'));
   vi.mocked(resolveClient).mockReturnValue({ client: { ground, structure }, keySource: 'server' } as unknown as ReturnType<typeof resolveClient>);
   await service.saveDeck('user_123', 'deck_test', {
@@ -41,9 +42,10 @@ async function run(out: { verdict: string; currentValue: number | null; figures?
     ...(manySources ? { originalSourceAttempts: Array.from({ length: 8 }, (_, index) => ({ companyId: `old_${index}`, metricType: 'arr', capturedAt, receipts: [] })) } : {}),
     cards: [{
       card: { id: 'card_test', deckId: 'deck_test', companyId: 'company_test', cardType: 'company' },
-      company: { id: 'company_test', name: 'Example Company', oneLiner: 'Test company' },
+      company: { id: 'company_test', name: 'Example Company', oneLiner: 'Test company',
+        ...(issuerReported ? { websiteUrl: 'https://example-company.com' } : {}) },
       metrics: [{ id: 'metric_test', companyId: 'company_test', metricType: 'arr', value: 100,
-        confidence: 'verified', citations: [citation], source: citation.url, methodNote: null,
+        confidence: 'verified', citations: [activeCitation], source: activeCitation.url, methodNote: null,
         capturedAt, lastVerifiedAt, ...patch }, ...duplicates], viceClaims: [],
     }] as unknown as CardWithCompany[],
   });
@@ -59,6 +61,14 @@ async function run(out: { verdict: string; currentValue: number | null; figures?
 }
 
 describe('cloud metric verification integrity', () => {
+  it('persists a checked issuer figure without claiming independent corroboration', async () => {
+    const { result, stored } = await run({ verdict: 'contradicted', currentValue: 900 },
+      { confidence: 'estimated' }, undefined, false, false, [], 'verify', true);
+    expect(result.verdict).toBe('contradicted');
+    expect(stored).toMatchObject({ value: 900, confidence: 'verified' });
+    expect(stored.citations[0]!.title).toContain('not independently corroborated');
+    expect(stored.passageSupport!.sourceUrl).toBe('https://example-company.com/report');
+  });
   it('selects the latest duplicate rather than overwriting the first cloud row', async () => {
     const duplicate: CompanyMetric = { id: 'latest', companyId: 'company_test', metricType: 'arr', value: 200,
       confidence: 'estimated', citations: [], source: null, methodNote: null, capturedAt: '2026-09-01T00:00:00.000Z' };

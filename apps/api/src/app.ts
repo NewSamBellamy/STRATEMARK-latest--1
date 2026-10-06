@@ -908,12 +908,12 @@ export function createApp(
       { system: STRUCTURE_SYSTEM },
     );
 
-    const passageCitations = acceptedMetricPassage({ companyName: company.name, metricType: metric.metricType,
+    const passageCitations = acceptedMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl, metricType: metric.metricType,
       value: out.currentValue, support: out.passageSupport, originals: originalSources });
     const observation = passageCitations.length ? { ...out,
       methodNote: `Original reported ${metric.metricType} as of ${out.passageSupport!.asOf}. ${out.methodNote ?? ''}`.trim(),
     } : out;
-    const verification = applyMetricVerification(metric, observation, passageCitations, new Date().toISOString());
+    const verification = applyMetricVerification(metric, observation, passageCitations, new Date().toISOString(), company.websiteUrl);
     const { changed, verdict } = verification;
     Object.assign(metric, verification.metric);
     metric.passageSupport = verdict !== 'unverified' && passageCitations.length ? out.passageSupport : null;
@@ -1043,7 +1043,7 @@ export function createApp(
       for (const fig of out.figures) {
         if (!validMetricVerificationValue(fig.metricType, fig.value)) continue;
         if (!softTypes.includes(fig.metricType)) continue;
-        const supported = acceptedMetricPassage({ companyName: company.name, metricType: fig.metricType,
+        const supported = acceptedMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl, metricType: fig.metricType,
           value: fig.value, support: fig.passageSupport, originals: originalSources });
         if (!supported.length) continue;
         const current = currentMetricRevision(metrics, companyId, fig.metricType);

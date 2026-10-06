@@ -674,7 +674,7 @@ export async function hydrateCompanyCard(
     }
     return rows.map((row): CompanyMetric => {
       const proposal = enrichment.metrics[row.metricType];
-      const citations = acceptedMetricPassage({ companyName: candidate.name, metricType: row.metricType,
+      const citations = acceptedMetricPassage({ companyName: candidate.name, officialWebsite: company.websiteUrl, metricType: row.metricType,
         value: proposal?.value ?? null, support: proposal?.passageSupport, originals });
       if (!citations.length) return { ...row, value: null, confidence: 'unknown', source: null, citations: [],
         methodNote: 'Unknown: no accepted original passage for this company, figure, definition and reporting date.' };

@@ -14,12 +14,16 @@ const basis: Record<MetricType, RegExp> = {
 };
 
 /** Conservative mechanical passage support, not semantic truth or exhaustive evidence. */
-export function acceptedMetricPassage(input: { companyName: string; metricType: MetricType; value: number | null; support?: MetricPassageSupport | null; originals: readonly OriginalSourceReceipt[] }): Citation[] {
+export function acceptedMetricPassage(input: { companyName: string; officialWebsite?: string | null; nowMs?: number; metricType: MetricType; value: number | null; support?: MetricPassageSupport | null; originals: readonly OriginalSourceReceipt[] }): Citation[] {
   const proof = input.support;
   if (!proof || !validMetricVerificationValue(input.metricType, input.value) || proof.basis !== input.metricType ||
     !/^\d{4}-\d{2}-\d{2}$/.test(proof.asOf)) return [];
   const date = new Date(`${proof.asOf}T00:00:00.000Z`);
   if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== proof.asOf) return [];
+  // Reopening an old receipt or checking it again does not renew its reporting
+  // period. This is the existing 366-day outer ceiling, not per-metric freshness.
+  const nowMs = input.nowMs ?? Date.now();
+  if (!Number.isFinite(nowMs) || date.getTime() > nowMs || nowMs - date.getTime() > 366 * 86400000) return [];
   const quote = normalize(proof.quote);
   const company = normalize(input.companyName);
   const dateForms = [proof.asOf, ...(['long', 'short'] as const).flatMap((month) => [
@@ -55,6 +59,8 @@ export function acceptedMetricPassage(input: { companyName: string; metricType: 
     source.text && normalize(source.text).includes(quote) && proof.asOf <= source.retrievedAt.slice(0, 10) &&
     Number.isFinite(Date.parse(source.retrievedAt)) && Date.parse(source.retrievedAt) - date.getTime() <= 366 * 86400000);
   if (!receipt?.finalUrl) return [];
-  const citations = usableCitations([{ title: `Original passage (${proof.asOf})`, url: receipt.finalUrl }]);
-  return hasVerificationGradeCitation(citations) ? citations : [];
+  const citations = usableCitations([{ title: `Original passage (${proof.asOf})`, url: receipt.finalUrl }], input.officialWebsite);
+  if (!hasVerificationGradeCitation(citations, input.officialWebsite)) return [];
+  return hasVerificationGradeCitation(citations) ? citations : citations.map(citation => ({ ...citation,
+    title: `Issuer-reported original passage (${proof.asOf}); not independently corroborated` }));
 }

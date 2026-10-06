@@ -32,6 +32,20 @@ const base: CompanyMetric = {
 const cite = (url: string, title = '') => ({ url, title });
 
 describe('provenance enforcement', () => {
+  it('keeps issuer context scoped and never promotes a label without it', () => {
+    const citations = [cite('https://acme.com/report')];
+    expect(hasVerificationGradeCitation(citations, 'https://acme.com')).toBe(true);
+    expect(hasVerificationGradeCitation(citations)).toBe(false);
+    expect(enforceMetricProvenance({ ...base, citations }, 'https://acme.com').confidence).toBe('verified');
+    expect(enforceMetricProvenance({ ...base, citations }, 'https://other.com').confidence).toBe('estimated');
+  });
+  it.each(['https://github.com', 'https://en.wikipedia.org'])('does not let shared user-content hosts gain issuer authority: %s', website => {
+    expect(hasVerificationGradeCitation([cite(`${website}/user-content`)], website)).toBe(false);
+  });
+  it.each(['https://acme.com.evil.com/report', 'https://notacme.com/report', 'https://acme.com@evil.com/report',
+    'https://reddit.com/report', 'https://other.acme.com/report'])('rejects issuer lookalikes and user content: %s', url => {
+      expect(hasVerificationGradeCitation([cite(url)], 'https://acme.com')).toBe(false);
+    });
   it.each([false, true])('retains a human override and conflicting observations already duplicated in storage (reverse=%s)', reverse => {
     const human = { ...base, id: 'human', value: 123, confidence: 'user_verified' as const, source: 'Human correction' };
     const machine = { ...base, id: 'machine', value: 456, citations: [cite('https://sec.gov/Archives/report')] };

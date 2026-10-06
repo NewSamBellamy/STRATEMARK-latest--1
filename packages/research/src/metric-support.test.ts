@@ -8,6 +8,18 @@ const source: OriginalSourceReceipt = { requestedUrl: 'https://sec.gov/acme', fi
 const support: MetricPassageSupport = { sourceUrl: source.finalUrl!, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' };
 const input = { companyName: 'Acme Inc.', metricType: 'arr' as const, value: 40_000_000, support, originals: [source] };
 describe('original metric passage gate', () => {
+  it.each(['2026-09-30T00:00:00.000Z', '2028-01-01T00:00:00.000Z'])('does not treat future or aged reporting periods as current: %s', now => {
+    expect(acceptedMetricPassage({ ...input, nowMs: Date.parse(now) })).toEqual([]);
+  });
+  it('accepts scoped issuer reporting only with a matching original passage', () => {
+    const url = 'https://acme.com/report';
+    const issuerInput = { ...input, officialWebsite: 'https://acme.com', support: { ...support, sourceUrl: url },
+      originals: [{ ...source, requestedUrl: url, finalUrl: url }] };
+    expect(acceptedMetricPassage(issuerInput)).toHaveLength(1);
+    expect(acceptedMetricPassage(issuerInput)[0]!.title).toContain('not independently corroborated');
+    expect(acceptedMetricPassage({ ...issuerInput, officialWebsite: 'https://other.com' })).toEqual([]);
+    expect(acceptedMetricPassage({ ...issuerInput, originals: [{ ...issuerInput.originals[0]!, text: 'Unrelated narrative' }] })).toEqual([]);
+  });
   it.each([
     'Acme Inc. partners with Beta. Beta reports ARR of USD 40 million as of 2026-10-01.',
     'Acme Inc. partners with Beta; Beta reports ARR of USD 40 million as of 2026-10-01.',

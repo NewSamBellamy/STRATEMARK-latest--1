@@ -29,6 +29,45 @@ const assertFacts = (rows: CompanyMetric[]) => {
   expect(rows.find(row => row.metricType === 'arr')).toMatchObject({ value: null, confidence: 'unknown' });
 };
 describe('one current company facts projection', () => {
+  it('carries literal issuer ARR into the current chart without rewriting history or paying for research', async () => {
+    const { store, client } = setup();
+    const snapshot = store.read()!;
+    const issuerUrl = 'https://acme.com/report';
+    const arrQuote = 'Acme reported ARR of USD 40 million as of 2026-10-01.';
+    snapshot.metrics = [{ ...employee, id: 'supported-arr', metricType: 'arr', value: 40_000_000, source: issuerUrl,
+      citations: [{ title: 'Original', url: issuerUrl }], passageSupport: { sourceUrl: issuerUrl,
+        quote: arrQuote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' } }];
+    snapshot.originalSourceAttempts![0]!.receipts[0] = { ...snapshot.originalSourceAttempts![0]!.receipts[0]!,
+      requestedUrl: issuerUrl, finalUrl: issuerUrl, text: arrQuote };
+    await store.write(snapshot);
+    const reopened = new GeminiRepository({ apiKey: 'test', store, client });
+    expect((await reopened.getDashboardTab('cmp', 'metrics'))!.content.revenue).toEqual([{ period: 'Current', value: 40_000_000 }]);
+    expect((await reopened.getCompanyMetrics('cmp'))[0]!.value).toBe(40_000_000);
+    expect(client.ground).not.toHaveBeenCalled();
+    expect(client.structure).not.toHaveBeenCalled();
+  });
+  it('keeps literal issuer-backed facts across deck, inspector, saved cards and reopen', async () => {
+    const { store, client } = setup();
+    const snapshot = store.read()!;
+    const issuerUrl = 'https://acme.com/report';
+    const supported = snapshot.metrics[0]!;
+    supported.source = issuerUrl;
+    supported.citations = [{ title: 'Original issuer report', url: issuerUrl }];
+    supported.passageSupport!.sourceUrl = issuerUrl;
+    snapshot.originalSourceAttempts![0]!.receipts[0]!.requestedUrl = issuerUrl;
+    snapshot.originalSourceAttempts![0]!.receipts[0]!.finalUrl = issuerUrl;
+    snapshot.dashboards.cmp = { overview: { content: { markdown: 'Legacy notes' }, lastRefreshedAt: employee.capturedAt } };
+    await store.write(snapshot);
+    const reopened = new GeminiRepository({ apiKey: 'test', store, client });
+    assertFacts(await reopened.getCompanyFacts('cmp'));
+    assertFacts((await reopened.listCards('deck'))[0]!.metrics);
+    assertFacts((await reopened.getCard('card'))!.metrics);
+    assertFacts((await reopened.listSavedCards())[0]!.metrics);
+    expect((await reopened.getDashboardTab('cmp', 'overview'))!.content.markdown).toContain('Employees: 45');
+    expect((await reopened.getCompanyFacts('cmp')).find(row => row.metricType === 'employees')!.methodNote).toContain('not independently corroborated');
+    expect(client.ground).not.toHaveBeenCalled();
+    expect(client.structure).not.toHaveBeenCalled();
+  });
   it.each(['fractional-count', 'conflict', 'wrong-company', 'missing-passage', 'market-share', 'zero-users'])(
     'withholds a %s observation instead of showing a confirmed fact', fault => {
       const { store } = setup();

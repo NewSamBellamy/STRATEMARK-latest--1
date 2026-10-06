@@ -50,8 +50,11 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
     // percentage in a sentence is not that contract; automatic shares wait.
     const citations = !current.ambiguous && bounded && metric.confidence === 'verified' && proof.success && type !== 'market_share' &&
       !(type === 'users' && metric.value === 0)
-      ? acceptedMetricPassage({ companyName: company.name, metricType: type, value: metric.value, support: proof.data, originals }) : [];
-    if (citations.length) return [{ ...structuredClone(metric), citations, source: citations[0]!.url }];
+      ? acceptedMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl, metricType: type, value: metric.value, support: proof.data, originals }) : [];
+    if (citations.length) return [{ ...structuredClone(metric), citations, source: citations[0]!.url,
+      methodNote: citations[0]!.title.startsWith('Issuer-reported')
+        ? `Issuer-reported figure; original passage checked, not independently corroborated. ${metric.methodNote ?? ''}`.trim()
+        : metric.methodNote }];
     return [{ ...structuredClone(metric), value: null, confidence: 'unknown' as const, citations: [], source: null,
       passageSupport: null, lastVerifiedAt: null,
       methodNote: current.ambiguous ? 'Conflicting current observations; confirm before displaying a fact.'

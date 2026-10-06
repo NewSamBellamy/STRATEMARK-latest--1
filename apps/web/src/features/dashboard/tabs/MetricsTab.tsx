@@ -376,7 +376,8 @@ function HuntMetricsButton({
 export function MetricsTab({ companyId }: { companyId: string }) {
   const metricsQ = useCompanyMetrics(companyId);
   const seriesQ = useDashboardTab(companyId, 'metrics');
-  const companyName = useCompany(companyId).data?.name ?? 'this company';
+  const company = useCompany(companyId).data;
+  const companyName = company?.name ?? 'this company';
   // Figures the hunt just filled — their widgets light up so the update is
   // impossible to miss.
   const [justFilled, setJustFilled] = useState<ReadonlySet<MetricType>>(new Set());
@@ -389,7 +390,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
     >
       {(metrics) => {
         const seen = new Set<MetricType>();
-        const projected = buildMetricViews(metrics).map(({ metric }) => metric);
+        const projected = buildMetricViews(metrics, company?.websiteUrl).map(({ metric }) => metric);
         const tiles = ORDER.map((t) => projected.find((m) => m.metricType === t))
           .filter((m): m is CompanyMetric => !!m && !seen.has(m.metricType) && !!seen.add(m.metricType));
         const series = seriesQ.data?.content;

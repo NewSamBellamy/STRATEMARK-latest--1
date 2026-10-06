@@ -63,7 +63,7 @@ function profileLabel(key: string, metric: CompanyMetric | undefined): string {
 }
 
 /** Shared read-only evidence projection for cards, readers and quantitative dashboards. */
-export function buildMetricViews(input: readonly CompanyMetric[]) {
+export function buildMetricViews(input: readonly CompanyMetric[], officialWebsite?: string | null) {
   const groups = new Map<string, CompanyMetric[]>();
   for (const metric of input) {
     const key = JSON.stringify([metric.companyId, metric.metricType]);
@@ -83,8 +83,8 @@ export function buildMetricViews(input: readonly CompanyMetric[]) {
     const citations = usableCitations([
       ...original.citations.filter((c) => sourceUrl(c.url)),
       ...(legacy ? [{ url: legacy, title: '' }] : []),
-    ]);
-    let metric = enforceMetricProvenance({ ...original, citations });
+    ], officialWebsite);
+    let metric = enforceMetricProvenance({ ...original, citations }, officialWebsite);
     let note = metric.methodNote;
     if (metric.metricType === 'users' && metric.value === 0 && metric.confidence !== 'user_verified') {
       metric = { ...metric, value: null, confidence: 'unknown' };
@@ -109,7 +109,7 @@ export function buildMetricViews(input: readonly CompanyMetric[]) {
 /** A single read-only boundary for deck and inspection. Never updates stored research. */
 export function buildCardView(data: CardWithCompany) {
   const signal = isSignalCardType(data.card.cardType) || !data.company;
-  const metrics = buildMetricViews(signal ? [] : data.metrics);
+  const metrics = buildMetricViews(signal ? [] : data.metrics, data.company?.websiteUrl);
   const knownCount = metrics.filter((m) => m.metric.value != null).length;
   const sourcedCount = metrics.filter((m) => m.metric.value != null && m.citations.length > 0).length;
   const profileMetrics = signal
@@ -172,7 +172,7 @@ export function buildCardView(data: CardWithCompany) {
     ...(data.card.citations ?? []).filter((c) => sourceUrl(c.url)),
     ...viceCitations,
     ...metrics.flatMap((m) => m.citations),
-  ]);
+  ], signal ? null : data.company?.websiteUrl);
   const signalLines = signal ? uniqueLines([
     data.card.summary,
     ...data.viceClaims.map((claim) => claim.claimText),
