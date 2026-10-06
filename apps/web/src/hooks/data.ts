@@ -169,7 +169,10 @@ export function useCompanyMetrics(companyId: string | undefined): UseQueryResult
   const repo = useRepository();
   return useQuery({
     queryKey: qk.companyMetrics(companyId ?? ''),
-    queryFn: () => repo.getCompanyMetrics(companyId as string),
+    queryFn: () => {
+      if (!repo.getCompanyFacts) throw new Error('Accepted company facts are unavailable. Update or restart the app.');
+      return repo.getCompanyFacts(companyId as string);
+    },
     select: projectMetrics,
     enabled: !!companyId,
   });

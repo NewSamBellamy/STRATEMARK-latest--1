@@ -340,7 +340,15 @@ describe('REST Persistence API Endpoints', () => {
   });
 
   it('handles saved cards CRUD', async () => {
-    const a = app();
+    const store = new MemoryDataStore();
+    const auth = new MockFirebaseAdapter();
+    const service = new CloudDeckService(store, auth, auth);
+    await service.saveDeck('user_123', 'deck_saved', { deck: { id: 'deck_saved' }, market: {}, cards: [{
+      card: { id: 'card_xyz', deckId: 'deck_saved', companyId: null, cardType: 'insight', title: 'Top AI Co', summary: null,
+        tier: null, tierReason: null, citations: [], keyPoints: [], createdAt: '2026-10-02T00:00:00.000Z' },
+      company: null, metrics: [], viceClaims: [],
+    }] });
+    const a = createApp(readEnv({}), { store, cloudDeckService: service, forceMemoryStore: true });
     const headers = { Authorization: 'Bearer valid_token' };
 
     // Initially empty
@@ -354,9 +362,9 @@ describe('REST Persistence API Endpoints', () => {
 
     // List again
     const list2 = await a.request('/api/cards/saved', { headers });
-    const cards2 = (await asJson<{ cards: Array<{ cardId: string }> }>(list2)).cards;
+    const cards2 = (await asJson<{ cards: Array<{ card: { id: string } }> }>(list2)).cards;
     expect(cards2.length).toBe(1);
-    expect(cards2[0]?.cardId).toBe('card_xyz');
+    expect(cards2[0]?.card.id).toBe('card_xyz');
 
     // Unsave card
     const deleteRes = await a.request('/api/cards/saved/card_xyz', { method: 'DELETE', headers });

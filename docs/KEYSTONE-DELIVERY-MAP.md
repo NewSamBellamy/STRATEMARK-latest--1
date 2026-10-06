@@ -20,6 +20,8 @@ A slice must improve an actual connected user action, retain the result locally,
 
 ## Ordered next slices
 
+Checkpoint 30 connects accepted company facts across key read surfaces and cloud verification ledgers. It does not finish source usefulness, typed business definitions, ranking, deeper claims or release readiness. Prioritize the live native source coverage acceptance gate in checkpoint 30 while retaining all nine delivery areas below/above; no new standalone integrity subsystem is needed.
+
 1. **Finish the source-to-card vertical slice.** Checkpoint 19 makes excerpts target-aware; now evaluate source access and typed entity/period/definition acceptance. If live native UI remains blocked, record that blocker and improve inspectability rather than running broad searches or declaring accuracy from mocks.
 2. **One coherent company dashboard.** Carry accepted receipts through the overview/metric views and one deeper section; measure first-ready and later enrichment. Use this as the Scout contract instead of launching a fleet over incomplete interfaces.
 3. **One specialist card to shareable report.** Complete the entire finding journey, including source-supported one-liners and PDF/export, before multiplying all specialist prompts.

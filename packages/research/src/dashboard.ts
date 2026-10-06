@@ -28,6 +28,7 @@ import type { LlmClient } from './types';
 import { companySourceTargets } from './source-policy';
 import type { OriginalSourceAttempt, OriginalSourceServices } from './original-source';
 import { researchCompanyOverview } from './company-overview';
+import { projectCompanyFacts } from './company-facts';
 
 export interface TabResearchArgs {
   company: Company;
@@ -128,8 +129,11 @@ export async function researchDashboardTab<T extends DashboardTab>(
         screenshotUrl: null,
       } as DashboardContentMap[T];
 
-    case 'metrics':
-      return metricsFromStored(args.storedMetrics, args.company.id) as DashboardContentMap[T];
+    case 'metrics': {
+      const attempts = args.originalSources
+        ? await args.originalSources.list({ companyId: args.company.id, limit: 20 }) : args.originalAttempts;
+      return metricsFromStored(projectCompanyFacts(args.company, args.storedMetrics, attempts), args.company.id) as DashboardContentMap[T];
+    }
 
     case 'overview': {
       return (await researchCompanyOverview(args)).content as DashboardContentMap[T];

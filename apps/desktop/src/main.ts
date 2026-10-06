@@ -286,6 +286,11 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getCompanyMetrics, (_e, companyId: unknown) =>
     repository.getCompanyMetrics(z.string().min(1).parse(companyId)),
   );
+  ipcMain.handle(IPC_CHANNELS.getCompanyFacts, (_e, companyId: unknown) => {
+    const id = z.string().min(1).max(200).parse(companyId);
+    if (!repository.getCompanyFacts) throw new Error('Accepted company facts are unavailable. Restart the updated desktop app.');
+    return repository.getCompanyFacts(id);
+  });
   ipcMain.handle(IPC_CHANNELS.getViceClaims, (_e, cardId: unknown) =>
     repository.getViceClaims(z.string().min(1).parse(cardId)),
   );

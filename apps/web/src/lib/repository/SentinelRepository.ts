@@ -43,6 +43,7 @@ import type {
 import {
   MockRepository, type SeedSnapshot } from '@mi/mocks';
 import sampleSnapshot from '@/sample/frontier-snapshot.json';
+import { isOriginalSourceAttempt, projectCompanyCardFacts, retainedDiagnosticAttempts, type OriginalSourceAttempt } from '@mi/research';
 
 /** A Market/Deck object that optionally carries a runtime `engine` tag. */
 interface CloudTagged {
@@ -56,6 +57,8 @@ type CloudRecord = Record<string, unknown>;
 
 /** Payload shape passed to mapCloudCards — the union of all callers' shapes. */
 interface CloudCardPayload {
+  companySourceAttempts?: unknown;
+  originalSourceAttempts?: unknown;
   cards?: CloudRecord[];
   result?: { cards?: CloudRecord[] };
   deck?: CloudRecord;
@@ -65,6 +68,7 @@ interface CloudCardPayload {
 }
 
 export interface CachedCloudEntry {
+  companySourceAttempts?: OriginalSourceAttempt[];
   deck?: CloudDeck & { revision?: number; lastSyncedAt?: string; stale?: boolean; isOffline?: boolean };
   market?: CloudMarket & { revision?: number; lastSyncedAt?: string; stale?: boolean; isOffline?: boolean };
   cards?: CardWithCompany[];
@@ -126,6 +130,12 @@ export class SentinelRepository implements MarketIntelRepository {
   private memoryMarkets = new Map<string, Market>();
   private memoryDecks = new Map<string, Deck>();
   private memoryCards = new Map<string, CardWithCompany[]>();
+  private memoryOriginals = new Map<string, OriginalSourceAttempt[]>();
+
+  private factsCard(card: CardWithCompany): CardWithCompany {
+    const originals = this.memoryOriginals.get(card.card.deckId) ?? readCloudCache().get(card.card.deckId)?.companySourceAttempts;
+    return projectCompanyCardFacts(card, originals);
+  }
 
   constructor() {
     this.fallbackRepo = new MockRepository({
@@ -272,6 +282,7 @@ export class SentinelRepository implements MarketIntelRepository {
     this.memoryMarkets.delete(id);
     const deck = this.memoryDecks.get(id);
     const targetDeckId = deck?.id || id;
+    this.memoryOriginals.delete(targetDeckId);
     if (deck) {
       this.memoryDecks.delete(id);
       this.memoryDecks.delete(deck.id);
@@ -308,6 +319,7 @@ export class SentinelRepository implements MarketIntelRepository {
   }
 
   async deleteDeck(deckId: string): Promise<boolean> {
+    this.memoryOriginals.delete(deckId);
     const existingDeck = this.memoryDecks.get(deckId);
     const isCloud = (existingDeck as CloudDeck)?.engine === 'cloud';
 
@@ -399,6 +411,7 @@ export class SentinelRepository implements MarketIntelRepository {
           ...existing,
           deck,
           cards: cardsWithCompany.length > 0 ? cardsWithCompany : existing?.cards,
+          companySourceAttempts: this.memoryOriginals.get(deck.id) ?? [],
           lastSyncedAt: now,
           revision,
           pendingDeletion: false,
@@ -407,6 +420,7 @@ export class SentinelRepository implements MarketIntelRepository {
           ...existing,
           deck,
           cards: cardsWithCompany.length > 0 ? cardsWithCompany : existing?.cards,
+          companySourceAttempts: this.memoryOriginals.get(deck.id) ?? [],
           lastSyncedAt: now,
           revision,
           pendingDeletion: false,
@@ -561,6 +575,7 @@ export class SentinelRepository implements MarketIntelRepository {
       deck,
       market,
       cards: cardsWithCompany,
+      companySourceAttempts: this.memoryOriginals.get(deck.id) ?? [],
       lastSyncedAt: now,
       revision,
       pendingDeletion: false,
@@ -569,6 +584,7 @@ export class SentinelRepository implements MarketIntelRepository {
       deck,
       market,
       cards: cardsWithCompany,
+      companySourceAttempts: this.memoryOriginals.get(deck.id) ?? [],
       lastSyncedAt: now,
       revision,
       pendingDeletion: false,
@@ -610,7 +626,7 @@ export class SentinelRepository implements MarketIntelRepository {
       if (filter?.cardType) {
         list = list.filter((c) => c.card.cardType === filter.cardType);
       }
-      return list;
+      return list.map(card => this.factsCard(card));
     }
 
     try {
@@ -619,16 +635,16 @@ export class SentinelRepository implements MarketIntelRepository {
         const cardsWithCompany = this.mapCloudCards(cloudPayload);
         this.memoryCards.set(deckId, cardsWithCompany);
         if (filter?.cardType) {
-          return cardsWithCompany.filter((c) => c.card.cardType === filter.cardType);
+          return cardsWithCompany.filter((c) => c.card.cardType === filter.cardType).map(card => this.factsCard(card));
         }
-        return cardsWithCompany;
+        return cardsWithCompany.map(card => this.factsCard(card));
       }
     } catch (err) {
       console.warn(`Failed to fetch cloud cards for deck ${deckId}:`, err);
     }
 
     if (cachedCards && cachedCards.length > 0) {
-      return cachedCards;
+      return cachedCards.filter(card => !filter?.cardType || card.card.cardType === filter.cardType).map(card => this.factsCard(card));
     }
 
     return [];
@@ -637,7 +653,7 @@ export class SentinelRepository implements MarketIntelRepository {
   async getCard(cardId: string): Promise<CardWithCompany | null> {
     for (const cardList of this.memoryCards.values()) {
       const match = cardList.find((c) => c.card.id === cardId);
-      if (match) return match;
+      if (match) return this.factsCard(match);
     }
     return null;
   }
@@ -646,7 +662,12 @@ export class SentinelRepository implements MarketIntelRepository {
     try {
       const cloudSaved = await listCloudSavedCards();
       if (cloudSaved && cloudSaved.length > 0) {
-        return this.mapCloudCards({ cards: cloudSaved });
+        const cards = this.mapCloudCards({ cards: cloudSaved });
+        for (const card of cards) {
+          const existing = this.memoryCards.get(card.card.deckId) ?? [];
+          this.memoryCards.set(card.card.deckId, [...existing.filter(row => row.card.id !== card.card.id), card]);
+        }
+        return cards.map(card => this.factsCard(card));
       }
     } catch {
       /* fallback */
@@ -674,7 +695,15 @@ export class SentinelRepository implements MarketIntelRepository {
   async getCompanyMetrics(companyId: string): Promise<CompanyMetric[]> {
     for (const cardList of this.memoryCards.values()) {
       const match = cardList.find((c) => c.company?.id === companyId);
-      if (match) return match.metrics || [];
+      if (match) return structuredClone(match.metrics || []);
+    }
+    return [];
+  }
+
+  async getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
+    for (const cards of this.memoryCards.values()) {
+      const match = cards.find(card => card.company?.id === companyId);
+      if (match) return this.factsCard(match).metrics;
     }
     return [];
   }
@@ -751,6 +780,7 @@ export class SentinelRepository implements MarketIntelRepository {
 
 
   private invalidateDeckCache(deckId: string) {
+    this.memoryOriginals.delete(deckId);
     this.memoryCards.delete(deckId);
     this.memoryDecks.delete(deckId);
 
@@ -945,6 +975,7 @@ export class SentinelRepository implements MarketIntelRepository {
       deck,
       market,
       cards: cardsWithCompany,
+      companySourceAttempts: this.memoryOriginals.get(deck.id) ?? [],
       lastSyncedAt: now,
       revision,
       pendingDeletion: false,
@@ -953,6 +984,7 @@ export class SentinelRepository implements MarketIntelRepository {
       deck,
       market,
       cards: cardsWithCompany,
+      companySourceAttempts: this.memoryOriginals.get(deck.id) ?? [],
       lastSyncedAt: now,
       revision,
       pendingDeletion: false,
@@ -1026,6 +1058,11 @@ export class SentinelRepository implements MarketIntelRepository {
       const directCompany = item.company as Company | undefined;
       // Handle direct CardWithCompany objects
       if (directCard && Object.prototype.hasOwnProperty.call(item, 'company')) {
+        if (Array.isArray(item.companySourceAttempts)) {
+          const scoped = item.companySourceAttempts.filter(isOriginalSourceAttempt).filter(attempt => attempt.companyId === directCompany?.id);
+          const existing = this.memoryOriginals.get(directCard.deckId) ?? [];
+          this.memoryOriginals.set(directCard.deckId, [...existing.filter(attempt => attempt.companyId !== directCompany?.id), ...scoped]);
+        }
         results.push({
           card: { ...directCard, engine: 'cloud' } as Card,
           company: (directCompany ?? null) as Company | null,
@@ -1088,6 +1125,11 @@ export class SentinelRepository implements MarketIntelRepository {
       });
     }
 
+    if (Object.prototype.hasOwnProperty.call(payload, 'companySourceAttempts') || Object.prototype.hasOwnProperty.call(payload, 'originalSourceAttempts')) {
+      const attempts = [...(Array.isArray(payload.companySourceAttempts) ? payload.companySourceAttempts.filter(isOriginalSourceAttempt) : []),
+        ...retainedDiagnosticAttempts(payload.originalSourceAttempts)];
+      for (const deckId of new Set(results.map(card => card.card.deckId))) this.memoryOriginals.set(deckId, structuredClone(attempts));
+    }
     return results;
   }
 }

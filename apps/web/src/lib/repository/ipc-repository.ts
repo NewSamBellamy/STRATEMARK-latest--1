@@ -100,6 +100,10 @@ export class IpcRepository implements MarketIntelRepository {
   getCompanyMetrics(companyId: string): Promise<CompanyMetric[]> {
     return this.api.getCompanyMetrics(companyId);
   }
+  async getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
+    if (!this.api.getCompanyFacts) throw new Error('Restart the updated desktop app to load accepted company facts.');
+    return this.api.getCompanyFacts(companyId);
+  }
   getViceClaims(cardId: string): Promise<ViceClaim[]> {
     return this.api.getViceClaims(cardId);
   }

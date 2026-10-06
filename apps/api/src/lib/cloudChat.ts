@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Deck, Market, ResearchThread } from '@mi/contracts';
-import { GeminiRepository, isOriginalSourceAttempt, migrateSnapshot, type LlmClient } from '@mi/research';
+import { GeminiRepository, isOriginalSourceAttempt, retainedDiagnosticAttempts, migrateSnapshot, type LlmClient } from '@mi/research';
 import type { StratemarkDataStore } from './firestoreStore';
 
 export const researchIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,160}$/);
@@ -58,7 +58,7 @@ export async function prepareCloudChat(store: StratemarkDataStore, userId: strin
   snapshot.threads = [...(stored ? [stored.thread] : []), ...references];
   snapshot.originalSourceAttempts = [
     ...(record.companySourceAttempts ?? []),
-    ...(record.originalSourceAttempts ?? []).map((attempt, index) => ({ ...attempt, id: `src_cloud_diagnostic_${index}` })),
+    ...retainedDiagnosticAttempts(record.originalSourceAttempts),
   ].filter(isOriginalSourceAttempt);
   let revision = stored?.revision ?? 0;
   return {

@@ -57,6 +57,7 @@ export const IPC_CHANNELS = {
   unsaveCard: 'mi:unsaveCard',
   getCompany: 'mi:getCompany',
   getCompanyMetrics: 'mi:getCompanyMetrics',
+  getCompanyFacts: 'mi:getCompanyFacts',
   getViceClaims: 'mi:getViceClaims',
   getDashboardTab: 'mi:getDashboardTab',
   deepDive: 'mi:deepDive',

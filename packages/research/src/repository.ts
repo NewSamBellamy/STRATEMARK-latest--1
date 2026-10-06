@@ -18,7 +18,6 @@ import {
   markVerified,
   applyMetricVerification,
   currentMetricRevision,
-  enforceMetricProvenance,
   validMetricVerificationValue,
   metricVerificationDiffers,
   reconcileMetrics,
@@ -91,6 +90,7 @@ import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvi
 import { coalesceOriginalSources, isOriginalSourceAttempt, selectOriginalSourceCitations, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { acceptedMetricPassage } from './metric-support';
 import { overviewFigures, renderCompanyOverview } from './company-overview';
+import { projectCompanyFacts } from './company-facts';
 
 interface CachedTab {
   content: unknown;
@@ -1282,22 +1282,22 @@ export class GeminiRepository implements MarketIntelRepository {
   }
 
   // Cards -------------------------------------------------------------------
-  listCards(deckId: string, filter?: CardFilter): Promise<CardWithCompany[]> {
+  async listCards(deckId: string, filter?: CardFilter): Promise<CardWithCompany[]> {
     const result = this.snap.cards
       .filter((c) => c.deckId === deckId)
       .filter((c) => (filter?.cardType ? c.cardType === filter.cardType : true))
       .filter((c) => (filter?.tier ? c.tier === filter.tier : true))
       .map((card) => this.hydrate(card));
-    return Promise.resolve(result);
+    return this.cardsWithFacts(result);
   }
-  getCard(cardId: string): Promise<CardWithCompany | null> {
+  async getCard(cardId: string): Promise<CardWithCompany | null> {
     const card = this.snap.cards.find((c) => c.id === cardId);
-    return Promise.resolve(card ? this.hydrate(card) : null);
+    return card ? (await this.cardsWithFacts([this.hydrate(card)]))[0]! : null;
   }
 
-  listSavedCards(): Promise<CardWithCompany[]> {
+  async listSavedCards(): Promise<CardWithCompany[]> {
     const savedIds = new Set(this.snap.savedCards.map((saved) => saved.cardId));
-    return Promise.resolve(
+    return this.cardsWithFacts(
       this.snap.cards.filter((card) => savedIds.has(card.id)).map((card) => this.hydrate(card)),
     );
   }
@@ -1332,11 +1332,24 @@ export class GeminiRepository implements MarketIntelRepository {
     return { card, company, metrics, viceClaims };
   }
 
+  private async cardsWithFacts(cards: CardWithCompany[]): Promise<CardWithCompany[]> {
+    const ids = [...new Set(cards.flatMap(row => row.company ? [row.company.id] : []))];
+    const facts = new Map(await mapWithConcurrency(ids, 4, async id => [id, await this.getCompanyFacts(id)] as const));
+    return structuredClone(cards.map(row => ({ ...row, metrics: row.company && !isSignalCardType(row.card.cardType) ? facts.get(row.company.id) ?? [] : [] })));
+  }
+
   getCompany(companyId: string): Promise<Company | null> {
     return Promise.resolve(this.snap.companies.find((c) => c.id === companyId) ?? null);
   }
   getCompanyMetrics(companyId: string): Promise<CompanyMetric[]> {
-    return Promise.resolve(this.snap.metrics.filter((m) => m.companyId === companyId));
+    return Promise.resolve(structuredClone(this.snap.metrics.filter((m) => m.companyId === companyId)));
+  }
+  async getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
+    await this.ready();
+    const company = this.snap.companies.find(row => row.id === companyId);
+    if (!company) return [];
+    const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20 });
+    return projectCompanyFacts(company, this.snap.metrics, attempts);
   }
   getViceClaims(cardId: string): Promise<ViceClaim[]> {
     return Promise.resolve(this.snap.viceClaims.filter((v) => v.cardId === cardId));
@@ -1363,7 +1376,8 @@ export class GeminiRepository implements MarketIntelRepository {
     if (tab === 'metrics') {
       const result = await researchDashboardWithSources(tab, { company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
-        storedMetrics: this.snap.metrics.filter(m => m.companyId === companyId), client: this.client });
+        storedMetrics: this.snap.metrics.filter(m => m.companyId === companyId), client: this.client,
+        originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20 }) });
       return { companyId, tab, ...result, lastRefreshedAt: null };
     }
     const cached = force ? undefined : this.snap.dashboards[companyId]?.[tab];
@@ -2307,21 +2321,14 @@ export class GeminiRepository implements MarketIntelRepository {
    * contract for chat: prior grounded research + a fresh search — never
    * training data.
    */
-  private scopeDigest(scope: ResearchScope): { text: string; citations: Citation[] } {
+  private scopeDigest(scope: ResearchScope, attempts: OriginalSourceAttempt[]): { text: string; citations: Citation[] } {
     const lines: string[] = [];
     const citations: Citation[] = [];
     const push = (l: string) => lines.push(l);
 
     const companyLines = (co: Company) => {
       const tierCard = this.snap.cards.find((c) => c.companyId === co.id && c.tier != null);
-      const ms = METRIC_TYPES.flatMap(type => {
-        const current = currentMetricRevision(this.snap.metrics, co.id, type);
-        if (!current) return [];
-        const invalid = current.metric.value != null && (!validMetricVerificationValue(type, current.metric.value) ||
-          (type === 'users' && current.metric.value === 0 && current.metric.confidence !== 'user_verified'));
-        return [enforceMetricProvenance(current.ambiguous || invalid
-          ? { ...current.metric, value: null, confidence: 'unknown' } : current.metric)];
-      });
+      const ms = projectCompanyFacts(co, this.snap.metrics, attempts);
       const fmt = ms
         .map(
           (m) =>
@@ -2483,7 +2490,7 @@ export class GeminiRepository implements MarketIntelRepository {
       `STORED GROUNDED NOTES — ${entry.companyName ?? entry.companyId}, ${entry.topic}, captured ${entry.capturedAt} (not a source publication date):\n${entry.text.slice(0, 1200)}\nSOURCES:\n${entry.citations.slice(0, 6).map((c) => `${c.title}: ${c.url}`).join('\n')}`,
     ).join('\n\n');
 
-    const digest = this.scopeDigest(thread.scope);
+    const digest = this.scopeDigest(thread.scope, originalAttempts.flat());
 
     const g = await this.client.ground(
       [

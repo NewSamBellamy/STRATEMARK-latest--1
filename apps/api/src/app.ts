@@ -26,6 +26,9 @@ import {
   coalesceOriginalSources,
   selectOriginalSourceCitations,
   acceptedMetricPassage,
+  projectCompanyCardFacts,
+  retainedDiagnosticAttempts,
+  mapWithConcurrency,
   huntMetricsOutSchema,
   GROUNDED_SYSTEM, 
   STRUCTURE_SYSTEM
@@ -299,13 +302,30 @@ export function createApp(
     if (!userId) return c.json({ error: 'Unauthorized' }, 401);
     const deckId = c.req.query('deckId') || '';
     const d = deckId ? await cloudDeckService.getDeck(userId, deckId) : null;
-    return c.json({ cards: d?.cards || [] });
+    const attempts = [...(d?.companySourceAttempts ?? []), ...retainedDiagnosticAttempts(d?.originalSourceAttempts)];
+    return c.json({ cards: (d?.cards ?? []).map(card => projectCompanyCardFacts(card, attempts)) });
   });
   app.get('/api/cards/saved', async (c) => {
     const userId = await getUserId(c);
     if (!userId) return c.json({ error: 'Unauthorized' }, 401);
-    const cards = await cloudDeckService.getSavedCards(userId);
-    return c.json({ cards });
+    const bookmarks = await cloudDeckService.getSavedCards(userId);
+    // Bookmarks are references, not hydrated company cards. Resolve only owned
+    // decks; never let a bookmark carry its own claimed facts or company data.
+    const legacy = bookmarks.some(row => typeof row.deckId !== 'string');
+    const candidates = legacy ? (await cloudDeckService.getDecks(userId)).slice(0, 100) : [];
+    const deckIds = [...new Set([...bookmarks.map(row => row.deckId), ...candidates.map(row => row.id)]
+      .filter((id): id is string => typeof id === 'string' && id.length > 0))];
+    const decks = new Map(await mapWithConcurrency(deckIds, 4, async id => [id, await cloudDeckService.getDeck(userId, id)] as const));
+    const cards = bookmarks.flatMap(row => {
+      const eligible = typeof row.deckId === 'string' ? [decks.get(row.deckId)] : [...decks.values()];
+      const deck = eligible.find(candidate => candidate?.cards.some(card => card.card.id === row.cardId));
+      const card = deck?.cards.find(card => card.card.id === row.cardId);
+      const attempts = [...(deck?.companySourceAttempts ?? []), ...retainedDiagnosticAttempts(deck?.originalSourceAttempts)];
+      return card && deck ? [{ ...projectCompanyCardFacts(card, attempts),
+        companySourceAttempts: attempts.filter(attempt => attempt.companyId === card.company?.id)
+          .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt)).slice(-20) }] : [];
+    });
+    return c.json({ cards, unresolvedCount: bookmarks.length - cards.length });
   });
   app.post('/api/cards/saved', async (c) => {
     const userId = await getUserId(c);
@@ -692,7 +712,7 @@ export function createApp(
         marketName: deckRec.market.name as string,
         storedMetrics: card.metrics || [],
         client: resolved.client,
-        ...(tab === 'overview' ? { originalSources: cloudDeckService.getOriginalSources(access.userId, ownedDeckId, readOriginalSource) } : {}),
+        ...(['overview', 'metrics'].includes(tab) ? { originalSources: cloudDeckService.getOriginalSources(access.userId, ownedDeckId, readOriginalSource) } : {}),
       });
 
       return c.json({ content: result.content, citations: result.citations });

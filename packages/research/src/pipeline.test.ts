@@ -284,7 +284,7 @@ describe('runDeckResearch (full orchestration, fake LLM)', () => {
     });
     const { market, deck } = await repo.createResearchedDeck({ prompt: 'Software', region: null });
     await repo.waitForBackgroundJobs();
-    const entries = (await repo.listCards(deck.id)).filter((entry) => entry.company);
+    const entries = (await repo.listCards(deck.id)).filter((entry) => entry.company && ['company', 'infrastructure', 'distribution'].includes(entry.card.cardType));
     expect(entries.length).toBeGreaterThanOrEqual(3);
     expect(save.mock.calls.length).toBeGreaterThanOrEqual(3);
     expect((await repo.getDeckByMarket(market.id) as Deck & { status?: string }).status).toBe('ready');
@@ -292,7 +292,8 @@ describe('runDeckResearch (full orchestration, fake LLM)', () => {
       expect(entry.metrics.length).toBeGreaterThan(0);
       expect(entry.metrics.every((metric) => metric.value === null && metric.confidence === 'unknown')).toBe(true);
       expect((await repo.getCard(entry.card.id))!.metrics).toEqual(entry.metrics);
-      expect(await repo.getCompanyMetrics(entry.company!.id)).toEqual(entry.metrics);
+      expect(await repo.getCompanyFacts(entry.company!.id)).toEqual(entry.metrics);
+      expect((await repo.getCompanyMetrics(entry.company!.id)).every(metric => metric.value === null && metric.confidence === 'unknown')).toBe(true);
       expect(entry.card.tier).toBeNull();
     }
   }, 20000);

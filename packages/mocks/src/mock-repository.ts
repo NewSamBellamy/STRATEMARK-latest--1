@@ -357,6 +357,11 @@ export class MockRepository implements MarketIntelRepository {
     return this.delay(this.companies.find((c) => c.id === companyId) ?? null);
   }
 
+  // Explicit demo data only; production repositories revalidate original evidence.
+  getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
+    return this.getCompanyMetrics(companyId);
+  }
+
   getCompanyMetrics(companyId: string): Promise<CompanyMetric[]> {
     return this.delay(this.metrics.filter((m) => m.companyId === companyId));
   }

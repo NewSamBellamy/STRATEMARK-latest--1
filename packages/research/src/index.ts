@@ -7,6 +7,7 @@ export * from './gemini';
 export * from './genai';
 export * from './logos';
 export * from './dashboard';
+export * from './company-facts';
 export * from './repository';
 export * from './source-policy';
 export * from './research-evidence';

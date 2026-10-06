@@ -286,6 +286,8 @@ export async function getCloudDeck(
   companies: Array<Record<string, unknown>>;
   metrics: Array<Record<string, unknown>>;
   viceClaims: Array<Record<string, unknown>>;
+  companySourceAttempts?: unknown;
+  originalSourceAttempts?: unknown;
   state?: { status?: string; error?: string };
 } | null> {
   try {

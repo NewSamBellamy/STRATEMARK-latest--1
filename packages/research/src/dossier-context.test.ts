@@ -143,8 +143,10 @@ describe('Ask uses the saved company dossier', () => {
     await repo().askResearch(ask);
     const prompt = ground.mock.calls[0]![0] as string;
     expect(prompt).not.toContain('arr=111');
-    expect(prompt).toContain(ambiguous ? 'arr=unknown (unknown' : 'arr=222 (estimated');
-    if (ambiguous) expect(prompt).not.toContain('arr=222');
+    // Estimates remain inspectable raw observations, not current accepted facts.
+    expect(prompt).toContain('arr=unknown (unknown');
+    expect(prompt).not.toContain('arr=222');
+    expect(await repo().getCompanyMetrics('cmp_a')).toEqual(snapshot.metrics);
   });
 
   it('selects a relevant unchanged passage beyond the document opening without sending the full text', async () => {

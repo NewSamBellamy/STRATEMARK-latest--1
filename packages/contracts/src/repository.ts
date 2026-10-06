@@ -516,7 +516,10 @@ export interface MarketIntelRepository {
 
   // Company detail
   getCompany(companyId: string): Promise<Company | null>;
+  /** Raw observations for audit/correction, not a user-facing facts projection. */
   getCompanyMetrics(companyId: string): Promise<CompanyMetric[]>;
+  /** Accepted current facts, not raw observation history; no provider calls. */
+  getCompanyFacts?(companyId: string): Promise<CompanyMetric[]>;
   getViceClaims(cardId: string): Promise<ViceClaim[]>;
 
   // Dashboard (spec §8)

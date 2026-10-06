@@ -9,7 +9,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import * as crypto from 'node:crypto';
-import { coalesceOriginalSources, type OriginalSourceServices } from '@mi/research';
+import { coalesceOriginalSources, retainedDiagnosticAttempts, type OriginalSourceServices } from '@mi/research';
 import { retrieveOriginalSource } from './original-source';
 
 export interface AuthAdapter {
@@ -146,8 +146,9 @@ export class CloudDeckService {
         if (!deck) return [];
         const count = Number.isFinite(limit) ? Math.max(0, Math.min(100, Math.floor(limit))) : 20;
         if (!count) return [];
-        return structuredClone((deck.companySourceAttempts ?? [])
+        return structuredClone([...(deck.companySourceAttempts ?? []), ...retainedDiagnosticAttempts(deck.originalSourceAttempts)]
           .filter((entry) => entry.companyId === companyId && (!metricType || entry.metricType === metricType))
+          .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
           .slice(-count).reverse());
       },
     };

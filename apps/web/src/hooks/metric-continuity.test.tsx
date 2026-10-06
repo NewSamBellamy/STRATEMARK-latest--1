@@ -15,6 +15,21 @@ const keys = [qk.companyMetrics(companyId), qk.cards('deck'), qk.card('card'), q
   qk.dashboard(companyId, 'metrics')];
 
 describe('metric updates refresh every metric-bearing card cache', () => {
+  it('reads accepted company facts rather than raw observations for dashboard figures', async () => {
+    const raw = vi.fn().mockResolvedValue([{ ...metric, value: 999 }]);
+    const facts = vi.fn().mockResolvedValue([{ ...metric, value: null, confidence: 'unknown', citations: [] }]);
+    const repo = Object.assign(makeRepo(), { getCompanyMetrics: raw, getCompanyFacts: facts });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => <RepositoryProvider repository={repo}>
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    </RepositoryProvider>;
+    const { result, unmount } = renderHook(() => useCompanyMetrics(companyId), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(facts).toHaveBeenCalledWith(companyId);
+    expect(raw).not.toHaveBeenCalled();
+    expect(result.current.data![0]!.value).toBeNull();
+    unmount(); client.clear();
+  });
   it('refreshes metric and saved-card surfaces after a deck refresh event', () => {
     const client = new QueryClient();
     for (const key of keys) client.setQueryData(key, []);

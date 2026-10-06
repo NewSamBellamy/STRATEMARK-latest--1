@@ -36,6 +36,7 @@ const api: PreloadRepositoryApi = {
   unsaveCard: (cardId) => ipcRenderer.invoke(IPC_CHANNELS.unsaveCard, cardId),
   getCompany: (companyId) => ipcRenderer.invoke(IPC_CHANNELS.getCompany, companyId),
   getCompanyMetrics: (companyId) => ipcRenderer.invoke(IPC_CHANNELS.getCompanyMetrics, companyId),
+  getCompanyFacts: (companyId) => ipcRenderer.invoke(IPC_CHANNELS.getCompanyFacts, companyId),
   getViceClaims: (cardId) => ipcRenderer.invoke(IPC_CHANNELS.getViceClaims, cardId),
   getDashboardTab: (companyId, tab, force) =>
     ipcRenderer.invoke(IPC_CHANNELS.getDashboardTab, companyId, tab, force),

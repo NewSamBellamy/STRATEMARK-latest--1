@@ -1,10 +1,9 @@
 import { z } from 'zod';
-import { classifySource, currentMetricRevision, metricPassageSupportSchema, usableCitations,
-  validMetricVerificationValue, type Citation, type MetricType } from '@mi/contracts';
-import { acceptedMetricPassage } from './metric-support';
-import { isOriginalSourceAttempt, selectOriginalSourceCitations, type OriginalSourceReceipt } from './original-source';
+import { classifySource, usableCitations, type Citation, type MetricType } from '@mi/contracts';
+import { selectOriginalSourceCitations, type OriginalSourceReceipt } from './original-source';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { TabResearchArgs } from './dashboard';
+import { companyOriginalReceipts, projectCompanyFactsFromOriginals } from './company-facts';
 
 const excerptsSchema = z.object({ excerpts: z.array(z.object({ sourceUrl: z.string().max(2048), quote: z.string().max(600) })).max(4).default([]) });
 const normalize = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim();
@@ -20,24 +19,19 @@ const overviewSources = (args: TabResearchArgs, originals: readonly OriginalSour
 const metricLabels: Record<MetricType, string> = { employees: 'Employees', arr: 'ARR (USD)', users: 'Users', valuation: 'Valuation (USD)', market_cap: 'Market capitalization (USD)', market_share: 'Market share (%)' };
 
 function scopedReceipts(args: TabResearchArgs, attempts: unknown): OriginalSourceReceipt[] {
-  if (!Array.isArray(attempts)) return [];
-  return attempts.filter(isOriginalSourceAttempt).filter(row => row.companyId === args.company.id)
-    .slice(0, 20).flatMap(row => row.receipts);
+  return companyOriginalReceipts(args.company.id, attempts);
 }
 
 /** Deterministic financial summary. Legacy citations alone are insufficient.
  * Keep the reporting date; collection time is not the date of the figure. */
 export function overviewFigures(args: TabResearchArgs, originals: readonly OriginalSourceReceipt[]): string {
+  const facts = projectCompanyFactsFromOriginals(args.company, args.storedMetrics, originals);
   const rows = (Object.keys(metricLabels) as MetricType[]).map(type => {
-    const current = currentMetricRevision(args.storedMetrics, args.company.id, type);
-    if (!current || current.ambiguous || !validMetricVerificationValue(type, current.metric.value)) return `- ${metricLabels[type]}: Unknown`;
-    const metric = current.metric;
+    const metric = facts.find(row => row.metricType === type);
+    if (!metric || metric.value === null) return `- ${metricLabels[type]}: Unknown`;
     if (metric.confidence === 'user_verified') return `- ${metricLabels[type]}: ${metric.value!.toLocaleString('en-US')} — human-confirmed, not independently verified`;
-    const parsed = metricPassageSupportSchema.safeParse(metric.passageSupport);
-    const citations = metric.confidence === 'verified' && parsed.success
-      ? acceptedMetricPassage({ companyName: args.company.name, metricType: type, value: metric.value, support: parsed.data, originals }) : [];
-    if (!citations.length || (type === 'users' && metric.value === 0)) return `- ${metricLabels[type]}: Unknown`;
-    return `- ${metricLabels[type]}: ${metric.value!.toLocaleString('en-US')} — reported ${parsed.success ? parsed.data.asOf : ''} ([original passage](${markdownUrl(citations[0]!.url)}))`;
+    if (metric.confidence !== 'verified' || !metric.passageSupport || !metric.citations.length) return `- ${metricLabels[type]}: Unknown`;
+    return `- ${metricLabels[type]}: ${metric.value.toLocaleString('en-US')} — reported ${metric.passageSupport.asOf} ([original passage](${markdownUrl(metric.citations[0]!.url)}))`;
   });
   return `## Business figures\n\n${rows.join('\n')}\n\nUnknown means no accepted current observation with matching original evidence. It does not mean zero.`;
 }
@@ -72,13 +66,8 @@ export function renderCompanyOverview(args: TabResearchArgs, originals: readonly
   }
   const overviewBackground = `## Source-reported background\n\n${background.length ? background.join('\n\n') : 'Background unavailable: no eligible original excerpt was retained. Search notes and legacy summaries are not treated as verified facts.'}\n\nQuotations describe what sources report, not independent verification.`;
   const markdown = `${overviewBackground}\n\n${overviewFigures(args, originals)}`;
-  citations = usableCitations([...citations, ...args.storedMetrics.filter(row => row.companyId === args.company.id && row.confidence === 'verified')
-    .flatMap(row => {
-      const proof = metricPassageSupportSchema.safeParse(row.passageSupport);
-      const current = currentMetricRevision(args.storedMetrics, args.company.id, row.metricType);
-      return proof.success && current && !current.ambiguous && current.metric.id === row.id
-        ? acceptedMetricPassage({ companyName: args.company.name, metricType: row.metricType, value: row.value, support: proof.data, originals }) : [];
-    })]);
+  citations = usableCitations([...citations, ...projectCompanyFactsFromOriginals(args.company, args.storedMetrics, originals)
+    .filter(row => row.confidence === 'verified').flatMap(row => row.citations)]);
   return { content: { markdown }, citations, overviewExcerpts };
 }
 
