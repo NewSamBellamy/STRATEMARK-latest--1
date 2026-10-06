@@ -23,6 +23,7 @@ import { MetricsTab } from './tabs/MetricsTab';
 import { MissionGovernanceTab } from './tabs/MissionGovernanceTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { ProductsRoadmapTab } from './tabs/ProductsRoadmapTab';
+import { DashboardSources } from './DashboardSources';
 import NotFoundPage from '@/features/NotFoundPage';
 
 /**
@@ -354,6 +355,7 @@ export default function DashboardPage() {
             >
               <TabView tab={activeTab} companyId={companyId} />
             </ContextRerun>
+            <DashboardSources companyId={companyId} tab={activeTab} />
           </>
         )}
       </QueryBoundary>

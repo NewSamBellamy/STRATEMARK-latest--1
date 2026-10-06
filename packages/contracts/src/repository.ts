@@ -462,6 +462,9 @@ export interface DashboardTabResult<T extends DashboardTab> {
   tab: T;
   content: DashboardContentFor<T>;
   lastRefreshedAt: string | null;
+  /** Search attribution for this section, not independently verified claims.
+   * Absent on legacy cached sections; never inferred from unrelated research. */
+  citations?: Citation[];
 }
 
 /** Emitted after a deck refresh so the UI can reconcile without a full refetch (spec §9). */

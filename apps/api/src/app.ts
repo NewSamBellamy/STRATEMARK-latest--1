@@ -21,7 +21,7 @@ import {
   describeAgentGraph, 
   runLivingDeckEngine, 
   expandDeckWithDeltaAgent,
-  researchDashboardTab,
+  researchDashboardWithSources,
   verifyMetricOutSchema, 
   coalesceOriginalSources,
   selectOriginalSourceCitations,
@@ -30,7 +30,7 @@ import {
   GROUNDED_SYSTEM, 
   STRUCTURE_SYSTEM
 } from '@mi/research';
-import type { DashboardTab, CardWithCompany, Company } from '@mi/contracts';
+import type { CardWithCompany, Company } from '@mi/contracts';
 import { 
   markVerified,
   applyMetricVerification,
@@ -41,6 +41,7 @@ import {
   METRIC_TYPE_LABELS,
   METRIC_TYPES
 } from '@mi/contracts';
+import { dashboardTabSchema } from '@mi/contracts';
 import type { CompanyMetric } from '@mi/contracts';
 import type { MarketPlan } from '@mi/research';
 import { hasServerCredentials, type ServiceEnv } from './env';
@@ -663,43 +664,39 @@ export function createApp(
 
   app.post('/api/research/tab', async (c) => {
     try {
-      const input = await c.req.json().catch(() => ({}));
-      const { deckId, companyId, tab } = input;
-      
-      if (!deckId || !companyId || !tab) {
-        return c.json({ error: 'Missing deckId, companyId, or tab' }, 400);
-      }
-      
-      const uid = await getUserId(c);
-      if (!uid) return c.json({ error: 'Unauthorized' }, 401);
-
-      let deckRec = await store.getDeck(deckId);
+      const parsed = z.object({ deckId: researchIdSchema, companyId: researchIdSchema, tab: dashboardTabSchema })
+        .strict().safeParse(await c.req.json().catch(() => null));
+      if (!parsed.success) return c.json({ error: 'Invalid dashboard research scope' }, 400);
+      const { deckId, companyId, tab } = parsed.data;
+      const access = await authorizeCloudResearch(c, 2 * METRIC_RESEARCH_ESTIMATE_USD);
+      let deckRec = await cloudDeckService.getDeck(access.userId, deckId);
       if (!deckRec && deckId.startsWith('mkt_')) {
-        deckRec = (await store.getDeck(`deck_${deckId.slice(4)}`)) || (await store.getDeck(`dck_${deckId.slice(4)}`));
+        deckRec = (await cloudDeckService.getDeck(access.userId, `deck_${deckId.slice(4)}`)) ||
+          (await cloudDeckService.getDeck(access.userId, `dck_${deckId.slice(4)}`));
       }
-      if (!deckRec || (deckRec.userId && deckRec.userId !== uid)) {
-        return c.json({ error: 'Deck not found' }, 404);
-      }
-
+      if (!deckRec) return c.json({ error: 'Deck not found' }, 404);
       const card = deckRec.cards?.find((c: CardWithCompany) => c.company?.id === companyId);
       if (!card || !card.company) return c.json({ error: 'Company not found in deck' }, 404);
+      if (!await cloudDeckService.checkEntitlement(access.userId)) return c.json({ error: 'Active subscription required for cloud research.' }, 402);
 
       const resolved = resolveClient({
-        env,
-        callerKey: c.req.header('X-Gemini-Key') || undefined,
+        env, callerKey: access.callerKey,
+        onCall: info => { if (access.metered) budget.record(info.kind); },
       });
 
-      const content = await researchDashboardTab(tab as DashboardTab, {
+      const result = await researchDashboardWithSources(tab, {
         company: card.company as Company,
         marketName: deckRec.market.name as string,
         storedMetrics: card.metrics || [],
         client: resolved.client,
       });
 
-      return c.json({ content });
+      return c.json(result);
     } catch (error) {
-      console.error('Tab research error:', error);
-      return c.json({ error: 'Tab generation failed' }, 500);
+      const mapped = guardError(error);
+      if (mapped) return c.json(mapped.body, mapped.status);
+      // Provider errors may contain a credential/request URL; never log or echo them.
+      return c.json({ error: 'Dashboard research unavailable. Saved research has not been discarded.' }, 503);
     }
   });
 

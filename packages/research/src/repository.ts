@@ -66,7 +66,7 @@ import {
   type ViceClaim,
 } from '@mi/contracts';
 import { createGeminiClient, type GeminiClientConfig } from './gemini';
-import { researchDashboardTab } from './dashboard';
+import { researchDashboardWithSources } from './dashboard';
 import {
   discoverDeckStubs,
   reviewTiersBatch,
@@ -93,6 +93,7 @@ import { acceptedMetricPassage } from './metric-support';
 interface CachedTab {
   content: unknown;
   lastRefreshedAt: string;
+  citations?: Citation[];
 }
 
 export interface RepoSnapshot {
@@ -1351,22 +1352,31 @@ export class GeminiRepository implements MarketIntelRepository {
   ): Promise<DashboardTabResult<T> | null> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company) return null;
+    // Metrics are a free projection of current observations, never stale cached
+    // time series. Recompute on every read without modifying historical data.
+    if (tab === 'metrics') {
+      const result = await researchDashboardWithSources(tab, { company,
+        marketName: this.snap.companyMarket[companyId] ?? 'this market',
+        storedMetrics: this.snap.metrics.filter(m => m.companyId === companyId), client: this.client });
+      return { companyId, tab, ...result, lastRefreshedAt: null };
+    }
     const cached = force ? undefined : this.snap.dashboards[companyId]?.[tab];
     if (cached) {
-      return {
+      return structuredClone({
         companyId,
         tab,
         content: cached.content as DashboardTabResult<T>['content'],
         lastRefreshedAt: cached.lastRefreshedAt,
-      };
+        ...(cached.citations !== undefined ? { citations: usableCitations(cached.citations) } : {}),
+      });
     }
     const flightKey = `${companyId}:${tab}`;
-    if (!force) {
-      const inFlight = this.tabResearchInFlight.get(flightKey);
-      if (inFlight) return inFlight as Promise<DashboardTabResult<T> | null>;
-    }
+    // Force bypasses completed cache, not an active pass. Joining it avoids
+    // duplicate spend and an older answer overwriting a just-refreshed section.
+    const inFlight = this.tabResearchInFlight.get(flightKey);
+    if (inFlight) return structuredClone(await inFlight) as DashboardTabResult<T> | null;
     const run = (async (): Promise<DashboardTabResult<T> | null> => {
-      const content = await researchDashboardTab(tab, {
+      const { content, citations } = await researchDashboardWithSources(tab, {
         company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
         storedMetrics: this.snap.metrics.filter((m) => m.companyId === companyId),
@@ -1375,14 +1385,14 @@ export class GeminiRepository implements MarketIntelRepository {
       const lastRefreshedAt = new Date().toISOString();
       this.snap.dashboards[companyId] = {
         ...this.snap.dashboards[companyId],
-        [tab]: { content, lastRefreshedAt },
+        [tab]: { content, citations, lastRefreshedAt },
       };
       await this.persist();
-      return { companyId, tab, content, lastRefreshedAt };
+      return { companyId, tab, content, citations, lastRefreshedAt };
     })();
     this.tabResearchInFlight.set(flightKey, run);
     try {
-      return await run;
+      return structuredClone(await run);
     } finally {
       this.tabResearchInFlight.delete(flightKey);
     }

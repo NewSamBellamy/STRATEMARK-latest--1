@@ -38,11 +38,15 @@ export const HUMAN_ONLY_CONFIDENCE_NOTE =
 
 /** Drop citations that can't be shown or clicked. */
 export function usableCitations(citations: readonly Citation[] | undefined): Citation[] {
-  if (!citations) return [];
+  if (!Array.isArray(citations)) return [];
   const seen = new Set<string>();
   const out: Citation[] = [];
   for (const c of citations) {
-    const url = (c?.url ?? '').trim();
+    // Provider responses and imported vaults are not made safe by TS types.
+    // Drop malformed rows without taking down their well-formed siblings.
+    if (!c || typeof c.url !== 'string') continue;
+    const url = c.url.trim();
+    const title = typeof c.title === 'string' ? c.title.trim() : '';
     if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
     try {
       const parsed = new URL(url);
@@ -51,9 +55,9 @@ export function usableCitations(citations: readonly Citation[] | undefined): Cit
     seen.add(url);
     out.push({
       url,
-      title: (c.title ?? '').trim() || publisherOf(url),
+      title: title || publisherOf(url),
       // Supplied labels are untrusted (model output and imported snapshots).
-      credibility: classifySource(url, c.title),
+      credibility: classifySource(url, title),
     });
   }
   return out;
