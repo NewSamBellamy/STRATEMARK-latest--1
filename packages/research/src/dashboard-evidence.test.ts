@@ -18,7 +18,11 @@ function setup() {
     board: [], fundingRounds: [{ round: 'Seed' }], products: [], timeline: [], items: [] });
   const client = { ground, structure } as unknown as LlmClient;
   const repo = () => new GeminiRepository({ apiKey: 'test', client, store,
-    originalSourceReader: async sourceUrl => ({ requestedUrl: sourceUrl, finalUrl: sourceUrl,
+    // These cases exercise SEARCH lineage. Make the direct homepage explicitly
+    // unreadable so the fallback must discover the actual report selected below.
+    originalSourceReader: async sourceUrl => sourceUrl === 'https://example.com'
+      ? { requestedUrl: sourceUrl, status: 'unavailable', retrievedAt: new Date().toISOString() }
+      : ({ requestedUrl: sourceUrl, finalUrl: sourceUrl,
       status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: 'Example sells research software.', retrievedAt: new Date().toISOString() }) });
   return { store, ground, structure, repo };
 }

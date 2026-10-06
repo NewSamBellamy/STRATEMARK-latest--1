@@ -4,6 +4,7 @@ import { selectOriginalSourceCitations, type OriginalSourceReceipt } from './ori
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { TabResearchArgs } from './dashboard';
 import { companyOriginalReceipts, projectCompanyFactsFromOriginals } from './company-facts';
+import { throwIfAborted } from './util';
 
 const excerptsSchema = z.object({ excerpts: z.array(z.object({ sourceUrl: z.string().max(2048), quote: z.string().max(600) })).max(4).default([]) });
 const normalize = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim();
@@ -78,18 +79,34 @@ export async function researchCompanyOverview(args: TabResearchArgs) {
   const attempts = args.originalSources
     ? await args.originalSources.list({ companyId: args.company.id, limit: 20 }) : args.originalAttempts;
   let originals = scopedReceipts(args, attempts);
-  if (!originals.some(readable) && args.originalSources) {
-    const result = await args.client.ground(`Find original company pages explaining what ${args.company.name} does and who it serves. Prefer ${args.company.websiteUrl ?? 'the official website'} and authoritative reporting. Return sources; do not invent missing business figures.`,
-      { system: GROUNDED_SYSTEM, signal: args.signal, researchContext: { companyId: args.company.id, companyName: args.company.name, topic: 'overview' } });
-    // A saved official URL is an existing locator, not an invented citation or
-    // evidence of truth. It competes within the SAME two-page read budget.
-    const seed = args.company.websiteUrl ? [{ title: 'Company website', url: args.company.websiteUrl }] : [];
-    const selected = selectOriginalSourceCitations([...seed, ...result.citations], args.company.websiteUrl);
-    originals = await Promise.all(selected.map(row => args.originalSources!.retrieve(row.url,
-      { companyId: args.company.id, companyName: args.company.name, metricType: 'overview' })));
-    const attempt = { id: `src_${globalThis.crypto.randomUUID()}`, companyId: args.company.id, metricType: 'overview', capturedAt: new Date().toISOString(), receipts: originals };
-    await args.originalSources.save(attempt); // failed reads retained; save failures stop publication
-    originals = scopedReceipts(args, [attempt]);
+  throwIfAborted(args.signal);
+  if (!overviewSources(args, originals).length && args.originalSources) {
+    // The existing official locator is a source lead, not proof. Read it before
+    // paying for discovery; a valid original saves one grounded call and one
+    // page read. Fallback shares the same two-read budget, never a second pass.
+    const collected: OriginalSourceReceipt[] = [];
+    const scope = { companyId: args.company.id, companyName: args.company.name, metricType: 'overview' };
+    const seed = args.company.websiteUrl ? selectOriginalSourceCitations([{ title: 'Company website', url: args.company.websiteUrl }], args.company.websiteUrl)[0] : undefined;
+    try {
+      if (seed) collected.push(await args.originalSources.retrieve(seed.url, scope));
+      throwIfAborted(args.signal);
+      if (!overviewSources(args, collected).length) {
+        const result = await args.client.ground(`Find original company pages explaining what ${args.company.name} does and who it serves. Prefer ${args.company.websiteUrl ?? 'the official website'} and authoritative reporting. Return sources; do not invent missing business figures.`,
+          { system: GROUNDED_SYSTEM, signal: args.signal, researchContext: { companyId: args.company.id, companyName: args.company.name, topic: 'overview' } });
+        throwIfAborted(args.signal);
+        const pageKey = (url: string) => { try { const parsed = new URL(url); parsed.hash = ''; return parsed.href; } catch { return null; } };
+        const tried = new Set(collected.flatMap(source => [pageKey(source.requestedUrl), pageKey(source.finalUrl ?? '')]).filter(Boolean));
+        const selected = selectOriginalSourceCitations(result.citations.filter(row => !tried.has(pageKey(row.url))), args.company.websiteUrl).slice(0, 2 - collected.length);
+        collected.push(...await Promise.all(selected.map(row => args.originalSources!.retrieve(row.url, scope))));
+      }
+    } finally {
+      // Keep already completed public reads even if discovery/cancellation fails.
+      // A failed save still stops synthesis and publication.
+      if (collected.length) await args.originalSources.save({ id: `src_${globalThis.crypto.randomUUID()}`, companyId: args.company.id,
+        metricType: 'overview', capturedAt: new Date().toISOString(), receipts: collected });
+    }
+    throwIfAborted(args.signal);
+    originals = [...collected, ...originals];
   }
   const candidates = overviewSources(args, originals);
   const extracted = candidates.length ? excerptsSchema.parse(await args.client.structure(

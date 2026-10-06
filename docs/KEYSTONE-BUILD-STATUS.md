@@ -12,7 +12,7 @@ Updated: 2026-10-05 (local date). Implementation started; no full milestone is c
 Repository: `C:/Users/shann/Documents/Codex/2026-09-28/i-x20/work/stratemark-card-redesign-revival`.
 Branch: `revival/initial-card-redesign`. Preserve main and unrelated local work.
 
-- Current checkpoint 33: rejected original-backed candidate facts retain specific evidence-gap explanations across canonical facts, saved cards/reopen and the existing Unknown badge. The same acceptance gate remains strict; no design changes or provider calls. Native accessibility works, but screenshot/input geometry failures prevented the live journey; browser reader still shows honest Unknown figures. Final full gate passed (1,137 tests); desktop and browser-last builds passed. See [checkpoint 33](KEYSTONE-CHECKPOINT-33.md). Parent: `9a22808` ([checkpoint 32](KEYSTONE-CHECKPOINT-32.md)).
+- Current checkpoint 34: overview tries the known company original before paid discovery, with one shared two-read budget and retained partial outcomes. Local/native reuse and actual authorized cloud-route storage are covered. Real Anthropic homepage probe rendered/reopened a literal quote in 134 ms with one read and no paid calls; selector/snapshot store controlled, not a live Gemini/user-vault journey. Full gate passed (1,146 tests); desktop and browser-last builds passed. Design unchanged. See [checkpoint 34](KEYSTONE-CHECKPOINT-34.md). Parent: `69d537d` ([checkpoint 33](KEYSTONE-CHECKPOINT-33.md)).
 
 ## Actually completed
 

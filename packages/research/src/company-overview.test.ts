@@ -23,6 +23,39 @@ function setup(originals: OriginalSourceAttempt[] = [attempt]) {
 }
 
 describe('source-backed company overview', () => {
+  it('reads the known official page before paid search and retains it before synthesis', async () => {
+    const { run, sources, ground, structure } = setup([]);
+    sources.retrieve.mockResolvedValue({ ...attempt.receipts[0]!, requestedUrl: company.websiteUrl,
+      finalUrl: company.websiteUrl, text: quote });
+    structure.mockImplementation(async () => {
+      expect(sources.save).toHaveBeenCalledTimes(1);
+      return { excerpts: [{ sourceUrl: company.websiteUrl, quote }] };
+    });
+    const result = await run([]);
+    expect(result.content.markdown).toContain(quote);
+    expect(sources.retrieve).toHaveBeenCalledTimes(1);
+    expect(sources.retrieve.mock.calls[0]![0]).toBe(company.websiteUrl);
+    expect(ground).not.toHaveBeenCalled();
+    expect(structure).toHaveBeenCalledTimes(1);
+  });
+  it('uses only the remaining read slot after the official page fails, and retains both outcomes', async () => {
+    const { run, sources, ground } = setup([]);
+    sources.retrieve.mockResolvedValueOnce({ requestedUrl: company.websiteUrl, status: 'blocked', retrievedAt: attempt.capturedAt })
+      .mockResolvedValueOnce(attempt.receipts[0]);
+    const result = await run([]);
+    expect(result.content.markdown).toContain(quote);
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(sources.retrieve).toHaveBeenCalledTimes(2);
+    expect(sources.save.mock.calls[0]![0].receipts.map((receipt: { status: string }) => receipt.status)).toEqual(['blocked', 'retrieved']);
+  });
+  it('does not reuse ineligible social originals instead of trying the known company page', async () => {
+    const { run, sources, ground, structure } = setup([{ ...attempt, receipts: [{ ...attempt.receipts[0]!, finalUrl: 'https://facebook.com/acme' }] }]);
+    sources.retrieve.mockResolvedValue({ ...attempt.receipts[0]!, requestedUrl: company.websiteUrl, finalUrl: company.websiteUrl, text: quote });
+    structure.mockResolvedValue({ excerpts: [{ sourceUrl: company.websiteUrl, quote }] });
+    expect((await run([])).content.markdown).toContain(quote);
+    expect(sources.retrieve).toHaveBeenCalledTimes(1);
+    expect(ground).not.toHaveBeenCalled();
+  });
   it('reuses company originals, renders accepted figures with reporting date, and never publishes model prose', async () => {
     const { run, ground, structure, sources } = setup();
     const result = await run();
@@ -66,6 +99,7 @@ describe('source-backed company overview', () => {
   });
   it('fetches at most two originals and saves the receipts before synthesis', async () => {
     const { run, ground, sources, structure } = setup([]);
+    sources.retrieve.mockResolvedValueOnce({ requestedUrl: company.websiteUrl, status: 'unavailable', retrievedAt: attempt.capturedAt });
     ground.mockResolvedValue({ text: 'Unchecked notes', citations: [sourceUrl, 'https://reuters.com/one', 'https://reuters.com/two'].map(url => ({ title: 'Report', url })), queries: [] });
     structure.mockImplementation(async () => { expect(sources.save).toHaveBeenCalledTimes(1); return { excerpts: [{ sourceUrl, quote }] }; });
     await run([]);
@@ -73,7 +107,7 @@ describe('source-backed company overview', () => {
     expect(sources.retrieve).toHaveBeenCalledTimes(2);
     expect(sources.save.mock.calls[0]![0]).toMatchObject({ companyId: 'cmp', metricType: 'overview' });
   });
-  it('uses the known company website rather than spending both read slots on opaque search redirects', async () => {
+  it('does not search opaque redirect leads when the known company page is already eligible', async () => {
     const { run, ground, sources } = setup([]);
     ground.mockResolvedValue({ text: 'Search notes', queries: [], citations: [
       { title: 'acme.com', url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/first' },
@@ -81,7 +115,49 @@ describe('source-backed company overview', () => {
     ] });
     await run([]);
     expect(sources.retrieve.mock.calls[0]![0]).toBe(company.websiteUrl);
+    expect(sources.retrieve).toHaveBeenCalledTimes(1);
+    expect(ground).not.toHaveBeenCalled();
+  });
+  it('retains the direct-page failure even if fallback discovery throws', async () => {
+    const { run, sources, ground, structure } = setup([]);
+    sources.retrieve.mockResolvedValue({ requestedUrl: company.websiteUrl, status: 'unavailable', retrievedAt: attempt.capturedAt });
+    ground.mockRejectedValue(new Error('Provider quota exhausted'));
+    await expect(run([])).rejects.toThrow('Provider quota exhausted');
+    expect(sources.save).toHaveBeenCalledTimes(1);
+    expect(sources.save.mock.calls[0]![0].receipts).toHaveLength(1);
+    expect(structure).not.toHaveBeenCalled();
+  });
+  it('keeps a completed direct read but does not search or synthesize after cancellation', async () => {
+    const { sources, ground, structure } = setup([]);
+    const controller = new AbortController();
+    sources.retrieve.mockImplementation(async () => { controller.abort(); return attempt.receipts[0]; });
+    await expect(researchDashboardWithSources('overview', { company, marketName: 'Research', storedMetrics: [],
+      client: { ground, structure } as unknown as LlmClient, originalSources: sources, signal: controller.signal })).rejects.toThrow();
+    expect(sources.save).toHaveBeenCalledTimes(1);
+    expect(sources.save.mock.calls[0]![0].receipts).toHaveLength(1);
+    expect(ground).not.toHaveBeenCalled();
+    expect(structure).not.toHaveBeenCalled();
+  });
+  it('keeps the two-source discovery path when no official locator exists', async () => {
+    const { sources, ground, structure } = setup([]);
+    ground.mockResolvedValue({ text: 'Notes', queries: [], citations: [sourceUrl, 'https://reuters.com/report', 'https://reuters.com/extra'].map(url => ({ title: 'Report', url })) });
+    const result = await researchDashboardWithSources('overview', { company: { ...company, websiteUrl: null }, marketName: 'Research', storedMetrics: [],
+      client: { ground, structure } as unknown as LlmClient, originalSources: sources });
+    expect(result.content.markdown).toContain(quote);
+    expect(ground).toHaveBeenCalledTimes(1);
     expect(sources.retrieve).toHaveBeenCalledTimes(2);
+    expect(sources.save).toHaveBeenCalledTimes(1);
+  });
+  it('does not reread the failed known page when search repeats its fragment or final URL', async () => {
+    const { run, sources, ground } = setup([]);
+    sources.retrieve.mockResolvedValueOnce({ requestedUrl: company.websiteUrl, finalUrl: 'https://acme.com/home', status: 'blocked', retrievedAt: attempt.capturedAt });
+    ground.mockResolvedValue({ text: 'Notes', queries: [], citations: [
+      { title: 'Company', url: `${company.websiteUrl}#about` }, { title: 'Home', url: 'https://acme.com/home#top' },
+      { title: 'Report', url: sourceUrl },
+    ] });
+    await run([]);
+    expect(sources.retrieve).toHaveBeenCalledTimes(2);
+    expect(sources.retrieve.mock.calls[1]![0]).toBe(sourceUrl);
   });
   it('does not spend on synthesis when no readable originals exist', async () => {
     const { run, sources, structure } = setup([]);

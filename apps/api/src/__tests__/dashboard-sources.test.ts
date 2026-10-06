@@ -5,12 +5,15 @@ import { readEnv } from '../env';
 import { CloudDeckService, MockFirebaseAdapter } from '../lib/CloudDeckService';
 import { MemoryDataStore } from '../lib/firestoreStore';
 import { resolveClient } from '../lib/client';
+import { retrieveOriginalSource } from '../lib/original-source';
+
+vi.mock('../lib/original-source', () => ({ retrieveOriginalSource: vi.fn() }));
 
 vi.mock('../lib/client', async original => ({
   // eslint-disable-next-line @typescript-eslint/consistent-type-imports
   ...await original<typeof import('../lib/client')>(), resolveClient: vi.fn(),
 }));
-afterEach(() => vi.clearAllMocks());
+afterEach(() => vi.resetAllMocks());
 const headers = { Authorization: 'Bearer valid_token', 'X-Stratemark-Token': 'app-token', 'Content-Type': 'application/json' };
 const input = { deckId: 'deck_test', companyId: 'cmp', tab: 'history' };
 async function setup(cap = '10') {
@@ -27,6 +30,26 @@ async function setup(cap = '10') {
   return { post, ground, structure, service, store };
 }
 describe('actual cloud dashboard source transport and authorization', () => {
+  it('reads and retains the authorized official page before paid search on the actual overview route', async () => {
+    const { post, structure, ground, service } = await setup();
+    const url = 'https://example.com/';
+    const quote = 'Example sells research software for independent analysts.';
+    vi.mocked(retrieveOriginalSource).mockResolvedValue({ requestedUrl: 'https://example.com', finalUrl: url,
+      status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: quote, retrievedAt: new Date().toISOString() });
+    structure.mockResolvedValue({ excerpts: [{ sourceUrl: url, quote }] } as never);
+    const response = await post({ ...input, tab: 'overview' });
+    expect(response.status).toBe(200);
+    const result = await response.json() as { content: { markdown: string }; citations: Array<{ url: string }> };
+    expect(result.content.markdown).toContain(quote);
+    expect(result.citations).toEqual([expect.objectContaining({ url })]);
+    expect(retrieveOriginalSource).toHaveBeenCalledTimes(1);
+    expect(retrieveOriginalSource).toHaveBeenCalledWith('https://example.com', undefined,
+      { companyId: 'cmp', companyName: 'Example', metricType: 'overview' });
+    expect(ground).not.toHaveBeenCalled();
+    const retained = await service.getOriginalSources('user_123', 'deck_test').list({ companyId: 'cmp', metricType: 'overview' });
+    expect(retained).toHaveLength(1);
+    expect(retained[0]!.receipts[0]).toMatchObject({ finalUrl: url, text: quote, status: 'retrieved' });
+  });
   it('uses scoped persisted originals for overview instead of unchecked provider prose', async () => {
     const { post, structure, ground, store } = await setup();
     const url = 'https://example.com/report';

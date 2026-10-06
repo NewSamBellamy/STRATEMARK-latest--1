@@ -52,6 +52,28 @@ function memoryStore(initial: RepoSnapshot): ResearchStore {
 }
 
 describe('getDashboardTab in-flight dedupe', () => {
+  it('shares one direct official read and preserves its cited overview after repository reopen without discovery spend', async () => {
+    const quote = 'OpenAI develops research tools for businesses and independent researchers.';
+    const ground = vi.fn().mockRejectedValue(new Error('Unexpected paid discovery'));
+    const structure = vi.fn().mockResolvedValue({ excerpts: [{ sourceUrl: 'https://openai.com/', quote }] });
+    const reader = vi.fn().mockResolvedValue({ requestedUrl: 'https://openai.com', finalUrl: 'https://openai.com/',
+      status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: quote, retrievedAt: new Date().toISOString() });
+    const store = memoryStore(snapshotWithCompany());
+    const options = { apiKey: 'k', store, client: { ground, structure } as unknown as LlmClient, originalSourceReader: reader };
+    const repo = new GeminiRepository(options);
+    const [normal, forced] = await Promise.all([repo.getDashboardTab('cmp_1', 'overview'), repo.getDashboardTab('cmp_1', 'overview', true)]);
+    expect(normal?.content.markdown).toContain(quote);
+    expect(forced).toEqual(normal);
+    expect(normal?.citations).toEqual([expect.objectContaining({ url: 'https://openai.com/' })]);
+    expect(reader).toHaveBeenCalledTimes(1);
+    expect(ground).not.toHaveBeenCalled();
+    expect(structure).toHaveBeenCalledTimes(1);
+    const reopened = await new GeminiRepository(options).getDashboardTab('cmp_1', 'overview');
+    expect(reopened?.content).toEqual(normal?.content);
+    expect(reopened?.citations).toEqual(normal?.citations);
+    expect(reader).toHaveBeenCalledTimes(1);
+    expect(structure).toHaveBeenCalledTimes(1);
+  });
   it('two concurrent requests for the same tab share ONE research pass', async () => {
     let resolveGround: (v: { text: string; citations: never[]; queries: string[] }) => void;
     const groundPromise = new Promise((r) => {
