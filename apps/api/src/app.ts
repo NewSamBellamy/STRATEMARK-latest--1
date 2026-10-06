@@ -14,9 +14,7 @@
  * costs while we provide storage, sync and sharing. Omitting it means the
  * service's own credentials do the work. See lib/client.ts.
  */
-import { GoogleGenAI } from '@google/genai';
 import { Hono, type Context } from 'hono';
-import { getFirestore } from 'firebase-admin/firestore';
 import { cors } from 'hono/cors';
 import { z } from 'zod';
 import { 
@@ -68,6 +66,7 @@ import { CloudDeckService, FirebaseAdapter } from './lib/CloudDeckService';
 import { CloudDeckWorker } from './lib/CloudDeckWorker';
 import { CloudTasksAdapter, MockTasksAdapter, type TasksAdapter } from './lib/CloudTasksAdapter';
 import { AgentObservabilityLogger, parseTraceContext } from './lib/observability';
+import { cloudChatSchema, prepareCloudChat, researchIdSchema } from './lib/cloudChat';
 
 const planSchema = z.object({
   marketName: z.string().min(1),
@@ -616,87 +615,50 @@ export function createApp(
 
   app.post('/api/research/chat', async (c) => {
     try {
-      const input = await c.req.json().catch(() => ({}));
-      const question = input.question || '';
-      const uid = await getUserId(c);
-      
-      const db = getFirestore();
-      
-      let resolved;
-      try {
-        resolved = resolveClient({
-          env,
-          callerKey: c.req.header('X-Gemini-Key') || undefined,
-        });
-      } catch (err) {
-        if (err instanceof NoCredentialsError) return c.json({ error: err.message }, 401);
-        throw err;
-      }
-      
-      const threadId = input.threadId || `thread_${uid}_default`;
-      const threadRef = db.collection('chatThreads').doc(threadId);
-      
-      await db.runTransaction(async (t) => {
-        const doc = await t.get(threadRef);
-        const data = doc.exists ? doc.data() : { turns: 0, rawHistory: [], distilledMemory: '' };
-        
-        data!.turns = (data!.turns || 0) + 1;
-        data!.rawHistory.push({ role: 'user', content: question });
-        
-        const MEMORY_DISTILLATION_THRESHOLD = 20;
-        // Memory Distillation Guardrail (20+ turns)
-        if (data!.turns > MEMORY_DISTILLATION_THRESHOLD) {
-          // Bonus Points: Using additional Google AI Models (Gemma 2) for Distillation
-          const summaryPrompt = `Distill these raw chat logs into a concise set of durable facts and context. Logs: ${JSON.stringify(data!.rawHistory)}`;
-          
-          let newMemory = '';
-          try {
-            // Instantiate Gemma directly using the Vertex integration
-            const ai = new GoogleGenAI(
-              env.vertex
-                ? { vertexai: true, project: env.vertex.project, location: env.vertex.location }
-                : { apiKey: env.geminiApiKey ?? '' },
-            );
-            const summaryRes = await ai.models.generateContent({
-              model: 'gemma-2-9b-it',
-              contents: summaryPrompt
-            });
-            newMemory = summaryRes.text ?? '';
-          } catch {
-            // Fallback to Gemini if Gemma is not deployed in this region
-            const summaryRes = await resolved.client.ground(summaryPrompt, { system: 'You are a summarizer.' });
-            newMemory = summaryRes.text;
-          }
-
-          data!.distilledMemory = `${data!.distilledMemory}\n${newMemory}`.trim();
-          data!.rawHistory = []; // Clear raw history to prevent token bloat
-          data!.turns = 0; // Reset counter for next distillation phase
-        }
-        
-        t.set(threadRef, data!, { merge: true });
-      });
-      
-      // Fetch thread again after transaction for generation
-      const finalDoc = await threadRef.get();
-      const finalData = finalDoc.data() || { distilledMemory: '', rawHistory: [] };
-      
-      // Combine distilled memory + recent history + new question
-      const contextPrompt = `
-      Semantic Memory: ${finalData.distilledMemory}
-      Recent Chat: ${JSON.stringify(finalData.rawHistory)}
-      New Question: ${question}
-      `;
-      
-      const res = await resolved.client.ground(contextPrompt);
-
-      return c.json({
-        reply: res.text,
-        distilledActive: Boolean(finalData.distilledMemory),
-      });
+      const input = cloudChatSchema.safeParse(await c.req.json().catch(() => null));
+      if (!input.success) return c.json({ error: 'Invalid research question or scope' }, 400);
+      const access = await authorizeCloudResearch(c, METRIC_RESEARCH_ESTIMATE_USD);
+      const chat = await prepareCloudChat(store, access.userId, input.data);
+      if (!await cloudDeckService.checkEntitlement(access.userId)) return c.json({ error: 'Active subscription required for cloud research.' }, 402);
+      const resolved = resolveClient({ env, callerKey: access.callerKey,
+        onCall: info => { if (access.metered) budget.record(info.kind); } });
+      return c.json(await chat.answer(resolved.client));
     } catch (error) {
-      console.error('Chat error', error);
-      return c.json({ error: 'Chat failed' }, 500);
+      const mapped = guardError(error);
+      if (mapped) return c.json(mapped.body, mapped.status);
+      if (error instanceof NoCredentialsError) return c.json({ error: error.message }, 503);
+      const status = (error as { status?: number })?.status ?? (error as { cause?: { status?: number } })?.cause?.status;
+      if (status === 400 || status === 404 || status === 409 || status === 413) return c.json({ error: status === 404 ? 'Research or deck not found' : status === 409 ? 'Research changed; reload before retrying' : status === 413 ? 'Research conversation is too large' : 'Invalid research scope' }, status);
+      return c.json({ error: 'Research chat failed; your saved conversation has not been discarded.' }, 503);
     }
+  });
+
+  app.get('/api/research/threads', async c => {
+    const userId = await getUserId(c);
+    if (!userId) return c.json({ error: 'Authentication required' }, 401);
+    try {
+      const deckId = c.req.query('deckId');
+      const companyId = c.req.query('companyId');
+      if ((deckId && !researchIdSchema.safeParse(deckId).success) || (companyId && !researchIdSchema.safeParse(companyId).success)) return c.json({ error: 'Invalid research filter' }, 400);
+      const records = await store.listResearchThreads(userId);
+      const threads = [];
+      for (const record of records) {
+        if ((deckId && record.deckId !== deckId) || (companyId && record.thread.scope.companyId !== companyId)) continue;
+        if (await cloudDeckService.getDeck(userId, record.deckId)) threads.push(record.thread);
+      }
+      return c.json({ threads: threads.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) });
+    } catch { return c.json({ error: 'Research history is unavailable' }, 503); }
+  });
+
+  app.get('/api/research/threads/:id', async c => {
+    const userId = await getUserId(c);
+    if (!userId) return c.json({ error: 'Authentication required' }, 401);
+    if (!researchIdSchema.safeParse(c.req.param('id')).success) return c.json({ error: 'Invalid research id' }, 400);
+    try {
+      const record = await store.getResearchThread(userId, c.req.param('id'));
+      if (!record || !await cloudDeckService.getDeck(userId, record.deckId)) return c.json({ error: 'Research thread not found' }, 404);
+      return c.json(record.thread);
+    } catch { return c.json({ error: 'Research history is unavailable' }, 503); }
   });
 
   app.post('/api/research/tab', async (c) => {

@@ -6,11 +6,13 @@
  * Seamlessly integrates with the Cloud Scheduler autonomous delta refresh worklist.
  */
 import { Firestore, FieldValue } from '@google-cloud/firestore';
+import { createHash } from 'node:crypto';
 import type {
   AdkTraceEvent,
   AdkTraceSummary,
   CardWithCompany,
   LivingDeckNodeStatus,
+  ResearchThread,
 } from '@mi/contracts';
 import type { MarketPlan, OriginalSourceAttempt } from '@mi/research';
 import type { RefreshWorklistDeck, WorklistStore } from './worklist';
@@ -48,6 +50,32 @@ export interface StoredDeckRecord {
 }
 
 export const FIRESTORE_MAX_DOCUMENT_BYTES = 1048576;
+
+export interface StoredResearchThread {
+  userId: string;
+  deckId: string;
+  revision: number;
+  thread: ResearchThread;
+}
+
+function threadKey(userId: string, threadId: string): string {
+  return createHash('sha256').update(JSON.stringify([userId, threadId])).digest('hex');
+}
+
+function threadError(status: number, message: string): Error & { status: number } {
+  return Object.assign(new Error(message), { status });
+}
+
+function nextResearchThread(userId: string, thread: ResearchThread, expectedRevision: number, previous?: StoredResearchThread): StoredResearchThread {
+  if (!thread.scope.deckId || !thread.id) throw threadError(400, 'Thread requires a deck scope');
+  if (previous && (previous.userId !== userId || previous.deckId !== thread.scope.deckId ||
+      JSON.stringify(previous.thread.scope) !== JSON.stringify(thread.scope))) throw threadError(409, 'Thread scope cannot change');
+  if ((previous?.revision ?? 0) !== expectedRevision) throw threadError(409, 'Research thread changed; reload before retrying');
+  const next = { userId, deckId: thread.scope.deckId, revision: expectedRevision + 1, thread: structuredClone(thread) };
+  // ponytail: one bounded document per thread; partition messages when a real conversation hits this ceiling.
+  assertPayloadSize(next, 800000);
+  return next;
+}
 
 function appendCompanyOriginals(previous: OriginalSourceAttempt[], attempt: OriginalSourceAttempt): OriginalSourceAttempt[] {
   assertPayloadSize(attempt, 65536);
@@ -109,6 +137,9 @@ export interface EntitlementRecord {
 }
 
 export interface StratemarkDataStore extends WorklistStore {
+  getResearchThread(userId: string, threadId: string): Promise<StoredResearchThread | null>;
+  listResearchThreads(userId: string): Promise<StoredResearchThread[]>;
+  saveResearchThread(userId: string, thread: ResearchThread, expectedRevision: number): Promise<number>;
   saveCompanyOriginal(userId: string, deckId: string, attempt: OriginalSourceAttempt): Promise<void>;
   saveDeck(deckId: string, record: StoredDeckRecord, expectedRevision?: number): Promise<void>;
   getDeck(deckId: string): Promise<StoredDeckRecord | null>;
@@ -149,6 +180,26 @@ export interface StratemarkDataStore extends WorklistStore {
 }
 
 export class MemoryDataStore implements StratemarkDataStore {
+  private researchThreads = new Map<string, StoredResearchThread>();
+
+  async getResearchThread(userId: string, threadId: string): Promise<StoredResearchThread | null> {
+    const record = this.researchThreads.get(threadKey(userId, threadId));
+    return record ? structuredClone(record) : null;
+  }
+
+  async listResearchThreads(userId: string): Promise<StoredResearchThread[]> {
+    return structuredClone([...this.researchThreads.values()].filter(record => record.userId === userId).slice(0, 100));
+  }
+
+  async saveResearchThread(userId: string, thread: ResearchThread, expectedRevision: number): Promise<number> {
+    const key = threadKey(userId, thread.id);
+    const previous = this.researchThreads.get(key);
+    const deck = thread.scope.deckId ? this.decks.get(thread.scope.deckId) : null;
+    if (!deck || deck.userId !== userId) throw threadError(404, 'Deck not found');
+    const next = nextResearchThread(userId, thread, expectedRevision, previous);
+    this.researchThreads.set(key, next);
+    return next.revision;
+  }
   private decks = new Map<string, StoredDeckRecord>();
   private markets = new Map<string, Record<string, unknown>>();
   private savedCards = new Map<string, { userId: string; cardId: string; data?: Record<string, unknown>; savedAt: string }>();
@@ -232,6 +283,9 @@ export class MemoryDataStore implements StratemarkDataStore {
   async deleteDeck(deckId: string): Promise<void> {
     this.decks.delete(deckId);
     this.markets.delete(deckId);
+    for (const [key, record] of this.researchThreads) {
+      if (record.deckId === deckId) this.researchThreads.delete(key);
+    }
     await this.deleteArtifactsForDeck(deckId);
     for (const [key, share] of this.shares.entries()) {
       if (share.deckId === deckId) {
@@ -362,6 +416,9 @@ export class MemoryDataStore implements StratemarkDataStore {
     }
 
     this.entitlements.delete(userId);
+    for (const [key, record] of this.researchThreads) {
+      if (record.userId === userId) this.researchThreads.delete(key);
+    }
 
     return {
       deletedDecks,
@@ -488,6 +545,29 @@ export interface FirestoreStoreOptions {
 }
 
 export class FirestoreDataStore implements StratemarkDataStore {
+  async getResearchThread(userId: string, threadId: string): Promise<StoredResearchThread | null> {
+    const doc = await this.firestore.collection('research_threads').doc(threadKey(userId, threadId)).get();
+    const data = doc.data() as StoredResearchThread | undefined;
+    return data?.userId === userId ? data : null;
+  }
+
+  async listResearchThreads(userId: string): Promise<StoredResearchThread[]> {
+    const result = await this.firestore.collection('research_threads').where('userId', '==', userId).limit(100).get();
+    return result.docs.map(doc => doc.data() as StoredResearchThread).filter(record => record.userId === userId);
+  }
+
+  async saveResearchThread(userId: string, thread: ResearchThread, expectedRevision: number): Promise<number> {
+    return this.firestore.runTransaction(async transaction => {
+      const ref = this.firestore.collection('research_threads').doc(threadKey(userId, thread.id));
+      const saved = await transaction.get(ref);
+      const deckRef = this.firestore.collection(this.decksCol).doc(thread.scope.deckId ?? 'missing');
+      const deck = await transaction.get(deckRef);
+      if (!deck.exists || deck.data()?.userId !== userId) throw threadError(404, 'Deck not found');
+      const next = nextResearchThread(userId, thread, expectedRevision, saved.data() as StoredResearchThread | undefined);
+      transaction.set(ref, next);
+      return next.revision;
+    });
+  }
   private firestore: Firestore;
   private decksCol: string;
   private marketsCol: string;
@@ -688,9 +768,10 @@ export class FirestoreDataStore implements StratemarkDataStore {
 
   async deleteDeck(deckId: string): Promise<void> {
     // Cascade: delete deck, market, all associated shares, and all associated artifact metadata
-    const [sharesSnap, artifactsSnap] = await Promise.all([
+    const [sharesSnap, artifactsSnap, threadsSnap] = await Promise.all([
       this.firestore.collection(this.sharesCol).where('deckId', '==', deckId).get(),
       this.firestore.collection(this.artifactsCol).where('deckId', '==', deckId).get(),
+      this.firestore.collection('research_threads').where('deckId', '==', deckId).get(),
     ]);
 
     const batch = this.firestore.batch();
@@ -698,6 +779,7 @@ export class FirestoreDataStore implements StratemarkDataStore {
     batch.delete(this.firestore.collection(this.marketsCol).doc(deckId));
     sharesSnap.forEach((doc) => batch.delete(doc.ref));
     artifactsSnap.forEach((doc) => batch.delete(doc.ref));
+    threadsSnap.forEach((doc) => batch.delete(doc.ref));
     await batch.commit();
   }
 
@@ -989,12 +1071,13 @@ export class FirestoreDataStore implements StratemarkDataStore {
     let deletedShares = 0;
     let deletedArtifacts = 0;
 
-    const [decksSnap, marketsSnap, cardsSnap, sharesSnap, artifactsSnap] = await Promise.all([
+    const [decksSnap, marketsSnap, cardsSnap, sharesSnap, artifactsSnap, threadsSnap] = await Promise.all([
       this.firestore.collection(this.decksCol).where('userId', '==', userId).get(),
       this.firestore.collection(this.marketsCol).where('userId', '==', userId).get(),
       this.firestore.collection(this.savedCardsCol).where('userId', '==', userId).get(),
       this.firestore.collection(this.sharesCol).where('userId', '==', userId).get(),
       this.firestore.collection(this.artifactsCol).where('userId', '==', userId).get(),
+      this.firestore.collection('research_threads').where('userId', '==', userId).get(),
     ]);
 
     decksSnap.forEach((doc) => {
@@ -1019,6 +1102,7 @@ export class FirestoreDataStore implements StratemarkDataStore {
     });
 
     const entRef = this.firestore.collection(this.entitlementsCol).doc(userId);
+    threadsSnap.forEach(doc => batch.delete(doc.ref));
     batch.delete(entRef);
 
     await batch.commit();

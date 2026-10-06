@@ -830,13 +830,19 @@ export class SentinelRepository implements MarketIntelRepository {
   }
 
   async listResearchThreads(filter?: { deckId?: string; companyId?: string }): Promise<ResearchThread[]> {
-    void filter;
-    return [];
+    const params = new URLSearchParams();
+    if (filter?.deckId) params.set('deckId', filter.deckId);
+    if (filter?.companyId) params.set('companyId', filter.companyId);
+    const query = params.toString();
+    const response = await fetchSentinel<{ threads: ResearchThread[] }>(`/api/research/threads${query ? `?${query}` : ''}`);
+    if (!Array.isArray(response.threads)) throw new Error('Sentinel returned invalid research history.');
+    return response.threads;
   }
 
   async getResearchThread(id: string): Promise<ResearchThread | null> {
-    void id;
-    return null;
+    const thread = await fetchSentinel<ResearchThread>(`/api/research/threads/${encodeURIComponent(id)}`);
+    if (thread.id !== id || !Array.isArray(thread.messages)) throw new Error('Sentinel returned an invalid research thread.');
+    return thread;
   }
 
   async saveThreadAsReport(threadId: string, focus?: string | null): Promise<Report> {
