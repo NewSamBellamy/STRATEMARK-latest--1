@@ -25,6 +25,7 @@ type Props = {
 const capturedDate = new Intl.DateTimeFormat('en-US', {
   month: 'short', day: 'numeric', year: 'numeric',
 });
+const pendingCompanySnapshot = 'No source-backed company snapshot is ready yet.';
 
 export function CardReader({ data, open, ...props }: Props) {
   if (!data) return null;
@@ -90,7 +91,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                   target="_blank" rel="noopener noreferrer">
                   {publisherOf(citation.url, citation.title)} <ExternalLink size={10} aria-hidden="true" />
                 </a>)}
-              </div> : summary && <span className="card-inspector__summary-warning">
+              </div> : summary && summary !== pendingCompanySnapshot && <span className="card-inspector__summary-warning">
                 No source receipt is attached to this summary.
               </span>}
             </section>

@@ -40,6 +40,18 @@ describe('CardReader', () => {
     expect(dialog.getByRole('link', { name: /open full company dashboard/i })).toBeInTheDocument();
   });
 
+  it('does not call an explicit awaiting-verification state an unsourced summary', () => {
+    const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
+    renderWithProviders(<CardReader data={{
+      ...cwc,
+      card: { ...cwc.card, summary: 'No source-backed company snapshot is ready yet.', citations: [] },
+      company: { ...cwc.company!, oneLiner: 'No source-backed company snapshot is ready yet.' },
+    }} open onOpenChange={() => {}} />);
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getAllByText('No source-backed company snapshot is ready yet.')).toHaveLength(2);
+    expect(dialog.queryByText(/No source receipt is attached to this summary/i)).not.toBeInTheDocument();
+  });
+
   it('keeps unsupported or unlinked figures unknown and exposes source publisher and capture date', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
     const base = cwc.metrics[0]!;

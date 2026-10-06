@@ -67,6 +67,7 @@ import type {
   MarketPlan,
 } from './types';
 import { selectOriginalSourceCitations, type OriginalSourceServices } from './original-source';
+import { sourceBackedCompanySummary, UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
 import { originalSourcePromptViews, secRevenueObservation } from './sec-revenue';
 import { acceptedMetricPassage } from './metric-support';
 
@@ -617,8 +618,18 @@ export async function hydrateCompanyCard(
 
   throwIfAborted(options.signal);
 
+  const officialWebsite = candidate.domain ? `https://${candidate.domain}` : null;
+  const selectedProfileSources = selectOriginalSourceCitations(grounded.citations, officialWebsite, true);
+  const officialDomain = rootDomain(officialWebsite);
+  const hasOfficialProfileSource = Boolean(officialDomain && selectedProfileSources.some(source => rootDomain(source.url) === officialDomain));
+  // A grounded search may cite only third-party pages. Reserve one of the same
+  // two reads for the discovered official domain so the card can earn a useful,
+  // source-backed snapshot without increasing network or provider spend.
+  const profileSourceCandidates = !hasOfficialProfileSource && officialWebsite
+    ? [{ title: candidate.name, url: officialWebsite }, ...selectedProfileSources]
+    : selectedProfileSources;
   const originals = options.originalSources ? await Promise.all(
-    selectOriginalSourceCitations(grounded.citations, candidate.domain ? `https://${candidate.domain}` : null, true).map((citation) => options.originalSources!.retrieve(citation.url, { companyId, companyName: candidate.name, metricType: 'company_profile' })),
+    selectOriginalSourceCitations(profileSourceCandidates, officialWebsite, true).map((citation) => options.originalSources!.retrieve(citation.url, { companyId, companyName: candidate.name, metricType: 'company_profile' })),
   ) : [];
   throwIfAborted(options.signal);
   if (options.originalSources) await options.originalSources.save({
@@ -641,6 +652,13 @@ export async function hydrateCompanyCard(
   );
   throwIfAborted(options.signal);
 
+  const sourceSummary = options.originalSources ? sourceBackedCompanySummary({
+    companyName: candidate.name,
+    websiteUrl: enrichment.website ?? (candidate.domain ? `https://${candidate.domain}` : null),
+    proposedSummaries: [enrichment.oneLiner, candidate.descriptor],
+    originals,
+  }) : null;
+
   // 3. Company Entity Construction & Inline Logo Resolution
   const website = enrichment.website ?? (candidate.domain ? `https://${candidate.domain}` : null);
   const domain = rootDomain(website) ?? candidate.domain;
@@ -659,7 +677,9 @@ export async function hydrateCompanyCard(
   const company: Company = {
     id: companyId,
     name: candidate.name,
-    oneLiner: enrichment.oneLiner || candidate.descriptor,
+    oneLiner: options.originalSources
+      ? sourceSummary?.summary ?? UNSUPPORTED_COMPANY_SUMMARY
+      : enrichment.oneLiner || candidate.descriptor,
     logoUrl,
     hqLocation: enrichment.hqLocation ?? null,
     websiteUrl: website,
@@ -739,7 +759,9 @@ export async function hydrateCompanyCard(
   if (candidate.cardTypes.includes('vice') && sourcedViceClaims.length > 0) emittedTypes.push('vice');
   if (candidate.cardTypes.includes('culture') && cultureNote) emittedTypes.push('culture');
 
-  const defaultSummary = candidate.descriptor || enrichment.oneLiner || company.oneLiner || null;
+  const defaultSummary = options.originalSources
+    ? sourceSummary?.summary ?? UNSUPPORTED_COMPANY_SUMMARY
+    : candidate.descriptor || enrichment.oneLiner || company.oneLiner || null;
 
   const deckId = options.deckId ?? '';
   const cards: CardWithCompany[] = emittedTypes.map((cardType) => {
@@ -755,7 +777,7 @@ export async function hydrateCompanyCard(
       summary,
       tier: cardType === primaryRole ? cmsResult.finalTier : null,
       tierReason: cardType === primaryRole ? (options.nudgeReason ?? null) : null,
-      citations: [],
+      citations: isEntity && sourceSummary ? sourceSummary.citations : [],
       keyPoints: [],
       createdAt: now(),
     };

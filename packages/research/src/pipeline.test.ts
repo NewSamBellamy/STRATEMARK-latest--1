@@ -788,6 +788,33 @@ describe('discovery coverage contract', () => {
     expect(String(structure.mock.calls[0]?.[0])).toContain('Research frontier AI labs');
   });
 
+  it('keeps an explicitly named company when discovery correctly classifies it as infrastructure', async () => {
+    const structure = vi.fn(async (prompt: string, schema: ZodType<unknown>) => {
+      if (prompt.includes('market definition')) return schema.parse({
+        marketName: 'Frontier AI', vertical: 'Frontier AI', geography: null, notes: null,
+        searchThemes: ['frontier models'], companyScope: { mode: 'market', names: [] },
+      });
+      return schema.parse({ companies: [{
+        name: 'Microsoft Corporation', domain: 'microsoft.com', descriptor: 'Cloud and AI infrastructure provider',
+        primaryRole: 'infrastructure', cardTypes: ['infrastructure'],
+      }] });
+    });
+    const client: LlmClient = {
+      ground: vi.fn(async () => ({ text: 'Microsoft Azure provides AI infrastructure.', citations: [], queries: [] })),
+      structure: structure as LlmClient['structure'],
+    };
+
+    const result = await discoverDeckStubs({
+      prompt: 'Compare Microsoft Corporation in frontier AI', region: null,
+      companyScope: { mode: 'selected_only', names: ['Microsoft Corporation'] },
+    }, client, { coverage: testCoverage });
+
+    expect(result.candidates).toEqual([expect.objectContaining({
+      name: 'Microsoft Corporation', primaryRole: 'infrastructure', cardTypes: ['infrastructure'],
+    })]);
+    expect(result.minimumCompaniesSatisfied).toBe(true);
+  });
+
   it('uses bounded fallback passes to fill underfilled entity roles', async () => {
     const client: LlmClient = {
       ground: vi.fn(async () => ({ text: 'grounded', citations: [], queries: [] })),

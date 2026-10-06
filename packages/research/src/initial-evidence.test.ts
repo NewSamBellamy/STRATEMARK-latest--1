@@ -77,6 +77,44 @@ describe('initial company original-evidence publication', () => {
     expect(client.ground).toHaveBeenCalledTimes(1);
     expect(client.structure).toHaveBeenCalledTimes(1);
   });
+  it('uses a literal official-source sentence for the company snapshot and attaches its receipt', async () => {
+    const officialUrl = 'https://acme.com/about';
+    const summary = 'Acme Inc. builds secure collaboration software for distributed product teams.';
+    const { client, originals } = fixture(false, summary);
+    client.ground = vi.fn(async () => ({ text: 'Company notes', citations: [{ title: 'Company profile', url: officialUrl }], queries: [] }));
+    originals.retrieve = vi.fn(async requestedUrl => ({ requestedUrl, finalUrl: requestedUrl, status: 'retrieved' as const,
+      httpStatus: 200, contentHash: 'a'.repeat(64), text: summary, retrievedAt: '2026-10-04T00:00:00.000Z' }));
+
+    const result = await hydrateCompanyCard({ candidate, client, plan, originalSources: originals });
+
+    expect(result.company.oneLiner).toBe(summary);
+    expect(result.card.summary).toBe(summary);
+    expect(result.card.citations).toEqual([expect.objectContaining({ url: officialUrl })]);
+    expect(result.memory.dashboard.overview?.summary).toBe(summary);
+  });
+  it('does not promote model copy or a third-party source as a verified first-card summary', async () => {
+    const { client, originals } = fixture(true, 'Acme Inc. reported 45 employees as of 2026-10-01.');
+    const result = await hydrateCompanyCard({ candidate, client, plan, originalSources: originals });
+
+    expect(result.company.oneLiner).toBe('No source-backed company snapshot is ready yet.');
+    expect(result.card.summary).toBe('No source-backed company snapshot is ready yet.');
+    expect(result.card.citations).toEqual([]);
+  });
+  it('reads the official domain when grounded search omitted it, within the same two-source budget', async () => {
+    const officialUrl = 'https://acme.com';
+    const summary = 'Acme Inc. builds secure collaboration software for distributed product teams.';
+    const { client, originals } = fixture(false);
+    originals.retrieve = vi.fn(async (requestedUrl: string) => ({ requestedUrl, finalUrl: requestedUrl,
+      status: 'retrieved' as const, httpStatus: 200, contentHash: 'a'.repeat(64),
+      text: requestedUrl === officialUrl ? summary : quote, retrievedAt: '2026-10-04T00:00:00.000Z' }));
+
+    const result = await hydrateCompanyCard({ candidate, client, plan, originalSources: originals });
+
+    expect(vi.mocked(originals.retrieve).mock.calls.map(([target]) => target)).toEqual([officialUrl, url]);
+    expect(vi.mocked(originals.retrieve)).toHaveBeenCalledTimes(2);
+    expect(result.company.oneLiner).toBe(summary);
+    expect(result.card.citations).toEqual([expect.objectContaining({ url: officialUrl })]);
+  });
   it('retains the accepted proof from first card through overview and offline reopen', async () => {
     const { client, originals } = fixture();
     const card = await hydrateCompanyCard({ candidate, client, plan, originalSources: originals });
@@ -170,7 +208,8 @@ describe('initial company original-evidence publication', () => {
   it('persists scoped originals before interpretation and includes them as untrusted data', async () => {
     const { client, originals } = fixture();
     await hydrateCompanyCard({ candidate, client, plan, originalSources: originals, companyId: 'cmp_acme' });
-    expect(originals.save).toHaveBeenCalledWith(expect.objectContaining({ companyId: 'cmp_acme', metricType: 'company_profile', receipts: [expect.objectContaining({ text: quote })] }));
+    expect(originals.save).toHaveBeenCalledWith(expect.objectContaining({ companyId: 'cmp_acme', metricType: 'company_profile',
+      receipts: expect.arrayContaining([expect.objectContaining({ text: quote })]) }));
     expect(vi.mocked(originals.save).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(client.structure).mock.invocationCallOrder[0]!);
     expect(vi.mocked(client.structure).mock.calls[0]![0]).toContain('UNTRUSTED ORIGINAL EXTRACTS');
     expect(vi.mocked(client.structure).mock.calls[0]![0]).toContain(quote);

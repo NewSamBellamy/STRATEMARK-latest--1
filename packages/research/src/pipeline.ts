@@ -246,12 +246,15 @@ async function discover(
       }
       facets = ['company', ...facets];
     }
-    if (focus !== 'all' && !facets.includes(focus as CardType)) continue;
+    // An exact-name request is about entity identity, not a request to force
+    // every named business into the current discovery role. In particular, a
+    // named hyperscaler may correctly resolve as infrastructure; dropping it
+    // here silently turns an exact comparison into a partial deck.
+    if (exactCompanyNames.length === 0 && focus !== 'all' && !facets.includes(focus as CardType)) continue;
     const descriptor = c.descriptor ?? '';
-    const focusRole =
+    const focusRole = exactCompanyNames.length === 0 && (
       focus === 'company' || focus === 'infrastructure' || focus === 'distribution'
-        ? focus
-        : undefined;
+    ) ? focus : undefined;
     const primaryRole = c.primaryRole ?? primaryEntityType(facets, name, descriptor, focusRole);
     if (!facets.includes(primaryRole)) facets = [primaryRole, ...facets];
 
