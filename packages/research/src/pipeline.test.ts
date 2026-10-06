@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
-import type { Deck, DeckRefreshEvent } from '@mi/contracts';
+import type { Deck, DeckRefreshEvent, ResearchProgress } from '@mi/contracts';
 import type { CompanyCandidate, LlmClient } from './types';
 import {
   discoverDeckStubs,
@@ -11,6 +11,14 @@ import {
 } from './pipeline';
 import { GeminiRepository, type ResearchStore, type RepoSnapshot } from './repository';
 import { discoveryMinimumOutSchema } from './schemas';
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 /**
  * A fake LLM that returns canned grounded text + citations and canned structured
@@ -945,16 +953,38 @@ describe('Progressive Fast-Boot & Continual Background Research Architecture', (
     expect(insightCards.length).toBeGreaterThan(0);
   });
 
-  it('createResearchedDeck returns immediately with stubs and hydrates progressively with live events', async () => {
+  it('waits for the lead company card before returning while other cards hydrate in the background', async () => {
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
     const storeState: { value: RepoSnapshot | null } = { value: null };
     const store: ResearchStore = {
       read: () => storeState.value,
       write: (snap) => (storeState.value = snap),
     };
 
+    const client = fakeClient();
+    const alphaGate = deferred<void>();
+    const otherCompaniesGate = deferred<void>();
+    const alphaStarted = deferred<void>();
+    const originalGround = client.ground.bind(client);
+    let leadCompanyName = '';
+    client.ground = async (prompt, options) => {
+      if (prompt.startsWith('Research the company "')) {
+        const companyName = prompt.match(/^Research the company "([^"]+)"/)?.[1] ?? '';
+        if (!leadCompanyName) {
+          leadCompanyName = companyName;
+          alphaStarted.resolve();
+          await alphaGate.promise;
+        } else if (companyName !== leadCompanyName) {
+          await otherCompaniesGate.promise;
+        }
+      }
+      return originalGround(prompt, options);
+    };
+
     const repo = new GeminiRepository({
       apiKey: 'test-key',
-      client: fakeClient(),
+      client,
       coverage: testCoverage,
       catalogMax: 3,
       catalogPasses: 0,
@@ -966,36 +996,48 @@ describe('Progressive Fast-Boot & Continual Background Research Architecture', (
       refreshEvents.push(evt);
     });
 
-    // 1. Fast-boot invocation: returns immediately
-    const { market, deck } = await repo.createResearchedDeck({
+    const progress: ResearchProgress[] = [];
+    let creationSettled = false;
+    const creation = repo.createResearchedDeck({
       prompt: 'AI developer tools',
       region: 'CA',
+    }, {
+      onProgress: (event) => progress.push(event),
     });
+    void creation.then(
+      () => { creationSettled = true; },
+      () => { creationSettled = true; },
+    );
+
+    await alphaStarted.promise;
+    expect(creationSettled).toBe(false);
+    alphaGate.resolve();
+    const { market, deck } = await creation;
 
     expect(market.id).toBeTruthy();
     expect(deck.id).toBeTruthy();
     expect((await repo.getDeckByMarket(market.id) as Deck & { status?: string }).status).toBe('running');
 
-    // 2. Initial state in store: stub cards are already stored and accessible
+    // The lead card has completed its first hydration before the UI can navigate.
     const initialCards = await repo.listCards(deck.id);
     expect(initialCards.length).toBeGreaterThanOrEqual(3);
 
-    // Stubs are unhydrated initially
     const stubCompanyCards = initialCards.filter((c) => c.card.cardType === 'company');
     expect(stubCompanyCards.length).toBeGreaterThanOrEqual(3);
-    for (const stub of stubCompanyCards) {
-      expect(stub.company?.name).toBeTruthy();
-      expect(stub.company?.logoUrl).toContain('faviconV2');
-      // Unhydrated means unranked — see the clean-metrics policy above.
-      expect(stub.card.tier).toBeNull();
-      for (const metric of stub.metrics) {
-        expect(metric.value).not.toBeNull();
-        expect(metric.source).toBeTruthy();
-      }
-    }
+    expect(stubCompanyCards[0]?.company?.name).toBe(leadCompanyName);
+    expect(progress.some((event) => event.card?.company?.name === leadCompanyName)).toBe(true);
 
-    // 3. Wait for continual background worker pool to finish
+    // Other company research is still pending: the method does not wait for the whole deck.
+    expect(
+      progress.some(
+        (event) => event.card?.company && event.card.company.name !== leadCompanyName,
+      ),
+    ).toBe(false);
+    otherCompaniesGate.resolve();
+
+    // Wait for continual background worker pool to finish.
     await repo.waitForBackgroundJobs();
+    vi.stubGlobal('fetch', originalFetch);
     expect((await repo.getDeckByMarket(market.id) as Deck & { status?: string }).status).toBe('ready');
 
     // 4. Verify live DeckRefreshEvent emissions were fired

@@ -854,6 +854,15 @@ export class GeminiRepository implements MarketIntelRepository {
     job.updatedAt = new Date().toISOString();
     await this.persist();
 
+    let resolveLeadCardReady!: () => void;
+    let rejectLeadCardReady!: (error: Error) => void;
+    let leadCardReadyClaimed = false;
+    let leadCardReadySettled = false;
+    const leadCardReady = new Promise<void>((resolve, reject) => {
+      resolveLeadCardReady = resolve;
+      rejectLeadCardReady = reject;
+    });
+
     // Continual Background Hydration
     const backgroundPromise = (async () => {
       // Visible to both the completion path and the failure path.
@@ -1011,6 +1020,40 @@ export class GeminiRepository implements MarketIntelRepository {
                     job.partialCards.push(hydrated.primaryCard);
                   }
 
+                  const isFirstCompanyReady =
+                    !leadCardReadyClaimed &&
+                    (candidate.primaryRole === 'company' ||
+                      (!candidate.primaryRole && candidate.cardTypes.includes('company')));
+                  if (isFirstCompanyReady) {
+                    leadCardReadyClaimed = true;
+                    // The first visible company card is the one that completed
+                    // research, not whichever unhydrated stub happened to be
+                    // discovered first. Preserve all other deck ordering.
+                    const firstDeckIndex = this.snap.cards.findIndex(
+                      (card) => card.deckId === stubsResult.deck.id,
+                    );
+                    if (firstDeckIndex >= 0) {
+                      const beforeDeck = this.snap.cards
+                        .slice(0, firstDeckIndex)
+                        .filter((card) => card.deckId !== stubsResult.deck.id);
+                      const afterDeck = this.snap.cards
+                        .slice(firstDeckIndex)
+                        .filter((card) => card.deckId !== stubsResult.deck.id);
+                      const deckCards = this.snap.cards.filter(
+                        (card) => card.deckId === stubsResult.deck.id,
+                      );
+                      const leadCard = deckCards.find(
+                        (card) => card.id === hydrated.primaryCard.card.id,
+                      );
+                      this.snap.cards = [
+                        ...beforeDeck,
+                        ...(leadCard ? [leadCard] : []),
+                        ...deckCards.filter((card) => card.id !== leadCard?.id),
+                        ...afterDeck,
+                      ];
+                    }
+                  }
+
                   // Invalidate dashboard caches for company
                   this.snap.dashboards[hydrated.company.id] = {};
 
@@ -1032,6 +1075,10 @@ export class GeminiRepository implements MarketIntelRepository {
                     card: hydrated.primaryCard,
                     kind: 'find',
                   });
+                  if (isFirstCompanyReady) {
+                    leadCardReadySettled = true;
+                    resolveLeadCardReady();
+                  }
 
                   // Warm decks: this company's desk starts pre-researching its
                   // dashboard tabs right now, while the rest of the deck builds.
@@ -1050,6 +1097,12 @@ export class GeminiRepository implements MarketIntelRepository {
               },
               controller.signal,
             );
+            if (!leadCardReadySettled) {
+              leadCardReadySettled = true;
+              rejectLeadCardReady(
+                new Error('No company card completed its first research pass; the deck was not opened.'),
+              );
+            }
           })(),
 
           // Track 3 (non-blocking): WARM DECKS — as each company's card lands,
@@ -1189,6 +1242,10 @@ export class GeminiRepository implements MarketIntelRepository {
         deckResolved = true;
       } catch (error) {
         deckResolved = true;
+        if (!leadCardReadySettled) {
+          leadCardReadySettled = true;
+          rejectLeadCardReady(error instanceof Error ? error : new Error('First company research failed.'));
+        }
         job.status = controller.signal.aborted ? 'cancelled' : 'failed';
         job.error = error instanceof Error ? error.message : 'Research failed.';
         job.updatedAt = new Date().toISOString();
@@ -1207,6 +1264,7 @@ export class GeminiRepository implements MarketIntelRepository {
     void backgroundPromise.catch(() => {
       console.error('Background research could not save its final status. Previously committed research is retained.');
     });
+    await leadCardReady;
     return { market: stubsResult.market, deck: stubsResult.deck };
   }
 
