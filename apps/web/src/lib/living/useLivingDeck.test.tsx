@@ -12,6 +12,30 @@ import { LivingDeckRuntime } from './runtime';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { useSentinel } from '@/lib/agentic/useSentinel';
 import { useResearchControl } from './researchControl';
+import { qk } from '@/lib/query/keys';
+
+it('refreshes saved and individual card evidence after an inconclusive background check', async () => {
+  vi.useFakeTimers();
+  useResearchControl.setState({ paused: false });
+  const repository = new MockRepository({ seedSnapshot: sample as unknown as SeedSnapshot, latencyMs: 0 });
+  const cards = (await repository.listCards(sample.decks[0]!.id)).filter(c => c.company && c.card.cardType === 'company').slice(0, 1);
+  const companyId = cards[0]!.company!.id;
+  cards[0]!.metrics = cards[0]!.metrics.map(m => ({ ...m, confidence: 'estimated', lastVerifiedAt: null, lastVerificationAttemptAt: null }));
+  const verifyMetric = vi.fn().mockResolvedValue({ metric: cards[0]!.metrics[0]!, changed: false, verdict: 'unverified', citations: [] });
+  const client = createQueryClient();
+  const keys = [qk.cards('deck'), qk.card('card'), qk.savedCards, qk.companyMetrics(companyId)];
+  for (const key of keys) client.setQueryData(key, []);
+  client.setQueryData(qk.dashboard(companyId, 'metrics'), []);
+  const wrapper = ({ children }: { children: ReactNode }) => <RepositoryProvider repository={Object.assign(repository, { verifyMetric })}>
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  </RepositoryProvider>;
+  const { unmount } = renderHook(() => useLivingDeck(sample.decks[0]!.id, cards), { wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+  expect(verifyMetric).toHaveBeenCalledTimes(1);
+  for (const key of keys) expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true);
+  expect(client.getQueryState(qk.dashboard(companyId, 'metrics'))?.isInvalidated).toBe(false);
+  unmount(); client.clear();
+});
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.restoreAllMocks(); useApiKey.setState({ apiKey: '', hasKey: false }); act(() => useResearchControl.setState({ paused: false, storageError: null })); });
 describe('shared background research pause', () => {

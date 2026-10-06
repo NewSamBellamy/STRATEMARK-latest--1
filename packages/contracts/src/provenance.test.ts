@@ -32,6 +32,21 @@ const base: CompanyMetric = {
 const cite = (url: string, title = '') => ({ url, title });
 
 describe('provenance enforcement', () => {
+  it.each([false, true])('retains a human override and conflicting observations already duplicated in storage (reverse=%s)', reverse => {
+    const human = { ...base, id: 'human', value: 123, confidence: 'user_verified' as const, source: 'Human correction' };
+    const machine = { ...base, id: 'machine', value: 456, citations: [cite('https://sec.gov/Archives/report')] };
+    const rows = reverse ? [machine, human] : [human, machine];
+    const merged = reconcileMetrics(rows, []);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({ id: 'human', value: 123, confidence: 'user_verified' });
+    expect(merged[0]!.conflicts?.[0]?.observations.map(o => o.value).sort()).toEqual([123, 456]);
+    expect(rows).toHaveLength(2);
+  });
+  it('never merges different companies that happen to share a metric type', () => {
+    const merged = reconcileMetrics([base], [{ ...base, id: 'other', companyId: 'cmp_other', value: 100 }]);
+    expect(merged).toHaveLength(2);
+    expect(merged.map(m => m.companyId)).toEqual(['cmp_1', 'cmp_other']);
+  });
   it('demotes a "verified" figure that has no citation (the audit bug)', () => {
     const out = enforceMetricProvenance(base);
     expect(out.confidence).toBe('estimated');

@@ -22,6 +22,7 @@ import {
   type MetricType,
 } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
+import { invalidateMetricSurfaces } from '@/hooks/data';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { qk } from '@/lib/query/keys';
@@ -152,11 +153,7 @@ export function useLivingDeck(
               companyId: target.companyId,
               metricType: target.metricType as MetricType,
             });
-            if (result.changed) {
-              qc.invalidateQueries({ queryKey: qk.companyMetrics(target.companyId) });
-              qc.invalidateQueries({ queryKey: ['cards'] });
-              qc.invalidateQueries({ queryKey: ['dashboard', target.companyId] });
-            }
+            await invalidateMetricSurfaces(qc, target.companyId, result.changed);
             const value = result.metric.value;
             const summary =
               result.changed && value != null

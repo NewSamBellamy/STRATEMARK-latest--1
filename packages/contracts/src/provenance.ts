@@ -317,7 +317,7 @@ export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric
 }
 
 /**
- * Reconcile all metrics for one company and keep one canonical row per type.
+ * Reconcile metrics and keep one canonical row per company/type.
  *
  * Both sides use the CANONICAL path deliberately. This is a merge primitive:
  * `existing` is the stored snapshot, which legitimately holds human overrides,
@@ -331,11 +331,14 @@ export function reconcileMetrics(
   existing: CompanyMetric[],
   incoming: CompanyMetric[],
 ): CompanyMetric[] {
-  const byType = new Map(existing.map((metric) => [metric.metricType, metric]));
-  for (const metric of incoming) {
-    const current = byType.get(metric.metricType);
+  const byType = new Map<string, CompanyMetric>();
+  // Stored duplicates must pass the same conflict/human-lock rules, not a
+  // last-row-wins Map constructor that silently discards an override.
+  for (const metric of [...existing, ...incoming]) {
+    const key = JSON.stringify([metric.companyId, metric.metricType]);
+    const current = byType.get(key);
     byType.set(
-      metric.metricType,
+      key,
       current ? reconcileMetric(current, metric) : enforceMetricProvenance(metric),
     );
   }

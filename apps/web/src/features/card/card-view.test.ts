@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildDataset } from '@mi/mocks';
 import type { CardWithCompany, CompanyMetric } from '@mi/contracts';
-import { buildCardView } from './card-view';
+import { buildCardView, buildMetricViews } from './card-view';
 
 const dataset = buildDataset();
 const card = dataset.cards.find((c) => c.cardType === 'company' && c.companyId)!;
@@ -16,6 +16,40 @@ function view(metrics: CompanyMetric[], overrides: Partial<CardWithCompany> = {}
 }
 
 describe('collectible card evidence model', () => {
+  it.each([false, true])('never resurrects an older sourced duplicate after a newer downgrade (reversed=%s)', reverse => {
+    const old = metric({ id: 'old', value: 1_000_000_000, capturedAt: '2026-10-01T00:00:00Z' });
+    const checked = metric({ id: 'checked', value: 900_000_000, confidence: 'estimated',
+      capturedAt: '2026-09-30T00:00:00Z', lastVerificationAttemptAt: '2026-10-05T00:00:00Z' });
+    const rows = reverse ? [checked, old] : [old, checked];
+    const result = view(rows);
+    expect(result.metrics).toHaveLength(1);
+    expect(result.metrics[0]!.metric.id).toBe('checked');
+    expect(result.metrics[0]!.metric.confidence).toBe('estimated');
+    expect(result.profileMetrics[2]!.display).toBe('Unknown');
+    expect(rows).toHaveLength(2);
+    expect(old.confidence).toBe('verified');
+  });
+  it('withholds indistinguishable contradictory duplicates rather than arbitrarily picking a fact', () => {
+    const rows = [metric({ id: 'a', value: 100 }), metric({ id: 'b', value: 200 })];
+    for (const input of [rows, [...rows].reverse()]) {
+      const result = view(input);
+      expect(result.metrics).toHaveLength(1);
+      expect(result.metrics[0]!.metric.confidence).toBe('unknown');
+      expect(result.metrics[0]!.metric.value).toBeNull();
+      expect(result.metrics[0]!.note).toMatch(/conflicting/i);
+      expect(result.profileMetrics[2]!.display).toBe('Unknown');
+    }
+    expect(rows.map(m => m.value)).toEqual([100, 200]);
+  });
+  it('keeps human corrections ahead of newer automated duplicates and separates companies', () => {
+    const human = metric({ id: 'human', value: 123, confidence: 'user_verified', citations: [], capturedAt: '2026-09-01T00:00:00Z' });
+    const machine = metric({ id: 'machine', value: 456, capturedAt: '2026-10-05T00:00:00Z' });
+    const other = metric({ id: 'other', companyId: 'other-company', value: 789 });
+    const projected = buildMetricViews([machine, human, other]);
+    expect(projected).toHaveLength(2);
+    expect(projected.find(m => m.metric.companyId === human.companyId)!.metric.value).toBe(123);
+    expect(projected.find(m => m.metric.companyId === 'other-company')!.metric.value).toBe(789);
+  });
   it('keeps unrecognized or forged authority unknown on both card and reader profiles', () => {
     const input = metric({ citations: [{ title: 'Reuters annual report', url: 'https://reuters.com.attacker.test/report', credibility: 'primary' }] });
     const result = view([input]);
@@ -54,8 +88,8 @@ describe('collectible card evidence model', () => {
   it('accepts legacy source URLs but does not promote estimates or human verification', () => {
     const result = view([
       metric({ id: 'a', citations: [], source: 'https://sec.gov/Archives/report' }),
-      metric({ id: 'b', confidence: 'estimated' }),
-      metric({ id: 'c', confidence: 'user_verified', citations: [], source: null }),
+      metric({ id: 'b', metricType: 'employees', confidence: 'estimated' }),
+      metric({ id: 'c', metricType: 'arr', confidence: 'user_verified', citations: [], source: null }),
     ]);
     expect(result.metrics.map((m) => m.metric.confidence)).toEqual(['verified', 'estimated', 'user_verified']);
     expect(result.sourcedCount).toBe(2);

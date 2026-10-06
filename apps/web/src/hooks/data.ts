@@ -3,7 +3,7 @@
  * the repository behind TanStack Query, so the mock↔IPC swap is invisible here.
  */
 import { useEffect, useRef } from 'react';
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient, type UseQueryResult } from '@tanstack/react-query';
 import type {
   CardFilter,
   CardWithCompany,
@@ -23,6 +23,22 @@ import type {
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { traceAgent } from '@/lib/agentic/agentTrace';
 import { qk } from '@/lib/query/keys';
+import { buildMetricViews } from '@/features/card/card-view';
+
+// All UI consumers (including reports/compare/overview) share the same
+// read-only revision and provenance rules; raw cache/storage stays intact.
+const projectMetrics = (metrics: CompanyMetric[]) => buildMetricViews(metrics).map(view => view.metric);
+const projectCard = (card: CardWithCompany): CardWithCompany => ({ ...card, metrics: projectMetrics(card.metrics) });
+
+export function invalidateMetricSurfaces(qc: QueryClient, companyId: string, dashboard: boolean) {
+  return Promise.all([
+    qc.invalidateQueries({ queryKey: qk.companyMetrics(companyId) }),
+    qc.invalidateQueries({ queryKey: ['cards'] }),
+    qc.invalidateQueries({ queryKey: ['card'] }),
+    qc.invalidateQueries({ queryKey: qk.savedCards }),
+    ...(dashboard ? [qc.invalidateQueries({ queryKey: ['dashboard', companyId] })] : []),
+  ]);
+}
 
 export function useMarkets(): UseQueryResult<Market[]> {
   const repo = useRepository();
@@ -67,6 +83,7 @@ export function useCards(
   return useQuery({
     queryKey: qk.cards(deckId ?? '', filter),
     queryFn: () => repo.listCards(deckId as string, filter),
+    select: cards => cards.map(projectCard),
     enabled: !!deckId,
     // SAFE STATE for back-navigation: returning to a deck renders the cached
     // cards INSTANTLY (any refetch happens quietly behind them). Without this,
@@ -111,13 +128,14 @@ export function useCard(cardId: string | undefined): UseQueryResult<CardWithComp
   return useQuery({
     queryKey: qk.card(cardId ?? ''),
     queryFn: () => repo.getCard(cardId as string),
+    select: card => card ? projectCard(card) : null,
     enabled: !!cardId,
   });
 }
 
 export function useSavedCards(): UseQueryResult<CardWithCompany[]> {
   const repo = useRepository();
-  return useQuery({ queryKey: qk.savedCards, queryFn: () => repo.listSavedCards() });
+  return useQuery({ queryKey: qk.savedCards, queryFn: () => repo.listSavedCards(), select: cards => cards.map(projectCard) });
 }
 
 export function useSaveCard() {
@@ -152,6 +170,7 @@ export function useCompanyMetrics(companyId: string | undefined): UseQueryResult
   return useQuery({
     queryKey: qk.companyMetrics(companyId ?? ''),
     queryFn: () => repo.getCompanyMetrics(companyId as string),
+    select: projectMetrics,
     enabled: !!companyId,
   });
 }
@@ -345,12 +364,7 @@ export function useVerifyMetric() {
       // verification stamps lastVerifiedAt (the "checked Xm ago" chips) and
       // may have downgraded a badge. Gating this on `changed` left page two
       // showing what page one had already reconciled — the continuity bug.
-      qc.invalidateQueries({ queryKey: qk.companyMetrics(input.companyId) });
-      qc.invalidateQueries({ queryKey: ['cards'] });
-      if (result.changed) {
-        // A correction also voids the researched tab cache repo-side; refetch it.
-        qc.invalidateQueries({ queryKey: ['dashboard', input.companyId] });
-      }
+      return invalidateMetricSurfaces(qc, input.companyId, result.changed);
     },
   });
   return { ...mutation, isAvailable: typeof repo.verifyMetric === 'function' };
@@ -378,11 +392,7 @@ export function useHuntMetrics() {
           ? `Filled ${result.filledTypes.length} soft figure${result.filledTypes.length === 1 ? '' : 's'} from live sources`
           : 'Hunted soft figures — nothing met the sourcing bar (gaps stay honest)',
       );
-      qc.invalidateQueries({ queryKey: qk.companyMetrics(companyId) });
-      if (result.filledTypes.length > 0) {
-        qc.invalidateQueries({ queryKey: ['cards'] });
-        qc.invalidateQueries({ queryKey: ['dashboard', companyId] });
-      }
+      return invalidateMetricSurfaces(qc, companyId, result.filledTypes.length > 0);
     },
   });
   return { ...mutation, isAvailable: typeof repo.huntCompanyMetrics === 'function' };
@@ -406,9 +416,7 @@ export function useOverrideMetric() {
   return useMutation({
     mutationFn: (input: Parameters<typeof repo.overrideMetric>[0]) => repo.overrideMetric(input),
     onSuccess: (metric) => {
-      qc.invalidateQueries({ queryKey: qk.companyMetrics(metric.companyId) });
-      qc.invalidateQueries({ queryKey: ['cards'] });
-      qc.invalidateQueries({ queryKey: ['dashboard', metric.companyId] });
+      return invalidateMetricSurfaces(qc, metric.companyId, true);
     },
   });
 }
@@ -458,6 +466,11 @@ export function useDeckRefreshSubscription(onEvent?: (evt: DeckRefreshEvent) => 
   useEffect(() => {
     const unsub = repo.subscribeDeckRefresh((evt) => {
       qc.invalidateQueries({ queryKey: ['cards', evt.deckId] });
+      qc.invalidateQueries({ queryKey: ['card'] });
+      qc.invalidateQueries({ queryKey: qk.savedCards });
+      // Events expose card IDs, not company IDs. These are local/repository
+      // reads; do not invalidate researched dashboard tabs and spend keys.
+      qc.invalidateQueries({ queryKey: ['companyMetrics'] });
       qc.invalidateQueries({ queryKey: qk.deck(evt.marketId) });
       onEvent?.(evt);
     });
