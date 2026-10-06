@@ -22,12 +22,12 @@ export function selectSourceExcerpt(text: string, scope?: { companyName: string;
     }
   });
   hits.sort((a, b) => a.index - b.index);
+  const categories = ['employees', 'arr', 'users', 'valuation', 'market_cap', 'market_share'];
+  const category = categories.indexOf(scope?.metricType ?? '');
   // Literal company windows, never aliases or stitched quotes. This is relevance
   // selection only: the original-passage gate still decides whether a claim holds.
   const name = scope?.companyName.trim().toLowerCase();
   if (name && name.length <= 300) {
-    const categories = ['employees', 'arr', 'users', 'valuation', 'market_cap', 'market_share'];
-    const category = categories.indexOf(scope?.metricType ?? '');
     let best = -1;
     let start = 0;
     const counts = cues.map(() => 0);
@@ -60,7 +60,10 @@ export function selectSourceExcerpt(text: string, scope?: { companyName: string;
     while (left < right && hits[left]!.index < start) {
       counts[hits[left++]!.category]!--;
     }
-    const score = counts.filter((count) => count > 0).length;
+    // First-person filings may omit the literal legal name in the passage.
+    // Preserve the requested metric for inspection, never infer its attribution.
+    const score = counts.filter((count) => count > 0).length +
+      (category >= 0 && counts[category]! > 0 ? cues.length + 1 : 0);
     if (score > bestScore) { bestScore = score; bestStart = start; }
   }
   // Never concatenate windows or rewrite a passage: a quote cannot bridge gaps.

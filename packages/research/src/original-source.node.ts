@@ -5,7 +5,9 @@ import { request } from 'node:https';
 import { BlockList, isIP } from 'node:net';
 import { selectSourceExcerpt } from './source-excerpt';
 
-const MAX_BYTES = 262144;
+// Annual filings routinely exceed 256 KB (Microsoft's 2025 HTML is ~601 KB).
+// Keep whole-document hashing bounded; retained excerpts remain only 4,000 chars.
+const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_TEXT = 4000;
 const denied = new BlockList();
 for (const [address, prefix] of [
@@ -42,7 +44,7 @@ const transport: SourceTransport = {
       let size = 0;
       res.on('data', (chunk: Buffer) => {
         size += chunk.length;
-        if (size > MAX_BYTES) req.destroy(new Error('Source exceeds byte limit'));
+        if (size > MAX_BYTES) req.destroy(Object.assign(new Error('Source exceeds byte limit'), { code: 'SOURCE_TOO_LARGE' }));
         else chunks.push(chunk);
       });
       res.on('error', reject);
@@ -99,8 +101,9 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
       }
       if (response.status !== 200) return { ...receipt, reason: 'Source did not return a readable public page' };
       const type = (response.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
+      if (response.body.length > MAX_BYTES) return { ...receipt, reason: 'Source exceeds the 2 MB document limit' };
       if (!['text/html', 'text/plain'].includes(type) ||
-        (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity') || response.body.length > MAX_BYTES) {
+        (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity')) {
         return { ...receipt, reason: 'Unsupported or oversized source content' };
       }
       const body = response.body.toString('utf8');
@@ -118,7 +121,8 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
     return await Promise.race([work(), new Promise<OriginalSourceReceipt>((resolve) => {
       timer = setTimeout(() => { controller.abort(); resolve({ ...receipt, reason: 'Source retrieval timed out' }); }, 6000);
     })]);
-  } catch {
-    return { ...receipt, reason: 'Source retrieval failed' };
+  } catch (error) {
+    const oversized = error && typeof error === 'object' && 'code' in error && error.code === 'SOURCE_TOO_LARGE';
+    return { ...receipt, reason: oversized ? 'Source exceeds the 2 MB document limit' : 'Source retrieval failed' };
   } finally { if (timer) clearTimeout(timer); }
 }

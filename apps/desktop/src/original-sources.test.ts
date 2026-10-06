@@ -56,6 +56,59 @@ describe('native original source artifacts', () => {
     expect((await readdir(directory)).every((file) => file.endsWith('.json'))).toBe(true);
   });
 
+  it('keeps supported facts available after ten newer failed reads and a restart', async () => {
+    const { directory } = await setup();
+    const snapshot = createFileStore(path.join(directory, 'repo.json'));
+    const initial = parseResearchExport(JSON.stringify(sample));
+    const company = initial.companies[0]!;
+    const quote = `${company.name} reported 45 employees as of 2026-10-01.`;
+    const url = 'https://sec.gov/report';
+    initial.metrics = [{ id: 'supported-employees', companyId: company.id, metricType: 'employees', value: 45,
+      confidence: 'verified', source: url, citations: [{ title: 'SEC', url }], methodNote: null,
+      capturedAt: '2026-10-02T00:00:00.000Z', passageSupport: { sourceUrl: url, quote,
+        asOf: '2026-10-01', basis: 'employees', unit: 'count' } }];
+    initial.originalSourceAttempts = [];
+    const companyCard = initial.cards.find(row => row.companyId === company.id)!;
+    initial.savedCards = [{ cardId: companyCard.id, savedAt: '2026-10-02T00:00:00.000Z' }];
+    initial.dashboards[company.id] = { overview: { content: { markdown: 'Legacy overview' },
+      lastRefreshedAt: '2026-10-02T00:00:00.000Z', citations: [] } };
+    snapshot.write(initial);
+    const sourceDirectory = path.join(directory, 'originals');
+    const originals = createOriginalSourceServices(sourceDirectory);
+    await originals.save({ ...attempt(company.id), capturedAt: '2026-10-02T00:00:00.000Z',
+      receipts: [{ ...attempt().receipts[0]!, text: quote, retrievedAt: '2026-10-02T00:00:00.000Z' }] });
+    for (let index = 0; index < 10; index++) {
+      await originals.save({ ...attempt(company.id), capturedAt: `2026-10-03T00:00:${String(index).padStart(2, '0')}.000Z`,
+        receipts: [{ requestedUrl: url, status: 'unavailable', retrievedAt: '2026-10-03T00:00:00.000Z', reason: 'Source unavailable' }] });
+    }
+    const client: LlmClient = { ground: vi.fn(), structure: vi.fn() };
+    const restarted = new GeminiRepository({ apiKey: 'test', store: snapshot, client,
+      originalSources: createOriginalSourceServices(sourceDirectory) });
+    expect(await restarted.getCompanyFacts(company.id)).toMatchObject([{ value: 45, confidence: 'verified' }]);
+    const card = (await restarted.listCards(companyCard.deckId))
+      .find(row => row.company?.id === company.id)!;
+    expect(card.metrics).toMatchObject([{ value: 45, confidence: 'verified' }]);
+    expect((await restarted.getCard(companyCard.id))!.metrics).toMatchObject([{ value: 45, confidence: 'verified' }]);
+    expect((await restarted.listSavedCards())[0]!.metrics).toMatchObject([{ value: 45, confidence: 'verified' }]);
+    expect((await restarted.getDashboardTab(company.id, 'overview'))!.content.markdown).toContain('Employees: 45');
+    expect(client.ground).not.toHaveBeenCalled();
+    expect(client.structure).not.toHaveBeenCalled();
+    expect(snapshot.read()!.metrics).toEqual(initial.metrics);
+  });
+
+  it('honors a bounded twenty-record window without changing the default or company scope', async () => {
+    const { store } = await setup();
+    for (let index = 0; index < 25; index++) {
+      await store.save({ ...attempt(), capturedAt: `2026-10-03T00:00:${String(index).padStart(2, '0')}.000Z` });
+    }
+    await store.save(attempt('other-company'));
+    expect(await store.list({ companyId: 'acme', limit: 20 })).toHaveLength(20);
+    expect(await store.list({ companyId: 'acme', limit: 1000 })).toHaveLength(20);
+    expect(await store.list({ companyId: 'acme' })).toHaveLength(4);
+    expect(await store.list({ companyId: 'acme', limit: 0 })).toHaveLength(1);
+    expect(await store.list({ companyId: 'acme', limit: Number.NaN })).toHaveLength(4);
+  });
+
   it('refuses overwriting an existing receipt rather than rewriting its history', async () => {
     const { store } = await setup();
     const record = attempt();

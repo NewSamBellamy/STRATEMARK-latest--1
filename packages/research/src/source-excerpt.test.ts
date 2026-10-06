@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { selectSourceExcerpt } from './source-excerpt';
+import { acceptedMetricPassage } from './metric-support';
 
 describe('bounded contiguous source excerpt', () => {
   it('prioritizes the requested company over a richer unrelated company section', () => {
@@ -15,6 +16,20 @@ describe('bounded contiguous source excerpt', () => {
     const wanted = 'Acme Inc. reported USD 50 million ARR on October 1, 2026.';
     const text = `Acme Inc. has 450 employees, 1000 active users and a valuation of USD 200 million.${' filler '.repeat(1100)}${wanted}${' appendix '.repeat(600)}`;
     expect(selectSourceExcerpt(text, { companyName: 'Acme Inc.', metricType: 'arr' })).toContain(wanted);
+  });
+  it('retains the requested metric in first-person filings without inventing company attribution', () => {
+    const wanted = 'As of October 1, 2026, we had 450 employees.';
+    const text = `Products have 1000 users and annual revenue of USD 50 million, at a valuation of USD 200 million.${' filler '.repeat(1100)}${wanted}${' appendix '.repeat(600)}`;
+    const result = selectSourceExcerpt(text, { companyName: 'Acme Inc.', metricType: 'employees' });
+    expect(result).toContain(wanted);
+    expect(result).not.toContain('Products have');
+    expect(text).toContain(result);
+    expect(result).toHaveLength(4000);
+    const url = 'https://sec.gov/report';
+    expect(acceptedMetricPassage({ companyName: 'Acme Inc.', metricType: 'employees', value: 450,
+      support: { sourceUrl: url, quote: wanted, asOf: '2026-10-01', basis: 'employees', unit: 'count' },
+      originals: [{ requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200,
+        contentHash: 'a'.repeat(64), text: result, retrievedAt: '2026-10-02T00:00:00.000Z' }] })).toEqual([]);
   });
   it('matches a company name literally, not as a regular expression', () => {
     const wanted = 'Acme (UK) Ltd. has 40 employees on October 1, 2026.';

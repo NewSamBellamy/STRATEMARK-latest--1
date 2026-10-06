@@ -61,7 +61,7 @@ describe('bounded original-source retrieval', () => {
     { status: 200, headers: { 'content-type': 'application/pdf' }, body: Buffer.from('PDF') },
     { status: 200, headers: { 'content-type': 'text/html', 'x-robots-tag': 'noarchive' }, body: Buffer.from('Do not retain') },
     { status: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from('<meta name="robots" content="noarchive"><p>Private</p>') },
-    { status: 200, headers: { 'content-type': 'text/html' }, body: Buffer.alloc(262145, 'a') },
+    { status: 200, headers: { 'content-type': 'text/html' }, body: Buffer.alloc(2 * 1024 * 1024 + 1, 'a') },
   ])('does not turn blocked/unsupported content into evidence', async (response) => {
     const result = await retrieveOriginalSource(url, { lookup, read: async () => response });
     expect(result.status).not.toBe('retrieved');
@@ -71,6 +71,31 @@ describe('bounded original-source retrieval', () => {
   it('reports network failure without exposing transport details', async () => {
     const result = await retrieveOriginalSource(url, { lookup, read: async () => { throw new Error('internal secret'); } });
     expect(result.status).toBe('unavailable');
+    expect(JSON.stringify(result)).not.toContain('internal secret');
+  });
+
+  it('reads a bounded annual-report-sized page and retains only the relevant excerpt', async () => {
+    const quote = 'Acme Inc. reported 450 employees on October 1, 2026.';
+    const body = `${'Navigation. '.repeat(50000)}${quote}${' Appendix.'.repeat(10000)}`;
+    const pageRead = vi.fn(async () => ({ status: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from(body) }));
+    const receipt = await retrieveOriginalSource(url, { lookup, read: pageRead },
+      { companyId: 'acme', companyName: 'Acme Inc.', metricType: 'employees' });
+    expect(receipt).toMatchObject({ status: 'retrieved', truncated: true });
+    expect(receipt.text).toHaveLength(4000);
+    expect(receipt.text).toContain(quote);
+    expect(receipt.contentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(pageRead).toHaveBeenCalledTimes(1);
+    expect(acceptedMetricPassage({ companyName: 'Acme Inc.', metricType: 'employees', value: 450, originals: [receipt],
+      support: { sourceUrl: url, quote, asOf: '2026-10-01', basis: 'employees', unit: 'count' } })).toHaveLength(1);
+  });
+
+  it('explains streamed oversize failures without leaking transport errors or partial evidence', async () => {
+    const result = await retrieveOriginalSource(url, { lookup, read: async () => {
+      throw Object.assign(new Error('internal secret'), { code: 'SOURCE_TOO_LARGE' });
+    } });
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'Source exceeds the 2 MB document limit' });
+    expect(result.text).toBeUndefined();
+    expect(result.contentHash).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain('internal secret');
   });
 

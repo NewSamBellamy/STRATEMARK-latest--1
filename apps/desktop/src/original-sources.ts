@@ -65,7 +65,9 @@ export function createOriginalSourceServices(directory: string): OriginalSourceS
         if (`${record.id}.json` !== filename) throw new Error('Original source artifact identity mismatch.');
         if (record.companyId === input.companyId && (!input.metricType || record.metricType === input.metricType)) records.push(record);
       }
-      const limit = Number.isFinite(input.limit) ? Math.min(10, Math.max(1, Math.floor(input.limit!))) : 4;
+      // Fact/card/dashboard reads request twenty attempts. A smaller storage cap
+      // hides retained supporting passages behind newer unsuccessful lookups.
+      const limit = Number.isFinite(input.limit) ? Math.min(20, Math.max(1, Math.floor(input.limit!))) : 4;
       return records.sort((a, b) => b.capturedAt.localeCompare(a.capturedAt) || b.id.localeCompare(a.id)).slice(0, limit);
     },
   };
