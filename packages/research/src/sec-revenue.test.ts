@@ -20,15 +20,15 @@ const now = Date.parse('2026-10-06T00:00:00.000Z');
 vi.mock('./logos', () => ({ faviconUrl: () => null, resolveLogo: async () => ({ url: null }) }));
 
 describe('first company financial hydration', () => {
-  it('carries a discovered filing through original retrieval into reopened public card facts', async () => {
+  it.each([false, true])('carries a discovered filing into reopened facts (redirect-only metadata: %s)', async (redirectOnly) => {
     // Deterministic source fixture; this does not claim a new live API run.
     const home = 'https://microsoft.com';
     const originals: OriginalSourceReceipt[] = [];
     const client: LlmClient = {
-      ground: async () => ({ text: 'Untrusted provider notes', queries: [], citations: [
+      ground: async () => ({ text: 'Original source: https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm', queries: [], citations: [
         { title: 'Homepage', url: home },
         { title: 'Product news', url: 'https://news.microsoft.com/product-launch' },
-        { title: 'Filing', url: 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm' },
+        { title: 'sec.gov', url: redirectOnly ? 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/token' : 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm' },
       ] }),
       structure: async (_prompt, schema) => schema.parse({
         website: home, metrics: {}, oneLiner: 'A model summary is not evidence.',

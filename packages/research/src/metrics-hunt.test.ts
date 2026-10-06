@@ -91,6 +91,56 @@ function repoWith(client: LlmClient): GeminiRepository {
 }
 
 describe('huntCompanyMetrics — one pass fills every soft figure', () => {
+  it('does not spend a hunt on accepted original-backed facts or human corrections', async () => {
+    const snap = snapshot();
+    const url = 'https://reuters.com/report';
+    const quote = 'OpenAI reported 3500 employees as of 2026-10-01.';
+    snap.metrics = (['arr', 'users', 'employees', 'valuation', 'market_cap', 'market_share'] as const).map(metricType => ({
+      ...snap.metrics[2]!, id: `supported_${metricType}`, metricType,
+      value: metricType === 'market_share' ? 20 : 3500,
+      confidence: metricType === 'employees' ? 'verified' as const : 'user_verified' as const,
+      ...(metricType === 'employees' ? { passageSupport: {
+        sourceUrl: url, quote, asOf: '2026-10-01', basis: 'employees' as const, unit: 'count' as const,
+      } } : {}),
+    }));
+    snap.originalSourceAttempts = [{ id: 'src_supported', companyId: 'cmp_1', metricType: 'employees',
+      capturedAt: '2026-10-06T00:00:00.000Z', receipts: [{ requestedUrl: url, finalUrl: url, status: 'retrieved',
+        httpStatus: 200, text: quote, contentHash: 'a'.repeat(64), retrievedAt: '2026-10-06T00:00:00.000Z' }] }];
+    const ground = vi.fn();
+    const structure = vi.fn();
+    const reader = vi.fn();
+    const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snap), client: { ground, structure }, originalSourceReader: reader });
+    expect((await repo.getCompanyFacts('cmp_1')).find(row => row.metricType === 'employees')?.value).toBe(3500);
+    expect((await repo.huntCompanyMetrics('cmp_1')).filledTypes).toEqual([]);
+    expect(ground).not.toHaveBeenCalled();
+    expect(reader).not.toHaveBeenCalled();
+  });
+  it('repairs legacy verified rows that the original-backed display correctly rejects', async () => {
+    const snap = snapshot();
+    const base = snap.metrics[2]!;
+    snap.metrics = (['arr', 'users', 'employees', 'valuation', 'market_cap', 'market_share'] as const).map(metricType => ({
+      ...base, id: `legacy_${metricType}`, metricType, value: metricType === 'market_share' ? 20 : 4000,
+      confidence: metricType === 'users' ? 'user_verified' as const : 'verified' as const,
+    }));
+    const url = 'https://reuters.com/report';
+    const quote = 'OpenAI reported 3500 employees as of 2026-10-01.';
+    const ground = vi.fn(async (_prompt: string) => ({ text: 'Research', citations: [{ title: 'Reuters', url }], queries: [] }));
+    const structure = vi.fn(async (_prompt, schema) => schema.parse({ figures: [{
+      metricType: 'employees', value: 3500,
+      passageSupport: { sourceUrl: url, quote, asOf: '2026-10-01', basis: 'employees', unit: 'count' },
+    }] })) as LlmClient['structure'];
+    const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snap), client: { ground, structure },
+      originalSourceReader: async requestedUrl => ({ requestedUrl, finalUrl: url, status: 'retrieved',
+        httpStatus: 200, text: quote, contentHash: 'a'.repeat(64), retrievedAt: '2026-10-06T00:00:00.000Z' }),
+    });
+    expect((await repo.getCompanyFacts('cmp_1')).find(row => row.metricType === 'employees')?.value).toBeNull();
+    const result = await repo.huntCompanyMetrics('cmp_1');
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(ground.mock.calls[0]![0]).not.toContain('- Users');
+    expect(result.filledTypes).toEqual(['employees']);
+    expect((await repo.getCompanyFacts('cmp_1')).find(row => row.metricType === 'employees')).toMatchObject({ value: 3500, confidence: 'verified' });
+    expect(result.metrics.find(row => row.metricType === 'users')).toMatchObject({ value: 4000, confidence: 'user_verified' });
+  });
   it('excludes human-protected duplicates while still filling an unrelated soft field', async () => {
     const snap = snapshot();
     snap.metrics.push({ ...snap.metrics[2]!, id: 'human_employees', value: 4000, confidence: 'user_verified' });

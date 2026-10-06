@@ -2,6 +2,31 @@ import { describe, expect, it } from 'vitest';
 import { selectOriginalSourceCitations } from './original-source';
 
 describe('bounded original source priority', () => {
+  it('recovers a discovered direct filing locator from notes when grounding metadata only has redirects', () => {
+    const chosen = selectOriginalSourceCitations([
+      { title: 'sec.gov', url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/token' },
+    ], 'https://microsoft.com', true, undefined,
+    'Original source: https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm');
+    expect(chosen[0]?.url).toContain('data.sec.gov/api/xbrl/companyconcept/CIK0000789019/');
+    expect(chosen).toHaveLength(2);
+  });
+  it('does not turn arbitrary URLs in untrusted notes into source candidates', () => {
+    const original = { title: 'Homepage', url: 'https://microsoft.com/' };
+    expect(selectOriginalSourceCitations([original], 'https://microsoft.com', true, undefined,
+      ['Original source: https://microsoft.com.attacker.test/investor/report',
+        'Original source: https://user:secret@microsoft.com/about',
+        'Original source: https://127.0.0.1/admin',
+        'Original source: http://microsoft.com/results'].join('\n')
+    ).map(row => row.url)).toEqual([original.url]);
+  });
+  it('filters recovered locators through the active reader and does not mutate grounding metadata', () => {
+    const citations = [{ title: 'sec.gov', url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/token' }];
+    const before = structuredClone(citations);
+    const notes = 'Original source: https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm';
+    expect(selectOriginalSourceCitations(citations, 'https://microsoft.com', true,
+      candidate => !candidate.startsWith('https://data.sec.gov/'), notes).map(row => row.url)).toEqual([citations[0]!.url]);
+    expect(citations).toEqual(before);
+  });
   it('does not let the homepage and newsroom crowd out a cited financial original', () => {
     const filing = 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm';
     const chosen = selectOriginalSourceCitations([

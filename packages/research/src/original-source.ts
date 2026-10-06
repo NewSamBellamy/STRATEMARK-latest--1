@@ -20,12 +20,25 @@ function companyDocumentPriority(raw: string, officialWebsite?: string | null): 
 
 /** Routing priority only, never evidence acceptance. Preserve the two-read budget. */
 export function selectOriginalSourceCitations(citations: readonly Citation[], officialWebsite?: string | null, preferAnnualRevenue = false,
-  supportsUrl?: (url: string) => boolean): Citation[] {
+  supportsUrl?: (url: string) => boolean, discoveryText = ''): Citation[] {
   const priority = { primary: 4, reputable_secondary: 3, industry: 2, unknown: 1, user_generated: 0 };
   const pages = new Set<string>();
+  // Grounding metadata can expose only opaque redirect URLs even when the
+  // search notes contain a discovered original. Explicit locator lines are
+  // untrusted fetch candidates, NEVER citations or evidence for a model claim.
+  // Keep this bounded and limited to primary hosts; readers still enforce
+  // public DNS, HTTPS, size/time limits and claim-by-claim evidence checks.
+  const locators: Citation[] = [];
+  for (const match of discoveryText.slice(0, 40000).matchAll(/^Original source:[ \t]*(https:\/\/\S+)[ \t]*$/gim)) {
+    const url = match[1]!;
+    if (url.length > 2048 || isRedirectCitation(url)) continue;
+    if (classifySource(url, '', officialWebsite) !== 'primary') continue;
+    locators.push({ url, title: 'Discovered original locator (not verified)' });
+    if (locators.length === 20) break;
+  }
   // Both original readers require public HTTPS on the standard TLS port.
   // Do not promote HTTP to HTTPS: that would invent a different source URL.
-  return usableCitations(citations.map(citation => preferAnnualRevenue && secRevenueSourceUrl(citation.url)
+  return usableCitations([...citations, ...locators].map(citation => preferAnnualRevenue && secRevenueSourceUrl(citation.url)
     ? { ...citation, url: secRevenueSourceUrl(citation.url)! } : citation)).filter(citation => {
     const url = new URL(citation.url);
     if (url.protocol !== 'https:' || (url.port && url.port !== '443')) return false;

@@ -1697,7 +1697,7 @@ export class GeminiRepository implements MarketIntelRepository {
         companyId: company.id, companyName: company.name, topic: `verify:${input.metricType}`,
       } },
     );
-    const originals = this.originalSources ? await Promise.all(selectOriginalSourceCitations(g.citations, company.websiteUrl, input.metricType === 'arr', this.originalSources.supports)
+    const originals = this.originalSources ? await Promise.all(selectOriginalSourceCitations(g.citations, company.websiteUrl, input.metricType === 'arr', this.originalSources.supports, g.text)
       .map((citation) => this.originalSources!.retrieve(citation.url, { companyId: company.id, companyName: company.name, metricType: input.metricType }))) : [];
     if (this.originalSources) await this.originalSources.save({
       id: `src_${globalThis.crypto.randomUUID()}`, companyId: company.id, metricType: input.metricType,
@@ -1806,6 +1806,8 @@ export class GeminiRepository implements MarketIntelRepository {
     if (!company) throw new Error(`Company not found: ${companyId}`);
     const mine = () => this.snap.metrics.filter((m) => m.companyId === companyId);
     const revisions = new Map(METRIC_TYPES.map(t => [t, JSON.stringify(mine().filter(m => m.metricType === t))]));
+    const acceptedAtStart = this.originalSources
+      ? new Map((await this.getCompanyFacts(companyId)).map(metric => [metric.metricType, metric])) : null;
 
     // A figure is a hunt target when we have nothing, an unknown, or a soft
     // estimate. Verified figures re-check via decay; user figures are law.
@@ -1814,7 +1816,8 @@ export class GeminiRepository implements MarketIntelRepository {
       if (current?.ambiguous) return false;
       const m = current?.metric;
       if (!m) return true;
-      if (m.confidence === 'user_verified' || m.confidence === 'verified') return false;
+      if (m.confidence === 'user_verified') return false;
+      if (m.confidence === 'verified') return acceptedAtStart !== null && acceptedAtStart.get(t)?.confidence !== 'verified';
       return m.value == null || m.confidence === 'unknown' || m.confidence === 'estimated';
     });
     if (softTypes.length === 0) {
@@ -1835,7 +1838,7 @@ export class GeminiRepository implements MarketIntelRepository {
         companyId: company.id, companyName: company.name, topic: 'metrics_hunt',
       } },
     );
-    const originals = this.originalSources ? await Promise.all(selectOriginalSourceCitations(g.citations, company.websiteUrl, softTypes.includes('arr'), this.originalSources.supports)
+    const originals = this.originalSources ? await Promise.all(selectOriginalSourceCitations(g.citations, company.websiteUrl, softTypes.includes('arr'), this.originalSources.supports, g.text)
       .map(citation => this.originalSources!.retrieve(citation.url, { companyId: company.id, companyName: company.name }))) : [];
     if (this.originalSources) {
       await this.originalSources.save({ id: `src_${globalThis.crypto.randomUUID()}`, companyId: company.id,
@@ -1871,6 +1874,11 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     const filledTypes: MetricType[] = [];
 
+    // A legacy label is not accepted evidence. Recheck the public projection
+    // after retrieval so newly supported facts and human edits stay protected.
+    const acceptedAtWrite = this.originalSources
+      ? new Map((await this.getCompanyFacts(companyId)).map(metric => [metric.metricType, metric])) : null;
+
     // Protected routes require support for EACH figure. A reputable link in
     // the pass is not evidence for every proposed value. No-reader legacy
     // integrations retain their previous citation gate, not an original gate.
@@ -1887,7 +1895,8 @@ export class GeminiRepository implements MarketIntelRepository {
         let metric = current?.metric;
         // Recheck after provider work: a human correction or another completed
         // verification may have hardened this row while the hunt was in flight.
-        if (metric?.confidence === 'user_verified' || metric?.confidence === 'verified') continue;
+        if (metric?.confidence === 'user_verified' || (metric?.confidence === 'verified' &&
+          (acceptedAtWrite === null || acceptedAtWrite.get(fig.metricType)?.confidence === 'verified'))) continue;
         if (!metric) {
           metric = {
             id: `met_hunt_${Date.now().toString(36)}_${fig.metricType}`,

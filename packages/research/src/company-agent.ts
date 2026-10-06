@@ -619,7 +619,7 @@ export async function hydrateCompanyCard(
   throwIfAborted(options.signal);
 
   const officialWebsite = candidate.domain ? `https://${candidate.domain}` : null;
-  const selectedProfileSources = selectOriginalSourceCitations(grounded.citations, officialWebsite, true, options.originalSources?.supports);
+  const selectedProfileSources = selectOriginalSourceCitations(grounded.citations, officialWebsite, true, options.originalSources?.supports, grounded.text);
   const officialDomain = rootDomain(officialWebsite);
   const hasOfficialProfileSource = Boolean(officialDomain && selectedProfileSources.some(source => rootDomain(source.url) === officialDomain));
   // A grounded search may cite only third-party pages. Reserve one of the same
