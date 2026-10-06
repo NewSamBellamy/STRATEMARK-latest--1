@@ -48,6 +48,87 @@ describe('source-backed company overview', () => {
     expect(sources.retrieve).toHaveBeenCalledTimes(2);
     expect(sources.save.mock.calls[0]![0].receipts.map((receipt: { status: string }) => receipt.status)).toEqual(['blocked', 'retrieved']);
   });
+  it('uses the remaining bounded source slot when a retrieved page yields no accepted overview excerpt', async () => {
+    const { run, sources, ground, structure } = setup();
+    const secondUrl = 'https://reuters.com/acme-company-profile';
+    const secondQuote = 'Acme builds research software for independent analysts and small research teams.';
+    ground.mockResolvedValue({ text: 'Company profile lead', citations: [{ title: 'Acme company profile', url: secondUrl }], queries: [] });
+    sources.retrieve.mockResolvedValue({ requestedUrl: secondUrl, finalUrl: secondUrl, status: 'retrieved', httpStatus: 200,
+      contentHash: 'b'.repeat(64), retrievedAt: '2026-10-06T00:00:00.000Z', text: secondQuote });
+    structure.mockResolvedValueOnce({ excerpts: [] }).mockResolvedValueOnce({ excerpts: [{ sourceUrl: secondUrl, quote: secondQuote }] });
+
+    const result = await run([]);
+
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(sources.retrieve).toHaveBeenCalledTimes(1);
+    expect(sources.retrieve).toHaveBeenCalledWith(secondUrl, expect.objectContaining({ companyId: 'cmp', metricType: 'overview' }));
+    expect(sources.save).toHaveBeenCalledTimes(1);
+    expect(result.content.markdown).toContain(secondQuote);
+    expect(result.sourceDiagnostics).toMatchObject({ eligibleSourceCount: 2, acceptedExcerptCount: 1 });
+    expect(result.citations).toEqual([expect.objectContaining({ url: secondUrl })]);
+  });
+  it('records a blocked fallback without repeating synthesis over unchanged originals', async () => {
+    const { run, sources, ground, structure } = setup();
+    const secondUrl = 'https://reuters.com/acme-company-profile';
+    ground.mockResolvedValue({ text: 'Company profile lead', citations: [{ title: 'Acme company profile', url: secondUrl }], queries: [] });
+    sources.retrieve.mockResolvedValue({ requestedUrl: secondUrl, status: 'blocked', httpStatus: 403,
+      retrievedAt: '2026-10-06T00:00:00.000Z', reason: 'private transport detail' });
+    structure.mockResolvedValue({ excerpts: [] });
+
+    const result = await run([]);
+
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(sources.retrieve).toHaveBeenCalledTimes(1);
+    expect(sources.save).toHaveBeenCalledTimes(1);
+    expect(structure).toHaveBeenCalledTimes(1);
+    expect(result.sourceDiagnostics).toMatchObject({
+      reads: expect.arrayContaining([
+        expect.objectContaining({ host: 'reuters.com', outcome: 'blocked', httpStatus: 403 }),
+      ]),
+      eligibleSourceCount: 1,
+      acceptedExcerptCount: 0,
+    });
+    expect(JSON.stringify(result.sourceDiagnostics)).not.toContain('private transport detail');
+  });
+  it('retains successful parallel fallback reads when another source adapter throws', async () => {
+    const { run, sources, ground, structure } = setup();
+    const failedUrl = 'https://reuters.com/acme-company-profile';
+    const acceptedUrl = 'https://bloomberg.com/acme-company-profile';
+    const secondQuote = 'Acme builds research software for independent analysts and small research teams.';
+    ground.mockResolvedValue({ text: 'Company profile leads', citations: [
+      { title: 'Acme profile', url: failedUrl }, { title: 'Acme profile', url: acceptedUrl },
+    ], queries: [] });
+    sources.retrieve.mockImplementation(async url => {
+      if (url === failedUrl) throw new Error('private adapter failure');
+      return { requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200,
+        contentHash: 'c'.repeat(64), retrievedAt: '2026-10-06T00:00:00.000Z', text: secondQuote };
+    });
+    structure.mockResolvedValueOnce({ excerpts: [] }).mockResolvedValueOnce({ excerpts: [{ sourceUrl: acceptedUrl, quote: secondQuote }] });
+
+    const result = await run([]);
+
+    expect(sources.retrieve).toHaveBeenCalledTimes(2);
+    expect(sources.save.mock.calls[0]![0].receipts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ requestedUrl: failedUrl, status: 'unavailable', reason: 'Original source retrieval failed.' }),
+      expect.objectContaining({ requestedUrl: acceptedUrl, status: 'retrieved', text: secondQuote }),
+    ]));
+    expect(result.content.markdown).toContain(secondQuote);
+    expect(result.sourceDiagnostics).toMatchObject({ eligibleSourceCount: 2, acceptedExcerptCount: 1 });
+    expect(JSON.stringify(result)).not.toContain('private adapter failure');
+  });
+  it('keeps the honest first overview when targeted source discovery fails', async () => {
+    const { run, ground, structure } = setup();
+    structure.mockResolvedValue({ excerpts: [] });
+    ground.mockRejectedValue(new Error('private provider transport detail'));
+
+    const result = await run([]);
+
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(structure).toHaveBeenCalledTimes(1);
+    expect(result.content.markdown).toContain('Background unavailable');
+    expect(result.content.markdown).toContain('- Employees: Unknown');
+    expect(JSON.stringify(result)).not.toContain('private provider transport detail');
+  });
   it('does not reuse ineligible social originals instead of trying the known company page', async () => {
     const { run, sources, ground, structure } = setup([{ ...attempt, receipts: [{ ...attempt.receipts[0]!, finalUrl: 'https://facebook.com/acme' }] }]);
     sources.retrieve.mockResolvedValue({ ...attempt.receipts[0]!, requestedUrl: company.websiteUrl, finalUrl: company.websiteUrl, text: quote });
