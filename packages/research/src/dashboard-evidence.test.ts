@@ -81,6 +81,18 @@ describe('dashboard source lineage', () => {
     expect(cached!.content.markdown).not.toContain('Caller overwrite');
   });
 
+  it('drops Live Intel story links that were not returned as grounded citations', async () => {
+    const { repo, structure } = setup();
+    structure.mockImplementationOnce(async () => ({ items: [
+      { source: 'news', title: 'Cited story', url, summary: 'A grounded story.', detail: null, publishedDate: '2026-10-05', sentiment: 'neutral' },
+      { source: 'news', title: 'Invented story', url: 'https://invented.example/story', summary: 'No matching source.', detail: null, publishedDate: null, sentiment: 'neutral' },
+    ] } as never));
+
+    const result = await repo().getDashboardTab('cmp', 'live_intel');
+    expect(result!.content.items.map(item => item.url)).toEqual([url]);
+    expect(result!.citations!.map(citation => citation.url)).toEqual([url]);
+  });
+
   it('a forced rerun joins research already in flight and returns isolated results', async () => {
     const { repo, ground } = setup();
     let finish!: (value: { text: string; citations: Array<{ url: string; title: string }>; queries: string[] }) => void;

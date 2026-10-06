@@ -197,6 +197,33 @@ export async function researchDashboardWithSources<T extends DashboardTab>(tab: 
     },
   };
   const content = await researchDashboardTab(tab, { ...args, client });
+  if (tab === 'live_intel') {
+    // A tab-level source list is not enough: each clickable story must point
+    // to one of the URLs actually returned by grounding. Otherwise structured
+    // model output can invent a convincing but unsupported article link.
+    const canonicalUrl = (raw: string) => {
+      try {
+        const url = new URL(raw);
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+        url.hash = '';
+        return url.href;
+      } catch { return null; }
+    };
+    const citationByUrl = new Map(citations.flatMap(citation => {
+      const key = canonicalUrl(citation.url);
+      return key ? [[key, citation] as const] : [];
+    }));
+    const seen = new Set<string>();
+    const liveIntel = content as DashboardContentMap['live_intel'];
+    const items = liveIntel.items.flatMap(item => {
+      const key = canonicalUrl(item.url);
+      const citation = key ? citationByUrl.get(key) : undefined;
+      if (!key || !citation || seen.has(key)) return [];
+      seen.add(key);
+      return [{ ...item, url: citation.url }];
+    });
+    return { content: { ...liveIntel, items } as DashboardContentMap[T], citations };
+  }
   return { content, citations };
 }
 
