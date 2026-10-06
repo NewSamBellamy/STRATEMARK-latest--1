@@ -2,7 +2,8 @@ import { classifySource, isRedirectCitation, usableCitations, currentMetricRevis
 import { MAX_SEC_CONCEPT_TEXT, secRevenueSourceUrl, secRevenueCik } from './sec-revenue';
 
 /** Routing priority only, never evidence acceptance. Preserve the two-read budget. */
-export function selectOriginalSourceCitations(citations: readonly Citation[], officialWebsite?: string | null, preferAnnualRevenue = false): Citation[] {
+export function selectOriginalSourceCitations(citations: readonly Citation[], officialWebsite?: string | null, preferAnnualRevenue = false,
+  supportsUrl?: (url: string) => boolean): Citation[] {
   const priority = { primary: 4, reputable_secondary: 3, industry: 2, unknown: 1, user_generated: 0 };
   const pages = new Set<string>();
   // Both original readers require public HTTPS on the standard TLS port.
@@ -11,6 +12,7 @@ export function selectOriginalSourceCitations(citations: readonly Citation[], of
     ? { ...citation, url: secRevenueSourceUrl(citation.url)! } : citation)).filter(citation => {
     const url = new URL(citation.url);
     if (url.protocol !== 'https:' || (url.port && url.port !== '443')) return false;
+    if (supportsUrl && !supportsUrl(citation.url)) return false;
     // Readers strip fragments. URL also normalizes an explicit :443, but query
     // parameters remain part of identity because they may select another report.
     url.hash = '';
@@ -118,6 +120,8 @@ export function selectOriginalSourceAttempts(attempts: readonly OriginalSourceAt
   return structuredClone(selected);
 }
 export interface OriginalSourceServices {
+  /** Optional transport capability. Absent means the adapter applies its own checks at read time. */
+  supports?(url: string): boolean;
   retrieve(url: string, scope?: OriginalSourceScope): Promise<OriginalSourceReceipt>;
   save(attempt: OriginalSourceAttempt): Promise<void>;
   list(input: OriginalSourceQuery): Promise<OriginalSourceAttempt[]>;

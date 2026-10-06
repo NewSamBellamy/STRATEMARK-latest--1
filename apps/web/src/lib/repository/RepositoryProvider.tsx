@@ -12,7 +12,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import type { MarketIntelRepository } from '@mi/contracts';
 import { MockRepository, type SeedSnapshot } from '@mi/mocks';
 import sampleSnapshot from '@/sample/frontier-snapshot.json';
-import { GeminiRepository, retrieveBrowserOriginalSource, type ResearchStore } from '@mi/research';
+import { GeminiRepository, isBrowserOriginalSourceSupported, retrieveBrowserOriginalSource, type ResearchStore } from '@mi/research';
 import { IpcRepository, isElectron } from './ipc-repository';
 import { SentinelRepository } from './SentinelRepository';
 import { openBrowserResearchStore } from './browserResearchStore';
@@ -44,6 +44,7 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       model: model || undefined,
       store,
       originalSourceReader: (url, scope) => retrieveBrowserOriginalSource(url, undefined, scope),
+      originalSourceSupports: isBrowserOriginalSourceSupported,
       targetCompanies,
       concurrency: 3,
       // Count every request locally so the user can see their free-tier headroom.

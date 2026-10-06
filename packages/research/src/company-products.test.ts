@@ -15,7 +15,7 @@ const selections = { products: [{ name: 'Atlas', status: 'live', sourceUrl: url,
 function setup() {
   const ground = vi.fn().mockResolvedValue({ text: 'Unchecked search says Atlas has $99B revenue.', citations: [{ title: 'Official product', url }], queries: [] });
   const structure = vi.fn().mockResolvedValue(selections);
-  const sources = { list: vi.fn().mockResolvedValue([]), retrieve: vi.fn().mockResolvedValue(receipt), save: vi.fn().mockResolvedValue(undefined) };
+  const sources = { supports: (_url: string) => true, list: vi.fn().mockResolvedValue([]), retrieve: vi.fn().mockResolvedValue(receipt), save: vi.fn().mockResolvedValue(undefined) };
   const client = { ground, structure } as unknown as LlmClient;
   const run = () => researchDashboardWithSources('products_roadmap', { company, marketName: 'Research', storedMetrics: [], client, originalSources: sources });
   return { ground, structure, sources, client, run };
@@ -146,6 +146,12 @@ describe('original-backed company product dossier', () => {
     const result = await researchDashboardWithSources('products_roadmap', { company: { ...company, websiteUrl: null }, marketName: 'Research',
       storedMetrics: [], client, originalSources: sources });
     expect(result.content).toEqual({ products: [], roadmap: [] });
+    expect(ground).not.toHaveBeenCalled(); expect(structure).not.toHaveBeenCalled(); expect(sources.retrieve).not.toHaveBeenCalled();
+  });
+  it('does not spend search or source slots when the active reader cannot read the official domain', async () => {
+    const { run, ground, sources, structure } = setup();
+    sources.supports = () => false;
+    expect((await run()).content).toEqual({ products: [], roadmap: [] });
     expect(ground).not.toHaveBeenCalled(); expect(structure).not.toHaveBeenCalled(); expect(sources.retrieve).not.toHaveBeenCalled();
   });
   it('retains the completed first original if a second read fails, without synthesis or a false result', async () => {

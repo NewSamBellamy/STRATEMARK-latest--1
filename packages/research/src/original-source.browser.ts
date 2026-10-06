@@ -7,16 +7,24 @@ import { selectSourceExcerpt } from './source-excerpt';
 const hosts = ['sec.gov', 'uscourts.gov', 'companieshouse.gov.uk', 'find-and-update.company-information.service.gov.uk', 'sedarplus.ca', 'hkexnews.hk', 'reuters.com', 'bloomberg.com', 'wsj.com', 'ft.com', 'apnews.com', 'nytimes.com', 'bbc.com', 'bbc.co.uk', 'economist.com'];
 const limit = 262144;
 
+function supportedUrl(raw: string): URL | null {
+  try {
+    const url = new URL(raw);
+    if (raw.length > 2048 || url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') ||
+      !hosts.some(host => url.hostname === host || url.hostname.endsWith(`.${host}`))) return null;
+    url.hash = '';
+    return url;
+  } catch { return null; }
+}
+
+/** True only when the browser reader can attempt a direct, non-redirected read. */
+export function isBrowserOriginalSourceSupported(raw: string): boolean { return supportedUrl(raw) !== null; }
+
 /** Direct public CORS retrieval only. No proxy, key, cookies or redirect bypass. */
 export async function retrieveBrowserOriginalSource(raw: string, fetchImpl: typeof fetch = fetch, scope?: OriginalSourceScope): Promise<OriginalSourceReceipt> {
   const receipt: OriginalSourceReceipt = { requestedUrl: raw.slice(0, 2048), status: 'unavailable', retrievedAt: new Date().toISOString() };
-  let url: URL;
-  try {
-    url = new URL(raw);
-    if (raw.length > 2048 || url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') ||
-      !hosts.some(host => url.hostname === host || url.hostname.endsWith(`.${host}`))) throw new Error('Unsupported host');
-    url.hash = '';
-  } catch { return { ...receipt, status: 'blocked', reason: 'Browser source requires a supported public HTTPS host; use desktop for protected retrieval of other sources.' }; }
+  const url = supportedUrl(raw);
+  if (!url) return { ...receipt, status: 'blocked', reason: 'Browser source requires a supported public HTTPS host; use desktop for protected retrieval of other sources.' };
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const work = async (): Promise<OriginalSourceReceipt> => {

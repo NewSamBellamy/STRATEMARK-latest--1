@@ -619,7 +619,7 @@ export async function hydrateCompanyCard(
   throwIfAborted(options.signal);
 
   const officialWebsite = candidate.domain ? `https://${candidate.domain}` : null;
-  const selectedProfileSources = selectOriginalSourceCitations(grounded.citations, officialWebsite, true);
+  const selectedProfileSources = selectOriginalSourceCitations(grounded.citations, officialWebsite, true, options.originalSources?.supports);
   const officialDomain = rootDomain(officialWebsite);
   const hasOfficialProfileSource = Boolean(officialDomain && selectedProfileSources.some(source => rootDomain(source.url) === officialDomain));
   // A grounded search may cite only third-party pages. Reserve one of the same
@@ -629,7 +629,7 @@ export async function hydrateCompanyCard(
     ? [{ title: candidate.name, url: officialWebsite }, ...selectedProfileSources]
     : selectedProfileSources;
   const originals = options.originalSources ? await Promise.all(
-    selectOriginalSourceCitations(profileSourceCandidates, officialWebsite, true).map((citation) => options.originalSources!.retrieve(citation.url, { companyId, companyName: candidate.name, metricType: 'company_profile' })),
+    selectOriginalSourceCitations(profileSourceCandidates, officialWebsite, true, options.originalSources.supports).map((citation) => options.originalSources!.retrieve(citation.url, { companyId, companyName: candidate.name, metricType: 'company_profile' })),
   ) : [];
   throwIfAborted(options.signal);
   if (options.originalSources) await options.originalSources.save({

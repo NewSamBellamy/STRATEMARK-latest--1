@@ -103,7 +103,8 @@ export async function researchCompanyOverview(args: TabResearchArgs) {
     // paying for discovery. All fresh reads share a two-page limit; later
     // excerpt enrichment is allowed only when the first extraction accepts none.
     const scope = { companyId: args.company.id, companyName: args.company.name, metricType: 'overview' };
-    const seed = args.company.websiteUrl ? selectOriginalSourceCitations([{ title: 'Company website', url: args.company.websiteUrl }], args.company.websiteUrl)[0] : undefined;
+    const seed = args.company.websiteUrl ? selectOriginalSourceCitations([{ title: 'Company website', url: args.company.websiteUrl }],
+      args.company.websiteUrl, false, args.originalSources.supports)[0] : undefined;
     try {
       if (seed) collected.push(await args.originalSources.retrieve(seed.url, scope));
       throwIfAborted(args.signal);
@@ -114,7 +115,8 @@ export async function researchCompanyOverview(args: TabResearchArgs) {
         throwIfAborted(args.signal);
         const pageKey = (url: string) => { try { const parsed = new URL(url); parsed.hash = ''; return parsed.href; } catch { return null; } };
         const tried = new Set(collected.flatMap(source => [pageKey(source.requestedUrl), pageKey(source.finalUrl ?? '')]).filter(Boolean));
-        const selected = selectOriginalSourceCitations(result.citations.filter(row => !tried.has(pageKey(row.url))), args.company.websiteUrl).slice(0, 2 - collected.length);
+        const selected = selectOriginalSourceCitations(result.citations.filter(row => !tried.has(pageKey(row.url))), args.company.websiteUrl,
+          false, args.originalSources.supports).slice(0, 2 - collected.length);
         collected.push(...await Promise.all(selected.map(row => args.originalSources!.retrieve(row.url, scope))));
       }
     } finally {
@@ -159,7 +161,8 @@ export async function researchCompanyOverview(args: TabResearchArgs) {
       [pageKey(source.requestedUrl), pageKey(source.finalUrl ?? '')]).filter(Boolean));
     const alreadyEligible = new Set(candidates.map(source => source.finalUrl));
     const remainingReads = 2 - collected.length;
-    const selected = selectOriginalSourceCitations(result.citations.filter(row => !tried.has(pageKey(row.url))), args.company.websiteUrl)
+    const selected = selectOriginalSourceCitations(result.citations.filter(row => !tried.has(pageKey(row.url))), args.company.websiteUrl,
+      false, args.originalSources.supports)
       .slice(0, remainingReads);
     const additional: OriginalSourceReceipt[] = [];
     try {

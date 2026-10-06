@@ -313,6 +313,8 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   originalSources?: OriginalSourceServices;
   /** Reader capability only; this repository owns acknowledged local retention. */
   originalSourceReader?: (url: string, scope?: OriginalSourceScope) => Promise<OriginalSourceReceipt>;
+  /** Optional preflight so unsupported leads do not consume the reader's bounded page budget. */
+  originalSourceSupports?: (url: string) => boolean;
 }
 
 export class GeminiRepository implements MarketIntelRepository {
@@ -351,6 +353,7 @@ export class GeminiRepository implements MarketIntelRepository {
     if (!options.originalSources && options.originalSourceReader) {
       if (!this.store) throw new Error('Original-source research requires acknowledged local storage.');
       this.originalSources = {
+        ...(options.originalSourceSupports ? { supports: options.originalSourceSupports } : {}),
         retrieve: coalesceOriginalSources(async (url, scope) => { await this.ready(); return options.originalSourceReader!(url, scope); }),
         save: async attempt => {
           await this.ready();
@@ -1694,7 +1697,7 @@ export class GeminiRepository implements MarketIntelRepository {
         companyId: company.id, companyName: company.name, topic: `verify:${input.metricType}`,
       } },
     );
-    const originals = this.originalSources ? await Promise.all(selectOriginalSourceCitations(g.citations, company.websiteUrl, input.metricType === 'arr')
+    const originals = this.originalSources ? await Promise.all(selectOriginalSourceCitations(g.citations, company.websiteUrl, input.metricType === 'arr', this.originalSources.supports)
       .map((citation) => this.originalSources!.retrieve(citation.url, { companyId: company.id, companyName: company.name, metricType: input.metricType }))) : [];
     if (this.originalSources) await this.originalSources.save({
       id: `src_${globalThis.crypto.randomUUID()}`, companyId: company.id, metricType: input.metricType,
@@ -1832,7 +1835,7 @@ export class GeminiRepository implements MarketIntelRepository {
         companyId: company.id, companyName: company.name, topic: 'metrics_hunt',
       } },
     );
-    const originals = this.originalSources ? await Promise.all(selectOriginalSourceCitations(g.citations, company.websiteUrl, softTypes.includes('arr'))
+    const originals = this.originalSources ? await Promise.all(selectOriginalSourceCitations(g.citations, company.websiteUrl, softTypes.includes('arr'), this.originalSources.supports)
       .map(citation => this.originalSources!.retrieve(citation.url, { companyId: company.id, companyName: company.name }))) : [];
     if (this.originalSources) {
       await this.originalSources.save({ id: `src_${globalThis.crypto.randomUUID()}`, companyId: company.id,

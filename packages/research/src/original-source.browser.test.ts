@@ -1,11 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { retrieveBrowserOriginalSource } from './original-source.browser';
+import { isBrowserOriginalSourceSupported, retrieveBrowserOriginalSource } from './original-source.browser';
 
 const url = 'https://www.sec.gov/Archives/acme';
 const text = 'Acme Inc. reported 45 employees as of 2026-10-01.';
 const response = (body = text, headers: Record<string, string> = { 'content-type': 'text/plain' }) => new Response(body, { status: 200, headers });
 
 describe('bounded browser original retrieval', () => {
+  it('reports browser capability without contacting unsupported company or grounding hosts', () => {
+    expect(isBrowserOriginalSourceSupported('https://meta.com/about')).toBe(false);
+    expect(isBrowserOriginalSourceSupported('https://vertexaisearch.cloud.google.com/grounding-api-redirect/token')).toBe(false);
+    expect(isBrowserOriginalSourceSupported(url)).toBe(true);
+  });
   it('passes company and metric scope through the browser reader without extra fetches', async () => {
     const quote = 'Acme Inc. reported 45 employees as of 2026-10-01.';
     const body = `Other Inc. reported 900 employees, USD 50 million ARR and 100 active users.${' filler '.repeat(1100)}${quote}${' appendix '.repeat(600)}`;

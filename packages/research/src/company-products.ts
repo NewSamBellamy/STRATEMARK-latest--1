@@ -108,7 +108,8 @@ export function renderCompanyProducts(company: Company, originals: readonly Orig
 export async function researchCompanyProducts(args: TabResearchArgs) {
   // Resolve company identity/domain before this official-disclosure lane. An
   // unresolved domain cannot produce eligible output, so don't spend on it.
-  if (!selectOriginalSourceCitations([{ title: 'Company website', url: args.company.websiteUrl ?? '' }]).length)
+  if (!selectOriginalSourceCitations([{ title: 'Company website', url: args.company.websiteUrl ?? '' }], args.company.websiteUrl,
+    false, args.originalSources?.supports).length)
     return renderCompanyProducts(args.company, [], { products: [], roadmap: [] });
   const attempts = args.originalSources ? await args.originalSources.list({ companyId: args.company.id, metricType: 'products_roadmap', limit: 20 }) : args.originalAttempts;
   let originals = Array.isArray(attempts) ? attempts.filter(isOriginalSourceAttempt)
@@ -120,7 +121,8 @@ export async function researchCompanyProducts(args: TabResearchArgs) {
       const result = await args.client.ground(`Find original official product/catalog pages and announced product plans for ${JSON.stringify(args.company.name)} (${args.company.websiteUrl ?? 'official domain unresolved'}). Return exact source URLs. Prioritize original product announcements with explicit live/beta/discontinued status and announced dates. Search notes are leads, never proof. Do not invent revenue contribution, rankings, dates or links.`,
         { system: GROUNDED_SYSTEM, signal: args.signal, researchContext: { companyId: args.company.id, companyName: args.company.name, topic: 'products_roadmap' } });
       throwIfAborted(args.signal);
-      const selected = selectOriginalSourceCitations(result.citations.filter(citation => officialUrl(args.company, citation.url)), args.company.websiteUrl);
+      const selected = selectOriginalSourceCitations(result.citations.filter(citation => officialUrl(args.company, citation.url)),
+        args.company.websiteUrl, false, args.originalSources.supports);
       // At most two reads. Sequential retention keeps the first outcome if the
       // second read throws or the user cancels; never hide a completed read.
       for (const citation of selected) {

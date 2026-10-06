@@ -45,6 +45,15 @@ describe('bounded original source priority', () => {
     expect(selectOriginalSourceCitations(citations).map(source => source.url))
       .toEqual(['https://reuters.com/report', 'https://niche.example/report']);
   });
+  it('filters candidates through the active reader capability before spending either source slot', () => {
+    const citations = [
+      { url: 'https://meta.com/about', title: 'Official company page' },
+      { url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/meta', title: 'meta.com' },
+      { url: 'https://sec.gov/Archives/report', title: 'Filing' },
+    ];
+    expect(selectOriginalSourceCitations(citations, 'https://meta.com', false, url => url.includes('sec.gov')).map(row => row.url))
+      .toEqual([citations[2]!.url]);
+  });
   it('reads one page once even when citations use fragments or an explicit default port', () => {
     const citations = [
       { url: 'https://sec.gov:443/Archives/report#employees', title: 'Headcount' },

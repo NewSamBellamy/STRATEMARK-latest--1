@@ -88,8 +88,8 @@ export function teamOrgOriginalAttempts(value: unknown, companyId: string) {
   return Array.isArray(value) ? value.filter(isOriginalSourceAttempt).filter(row => row.companyId === companyId && row.metricType === 'team_org') : [];
 }
 
-export function selectTeamOrgSources(citations: readonly Citation[], company: Company) {
-  return selectOriginalSourceCitations(citations, company.websiteUrl);
+export function selectTeamOrgSources(citations: readonly Citation[], company: Company, supportsUrl?: (url: string) => boolean) {
+  return selectOriginalSourceCitations(citations, company.websiteUrl, false, supportsUrl);
 }
 
 export interface ResearchCompanyTeamArgs {
@@ -116,7 +116,7 @@ export async function researchCompanyTeamOrg(args: ResearchCompanyTeamArgs) {
         { system: GROUNDED_SYSTEM, signal: args.signal, researchContext: { companyId: args.company.id, companyName: args.company.name, topic: 'team_org' } },
       );
       throwIfAborted(args.signal);
-      const selected = selectTeamOrgSources(search.citations, args.company);
+      const selected = selectTeamOrgSources(search.citations, args.company, args.originalSources.supports);
       for (const citation of selected) {
         throwIfAborted(args.signal);
         collected.push(await args.originalSources.retrieve(citation.url, { companyId: args.company.id, companyName: args.company.name,
