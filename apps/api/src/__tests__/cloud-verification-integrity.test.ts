@@ -22,7 +22,7 @@ const capturedAt = '2026-08-01T00:00:00.000Z';
 const lastVerifiedAt = '2026-08-02T00:00:00.000Z';
 afterEach(() => { vi.clearAllMocks(); vi.mocked(retrieveOriginalSource).mockReset(); });
 
-async function run(out: { verdict: string; currentValue: number | null }, patch: Partial<CompanyMetric> = {}, correction?: unknown, failStructure = false, manySources = false) {
+async function run(out: { verdict: string; currentValue: number | null; figures?: unknown[] }, patch: Partial<CompanyMetric> = {}, correction?: unknown, failStructure = false, manySources = false, duplicates: CompanyMetric[] = [], route = 'verify') {
   const store = new MemoryDataStore();
   const auth = new MockFirebaseAdapter();
   const service = new CloudDeckService(store, auth, auth);
@@ -44,21 +44,56 @@ async function run(out: { verdict: string; currentValue: number | null }, patch:
       company: { id: 'company_test', name: 'Example Company', oneLiner: 'Test company' },
       metrics: [{ id: 'metric_test', companyId: 'company_test', metricType: 'arr', value: 100,
         confidence: 'verified', citations: [citation], source: citation.url, methodNote: null,
-        capturedAt, lastVerifiedAt, ...patch }], viceClaims: [],
+        capturedAt, lastVerifiedAt, ...patch }, ...duplicates], viceClaims: [],
     }] as unknown as CardWithCompany[],
   });
-  const response = await app.request('/api/research/verify', {
+  const response = await app.request(`/api/research/${route}`, {
     method: 'POST', headers: { Authorization: 'Bearer valid_token', 'X-Stratemark-Token': 'app-token', 'Content-Type': 'application/json' },
     body: JSON.stringify({ deckId: 'deck_test', companyId: 'company_test', metricType: patch.metricType ?? 'arr', correction }),
   });
   expect(response.status).toBe(failStructure ? 500 : 200);
-  const result = await response.json() as { metric: CompanyMetric; verdict: string; changed: boolean };
+  const result = await response.json() as { metric: CompanyMetric; verdict: string; changed: boolean; filledTypes?: string[]; metrics?: CompanyMetric[] };
   const stored = (await service.getDeck('user_123', 'deck_test'))!.cards![0]!.metrics[0]!;
   const attempt = await service.getDeck('user_123', 'deck_test');
   return { result, stored, ground, structure, attempt };
 }
 
 describe('cloud metric verification integrity', () => {
+  it('selects the latest duplicate rather than overwriting the first cloud row', async () => {
+    const duplicate: CompanyMetric = { id: 'latest', companyId: 'company_test', metricType: 'arr', value: 200,
+      confidence: 'estimated', citations: [], source: null, methodNote: null, capturedAt: '2026-09-01T00:00:00.000Z' };
+    const { result, stored } = await run({ verdict: 'contradicted', currentValue: 900 }, {}, undefined, false, false, [duplicate]);
+    expect(result.metric.id).toBe('latest');
+    expect(result.metric.value).toBe(900);
+    expect(stored.value).toBe(100);
+  });
+
+  it('does not spend on a human-locked cloud duplicate', async () => {
+    const duplicate: CompanyMetric = { id: 'human', companyId: 'company_test', metricType: 'arr', value: 200,
+      confidence: 'user_verified', citations: [], source: null, methodNote: null, capturedAt };
+    const { result, ground } = await run({ verdict: 'contradicted', currentValue: 900 }, {}, undefined, false, false, [duplicate]);
+    expect(result.metric.id).toBe('human');
+    expect(result.changed).toBe(false);
+    expect(ground).not.toHaveBeenCalled();
+  });
+
+  it('does not promote a cloud hunt figure without its matching original passage', async () => {
+    const { result } = await run({ verdict: 'contradicted', currentValue: 900,
+      figures: [{ metricType: 'arr', value: 900, methodNote: 'Citation alone' }] }, { confidence: 'estimated' }, undefined, false, false, [], 'hunt-metrics');
+    expect(result.filledTypes).toEqual([]);
+    expect(result.metrics![0]!.value).toBe(100);
+  });
+
+  it('accepts a cloud hunt figure with retained original support and preserves it on reopen', async () => {
+    const { result, attempt } = await run({ verdict: 'contradicted', currentValue: 900,
+      figures: [{ metricType: 'arr', value: 900, methodNote: null, passageSupport: {
+        sourceUrl: citation.url, quote: 'Example Company reports ARR of USD 900 as of 2026-10-01.', asOf: '2026-10-01', basis: 'arr', unit: 'USD' } }] },
+      { confidence: 'estimated' }, undefined, false, false, [], 'hunt-metrics');
+    expect(result.filledTypes).toEqual(['arr']);
+    expect(attempt!.originalSourceAttempts).toEqual([expect.objectContaining({ metricType: 'metrics_hunt' })]);
+    expect(attempt!.cards![0]!.metrics[0]!.value).toBe(900);
+  });
+
   it('does not accept a citation-only correction when its original page is unavailable', async () => {
     vi.mocked(retrieveOriginalSource).mockResolvedValueOnce({ requestedUrl: citation.url, status: 'unavailable', retrievedAt: '2026-10-03T00:00:00.000Z' });
     const { result, stored, ground, structure } = await run({ verdict: 'contradicted', currentValue: 900 }, {}, { value: 900, citations: [citation] });
@@ -122,11 +157,13 @@ describe('cloud metric verification integrity', () => {
   });
 
   it('never rewrites human-reviewed values or support dates', async () => {
-    const { stored } = await run({ verdict: 'contradicted', currentValue: 900 }, { confidence: 'user_verified' });
+    const { stored, ground } = await run({ verdict: 'contradicted', currentValue: 900 }, { confidence: 'user_verified' });
     expect(stored.value).toBe(100);
     expect(stored.confidence).toBe('user_verified');
     expect(stored.lastVerifiedAt).toBe(lastVerifiedAt);
-    expect(stored.lastVerificationAttemptAt).toBeTruthy();
+    // A protected human row now skips research entirely, so no attempt is invented.
+    expect(stored.lastVerificationAttemptAt).toBeUndefined();
+    expect(ground).not.toHaveBeenCalled();
   });
 
   it.each([-20, '900'])('does not apply an invalid shortcut value %s', async (value) => {

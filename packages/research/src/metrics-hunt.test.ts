@@ -91,6 +91,32 @@ function repoWith(client: LlmClient): GeminiRepository {
 }
 
 describe('huntCompanyMetrics — one pass fills every soft figure', () => {
+  it('excludes human-protected duplicates while still filling an unrelated soft field', async () => {
+    const snap = snapshot();
+    snap.metrics.push({ ...snap.metrics[2]!, id: 'human_employees', value: 4000, confidence: 'user_verified' });
+    const ground = vi.fn().mockResolvedValue({ text: 'Research', citations: [{ url: 'https://reuters.com/report', title: 'Reuters' }], queries: [] });
+    const structure = vi.fn().mockResolvedValue({ figures: [{ metricType: 'employees', value: 3500 }, { metricType: 'valuation', value: 5e11 }] });
+    const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snap), client: { ground, structure } as unknown as LlmClient });
+    const result = await repo.huntCompanyMetrics('cmp_1');
+    expect(result.filledTypes).toEqual(['valuation']);
+    expect(result.metrics.find(m => m.id === 'met_emp')!.value).toBeNull();
+    expect(result.metrics.find(m => m.id === 'human_employees')!.value).toBe(4000);
+    expect(ground.mock.calls[0]![0]).not.toContain('- Employees');
+  });
+
+  it('does not refill a figure cleared while a hunt was in flight', async () => {
+    const client = { ground: vi.fn().mockResolvedValue({ text: 'Research', citations: [{ url: 'https://reuters.com/report', title: 'Reuters' }], queries: [] }),
+      structure: vi.fn() } as unknown as LlmClient;
+    const repo = repoWith(client);
+    vi.mocked(client.structure).mockImplementationOnce(async () => {
+      await repo.overrideMetric({ companyId: 'cmp_1', metricType: 'employees', value: null, note: 'Wrong company' });
+      return { figures: [{ metricType: 'employees', value: 3500, methodNote: 'Old request' }] };
+    });
+    const result = await repo.huntCompanyMetrics('cmp_1');
+    expect(result.filledTypes).toEqual([]);
+    expect(result.metrics.find(m => m.metricType === 'employees')!.value).toBeNull();
+  });
+
   it('retains unavailable originals and skips interpretation without promoting figures', async () => {
     const store = memoryStore(snapshot());
     const ground = vi.fn().mockResolvedValue({ text: 'OpenAI has 3500 employees.',

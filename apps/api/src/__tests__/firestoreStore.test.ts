@@ -22,6 +22,20 @@ const mockEnv: ServiceEnv = {
 };
 
 describe('MemoryDataStore', () => {
+  it('isolates nested deck data from caller mutations and rejected stale writes', async () => {
+    const store = new MemoryDataStore();
+    const record: StoredDeckRecord = { deck: { id: 'isolated' }, market: {},
+      cards: [{ metrics: [{ value: 100 }] }] as unknown as CardWithCompany[], userId: 'user_123' };
+    await store.saveDeck('isolated', record);
+    record.cards[0]!.metrics[0]!.value = 999;
+    expect((await store.getDeck('isolated'))!.cards[0]!.metrics[0]!.value).toBe(100);
+    const stale = (await store.getDeck('isolated'))!;
+    stale.cards[0]!.metrics[0]!.value = 200;
+    expect((await store.getDeck('isolated'))!.cards[0]!.metrics[0]!.value).toBe(100);
+    await expect(store.saveDeck('isolated', stale, 0)).rejects.toThrow('Revision mismatch');
+    expect((await store.getDeck('isolated'))!.cards[0]!.metrics[0]!.value).toBe(100);
+  });
+
   it('saves, retrieves, lists and deletes decks and markets, and respects revisions', async () => {
     const store = new MemoryDataStore();
     const record: StoredDeckRecord = {

@@ -1,5 +1,5 @@
 import {
-  CARD_TYPE_LABELS, CONFIDENCE_LABELS, TIER_LABELS, enforceMetricProvenance,
+  CARD_TYPE_LABELS, CONFIDENCE_LABELS, TIER_LABELS, enforceMetricProvenance, currentMetricRevision,
   isSignalCardType, usableCitations, type CardWithCompany, type CompanyMetric, type MetricType,
 } from '@mi/contracts';
 
@@ -72,19 +72,11 @@ export function buildMetricViews(input: readonly CompanyMetric[]) {
     else groups.set(key, [metric]);
   }
   return [...groups.values()].map((rows) => {
-    // Recording/attempt time orders stored revisions, not the age or truth of
-    // the source. Never resurrect an older badge after a newer failed check.
-    const human = rows.filter(m => m.confidence === 'user_verified');
-    const candidates = human.length ? human : rows;
-    const activity = (m: CompanyMetric) => Math.max(0, ...[
-      m.capturedAt, m.lastVerificationAttemptAt, m.lastVerifiedAt,
-    ].map(date => Date.parse(date ?? '')).filter(Number.isFinite));
-    const newest = Math.max(...candidates.map(activity));
-    const current = candidates.filter(m => activity(m) === newest).sort((a, b) => a.id.localeCompare(b.id));
-    let original = current[0]!;
-    if (current.some(m => !Object.is(m.value, original.value) || m.confidence !== original.confidence)) {
+    const revision = currentMetricRevision(rows, rows[0]!.companyId, rows[0]!.metricType)!;
+    let original = revision.metric;
+    if (revision.ambiguous) {
       original = { ...original, value: null, confidence: 'unknown',
-        citations: current.flatMap(m => m.citations),
+        citations: revision.tied.flatMap(m => m.citations),
         methodNote: 'Conflicting stored figures have no unambiguous current revision. Confirm the figure before treating it as fact.' };
     }
     const legacy = sourceUrl(original.source);

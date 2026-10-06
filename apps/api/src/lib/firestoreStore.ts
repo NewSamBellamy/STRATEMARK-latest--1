@@ -196,7 +196,7 @@ export class MemoryDataStore implements StratemarkDataStore {
     };
     assertPayloadSize(newRecord);
     
-    this.decks.set(deckId, newRecord);
+    this.decks.set(deckId, structuredClone(newRecord));
     if (record.market) {
       const marketId = String(record.market.id || record.market.marketId || deckId);
       await this.saveMarket(marketId, record.market, record.userId, expectedRevision);
@@ -205,7 +205,7 @@ export class MemoryDataStore implements StratemarkDataStore {
 
   async getDeck(deckId: string): Promise<StoredDeckRecord | null> {
     const d = this.decks.get(deckId);
-    return d ? { ...d } : null;
+    return d ? structuredClone(d) : null;
   }
 
   async listDecks(userId?: string): Promise<Array<Record<string, unknown>>> {

@@ -4,6 +4,23 @@ import type { MetricType } from './enums';
 import { hasVerificationGradeCitation, usableCitations } from './provenance';
 import { markVerified } from './freshness';
 
+/** Select a stored revision, not a source reporting period or a claim of truth.
+ * Returns the original row for writes; ambiguous ties must not be auto-mutated.
+ */
+export function currentMetricRevision(input: readonly CompanyMetric[], companyId: string, metricType: MetricType) {
+  const rows = input.filter(m => m.companyId === companyId && m.metricType === metricType);
+  if (!rows.length) return undefined;
+  const human = rows.filter(m => m.confidence === 'user_verified');
+  const candidates = human.length ? human : rows;
+  const activity = (m: CompanyMetric) => Math.max(0, ...[
+    m.capturedAt, m.lastVerificationAttemptAt, m.lastVerifiedAt,
+  ].map(date => Date.parse(date ?? '')).filter(Number.isFinite));
+  const newest = Math.max(...candidates.map(activity));
+  const tied = candidates.filter(m => activity(m) === newest).sort((a, b) => a.id.localeCompare(b.id));
+  const metric = tied[0]!;
+  return { metric, tied, ambiguous: tied.some(m => !Object.is(m.value, metric.value) || m.confidence !== metric.confidence) };
+}
+
 /** Value bounds, not evidence of truth. Do not coerce API strings to numbers. */
 export function validMetricVerificationValue(metricType: MetricType, value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 &&

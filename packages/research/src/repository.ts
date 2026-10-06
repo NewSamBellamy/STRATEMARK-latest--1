@@ -16,6 +16,7 @@ import {
   isJunkSource,
   markVerified,
   applyMetricVerification,
+  currentMetricRevision,
   validMetricVerificationValue,
   metricVerificationDiffers,
   reconcileMetrics,
@@ -1462,10 +1463,14 @@ export class GeminiRepository implements MarketIntelRepository {
   async verifyMetric(input: VerifyMetricInput): Promise<VerifyMetricResult> {
     const company = this.snap.companies.find((c) => c.id === input.companyId);
     if (!company) throw new Error(`Company not found: ${input.companyId}`);
-    const metric = this.snap.metrics.find(
-      (m) => m.companyId === input.companyId && m.metricType === input.metricType,
-    );
+    const rows = () => this.snap.metrics.filter(m => m.companyId === input.companyId && m.metricType === input.metricType);
+    const revision = currentMetricRevision(rows(), input.companyId, input.metricType);
+    const metric = revision?.metric;
     if (!metric) throw new Error(`Metric not found: ${input.companyId}/${input.metricType}`);
+    if (revision!.ambiguous) throw new Error('Conflicting stored figures: confirm a correction before automatic verification.');
+    if (metric.confidence === 'user_verified') return { metric: structuredClone(metric), verdict: 'unverified',
+      changed: false, retieredCardIds: [], rationale: 'Human correction preserved; automatic verification was not run.', citations: [] };
+    const startingRevision = JSON.stringify(rows());
 
     const label = METRIC_TYPE_LABELS[input.metricType];
 
@@ -1478,7 +1483,7 @@ export class GeminiRepository implements MarketIntelRepository {
       const hintCited = usableCitations(input.correction.citations);
       const correctionValue = input.correction.value;
       const validCorrection = validMetricVerificationValue(input.metricType, correctionValue);
-      if (validCorrection && hasVerificationGradeCitation(hintCited) && metric.confidence !== 'user_verified') {
+      if (validCorrection && hasVerificationGradeCitation(hintCited)) {
         const nowIso = new Date().toISOString();
         const prior = metric.value;
         const differs = metricVerificationDiffers(prior, correctionValue);
@@ -1580,6 +1585,15 @@ export class GeminiRepository implements MarketIntelRepository {
       { system: STRUCTURE_SYSTEM },
     );
 
+    // Provider work may outlive a correction, import, refresh or another check.
+    // Never mutate the captured row if ANY revision of this field changed.
+    if (JSON.stringify(rows()) !== startingRevision) {
+      const current = currentMetricRevision(rows(), input.companyId, input.metricType);
+      if (!current || current.ambiguous) throw new Error('Stored figure changed during research; review the current figure before retrying.');
+      return { metric: structuredClone(current.metric), verdict: 'unverified', changed: false, retieredCardIds: [],
+        rationale: 'Stored figure changed during research. This older result was not applied.', citations: g.citations,
+        ...(this.originalSources ? { originalSources: structuredClone(originals) } : {}) };
+    }
     const nowIso = new Date().toISOString();
     const passageCitations = this.originalSources ? acceptedMetricPassage({
       companyName: company.name, metricType: metric.metricType, value: out.currentValue,
@@ -1637,11 +1651,14 @@ export class GeminiRepository implements MarketIntelRepository {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company) throw new Error(`Company not found: ${companyId}`);
     const mine = () => this.snap.metrics.filter((m) => m.companyId === companyId);
+    const revisions = new Map(METRIC_TYPES.map(t => [t, JSON.stringify(mine().filter(m => m.metricType === t))]));
 
     // A figure is a hunt target when we have nothing, an unknown, or a soft
     // estimate. Verified figures re-check via decay; user figures are law.
     const softTypes: MetricType[] = METRIC_TYPES.filter((t) => {
-      const m = mine().find((x) => x.metricType === t);
+      const current = currentMetricRevision(mine(), companyId, t);
+      if (current?.ambiguous) return false;
+      const m = current?.metric;
       if (!m) return true;
       if (m.confidence === 'user_verified' || m.confidence === 'verified') return false;
       return m.value == null || m.confidence === 'unknown' || m.confidence === 'estimated';
@@ -1703,7 +1720,10 @@ export class GeminiRepository implements MarketIntelRepository {
         const supported = this.originalSources ? acceptedMetricPassage({ companyName: company.name,
           metricType: fig.metricType, value: fig.value, support: fig.passageSupport, originals }) : cited;
         if (!supported.length) continue;
-        let metric = mine().find((m) => m.metricType === fig.metricType);
+        if (JSON.stringify(mine().filter(m => m.metricType === fig.metricType)) !== revisions.get(fig.metricType)) continue;
+        const current = currentMetricRevision(mine(), companyId, fig.metricType);
+        if (current?.ambiguous) continue;
+        let metric = current?.metric;
         // Recheck after provider work: a human correction or another completed
         // verification may have hardened this row while the hunt was in flight.
         if (metric?.confidence === 'user_verified' || metric?.confidence === 'verified') continue;
@@ -2531,9 +2551,7 @@ export class GeminiRepository implements MarketIntelRepository {
   async overrideMetric(input: OverrideMetricInput): Promise<CompanyMetric> {
     const company = this.snap.companies.find((c) => c.id === input.companyId);
     if (!company) return Promise.reject(new Error(`Company not found: ${input.companyId}`));
-    let metric = this.snap.metrics.find(
-      (m) => m.companyId === input.companyId && m.metricType === input.metricType,
-    );
+    let metric = currentMetricRevision(this.snap.metrics, input.companyId, input.metricType)?.metric;
     if (!metric) {
       metric = {
         id: `met_override_${Date.now().toString(36)}`,

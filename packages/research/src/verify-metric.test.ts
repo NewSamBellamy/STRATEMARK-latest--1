@@ -262,6 +262,83 @@ function stubClient(overrides: {
 }
 
 describe('verifyMetric', () => {
+  it('does not downgrade or replace a newer verification that finishes first', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 50_000_000_000 } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    vi.mocked(client.structure).mockImplementationOnce(async () => {
+      await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+      return { verdict: 'unverified', currentValue: null, rationale: 'Older request lacked support', methodNote: null };
+    });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.changed).toBe(false);
+    expect(result.metric).toMatchObject({ value: 50_000_000_000, confidence: 'verified' });
+    expect((await repo.getCompanyMetrics('cmp_openai')).find(m => m.metricType === 'arr')!.confidence).toBe('verified');
+  });
+
+  it('refuses ambiguous equal-time duplicates before spending or mutating either row', async () => {
+    const snap = seededSnapshot();
+    snap.metrics.push({ ...snap.metrics[0]!, id: 'conflicting_arr', value: 2_000_000_000 });
+    const { store } = memoryStore(snap);
+    const client = stubClient({ structured: {} });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    await expect(repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' })).rejects.toThrow('Conflicting stored figures');
+    expect(client.ground).not.toHaveBeenCalled();
+    expect((await repo.getCompanyMetrics('cmp_openai')).filter(m => m.metricType === 'arr')).toHaveLength(2);
+  });
+
+  it('updates the current duplicate revision, preserving the older stored row', async () => {
+    const snap = seededSnapshot();
+    snap.metrics[0]!.capturedAt = '2026-08-01T00:00:00.000Z';
+    snap.metrics.push({ ...snap.metrics[0]!, id: 'current_arr', value: 2_000_000_000,
+      capturedAt: '2026-09-01T00:00:00.000Z' });
+    const { store } = memoryStore(snap);
+    const repo = new GeminiRepository({ apiKey: 'k', store,
+      client: stubClient({ structured: { verdict: 'contradicted', currentValue: 40_000_000_000 } }) });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.metric.id).toBe('current_arr');
+    expect(result.metric.value).toBe(40_000_000_000);
+    expect((await repo.getCompanyMetrics('cmp_openai')).find(m => m.id === 'met_arr')!.value).toBe(990_000_000);
+  });
+
+  it('does not spend or revise a hidden human duplicate', async () => {
+    const snap = seededSnapshot();
+    snap.metrics.push({ ...snap.metrics[0]!, id: 'human_arr', value: 50_000_000_000, confidence: 'user_verified' });
+    const { store } = memoryStore(snap);
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 40_000_000_000 } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.metric.id).toBe('human_arr');
+    expect(result.changed).toBe(false);
+    expect(client.ground).not.toHaveBeenCalled();
+  });
+
+  it('discards an in-flight result after a user clears the figure, including across reopen', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: {} });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    vi.mocked(client.structure).mockImplementationOnce(async () => {
+      await repo.overrideMetric({ companyId: 'cmp_openai', metricType: 'arr', value: null, note: 'Incorrect attribution' });
+      return { verdict: 'contradicted', currentValue: 40_000_000_000, rationale: 'Old request', methodNote: null };
+    });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.changed).toBe(false);
+    expect(result.verdict).toBe('unverified');
+    expect(result.metric.value).toBeNull();
+    const reopened = new GeminiRepository({ apiKey: 'k', store, client });
+    expect((await reopened.getCompanyMetrics('cmp_openai')).find(m => m.metricType === 'arr')!.value).toBeNull();
+  });
+
+  it('applies an explicit human correction to the currently authoritative duplicate', async () => {
+    const snap = seededSnapshot();
+    snap.metrics.push({ ...snap.metrics[0]!, id: 'human_arr', value: 50_000_000_000, confidence: 'user_verified' });
+    const { store } = memoryStore(snap);
+    const repo = new GeminiRepository({ apiKey: 'k', store, client: stubClient({ structured: {} }) });
+    const corrected = await repo.overrideMetric({ companyId: 'cmp_openai', metricType: 'arr', value: 60_000_000_000, note: 'CFO confirmation' });
+    expect(corrected.id).toBe('human_arr');
+    expect((await repo.getCompanyMetrics('cmp_openai')).find(m => m.id === 'met_arr')!.value).toBe(990_000_000);
+  });
+
   it('retains scoped grounded notes even when structuring fails', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({ groundText: 'An original report needs further review.', structured: {} });
