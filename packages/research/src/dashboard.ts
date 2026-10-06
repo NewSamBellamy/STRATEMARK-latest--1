@@ -92,6 +92,82 @@ function metricsFromStored(metrics: CompanyMetric[], companyId: string, official
   };
 }
 
+type TeamOrgNode = DashboardContentMap['team_org']['nodes'][number];
+
+const personKey = (name: string) => typeof name === 'string' ? name.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim() : '';
+const missingPersonDetail = (value: string | null | undefined) => !value?.trim() || /^(?:unknown|n\/?a|not reported)$/i.test(value.trim());
+
+/**
+ * A gap-fill pass is additive evidence, not a replacement for the first pass.
+ * Models often return a partial "merged" list; replacing the original list
+ * merely because the partial result has more rows can silently drop leaders.
+ * Keep the first reported value, use gap-fill only to fill blanks, dedupe by
+ * normalized name, repair hierarchy references when the model changes IDs, and
+ * break cycles so malformed reporting lines cannot crash recursive layouts.
+ */
+export function mergeTeamOrgNodes(first: readonly TeamOrgNode[], gapFill: readonly TeamOrgNode[]): TeamOrgNode[] {
+  const nodes: TeamOrgNode[] = [];
+  const byPerson = new Map<string, TeamOrgNode>();
+  const idByGapId = new Map<string, string>();
+  const gapParentByPerson = new Map<string, string | null>();
+  const uniqueId = (preferred: string, name: string) => {
+    const taken = new Set(nodes.map(node => node.id));
+    if (!taken.has(preferred)) return preferred;
+    const suffix = personKey(name).replace(/\s+/g, '-').slice(0, 48) || 'person';
+    let id = `${preferred}-${suffix}`;
+    for (let n = 2; taken.has(id); n += 1) id = `${preferred}-${suffix}-${n}`;
+    return id;
+  };
+  const add = (node: TeamOrgNode) => {
+    const key = personKey(node.name);
+    if (!key) return;
+    const existing = byPerson.get(key);
+    if (existing) return existing;
+    const added = { ...node, id: uniqueId(node.id, node.name) };
+    nodes.push(added);
+    byPerson.set(key, added);
+    return added;
+  };
+  for (const node of first) add(node);
+  for (const node of gapFill) {
+    const key = personKey(node.name);
+    const existing = byPerson.get(key);
+    const canonical = existing ?? add(node);
+    if (!canonical) continue;
+    idByGapId.set(node.id, canonical.id);
+    gapParentByPerson.set(key, node.parentId);
+    if (existing) {
+      if (missingPersonDetail(existing.role) && !missingPersonDetail(node.role)) existing.role = node.role;
+      if (missingPersonDetail(existing.bio) && !missingPersonDetail(node.bio)) existing.bio = node.bio;
+      if (missingPersonDetail(existing.tenure) && !missingPersonDetail(node.tenure)) existing.tenure = node.tenure;
+      if (missingPersonDetail(existing.priorCompany) && !missingPersonDetail(node.priorCompany)) existing.priorCompany = node.priorCompany;
+      if (missingPersonDetail(existing.notableProject) && !missingPersonDetail(node.notableProject)) existing.notableProject = node.notableProject;
+    }
+  }
+  for (const node of nodes) {
+    const gapParentId = gapParentByPerson.get(personKey(node.name));
+    const gapParent = gapParentId ? gapFill.find(candidate => candidate.id === gapParentId) : undefined;
+    if (!node.parentId && gapParent) node.parentId = idByGapId.get(gapParent.id) ?? byPerson.get(personKey(gapParent.name))?.id ?? null;
+    else if (node.parentId && gapParent) node.parentId = idByGapId.get(gapParent.id) ?? byPerson.get(personKey(gapParent.name))?.id ?? node.parentId;
+    if (node.parentId && !nodes.some(candidate => candidate.id === node.parentId)) node.parentId = null;
+  }
+  const state = new Map<string, 0 | 1 | 2>();
+  const visit = (node: TeamOrgNode) => {
+    const current = state.get(node.id) ?? 0;
+    if (current !== 0) return;
+    state.set(node.id, 1);
+    const parent = node.parentId ? nodes.find(candidate => candidate.id === node.parentId) : undefined;
+    if (parent) {
+      const parentState = state.get(parent.id) ?? 0;
+      if (parentState === 1) node.parentId = null;
+      else if (parentState === 0) visit(parent);
+    }
+    state.set(node.id, 2);
+  };
+  for (const node of nodes) visit(node);
+  return nodes;
+}
+
 /** Preserve attribution outside model-generated content on every research tab.
  * Existing content-only callers keep their contract; real repositories use this
  * envelope so sources survive synthesis, caching, IPC and cloud transport. */
@@ -206,7 +282,7 @@ export async function researchDashboardTab<T extends DashboardTab>(
           teamOrgContentSchema,
           structSys,
         );
-        if (secondPass.nodes.length > nodes.length) nodes = secondPass.nodes;
+        nodes = mergeTeamOrgNodes(nodes, secondPass.nodes);
       }
       // Guard referential integrity: drop parentIds that don't resolve.
       const ids = new Set(nodes.map((n) => n.id));

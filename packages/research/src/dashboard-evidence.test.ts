@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CompanyMetric, DashboardTab } from '@mi/contracts';
 import { GeminiRepository, migrateSnapshot, type ResearchStore } from './repository';
+import { mergeTeamOrgNodes } from './dashboard';
 import type { LlmClient } from './types';
 
 const url = 'https://example.com/annual-report';
@@ -14,7 +15,8 @@ function setup() {
   const structure = vi.fn().mockResolvedValue({ markdown: 'Example sells research software.',
     excerpts: [{ sourceUrl: url, quote: 'Example sells research software.' }],
     citations: [{ title: 'Fabricated', url: 'https://invented.example/report' }],
-    nodes: Array.from({ length: 5 }, (_, i) => ({ id: String(i), parentId: null })),
+    nodes: Array.from({ length: 5 }, (_, i) => ({ id: String(i), name: `Leader ${i}`, role: 'Executive', group: 'exec', parentId: null,
+      bio: `Leader ${i} is reported in the test fixture.`, tenure: null, priorCompany: null, notableProject: null })),
     board: [], fundingRounds: [{ round: 'Seed' }], products: [{ name: 'Atlas', status: 'live', sourceUrl: url,
       quote: 'Atlas is now available for company research.' }], roadmap: [], timeline: [], items: [] });
   const client = { ground, structure } as unknown as LlmClient;
@@ -114,6 +116,53 @@ describe('dashboard source lineage', () => {
     ]);
     expect(structure.mock.calls[1]![0]).toContain(url);
     expect(structure.mock.calls[1]![0]).toContain('https://example.com/team');
+  });
+});
+
+describe('team and org gap-fill merge', () => {
+  const leader = (id: string, name: string, overrides: Record<string, unknown> = {}) => ({
+    id, name, role: 'Chief Executive Officer', group: 'exec' as const, parentId: null,
+    bio: `${name} leads the company.`, tenure: null, priorCompany: null, notableProject: null, ...overrides,
+  });
+
+  it('preserves first-pass people when a larger gap-fill response omits one, and adds genuinely new people', () => {
+    const first = [leader('founder', 'Avery Founder'), leader('research', 'Jordan Researcher')];
+    const gap = [leader('ceo', 'Avery Founder'), leader('product', 'Morgan Product', { role: 'Chief Product Officer' }),
+      leader('board', 'Riley Board')];
+    const merged = mergeTeamOrgNodes(first, gap);
+    expect(merged.map(node => node.name)).toEqual(['Avery Founder', 'Jordan Researcher', 'Morgan Product', 'Riley Board']);
+    expect(merged[0]).toMatchObject({ id: 'founder', role: 'Chief Executive Officer' });
+  });
+
+  it('deduplicates normalized names, fills only unknown fields, and remaps gap-fill manager IDs', () => {
+    const first = [leader('founder', 'Avery Founder', { bio: 'Reported founder biography.' }),
+      leader('chief', 'Jordan Chief', { role: 'Unknown', bio: 'Unknown' })];
+    const gap = [leader('avery', ' AVERY   FOUNDER ', { role: 'Different title', bio: 'Conflicting rewrite.' }),
+      leader('jordan', 'Jordan Chief', { role: 'Chief Research Officer', bio: 'Source-reported biography.', parentId: 'avery' })];
+    const merged = mergeTeamOrgNodes(first, gap);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]).toMatchObject({ id: 'founder', bio: 'Reported founder biography.' });
+    expect(merged[1]).toMatchObject({ role: 'Chief Research Officer', bio: 'Source-reported biography.', parentId: 'founder' });
+  });
+
+  it('breaks self-references and multi-person reporting cycles', () => {
+    const first = [leader('a', 'Avery Founder', { parentId: 'b' }), leader('b', 'Jordan Chief', { parentId: 'a' }),
+      leader('self', 'Morgan Product', { parentId: 'self' })];
+    const merged = mergeTeamOrgNodes(first, []);
+    expect(merged.map(node => node.parentId)).toEqual(['b', null, null]);
+  });
+
+  it('repairs a legacy cached reporting cycle without starting new research', async () => {
+    const { repo, store, ground } = setup();
+    const snapshot = store.read()!;
+    snapshot.dashboards.cmp = { team_org: { content: { nodes: [
+      leader('a', 'Avery Founder', { parentId: 'b' }), leader('b', 'Jordan Chief', { parentId: 'a' }),
+    ] }, lastRefreshedAt: new Date().toISOString(), citations: [{ title: 'Team page', url }] } };
+    await store.write(snapshot);
+    const result = await repo().getDashboardTab('cmp', 'team_org');
+    expect(result!.content.nodes.map(node => node.parentId)).toEqual(['b', null]);
+    expect(result!.citations).toEqual([expect.objectContaining({ url })]);
+    expect(ground).not.toHaveBeenCalled();
   });
 });
 

@@ -24,6 +24,7 @@ import {
   metricVerificationDiffers,
   reconcileMetrics,
   usableCitations,
+  teamOrgContentSchema,
   type Card,
   type CardFilter,
   type CardWithCompany,
@@ -68,7 +69,7 @@ import {
   type ViceClaim,
 } from '@mi/contracts';
 import { createGeminiClient, type GeminiClientConfig } from './gemini';
-import { researchDashboardWithSources } from './dashboard';
+import { mergeTeamOrgNodes, researchDashboardWithSources } from './dashboard';
 import {
   discoverDeckStubs,
   reviewTiersBatch,
@@ -1471,6 +1472,13 @@ export class GeminiRepository implements MarketIntelRepository {
         }
         return { companyId, tab, lastRefreshedAt: cached.lastRefreshedAt, citations: [],
           content: { markdown: `## Company background\n\nSaved background needs an evidence-backed refresh. Earlier notes remain stored; no paid refresh was started.\n\n${overviewFigures({ company, storedMetrics: metrics, client: this.client, marketName: '' }, originals)}` } as DashboardContentMap[T] };
+      }
+      if (tab === 'team_org') {
+        const parsed = teamOrgContentSchema.safeParse(cached.content);
+        const content = parsed.success ? { nodes: mergeTeamOrgNodes(parsed.data.nodes, []) } : { nodes: [] };
+        return { companyId, tab, content: structuredClone(content) as DashboardTabResult<T>['content'],
+          lastRefreshedAt: cached.lastRefreshedAt,
+          ...(cached.citations !== undefined ? { citations: usableCitations(cached.citations) } : {}) };
       }
       return structuredClone({
         companyId,
