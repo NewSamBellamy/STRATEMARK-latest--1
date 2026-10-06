@@ -30,6 +30,11 @@ export interface MarketPlan {
   notes: string | null;
   /** Angles the discovery step should search along. */
   searchThemes: string[];
+  /** Named companies are priority anchors by default; exact scope prevents market expansion. */
+  companyScope?: {
+    mode: 'market' | 'selected_only';
+    names: string[];
+  };
 }
 
 export interface ResearchResumeState {

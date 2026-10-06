@@ -103,16 +103,21 @@ async function interpret(
     system: GROUNDED_SYSTEM,
     signal,
   });
-  const plan = await client.structure(structureMarketPrompt(grounded.text), marketPlanOutSchema, {
+  const plan = await client.structure(
+    structureMarketPrompt(grounded.text, brief.prompt),
+    marketPlanOutSchema,
+    {
     system: STRUCTURE_SYSTEM,
     signal,
-  });
+    },
+  );
   return {
     marketName: plan.marketName,
     vertical: plan.vertical,
     geography: plan.geography ?? brief.region,
     notes: plan.notes,
     searchThemes: plan.searchThemes,
+    companyScope: plan.companyScope,
   };
 }
 
@@ -165,9 +170,10 @@ async function discover(
   focus: DiscoveryFocus = 'all',
   excludeNames: string[] = [],
   searchAngle?: string,
+  exactCompanyNames: string[] = [],
 ): Promise<{ candidates: CompanyCandidate[]; rejected: string[] }> {
   const grounded = await client.ground(
-    discoverPrompt(plan, target, focus, excludeNames, searchAngle),
+    discoverPrompt(plan, target, focus, excludeNames, searchAngle, exactCompanyNames),
     {
       system: GROUNDED_SYSTEM,
       signal,
@@ -180,23 +186,23 @@ async function discover(
       // The primary schema is intentionally strict: a successful primary pass is
       // already guaranteed to contain ten unique companies. Underfill is handled
       // by the bounded fallback below rather than by inventing rows.
-      out = await client.structure(
-        structureDiscoveryPrompt(grounded.text, focus),
-        discoveryMinimumOutSchema,
+    out = await client.structure(
+      structureDiscoveryPrompt(grounded.text, focus, exactCompanyNames),
+      discoveryMinimumOutSchema,
         structureOptions,
       );
     } catch (err) {
       // An abort is a decision, not a schema failure — never retry past it.
       if (err instanceof AbortError) throw err;
       out = await client.structure(
-        structureDiscoveryPrompt(grounded.text, focus),
+        structureDiscoveryPrompt(grounded.text, focus, exactCompanyNames),
         discoveryOutSchema,
         structureOptions,
       );
     }
   } else {
     out = await client.structure(
-      structureDiscoveryPrompt(grounded.text, focus),
+      structureDiscoveryPrompt(grounded.text, focus, exactCompanyNames),
       discoveryOutSchema,
       structureOptions,
     );
@@ -206,6 +212,15 @@ async function discover(
   const rejected: string[] = [];
   for (const c of out.companies ?? []) {
     const name = c.name.trim();
+    if (
+      exactCompanyNames.length > 0 &&
+      !exactCompanyNames.some((requested) => {
+        const requestedKey = identityKeys(requested, null)[0] ?? '';
+        const candidateKey = identityKeys(name, null)[0] ?? '';
+        return requestedKey.length >= 3 &&
+          (candidateKey === requestedKey || candidateKey.startsWith(requestedKey));
+      })
+    ) continue;
     const domain = rootDomain(c.domain);
     const keys = identityKeys(name, domain);
     if (keys.some((key) => seen.has(key))) continue;
@@ -540,17 +555,44 @@ export async function discoverDeckStubs(
   let rejected: string[] = [];
   let minimumCompaniesSatisfied = false;
 
-  const discovery = await discoverWithCoverage(
-    client,
-    plan,
-    coverage,
-    signal,
-    options.catalogMax ?? 50,
-    options.catalogPasses ?? 0,
-  );
-  candidates = discovery.candidates;
-  rejected = discovery.rejected;
-  minimumCompaniesSatisfied = discovery.minimumCompaniesSatisfied;
+  const exactCompanyNames = plan.companyScope?.mode === 'selected_only'
+    ? [...new Set(plan.companyScope.names.map((name) => name.trim()).filter(Boolean))].slice(0, 30)
+    : [];
+  let marketMinimumSatisfied = false;
+  if (exactCompanyNames.length > 0) {
+    const discovery = await discover(
+        client,
+        plan,
+        exactCompanyNames.length,
+        signal,
+        'company',
+        [],
+        undefined,
+        exactCompanyNames,
+      )
+    candidates = discovery.candidates;
+    rejected = discovery.rejected;
+  } else {
+    const discovery = await discoverWithCoverage(
+        client,
+        plan,
+        coverage,
+        signal,
+        options.catalogMax ?? 50,
+        options.catalogPasses ?? 0,
+      );
+    candidates = discovery.candidates;
+    rejected = discovery.rejected;
+    marketMinimumSatisfied = discovery.minimumCompaniesSatisfied;
+  }
+  minimumCompaniesSatisfied = exactCompanyNames.length > 0
+    ? exactCompanyNames.every((requested) => {
+        const requestedKey = identityKeys(requested, null)[0] ?? '';
+        return requestedKey.length >= 3 && candidates.some((candidate) =>
+          (identityKeys(candidate.name, null)[0] ?? '').startsWith(requestedKey),
+        );
+      })
+    : marketMinimumSatisfied;
   if (rejected.length > 0) {
     await emit({
       type: 'warning',
@@ -560,7 +602,9 @@ export async function discoverDeckStubs(
   if (!minimumCompaniesSatisfied) {
     await emit({
       type: 'warning',
-      message: `Primary discovery remained below the ${coverage.companies.min}-company minimum after bounded fallback passes. The deck will continue with sourced entities only.`,
+      message: exactCompanyNames.length > 0
+        ? `Exact company scope was not fully resolved. Verified ${candidates.length} of ${exactCompanyNames.length} requested companies; no substitutes were added.`
+        : `Primary discovery remained below the ${coverage.companies.min}-company minimum after bounded fallback passes. The deck will continue with sourced entities only.`,
     });
   }
   const roleCounts = {
@@ -578,13 +622,15 @@ export async function discoverDeckStubs(
     vice: candidates.filter((c) => c.cardTypes.includes('vice')).length,
     culture: candidates.filter((c) => c.cardTypes.includes('culture')).length,
   };
-  for (const [role, count] of Object.entries(roleCounts)) {
-    const minimum = coverage[role as keyof typeof coverage]?.min;
-    if (minimum != null && count < minimum) {
-      await emit({
-        type: 'warning',
-        message: `Coverage shortfall for ${role}: found ${count}, minimum is ${minimum}. No unsupported entities were invented.`,
-      });
+  if (exactCompanyNames.length === 0) {
+    for (const [role, count] of Object.entries(roleCounts)) {
+      const minimum = coverage[role as keyof typeof coverage]?.min;
+      if (minimum != null && count < minimum) {
+        await emit({
+          type: 'warning',
+          message: `Coverage shortfall for ${role}: found ${count}, minimum is ${minimum}. No unsupported entities were invented.`,
+        });
+      }
     }
   }
   await emit({ type: 'candidates', candidates });

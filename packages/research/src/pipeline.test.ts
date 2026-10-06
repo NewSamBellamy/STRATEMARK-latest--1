@@ -689,6 +689,50 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
 });
 
 describe('discovery coverage contract', () => {
+  it('keeps an explicitly selected-company deck scoped to those companies', async () => {
+    const requested = ['Meta', 'Anthropic'];
+    const structure = vi.fn(async (prompt: string, schema: ZodType<unknown>) => {
+      if (prompt.includes('market definition')) {
+        return schema.parse({
+          marketName: 'Frontier AI labs',
+          vertical: 'Frontier model companies',
+          geography: null,
+          notes: null,
+          searchThemes: ['foundation models'],
+          companyScope: { mode: 'selected_only', names: requested },
+        });
+      }
+      return schema.parse({
+        companies: [
+          { name: 'Meta Platforms, Inc.', domain: 'meta.com', descriptor: 'AI lab', cardTypes: ['company'] },
+          { name: 'Anthropic, PBC', domain: 'anthropic.com', descriptor: 'AI lab', cardTypes: ['company'] },
+          { name: 'OpenAI, Inc.', domain: 'openai.com', descriptor: 'AI lab', cardTypes: ['company'] },
+        ],
+      });
+    });
+    const ground = vi.fn(async (..._args: Parameters<LlmClient['ground']>) => ({
+      text: 'grounded company evidence',
+      citations: [],
+      queries: [],
+    }));
+    const client: LlmClient = { ground, structure: structure as LlmClient['structure'] };
+
+    const result = await discoverDeckStubs(
+      { prompt: 'Compare Meta and Anthropic only', region: null },
+      client,
+      { coverage: testCoverage, catalogMax: 10, catalogPasses: 0 },
+    );
+
+    expect(result.candidates.map((candidate) => candidate.name)).toEqual([
+      'Meta Platforms, Inc.',
+      'Anthropic, PBC',
+    ]);
+    expect(ground).toHaveBeenCalledTimes(2);
+    expect(ground.mock.calls[1]?.[0]).toContain('Meta');
+    expect(ground.mock.calls[1]?.[0]).toContain('Anthropic');
+    expect(String(structure.mock.calls[0]?.[0])).toContain('Compare Meta and Anthropic only');
+  });
+
   it('uses bounded fallback passes to fill underfilled entity roles', async () => {
     const client: LlmClient = {
       ground: vi.fn(async () => ({ text: 'grounded', citations: [], queries: [] })),

@@ -47,6 +47,10 @@ export const marketPlanOutSchema = z.object({
   geography: z.string().nullable().default(null),
   notes: z.string().nullable().default(null),
   searchThemes: z.array(z.string()).default([]),
+  companyScope: z.object({
+    mode: z.enum(['market', 'selected_only']).default('market'),
+    names: z.array(z.string().trim().min(1)).max(30).default([]),
+  }).default({ mode: 'market', names: [] }),
 });
 
 // Tolerant of the model returning either { companies: [...] } or a bare [...].
