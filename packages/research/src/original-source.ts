@@ -1,6 +1,23 @@
 import { classifySource, isRedirectCitation, usableCitations, currentMetricRevision, metricPassageSupportSchema, METRIC_TYPES, type CompanyMetric, type Citation } from '@mi/contracts';
 import { MAX_SEC_CONCEPT_TEXT, secRevenueSourceUrl, secRevenueCik } from './sec-revenue';
 
+/** Discovery hints only. Never trust a title, fabricate a URL or accept a fact
+ * because a page looks like a financial document. Original gates still apply. */
+function companyDocumentPriority(raw: string, officialWebsite?: string | null): number {
+  if (secRevenueCik(raw)) return 3;
+  if (!officialWebsite) return 0;
+  try {
+    const source = new URL(raw);
+    const host = new URL(officialWebsite).hostname.toLowerCase().replace(/^www\./, '');
+    const sourceHost = source.hostname.toLowerCase().replace(/^www\./, '');
+    if (sourceHost !== host && !sourceHost.endsWith(`.${host}`)) return 0;
+    if (/^(?:investor|investors|ir)\./i.test(sourceHost) ||
+      /\/(?:investor(?:s|-relations)?|annual-report(?:s)?|financial(?:s|-results)?|earnings)(?:[/.-]|$)/i.test(source.pathname)) return 2;
+    if (/\/(?:about(?:-us)?|company(?:-profile)?|corporate)(?:[/.-]|$)/i.test(source.pathname)) return 1;
+  } catch { /* Invalid official identity cannot receive priority. */ }
+  return 0;
+}
+
 /** Routing priority only, never evidence acceptance. Preserve the two-read budget. */
 export function selectOriginalSourceCitations(citations: readonly Citation[], officialWebsite?: string | null, preferAnnualRevenue = false,
   supportsUrl?: (url: string) => boolean): Citation[] {
@@ -22,8 +39,9 @@ export function selectOriginalSourceCitations(citations: readonly Citation[], of
   }).map((citation, index) => ({
     citation, index,
     priority: priority[classifySource(citation.url, citation.title, officialWebsite)],
+    documentPriority: preferAnnualRevenue ? companyDocumentPriority(citation.url, officialWebsite) : 0,
     redirect: Number(isRedirectCitation(citation.url)),
-  })).sort((a, b) => b.priority - a.priority || a.redirect - b.redirect || a.index - b.index)
+  })).sort((a, b) => b.priority - a.priority || b.documentPriority - a.documentPriority || a.redirect - b.redirect || a.index - b.index)
     .slice(0, 2).map(row => row.citation);
 }
 

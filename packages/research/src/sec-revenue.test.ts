@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { hydrateCompanyCard } from './company-agent';
+import { projectCompanyFactsFromOriginals } from './company-facts';
+import type { LlmClient, MarketPlan } from './types';
 import { secRevenueObservation, secRevenueVerification } from './sec-revenue';
 import { acceptedMetricPassage } from './metric-support';
 import { selectOriginalSourceCitations, type OriginalSourceReceipt } from './original-source';
@@ -13,6 +16,48 @@ const payload = { cik: 789019, entityName: 'MICROSOFT CORPORATION', taxonomy: 'u
 const source: OriginalSourceReceipt = { requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200,
   contentHash: 'a'.repeat(64), text: JSON.stringify(payload), retrievedAt: '2026-10-06T00:00:00.000Z', format: 'sec-companyconcept' };
 const now = Date.parse('2026-10-06T00:00:00.000Z');
+
+vi.mock('./logos', () => ({ faviconUrl: () => null, resolveLogo: async () => ({ url: null }) }));
+
+describe('first company financial hydration', () => {
+  it('carries a discovered filing through original retrieval into reopened public card facts', async () => {
+    // Deterministic source fixture; this does not claim a new live API run.
+    const home = 'https://microsoft.com';
+    const originals: OriginalSourceReceipt[] = [];
+    const client: LlmClient = {
+      ground: async () => ({ text: 'Untrusted provider notes', queries: [], citations: [
+        { title: 'Homepage', url: home },
+        { title: 'Product news', url: 'https://news.microsoft.com/product-launch' },
+        { title: 'Filing', url: 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm' },
+      ] }),
+      structure: async (_prompt, schema) => schema.parse({
+        website: home, metrics: {}, oneLiner: 'A model summary is not evidence.',
+      }),
+    };
+    const plan: MarketPlan = { marketName: 'Enterprise software', vertical: 'Software', geography: null, notes: null, searchThemes: [] };
+    const retrieve = vi.fn(async (requestedUrl: string): Promise<OriginalSourceReceipt> => {
+      const receipt = requestedUrl === url ? { ...source } : {
+        requestedUrl, finalUrl: requestedUrl, status: 'retrieved', httpStatus: 200,
+        contentHash: 'b'.repeat(64), retrievedAt: source.retrievedAt,
+        text: 'Microsoft Corporation develops software and provides cloud services for businesses.',
+      } as OriginalSourceReceipt;
+      originals.push(receipt);
+      return receipt;
+    });
+    const result = await hydrateCompanyCard({
+      candidate: { name: 'Microsoft Corporation', domain: 'microsoft.com', descriptor: 'Enterprise software', cardTypes: ['infrastructure'] },
+      client, plan, originalSources: { retrieve, save: async () => {}, list: async () => [] },
+    });
+    expect(retrieve).toHaveBeenCalledTimes(2);
+    expect(retrieve.mock.calls.map(call => call[0])).toContain(url);
+    expect(result.company.oneLiner).toBe('Microsoft Corporation develops software and provides cloud services for businesses.');
+    const reopened = projectCompanyFactsFromOriginals(result.company, result.metrics, structuredClone(originals));
+    expect(reopened.find(metric => metric.metricType === 'arr')).toMatchObject({
+      value: latest.val, confidence: 'verified', passageSupport: { definition: 'annual_revenue', periodStart: latest.start, asOf: latest.end },
+    });
+    expect(reopened.find(metric => metric.metricType === 'employees')?.value).toBeNull();
+  });
+});
 describe('regulator-reported annual revenue', () => {
   it('rechecks the same annual measurement without model interpretation, but never contradicts a known ARR with annual revenue', () => {
     const common = { metricType: 'arr' as const, value: latest.val };

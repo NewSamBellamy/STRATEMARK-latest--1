@@ -2,6 +2,35 @@ import { describe, expect, it } from 'vitest';
 import { selectOriginalSourceCitations } from './original-source';
 
 describe('bounded original source priority', () => {
+  it('does not let the homepage and newsroom crowd out a cited financial original', () => {
+    const filing = 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm';
+    const chosen = selectOriginalSourceCitations([
+      { url: 'https://microsoft.com/', title: 'Microsoft' },
+      { url: 'https://news.microsoft.com/product-launch', title: 'Product launch' },
+      { url: filing, title: 'Annual filing' },
+    ], 'https://microsoft.com', true);
+    expect(chosen[0]?.url).toContain('data.sec.gov/api/xbrl/companyconcept/CIK0000789019/');
+    expect(chosen).toHaveLength(2);
+  });
+  it('prefers discovered official investor and company-profile pages over general homepages', () => {
+    expect(selectOriginalSourceCitations([
+      { url: 'https://example.com/', title: 'Homepage' },
+      { url: 'https://example.com/products', title: 'Products' },
+      { url: 'https://example.com/investor/annual-report', title: 'Results' },
+      { url: 'https://example.com/about', title: 'Company profile' },
+    ], 'https://example.com', true).map(row => row.url)).toEqual([
+      'https://example.com/investor/annual-report', 'https://example.com/about',
+    ]);
+  });
+  it('never promotes a fake investor host by its path or title', () => {
+    expect(selectOriginalSourceCitations([
+      { url: 'https://example.com.attacker.test/investor/annual-report', title: 'Official financial results' },
+      { url: 'https://example.com/about', title: 'Company profile' },
+      { url: 'https://reuters.com/business/report', title: 'Reporting' },
+    ], 'https://example.com', true).map(row => row.url)).toEqual([
+      'https://example.com/about', 'https://reuters.com/business/report',
+    ]);
+  });
   it('prioritizes official pages and filings without trusting claimed credibility', () => {
     const citations = [
       { url: 'https://example.com.attacker.test/report', title: 'Official filing', credibility: 'primary' as const },
