@@ -9,7 +9,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import * as crypto from 'node:crypto';
-import { coalesceOriginalSources, retainedDiagnosticAttempts, type OriginalSourceServices } from '@mi/research';
+import { coalesceOriginalSources, retainedDiagnosticAttempts, selectOriginalSourceAttempts, type OriginalSourceServices } from '@mi/research';
 import { retrieveOriginalSource } from './original-source';
 
 export interface AuthAdapter {
@@ -141,15 +141,13 @@ export class CloudDeckService {
     return {
       retrieve: async (url, scope) => { await authorize(); return retrieve(url, scope); },
       save: async (attempt) => { await authorize(); await this.store.saveCompanyOriginal(uid, deckId, attempt); },
-      list: async ({ companyId, metricType, limit = 20 }) => {
+      list: async ({ companyId, metricType, limit = 20, support }) => {
         const deck = await this.getDeck(uid, deckId);
         if (!deck) return [];
         const count = Number.isFinite(limit) ? Math.max(0, Math.min(100, Math.floor(limit))) : 20;
         if (!count) return [];
-        return structuredClone([...(deck.companySourceAttempts ?? []), ...retainedDiagnosticAttempts(deck.originalSourceAttempts)]
-          .filter((entry) => entry.companyId === companyId && (!metricType || entry.metricType === metricType))
-          .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
-          .slice(-count).reverse());
+        return selectOriginalSourceAttempts([...(deck.companySourceAttempts ?? []), ...retainedDiagnosticAttempts(deck.originalSourceAttempts)],
+          { companyId, metricType, limit: count, support });
       },
     };
   }

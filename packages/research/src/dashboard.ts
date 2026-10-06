@@ -27,7 +27,7 @@ import {
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { LlmClient } from './types';
 import { companySourceTargets } from './source-policy';
-import type { OriginalSourceAttempt, OriginalSourceServices } from './original-source';
+import { originalSupportReferences, type OriginalSourceAttempt, type OriginalSourceServices } from './original-source';
 import { researchCompanyOverview } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
 
@@ -132,7 +132,8 @@ export async function researchDashboardTab<T extends DashboardTab>(
 
     case 'metrics': {
       const attempts = args.originalSources
-        ? await args.originalSources.list({ companyId: args.company.id, limit: 20 }) : args.originalAttempts;
+        ? await args.originalSources.list({ companyId: args.company.id, limit: 20,
+          support: originalSupportReferences(args.storedMetrics, args.company.id) }) : args.originalAttempts;
       return metricsFromStored(projectCompanyFacts(args.company, args.storedMetrics, attempts), args.company.id, args.company.websiteUrl) as DashboardContentMap[T];
     }
 

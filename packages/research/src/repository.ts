@@ -88,7 +88,7 @@ import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INST
 import { briefingOutSchema, factCheckOutSchema, huntMetricsOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { LlmClient, ResearchCoverage, RunResearchOptions } from './types';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
-import { coalesceOriginalSources, isOriginalSourceAttempt, selectOriginalSourceCitations, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
+import { coalesceOriginalSources, isOriginalSourceAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secRevenueObservation, secRevenueVerification } from './sec-revenue';
 import { acceptedMetricPassage } from './metric-support';
 import { overviewFigures, renderCompanyOverview } from './company-overview';
@@ -404,15 +404,12 @@ export class GeminiRepository implements MarketIntelRepository {
     return searchResearchEvidence(this.snap.researchEvidence ?? [], input);
   }
 
-  private listLocalOriginals(input: { companyId: string; metricType?: string; limit?: number }): OriginalSourceAttempt[] {
-    const limit = Number.isFinite(input.limit) ? Math.max(1, Math.min(100, Math.floor(input.limit!))) : 20;
-    return structuredClone((this.snap.originalSourceAttempts ?? [])
-      .filter(row => row.companyId === input.companyId && (!input.metricType || row.metricType === input.metricType))
-      .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt)).slice(0, limit));
+  private listLocalOriginals(input: OriginalSourceQuery): OriginalSourceAttempt[] {
+    return selectOriginalSourceAttempts(this.snap.originalSourceAttempts ?? [], input);
   }
 
   /** Scoped originals can be read offline without invoking a provider. */
-  getOriginalSourceEvidence(input: { companyId: string; metricType?: string; limit?: number }): Promise<OriginalSourceAttempt[]> {
+  getOriginalSourceEvidence(input: OriginalSourceQuery): Promise<OriginalSourceAttempt[]> {
     return this.originalSources?.list(input) ?? Promise.resolve(this.listLocalOriginals(input));
   }
 
@@ -1350,7 +1347,7 @@ export class GeminiRepository implements MarketIntelRepository {
     await this.ready();
     const company = this.snap.companies.find(row => row.id === companyId);
     if (!company) return [];
-    const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20 });
+    const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20, support: originalSupportReferences(this.snap.metrics, companyId) });
     return projectCompanyFacts(company, this.snap.metrics, attempts);
   }
   getViceClaims(cardId: string): Promise<ViceClaim[]> {
@@ -1379,7 +1376,7 @@ export class GeminiRepository implements MarketIntelRepository {
       const result = await researchDashboardWithSources(tab, { company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
         storedMetrics: this.snap.metrics.filter(m => m.companyId === companyId), client: this.client,
-        originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20 }) });
+        originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20, support: originalSupportReferences(this.snap.metrics, companyId) }) });
       return { companyId, tab, ...result, lastRefreshedAt: null };
     }
     const cached = force ? undefined : this.snap.dashboards[companyId]?.[tab];
@@ -1388,7 +1385,11 @@ export class GeminiRepository implements MarketIntelRepository {
       // prose as today's factual overview or silently spend to replace it.
       const metrics = this.snap.metrics.filter(row => row.companyId === companyId);
       if (tab === 'overview') {
-        const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20 });
+        const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20, support: [
+          ...originalSupportReferences(metrics, companyId), ...(Array.isArray(cached.overviewExcerpts) ? cached.overviewExcerpts.flatMap(ref => {
+            try { return validatedOriginalSupport([ref]); } catch { return []; }
+          }).slice(0, 4) : []),
+        ] });
         const originals = attempts.filter(isOriginalSourceAttempt).filter(row => row.companyId === companyId).flatMap(row => row.receipts);
         if (cached.overviewEvidenceVersion === 2) {
           const result = renderCompanyOverview({ company, storedMetrics: metrics, client: this.client, marketName: '' }, originals, cached.overviewExcerpts);
@@ -1418,7 +1419,7 @@ export class GeminiRepository implements MarketIntelRepository {
         storedMetrics: this.snap.metrics.filter((m) => m.companyId === companyId),
         client: this.client,
         ...(tab === 'overview' ? { originalSources: this.originalSources,
-          ...(!this.originalSources ? { originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20 }) } : {}) } : {}),
+          ...(!this.originalSources ? { originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20, support: originalSupportReferences(this.snap.metrics, companyId) }) } : {}) } : {}),
       });
       const lastRefreshedAt = new Date().toISOString();
       this.snap.dashboards[companyId] = {

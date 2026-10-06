@@ -1,7 +1,7 @@
 import { METRIC_TYPES, companyMetricSchema, currentMetricRevision, metricPassageSupportSchema,
   validMetricVerificationValue, isSignalCardType, type CardWithCompany, type Company, type CompanyMetric } from '@mi/contracts';
 import { inspectMetricPassage } from './metric-support';
-import { isOriginalSourceAttempt, type OriginalSourceAttempt, type OriginalSourceReceipt } from './original-source';
+import { isOriginalSourceAttempt, originalSupportReferences, selectOriginalSourceAttempts, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceQuery } from './original-source';
 
 /** Read adapter for the existing retained cloud verification ledger. Synthetic
  * IDs identify local read rows only, not immutable provenance or truth. Callers
@@ -16,15 +16,14 @@ export function retainedDiagnosticAttempts(input: unknown): OriginalSourceAttemp
 }
 
 /** Bounded, scoped saved documents only; no fetching or provider work. */
-export function companyOriginalReceipts(companyId: string, attempts: unknown): OriginalSourceReceipt[] {
-  return Array.isArray(attempts) ? attempts.filter(isOriginalSourceAttempt).filter(row => row.companyId === companyId)
-    .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt)).slice(0, 20).flatMap(row => row.receipts) : [];
+export function companyOriginalReceipts(companyId: string, attempts: unknown, support?: OriginalSourceQuery['support']): OriginalSourceReceipt[] {
+  return Array.isArray(attempts) ? selectOriginalSourceAttempts(attempts.filter(isOriginalSourceAttempt), { companyId, limit: 20, support }).flatMap(row => row.receipts) : [];
 }
 
 /** The public facts lane. Raw observations remain separate, never rewritten.
  * A citation or a retained model proposal alone cannot establish a figure. */
 export function projectCompanyFacts(company: Company, observations: readonly CompanyMetric[], attempts: unknown): CompanyMetric[] {
-  return projectCompanyFactsFromOriginals(company, observations, companyOriginalReceipts(company.id, attempts));
+  return projectCompanyFactsFromOriginals(company, observations, companyOriginalReceipts(company.id, attempts, originalSupportReferences(observations, company.id)));
 }
 
 export function projectCompanyCardFacts(card: CardWithCompany, attempts: unknown): CardWithCompany {

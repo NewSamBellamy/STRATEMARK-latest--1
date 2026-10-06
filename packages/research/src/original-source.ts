@@ -1,4 +1,4 @@
-import { classifySource, isRedirectCitation, usableCitations, type Citation } from '@mi/contracts';
+import { classifySource, isRedirectCitation, usableCitations, currentMetricRevision, metricPassageSupportSchema, METRIC_TYPES, type CompanyMetric, type Citation } from '@mi/contracts';
 import { MAX_SEC_CONCEPT_TEXT, secRevenueSourceUrl, secRevenueCik } from './sec-revenue';
 
 /** Routing priority only, never evidence acceptance. Preserve the two-read budget. */
@@ -75,10 +75,50 @@ export function isOriginalSourceAttempt(value: unknown): value is OriginalSource
 }
 
 /** Native host supplies durable storage and network; renderer gets neither. */
+export interface OriginalSourceQuery {
+  companyId: string;
+  metricType?: string;
+  limit?: number;
+  support?: Array<{ sourceUrl: string; quote: string }>;
+}
+export const normalizeSourceText = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim();
+export function originalSupportReferences(metrics: readonly CompanyMetric[], companyId: string) {
+  return METRIC_TYPES.flatMap(type => {
+    const revision = currentMetricRevision(metrics, companyId, type);
+    const parsed = metricPassageSupportSchema.safeParse(revision?.metric.passageSupport);
+    return !revision?.ambiguous && parsed.success && usableCitations([{ url: parsed.data.sourceUrl, title: '' }]).length
+      ? [{ sourceUrl: parsed.data.sourceUrl, quote: parsed.data.quote }] : [];
+  });
+}
+export function validatedOriginalSupport(support: OriginalSourceQuery['support'] = []) {
+  if (!Array.isArray(support) || support.length > 12 || support.some(ref => !ref || typeof ref.sourceUrl !== 'string' ||
+    ref.sourceUrl.length > 2048 || typeof ref.quote !== 'string' || !ref.quote.trim() || ref.quote.length > 600 ||
+    !usableCitations([{ url: ref.sourceUrl, title: '' }]).length)) throw new Error('Invalid original support references.');
+  return support;
+}
+/** Recent diagnostics plus exact referenced originals. References only locate
+ * evidence; the existing claim gate must still accept it. No unbounded history. */
+export function selectOriginalSourceAttempts(attempts: readonly OriginalSourceAttempt[], input: OriginalSourceQuery) {
+  const refs = validatedOriginalSupport(input.support);
+  const limit = Number.isFinite(input.limit) ? Math.max(1, Math.min(100, Math.floor(input.limit!))) : 20;
+  // Diagnostics include legacy incomplete receipts. Do not silently discard
+  // them here; the facts adapter independently validates publication evidence.
+  const scoped = attempts.filter(row => row && typeof row.id === 'string' && typeof row.capturedAt === 'string' &&
+    Array.isArray(row.receipts) && row.companyId === input.companyId && (!input.metricType || row.metricType === input.metricType))
+    .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt) || b.id.localeCompare(a.id));
+  const selected = scoped.slice(0, limit);
+  for (const ref of refs) {
+    const hit = scoped.find(row => row.receipts.some(receipt => receipt && receipt.status === 'retrieved' &&
+      (receipt.finalUrl === ref.sourceUrl || receipt.requestedUrl === ref.sourceUrl) &&
+      typeof receipt.text === 'string' && normalizeSourceText(receipt.text).includes(normalizeSourceText(ref.quote))));
+    if (hit && !selected.some(row => row.id === hit.id)) selected.push(hit);
+  }
+  return structuredClone(selected);
+}
 export interface OriginalSourceServices {
   retrieve(url: string, scope?: OriginalSourceScope): Promise<OriginalSourceReceipt>;
   save(attempt: OriginalSourceAttempt): Promise<void>;
-  list(input: { companyId: string; metricType?: string; limit?: number }): Promise<OriginalSourceAttempt[]>;
+  list(input: OriginalSourceQuery): Promise<OriginalSourceAttempt[]>;
 }
 
 /** Public-page receipts only. Short reuse never changes their retrieval date. */

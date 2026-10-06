@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { classifySource, usableCitations, metricDefinitionLabel, type Citation, type MetricType } from '@mi/contracts';
-import { selectOriginalSourceCitations, type OriginalSourceReceipt } from './original-source';
+import { selectOriginalSourceCitations, originalSupportReferences, type OriginalSourceReceipt } from './original-source';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { TabResearchArgs } from './dashboard';
 import { companyOriginalReceipts, projectCompanyFactsFromOriginals } from './company-facts';
@@ -20,7 +20,7 @@ const overviewSources = (args: TabResearchArgs, originals: readonly OriginalSour
 const metricLabels: Record<MetricType, string> = { employees: 'Employees', arr: 'ARR (USD)', users: 'Users', valuation: 'Valuation (USD)', market_cap: 'Market capitalization (USD)', market_share: 'Market share (%)' };
 
 function scopedReceipts(args: TabResearchArgs, attempts: unknown): OriginalSourceReceipt[] {
-  return companyOriginalReceipts(args.company.id, attempts);
+  return companyOriginalReceipts(args.company.id, attempts, originalSupportReferences(args.storedMetrics, args.company.id));
 }
 
 /** Deterministic financial summary. Legacy citations alone are insufficient.
@@ -79,7 +79,7 @@ export function renderCompanyOverview(args: TabResearchArgs, originals: readonly
  * figures. Quotation fidelity is not independent semantic truth. */
 export async function researchCompanyOverview(args: TabResearchArgs) {
   const attempts = args.originalSources
-    ? await args.originalSources.list({ companyId: args.company.id, limit: 20 }) : args.originalAttempts;
+    ? await args.originalSources.list({ companyId: args.company.id, limit: 20, support: originalSupportReferences(args.storedMetrics, args.company.id) }) : args.originalAttempts;
   let originals = scopedReceipts(args, attempts);
   throwIfAborted(args.signal);
   if (!overviewSources(args, originals).length && args.originalSources) {

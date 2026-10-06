@@ -18,6 +18,22 @@ async function fixture() {
   return { store, auth, service, read };
 }
 describe('cloud company originals', () => {
+  it('returns exact referenced support after thirty newer failures without expanding ordinary diagnostics or leaking company scope', async () => {
+    const { service, read } = await fixture();
+    const sources = service.getOriginalSources('user_pro', 'deck_a', read);
+    const old = { ...attempt, receipts: [{ ...attempt.receipts[0]!, finalUrl: attempt.receipts[0]!.requestedUrl,
+      httpStatus: 200, contentHash: 'a'.repeat(64), text: 'Acme reported 45 employees as of 2026-10-01.' }] };
+    await sources.save(old);
+    await sources.save({ ...old, id: `src_${globalThis.crypto.randomUUID()}`, companyId: 'other' });
+    for (let index = 0; index < 30; index++) await sources.save({ ...old, id: `src_${globalThis.crypto.randomUUID()}`,
+      capturedAt: '2026-10-05T00:00:00.000Z', receipts: [{ requestedUrl: old.receipts[0]!.requestedUrl,
+        status: 'unavailable', retrievedAt: '2026-10-05T00:00:00.000Z' }] });
+    expect(await sources.list({ companyId: 'cmp_acme', limit: 20 })).toHaveLength(20);
+    const found = await sources.list({ companyId: 'cmp_acme', limit: 20,
+      support: [{ sourceUrl: old.receipts[0]!.requestedUrl, quote: old.receipts[0]!.text! }] });
+    expect(found).toHaveLength(21); expect(found.at(-1)).toEqual(old);
+    expect(found.some(row => row.companyId === 'other')).toBe(false); expect(read).not.toHaveBeenCalled();
+  });
   it('retains overview receipts under the same owned-deck authorization and append-only rules', async () => {
     const { service, read } = await fixture();
     const sources = service.getOriginalSources('user_pro', 'deck_a', read);

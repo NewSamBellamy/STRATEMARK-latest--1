@@ -9,6 +9,8 @@ export * from './logos';
 export * from './dashboard';
 export * from './company-facts';
 export * from './sec-revenue';
+export { originalSupportReferences, selectOriginalSourceAttempts, validatedOriginalSupport, normalizeSourceText } from './original-source';
+export type { OriginalSourceQuery } from './original-source';
 export * from './repository';
 export * from './source-policy';
 export * from './research-evidence';

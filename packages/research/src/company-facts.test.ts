@@ -30,6 +30,21 @@ const assertFacts = (rows: CompanyMetric[]) => {
   expect(rows.find(row => row.metricType === 'arr')).toMatchObject({ value: null, confidence: 'unknown' });
 };
 describe('one current company facts projection', () => {
+  it('keeps referenced support through thirty newer attempts without expanding the ordinary recent query', async () => {
+    const { store, client } = setup();
+    const snapshot = store.read()!;
+    for (let index = 0; index < 30; index++) snapshot.originalSourceAttempts!.push({ id: `failed_${index}`,
+      companyId: 'cmp', metricType: 'arr', capturedAt: `2026-10-03T00:00:${String(index).padStart(2, '0')}.000Z`,
+      receipts: [{ requestedUrl: url, status: 'unavailable', retrievedAt: '2026-10-03T00:00:00.000Z' }] });
+    await store.write(snapshot);
+    const reopened = new GeminiRepository({ apiKey: 'test', store, client });
+    expect(await reopened.getOriginalSourceEvidence({ companyId: 'cmp', limit: 20 })).toHaveLength(20);
+    expect((await reopened.getCompanyFacts('cmp')).find(row => row.metricType === 'employees')).toMatchObject({ value: 45, confidence: 'verified' });
+    expect((await reopened.getCard('card'))!.metrics.find(row => row.metricType === 'employees')!.value).toBe(45);
+    expect((await reopened.listSavedCards())[0]!.metrics.find(row => row.metricType === 'employees')!.value).toBe(45);
+    expect(client.ground).not.toHaveBeenCalled();
+    expect(client.structure).not.toHaveBeenCalled();
+  });
   it('retains typed revenue intervals and customer populations across facts, saved cards and reopen without mischarting them', async () => {
     const { store, client } = setup();
     const snapshot = store.read()!;

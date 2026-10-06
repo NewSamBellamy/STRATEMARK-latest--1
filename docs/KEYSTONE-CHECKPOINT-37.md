@@ -1,0 +1,35 @@
+# Keystone checkpoint 37 — indexed evidence continuity
+
+Date: 2026-10-05 local. Branch: `revival/initial-card-redesign`. Parent: `455d5cd`.
+
+## Connected improvement
+
+Thirty newer failed searches could previously push a still-supported employee figure outside the recent-original window. Current metric proof references now locate the older supporting original by company, exact source URL and quote, alongside the bounded recent diagnostics. This connects initial/reopened company facts, deck/saved cards, metric dashboards, overview acquisition and authorized cloud storage. References locate evidence; they do not bypass the independent original/identity/period/definition acceptance gates. Legacy incomplete diagnostics remain inspectable rather than silently disappearing.
+
+Native originals now have a small SQLite index over the existing immutable JSON artifacts. Company/time and company/source indexes avoid reading every other company's artifact for each lookup. SQLite is built into the actual Electron runtime; no new runtime database dependency. Desktop Node types now match its Node 24 runtime. The primary workspace snapshot is still JSON: this is an indexed source lane, not a completed transactional company/claim/job vault.
+
+Legacy originals migrate once in a transaction without rewriting/deleting them. New saves reserve an identity, publish a complete file without overwriting an existing artifact, then acknowledge its indexed record. A restart can recover a published pending artifact. Selected files are validated against their indexed identity and actual-file hash. Corruption and unsupported future index versions fail visibly. Missing pending files are not deleted because another process may still be publishing them. Connections close after each operation; same-workspace instances serialize within a process and SQLite coordinates separate processes.
+
+## Actual verification
+
+- Regression reproduced the old loss of a supported 45-employee figure behind thirty failed reads. Offline facts, normal/saved card projection and native/cloud exact-reference reads now retain it. Company isolation, wrong quotes, bounded references, malformed cache references and recent diagnostics remain guarded.
+- Native tests cover rollback-safe migration, retry after repairing a malformed legacy artifact, byte preservation, pending publication recovery, parallel service instances, selected-artifact modification, future versions and warm lookup isolation from unrelated corrupt files.
+- A real two-Electron-process red team exposed concurrent cold migration trying to create the same tables. The fix rechecks schema version after acquiring the transaction lock. The retained `pnpm --filter @mi/desktop test:evidence-concurrency` audit makes both processes observe version zero before releasing its SQLite barrier, then checks both saves were acknowledged and retained. Final audit passed; no model, credentials, network or GUI.
+- Actual Electron 44.4.5 / Node 24.21.0 / SQLite 3.53.4 workload: 1,031 controlled saved artifacts, including thirty newer failures and one older supporting receipt. Five fresh-service samples returned identical results to an equivalent full-file scan. Median indexed lookup **3 ms**, equivalent scan **112 ms**; one cold migration **344 ms**. Query plan used the company index; returned 20 recent attempts plus the older support. These are small local fixture measurements, not live research latency, p95, a 100,000-record benchmark or proof that synchronous SQLite cannot block the main process.
+- The real public SEC source-to-hydration-to-native-save-to-fresh-offline-repository probe still passed after indexing: one protected public read, 20,920 retained characters, USD 331,839,000,000 annual revenue for 2025-07-01 through 2026-06-30, no ARR chart substitution. Single observed elapsed time **324 ms**. Discovery/synthesis/branding were controlled; zero paid calls and no user-vault mutation. This is not a live Gemini/UI/installer acceptance run.
+- Final `pnpm check` exited 0: types/lint and **1,198 tests** (contracts 108, mocks 15, research 542, desktop 44, API 277, web 212). Nine additional unit cases plus the separate real-process audit. Desktop and browser-last production builds passed. Existing Firebase chunking and large-bundle warnings are not resolved by this slice.
+- Tooling failures were repaired, not hidden: Vite's stale builtin detection required native `createRequire` for prefix-only `node:sqlite`; lint rejected inline import type annotations, replaced with namespace type imports. The first concurrency harness used an unsuitable rollback-journal barrier; the WAL barrier then reproduced the actual table-creation race. No SQLite implementation mock replaced the native test.
+
+## Red team / deliberately unfinished
+
+Matching a local file hash detects modification relative to the index, not publisher truth or independent corroboration. Supported receipts are selected only from the current revision; conflicting/ambiguous metric revisions are not arbitrarily pinned. No source or metric is fabricated, no unknown becomes zero, and no card layout/color/proportion changed.
+
+SQLite statements remain synchronous and bounded warm queries were measured only at the workload above. Large cold migrations, broad historical text search, worker isolation, backup/export/import, deletion, index repair/rebuild and full canonical claim/asset/job indexing still require explicit implementation and acceptance. Out-of-band files or an older writer adding originals after initial migration are not automatically adopted. Do not downgrade a populated workspace or promise transparent repair. The index and original files must both be considered in future vault backup/export work.
+
+Cloud originals retain their existing approximately 800 KiB deck-payload ceiling; the separate short verification-diagnostic history still evicts older entries. Reference selection cannot recover evidence already deleted from storage. Source-based Ask still has its bounded recent excerpt lane; this is not general historical source search. Primary snapshot multi-window consistency and a durable canonical Scout/job model are not completed here.
+
+No provider keys inspected/copied, paid calls, GitHub push, publish, deployment or main merge. Local checkpoint only; no remote-backup claim. No complete milestone or production-readiness claim.
+
+## Next meaningful gate
+
+Run one bounded public/private-company first-ready journey through the actual configured app and measure accepted coverage, specific unknown reasons, source/model counts and agreement between card and reader. Carry those canonical facts into one useful deeper dossier section instead of multiplying standalone guards. Then connect durable Sentinel/Scout work, one specialist story/report, meaningful ranking, a second provider stack, local actions/MCP and the release journey from the [nine-area delivery map](KEYSTONE-DELIVERY-MAP.md). Preserve approved visuals and the entire product scope. The backend objective remains active.

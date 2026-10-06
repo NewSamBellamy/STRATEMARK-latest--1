@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
+import type * as Sqlite from 'node:sqlite';
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -99,10 +101,12 @@ describe('native original source artifacts', () => {
     expect(await createOriginalSourceServices(directory).list({ companyId: 'acme' })).toEqual([record]);
     expect(await store.list({ companyId: 'acme', metricType: 'users' })).toEqual([]);
     expect(await store.list({ companyId: '' })).toEqual([]);
-    expect((await readdir(directory)).every((file) => file.endsWith('.json'))).toBe(true);
+    const files = await readdir(directory);
+    expect(files.filter(file => file.endsWith('.json'))).toHaveLength(2);
+    expect(files).toContain('source-index.sqlite');
   });
 
-  it('keeps supported facts available after ten newer failed reads and a restart', async () => {
+  it('keeps supported facts available after thirty newer failed reads and a restart', async () => {
     const { directory } = await setup();
     const snapshot = createFileStore(path.join(directory, 'repo.json'));
     const initial = parseResearchExport(JSON.stringify(sample));
@@ -123,7 +127,7 @@ describe('native original source artifacts', () => {
     const originals = createOriginalSourceServices(sourceDirectory);
     await originals.save({ ...attempt(company.id), capturedAt: '2026-10-02T00:00:00.000Z',
       receipts: [{ ...attempt().receipts[0]!, text: quote, retrievedAt: '2026-10-02T00:00:00.000Z' }] });
-    for (let index = 0; index < 10; index++) {
+    for (let index = 0; index < 30; index++) {
       await originals.save({ ...attempt(company.id), capturedAt: `2026-10-03T00:00:${String(index).padStart(2, '0')}.000Z`,
         receipts: [{ requestedUrl: url, status: 'unavailable', retrievedAt: '2026-10-03T00:00:00.000Z', reason: 'Source unavailable' }] });
     }
@@ -178,6 +182,77 @@ describe('native original source artifacts', () => {
     await store.save(record);
     await writeFile(path.join(directory, `${record.id}.json`), 'broken');
     await expect(store.list({ companyId: 'acme' })).rejects.toThrow();
+  });
+
+  it('migrates legacy artifacts transactionally without rewriting their original bytes', async () => {
+    const { directory, store } = await setup();
+    const record = attempt(), bytes = JSON.stringify(record, null, 2);
+    await writeFile(path.join(directory, `${record.id}.json`), bytes);
+    expect(await store.list({ companyId: 'acme' })).toEqual([record]);
+    const { readFile } = await import('node:fs/promises');
+    expect(await readFile(path.join(directory, `${record.id}.json`), 'utf8')).toBe(bytes);
+    expect(await createOriginalSourceServices(directory).list({ companyId: 'acme' })).toEqual([record]);
+  });
+
+  it('rolls back a failed legacy migration and retries without dropping old artifacts', async () => {
+    const { directory, store } = await setup(), record = attempt();
+    await writeFile(path.join(directory, `${record.id}.json`), 'broken');
+    await expect(store.list({ companyId: 'acme' })).rejects.toThrow();
+    const { DatabaseSync } = createRequire(process.execPath)('node:sqlite') as typeof Sqlite;
+    const db = new DatabaseSync(path.join(directory, 'source-index.sqlite'));
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 0 }); db.close();
+    await writeFile(path.join(directory, `${record.id}.json`), JSON.stringify(record));
+    expect(await store.list({ companyId: 'acme' })).toEqual([record]);
+  });
+
+  it('uses the persisted company index instead of opening unrelated artifacts on warm reads', async () => {
+    const { directory, store } = await setup(), wanted = attempt(), other = attempt('other');
+    await store.save(wanted); await store.save(other);
+    await writeFile(path.join(directory, `${other.id}.json`), 'unrelated corruption');
+    expect(await createOriginalSourceServices(directory).list({ companyId: 'acme' })).toEqual([wanted]);
+    await expect(store.list({ companyId: 'other' })).rejects.toThrow();
+  });
+
+  it('recovers a reserved identity whose immutable file was published before an interrupted index commit', async () => {
+    const { directory, store } = await setup();
+    await store.save(attempt());
+    const record = attempt('recover');
+    const { DatabaseSync } = createRequire(process.execPath)('node:sqlite') as typeof Sqlite;
+    const db = new DatabaseSync(path.join(directory, 'source-index.sqlite'));
+    db.prepare("INSERT INTO attempts VALUES(?,?,?,?,?,'pending')").run(record.id, record.companyId, record.metricType, record.capturedAt, null); db.close();
+    await writeFile(path.join(directory, `${record.id}.json`), JSON.stringify(record));
+    expect(await createOriginalSourceServices(directory).list({ companyId: 'recover' })).toEqual([record]);
+  });
+
+  it('acknowledges parallel writers from two service instances without losing indexed artifacts', async () => {
+    const { directory, store } = await setup();
+    const other = createOriginalSourceServices(directory), records = Array.from({ length: 20 }, () => attempt());
+    await Promise.all(records.map((record, index) => (index % 2 ? other : store).save(record)));
+    expect((await createOriginalSourceServices(directory).list({ companyId: 'acme', limit: 20 })).map(row => row.id).sort())
+      .toEqual(records.map(row => row.id).sort());
+  });
+
+  it('refuses future index versions and valid-but-changed artifacts instead of accepting a broken lineage', async () => {
+    const { directory, store } = await setup(), record = attempt(); await store.save(record);
+    const changed = structuredClone(record); changed.receipts[0]!.text = 'Different source body';
+    await writeFile(path.join(directory, `${record.id}.json`), JSON.stringify(changed));
+    await expect(store.list({ companyId: 'acme' })).rejects.toThrow('index/artifact mismatch');
+    const { DatabaseSync } = createRequire(process.execPath)('node:sqlite') as typeof Sqlite;
+    const db = new DatabaseSync(path.join(directory, 'source-index.sqlite')); db.exec('PRAGMA user_version=99'); db.close();
+    await expect(createOriginalSourceServices(directory).list({ companyId: 'acme' })).rejects.toThrow('newer');
+  });
+
+  it('keeps reference lookup company-scoped and bounded and never treats a source URL alone as matching support', async () => {
+    const { store } = await setup(), wanted = attempt(), other = attempt('other');
+    await store.save(wanted); await store.save(other);
+    for (let index = 0; index < 25; index++) await store.save({ ...attempt(), capturedAt: '2030-01-01T00:00:00.000Z',
+      receipts: [{ requestedUrl: 'https://sec.gov/report', status: 'unavailable', retrievedAt: '2030-01-01T00:00:00.000Z' }] });
+    const support = [{ sourceUrl: 'https://sec.gov/report', quote: wanted.receipts[0]!.text! }];
+    const rows = await store.list({ companyId: 'acme', limit: 20, support });
+    expect(rows).toHaveLength(21); expect(rows.at(-1)).toEqual(wanted);
+    expect(rows.some(row => row.companyId === 'other')).toBe(false);
+    expect(await store.list({ companyId: 'acme', limit: 20, support: [{ ...support[0]!, quote: 'not in original' }] })).toHaveLength(20);
+    await expect(store.list({ companyId: 'acme', support: Array.from({ length: 13 }, () => support[0]!) })).rejects.toThrow('references');
   });
 
   it('keeps originals queryable after a real repository interpretation failure and restart', async () => {
