@@ -40,6 +40,9 @@ describe('cloud company originals', () => {
     const overview = { ...attempt, metricType: 'overview' };
     await sources.save(overview);
     expect(await sources.list({ companyId: 'cmp_acme', metricType: 'overview' })).toEqual([overview]);
+    const teamOrg = { ...attempt, id: `src_${globalThis.crypto.randomUUID()}`, metricType: 'team_org' };
+    await sources.save(teamOrg);
+    expect(await sources.list({ companyId: 'cmp_acme', metricType: 'team_org' })).toEqual([teamOrg]);
     await expect(sources.save({ ...overview, receipts: [] })).rejects.toThrow('cannot be overwritten');
     await expect(sources.save({ ...attempt, id: 'src_00000000-0000-4000-8000-000000000002', metricType: 'invented' })).rejects.toThrow('Invalid company source attempt');
   });

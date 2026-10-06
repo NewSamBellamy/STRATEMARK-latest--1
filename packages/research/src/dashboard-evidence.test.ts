@@ -55,7 +55,7 @@ describe('dashboard source lineage', () => {
     expect(ground).not.toHaveBeenCalled();
     expect(structure).not.toHaveBeenCalled();
   });
-  it.each(['overview', 'live_intel', 'team_org', 'mission_governance', 'history', 'products_roadmap'] as DashboardTab[])(
+  it.each(['overview', 'live_intel', 'mission_governance', 'history', 'products_roadmap'] as DashboardTab[])(
     'retains actual search citations through %s synthesis and reopen without another paid pass', async tab => {
       const { repo, ground, structure } = setup();
       const result = await repo().getDashboardTab('cmp', tab);
@@ -106,26 +106,6 @@ describe('dashboard source lineage', () => {
     expect(ground).not.toHaveBeenCalled();
   });
 
-  it('combines real citations from a bounded gap-fill, not model-invented sources', async () => {
-    const { repo, ground, structure } = setup();
-    structure.mockResolvedValueOnce({ nodes: [] }).mockResolvedValueOnce({ nodes: [{ id: 'one', parentId: null }] });
-    ground.mockResolvedValueOnce({ text: 'First notes', citations: [{ title: 'First', url }], queries: [] })
-      .mockResolvedValueOnce({ text: 'Second notes', citations: [{ title: 'Second', url: 'https://example.com/team' }], queries: [] });
-    expect(await repo().getDashboardTab('cmp', 'team_org')).toHaveProperty('citations', [
-      expect.objectContaining({ url }), expect.objectContaining({ url: 'https://example.com/team' }),
-    ]);
-    expect(structure.mock.calls[1]![0]).toContain(url);
-    expect(structure.mock.calls[1]![0]).toContain('https://example.com/team');
-  });
-
-  it('keeps Team & Org research to reported facts and forbids subjective executive profiles', async () => {
-    const { repo, ground, structure } = setup();
-    await repo().getDashboardTab('cmp', 'team_org');
-    expect(ground.mock.calls[0]![0]).toContain('Do not infer personality, working style');
-    expect(ground.mock.calls[0]![0]).toContain('Only describe reporting lines when a source explicitly states them');
-    expect(structure.mock.calls[0]![0]).toContain('no personality or working-style interpretation');
-    expect(structure.mock.calls[0]![0]).not.toContain('a clearly-hedged reading of their working style');
-  });
 });
 
 describe('team and org gap-fill merge', () => {
@@ -161,7 +141,7 @@ describe('team and org gap-fill merge', () => {
     expect(merged.map(node => node.parentId)).toEqual(['b', null, null]);
   });
 
-  it('repairs a legacy cached reporting cycle without starting new research', async () => {
+  it('does not re-display legacy unsourced people after a no-spend cache reopen', async () => {
     const { repo, store, ground } = setup();
     const snapshot = store.read()!;
     snapshot.dashboards.cmp = { team_org: { content: { nodes: [
@@ -169,8 +149,8 @@ describe('team and org gap-fill merge', () => {
     ] }, lastRefreshedAt: new Date().toISOString(), citations: [{ title: 'Team page', url }] } };
     await store.write(snapshot);
     const result = await repo().getDashboardTab('cmp', 'team_org');
-    expect(result!.content.nodes.map(node => node.parentId)).toEqual(['b', null]);
-    expect(result!.citations).toEqual([expect.objectContaining({ url })]);
+    expect(result!.content.nodes).toEqual([]);
+    expect(result!.citations).toEqual([]);
     expect(ground).not.toHaveBeenCalled();
   });
 });

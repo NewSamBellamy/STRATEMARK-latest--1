@@ -740,7 +740,7 @@ export function createApp(
         storedMetrics: card.metrics || [],
         client: resolved.client,
         refreshOriginals: Boolean(force),
-        ...(['overview', 'metrics', 'products_roadmap'].includes(tab) ? { originalSources: cloudDeckService.getOriginalSources(access.userId, ownedDeckId, readOriginalSource) } : {}),
+        ...(['overview', 'metrics', 'products_roadmap', 'team_org'].includes(tab) ? { originalSources: cloudDeckService.getOriginalSources(access.userId, ownedDeckId, readOriginalSource) } : {}),
       });
 
       return c.json({ content: result.content, citations: result.citations, ...(result.sourceDiagnostics ? { sourceDiagnostics: result.sourceDiagnostics } : {}) });

@@ -14,7 +14,6 @@ import {
   validMetricVerificationValue,
   historyContentSchema,
   missionGovernanceContentSchema,
-  teamOrgContentSchema,
   type Company,
   type CompanyMetric,
   type DashboardContentMap,
@@ -31,6 +30,7 @@ import { originalSupportReferences, type OriginalSourceAttempt, type OriginalSou
 import { researchCompanyOverview } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
 import { researchCompanyProducts, type ProductEvidenceSelections } from './company-products';
+import { researchCompanyTeamOrg, type TeamOrgSelections } from './company-team';
 
 export interface TabResearchArgs {
   company: Company;
@@ -171,7 +171,7 @@ export function mergeTeamOrgNodes(first: readonly TeamOrgNode[], gapFill: readon
 /** Preserve attribution outside model-generated content on every research tab.
  * Existing content-only callers keep their contract; real repositories use this
  * envelope so sources survive synthesis, caching, IPC and cloud transport. */
-export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, args: TabResearchArgs): Promise<{ content: DashboardContentMap[T]; citations: Citation[]; sourceDiagnostics?: DashboardSourceDiagnostics; overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>; productSelections?: ProductEvidenceSelections }> {
+export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, args: TabResearchArgs): Promise<{ content: DashboardContentMap[T]; citations: Citation[]; sourceDiagnostics?: DashboardSourceDiagnostics; overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>; productSelections?: ProductEvidenceSelections; teamOrgSelections?: TeamOrgSelections }> {
   if (tab === 'overview') {
     const result = await researchCompanyOverview(args);
     return { ...result, content: result.content as DashboardContentMap[T] };
@@ -179,6 +179,11 @@ export async function researchDashboardWithSources<T extends DashboardTab>(tab: 
   if (tab === 'products_roadmap') {
     const result = await researchCompanyProducts(args);
     return { ...result, content: result.content as DashboardContentMap[T] };
+  }
+  if (tab === 'team_org') {
+    const result = await researchCompanyTeamOrg({ company: args.company, client: args.client, signal: args.signal,
+      originalSources: args.originalSources, originalAttempts: args.originalAttempts, refreshOriginals: args.refreshOriginals });
+    return { ...result, content: { nodes: mergeTeamOrgNodes(result.content.nodes, []) } as DashboardContentMap[T] };
   }
   let citations: Citation[] = [];
   const client: LlmClient = {
@@ -253,42 +258,9 @@ export async function researchDashboardTab<T extends DashboardTab>(
     }
 
     case 'team_org': {
-      // QUALITY CONTRACT: a leadership page with two names is not "done".
-      // One research pass rarely surfaces a full executive team, so when the
-      // first pass comes back thin (< MIN_LEADERS people) a single targeted
-      // gap-fill pass runs and the results merge. Capped at 2 grounded calls —
-      // hungry, not unbounded.
-      const MIN_LEADERS = 5;
-      const g = await client.ground(
-        `Identify the leadership and key org structure of ${ctx(args)} — founders, current C-suite, and heads of product/AI/design where reported. Only describe reporting lines when a source explicitly states them. For each person, collect concrete reported facts where available: exact current title, prior roles, tenure at this company, most recent/notable prior company, and a named project or ownership area explicitly tied to them. Note source dates and disagreements when available. Do not infer personality, working style, interests, strengths, influence, or what someone "brings to the table." TITLES MUST BE CURRENT AND COMPLETE: preserve the exact present title reported by recent sources (for example, "President & CEO"); exclude people reported as departed. When sources disagree, prefer the most recent dated source.`,
-        system,
-      );
-      let notes = g.text;
-      const firstPass = await client.structure(
-        `Convert to JSON { "nodes": [ { "id" (short slug), "name", "role" (exact reported current title), "group": "exec"|"ai"|"product"|"design"|"other", "parentId" (id of manager only when an explicit reporting relationship appears in the notes; otherwise null), "bio" (1-2 concise sentences of concrete source-reported facts only; no personality or working-style interpretation), "tenure" (reported tenure at the company, string or null), "priorCompany" (most recent/notable prior company only when reported, string or null), "notableProject" (a project or ownership area explicitly tied to them, string or null) } ] }. Never infer people, titles, reporting lines, dates, or details; null optional fields not supported by the notes.\n\nNOTES:\n${notes}`,
-        teamOrgContentSchema,
-        structSys,
-      );
-      let nodes = firstPass.nodes;
-      if (nodes.length < MIN_LEADERS) {
-        const known = nodes.map((n) => n.name).join(', ') || 'none found yet';
-        const gapFill = await client.ground(
-          `List any additional current executive leaders of ${ctx(args)} who were not present in the first result. Use recent credible sources and exact current titles; explicitly exclude reported departures. Do not infer reporting lines, personality, working style, strengths, or biographies. Already known: ${known}. Return no additional people if the notes do not support them.`,
-          system,
-        );
-        notes = `${notes}\n\nADDITIONAL LEADERSHIP NOTES:\n${gapFill.text}`;
-        const secondPass = await client.structure(
-          `Output a single JSON OBJECT (not a bare array) of the exact shape { "nodes": [ { "id" (short slug), "name", "role" (exact reported current title), "group": "exec"|"ai"|"product"|"design"|"other", "parentId" (manager ID only when an explicit reporting relationship appears in the notes; otherwise null), "bio" (1-2 concise sentences of concrete source-reported facts only; no personality or working-style interpretation), "tenure" (reported tenure at the company, string or null), "priorCompany" (most recent/notable prior company only when reported, string or null), "notableProject" (a project or ownership area explicitly tied to them, string or null) } ] }. Merge all supported people across the notes. Never infer people, titles, dates, reporting lines, or biography details; null optional fields not supported by the notes.\n\nNOTES:\n${notes}`,
-          teamOrgContentSchema,
-          structSys,
-        );
-        nodes = mergeTeamOrgNodes(nodes, secondPass.nodes);
-      }
-      // Guard referential integrity: drop parentIds that don't resolve.
-      const ids = new Set(nodes.map((n) => n.id));
-      return {
-        nodes: nodes.map((n) => ({ ...n, parentId: n.parentId && ids.has(n.parentId) ? n.parentId : null })),
-      } as DashboardContentMap[T];
+      const result = await researchCompanyTeamOrg({ company: args.company, client, signal, originalSources: args.originalSources,
+        originalAttempts: args.originalAttempts, refreshOriginals: args.refreshOriginals });
+      return { nodes: mergeTeamOrgNodes(result.content.nodes, []) } as DashboardContentMap[T];
     }
 
     case 'mission_governance': {

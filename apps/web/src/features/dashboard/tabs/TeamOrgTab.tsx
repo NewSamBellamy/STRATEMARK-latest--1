@@ -138,6 +138,22 @@ function PersonDetail({
         </p>
       </div>
 
+      {person.sourceUrl && person.supportingQuote && (
+        <div className="rounded-lg border border-border bg-surface-2/60 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted">
+              Reported source{person.sourceRetrievedAt ? ` · retrieved ${person.sourceRetrievedAt.slice(0, 10)}` : ''}
+            </h3>
+            <a href={person.sourceUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-primary-ink hover:underline">
+              Open original ↗
+            </a>
+          </div>
+          <blockquote className="mt-2 border-l-2 border-primary/40 pl-3 text-sm leading-relaxed text-content/90">
+            “{person.supportingQuote}”
+          </blockquote>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
         <p className="max-w-xs text-[11px] leading-relaxed text-faint">
           Unknown means the current research did not surface a credible detail; it is not an

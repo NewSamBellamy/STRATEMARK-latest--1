@@ -76,6 +76,28 @@ describe('actual cloud dashboard source transport and authorization', () => {
     expect(retained).toHaveLength(1);
     expect(retained[0]!.receipts[0]).toMatchObject({ finalUrl: url, text: quote, status: 'retrieved' });
   });
+  it('retains leadership originals and returns source-linked people on the actual cloud route', async () => {
+    const { post, structure, ground, service } = await setup();
+    const url = 'https://example.com/team';
+    const quote = 'Avery Founder is Example co-founder and Chief Executive Officer.';
+    ground.mockResolvedValue({ text: 'Official leadership page', citations: [{ title: 'Leadership', url }], queries: [] });
+    structure.mockResolvedValue({ nodes: [{ id: 'avery', name: 'Avery Founder', role: 'Chief Executive Officer', group: 'exec',
+      parentName: null, bio: quote, tenure: null, priorCompany: null, notableProject: null, sourceUrl: url, quote }] } as never);
+    vi.mocked(retrieveOriginalSource).mockResolvedValue({ requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200,
+      contentHash: 'a'.repeat(64), text: quote, retrievedAt: '2026-10-06T00:00:00.000Z' });
+    const response = await post({ ...input, tab: 'team_org' });
+    expect(response.status).toBe(200);
+    const result = await response.json() as { content: { nodes: Array<{ name: string; sourceUrl: string; supportingQuote: string }> }; citations: Array<{ url: string }> };
+    expect(result.content.nodes).toEqual([expect.objectContaining({ name: 'Avery Founder', sourceUrl: url, supportingQuote: quote })]);
+    expect(result.citations).toEqual([expect.objectContaining({ url })]);
+    expect(retrieveOriginalSource).toHaveBeenCalledWith(url, undefined, { companyId: 'cmp', companyName: 'Example', metricType: 'team_org' });
+    const retained = await service.getOriginalSources('user_123', 'deck_test').list({ companyId: 'cmp', metricType: 'team_org' });
+    expect(retained).toHaveLength(1);
+    expect(retained[0]!.receipts[0]!.text).toBe(quote);
+    await post({ ...input, tab: 'team_org' });
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(retrieveOriginalSource).toHaveBeenCalledTimes(1);
+  });
   it('uses scoped persisted originals for overview instead of unchecked provider prose', async () => {
     const { post, structure, ground, store } = await setup();
     const url = 'https://example.com/report';

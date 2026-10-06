@@ -315,6 +315,10 @@ export const orgNodeSchema = z.object({
   priorCompany: prose().nullable().optional().catch(null),
   /** Notable project or ownership area explicitly tied to the person. */
   notableProject: prose().nullable().optional().catch(null),
+  /** Exact retained original that supports this person/title, when available. */
+  sourceUrl: z.string().url().nullable().optional().catch(null),
+  supportingQuote: prose().nullable().optional().catch(null),
+  sourceRetrievedAt: isoTimestamp.nullable().optional().catch(null),
 });
 /**
  * Tolerant to the model returning the node list bare instead of wrapped in

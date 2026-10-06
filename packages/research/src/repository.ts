@@ -96,6 +96,7 @@ import { acceptedMetricPassage } from './metric-support';
 import { overviewFigures, renderCompanyOverview } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
 import { renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
+import { renderCompanyTeamOrg, teamOrgOriginalAttempts, teamOrgSupportReferences, type TeamOrgSelections } from './company-team';
 
 interface CachedTab {
   content: unknown;
@@ -106,6 +107,7 @@ interface CachedTab {
   overviewBackground?: string;
   overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>;
   productSelections?: ProductEvidenceSelections;
+  teamOrgSelections?: TeamOrgSelections;
 }
 
 export interface RepoSnapshot {
@@ -1458,6 +1460,14 @@ export class GeminiRepository implements MarketIntelRepository {
         return { companyId, tab, lastRefreshedAt: cached.lastRefreshedAt, citations: result.citations,
           content: result.content as DashboardContentMap[T] };
       }
+      if (tab === 'team_org') {
+        const attempts = await this.getOriginalSourceEvidence({ companyId, metricType: 'team_org', limit: 20,
+          support: teamOrgSupportReferences(cached.teamOrgSelections) });
+        const originals = teamOrgOriginalAttempts(attempts, companyId).flatMap(row => row.receipts);
+        const result = renderCompanyTeamOrg(company, originals, cached.teamOrgSelections);
+        return { companyId, tab, lastRefreshedAt: cached.lastRefreshedAt, citations: result.citations,
+          content: { nodes: mergeTeamOrgNodes(result.content.nodes, []) } as DashboardTabResult<T>['content'] };
+      }
       if (tab === 'overview') {
         const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20, support: [
           ...originalSupportReferences(metrics, companyId), ...(Array.isArray(cached.overviewExcerpts) ? cached.overviewExcerpts.flatMap(ref => {
@@ -1494,21 +1504,24 @@ export class GeminiRepository implements MarketIntelRepository {
     const inFlight = this.tabResearchInFlight.get(flightKey);
     if (inFlight) return structuredClone(await inFlight) as DashboardTabResult<T> | null;
     const run = (async (): Promise<DashboardTabResult<T> | null> => {
-      const { content, citations, sourceDiagnostics, overviewExcerpts, productSelections } = await researchDashboardWithSources(tab, {
+      const { content, citations, sourceDiagnostics, overviewExcerpts, productSelections, teamOrgSelections } = await researchDashboardWithSources(tab, {
         company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
         storedMetrics: this.snap.metrics.filter((m) => m.companyId === companyId),
         client: this.client,
         refreshOriginals: Boolean(force),
-        ...(['overview', 'products_roadmap'].includes(tab) ? { originalSources: this.originalSources,
-          ...(!this.originalSources ? { originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20, support: originalSupportReferences(this.snap.metrics, companyId) }) } : {}) } : {}),
+        ...(['overview', 'products_roadmap', 'team_org'].includes(tab) ? { originalSources: this.originalSources,
+          ...(!this.originalSources ? { originalAttempts: await this.getOriginalSourceEvidence({ companyId, metricType: tab === 'team_org' ? 'team_org' : undefined, limit: 20,
+            support: tab === 'team_org' ? teamOrgSupportReferences(this.snap.dashboards[companyId]?.team_org?.teamOrgSelections)
+              : originalSupportReferences(this.snap.metrics, companyId) }) } : {}) } : {}),
       });
       const lastRefreshedAt = new Date().toISOString();
       this.snap.dashboards[companyId] = {
         ...this.snap.dashboards[companyId],
         [tab]: { content, citations, lastRefreshedAt,
           ...(tab === 'overview' ? { overviewEvidenceVersion: 2, overviewExcerpts } : {}),
-          ...(tab === 'products_roadmap' ? { productSelections } : {}) },
+          ...(tab === 'products_roadmap' ? { productSelections } : {}),
+          ...(tab === 'team_org' ? { teamOrgSelections } : {}) },
       };
       await this.persist();
       return { companyId, tab, content, citations, ...(sourceDiagnostics ? { sourceDiagnostics } : {}), lastRefreshedAt };
