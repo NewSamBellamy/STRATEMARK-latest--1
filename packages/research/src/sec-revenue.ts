@@ -19,7 +19,7 @@ export function secRevenueSourceUrl(raw: string): string | null {
     if (secRevenueCik(raw)) return raw;
     const url = new URL(raw);
     if (url.protocol !== 'https:' || !['sec.gov', 'www.sec.gov'].includes(url.hostname) || url.port || url.username || url.password) return null;
-    const cik = /^\/Archives\/edgar\/data\/(\d{1,10})\//.exec(url.pathname)?.[1];
+    const cik = /^\/(?:Archives\/)?edgar\/data\/(\d{1,10})\//.exec(url.pathname)?.[1];
     return cik && Number(cik) > 0 ? `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik.padStart(10, '0')}/us-gaap/${concept}.json` : null;
   } catch { return null; }
 }

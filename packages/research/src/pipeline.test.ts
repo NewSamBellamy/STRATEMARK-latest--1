@@ -496,6 +496,21 @@ describe('runDeckResearch (full orchestration, fake LLM)', () => {
 });
 
 describe('GeminiRepository (fake client + in-memory store)', () => {
+  it('does not replace an older deck company identity when researching the same names again', async () => {
+    let snapshot: RepoSnapshot | null = null;
+    const store: ResearchStore = { read: () => snapshot, write: next => { snapshot = next; } };
+    const repo = new GeminiRepository({ apiKey: 'fixture', client: fakeClient(), coverage: testCoverage,
+      catalogMax: 3, catalogPasses: 0, store });
+    const first = await repo.createResearchedDeck({ prompt: 'first market', region: 'CA' });
+    await repo.waitForBackgroundJobs();
+    const oldCompanies = structuredClone(snapshot!.companies);
+    const oldCards = (await repo.listCards(first.deck.id)).filter(card => card.company);
+    await repo.createResearchedDeck({ prompt: 'second market', region: 'CA' });
+    await repo.waitForBackgroundJobs();
+    for (const company of oldCompanies) expect(await repo.getCompany(company.id)).toEqual(company);
+    for (const card of oldCards) expect((await repo.getCard(card.card.id))?.company?.id).toBe(card.company!.id);
+    expect(new Set(snapshot!.companies.map(company => company.id)).size).toBe(snapshot!.companies.length);
+  });
   function memStore(): ResearchStore {
     let s: RepoSnapshot | null = null;
     return { read: () => s, write: (snap) => (s = snap) };

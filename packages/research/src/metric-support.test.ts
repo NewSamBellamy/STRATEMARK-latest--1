@@ -8,6 +8,15 @@ const source: OriginalSourceReceipt = { requestedUrl: 'https://sec.gov/acme', fi
 const support: MetricPassageSupport = { sourceUrl: source.finalUrl!, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' };
 const input = { companyName: 'Acme Inc.', metricType: 'arr' as const, value: 40_000_000, support, originals: [source] };
 describe('original metric passage gate', () => {
+  it('accepts an explicit legal suffix abbreviation without borrowing a trade name or another entity', () => {
+    const text = 'Acme Corp. reported 45 employees as of 2026-10-01.';
+    const candidate = { ...input, companyName: 'Acme Corporation', metricType: 'employees' as const, value: 45,
+      support: { ...support, basis: 'employees' as const, unit: 'count' as const, quote: text }, originals: [{ ...source, text }] };
+    expect(acceptedMetricPassage(candidate)).toHaveLength(1);
+    for (const name of ['Acme Holdings Corporation', 'Acme Incorporated', 'Acme']) {
+      expect(acceptedMetricPassage({ ...candidate, companyName: name })).toEqual([]);
+    }
+  });
   it.each([
     ['monthly_active_users', 'monthly active users'],
     ['daily_active_users', 'daily active users'],

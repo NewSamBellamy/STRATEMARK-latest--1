@@ -933,6 +933,7 @@ export class GeminiRepository implements MarketIntelRepository {
 
                   const hydrated = await hydrateCompanyCard({
                     originalSources: this.originalSources,
+                    recoverMissingMetrics: true,
                     candidate,
                     client: this.client,
                     plan: stubsResult.plan,
@@ -949,11 +950,9 @@ export class GeminiRepository implements MarketIntelRepository {
                   });
 
                   // Update company in snap
-                  const coIdx = this.snap.companies.findIndex(
-                    (c) =>
-                      c.id === hydrated.company.id ||
-                      companyKey(c.name) === companyKey(hydrated.company.name),
-                  );
+                  // The new deck owns a scoped company ID. A same-name record
+                  // in an older deck must retain its identity and evidence links.
+                  const coIdx = this.snap.companies.findIndex((c) => c.id === hydrated.company.id);
                   if (coIdx >= 0) {
                     this.snap.companies[coIdx] = hydrated.company;
                   } else {

@@ -616,6 +616,7 @@ export class IncrementalDeltaAgent {
       // Hydrate via deep module company-agent
       const hydration = await hydrateCompanyCard({
         originalSources: options.originalSources,
+        recoverMissingMetrics: true,
         candidate,
         client: this.client,
         plan,

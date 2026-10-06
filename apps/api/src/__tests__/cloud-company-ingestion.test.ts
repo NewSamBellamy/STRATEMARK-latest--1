@@ -40,7 +40,8 @@ describe('cloud company ingestion (real orchestration, fake provider)', () => {
     const deck = await service.getDeck('user_pro', 'deck_a');
     expect(deck!.cards).toHaveLength(1);
     expect(deck!.cards[0]!.metrics.every((metric) => metric.value === null && metric.confidence === 'unknown')).toBe(true);
-    expect(deck!.companySourceAttempts).toHaveLength(1);
+    expect(deck!.companySourceAttempts).toHaveLength(2);
+    expect(deck!.companySourceAttempts?.map(attempt => attempt.metricType)).toContain('metrics_hunt');
     expect(deck!.state!.status).toBe('ready');
   });
   it('marks failed original writes as incomplete without publishing that company', async () => {
@@ -57,7 +58,7 @@ describe('cloud company ingestion (real orchestration, fake provider)', () => {
     const deck = await service.getDeck('user_pro', 'deck_a');
     expect(deck!.cards).toHaveLength(1);
     expect(deck!.cards[0]!.metrics.every((metric) => metric.value === null)).toBe(true);
-    expect(deck!.companySourceAttempts).toHaveLength(1);
+    expect(deck!.companySourceAttempts).toHaveLength(2);
   });
   it('protects the authenticated expand action with the same saved originals', async () => {
     const { store, service } = await fixture();
@@ -69,6 +70,6 @@ describe('cloud company ingestion (real orchestration, fake provider)', () => {
     const deck = await service.getDeck('user_pro', 'deck_a');
     expect(deck!.cards).toHaveLength(1);
     expect(deck!.cards[0]!.metrics.every((metric) => metric.value === null)).toBe(true);
-    expect(deck!.companySourceAttempts).toHaveLength(1);
+    expect(deck!.companySourceAttempts).toHaveLength(2);
   });
 });

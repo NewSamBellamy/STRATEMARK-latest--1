@@ -839,6 +839,7 @@ export async function hydrateDeckCards(
             try {
               const result = await hydrateCompanyCard({
                 originalSources: options.originalSources,
+                recoverMissingMetrics: true,
                 candidate,
                 client,
                 plan,

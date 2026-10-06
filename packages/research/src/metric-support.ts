@@ -5,6 +5,15 @@ import { secRevenueObservation } from './sec-revenue';
 export type MetricPassageSupport = NonNullable<CompanyMetric['passageSupport']>;
 const normalize = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim();
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Explicit terminal legal suffixes only. Never strip a suffix or infer a trade
+ * name: Acme Corp. may match Acme Corporation, not Acme Holdings or Acme Inc. */
+function legalCompanyPattern(company: string): string {
+  const suffix = /\s+(corporation|corp\.?|incorporated|inc\.?|limited|ltd\.?)$/i.exec(company);
+  if (!suffix) return escape(company);
+  const forms = /^(corporation|corp\.?)/i.test(suffix[1]!) ? '(?:Corporation|Corp\\.?)'
+    : /^(incorporated|inc\.?)/i.test(suffix[1]!) ? '(?:Incorporated|Inc\\.?)' : '(?:Limited|Ltd\\.?)';
+  return `${escape(company.slice(0, suffix.index))}\\s+${forms}`;
+}
 const basis: Record<MetricType, RegExp> = {
   arr: /\b(?:ARR|annual recurring revenue|annual revenue)\b/i,
   valuation: /\b(?:valuation|valued at)\b/i,
@@ -71,19 +80,20 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
       ![364, 365, 366, 371].includes(days) || !quote.includes(`for the period ${intervalDate} to ${proof.asOf}`)) return reject('Annual revenue requires a literal matching annual reporting interval, not a collection date.');
   } else if (proof.periodStart) return reject('This measurement does not support an annual reporting interval.');
   const company = normalize(input.companyName);
+  const companyPattern = legalCompanyPattern(company);
   const dateForms = [proof.asOf, ...(['long', 'short'] as const).flatMap((month) => [
     new Intl.DateTimeFormat('en-US', { year: 'numeric', month, day: 'numeric', timeZone: 'UTC' }).format(date),
     new Intl.DateTimeFormat('en-GB', { year: 'numeric', month, day: 'numeric', timeZone: 'UTC' }).format(date),
   ])];
   const literalDate = dateForms.find((value) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(value)}(?![\\p{L}\\p{N}])`, 'iu').test(quote));
   if (quote.length < 10 || quote.length > 600 || !company ||
-    !new RegExp(`(?<![\\p{L}\\p{N}])${escape(company)}(?![\\p{L}\\p{N}])`, 'iu').test(quote) || !literalDate ||
+    !new RegExp(`(?<![\\p{L}\\p{N}])${companyPattern}(?![\\p{L}\\p{N}])`, 'iu').test(quote) || !literalDate ||
     !basis[input.metricType].test(quote) || /\b(?:not|estimated?|projects?|projected|forecasts?|targets?|expects?|expected|might|could|would|may|approximately|about)\b|~/i.test(quote)) return reject('Passage does not explicitly support this company, metric and reporting date, or describes an estimate.');
   // Keyword co-occurrence is not attribution: the company, metric and date
   // must form one direct statement. Ambiguous prose stays unknown rather than
   // borrowing a partner's figure or mistaking an article date for an as-of date.
-  const subject = new RegExp(`(?<![\\p{L}\\p{N}])${escape(company)}(?![\\p{L}\\p{N}])(?:['’]s)?\\s+(?:reports?|reported|has|had|recorded|disclosed|announced|employs?|employed|was|is)\\b`, 'iu');
-  const withoutCompany = quote.replace(new RegExp(`${escape(company)}(?:['’]s)?`, 'giu'), 'COMPANY');
+  const subject = new RegExp(`(?<![\\p{L}\\p{N}])${companyPattern}(?![\\p{L}\\p{N}])(?:['’]s)?\\s+(?:reports?|reported|has|had|recorded|disclosed|announced|employs?|employed|was|is)\\b`, 'iu');
+  const withoutCompany = quote.replace(new RegExp(`(?<![\\p{L}\\p{N}])${companyPattern}(?![\\p{L}\\p{N}])(?:['’]s)?`, 'giu'), 'COMPANY');
   if (!subject.test(quote) || /[.!?;]\s+/.test(withoutCompany) ||
     /\bthat\b|[\p{L}\p{N}]+['’]s\b/iu.test(withoutCompany) ||
     /\b(?:article|published|publication|posted|retrieved|updated)\b/i.test(quote) ||

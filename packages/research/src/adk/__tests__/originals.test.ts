@@ -33,7 +33,7 @@ describe('ADK original-backed company research', () => {
       maxCandidates: 1, originalSources: sources, onEvent: (event) => events.push(event) });
     expect(run.hydrated).toHaveLength(1);
     expect(run.hydrated[0]!.metrics.every((metric) => metric.value === null && metric.confidence === 'unknown')).toBe(true);
-    expect(sources.save).toHaveBeenCalledTimes(1);
+    expect(sources.save).toHaveBeenCalledTimes(2);
     expect(events).toContainEqual(expect.objectContaining({ type: 'card', result: run.hydrated[0] }));
   });
   it('retains supported headcount but never synthesizes ARR in the real engine', async () => {
@@ -59,6 +59,6 @@ describe('ADK original-backed company research', () => {
       telemetry: createAdkTelemetry(), maxIterations: 1, focusQueue: [{ cardType: 'company' }] });
     expect(run.cards).toHaveLength(1);
     expect(run.cards[0]!.metrics.every((metric) => metric.value === null)).toBe(true);
-    expect(sources.save).toHaveBeenCalledTimes(1);
+    expect(sources.save).toHaveBeenCalledTimes(2);
   });
 });

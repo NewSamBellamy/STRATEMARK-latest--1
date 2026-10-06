@@ -39,9 +39,9 @@ describe('original-backed deck expansion', () => {
     expect(cards[0]!.metrics.find((metric) => metric.metricType === 'employees')).toMatchObject({ value: 45, confidence: 'verified', source: url });
     expect(cards[0]!.metrics.find((metric) => metric.metricType === 'arr')).toMatchObject({ value: null, confidence: 'unknown' });
     expect(cards[0]!.card.tierReason).not.toBe('Model opinion');
-    expect(originals.save).toHaveBeenCalledTimes(1);
-    expect(client.ground).toHaveBeenCalledTimes(2);
-    expect(client.structure).toHaveBeenCalledTimes(2);
+    expect(originals.save).toHaveBeenCalledTimes(2);
+    expect(client.ground).toHaveBeenCalledTimes(3);
+    expect(client.structure).toHaveBeenCalledTimes(3);
   });
   it('keeps citation-only additions unknown through the direct delta-agent interface', async () => {
     const { client, originals } = fixture(false);
@@ -53,7 +53,7 @@ describe('original-backed deck expansion', () => {
     const { client, originals } = fixture(false);
     const cards = await expandDeckResearch({ ...context, client, geography: null, focusPrompt: 'More companies', excludeNames: [], deckUserValues: [], target: 1, originalSources: originals });
     expect(cards[0]!.metrics.every((metric) => metric.value === null)).toBe(true);
-    expect(originals.save).toHaveBeenCalledTimes(1);
+    expect(originals.save).toHaveBeenCalledTimes(2);
   });
   it('does not emit a card if its source artifact cannot be saved', async () => {
     const { client, originals } = fixture();
@@ -99,8 +99,8 @@ describe('original-backed deck expansion', () => {
     expect(cards).toHaveLength(1);
     expect(cards[0]!.metrics.every((metric) => metric.value === null && metric.confidence === 'unknown')).toBe(true);
     expect((await repo.getCard(cards[0]!.card.id))!.metrics).toEqual(cards[0]!.metrics);
-    expect(originals.save).toHaveBeenCalledTimes(1);
+    expect(originals.save).toHaveBeenCalledTimes(2);
     expect(await repo.expandDeck(market.id, { cardType: 'company' })).toEqual({ added: 0 });
-    expect(originals.save).toHaveBeenCalledTimes(1);
+    expect(originals.save).toHaveBeenCalledTimes(2);
   });
 });

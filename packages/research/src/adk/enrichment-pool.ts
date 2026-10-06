@@ -249,6 +249,7 @@ export async function runEnrichmentPool(
         workerSpan.toolCall('hydrate_company_card', { company: candidate.name });
         const result = await hydrateCompanyCard({
           originalSources: options.originalSources,
+          recoverMissingMetrics: true,
           candidate,
           client,
           plan,

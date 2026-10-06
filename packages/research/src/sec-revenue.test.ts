@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { hydrateCompanyCard } from './company-agent';
 import { projectCompanyFactsFromOriginals } from './company-facts';
 import type { LlmClient, MarketPlan } from './types';
-import { secRevenueObservation, secRevenueVerification } from './sec-revenue';
+import { secRevenueObservation, secRevenueVerification, secRevenueSourceUrl } from './sec-revenue';
 import { acceptedMetricPassage } from './metric-support';
 import { selectOriginalSourceCitations, type OriginalSourceReceipt } from './original-source';
 
@@ -59,6 +59,11 @@ describe('first company financial hydration', () => {
   });
 });
 describe('regulator-reported annual revenue', () => {
+  it('routes a discovered SEC edgar/data filing lead without treating it as issuer proof', () => {
+    expect(secRevenueSourceUrl('https://www.sec.gov/edgar/data/789019/000078901925000028/msft-20250630.htm')).toBe(url);
+    expect(secRevenueSourceUrl('https://sec.gov.attacker.test/edgar/data/789019/report.htm')).toBeNull();
+    expect(secRevenueSourceUrl('https://www.sec.gov/edgar/data/not-an-id/report.htm')).toBeNull();
+  });
   it('rechecks the same annual measurement without model interpretation, but never contradicts a known ARR with annual revenue', () => {
     const common = { metricType: 'arr' as const, value: latest.val };
     expect(secRevenueVerification('Microsoft Corporation', { ...common, passageSupport: {

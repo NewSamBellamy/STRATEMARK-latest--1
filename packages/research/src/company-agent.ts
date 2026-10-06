@@ -70,6 +70,7 @@ import { selectOriginalSourceCitations, type OriginalSourceServices } from './or
 import { sourceBackedCompanySummary, UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
 import { originalSourcePromptViews, secRevenueObservation } from './sec-revenue';
 import { acceptedMetricPassage } from './metric-support';
+import { recoverInitialMetrics } from './initial-metric-recovery';
 
 // ============================================================================
 // 1. Domain Types & State Contracts
@@ -108,6 +109,8 @@ export interface CompanyAgentMemory {
 export interface HydrateCompanyCardOptions {
   /** Native host stores originals before interpretation; absent means legacy mode. */
   originalSources?: OriginalSourceServices;
+  /** Production creation runs one focused follow-up when core figures are missing. */
+  recoverMissingMetrics?: boolean;
   companyId?: string;
   deckId?: string;
   deckUserValues?: number[];
@@ -634,7 +637,7 @@ export async function hydrateCompanyCard(
   throwIfAborted(options.signal);
   if (options.originalSources) await options.originalSources.save({
     id: `src_${globalThis.crypto.randomUUID()}`, companyId, metricType: 'company_profile',
-    capturedAt: now(), receipts: originals,
+    capturedAt: now(), receipts: [...originals],
   });
   throwIfAborted(options.signal);
 
@@ -651,6 +654,11 @@ export async function hydrateCompanyCard(
     { system: STRUCTURE_SYSTEM, signal: options.signal },
   );
   throwIfAborted(options.signal);
+
+  const recovery = options.originalSources && options.recoverMissingMetrics
+    ? await recoverInitialMetrics({ companyId, companyName: candidate.name,
+      website: enrichment.website ?? officialWebsite, enrichment, originals,
+      sources: options.originalSources, client, signal: options.signal }) : null;
 
   const sourceSummary = options.originalSources ? sourceBackedCompanySummary({
     companyName: candidate.name,
@@ -705,7 +713,9 @@ export async function hydrateCompanyCard(
       if (!citations.length && row.metricType === 'arr' && financial) return { ...row, ...financial, confidence: 'verified',
         source: financial.citations[0]!.url, methodNote: 'Annual revenue reported in SEC XBRL; not ARR or independent audit.', lastVerifiedAt: now() };
       if (!citations.length) return { ...row, value: null, confidence: 'unknown', source: null, citations: [],
-        methodNote: 'Unknown: no accepted original passage for this company, figure, definition and reporting date.' };
+        methodNote: recovery === 'unavailable'
+          ? 'Unknown: automatic follow-up was unavailable; no accepted original evidence. Retry research.'
+          : 'Unknown: no accepted original passage for this company, figure, definition and reporting date.' };
       return { ...row, value: proposal!.value, confidence: 'verified', source: citations[0]!.url, citations,
         passageSupport: proposal!.passageSupport,
         methodNote: `Original reported ${row.metricType} as of ${proposal!.passageSupport!.asOf}.`, lastVerifiedAt: now() };

@@ -243,6 +243,8 @@ describe('initial company original-evidence publication', () => {
     const card = result.cards.find((entry) => entry.company?.name === candidate.name)!;
     expect(card.metrics.length).toBeGreaterThan(0);
     expect(card.metrics.every((metric) => metric.value === null && metric.confidence === 'unknown')).toBe(true);
-    expect(originals.save).toHaveBeenCalledTimes(1);
+    // Resume runs the same bounded missing-figure follow-up as new creation.
+    expect(originals.save).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(client.ground).mock.calls.filter(([, options]) => options?.researchContext?.topic === 'metrics_hunt')).toHaveLength(1);
   });
 });
