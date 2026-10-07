@@ -192,8 +192,17 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
 
   const groundedRpm = config.groundedRpm ?? DEFAULT_GROUNDED_RPM;
   const structureRpm = config.structureRpm ?? DEFAULT_STRUCTURE_RPM;
-  const groundLimiter = groundedRpm > 0 ? createRateLimiter(groundedRpm) : null;
-  const structureLimiter = structureRpm > 0 ? createRateLimiter(structureRpm) : null;
+  // One bucket per model (mirrors gemini.ts): grounding and structuring that
+  // share a model also share that model's real per-minute cap.
+  const limiters = new Map<string, ReturnType<typeof createRateLimiter> | null>();
+  const limiterFor = (model: string) => {
+    if (limiters.has(model)) return limiters.get(model)!;
+    const rpms = [model === groundedModel ? groundedRpm : 0, model === structureModel ? structureRpm : 0]
+      .filter((rpm) => rpm > 0);
+    const limiter = rpms.length ? createRateLimiter(Math.min(...rpms)) : null;
+    limiters.set(model, limiter);
+    return limiter;
+  };
 
   async function call(
     model: string,
@@ -202,9 +211,11 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     signal: AbortSignal | undefined,
     kind: 'ground' | 'structure',
   ): Promise<GenerateContentResponse> {
-    await (kind === 'ground' ? groundLimiter : structureLimiter)?.acquire(signal);
+    const limiter = limiterFor(model);
     const res = await withRetry(
       async () => {
+        // Retries re-dispatch too: pace every attempt, not just the first.
+        await limiter?.acquire(signal);
         const timeoutSignal = AbortSignal.timeout(60_000);
         const reqSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
         try {

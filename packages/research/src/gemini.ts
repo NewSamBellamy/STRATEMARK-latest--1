@@ -138,11 +138,20 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
   // request is even sent. Callers sanitize too; never trust that they did.
   const apiKey = config.apiKey.replace(/[^\x20-\x7E]/g, '').trim();
 
-  // One bucket per model line — grounded calls are the scarce resource.
+  // One bucket per model — grounded calls are the scarce resource, and when
+  // grounding and structuring share one model, they share that model's real
+  // per-minute cap instead of each keeping a bucket of its own.
   const groundedRpm = config.groundedRpm ?? DEFAULT_GROUNDED_RPM;
   const structureRpm = config.structureRpm ?? DEFAULT_STRUCTURE_RPM;
-  const groundLimiter = groundedRpm > 0 ? createRateLimiter(groundedRpm) : null;
-  const structureLimiter = structureRpm > 0 ? createRateLimiter(structureRpm) : null;
+  const limiters = new Map<string, ReturnType<typeof createRateLimiter> | null>();
+  const limiterFor = (model: string) => {
+    if (limiters.has(model)) return limiters.get(model)!;
+    const rpms = [model === groundedModel ? groundedRpm : 0, model === structureModel ? structureRpm : 0]
+      .filter((rpm) => rpm > 0);
+    const limiter = rpms.length ? createRateLimiter(Math.min(...rpms)) : null;
+    limiters.set(model, limiter);
+    return limiter;
+  };
 
   async function call(
     model: string,
@@ -150,12 +159,13 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
     signal?: AbortSignal,
     kind: 'ground' | 'structure' = 'ground',
   ): Promise<GeminiResponse> {
-    // Pace before sending; retry is only the safety net.
-    await (kind === 'ground' ? groundLimiter : structureLimiter)?.acquire(signal);
-    throwIfAborted(signal);
+    const limiter = limiterFor(model);
     return withRetry(
       async () => {
         throwIfAborted(signal);
+        // Every dispatched attempt — retries included — spends a slot, so a
+        // 429 storm cannot silently exceed the key's real per-minute cap.
+        await limiter?.acquire(signal);
         config.onCall?.({ model, kind });
         const res = await doFetch(`${BASE}/${model}:generateContent`, {
           method: 'POST',

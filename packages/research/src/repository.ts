@@ -882,46 +882,7 @@ export class GeminiRepository implements MarketIntelRepository {
 
     // Continual Background Hydration
     const backgroundPromise = (async () => {
-      // Visible to both the completion path and the failure path.
-      let deckResolved = false;
       try {
-        const WARM_TABS = ['overview', 'team_org', 'live_intel'] as const;
-        const WARM_COMPANY_LIMIT = 8;
-        const warmQueue: Array<{ id: string; name: string }> = [];
-        let warmQueued = 0;
-        let warmWorkerRunning = false;
-        const drainWarmQueue = async (): Promise<void> => {
-          if (warmWorkerRunning) return;
-          warmWorkerRunning = true;
-          try {
-            for (;;) {
-              const next = warmQueue.shift();
-              if (!next) {
-                if (deckResolved) return;
-                await new Promise((r) => setTimeout(r, 1_000));
-                continue;
-              }
-              for (const tab of WARM_TABS) {
-                if (controller.signal.aborted) return;
-                try {
-                  await this.getDashboardTab(next.id, tab);
-                  if (!deckResolved) {
-                    handlers?.onProgress?.({
-                      message: `${next.name} desk pre-researched ${tab === 'team_org' ? 'Team & Org' : tab === 'live_intel' ? 'Live Intel' : 'Overview'} — will open instantly`,
-                      stage: 'dashboard',
-                      kind: 'step',
-                    });
-                  }
-                } catch {
-                  // A failed warm-up is invisible; the tab researches on open.
-                }
-              }
-            }
-          } finally {
-            warmWorkerRunning = false;
-          }
-        };
-
         await Promise.all([
           // Track 1: Entity Card Hydration (worker pool concurrency: 3)
           (async () => {
@@ -1101,13 +1062,6 @@ export class GeminiRepository implements MarketIntelRepository {
                     leadCardReadySettled = true;
                     resolveLeadCardReady();
                   }
-
-                  // Warm decks: this company's desk starts pre-researching its
-                  // dashboard tabs right now, while the rest of the deck builds.
-                  if (warmQueued < WARM_COMPANY_LIMIT) {
-                    warmQueued += 1;
-                    warmQueue.push({ id: hydrated.company.id, name: hydrated.company.name });
-                  }
                 } catch (err) {
                   if (controller.signal.aborted) throw err;
                   await checkpoint({
@@ -1127,19 +1081,14 @@ export class GeminiRepository implements MarketIntelRepository {
               );
             }
             // Core card evidence has priority over speculative dashboard work.
-            // Previously this worker consumed provider capacity while the next
-            // company was still waiting for its very first figures.
-            void drainWarmQueue();
+            // Dashboard tabs research on demand when a user opens them; the
+            // in-flight dedupe on getDashboardTab keeps concurrent tab opens
+            // to a single research pass each.
           })(),
 
-          // Track 3 (non-blocking): WARM DECKS — as each company's card lands,
-          // its desk immediately pre-researches the key dashboard tabs, so the
-          // deck arrives with tabs that open instantly instead of 20-40s
-          // spinners. Deliberately NOT awaited by the run: deck completion is
-          // never delayed; the worker keeps draining after the deck returns.
-          // The in-flight dedupe on getDashboardTab makes any race with a user
-          // click or the living runtime's prefetch cost a single research pass.
-          // Track 2: Background Macro Signals (BarrierToEntryAgent, MarketInsightAgent)
+          // Track 2: Background Macro Signals (BarrierToEntryAgent, MarketInsightAgent).
+          // Starts only after the first entity card lands so it never competes
+          // with the user's first usable research.
           (async () => {
             // Do not compete with the first usable entity card for model slots.
             await leadCardReady;
@@ -1266,11 +1215,7 @@ export class GeminiRepository implements MarketIntelRepository {
         await this.persist();
         this.jobControllers.delete(job.id);
         this.activeBackgroundJobs.delete(job.id);
-        // The deck is done; the warm worker drains what's left of its queue
-        // (non-blocking) and then exits instead of idling forever.
-        deckResolved = true;
       } catch (error) {
-        deckResolved = true;
         if (!leadCardReadySettled) {
           leadCardReadySettled = true;
           rejectLeadCardReady(error instanceof Error ? error : new Error('First company research failed.'));
