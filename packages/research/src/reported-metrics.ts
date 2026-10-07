@@ -98,8 +98,9 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
     if (dates.length > 1) continue;
     // Annual revenue and ARR share a slot, but remain distinct candidates.
     // Do not let the presence of ARR hide annual revenue in the same segment.
-    const definitions = (type === 'arr' ? ['arr', 'annual_revenue'] : [type])
-      .filter(definition => basisPatterns[definition]?.test(text));
+    const candidates: Array<NonNullable<ReportedMetricSupport['definition']>> =
+      type === 'arr' ? ['arr', 'annual_revenue'] : [type];
+    const definitions = candidates.filter(definition => basisPatterns[definition]?.test(text));
     const unit = type === 'employees' ? 'count' : 'USD';
     const pattern = /(?:\bUSD\s*|US\$|\$)?\s*(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|thousand|[kmbt]\b)?/gi;
     for (const match of text.matchAll(pattern)) {
@@ -111,9 +112,9 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
       const value = Number(match[1]!.replace(/,/g, '')) * (scale ? ({ trillion: 1e12, billion: 1e9, million: 1e6, thousand: 1e3, t: 1e12, b: 1e9, m: 1e6, k: 1e3 }[scale] ?? 1) : 1);
       const asOf = dates[0] ?? null;
       for (const definition of definitions) {
-      const proof = reportedMetricSupportSchema.safeParse({ provider: grounding.provider, companyName, basis: type, value, unit, definition, asOf, support });
-      if (!proof.success || !reportedMetricCitations(companyName, website, { metricType: type, value, reportedSupport: proof.data }).length) continue;
-      choices.push({ value, selector: { sourceUrl: support.sources[0]!.url, quote: support.text, asOf, basis: type, unit, definition } });
+        const proof = reportedMetricSupportSchema.safeParse({ provider: grounding.provider, companyName, basis: type, value, unit, definition, asOf, support });
+        if (!proof.success || !reportedMetricCitations(companyName, website, { metricType: type, value, reportedSupport: proof.data }).length) continue;
+        choices.push({ value, selector: { sourceUrl: support.sources[0]!.url, quote: support.text, asOf, basis: type, unit, definition } });
       }
     }
   }
