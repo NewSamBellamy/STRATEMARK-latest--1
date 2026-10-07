@@ -129,7 +129,7 @@ function hasNumber(text: string, value: number, unit: ReportedMetricSupport['uni
 }
 
 /** Only literal business dates, never a filing/publication/retrieval timestamp. */
-function businessDates(text: string): string[] {
+export function businessDates(text: string): string[] {
   const dates: string[] = [];
   const pattern = /\b(?:as of|(?:fiscal )?year ended|reporting date(?: was| is)?)\s+(\d{4}-\d{2}-\d{2}|[A-Z][a-z]+ \d{1,2}(?:st|nd|rd|th)?[,]? \d{4})\b/g;
   for (const match of text.matchAll(pattern)) {

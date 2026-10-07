@@ -82,6 +82,7 @@ import type { CompanyCandidate, MarketPlan } from './types';
 import { hydrateCompanyCard } from './company-agent';
 import { latestSavedCompanyProfile } from './saved-profile';
 import { reportedCompanyMetrics } from './reported-metrics';
+import { businessDates } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
 import { mapWithConcurrency, throwIfAborted } from './util';
@@ -2102,6 +2103,13 @@ export class GeminiRepository implements MarketIntelRepository {
     });
     const nowIso = new Date().toISOString();
     const filledTypes: MetricType[] = [];
+    // Verification depth: retained original pages are the one source that can
+    // graduate a recovered figure from source-reported estimated to verified.
+    // The quote comes from the ORIGINAL's own sentences and passes through the
+    // same acceptedMetricPassage gate the hunt uses; all gates stay intact.
+    const retainedOriginals = (this.snap.originalSourceAttempts ?? [])
+      .filter((row) => isOriginalSourceAttempt(row) && row.companyId === companyId)
+      .flatMap((row) => row.receipts.filter((r) => r.status === 'retrieved' && r.text));
     for (const row of rows) {
       if (row.value == null || row.confidence === 'unknown') continue;
       // Tied conflicting rows stay untouched: recovery never resolves an
@@ -2109,19 +2117,52 @@ export class GeminiRepository implements MarketIntelRepository {
       const revision = currentMetricRevision(mine(), companyId, row.metricType);
       if (revision?.ambiguous) continue;
       const current = revision?.metric;
+      let originalCitations: Citation[] = [];
+      if (row.reportedSupport) {
+        for (const receipt of retainedOriginals) {
+          for (const sentence of (receipt.text ?? '').split(/(?<=[.!?])\s+/)) {
+            if (!sentence.trim() || sentence.length > 600) continue;
+            const citations = acceptedMetricPassage({
+              companyName: company.name, officialWebsite: company.websiteUrl,
+              metricType: row.metricType, value: row.value,
+              support: {
+                sourceUrl: receipt.finalUrl ?? '',
+                quote: sentence,
+                asOf: businessDates(sentence)[0] ?? '1970-01-01',
+                basis: row.metricType, unit: row.reportedSupport.unit,
+                definition: row.reportedSupport.definition,
+              },
+              originals: retainedOriginals,
+            });
+            if (citations.length) { originalCitations = citations; break; }
+          }
+          if (originalCitations.length) break;
+        }
+      }
+      const verified = originalCitations.length > 0;
       if (current) {
         if (current.value != null || current.confidence === 'user_verified' || current.confidence === 'verified') continue;
         current.value = row.value;
-        current.confidence = 'estimated';
-        current.source = row.source;
-        current.citations = row.citations;
-        current.passageSupport = row.passageSupport;
-        current.reportedSupport = row.reportedSupport;
-        current.methodNote = row.methodNote;
-        current.lastVerifiedAt = null;
+        current.confidence = verified ? 'verified' : 'estimated';
+        current.source = verified ? originalCitations[0]!.url : row.source;
+        current.citations = verified ? originalCitations : row.citations;
+        current.reportedSupport = verified ? null : row.reportedSupport;
+        current.methodNote = verified
+          ? 'Verified against a retained original page recovered from saved research.'
+          : row.methodNote;
         current.capturedAt = nowIso;
+        if (verified) Object.assign(current, markVerified(current, nowIso));
       } else {
-        this.snap.metrics.push({ ...row, capturedAt: nowIso });
+        const filled: CompanyMetric = { ...row, capturedAt: nowIso };
+        if (verified) {
+          filled.confidence = 'verified';
+          filled.citations = originalCitations;
+          filled.source = originalCitations[0]!.url;
+          filled.reportedSupport = null;
+          filled.methodNote = 'Verified against a retained original page recovered from saved research.';
+          Object.assign(filled, markVerified(filled, nowIso));
+        }
+        this.snap.metrics.push(filled);
       }
       filledTypes.push(row.metricType);
     }

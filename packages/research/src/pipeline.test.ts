@@ -689,6 +689,43 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
     expect(ground).not.toHaveBeenCalled();
   });
 
+  it('graduates a recovered figure to verified when a retained original confirms it', async () => {
+    const arr = 'Revenue & Annual Recurring Revenue (ARR)\n* **Annualized Recurring Revenue (ARR):** Approaching **~$70 Billion ARR** as of September 2026';
+    const answer = '### Company Profile: OpenAI, Inc. / OpenAI Group PBC\n\nRevenue & Annual Recurring Revenue (ARR)\n* **Annualized Recurring Revenue (ARR):** Approaching **~$70 Billion ARR** as of September 2026' + arr;
+    const evidence = {
+      id: 'ev_openai', companyId: 'cmp_openai', companyName: 'OpenAI, Inc.', topic: 'company_profile',
+      capturedAt: '2026-10-05T22:16:29.047Z', text: answer, citations: [{ title: 'axios.com', url: 'https://www.axios.com/x' }],
+      queries: [],
+      grounding: { provider: 'google-search' as const, answerText: answer, supports: [{ supportIndex: 0, text: arr,
+        sources: [{ chunkIndex: 0, url: 'https://www.axios.com/x', title: 'axios.com' }] }] },
+    };
+    const seed: RepoSnapshot = {
+      schemaVersion: 2, markets: [], decks: [], cards: [], viceClaims: [], dashboards: {},
+      companyMarket: { cmp_openai: 'mkt_frontier', cmp_anthropic: 'mkt_frontier' }, reports: [], briefings: [], savedCards: [],
+      opportunity: {}, researchJobs: [], threads: [],
+      originalSourceAttempts: [{
+        id: 'osa_1', companyId: 'cmp_openai', metricType: 'arr', capturedAt: '2026-10-05T23:00:00.000Z',
+        receipts: [{ requestedUrl: 'https://openai.com/index', finalUrl: 'https://openai.com/index',
+          status: 'retrieved' as const, httpStatus: 200, retrievedAt: '2026-10-05T23:00:00.000Z', contentHash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          text: 'OpenAI announced annual recurring revenue of US$70 billion as of September 30, 2026.' }],
+      }],
+      companies: [
+        { id: 'cmp_openai', name: 'OpenAI, Inc.', oneLiner: 'AI research lab', logoUrl: null, hqLocation: null, websiteUrl: 'https://openai.com', brandTheme: null },
+        { id: 'cmp_anthropic', name: 'Anthropic PBC', oneLiner: 'AI safety lab', logoUrl: null, hqLocation: null, websiteUrl: 'https://anthropic.com', brandTheme: null },
+      ],
+      metrics: [], researchEvidence: [evidence],
+    };
+    const store: ResearchStore = { read: () => seed, write: () => {} };
+    const repo = new GeminiRepository({ apiKey: 'x', client: fakeClient(),
+      coverage: testCoverage, catalogMax: 3, catalogPasses: 0, store });
+    const result = await repo.recoverSavedCompanyMetrics('cmp_openai');
+    expect(result.filledTypes).toEqual(['arr']);
+    const row = result.metrics.find((m) => m.metricType === 'arr');
+    expect(row).toMatchObject({ value: 70000000000, confidence: 'verified' });
+    expect(row!.citations.length).toBeGreaterThan(0);
+    expect(row!.reportedSupport).toBeNull();
+  });
+
   it('leaves already-valued and human-verified rows untouched during free recovery', async () => {
     const answer = '### Company Profile: Anthropic PBC\n\nAnthropic approaches ~$70 Billion ARR as of September 2026.';
     const evidence = {
