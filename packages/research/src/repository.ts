@@ -2014,11 +2014,15 @@ export class GeminiRepository implements MarketIntelRepository {
     const mine = () => this.snap.metrics.filter((m) => m.companyId === companyId);
     const evidence = (this.snap.researchEvidence ?? [])
       .filter((e) => e.companyId === companyId && e.topic === 'company_profile' &&
+        e.companyName === company.name &&
         e.grounding != null && e.grounding.provider === 'google-search' && e.grounding.supports.length > 0)
       .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))[0];
     if (!evidence) return { filledTypes: [], metrics: mine(), retieredCardIds: [] };
+    // Roster stays market-scoped; a company without a market mapping gets an
+    // empty roster (anonymous binding disabled) rather than every marketless
+    // company in the snapshot as a false rival list.
     const marketId = this.snap.companyMarket[companyId];
-    const otherCompanies = this.snap.companies
+    const otherCompanies = marketId === undefined ? [] : this.snap.companies
       .filter((c) => c.id !== companyId && this.snap.companyMarket[c.id] === marketId)
       .map((c) => c.name);
     const rows = reportedCompanyMetrics({

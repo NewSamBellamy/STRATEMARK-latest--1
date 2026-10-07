@@ -16,11 +16,12 @@ const entity = (text: string, name: string) => {
 
 /** Answer-level identity for catalog-style retained evidence. The retained
  * profile answer names its subject in the header while each metric section
- * stays anonymous, so a claim sentence naming no company at all may bind to
- * the answer's subject — but only when the answer actually names the subject
- * and the sentence names no other known deck company. Roster absence disables
- * the anonymous path entirely; without a roster a mixed answer is
- * unattributable, which is the conservative outcome. */
+ * stays anonymous, so a claim sentence that opens with a measurement label
+ * and names no known rival may bind to the answer's subject — but only when
+ * the answer's header actually names the subject and a deck roster was
+ * supplied. The label requirement fails closed: a sentence opening with a
+ * bare proper noun (typically another company the roster may not contain)
+ * is never attributed. Roster absence disables the anonymous path entirely. */
 export interface ReportedIdentityContext {
   answerText?: string;
   otherCompanies?: readonly string[];
@@ -31,19 +32,44 @@ const stripCorporateSuffix = (name: string) =>
 
 const mentionsCompany = (text: string, name: string) => {
   const alias = stripCorporateSuffix(name);
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escape(alias)}(?![\\p{L}\\p{N}])`, 'iu').test(text) ||
-    new RegExp(`(?<![\\p{L}\\p{N}])${escape(name)}(?![\\p{L}\\p{N}])`, 'iu').test(text);
+  if (alias && new RegExp(`(?<![\\p{L}\\p{N}])${escape(alias)}(?![\\p{L}\\p{N}])`, 'iu').test(text)) return true;
+  return name.length > 0 && new RegExp(`(?<![\\p{L}\\p{N}])${escape(name)}(?![\\p{L}\\p{N}])`, 'iu').test(text);
+};
+
+// A sentence opening with one of these measurement labels is a catalog metric
+// section. Anything else — most importantly another company's name — fails
+// closed, because the roster cannot vouch for entities it does not know.
+const anonymousClaimLabel =
+  /^(?:revenue\b|arr\b|annual(?:ized)?\b|employees?\b|headcount\b|users\b|customers\b|valuation\b|market cap(?:italization)?\b|estimated headcount|historical booked|funding round valuation|booked\b)/i;
+
+const GENERIC_NAME_TOKENS = /^(?:inc|llc|ltd|limited|corporation|corp|company|co|group|holdings|the|plc|ag|sa|sas|gmbh|pbc)$/i;
+
+const rivalAliases = (name: string): string[] => {
+  const alias = stripCorporateSuffix(name);
+  const candidates = [alias, name].filter(form => form.length > 0);
+  const first = alias.split(/\s+/)[0] ?? '';
+  // Colloquial short forms: "Meta Platforms, Inc." is written "Meta" in prose.
+  if (first.length >= 4 && !GENERIC_NAME_TOKENS.test(first) && first !== alias) candidates.push(first);
+  return candidates;
 };
 
 const rivalMatcher = (companyName: string, others?: readonly string[]): RegExp | null => {
   if (!Array.isArray(others)) return null;
-  const subject = stripCorporateSuffix(companyName).toLowerCase();
-  const rivals = others.filter(name => name && stripCorporateSuffix(name).toLowerCase() !== subject);
-  if (!rivals.length) return null;
-  return new RegExp(rivals.map(name => {
-    const alias = stripCorporateSuffix(name);
-    return `(?<![\\p{L}\\p{N}])(?:${escape(alias)}|${escape(name)})(?![\\p{L}\\p{N}])`;
-  }).join('|'), 'iu');
+  const subjectAlias = stripCorporateSuffix(companyName);
+  if (!subjectAlias) return null;
+  const subjectForms = new Set([subjectAlias.toLowerCase(), companyName.toLowerCase()]);
+  const subjectFirst = subjectAlias.split(/\s+/)[0] ?? '';
+  const patterns: string[] = [];
+  for (const name of others) {
+    if (!name) continue;
+    for (const candidate of rivalAliases(name)) {
+      const form = candidate.toLowerCase();
+      if (subjectForms.has(form) || (subjectFirst.length >= 4 && form === subjectFirst.toLowerCase())) continue;
+      patterns.push(`(?<![\\p{L}\\p{N}])${escape(candidate)}(?![\\p{L}\\p{N}])`);
+    }
+  }
+  if (!patterns.length) return null;
+  return new RegExp(patterns.join('|'), 'iu');
 };
 function host(url: string | null): string | null {
   try { return url ? new URL(url).hostname.replace(/^www\./, '') : null; } catch { return null; }
@@ -183,14 +209,17 @@ export function reportedMetricCitations(companyName: string, website: string | n
   });
   // A bare metric clause may use an official company domain for identity. A
   // sentence explicitly naming someone else cannot use that exception.
-  // Catalog-style retained answers name the subject in their header while
-  // metric sections stay anonymous: when the supplied answer names this
-  // company, a sentence naming no rival deck company binds to the subject.
+  // Catalog-style retained answers name the subject in their header region
+  // while metric sections stay anonymous: when the header names this company,
+  // a sentence that OPENS with a measurement label and names no rival deck
+  // company binds to the subject. Any other opening (typically a bare proper
+  // noun the roster may not contain) fails closed.
   const rivals = rivalMatcher(companyName, identity?.otherCompanies);
-  const answerAnchored = !!identity?.answerText && !!rivals && mentionsCompany(identity.answerText, companyName);
+  const answerAnchored = !!identity?.answerText && !!rivals &&
+    mentionsCompany(identity.answerText.slice(0, 240), companyName);
   const claims = sentences(proof.support.text).map(plain).filter(sentence => entity(sentence, companyName) ||
     (official && /^(?:annual revenue|ARR|annual recurring revenue|headcount|employees|users|customers|valuation|market cap)\b/i.test(sentence)) ||
-    (answerAnchored && !rivals!.test(sentence)));
+    (answerAnchored && anonymousClaimLabel.test(sentence) && !rivals!.test(sentence)));
   if (!pattern || !claims.some(sentence => pattern.test(sentence) && hasNumber(sentence, proof.value, proof.unit, definition) &&
     // A subsequent discussion/reporting clause cannot date a completed round.
     (!proof.asOf || definition !== 'valuation' || sentence.split(/,\s+(?:with|while|but)\b/i).some(clause =>

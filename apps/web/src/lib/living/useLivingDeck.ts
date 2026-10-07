@@ -142,6 +142,7 @@ export function useLivingDeck(
   const researchAvailable = !isCommunityDesktop() || hasKey;
   const canVerify = researchAvailable && typeof repo.verifyMetric === 'function';
   const canHunt = researchAvailable && typeof repo.huntCompanyMetrics === 'function';
+  const canRecoverFree = researchAvailable && typeof repo.recoverSavedCompanyMetrics === 'function';
 
   useEffect(() => {
     if (!deckId || deskCount === 0 || !researchAvailable) {
@@ -176,27 +177,33 @@ export function useLivingDeck(
     const runtime = new LivingDeckRuntime({
       canAct: async () => isLowPower() || !(await creationIsActive(repo, deckId)),
       nextRecovery: () => {
-        if (!canHunt || isLowPower() || useResearchControl.getState().paused) return null;
+        if (!(canHunt || canRecoverFree) || isLowPower() || useResearchControl.getState().paused) return null;
         const card = entityDesks(cardsRef.current).find(c =>
           !attemptedCompanies.has(c.company!.id) && hasCoreGap(c));
         return card ? { companyId: card.company!.id, companyName: card.company!.name } : null;
       },
-      recover: canHunt ? async target => {
-        attemptedCompanies.add(target.companyId);
-        // Saved evidence is re-projected for free first; the paid hunt only
-        // runs when retained evidence covers none of the gaps.
-        if (typeof repo.recoverSavedCompanyMetrics === 'function') {
-          const free = await repo.recoverSavedCompanyMetrics(target.companyId);
-          if (free.filledTypes.length > 0) {
-            await invalidateMetricSurfaces(qc, target.companyId,
-              free.filledTypes.length > 0 || free.retieredCardIds.length > 0);
-            return { filled: free.filledTypes.length };
-          }
+      recover: (canHunt || canRecoverFree) ? async target => {
+        // Saved evidence is re-projected for free first. Best-effort: a failed
+        // free pass must not consume the company's one automatic hunt attempt.
+        let freeFilled = 0;
+        if (canRecoverFree) {
+          try {
+            const free = await repo.recoverSavedCompanyMetrics!(target.companyId);
+            freeFilled = free.filledTypes.length;
+            if (freeFilled > 0) {
+              await invalidateMetricSurfaces(qc, target.companyId, free.retieredCardIds.length > 0);
+            }
+          } catch { /* the paid hunt below still runs */ }
         }
+        attemptedCompanies.add(target.companyId);
+        if (!canHunt) return { filled: freeFilled };
+        // Fall through to the paid hunt even after a free fill: the hunt is
+        // this company's single automatic attempt, and a partial recovery must
+        // not leave the remaining core gaps unfilled for the repository's life.
         const result = await repo.huntCompanyMetrics!(target.companyId);
         await invalidateMetricSurfaces(qc, target.companyId,
           result.filledTypes.length > 0 || result.retieredCardIds.length > 0);
-        return { filled: result.filledTypes.length };
+        return { filled: freeFilled + result.filledTypes.length };
       } : null,
       plan: (nowMs) => {
         const current = entityDesks(cardsRef.current);

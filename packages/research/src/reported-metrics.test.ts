@@ -449,4 +449,51 @@ describe('catalog-style retained evidence without in-passage identity', () => {
       value: 70_000_000_000, confidence: 'estimated', reportedSupport: { definition: 'arr' },
     });
   });
+
+  it('fails closed on an off-roster rival even when the answer names the subject (audit BLOCKER)', () => {
+    // Anthropic is never researched, so the roster cannot vouch against it.
+    // A sentence opening with that name must not bind to the subject.
+    const rivalClaim = 'Anthropic approaches ~$70 Billion ARR as of September 2026, driven by a surge in enterprise contracts and multi-tier subscriptions (Axios / Reuters / Bloomberg)';
+    const grounding = catalogGrounding([rivalClaim]);
+    expect(catalogRows(grounding!, { answerText: grounding!.answerText, otherCompanies: ['Mistral AI SAS', 'Google'] })
+      .find(row => row.metricType === 'arr'))
+      .toMatchObject({ value: null, confidence: 'unknown', reportedSupport: null });
+  });
+
+  it('rejects a labeled sentence whose rival appears under a colloquial alias of a roster entry', () => {
+    // "Meta Platforms, Inc." is written "Meta" in prose; the roster only has
+    // the long form, and the alias must still be caught mid-sentence.
+    const mixedClaim = 'Revenue & Annual Recurring Revenue (ARR): Approaching ~$70 Billion ARR (Meta reported annual revenue of $164.5 billion for fiscal year 2025)';
+    const grounding = catalogGrounding([mixedClaim]);
+    expect(catalogRows(grounding!, { answerText: grounding!.answerText, otherCompanies: ['Meta Platforms, Inc.'] })
+      .find(row => row.metricType === 'arr'))
+      .toMatchObject({ value: null, confidence: 'unknown', reportedSupport: null });
+  });
+
+  it('binds the real Anthropic-style labeled ARR section through answer-level identity', () => {
+    // Regression guard for label anchoring: the July 2026 retained support
+    // opens with its label and recovers with the '+' scale intact.
+    const labeled = '* **Annual Revenue & ARR:**\n* **Annualized Run Rate (ARR):** **$65+ billion ARR** as of July/August 2026 (accelerating from $1B in late 2024 and $30B–$47B in Q1–Q2 2026)';
+    const grounding = catalogGrounding([labeled]);
+    expect(catalogRows(grounding!, { answerText: grounding!.answerText, otherCompanies: deckRoster })
+      .find(row => row.metricType === 'arr'))
+      .toMatchObject({ value: 65_000_000_000, confidence: 'estimated', reportedSupport: { definition: 'arr' } });
+  });
+
+  it('keeps a source-reported zero figure unknown instead of publishing 0', () => {
+    const zero = '* **Annual Revenue / ARR:** **$0 (Pre-revenue)** (The company has no commercialized products and explicitly does not generate recurring revenue)';
+    const grounding = catalogGrounding([zero]);
+    expect(catalogRows(grounding!, { answerText: grounding!.answerText, otherCompanies: deckRoster })
+      .find(row => row.metricType === 'arr'))
+      .toMatchObject({ value: null, confidence: 'unknown', reportedSupport: null });
+  });
+
+  it('does not anchor identity on a subject mention buried deep in the answer', () => {
+    const rivalClaim = 'Anthropic approaches ~$70 Billion ARR as of September 2026, driven by a surge in enterprise contracts and multi-tier subscriptions (Axios / Reuters / Bloomberg)';
+    const filler = 'General industry commentary. '.repeat(30) + 'A later aside mentions OpenAI in comparison.';
+    const grounding = catalogGrounding([rivalClaim]);
+    expect(catalogRows(grounding!, { answerText: filler + '\n\n' + grounding!.answerText, otherCompanies: ['Mistral AI SAS', 'Google'] })
+      .find(row => row.metricType === 'arr'))
+      .toMatchObject({ value: null, confidence: 'unknown', reportedSupport: null });
+  });
 });

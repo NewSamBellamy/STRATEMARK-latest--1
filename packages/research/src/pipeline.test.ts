@@ -623,6 +623,29 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
     expect(result.metrics.find(m => m.metricType === 'arr')).toMatchObject({ value: 45_000_000_000, confidence: 'user_verified' });
   });
 
+  it('ignores evidence recorded under a different company name (renames and mis-files)', async () => {
+    const answer = '### Company Profile: Anthropic PBC\n\nAnthropic approaches ~$70 Billion ARR as of September 2026.';
+    const evidence = {
+      id: 'ev_stale', companyId: 'cmp_anthropic', companyName: 'Anthropic (old legal name)', topic: 'company_profile',
+      capturedAt: '2026-10-05T22:16:43.575Z', text: answer, citations: [{ title: 'axios.com', url: 'https://www.axios.com/x' }],
+      queries: [],
+      grounding: { provider: 'google-search' as const, answerText: answer, supports: [{ supportIndex: 0, text: answer,
+        sources: [{ chunkIndex: 0, url: 'https://www.axios.com/x', title: 'axios.com' }] }] },
+    };
+    const seed: RepoSnapshot = {
+      schemaVersion: 2, markets: [], decks: [], cards: [], viceClaims: [], dashboards: {},
+      companyMarket: { cmp_anthropic: 'mkt_frontier' }, reports: [], briefings: [], savedCards: [],
+      opportunity: {}, researchJobs: [], threads: [], originalSourceAttempts: [],
+      companies: [{ id: 'cmp_anthropic', name: 'Anthropic PBC', oneLiner: 'AI safety lab', logoUrl: null, hqLocation: null, websiteUrl: 'https://anthropic.com', brandTheme: null }],
+      metrics: [], researchEvidence: [evidence],
+    };
+    const store: ResearchStore = { read: () => seed, write: () => { throw new Error('must not persist when nothing filled'); } };
+    const repo = new GeminiRepository({ apiKey: 'x', client: fakeClient(),
+      coverage: testCoverage, catalogMax: 3, catalogPasses: 0, store });
+    const result = await repo.recoverSavedCompanyMetrics('cmp_anthropic');
+    expect(result.filledTypes).toEqual([]);
+  });
+
   it('persists a researched deck and serves its cards + lazy dashboard tabs', async () => {
     const holder: { value: RepoSnapshot | null } = { value: null };
     const store: ResearchStore = {
