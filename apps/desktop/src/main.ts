@@ -30,6 +30,24 @@ import {
   dashboardTabSchema,
 } from './ipc-schemas.js';
 import { GeminiRepository, migrateSnapshot, type RepoSnapshot } from '@mi/research';
+
+// Unhandled main-process failures otherwise die silently (the Oct-6 audit:
+// only startup was protected). Surface the first one honestly and keep
+// running — research commits atomically to disk, so a crashed handler cannot
+// corrupt saved data. No telemetry: the error stays on this machine.
+let didReportCrash = false;
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception in the main process:', error);
+  if (didReportCrash) return;
+  didReportCrash = true;
+  try {
+    dialog.showErrorBox('Stratemark hit an unexpected error',
+      `${error.message || String(error)}\n\nThe app kept running and your saved research is safe on disk. If anything looks wrong, restart the app.`);
+  } catch { /* headless failure — the log above is the record */ }
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection in the main process:', reason);
+});
 import sampleSnapshot from '../../web/src/sample/frontier-snapshot.json';
 import { createFileStore, parseResearchExport } from './storage.js';
 import { createOriginalSourceServices } from './original-sources.js';
