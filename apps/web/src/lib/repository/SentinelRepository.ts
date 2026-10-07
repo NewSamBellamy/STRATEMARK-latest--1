@@ -762,6 +762,11 @@ export class SentinelRepository implements MarketIntelRepository {
       if (market) deckId = market.id;
     }
 
+    // The Research & Sources tab reads local evidence directly and never runs
+    // provider research: answer locally instead of a doomed cloud POST.
+    if (tab === 'research') {
+      return { companyId, tab, content: { markdown: '' }, citations: [], lastRefreshedAt: null } as unknown as DashboardTabResult<T>;
+    }
     if (!deckId) return null;
 
     // Errors propagate, NOT collapse into null: a network failure must reach

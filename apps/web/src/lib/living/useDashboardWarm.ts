@@ -25,7 +25,8 @@ export function useDashboardWarm(companyId: string | undefined, activeTab: Dashb
     let cancelled = false;
     const allowed = () => !cancelled && !useResearchControl.getState().paused && !isLowPower();
     void (async () => {
-      const pending = new Set<DashboardTab>(DASHBOARD_TABS);
+      // 'research' reads local evidence only — warming it would POST a doomed request.
+      const pending = new Set<DashboardTab>(DASHBOARD_TABS.filter((t) => t !== 'research'));
       while (pending.size > 0 && allowed()) {
         const next = pending.has(latest.current.activeTab) ? latest.current.activeTab
           : DASHBOARD_TABS.find(tab => pending.has(tab))!;

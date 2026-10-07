@@ -46,6 +46,13 @@ import type {
   ResearchNoteEntry,
 } from '@mi/contracts';
 
+/** Structural match of the research package's evidence record over IPC. */
+interface ResearchEvidenceRow {
+  id: string; companyId?: string; companyName?: string; topic: string;
+  capturedAt: string; text: string;
+  citations: { title: string; url: string }[]; queries: string[];
+}
+
 export function isElectron(): boolean {
   return typeof window !== 'undefined' && typeof window.mi !== 'undefined';
 }
@@ -156,6 +163,9 @@ export class IpcRepository implements MarketIntelRepository {
   }
   listResearchJobs(): Promise<ResearchJob[]> {
     return this.api.listResearchJobs?.() ?? Promise.resolve([]);
+  }
+  getResearchEvidence(input: { companyId?: string; limit?: number }): ResearchEvidenceRow[] {
+    return (this.api.getResearchEvidence?.(input) ?? []) as ResearchEvidenceRow[];
   }
 
   async addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<ResearchNoteEntry> {

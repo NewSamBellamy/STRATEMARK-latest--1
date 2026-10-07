@@ -63,6 +63,8 @@ export function recordResearchEvidence(
   record: ((evidence: ResearchEvidence) => void) | ((evidence: ResearchEvidence) => Promise<void>),
 ): LlmClient {
   return {
+    // Pacing counters pass through so the run log can read them (audit fix 4).
+    metrics: () => client.metrics?.() ?? { calls: 0, retries: 0, rateLimitedMs: 0 },
     structure: client.structure.bind(client),
     async ground(prompt, opts) {
       const result = await client.ground(prompt, opts);

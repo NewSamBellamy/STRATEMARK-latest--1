@@ -392,6 +392,8 @@ export class GeminiRepository implements MarketIntelRepository {
         await this.ready();
         return provider.structure(prompt, schema, opts);
       },
+      // Expose the underlying client's pacing counters (audit fix 4).
+      metrics: () => provider.metrics?.() ?? { calls: 0, retries: 0, rateLimitedMs: 0 },
     };
     this.client = recordResearchEvidence(guardedProvider, async (evidence) => {
       this.snap.researchEvidence = [...(this.snap.researchEvidence ?? []), evidence];
@@ -667,13 +669,20 @@ export class GeminiRepository implements MarketIntelRepository {
           deck: job.deck,
           candidates: job.catalog,
           completedCards: job.partialCards.filter(
-            (entry) => entry.company && job.completedEntityNames.includes(entry.company.name),
+            // Signal cards have no company: they ride along so the resume's
+            // signals-done check skips re-buying them (audit fix 1).
+            (entry) => entry.company
+              ? job.completedEntityNames.includes(entry.company.name)
+              : entry.card.cardType === 'barrier' || entry.card.cardType === 'insight',
           ),
         },
       });
       job.status = 'completed';
       job.stage = 'signals';
-      job.partialCards = result.cards;
+      // Merge, not overwrite: pre-failure signal cards stay in the job record.
+      for (const card of result.cards) {
+        if (!job.partialCards.some((p) => p.card.id === card.card.id)) job.partialCards.push(card);
+      }
       job.market = result.market;
       job.deck = result.deck;
       job.completedEntityNames = result.cards
@@ -1003,6 +1012,7 @@ export class GeminiRepository implements MarketIntelRepository {
           for (const { stub, candidate } of entries) {
             candidatesSeen += 1;
             rosterNames.push(candidate.name);
+            if (stub.company) candidateById.set(stub.company.id, candidate);
             ingestStreamedStub(stub);
             stubQueue.push({ stub, candidate });
           }
@@ -2176,6 +2186,7 @@ export class GeminiRepository implements MarketIntelRepository {
         current.confidence = verified ? 'verified' : 'estimated';
         current.source = verified ? originalCitations[0]!.url : row.source;
         current.citations = verified ? originalCitations : row.citations;
+        current.passageSupport = row.passageSupport;
         current.reportedSupport = verified ? null : row.reportedSupport;
         current.methodNote = verified
           ? 'Verified against a retained original page recovered from saved research.'
