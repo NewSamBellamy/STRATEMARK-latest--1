@@ -35,21 +35,32 @@ the handoff's follow-up log.
 - Latency claims now measurable (run-log timings); quota pacing is honest
   (every retry spends a slot); hidden warm spend eliminated.
 
+## Slice 2c — implemented (commit 9e98014, after this record's first draft)
+
+`discoverDeckStubs` decomposed into `interpretMarket`, `discoverMarket`
+(back-compat alias `discoverWithCoverage` retained) and `buildStubs` phases.
+Discovery streams each pass's SELECTED entities as ingestible stub cards via
+`onInterpreted`/`onStubs`; the repository's hydration pool starts before
+discovery, ingests stubs as they stream, and hydrates against real deck ids.
+Pinned by a test: with the fallback discovery pass blocked on a gate, the
+first entity's hydration grounds while discovery is still pending.
+
+Hard lesson recorded: the first draft streamed RAW discovery candidates and
+hydrated 8 entities the catalogMax cap would drop — pure waste, caught by the
+overlap test before commit. The shipped design streams SELECTION deltas
+(selectCandidates is monotonic-append on a growing list). Also landed with
+this commit: dark-mode org-chart tokens and the shared evidence selector
+(`latestSavedCompanyProfile`, newest-wins preserved).
+
 ## Deliberately NOT done (with reasons)
 
-- **Slice 2c (overlap hydration with discovery)** — deferred with a matured
-  design: the streaming refactor collides with the stub-ingest ordering
-  (repository.ts ~808-870 would duplicate cards/clobber metrics if hydration
-  starts before ingest). Correct design recorded in the handoff memory:
-  decompose `discoverDeckStubs` into interpretMarket/discoverMarket/buildStubs
-  phases, keep the composition for compatibility, feed a hydration queue-pool
-  from streamed stubs. Needs its own session + code audit.
 - **Export format upgrade** (zip carrying original-sources + images) — a
   feature with an import-migration blast radius; disclosed in the UI instead.
-- **Dark-mode org chart** — a dark-mode toggle EXISTS; hard-coded node colors
-  in TeamOrgTab remain broken in dark mode. Queued (small, contained).
 - **Auto-update, code signing** — decisions documented in the acceptance
   checklist; owner's call before tagging.
+- **InsightReader deep-dive timeout** — the deep-dive now runs only on
+  explicit request; a hang surfaces as a spinning button. A hard client-side
+  timeout is queued for the next pass.
 
 ## Ship path from here
 
@@ -57,5 +68,5 @@ the handoff's follow-up log.
    machine (includes the signing decision).
 2. Merge `fix/zcode-identity-gate-recovery` → main by PR (pnpm check green).
 3. Tag `v0.2.0`; confirm the release workflow builds installers.
-4. Next build session: Slice 2c (design in handoff memory), dark-mode org
-   chart, shared projector for saved-profile.ts/recoverSavedCompanyMetrics.
+4. Next pass: InsightReader deep-dive timeout, export zip format, auto-update
+   wiring if the owner opts in.
