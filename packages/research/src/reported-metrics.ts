@@ -96,8 +96,10 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
     if (type === 'valuation' && speculativeValuation.test(text)) continue;
     const dates = businessDates(text);
     if (dates.length > 1) continue;
-    const definition = type === 'arr' ? basisPatterns.arr!.test(text) ? 'arr' : 'annual_revenue' : type;
-    if (!basisPatterns[definition]?.test(text)) continue;
+    // Annual revenue and ARR share a slot, but remain distinct candidates.
+    // Do not let the presence of ARR hide annual revenue in the same segment.
+    const definitions = (type === 'arr' ? ['arr', 'annual_revenue'] : [type])
+      .filter(definition => basisPatterns[definition]?.test(text));
     const unit = type === 'employees' ? 'count' : 'USD';
     const pattern = /(?:\bUSD\s*|US\$|\$)?\s*(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|thousand|[kmbt]\b)?/gi;
     for (const match of text.matchAll(pattern)) {
@@ -108,9 +110,11 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
       const scale = match[2]?.toLowerCase();
       const value = Number(match[1]!.replace(/,/g, '')) * (scale ? ({ trillion: 1e12, billion: 1e9, million: 1e6, thousand: 1e3, t: 1e12, b: 1e9, m: 1e6, k: 1e3 }[scale] ?? 1) : 1);
       const asOf = dates[0] ?? null;
+      for (const definition of definitions) {
       const proof = reportedMetricSupportSchema.safeParse({ provider: grounding.provider, companyName, basis: type, value, unit, definition, asOf, support });
       if (!proof.success || !reportedMetricCitations(companyName, website, { metricType: type, value, reportedSupport: proof.data }).length) continue;
       choices.push({ value, selector: { sourceUrl: support.sources[0]!.url, quote: support.text, asOf, basis: type, unit, definition } });
+      }
     }
   }
   const latest = choices.map(row => row.selector.asOf ?? '').sort().at(-1);
@@ -170,7 +174,11 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
       value: null, confidence: 'unknown', source: null, citations: [], methodNote: 'No provider-supported reported claim.',
       capturedAt: input.capturedAt, lastVerifiedAt: null, passageSupport: null, reportedSupport: null };
     const proposedMetric = input.enrichment.metrics[type];
-    const recovered = proposedMetric?.value == null ? recoverOmittedClaim(input.companyName, input.website, type, trusted) : undefined;
+    // A number without a selector is still an omitted extraction. Recover
+    // independently from provider evidence, never by trusting that number.
+    // An explicit but rejected selector must not silently trigger recovery.
+    const recovered = proposedMetric?.value == null || (!proposedMetric.reportedClaim && !proposedMetric.passageSupport)
+      ? recoverOmittedClaim(input.companyName, input.website, type, trusted) : undefined;
     const proposal = recovered ? { value: recovered.value, reportedClaim: recovered.selector } : proposedMetric;
     const selector = proposal?.reportedClaim ?? ('passageSupport' in (proposal ?? {}) ? proposedMetric?.passageSupport : undefined);
     if (proposal?.value == null || !selector || selector.basis !== type) return row;

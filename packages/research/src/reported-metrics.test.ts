@@ -65,6 +65,16 @@ async function hydrate(client: LlmClient, originals?: OriginalSourceServices) {
   return hydrateCompanyCard({ candidate, client, plan, originalSources: originals, recoverMissingMetrics: true });
 }
 describe('provider-supported fast company hydration', () => {
+  it('recovers retained revenue when a numeric proposal omits its selector', async () => {
+    const { hydrate } = openAiFixture({ arr: { value: 13_100_000_000, confidence: 'estimated' } }, [openAiSegments.revenue]);
+    expect((await hydrate()).metrics.find(row => row.metricType === 'arr')).toMatchObject({
+      value: 13_100_000_000, confidence: 'estimated', reportedSupport: { definition: 'annual_revenue', asOf: null },
+    });
+  });
+  it('keeps mixed annual revenue and ARR ambiguous within one support segment', async () => {
+    const { hydrate } = openAiFixture({}, [`${openAiSegments.revenue}. OpenAI reported ARR of USD 70 billion.`]);
+    expect((await hydrate()).metrics.find(row => row.metricType === 'arr')).toMatchObject({ value: null, confidence: 'unknown' });
+  });
   it.each([false, true])('recovers clean employee support with the actual mixed-scope duplicate (reverse order: %s) through empty-selector offline recovery', reverse => {
     const segments = [openAiSegments.employees, openAiSegments.mixedEmployees];
     if (reverse) segments.reverse();

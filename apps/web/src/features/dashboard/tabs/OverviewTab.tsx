@@ -1,5 +1,4 @@
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { ResearchMarkdown } from '../SavedResearchNotes';
 import { ExternalLink, MapPin } from 'lucide-react';
 import { METRIC_TYPE_LABELS, metricDefinitionLabel } from '@mi/contracts';
 import { useCompany, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
@@ -24,7 +23,9 @@ export function OverviewTab({ companyId }: { companyId: string }) {
       {(result) => (
         <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
           <article className="markdown panel p-6">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.content.markdown}</ReactMarkdown>
+            {result.content.markdown.trim()
+              ? <ResearchMarkdown text={result.content.markdown} />
+              : <p className="text-sm text-muted">No overview is available from the saved research yet.</p>}
             <div className="mt-5 flex justify-end border-t border-border pt-4">
               <DigDeeperMenu
                 topics={[

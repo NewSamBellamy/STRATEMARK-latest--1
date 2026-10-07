@@ -44,8 +44,8 @@ export function DashboardSources({ companyId, tab }: { companyId: string; tab: D
   );
   return (
     <div className="mt-4">
-      <details className="rounded-lg border border-border bg-surface px-4 py-3 text-xs text-muted">
-        <summary className="cursor-pointer font-medium text-content">Research sources · {citations.length}</summary>
+      <section aria-label="Research sources" className="rounded-lg border border-border bg-surface px-4 py-3 text-xs text-muted">
+        <h3 className="font-medium text-content">Research sources · {citations.length}</h3>
         <p className="mt-3 leading-relaxed">
           Search attribution for this section, not independent verification of every claim.
           {' '}Open the sources to check their context and reporting dates.
@@ -60,7 +60,7 @@ export function DashboardSources({ companyId, tab }: { companyId: string; tab: D
             </a>
           </li>)}
         </ul>
-      </details>
+      </section>
       {diagnostics && readDetails}
     </div>
   );

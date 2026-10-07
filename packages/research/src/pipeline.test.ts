@@ -543,6 +543,15 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
     return { read: () => s, write: (snap) => (s = snap) };
   }
 
+  it('finishes deck research without launching hidden dashboard work', async () => {
+    const repo = new GeminiRepository({ apiKey: 'x', client: fakeClient(),
+      coverage: testCoverage, catalogMax: 3, catalogPasses: 0, store: memStore() });
+    const dashboard = vi.spyOn(repo, 'getDashboardTab');
+    await repo.createResearchedDeck({ prompt: 'test', region: 'CA' });
+    await repo.waitForBackgroundJobs();
+    expect(dashboard).not.toHaveBeenCalled();
+  });
+
   it('persists a researched deck and serves its cards + lazy dashboard tabs', async () => {
     const holder: { value: RepoSnapshot | null } = { value: null };
     const store: ResearchStore = {

@@ -8,6 +8,33 @@ const response = (text = 'answer') => new Response(JSON.stringify({
 }), { status: 200 });
 const hung = <T>() => new Promise<T>(() => undefined);
 
+it('paces retry attempts within the same model quota', async () => {
+  vi.useFakeTimers();
+  const fetchImpl = vi.fn().mockResolvedValueOnce(new Response('busy', {
+    status: 429, headers: { 'retry-after': '1' },
+  })).mockResolvedValueOnce(response());
+  const client = createGeminiClient({ apiKey: 'test-placeholder', groundedRpm: 1, fetchImpl });
+  const result = client.ground('prompt');
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(60000);
+  expect((await result).text).toBe('answer');
+  expect(fetchImpl).toHaveBeenCalledTimes(2);
+});
+
+it('shares quota when grounding and extraction use the same model', async () => {
+  vi.useFakeTimers();
+  const fetchImpl = vi.fn(async () => response('{"name":"ok"}'));
+  const client = createGeminiClient({ apiKey: 'test-placeholder', model: 'same-model',
+    structureModel: 'same-model', groundedRpm: 1, structureRpm: 1, fetchImpl });
+  await client.ground('first');
+  const second = client.structure('second', z.object({ name: z.string() }));
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(await second).toEqual({ name: 'ok' });
+});
+
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 it('identifies a blocked response without echoing private provider details', async () => {
