@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { companyMetricSchema, comparableMetricBasis, metricDefinitionLabel, metricObservationIdentity } from '@mi/contracts';
+import { companyMetricSchema, comparableMetricBasis, metricDefinitionLabel, metricObservationIdentity, reportedMetricSupportSchema } from '@mi/contracts';
 import { reportedCompanyMetrics, reportedMetricCitations } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
 import { METRIC_MEASUREMENT_INSTRUCTIONS } from './prompts';
@@ -363,5 +363,55 @@ describe('provider-supported fast company hydration', () => {
     result.metrics[0] = { ...result.metrics[0]!, value: 55_000_000, confidence: 'user_verified' };
     const locked = await verifyCompanyCardOriginals(result, client, { originalSources: originals });
     expect(locked.metrics[0]!.value).toBe(55_000_000); expect(locked.metrics[0]!.confidence).toBe('user_verified');
+  });
+});
+
+// Shape of the 2026-10-05 Frontier AI run's retained evidence: the answer is
+// the company's profile and names it in the header, but every metric support
+// is an anonymous catalog section citing third-party sources. Schema-valid
+// claims die at the identity gate in reportedMetricCitations, so hydration
+// recovers nothing and every stored metric row for evidence-backed companies
+// stayed null (235/235 rows on the owner's machine, confirmed by replay).
+describe('catalog-style retained evidence without in-passage identity', () => {
+  const catalogSegments = {
+    arr: 'Revenue & Annual Recurring Revenue (ARR)\n* **Annualized Recurring Revenue (ARR):** Approaching **~$70 Billion ARR** as of September 2026, driven by a surge in enterprise contracts and multi-tier subscriptions (Axios / Reuters / Bloomberg)',
+    bookedRevenue: 'Historical Booked Annual Revenue: Booked **$13.07 Billion** in revenue for fiscal year 2025 (leaked financial statements verified by Financial Times / Fortune)',
+    headcount: 'Employee Count\n* **Estimated Headcount:** Approximately **4,500 to ~7,850 employees** (as of mid-2026), with active hiring plans targeting **8,000 employees** by year-end 2026 (Financial Times / Revelio Labs)',
+  };
+  const catalogHeader = '### Company Profile: OpenAI, Inc. / OpenAI Group PBC\n**Market Context:** Frontier Artificial Intelligence (AI) Development';
+  function catalogGrounding(segments: string[] = Object.values(catalogSegments)) {
+    const answer = `${catalogHeader}\n\n${segments.join('\n')}`;
+    const sourceUrl = 'https://www.axios.com/2026/09/openai-arr';
+    return extractProviderGrounding(answer, {
+      groundingChunks: [{ web: { uri: sourceUrl, title: 'axios.com' } }],
+      groundingSupports: segments.map(passage => ({ segment: { text: passage,
+        startIndex: answer.indexOf(passage), endIndex: answer.indexOf(passage) + passage.length }, groundingChunkIndices: [0] })),
+    });
+  }
+  const catalogRows = (grounding: NonNullable<ReturnType<typeof extractProviderGrounding>>) =>
+    reportedCompanyMetrics({ companyId: 'openai', companyName: 'OpenAI, Inc.', website: 'https://openai.com',
+      enrichment: enrichmentOutSchema.parse({ metrics: {} }), text: grounding.answerText, grounding,
+      capturedAt: '2026-10-06T00:00:00.000Z' });
+
+  it('records the confirmed Phase 1 defect: a schema-valid anonymous claim cannot bind identity and stays unknown', () => {
+    const grounding = catalogGrounding([catalogSegments.arr]);
+    const support = grounding!.supports[0]!;
+    const proof = reportedMetricSupportSchema.safeParse({ provider: 'google-search', companyName: 'OpenAI, Inc.',
+      basis: 'arr', value: 70_000_000_000, unit: 'USD', definition: 'arr', asOf: null, support });
+    expect(proof.success).toBe(true);
+    expect(reportedMetricCitations('OpenAI, Inc.', 'https://openai.com',
+      { metricType: 'arr', value: 70_000_000_000, reportedSupport: proof.data! })).toEqual([]);
+    expect(catalogRows(grounding!).find(row => row.metricType === 'arr'))
+      .toMatchObject({ value: null, confidence: 'unknown', reportedSupport: null });
+  });
+
+  it('control: the same figure recovers once the support sentence names the company', () => {
+    // Sentence starts with the company name, mirroring the synthetic
+    // openAiSegments that already recover through the identity gate.
+    const named = 'OpenAI approaches ~$70 Billion ARR as of September 2026, driven by a surge in enterprise contracts and multi-tier subscriptions (Axios / Reuters / Bloomberg)';
+    const grounding = catalogGrounding([named]);
+    expect(catalogRows(grounding!).find(row => row.metricType === 'arr')).toMatchObject({
+      value: 70_000_000_000, confidence: 'estimated', reportedSupport: { definition: 'arr' },
+    });
   });
 });
