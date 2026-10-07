@@ -757,23 +757,21 @@ export class SentinelRepository implements MarketIntelRepository {
 
     if (!deckId) return null;
 
-    try {
-      const res = await fetchSentinel<Pick<DashboardTabResult<T>, 'content' | 'citations' | 'sourceDiagnostics'>>('/api/research/tab', {
-        method: 'POST',
-        body: JSON.stringify({ deckId, companyId, tab, ...(force ? { force: true } : {}) }),
-      });
-      return {
-        companyId,
-        tab,
-        content: res.content,
-        citations: res.citations,
-        ...(res.sourceDiagnostics ? { sourceDiagnostics: res.sourceDiagnostics } : {}),
-        lastRefreshedAt: new Date().toISOString(),
-      };
-    } catch (e) {
-      console.error('Failed to fetch cloud dashboard tab:', e);
-      return null;
-    }
+    // Errors propagate, NOT collapse into null: a network failure must reach
+    // the user as a retryable error state, never as a dishonest "Nothing
+    // here yet" that reads like an empty research result.
+    const res = await fetchSentinel<Pick<DashboardTabResult<T>, 'content' | 'citations' | 'sourceDiagnostics'>>('/api/research/tab', {
+      method: 'POST',
+      body: JSON.stringify({ deckId, companyId, tab, ...(force ? { force: true } : {}) }),
+    });
+    return {
+      companyId,
+      tab,
+      content: res.content,
+      citations: res.citations,
+      ...(res.sourceDiagnostics ? { sourceDiagnostics: res.sourceDiagnostics } : {}),
+      lastRefreshedAt: new Date().toISOString(),
+    };
   }
 
   async deepDive(input: DeepDiveInput): Promise<DeepDiveResult> {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Loader2, Pencil, Radar, SearchX } from 'lucide-react';
+import { Loader2, Pencil, Radar } from 'lucide-react';
 import {
   METRIC_TYPE_LABELS,
   metricDefinitionLabel,
@@ -21,6 +21,7 @@ import { Modal } from '@/components/ui/Modal';
 import { formatMetricValue } from '@/lib/format';
 import { METRIC_COLORS } from '@/lib/theme';
 import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
+import { UnknownSlot, UNKNOWN_REASON } from '@/features/card/UnknownValue';
 import { buildMetricViews } from '@/features/card/card-view';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { FactCheck } from '@/features/factcheck/FactCheck';
@@ -221,20 +222,6 @@ function MetricTile({
     </div>
   );
 }
-/** Honest gap: unknown is a finding, not a blank (design system §4). */
-function UnknownSlot() {
-  return (
-    <div className="flex h-full min-h-[72px] flex-col items-start justify-center gap-1 rounded-lg border border-dashed border-border bg-surface-2/50 px-3 py-2.5">
-      <span className="flex items-center gap-1.5 font-display text-lg font-semibold text-muted">
-        <SearchX className="h-4 w-4" />
-        Unknown
-      </span>
-      <span className="text-[11px] leading-snug text-faint">
-        No confirmed figure is recorded. Missing evidence does not mean the figure is zero or unavailable publicly.
-      </span>
-    </div>
-  );
-}
 
 /**
  * The KPI band — the founder's reference dashboards all open with one: the
@@ -268,6 +255,7 @@ function KpiBand({ tiles }: { tiles: CompanyMetric[] }) {
                 ? 'mt-1 font-display text-xl font-semibold tabular-nums text-content'
                 : 'mt-1 font-display text-xl font-semibold text-faint'
             }
+            title={m.value != null && m.confidence !== 'unknown' ? undefined : UNKNOWN_REASON}
           >
             {m.value != null && m.confidence !== 'unknown'
               ? formatMetricValue(m.metricType, m.value)

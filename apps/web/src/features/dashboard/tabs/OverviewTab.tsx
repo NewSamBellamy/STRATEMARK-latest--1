@@ -1,4 +1,5 @@
-import { ResearchMarkdown } from '../SavedResearchNotes';
+import { ResearchMarkdown } from '@/components/ResearchMarkdown';
+import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
 import { ExternalLink, MapPin } from 'lucide-react';
 import { METRIC_TYPE_LABELS, metricDefinitionLabel } from '@mi/contracts';
 import { useCompany, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
@@ -58,24 +59,15 @@ export function OverviewTab({ companyId }: { companyId: string }) {
                       <span className="font-semibold tabular-nums text-content">
                         {formatMetricValue(m.metricType, m.value)}
                       </span>
-                      {/* Trust state at a glance: an unconfirmed estimate must
-                          never look identical to a verified figure. */}
-                      {m.confidence === 'estimated' && (
-                        <span
-                          className="text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400"
-                          title={m.reportedSupport ? 'Source reported — search attribution, not independently verified' : 'Estimated — not a confirmed figure'}
-                        >
-                          {m.reportedSupport ? 'reported' : 'est'}
-                        </span>
-                      )}
-                      {(m.confidence === 'verified' || m.confidence === 'user_verified') && (
-                        <span
-                          className="text-[9px] font-semibold uppercase tracking-wide text-positive"
-                          title="Verified from cited sources"
-                        >
-                          ✓
-                        </span>
-                      )}
+                      {/* Trust state at a glance: the same badge the metrics
+                          tab uses, so an estimate never looks verified. */}
+                      <ConfidenceBadge
+                        confidence={m.confidence}
+                        note={m.methodNote}
+                        source={m.source}
+                        citations={m.citations}
+                        metricLabel={metricDefinitionLabel(m) ?? METRIC_TYPE_LABELS[m.metricType]}
+                      />
                     </span>
                   </li>
                 ))}

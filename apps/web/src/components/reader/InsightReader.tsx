@@ -5,10 +5,11 @@
  * Every card carries:
  *  1. A generated cover (nano banana, prompted from the item itself),
  *  2. The stored text, and
- *  3. THE FULL STORY — a grounded deep-dive that auto-runs on open (cached per
- *     item for the session), with citations. Depth is the point of the click.
+ *  3. THE FULL STORY — a grounded deep-dive the user explicitly requests
+ *     (never auto-fired on open: reading a stored claim must not silently
+ *     spend the key), cached per item for the session, with citations.
  */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -69,35 +70,27 @@ export function InsightReader({
     expansionCache.get(cacheKey) ?? null,
   );
   const [expanding, setExpanding] = useState(false);
+  const [expandFailed, setExpandFailed] = useState(false);
 
-  // THE DEPTH: auto-run the grounded deep-dive the moment the card opens.
-  useEffect(() => {
-    if (!open || expansion || expanding) return;
-    const cached = expansionCache.get(cacheKey);
-    if (cached) {
-      setExpansion(cached);
-      return;
-    }
-    let live = true;
+  // THE DEPTH: on the user's explicit request, not on open. Opening a stored
+  // claim costs nothing; expanding it is a deliberate research spend.
+  const runExpansion = () => {
+    if (expansion || expanding) return;
+    setExpandFailed(false);
     setExpanding(true);
     repo
       .deepDive({ companyId, companyName, topic: title, context: researchSeed })
       .then((r) => {
         const value = { markdown: r.markdown, citations: r.citations };
         expansionCache.set(cacheKey, value);
-        if (live) setExpansion(value);
+        setExpansion(value);
       })
       .catch(() => {
-        /* the stored text still shows; the manual research path remains */
+        // The stored text still shows; the manual research path remains.
+        setExpandFailed(true);
       })
-      .finally(() => {
-        if (live) setExpanding(false);
-      });
-    return () => {
-      live = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, cacheKey]);
+      .finally(() => setExpanding(false));
+  };
 
   if (!open) return null;
   const t = TONE[tone];
@@ -177,10 +170,17 @@ export function InsightReader({
               <Loader2 className="h-4 w-4 animate-spin" />
               A desk agent is researching the full story from live sources…
             </p>
-          ) : (
+          ) : expandFailed ? (
             <p className="py-1 text-sm italic text-muted">
-              The grounded expansion couldn’t run here — use "Keep researching" below.
+              The grounded expansion couldn’t run here — use “Keep researching” below.
             </p>
+          ) : (
+            <div className="py-1">
+              <button type="button" className="btn-ghost text-xs" onClick={runExpansion}>
+                <Loader2 className="h-3.5 w-3.5" />
+                Research the full story
+              </button>
+            </div>
           )}
         </div>
 

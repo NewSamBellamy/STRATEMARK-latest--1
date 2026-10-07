@@ -7,6 +7,7 @@ import { InsightReader, type InsightTone } from '@/components/reader/InsightRead
 import { AiCover } from '@/components/media/AiCover';
 import { WikiAvatar } from './LeaderGrid';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
+import { UnknownInline } from '@/features/card/UnknownValue';
 
 const INVESTOR_KIND_LABEL: Record<string, string> = {
   vc: 'Venture',
@@ -106,7 +107,8 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                             <div className="min-w-0">
                               <span className="text-sm font-medium text-content">{r.round}</span>
                               <span className="text-sm text-muted">
-                                {r.amountUsd != null ? ` · ${fmtUsd(r.amountUsd)}` : ' · undisclosed'}
+                                {' · '}
+                                {r.amountUsd != null ? fmtUsd(r.amountUsd) : <UnknownInline />}
                                 {r.leadInvestors.length > 0 && ` · led by ${r.leadInvestors.join(', ')}`}
                               </span>
                             </div>

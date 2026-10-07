@@ -9,6 +9,7 @@ import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { Modal } from '@/components/ui/Modal';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { LeaderGrid } from './LeaderGrid';
+import { UnknownInline } from '@/features/card/UnknownValue';
 
 const GROUP_COLOR: Record<OrgNode['group'], string> = {
   exec: '#6366f1',
@@ -118,10 +119,8 @@ function PersonDetail({
             <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted">
               {label}
             </dt>
-            <dd
-              className={`mt-1 text-sm ${reportedValue(value) === UNKNOWN ? 'text-faint' : 'text-content'}`}
-            >
-              {reportedValue(value)}
+            <dd className="mt-1 text-sm text-content">
+              {reportedValue(value) === UNKNOWN ? <UnknownInline /> : reportedValue(value)}
             </dd>
           </div>
         ))}
@@ -131,11 +130,11 @@ function PersonDetail({
         <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted">
           Reported background
         </h3>
-        <p
-          className={`mt-2 text-sm leading-relaxed ${reportedValue(person.bio) === UNKNOWN ? 'text-faint' : 'text-content/90'}`}
-        >
-          {reportedValue(person.bio)}
-        </p>
+        {reportedValue(person.bio) === UNKNOWN ? (
+          <p className="mt-2"><UnknownInline /></p>
+        ) : (
+          <p className="mt-2 text-sm leading-relaxed text-content/90">{reportedValue(person.bio)}</p>
+        )}
       </div>
 
       {person.sourceUrl && person.supportingQuote && (
