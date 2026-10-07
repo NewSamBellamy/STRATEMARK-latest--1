@@ -38,7 +38,7 @@ export function DashboardSources({ companyId, tab }: { companyId: string; tab: D
   if (!citations.length) return (
     <div className="mt-4 text-xs text-muted">
       <p>{diagnostics ? status : 'No research sources were retained for this section. Treat it as unconfirmed research notes.'}</p>
-      {!diagnostics && <p className="mt-1">If you’re using the browser preview, it may not be able to read every company website directly; desktop uses a separate protected reader.</p>}
+      {!diagnostics && <p className="mt-1">Some publisher pages can’t be read directly from this device, so a few sources may stay unlisted.</p>}
       {diagnostics && readDetails}
     </div>
   );

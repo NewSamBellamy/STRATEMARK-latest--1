@@ -1,20 +1,10 @@
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { usableCitations } from '@mi/contracts';
 import type { ResearchEvidence } from '@mi/research';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
+import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 
-/** Repair escaped separators in saved projections, preserving normal Markdown. */
-export function ResearchMarkdown({ text }: { text: string }) {
-  const markdown = text.includes('\n') ? text : text.replace(/\\r\\n|\\n/g, '\n');
-  return <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-    a: ({ children, href }) => usableCitations([{ title: 'Source', url: href ?? '' }]).length
-      ? <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
-      : <span>{children}</span>,
-    img: ({ alt }) => <span>{alt}</span>,
-  }}>{markdown}</ReactMarkdown>;
-}
+export { ResearchMarkdown };
 
 /** Read-only, scoped transparency. Search notes are not established facts. */
 export function SavedResearchNotes({ companyId }: { companyId: string }) {

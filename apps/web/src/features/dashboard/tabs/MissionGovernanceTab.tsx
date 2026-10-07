@@ -6,6 +6,7 @@ import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { InsightReader, type InsightTone } from '@/components/reader/InsightReader';
 import { AiCover } from '@/components/media/AiCover';
 import { WikiAvatar } from './LeaderGrid';
+import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 
 const INVESTOR_KIND_LABEL: Record<string, string> = {
   vc: 'Venture',
@@ -36,11 +37,11 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="panel p-5">
               <h3 className="font-display text-sm font-semibold text-content">Mission</h3>
-              <p className="mt-2 text-sm text-muted">{c.mission}</p>
+              <div className="markdown mt-2 text-sm text-muted"><ResearchMarkdown text={c.mission ?? ''} /></div>
               <h3 className="mt-4 font-display text-sm font-semibold text-content">Ethos</h3>
-              <p className="mt-2 text-sm text-muted">{c.ethos}</p>
+              <div className="markdown mt-2 text-sm text-muted"><ResearchMarkdown text={c.ethos ?? ''} /></div>
               <h3 className="mt-4 font-display text-sm font-semibold text-content">Governance</h3>
-              <p className="mt-2 text-sm text-muted">{c.governanceStructure}</p>
+              <div className="markdown mt-2 text-sm text-muted"><ResearchMarkdown text={c.governanceStructure ?? ''} /></div>
               {/* The identity, illustrated: generated from THIS company's
                   mission + governance so every company's panel is unique. */}
               <div className="mt-4 h-[130px] overflow-hidden rounded-xl border border-border">

@@ -7,6 +7,7 @@ import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { InsightReader } from '@/components/reader/InsightReader';
 import { useRerunDashboardTab } from '@/hooks/data';
 import { WikiAvatar } from './LeaderGrid';
+import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 
 /** "— Sam Altman, CEO (2024)" → "Sam Altman" for the headshot lookup. */
 function speakerNameOf(attribution: string): string | null {
@@ -25,11 +26,10 @@ export function HistoryTab({ companyId }: { companyId: string }) {
     <QueryBoundary query={query}>
       {(result) => {
         const c = result.content;
-        const paragraphs = c.founderStory.split(/\n\n+/).filter((x) => x.trim().length > 0);
         return (
           <div className="space-y-4">
             {/* The one-pager: the company's story, written to be read. */}
-            {paragraphs.length > 0 && (
+            {c.founderStory.trim().length > 0 && (
               <div className="panel p-6">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <h3 className="font-display text-lg font-semibold text-content">The story</h3>
@@ -39,12 +39,8 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                     companyName={name}
                   />
                 </div>
-                <div className="max-w-3xl space-y-3">
-                  {paragraphs.map((para, i) => (
-                    <p key={i} className="text-[15px] leading-relaxed text-content/90">
-                      {para}
-                    </p>
-                  ))}
+                <div className="markdown max-w-3xl text-[15px] leading-relaxed text-content/90">
+                  <ResearchMarkdown text={c.founderStory} />
                 </div>
               </div>
             )}

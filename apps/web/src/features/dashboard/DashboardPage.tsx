@@ -208,7 +208,7 @@ function DashboardTabNav({
                 : 'border-transparent text-muted hover:text-content',
             )}
           >
-            {activeInOverflow ? DASHBOARD_TAB_LABELS[activeTab] : 'More'}
+            More
             <ChevronDown className={cn('h-3 w-3 transition-transform', moreOpen && 'rotate-180')} />
           </button>
           {moreOpen && (

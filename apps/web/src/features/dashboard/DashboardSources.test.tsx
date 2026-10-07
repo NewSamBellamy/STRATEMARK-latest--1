@@ -35,7 +35,7 @@ describe('dashboard research source disclosure', () => {
   it('labels a legacy section as unattributed without auto-spending to replace it', async () => {
     const { getDashboardTab } = show();
     expect(await screen.findByText(/No research sources were retained for this section/)).toBeInTheDocument();
-    expect(screen.getByText(/If you’re using the browser preview/)).toBeInTheDocument();
+    expect(screen.getByText(/Some publisher pages can’t be read directly from this device/)).toBeInTheDocument();
     expect(getDashboardTab).toHaveBeenCalledTimes(1);
   });
   it('explains failed original reads separately from citation links', async () => {

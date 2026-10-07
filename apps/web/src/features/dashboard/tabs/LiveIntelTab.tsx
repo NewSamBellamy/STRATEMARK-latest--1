@@ -257,7 +257,30 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
   const rerun = useRerunDashboardTab(companyId, 'live_intel');
   const [openId, setOpenId] = useState<string | null>(null);
   return (
-    <QueryBoundary query={query} isEmpty={(r) => r.content.items.length === 0}>
+    <QueryBoundary query={query} isEmpty={(r) => r.content.items.length === 0}
+      empty={
+        <div className="panel p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-display text-sm font-semibold text-content">No stories yet</h3>
+              <p className="mt-1 max-w-xl text-sm text-muted">
+                Live Intel searches fresh coverage of {companyName}. Run the first search now — or
+                after the next research pass — and the latest verified stories will collect here.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              disabled={rerun.isPending}
+              title="Run a fresh grounded news search now."
+              onClick={() => rerun.mutate()}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${rerun.isPending ? 'animate-spin' : ''}`} />
+              {rerun.isPending ? 'Searching latest news…' : 'Search latest news'}
+            </button>
+          </div>
+        </div>
+      }>
       {(result) => {
         const ordered = newsOrder(result.content.items);
         const open = openId != null ? (ordered.find((i) => i.id === openId) ?? null) : null;
