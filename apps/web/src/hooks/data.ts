@@ -247,6 +247,46 @@ export function useRefreshDeck() {
   });
 }
 
+/** Resumable failed/partial creation job for a deck, when the engine keeps them. */
+export function useResumableJob(marketId: string | undefined) {
+  const repo = useRepository();
+  const available = typeof repo.listResearchJobs === 'function' &&
+    typeof repo.resumeResearchJob === 'function';
+  return useQuery({
+    queryKey: ['research-jobs', marketId],
+    queryFn: async () => {
+      const jobs = await repo.listResearchJobs!();
+      return jobs
+        .filter((job) => job.deck?.marketId === marketId &&
+          (job.status === 'failed' || job.status === 'cancelled') &&
+          job.marketPlan && job.market && job.deck && job.catalog)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
+    },
+    enabled: available && !!marketId,
+    staleTime: 30_000,
+  });
+}
+
+export function useResumeResearchJob() {
+  const repo = useRepository();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (jobId: string) => {
+      if (typeof repo.resumeResearchJob !== 'function') {
+        throw new Error('This engine cannot resume research.');
+      }
+      return repo.resumeResearchJob(jobId);
+    },
+    onSuccess: (job) => {
+      if (job?.deck) {
+        qc.invalidateQueries({ queryKey: qk.deck(job.deck.marketId) });
+        qc.invalidateQueries({ queryKey: ['cards', job.deck.id] });
+      }
+      qc.invalidateQueries({ queryKey: ['research-jobs'] });
+    },
+  });
+}
+
 // Reports ------------------------------------------------------------------
 export function useReports() {
   const repo = useRepository();

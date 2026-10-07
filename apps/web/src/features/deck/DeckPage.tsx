@@ -36,6 +36,8 @@ import {
   useDeckByMarket,
   useMarket,
   useRefreshDeck,
+  useResumableJob,
+  useResumeResearchJob,
 } from '@/hooks/data';
 import { useLivingDeck } from '@/lib/living/useLivingDeck';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
@@ -92,6 +94,8 @@ export default function DeckPage() {
   const deckId = deck.data?.id;
   const cards = useCards(deckId);
   const refreshDeck = useRefreshDeck();
+  const resumableJob = useResumableJob(marketId);
+  const resumeJob = useResumeResearchJob();
   const { chat } = useDeepDive();
 
   const deckStatus = (deck.data as { status?: 'running' | 'refreshing' | 'partial' | 'failed' | 'ready' | 'ready_stale' } | null)?.status;
@@ -333,11 +337,19 @@ export default function DeckPage() {
                 : 'Researching each company’s identity, core business figures, sources, and first-look summary. The deck opens when those card-ready essentials are complete.'}
             </p>
             {isPartial ? (
-              <button type="button" className="btn-primary mt-5" disabled={refreshDeck.isPending || !marketId}
-                onClick={() => marketId && refreshDeck.mutate(marketId)}>
-                <RefreshCw className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
-                {refreshDeck.isPending ? 'Researching…' : 'Retry incomplete research'}
-              </button>
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                {resumableJob.data && (
+                  <button type="button" className="btn-primary" disabled={resumeJob.isPending}
+                    onClick={() => resumableJob.data && resumeJob.mutate(resumableJob.data.id)}>
+                    <RefreshCw className={`h-4 w-4 ${resumeJob.isPending ? 'animate-spin' : ''}`} />
+                    {resumeJob.isPending ? 'Resuming…' : 'Resume where it stopped'}
+                  </button>
+                )}
+                <button type="button" className="btn-ghost" disabled={refreshDeck.isPending || !marketId}
+                  onClick={() => marketId && refreshDeck.mutate(marketId)}>
+                  {refreshDeck.isPending ? 'Checking figures…' : 'Re-verify current cards'}
+                </button>
+              </div>
             ) : (
               <div className="mt-6 flex items-center justify-center gap-2 text-xs font-medium text-primary">
                 <Loader2 className="h-4 w-4 animate-spin" />

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
-import type { Deck, DeckRefreshEvent, ResearchProgress } from '@mi/contracts';
+import type { CardWithCompany, Deck, DeckRefreshEvent, ResearchProgress } from '@mi/contracts';
 import type { CompanyCandidate, LlmClient } from './types';
 import {
   discoverDeckStubs,
@@ -519,6 +519,42 @@ describe('runDeckResearch (full orchestration, fake LLM)', () => {
         expect((cwc.card.summary ?? '').length).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe('resumable research (Slice B)', () => {
+  it('keeps already-researched macro signals on resume instead of re-buying them', async () => {
+    const ground = vi.fn(async () => { throw new Error('signals must not be re-bought on resume'); });
+    const client: LlmClient = {
+      ground: ground as unknown as LlmClient['ground'],
+      structure: vi.fn(async () => { throw new Error('no structure calls expected'); }),
+    } as unknown as LlmClient;
+    const barrierCard: CardWithCompany = {
+      card: { id: 'crd_barrier', deckId: 'dck_x', companyId: null, cardType: 'barrier', title: 'Barrier',
+        summary: null, tier: null, tierReason: null, citations: [], keyPoints: [], createdAt: '2026-10-01T00:00:00.000Z' },
+      company: null, metrics: [], viceClaims: [],
+    };
+    const insightCard: CardWithCompany = {
+      card: { id: 'crd_insight', deckId: 'dck_x', companyId: null, cardType: 'insight', title: 'Insight',
+        summary: null, tier: null, tierReason: null, citations: [], keyPoints: [], createdAt: '2026-10-01T00:00:00.000Z' },
+      company: null, metrics: [], viceClaims: [],
+    };
+    const cards = await hydrateDeckCards(
+      { marketName: 'Test', vertical: 'T', geography: null, notes: null, searchThemes: [] },
+      { id: 'dck_x', marketId: 'mkt_x', createdAt: '2026-10-01T00:00:00.000Z', lastRefreshedAt: '2026-10-01T00:00:00.000Z' },
+      [], client, {
+        existingCompletedCards: [barrierCard, insightCard],
+        coverage: {
+          companies: { min: 0, target: 0, max: 0 }, infrastructure: { min: 0, target: 0, max: 0 },
+          distribution: { min: 0, target: 0, max: 0 }, vice: { min: 0, target: 0, max: 0 },
+          culture: { min: 0, target: 0, max: 0 }, barrier: { min: 1, target: 1, max: 1 },
+          insight: { min: 1, target: 1, max: 1 },
+        },
+      },
+    );
+    expect(cards.filter((c) => c.card.cardType === 'barrier').length).toBe(1);
+    expect(cards.filter((c) => c.card.cardType === 'insight').length).toBe(1);
+    expect(ground).not.toHaveBeenCalled();
   });
 });
 

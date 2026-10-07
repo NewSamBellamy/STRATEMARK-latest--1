@@ -865,6 +865,24 @@ export async function hydrateDeckCards(
   // Concurrently run market signals alongside entity enrichment via Promise.all
   const [marketCards, entityCards] = await Promise.all([
     (async () => {
+      // A resume whose signals already landed must not re-buy them: the pass
+      // is a pair (barrier + insight), so both present means both are kept.
+      const resumedSignals = completedCards.filter(
+        (c) => c.card.cardType === 'barrier' || c.card.cardType === 'insight',
+      );
+      const signalsDone =
+        resumedSignals.some((c) => c.card.cardType === 'barrier') &&
+        resumedSignals.some((c) => c.card.cardType === 'insight');
+      if (signalsDone) {
+        await emit({
+          type: 'status',
+          step: 'barriers',
+          message: 'Barriers and insights already researched — keeping them.',
+        });
+        // Completed cards flow through the final return; returning them here
+        // too would double-count them.
+        return [];
+      }
       await emit({
         type: 'status',
         step: 'barriers',
