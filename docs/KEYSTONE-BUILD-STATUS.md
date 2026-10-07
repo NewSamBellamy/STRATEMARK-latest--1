@@ -1,5 +1,7 @@
 # Keystone build status / next-session handoff
 
+> Current migration entry point (2026-10-06): [GLM / Z Code handoff](STRATEMARK-ZCODE-HANDOFF.md). Read it before the historical checkpoint list below. Active branch is now `revival/keystone-grounded-backend-recovery-oct06`; latest recovery commit is `c51ee585cca2aa772e89955aac120dd7690d083a`. Interrupted uncommitted edits remain unverified. The branch and checkpoint claims below are historical.
+
 Updated: 2026-10-06 (local date). Implementation started; no full milestone is complete.
 
 ## Read first

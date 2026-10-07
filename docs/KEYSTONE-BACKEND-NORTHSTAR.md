@@ -1,5 +1,7 @@
 # Keystone backend north star
 
+> Current recovery/migration entry point (2026-10-06): [GLM / Z Code handoff](STRATEMARK-ZCODE-HANDOFF.md). It separates observed behavior, unfinished edits and open questions. The documents below remain product intent and historical specifications, not proof of working implementation.
+
 The active backend audit and build specification is:
 
 Execution entry point: [Consolidated build and test plan](../01_PROJECTS/Stratemark/Specs/Keystone-Build-and-Test-Plan.md). Read [build status](KEYSTONE-BUILD-STATUS.md) first for the next bounded task. This includes the founder-approved four finding-card journeys, implementation order, measurable quality/latency gates and checkpoint protocol.
