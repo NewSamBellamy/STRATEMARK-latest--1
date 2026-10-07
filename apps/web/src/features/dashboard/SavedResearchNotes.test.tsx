@@ -14,7 +14,7 @@ describe('saved research notes disclosure', () => {
     fireEvent(summary.parentElement!, new Event('toggle'));
     expect(await screen.findByText('Actual saved company notes')).toBeInTheDocument();
     expect(read).toHaveBeenCalledWith({ companyId: 'c1', limit: 10 });
-    expect(screen.getByText(/0 per-claim supports/)).toBeInTheDocument();
+    expect(screen.getByText('company profile · collected 2026-10-06')).toBeInTheDocument();
   });
   it('does not retain another company’s notes after navigation', () => {
     read.mockReturnValue([{ id: 'e1', companyId: 'c1', topic: 'company_profile', capturedAt: '2026-10-06T00:00:00Z', text: 'Company one only', citations: [], queries: [] }]);

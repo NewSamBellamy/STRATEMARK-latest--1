@@ -10,8 +10,40 @@ const plain = (text: string) => text.replace(/[*_`]/g, '')
   .replace(/^\s*(?:[-•]|\d+[.)])\s*/, '')
   .trim().replace(/^(?:Company Description|Headquarters Location|Headcount \/ Number of Employees|Employees(?: \(Headcount\))?|Annual Revenue(?: & Recurring Revenue \(ARR\))?|Valuation|Market Capitalization|Users \/ Customers|Official Website)(?::|\r?\n)\s*/i, '').trim();
 const entity = (text: string, name: string) => {
-  const alias = name.replace(/[,]?\s+(?:Inc\.?|Incorporated|Ltd\.?|Limited|LLC|Corporation|Corp\.?)$/i, '').trim();
+  const alias = stripCorporateSuffix(name);
   return new RegExp(`^${escape(alias)}(?:['’]s)?\\b`, 'i').test(plain(text));
+};
+
+/** Answer-level identity for catalog-style retained evidence. The retained
+ * profile answer names its subject in the header while each metric section
+ * stays anonymous, so a claim sentence naming no company at all may bind to
+ * the answer's subject — but only when the answer actually names the subject
+ * and the sentence names no other known deck company. Roster absence disables
+ * the anonymous path entirely; without a roster a mixed answer is
+ * unattributable, which is the conservative outcome. */
+export interface ReportedIdentityContext {
+  answerText?: string;
+  otherCompanies?: readonly string[];
+}
+
+const stripCorporateSuffix = (name: string) =>
+  name.replace(/[,]?\s+(?:Inc\.?|Incorporated|Ltd\.?|Limited|LLC|Corporation|Corp\.?|PBC|GmbH|SAS|SA|AG|PLC|Co\.?)$/i, '').trim();
+
+const mentionsCompany = (text: string, name: string) => {
+  const alias = stripCorporateSuffix(name);
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escape(alias)}(?![\\p{L}\\p{N}])`, 'iu').test(text) ||
+    new RegExp(`(?<![\\p{L}\\p{N}])${escape(name)}(?![\\p{L}\\p{N}])`, 'iu').test(text);
+};
+
+const rivalMatcher = (companyName: string, others?: readonly string[]): RegExp | null => {
+  if (!Array.isArray(others)) return null;
+  const subject = stripCorporateSuffix(companyName).toLowerCase();
+  const rivals = others.filter(name => name && stripCorporateSuffix(name).toLowerCase() !== subject);
+  if (!rivals.length) return null;
+  return new RegExp(rivals.map(name => {
+    const alias = stripCorporateSuffix(name);
+    return `(?<![\\p{L}\\p{N}])(?:${escape(alias)}|${escape(name)})(?![\\p{L}\\p{N}])`;
+  }).join('|'), 'iu');
 };
 function host(url: string | null): string | null {
   try { return url ? new URL(url).hostname.replace(/^www\./, '') : null; } catch { return null; }
@@ -38,7 +70,9 @@ function hasDate(text: string, date: string): boolean {
 function hasNumber(text: string, value: number, unit: ReportedMetricSupport['unit'], definition: string): boolean {
   if (unit === 'USD' && /\b(?:CAD|AUD|HKD|SGD|NZD|Canadian dollars?|Australian dollars?)\b|(?:C|A|HK|S|NZ)\$/i.test(text)) return false;
   // Match reported figures, not other numerals such as dates or page counts.
-  const pattern = /(?:\b(USD|US dollars?)\s*|(US\$|\$)\s*)?(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|thousand|[kmbt]\b)?\s*(USD|US dollars?|%|percent|employees|users|customers)?/gi;
+  // "$65+ billion" separates the scale with an optional plus; without the
+  // tolerant separator the figure would parse as 65 unscaled dollars.
+  const pattern = /(?:\b(USD|US dollars?)\s*|(US\$|\$)\s*)?(\d[\d,]*(?:\.\d+)?)\s*\+?\s*(trillion|billion|million|thousand|[kmbt]\b)?\s*(USD|US dollars?|%|percent|employees|users|customers)?/gi;
   for (const match of text.matchAll(pattern)) {
     const magnitude = match[4]?.toLowerCase();
     const multiplier = magnitude ? ({ trillion: 1e12, billion: 1e9, million: 1e6, thousand: 1e3, t: 1e12, b: 1e9, m: 1e6, k: 1e3 }[magnitude] ?? 1) : 1;
@@ -80,7 +114,8 @@ function businessDates(text: string): string[] {
 /** Repair a missing model selector from literal, per-claim provider attribution.
  * No fuzzy estimates, user populations, new calls or original-verification claim.
  * Multiple values for the same latest period are ambiguous and stay unknown. */
-function recoverOmittedClaim(companyName: string, website: string | null, type: MetricType, grounding?: ProviderGrounding) {
+function recoverOmittedClaim(companyName: string, website: string | null, type: MetricType,
+  grounding?: ProviderGrounding, otherCompanies?: readonly string[]) {
   if (!grounding || !['arr', 'employees', 'valuation', 'market_cap'].includes(type)) return undefined;
   const choices: Array<{ value: number; selector: NonNullable<NonNullable<EnrichmentOut['metrics']['arr']>['reportedClaim']> }> = [];
   for (const support of grounding.supports) {
@@ -102,7 +137,7 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
       type === 'arr' ? ['arr', 'annual_revenue'] : [type];
     const definitions = candidates.filter(definition => basisPatterns[definition]?.test(text));
     const unit = type === 'employees' ? 'count' : 'USD';
-    const pattern = /(?:\bUSD\s*|US\$|\$)?\s*(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|thousand|[kmbt]\b)?/gi;
+    const pattern = /(?:\bUSD\s*|US\$|\$)?\s*(\d[\d,]*(?:\.\d+)?)\s*\+?\s*(trillion|billion|million|thousand|[kmbt]\b)?/gi;
     for (const match of text.matchAll(pattern)) {
       // Parenthetical breakdowns are not company-wide employee candidates.
       // Only omission recovery skips them; selected claims use the validator.
@@ -113,7 +148,8 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
       const asOf = dates[0] ?? null;
       for (const definition of definitions) {
         const proof = reportedMetricSupportSchema.safeParse({ provider: grounding.provider, companyName, basis: type, value, unit, definition, asOf, support });
-        if (!proof.success || !reportedMetricCitations(companyName, website, { metricType: type, value, reportedSupport: proof.data }).length) continue;
+        if (!proof.success || !reportedMetricCitations(companyName, website, { metricType: type, value, reportedSupport: proof.data },
+          { answerText: grounding.answerText, otherCompanies }).length) continue;
         choices.push({ value, selector: { sourceUrl: support.sources[0]!.url, quote: support.text, asOf, basis: type, unit, definition } });
       }
     }
@@ -124,13 +160,14 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
 }
 
 /** Shared publication/reopen check. This lane never grants verified confidence. */
-export function reportedMetricCitations(companyName: string, website: string | null, metric: Pick<CompanyMetric, 'metricType' | 'value' | 'reportedSupport'>) {
+export function reportedMetricCitations(companyName: string, website: string | null,
+  metric: Pick<CompanyMetric, 'metricType' | 'value' | 'reportedSupport'>, identity?: ReportedIdentityContext) {
   const parsed = reportedMetricSupportSchema.safeParse(metric.reportedSupport);
   if (!parsed.success) return [];
   const proof = parsed.data, type = metric.metricType;
   if (proof.companyName !== companyName || proof.basis !== type || proof.value !== metric.value ||
-    !validMetricVerificationValue(type, metric.value) || type === 'market_share' ||
-    (['employees', 'users'].includes(type) && (!Number.isSafeInteger(metric.value) || metric.value === 0))) return [];
+    !validMetricVerificationValue(type, metric.value) || type === 'market_share' || metric.value === 0 ||
+    (['employees', 'users'].includes(type) && !Number.isSafeInteger(metric.value))) return [];
   const definition = proof.definition ?? type;
   if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its .{0,30}suite|active base of .{0,30}devices)\b/i.test(proof.support.text)) return [];
   if ((type === 'arr' && !['arr', 'annual_revenue'].includes(definition)) ||
@@ -146,8 +183,14 @@ export function reportedMetricCitations(companyName: string, website: string | n
   });
   // A bare metric clause may use an official company domain for identity. A
   // sentence explicitly naming someone else cannot use that exception.
+  // Catalog-style retained answers name the subject in their header while
+  // metric sections stay anonymous: when the supplied answer names this
+  // company, a sentence naming no rival deck company binds to the subject.
+  const rivals = rivalMatcher(companyName, identity?.otherCompanies);
+  const answerAnchored = !!identity?.answerText && !!rivals && mentionsCompany(identity.answerText, companyName);
   const claims = sentences(proof.support.text).map(plain).filter(sentence => entity(sentence, companyName) ||
-    (official && /^(?:annual revenue|ARR|annual recurring revenue|headcount|employees|users|customers|valuation|market cap)\b/i.test(sentence)));
+    (official && /^(?:annual revenue|ARR|annual recurring revenue|headcount|employees|users|customers|valuation|market cap)\b/i.test(sentence)) ||
+    (answerAnchored && !rivals!.test(sentence)));
   if (!pattern || !claims.some(sentence => pattern.test(sentence) && hasNumber(sentence, proof.value, proof.unit, definition) &&
     // A subsequent discussion/reporting clause cannot date a completed round.
     (!proof.asOf || definition !== 'valuation' || sentence.split(/,\s+(?:with|while|but)\b/i).some(clause =>
@@ -165,7 +208,12 @@ export function reportedMetricCitations(companyName: string, website: string | n
 
 /** Model fields select claims only; support is copied from the provider, never JSON. */
 export function reportedCompanyMetrics(input: { companyId: string; companyName: string; website: string | null;
-  enrichment: EnrichmentOut; text: string; grounding?: ProviderGrounding; capturedAt: string; includeUnknowns?: boolean }): CompanyMetric[] {
+  enrichment: EnrichmentOut; text: string; grounding?: ProviderGrounding; capturedAt: string; includeUnknowns?: boolean;
+  identity?: ReportedIdentityContext }): CompanyMetric[] {
+  const identity: ReportedIdentityContext = {
+    answerText: input.identity?.answerText ?? (input.grounding?.provider === 'google-search' ? input.grounding.answerText : undefined),
+    otherCompanies: input.identity?.otherCompanies,
+  };
   const trusted = input.grounding?.provider === 'google-search' && input.grounding.answerText.trim() === input.text.trim()
     ? input.grounding : undefined;
   const types = new Set<MetricType>(Object.keys(input.enrichment.metrics) as MetricType[]);
@@ -179,7 +227,7 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
     // independently from provider evidence, never by trusting that number.
     // An explicit but rejected selector must not silently trigger recovery.
     const recovered = proposedMetric?.value == null || (!proposedMetric.reportedClaim && !proposedMetric.passageSupport)
-      ? recoverOmittedClaim(input.companyName, input.website, type, trusted) : undefined;
+      ? recoverOmittedClaim(input.companyName, input.website, type, trusted, identity.otherCompanies) : undefined;
     const proposal = recovered ? { value: recovered.value, reportedClaim: recovered.selector } : proposedMetric;
     const selector = proposal?.reportedClaim ?? ('passageSupport' in (proposal ?? {}) ? proposedMetric?.passageSupport : undefined);
     if (proposal?.value == null || !selector || selector.basis !== type) return row;
@@ -196,7 +244,7 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
         support: structuredClone(support) });
       if (!proof.success) continue;
       const proposed = { ...row, value: proposal.value, reportedSupport: proof.data };
-      const citations = reportedMetricCitations(input.companyName, input.website, proposed);
+      const citations = reportedMetricCitations(input.companyName, input.website, proposed, identity);
       if (!citations.length) continue;
       return { ...proposed, confidence: 'estimated', citations, source: citations[0]!.url,
         methodNote: `Source reported ${proof.data.definition ?? type} (${proof.data.asOf ? `as of ${proof.data.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original.` };

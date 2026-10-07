@@ -569,6 +569,13 @@ export interface MarketIntelRepository {
    */
   huntCompanyMetrics?(companyId: string): Promise<HuntMetricsResult>;
 
+  /**
+   * Re-project retained company_profile evidence through the reported-claims
+   * validator and fill only rows that currently hold no value. Free: makes no
+   * provider call. OPTIONAL — engines holding saved evidence locally.
+   */
+  recoverSavedCompanyMetrics?(companyId: string): Promise<HuntMetricsResult>;
+
   /** Fill a gap in a deck via targeted micro-research (e.g. hunt Seed-stage companies). */
   expandDeck(
     marketId: string,

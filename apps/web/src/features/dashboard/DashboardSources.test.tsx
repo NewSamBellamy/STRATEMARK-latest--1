@@ -17,12 +17,9 @@ function show(citations?: Array<{ title: string; url: string }>, sourceDiagnosti
 }
 
 describe('dashboard research source disclosure', () => {
-  it('reveals real sources on demand without calling research again or claiming verified prose', async () => {
-    const { user, getDashboardTab } = show([{ title: 'Annual report', url: 'https://example.com/report' }]);
-    const toggle = await screen.findByText('Research sources · 1');
-    expect(toggle.closest('details')).not.toHaveAttribute('open');
-    await user.click(toggle);
-    expect(toggle.closest('details')).toHaveAttribute('open');
+  it('shows real sources inline without calling research again or claiming verified prose', async () => {
+    const { getDashboardTab } = show([{ title: 'Annual report', url: 'https://example.com/report' }]);
+    expect(await screen.findByText('Research sources · 1')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Annual report' })).toHaveAttribute('href', 'https://example.com/report');
     expect(screen.getByText(/not independent verification of every claim/)).toBeInTheDocument();
     expect(screen.getByText(/Research collected/)).toBeInTheDocument();

@@ -78,6 +78,8 @@ import {
   type ResearchResult,
 } from './pipeline';
 import { hydrateCompanyCard } from './company-agent';
+import { reportedCompanyMetrics } from './reported-metrics';
+import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
 import { mapWithConcurrency, throwIfAborted } from './util';
 import { expandDeckWithDeltaAgent } from './delta-agent';
@@ -944,6 +946,9 @@ export class GeminiRepository implements MarketIntelRepository {
                     deckId: stubsResult.deck.id,
                     companyId: existingCompanyId,
                     signal: controller.signal,
+                    otherCompanies: stubsResult.candidates
+                      .filter((sibling) => sibling.name !== candidate.name)
+                      .map((sibling) => sibling.name),
                   });
                   done += 1;
                   await checkpoint({
@@ -2019,6 +2024,82 @@ export class GeminiRepository implements MarketIntelRepository {
         : [];
     if (filledTypes.length > 0) {
       // Researched tabs quoting the old gaps re-research on next open.
+      this.snap.dashboards[companyId] = {};
+      await this.persist();
+      const card = this.snap.cards.find(
+        (c) => c.companyId === companyId && c.cardType === 'company',
+      );
+      const deck = card ? this.snap.decks.find((d) => d.id === card.deckId) : undefined;
+      if (deck) {
+        this.emit({
+          marketId: deck.marketId,
+          deckId: deck.id,
+          refreshedAt: nowIso,
+          addedCardIds: [],
+          updatedCardIds: retieredCardIds.length > 0 ? retieredCardIds : card ? [card.id] : [],
+          prunedCardIds: [],
+        });
+      }
+    }
+    return { filledTypes, metrics: mine(), retieredCardIds };
+  }
+
+  /** Free offline recovery: re-project retained company_profile evidence through
+   * the reported-claims validator with answer-level identity. Makes no provider
+   * call; fills only rows that currently hold no value and are not human-owned.
+   * Catalog-style supports (anonymous sections, third-party sources) recover
+   * here exactly as they would during hydration. */
+  async recoverSavedCompanyMetrics(companyId: string): Promise<HuntMetricsResult> {
+    const company = this.snap.companies.find((c) => c.id === companyId);
+    if (!company) throw new Error(`Company not found: ${companyId}`);
+    const mine = () => this.snap.metrics.filter((m) => m.companyId === companyId);
+    const evidence = (this.snap.researchEvidence ?? [])
+      .filter((e) => e.companyId === companyId && e.topic === 'company_profile' &&
+        e.grounding != null && e.grounding.provider === 'google-search' && e.grounding.supports.length > 0)
+      .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))[0];
+    if (!evidence) return { filledTypes: [], metrics: mine(), retieredCardIds: [] };
+    const marketId = this.snap.companyMarket[companyId];
+    const otherCompanies = this.snap.companies
+      .filter((c) => c.id !== companyId && this.snap.companyMarket[c.id] === marketId)
+      .map((c) => c.name);
+    const rows = reportedCompanyMetrics({
+      companyId, companyName: company.name, website: company.websiteUrl,
+      enrichment: enrichmentOutSchema.parse({ metrics: {} }),
+      text: evidence.text, grounding: evidence.grounding,
+      capturedAt: new Date().toISOString(),
+      identity: { answerText: evidence.text, otherCompanies },
+    });
+    const nowIso = new Date().toISOString();
+    const filledTypes: MetricType[] = [];
+    for (const row of rows) {
+      if (row.value == null || row.confidence === 'unknown') continue;
+      // Tied conflicting rows stay untouched: recovery never resolves an
+      // ambiguity the evidence itself created.
+      const revision = currentMetricRevision(mine(), companyId, row.metricType);
+      if (revision?.ambiguous) continue;
+      const current = revision?.metric;
+      if (current) {
+        if (current.value != null || current.confidence === 'user_verified' || current.confidence === 'verified') continue;
+        current.value = row.value;
+        current.confidence = 'estimated';
+        current.source = row.source;
+        current.citations = row.citations;
+        current.passageSupport = row.passageSupport;
+        current.reportedSupport = row.reportedSupport;
+        current.methodNote = row.methodNote;
+        current.lastVerifiedAt = null;
+        current.capturedAt = nowIso;
+      } else {
+        this.snap.metrics.push({ ...row, capturedAt: nowIso });
+      }
+      filledTypes.push(row.metricType);
+    }
+    const retieredCardIds =
+      filledTypes.length > 0
+        ? this.retierCompany(companyId, 'Re-tiered after recovering saved research evidence.')
+        : [];
+    if (filledTypes.length > 0) {
+      // Dashboards quoting the old gaps re-research on next open.
       this.snap.dashboards[companyId] = {};
       await this.persist();
       const card = this.snap.cards.find(

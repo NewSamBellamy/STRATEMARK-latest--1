@@ -124,6 +124,9 @@ export interface HydrateCompanyCardOptions {
   existingMemory?: CompanyAgentMemory;
   nudge?: -1 | 0 | 1;
   nudgeReason?: string | null;
+  /** Sibling entity names in the same deck; enables answer-level identity for
+   * catalog-style supports while rejecting sentences that name a sibling. */
+  otherCompanies?: readonly string[];
 }
 
 export interface HydrateCompanyCardInput extends HydrateCompanyCardOptions {
@@ -662,7 +665,8 @@ export async function hydrateCompanyCard(
 
   // 4. Provider-supported reported claims; no proxies or fabricated verification.
   const reported = reportedCompanyMetrics({ companyId, companyName: candidate.name, website,
-    enrichment, text: grounded.text, grounding: grounded.grounding, capturedAt: now(), includeUnknowns: options.includeUnknowns });
+    enrichment, text: grounded.text, grounding: grounded.grounding, capturedAt: now(), includeUnknowns: options.includeUnknowns,
+    identity: { answerText: grounded.text, otherCompanies: options.otherCompanies } });
   // Existing human facts remain authoritative across hydration.
   const humans = options.existingMemory?.card.metrics.filter(row => row.companyId === companyId && isHumanAuthored(row)) ?? [];
   const metrics = [...reported.filter(row => !humans.some(human => human.metricType === row.metricType)), ...humans];

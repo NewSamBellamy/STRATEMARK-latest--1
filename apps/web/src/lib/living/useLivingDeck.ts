@@ -183,6 +183,16 @@ export function useLivingDeck(
       },
       recover: canHunt ? async target => {
         attemptedCompanies.add(target.companyId);
+        // Saved evidence is re-projected for free first; the paid hunt only
+        // runs when retained evidence covers none of the gaps.
+        if (typeof repo.recoverSavedCompanyMetrics === 'function') {
+          const free = await repo.recoverSavedCompanyMetrics(target.companyId);
+          if (free.filledTypes.length > 0) {
+            await invalidateMetricSurfaces(qc, target.companyId,
+              free.filledTypes.length > 0 || free.retieredCardIds.length > 0);
+            return { filled: free.filledTypes.length };
+          }
+        }
         const result = await repo.huntCompanyMetrics!(target.companyId);
         await invalidateMetricSurfaces(qc, target.companyId,
           result.filledTypes.length > 0 || result.retieredCardIds.length > 0);

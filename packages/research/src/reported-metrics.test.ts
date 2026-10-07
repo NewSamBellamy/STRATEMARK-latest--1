@@ -388,12 +388,16 @@ describe('catalog-style retained evidence without in-passage identity', () => {
         startIndex: answer.indexOf(passage), endIndex: answer.indexOf(passage) + passage.length }, groundingChunkIndices: [0] })),
     });
   }
-  const catalogRows = (grounding: NonNullable<ReturnType<typeof extractProviderGrounding>>) =>
+  const catalogRows = (grounding: NonNullable<ReturnType<typeof extractProviderGrounding>>,
+    identity?: { answerText?: string; otherCompanies?: readonly string[] }) =>
     reportedCompanyMetrics({ companyId: 'openai', companyName: 'OpenAI, Inc.', website: 'https://openai.com',
       enrichment: enrichmentOutSchema.parse({ metrics: {} }), text: grounding.answerText, grounding,
-      capturedAt: '2026-10-06T00:00:00.000Z' });
+      capturedAt: '2026-10-06T00:00:00.000Z', identity });
+  // The Frontier AI deck's discovered sibling entities, as the repository
+  // would supply them for answer-level identity.
+  const deckRoster = ['Anthropic PBC', 'Google', 'Microsoft Corporation', 'Mistral AI SAS', 'Meta AI'];
 
-  it('records the confirmed Phase 1 defect: a schema-valid anonymous claim cannot bind identity and stays unknown', () => {
+  it('without an identity roster a schema-valid anonymous claim cannot bind and stays unknown (legacy behavior)', () => {
     const grounding = catalogGrounding([catalogSegments.arr]);
     const support = grounding!.supports[0]!;
     const proof = reportedMetricSupportSchema.safeParse({ provider: 'google-search', companyName: 'OpenAI, Inc.',
@@ -402,6 +406,37 @@ describe('catalog-style retained evidence without in-passage identity', () => {
     expect(reportedMetricCitations('OpenAI, Inc.', 'https://openai.com',
       { metricType: 'arr', value: 70_000_000_000, reportedSupport: proof.data! })).toEqual([]);
     expect(catalogRows(grounding!).find(row => row.metricType === 'arr'))
+      .toMatchObject({ value: null, confidence: 'unknown', reportedSupport: null });
+  });
+
+  it('binds an anonymous catalog metric once the answer names the subject and the deck roster is supplied', () => {
+    const grounding = catalogGrounding([catalogSegments.arr]);
+    expect(catalogRows(grounding!, { answerText: grounding!.answerText, otherCompanies: deckRoster })
+      .find(row => row.metricType === 'arr')).toMatchObject({
+      value: 70_000_000_000, confidence: 'estimated', reportedSupport: { definition: 'arr' },
+    });
+  });
+
+  it('recovers booked annual revenue for the arr slot through answer-level identity', () => {
+    const grounding = catalogGrounding([catalogSegments.bookedRevenue]);
+    expect(catalogRows(grounding!, { answerText: grounding!.answerText, otherCompanies: deckRoster })
+      .find(row => row.metricType === 'arr')).toMatchObject({
+      value: 13_070_000_000, confidence: 'estimated', reportedSupport: { definition: 'annual_revenue' },
+    });
+  });
+
+  it('keeps an anonymous claim unknown when the answer never names the subject', () => {
+    const grounding = catalogGrounding([catalogSegments.arr]);
+    expect(catalogRows(grounding!, { answerText: '**Market Context:** Frontier Artificial Intelligence (AI) Development\n\n' + catalogSegments.arr,
+      otherCompanies: deckRoster }).find(row => row.metricType === 'arr'))
+      .toMatchObject({ value: null, confidence: 'unknown', reportedSupport: null });
+  });
+
+  it('rejects a catalog sentence naming a rival deck company even with answer-level identity', () => {
+    const rivalClaim = 'Anthropic approaches ~$70 Billion ARR as of September 2026, driven by a surge in enterprise contracts and multi-tier subscriptions (Axios / Reuters / Bloomberg)';
+    const grounding = catalogGrounding([rivalClaim]);
+    expect(catalogRows(grounding!, { answerText: grounding!.answerText, otherCompanies: deckRoster })
+      .find(row => row.metricType === 'arr'))
       .toMatchObject({ value: null, confidence: 'unknown', reportedSupport: null });
   });
 
