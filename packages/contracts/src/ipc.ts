@@ -78,6 +78,7 @@ export const IPC_CHANNELS = {
   getResearchThread: 'mi:getResearchThread',
   saveThreadAsReport: 'mi:saveThreadAsReport',
   listResearchJobs: 'mi:listResearchJobs',
+  addResearchNote: 'mi:addResearchNote',
   getResearchJob: 'mi:getResearchJob',
   cancelResearchJob: 'mi:cancelResearchJob',
   resumeResearchJob: 'mi:resumeResearchJob',

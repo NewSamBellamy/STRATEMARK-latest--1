@@ -12,6 +12,7 @@ import {
   type DeckRefreshEvent,
   type DeckRefreshListener,
   type PreloadRepositoryApi,
+  type ResearchNoteEntry,
   type ResearchJob,
   type ResearchProgressEvent,
   type ResearchProgressListener,
@@ -67,6 +68,8 @@ const api: PreloadRepositoryApi = {
     ipcRenderer.invoke(IPC_CHANNELS.cancelResearchJob, id) as Promise<ResearchJob | null>,
   resumeResearchJob: (id) =>
     ipcRenderer.invoke(IPC_CHANNELS.resumeResearchJob, id) as Promise<ResearchJob | null>,
+  addResearchNote: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.addResearchNote, input) as Promise<ResearchNoteEntry>,
   googleSignIn: () => ipcRenderer.invoke(IPC_CHANNELS.googleSignIn),
   googleSignOut: () => ipcRenderer.invoke(IPC_CHANNELS.googleSignOut),
   onAuthCallback: (listener) => {

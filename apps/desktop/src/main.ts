@@ -381,6 +381,11 @@ function registerIpc(): void {
     ),
   );
   ipcMain.handle(IPC_CHANNELS.listResearchJobs, () => repository.listResearchJobs?.() ?? []);
+  ipcMain.handle(IPC_CHANNELS.addResearchNote, (_e, input: unknown) =>
+    repository.addResearchNote?.(z.object({
+      companyId: z.string().min(1), companyName: z.string().min(1),
+      text: z.string().min(1).max(20000), sourceUrl: z.string().url().optional(),
+    }).parse(input)) ?? null);
   ipcMain.handle(IPC_CHANNELS.getResearchJob, (_e, id: unknown) =>
     repository.getResearchJob?.(z.string().min(1).parse(id)) ?? null,
   );

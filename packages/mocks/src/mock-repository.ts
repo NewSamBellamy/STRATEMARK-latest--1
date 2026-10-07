@@ -8,6 +8,8 @@ import {
   type CardFilter,
   type CardWithCompany,
   type ProviderCapabilities,
+  type ResearchNoteEntry,
+
   isEntityCardType,
   type Company,
   type CompanyMetric,
@@ -79,9 +81,39 @@ const uid = (prefix: string): string => {
   return `${prefix}_${Date.now().toString(36)}${counter}`;
 };
 
+/** Structural match of the research package's evidence record (the mock
+ * package cannot import @mi/research). */
+interface MockEvidence {
+  id: string; companyId: string; companyName: string; topic: string;
+  capturedAt: string; text: string; citations: { title: string; url: string }[]; queries: string[];
+}
+
 export class MockRepository implements MarketIntelRepository {
   capabilities(): ProviderCapabilities {
     return { ground: true, structure: true, image: true };
+  }
+
+
+  /** In-memory knowledge base so the preview's Research tab can grow. */
+  private readonly userNotes: ResearchNoteEntry[] = [];
+
+  addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<ResearchNoteEntry> {
+    const nowIso = new Date().toISOString();
+    const note: ResearchNoteEntry = {
+      id: `ev_note_${nowIso}_${Math.random().toString(36).slice(2, 7)}`, companyId: input.companyId,
+      companyName: input.companyName, topic: 'user_note', capturedAt: nowIso, text: input.text,
+      citations: input.sourceUrl ? [{ title: 'Added source', url: input.sourceUrl }] : [],
+    };
+    this.userNotes.unshift(note);
+    return Promise.resolve(note);
+  }
+
+  getResearchEvidence(input: { companyId?: string; limit?: number }): MockEvidence[] {
+    const mine = this.userNotes.filter((n) => !input.companyId || n.companyId === input.companyId);
+    return mine.slice(0, input.limit ?? 50).map((n) => ({
+      id: n.id, companyId: n.companyId, companyName: n.companyName, topic: n.topic,
+      capturedAt: n.capturedAt, text: n.text, citations: n.citations, queries: [],
+    }));
   }
 
   private readonly latency: number;

@@ -504,6 +504,19 @@ export interface SavedCard {
   savedAt: string;
 }
 
+/** A user-authored entry in the deck's research knowledge base. Structural
+ * subset of the research package's evidence record (contracts cannot import
+ * the research package). */
+export interface ResearchNoteEntry {
+  id: string;
+  companyId: string;
+  companyName: string;
+  topic: string;
+  capturedAt: string;
+  text: string;
+  citations: Citation[];
+}
+
 /** What the configured provider can actually do. Features must degrade
  * honestly when a capability is absent — never error, never fake. */
 export interface ProviderCapabilities {
@@ -584,6 +597,14 @@ export interface MarketIntelRepository {
    * with citations, and re-tier. OPTIONAL — live-research transports only.
    */
   huntCompanyMetrics?(companyId: string): Promise<HuntMetricsResult>;
+
+  /**
+   * Add a user-authored note to the deck's research knowledge base. The note
+   * is stored as a user_note evidence record so it flows through the same
+   * rendering and export paths as provider research. OPTIONAL.
+   */
+  addResearchNote?(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }):
+    Promise<ResearchNoteEntry>;
 
   /**
    * Re-project retained company_profile evidence through the reported-claims

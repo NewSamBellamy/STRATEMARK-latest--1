@@ -16,6 +16,7 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { Logo } from '@/features/card/Logo';
 import { DigDeeper, useDeepDive } from '@/features/deepdive/DeepDive';
 import { OverviewTab } from './tabs/OverviewTab';
+import { ResearchTab } from './tabs/ResearchTab';
 import { LiveIntelTab } from './tabs/LiveIntelTab';
 import { TeamOrgTab } from './tabs/TeamOrgTab';
 import { LiveLandingTab } from './tabs/LiveLandingTab';
@@ -102,6 +103,8 @@ function TabView({ tab, companyId }: { tab: DashboardTab; companyId: string }) {
   switch (tab) {
     case 'overview':
       return <OverviewTab companyId={companyId} />;
+    case 'research':
+      return <ResearchTab companyId={companyId} />;
     case 'live_intel':
       return <LiveIntelTab companyId={companyId} />;
     case 'team_org':

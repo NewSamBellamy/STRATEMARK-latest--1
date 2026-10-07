@@ -152,6 +152,7 @@ export const REFRESH_CADENCE_HOURS: Record<RefreshCadence, number> = {
 // ---------------------------------------------------------------------------
 export const DASHBOARD_TABS = [
   'overview',
+  'research',
   'metrics',
   'live_intel',
   'team_org',
@@ -164,6 +165,7 @@ export type DashboardTab = (typeof DASHBOARD_TABS)[number];
 
 export const DASHBOARD_TAB_LABELS: Record<DashboardTab, string> = {
   overview: 'Overview',
+  research: 'Research & Sources',
   live_intel: 'Live Intel',
   team_org: 'Team & Org Chart',
   live_landing: 'Live Landing Page',

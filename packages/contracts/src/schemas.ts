@@ -292,6 +292,10 @@ export const overviewContentSchema = z.object({
   markdown: prose(),
 });
 
+/** The Research & Sources tab renders retained evidence directly; the
+// cached-content stub only satisfies the shared content contract. */
+export const researchContentSchema = z.object({ markdown: z.string() });
+
 export const liveIntelItemSchema = z.object({
   id: z.string(),
   source: z.enum(['news', 'x', 'reddit']),
@@ -440,6 +444,7 @@ export const productsRoadmapContentSchema = z.object({
 /** Tab → content schema. Used to validate `dashboard_data.content_json` per tab. */
 export const DASHBOARD_CONTENT_SCHEMAS = {
   overview: overviewContentSchema,
+  research: researchContentSchema,
   live_intel: liveIntelContentSchema,
   team_org: teamOrgContentSchema,
   live_landing: liveLandingContentSchema,

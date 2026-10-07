@@ -43,6 +43,7 @@ import type {
   DeckBriefing,
   SiteAuditInput,
   ProviderCapabilities,
+  ResearchNoteEntry,
 } from '@mi/contracts';
 
 export function isElectron(): boolean {
@@ -155,6 +156,12 @@ export class IpcRepository implements MarketIntelRepository {
   }
   listResearchJobs(): Promise<ResearchJob[]> {
     return this.api.listResearchJobs?.() ?? Promise.resolve([]);
+  }
+
+  async addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<ResearchNoteEntry> {
+    const result = await this.api.addResearchNote?.(input);
+    if (!result) throw new Error('Research notes are unavailable in this session.');
+    return result;
   }
   getResearchJob(id: string): Promise<ResearchJob | null> {
     return this.api.getResearchJob?.(id) ?? Promise.resolve(null);

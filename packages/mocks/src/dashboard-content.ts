@@ -304,6 +304,7 @@ function productsRoadmap(ctx: ContentContext): ProductsRoadmapContent {
 export function generateDashboardContent(ctx: ContentContext): DashboardContentMap {
   return {
     overview: overview(ctx),
+    research: { markdown: '' },
     live_intel: liveIntel(ctx),
     team_org: teamOrg(ctx),
     live_landing: liveLanding(ctx),

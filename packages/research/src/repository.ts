@@ -95,6 +95,7 @@ import {
 import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS } from './prompts';
 import { briefingOutSchema, factCheckOutSchema, huntMetricsOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { LlmClient, ResearchCoverage, RunResearchOptions } from './types';
+import type { ResearchNoteEntry } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { coalesceOriginalSources, isOriginalSourceAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueObservation, secRevenueVerification } from './sec-revenue';
@@ -1460,6 +1461,28 @@ export class GeminiRepository implements MarketIntelRepository {
     return { ground: true, structure: true, image: true };
   }
 
+  /** User-authored knowledge-base entry, stored as user_note evidence so it
+   * flows through the same rendering/export paths as provider research. */
+  async addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<ResearchNoteEntry> {
+    const text = input.text.trim();
+    if (!text || text.length > 20000) throw new Error('Research notes must be 1-20000 characters.');
+    let citations: Citation[] = [];
+    if (input.sourceUrl?.trim()) {
+      const parsed = new URL(input.sourceUrl.trim());
+      citations = [{ title: parsed.hostname.replace(/^www\./, ''), url: parsed.toString() }];
+    }
+    const nowIso = new Date().toISOString();
+    const id = `ev_note_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    const evidence: ResearchEvidence = {
+      id, companyId: input.companyId, companyName: input.companyName,
+      topic: 'user_note', capturedAt: nowIso, text, citations, queries: [],
+    };
+    this.snap.researchEvidence = [...(this.snap.researchEvidence ?? []), evidence];
+    await this.persist();
+    return { id, companyId: input.companyId, companyName: input.companyName,
+      topic: 'user_note', capturedAt: nowIso, text, citations };
+  }
+
   getCompany(companyId: string): Promise<Company | null> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     return Promise.resolve(company ? savedCompanyProfile(company, this.snap.metrics, this.snap.researchEvidence ?? []).company : null);
@@ -1496,6 +1519,13 @@ export class GeminiRepository implements MarketIntelRepository {
   ): Promise<DashboardTabResult<T> | null> {
     const company = await this.getCompany(companyId);
     if (!company) return null;
+    // The Research & Sources tab reads retained evidence directly (its own
+    // component); it must never start provider research or touch the cache.
+    if (tab === 'research') {
+      // The tab component renders evidence directly; this stub only satisfies
+      // the contract shape without touching the dashboards cache.
+      return { companyId, tab, content: { markdown: '' }, citations: [], lastRefreshedAt: null } as unknown as DashboardTabResult<T>;
+    }
     // Metrics are a free projection of current observations, never stale cached
     // time series. Recompute on every read without modifying historical data.
     if (tab === 'metrics') {

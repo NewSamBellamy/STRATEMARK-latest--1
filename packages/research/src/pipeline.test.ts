@@ -645,6 +645,21 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
     }
   });
 
+  it('adds user notes to the knowledge base as user_note evidence', async () => {
+    const repo = new GeminiRepository({ apiKey: 'x', client: fakeClient(),
+      coverage: testCoverage, catalogMax: 3, catalogPasses: 0, store: memStore() });
+    const note = await repo.addResearchNote({
+      companyId: 'cmp_x', companyName: 'X Corp', text: 'Founder told us churn is 4% monthly.',
+      sourceUrl: 'https://xcorp.com/blog/unit-economics',
+    });
+    expect(note.topic).toBe('user_note');
+    expect(note.citations).toEqual([{ title: 'xcorp.com', url: 'https://xcorp.com/blog/unit-economics' }]);
+    const evidence = repo.getResearchEvidence({ companyId: 'cmp_x', limit: 10 });
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]!.text).toContain('churn is 4%');
+    await expect(repo.addResearchNote({ companyId: 'cmp_x', companyName: 'X Corp', text: '  ' })).rejects.toThrow();
+  });
+
   it('recovers saved evidence metrics for free and never calls the provider', async () => {
     // Catalog-style retained evidence: anonymous sections, third-party source,
     // subject named only in the answer header — the Phase 1 defect shape.
