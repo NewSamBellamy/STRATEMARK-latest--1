@@ -7,6 +7,7 @@ import {
   type Card,
   type CardFilter,
   type CardWithCompany,
+  type ProviderCapabilities,
   isEntityCardType,
   type Company,
   type CompanyMetric,
@@ -79,6 +80,10 @@ const uid = (prefix: string): string => {
 };
 
 export class MockRepository implements MarketIntelRepository {
+  capabilities(): ProviderCapabilities {
+    return { ground: true, structure: true, image: true };
+  }
+
   private readonly latency: number;
   private markets: Market[];
   private decks: Deck[];

@@ -6,6 +6,7 @@
  * and vice claims when Cloud Engine is selected or when authenticated as a Pro user.
  */
 import type {
+  ProviderCapabilities,
   HuntMetricsResult,
   VerifyMetricInput,
   VerifyMetricResult,
@@ -126,6 +127,12 @@ import {
 } from '@/lib/sentinelApi';
 
 export class SentinelRepository implements MarketIntelRepository {
+  capabilities(): ProviderCapabilities {
+    // The cloud engine researches and structures server-side; it has no
+    // image-generation route, and pretending otherwise wastes user time.
+    return { ground: true, structure: true, image: false };
+  }
+
   private fallbackRepo: MockRepository;
   private memoryMarkets = new Map<string, Market>();
   private memoryDecks = new Map<string, Deck>();

@@ -42,6 +42,7 @@ import type {
   HuntMetricsResult,
   DeckBriefing,
   SiteAuditInput,
+  ProviderCapabilities,
 } from '@mi/contracts';
 
 export function isElectron(): boolean {
@@ -49,6 +50,11 @@ export function isElectron(): boolean {
 }
 
 export class IpcRepository implements MarketIntelRepository {
+  capabilities(): ProviderCapabilities {
+    // Desktop research is the local BYOK Gemini path, which performs all
+    // three capabilities in the main process.
+    return { ground: true, structure: true, image: true };
+  }
   constructor(private readonly api: PreloadRepositoryApi) {}
 
   listMarkets(): Promise<Market[]> {

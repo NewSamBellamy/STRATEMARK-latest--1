@@ -32,6 +32,7 @@ import {
 } from '@/lib/usage';
 import { looksLikeGeminiKey, sanitizeApiKey, useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
+import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { Modal } from '@/components/ui/Modal';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
@@ -288,6 +289,8 @@ function EngineTab() {
           Choose where your competitive intelligence and deck research runs.
         </p>
       </div>
+
+      <CapabilityRow />
 
       <div className="grid grid-cols-1 gap-3">
         <button
@@ -730,6 +733,31 @@ function AccessPanel() {
       >
         Sign out
       </button>
+    </div>
+  );
+}
+
+
+/** Honest capability report for the active engine (Slice C). */
+function CapabilityRow() {
+  const repo = useRepository();
+  const caps = repo.capabilities?.() ?? { ground: true, structure: true, image: true };
+  const items: Array<[string, boolean]> = [
+    ['Grounded search', caps.ground],
+    ['Structured extraction', caps.structure],
+    ['Image generation', caps.image],
+  ];
+  return (
+    <div className="rounded-xl border border-border bg-surface-2/60 px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">Provider capabilities</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {items.map(([label, ok]) => (
+          <span key={label} className={`chip ${ok ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' : 'border-border bg-surface text-faint line-through'}`}
+            title={ok ? 'Supported by the active engine and key' : 'Not available on this engine — features that need it stay unavailable instead of failing'}>
+            {label} {ok ? '✓' : '—'}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

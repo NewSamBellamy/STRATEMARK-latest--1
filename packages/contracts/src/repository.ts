@@ -504,7 +504,23 @@ export interface SavedCard {
   savedAt: string;
 }
 
+/** What the configured provider can actually do. Features must degrade
+ * honestly when a capability is absent — never error, never fake. */
+export interface ProviderCapabilities {
+  /** Google-Search-grounded research. */
+  ground: boolean;
+  /** Structured JSON extraction. */
+  structure: boolean;
+  /** Image generation (Nano Banana covers). */
+  image: boolean;
+}
+
 export interface MarketIntelRepository {
+  /** Capability report for the active engine/key. OPTIONAL — engines without
+   * capability plumbing are assumed fully capable by callers that need a
+   * default, but honest UIs should prefer this. */
+  capabilities?(): ProviderCapabilities;
+
   // Markets
   listMarkets(): Promise<Market[]>;
   getMarket(id: string): Promise<Market | null>;

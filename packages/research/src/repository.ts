@@ -58,6 +58,7 @@ import {
   type DeckResearchBrief,
   type Market,
   type MarketIntelRepository,
+  type ProviderCapabilities,
   type RefreshCadence,
   type ResearchHandlers,
   type ResearchJob,
@@ -1451,6 +1452,11 @@ export class GeminiRepository implements MarketIntelRepository {
     const ids = [...new Set(cards.flatMap(row => row.company ? [row.company.id] : []))];
     const facts = new Map(await mapWithConcurrency(ids, 4, async id => [id, await this.getCompanyFacts(id)] as const));
     return structuredClone(cards.map(row => ({ ...row, metrics: row.company && !isSignalCardType(row.card.cardType) ? facts.get(row.company.id) ?? [] : [] })));
+  }
+
+  capabilities(): ProviderCapabilities {
+    // The local BYOK Gemini path performs all three capabilities itself.
+    return { ground: true, structure: true, image: true };
   }
 
   getCompany(companyId: string): Promise<Company | null> {
