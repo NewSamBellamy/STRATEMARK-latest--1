@@ -751,6 +751,9 @@ export class GeminiRepository implements MarketIntelRepository {
       await this.persist();
     };
 
+    // Stage timings surface in the run log: discovery, per-company hydration
+    // and the total, so latency claims rest on measurements, not impressions.
+    const runStartedAt = Date.now();
     let stubsResult: DeckStubsResult;
     try {
       stubsResult = await discoverDeckStubs(brief, this.client, {
@@ -806,6 +809,11 @@ export class GeminiRepository implements MarketIntelRepository {
       this.jobControllers.delete(job.id);
       throw new Error('Research cancelled');
     }
+    await checkpoint({
+      type: 'status',
+      step: 'discover',
+      message: `Found ${stubsResult.candidates.length} entities · ${Math.round((Date.now() - runStartedAt) / 1000)}s`,
+    });
 
     // Ingest stub cards into snapshot immediately
     this.snap.markets = [
@@ -892,6 +900,7 @@ export class GeminiRepository implements MarketIntelRepository {
               this.concurrency ?? 3,
               async (candidate) => {
                 throwIfAborted(controller.signal);
+                const companyStartedAt = Date.now();
                 try {
                   const stub = stubsResult.cards.find(
                     (c) => c.company?.name.toLowerCase() === candidate.name.toLowerCase(),
@@ -1053,7 +1062,7 @@ export class GeminiRepository implements MarketIntelRepository {
                   });
 
                   handlers?.onProgress?.({
-                    message: `+ ${hydrated.primaryCard.card.cardType} card: ${hydrated.company.name}${hydrated.primaryCard.card.tier ? ` (T${hydrated.primaryCard.card.tier})` : ''} · ${hydrated.metrics.filter((m) => m.value != null).length} metrics`,
+                    message: `+ ${hydrated.primaryCard.card.cardType} card: ${hydrated.company.name}${hydrated.primaryCard.card.tier ? ` (T${hydrated.primaryCard.card.tier})` : ''} · ${hydrated.metrics.filter((m) => m.value != null).length} metrics · ${Math.max(1, Math.round((Date.now() - companyStartedAt) / 1000))}s`,
                     stage: 'summary',
                     card: hydrated.primaryCard,
                     kind: 'find',
@@ -1209,6 +1218,11 @@ export class GeminiRepository implements MarketIntelRepository {
           });
         }
 
+        await checkpoint({
+          type: 'status',
+          step: 'barriers',
+          message: `Deck research completed · ${Math.max(1, Math.round((Date.now() - runStartedAt) / 1000))}s total`,
+        });
         job.status = 'completed';
         job.stage = 'signals';
         job.updatedAt = new Date().toISOString();
