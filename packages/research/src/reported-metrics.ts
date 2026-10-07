@@ -36,11 +36,13 @@ const mentionsCompany = (text: string, name: string) => {
   return name.length > 0 && new RegExp(`(?<![\\p{L}\\p{N}])${escape(name)}(?![\\p{L}\\p{N}])`, 'iu').test(text);
 };
 
-// A sentence opening with one of these measurement labels is a catalog metric
-// section. Anything else — most importantly another company's name — fails
-// closed, because the roster cannot vouch for entities it does not know.
+// A catalog section's claim sentence opens with its measurement label, after
+// markdown decoration ("### Headcount & Factual Proxy Anchors…"). Decoration is
+// skipped, then the label is required: anything else — most importantly another
+// company's name — fails closed, because the roster cannot vouch for entities
+// it does not know.
 const anonymousClaimLabel =
-  /^(?:revenue\b|arr\b|annual(?:ized)?\b|employees?\b|headcount\b|users\b|customers\b|valuation\b|market cap(?:italization)?\b|estimated headcount|historical booked|funding round valuation|booked\b)/i;
+  /^[#>\-*•|\s]*(?:revenue\b|arr\b|annual(?:ized)?\b|employees?\b|headcount\b|users\b|customers\b|valuation\b|market cap(?:italization)?\b|estimated headcount|historical booked|funding round valuation|fiscal[- ]?year\b|booked\b)/i;
 
 const GENERIC_NAME_TOKENS = /^(?:inc|llc|ltd|limited|corporation|corp|company|co|group|holdings|the|plc|ag|sa|sas|gmbh|pbc)$/i;
 
