@@ -77,7 +77,9 @@ import {
   type DeckStubsResult,
   type ResearchResult,
 } from './pipeline';
+import type { CompanyCandidate, MarketPlan } from './types';
 import { hydrateCompanyCard } from './company-agent';
+import { latestSavedCompanyProfile } from './saved-profile';
 import { reportedCompanyMetrics } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
@@ -754,6 +756,234 @@ export class GeminiRepository implements MarketIntelRepository {
     // Stage timings surface in the run log: discovery, per-company hydration
     // and the total, so latency claims rest on measurements, not impressions.
     const runStartedAt = Date.now();
+
+    // Streaming hydration: discovery hands over each new entity as an
+    // ingestible stub while fallback passes are still running. Workers ingest
+    // immediately and hydrate against real deck ids, so the first card's
+    // research starts DURING discovery instead of after it.
+    let interpreted: { plan: MarketPlan; market: Market; deck: Deck } | null = null;
+    let candidatesSeen = 0;
+    let hydratedCount = 0;
+    const rosterNames: string[] = [];
+    const candidateById = new Map<string, CompanyCandidate>();
+    const stubQueue: Array<{ stub: CardWithCompany; candidate: CompanyCandidate }> = [];
+    let discoveryDone = false;
+
+    let resolveLeadCardReady!: () => void;
+    let rejectLeadCardReady!: (error: Error) => void;
+    let leadCardReadyClaimed = false;
+    let leadCardReadySettled = false;
+    const leadCardReady = new Promise<void>((resolve, reject) => {
+      resolveLeadCardReady = resolve;
+      rejectLeadCardReady = reject;
+    });
+
+    const ingestStreamedStub = (stub: CardWithCompany) => {
+      if (!stub.company) return;
+      const existingIdx = this.snap.companies.findIndex((c) => c.id === stub.company!.id);
+      if (existingIdx >= 0) this.snap.companies[existingIdx] = stub.company;
+      else this.snap.companies.push(stub.company);
+      this.snap.companyMarket[stub.company.id] = interpreted?.market.name ?? '';
+      if (!this.snap.cards.some((c) => c.id === stub.card.id)) this.snap.cards.push(stub.card);
+      this.snap.metrics = [
+        ...this.snap.metrics.filter((m) => m.companyId !== stub.company!.id),
+        ...stub.metrics,
+      ];
+    };
+
+    const hydrateOne = async (candidate: CompanyCandidate, stub: CardWithCompany) => {
+      throwIfAborted(controller.signal);
+      if (!stub.company) return;
+      const companyStartedAt = Date.now();
+      try {
+        const plan = interpreted?.plan;
+        if (!plan) throw new Error('Research plan was not streamed before hydration started.');
+        const hydrated = await hydrateCompanyCard({
+          originalSources: this.originalSources,
+          recoverMissingMetrics: true,
+          candidate,
+          client: this.client,
+          plan,
+          deckId: stub.card.deckId,
+          companyId: stub.company.id,
+          signal: controller.signal,
+          // The roster is whatever discovery has streamed so far; named-claim
+          // attribution is unaffected, and the free saved-evidence recovery
+          // re-projects with the complete roster after the deck lands.
+          otherCompanies: rosterNames.filter((name) => name !== candidate.name),
+        });
+        hydratedCount += 1;
+        await checkpoint({
+          type: 'status',
+          step: 'enrich',
+          message: `Researched ${candidate.name} (${hydratedCount}/${candidatesSeen})`,
+          progress: stubsResult ? Math.min(1, hydratedCount / Math.max(1, stubsResult.candidates.length)) : undefined,
+        });
+
+        // Update company in snap
+        // The new deck owns a scoped company ID. A same-name record
+        // in an older deck must retain its identity and evidence links.
+        const coIdx = this.snap.companies.findIndex((c) => c.id === hydrated.company.id);
+        if (coIdx >= 0) {
+          this.snap.companies[coIdx] = hydrated.company;
+        } else {
+          this.snap.companies.push(hydrated.company);
+        }
+        this.snap.companyMarket[hydrated.company.id] = interpreted?.market.name ?? '';
+
+        // Reconcile metrics for this company in snap
+        const otherCompanyMetrics = this.snap.metrics.filter(
+          (m) => m.companyId !== hydrated.company.id,
+        );
+        const existingForCo = this.snap.metrics.filter(
+          (m) => m.companyId === hydrated.company.id,
+        );
+        this.snap.metrics = [
+          ...otherCompanyMetrics,
+          ...reconcileMetrics(existingForCo, hydrated.metrics, hydrated.company.websiteUrl),
+        ];
+
+        // Update primary entity card in snap
+        const updatedCardIds: string[] = [];
+        const addedCardIds: string[] = [];
+
+        const cardIdx = this.snap.cards.findIndex(
+          (c) =>
+            c.deckId === stub.card.deckId &&
+            (c.companyId === hydrated.company.id ||
+              (c.companyId &&
+                this.snap.companies.find((comp) => comp.id === c.companyId)?.name.toLowerCase() ===
+                  hydrated.company.name.toLowerCase())),
+        );
+
+        if (cardIdx >= 0) {
+          const existingCard = this.snap.cards[cardIdx]!;
+          const updatedCard: Card = {
+            ...hydrated.primaryCard.card,
+            id: existingCard.id,
+            deckId: stub.card.deckId,
+            companyId: hydrated.company.id,
+          };
+          this.snap.cards[cardIdx] = updatedCard;
+          updatedCardIds.push(updatedCard.id);
+        } else {
+          this.snap.cards.push(hydrated.primaryCard.card);
+          addedCardIds.push(hydrated.primaryCard.card.id);
+        }
+
+        // Add facet cards (vice / culture) if present
+        for (const facetCwc of hydrated.cards.slice(1)) {
+          const existingFacet = this.snap.cards.find(
+            (c) =>
+              c.deckId === stub.card.deckId &&
+              c.companyId === hydrated.company.id &&
+              c.cardType === facetCwc.card.cardType,
+          );
+          if (!existingFacet) {
+            this.snap.cards.push(facetCwc.card);
+            addedCardIds.push(facetCwc.card.id);
+          }
+          if (facetCwc.viceClaims.length > 0) {
+            this.snap.viceClaims.push(...facetCwc.viceClaims);
+          }
+        }
+
+        // Update job completed entity names
+        if (!job.completedEntityNames.includes(hydrated.company.name)) {
+          job.completedEntityNames.push(hydrated.company.name);
+        }
+        const pIdx = job.partialCards.findIndex(
+          (p) => p.company?.name.toLowerCase() === hydrated.company.name.toLowerCase(),
+        );
+        if (pIdx >= 0) {
+          job.partialCards[pIdx] = hydrated.primaryCard;
+        } else {
+          job.partialCards.push(hydrated.primaryCard);
+        }
+
+        // Exact-company scope can correctly classify a requested business
+        // as infrastructure or distribution. Any fully hydrated core
+        // entity card is a valid first deck entry; gating only on the
+        // literal `company` role strands those runs after every card has
+        // actually been researched.
+        const isFirstEntityReady =
+          !leadCardReadyClaimed && isEntityCardType(hydrated.primaryCard.card.cardType);
+        if (isFirstEntityReady) {
+          leadCardReadyClaimed = true;
+          // The first visible company card is the one that completed
+          // research, not whichever unhydrated stub happened to be
+          // discovered first. Preserve all other deck ordering.
+          const firstDeckIndex = this.snap.cards.findIndex(
+            (card) => card.deckId === stub.card.deckId,
+          );
+          if (firstDeckIndex >= 0) {
+            const beforeDeck = this.snap.cards
+              .slice(0, firstDeckIndex)
+              .filter((card) => card.deckId !== stub.card.deckId);
+            const afterDeck = this.snap.cards
+              .slice(firstDeckIndex)
+              .filter((card) => card.deckId !== stub.card.deckId);
+            const deckCards = this.snap.cards.filter(
+              (card) => card.deckId === stub.card.deckId,
+            );
+            const leadCard = deckCards.find(
+              (card) => card.id === hydrated.primaryCard.card.id,
+            );
+            this.snap.cards = [
+              ...beforeDeck,
+              ...(leadCard ? [leadCard] : []),
+              ...deckCards.filter((card) => card.id !== leadCard?.id),
+              ...afterDeck,
+            ];
+          }
+        }
+
+        // Invalidate dashboard caches for company
+        this.snap.dashboards[hydrated.company.id] = {};
+
+        await this.persist();
+
+        // Real-time live board hydration event
+        this.emit({
+          marketId: interpreted?.market.id ?? stub.card.deckId,
+          deckId: stub.card.deckId,
+          refreshedAt: new Date().toISOString(),
+          addedCardIds,
+          updatedCardIds,
+          prunedCardIds: [],
+        });
+
+        handlers?.onProgress?.({
+          message: `+ ${hydrated.primaryCard.card.cardType} card: ${hydrated.company.name}${hydrated.primaryCard.card.tier ? ` (T${hydrated.primaryCard.card.tier})` : ''} · ${hydrated.metrics.filter((m) => m.value != null).length} metrics · ${Math.max(1, Math.round((Date.now() - companyStartedAt) / 1000))}s`,
+          stage: 'summary',
+          card: hydrated.primaryCard,
+          kind: 'find',
+        });
+        if (isFirstEntityReady) {
+          leadCardReadySettled = true;
+          resolveLeadCardReady();
+        }
+      } catch (err) {
+        if (controller.signal.aborted) throw err;
+        await checkpoint({
+          type: 'warning',
+          message: `Could not enrich ${candidate.name}; preserving the rest of the deck. ${err instanceof Error ? err.message : 'Research failed.'}`,
+        });
+      }
+    };
+
+    const hydrationWorkers = Array.from({ length: this.concurrency ?? 3 }, async () => {
+      for (;;) {
+        const next = stubQueue.shift();
+        if (!next) {
+          if (discoveryDone) return;
+          await new Promise((r) => setTimeout(r, 50));
+          continue;
+        }
+        await hydrateOne(next.candidate, next.stub);
+      }
+    });
+
     let stubsResult: DeckStubsResult;
     try {
       stubsResult = await discoverDeckStubs(brief, this.client, {
@@ -763,6 +993,17 @@ export class GeminiRepository implements MarketIntelRepository {
         coverage: this.coverage,
         catalogMax: this.catalogMax,
         catalogPasses: 0,
+        onInterpreted: (trio) => {
+          interpreted = trio;
+        },
+        onStubs: (entries) => {
+          for (const { stub, candidate } of entries) {
+            candidatesSeen += 1;
+            rosterNames.push(candidate.name);
+            ingestStreamedStub(stub);
+            stubQueue.push({ stub, candidate });
+          }
+        },
         onEvent: async (evt) => {
           await checkpoint(evt);
           const p = handlers?.onProgress;
@@ -793,6 +1034,7 @@ export class GeminiRepository implements MarketIntelRepository {
         },
       });
     } catch (error) {
+      discoveryDone = true;
       job.status = controller.signal.aborted ? 'cancelled' : 'failed';
       job.error = error instanceof Error ? error.message : 'Research failed.';
       job.updatedAt = new Date().toISOString();
@@ -802,6 +1044,7 @@ export class GeminiRepository implements MarketIntelRepository {
     }
 
     if (job.status === 'cancelled' || controller.signal.aborted) {
+      discoveryDone = true;
       job.status = 'cancelled';
       job.error = 'Cancelled by user.';
       job.updatedAt = new Date().toISOString();
@@ -815,7 +1058,9 @@ export class GeminiRepository implements MarketIntelRepository {
       message: `Found ${stubsResult.candidates.length} entities · ${Math.round((Date.now() - runStartedAt) / 1000)}s`,
     });
 
-    // Ingest stub cards into snapshot immediately
+    // Ingest the market and deck rows. Entity stubs were already ingested
+    // per-stub as discovery streamed them (hydrating against real deck ids);
+    // catch any stub that never streamed rather than re-ingesting the world.
     this.snap.markets = [
       stubsResult.market,
       ...this.snap.markets.filter((m) => m.id !== stubsResult.market.id),
@@ -824,22 +1069,18 @@ export class GeminiRepository implements MarketIntelRepository {
       stubsResult.deck,
       ...this.snap.decks.filter((d) => d.id !== stubsResult.deck.id),
     ];
-    this.snap.cards = [
-      ...this.snap.cards.filter((c) => c.deckId !== stubsResult.deck.id),
-      ...stubsResult.cards.map((c) => c.card),
-    ];
-    this.snap.metrics = [
-      ...this.snap.metrics.filter(
-        (m) => !stubsResult.cards.some((c) => c.company?.id === m.companyId),
-      ),
-      ...stubsResult.cards.flatMap((c) => c.metrics),
-    ];
     for (const stub of stubsResult.cards) {
-      if (stub.company) {
-        const existingIdx = this.snap.companies.findIndex((c) => c.id === stub.company!.id);
-        if (existingIdx >= 0) this.snap.companies[existingIdx] = stub.company;
-        else this.snap.companies.push(stub.company);
-        this.snap.companyMarket[stub.company.id] = stubsResult.market.name;
+      if (stub.company && !this.snap.companies.some((c) => c.id === stub.company!.id)) {
+        ingestStreamedStub(stub);
+        candidatesSeen += 1;
+        const candidate = candidateById.get(stub.company.id) ?? {
+          name: stub.company.name,
+          domain: stub.company.websiteUrl?.replace(/^https?:\/\//, '') ?? null,
+          descriptor: stub.company.oneLiner,
+          cardTypes: [stub.card.cardType] as CompanyCandidate['cardTypes'],
+        };
+        rosterNames.push(candidate.name);
+        stubQueue.push({ stub, candidate });
       }
     }
 
@@ -875,212 +1116,26 @@ export class GeminiRepository implements MarketIntelRepository {
     job.catalog = stubsResult.candidates;
     job.catalogNames = stubsResult.candidates.map((c) => c.name);
     job.stage = 'summary';
-    job.partialCards = [...stubsResult.cards];
+    // Hydration may already have replaced some stubs (streamed hydration);
+    // add only the stubs that are not represented yet.
+    for (const stub of stubsResult.cards) {
+      if (!job.partialCards.some((p) => p.company?.name.toLowerCase() === stub.company?.name.toLowerCase())) {
+        job.partialCards.push(stub);
+      }
+    }
     job.updatedAt = new Date().toISOString();
     await this.persist();
-
-    let resolveLeadCardReady!: () => void;
-    let rejectLeadCardReady!: (error: Error) => void;
-    let leadCardReadyClaimed = false;
-    let leadCardReadySettled = false;
-    const leadCardReady = new Promise<void>((resolve, reject) => {
-      resolveLeadCardReady = resolve;
-      rejectLeadCardReady = reject;
-    });
 
     // Continual Background Hydration
     const backgroundPromise = (async () => {
       try {
         await Promise.all([
-          // Track 1: Entity Card Hydration (worker pool concurrency: 3)
+          // Track 1: Streamed Entity Card Hydration — the worker pool started
+          // before discovery and has been consuming stubs as discovery
+          // emitted them. Close the queue and drain whatever remains.
           (async () => {
-            let done = 0;
-            await mapWithConcurrency(
-              stubsResult.candidates,
-              this.concurrency ?? 3,
-              async (candidate) => {
-                throwIfAborted(controller.signal);
-                const companyStartedAt = Date.now();
-                try {
-                  const stub = stubsResult.cards.find(
-                    (c) => c.company?.name.toLowerCase() === candidate.name.toLowerCase(),
-                  );
-                  const existingCompanyId = stub?.company?.id;
-
-                  const hydrated = await hydrateCompanyCard({
-                    originalSources: this.originalSources,
-                    recoverMissingMetrics: true,
-                    candidate,
-                    client: this.client,
-                    plan: stubsResult.plan,
-                    deckId: stubsResult.deck.id,
-                    companyId: existingCompanyId,
-                    signal: controller.signal,
-                    otherCompanies: stubsResult.candidates
-                      .filter((sibling) => sibling.name !== candidate.name)
-                      .map((sibling) => sibling.name),
-                  });
-                  done += 1;
-                  await checkpoint({
-                    type: 'status',
-                    step: 'enrich',
-                    message: `Researched ${candidate.name} (${done}/${stubsResult.candidates.length})`,
-                    progress: done / stubsResult.candidates.length,
-                  });
-
-                  // Update company in snap
-                  // The new deck owns a scoped company ID. A same-name record
-                  // in an older deck must retain its identity and evidence links.
-                  const coIdx = this.snap.companies.findIndex((c) => c.id === hydrated.company.id);
-                  if (coIdx >= 0) {
-                    this.snap.companies[coIdx] = hydrated.company;
-                  } else {
-                    this.snap.companies.push(hydrated.company);
-                  }
-                  this.snap.companyMarket[hydrated.company.id] = stubsResult.market.name;
-
-                  // Reconcile metrics for this company in snap
-                  const otherCompanyMetrics = this.snap.metrics.filter(
-                    (m) => m.companyId !== hydrated.company.id,
-                  );
-                  const existingForCo = this.snap.metrics.filter(
-                    (m) => m.companyId === hydrated.company.id,
-                  );
-                  this.snap.metrics = [
-                    ...otherCompanyMetrics,
-                    ...reconcileMetrics(existingForCo, hydrated.metrics, hydrated.company.websiteUrl),
-                  ];
-
-                  // Update primary entity card in snap
-                  const updatedCardIds: string[] = [];
-                  const addedCardIds: string[] = [];
-
-                  const cardIdx = this.snap.cards.findIndex(
-                    (c) =>
-                      c.deckId === stubsResult.deck.id &&
-                      (c.companyId === hydrated.company.id ||
-                        (c.companyId &&
-                          this.snap.companies.find((comp) => comp.id === c.companyId)?.name.toLowerCase() ===
-                            hydrated.company.name.toLowerCase())),
-                  );
-
-                  if (cardIdx >= 0) {
-                    const existingCard = this.snap.cards[cardIdx]!;
-                    const updatedCard: Card = {
-                      ...hydrated.primaryCard.card,
-                      id: existingCard.id,
-                      deckId: stubsResult.deck.id,
-                      companyId: hydrated.company.id,
-                    };
-                    this.snap.cards[cardIdx] = updatedCard;
-                    updatedCardIds.push(updatedCard.id);
-                  } else {
-                    this.snap.cards.push(hydrated.primaryCard.card);
-                    addedCardIds.push(hydrated.primaryCard.card.id);
-                  }
-
-                  // Add facet cards (vice / culture) if present
-                  for (const facetCwc of hydrated.cards.slice(1)) {
-                    const existingFacet = this.snap.cards.find(
-                      (c) =>
-                        c.deckId === stubsResult.deck.id &&
-                        c.companyId === hydrated.company.id &&
-                        c.cardType === facetCwc.card.cardType,
-                    );
-                    if (!existingFacet) {
-                      this.snap.cards.push(facetCwc.card);
-                      addedCardIds.push(facetCwc.card.id);
-                    }
-                    if (facetCwc.viceClaims.length > 0) {
-                      this.snap.viceClaims.push(...facetCwc.viceClaims);
-                    }
-                  }
-
-                  // Update job completed entity names
-                  if (!job.completedEntityNames.includes(hydrated.company.name)) {
-                    job.completedEntityNames.push(hydrated.company.name);
-                  }
-                  const pIdx = job.partialCards.findIndex(
-                    (p) => p.company?.name.toLowerCase() === hydrated.company.name.toLowerCase(),
-                  );
-                  if (pIdx >= 0) {
-                    job.partialCards[pIdx] = hydrated.primaryCard;
-                  } else {
-                    job.partialCards.push(hydrated.primaryCard);
-                  }
-
-                  // Exact-company scope can correctly classify a requested business
-                  // as infrastructure or distribution. Any fully hydrated core
-                  // entity card is a valid first deck entry; gating only on the
-                  // literal `company` role strands those runs after every card has
-                  // actually been researched.
-                  const isFirstEntityReady =
-                    !leadCardReadyClaimed && isEntityCardType(hydrated.primaryCard.card.cardType);
-                  if (isFirstEntityReady) {
-                    leadCardReadyClaimed = true;
-                    // The first visible company card is the one that completed
-                    // research, not whichever unhydrated stub happened to be
-                    // discovered first. Preserve all other deck ordering.
-                    const firstDeckIndex = this.snap.cards.findIndex(
-                      (card) => card.deckId === stubsResult.deck.id,
-                    );
-                    if (firstDeckIndex >= 0) {
-                      const beforeDeck = this.snap.cards
-                        .slice(0, firstDeckIndex)
-                        .filter((card) => card.deckId !== stubsResult.deck.id);
-                      const afterDeck = this.snap.cards
-                        .slice(firstDeckIndex)
-                        .filter((card) => card.deckId !== stubsResult.deck.id);
-                      const deckCards = this.snap.cards.filter(
-                        (card) => card.deckId === stubsResult.deck.id,
-                      );
-                      const leadCard = deckCards.find(
-                        (card) => card.id === hydrated.primaryCard.card.id,
-                      );
-                      this.snap.cards = [
-                        ...beforeDeck,
-                        ...(leadCard ? [leadCard] : []),
-                        ...deckCards.filter((card) => card.id !== leadCard?.id),
-                        ...afterDeck,
-                      ];
-                    }
-                  }
-
-                  // Invalidate dashboard caches for company
-                  this.snap.dashboards[hydrated.company.id] = {};
-
-                  await this.persist();
-
-                  // Real-time live board hydration event
-                  this.emit({
-                    marketId: stubsResult.market.id,
-                    deckId: stubsResult.deck.id,
-                    refreshedAt: new Date().toISOString(),
-                    addedCardIds,
-                    updatedCardIds,
-                    prunedCardIds: [],
-                  });
-
-                  handlers?.onProgress?.({
-                    message: `+ ${hydrated.primaryCard.card.cardType} card: ${hydrated.company.name}${hydrated.primaryCard.card.tier ? ` (T${hydrated.primaryCard.card.tier})` : ''} · ${hydrated.metrics.filter((m) => m.value != null).length} metrics · ${Math.max(1, Math.round((Date.now() - companyStartedAt) / 1000))}s`,
-                    stage: 'summary',
-                    card: hydrated.primaryCard,
-                    kind: 'find',
-                  });
-                  if (isFirstEntityReady) {
-                    leadCardReadySettled = true;
-                    resolveLeadCardReady();
-                  }
-                } catch (err) {
-                  if (controller.signal.aborted) throw err;
-                  await checkpoint({
-                    type: 'warning',
-                    message: `Could not enrich ${candidate.name}; preserving the rest of the deck. ${err instanceof Error ? err.message : 'Research failed.'}`,
-                  });
-                }
-              },
-              controller.signal,
-            );
+            discoveryDone = true;
+            await Promise.all(hydrationWorkers);
             if (!leadCardReadySettled) {
               leadCardReadySettled = true;
               rejectLeadCardReady(
@@ -2012,12 +2067,13 @@ export class GeminiRepository implements MarketIntelRepository {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company) throw new Error(`Company not found: ${companyId}`);
     const mine = () => this.snap.metrics.filter((m) => m.companyId === companyId);
-    const evidence = (this.snap.researchEvidence ?? [])
-      .filter((e) => e.companyId === companyId && e.topic === 'company_profile' &&
-        e.companyName === company.name &&
-        e.grounding != null && e.grounding.provider === 'google-search' && e.grounding.supports.length > 0)
-      .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))[0];
-    if (!evidence) return { filledTypes: [], metrics: mine(), retieredCardIds: [] };
+    const evidence = latestSavedCompanyProfile(company, this.snap.researchEvidence ?? []);
+    // Newest-wins selection may land on an ungrounded record; recovery needs
+    // literal provider attribution, so such a record blocks rather than
+    // falling back behind it.
+    if (!evidence || evidence.grounding?.provider !== 'google-search' || evidence.grounding.supports.length === 0) {
+      return { filledTypes: [], metrics: mine(), retieredCardIds: [] };
+    }
     // Roster stays market-scoped; a company without a market mapping gets an
     // empty roster (anonymous binding disabled) rather than every marketless
     // company in the snapshot as a false rival list.

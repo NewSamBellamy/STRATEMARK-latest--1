@@ -52,8 +52,10 @@ function layout(nodes: OrgNode[]): { rfNodes: Node[]; rfEdges: Edge[] } {
         ),
       },
       style: {
-        background: '#ffffff',
-        color: '#18181B',
+        // Theme tokens, not hard-coded light values: in dark mode this node
+        // used to render as a blinding white rectangle.
+        background: 'rgb(var(--c-surface))',
+        color: 'rgb(var(--c-content))',
         border: `2px solid ${GROUP_COLOR[n.group]}`,
         borderRadius: 10,
         fontSize: 12,
@@ -71,7 +73,7 @@ function layout(nodes: OrgNode[]): { rfNodes: Node[]; rfEdges: Edge[] } {
       id: `${n.parentId}->${n.id}`,
       source: n.parentId as string,
       target: n.id,
-      style: { stroke: '#D8D7D2' },
+      style: { stroke: 'rgb(var(--c-border))' },
       animated: false,
     }));
 

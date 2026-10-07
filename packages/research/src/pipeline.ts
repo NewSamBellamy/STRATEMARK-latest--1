@@ -344,19 +344,63 @@ export function selectCandidates(
   return selected;
 }
 
-export async function discoverWithCoverage(
+/** Phase 1 of deck construction: interpret the brief into a plan and the
+ * durable market/deck rows. Exported so streaming callers can start their
+ * hydration machinery before discovery begins. */
+export async function interpretMarket(
+  brief: ResearchBrief,
+  client: LlmClient,
+  signal?: AbortSignal,
+): Promise<{ plan: MarketPlan; market: Market; deck: Deck }> {
+  const plan = await interpret(client, brief, signal);
+  const marketSlug = slugify(plan.marketName);
+  const market: Market = {
+    id: uid('mkt', marketSlug),
+    name: plan.marketName,
+    scopeDefinition: { vertical: plan.vertical, geography: plan.geography, notes: plan.notes },
+    refreshCadence: 'weekly',
+    createdAt: now(),
+  };
+  const deck: Deck = {
+    id: uid('dck', marketSlug),
+    marketId: market.id,
+    createdAt: now(),
+    lastRefreshedAt: now(),
+  };
+  return { plan, market, deck };
+}
+
+/** Phase 2 of deck construction: discover the market's entities. Streamed
+ * variants hand each pass's NEW candidates to `onCandidates` so stubs can be
+ * ingested and hydrated while later passes are still running. */
+export async function discoverMarket(
   client: LlmClient,
   plan: MarketPlan,
   coverage: ResearchCoverage,
   signal?: AbortSignal,
   catalogMax = 50,
   catalogPasses = plan.searchThemes.length,
+  onCandidates?: (batch: CompanyCandidate[]) => void,
 ): Promise<{
   candidates: CompanyCandidate[];
   rejected: string[];
   minimumCompaniesSatisfied: boolean;
 }> {
+  // Stream the SELECTION delta, not the raw discovery delta: selectCandidates
+  // is monotonic-append on a growing candidate list (role minimums, targets and
+  // the catalogMax cap only ever add), so everything streamed here is within
+  // the final selection. Streaming raw candidates would hydrate entities the
+  // catalog cap drops — pure spend with no card to show for it.
+  const emitSelectionDelta = (previousSelected: CompanyCandidate[]) => {
+    if (!onCandidates) return previousSelected;
+    const selectedNow = selectCandidates(candidates, coverage, catalogMax);
+    const known = new Set(previousSelected.map((c) => identityKeys(c.name, c.domain)[0]));
+    const fresh = selectedNow.filter((c) => !known.has(identityKeys(c.name, c.domain)[0]));
+    if (fresh.length) onCandidates(fresh);
+    return selectedNow;
+  };
   let candidates: CompanyCandidate[] = [];
+  let selectedSoFar: CompanyCandidate[] = [];
   const rejected: string[] = [];
   const initial = await discover(
     client,
@@ -368,6 +412,7 @@ export async function discoverWithCoverage(
     signal,
   );
   candidates = mergeCandidates(candidates, initial.candidates);
+  selectedSoFar = emitSelectionDelta(selectedSoFar);
   rejected.push(...initial.rejected);
 
   const countRole = (role: 'company' | 'infrastructure' | 'distribution') =>
@@ -412,6 +457,7 @@ export async function discoverWithCoverage(
       candidates.map((c) => c.name),
     );
     candidates = mergeCandidates(candidates, fallback.candidates);
+    selectedSoFar = emitSelectionDelta(selectedSoFar);
     rejected.push(...fallback.rejected);
   }
 
@@ -433,6 +479,7 @@ export async function discoverWithCoverage(
       angle,
     );
     candidates = mergeCandidates(candidates, pass.candidates);
+    selectedSoFar = emitSelectionDelta(selectedSoFar);
     rejected.push(...pass.rejected);
     noGrowth = candidates.length === before ? noGrowth + 1 : 0;
   }
@@ -452,6 +499,9 @@ export async function discoverWithCoverage(
   const minimumCompaniesSatisfied = new Set(companyNames).size >= coverage.companies.min;
   return { candidates: selected, rejected, minimumCompaniesSatisfied };
 }
+
+/** Back-compat alias: discoverMarket is the same phase under its original name. */
+export const discoverWithCoverage = discoverMarket;
 
 /**
  * Review the whole cohort's tiers in ONE call.
@@ -553,7 +603,10 @@ export async function discoverDeckStubs(
   const coverage = resolveCoverage(options);
 
   await emit({ type: 'status', step: 'interpret', message: 'Understanding the market…' });
-  const plan = await interpret(client, brief, signal);
+  const { plan, market, deck } = await interpretMarket(brief, client, signal);
+  // The interpreted trio streams before discovery so streamed stubs carry
+  // real deck ids while fallback passes are still running.
+  options.onInterpreted?.({ plan, market, deck });
   await emit({ type: 'market', market: plan });
 
   await emit({
@@ -565,6 +618,26 @@ export async function discoverDeckStubs(
   let candidates: CompanyCandidate[] = [];
   let rejected: string[] = [];
   let minimumCompaniesSatisfied = false;
+
+  // Streaming: each discovery pass hands its NEW entities to the caller as
+  // ingestible stub cards (stable ids, deduped by identity) while the next
+  // pass is still running.
+  const streamed: Array<{ stub: CardWithCompany; candidate: CompanyCandidate }> = [];
+  const streamedKeys = new Set<string>();
+  const streamStubs = (batch: CompanyCandidate[]) => {
+    if (!options.onStubs) return;
+    const fresh = batch.filter((candidate) => {
+      const key = identityKeys(candidate.name, candidate.domain)[0]!;
+      if (streamedKeys.has(key)) return false;
+      streamedKeys.add(key);
+      return true;
+    });
+    for (const candidate of fresh) {
+      const entry = { stub: buildStubCard(candidate, deck), candidate };
+      streamed.push(entry);
+      options.onStubs([entry]);
+    }
+  };
 
   const exactCompanyNames = plan.companyScope?.mode === 'selected_only'
     ? [...new Set(plan.companyScope.names.map((name) => name.trim()).filter(Boolean))].slice(0, 30)
@@ -583,14 +656,16 @@ export async function discoverDeckStubs(
       )
     candidates = discovery.candidates;
     rejected = discovery.rejected;
+    streamStubs(candidates);
   } else {
-    const discovery = await discoverWithCoverage(
+    const discovery = await discoverMarket(
         client,
         plan,
         coverage,
         signal,
         options.catalogMax ?? 50,
         options.catalogPasses ?? 0,
+        (batch) => streamStubs(batch),
       );
     candidates = discovery.candidates;
     rejected = discovery.rejected;
@@ -646,115 +721,15 @@ export async function discoverDeckStubs(
   }
   await emit({ type: 'candidates', candidates });
 
-  const marketSlug = slugify(plan.marketName);
-  const market: Market = {
-    id: uid('mkt', marketSlug),
-    name: plan.marketName,
-    scopeDefinition: { vertical: plan.vertical, geography: plan.geography, notes: plan.notes },
-    refreshCadence: 'weekly',
-    createdAt: now(),
-  };
-  const deck: Deck = {
-    id: uid('dck', marketSlug),
-    marketId: market.id,
-    createdAt: now(),
-    lastRefreshedAt: now(),
-  };
-
-  const stubCards: CardWithCompany[] = candidates.map((candidate) => {
-    const slug = slugify(candidate.name);
-    const companyId = uid('cmp', slug);
-    const domain = candidate.domain ? rootDomain(candidate.domain) ?? candidate.domain : null;
-    const website = candidate.domain ? `https://${candidate.domain}` : null;
-    const logoUrl =
-      faviconUrl(domain) ??
-      faviconUrl('example.com') ??
-      'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://example.com&size=128';
-    const company: Company = {
-      id: companyId,
-      name: candidate.name,
-      oneLiner: candidate.descriptor || '',
-      logoUrl,
-      hqLocation: null,
-      websiteUrl: website,
-      brandTheme: {
-        primary: '#4f46e5',
-        secondary: '#a5b4fc',
-        accent: '#f59e0b',
-        text: '#0f172a',
-        background: '#ffffff',
-        fontFamily: null,
-        source: 'default',
-      },
-    };
-    const primaryRole =
-      candidate.primaryRole ??
-      primaryEntityType(candidate.cardTypes, candidate.name, candidate.descriptor);
-    const cardId = uid('crd', `${slugify(candidate.name)}-${primaryRole}`);
-    const isValuationReported = candidate.reportedValuation != null;
-    const isArrReported = candidate.reportedArr != null;
-    const isHeadcountReported = candidate.reportedHeadcount != null;
-    const initialMetrics: CompanyMetric[] = [];
-    if (isHeadcountReported && candidate.reportedHeadcount != null) {
-      initialMetrics.push({
-        id: uid('met', `${companyId}-employees`),
-        companyId,
-        metricType: 'employees' as const,
-        value: candidate.reportedHeadcount,
-        confidence: 'verified' as const,
-        source: 'Reported in search grounding results',
-        methodNote: 'Disclosed team headcount',
-        capturedAt: new Date().toISOString(),
-        citations: [],
-      });
-    }
-    if (isArrReported && candidate.reportedArr != null) {
-      initialMetrics.push({
-        id: uid('met', `${companyId}-arr`),
-        companyId,
-        metricType: 'arr' as const,
-        value: candidate.reportedArr,
-        confidence: 'verified' as const,
-        source: 'Reported in search grounding results',
-        methodNote: 'Disclosed annual revenue/run-rate',
-        capturedAt: new Date().toISOString(),
-        citations: [],
-      });
-    }
-    if (isValuationReported && candidate.reportedValuation != null) {
-      initialMetrics.push({
-        id: uid('met', `${companyId}-valuation`),
-        companyId,
-        metricType: 'valuation' as const,
-        value: candidate.reportedValuation,
-        confidence: 'verified' as const,
-        source: 'Reported in search grounding results',
-        methodNote: 'Disclosed valuation/market cap',
-        capturedAt: new Date().toISOString(),
-        citations: [],
-      });
-    }
-
-    const card: Card = {
-      id: cardId,
-      deckId: deck.id,
-      companyId: company.id,
-      cardType: primaryRole,
-      title: null,
-      summary: candidate.descriptor || null,
-      tier: null,
-      tierReason: null,
-      citations: [],
-      keyPoints: [],
-      createdAt: now(),
-    };
-    return {
-      card,
-      company,
-      metrics: initialMetrics,
-      viceClaims: [],
-    };
-  });
+  // Finalize stub cards: reuse streamed stubs (their ids are already ingested
+  // by the caller — new ids would duplicate companies) and build any that
+  // were never streamed.
+  const stubBySource = new Map(
+    streamed.map((entry) => [identityKeys(entry.candidate.name, entry.candidate.domain)[0]!, entry.stub]),
+  );
+  const stubCards = candidates.map(
+    (candidate) => stubBySource.get(identityKeys(candidate.name, candidate.domain)[0]!) ?? buildStubCard(candidate, deck),
+  );
 
   return {
     plan,
@@ -764,6 +739,109 @@ export async function discoverDeckStubs(
     cards: stubCards,
     rejected,
     minimumCompaniesSatisfied,
+  };
+}
+
+/** Phase 3 of deck construction: candidates → ingestible placeholder cards.
+ * Reuses stubs already built during streaming when the caller passes them. */
+export function buildStubs(candidates: CompanyCandidate[], deck: Deck): CardWithCompany[] {
+  return candidates.map((candidate) => buildStubCard(candidate, deck));
+}
+
+/** One candidate → one ingestible placeholder card with stable ids. Extracted
+ * so discovery can stream stubs mid-flight and the final deck can reuse them. */
+function buildStubCard(candidate: CompanyCandidate, deck: Deck): CardWithCompany {
+  const slug = slugify(candidate.name);
+  const companyId = uid('cmp', slug);
+  const domain = candidate.domain ? rootDomain(candidate.domain) ?? candidate.domain : null;
+  const website = candidate.domain ? `https://${candidate.domain}` : null;
+  const logoUrl =
+    faviconUrl(domain) ??
+    faviconUrl('example.com') ??
+    'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://example.com&size=128';
+  const company: Company = {
+    id: companyId,
+    name: candidate.name,
+    oneLiner: candidate.descriptor || '',
+    logoUrl,
+    hqLocation: null,
+    websiteUrl: website,
+    brandTheme: {
+      primary: '#4f46e5',
+      secondary: '#a5b4fc',
+      accent: '#f59e0b',
+      text: '#0f172a',
+      background: '#ffffff',
+      fontFamily: null,
+      source: 'default',
+    },
+  };
+  const primaryRole =
+    candidate.primaryRole ??
+    primaryEntityType(candidate.cardTypes, candidate.name, candidate.descriptor);
+  const cardId = uid('crd', `${slugify(candidate.name)}-${primaryRole}`);
+  const isValuationReported = candidate.reportedValuation != null;
+  const isArrReported = candidate.reportedArr != null;
+  const isHeadcountReported = candidate.reportedHeadcount != null;
+  const initialMetrics: CompanyMetric[] = [];
+  if (isHeadcountReported && candidate.reportedHeadcount != null) {
+    initialMetrics.push({
+      id: uid('met', `${companyId}-employees`),
+      companyId,
+      metricType: 'employees' as const,
+      value: candidate.reportedHeadcount,
+      confidence: 'verified' as const,
+      source: 'Reported in search grounding results',
+      methodNote: 'Disclosed team headcount',
+      capturedAt: new Date().toISOString(),
+      citations: [],
+    });
+  }
+  if (isArrReported && candidate.reportedArr != null) {
+    initialMetrics.push({
+      id: uid('met', `${companyId}-arr`),
+      companyId,
+      metricType: 'arr' as const,
+      value: candidate.reportedArr,
+      confidence: 'verified' as const,
+      source: 'Reported in search grounding results',
+      methodNote: 'Disclosed annual revenue/run-rate',
+      capturedAt: new Date().toISOString(),
+      citations: [],
+    });
+  }
+  if (isValuationReported && candidate.reportedValuation != null) {
+    initialMetrics.push({
+      id: uid('met', `${companyId}-valuation`),
+      companyId,
+      metricType: 'valuation' as const,
+      value: candidate.reportedValuation,
+      confidence: 'verified' as const,
+      source: 'Reported in search grounding results',
+      methodNote: 'Disclosed valuation/market cap',
+      capturedAt: new Date().toISOString(),
+      citations: [],
+    });
+  }
+
+  const card: Card = {
+    id: cardId,
+    deckId: deck.id,
+    companyId: company.id,
+    cardType: primaryRole,
+    title: null,
+    summary: candidate.descriptor || null,
+    tier: null,
+    tierReason: null,
+    citations: [],
+    keyPoints: [],
+    createdAt: now(),
+  };
+  return {
+    card,
+    company,
+    metrics: initialMetrics,
+    viceClaims: [],
   };
 }
 

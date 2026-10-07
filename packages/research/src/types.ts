@@ -119,6 +119,14 @@ export interface RunResearchOptions extends GeminiConfig {
   catalogMax?: number;
   /** Maximum catalog search-angle passes; defaults to the market's search themes. */
   catalogPasses?: number;
+  /** Streamed once the market is interpreted (plan + market + deck rows all
+   * real), before discovery: lets the caller start hydration planning while
+   * discovery runs. */
+  onInterpreted?: (interpreted: { plan: MarketPlan; market: Market; deck: Deck }) => void;
+  /** Streamed per discovery pass: each new entity as its stub card, alongside
+   * the candidate it was built from. Lets the caller ingest and hydrate
+   * entities while fallback discovery passes are still running. */
+  onStubs?: (entries: Array<{ stub: CardWithCompany; candidate: CompanyCandidate }>) => void;
   /** Resume a durable job from its persisted catalog and completed cards. */
   resume?: ResearchResumeState;
 }

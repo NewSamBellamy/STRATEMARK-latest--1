@@ -552,6 +552,63 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
     expect(dashboard).not.toHaveBeenCalled();
   });
 
+  it('starts hydrating the first entity while fallback discovery passes are still running', async () => {
+    // Slice 2c pin: discovery streams each pass's selected entities as stubs;
+    // the hydration pool consumes them DURING discovery instead of after it.
+    const base = fakeClient();
+    const gate = deferred<void>();
+    let groundCalls = 0;
+    let companiesCalls = 0;
+    let hydrationGrounds = 0;
+    const client: LlmClient = {
+      ground: async (prompt, options) => {
+        groundCalls += 1;
+        // Call 3 is the role-coverage fallback's grounded search (interpret and
+        // the initial discovery pass are calls 1 and 2). Block it: hydration
+        // must prove it overlaps by grounding while this is still pending.
+        if (groundCalls === 3) await gate.promise;
+        if (groundCalls > 3) hydrationGrounds += 1;
+        return base.ground(prompt, options);
+      },
+      structure: async (prompt, schema, opts) => {
+        if (typeof prompt === 'string' && prompt.includes('"companies"')) {
+          companiesCalls += 1;
+          if (companiesCalls === 1) {
+            // Initial discovery under-delivers: a fallback pass is required.
+            return schema.parse({
+              companies: [{ name: 'Alpha Inc', domain: 'alpha.com', descriptor: 'big co', cardTypes: ['company'] }],
+            });
+          }
+        }
+        return base.structure(prompt, schema, opts);
+      },
+    } as LlmClient;
+
+    const repo = new GeminiRepository({ apiKey: 'x', client,
+      coverage: { ...testCoverage, companies: { min: 2, target: 2, max: 2 } },
+      catalogMax: 2, catalogPasses: 0, store: memStore() });
+    const creation = repo.createResearchedDeck({ prompt: 'test', region: 'CA' });
+
+    // The fallback ground is blocked; the streamed stub lets Alpha's hydration
+    // begin anyway — a provider call beyond discovery proves the overlap.
+    for (let i = 0; i < 80 && groundCalls < 4; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(groundCalls).toBeGreaterThanOrEqual(4);
+    expect(hydrationGrounds).toBeGreaterThanOrEqual(1);
+
+    gate.resolve();
+    const { deck } = await creation;
+    await repo.waitForBackgroundJobs();
+    const cards = await repo.listCards(deck.id);
+    const companyCards = cards.filter((c) => c.card.cardType === 'company');
+    expect(companyCards.length).toBeGreaterThanOrEqual(1);
+    for (const card of companyCards) {
+      expect(card.card.tier).not.toBeNull();
+      expect(card.metrics.length).toBeGreaterThan(0);
+    }
+  });
+
   it('recovers saved evidence metrics for free and never calls the provider', async () => {
     // Catalog-style retained evidence: anonymous sections, third-party source,
     // subject named only in the answer header — the Phase 1 defect shape.
