@@ -1,4 +1,6 @@
 # Stratemark / Keystone — GLM and Z Code handoff
+
+> Preservation update: read [verified Z Code transfer state](ZCODE-TRANSFER-VERIFIED.md) first. The interrupted edits have now been committed as WIP in `3ad3d92` and pushed to the dated migration branch, with the remote hash verified. The uncommitted/missing-backup descriptions below record the earlier stop state; the testing limitations and open questions still apply.
 Updated 2026-10-06. This is the current migration entry point and recovery sequence.
 Implementation was interrupted at the owner's request to conserve usage. This document records observations, hypotheses and proposed work separately. It does not certify beta readiness.
 
@@ -238,4 +240,3 @@ No current hard latency target is proven achievable. Propose explicit targets af
 ## 10. Starter instruction for the next model
 
 Read `docs/STRATEMARK-ZCODE-HANDOFF.md` and `AGENTS.md`. Inspect the actual branch, diff and latest audit. This is a recovery effort for an attractive but incomplete local-first BYOK research app. Preserve the approved card design. Begin with Phase 0, then trace one missing publicly supported company metric through the entire research-to-display flow using saved evidence before purchasing another search. Treat all interrupted edits as unverified. Independently evaluate the scheduling hypotheses and unfinished tests. Work in bounded visible slices, prove each improvement through the actual card/inspector/dashboard journey, save checkpoints on a separate branch, and maintain an honest record of what works, what fails and what remains unknown. Do not infer completion from old test totals or agent-role names.
-
