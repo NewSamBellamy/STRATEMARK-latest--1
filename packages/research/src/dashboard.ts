@@ -27,7 +27,7 @@ import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { LlmClient } from './types';
 import { companySourceTargets } from './source-policy';
 import { originalSupportReferences, type OriginalSourceAttempt, type OriginalSourceServices } from './original-source';
-import { researchCompanyOverview } from './company-overview';
+import { researchCompanyOverview, type OverviewNarrative, type OverviewSeed } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
 import { researchCompanyProducts, type ProductEvidenceSelections } from './company-products';
 import { researchCompanyTeamOrg, type TeamOrgSelections } from './company-team';
@@ -41,6 +41,7 @@ export interface TabResearchArgs {
   originalSources?: OriginalSourceServices;
   originalAttempts?: OriginalSourceAttempt[];
   refreshOriginals?: boolean;
+  overviewSeed?: OverviewSeed;
 }
 
 const ctx = (a: TabResearchArgs): string =>
@@ -171,7 +172,7 @@ export function mergeTeamOrgNodes(first: readonly TeamOrgNode[], gapFill: readon
 /** Preserve attribution outside model-generated content on every research tab.
  * Existing content-only callers keep their contract; real repositories use this
  * envelope so sources survive synthesis, caching, IPC and cloud transport. */
-export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, args: TabResearchArgs): Promise<{ content: DashboardContentMap[T]; citations: Citation[]; sourceDiagnostics?: DashboardSourceDiagnostics; overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>; productSelections?: ProductEvidenceSelections; teamOrgSelections?: TeamOrgSelections }> {
+export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, args: TabResearchArgs): Promise<{ content: DashboardContentMap[T]; citations: Citation[]; sourceDiagnostics?: DashboardSourceDiagnostics; overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>; overviewNarrative?: OverviewNarrative; productSelections?: ProductEvidenceSelections; teamOrgSelections?: TeamOrgSelections }> {
   if (tab === 'overview') {
     const result = await researchCompanyOverview(args);
     return { ...result, content: result.content as DashboardContentMap[T] };

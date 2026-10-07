@@ -129,7 +129,7 @@ describe('Cloud Deck Polling & UI State', () => {
     expect(screen.queryByText(/No cards yet/i)).not.toBeInTheDocument();
   });
 
-  it('opens on the first populated core category when an exact-scope deck has no company-role card', async () => {
+  it.each(['ready', 'running', 'partial'] as const)('shows completed core cards while the rest of a deck is %s', async (status) => {
     const repo = new SentinelRepository();
     const card = {
       id: 'card_microsoft_infrastructure',
@@ -176,7 +176,7 @@ describe('Cloud Deck Polling & UI State', () => {
       companies: [company, secondCompany],
     });
     vi.spyOn(sentinelApi, 'getCloudDeck').mockResolvedValue({
-      deck: { id: 'deck_test_cloud', marketId: 'deck_test_cloud', status: 'ready' },
+      deck: { id: 'deck_test_cloud', marketId: 'deck_test_cloud', status },
       market: {
         id: 'deck_test_cloud',
         name: 'Selected company market',

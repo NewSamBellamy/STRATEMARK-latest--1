@@ -99,6 +99,26 @@ describe('CardReader', () => {
     expect(facts).toHaveTextContent('No source-backed figure');
   });
 
+  it('shows a provider-attributed figure without calling it original-verified', () => {
+    const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
+    const companyName = cwc.company!.name;
+    const url = 'https://sec.gov/Archives/report';
+    renderWithProviders(<CardReader data={{ ...cwc, metrics: [{ ...cwc.metrics[0]!,
+      metricType: 'employees', value: 123, confidence: 'estimated', source: url,
+      citations: [{ title: 'Annual filing', url }], passageSupport: null,
+      capturedAt: '2026-10-06T00:00:00.000Z',
+      reportedSupport: { provider: 'google-search', companyName, basis: 'employees',
+        definition: 'employees', value: 123, unit: 'count', asOf: '2026-10-01',
+        support: { supportIndex: 0, text: `${companyName} reported 123 employees as of October 1, 2026.`,
+          sources: [{ chunkIndex: 0, url, title: 'Annual filing' }] } },
+    }] }} open onOpenChange={() => {}} />);
+    const facts = within(screen.getByRole('dialog')).getByRole('region', { name: 'Core company figures' });
+    expect(facts).toHaveTextContent('123');
+    expect(facts).toHaveTextContent('Source reported · not verified');
+    expect(facts).toHaveTextContent('Figure dated 2026-10-01');
+    expect(facts).not.toHaveTextContent('Human checked');
+  });
+
   it('keeps claims on vice cards attributed and visible without an Evidence tab', () => {
     const cwc = hydrate((c) => c.cardType === 'vice');
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderCompanyTeamOrg, researchCompanyTeamOrg, teamOrgSupportReferences } from './company-team';
 import { GeminiRepository, migrateSnapshot, type ResearchStore } from './repository';
+import { extractProviderGrounding } from './grounding-support';
 
 const company = { id: 'cmp', name: 'Acme', websiteUrl: 'https://acme.com', oneLiner: 'Research tools', logoUrl: null, hqLocation: null, brandTheme: null };
 const url = 'https://acme.com/company/leadership';
@@ -28,8 +29,10 @@ describe('source-backed company team records', () => {
     expect(result.content.nodes).toHaveLength(2);
     expect(result.content.nodes[0]).toMatchObject({ sourceUrl: url, supportingQuote: selections.nodes[0]!.quote });
     expect(result.content.nodes[0]!.sourceRetrievedAt).toBe(source.retrievedAt);
-    expect(structure.mock.calls[0]![0]).toContain('Do not infer currentness, personality');
+    expect(structure.mock.calls[0]![0]).toContain('Never infer biography, tenure, hierarchy');
     expect(ground).toHaveBeenCalledTimes(1);
+    expect(ground.mock.calls[0]![0]).toContain('plain, complete sentences, one person per sentence');
+    expect(ground.mock.calls[0]![0]).toContain('Do not use headings, name-only bullets');
   });
 
   it('does not synthesize people when original-page retrieval is blocked', async () => {
@@ -41,6 +44,47 @@ describe('source-backed company team records', () => {
     expect(result.content.nodes).toEqual([]);
     expect(sources.save).toHaveBeenCalledTimes(1);
     expect(structure).not.toHaveBeenCalled();
+  });
+
+  it('uses a separately labeled, per-person provider-supported roster when the original is blocked', async () => {
+    const quote = 'Acme appointed Avery Founder as its current Chief Executive Officer.';
+    const sourceUrl = 'https://reuters.com/acme-leadership';
+    const grounding = extractProviderGrounding(quote, { groundingChunks: [{ web: { uri: sourceUrl, title: 'Leadership report' } }],
+      groundingSupports: [{ segment: { text: quote, startIndex: 0, endIndex: quote.length }, groundingChunkIndices: [0] }] });
+    const ground = vi.fn().mockResolvedValue({ text: quote, citations: [{ title: 'Leadership report', url: sourceUrl }], queries: [], grounding });
+    const structure = vi.fn().mockResolvedValue({ nodes: [], reportedNodes: [{ id: 'avery', name: 'Avery Founder',
+      role: 'Chief Executive Officer', group: 'exec', supportIndex: 0, quote }] });
+    const sources = { list: vi.fn().mockResolvedValue([]), retrieve: vi.fn().mockResolvedValue({ requestedUrl: url,
+      status: 'blocked', retrievedAt: source.retrievedAt }), save: vi.fn().mockResolvedValue(undefined) };
+
+    const result = await researchCompanyTeamOrg({ company, client: { ground, structure } as never, originalSources: sources });
+
+    expect(result.content.nodes).toEqual([expect.objectContaining({ name: 'Avery Founder', role: 'Chief Executive Officer',
+      parentId: null, sourceUrl: null, supportingQuote: null, bio: expect.stringContaining('Google Search reports') })]);
+    expect(result.citations).toEqual([expect.objectContaining({ url: sourceUrl, title: expect.stringContaining('Avery Founder') })]);
+    expect(sources.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('combines irrelevant readable originals and Google-supported people in one extraction call', async () => {
+    const report = 'Acme appointed Avery Founder as its current Chief Executive Officer.';
+    const reportUrl = 'https://reuters.com/acme-leadership';
+    const grounding = extractProviderGrounding(report, { groundingChunks: [{ web: { uri: reportUrl, title: 'Leadership report' } }],
+      groundingSupports: [{ segment: { text: report, startIndex: 0, endIndex: report.length }, groundingChunkIndices: [0] }] });
+    const ground = vi.fn().mockResolvedValue({ text: report, citations: [{ title: 'Leadership report', url: reportUrl }], queries: [], grounding });
+    const structure = vi.fn().mockResolvedValue({ nodes: [], reportedNodes: [{ id: 'avery', name: 'Avery Founder', role: 'Chief Executive Officer',
+      group: 'exec', supportIndex: 0, quote: report }] });
+    const irrelevant = { ...source, requestedUrl: 'https://acme.com/company/about', finalUrl: 'https://acme.com/company/about', text: 'Acme supports better research.' };
+    const sources = { list: vi.fn().mockResolvedValue([{ id: 'saved', companyId: 'cmp', metricType: 'team_org', capturedAt: source.retrievedAt, receipts: [irrelevant] }]),
+      retrieve: vi.fn(), save: vi.fn() };
+
+    const result = await researchCompanyTeamOrg({ company, client: { ground, structure } as never, originalSources: sources });
+
+    expect(result.content.nodes).toEqual([expect.objectContaining({ name: 'Avery Founder', bio: expect.stringContaining('Google Search reports') })]);
+    expect(result.teamOrgSelections.reportedGrounding).toMatchObject({ provider: 'google-search', supports: [expect.objectContaining({ text: report })] });
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(structure).toHaveBeenCalledTimes(1);
+    expect(structure.mock.calls[0]![0]).toContain('RETAINED ORIGINAL PAGES');
+    expect(structure.mock.calls[0]![0]).toContain('GOOGLE SEARCH SUPPORTS');
   });
 
   it('reopens the source-linked org chart offline from local selections and retained originals', async () => {

@@ -14,6 +14,7 @@ import { MockRepository, type SeedSnapshot } from '@mi/mocks';
 import sampleSnapshot from '@/sample/frontier-snapshot.json';
 import { GeminiRepository, type ResearchStore } from '@mi/research';
 import { readPreviewSource, supportsPreviewSource } from './local-source-reader';
+import { previewGeminiFetch } from './local-gemini-fetch';
 import { IpcRepository, isElectron } from './ipc-repository';
 import { SentinelRepository } from './SentinelRepository';
 import { openBrowserResearchStore } from './browserResearchStore';
@@ -42,6 +43,7 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
     }
     return new GeminiRepository({
       apiKey,
+      fetchImpl: previewGeminiFetch,
       model: model || undefined,
       store,
       originalSourceReader: readPreviewSource,

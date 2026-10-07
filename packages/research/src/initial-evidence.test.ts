@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { hydrateCompanyCard } from './company-agent';
+import { hydrateCompanyCard as publishCompanyCard, verifyCompanyCardOriginals, type HydrateCompanyCardInput } from './company-agent';
 import type { LlmClient, CompanyCandidate, MarketPlan } from './types';
 import type { OriginalSourceServices } from './original-source';
 import { discoverDeckStubs, runDeckResearch } from './pipeline';
@@ -28,8 +28,15 @@ function fixture(proof = true, text = quote) {
   return { client, originals };
 }
 
-describe('initial company original-evidence publication', () => {
-  it('fills first-ready annual revenue from a retained SEC original even when the model proposes no revenue', async () => {
+// Original-backed facts are supplementary; the first snapshot has already
+// published before these reads and their interpretation start.
+async function hydrateCompanyCard(input: HydrateCompanyCardInput) {
+  const snapshot = await publishCompanyCard(input);
+  return verifyCompanyCardOriginals(snapshot, input.client, { originalSources: input.originalSources!, signal: input.signal });
+}
+
+describe('supplementary company original-evidence publication', () => {
+  it('fills supplementary annual revenue from a retained SEC original even when the model proposes no revenue', async () => {
     const financialUrl = 'https://data.sec.gov/api/xbrl/companyconcept/CIK0000789019/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax.json';
     const reported = { start: '2025-07-01', end: '2026-06-30', val: 331839000000, accn: '0001193125-26-323660',
       fy: 2026, fp: 'FY', form: '10-K', filed: '2026-07-29', frame: 'CY2026' };
@@ -40,7 +47,7 @@ describe('initial company original-evidence publication', () => {
       url: 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm' }], queries: [] }));
     client.structure = vi.fn(async (prompt, schema) => {
       expect(prompt).not.toContain('"units"'); // do not spend context on historical records
-      expect(prompt).toContain('parsedFinancialObservation');
+      if (prompt.includes('UNTRUSTED ORIGINAL EXTRACTS')) expect(prompt).toContain('parsedFinancialObservation');
       return schema.parse({ oneLiner: 'Software company', metrics: { arr: { value: null, confidence: 'unknown' } } });
     }) as LlmClient['structure'];
     originals.retrieve = vi.fn(async (requestedUrl: string) => ({ requestedUrl, finalUrl: requestedUrl, status: 'retrieved' as const, httpStatus: 200,
@@ -51,9 +58,9 @@ describe('initial company original-evidence publication', () => {
       passageSupport: { definition: 'annual_revenue', format: 'sec-companyconcept', periodStart: reported.start, asOf: reported.end } });
     expect(result.primaryCard.metrics).toEqual(result.metrics);
     expect(client.ground).toHaveBeenCalledTimes(1);
-    expect(client.structure).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(2);
   });
-  it('keeps a typed customer population from first hydration through memory and offline facts', async () => {
+  it('keeps a supplementary typed customer population through memory and offline facts', async () => {
     const text = 'Acme Inc. reported 120 monthly active users as of 2026-10-01.';
     const { client, originals } = fixture(true, text);
     client.structure = vi.fn(async (prompt, schema) => {
@@ -75,7 +82,7 @@ describe('initial company original-evidence publication', () => {
     } });
     expect((await repository.getCompanyFacts(result.company!.id)).find(row => row.metricType === 'users')).toMatchObject(userMetric);
     expect(client.ground).toHaveBeenCalledTimes(1);
-    expect(client.structure).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(2);
   });
   it('uses a literal official-source sentence for the company snapshot and attaches its receipt', async () => {
     const officialUrl = 'https://acme.com/about';
@@ -115,7 +122,7 @@ describe('initial company original-evidence publication', () => {
     expect(result.company.oneLiner).toBe(summary);
     expect(result.card.citations).toEqual([expect.objectContaining({ url: officialUrl })]);
   });
-  it('retains the accepted proof from first card through overview and offline reopen', async () => {
+  it('retains supplementary accepted proof through offline facts without resurrecting unsupported observations', async () => {
     const { client, originals } = fixture();
     const card = await hydrateCompanyCard({ candidate, client, plan, originalSources: originals });
     expect(card.metrics.find(row => row.metricType === 'employees')!.passageSupport).toMatchObject({ quote, asOf: '2026-10-01', basis: 'employees' });
@@ -126,22 +133,22 @@ describe('initial company original-evidence publication', () => {
     const store: ResearchStore = { read: () => structuredClone(snapshot), write: async value => { snapshot = structuredClone(value); } };
     const overviewClient: LlmClient = { ground: vi.fn(), structure: vi.fn(async (_prompt, schema) => schema.parse({ excerpts: [] })) as LlmClient['structure'] };
     const repository = new GeminiRepository({ apiKey: 'test', store, client: overviewClient });
-    const result = await repository.getDashboardTab(card.company!.id, 'overview');
-    expect(result!.content.markdown).toContain('Employees: 45');
-    expect(result!.content.markdown).toContain('2026-10-01');
-    expect(result!.content.markdown).toContain('ARR (USD): Unknown');
+    const result = await repository.getCompanyFacts(card.company!.id);
+    expect(result.find(row => row.metricType === 'employees')).toMatchObject({ value: 45,
+      confidence: 'verified', passageSupport: { asOf: '2026-10-01' } });
+    expect(result.find(row => row.metricType === 'arr')!.value).toBeNull();
     const reopened = new GeminiRepository({ apiKey: 'test', store, client: overviewClient });
-    expect(await reopened.getDashboardTab(card.company!.id, 'overview')).toEqual(result);
+    expect(await reopened.getCompanyFacts(card.company!.id)).toEqual(result);
     expect(overviewClient.ground).not.toHaveBeenCalled();
-    expect(overviewClient.structure).toHaveBeenCalledTimes(1);
+    expect(overviewClient.structure).not.toHaveBeenCalled();
     // Loss of backing evidence after a saved overview must not resurrect its
     // cached financial prose. Historical originals/notes are not overwritten.
     snapshot.originalSourceAttempts = [];
     const withoutEvidence = new GeminiRepository({ apiKey: 'test', store, client: overviewClient });
-    expect((await withoutEvidence.getDashboardTab(card.company!.id, 'overview'))!.content.markdown).toContain('Employees: Unknown');
-    expect(overviewClient.structure).toHaveBeenCalledTimes(1);
+    expect((await withoutEvidence.getCompanyFacts(card.company!.id)).find(row => row.metricType === 'employees')!.value).toBeNull();
+    expect(overviewClient.structure).not.toHaveBeenCalled();
   });
-  it('uses the same two-source priority policy before filling the first company card', async () => {
+  it('uses the same two-source priority policy for supplementary original checking', async () => {
     const { client, originals } = fixture();
     client.ground = vi.fn(async () => ({ text: 'Provider says 45 employees.', queries: [], citations: [
       { title: 'Discussion', url: 'https://reddit.com/r/company' },
@@ -153,7 +160,7 @@ describe('initial company original-evidence publication', () => {
     expect(vi.mocked(originals.retrieve).mock.calls.map(([target]) => target)).toEqual([url, 'https://acme.com/results']);
     expect(result.metrics.find(metric => metric.metricType === 'employees')).toMatchObject({ value: 45, confidence: 'verified' });
     expect(client.ground).toHaveBeenCalledTimes(1);
-    expect(client.structure).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(2);
   });
   it.each([
     'Acme Inc. partners with Beta. Beta reported 45 employees as of 2026-10-01.',
@@ -171,7 +178,7 @@ describe('initial company original-evidence publication', () => {
     expect(result.memory.card.metrics).toEqual(result.metrics);
     expect(originals.save).toHaveBeenCalledTimes(1);
     expect(client.ground).toHaveBeenCalledTimes(1);
-    expect(client.structure).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(2);
   });
   it('does not publish citation-only model figures on the protected path', async () => {
     const { client, originals } = fixture(false);
@@ -187,7 +194,7 @@ describe('initial company original-evidence publication', () => {
     expect(result.primaryCard.metrics).toEqual(result.metrics);
     expect(result.memory.card.metrics).toEqual(result.metrics);
     expect(client.ground).toHaveBeenCalledTimes(1);
-    expect(client.structure).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(2);
   });
   it('keeps a supported zero ARR instead of replacing it with a headcount proxy', async () => {
     const zeroQuote = 'Acme Inc. reported ARR of USD 0 as of 2026-10-01.';
@@ -210,15 +217,17 @@ describe('initial company original-evidence publication', () => {
     await hydrateCompanyCard({ candidate, client, plan, originalSources: originals, companyId: 'cmp_acme' });
     expect(originals.save).toHaveBeenCalledWith(expect.objectContaining({ companyId: 'cmp_acme', metricType: 'company_profile',
       receipts: expect.arrayContaining([expect.objectContaining({ text: quote })]) }));
-    expect(vi.mocked(originals.save).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(client.structure).mock.invocationCallOrder[0]!);
-    expect(vi.mocked(client.structure).mock.calls[0]![0]).toContain('UNTRUSTED ORIGINAL EXTRACTS');
-    expect(vi.mocked(client.structure).mock.calls[0]![0]).toContain(quote);
+    expect(vi.mocked(originals.save).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(client.structure).mock.invocationCallOrder[1]!);
+    expect(vi.mocked(client.structure).mock.calls[0]![0]).not.toContain('UNTRUSTED ORIGINAL EXTRACTS');
+    expect(vi.mocked(client.structure).mock.calls[1]![0]).toContain('UNTRUSTED ORIGINAL EXTRACTS');
+    expect(vi.mocked(client.structure).mock.calls[1]![0]).toContain(quote);
   });
-  it('does not interpret or publish when original evidence cannot be saved', async () => {
+  it('does not interpret originals when saving fails, without blocking the initial snapshot', async () => {
     const { client, originals } = fixture();
     originals.save = vi.fn(async () => { throw new Error('Disk full'); });
     await expect(hydrateCompanyCard({ candidate, client, plan, originalSources: originals })).rejects.toThrow('Disk full');
-    expect(client.structure).not.toHaveBeenCalled();
+    expect(client.structure).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(client.structure).mock.calls[0]![0]).not.toContain('UNTRUSTED ORIGINAL EXTRACTS');
   });
   it('does not expose discovery headline numbers before original checking', async () => {
     const { client, originals } = fixture();
@@ -231,7 +240,7 @@ describe('initial company original-evidence publication', () => {
     expect(result.cards).toHaveLength(1);
     expect(result.cards[0]!.metrics).toEqual([]);
   });
-  it('retains original checking when a deck resumes from its saved catalog', async () => {
+  it('does not block resumed hydration on originals or extra metric recovery', async () => {
     const { client, originals } = fixture(false);
     const timestamp = new Date().toISOString();
     const result = await runDeckResearch({ prompt: 'Software', region: null }, client, {
@@ -243,8 +252,7 @@ describe('initial company original-evidence publication', () => {
     const card = result.cards.find((entry) => entry.company?.name === candidate.name)!;
     expect(card.metrics.length).toBeGreaterThan(0);
     expect(card.metrics.every((metric) => metric.value === null && metric.confidence === 'unknown')).toBe(true);
-    // Resume runs the same bounded missing-figure follow-up as new creation.
-    expect(originals.save).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(client.ground).mock.calls.filter(([, options]) => options?.researchContext?.topic === 'metrics_hunt')).toHaveLength(1);
+    expect(originals.save).not.toHaveBeenCalled();
+    expect(vi.mocked(client.ground).mock.calls.filter(([, options]) => options?.researchContext?.topic === 'metrics_hunt')).toHaveLength(0);
   });
 });

@@ -401,7 +401,7 @@ describe('Company Agent — enrichCompanyWithProxies Deep Module', () => {
 });
 
 describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
-  it('hydrates a full company card with proxy estimation, CMS calculation, and signal separation', async () => {
+  it('hydrates with strict unknowns for citation-only figures and isolates signal metrics', async () => {
     const client = fakeClient({
       enrichment: {
         oneLiner: 'Autonomous coding agents for enterprise teams',
@@ -430,26 +430,20 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
 
     // 1. Company identity
     expect(result.company.name).toBe('DevAgent Labs');
-    expect(result.company.oneLiner).toBe('Autonomous coding agents for enterprise teams');
+    expect(result.company.oneLiner).toBe('No source-backed company snapshot is ready yet.');
     expect(result.company.brandTheme?.primary).toBe('#4f46e5');
     expect(result.company.websiteUrl).toBe('https://devagent.ai');
 
-    // 2. Proxies applied (50 FTEs * $220k AI benchmark = $11M ARR)
+    // Citation-only model values do not create reported support or proxies.
     const arr = result.metrics.find((m) => m.metricType === 'arr')!;
     expect(arr).toBeDefined();
-    expect(arr.value).toBe(11_000_000);
-    expect(arr.confidence).toBe('estimated');
-    // The fixture's techcrunch.example URL is not TechCrunch. Its headcount
-    // is now correctly unverified; retain that caveat in the proxy explanation.
-    expect(arr.methodNote).toContain('50 FTEs');
-    expect(arr.methodNote).toContain('not independently classified');
-    expect(arr.methodNote).toContain('× $220k AI / Infra / Compute benchmark');
-    expect(result.metrics.find((m) => m.metricType === 'employees')!.confidence).toBe('estimated');
+    expect(arr.value).toBeNull();
+    expect(arr.confidence).toBe('unknown');
+    expect(result.metrics.find((m) => m.metricType === 'employees')!.confidence).toBe('unknown');
 
     // 3. CMS Scoring and Tier Assignment
-    expect(result.cmsResult.baseTier).not.toBeNull();
-    expect(result.cmsResult.finalTier).toBeGreaterThanOrEqual(1);
-    expect(result.cmsResult.finalTier).toBeLessThanOrEqual(8);
+    expect(result.cmsResult.baseTier).toBeNull();
+    expect(result.cmsResult.finalTier).toBeNull();
     expect(result.card.tier).toBe(result.cmsResult.finalTier);
 
     // 4. Signal cards emission & strict metric isolation
@@ -473,11 +467,11 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
     // 7. Memory state
     expect(result.memory.companyId).toBe(result.company.id);
     expect(result.memory.companyName).toBe('DevAgent Labs');
-    expect(result.memory.dashboard.financials?.arr).toBe(11_000_000);
+    expect(result.memory.dashboard.financials?.arr).toBeNull();
     expect(result.memory.citations.length).toBeGreaterThan(0);
   });
 
-  it('wires structured enrichment.facts into Grounded Proxy Estimator for private startups', async () => {
+  it('does not turn structured proxy anchors into public startup figures', async () => {
     const client = fakeClient({
       enrichment: {
         oneLiner: 'Next-gen private AI infrastructure',
@@ -523,25 +517,22 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
       plan: mockPlan,
     });
 
-    // 1. ARR estimated via facts.headcount (25 * $220k = $5.5M)
+    // Headcount is not a reported revenue claim.
     const arr = result.metrics.find((m) => m.metricType === 'arr')!;
     expect(arr).toBeDefined();
-    expect(arr.value).toBe(5_500_000);
-    expect(arr.confidence).toBe('estimated');
-    expect(arr.methodNote).toContain('25 FTEs × $220k AI / Infra / Compute benchmark');
+    expect(arr.value).toBeNull();
+    expect(arr.confidence).toBe('unknown');
 
-    // 2. Valuation estimated via facts.lastFundingRound ($20M * 4.5x = $90M)
+    // Funding is not a reported valuation claim.
     const val = result.metrics.find((m) => m.metricType === 'valuation')!;
     expect(val).toBeDefined();
-    expect(val.value).toBe(90_000_000);
-    expect(val.confidence).toBe('estimated');
-    expect(val.methodNote).toContain('$20M Series A announcement');
+    expect(val.value).toBeNull();
+    expect(val.confidence).toBe('unknown');
 
-    // 3. Card summary fallback inherits candidate.descriptor
-    expect(result.card.summary).toBe('Specialized GPU cloud platform');
+    expect(result.card.summary).toBe('No source-backed company snapshot is ready yet.');
   });
 
-  it('ensures facet cards (infrastructure, distribution, culture, vice) inherit descriptor or oneLiner as card.summary', async () => {
+  it('does not let facet cards inherit ungrounded discovery/model descriptions', async () => {
     const client = fakeClient({
       enrichment: {
         oneLiner: 'Leading reseller and distributor of foundation models',
@@ -575,10 +566,8 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
     const viceCard = result.cards.find((c) => c.card.cardType === 'vice')!;
     const cultureCard = result.cards.find((c) => c.card.cardType === 'culture')!;
 
-    // Distribution card inherits candidate.descriptor / enrichment.oneLiner
-    expect(distCard.card.summary).toBe('Global channel distributor for enterprise AI models');
-    // Vice card inherits fallback summary
-    expect(viceCard.card.summary).toBe('Global channel distributor for enterprise AI models');
+    expect(distCard.card.summary).toBe('No source-backed company snapshot is ready yet.');
+    expect(viceCard.card.summary).toBe('No source-backed company snapshot is ready yet.');
     // Culture card uses cultureNote
     expect(cultureCard.card.summary).toBe('Commits 2% of equity to open source AI foundations.');
   });

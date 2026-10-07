@@ -62,9 +62,9 @@ export function OverviewTab({ companyId }: { companyId: string }) {
                       {m.confidence === 'estimated' && (
                         <span
                           className="text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400"
-                          title="Estimated — a desk agent will verify this from live sources shortly"
+                          title={m.reportedSupport ? 'Source reported — search attribution, not independently verified' : 'Estimated — not a confirmed figure'}
                         >
-                          est
+                          {m.reportedSupport ? 'reported' : 'est'}
                         </span>
                       )}
                       {(m.confidence === 'verified' || m.confidence === 'user_verified') && (

@@ -212,8 +212,9 @@ function makeRepository(): MarketIntelRepository {
     store,
     targetCompanies: 10,
     originalSources: createOriginalSourceServices(path.join(app.getPath('userData'), 'original-sources')),
-    // Broad markets are researched as a sequential queue to stay predictable on free tier.
-    concurrency: 1,
+    // Match the bounded browser worker pool. Shared provider RPM limits below
+    // still pace requests; one slow company no longer stalls every other card.
+    concurrency: 3,
     groundedRpm: 8,
     structureRpm: 8,
   });

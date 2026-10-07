@@ -2,6 +2,7 @@ import {
   CARD_TYPE_LABELS, CONFIDENCE_LABELS, TIER_LABELS, enforceMetricProvenance, currentMetricRevision,
   isSignalCardType, usableCitations, metricDefinitionLabel, type CardWithCompany, type CompanyMetric, type MetricType,
 } from '@mi/contracts';
+import { reportedMetricCitations } from '@mi/research';
 
 const LABELS: Record<MetricType, string> = {
   arr: 'ARR', valuation: 'Valuation', market_cap: 'Market cap',
@@ -128,6 +129,9 @@ export function buildCardView(data: CardWithCompany) {
           (m.metric.confidence === 'verified' && m.citations.length > 0)
         ));
         if (confirmed) return { ...confirmed, key, label: profileLabel(key, confirmed.metric) };
+        const reported = candidates.find(m => m.metric.confidence === 'estimated' && data.company &&
+          reportedMetricCitations(data.company.name, data.company.websiteUrl, m.metric).length > 0);
+        if (reported) return { ...reported, key, label: profileLabel(key, reported.metric), confidence: 'Source reported' };
         const estimate = candidates.find((m) => m.metric.value != null);
         if (estimate) {
           return {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { hydrateCompanyCard } from './company-agent';
+import { hydrateCompanyCard, verifyCompanyCardOriginals } from './company-agent';
 import { projectCompanyFactsFromOriginals } from './company-facts';
 import type { LlmClient, MarketPlan } from './types';
 import { secFilingHeadcountObservation, secRevenueObservation, secRevenueVerification, secRevenueSourceUrl } from './sec-revenue';
@@ -19,8 +19,8 @@ const now = Date.parse('2026-10-06T00:00:00.000Z');
 
 vi.mock('./logos', () => ({ faviconUrl: () => null, resolveLogo: async () => ({ url: null }) }));
 
-describe('first company financial hydration', () => {
-  it.each([false, true])('carries a discovered filing into reopened facts (redirect-only metadata: %s)', async (redirectOnly) => {
+describe('explicit original financial verification after fast hydration', () => {
+  it.each([false, true])('manual verification needs a direct filing locator; opaque redirects remain unknown (redirect-only metadata: %s)', async (redirectOnly) => {
     // Deterministic source fixture; this does not claim a new live API run.
     const home = 'https://microsoft.com';
     const originals: OriginalSourceReceipt[] = [];
@@ -44,15 +44,27 @@ describe('first company financial hydration', () => {
       originals.push(receipt);
       return receipt;
     });
-    const result = await hydrateCompanyCard({
+    const originalSources = { retrieve, save: vi.fn(async () => {}), list: vi.fn(async () => []) };
+    const initial = await hydrateCompanyCard({
       candidate: { name: 'Microsoft Corporation', domain: 'microsoft.com', descriptor: 'Enterprise software', cardTypes: ['infrastructure'] },
-      client, plan, originalSources: { retrieve, save: async () => {}, list: async () => [] },
+      client, plan, originalSources,
     });
-    expect(retrieve).toHaveBeenCalledTimes(3);
-    expect(retrieve.mock.calls.map(call => call[0])).toContain(url);
+    expect(retrieve).not.toHaveBeenCalled();
+    expect(initial.metrics.every(metric => metric.value === null)).toBe(true);
+    const result = await verifyCompanyCardOriginals(initial, client, { originalSources });
+    expect(retrieve).toHaveBeenCalledTimes(redirectOnly ? 2 : 3);
+    if (!redirectOnly) expect(retrieve.mock.calls.map(call => call[0])).toContain(url);
     // An issuer profile must not be sacrificed to the complementary SEC pair.
     expect(result.company.oneLiner).toBe('Microsoft Corporation develops software and provides cloud services for businesses.');
     const reopened = projectCompanyFactsFromOriginals(result.company, result.metrics, structuredClone(originals));
+    if (redirectOnly) {
+      // The explicit checker has no retained direct filing locator. Neither an
+      // opaque Google redirect nor the older search prose proves financial data.
+      expect(retrieve.mock.calls.map(call => call[0])).not.toContain(url);
+      expect(reopened.find(metric => metric.metricType === 'arr')).toMatchObject({ value: null, confidence: 'unknown' });
+      expect(reopened.find(metric => metric.metricType === 'employees')?.value).toBeNull();
+      return;
+    }
     expect(reopened.find(metric => metric.metricType === 'arr')).toMatchObject({
       value: latest.val, confidence: 'verified', passageSupport: { definition: 'annual_revenue', periodStart: latest.start, asOf: latest.end },
     });

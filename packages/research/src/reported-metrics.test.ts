@@ -1,0 +1,357 @@
+import { describe, expect, it, vi } from 'vitest';
+import { companyMetricSchema, comparableMetricBasis, metricDefinitionLabel, metricObservationIdentity } from '@mi/contracts';
+import { reportedCompanyMetrics, reportedMetricCitations } from './reported-metrics';
+import { enrichmentOutSchema } from './schemas';
+import { METRIC_MEASUREMENT_INSTRUCTIONS } from './prompts';
+import { extractProviderGrounding } from './grounding-support';
+import { hydrateCompanyCard, verifyCompanyCardOriginals } from './company-agent';
+import { projectCompanyFacts } from './company-facts';
+import type { LlmClient, MarketPlan } from './types';
+import type { OriginalSourceServices } from './original-source';
+
+vi.mock('./logos', () => ({ faviconUrl: () => null, resolveLogo: async () => ({ url: null }) }));
+const url = 'https://acme.com/investors/results';
+const description = 'Acme builds collaboration software for product teams.';
+const report = 'Acme reported annual revenue of $40 million for the year ended September 30, 2026. Its customers include product teams.';
+const plan: MarketPlan = { marketName: 'Software', vertical: 'SaaS', geography: null, notes: null, searchThemes: [] };
+const candidate = { name: 'Acme', domain: 'acme.com', descriptor: 'UNSUPPORTED FALLBACK', cardTypes: ['company' as const] };
+// Exact retained Google support text supplied from the completed market run.
+const openAiSegments = {
+  description: '**Company Description**\nOpenAI is an artificial intelligence research and deployment company focused on developing safe and beneficial artificial general intelligence (AGI)',
+  employees: '**Headcount / Number of Employees**\nOpenAI employed approximately 4,500 employees as reported by the *Financial Times* on March 21, 2026',
+  valuation: '**Valuation**\nOpenAI is a privately held company that was valued at a post-money valuation of $852 billion USD upon closing a $122 billion funding round on March 31, 2026, with Bloomberg reporting on September 29, 2026, that the company entered preliminary discussions for new financing at a $1.4 trillion USD valuation',
+  revenue: '**Annual Revenue & Recurring Revenue (ARR)**\nOpenAI achieved an estimated full-year 2025 annual revenue of $13.1 billion USD',
+  mixedEmployees: '**Headcount / Number of Employees**\nOpenAI employed approximately 4,500 employees as reported by the *Financial Times* on March 21, 2026 (with total global workforce estimates including contractors and operations reaching 8,171 per Revelio Labs as of March 2026)',
+};
+function openAiFixture(metrics: Record<string, unknown> = {}, segments = Object.values(openAiSegments)) {
+  const text = segments.join('\n\n');
+  const sourceUrl = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/openai-retained-fixture';
+  const grounding = extractProviderGrounding(text, {
+    groundingChunks: [{ web: { uri: sourceUrl, title: 'ft.com' } }],
+    groundingSupports: segments.map(passage => ({ segment: { text: passage,
+      startIndex: text.indexOf(passage), endIndex: text.indexOf(passage) + passage.length }, groundingChunkIndices: [0] })),
+  });
+  const client: LlmClient = { ground: vi.fn(async () => ({ text, citations: [{ url: sourceUrl, title: 'ft.com' }], queries: [], grounding })),
+    structure: vi.fn(async (_prompt, schema) => schema.parse({ website: 'https://openai.com', metrics })) as LlmClient['structure'] };
+  const claim = (value: number, basis: 'employees' | 'valuation' | 'arr', quote: string, asOf: string | null = null) => ({
+    value, confidence: 'estimated', reportedClaim: { sourceUrl, quote, asOf, basis,
+      definition: basis === 'arr' ? 'annual_revenue' : basis, unit: basis === 'employees' ? 'count' : 'USD' },
+  });
+  const hydrate = () => hydrateCompanyCard({ candidate: { ...candidate, name: 'OpenAI', domain: 'openai.com' }, client, plan });
+  return { client, claim, hydrate, grounding };
+}
+function fixture(text = report, value = 40_000_000) {
+  const answer = `${description}\n${text}`;
+  const grounding = extractProviderGrounding(answer, {
+    groundingChunks: [{ web: { uri: url, title: 'Acme results' } }],
+    groundingSupports: [description, text].map((passage, index) => ({
+      segment: { text: passage, startIndex: index * 100, endIndex: index * 100 + passage.length }, groundingChunkIndices: [0],
+    })),
+  });
+  const client: LlmClient = {
+    ground: vi.fn(async () => ({ text: answer, citations: [{ url, title: 'Acme results' }], queries: [], grounding })),
+    structure: vi.fn(async (_prompt, schema) => schema.parse({
+      oneLiner: 'MODEL INVENTED SUMMARY', website: 'https://acme.com', facts: { headcount: 1000 },
+      metrics: { arr: { value, confidence: 'verified', sourceIndex: 0, passageSupport: {
+        sourceUrl: url, quote: text, asOf: '2026-09-30', periodStart: '2025-10-01', basis: 'arr', definition: 'annual_revenue', unit: 'USD',
+      } } },
+    })) as LlmClient['structure'],
+  };
+  const originals: OriginalSourceServices = { retrieve: vi.fn(async () => { throw new Error('Reads must not block publication'); }),
+    save: vi.fn(async () => {}), list: vi.fn(async () => []) };
+  return { client, originals };
+}
+async function hydrate(client: LlmClient, originals?: OriginalSourceServices) {
+  return hydrateCompanyCard({ candidate, client, plan, originalSources: originals, recoverMissingMetrics: true });
+}
+describe('provider-supported fast company hydration', () => {
+  it.each([false, true])('recovers clean employee support with the actual mixed-scope duplicate (reverse order: %s) through empty-selector offline recovery', reverse => {
+    const segments = [openAiSegments.employees, openAiSegments.mixedEmployees];
+    if (reverse) segments.reverse();
+    const { grounding } = openAiFixture({}, segments);
+    const before = structuredClone(grounding);
+    const rows = reportedCompanyMetrics({ companyId: 'openai', companyName: 'OpenAI', website: 'https://openai.com',
+      enrichment: enrichmentOutSchema.parse({ metrics: {} }), text: grounding!.answerText, grounding,
+      capturedAt: '2026-10-06T00:00:00.000Z' });
+    expect(rows.find(row => row.metricType === 'employees')).toMatchObject({ value: 4500, confidence: 'estimated',
+      reportedSupport: { asOf: null, support: { text: openAiSegments.employees } } });
+    expect(grounding).toEqual(before);
+  });
+  it('does not recover an employee figure from the mixed employees-plus-contractors passage alone', () => {
+    const { grounding } = openAiFixture({}, [openAiSegments.mixedEmployees]);
+    const rows = reportedCompanyMetrics({ companyId: 'openai', companyName: 'OpenAI', website: 'https://openai.com',
+      enrichment: enrichmentOutSchema.parse({ metrics: {} }), text: grounding!.answerText, grounding,
+      capturedAt: '2026-10-06T00:00:00.000Z' });
+    expect(rows.find(row => row.metricType === 'employees')).toMatchObject({ value: null, confidence: 'unknown' });
+  });
+  it('keeps annual revenue versus ARR unknown during empty-selector recovery rather than selecting or dating either', () => {
+    const recurringRevenue = 'OpenAI reported ARR of USD 70 billion.';
+    const { grounding } = openAiFixture({}, [openAiSegments.employees, openAiSegments.mixedEmployees,
+      openAiSegments.revenue, recurringRevenue]);
+    const rows = reportedCompanyMetrics({ companyId: 'openai', companyName: 'OpenAI', website: 'https://openai.com',
+      enrichment: enrichmentOutSchema.parse({ metrics: {} }), text: grounding!.answerText, grounding,
+      capturedAt: '2026-10-06T00:00:00.000Z' });
+    expect(rows.find(row => row.metricType === 'employees')!.value).toBe(4500);
+    expect(rows.find(row => row.metricType === 'arr')).toMatchObject({ value: null, confidence: 'unknown', reportedSupport: null });
+  });
+  it('accepts the retained OpenAI description/headcount headings while retaining the exact provider segment', async () => {
+    const fixture = openAiFixture();
+    fixture.client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: {
+      employees: fixture.claim(4500, 'employees', openAiSegments.employees),
+    } })) as LlmClient['structure'];
+    const result = await fixture.hydrate();
+    expect(result.company.oneLiner).toBe(openAiSegments.description.split('\n')[1]);
+    expect(result.metrics.find(row => row.metricType === 'employees')).toMatchObject({ value: 4500, confidence: 'estimated',
+      lastVerifiedAt: null, reportedSupport: { asOf: null, support: fixture.grounding!.supports[1] } });
+  });
+  it('recovers omitted OpenAI reported counts/revenue, but does not choose among mixed valuation/funding contexts or invent dates', async () => {
+    const { hydrate } = openAiFixture({ employees: null, arr: null, valuation: null, market_cap: null });
+    const result = await hydrate();
+    expect(result.metrics.find(row => row.metricType === 'employees')).toMatchObject({ value: 4500,
+      confidence: 'estimated', reportedSupport: { asOf: null, support: { text: openAiSegments.employees } } });
+    expect(result.metrics.find(row => row.metricType === 'arr')).toMatchObject({ value: 13_100_000_000,
+      confidence: 'estimated', reportedSupport: { asOf: null, definition: 'annual_revenue', support: { text: openAiSegments.revenue } } });
+    expect(result.metrics.find(row => row.metricType === 'valuation')).toMatchObject({ value: null, confidence: 'unknown' });
+    expect(result.metrics.find(row => row.metricType === 'market_cap')).toMatchObject({ value: null, confidence: 'unknown' });
+    expect(result.metrics.find(row => row.metricType === 'arr')!.reportedSupport!.periodStart).toBeUndefined();
+  });
+  it('does not let a finance paragraph become the summary merely because it says is a', async () => {
+    const { hydrate } = openAiFixture({}, [openAiSegments.valuation, openAiSegments.description, openAiSegments.employees]);
+    expect((await hydrate()).company.oneLiner).toBe(openAiSegments.description.split('\n')[1]);
+    expect((await openAiFixture({}, [openAiSegments.valuation]).hydrate()).company.oneLiner).toBe('No source-backed company snapshot is ready yet.');
+  });
+  it.each([1_400_000_000_000, 122_000_000_000])('does not turn financing discussion/funding amount %s into a completed valuation', async value => {
+    const fixture = openAiFixture();
+    fixture.client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: {
+      valuation: fixture.claim(value, 'valuation', openAiSegments.valuation, '2026-09-29'),
+    } })) as LlmClient['structure'];
+    expect((await fixture.hydrate()).metrics.find(row => row.metricType === 'valuation')!.value).toBeNull();
+  });
+  it('allows an explicitly selected completed valuation without substituting the later speculative number', async () => {
+    const fixture = openAiFixture();
+    fixture.client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: {
+      valuation: fixture.claim(852_000_000_000, 'valuation', openAiSegments.valuation, '2026-03-31'),
+    } })) as LlmClient['structure'];
+    expect((await fixture.hydrate()).metrics.find(row => row.metricType === 'valuation')).toMatchObject({ value: 852_000_000_000,
+      confidence: 'estimated', reportedSupport: { asOf: '2026-03-31', support: { text: openAiSegments.valuation } } });
+  });
+  it('does not attach the later discussion date to the earlier completed valuation', async () => {
+    const fixture = openAiFixture();
+    fixture.client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: {
+      valuation: fixture.claim(852_000_000_000, 'valuation', openAiSegments.valuation, '2026-09-29'),
+    } })) as LlmClient['structure'];
+    expect((await fixture.hydrate()).metrics.find(row => row.metricType === 'valuation')!.value).toBeNull();
+  });
+  it.each(['other-company', 'wrong-date'] as const)('retains attribution/date rejection beneath a stripped heading: %s', async fault => {
+    const text = fault === 'other-company' ? openAiSegments.employees.replace('OpenAI employed', 'Otherco employed') : openAiSegments.employees;
+    const fixture = openAiFixture({}, [text]);
+    fixture.client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: {
+      employees: fixture.claim(4500, 'employees', text, fault === 'wrong-date' ? '2026-10-06' : null),
+    } })) as LlmClient['structure'];
+    expect((await fixture.hydrate()).metrics.find(row => row.metricType === 'employees')!.value).toBeNull();
+  });
+  it('accepts actual Google heading-prefixed attribution without deleting provider text', async () => {
+    const text = 'Original source: https://www.microsoft.com/investor\n* **Employees (Headcount):** Microsoft Corporation employed approximately 228,000 full-time employees worldwide as of June 30, 2025, according to its Human Rights Transparency Report 2025 and Form 10-K disclosures';
+    const summary = '* **Company Description:** Microsoft Corporation is a multinational technology provider that develops software products and cloud-computing services';
+    const answer = `${summary}\n${text}`;
+    const sourceUrl = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/microsoft-fixture';
+    const grounding = extractProviderGrounding(answer, {
+      groundingChunks: [{ web: { uri: sourceUrl, title: 'microsoft.com' } }],
+      groundingSupports: [summary, text].map(passage => ({ segment: { text: passage }, groundingChunkIndices: [0] })),
+    });
+    const client: LlmClient = {
+      ground: vi.fn(async () => ({ text: answer, citations: [{ url: sourceUrl, title: 'microsoft.com' }], queries: [], grounding })),
+      structure: vi.fn(async (prompt, schema) => {
+        expect(prompt).toContain('PROVIDER SUPPORT CATALOG');
+        expect(prompt).toContain(sourceUrl);
+        return schema.parse({ website: 'https://www.microsoft.com', metrics: { employees: {
+          value: 228000, confidence: 'estimated', reportedClaim: { sourceUrl, quote: text, asOf: '2025-06-30', basis: 'employees', unit: 'count', definition: 'employees' },
+        } } });
+      }) as LlmClient['structure'],
+    };
+    const result = await hydrateCompanyCard({ candidate: { ...candidate, name: 'Microsoft Corporation', domain: 'microsoft.com' }, client, plan });
+    expect(result.metrics.find(row => row.metricType === 'employees')).toMatchObject({ value: 228000, confidence: 'estimated', reportedSupport: { support: { text } } });
+    expect(result.company.oneLiner).toBe('Microsoft Corporation is a multinational technology provider that develops software products and cloud-computing services');
+  });
+  it('requires selectors in the documented metric JSON shape, not an optional afterthought', async () => {
+    const { client } = fixture(); await hydrate(client);
+    const prompt = vi.mocked(client.structure).mock.calls[0]![0];
+    expect(prompt).toContain('"reportedClaim":');
+    expect(prompt).toContain('PROVIDER SUPPORT CATALOG');
+  });
+  it('recovers an omitted extraction only from an unambiguous literal provider measurement', async () => {
+    const { client } = fixture('Microsoft Corporation generated total annual revenue of $281.7 billion USD for the entire legal company in the fiscal year ended June 30, 2025, according to its 2025 Annual Report published on June 30, 2025', 281700000000);
+    client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: { arr: null } })) as LlmClient['structure'];
+    const result = await hydrateCompanyCard({ candidate: { ...candidate, name: 'Microsoft Corporation' }, client, plan });
+    expect(result.metrics.find(row => row.metricType === 'arr')).toMatchObject({ value: 281700000000, confidence: 'estimated', reportedSupport: { definition: 'annual_revenue', asOf: '2025-06-30' } });
+  });
+  it.each([null, undefined])('recovers the worldwide employee total with an omitted selector (%s), not parenthetical country counts', async selector => {
+    const text = 'Microsoft Corporation employed approximately 228,000 full-time personnel worldwide (125,000 in the United States and 103,000 internationally) as of June 30, 2025, according to its Annual Report on Form 10-K published on July 30, 2025';
+    const { client } = fixture(text, 228000);
+    client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: selector === null ? { employees: null } : {} })) as LlmClient['structure'];
+    const result = await hydrateCompanyCard({ candidate: { ...candidate, name: 'Microsoft Corporation' }, client, plan });
+    expect(result.metrics.find(row => row.metricType === 'employees')).toMatchObject({ value: 228000, confidence: 'estimated',
+      lastVerifiedAt: null, reportedSupport: { asOf: '2025-06-30', support: { text } } });
+  });
+  it('does not infer a worldwide employee total from parenthetical country counts alone', async () => {
+    const text = 'Microsoft Corporation employed full-time personnel worldwide (125,000 in the United States and 103,000 internationally) as of June 30, 2025';
+    const { client } = fixture(text);
+    client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: { employees: null } })) as LlmClient['structure'];
+    const result = await hydrateCompanyCard({ candidate: { ...candidate, name: 'Microsoft Corporation' }, client, plan });
+    expect(result.metrics.find(row => row.metricType === 'employees')).toMatchObject({ value: null, confidence: 'unknown', reportedSupport: null });
+  });
+  it.each([
+    ['employees', 228000, 'count', 'Microsoft Corporation employed approximately 228,000 full-time personnel worldwide (125,000 in the United States and 103,000 internationally) as of June 30, 2025, according to its Annual Report on Form 10-K published on July 30, 2025'],
+    ['arr', 281724000000, 'USD', 'Microsoft Corporation generated total annual consolidated revenue of $281.724 billion for its full fiscal year ended June 30, 2025, according to its Form 10-K published on July 30, 2025 (within which its Azure cloud business accounted for more than $75 billion)'],
+  ] as const)('retains the actual %s phrasing without binding a subdivision figure', async (type, value, unit, text) => {
+    const { client } = fixture(text, value);
+    client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: { [type]: { value, confidence: 'estimated', reportedClaim: {
+      sourceUrl: url, quote: text, asOf: '2025-06-30', basis: type, unit, definition: type === 'arr' ? 'annual_revenue' : type,
+    } } } })) as LlmClient['structure'];
+    const result = await hydrateCompanyCard({ candidate: { ...candidate, name: 'Microsoft Corporation' }, client, plan });
+    expect(result.metrics.find(row => row.metricType === type)).toMatchObject({ value, confidence: 'estimated' });
+  });
+  it('does not relabel selected product-feature users as whole-company users', async () => {
+    const text = 'Acme reported 800 million monthly active users engaging with AI-powered features across its software portfolio and 100 million monthly active users across its Copilot suite as of September 30, 2026.';
+    const { client } = fixture(text);
+    client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: { users: { value: 800000000, confidence: 'estimated', reportedClaim: {
+      sourceUrl: url, quote: text, asOf: '2026-09-30', basis: 'users', unit: 'count', definition: 'monthly_active_users',
+    } } } })) as LlmClient['structure'];
+    expect((await hydrate(client)).metrics.find(row => row.metricType === 'users')!.value).toBeNull();
+  });
+  it.each([
+    'Otherco reported annual revenue of $40 million as of September 30, 2026.',
+    'Acme reported annual revenue of CAD $40 million as of September 30, 2026.',
+    'Acme reported annual revenue of $40 million and annual revenue of $50 million as of September 30, 2026.',
+  ])('does not recover an omitted but ambiguous/misattributed figure: %s', async text => {
+    const { client } = fixture(text);
+    client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: { arr: null } })) as LlmClient['structure'];
+    expect((await hydrate(client)).metrics.find(row => row.metricType === 'arr')!.value).toBeNull();
+  });
+  it('requests reported facts without proxy hunts or contradictory strict original-date instructions', async () => {
+    const { client } = fixture(); await hydrate(client);
+    const researchPrompt = vi.mocked(client.ground).mock.calls[0]![0];
+    expect(researchPrompt).not.toContain('ALWAYS search for these');
+    expect(researchPrompt).not.toContain('reasonably estimated');
+    expect(researchPrompt).not.toContain('grounded proxy estimates');
+    const structurePrompt = vi.mocked(client.structure).mock.calls[0]![0];
+    expect(structurePrompt).not.toContain(METRIC_MEASUREMENT_INSTRUCTIONS);
+    expect(structurePrompt).not.toContain('if derived');
+    expect(structurePrompt).toContain('otherwise null (undated)');
+    expect(structurePrompt).toContain('not verified');
+  });
+  it('publishes after ground/structure with actual per-claim support, before original reads or recovery', async () => {
+    const { client, originals } = fixture(); const result = await hydrate(client, originals);
+    expect(client.ground).toHaveBeenCalledTimes(1); expect(client.structure).toHaveBeenCalledTimes(1);
+    expect(originals.retrieve).not.toHaveBeenCalled(); expect(originals.save).not.toHaveBeenCalled();
+    expect(result.metrics.find(row => row.metricType === 'arr')).toMatchObject({ value: 40_000_000,
+      confidence: 'estimated', lastVerifiedAt: null, passageSupport: null, reportedSupport: {
+        provider: 'google-search', companyName: 'Acme', basis: 'arr', definition: 'annual_revenue', asOf: '2026-09-30',
+        support: { supportIndex: 1, text: report, sources: [{ chunkIndex: 0, url }] },
+      } });
+    expect(result.metrics.find(row => row.metricType === 'arr')!.methodNote).toContain('not verified');
+    expect(result.company.oneLiner).toBe(description);
+    expect(result.card.citations).toEqual([expect.objectContaining({ url })]);
+    expect(result.primaryCard.metrics).toEqual(result.metrics); expect(result.memory.card.metrics).toEqual(result.metrics);
+    expect(result.metrics.find(row => row.metricType === 'employees')!.value).toBeNull();
+  });
+  it.each(['citation-only', 'forged-model', 'wrong-value', 'wrong-company', 'wrong-basis', 'wrong-date', 'invalid-url', 'detached-answer', 'partner-figure'])(
+    'withholds a %s numeric proposal', async fault => {
+      const text = fault === 'wrong-company' ? report.replaceAll('Acme', 'Otherco')
+        : fault === 'wrong-basis' ? report.replace('annual revenue', 'valuation')
+          : fault === 'wrong-date' ? report.replace('September 30, 2026', 'September 30, 2025')
+            : fault === 'partner-figure' ? 'Acme partners with Otherco. Otherco reported annual revenue of $40 million for the year ended September 30, 2026.' : report;
+      const { client } = fixture(text, fault === 'wrong-value' ? 90_000_000 : 40_000_000);
+      const ground = await client.ground('fixture');
+      if (fault === 'citation-only' || fault === 'forged-model') delete ground.grounding;
+      if (fault === 'invalid-url') ground.grounding!.supports[1]!.sources[0]!.url = 'javascript:alert(1)';
+      if (fault === 'detached-answer') ground.grounding!.answerText = 'Different provider response';
+      client.ground = vi.fn(async () => ground);
+      if (fault === 'forged-model') client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: { arr: {
+        value: 40_000_000, confidence: 'verified', sourceIndex: 0, reportedSupport: { provider: 'google-search', support: { text: report } },
+        passageSupport: { sourceUrl: url, quote: report, asOf: '2026-09-30', basis: 'arr', unit: 'USD' },
+      } } })) as LlmClient['structure'];
+      const result = await hydrate(client);
+      expect(result.metrics.find(row => row.metricType === 'arr')).toMatchObject({ value: null, confidence: 'unknown' });
+    });
+  it('does not publish model summaries or discovery descriptors without eligible provider support', async () => {
+    const { client } = fixture(); const ground = await client.ground('fixture'); delete ground.grounding;
+    client.ground = vi.fn(async () => ground); const result = await hydrate(client);
+    expect(result.company.oneLiner).toBe('No source-backed company snapshot is ready yet.'); expect(result.card.citations).toEqual([]);
+  });
+  it('preserves reported support through schema parsing and offline projection without promoting verification', async () => {
+    const { client } = fixture(); const result = await hydrate(client);
+    const row = companyMetricSchema.parse(result.metrics.find(metric => metric.metricType === 'arr'));
+    expect(row.reportedSupport).toBeDefined();
+    expect(metricDefinitionLabel(row)).toBe('Annual revenue');
+    expect(comparableMetricBasis(row)).toBe(false);
+    expect(metricObservationIdentity(row)).toContain('annual_revenue');
+    expect(projectCompanyFacts(result.company, [row], [])[0]).toMatchObject({ value: 40_000_000, confidence: 'estimated', reportedSupport: row.reportedSupport });
+    expect(projectCompanyFacts(result.company, [{ ...row, value: 90_000_000 }], [])[0]!.value).toBeNull();
+    const human = { ...row, value: 55_000_000, confidence: 'user_verified' as const, reportedSupport: null };
+    expect(projectCompanyFacts(result.company, [row, human], [])[0]).toEqual(human);
+  });
+  it.each([
+    ['- **Acme** reported annual revenue of $40 million. Reporting date was September 30, 2026.', '2026-09-30'],
+    ['Annual revenue of $40 million as of September 30, 2026.', '2026-09-30'],
+    ['Acme reported annual revenue of $40 million.', null],
+  ] as const)('accepts a realistic provider segment without inventing a date: %s', async (text, asOf) => {
+    const { client } = fixture(text);
+    client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: { arr: { value: 40_000_000,
+      confidence: 'estimated', reportedClaim: { sourceUrl: url, quote: text, asOf, basis: 'arr', definition: 'annual_revenue', unit: 'USD' },
+    } } })) as LlmClient['structure'];
+    const result = await hydrate(client);
+    expect(result.metrics.find(row => row.metricType === 'arr')).toMatchObject({ value: 40_000_000,
+      confidence: 'estimated', reportedSupport: { asOf } });
+    if (!asOf) expect(result.metrics.find(row => row.metricType === 'arr')!.methodNote).toContain('undated');
+  });
+  it('recognizes a legal suffix alias without accepting an unrelated company', async () => {
+    const { client } = fixture('- **Acme** reported annual revenue of $40 million as of September 30, 2026.');
+    const result = await hydrateCompanyCard({ candidate: { ...candidate, name: 'Acme, Inc.' }, client, plan });
+    expect(result.metrics.find(row => row.metricType === 'arr')!.value).toBe(40_000_000);
+  });
+  it('binds each number to its measurement, not every metric in the passage', async () => {
+    const { client } = fixture(); const result = await hydrate(client);
+    const base = result.metrics.find(row => row.metricType === 'arr')!;
+    const text = 'Acme has 200 employees and 5 million users as of September 30, 2026.';
+    const row = { ...base, metricType: 'employees' as const, value: 5_000_000,
+      reportedSupport: { ...base.reportedSupport!, basis: 'employees' as const, definition: 'employees' as const,
+        unit: 'count' as const, value: 5_000_000, support: { ...base.reportedSupport!.support, text } } };
+    expect(reportedMetricCitations('Acme', 'https://acme.com', row)).toEqual([]);
+    expect(reportedMetricCitations('Acme', 'https://acme.com', { ...row, value: 200,
+      reportedSupport: { ...row.reportedSupport, value: 200 } })).toHaveLength(1);
+  });
+  it.each([
+    'Acme reported annual revenue of CAD $40 million as of September 30, 2026.',
+    'Acme said that Otherco reported annual revenue of $40 million as of September 30, 2026.',
+    'Acme reported annual revenue of $40 million in an article published September 30, 2026.',
+  ])('does not misattribute currency, company, or publication date: %s', async text => {
+    const { client } = fixture(text); const result = await hydrate(client);
+    expect(result.metrics.find(row => row.metricType === 'arr')!.value).toBeNull();
+  });
+  it('keeps a human correction during hydration and does not mutate the prior memory', async () => {
+    const { client } = fixture(); const first = await hydrate(client);
+    const human = { ...first.metrics[0]!, value: 55_000_000, confidence: 'user_verified' as const, reportedSupport: null };
+    first.memory.card.metrics = [human];
+    const next = await hydrateCompanyCard({ candidate, client, plan, existingMemory: first.memory });
+    expect(next.metrics.find(row => row.metricType === human.metricType)).toEqual(human);
+    expect(first.memory.card.metrics).toEqual([human]);
+  });
+  it('saves supplementary originals before interpretation; only originals earn verified', async () => {
+    const { client, originals } = fixture(); const result = await hydrate(client); const events: string[] = [];
+    const quote = 'Acme reported ARR of USD 40 million as of 2026-09-30.';
+    originals.retrieve = vi.fn(async requestedUrl => ({ requestedUrl, finalUrl: requestedUrl, status: 'retrieved' as const, httpStatus: 200,
+      text: quote, contentHash: 'a'.repeat(64), retrievedAt: '2026-10-06T00:00:00.000Z' }));
+    originals.save = vi.fn(async () => { events.push('saved'); });
+    client.structure = vi.fn(async (_prompt, schema) => { events.push('interpreted'); return schema.parse({ metrics: { arr: {
+      value: 40_000_000, confidence: 'verified', passageSupport: { sourceUrl: url, quote, asOf: '2026-09-30', basis: 'arr', unit: 'USD' },
+    } } }); }) as LlmClient['structure'];
+    const verified = await verifyCompanyCardOriginals(result, client, { originalSources: originals });
+    expect(events).toEqual(['saved', 'interpreted']);
+    expect(verified.metrics.find(row => row.metricType === 'arr')).toMatchObject({ value: 40_000_000, confidence: 'verified', passageSupport: { quote } });
+    expect(result.metrics.find(row => row.metricType === 'arr')!.confidence).toBe('estimated');
+    result.metrics[0] = { ...result.metrics[0]!, value: 55_000_000, confidence: 'user_verified' };
+    const locked = await verifyCompanyCardOriginals(result, client, { originalSources: originals });
+    expect(locked.metrics[0]!.value).toBe(55_000_000); expect(locked.metrics[0]!.confidence).toBe('user_verified');
+  });
+});

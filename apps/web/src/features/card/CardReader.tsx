@@ -112,6 +112,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                 const metric = item.metric;
                 const citation = item.citations[0];
                 const status = metric?.confidence === 'user_verified' ? 'Human checked' :
+                  item.confidence === 'Source reported' ? 'Source reported · not verified' :
                   citation?.credibility === 'primary' ? 'Primary source' :
                     citation?.credibility === 'reputable_secondary' ? 'Independent reporting' :
                       citation?.credibility === 'industry' ? 'Industry source' :
@@ -129,12 +130,14 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                       <span>{publisherOf(citation.url, citation.title)}</span><ExternalLink size={10} aria-hidden="true" />
                     </a>}
                     {formattedDate && <time dateTime={metric!.capturedAt}>Recorded {formattedDate}</time>}
+                    {metric?.reportedSupport && <span>{metric.reportedSupport.asOf
+                      ? `Figure dated ${metric.reportedSupport.asOf}` : 'Reporting date unavailable'}</span>}
                   </div>
                 </li>;
               })}
             </ul>
             <p className="card-inspector__trust-note">
-              Figures without a source receipt or human check stay unknown; estimates aren’t shown as confirmed facts.
+              Source-reported figures have search attribution, not independent verification. Unsupported estimates stay unknown.
             </p>
           </section>}
 

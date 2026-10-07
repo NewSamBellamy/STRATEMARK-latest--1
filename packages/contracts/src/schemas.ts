@@ -143,6 +143,22 @@ export const metricPassageSupportSchema = z.object({
   format: z.enum(['sec-companyconcept', 'sec-filing']).optional(),
 });
 
+/** Provider-attributed reported claim, explicitly NOT original verification. */
+export const reportedMetricSupportSchema = z.object({
+  provider: z.literal('google-search'), companyName: z.string().min(1),
+  basis: metricTypeSchema, value: z.number().finite().nonnegative(),
+  unit: metricPassageSupportSchema.shape.unit,
+  asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  definition: metricPassageSupportSchema.shape.definition,
+  periodStart: metricPassageSupportSchema.shape.periodStart,
+  support: z.object({
+    supportIndex: z.number().int().nonnegative(), text: z.string().min(1).max(12000),
+    sources: z.array(z.object({ chunkIndex: z.number().int().nonnegative(), url: z.string().max(2048), title: z.string() })).min(1),
+    startIndex: z.number().int().nonnegative().optional(), endIndex: z.number().int().nonnegative().optional(),
+    partIndex: z.number().int().nonnegative().optional(),
+  }),
+});
+
 export const companyMetricSchema = z.object({
   id: z.string(),
   companyId: z.string(),
@@ -161,6 +177,7 @@ export const companyMetricSchema = z.object({
   citations: z.array(citationSchema).default([]),
   methodNote: z.string().nullable(), // "how we got this number" for estimated figures
   passageSupport: metricPassageSupportSchema.nullish(),
+  reportedSupport: reportedMetricSupportSchema.nullish(),
   capturedAt: isoTimestamp,
   /**
    * When a source last CONFIRMED this figure, as opposed to when we wrote the

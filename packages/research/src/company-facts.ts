@@ -1,6 +1,7 @@
 import { METRIC_TYPES, companyMetricSchema, currentMetricRevision, metricPassageSupportSchema,
   validMetricVerificationValue, isSignalCardType, type CardWithCompany, type Company, type CompanyMetric } from '@mi/contracts';
 import { inspectMetricPassage } from './metric-support';
+import { reportedMetricCitations } from './reported-metrics';
 import { isOriginalSourceAttempt, originalSupportReferences, selectOriginalSourceAttempts, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceQuery } from './original-source';
 
 /** Read adapter for the existing retained cloud verification ledger. Synthetic
@@ -44,6 +45,11 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
     const bounded = validMetricVerificationValue(type, metric.value) &&
       (!['employees', 'users'].includes(type) || Number.isSafeInteger(metric.value));
     if (!current.ambiguous && bounded && metric.confidence === 'user_verified') return [structuredClone(metric)];
+    const reportedCitations = !current.ambiguous && bounded && metric.confidence === 'estimated'
+      ? reportedMetricCitations(company.name, company.websiteUrl, metric) : [];
+    if (reportedCitations.length) return [{ ...structuredClone(metric), citations: reportedCitations,
+      source: reportedCitations[0]!.url, passageSupport: null, lastVerifiedAt: null,
+      methodNote: `Source reported ${metric.reportedSupport!.definition ?? type} (${metric.reportedSupport!.asOf ? `as of ${metric.reportedSupport!.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original.` }];
     const proof = metricPassageSupportSchema.safeParse(metric.passageSupport);
     // Market share needs a defined market/denominator/period contract. A dated
     // percentage in a sentence is not that contract; automatic shares wait.
@@ -56,7 +62,7 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
         ? `Issuer-reported figure; original passage checked, not independently corroborated. ${metric.methodNote ?? ''}`.trim()
         : metric.methodNote }];
     return [{ ...structuredClone(metric), value: null, confidence: 'unknown' as const, citations: [], source: null,
-      passageSupport: null, lastVerifiedAt: null,
+      passageSupport: null, reportedSupport: null, lastVerifiedAt: null,
       methodNote: current.ambiguous ? 'Conflicting current observations; confirm before displaying a fact.'
         : type === 'market_share' ? 'No accepted market definition, denominator and reporting-period evidence. Raw observations remain saved.'
           : `${assessment?.reason ?? 'No accepted original-backed current fact.'} Raw observations remain saved for inspection and correction.` }];

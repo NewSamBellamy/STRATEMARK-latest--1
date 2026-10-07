@@ -5,7 +5,6 @@
  * text into JSON and must mark anything unsupported as Unknown/Estimated.
  */
 import { CARD_TYPE_LABELS, TIER_LABELS, type CardType } from '@mi/contracts';
-import { FUNDING_ROUND_TYPES } from './proxy-estimator';
 import type { CompanyCandidate, MarketPlan } from './types';
 import type { Citation } from './types';
 import { SOURCE_PRIORITY_POLICY, companySourceTargets } from './source-policy';
@@ -147,10 +146,6 @@ export function enrichPrompt(candidate: CompanyCandidate, plan: MarketPlan): str
     `- annual revenue for any business when reported; ARR only when the source explicitly describes recurring revenue; preserve the exact basis and as-of date`,
     `- number of users/customers`,
     `- number of employees`,
-    `- factual proxy anchors for private companies (ALWAYS search for these):`,
-    `  * disclosed employee/team count (LinkedIn / About page / company filings)`,
-    `  * latest venture funding round size & type (e.g. $20M Series A, $60M Series B, Seed)`,
-    `  * scraped pricing tiers (e.g. $20/mo, $50/mo) and public user footprint (installs, active users, GitHub stars, customer count)`,
     candidate.cardTypes.includes('vice')
       ? `- any lawsuits, controversy, or integrity concerns (each MUST have a source)`
       : ``,
@@ -159,7 +154,7 @@ export function enrichPrompt(candidate: CompanyCandidate, plan: MarketPlan): str
       : ``,
     `- the brand's primary colors (hex) from its website if visible`,
     ``,
-    `Report each figure with its source. ALWAYS look for and extract disclosed employee/team count, latest venture funding round (amount & type), scraped pricing tiers, and public user footprint so private companies receive accurate grounded proxy estimates. If a figure isn't disclosed, note whether it can be reasonably estimated (and how) or is simply unknown. Do not fabricate numbers.`,
+    `Report only figures stated by sources, each with its actual measurement, source and reporting date when published. If no reporting date is disclosed, say undated; never use retrieval time. If a figure is not disclosed, leave it unknown. Do not derive revenue, valuation or user counts from funding, headcount, pricing, installs or other proxy anchors. Do not fabricate numbers.`,
     ``,
     `MEASUREMENT BASIS — CRITICAL: all financial figures (revenue/ARR, valuation, market cap, employees) must describe the WHOLE LEGAL COMPANY, even when the deck's topic is one of its divisions. For a conglomerate like Alphabet or Meta appearing in an AI-focused market, report Alphabet's total revenue and market cap — NEVER a silent estimate of just the AI division's revenue. If sources only discuss a division figure, report the whole-company figure from broader sources and mention the division context in the method note. Mixing whole-company and division figures under the same label is how a deck ends up claiming a $4T company has $1.3B revenue.`,
   ]
@@ -177,17 +172,10 @@ export function structureEnrichPrompt(
     `Convert the research notes on "${candidate.name}" into JSON with this shape:`,
     `{ "oneLiner", "hqLocation"|null, "website"|null, "brand": {"primary","secondary","accent"}|null,`,
     `  "metrics": { "market_share": metricObj|null, "valuation": metricObj|null, "market_cap": metricObj|null, "arr": metricObj|null, "users": metricObj|null, "employees": metricObj|null } where metricObj is`,
-    `     { "value": number|null (raw number — dollars for money, count for users/employees, percent for share), "confidence": "verified"|"estimated"|"unknown", "sourceIndex": number|null (index into SOURCES), "method": string|null },`,
-    `  "facts": {`,
-    `     "headcount": number|null (disclosed employee/team count from LinkedIn or About page),`,
-    `     "lastFundingRound": { "amount": number, "roundType": ${FUNDING_ROUND_TYPES.map((r) => `"${r}"`).join('|')} }|null (latest venture funding round size in USD and its type — use exactly one of those values, not prose),`,
-    `     "scrapedPricing": { "monthlyPrice": number|null, "annualPrice": number|null }|null (scraped pricing tier amounts in USD),`,
-    `     "publicUserFootprint": number|null (installs, active users, GitHub stars, or customer count),`,
-    `     "footprintLabel": string|null (label for footprint metric e.g. "active users", "GitHub stars", "customers")`,
-    `  },`,
+    `     { "value": number|null (raw number — dollars for money, count for users/employees, percent for share), "confidence": "estimated"|"unknown", "sourceIndex": number|null (index into SOURCES), "method": string|null, "reportedClaim": { "sourceUrl": string, "quote": string, "asOf": "YYYY-MM-DD"|null, "basis": storage key, "unit": "USD"|"count"|"percent", "definition": actual measurement }|null },`,
     `  "viceClaims": [ { "text", "sourceIndex": number|null } ], "cultureNote": string|null }`,
     ``,
-    `Rules: all money/headcount figures are WHOLE-COMPANY figures, never a division's (note division context in "method" instead). FIGURES MUST BE EXACT AND CURRENT: copy the precise number a source states (7832, not 8000; 23.6, not 25) and when sources disagree prefer the MOST RECENTLY PUBLISHED figure — a stale or rounded number will fail verification later. In the "arr" field, preserve the source's actual basis in "method": call it ARR only when the source says recurring revenue, call it annual revenue when that's what the source reports, and explicitly label run-rate; never silently convert one basis into another. For "users", preserve the actual footprint unit in "method" (customers, active users, installs, downloads, GitHub stars, etc.) and never relabel a proxy as users. Always include keys for market_share, valuation (or market_cap), arr, users, and employees in "metrics" — use "verified" only if a SOURCE states the figure; "estimated" with a "method" note if derived; else "unknown" with value null. ALWAYS extract disclosed employee/team count, latest venture funding round (amount & type), scraped pricing tiers, and public user footprint into "facts" whenever available. Every viceClaim MUST have a sourceIndex. Provide only valuation OR market_cap, not both.`,
+    `Rules: all figures describe the WHOLE COMPANY, never a division's. Copy the precise source-reported number, never round or derive it. Preserve the actual measurement: annual revenue is not ARR; customers are not total users; funding is not valuation; downloads, followers, registrations and stars are not users. Prefer the most recent reporting period actually supported by the notes, not a newer webpage repeating an older figure. Do not label undated figures current. Include market_share, valuation (or market_cap), arr, users and employees; missing figures are value null and confidence unknown. Initial source-reported figures use confidence estimated and a method note stating source reported, not verified. Never synthesize figures from proxy anchors. Every viceClaim MUST have a sourceIndex. Provide only valuation OR market_cap, not both.`,
     ``,
     `SOURCES:`,
     sources,

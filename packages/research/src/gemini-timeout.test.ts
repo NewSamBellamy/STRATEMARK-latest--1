@@ -10,6 +10,25 @@ const hung = <T>() => new Promise<T>(() => undefined);
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
+it('identifies a blocked response without echoing private provider details', async () => {
+  const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ promptFeedback: { blockReason: 'PRIVATE DETAIL' } })));
+  await expect(createGeminiClient({ apiKey: 'test-placeholder', fetchImpl }).ground('prompt'))
+    .rejects.toThrow('Gemini blocked this research request. Try a narrower research question.');
+});
+
+it('identifies invalid structured output without exposing the research notes', async () => {
+  const fetchImpl = vi.fn(async () => response('PRIVATE INVALID OUTPUT'));
+  await expect(createGeminiClient({ apiKey: 'test-placeholder', fetchImpl }).structure('prompt', z.object({ name: z.string() })))
+    .rejects.toThrow('Gemini returned invalid research data after two attempts. No guessed data was saved.');
+  expect(fetchImpl).toHaveBeenCalledTimes(2);
+});
+
+it('identifies browser transport failures without disclosing their raw message', async () => {
+  const fetchImpl = vi.fn().mockRejectedValue(new TypeError('PRIVATE NETWORK DETAIL'));
+  await expect(createGeminiClient({ apiKey: 'test-placeholder', fetchImpl }).ground('prompt'))
+    .rejects.toThrow('Could not reach Gemini. Check your connection and try again.');
+});
+
 it('bounds a hung fetch that ignores abort at the default deadline', async () => {
   vi.useFakeTimers();
   let signal!: AbortSignal;

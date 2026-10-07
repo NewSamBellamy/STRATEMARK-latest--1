@@ -26,13 +26,32 @@ function deferred<T>() {
  * verify the entire orchestration — discovery, enrichment, citation threading,
  * CMS scoring, vice-claim sourcing, barrier cards — with zero network.
  */
-function fakeClient(): LlmClient {
+function fakeClient(withProviderSupport = true): LlmClient {
   const citations = [
     { title: 'techcrunch.com', url: 'https://tc.example/a' },
     { title: 'sec.gov', url: 'https://sec.example/b' },
   ];
+  const reported = [
+    ['Alpha Inc', 'market_cap', 120_000_000_000, 'market cap', 'USD'],
+    ['Alpha Inc', 'arr', 6_000_000_000, 'ARR', 'USD'],
+    ['Alpha Inc', 'employees', 60_000, 'employees', 'count'],
+    ['Alpha Inc', 'users', 40_000_000, 'users', 'count'],
+    ['Beta LLC', 'valuation', 8_000_000, 'valuation', 'USD'],
+    ['Beta LLC', 'employees', 12, 'employees', 'count'],
+    ['Gamma Media', 'valuation', 40_000_000, 'valuation', 'USD'],
+    ['Gamma Media', 'employees', 30, 'employees', 'count'],
+  ] as const;
+  const claims = reported.map(([name, type, value, label, unit]) => ({ name, type, value, unit,
+    url: type === 'market_cap' || type === 'arr' ? citations[1]!.url : citations[0]!.url,
+    text: `${name} reported ${label} of ${unit === 'USD' ? '$' : ''}${value} as of October 1, 2026.`,
+  }));
+  const answer = claims.map(row => row.text).join('\n');
   return {
-    ground: vi.fn(async () => ({ text: 'grounded notes', citations, queries: ['q'] })),
+    ground: vi.fn(async () => ({ text: withProviderSupport ? answer : 'grounded notes', citations, queries: ['q'],
+      ...(withProviderSupport ? { grounding: { provider: 'google-search' as const, answerText: answer,
+        supports: claims.map((row, supportIndex) => ({ supportIndex, text: row.text,
+          sources: [{ chunkIndex: row.url === citations[0]!.url ? 0 : 1, url: row.url, title: 'Reported company results' }] })) } } : {}),
+    })),
     structure: (async (prompt: string, schema: ZodType<unknown>) => {
       let obj: unknown;
       if (prompt.includes('market definition')) {
@@ -244,6 +263,15 @@ function fakeClient(): LlmClient {
       } else {
         obj = {};
       }
+      const name = prompt.match(/Convert the research notes on "([^"]+)"/)?.[1];
+      if (withProviderSupport && name && obj && typeof obj === 'object' && 'metrics' in obj) {
+        const metrics = obj.metrics as Record<string, { value: number; reportedClaim?: unknown }>;
+        for (const claim of claims.filter(row => row.name === name)) {
+          const metric = metrics[claim.type];
+          if (metric?.value === claim.value) metric.reportedClaim = { sourceUrl: claim.url, quote: claim.text,
+            asOf: '2026-10-01', basis: claim.type, unit: claim.unit, definition: claim.type };
+        }
+      }
       return schema.parse(obj);
     }) as LlmClient['structure'],
   };
@@ -260,10 +288,10 @@ const testCoverage = {
 };
 
 describe('runDeckResearch (full orchestration, fake LLM)', () => {
-  it('uses local reader retention in real deck creation before publishing unsupported company numbers', async () => {
+  it('publishes unsupported figures as unknown without blocking on unavailable original readers', async () => {
     let snapshot: RepoSnapshot | null = null;
     const repo = new GeminiRepository({
-      apiKey: 'test-key', client: fakeClient(), coverage: testCoverage, catalogMax: 3, catalogPasses: 0,
+      apiKey: 'test-key', client: fakeClient(false), coverage: testCoverage, catalogMax: 3, catalogPasses: 0,
       store: { read: () => snapshot ? structuredClone(snapshot) : null, write: async next => { snapshot = structuredClone(next); } },
       originalSourceReader: async url => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'Browser CORS restriction' }),
     });
@@ -275,15 +303,14 @@ describe('runDeckResearch (full orchestration, fake LLM)', () => {
       expect(entry.metrics.every(metric => metric.value === null && metric.confidence === 'unknown')).toBe(true);
       expect((await repo.getCard(entry.card.id))!.metrics).toEqual(entry.metrics);
       const receipts = await repo.getOriginalSourceEvidence({ companyId: entry.company!.id, metricType: 'company_profile' });
-      expect(receipts).toHaveLength(1);
-      expect(receipts[0]!.receipts.every(receipt => receipt.status === 'unavailable')).toBe(true);
+      expect(receipts).toHaveLength(0);
     }
   }, 20000);
   it('keeps unsupported initial figures unknown through stored deck, card and reader queries', async () => {
     let snapshot: RepoSnapshot | null = null;
     const save = vi.fn(async () => {});
     const repo = new GeminiRepository({
-      apiKey: 'test-key', client: fakeClient(), coverage: testCoverage, catalogMax: 3, catalogPasses: 0,
+      apiKey: 'test-key', client: fakeClient(false), coverage: testCoverage, catalogMax: 3, catalogPasses: 0,
       store: { read: () => snapshot, write: (next) => { snapshot = next; } },
       originalSources: {
         retrieve: async (url) => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString() }),
@@ -294,7 +321,7 @@ describe('runDeckResearch (full orchestration, fake LLM)', () => {
     await repo.waitForBackgroundJobs();
     const entries = (await repo.listCards(deck.id)).filter((entry) => entry.company && ['company', 'infrastructure', 'distribution'].includes(entry.card.cardType));
     expect(entries.length).toBeGreaterThanOrEqual(3);
-    expect(save.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(save).not.toHaveBeenCalled();
     expect((await repo.getDeckByMarket(market.id) as Deck & { status?: string }).status).toBe('ready');
     for (const entry of entries) {
       expect(entry.metrics.length).toBeGreaterThan(0);
@@ -1161,10 +1188,10 @@ describe('Progressive Fast-Boot & Continual Background Research Architecture', (
 
     // The lead card has completed its first hydration before the UI can navigate.
     const initialCards = await repo.listCards(deck.id);
-    expect(initialCards.length).toBeGreaterThanOrEqual(3);
+    expect(initialCards.length).toBeGreaterThanOrEqual(1);
 
     const stubCompanyCards = initialCards.filter((c) => c.card.cardType === 'company');
-    expect(stubCompanyCards.length).toBeGreaterThanOrEqual(3);
+    expect(stubCompanyCards).toHaveLength(1);
     expect(stubCompanyCards[0]?.company?.name).toBe(leadCompanyName);
     expect(progress.some((event) => event.card?.company?.name === leadCompanyName)).toBe(true);
 

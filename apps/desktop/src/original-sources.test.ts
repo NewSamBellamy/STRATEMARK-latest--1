@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createOriginalSourceServices } from './original-sources';
 import type { OriginalSourceAttempt } from '@mi/research';
-import { GeminiRepository, hydrateCompanyCard, migrateSnapshot, secRevenueObservation } from '@mi/research';
+import { GeminiRepository, hydrateCompanyCard, verifyCompanyCardOriginals, migrateSnapshot, secRevenueObservation } from '@mi/research';
 import type { LlmClient } from '@mi/research';
 import sample from '../../web/src/sample/frontier-snapshot.json';
 import { createFileStore, parseResearchExport } from './storage';
@@ -72,7 +72,7 @@ describe('native original source artifacts', () => {
     expect(refreshGround).toHaveBeenCalledTimes(1);
     expect(refreshStructure).not.toHaveBeenCalled();
   });
-  it.each(['https://sec.gov/report', 'https://acme.com/report'])('stores initial originals from %s with a valid identity and reloads them after restart', async (url) => {
+  it.each(['https://sec.gov/report', 'https://acme.com/report'])('stores explicitly verified originals from %s with a valid identity and reloads them after restart', async (url) => {
     const { directory, store } = await setup();
     const quote = 'Acme Inc. reported 45 employees as of 2026-10-01.';
     const client: LlmClient = {
@@ -80,12 +80,16 @@ describe('native original source artifacts', () => {
       structure: (async (_prompt, schema) => schema.parse({ metrics: { employees: { value: 45, confidence: 'verified', sourceIndex: 0,
         passageSupport: { sourceUrl: url, quote, asOf: '2026-10-01', basis: 'employees', unit: 'count' } } } })) as LlmClient['structure'],
     };
-    const result = await hydrateCompanyCard({
+    const originalSources = { ...store, retrieve: vi.fn(async () => ({ ...attempt().receipts[0]!, requestedUrl: url, finalUrl: url, text: quote })) };
+    const initial = await hydrateCompanyCard({
       candidate: { name: 'Acme Inc.', domain: 'acme.com', descriptor: 'Software', cardTypes: ['company'] },
       client, plan: { marketName: 'Software', vertical: 'SaaS', geography: null, notes: null, searchThemes: [] }, companyId: 'cmp_acme',
-      originalSources: { ...store, retrieve: async () => ({ ...attempt().receipts[0]!, requestedUrl: url, finalUrl: url, text: quote }) },
+      originalSources,
       fetchImpl: async () => new Response('', { status: 404 }),
     });
+    expect(originalSources.retrieve).not.toHaveBeenCalled();
+    expect(initial.metrics.find(m => m.metricType === 'employees')).toMatchObject({ value: null, confidence: 'unknown' });
+    const result = await verifyCompanyCardOriginals(initial, client, { originalSources });
     expect(result.metrics.find((m) => m.metricType === 'employees')).toMatchObject({ value: 45, confidence: 'verified' });
     const restarted = createOriginalSourceServices(directory);
     const records = await restarted.list({ companyId: 'cmp_acme', metricType: 'company_profile' });

@@ -16,6 +16,19 @@ function view(metrics: CompanyMetric[], overrides: Partial<CardWithCompany> = {}
 }
 
 describe('collectible card evidence model', () => {
+  it('shows provider-attributed reported figures, clearly distinguished from verification and estimates', () => {
+    const input = metric({ metricType: 'employees', value: 123, confidence: 'estimated', reportedSupport: {
+      provider: 'google-search', companyName: company.name, basis: 'employees', value: 123,
+      unit: 'count', definition: 'employees', asOf: '2026-10-01', support: {
+        supportIndex: 0, text: `${company.name} reported 123 employees as of 2026-10-01.`,
+        sources: [{ chunkIndex: 0, title: 'Annual report', url: 'https://sec.gov/Archives/report' }],
+      },
+    } });
+    expect(view([input]).profileMetrics[0]).toMatchObject({ display: '123', confidence: 'Source reported' });
+    expect(view([{ ...input, reportedSupport: { ...input.reportedSupport!, companyName: 'Another company' } }]).profileMetrics[0]!.display).toBe('Unknown');
+    expect(view([{ ...input, reportedSupport: null }]).profileMetrics[0]!.display).toBe('Unknown');
+    expect(input.confidence).toBe('estimated');
+  });
   it('keeps decimal prices and ratios intact on specialist card fronts', () => {
     const result = view([], { company: null, card: { ...card, cardType: 'insight', companyId: null,
       summary: 'Pricing shifts matter.', keyPoints: ['Reported tokens cost $0.97/M with a 3.5 month lag. More detail follows.'] } });

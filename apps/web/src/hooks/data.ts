@@ -188,6 +188,9 @@ export function useDashboardTab<T extends DashboardTab>(
     queryKey: qk.dashboard(companyId ?? '', tab),
     queryFn: () => repo.getDashboardTab(companyId as string, tab),
     enabled: !!companyId,
+    // This read may start paid research. The provider already has bounded
+    // transport retries; a query retry must not silently buy another full pass.
+    retry: false,
   });
 }
 

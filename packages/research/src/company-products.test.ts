@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { researchDashboardWithSources } from './dashboard';
 import { GeminiRepository, migrateSnapshot, type ResearchStore } from './repository';
 import type { LlmClient } from './types';
+import { extractProviderGrounding } from './grounding-support';
 
 const company = { id: 'cmp', name: 'Acme', websiteUrl: 'https://acme.com', oneLiner: 'Research software', logoUrl: null, hqLocation: null, brandTheme: null };
 const url = 'https://acme.com/products/atlas';
@@ -56,17 +57,53 @@ describe('original-backed company product dossier', () => {
     expect(sources.save).toHaveBeenCalledTimes(1);
     expect(structure).not.toHaveBeenCalled();
   });
+  it('uses provider-supported products with an explicit reported-not-original label when official reads are blocked', async () => {
+    const reportUrl = 'https://reuters.com/acme-atlas-launch';
+    const report = "Acme's Atlas is now available to all research teams.";
+    const grounding = extractProviderGrounding(report, { groundingChunks: [{ web: { uri: reportUrl, title: 'Atlas launch report' } }],
+      groundingSupports: [{ segment: { text: report, startIndex: 0, endIndex: report.length }, groundingChunkIndices: [0] }] });
+    const { run, sources, ground, structure } = setup();
+    ground.mockResolvedValue({ text: report, citations: [{ url: reportUrl, title: 'Atlas launch report' }], queries: [], grounding });
+    structure.mockResolvedValue({ products: [], roadmap: [], reportedProducts: [{ name: 'Atlas', status: 'live', supportIndex: 0, quote: report }], reportedRoadmap: [] });
+    sources.retrieve.mockResolvedValue({ requestedUrl: url, status: 'blocked', retrievedAt: time } as never);
+
+    const result = await run();
+
+    expect(result.content.products).toEqual([expect.objectContaining({ name: 'Atlas', status: 'live', url: null,
+      revenueNote: '', description: expect.stringContaining('Google Search reports') })]);
+    expect(result.citations).toEqual([expect.objectContaining({ url: reportUrl, title: expect.stringContaining('Atlas') })]);
+  });
+  it('combines irrelevant readable originals and Google-supported products in one extraction call', async () => {
+    const reportUrl = 'https://reuters.com/acme-atlas-launch';
+    const report = "Acme's Atlas is now available to all research teams.";
+    const grounding = extractProviderGrounding(report, { groundingChunks: [{ web: { uri: reportUrl, title: 'Atlas launch report' } }],
+      groundingSupports: [{ segment: { text: report, startIndex: 0, endIndex: report.length }, groundingChunkIndices: [0] }] });
+    const { run, sources, ground, structure } = setup();
+    ground.mockResolvedValue({ text: report, citations: [{ url: reportUrl, title: 'Atlas launch report' }], queries: [], grounding });
+    structure.mockResolvedValue({ products: [], roadmap: [], reportedProducts: [{ name: 'Atlas', status: 'live', supportIndex: 0, quote: report }], reportedRoadmap: [] });
+    const irrelevant = { ...receipt, text: 'Acme provides technology services to global businesses.' };
+    sources.list.mockResolvedValue([{ id: 'saved', companyId: 'cmp', metricType: 'products_roadmap', capturedAt: time, receipts: [irrelevant] }] as never);
+
+    const result = await run();
+
+    expect(result.content.products).toEqual([expect.objectContaining({ name: 'Atlas', url: null, description: expect.stringContaining('Google Search reports') })]);
+    expect(result.productSelections!.reportedGrounding).toMatchObject({ provider: 'google-search', supports: [expect.objectContaining({ text: report })] });
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(structure).toHaveBeenCalledTimes(1);
+    expect(structure.mock.calls[0]![0]).toContain('RETAINED ORIGINAL PAGES');
+    expect(structure.mock.calls[0]![0]).toContain('GOOGLE SEARCH SUPPORTS');
+  });
   it('does not spend on synthesis after evidence persistence fails', async () => {
     const { run, sources, structure } = setup();
     sources.save.mockRejectedValue(new Error('Disk full'));
     await expect(run()).rejects.toThrow('Disk full');
     expect(structure).not.toHaveBeenCalled();
   });
-  it('reuses scoped product originals without search or another original read', async () => {
+  it('refreshes provider evidence while reusing scoped product originals without another original read', async () => {
     const { run, sources, ground } = setup();
     sources.list.mockResolvedValue([{ id: 'src', companyId: company.id, metricType: 'products_roadmap', capturedAt: time, receipts: [receipt] }] as never);
     expect((await run()).content.products).toHaveLength(1);
-    expect(ground).not.toHaveBeenCalled();
+    expect(ground).toHaveBeenCalledTimes(1);
     expect(sources.retrieve).not.toHaveBeenCalled();
   });
   it('saves selections, reopens offline and revalidates originals despite newer unrelated failed reads', async () => {
@@ -148,11 +185,11 @@ describe('original-backed company product dossier', () => {
     expect(result.content).toEqual({ products: [], roadmap: [] });
     expect(ground).not.toHaveBeenCalled(); expect(structure).not.toHaveBeenCalled(); expect(sources.retrieve).not.toHaveBeenCalled();
   });
-  it('does not spend search or source slots when the active reader cannot read the official domain', async () => {
+  it('uses provider search for a reported fallback when the active reader cannot read the official domain', async () => {
     const { run, ground, sources, structure } = setup();
     sources.supports = () => false;
     expect((await run()).content).toEqual({ products: [], roadmap: [] });
-    expect(ground).not.toHaveBeenCalled(); expect(structure).not.toHaveBeenCalled(); expect(sources.retrieve).not.toHaveBeenCalled();
+    expect(ground).toHaveBeenCalledTimes(1); expect(structure).not.toHaveBeenCalled(); expect(sources.retrieve).not.toHaveBeenCalled();
   });
   it('retains the completed first original if a second read fails, without synthesis or a false result', async () => {
     const { run, ground, sources, structure } = setup();

@@ -10,6 +10,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GeminiRepository, type RepoSnapshot, type ResearchStore } from './repository';
 import type { LlmClient } from './types';
+import { extractProviderGrounding } from './grounding-support';
 const unavailableOriginal = async (url: string) => ({ requestedUrl: url, status: 'unavailable' as const, retrievedAt: new Date().toISOString() });
 
 function snapshotWithCompany(): RepoSnapshot {
@@ -52,10 +53,13 @@ function memoryStore(initial: RepoSnapshot): ResearchStore {
 }
 
 describe('getDashboardTab in-flight dedupe', () => {
-  it('shares one direct official read and preserves its cited overview after repository reopen without discovery spend', async () => {
+  it('shares one Google-supported written overview and reopens its full cache without original reads or more paid work', async () => {
     const quote = 'OpenAI develops research tools for businesses and independent researchers.';
-    const ground = vi.fn().mockRejectedValue(new Error('Unexpected paid discovery'));
-    const structure = vi.fn().mockResolvedValue({ excerpts: [{ sourceUrl: 'https://openai.com/', quote }] });
+    const ground = vi.fn().mockResolvedValue({ text: quote, queries: [], citations: [{ title: 'OpenAI', url: 'https://openai.com/' }],
+      grounding: extractProviderGrounding(quote, { groundingChunks: [{ web: { uri: 'https://openai.com/', title: 'OpenAI' } }],
+        groundingSupports: [{ segment: { text: quote }, groundingChunkIndices: [0] }] }) });
+    const structure = vi.fn().mockResolvedValue({ paragraphs: [{ section: 'background', text: quote,
+      sourceUrls: ['https://openai.com/'], supportIndices: [0] }] });
     const reader = vi.fn().mockResolvedValue({ requestedUrl: 'https://openai.com', finalUrl: 'https://openai.com/',
       status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: quote, retrievedAt: new Date().toISOString() });
     const store = memoryStore(snapshotWithCompany());
@@ -65,13 +69,14 @@ describe('getDashboardTab in-flight dedupe', () => {
     expect(normal?.content.markdown).toContain(quote);
     expect(forced).toEqual(normal);
     expect(normal?.citations).toEqual([expect.objectContaining({ url: 'https://openai.com/' })]);
-    expect(reader).toHaveBeenCalledTimes(1);
-    expect(ground).not.toHaveBeenCalled();
+    expect(reader).not.toHaveBeenCalled();
+    expect(ground).toHaveBeenCalledTimes(1);
     expect(structure).toHaveBeenCalledTimes(1);
     const reopened = await new GeminiRepository(options).getDashboardTab('cmp_1', 'overview');
     expect(reopened?.content).toEqual(normal?.content);
     expect(reopened?.citations).toEqual(normal?.citations);
-    expect(reader).toHaveBeenCalledTimes(1);
+    expect(reader).not.toHaveBeenCalled();
+    expect(ground).toHaveBeenCalledTimes(1);
     expect(structure).toHaveBeenCalledTimes(1);
   });
   it('two concurrent requests for the same tab share ONE research pass', async () => {

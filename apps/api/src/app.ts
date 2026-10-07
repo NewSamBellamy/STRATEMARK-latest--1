@@ -33,6 +33,7 @@ import {
   GROUNDED_SYSTEM,
   METRIC_MEASUREMENT_INSTRUCTIONS,
   originalSourcePromptViews,
+  originalSupportReferences,
   secRevenueObservation,
   secRevenueVerification,
   STRUCTURE_SYSTEM
@@ -729,6 +730,14 @@ export function createApp(
       if (!card || !card.company) return c.json({ error: 'Company not found in deck' }, 404);
       if (!await cloudDeckService.checkEntitlement(access.userId)) return c.json({ error: 'Active subscription required for cloud research.' }, 402);
 
+      const originalSources = ['overview', 'metrics', 'products_roadmap', 'team_org'].includes(tab)
+        ? cloudDeckService.getOriginalSources(access.userId, ownedDeckId, readOriginalSource) : undefined;
+      const originalAttempts = originalSources ? await originalSources.list({
+        companyId, limit: 20,
+        support: originalSupportReferences(card.metrics || [], companyId),
+        ...((tab === 'products_roadmap' || tab === 'team_org') ? { metricType: tab } : {}),
+      }) : undefined;
+
       const resolved = resolveClient({
         env, callerKey: access.callerKey,
         onCall: info => { if (access.metered) budget.record(info.kind); },
@@ -740,7 +749,7 @@ export function createApp(
         storedMetrics: card.metrics || [],
         client: resolved.client,
         refreshOriginals: Boolean(force),
-        ...(['overview', 'metrics', 'products_roadmap', 'team_org'].includes(tab) ? { originalSources: cloudDeckService.getOriginalSources(access.userId, ownedDeckId, readOriginalSource) } : {}),
+        ...(originalSources ? { originalSources, originalAttempts } : {}),
       });
 
       return c.json({ content: result.content, citations: result.citations, ...(result.sourceDiagnostics ? { sourceDiagnostics: result.sourceDiagnostics } : {}) });

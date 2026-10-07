@@ -94,8 +94,9 @@ import { coalesceOriginalSources, isOriginalSourceAttempt, selectOriginalSourceC
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueObservation, secRevenueVerification } from './sec-revenue';
 import { readCompanyOriginals } from './core-source-coverage';
 import { acceptedMetricPassage } from './metric-support';
-import { overviewFigures, renderCompanyOverview } from './company-overview';
+import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
+import { savedCompanyProfile } from './saved-profile';
 import { companySourceTargets } from './source-policy';
 import { renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
 import { renderCompanyTeamOrg, teamOrgOriginalAttempts, teamOrgSupportReferences, type TeamOrgSelections } from './company-team';
@@ -108,6 +109,8 @@ interface CachedTab {
   /** Legacy artifact retained for compatibility; never trusted for rendering. */
   overviewBackground?: string;
   overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>;
+  overviewNarrative?: OverviewNarrative;
+  overviewHistory?: Array<Omit<CachedTab, 'overviewHistory'>>;
   productSelections?: ProductEvidenceSelections;
   teamOrgSelections?: TeamOrgSelections;
 }
@@ -1363,8 +1366,15 @@ export class GeminiRepository implements MarketIntelRepository {
 
   // Cards -------------------------------------------------------------------
   async listCards(deckId: string, filter?: CardFilter): Promise<CardWithCompany[]> {
+    // Discovery placeholders stay in the durable catalog, not the finished
+    // research grid. Publish each completed company immediately without waiting
+    // for unrelated companies or pretending an empty stub is a finished card.
+    const job = [...this.snap.researchJobs].reverse().find(row => row.deck?.id === deckId);
+    const completed = job ? new Set(job.completedEntityNames.map(companyKey)) : null;
     const result = this.snap.cards
       .filter((c) => c.deckId === deckId)
+      .filter(c => !job?.catalogNames.length || !isEntityCardType(c.cardType) ||
+        completed?.has(companyKey(this.snap.companies.find(company => company.id === c.companyId)?.name ?? '')))
       .filter((c) => (filter?.cardType ? c.cardType === filter.cardType : true))
       .filter((c) => (filter?.tier ? c.tier === filter.tier : true))
       .map((card) => this.hydrate(card));
@@ -1409,7 +1419,7 @@ export class GeminiRepository implements MarketIntelRepository {
       : [];
     const viceClaims =
       card.cardType === 'vice' ? this.snap.viceClaims.filter((v) => v.cardId === card.id) : [];
-    return { card, company, metrics, viceClaims };
+    return { card, company: company ? savedCompanyProfile(company, metrics, this.snap.researchEvidence ?? []).company : null, metrics, viceClaims };
   }
 
   private async cardsWithFacts(cards: CardWithCompany[]): Promise<CardWithCompany[]> {
@@ -1419,7 +1429,8 @@ export class GeminiRepository implements MarketIntelRepository {
   }
 
   getCompany(companyId: string): Promise<Company | null> {
-    return Promise.resolve(this.snap.companies.find((c) => c.id === companyId) ?? null);
+    const company = this.snap.companies.find((c) => c.id === companyId);
+    return Promise.resolve(company ? savedCompanyProfile(company, this.snap.metrics, this.snap.researchEvidence ?? []).company : null);
   }
   getCompanyMetrics(companyId: string): Promise<CompanyMetric[]> {
     return Promise.resolve(structuredClone(this.snap.metrics.filter((m) => m.companyId === companyId)));
@@ -1429,7 +1440,9 @@ export class GeminiRepository implements MarketIntelRepository {
     const company = this.snap.companies.find(row => row.id === companyId);
     if (!company) return [];
     const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20, support: originalSupportReferences(this.snap.metrics, companyId) });
-    return projectCompanyFacts(company, this.snap.metrics, attempts);
+    const current = projectCompanyFacts(company, this.snap.metrics, attempts);
+    const repaired = savedCompanyProfile(company, current, this.snap.researchEvidence ?? []);
+    return repaired.metrics;
   }
   getViceClaims(cardId: string): Promise<ViceClaim[]> {
     return Promise.resolve(this.snap.viceClaims.filter((v) => v.cardId === cardId));
@@ -1449,14 +1462,14 @@ export class GeminiRepository implements MarketIntelRepository {
     tab: T,
     force?: boolean,
   ): Promise<DashboardTabResult<T> | null> {
-    const company = this.snap.companies.find((c) => c.id === companyId);
+    const company = await this.getCompany(companyId);
     if (!company) return null;
     // Metrics are a free projection of current observations, never stale cached
     // time series. Recompute on every read without modifying historical data.
     if (tab === 'metrics') {
       const result = await researchDashboardWithSources(tab, { company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
-        storedMetrics: this.snap.metrics.filter(m => m.companyId === companyId), client: this.client,
+        storedMetrics: await this.getCompanyFacts(companyId), client: this.client,
         originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20, support: originalSupportReferences(this.snap.metrics, companyId) }) });
       return { companyId, tab, ...result, lastRefreshedAt: null };
     }
@@ -1464,7 +1477,7 @@ export class GeminiRepository implements MarketIntelRepository {
     if (cached) {
       // Preserve legacy notes on disk, but don't present unchecked historical
       // prose as today's factual overview or silently spend to replace it.
-      const metrics = this.snap.metrics.filter(row => row.companyId === companyId);
+      const metrics = await this.getCompanyFacts(companyId);
       if (tab === 'products_roadmap') {
         const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20, support: productSupportReferences(cached.productSelections) });
         const originals = attempts.filter(isOriginalSourceAttempt).filter(row => row.companyId === companyId).flatMap(row => row.receipts);
@@ -1481,12 +1494,26 @@ export class GeminiRepository implements MarketIntelRepository {
           content: { nodes: mergeTeamOrgNodes(result.content.nodes, []) } as DashboardTabResult<T>['content'] };
       }
       if (tab === 'overview') {
+        // Native originals live in a separate indexed artifact store, not in
+        // the JSON snapshot. Reopen the same saved evidence used by card facts;
+        // this lookup does not fetch source pages or start provider research.
         const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20, support: [
           ...originalSupportReferences(metrics, companyId), ...(Array.isArray(cached.overviewExcerpts) ? cached.overviewExcerpts.flatMap(ref => {
             try { return validatedOriginalSupport([ref]); } catch { return []; }
           }).slice(0, 4) : []),
         ] });
         const originals = attempts.filter(isOriginalSourceAttempt).filter(row => row.companyId === companyId).flatMap(row => row.receipts);
+        if (cached.overviewEvidenceVersion === 3) {
+          const args = { company, storedMetrics: metrics, client: this.client, marketName: '' };
+          const saved = this.getResearchEvidence({ companyId, limit: 10 }).filter(row => row.companyName === company.name && row.topic === 'overview')
+            .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))[0];
+          const canRecover = !cached.overviewNarrative || cached.overviewNarrative.companyId === companyId;
+          const narrative = cached.overviewNarrative?.paragraphs.length ? cached.overviewNarrative : canRecover ? savedOverviewNarrative(args, saved) : cached.overviewNarrative;
+          const projected = renderSourceReportedOverview(args, originals, narrative);
+          const result = projected.acceptedParagraphCount || !canRecover ? projected : renderSourceReportedOverview(args, originals, savedOverviewNarrative(args, saved));
+          return { companyId, tab, lastRefreshedAt: cached.lastRefreshedAt, citations: result.citations, sourceDiagnostics: result.sourceDiagnostics,
+            content: result.content as DashboardContentMap[T] };
+        }
         if (cached.overviewEvidenceVersion === 2) {
           const result = renderCompanyOverview({ company, storedMetrics: metrics, client: this.client, marketName: '' }, originals, cached.overviewExcerpts);
           return { companyId, tab, lastRefreshedAt: cached.lastRefreshedAt, citations: result.citations, sourceDiagnostics: result.sourceDiagnostics,
@@ -1515,34 +1542,68 @@ export class GeminiRepository implements MarketIntelRepository {
     // duplicate spend and an older answer overwriting a just-refreshed section.
     const inFlight = this.tabResearchInFlight.get(flightKey);
     if (inFlight) return structuredClone(await inFlight) as DashboardTabResult<T> | null;
-    const run = (async (): Promise<DashboardTabResult<T> | null> => {
-      const { content, citations, sourceDiagnostics, overviewExcerpts, productSelections, teamOrgSelections } = await researchDashboardWithSources(tab, {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error('Dashboard research timed out after 90 seconds.');
+        error.name = 'TimeoutError';
+        reject(error);
+        controller.abort();
+      }, 90_000);
+    });
+    const boundedClient: LlmClient = {
+      ground: async (prompt, opts) => {
+        throwIfAborted(controller.signal);
+        const result = await this.client.ground(prompt, { ...opts, signal: controller.signal });
+        throwIfAborted(controller.signal);
+        return result;
+      },
+      structure: async (prompt, schema, opts) => {
+        throwIfAborted(controller.signal);
+        const result = await this.client.structure(prompt, schema, { ...opts, signal: controller.signal });
+        throwIfAborted(controller.signal);
+        return result;
+      },
+    };
+    const work = (async (): Promise<DashboardTabResult<T> | null> => {
+      const { content, citations, sourceDiagnostics, overviewNarrative, productSelections, teamOrgSelections } = await researchDashboardWithSources(tab, {
         company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
-        storedMetrics: this.snap.metrics.filter((m) => m.companyId === companyId),
-        client: this.client,
+        storedMetrics: await this.getCompanyFacts(companyId),
+        client: boundedClient,
+        signal: controller.signal,
         refreshOriginals: Boolean(force),
-        ...(['overview', 'products_roadmap', 'team_org'].includes(tab) ? { originalSources: this.originalSources,
+        ...(tab === 'overview' ? { originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20,
+          support: originalSupportReferences(this.snap.metrics, companyId) }) } : {}),
+        ...(['products_roadmap', 'team_org'].includes(tab) ? { originalSources: this.originalSources,
           ...(!this.originalSources ? { originalAttempts: await this.getOriginalSourceEvidence({ companyId, metricType: tab === 'team_org' ? 'team_org' : undefined, limit: 20,
             support: tab === 'team_org' ? teamOrgSupportReferences(this.snap.dashboards[companyId]?.team_org?.teamOrgSelections)
               : originalSupportReferences(this.snap.metrics, companyId) }) } : {}) } : {}),
       });
+      throwIfAborted(controller.signal);
       const lastRefreshedAt = new Date().toISOString();
+      const previous = this.snap.dashboards[companyId]?.overview;
+      const history = previous ? [...(previous.overviewHistory ?? []),
+        Object.fromEntries(Object.entries(previous).filter(([key]) => key !== 'overviewHistory')) as Omit<CachedTab, 'overviewHistory'>] : [];
       this.snap.dashboards[companyId] = {
         ...this.snap.dashboards[companyId],
         [tab]: { content, citations, lastRefreshedAt,
-          ...(tab === 'overview' ? { overviewEvidenceVersion: 2, overviewExcerpts } : {}),
+          ...(tab === 'overview' ? { overviewEvidenceVersion: 3, overviewNarrative,
+            ...(history.length ? { overviewHistory: history } : {}) } : {}),
           ...(tab === 'products_roadmap' ? { productSelections } : {}),
           ...(tab === 'team_org' ? { teamOrgSelections } : {}) },
       };
       await this.persist();
       return { companyId, tab, content, citations, ...(sourceDiagnostics ? { sourceDiagnostics } : {}), lastRefreshedAt };
     })();
+    const run = Promise.race([work, deadline]);
     this.tabResearchInFlight.set(flightKey, run);
     try {
       return structuredClone(await run);
     } finally {
-      this.tabResearchInFlight.delete(flightKey);
+      clearTimeout(timer!);
+      if (this.tabResearchInFlight.get(flightKey) === run) this.tabResearchInFlight.delete(flightKey);
     }
   }
 

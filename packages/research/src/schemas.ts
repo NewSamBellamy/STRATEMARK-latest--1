@@ -38,6 +38,10 @@ export const metricOutSchema = z.object({
   /** One-line "how we got this" note for estimated figures. */
   method: z.string().nullable().default(null),
   passageSupport: metricPassageSchema.nullable().optional(),
+  /** Claim selector only. Actual attribution comes from provider metadata. */
+  reportedClaim: metricPassageSchema.omit({ format: true }).extend({
+    asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  }).nullish(),
 });
 export type MetricOut = z.infer<typeof metricOutSchema>;
 

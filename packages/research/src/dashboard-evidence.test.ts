@@ -13,6 +13,7 @@ function setup() {
     { title: 'Annual report', url }, { title: 'Duplicate', url }, { title: 'Bad', url: 'javascript:alert(1)' },
   ], queries: [] });
   const structure = vi.fn().mockResolvedValue({ markdown: 'Example sells research software.',
+    paragraphs: [{ section: 'background', text: 'Example sells research software.', sourceUrls: [url], supportIndices: [] }],
     excerpts: [{ sourceUrl: url, quote: 'Example sells research software.' }],
     citations: [{ title: 'Fabricated', url: 'https://invented.example/report' }],
     nodes: Array.from({ length: 5 }, (_, i) => ({ id: String(i), name: `Leader ${i}`, role: 'Executive', group: 'exec', parentId: null,
@@ -61,7 +62,7 @@ describe('dashboard source lineage', () => {
       const result = await repo().getDashboardTab('cmp', tab);
       expect(result).toHaveProperty('citations', [expect.objectContaining({ url })]);
       expect(structure.mock.calls[0]![0]).toContain(url);
-      expect(structure.mock.calls[0]![0]).toContain(['overview', 'products_roadmap'].includes(tab) ? 'UNTRUSTED ORIGINAL EXTRACTS' : 'not independent claim verification');
+      expect(structure.mock.calls[0]![0]).toContain(tab === 'overview' ? 'UNTRUSTED SEARCH SOURCE CATALOG' : tab === 'products_roadmap' ? 'RETAINED ORIGINAL PAGES' : 'not independent claim verification');
       const reopened = await repo().getDashboardTab('cmp', tab);
       expect(reopened).toEqual(result);
       expect(ground).toHaveBeenCalledTimes(1);

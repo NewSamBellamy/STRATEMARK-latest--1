@@ -1,9 +1,21 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createApp } from '../app';
 import { readEnv } from '../env';
 import { CloudDeckService, MockFirebaseAdapter } from '../lib/CloudDeckService';
 import { MemoryDataStore } from '../lib/firestoreStore';
 import { MockTasksAdapter } from '../lib/CloudTasksAdapter';
+
+// Route/authorization tests can start an ephemeral background worker. Keep its
+// provider boundary fake too; placeholder BYOK credentials must never go online.
+vi.mock('../lib/client', async original => ({
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+  ...await original<typeof import('../lib/client')>(),
+  resolveClient: vi.fn(({ callerKey }: { callerKey?: string }) => ({
+    keySource: callerKey ? 'caller' : 'server',
+    client: { ground: vi.fn(async () => { throw new Error('Unit-test provider unavailable'); }),
+      structure: vi.fn(async () => { throw new Error('Unit-test provider unavailable'); }) },
+  })),
+}));
 
 function app(over: NodeJS.ProcessEnv = {}, tasksAdapter?: MockTasksAdapter) {
   const store = new MemoryDataStore();

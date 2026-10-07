@@ -15,6 +15,10 @@ import { extractProviderGrounding } from './grounding-support';
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const CALL_DEADLINE_MS = 120_000;
 
+// Only messages constructed here may bypass sanitization. Never copy a remote
+// error/body: it can contain credentials, prompts or private research content.
+class SafeGeminiError extends Error {}
+
 /** One deadline for pacing, requests, body reads and all retries/JSON repairs. */
 async function withDeadline<T>(work: (signal: AbortSignal) => Promise<T>, external?: AbortSignal): Promise<T> {
   throwIfAborted(external);
@@ -41,12 +45,14 @@ async function withDeadline<T>(work: (signal: AbortSignal) => Promise<T>, extern
   } catch (error) {
     if (cancellation) throw cancellation;
     if (error instanceof Error && error.name === 'AbortError') throw new AbortError();
+    if (error instanceof SafeGeminiError) throw error;
     // Provider/transport errors may contain credentials, prompts or raw bodies.
     const status = (error as RetryableError | null)?.status;
     const safeStatus = typeof status === 'number' && Number.isInteger(status) && status >= 400 && status <= 599
       ? status : undefined;
     const wrapped = new Error(safeStatus !== undefined
-      ? `Gemini ${safeStatus}: request failed.` : 'Gemini request failed.') as RetryableError;
+      ? `Gemini ${safeStatus}: request failed.` : error instanceof TypeError
+        ? 'Could not reach Gemini. Check your connection and try again.' : 'Gemini request failed.') as RetryableError;
     if (safeStatus !== undefined) wrapped.status = safeStatus;
     throw wrapped;
   } finally {
@@ -189,7 +195,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         if (opts?.system) body.systemInstruction = { parts: [{ text: opts.system }] };
         const data = await call(groundedModel, body, signal, 'ground');
         if (data.promptFeedback?.blockReason) {
-          throw new Error('Gemini blocked the request.');
+          throw new SafeGeminiError('Gemini blocked this research request. Try a narrower research question.');
         }
         return {
           text: extractText(data).trim(),
@@ -233,7 +239,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
             ].join('\n\n') }] }];
           }
         }
-        throw new Error('Failed to structure Gemini output.');
+        throw new SafeGeminiError('Gemini returned invalid research data after two attempts. No guessed data was saved.');
       }, opts?.signal);
     },
   };

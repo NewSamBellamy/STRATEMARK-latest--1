@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import type { LlmClient } from './types';
+import { extractProviderGrounding } from './grounding-support';
 import {
   IncrementalDeltaAgent,
   buildEntityIdentityKeys,
@@ -21,15 +22,25 @@ function fakeClient(mockOverrides?: {
   enrichment?: Record<string, unknown>;
   tierReview?: { nudge: -1 | 0 | 1; reason: string | null };
   citations?: Array<{ title: string; url: string }>;
+  /** Independently specified provider passages, not generated from model rows. */
+  profileText?: string;
 }): LlmClient {
   const citations = mockOverrides?.citations ?? [
     { title: 'TechCrunch Article', url: 'https://techcrunch.example/news/delta' },
     { title: 'SEC Filing Report', url: 'https://sec.gov/filing/delta' },
   ];
 
+  const text = mockOverrides?.profileText ?? 'Delta Stealth Inc builds tools for AI research teams.';
+  const grounding = extractProviderGrounding(text, {
+    groundingChunks: citations.map(source => ({ web: { uri: source.url, title: source.title } })),
+    groundingSupports: text.split('\n').map(passage => ({
+      segment: { text: passage, startIndex: text.indexOf(passage), endIndex: text.indexOf(passage) + passage.length },
+      groundingChunkIndices: [0],
+    })),
+  });
   return {
     ground: vi.fn(async () => ({
-      text: 'Grounded search output notes',
+      text, grounding,
       citations,
       queries: ['grounded query'],
     })),
@@ -85,6 +96,13 @@ function fakeClient(mockOverrides?: {
       return schema.parse(enrichment);
     }) as LlmClient['structure'],
   };
+}
+
+const reportedSource = 'https://techcrunch.example/news/delta';
+function reported(value: number, basis: 'arr' | 'employees' | 'users', quote: string) {
+  return { value, confidence: 'estimated', sourceIndex: 0, method: null,
+    reportedClaim: { sourceUrl: reportedSource, quote, asOf: '2026-10-01', basis,
+      definition: basis, unit: basis === 'arr' ? 'USD' : 'count' } };
 }
 
 describe('Incremental Delta Search Agent — Identity & Normalization', () => {
@@ -230,7 +248,10 @@ describe('Incremental Delta Search Agent — Precision Focus Translation', () =>
 
 describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', () => {
   it('executes delta search, filters already-known entities, and hydrates new companies', async () => {
+    const employeeReport = 'Novel AI Lab reported 30 employees as of 2026-10-01.';
+    const userReport = 'Novel AI Lab reported 10,000 users as of 2026-10-01.';
     const client = fakeClient({
+      profileText: `Novel AI Lab operates a research laboratory for AI products.\n${employeeReport}\n${userReport}`,
       discoveryCompanies: [
         {
           name: 'Existing Co Inc', // Should be excluded
@@ -259,8 +280,8 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
         metrics: {
           arr: { value: null, confidence: 'unknown', sourceIndex: null, method: null },
           valuation: { value: null, confidence: 'unknown', sourceIndex: null, method: null },
-          employees: { value: 30, confidence: 'verified', sourceIndex: 0, method: null },
-          users: { value: 10_000, confidence: 'estimated', sourceIndex: 0, method: 'est' },
+          employees: reported(30, 'employees', employeeReport),
+          users: reported(10_000, 'users', userReport),
         },
         viceClaims: [
           { text: 'Litigation pending regarding training dataset copyright', sourceIndex: 0 },
@@ -295,11 +316,15 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
     expect(primaryCard!.company!.name).toBe('Novel AI Lab');
     expect(primaryCard!.company!.websiteUrl).toBe('https://novelai.example');
 
-    // 4-tier proxy estimation: 30 headcount * $220k/head for AI category -> ~$6.6M estimated ARR
+    // Supported counts survive; headcount cannot synthesize revenue.
     const arrMetric = primaryCard!.metrics.find((m) => m.metricType === 'arr');
     expect(arrMetric).toBeDefined();
-    expect(arrMetric!.confidence).toBe('estimated');
-    expect(arrMetric!.value).toBe(6_600_000);
+    expect(arrMetric).toMatchObject({ confidence: 'unknown', value: null });
+    expect(primaryCard!.metrics.find(row => row.metricType === 'employees')).toMatchObject({ value: 30,
+      confidence: 'estimated', lastVerifiedAt: null, reportedSupport: { support: { text: employeeReport } } });
+    expect(primaryCard!.metrics.find(row => row.metricType === 'users')).toMatchObject({ value: 10_000,
+      confidence: 'estimated', reportedSupport: { support: { text: userReport } } });
+    expect(primaryCard!.company!.oneLiner).toBe('Novel AI Lab operates a research laboratory for AI products.');
 
     // Facet card emission: Vice card
     const viceCard = result.cards.find((c) => c.card.cardType === 'vice');
@@ -315,7 +340,10 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
   });
 
   it('tags infrastructure card types properly and retains entity metrics', async () => {
+    const revenueReport = 'HyperCompute Cloud reported ARR of USD 15 million as of 2026-10-01.';
+    const employeeReport = 'HyperCompute Cloud reported 80 employees as of 2026-10-01.';
     const client = fakeClient({
+      profileText: `${revenueReport}\n${employeeReport}`,
       discoveryCompanies: [
         {
           name: 'HyperCompute Cloud',
@@ -330,8 +358,8 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
         website: 'https://hypercompute.io',
         brand: null,
         metrics: {
-          arr: { value: 15_000_000, confidence: 'verified', sourceIndex: 0, method: null },
-          employees: { value: 80, confidence: 'verified', sourceIndex: 0, method: null },
+          arr: reported(15_000_000, 'arr', revenueReport),
+          employees: reported(80, 'employees', employeeReport),
         },
         viceClaims: [],
         cultureNote: null,
@@ -354,6 +382,9 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
     expect(card.card.cardType).toBe('infrastructure');
     expect(card.company!.name).toBe('HyperCompute Cloud');
     expect(card.metrics.length).toBeGreaterThan(0);
+    expect(card.metrics.find(row => row.metricType === 'arr')).toMatchObject({ value: 15_000_000,
+      confidence: 'estimated', reportedSupport: { support: { text: revenueReport } } });
+    expect(card.metrics.find(row => row.metricType === 'employees')!.value).toBe(80);
     expect(card.card.tier).toBeGreaterThanOrEqual(1);
   });
 
@@ -406,7 +437,10 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
   });
 
   it('applies LLM tier review nudges to adjust base tier and attach reason', async () => {
+    const revenueReport = 'Frontier Robotics Corp reported ARR of USD 12 million as of 2026-10-01.';
+    const employeeReport = 'Frontier Robotics Corp reported 120 employees as of 2026-10-01.';
     const client = fakeClient({
+      profileText: `${revenueReport}\n${employeeReport}`,
       discoveryCompanies: [
         {
           name: 'Frontier Robotics Corp',
@@ -421,8 +455,8 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
         website: 'https://frontierrobotics.example',
         brand: null,
         metrics: {
-          arr: { value: 12_000_000, confidence: 'verified', sourceIndex: 0, method: null },
-          employees: { value: 120, confidence: 'verified', sourceIndex: 0, method: null },
+          arr: reported(12_000_000, 'arr', revenueReport),
+          employees: reported(120, 'employees', employeeReport),
         },
         viceClaims: [],
         cultureNote: null,
@@ -445,6 +479,7 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
     });
 
     expect(result.cards).toHaveLength(1);
+    expect(result.cards[0]!.metrics.find(row => row.metricType === 'arr')!.value).toBe(12_000_000);
     const card = result.cards[0]!.card;
     expect(card.tierReason).toBe(
       'Fastest-growing robotics player in the sector with breakthrough unit economics.',
@@ -453,7 +488,10 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
   });
 
   it('correctly handles distribution card type focus and sets primary role', async () => {
+    const revenueReport = 'ModelHub Exchange reported ARR of USD 8 million as of 2026-10-01.';
+    const userReport = 'ModelHub Exchange reported 250,000 users as of 2026-10-01.';
     const client = fakeClient({
+      profileText: `${revenueReport}\n${userReport}`,
       discoveryCompanies: [
         {
           name: 'ModelHub Exchange',
@@ -468,8 +506,8 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
         website: 'https://modelhub.example',
         brand: null,
         metrics: {
-          arr: { value: 8_000_000, confidence: 'verified', sourceIndex: 0, method: null },
-          users: { value: 250_000, confidence: 'verified', sourceIndex: 0, method: null },
+          arr: reported(8_000_000, 'arr', revenueReport),
+          users: reported(250_000, 'users', userReport),
         },
         viceClaims: [],
         cultureNote: null,
@@ -489,6 +527,23 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
     expect(cards).toHaveLength(1);
     expect(cards[0]!.card.cardType).toBe('distribution');
     expect(cards[0]!.company!.name).toBe('ModelHub Exchange');
+    expect(cards[0]!.metrics.find(row => row.metricType === 'arr')).toMatchObject({ value: 8_000_000,
+      confidence: 'estimated', reportedSupport: { support: { text: revenueReport } } });
+    expect(cards[0]!.metrics.find(row => row.metricType === 'users')!.value).toBe(250_000);
+  });
+
+  it('withholds a mismatched model number while keeping independently supported delta figures', async () => {
+    const revenueReport = 'Bounded Cloud reported ARR of USD 15 million as of 2026-10-01.';
+    const employeeReport = 'Bounded Cloud reported 80 employees as of 2026-10-01.';
+    const client = fakeClient({ profileText: `${revenueReport}\n${employeeReport}`,
+      discoveryCompanies: [{ name: 'Bounded Cloud', domain: 'bounded.example', cardTypes: ['infrastructure'] }],
+      enrichment: { metrics: { arr: reported(15_000_000, 'arr', revenueReport),
+        employees: reported(800, 'employees', employeeReport) } } });
+    const agent = new IncrementalDeltaAgent(client, { marketName: 'Cloud', vertical: 'compute' });
+    const result = await agent.searchDelta({ focus: { cardType: 'infrastructure' }, target: 1 });
+    expect(result.cards[0]!.metrics.find(row => row.metricType === 'arr')).toMatchObject({ value: 15_000_000,
+      confidence: 'estimated', reportedSupport: { support: { text: revenueReport } } });
+    expect(result.cards[0]!.metrics.find(row => row.metricType === 'employees')).toMatchObject({ value: null, confidence: 'unknown' });
   });
 
   it('rejects signal-only candidates that lack a domain (topic dressed as company)', async () => {
@@ -555,8 +610,10 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
     expect(agent.getContext().vertical).toBe('initial_vert');
   });
 
-  it('respects custom proxy estimation overrides (customArrPerFte)', async () => {
+  it('does not apply a headcount revenue proxy override to supported company facts', async () => {
+    const employeeReport = 'Custom Estimate AI reported 10 employees as of 2026-10-01.';
     const client = fakeClient({
+      profileText: employeeReport,
       discoveryCompanies: [
         {
           name: 'Custom Estimate AI',
@@ -572,7 +629,7 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
         brand: null,
         metrics: {
           arr: { value: null, confidence: 'unknown', sourceIndex: null, method: null },
-          employees: { value: 10, confidence: 'verified', sourceIndex: 0, method: null },
+          employees: reported(10, 'employees', employeeReport),
         },
         viceClaims: [],
         cultureNote: null,
@@ -593,7 +650,8 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
     const primaryCard = result.cards[0]!;
     const arrMetric = primaryCard.metrics.find((m) => m.metricType === 'arr');
     expect(arrMetric).toBeDefined();
-    expect(arrMetric!.value).toBe(3_500_000); // 10 employees * $350,000
-    expect(arrMetric!.methodNote).toContain('$350k');
+    expect(arrMetric).toMatchObject({ value: null, confidence: 'unknown' });
+    expect(primaryCard.metrics.find(row => row.metricType === 'employees')).toMatchObject({ value: 10,
+      confidence: 'estimated', reportedSupport: { support: { text: employeeReport } } });
   });
 });

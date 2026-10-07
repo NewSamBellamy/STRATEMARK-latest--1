@@ -303,8 +303,17 @@ export default function DeckPage() {
         </div>
       )}
 
+      {!deckMissing && all.length > 0 && (isRunning || isPartial) && (
+        <div role="status" className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-sm text-muted">
+          {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertCircle className="h-4 w-4" />}
+          <span>{isRunning
+            ? 'Completed research is ready to explore. More cards will appear as their research finishes.'
+            : 'Completed research is available below. Some companies still need another pass.'}</span>
+        </div>
+      )}
+
       {!deckMissing && (
-        isRunning || isPartial ? (
+        (isRunning || isPartial) && all.length === 0 ? (
           <div className={cn(
             'panel mx-auto my-6 max-w-xl p-8 text-center',
             isPartial ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50' : 'glow-border',
