@@ -27,6 +27,7 @@ import type { GenerateContentResponse } from '@google/genai';
 import type { Citation, LlmClient } from './types';
 import { extractProviderGrounding } from './grounding-support';
 import { createRateLimiter, extractJson, withRetry, type RetryableError } from './util';
+import type { CallMetrics, CallMetricsAggregate } from './types';
 import {
   DEFAULT_GROUNDED_MODEL,
   DEFAULT_GROUNDED_RPM,
@@ -61,6 +62,8 @@ export interface GenAiClientConfig {
     kind: 'ground' | 'structure';
     usage?: GenAiUsage;
   }) => void;
+  /** Per-call latency decomposition (queue wait, dispatch, retry waits). */
+  onCallMetrics?: (metrics: CallMetrics) => void;
   /** Injectable for tests — anything satisfying the slice of the SDK we use. */
   clientImpl?: GenAiLike;
 }
@@ -204,6 +207,8 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     return limiter;
   };
 
+  const aggregate: CallMetricsAggregate = { calls: 0, retries: 0, rateLimitedMs: 0 };
+
   async function call(
     model: string,
     contents: string,
@@ -212,10 +217,17 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     kind: 'ground' | 'structure',
   ): Promise<GenerateContentResponse> {
     const limiter = limiterFor(model);
+    const callStartedAt = Date.now();
+    let attempts = 0;
+    let queuedMs = 0;
+    let retryWaitMs = 0;
     const res = await withRetry(
       async () => {
         // Retries re-dispatch too: pace every attempt, not just the first.
+        const acquireStartedAt = Date.now();
+        attempts += 1;
         await limiter?.acquire(signal);
+        queuedMs += Date.now() - acquireStartedAt;
         const timeoutSignal = AbortSignal.timeout(60_000);
         const reqSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
         try {
@@ -243,7 +255,10 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
           throw wrapped;
         }
       },
-      { signal },
+      {
+        signal,
+        onRetryWait: (waitMs) => { retryWaitMs += waitMs; },
+      },
     );
 
     const usageMeta = res.usageMetadata;
@@ -263,10 +278,23 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
       ...(usage && Object.keys(usage).length > 0 ? { usage } : {}),
     });
 
+    const totalMs = Date.now() - callStartedAt;
+    aggregate.calls += 1;
+    aggregate.retries += Math.max(0, attempts - 1);
+    aggregate.rateLimitedMs += retryWaitMs;
+    try {
+      config.onCallMetrics?.({
+        model, kind, attempts, retries: Math.max(0, attempts - 1),
+        queuedMs, requestMs: Math.max(0, totalMs - queuedMs - retryWaitMs),
+        retryWaitMs, totalMs,
+      });
+    } catch { /* a metrics consumer must never break the call */ }
+
     return res;
   }
 
   return {
+    metrics: () => ({ ...aggregate }),
     async ground(prompt, opts) {
       const cfg: Record<string, unknown> = {
         tools: [{ googleSearch: {} }],

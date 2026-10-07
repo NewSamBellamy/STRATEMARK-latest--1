@@ -22,6 +22,25 @@ it('paces retry attempts within the same model quota', async () => {
   expect(fetchImpl).toHaveBeenCalledTimes(2);
 });
 
+it('reports where the time of a rate-limited call went', async () => {
+  vi.useFakeTimers();
+  const onCallMetrics = vi.fn();
+  const fetchImpl = vi.fn().mockResolvedValueOnce(new Response('busy', {
+    status: 429, headers: { 'retry-after': '2' },
+  })).mockResolvedValue(response());
+  const client = createGeminiClient({ apiKey: 'test-placeholder', groundedRpm: 60, fetchImpl, onCallMetrics });
+  const settled = client.ground('prompt');
+  await vi.advanceTimersByTimeAsync(5000);
+  await settled;
+  const [metrics] = onCallMetrics.mock.calls.at(-1)!;
+  expect(metrics.attempts).toBe(2);
+  expect(metrics.retries).toBe(1);
+  expect(metrics.retryWaitMs).toBeGreaterThanOrEqual(2000);
+  expect(metrics.totalMs).toBeGreaterThanOrEqual(metrics.retryWaitMs);
+  // The aggregate carries the same pain for the run-log summary.
+  expect(client.metrics?.()).toMatchObject({ calls: 1, retries: 1 });
+});
+
 it('shares quota when grounding and extraction use the same model', async () => {
   vi.useFakeTimers();
   const fetchImpl = vi.fn(async () => response('{"name":"ok"}'));

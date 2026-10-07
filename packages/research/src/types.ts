@@ -15,6 +15,31 @@ import type {
   SourceCredibility,
 } from '@mi/contracts';
 
+/** Where the time of one settled provider call went. The honest answer to
+ * "why is research slow": limiter queue wait, retry backoff, or the model. */
+export interface CallMetrics {
+  model: string;
+  kind: 'ground' | 'structure';
+  /** Dispatched attempts, including any 429/5xx retries. */
+  attempts: number;
+  retries: number;
+  /** Time spent waiting for a rate-limiter slot before dispatches. */
+  queuedMs: number;
+  /** Dispatch → response of all attempts (body reads and JSON parse included). */
+  requestMs: number;
+  /** Retry-After / backoff sleeps between attempts. */
+  retryWaitMs: number;
+  totalMs: number;
+}
+
+/** Rolling spend/pacing totals since a client's construction, read through
+ * LlmClient.metrics?.() — the honest answer to "why is research slow". */
+export interface CallMetricsAggregate {
+  calls: number;
+  retries: number;
+  rateLimitedMs: number;
+}
+
 /** What the user submits from the "New deck" screen. */
 export interface ResearchBrief {
   /** Free-text market description, e.g. "Christian apparel companies". */
@@ -148,6 +173,9 @@ export interface ProviderGrounding {
 }
 
 export interface LlmClient {
+  /** Rolling spend/pacing totals since construction. OPTIONAL - the concrete
+   * Gemini clients provide it; mocks and test doubles may not. */
+  metrics?: () => CallMetricsAggregate;
   /**
    * Grounded generation — ALWAYS sends the Google Search tool. Returns the
    * model's text plus the source citations Google attached. This is the only

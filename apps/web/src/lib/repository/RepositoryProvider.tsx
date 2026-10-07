@@ -20,7 +20,7 @@ import { SentinelRepository } from './SentinelRepository';
 import { openBrowserResearchStore } from './browserResearchStore';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
-import { recordCall } from '@/lib/usage';
+import { recordCall, recordCallMetrics } from '@/lib/usage';
 
 const RepositoryContext = createContext<MarketIntelRepository | null>(null);
 
@@ -52,6 +52,7 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       concurrency: 3,
       // Count every request locally so the user can see their free-tier headroom.
       onCall: ({ kind }) => recordCall(kind),
+      onCallMetrics: (m) => recordCallMetrics(m),
     });
   }
   return new MockRepository({

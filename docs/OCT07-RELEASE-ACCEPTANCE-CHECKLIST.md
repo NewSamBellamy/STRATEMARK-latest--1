@@ -30,7 +30,8 @@ assumptions.
 ## 2. The core journey — research
 
 - [ ] Create one small deck (exact scope, 2 companies) end to end. Record
-      time-to-first-card and total.
+      time-to-first-card and total. Then fill `docs/PERFORMANCE-BASELINE.md`
+      from the run log + usage meter (retries, rate-limited seconds).
 - [ ] Card figures carry confidence badges; unknowns render as the honest
       Unknown treatment (never zero). Spot-check one figure's receipts.
 - [ ] Dashboard tabs open on demand; each is either researched, honestly

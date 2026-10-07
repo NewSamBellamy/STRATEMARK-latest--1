@@ -1273,10 +1273,16 @@ export class GeminiRepository implements MarketIntelRepository {
           });
         }
 
+        // Pacing honesty: retries and rate-limit waits come from the client's
+        // own counters, so the log explains slowness without guessing.
+        const clientMetrics = this.client.metrics?.();
+        const pacing = clientMetrics && clientMetrics.retries > 0
+          ? ` · ${clientMetrics.retries} retries · ${Math.round(clientMetrics.rateLimitedMs / 1000)}s rate-limited`
+          : '';
         await checkpoint({
           type: 'status',
           step: 'barriers',
-          message: `Deck research completed · ${Math.max(1, Math.round((Date.now() - runStartedAt) / 1000))}s total`,
+          message: `Deck research completed · ${Math.max(1, Math.round((Date.now() - runStartedAt) / 1000))}s total${pacing}`,
         });
         job.status = 'completed';
         job.stage = 'signals';

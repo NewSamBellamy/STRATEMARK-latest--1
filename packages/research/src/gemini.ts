@@ -8,7 +8,8 @@
  * them). Retries 429/5xx with backoff. Free-tier default models below.
  */
 import type { ZodType, ZodTypeDef } from 'zod';
-import type { Citation, LlmClient } from './types';
+import type { CallMetrics, CallMetricsAggregate, Citation, LlmClient } from './types';
+export type { CallMetrics, CallMetricsAggregate };
 import { AbortError, throwIfAborted, createRateLimiter, extractJson, withRetry, type RetryableError } from './util';
 import { extractProviderGrounding } from './grounding-support';
 
@@ -78,7 +79,14 @@ export interface GeminiClientConfig {
   structureRpm?: number;
   /** Observability hook — fires once per outbound request (powers the usage meter). */
   onCall?: (info: { model: string; kind: 'ground' | 'structure' }) => void;
+  /** Per-call latency decomposition (queue wait, dispatch, retry waits).
+   * Fires once per settled call; a throwing consumer never breaks the call. */
+  onCallMetrics?: (metrics: CallMetrics) => void;
 }
+
+
+
+
 
 /** Default RPM pacing: disabled for the hackathon (0). */
 export const DEFAULT_GROUNDED_RPM = 0;
@@ -160,12 +168,19 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
     kind: 'ground' | 'structure' = 'ground',
   ): Promise<GeminiResponse> {
     const limiter = limiterFor(model);
-    return withRetry(
+    const callStartedAt = Date.now();
+    let attempts = 0;
+    let queuedMs = 0;
+    let retryWaitMs = 0;
+    const data = await withRetry(
       async () => {
         throwIfAborted(signal);
+        attempts += 1;
         // Every dispatched attempt — retries included — spends a slot, so a
         // 429 storm cannot silently exceed the key's real per-minute cap.
+        const acquireStartedAt = Date.now();
         await limiter?.acquire(signal);
+        queuedMs += Date.now() - acquireStartedAt;
         config.onCall?.({ model, kind });
         const res = await doFetch(`${BASE}/${model}:generateContent`, {
           method: 'POST',
@@ -186,15 +201,37 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           if (retryAfter) err.retryAfterMs = Number(retryAfter) * 1000;
           throw err;
         }
-        const data = await res.json() as GeminiResponse;
+        const parsed = await res.json() as GeminiResponse;
         throwIfAborted(signal);
-        return data;
+        return parsed;
       },
-      { signal },
+      {
+        signal,
+        // Retry sleeps (Retry-After / backoff) are the pacing pain the meter
+        // exists to expose — hand each wait to the metrics consumer.
+        onRetryWait: (waitMs) => { retryWaitMs += waitMs; },
+      },
     );
+    const totalMs = Date.now() - callStartedAt;
+    aggregate.calls += 1;
+    aggregate.retries += Math.max(0, attempts - 1);
+    aggregate.rateLimitedMs += retryWaitMs;
+    try {
+      config.onCallMetrics?.({
+        model, kind, attempts, retries: Math.max(0, attempts - 1),
+        // requestMs derives: everything that is neither limiter wait nor
+        // retry backoff is dispatch + body read + JSON parse.
+        queuedMs, requestMs: Math.max(0, totalMs - queuedMs - retryWaitMs),
+        retryWaitMs, totalMs,
+      });
+    } catch { /* a metrics consumer must never break the call */ }
+    return data;
   }
 
+  const aggregate: CallMetricsAggregate = { calls: 0, retries: 0, rateLimitedMs: 0 };
+
   return {
+    metrics: () => ({ ...aggregate }),
     async ground(prompt, opts) {
       return withDeadline(async signal => {
         const body: Record<string, unknown> = {
