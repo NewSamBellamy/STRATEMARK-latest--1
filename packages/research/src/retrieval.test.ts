@@ -116,3 +116,17 @@ describe('askResearch — the archive answers before the web does', () => {
     expect(passages[0]!.companyName).toBe('Colovore, LLC');
   });
 });
+
+describe('passage presentation (red team: no raw agent output)', () => {
+  it('strips source-URL tails, emphasis markers and field labels from snippets', () => {
+    const record = evidence({
+      id: 'ev_raw',
+      text: '**Source Type:** Official Disclosure\n**Headline:** Our approach to EU provenance rules\n**URL:** https://openai.com/index/approach-to-eu-text-provenance-rules/\n**Publish Date:** October 5, 2026\nOpenAI introduced invisible text provenance for consumer AI outputs.\nOriginal source: https://openai.com/index/approach-to-eu-text-provenance-rules/',
+    });
+    const hits = searchEvidenceCorpus([record], { query: 'provenance rules' });
+    expect(hits[0]!.snippet).toContain('OpenAI introduced invisible text provenance');
+    expect(hits[0]!.snippet).not.toContain('Original source:');
+    expect(hits[0]!.snippet).not.toContain('**Source Type:**');
+    expect(hits[0]!.snippet).not.toContain('https://openai.com');
+  });
+});

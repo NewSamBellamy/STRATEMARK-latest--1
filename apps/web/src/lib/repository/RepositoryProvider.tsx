@@ -24,6 +24,9 @@ import { recordCall, recordCallMetrics } from '@/lib/usage';
 
 const RepositoryContext = createContext<MarketIntelRepository | null>(null);
 
+export type RepositoryMode = 'demo' | 'browser-live' | 'ipc' | 'cloud';
+const RepositoryModeContext = createContext<RepositoryMode>('demo');
+
 export function selectRepository(apiKey: string, model: string, engine?: string, store?: ResearchStore): MarketIntelRepository {
   if (isElectron() && window.mi) {
     return new IpcRepository(window.mi);
@@ -75,6 +78,7 @@ export function RepositoryProvider({
   const model = useApiKey((s) => s.model);
   const { engine } = useEngineChoice();
   const [value, setValue] = useState<MarketIntelRepository | null>(repository ?? null);
+  const [mode, setMode] = useState<RepositoryMode>(repository ? 'browser-live' : 'demo');
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
@@ -87,7 +91,14 @@ export function RepositoryProvider({
           ? await openBrowserResearchStore() : undefined;
         const selected = repository ?? selectRepository(apiKey, model, engine, store);
         if (selected instanceof GeminiRepository) await selected.ready();
-        if (live) setValue(selected);
+        if (live) {
+          setValue(selected);
+          setMode(repository
+            ? 'browser-live'
+            : isElectron() && window.mi ? 'ipc'
+              : engine === 'cloud' ? 'cloud'
+                : apiKey ? 'browser-live' : 'demo');
+        }
       } catch (cause) {
         if (live) setError(cause instanceof Error ? cause.message : 'Research storage could not be opened.');
       }
@@ -98,11 +109,21 @@ export function RepositoryProvider({
   }, [repository, apiKey, model, engine, retry]);
   if (error) return <div role="alert" className="m-8 space-y-3 text-content"><p>{error}</p><p>Your existing research has not been deleted.</p><button className="btn-ghost" onClick={() => setRetry((n) => n + 1)}>Retry</button></div>;
   if (!value) return <p role="status" className="m-8 text-muted">Opening your research…</p>;
-  return <RepositoryContext.Provider value={value}>{children}</RepositoryContext.Provider>;
+  return (
+    <RepositoryModeContext.Provider value={mode}>
+      <RepositoryContext.Provider value={value}>{children}</RepositoryContext.Provider>
+    </RepositoryModeContext.Provider>
+  );
 }
 
 export function useRepository(): MarketIntelRepository {
   const repo = useContext(RepositoryContext);
   if (!repo) throw new Error('useRepository must be used within a RepositoryProvider');
   return repo;
+}
+
+/** 'demo' = keyless sample data; everything else is real research. UI must
+ * label demo state so sample figures are never mistaken for live findings. */
+export function useRepositoryMode(): RepositoryMode {
+  return useContext(RepositoryModeContext);
 }

@@ -40,6 +40,8 @@ import {
   useResumeResearchJob,
 } from '@/hooks/data';
 import { useLivingDeck } from '@/lib/living/useLivingDeck';
+import { DeckCompletionBanner } from './DeckCompletionBanner';
+import { DemoDeckBanner } from './DemoDeckBanner';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
 import { buildDeckShare } from '@/lib/share/codec';
 import { ShareDialog } from '@/features/share/ShareDialog';
@@ -274,6 +276,11 @@ export default function DeckPage() {
           </div>
         </div>
 
+        {/* The finish line (red team P0-2): baseline research outcome stated
+            in plain terms, so completion is a visible fact. The ambient feed
+            below is ongoing HEALTH, not incompleteness. */}
+        <DeckCompletionBanner deckId={deckId} />
+        <DemoDeckBanner />
         {/* The visible heartbeat: desks verifying, correcting, and warming tabs live. */}
         <AgentActivityFeed living={living} />
       </div>

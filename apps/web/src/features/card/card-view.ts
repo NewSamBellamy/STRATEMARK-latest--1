@@ -200,7 +200,13 @@ export function buildCardView(data: CardWithCompany) {
     frontDescription: signal ? signalLines[0] ?? null : description,
     frontFinding: signal ? signalLines[1] ?? null : null,
     type: CARD_TYPE_LABELS[data.card.cardType], signal, maturity, position, metrics,
-    profileMetrics, knownCount, sourcedCount, sourceCount: citations.length, citations,
+    profileMetrics, knownCount, sourcedCount,
+    // A source count is evidence DEPTH, not retrieved-item volume: the same
+    // receipt repeated across metrics is one source, not many. Distinct pages,
+    // not distinct hosts — different pages on one domain are real evidence.
+    sourceCount: new Set(citations.map((c) =>
+      c.url.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '').toLowerCase())).size,
+    citations,
   };
 }
 

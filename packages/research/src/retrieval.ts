@@ -54,12 +54,29 @@ function bundle(record: ResearchEvidence): { weighted: string; plain: string } {
 
 const SENTENCE_SPLIT = /(?<=[.!?])\s+(?=[A-Z"'(])/u;
 
+/** Passage text is USER-FACING: strip the raw agent-output artifacts the red
+ * team flagged — source-URL lines, markdown emphasis markers, and internal
+ * field labels ("**Headline:**") — while keeping the words verbatim. */
+function presentable(text: string): string {
+  return text
+    .split('\n')
+    // URLs belong in the passage's citation chips, never its prose.
+    .filter(line => !/https?:\/\//i.test(line))
+    .join('\n')
+    // Internal field labels ("**Source Type:**") are agent scaffolding.
+    .replace(/\*\*[^*]{1,40}:\*\*\s*/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/^\s*[A-Za-z][A-Za-z /&-]{2,30}:\s(?=[A-Z])/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** Best sentence-aligned window over the record's text fields, bounded. */
 function snippet(record: ResearchEvidence, queryTerms: readonly string[]): string {
   const source = record.text && record.text.trim() ? record.text : record.grounding?.answerText ?? '';
   if (!source.trim()) return '';
-  const sentences = source.split(SENTENCE_SPLIT).map(sentence => sentence.trim()).filter(Boolean);
-  if (!sentences.length) return source.slice(0, 600);
+  const sentences = presentable(source).split(SENTENCE_SPLIT).map(sentence => sentence.trim()).filter(Boolean);
+  if (!sentences.length) return presentable(source).slice(0, 600);
   if (!queryTerms.length) return sentences.slice(0, 2).join(' ').slice(0, 700);
   const score = (sentence: string) => {
     const lower = sentence.toLowerCase();
