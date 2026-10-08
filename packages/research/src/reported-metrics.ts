@@ -14,6 +14,78 @@ const entity = (text: string, name: string) => {
   return new RegExp(`^${escape(alias)}(?:['’]s)?\\b`, 'i').test(plain(text));
 };
 
+// Legal suffixes and short forms whose period never ends a sentence. A
+// splitter that stops at "Inc." would cut the subject off its own claim —
+// "Equinix, Inc. holds…" would expand to nothing but "Inc. holds…".
+const NOT_SENTENCE_END =
+  /(?:^|[\s('"])(?:inc|incorporated|corp(?:oration)?|ltd|limited|co|llc|llp|plc|pbc|gmbh|ag|sa|sas|nv|bv|ab|lp|u\.?s|u\.?k|eu|mr|mrs|ms|dr|prof|sr|jr|st|no|vol|approx|est|cf|vs|etc|al)\.$/i;
+
+function isSentenceEnd(text: string, i: number): boolean {
+  const ch = text[i]!;
+  if (ch !== '.' && ch !== '!' && ch !== '?') return false;
+  // A period between digits is a decimal or a version number.
+  if (ch === '.' && /\d/.test(text[i - 1] ?? '') && /\d/.test(text[i + 1] ?? '')) return false;
+  // Punctuation runs (ellipsis, "!?", quotes) collapse into one boundary.
+  if (/[.!?]/.test(text[i + 1] ?? '')) return false;
+  const head = text.slice(Math.max(0, i - 16), i + 1);
+  if (NOT_SENTENCE_END.test(head)) return false;
+  // A single capitalized letter before the period is an initial ("Robert Q.").
+  if (/(?:^|[\s('"])\p{Lu}\.$/u.test(head)) return false;
+  return true;
+}
+
+/** Grounding support spans are source-backed fragments, not sentences: the
+ * provider routinely marks only the supported clause, leaving the sentence's
+ * subject outside the span ("Equinix, Inc." → support starts at "holds…").
+ * Subject-anchored identity binding fails closed on such fragments, so real
+ * reported figures are dropped. Locate the fragment in the answer text and
+ * extend to the enclosing sentence boundaries — the result is verbatim answer
+ * text, so provider attribution is untouched. Returns the fragment unchanged
+ * when it cannot be located or already is a whole sentence. */
+/** Locate the fragment's true position. Provider offsets win when they
+ * validate; otherwise containment aliases (one support's text prefixing
+ * another's) must not win, so the rightmost occurrence is preferred over the
+ * first. */
+function locateFragment(fragment: string, answerText: string, startIndex?: number): number {
+  if (Number.isSafeInteger(startIndex) && startIndex! >= 0 &&
+    answerText.slice(startIndex!, startIndex! + fragment.length) === fragment) return startIndex!;
+  const last = answerText.lastIndexOf(fragment);
+  if (last >= 0) return last;
+  return answerText.indexOf(fragment);
+}
+
+export function sentenceAround(fragment: string, answerText?: string, startIndex?: number): string {
+  if (!answerText || !fragment.trim()) return fragment;
+  const at = locateFragment(fragment, answerText, startIndex);
+  if (at < 0) return fragment;
+  // Never expand across a paragraph break: catalog answers pack unrelated
+  // metric sections into one text, and the blank line is the only separator —
+  // merging them would let one section's disqualifier (mixed contractors,
+  // speculative language) veto a clean claim in the next.
+  const paragraphStart = answerText.lastIndexOf('\n\n', at) + 1;
+  const paragraphEndIdx = answerText.indexOf('\n\n', at);
+  const paragraphEnd = paragraphEndIdx < 0 ? answerText.length : paragraphEndIdx;
+  // Extension beyond the fragment stops at the fragment's line: catalog
+  // sections are line- or paragraph-separated without ending punctuation, so
+  // crossing a line break would merge unrelated sections into one "sentence".
+  // A multi-line fragment itself stays whole.
+  let start = paragraphStart;
+  for (let i = at - 1; i >= paragraphStart; i--) {
+    if (answerText[i] === '\n') { start = i + 1; break; }
+    if (isSentenceEnd(answerText, i)) { start = i + 1; break; }
+  }
+  const fragmentEnd = at + fragment.length;
+  if (fragmentEnd <= paragraphEnd && isSentenceEnd(answerText, fragmentEnd - 1)) {
+    return answerText.slice(start, fragmentEnd).replace(/^[\r\n]+/, '');
+  }
+  let end = paragraphEnd;
+  for (let i = fragmentEnd; i < paragraphEnd; i++) {
+    if (answerText[i] === '\n') { end = i; break; }
+    if (isSentenceEnd(answerText, i)) { end = i + 1; break; }
+  }
+  return answerText.slice(start, end).replace(/^[\r\n]+/, '');
+}
+
 /** Answer-level identity for catalog-style retained evidence. The retained
  * profile answer names its subject in the header while each metric section
  * stays anonymous, so a claim sentence that opens with a measurement label
@@ -78,7 +150,10 @@ function host(url: string | null): string | null {
 }
 const basisPatterns: Record<string, RegExp> = {
   arr: /\b(?:ARR|annual recurring revenue)\b/i,
-  annual_revenue: /\b(?:annual (?:(?:consolidated|total|net) )?revenue|revenue (?:for|of) (?:the )?(?:fiscal )?year)\b/i,
+  // Corporate prose usually says "total consolidated annual revenues" — the
+  // modifier can precede "annual" and the noun is usually plural. Without both
+  // orders, the standard 10-K phrasing matches no basis at all.
+  annual_revenue: /\b(?:annual (?:(?:consolidated|total|net) )?revenues?|(?:(?:consolidated|total|net) )?annual revenues?|revenue (?:for|of) (?:the )?(?:fiscal )?year)\b/i,
   employees: /\b(?:employees|headcount|workforce|full[- ]time personnel|full[- ]time staff|employed)\b/i,
   users: /\busers\b/i, active_users: /\bactive users\b/i,
   monthly_active_users: /\bmonthly active users\b/i, daily_active_users: /\bdaily active users\b/i,
@@ -122,6 +197,10 @@ function hasNumber(text: string, value: number, unit: ReportedMetricSupport['uni
       }));
     const nearest = Math.min(...mentions.map(mention => mention.distance));
     if (!mentions.some(mention => mention.basis === definition && mention.distance === nearest && nearest <= 30 &&
+      // A bridge crossing another number means the basis word belongs to that
+      // number ("December 31, 2025 (comprising 5,917 employees…)" must not
+      // date-anchor 31 or 2025 as employee counts), not to this candidate.
+      !/\d/.test(mention.bridge) &&
       !/\b(?:and|as of|year|ended|date|versus|compared)\b|[;.!?]/i.test(mention.bridge))) continue;
     return true;
   }
@@ -149,8 +228,9 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
   for (const support of grounding.supports) {
     if (!grounding.answerText.includes(support.text)) continue;
     // Labels are presentation, not measurement evidence (ARR in a heading must
-    // not relabel the annual-revenue claim beneath it). Keep support untouched.
-    const text = plain(support.text);
+    // not relabel the annual-revenue claim beneath it). Keep support untouched;
+    // read the claim from the full sentence the fragment came from.
+    const text = plain(sentenceAround(support.text, grounding.answerText, support.startIndex));
     // Omitted employee extraction cannot resolve a passage mixing employees
     // with contractors/contingent workers. Prefer a separate clean segment.
     if (type === 'employees' && /\b(?:including|includes|include|with)\b[^.!?\n]{0,100}\b(?:contractors?|contract workers?|contingent workers?)\b/i.test(text)) continue;
@@ -219,9 +299,24 @@ export function reportedMetricCitations(companyName: string, website: string | n
   const rivals = rivalMatcher(companyName, identity?.otherCompanies);
   const answerAnchored = !!identity?.answerText && !!rivals &&
     mentionsCompany(identity.answerText.slice(0, 240), companyName);
-  const claims = sentences(proof.support.text).map(plain).filter(sentence => entity(sentence, companyName) ||
+  // An expanded support can begin with a lead-in ("For the fiscal year ended
+  // December 31, 2025, Equinix, Inc. generated …"), so the subject is present
+  // but not sentence-initial. When a roster is known, a sentence that names
+  // the subject BEFORE its measurement basis and names no roster rival binds
+  // to the subject; without a roster there is nothing to fail closed against,
+  // so this path stays disabled.
+  const namedBeforeBasis = rivals && identity?.otherCompanies ? (sentence: string) => {
+    if (rivals!.test(sentence)) return false;
+    const alias = stripCorporateSuffix(companyName);
+    const subjectForms = [alias, companyName].filter(Boolean).map(escape).join('|');
+    const subjectAt = new RegExp(`(?<![\\p{L}\\p{N}])(?:${subjectForms})(?![\\p{L}\\p{N}])`, 'iu').exec(sentence)?.index;
+    const firstBasisAt = basisPatterns[definition] ? new RegExp(basisPatterns[definition]!.source, 'i').exec(sentence)?.index : undefined;
+    return subjectAt !== undefined && firstBasisAt !== undefined && subjectAt < firstBasisAt;
+  } : null;
+  const claims = sentences(sentenceAround(proof.support.text, identity?.answerText, proof.support.startIndex)).map(plain).filter(sentence => entity(sentence, companyName) ||
     (official && /^(?:annual revenue|ARR|annual recurring revenue|headcount|employees|users|customers|valuation|market cap)\b/i.test(sentence)) ||
-    (answerAnchored && anonymousClaimLabel.test(sentence) && !rivals!.test(sentence)));
+    (answerAnchored && anonymousClaimLabel.test(sentence) && !rivals!.test(sentence)) ||
+    (namedBeforeBasis?.(sentence) ?? false));
   if (!pattern || !claims.some(sentence => pattern.test(sentence) && hasNumber(sentence, proof.value, proof.unit, definition) &&
     // A subsequent discussion/reporting clause cannot date a completed round.
     (!proof.asOf || definition !== 'valuation' || sentence.split(/,\s+(?:with|while|but)\b/i).some(clause =>
@@ -266,7 +361,11 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
       // Recovery chose a specific provider segment. A broader duplicate may
       // contain the same quote but carry the mixed scope we deliberately skipped.
       if (recovered && support.text !== recovered.selector.quote) continue;
-      if (!trusted!.answerText.includes(support.text) || !selector.quote || !support.text.includes(selector.quote) ||
+      // A selector quote may span past a truncated support fragment; the
+      // sentence-expanded form is the same verbatim answer text.
+      const expanded = sentenceAround(support.text, trusted!.answerText, support.startIndex);
+      if (!trusted!.answerText.includes(support.text) || !selector.quote ||
+        (!support.text.includes(selector.quote) && !expanded.includes(selector.quote)) ||
         !support.sources.some(source => source.url === selector.sourceUrl)) continue;
       const proof = reportedMetricSupportSchema.safeParse({ provider: trusted!.provider, companyName: input.companyName,
         basis: type, value: proposal.value, unit: selector.unit, asOf: selector.asOf,
@@ -288,7 +387,7 @@ export function providerCompanySummary(companyName: string, website: string | nu
   if (grounding?.provider !== 'google-search' || grounding.answerText.trim() !== text.trim()) return null;
   for (const support of grounding.supports) {
     if (!grounding.answerText.includes(support.text)) continue;
-    const summary = sentences(support.text).map(plain).find(sentence => entity(sentence, companyName) && sentence.length >= 30 && sentence.length <= 500 &&
+    const summary = sentences(sentenceAround(support.text, grounding.answerText, support.startIndex)).map(plain).find(sentence => entity(sentence, companyName) && sentence.length >= 30 && sentence.length <= 500 &&
       !(/\d/.test(sentence) && /\b(?:valuation|valued at|funding round|market cap(?:italization)?|annual revenue|ARR|headcount|employees)\b|[$€£]/i.test(sentence)) &&
       /\b(?:builds|provides|develops|operates|offers|makes|sells|is a|is an)\b/i.test(sentence));
     const citations = usableCitations(support.sources, website ?? undefined);

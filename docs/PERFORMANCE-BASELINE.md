@@ -66,3 +66,46 @@ live run and delete this note.
 - No latency guarantees: at 8 RPM the floor for N entities is N ground calls
   ≈ N/8 minutes of pure pacing, before model latency (~12–35 s per company).
   Claims below that floor are false by construction.
+
+## Second full run — AI data-center colocation, California (2026-10-07/08)
+
+Healthiest run yet: 28 companies discovered, all 28 hydrated (no stranded
+desks), 76 evidence records, Equinix ARR independently SEC-verified from the
+10-K. Defects the vault audit surfaced, with root causes:
+
+1. **Truncated grounding fragments ate real figures.** The provider's support
+   spans are sub-sentence fragments ("holds a public market capitalization of
+   $100.98B…" with the subject "Equinix, Inc." outside the span), so
+   subject-anchored identity binding failed closed on the company's own
+   reported employees (13,716) and market cap ($100.98B). Additionally the
+   annual_revenue basis pattern rejected the standard 10-K phrasing "total
+   consolidated annual revenues" (modifier-first + plural), and bare date
+   integers ("December 31, 2025 (comprising 5,917 employees…)") registered as
+   competing employee counts, making recovery ambiguous. Fixed together:
+   sentence-bounded expansion of fragments from the retained answer text
+   (never crossing paragraphs/lines, anchored on the provider's own
+   startIndex), the plural basis pattern, and a digit-bridge rejection in
+   hasNumber. Regression fixture: real vault answer + supports
+   (packages/research/src/equinix-live-fixture.ts).
+2. **Runaway verification loop (cost).** Trace3's ARR ($3B vs $1.65B
+   valuation) kept triggering the consistency audit; consistency targets
+   bypassed the freshness cooldown, so the living deck re-verified it every
+   ~10s tick — 23 identical grounded calls in 15 minutes. Fixed: one
+   automatic verification per (company, metric) per repository lifetime; a
+   changed figure re-opens the slot once.
+3. **Off-brief roster entries** (OpenAI, Anthropic, an oil producer): the
+   discovery prompt hard-coded "do not omit obvious leaders such as OpenAI,
+   Anthropic, or NVIDIA" into every scan. Prompt rewritten: leaders scoped to
+   THIS market with verification against the vertical, plus an explicit
+   exclude-buyers/adjacent-giants instruction. A static giant-name denylist
+   was prototyped and rejected: pinned tests correctly admit the giants for
+   frontier-AI-lab markets, and the live brief itself contains "AI", so token
+   matching cannot read intent in either direction.
+4. **Conflicting estimates picked stale** (Colovore: PitchBook 31 employees
+   chosen over the answer's own dated Revelio/Tracxn 73–78): the shared
+   metric contract now instructs preferring the most recent explicitly dated
+   estimate, never averaging or defaulting to oldest/smallest.
+
+Residual, unfixed: identity dedupe can still merge cross-pass variants only
+via suffix hardening (lp/llp/pbc/gmbh/sas/trust/labs/technologies added);
+speculative descriptor-level scope matching remains prompt-enforced.

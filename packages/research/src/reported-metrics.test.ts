@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { companyMetricSchema, comparableMetricBasis, metricDefinitionLabel, metricObservationIdentity, reportedMetricSupportSchema } from '@mi/contracts';
-import { reportedCompanyMetrics, reportedMetricCitations } from './reported-metrics';
+import { reportedCompanyMetrics, reportedMetricCitations, sentenceAround } from './reported-metrics';
+import { EQUINIX_ANSWER_TEXT, EQUINIX_SUPPORTS } from './equinix-live-fixture';
 import { enrichmentOutSchema } from './schemas';
 import { METRIC_MEASUREMENT_INSTRUCTIONS } from './prompts';
 import { extractProviderGrounding } from './grounding-support';
@@ -28,8 +29,12 @@ function openAiFixture(metrics: Record<string, unknown> = {}, segments = Object.
   const sourceUrl = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/openai-retained-fixture';
   const grounding = extractProviderGrounding(text, {
     groundingChunks: [{ web: { uri: sourceUrl, title: 'ft.com' } }],
-    groundingSupports: segments.map(passage => ({ segment: { text: passage,
-      startIndex: text.indexOf(passage), endIndex: text.indexOf(passage) + passage.length }, groundingChunkIndices: [0] })),
+    // True sequential offsets: a support whose text prefixes a later support
+    // must not have its startIndex alias to the earlier occurrence.
+    groundingSupports: segments.map((passage, index) => {
+      const start = text.indexOf(passage, index === 0 ? 0 : text.indexOf(segments[index - 1]!) + segments[index - 1]!.length);
+      return { segment: { text: passage, startIndex: start, endIndex: start + passage.length }, groundingChunkIndices: [0] };
+    }),
   });
   const client: LlmClient = { ground: vi.fn(async () => ({ text, citations: [{ url: sourceUrl, title: 'ft.com' }], queries: [], grounding })),
     structure: vi.fn(async (_prompt, schema) => schema.parse({ website: 'https://openai.com', metrics })) as LlmClient['structure'] };
@@ -495,5 +500,83 @@ describe('catalog-style retained evidence without in-passage identity', () => {
     expect(catalogRows(grounding!, { answerText: filler + '\n\n' + grounding!.answerText, otherCompanies: ['Mistral AI SAS', 'Google'] })
       .find(row => row.metricType === 'arr'))
       .toMatchObject({ value: null, confidence: 'unknown', reportedSupport: null });
+  });
+});
+
+describe('sentence-expanded identity binding (live Equinix fixture)', () => {
+  const source = (title: string) => `https://vertexaisearch.cloud.google.com/grounding-api-redirect/equinix-fixture-${title}`;
+  // The supports are the API's own sub-sentence fragments captured live: each
+  // metric sentence's subject sits OUTSIDE the span, so unexpanded they bind
+  // to nothing.
+  const equinixGrounding = () => extractProviderGrounding(EQUINIX_ANSWER_TEXT, {
+    groundingChunks: EQUINIX_SUPPORTS.map((support, index) => ({ web: { uri: source(String(index)), title: support.sources[0]?.title ?? 'web' } })),
+    groundingSupports: EQUINIX_SUPPORTS.map((support, index) => ({
+      segment: { text: support.text, startIndex: EQUINIX_ANSWER_TEXT.indexOf(support.text),
+        endIndex: EQUINIX_ANSWER_TEXT.indexOf(support.text) + support.text.length },
+      groundingChunkIndices: [index],
+    })),
+  });
+  const rows = (grounding: NonNullable<ReturnType<typeof extractProviderGrounding>>, otherCompanies: readonly string[]) =>
+    reportedCompanyMetrics({ companyId: 'equinix', companyName: 'Equinix, Inc.', website: 'https://www.equinix.com',
+      enrichment: enrichmentOutSchema.parse({ metrics: { arr: {}, employees: {}, market_cap: {} } }),
+      text: grounding.answerText, grounding, capturedAt: '2026-10-08T00:00:00.000Z',
+      identity: { answerText: grounding.answerText, otherCompanies } });
+
+  it('expands a truncated fragment to its sentence without cutting at "Inc."', () => {
+    expect(sentenceAround(EQUINIX_SUPPORTS[0]!.text, EQUINIX_ANSWER_TEXT)).toBe(
+      'Equinix, Inc. holds a public market capitalization of $100.98 billion USD on the NASDAQ exchange under ticker symbol EQIX as of October 5, 2026, as reported by Stock Analysis via Nasdaq Data Link.');
+    const revenue = sentenceAround(EQUINIX_SUPPORTS[1]!.text, EQUINIX_ANSWER_TEXT);
+    expect(revenue.startsWith('For the fiscal year ended December 31, 2025, Equinix, Inc. generated')).toBe(true);
+    expect(sentenceAround(EQUINIX_SUPPORTS[2]!.text, EQUINIX_ANSWER_TEXT).startsWith('Equinix, Inc. employed 13,716 employees')).toBe(true);
+  });
+
+  it('returns the fragment unchanged when the answer text does not contain it', () => {
+    expect(sentenceAround('not present in the answer', EQUINIX_ANSWER_TEXT)).toBe('not present in the answer');
+    expect(sentenceAround(EQUINIX_SUPPORTS[0]!.text)).toBe(EQUINIX_SUPPORTS[0]!.text);
+  });
+
+  it('recovers the three real Equinix figures the live run dropped', () => {
+    const found = rows(equinixGrounding()!, ['Digital Realty Trust, Inc.', 'Colovore, LLC']);
+    expect(found.find(row => row.metricType === 'employees')).toMatchObject({
+      value: 13_716, confidence: 'estimated', reportedSupport: { definition: 'employees', asOf: '2025-12-31' } });
+    expect(found.find(row => row.metricType === 'market_cap')).toMatchObject({
+      value: 100.98 * 1e9, confidence: 'estimated', reportedSupport: { definition: 'market_cap', asOf: '2026-10-05' } });
+    expect(found.find(row => row.metricType === 'arr')).toMatchObject({
+      value: 9.217 * 1e9, confidence: 'estimated', reportedSupport: { definition: 'annual_revenue', asOf: '2025-12-31' } });
+  });
+
+  it('fails closed when the expanded sentences name a roster rival instead of the subject', () => {
+    const swapped = EQUINIX_ANSWER_TEXT
+      .replace('Equinix, Inc. holds', 'Digital Realty Trust, Inc. holds')
+      .replace('Equinix, Inc. generated', 'Digital Realty Trust, Inc. generated')
+      .replace('Equinix, Inc. employed', 'Digital Realty Trust, Inc. employed');
+    expect(swapped).toContain(EQUINIX_SUPPORTS[0]!.text);
+    const grounding = extractProviderGrounding(swapped, {
+      groundingChunks: EQUINIX_SUPPORTS.map((_support, index) => ({ web: { uri: source(String(index)), title: 'web' } })),
+      groundingSupports: EQUINIX_SUPPORTS.map((support, index) => ({
+        segment: { text: support.text, startIndex: swapped.indexOf(support.text),
+          endIndex: swapped.indexOf(support.text) + support.text.length },
+        groundingChunkIndices: [index],
+      })),
+    });
+    const found = rows(grounding!, ['Digital Realty Trust, Inc.', 'Colovore, LLC']);
+    expect(found.find(row => row.metricType === 'employees')).toMatchObject({ value: null, confidence: 'unknown' });
+    expect(found.find(row => row.metricType === 'market_cap')).toMatchObject({ value: null, confidence: 'unknown' });
+    expect(found.find(row => row.metricType === 'arr')).toMatchObject({ value: null, confidence: 'unknown' });
+  });
+
+  it('does not bind a lead-in sentence whose measurement basis precedes the subject mention', () => {
+    const answer = 'Digital Realty Trust, Inc. reported annual revenues of $2.5 billion USD for fiscal year 2025, while Equinix, Inc. grew faster.';
+    const fragment = 'reported annual revenues of $2.5 billion USD for fiscal year 2025';
+    const grounding = extractProviderGrounding(answer, {
+      groundingChunks: [{ web: { uri: source('rival'), title: 'web' } }],
+      groundingSupports: [{ segment: { text: fragment, startIndex: answer.indexOf(fragment),
+        endIndex: answer.indexOf(fragment) + fragment.length }, groundingChunkIndices: [0] }],
+    });
+    const found = reportedCompanyMetrics({ companyId: 'equinix', companyName: 'Equinix, Inc.', website: 'https://www.equinix.com',
+      enrichment: enrichmentOutSchema.parse({ metrics: { arr: {} } }), text: answer, grounding,
+      capturedAt: '2026-10-08T00:00:00.000Z',
+      identity: { answerText: answer, otherCompanies: ['Digital Realty Trust, Inc.'] } });
+    expect(found.find(row => row.metricType === 'arr')).toMatchObject({ value: null, confidence: 'unknown' });
   });
 });
