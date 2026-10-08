@@ -25,7 +25,7 @@ import { UnknownSlot, UNKNOWN_REASON } from '@/features/card/UnknownValue';
 import { buildMetricViews } from '@/features/card/card-view';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { FactCheck } from '@/features/factcheck/FactCheck';
-import { BandGauge, ChartPanel, CompositionDonut, Delta, ShareDonut, TrendArea, TrendBar } from './metricViz';
+import { BandGauge, ChartPanel, CompositionDonut, Delta, ShareDonut, TrendArea, TrendBar, TrendLine } from './metricViz';
 
 /** Readable deep-dive topics per metric. */
 const DEEP_TOPIC: Record<MetricType, string> = {
@@ -425,11 +425,14 @@ export function MetricsTab({ companyId }: { companyId: string }) {
                 {series.revenue.length > 1 && (
                   <ChartPanel
                     title="Revenue trend"
-                    sub={`${series.revenue[0]!.period} → ${series.revenue[series.revenue.length - 1]!.period} · estimated series`}
+                    sub={`${series.revenue[0]!.period} → ${series.revenue[series.revenue.length - 1]!.period} · ${series.revenue[0]!.period === 'Current' ? 'current point' : 'SEC filing-reported annual revenue'}`}
                     right={<Delta data={series.revenue} fmt={(v) => formatMetricValue('arr', v)} />}
-                    render={(w) => (
-                      <TrendBar data={series.revenue} color={METRIC_COLORS.arr} width={w} fmt={(v) => formatMetricValue('arr', v)} />
-                    )}
+                    views={{ options: [{ key: 'bar', label: 'Bar' }, { key: 'line', label: 'Line' }, { key: 'area', label: 'Area' }], default: 'bar' }}
+                    render={(w, view) => view === 'line'
+                      ? <TrendLine data={series.revenue} color={METRIC_COLORS.arr} width={w} fmt={(v) => formatMetricValue('arr', v)} />
+                      : view === 'area'
+                        ? <TrendArea data={series.revenue} color={METRIC_COLORS.arr} width={w} fmt={(v) => formatMetricValue('arr', v)} />
+                        : <TrendBar data={series.revenue} color={METRIC_COLORS.arr} width={w} fmt={(v) => formatMetricValue('arr', v)} />}
                   />
                 )}
                 {series.users.length > 1 && (
@@ -437,9 +440,12 @@ export function MetricsTab({ companyId }: { companyId: string }) {
                     title="Users trend"
                     sub={`${series.users[0]!.period} → ${series.users[series.users.length - 1]!.period} · estimated series`}
                     right={<Delta data={series.users} fmt={(v) => formatMetricValue('users', v)} />}
-                    render={(w) => (
-                      <TrendBar data={series.users} color={METRIC_COLORS.users} width={w} fmt={(v) => formatMetricValue('users', v)} />
-                    )}
+                    views={{ options: [{ key: 'bar', label: 'Bar' }, { key: 'line', label: 'Line' }, { key: 'area', label: 'Area' }], default: 'bar' }}
+                    render={(w, view) => view === 'line'
+                      ? <TrendLine data={series.users} color={METRIC_COLORS.users} width={w} fmt={(v) => formatMetricValue('users', v)} />
+                      : view === 'area'
+                        ? <TrendArea data={series.users} color={METRIC_COLORS.users} width={w} fmt={(v) => formatMetricValue('users', v)} />
+                        : <TrendBar data={series.users} color={METRIC_COLORS.users} width={w} fmt={(v) => formatMetricValue('users', v)} />}
                   />
                 )}
                 {series.churn.length > 1 && (

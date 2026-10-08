@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { hydrateCompanyCard, verifyCompanyCardOriginals } from './company-agent';
 import { projectCompanyFactsFromOriginals } from './company-facts';
 import type { LlmClient, MarketPlan } from './types';
-import { secFilingHeadcountObservation, secRevenueObservation, secRevenueVerification, secRevenueSourceUrl } from './sec-revenue';
+import { secFilingHeadcountObservation, secRevenueObservation, secRevenueSeries, secRevenueVerification, secRevenueSourceUrl } from './sec-revenue';
 import { acceptedMetricPassage } from './metric-support';
 import { selectOriginalSourceCitations, type OriginalSourceReceipt } from './original-source';
 
@@ -157,5 +157,28 @@ describe('regulator-reported annual revenue', () => {
       { title: 'Discussion', url: 'https://reddit.com/r/msft' },
     ], 'https://microsoft.com', true);
     expect(chosen.map(c => c.url)).toEqual([url, 'https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft.htm']);
+  });
+});
+
+
+describe('secRevenueSeries - multi-year history from the same retained receipts', () => {
+  const older = { ...latest, start: '2023-07-01', end: '2024-06-30', val: 245122000000, accn: '0001193125-25-189064', filed: '2025-07-30', frame: 'CY2024' };
+  const payloadThree = { cik: 789019, entityName: 'MICROSOFT CORPORATION', taxonomy: 'us-gaap',
+    tag: 'RevenueFromContractWithCustomerExcludingAssessedTax', units: { USD: [latest, repeated, older] } };
+  const threeYearSource: OriginalSourceReceipt = { ...source, text: JSON.stringify(payloadThree) };
+
+  it('derives an ascending multi-point series with per-year values', () => {
+    const series = secRevenueSeries('Microsoft Corporation', [threeYearSource], now);
+    expect(series).not.toBeNull();
+    expect(series!.map((point) => [point.period, point.value])).toEqual([
+      ['2024-06-30', 245122000000], ['2025-06-30', 281724000000], ['2026-06-30', 331839000000],
+    ]);
+  });
+
+  it('returns null below two points and for a mismatched entity name', () => {
+    const single = { cik: 789019, entityName: 'MICROSOFT CORPORATION', taxonomy: 'us-gaap',
+      tag: 'RevenueFromContractWithCustomerExcludingAssessedTax', units: { USD: [latest] } };
+    expect(secRevenueSeries('Microsoft Corporation', [{ ...source, text: JSON.stringify(single) }], now)).toBeNull();
+    expect(secRevenueSeries('Wrong Company Inc', [threeYearSource], now)).toBeNull();
   });
 });

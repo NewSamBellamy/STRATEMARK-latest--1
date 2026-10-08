@@ -29,6 +29,7 @@ import { companySourceTargets } from './source-policy';
 import { originalSupportReferences, type OriginalSourceAttempt, type OriginalSourceServices } from './original-source';
 import { researchCompanyOverview, type OverviewNarrative, type OverviewSeed } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
+import { secRevenueSeries } from './sec-revenue';
 import { researchCompanyProducts, type ProductEvidenceSelections } from './company-products';
 import { researchCompanyTeamOrg, type TeamOrgSelections } from './company-team';
 
@@ -70,7 +71,8 @@ const liveIntelItemsSchema = z.preprocess(
   }),
 );
 
-function metricsFromStored(metrics: CompanyMetric[], companyId: string, officialWebsite?: string | null): MetricsContent {
+function metricsFromStored(metrics: CompanyMetric[], companyId: string, officialWebsite?: string | null,
+  secRevenueSeriesOverride?: Array<{ period: string; value: number; asOf: string }>): MetricsContent {
   const val = (t: MetricType) => {
     const revision = currentMetricRevision(metrics, companyId, t);
     if (!revision || revision.ambiguous) return null;
@@ -83,9 +85,11 @@ function metricsFromStored(metrics: CompanyMetric[], companyId: string, official
   };
   const arr = val('arr');
   const users = val('users');
-  // Honest: single current data points from grounded research, not invented series.
+  // Honest: a multi-point series ONLY from retained SEC receipts; otherwise a
+  // single current data point from grounded research, not an invented series.
+  const revenue = secRevenueSeriesOverride ?? (arr != null ? [{ period: 'Current', value: arr }] : []);
   return {
-    revenue: arr != null ? [{ period: 'Current', value: arr }] : [],
+    revenue,
     users: users != null ? [{ period: 'Current', value: users }] : [],
     churn: [],
     nps: [],
@@ -249,7 +253,12 @@ export async function researchDashboardTab<T extends DashboardTab>(
       const attempts = args.originalSources
         ? await args.originalSources.list({ companyId: args.company.id, limit: 20,
           support: originalSupportReferences(args.storedMetrics, args.company.id) }) : args.originalAttempts;
-      return metricsFromStored(projectCompanyFacts(args.company, args.storedMetrics, attempts), args.company.id, args.company.websiteUrl) as DashboardContentMap[T];
+      const facts = projectCompanyFacts(args.company, args.storedMetrics, attempts);
+      // A multi-year revenue series from the SAME retained SEC receipts the
+      // verification uses - real history, never invented. Without one, the
+      // content stays the honest single current point (no chart renders).
+      const secSeries = secRevenueSeries(args.company.name, (attempts ?? []).flatMap((attempt) => attempt.receipts));
+      return metricsFromStored(facts, args.company.id, args.company.websiteUrl, secSeries ?? undefined) as DashboardContentMap[T];
     }
 
     case 'overview': {

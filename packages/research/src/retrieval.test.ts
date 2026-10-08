@@ -73,8 +73,8 @@ describe('searchEvidenceCorpus', () => {
 });
 
 describe('askResearch — the archive answers before the web does', () => {
+  const now = new Date().toISOString();
   it('retrieves corpus passages into the grounded prompt with their sources', async () => {
-    const now = new Date().toISOString();
     const snap: RepoSnapshot = {
       schemaVersion: 2,
       markets: [], decks: [{ id: 'deck_1', marketId: 'mkt_1', createdAt: now, lastRefreshedAt: now }],
@@ -101,7 +101,6 @@ describe('askResearch — the archive answers before the web does', () => {
   });
 
   it('exposes the corpus search on the repository (contract capability)', async () => {
-    const now = new Date().toISOString();
     const snap: RepoSnapshot = {
       schemaVersion: 2,
       markets: [], decks: [], companies: [], metrics: [], cards: [], viceClaims: [], dashboards: {},

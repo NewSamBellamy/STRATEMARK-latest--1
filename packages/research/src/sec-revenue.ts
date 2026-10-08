@@ -129,6 +129,55 @@ export function secFilingHeadcountObservation(companyName: string, originals: re
   ]), methodNote: `Company-reported ${latest.approximate ? 'approximate ' : ''}full-time employees as of ${latest.asOf}.` };
 }
 
+/**
+ * Multi-year annual-revenue series derived from the SAME retained SEC
+ * companyconcept receipts the single verification uses - never invented. Every
+ * point is a quoted, entity-matched, calendar-bounded annual fact; periods keep
+ * the latest filed revision. Returns null below two points (a lone point is the
+ * existing single verification's job, not a trend).
+ */
+export function secRevenueSeries(companyName: string, originals: readonly OriginalSourceReceipt[], nowMs = Date.now()):
+  Array<{ period: string; value: number; asOf: string }> | null {
+  if (!Number.isFinite(nowMs) || !name(companyName)) return null;
+  const byPeriod = new Map<string, { period: string; value: number; asOf: string; filed: string }>();
+  for (const source of originals) {
+    const cik = secRevenueCik(source.finalUrl ?? '');
+    if (!cik || source.format !== 'sec-companyconcept' || source.status !== 'retrieved' || source.httpStatus !== 200 ||
+      source.truncated || !/^[a-f0-9]{64}$/.test(source.contentHash ?? '') || !source.text || source.text.length > MAX_SEC_CONCEPT_TEXT ||
+      !Number.isFinite(Date.parse(source.retrievedAt)) || Date.parse(source.retrievedAt) > nowMs) continue;
+    let doc: z.infer<typeof documentSchema>;
+    try { doc = documentSchema.parse(JSON.parse(source.text)); } catch { continue; }
+    if (doc.cik !== Number(cik) || name(doc.entityName) !== name(companyName)) continue;
+    const fragments = new Map<string, string>();
+    for (const match of source.text.matchAll(/\{[^{}]*\}/g)) {
+      if (match[0].length > 600) continue;
+      try { fragments.set(JSON.stringify(JSON.parse(match[0])), match[0]); } catch { /* Not a flat fact record. */ }
+    }
+    for (const raw of doc.units.USD) {
+      const parsed = recordSchema.safeParse(raw);
+      if (!parsed.success) continue;
+      const fact = parsed.data;
+      if (![fact.start, fact.end, fact.filed].every(calendarDate) || fact.filed < fact.end ||
+        fact.filed > source.retrievedAt.slice(0, 10) || fact.filed > new Date(nowMs).toISOString().slice(0, 10) ||
+        // History window: a decade of annual periods is the chart's honest span.
+        nowMs - Date.parse(fact.end) > 10 * 366 * 86400000 ||
+        ![364, 365, 366, 371].includes((Date.parse(fact.end) - Date.parse(fact.start)) / 86400000 + 1)) continue;
+      const quote = fragments.get(JSON.stringify(raw));
+      if (!quote || quote.length > 600) continue;
+      const existing = byPeriod.get(fact.end);
+      if (!existing || fact.filed > existing.filed) {
+        byPeriod.set(fact.end, { period: fact.end, value: fact.val, asOf: fact.end, filed: fact.filed });
+      }
+    }
+  }
+  if (byPeriod.size < 2) return null;
+  const series = [...byPeriod.values()]
+    .sort((a, b) => a.period.localeCompare(b.period))
+    .map(({ period, value, asOf }) => ({ period, value, asOf }));
+  // A series is only honest if every point came from the same issuer identity.
+  return series;
+}
+
 /** Keep large financial originals on disk, not in every model context. This
  * labelled parsed observation is a summary; its retained record is revalidated. */
 export function originalSourcePromptViews(originals: readonly OriginalSourceReceipt[], companyName: string) {
