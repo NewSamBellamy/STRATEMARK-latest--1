@@ -256,7 +256,9 @@ export default function ReportViewerPage() {
 
             {r.kind === 'deck' && <LandscapeTable deckId={r.subjectId} />}
 
-            <div className="markdown">
+            {/* Reading measure: ~70ch, relaxed leading — a finished artifact
+                reads like one (red team #10). */}
+            <div className="markdown mx-auto max-w-[70ch] text-[15px] leading-[1.75]">
               {/* Strip a leading H1 if the model repeated the title — the header above owns it. */}
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {markdown.replace(/^#\s[^\n]*\n+/, '')}
