@@ -258,14 +258,23 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
   const [openId, setOpenId] = useState<string | null>(null);
   return (
     <QueryBoundary query={query} isEmpty={(r) => r.content.items.length === 0}
-      empty={
+      empty={(r) => {
+        // Empty-state taxonomy (red team #16): "researched, nothing surfaced"
+        // and "never searched" are different facts and must read differently.
+        const researchedAt = r.lastRefreshedAt
+          ? new Date(r.lastRefreshedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+          : null;
+        return (
         <div className="panel p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="font-display text-sm font-semibold text-content">No stories yet</h3>
+              <h3 className="font-display text-sm font-semibold text-content">
+                {researchedAt ? 'No stories met the sourcing bar' : 'No stories yet'}
+              </h3>
               <p className="mt-1 max-w-xl text-sm text-muted">
-                Live Intel searches fresh coverage of {companyName}. Run the first search now — or
-                after the next research pass — and the latest verified stories will collect here.
+                {researchedAt
+                  ? <>Live Intel researched {companyName} on {researchedAt} and nothing published surfaced. Sources come and go — search again for fresh coverage.</>
+                  : <>Live Intel searches fresh coverage of {companyName}. Run the first search now — or after the next research pass — and the latest verified stories will collect here.</>}
               </p>
             </div>
             <button
@@ -280,7 +289,8 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
             </button>
           </div>
         </div>
-      }>
+        );
+      }}>
       {(result) => {
         const ordered = newsOrder(result.content.items);
         const open = openId != null ? (ordered.find((i) => i.id === openId) ?? null) : null;

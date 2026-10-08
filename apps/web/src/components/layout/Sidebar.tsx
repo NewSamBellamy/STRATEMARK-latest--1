@@ -135,7 +135,14 @@ export function Sidebar() {
                             : 'text-muted hover:bg-surface-2 hover:text-content',
                         )}
                       >
-                        <span className="truncate">{m.name}</span>
+                        {/* Red team #19: same-name decks must be distinguishable —
+                            creation date is the identity the sidebar can always give. */}
+                        <span className="min-w-0">
+                          <span className="block truncate">{m.name}</span>
+                          <span className="block text-[10px] text-faint">
+                            {new Date(m.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                          </span>
+                        </span>
                         {isRunning && (
                           <span
                             className="ml-1.5 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary"

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useIsFetching } from '@tanstack/react-query';
+import { useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, FileText, Search } from 'lucide-react';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
 import { useCompany, useReports, useRerunDashboardTab } from '@/hooks/data';
@@ -131,18 +131,31 @@ const VISIBLE_TAB_COUNT = 6;
  * it appears when work is genuinely happening and vanishes when it's done.
  */
 function AgentWorkingPill({ companyId }: { companyId: string }) {
+  const queryClient = useQueryClient();
+  // Red team #15: "Agent researching 1 section" was too vague. The query cache
+  // knows EXACTLY which dashboard tabs are in flight — name them.
   const inFlight = useIsFetching({ queryKey: ['dashboard', companyId] });
   if (inFlight === 0) return null;
+  const fetchingTabs = queryClient
+    .getQueryCache()
+    .getAll()
+    .filter((q) => Array.isArray(q.queryKey) && q.queryKey[0] === 'dashboard' &&
+      q.queryKey[1] === companyId && q.state.fetchStatus === 'fetching')
+    .map((q) => DASHBOARD_TAB_LABELS[(q.queryKey[2] as DashboardTab) ?? ''] ?? String(q.queryKey[2] ?? 'section'))
+    .slice(0, 3);
+  const named = fetchingTabs.length
+    ? fetchingTabs.join(fetchingTabs.length > 1 ? ' · ' : '')
+    : 'dashboard sections';
   return (
     <span
       className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap pb-1 text-[11px] font-medium text-muted"
-      title="Desk agents are researching sections of this dashboard in the background — each finishes and fills in live."
+      title="Desk agents are researching these sections in the background — each finishes and fills in live."
     >
       <span className="relative flex h-1.5 w-1.5">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
       </span>
-      {inFlight === 1 ? 'Agent researching 1 section…' : `Agents researching ${inFlight} sections…`}
+      Researching {named}…
     </span>
   );
 }

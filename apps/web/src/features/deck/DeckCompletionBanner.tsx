@@ -1,14 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, TriangleAlert } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, TriangleAlert } from 'lucide-react';
 import type { ResearchJob } from '@mi/contracts';
 import { useRepository, useRepositoryMode } from '@/lib/repository/RepositoryProvider';
 
 /**
  * The finish line (production red team, Oct 8, P0-2): "Live research" ambient
  * activity never told the user the deck was DONE. This banner states the
- * baseline research job's outcome in plain terms — complete, partially
- * complete, or failed — with the counts and time to prove it, so "ready" is a
- * visible fact instead of an inference from an absence of spinners.
+ * baseline research job's outcome in plain terms — complete, stopped early, or
+ * failed — with the counts and time to prove it, so "ready" is a visible fact
+ * instead of an inference from an absence of spinners.
+ *
+ * It also carries the job's COVERAGE shortfalls verbatim (red team #1/#22):
+ * an empty specialist category must explain itself — searched, and what the
+ * sourcing bar rejected — instead of showing a silent zero.
  *
  * The living runtime's ambient verification is HEALTH, not incompleteness; it
  * keeps working after this banner says complete, and that is stated too.
@@ -33,6 +37,21 @@ export function DeckCompletionBanner({ deckId }: { deckId: string | undefined })
     month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
   });
   const companies = job.completedEntityNames?.length ?? 0;
+  // Coverage shortfalls are emitted by discovery as plain sentences; show them
+  // verbatim so an empty category explains itself instead of showing a zero.
+  const coverage = (job.warnings ?? []).filter((warning) =>
+    /coverage shortfall|remained below|skipped \d+ results/i.test(warning));
+
+  const CoverageList = () => coverage.length > 0 && (
+    <div className="mt-2 w-full space-y-1 border-t border-border pt-2">
+      {coverage.map((warning, index) => (
+        <p key={index} className="flex items-start gap-1.5 text-xs text-muted">
+          <Info className="mt-0.5 h-3 w-3 shrink-0" />
+          {warning}
+        </p>
+      ))}
+    </div>
+  );
 
   if (job.status === 'completed') {
     return (
@@ -46,6 +65,7 @@ export function DeckCompletionBanner({ deckId }: { deckId: string | undefined })
         <span className="text-muted">
           Background verification keeps figures fresh; nothing here is still unfinished.
         </span>
+        <CoverageList />
       </div>
     );
   }
@@ -59,6 +79,7 @@ export function DeckCompletionBanner({ deckId }: { deckId: string | undefined })
           Research stopped early — {companies} compan{companies === 1 ? 'y' : 'ies'} were finished and saved.
         </span>
         <span className="text-muted">Stopped {finished}. Run research again to complete the remaining desks.</span>
+        <CoverageList />
       </div>
     );
   }
@@ -74,6 +95,7 @@ export function DeckCompletionBanner({ deckId }: { deckId: string | undefined })
       <span className="text-muted">
         {job.error ? `${job.error}. ` : ''}Finished {finished}. Run research again to fill the gaps.
       </span>
+      <CoverageList />
     </div>
   );
 }

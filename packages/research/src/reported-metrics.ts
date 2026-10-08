@@ -291,7 +291,12 @@ export function reportedMetricCitations(companyName: string, website: string | n
     !validMetricVerificationValue(type, metric.value) || type === 'market_share' || metric.value === 0 ||
     (['employees', 'users'].includes(type) && !Number.isSafeInteger(metric.value))) return [];
   const definition = proof.definition ?? type;
-  if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its .{0,30}suite|active base of .{0,30}devices)\b/i.test(proof.support.text)) return [];
+    // User populations are always reported AS OF a date or period in any source
+  // worth citing. A users claim with no reporting date ('1B active users',
+  // full stop) is the unverifiable mega-figure the red team flagged: it
+  // stays unknown rather than rendering with authority it never earned.
+  if (type === 'users' && !proof.asOf) return [];
+if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its .{0,30}suite|active base of .{0,30}devices)\b/i.test(proof.support.text)) return [];
   if ((type === 'arr' && !['arr', 'annual_revenue'].includes(definition)) ||
     (type === 'users' && !['users', 'active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition)) ||
     (!['arr', 'users'].includes(type) && definition !== type)) return [];
@@ -365,7 +370,12 @@ export function reportedSupportCitations(companyName: string, website: string | 
     (type === 'users' && !['users', 'active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition)) ||
     (!['arr', 'users'].includes(type) && definition !== type)) return [];
   if (proof.unit !== (['arr', 'valuation', 'market_cap'].includes(type) ? 'USD' : 'count')) return [];
-  if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its .{0,30}suite|active base of .{0,30}devices)\b/i.test(proof.support.text)) return [];
+    // User populations are always reported AS OF a date or period in any source
+  // worth citing. A users claim with no reporting date ('1B active users',
+  // full stop) is the unverifiable mega-figure the red team flagged: it
+  // stays unknown rather than rendering with authority it never earned.
+  if (type === 'users' && !proof.asOf) return [];
+if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its .{0,30}suite|active base of .{0,30}devices)\b/i.test(proof.support.text)) return [];
   return usableCitations(metric.citations, website ?? undefined);
 }
 

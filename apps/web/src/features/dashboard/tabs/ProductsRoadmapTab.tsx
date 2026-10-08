@@ -112,7 +112,9 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                   <p className="text-xs text-muted">
                     {c.products.length
                       ? 'Company-reported product disclosures, not a revenue ranking. Revenue contribution is not established.'
-                      : 'No original-backed product details are available yet. Refresh research to check official sources; earlier notes remain saved.'}
+                      : (result.lastRefreshedAt
+                        ? `Researched ${new Date(result.lastRefreshedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} — no original-backed product details met the sourcing bar. Refresh to check official sources again; earlier notes remain saved.`
+                        : 'No original-backed product details are available yet. Refresh research to check official sources; earlier notes remain saved.')}
                   </p>
                 </div>
                 <DigDeeperMenu
