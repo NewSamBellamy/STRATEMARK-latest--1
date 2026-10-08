@@ -400,6 +400,17 @@ function registerIpc(): void {
     };
     return searcher.searchResearchCorpus?.(parsed) ?? [];
   });
+  ipcMain.handle(IPC_CHANNELS.saveReport, (_e, input: unknown) => {
+    const parsed = z.object({
+      kind: z.enum(['company', 'deck', 'site_audit']), subjectId: z.string().min(1),
+      title: z.string().min(1).max(200), markdown: z.string().min(1).max(500_000),
+      citations: z.array(z.object({ title: z.string(), url: z.string().url() })).max(100),
+    }).parse(input);
+    const saver = repository as MarketIntelRepository & {
+      saveReport?: (input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }) => Promise<unknown>;
+    };
+    return saver.saveReport?.(parsed) ?? null;
+  });
   ipcMain.handle(IPC_CHANNELS.getResearchEvidence, (_e, input: unknown) => {
     const parsed = z.object({ companyId: z.string().optional(), limit: z.number().int().optional() }).parse(input);
     const evidenceReader = repository as MarketIntelRepository & { getResearchEvidence?: (input: { companyId?: string; limit?: number }) => unknown[] };

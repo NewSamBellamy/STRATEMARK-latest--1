@@ -3,6 +3,7 @@ import { Loader2, Plus, StickyNote } from 'lucide-react';
 import type { ResearchEvidence } from '@mi/research';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useCompany } from '@/hooks/data';
+import { presentable } from '@mi/research';
 import { Search } from 'lucide-react';
 import { EmptyState } from '@/components/states/EmptyState';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
@@ -36,7 +37,10 @@ function EvidenceCard({ evidence }: { evidence: ResearchEvidence }) {
         <span className="text-[11px] tabular-nums text-faint">{evidence.capturedAt.slice(0, 10)}</span>
       </div>
       <div className="markdown mt-2 break-words text-sm leading-relaxed text-content/90">
-        <ResearchMarkdown text={evidence.text} />
+        {/* Red team #6: provider evidence is agent output — presentation-clean
+            (URL lines, bold field labels) before it reaches a human. User notes
+            render exactly as written. */}
+        <ResearchMarkdown text={evidence.topic === 'user_note' ? evidence.text : presentable(evidence.text)} />
       </div>
       {supports.length > 0 && (
         <p className="mt-3 border-t border-border pt-2 text-[11px] text-faint">

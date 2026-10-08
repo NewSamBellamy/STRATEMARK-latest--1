@@ -172,6 +172,10 @@ export class IpcRepository implements MarketIntelRepository {
   searchResearchCorpus(query: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }) {
     return this.api.searchResearchCorpus?.(query) as Promise<ResearchPassage[] | []>;
   }
+
+  async saveReport(input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }) {
+    return (await this.api.saveReport?.(input)) as never;
+  }
   async addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<ResearchNoteEntry> {
     const result = await this.api.addResearchNote?.(input);
     if (!result) throw new Error('Research notes are unavailable in this session.');

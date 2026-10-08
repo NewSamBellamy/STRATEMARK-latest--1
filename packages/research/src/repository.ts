@@ -437,6 +437,23 @@ export class GeminiRepository implements MarketIntelRepository {
     return searchEvidenceCorpus(this.snap.researchEvidence ?? [], query);
   }
 
+  /** Persist a finished research artifact as a first-class Report: it opens in
+   * the full-page reader, lives in the Reports library, and survives restarts
+   * — a deep-dive is a finished product, not modal-bound scratch state. */
+  async saveReport(input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string;
+    title: string; markdown: string; citations: Citation[] }): Promise<Report> {
+    if (!input.title.trim() || !input.markdown.trim()) throw new Error('A report needs a title and content.');
+    const now = new Date().toISOString();
+    const report: Report = {
+      id: `rpt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+      kind: input.kind, subjectId: input.subjectId, title: input.title.trim().slice(0, 200),
+      markdown: input.markdown, citations: usableCitations(input.citations), createdAt: now,
+    };
+    this.snap.reports = [report, ...this.snap.reports.filter((r) => r.id !== report.id)];
+    await this.persist();
+    return structuredClone(report);
+  }
+
   private listLocalOriginals(input: OriginalSourceQuery): OriginalSourceAttempt[] {
     return selectOriginalSourceAttempts(this.snap.originalSourceAttempts ?? [], input);
   }

@@ -57,7 +57,7 @@ const SENTENCE_SPLIT = /(?<=[.!?])\s+(?=[A-Z"'(])/u;
 /** Passage text is USER-FACING: strip the raw agent-output artifacts the red
  * team flagged — source-URL lines, markdown emphasis markers, and internal
  * field labels ("**Headline:**") — while keeping the words verbatim. */
-function presentable(text: string): string {
+export function presentable(text: string): string {
   return text
     .split('\n')
     // URLs belong in the passage's citation chips, never its prose.

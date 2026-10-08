@@ -14,6 +14,7 @@ import {
   type PreloadRepositoryApi,
   type ResearchNoteEntry,
   type ResearchPassage,
+  type Report,
   type ResearchJob,
   type ResearchProgressEvent,
   type ResearchProgressListener,
@@ -73,6 +74,8 @@ const api: PreloadRepositoryApi = {
     ipcRenderer.invoke(IPC_CHANNELS.addResearchNote, input) as Promise<ResearchNoteEntry>,
   searchResearchCorpus: (input: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }) =>
     ipcRenderer.invoke(IPC_CHANNELS.searchResearchCorpus, input) as Promise<ResearchPassage[]>,
+  saveReport: (input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveReport, input) as Promise<Report>,
   getResearchEvidence: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.getResearchEvidence, input) as unknown as unknown[],
   googleSignIn: () => ipcRenderer.invoke(IPC_CHANNELS.googleSignIn),

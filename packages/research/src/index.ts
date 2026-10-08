@@ -18,7 +18,7 @@ export type { OriginalSourceReceipt, OriginalSourceAttempt, OriginalSourceServic
 export { coalesceOriginalSources, isOriginalSourceAttempt, selectOriginalSourceCitations } from './original-source';
 export { isBrowserOriginalSourceSupported, retrieveBrowserOriginalSource } from './original-source.browser';
 export { acceptedMetricPassage } from './metric-support';
-export { searchEvidenceCorpus, type ResearchPassage, type CorpusQuery, type ScoredPassage } from './retrieval';
+export { searchEvidenceCorpus, presentable, type ResearchPassage, type CorpusQuery, type ScoredPassage } from './retrieval';
 export * from './proxy-estimator';
 export * from './company-agent';
 export * from './signal-agents';

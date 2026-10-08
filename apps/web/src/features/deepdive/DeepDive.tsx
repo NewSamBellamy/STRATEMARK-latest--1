@@ -409,6 +409,20 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           });
+          // A finished deep-dive is a finished product (red team #10): persist it
+          // as a Report so "Saved" opens the full-page reader instead of leaving
+          // long-form findings trapped in this panel.
+          void repo.saveReport?.({
+            kind: input.companyId ? 'company' : 'deck',
+            subjectId: input.companyId ?? 'deep-dive',
+            title: input.topic,
+            markdown: r.markdown,
+            citations: r.citations.map((c) => ({ title: c.title, url: c.url })),
+          })
+            .then((report) => {
+              if (report) setThread((prev) => (prev && prev.id === 'oneshot' ? { ...prev, reportId: report.id } : prev));
+            })
+            .catch(() => { /* the modal copy still reads fine unsaved; saving is best-effort */ });
         })
         .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
         .finally(() => setBusy(false));
@@ -554,7 +568,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                 onClick={close}
                 className="inline-flex items-center gap-1 rounded-lg border border-positive/40 bg-positive/10 px-2 py-1 text-[11px] text-positive"
               >
-                <FileText className="h-3 w-3" /> Saved
+                <FileText className="h-3 w-3" /> Open full report
               </Link>
             )}
             <button

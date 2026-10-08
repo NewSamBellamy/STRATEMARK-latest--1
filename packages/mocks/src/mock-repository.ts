@@ -117,6 +117,16 @@ export class MockRepository implements MarketIntelRepository {
         citations: r.citations.map((c) => ({ ...c })),
       }));
   }
+  private readonly savedReports: Array<{ id: string; kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[]; createdAt: string }> = [];
+  async saveReport(input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }) {
+    const report = {
+      id: `rpt_${Date.now().toString(36)}`, kind: input.kind, subjectId: input.subjectId,
+      title: input.title, markdown: input.markdown, citations: input.citations,
+      createdAt: new Date().toISOString(),
+    };
+    this.savedReports.unshift(report);
+    return report;
+  }
   private readonly userNotes: ResearchNoteEntry[] = [];
 
   addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<ResearchNoteEntry> {

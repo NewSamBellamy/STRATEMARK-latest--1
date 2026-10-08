@@ -636,6 +636,13 @@ export interface MarketIntelRepository {
   searchResearchCorpus?(query: ResearchCorpusQuery): Promise<ResearchPassage[]>;
 
   /**
+   * Persist a finished research artifact (e.g. a deep-dive story) as a Report
+   * so it opens in the full-page reader and lives in the Reports library.
+   * OPTIONAL — engines holding saved research locally.
+   */
+  saveReport?(input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: Citation[] }): Promise<Report>;
+
+  /**
    * Re-project retained company_profile evidence through the reported-claims
    * validator and fill only rows that currently hold no value. Free: makes no
    * provider call. OPTIONAL — engines holding saved evidence locally.
