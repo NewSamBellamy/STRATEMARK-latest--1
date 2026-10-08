@@ -112,8 +112,18 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                             {speaker && (
                               <WikiAvatar name={speaker} companyName={name} size="sm" />
                             )}
-                            <span className="text-xs text-muted">— {q.attribution}</span>
+                            <span className="text-xs text-muted">
+                              — {q.attribution}{q.date ? `, ${q.date}` : ''}
+                            </span>
                           </span>
+                        )}
+                        {/* Provenance at the point of use (red team #18): the
+                            source travels with the quote or it does not exist. */}
+                        {q.sourceUrl && (
+                          <a href={q.sourceUrl} target="_blank" rel="noopener noreferrer"
+                            className="mt-1 inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline">
+                            {q.sourceTitle || new URL(q.sourceUrl).hostname.replace(/^www\./, '')}
+                          </a>
                         )}
                       </li>
                     );

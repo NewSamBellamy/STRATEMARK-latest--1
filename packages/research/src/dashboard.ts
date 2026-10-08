@@ -347,10 +347,24 @@ export async function researchDashboardTab<T extends DashboardTab>(
         system,
       );
       return client.structure(
-        `Convert to JSON { "founderStory" (a well-written multi-paragraph narrative of where the company came from — the one-pager story), "timeline": [ { "date" (e.g. "2026 Mar", "2023 Q4", or "2019"), "title", "detail" (one or two lines) } ] in chronological order — include EVERY dated milestone the notes support (target 12-20 for an established company; never pad with invented ones), "quotes": [ { "text", "attribution" } ] }.\n\nNOTES:\n${g.text}`,
+        `Convert to JSON { "founderStory" (a well-written multi-paragraph narrative of where the company came from — the one-pager story), "timeline": [ { "date" (e.g. "2026 Mar", "2023 Q4", or "2019"), "title", "detail" (one or two lines) } ] in chronological order — include EVERY dated milestone the notes support (target 12-20 for an established company; never pad with invented ones), "quotes": [ { "text", "attribution", "date" (when the quote was said, as the notes support it), "sourceTitle" (the publication or document carrying the quote), "sourceUrl" (the exact cited URL that carries this quote) } ] }. Quote provenance is required wherever the notes support it — never invent a URL; copy it from the notes.\n\nNOTES:\n${g.text}`,
         historyContentSchema,
         structSys,
-      ) as Promise<DashboardContentMap[T]>;
+      )
+      .then((content) => {
+        // Quote provenance gate (red team #18): a source field survives only
+        // when it matches a citation the grounded search actually returned —
+        // a model-guessed URL must never render as provenance.
+        const catalog = usableCitations(g.citations);
+        const byUrl = new Map(catalog.map((c) => [c.url.replace(/\/$/, ''), c]));
+        const quotes = (content.quotes ?? []).map((q) => {
+          if (!q.sourceUrl) return q;
+          const match = byUrl.get(q.sourceUrl.replace(/\/$/, ''));
+          if (!match) return { text: q.text, attribution: q.attribution, ...(q.date ? { date: q.date } : {}) };
+          return { ...q, sourceTitle: q.sourceTitle ?? match.title };
+        });
+        return { ...content, quotes };
+      }) as Promise<DashboardContentMap[T]>;
     }
 
     case 'products_roadmap': {

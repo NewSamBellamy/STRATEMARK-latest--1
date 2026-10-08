@@ -406,7 +406,16 @@ export const timelineEventSchema = z.object({
   title: z.string(),
   detail: prose(),
 });
-export const quoteSchema = z.object({ text: z.string(), attribution: prose() });
+export const quoteSchema = z.object({
+  text: z.string(),
+  attribution: prose(),
+  /** Provenance (red team #18): who said it needs when and where. All
+   * optional so cached content parses; the dashboard builder drops source
+   * fields that do not match the response's real citations. */
+  date: prose().optional(),
+  sourceTitle: prose().optional(),
+  sourceUrl: z.string().url().optional(),
+});
 export const historyContentSchema = z.object({
   founderStory: prose(),
   timeline: rows(timelineEventSchema),
