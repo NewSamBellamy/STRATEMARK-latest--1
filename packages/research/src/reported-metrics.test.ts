@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { companyMetricSchema, comparableMetricBasis, metricDefinitionLabel, metricObservationIdentity, reportedMetricSupportSchema } from '@mi/contracts';
-import { reportedCompanyMetrics, reportedMetricCitations, sentenceAround } from './reported-metrics';
+import { providerCompanySummary, reportedCompanyMetrics, reportedMetricCitations, sentenceAround } from './reported-metrics';
 import { EQUINIX_ANSWER_TEXT, EQUINIX_SUPPORTS } from './equinix-live-fixture';
 import { enrichmentOutSchema } from './schemas';
 import { METRIC_MEASUREMENT_INSTRUCTIONS } from './prompts';
@@ -596,5 +596,57 @@ describe('regional employee breakdowns', () => {
       identity: { answerText: answer, otherCompanies: ['Digital Realty Trust, Inc.'] } });
     expect(rows.find(row => row.metricType === 'employees')).toMatchObject({
       value: 13_716, confidence: 'estimated', reportedSupport: { definition: 'employees' } });
+  });
+});
+
+// The Oct 8 nuclear run left NuScale, Radiant and BWX Technologies on the
+// "No source-backed company snapshot" fallback even though their retained
+// company_profile evidence contained the ideal sourced one-liner. These shapes
+// mirror the vault answers (verb choice, legal/DBA alias forms) so the gate
+// that rejected them stays fixed.
+describe('provider company summary (source-backed one-liner)', () => {
+  const build = (segments: string[]) => {
+    const text = segments.join('\n\n');
+    const grounding = extractProviderGrounding(text, {
+      groundingChunks: [{ web: { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/summary', title: 'example.com' } }],
+      groundingSupports: segments.map((passage) => {
+        const start = text.indexOf(passage);
+        return { segment: { text: passage, startIndex: start, endIndex: start + passage.length }, groundingChunkIndices: [0] };
+      }),
+    });
+    return { text, grounding };
+  };
+
+  it('accepts the verbs companies actually use about themselves', () => {
+    const { text, grounding } = build([
+      'NuScale Power Corporation designs and commercializes proprietary small modular reactor (SMR) nuclear technology centered on the NuScale Power Module.',
+      'NuScale Power Corporation reported total annual revenue of $31.5 million for the fiscal year ended December 31, 2025.',
+    ]);
+    const summary = providerCompanySummary('NuScale Power Corporation', 'https://www.nuscalepower.com', text, grounding);
+    expect(summary?.summary.startsWith('NuScale Power Corporation designs and commercializes')).toBe(true);
+    expect(summary?.citations.length).toBeGreaterThan(0);
+  });
+
+  it('bridges legal-name and DBA aliases for sentence-initial subjects', () => {
+    const bwxt = build([
+      'BWX Technologies, Inc. is a nuclear engineering and manufacturing company that designs and produces naval nuclear reactors for the United States government.',
+      'BWX Technologies, Inc. had a market capitalization of $13.38 billion USD as of October 7, 2026.',
+    ]);
+    expect(providerCompanySummary('BWX Technologies, Inc. (BWXT)', 'https://www.bwxt.com', bwxt.text, bwxt.grounding)?.summary)
+      .toMatch(/^BWX Technologies, Inc\. is a nuclear engineering/);
+
+    const radiant = build([
+      'Radiant Industries, Inc. is headquartered in El Segundo, California, United States, according to the company regulatory filings.',
+      'Radiant Industries, Inc. was valued at more than $1.8 billion USD following a $300 million Series D funding round.',
+    ]);
+    expect(providerCompanySummary('Radiant Nuclear (Radiant Industries, Inc.)', 'https://radiantnuclear.com', radiant.text, radiant.grounding)?.summary)
+      .toMatch(/^Radiant Industries, Inc\. is headquartered/);
+  });
+
+  it('still refuses figure-bearing sentences as the summary', () => {
+    const { text, grounding } = build([
+      'NuScale Power Corporation is a publicly traded company on the New York Stock Exchange under ticker symbol SMR, with a reported market capitalization of $3.2 billion as of October 2026.',
+    ]);
+    expect(providerCompanySummary('NuScale Power Corporation', 'https://www.nuscalepower.com', text, grounding)).toBeNull();
   });
 });

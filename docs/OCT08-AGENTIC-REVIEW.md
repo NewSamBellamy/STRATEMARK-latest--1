@@ -12,7 +12,7 @@ Every claim below is traced to code or to the stored run data — nothing is inf
 | Filled (value ≠ null, ≠ unknown) | **34 (20%)** — every one `estimated`, none `verified` |
 | Companies with zero filled figures | 7 of 28 (Holtec, GEV-Hitachi, Radiant, BWXT, Framatome, Urenco, Generation Atomic) |
 | Best-filled companies | NuScale / X-Energy / Centrus — 3 of 6 each |
-| Original-source attempts (whole vault) | 379 — **0 retrieved**, `status` field never even set |
+| Original-source receipts (whole vault) | 760 across 380 attempts — **571 retrieved (75%)**; 155 "not a readable public page", 20 timeouts (status lives per receipt, not per attempt) |
 | Metrics at `verified` confidence | **0** |
 | Companies showing the "No source-backed company snapshot" fallback | 6 of 28 in ANT, 14 of 28 in the colocation deck |
 
@@ -39,23 +39,40 @@ Every behavior we *call* agentic is a single LLM call followed by a strict post-
 The desk metaphor promises a persistent investigator. The implementation is a stateless
 one-shot with a bouncer. Strict gates + one shot = permanent `unknown`, by construction.
 
-## Root cause 2 — The verification lane cannot succeed in this transport
+## Root cause 2 — The last-mile summary gate rejected the evidence we already had
 
-`applyMetricVerification` requires verification-grade citations to corroborate an
-observation. The company's own website — the strongest corroboration we have — is
-retrieved by the **original-source reader, which is dead in the browser app**: 379 attempts,
-0 retrieved, receipts stored with no `status` at all. The dev-loopback bridge
-(`/__stratemark/source`, `local-source-reader.ts`) is the only real path, and it is clearly
-not answering in the owner's environment (NuScale: 5 attempts, 0 bytes, no finalUrl).
+**CORRECTION (same day):** the first version of this section claimed the original-source
+reader was dead ("0/379"). That was a schema misread by the review itself — status lives on
+each receipt inside an attempt, not on the attempt. The true numbers: **571 of 760 receipts
+retrieved (75%)**, including `www.nuscalepower.com` itself, HTTP 200, three separate times.
+The reader is NOT the problem.
 
-Consequences, all visible in the video:
-- `sourceBackedCompanySummary` can never return → 6 companies show "No source-backed
-  company snapshot is ready yet." (the other 22 got `providerCompanySummary` sentences —
-  provider-grounded, not site-backed).
-- Nothing can ever reach `verified`, so the whole deck sits at Estimated/Unknown and the
-  freshness engine has nothing honest to do.
-- Quote provenance, original-backed product details, filing-grade corroboration — all built,
-  all silently no-op.
+The actual killer was `providerCompanySummary` (reported-metrics.ts), the gate that turns
+retained grounding evidence into a sourced one-liner:
+
+1. **Verb allow-list too narrow.** `builds|provides|develops|operates|offers|makes|sells|is
+   a|is an` — NuScale's retained evidence opens with "NuScale Power Corporation **designs
+   and commercializes** proprietary small modular reactor (SMR) nuclear technology…", which
+   failed on one missing word while weaker sentences passed. Fixed: the list now includes
+   designs/manufactures/commercializes/delivers/specializes/focuses/serves and "is
+   headquartered".
+2. **Sentence-initial alias gate couldn't bridge display→legal→DBA names.** Deck names mix
+   forms ("BWX Technologies, Inc. (BWXT)", "Radiant Nuclear (Radiant Industries, Inc.)")
+   while grounded answers open with the form the source used ("BWX Technologies, Inc. is a
+   nuclear engineering…", "Radiant Industries, Inc. is headquartered…"). Fixed: the
+   sentence-initial gate now accepts the legal form and the parenthetical DBA as aliases —
+   still sentence-initial, still literal, still cited, so the anti-fabrication anchor holds.
+
+Replayed against the real vault evidence: the fixes give 3 of the 6 fallback companies
+(NuScale, Holtec, GEV-Hitachi) a real sourced one-liner, plus Radiant and BWXT once the
+alias bridge is counted. Generation Atomic has no retained company_profile evidence at all
+(a separate retention question, tracked for Phase 3).
+
+The verification lane still never reached `verified` in this run (0 of 168) — but the
+reason is now Phase 3 territory (one-shot verification attempts, no retry after the first
+unverified verdict), not a dead source reader. Quote provenance, original-backed product
+details and filing-grade corroboration are fed by 571 working receipts and were starved by
+the same last-mile gates, not by a dead transport.
 
 **The product's core moat — "source-backed" — is architecturally unavailable in the
 transport the owner actually uses, and the UI's only acknowledgment is a misleading
@@ -104,13 +121,15 @@ steps: interpreting the brief, searching the web, verifying each candidate is a 
    "Provider-reported figures on file — verification pending" instead of the blanket
    "No source-backed company snapshot is ready yet."
 
-### Phase 2 — Make the source reader real in the owner's transport (the moat)
-5. Diagnose the 0/379: is the vite dev bridge mounted? Does the desktop IPC path work?
-   Does `retrieveBrowserOriginalSource` (direct browser fetch) even have a route?
-6. Route: dev web → loopback bridge; desktop → IPC; plain browser → honest degradation
-   (and copy that says so) instead of silent 0-byte receipts.
-7. When originals land, summaries / quote provenance / verified corroboration unlock with
-   zero new model work — the downstream consumers are already built and tested.
+### Phase 2 — Make the last mile of source-backed output work (DONE, corrected scope)
+5. ~~Diagnose the 0/379~~ → **Corrected: the reader works (571/760 retrieved).** The real
+   killers were the two `providerCompanySummary` gates above; both fixed with regression
+   tests built from the real vault shapes.
+6. Transport audit (remaining, low priority): the bridge works in dev; the desktop IPC path
+   and plain-browser degradation deserve a verification pass of their own — the vault shows
+   155 "not a readable public page" failures that are SPA/JS-shell sites, plus 20 timeouts.
+7. Generation Atomic lost its company_profile evidence entirely — check evidence retention
+   during hydration (tracked into Phase 3's hunt work, since hunts re-retain evidence).
 
 ### Phase 3 — Desk agents that iterate (loops, not one-shots)
 8. Hunt escalation ladder: per desk, a *plan* of K bounded passes with different angles

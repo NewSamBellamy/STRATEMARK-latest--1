@@ -9,9 +9,29 @@ const plain = (text: string) => text.replace(/[*_`]/g, '')
   .replace(/^\s*Original source:\s*https?:\/\/[^\n]+\n/i, '')
   .replace(/^\s*(?:[-•]|\d+[.)])\s*/, '')
   .trim().replace(/^(?:Company Description|Headquarters Location|Headcount \/ Number of Employees|Employees(?: \(Headcount\))?|Annual Revenue(?: & Recurring Revenue \(ARR\))?|Valuation|Market Capitalization|Users \/ Customers|Official Website)(?::|\r?\n)\s*/i, '').trim();
+/** Sentence-initial identity forms for a stored company name. Deck names mix
+ * display, legal and DBA forms ("Radiant Nuclear (Radiant Industries, Inc.)",
+ * "BWX Technologies, Inc. (BWXT)") while grounded answers open with whichever
+ * form the source used. Every alias IS the company, so breadth here only
+ * decides which truthful sentence-initial subject we accept — the anchor
+ * (sentence-initial + citation) stays shut. */
+const entityAliases = (name: string): string[] => {
+  const forms = new Set<string>();
+  const add = (value: string | undefined) => {
+    const cleaned = stripCorporateSuffix((value ?? '').trim());
+    if (cleaned.length >= 4) forms.add(cleaned);
+  };
+  add(name);
+  const paren = name.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  if (paren) {
+    add(paren[1]);
+    add(paren[2]);
+  }
+  return [...forms];
+};
 const entity = (text: string, name: string) => {
-  const alias = stripCorporateSuffix(name);
-  return new RegExp(`^${escape(alias)}(?:['’]s)?\\b`, 'i').test(plain(text));
+  const body = plain(text);
+  return entityAliases(name).some(alias => new RegExp(`^${escape(alias)}(?:['’]s)?\\b`, 'i').test(body));
 };
 
 // Legal suffixes and short forms whose period never ends a sentence. A
@@ -439,7 +459,11 @@ export function providerCompanySummary(companyName: string, website: string | nu
     if (!grounding.answerText.includes(support.text)) continue;
     const summary = sentences(sentenceAround(support.text, grounding.answerText, support.startIndex)).map(plain).find(sentence => entity(sentence, companyName) && sentence.length >= 30 && sentence.length <= 500 &&
       !(/\d/.test(sentence) && /\b(?:valuation|valued at|funding round|market cap(?:italization)?|annual revenue|ARR|headcount|employees)\b|[$€£]/i.test(sentence)) &&
-      /\b(?:builds|provides|develops|operates|offers|makes|sells|is a|is an)\b/i.test(sentence));
+      // The verb gate keeps label/boilerplate lines out; it must describe what
+      // companies actually SAY about themselves. "NuScale designs and
+      // commercializes SMR technology" failed this gate for one missing word —
+      // the ideal sourced one-liner, rejected while weaker sentences passed.
+      /\b(?:builds?|provides?|develops?|designs?|manufactures?|commercializes?|delivers?|specializes?|focuses?|operates?|offers?|serves?|makes?|sells?|is a|is an|is headquartered)\b/i.test(sentence));
     const citations = usableCitations(support.sources, website ?? undefined);
     if (summary && citations.length) return { summary, citations };
   }
