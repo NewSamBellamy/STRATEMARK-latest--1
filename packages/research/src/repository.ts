@@ -778,7 +778,15 @@ export class GeminiRepository implements MarketIntelRepository {
     let hydratedCount = 0;
     const rosterNames: string[] = [];
     const candidateById = new Map<string, CompanyCandidate>();
-    const stubQueue: Array<{ stub: CardWithCompany; candidate: CompanyCandidate }> = [];
+    // Hydration is fail-visible, not fail-once: rate limits and transient
+    // provider errors concentrate at the tail of the queue (the last desks
+    // research when the key's per-minute budget is most depleted), and a
+    // single failed attempt used to strand that company as an empty stub
+    // forever — invisible to the research grid and unreachable by healing.
+    const HYDRATION_RETRIES = 2;
+    const HYDRATION_RETRY_BACKOFF_MS = 45_000;
+    const stubQueue: Array<{ stub: CardWithCompany; candidate: CompanyCandidate; attempts: number }> = [];
+    const admitted: Array<{ stub: CardWithCompany; candidate: CompanyCandidate }> = [];
     let discoveryDone = false;
 
     let resolveLeadCardReady!: () => void;
@@ -803,7 +811,7 @@ export class GeminiRepository implements MarketIntelRepository {
       ];
     };
 
-    const hydrateOne = async (candidate: CompanyCandidate, stub: CardWithCompany) => {
+    const hydrateOne = async (candidate: CompanyCandidate, stub: CardWithCompany, attempts = 0) => {
       throwIfAborted(controller.signal);
       if (!stub.company) return;
       const companyStartedAt = Date.now();
@@ -977,6 +985,22 @@ export class GeminiRepository implements MarketIntelRepository {
         }
       } catch (err) {
         if (controller.signal.aborted) throw err;
+        if (attempts < HYDRATION_RETRIES) {
+          // The item was already shifted out of the queue, so re-entry is the
+          // only path back. Workers never terminate while the queue is
+          // non-empty, so requeued desks always drain before the pool does.
+          stubQueue.push({ stub, candidate, attempts: attempts + 1 });
+          await checkpoint({
+            type: 'status',
+            step: 'enrich',
+            message: `Retrying ${candidate.name} after a failed research pass (attempt ${attempts + 2} of ${HYDRATION_RETRIES + 1}).`,
+          });
+          // Back off inside this worker: the other desks keep draining while
+          // this one waits out the provider's rate window.
+          await new Promise((resolve) => setTimeout(resolve, HYDRATION_RETRY_BACKOFF_MS * (attempts + 1)));
+          if (controller.signal.aborted) throw new Error('Research cancelled');
+          return;
+        }
         await checkpoint({
           type: 'warning',
           message: `Could not enrich ${candidate.name}; preserving the rest of the deck. ${err instanceof Error ? err.message : 'Research failed.'}`,
@@ -984,7 +1008,7 @@ export class GeminiRepository implements MarketIntelRepository {
       }
     };
 
-    const hydrationWorkers = Array.from({ length: this.concurrency ?? 3 }, async () => {
+    const runHydrationWorker = async () => {
       for (;;) {
         const next = stubQueue.shift();
         if (!next) {
@@ -992,9 +1016,10 @@ export class GeminiRepository implements MarketIntelRepository {
           await new Promise((r) => setTimeout(r, 50));
           continue;
         }
-        await hydrateOne(next.candidate, next.stub);
+        await hydrateOne(next.candidate, next.stub, next.attempts);
       }
-    });
+    };
+    const hydrationWorkers = Array.from({ length: this.concurrency ?? 3 }, () => runHydrationWorker());
 
     let stubsResult: DeckStubsResult;
     try {
@@ -1014,7 +1039,8 @@ export class GeminiRepository implements MarketIntelRepository {
             rosterNames.push(candidate.name);
             if (stub.company) candidateById.set(stub.company.id, candidate);
             ingestStreamedStub(stub);
-            stubQueue.push({ stub, candidate });
+            admitted.push({ stub, candidate });
+            stubQueue.push({ stub, candidate, attempts: 0 });
           }
         },
         onEvent: async (evt) => {
@@ -1093,7 +1119,8 @@ export class GeminiRepository implements MarketIntelRepository {
           cardTypes: [stub.card.cardType] as CompanyCandidate['cardTypes'],
         };
         rosterNames.push(candidate.name);
-        stubQueue.push({ stub, candidate });
+        admitted.push({ stub, candidate });
+        stubQueue.push({ stub, candidate, attempts: 0 });
       }
     }
 
@@ -1149,6 +1176,17 @@ export class GeminiRepository implements MarketIntelRepository {
           (async () => {
             discoveryDone = true;
             await Promise.all(hydrationWorkers);
+            // Reconciliation sweep: every admitted roster company ends the run
+            // either researched or carrying a permanent, visible warning. An
+            // item dropped by a worker that died mid-desk re-enters here and
+            // drains before the deck is declared complete.
+            if (!controller.signal.aborted) {
+              const stranded = admitted.filter(({ candidate }) => !job.completedEntityNames.includes(candidate.name));
+              if (stranded.length) {
+                for (const entry of stranded) stubQueue.push({ ...entry, attempts: 0 });
+                await Promise.all(Array.from({ length: this.concurrency ?? 3 }, () => runHydrationWorker()));
+              }
+            }
             if (!leadCardReadySettled) {
               leadCardReadySettled = true;
               rejectLeadCardReady(
