@@ -580,3 +580,21 @@ describe('sentence-expanded identity binding (live Equinix fixture)', () => {
     expect(found.find(row => row.metricType === 'arr')).toMatchObject({ value: null, confidence: 'unknown' });
   });
 });
+
+describe('regional employee breakdowns', () => {
+  it('keeps the whole-company count from a comma-list breakdown unambiguous', () => {
+    const answer = 'Equinix, Inc. employed 13,716 employees globally, with 5,917 based in the Americas, 4,706 in EMEA, and 3,093 in Asia-Pacific, as disclosed in its Annual Report on Form 10-K.';
+    const fragment = 'employed 13,716 employees globally, with 5,917 based in the Americas, 4,706 in EMEA, and 3,093 in Asia-Pacific, as disclosed in its Annual Report on Form 10-K';
+    const grounding = extractProviderGrounding(answer, {
+      groundingChunks: [{ web: { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/comma-list', title: 'sec.gov' } }],
+      groundingSupports: [{ segment: { text: fragment, startIndex: answer.indexOf(fragment),
+        endIndex: answer.indexOf(fragment) + fragment.length }, groundingChunkIndices: [0] }],
+    });
+    const rows = reportedCompanyMetrics({ companyId: 'eq', companyName: 'Equinix, Inc.', website: 'https://www.equinix.com',
+      enrichment: enrichmentOutSchema.parse({ metrics: {} }), text: answer, grounding,
+      capturedAt: '2026-10-08T00:00:00.000Z',
+      identity: { answerText: answer, otherCompanies: ['Digital Realty Trust, Inc.'] } });
+    expect(rows.find(row => row.metricType === 'employees')).toMatchObject({
+      value: 13_716, confidence: 'estimated', reportedSupport: { definition: 'employees' } });
+  });
+});

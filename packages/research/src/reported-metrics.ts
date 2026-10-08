@@ -162,6 +162,14 @@ const basisPatterns: Record<string, RegExp> = {
 };
 const speculativeValuation = /\b(?:preliminary|discussions|talks|seeking|targeting|proposed|potential|considering|negotiating)\b/i;
 
+// A count immediately followed by a locative phrase belongs to that region or
+// subset ("13,716 employees globally, with 5,917 based in the Americas") —
+// never to the whole company. The window stays tight: the qualifier must sit
+// right after the numeral, so the company-wide figure ("13,716 employees
+// worldwide") is never caught by a later breakdown's wording.
+const LOCATIVE_AFTER_NUMBER =
+  /^\s*(?:based\s+in|in\s+(?:the\s+)?(?:americas?|emea|apac|asia(?:[- ]pacific)?|us|u\.s\.?|europe)|across\s+(?:the\s+)?(?:americas?|emea|apac|asia|us|u\.s\.?|europe)|outside\s+(?:the\s+)?(?:us|u\.s\.?|americas?))\b/i;
+
 function hasDate(text: string, date: string): boolean {
   const parsed = new Date(`${date}T00:00:00Z`);
   if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return false;
@@ -185,6 +193,8 @@ function hasNumber(text: string, value: number, unit: ReportedMetricSupport['uni
     if (unit === 'percent' && !/%|percent/i.test(match[5] ?? '')) continue;
     if (unit === 'count' && (match[1] || match[2] || /USD|dollar|%|percent/i.test(match[5] ?? ''))) continue;
     const start = match.index!, end = start + match[0].trimEnd().length;
+    if (definition === 'employees' &&
+      LOCATIVE_AFTER_NUMBER.test(text.slice(end, end + 24))) continue;
     // Bind completed valuations separately from later financing discussions in
     // the same provider segment. This check is local to this candidate number.
     if (definition === 'valuation' && speculativeValuation.test(text.slice(0, start).split(/[;,]/).at(-1) ?? '')) continue;
@@ -251,6 +261,10 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
       // Only omission recovery skips them; selected claims use the validator.
       if (type === 'employees' && [...text.slice(0, match.index!)].reduce((depth, char) =>
         char === '(' ? depth + 1 : char === ')' ? Math.max(0, depth - 1) : depth, 0) > 0) continue;
+      // So are immediately localized counts ("5,917 based in the Americas"):
+      // the regional breakdown can appear as a comma list, not only in parens.
+      if (type === 'employees' &&
+        LOCATIVE_AFTER_NUMBER.test(text.slice(match.index! + match[0].length, match.index! + match[0].length + 24))) continue;
       const scale = match[2]?.toLowerCase();
       const value = Number(match[1]!.replace(/,/g, '')) * (scale ? ({ trillion: 1e12, billion: 1e9, million: 1e6, thousand: 1e3, t: 1e12, b: 1e9, m: 1e6, k: 1e3 }[scale] ?? 1) : 1);
       const asOf = dates[0] ?? null;
