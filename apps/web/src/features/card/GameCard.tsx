@@ -17,8 +17,12 @@ export interface GameCardProps {
   className?: string;
 }
 
-export function GameCard({ data, onOpen, onShare, hideActions, className }: GameCardProps) {
+export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, className }: GameCardProps) {
   const view = buildCardView(data);
+  // A pending entity card during an active run is being researched RIGHT NOW:
+  // say so on the face so the deck visibly fills as the agents work.
+  const researching = (deckStatus === 'running' || deckStatus === 'partial' || deckStatus === 'refreshing') &&
+    !data.card.tier && (data.card.cardType === 'company' || data.card.cardType === 'infrastructure' || data.card.cardType === 'distribution');
   const [logoAvailable, setLogoAvailable] = useState<boolean | undefined>();
   const [logoRetryNonce, setLogoRetryNonce] = useState(0);
   const [logoUrlOverride, setLogoUrlOverride] = useState<string | null>(null);
@@ -42,6 +46,14 @@ export function GameCard({ data, onOpen, onShare, hideActions, className }: Game
     }
   };
   return <div className={cn('card-sleeve', className)}>
+    {researching && (
+      <span data-testid="card-researching"
+        className="absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-app/90 px-2.5 py-1 text-[10px] font-semibold text-primary-ink shadow-sm"
+        title="A research agent is on this card right now — figures will appear as they are verified.">
+        <LoaderCircle className="h-3 w-3 animate-spin" />
+        Agent researching
+      </span>
+    )}
     {onOpen ? <button type="button" className="card-sleeve__open" onClick={onOpen}
       aria-label={`${view.title} — ${view.type} card`}>
       <CollectibleCard data={data} view={view} logoRetryNonce={logoRetryNonce}
