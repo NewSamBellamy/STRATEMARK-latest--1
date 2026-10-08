@@ -63,6 +63,15 @@ const CORE_PROFILE_TYPES = new Set(CORE_PROFILE_SLOTS.flat());
 // available; reopening a deck does not reset this automatic recovery allowance.
 const recoveryAttempts = new WeakMap<MarketIntelRepository, Set<string>>();
 
+// One automatic verification per (company, metric) per repository lifetime, for
+// the same reason: a consistency finding that survives its check (or a check
+// that ends unverified) must not re-spend a grounded query every tick. The
+// freshness engine already cools the decay lane via lastVerificationAttemptAt,
+// but consistency findings bypass it — this ledger closes that loop. A changed
+// figure re-opens its slot once so the new value can be re-checked; manual
+// fact-checks remain unlimited.
+const verificationAttempts = new WeakMap<MarketIntelRepository, Set<string>>();
+
 // Coalesce job reads across decks/remounts. Unknown readiness defers paid work;
 // failures are cached too, so an unavailable transport cannot become a hot poll.
 const JOB_CHECK_INTERVAL_MS = 60_000;
@@ -158,6 +167,14 @@ export function useLivingDeck(
       recoveryAttempts.set(repo, attempted);
     }
     const attemptedCompanies = attempted;
+    let verified = verificationAttempts.get(repo);
+    if (!verified) {
+      verified = new Set<string>();
+      verificationAttempts.set(repo, verified);
+    }
+    const attemptedVerifications = verified;
+    const verificationOpen = (target: VerificationTarget) =>
+      !attemptedVerifications.has(`${target.companyId}:${target.metricType}`);
 
     const nameOf = (companyId: string): string =>
       cardsRef.current.find((c) => c.company?.id === companyId)?.company?.name ?? 'A company';
@@ -239,15 +256,28 @@ export function useLivingDeck(
               toTarget(candidate.metric.companyId, candidate.metric.metricType, 'stale'),
             );
 
-        return { consistencyTargets: isLowPower() ? [] : consistencyTargets, staleTargets, freshFindings };
+        return {
+          consistencyTargets: isLowPower() ? [] : consistencyTargets.filter(verificationOpen),
+          staleTargets: staleTargets.filter(verificationOpen),
+          freshFindings,
+        };
       },
 
       verify: canVerify
         ? async (target) => {
+            // Reserve before the call: a thrown verification also spends the
+            // company's automatic attempt, so a persistent failure cannot
+            // become a hot retry loop.
+            attemptedVerifications.add(`${target.companyId}:${target.metricType}`);
             const result = await repo.verifyMetric!({
               companyId: target.companyId,
               metricType: target.metricType as MetricType,
             });
+            // A correction is new information: allow one consistency pass
+            // against the fresh figure before the slot closes again.
+            if (result.changed) {
+              attemptedVerifications.delete(`${target.companyId}:${target.metricType}`);
+            }
             await invalidateMetricSurfaces(qc, target.companyId, result.changed);
             const value = result.metric.value;
             const summary =
