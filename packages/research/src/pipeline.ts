@@ -629,7 +629,7 @@ export async function discoverDeckStubs(
   await emit({
     type: 'status',
     step: 'discover',
-    message: 'Discovering companies via 3-vector Google ADK topology mapping…',
+    message: 'Searching the open web for companies in this market…',
   });
 
   let candidates: CompanyCandidate[] = [];

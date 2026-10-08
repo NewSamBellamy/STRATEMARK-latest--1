@@ -3,7 +3,8 @@ import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-ro
 import { useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, FileText, Search } from 'lucide-react';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
-import { useCompany, useReports, useRerunDashboardTab } from '@/hooks/data';
+import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
+import { useCompany, useCompanyMetrics, useReports, useRerunDashboardTab } from '@/hooks/data';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
 import { useDashboardWarm } from '@/lib/living/useDashboardWarm';
 import { BackgroundResearchControl } from '@/lib/living/BackgroundResearchControl';
@@ -269,6 +270,15 @@ export default function DashboardPage() {
     navigate(`/markets/${fromMarketId}/deck${deckParams.size ? `?${deckParams}` : ''}`);
   };
   const company = useCompany(companyId);
+  const metrics = useCompanyMetrics(companyId);
+  // The fallback oneLiner reads as a contradiction when the metrics grid below
+  // it shows figures. With provider-reported figures on file, say what state
+  // the snapshot is actually in instead of claiming nothing exists.
+  const headerSubtitle = company.data
+    && company.data.oneLiner === UNSUPPORTED_COMPANY_SUMMARY
+    && (metrics.data ?? []).some((m) => m.value != null && m.confidence !== 'unknown')
+      ? 'Provider-reported figures on file — desks still need a source-backed read to verify them.'
+      : company.data?.oneLiner;
   const hasKey = useApiKey((s) => s.hasKey);
   const activeTab = tab as DashboardTab;
   const rerunTab = useRerunDashboardTab(companyId, activeTab);
@@ -325,7 +335,7 @@ export default function DashboardPage() {
               />
               <div className="min-w-0 flex-1">
                 <h1 className="font-display text-2xl font-semibold text-content">{c.name}</h1>
-                <p className="text-sm text-muted">{c.oneLiner}</p>
+                <p className="text-sm text-muted">{headerSubtitle}</p>
               </div>
               <ThreadHistoryButton companyId={c.id} className="shrink-0" />
               <ReportButton kind="company" subjectId={c.id} className="shrink-0" />

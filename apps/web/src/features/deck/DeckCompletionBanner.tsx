@@ -63,7 +63,8 @@ export function DeckCompletionBanner({ deckId }: { deckId: string | undefined })
           Baseline research complete — {companies} compan{companies === 1 ? 'y' : 'ies'} · finished {finished}.
         </span>
         <span className="text-muted">
-          Background verification keeps figures fresh; nothing here is still unfinished.
+          Company desks keep verifying and hunting in the background — figures still marked
+          Estimated or Unknown have open gaps.
         </span>
         <CoverageList />
       </div>

@@ -731,7 +731,7 @@ export default function NewDeckPage() {
                         <ChevronRight
                           className={cn('h-3 w-3 transition-transform', logsOpen && 'rotate-90')}
                         />
-                        {session.logLines.length} steps completed
+                        {session.logLines.length} step{session.logLines.length === 1 ? '' : 's'} completed
                       </button>
                       {logsOpen && (
                         <div className="mt-2 max-h-48 overflow-y-auto text-[12px] text-muted">
