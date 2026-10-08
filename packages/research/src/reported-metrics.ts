@@ -343,7 +343,10 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
   const trusted = input.grounding?.provider === 'google-search' && input.grounding.answerText.trim() === input.text.trim()
     ? input.grounding : undefined;
   const types = new Set<MetricType>(Object.keys(input.enrichment.metrics) as MetricType[]);
-  if (input.includeUnknowns !== false) for (const type of ['employees', 'arr', 'users', 'valuation', 'market_share'] as const) types.add(type);
+  // market_cap belongs with valuation in the always-audited set: it is a core
+  // profile slot, recovery supports it, and omitting it here made the free
+  // saved-evidence lane structurally unable to fill it.
+  if (input.includeUnknowns !== false) for (const type of ['employees', 'arr', 'users', 'valuation', 'market_cap', 'market_share'] as const) types.add(type);
   return [...types].map(type => {
     const row: CompanyMetric = { id: `met_${input.companyId}_${type}`, companyId: input.companyId, metricType: type,
       value: null, confidence: 'unknown', source: null, citations: [], methodNote: 'No provider-supported reported claim.',
