@@ -448,14 +448,24 @@ export async function discoverMarket(
         ? countSignal(pass.role)
         : countRole(pass.role as 'company' | 'infrastructure' | 'distribution');
     if (current >= pass.needed) continue;
-    const fallback = await discover(
-      client,
-      plan,
-      Math.min(pass.target, pass.needed - current + 2),
-      signal,
-      pass.role,
-      candidates.map((c) => c.name),
-    );
+    let fallback: Awaited<ReturnType<typeof discover>>;
+    try {
+      fallback = await discover(
+        client,
+        plan,
+        Math.min(pass.target, pass.needed - current + 2),
+        signal,
+        pass.role,
+        candidates.map((c) => c.name),
+      );
+    } catch (err) {
+      // A provider outage during an expansion pass must not discard the
+      // hydrations already streaming from earlier passes — both live 504
+      // failures died here AFTER companies had completed. Keep what the deck
+      // has; the coverage-shortfall warnings downstream are the honest signal.
+      if (signal?.aborted) throw err;
+      break;
+    }
     candidates = mergeCandidates(candidates, fallback.candidates);
     selectedSoFar = emitSelectionDelta(selectedSoFar);
     rejected.push(...fallback.rejected);
@@ -464,20 +474,27 @@ export async function discoverMarket(
   // Catalog expansion searches each market angle independently. Stop when the
   // market has stopped yielding new identities twice in a row or the safety cap
   // is reached; this makes the census broad without turning one deck into an
-  // unbounded free-tier job.
+  // unbounded free-tier job. A provider failure ends the expansion the same way
+  // — the deck proceeds with the identities already discovered.
   let noGrowth = 0;
   for (const angle of plan.searchThemes.slice(0, catalogPasses)) {
     if (candidates.length >= catalogMax || noGrowth >= 2) break;
     const before = candidates.length;
-    const pass = await discover(
-      client,
-      plan,
-      Math.min(8, catalogMax - candidates.length),
-      signal,
-      'all',
-      candidates.map((candidate) => candidate.name),
-      angle,
-    );
+    let pass: Awaited<ReturnType<typeof discover>>;
+    try {
+      pass = await discover(
+        client,
+        plan,
+        Math.min(8, catalogMax - candidates.length),
+        signal,
+        'all',
+        candidates.map((candidate) => candidate.name),
+        angle,
+      );
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      break;
+    }
     candidates = mergeCandidates(candidates, pass.candidates);
     selectedSoFar = emitSelectionDelta(selectedSoFar);
     rejected.push(...pass.rejected);

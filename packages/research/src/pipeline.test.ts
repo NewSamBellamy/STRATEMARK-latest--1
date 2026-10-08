@@ -1483,3 +1483,42 @@ describe('Progressive Fast-Boot & Continual Background Research Architecture', (
   });
 });
 
+
+describe('discovery degradation under provider outages', () => {
+  it('keeps already-streamed companies when an expansion pass fails', async () => {
+    let calls = 0;
+    const client: LlmClient = {
+      ground: vi.fn(async () => ({ text: 'grounded', citations: [], queries: [] })),
+      structure: (async (_prompt: string, schema: ZodType<unknown>) => {
+        calls += 1;
+        if (calls > 1) throw Object.assign(new Error('Gemini 504: request failed.'), { status: 504 });
+        return schema.parse({
+          companies: Array.from({ length: 10 }, (_, i) => ({
+            name: `Colocation provider ${i}`,
+            domain: `colo-${i}.example`,
+            descriptor: 'data center colocation operator',
+            cardTypes: ['company'],
+          })),
+        });
+      }) as LlmClient['structure'],
+    };
+    const result = await discoverWithCoverage(
+      client,
+      { marketName: 'Test', vertical: 'Colocation', geography: null, notes: null, searchThemes: [] },
+      {
+        companies: { min: 10, target: 10, max: 20 },
+        infrastructure: { min: 4, target: 4, max: 10 },
+        distribution: { min: 2, target: 2, max: 10 },
+        vice: { min: 0, target: 0, max: 10 },
+        culture: { min: 0, target: 0, max: 10 },
+        barrier: { min: 4, target: 4, max: 10 },
+        insight: { min: 4, target: 4, max: 10 },
+      },
+    );
+    expect(result.candidates.length).toBeGreaterThanOrEqual(10);
+    expect(result.minimumCompaniesSatisfied).toBe(true);
+    // The failed infrastructure pass burned its ground call; the loop broke
+    // before the distribution fallback could start another one.
+    expect(client.ground).toHaveBeenCalledTimes(2);
+  });
+});
