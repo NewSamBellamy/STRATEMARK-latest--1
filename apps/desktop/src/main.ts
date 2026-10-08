@@ -390,6 +390,16 @@ function registerIpc(): void {
       companyId: z.string().min(1), companyName: z.string().min(1),
       text: z.string().min(1).max(20000), sourceUrl: z.string().url().optional(),
     }).parse(input)) ?? null);
+  ipcMain.handle(IPC_CHANNELS.searchResearchCorpus, (_e, input: unknown) => {
+    const parsed = z.object({
+      query: z.string().max(500), companyIds: z.array(z.string().min(1)).max(60).optional(),
+      topics: z.array(z.string().min(1)).max(20).optional(), limit: z.number().int().min(1).max(25).optional(),
+    }).parse(input);
+    const searcher = repository as MarketIntelRepository & {
+      searchResearchCorpus?: (query: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }) => unknown[];
+    };
+    return searcher.searchResearchCorpus?.(parsed) ?? [];
+  });
   ipcMain.handle(IPC_CHANNELS.getResearchEvidence, (_e, input: unknown) => {
     const parsed = z.object({ companyId: z.string().optional(), limit: z.number().int().optional() }).parse(input);
     const evidenceReader = repository as MarketIntelRepository & { getResearchEvidence?: (input: { companyId?: string; limit?: number }) => unknown[] };

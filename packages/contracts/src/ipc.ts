@@ -33,6 +33,7 @@ export type PreloadRepositoryApi = Omit<
   /** Local-only evidence read (research knowledge base), mirrored over IPC. */
   getResearchEvidence(input: { companyId?: string; limit?: number }): unknown[];
   addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<unknown>;
+  searchResearchCorpus(input: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }): Promise<unknown>;
   createResearchedDeck(
     brief: Parameters<MarketIntelRepository['createResearchedDeck']>[0],
     requestId: string,
@@ -82,6 +83,7 @@ export const IPC_CHANNELS = {
   saveThreadAsReport: 'mi:saveThreadAsReport',
   listResearchJobs: 'mi:listResearchJobs',
   addResearchNote: 'mi:addResearchNote',
+  searchResearchCorpus: 'mi:searchResearchCorpus',
   getResearchEvidence: 'mi:getResearchEvidence',
   getResearchJob: 'mi:getResearchJob',
   cancelResearchJob: 'mi:cancelResearchJob',

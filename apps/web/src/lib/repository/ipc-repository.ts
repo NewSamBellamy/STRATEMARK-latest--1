@@ -44,6 +44,7 @@ import type {
   SiteAuditInput,
   ProviderCapabilities,
   ResearchNoteEntry,
+  ResearchPassage,
 } from '@mi/contracts';
 
 /** Structural match of the research package's evidence record over IPC. */
@@ -168,6 +169,9 @@ export class IpcRepository implements MarketIntelRepository {
     return (this.api.getResearchEvidence?.(input) ?? []) as ResearchEvidenceRow[];
   }
 
+  searchResearchCorpus(query: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }) {
+    return this.api.searchResearchCorpus?.(query) as Promise<ResearchPassage[] | []>;
+  }
   async addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<ResearchNoteEntry> {
     const result = await this.api.addResearchNote?.(input);
     if (!result) throw new Error('Research notes are unavailable in this session.');

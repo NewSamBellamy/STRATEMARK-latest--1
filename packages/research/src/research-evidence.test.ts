@@ -56,7 +56,7 @@ describe('source-first research evidence', () => {
     ground.mockResolvedValueOnce({ text: 'Answer without citing stored source.', citations: [], queries: [] });
     const answer = await reopened.askResearch({ scope: { kind: 'company', deckId: 'deck_a', companyId: 'cmp_a' }, question: 'What changed in revenue?' });
     const prompt = ground.mock.calls[1]![0] as string;
-    expect(prompt).toContain('LOCAL EVIDENCE LIBRARY');
+    expect(prompt).toContain('LOCAL RESEARCH ARCHIVE');
     expect(prompt).toContain('Revenue grew according');
     expect(prompt).not.toContain('unrelated confidential');
     expect(answer.messages.at(-1)!.citations).toEqual([]); // unused sources aren't answer citations

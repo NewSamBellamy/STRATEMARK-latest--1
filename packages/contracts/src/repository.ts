@@ -528,6 +528,26 @@ export interface ProviderCapabilities {
   image: boolean;
 }
 
+export interface ResearchPassage {
+  evidenceId: string;
+  companyId: string | null;
+  companyName: string | null;
+  topic: string;
+  capturedAt: string;
+  /** Best-matching window of the record, sentence-aligned and bounded. Verbatim record text. */
+  snippet: string;
+  citations: Citation[];
+}
+
+export interface ResearchCorpusQuery {
+  query: string;
+  /** Restrict to these companies (a deck's roster, a card's subject). Absent = the whole corpus. */
+  companyIds?: readonly string[];
+  topics?: readonly string[];
+  /** Default 8, hard cap 25. */
+  limit?: number;
+}
+
 export interface MarketIntelRepository {
   /** Capability report for the active engine/key. OPTIONAL — engines without
    * capability plumbing are assumed fully capable by callers that need a
@@ -605,6 +625,15 @@ export interface MarketIntelRepository {
    */
   addResearchNote?(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }):
     Promise<ResearchNoteEntry>;
+
+  /**
+   * Keyword retrieval over the accumulated research corpus (evidence notes,
+   * hunts, verifications, user notes). This is how the agent and the Research
+   * tab find things in weeks of research without loading it into a prompt.
+   * Passages carry their own citations; empty query ranks by recency.
+   * OPTIONAL — engines holding saved evidence locally.
+   */
+  searchResearchCorpus?(query: ResearchCorpusQuery): Promise<ResearchPassage[]>;
 
   /**
    * Re-project retained company_profile evidence through the reported-claims
