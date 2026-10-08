@@ -93,7 +93,9 @@ export function searchResearchEvidence(
   if (!input.companyId && !input.companyName) return [];
   const name = (value: string) => value.trim().toLowerCase();
   const terms = queryTerms(input.query);
-  const limit = Number.isFinite(input.limit) ? Math.min(10, Math.max(1, Math.floor(input.limit!))) : 4;
+  // The knowledge-base tab renders up to a few hundred cards with client-side
+  // search and reveal-paging, so the cap must not silently hide records.
+  const limit = Number.isFinite(input.limit) ? Math.min(200, Math.max(1, Math.floor(input.limit!))) : 4;
   return records
     .filter((record) => input.companyId
       ? record.companyId === input.companyId

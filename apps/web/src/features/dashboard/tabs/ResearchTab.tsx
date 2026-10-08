@@ -3,6 +3,7 @@ import { Loader2, Plus, StickyNote } from 'lucide-react';
 import type { ResearchEvidence } from '@mi/research';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useCompany } from '@/hooks/data';
+import { Search } from 'lucide-react';
 import { EmptyState } from '@/components/states/EmptyState';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { usableCitations } from '@mi/contracts';
@@ -65,6 +66,8 @@ export function ResearchTab({ companyId }: { companyId: string }) {
   const company = useCompany(companyId);
   const name = company.data?.name ?? 'this company';
   const [filter, setFilter] = useState<string>('all');
+  const [searchText, setSearchText] = useState('');
+  const [visible, setVisible] = useState(20);
   const [composerOpen, setComposerOpen] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [noteUrl, setNoteUrl] = useState('');
@@ -81,7 +84,12 @@ export function ResearchTab({ companyId }: { companyId: string }) {
       return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
     });
   }, [evidence]);
-  const filtered = filter === 'all' ? evidence : evidence.filter((e) => e.topic === filter);
+  const searchTerms = searchText.toLowerCase().match(/[a-z0-9]{2,}/g) ?? [];
+  const filtered = (filter === 'all' ? evidence : evidence.filter((e) => e.topic === filter)).filter((e) => {
+    if (!searchTerms.length) return true;
+    const haystack = `${e.topic} ${e.companyName ?? ''} ${e.text}`.toLowerCase();
+    return searchTerms.every((term) => haystack.includes(term));
+  });
 
   const addNote = async () => {
     if (!noteText.trim() || saving) return;
@@ -148,6 +156,15 @@ export function ResearchTab({ companyId }: { companyId: string }) {
         </div>
       )}
 
+      {evidence.length > 0 && (
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+          <input value={searchText} onChange={(e) => { setSearchText(e.target.value); setVisible(20); }}
+            placeholder="Search this knowledge base…"
+            className="w-full rounded-full border border-border bg-surface py-2 pl-9 pr-3 text-sm text-content outline-none focus:border-primary/50" />
+        </div>
+      )}
+
       {topics.length > 1 && (
         <div className="flex flex-wrap gap-2">
           <button type="button"
@@ -166,9 +183,16 @@ export function ResearchTab({ companyId }: { companyId: string }) {
       )}
 
       <div className="space-y-4">
-        {filtered.map((e) => <EvidenceCard key={e.id} evidence={e} />)}
+        {filtered.slice(0, visible).map((e) => <EvidenceCard key={e.id} evidence={e} />)}
         {filtered.length === 0 && (
-          <EmptyState title="Nothing here yet" description="No retained research under this filter — try All." />
+          <EmptyState title={searchText.trim() ? 'No matches' : 'Nothing here yet'}
+            description={searchText.trim() ? `Nothing in the knowledge base matches "${searchText.trim()}".` : 'No retained research under this filter — try All.'} />
+        )}
+        {filtered.length > visible && (
+          <button type="button" className="btn-ghost w-full text-xs"
+            onClick={() => setVisible((count) => count + 20)}>
+            Show {Math.min(20, filtered.length - visible)} more of {filtered.length}
+          </button>
         )}
       </div>
     </div>
