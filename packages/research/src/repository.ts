@@ -1286,12 +1286,24 @@ export class GeminiRepository implements MarketIntelRepository {
 
         let reviews = new Map<string, { nudge: -1 | 0 | 1; reason: string | null }>();
         if (reviewRows.length > 0) {
-          reviews = await reviewTiersBatch(
-            this.client,
-            stubsResult.plan.marketName,
-            reviewRows,
-            controller.signal,
-          );
+          try {
+            reviews = await reviewTiersBatch(
+              this.client,
+              stubsResult.plan.marketName,
+              reviewRows,
+              controller.signal,
+            );
+          } catch (err) {
+            // A provider blip here must not fail the whole run: deterministic
+            // base tiers are already computed and every completed desk is paid
+            // for. The AI nudge is a refinement — degrade to it, never discard
+            // the deck over it.
+            if (controller.signal.aborted) throw err;
+            await checkpoint({
+              type: 'warning',
+              message: 'Could not complete the AI tier review; cards keep their research-based tiers.',
+            });
+          }
         }
 
         const retieredCardIds: string[] = [];

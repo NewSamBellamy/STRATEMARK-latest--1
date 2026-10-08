@@ -998,7 +998,16 @@ export async function hydrateDeckCards(
         });
       }
 
-      const reviews = await reviewTiersBatch(client, plan.marketName, reviewRows, signal);
+      // Same degradation rule as the run path: a provider blip in the AI
+      // review must not discard the hydrations already paid for. Deterministic
+      // base tiers carry the deck when the nudge pass fails.
+      let reviews = new Map<string, { nudge: -1 | 0 | 1; reason: string | null }>();
+      try {
+        reviews = await reviewTiersBatch(client, plan.marketName, reviewRows, signal);
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        reviews = new Map();
+      }
 
       const assembledCompanyCards: CardWithCompany[] = [];
       for (const r of hydratedResults) {
