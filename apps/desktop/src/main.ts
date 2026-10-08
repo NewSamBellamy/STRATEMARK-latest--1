@@ -50,6 +50,7 @@ process.on('unhandledRejection', (reason) => {
 });
 import sampleSnapshot from '../../web/src/sample/frontier-snapshot.json';
 import { createFileStore, parseResearchExport } from './storage.js';
+import { createSqliteStore } from './sqlite.js';
 import { createOriginalSourceServices } from './original-sources.js';
 import { performGoogleOAuthFlow, loadDesktopEnv, type OAuthUser } from './oauth.js';
 
@@ -141,7 +142,10 @@ protocol.registerSchemesAsPrivileged([
 // Persistence + key management (main-process only)
 // ---------------------------------------------------------------------------
 const researchFile = () => path.join(app.getPath('userData'), 'research', 'repo.json');
-const researchStore = () => createFileStore(researchFile());
+// SQLite is the system of record when this runtime provides node:sqlite; the
+// JSON file seeds the first import and stays on disk as a last-good backup.
+// researchFile() keeps its name and location for exactly that reason.
+const researchStore = () => createSqliteStore(researchFile()) ?? createFileStore(researchFile());
 const encryptionAvailable = () => safeStorage.isEncryptionAvailable() &&
   (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
 
