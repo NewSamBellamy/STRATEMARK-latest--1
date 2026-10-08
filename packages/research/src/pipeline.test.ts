@@ -1482,3 +1482,4 @@ describe('Progressive Fast-Boot & Continual Background Research Architecture', (
     expect((await repo.getDeckByMarket(market.id) as Deck & { status?: string }).status).toBe('partial');
   });
 });
+

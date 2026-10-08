@@ -133,7 +133,7 @@ function identityKeys(name: string, domain: string | null): string[] {
   const nameKey = name
     .toLowerCase()
     .replace(
-      /\b(incorporated|corporation|company|limited|holdings|group|inc|llc|ltd|corp|plc|ag)\b/g,
+      /\b(incorporated|corporation|company|limited|holdings|group|inc|llc|ltd|corp|plc|ag|lp|llp|pbc|gmbh|sas|trust|labs|technologies)\b/g,
       '',
     )
     .replace(/[^a-z0-9]/g, '');
