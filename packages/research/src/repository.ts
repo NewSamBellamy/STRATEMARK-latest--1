@@ -1556,7 +1556,13 @@ export class GeminiRepository implements MarketIntelRepository {
     if (!company) return [];
     const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20, support: originalSupportReferences(this.snap.metrics, companyId) });
     const current = projectCompanyFacts(company, this.snap.metrics, attempts);
-    const repaired = savedCompanyProfile(company, current, this.snap.researchEvidence ?? []);
+    // The repair pass re-projects the retained profile evidence with the same
+    // roster guard hydration used: market-scoped rivals, never the whole snap.
+    const marketId = this.snap.companyMarket[companyId];
+    const otherCompanies = marketId === undefined ? undefined : this.snap.companies
+      .filter((row) => row.id !== companyId && this.snap.companyMarket[row.id] === marketId)
+      .map((row) => row.name);
+    const repaired = savedCompanyProfile(company, current, this.snap.researchEvidence ?? [], otherCompanies);
     return repaired.metrics;
   }
   getViceClaims(cardId: string): Promise<ViceClaim[]> {

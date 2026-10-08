@@ -19,12 +19,18 @@ export function latestSavedCompanyProfile(
 
 /** Offline recovery of literal observations already paid for and saved.
  * Only the latest matching profile is eligible. Never replace an existing
- * observation, invent a selector, or turn provider attribution into verification. */
-export function savedCompanyProfile(company: Company, metrics: readonly CompanyMetric[], evidence: readonly ResearchEvidence[]) {
+ * observation, invent a selector, or turn provider attribution into verification.
+ * `otherCompanies` is the market roster: passing it enables roster-guarded
+ * attribution for sentences whose subject is present but not sentence-initial
+ * ("As of December 31, 2025, Equinix, Inc. employed…"); without it those
+ * fail closed, exactly like the hydration-time gate. */
+export function savedCompanyProfile(company: Company, metrics: readonly CompanyMetric[], evidence: readonly ResearchEvidence[],
+  otherCompanies?: readonly string[]) {
   const profile = latestSavedCompanyProfile(company, evidence);
   if (!profile) return { company, metrics: [...metrics] };
   const recovered = reportedCompanyMetrics({ companyId: company.id, companyName: company.name, website: company.websiteUrl,
-    enrichment: enrichmentOutSchema.parse({ metrics: {} }), text: profile.text, grounding: profile.grounding, capturedAt: profile.capturedAt });
+    enrichment: enrichmentOutSchema.parse({ metrics: {} }), text: profile.text, grounding: profile.grounding, capturedAt: profile.capturedAt,
+    identity: otherCompanies ? { answerText: profile.grounding?.answerText, otherCompanies } : undefined });
   const current = metrics.filter(row => row.companyId === company.id);
   const missing = recovered.filter(row => row.value !== null && !current.some(existing => existing.metricType === row.metricType &&
     (existing.value !== null || existing.confidence === 'user_verified')));
