@@ -332,6 +332,29 @@ export function reportedMetricCitations(companyName: string, website: string | n
   return citations;
 }
 
+/** Display-side recheck for estimated rows already accepted by the full
+ * identity-aware gate at write time. The claim-sentence gates need the
+ * retained answer text, which card views do not carry — re-running without it
+ * would show every fragment-recovered figure as Unknown. This verifies
+ * everything that does not depend on identity: schema, subject match,
+ * basis/definition/unit/value coherence, and usable stored citations. */
+export function reportedSupportCitations(companyName: string, website: string | null,
+  metric: Pick<CompanyMetric, 'metricType' | 'value' | 'reportedSupport' | 'citations'>) {
+  const parsed = reportedMetricSupportSchema.safeParse(metric.reportedSupport);
+  if (!parsed.success) return [];
+  const proof = parsed.data, type = metric.metricType;
+  if (proof.companyName !== companyName || proof.basis !== type || proof.value !== metric.value ||
+    !validMetricVerificationValue(type, metric.value) || type === 'market_share' || metric.value === 0 ||
+    (['employees', 'users'].includes(type) && !Number.isSafeInteger(metric.value))) return [];
+  const definition = proof.definition ?? type;
+  if ((type === 'arr' && !['arr', 'annual_revenue'].includes(definition)) ||
+    (type === 'users' && !['users', 'active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition)) ||
+    (!['arr', 'users'].includes(type) && definition !== type)) return [];
+  if (proof.unit !== (['arr', 'valuation', 'market_cap'].includes(type) ? 'USD' : 'count')) return [];
+  if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its .{0,30}suite|active base of .{0,30}devices)\b/i.test(proof.support.text)) return [];
+  return usableCitations(metric.citations, website ?? undefined);
+}
+
 /** Model fields select claims only; support is copied from the provider, never JSON. */
 export function reportedCompanyMetrics(input: { companyId: string; companyName: string; website: string | null;
   enrichment: EnrichmentOut; text: string; grounding?: ProviderGrounding; capturedAt: string; includeUnknowns?: boolean;
