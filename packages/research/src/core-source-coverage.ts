@@ -1,7 +1,33 @@
 import type { Citation, MetricType } from '@mi/contracts';
 import type { OriginalSourceReceipt, OriginalSourceServices } from './original-source';
 import { secFilingCik, secRevenueCik, secRevenueObservation } from './sec-revenue';
-import { throwIfAborted } from './util';
+import { sleep, throwIfAborted } from './util';
+
+/**
+ * A hung page read must not stall a hunt or verification indefinitely — every
+ * retrieve is raced against this window and degrades to an unavailable
+ * receipt, exactly like a blocked or dead host. Verification then proceeds
+ * with the sources that did answer.
+ */
+export const ORIGINAL_RETRIEVE_TIMEOUT_MS = 20_000;
+
+async function retrieveWithTimeout(
+  sources: OriginalSourceServices, url: string,
+  scope: Parameters<OriginalSourceServices['retrieve']>[1],
+  signal: AbortSignal | undefined,
+): Promise<OriginalSourceReceipt> {
+  const retrieve = sources.retrieve(url, scope);
+  // After the timeout abandons this read, a late rejection must not surface
+  // as an unhandled rejection; the race below already has its verdict.
+  retrieve.catch(() => undefined);
+  return Promise.race([
+    retrieve,
+    sleep(ORIGINAL_RETRIEVE_TIMEOUT_MS, signal).then(() => ({
+      requestedUrl: url, status: 'unavailable' as const, retrievedAt: new Date().toISOString(),
+      reason: `Original-source retrieval exceeded ${ORIGINAL_RETRIEVE_TIMEOUT_MS / 1000}s and was abandoned.`,
+    })),
+  ]);
+}
 
 /** More disclosure coverage, not more model calls. Keep the durable receipt
  * contract (two per attempt) and the three-company reader pool (six requests)
@@ -29,9 +55,9 @@ export async function readCompanyOriginals(input: {
     const receipts = await Promise.all(candidates.slice(offset, offset + 2).map((citation, index) => {
       const label = `${citation.title} ${citation.url}`;
       const focus = input.missing?.find(type => cues[type]?.test(label)) ?? input.missing?.[(offset + index) % (input.missing.length || 1)];
-      return input.sources.retrieve(citation.url, { companyId: input.companyId, companyName: input.companyName,
+      return retrieveWithTimeout(input.sources, citation.url, { companyId: input.companyId, companyName: input.companyName,
         metricType: secRevenueCik(citation.url) ? 'metrics_hunt' : secFilingCik(citation.url) ? 'employees' : focus ?? input.topic,
-        ...(input.forceRefresh ? { forceRefresh: true } : {}) });
+        ...(input.forceRefresh ? { forceRefresh: true } : {}) }, input.signal);
     }));
     throwIfAborted(input.signal);
     await input.sources.save({ id: `src_${globalThis.crypto.randomUUID()}`, companyId: input.companyId,

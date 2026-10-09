@@ -54,4 +54,41 @@ describe('bounded company source coverage', () => {
       .rejects.toThrow('Disk full');
     expect(sources.retrieve).toHaveBeenCalledTimes(2);
   });
+  it('degrades a hung retrieval to an unavailable receipt instead of hanging forever', async () => {
+    vi.useFakeTimers();
+    try {
+      const sources: OriginalSourceServices = {
+        retrieve: vi.fn(() => new Promise<never>(() => {})),
+        save: vi.fn(async () => {}), list: async () => [],
+      };
+      const pending = readCompanyOriginals({ sources, companyId: 'acme', companyName: 'Acme Inc.',
+        topic: 'metrics_hunt', citations: [{ title: '', url: 'https://acme.com/report' }], maxSources: 1 });
+      await vi.advanceTimersByTimeAsync(20_500);
+      const receipts = await pending;
+      expect(receipts).toHaveLength(1);
+      expect(receipts[0]!.status).toBe('unavailable');
+      expect(receipts[0]!.reason).toMatch(/20s/);
+      expect(sources.save).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('keeps a retrieval that finishes inside the timeout window', async () => {
+    vi.useFakeTimers();
+    try {
+      const sources: OriginalSourceServices = {
+        retrieve: vi.fn(async url => ({ requestedUrl: url, finalUrl: url, status: 'retrieved' as const, httpStatus: 200,
+          text: 'Actual disclosed company information.', contentHash: 'a'.repeat(64), retrievedAt: new Date().toISOString() })),
+        save: vi.fn(async () => {}), list: async () => [],
+      };
+      const pending = readCompanyOriginals({ sources, companyId: 'acme', companyName: 'Acme Inc.',
+        topic: 'metrics_hunt', citations: [{ title: '', url: 'https://acme.com/report' }], maxSources: 1 });
+      await vi.advanceTimersByTimeAsync(100);
+      const receipts = await pending;
+      expect(receipts).toHaveLength(1);
+      expect(receipts[0]!.status).toBe('retrieved');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
