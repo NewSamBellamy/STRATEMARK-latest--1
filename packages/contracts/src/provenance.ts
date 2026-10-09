@@ -156,7 +156,7 @@ const REPUTABLE_SECONDARY_SOURCES = [
   'reuters.com', 'bloomberg.com', 'wsj.com', 'ft.com', 'apnews.com', 'nytimes.com',
   'bbc.com', 'bbc.co.uk', 'economist.com', 'cnbc.com', 'forbes.com', 'fortune.com',
   'marketwatch.com', 'barrons.com', 'washingtonpost.com', 'theguardian.com',
-  'axios.com', 'businessinsider.com',
+  'axios.com', 'businessinsider.com', 'nikkei.com', 'scmp.com',
 ];
 
 /** Sector trade press and market-data aggregators — industry-grade, not press. */
@@ -171,11 +171,15 @@ const INDUSTRY_SOURCES = [
   'bcg.com', 'deloitte.com', 'pwc.com', 'ey.com', 'iea.org', 'irena.org',
   'woodmac.com', 'woodmackenzie.com', 'energy-storage.news', 'pv-magazine.com',
   'greentechmedia.com', 'utilitydive.com', 'power-eng.com', 'marketscreener.com',
+  'finance.yahoo.com', 'trendforce.com', 'businesswire.com', 'prnewswire.com',
+  'globenewswire.com', 'electrek.co', 'cleantechnica.com', 'yolegroup.com',
 ];
 
 /**
  * Publisher display names grounding supplies instead of domains ("Reuters",
  * "Bloomberg"). Keyed lowercase; only names ambiguous hosts actually carry.
+ * Grown from production: every unresolved redirect shows the user "Publisher
+ * not recorded", and each recurring name seen there belongs in this table.
  */
 const PUBLISHER_NAME_DOMAINS: Record<string, string> = {
   reuters: 'reuters.com',
@@ -184,18 +188,52 @@ const PUBLISHER_NAME_DOMAINS: Record<string, string> = {
   forbes: 'forbes.com',
   fortune: 'fortune.com',
   'financial times': 'ft.com',
+  'the financial times': 'ft.com',
   'wall street journal': 'wsj.com',
+  'the wall street journal': 'wsj.com',
   'associated press': 'apnews.com',
+  'ap news': 'apnews.com',
   bbc: 'bbc.com',
   'the economist': 'economist.com',
   techcrunch: 'techcrunch.com',
   'new york times': 'nytimes.com',
+  'the new york times': 'nytimes.com',
   'the guardian': 'theguardian.com',
   axios: 'axios.com',
   gartner: 'gartner.com',
   statista: 'statista.com',
   'wood mackenzie': 'woodmackenzie.com',
   's&p global': 'spglobal.com',
+  'yahoo finance': 'finance.yahoo.com',
+  nikkei: 'nikkei.com',
+  'nikkei asia': 'nikkei.com',
+  'south china morning post': 'scmp.com',
+  scmp: 'scmp.com',
+  marketwatch: 'marketwatch.com',
+  "barron's": 'barrons.com',
+  barrons: 'barrons.com',
+  'the information': 'theinformation.com',
+  venturebeat: 'venturebeat.com',
+  wired: 'wired.com',
+  'ars technica': 'arstechnica.com',
+  'utility dive': 'utilitydive.com',
+  'pv magazine': 'pv-magazine.com',
+  'energy-storage.news': 'energy-storage.news',
+  canalys: 'canalys.com',
+  idc: 'idc.com',
+  'counterpoint research': 'counterpointresearch.com',
+  counterpoint: 'counterpointresearch.com',
+  trendforce: 'trendforce.com',
+  morningstar: 'morningstar.com',
+  crunchbase: 'crunchbase.com',
+  pitchbook: 'pitchbook.com',
+  'business wire': 'businesswire.com',
+  'pr newswire': 'prnewswire.com',
+  globenewswire: 'globenewswire.com',
+  electrek: 'electrek.co',
+  cleantechnica: 'cleantechnica.com',
+  businessinsider: 'businessinsider.com',
+  'business insider': 'businessinsider.com',
 };
 
 /** True when a citation URL is an opaque grounding redirect (may expire). */

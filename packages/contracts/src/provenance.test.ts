@@ -205,6 +205,19 @@ describe('provenance enforcement', () => {
     expect(classifySource(redirect, 'Reuters')).toBe('reputable_secondary');
     expect(classifySource(redirect, 'Wood Mackenzie')).toBe('industry');
     expect(classifySource(redirect, 'S&P Global')).toBe('industry');
+    // Names seen repeatedly in production redirects across regions and beats.
+    expect(classifySource(redirect, 'Yahoo Finance')).toBe('industry');
+    expect(classifySource(redirect, 'Nikkei Asia')).toBe('reputable_secondary');
+    expect(classifySource(redirect, 'South China Morning Post')).toBe('reputable_secondary');
+    expect(classifySource(redirect, "Barron's")).toBe('reputable_secondary');
+    expect(classifySource(redirect, 'MarketWatch')).toBe('reputable_secondary');
+    expect(classifySource(redirect, 'The Wall Street Journal')).toBe('reputable_secondary');
+    expect(classifySource(redirect, 'AP News')).toBe('reputable_secondary');
+    expect(classifySource(redirect, 'TrendForce')).toBe('industry');
+    expect(classifySource(redirect, 'Counterpoint Research')).toBe('industry');
+    expect(classifySource(redirect, 'Utility Dive')).toBe('industry');
+    expect(classifySource(redirect, 'PV Magazine')).toBe('industry');
+    expect(classifySource(redirect, 'Business Wire')).toBe('industry');
     // A known name must never let a random blog through the gate.
     expect(classifySource(redirect, 'Reuters says something vague')).toBe('unknown');
     expect(classifySource(redirect, 'Some Random Blog')).toBe('unknown');
