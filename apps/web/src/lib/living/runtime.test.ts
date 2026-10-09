@@ -281,4 +281,29 @@ describe('LivingDeckRuntime', () => {
     expect(events.at(-1)?.kind).toBe('checked');
     expect(runtime.actionCount).toBe(2);
   });
+
+  it('catches up an overdue turn the moment a throttled tab becomes visible again', async () => {
+    const verify = vi.fn().mockResolvedValue({ changed: false, citations: 1, summary: 'holds' });
+    const { runtime, pending } = harness({
+      plan: () => ({
+        consistencyTargets: [],
+        staleTargets: [target('OpenAI', 'arr', 'stale')],
+        freshFindings: [],
+      }),
+      verify,
+    });
+    runtime.start(1);
+    // The tab was hidden and its timer throttled: the scheduled tick has NOT
+    // run, but returning to the tab must fire the overdue turn immediately.
+    expect(pending).toHaveLength(1);
+    expect(verify).not.toHaveBeenCalled();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(verify).toHaveBeenCalledTimes(1);
+    // A stopped runtime must ignore visibility entirely.
+    runtime.stop();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(verify).toHaveBeenCalledTimes(1);
+  });
 });

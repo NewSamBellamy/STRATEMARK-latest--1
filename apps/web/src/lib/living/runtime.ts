@@ -25,6 +25,61 @@
  * so the scheduling policy is unit-testable without React, timers, or Gemini.
  */
 
+/**
+ * Page-hidden timer throttling (1s clamp, then ~1/min under intensive
+ * throttling) was stalling the desks whenever the deck tab lost focus — the
+ * "why does operation keep stopping" class of failure. Timers inside a
+ * dedicated Worker are NOT throttled by page visibility, so the tick cadence
+ * survives backgrounding. One shared Worker backs every runtime; engines
+ * without Worker support (tests, old webviews) fall back to setTimeout and
+ * the runtime's visibility catch-up covers the rest.
+ */
+const TICKER_WORKER_SOURCE = `
+const pending = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, at] of pending) {
+    if (now >= at) { pending.delete(id); postMessage(id); }
+  }
+}, 250);
+onmessage = (e) => { pending.set(e.data.id, Date.now() + e.data.ms); };
+`;
+
+interface ThrottleProofTicker {
+  schedule(fn: () => void, ms: number): () => void;
+}
+
+let sharedTicker: ThrottleProofTicker | null = null;
+
+function throttleProofTicker(): ThrottleProofTicker | null {
+  if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined') return null;
+  if (sharedTicker) return sharedTicker;
+  try {
+    const pending = new Map<number, () => void>();
+    let nextId = 1;
+    const worker = new Worker(
+      URL.createObjectURL(new Blob([TICKER_WORKER_SOURCE], { type: 'text/javascript' })),
+    );
+    worker.onmessage = (e: MessageEvent<number>) => {
+      const fn = pending.get(e.data);
+      pending.delete(e.data);
+      fn?.();
+    };
+    worker.onerror = () => { /* ticks fall back to the visibility catch-up */ };
+    sharedTicker = {
+      schedule(fn, ms) {
+        const id = nextId++;
+        pending.set(id, fn);
+        worker.postMessage({ id, ms });
+        return () => { pending.delete(id); };
+      },
+    };
+    return sharedTicker;
+  } catch {
+    return null;
+  }
+}
+
 export type LivingActionKind =
   | 'started'
   | 'verified'
@@ -103,8 +158,9 @@ export interface LivingDeckDeps {
   idleIntervalMs?: number;
   /** Hard per-session action budget (hunts + verifications + prefetches). */
   maxActions?: number;
-  setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
-  clearTimer?: (t: ReturnType<typeof setTimeout>) => void;
+  /** Timer handle is opaque — the default scheduler may not be setTimeout. */
+  setTimer?: (fn: () => void, ms: number) => unknown;
+  clearTimer?: (t: unknown) => void;
 }
 
 export type LivingStatus = 'stopped' | 'running' | 'paused' | 'resting';
@@ -117,7 +173,7 @@ export class LivingDeckRuntime {
     >
   > &
     LivingDeckDeps;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private timer: unknown = null;
   private nextId = 1;
   private actionsTaken = 0;
   private statusValue: LivingStatus = 'stopped';
@@ -125,6 +181,7 @@ export class LivingDeckRuntime {
   private acting = false;
 
   constructor(deps: LivingDeckDeps) {
+    const ticker = throttleProofTicker();
     this.deps = {
       now: () => Date.now(),
       // 10s between verifications ≈ 6/min — fast enough that a birth audit of
@@ -133,8 +190,15 @@ export class LivingDeckRuntime {
       prefetchIntervalMs: 5_000,
       idleIntervalMs: 60_000,
       maxActions: 60,
-      setTimer: (fn, ms) => setTimeout(fn, ms),
-      clearTimer: (t) => clearTimeout(t),
+      // Worker-backed default keeps the cadence alive in background tabs; the
+      // cancel closure doubles as the opaque timer handle.
+      setTimer: ticker
+        ? (fn, ms) => ticker.schedule(fn, ms)
+        : (fn, ms) => setTimeout(fn, ms),
+      clearTimer: (t) => {
+        if (typeof t === 'function') (t as unknown as () => void)();
+        else clearTimeout(t as ReturnType<typeof setTimeout>);
+      },
       ...deps,
     };
   }
@@ -153,6 +217,9 @@ export class LivingDeckRuntime {
     this.emit('started', null, liveResearch
       ? `Live research on — ${deskCount} company desks watching this deck.`
       : `Dashboard warming on — ${deskCount} company desks; live research unavailable.`);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.onVisibilityChange);
+    }
     // First action almost immediately; pacing applies between actions.
     this.schedule(400);
   }
@@ -171,8 +238,23 @@ export class LivingDeckRuntime {
 
   stop(): void {
     this.statusValue = 'stopped';
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    }
     this.clear();
   }
+
+  /**
+   * Backstop for engines without Worker timers: a throttled background tab
+   * can leave the next tick minutes late. The moment the tab is shown again,
+   * run the overdue turn instead of waiting out the throttled timer.
+   */
+  private readonly onVisibilityChange = (): void => {
+    if (document.visibilityState !== 'visible') return;
+    if (this.statusValue !== 'running' && this.statusValue !== 'resting') return;
+    if (this.acting) return;
+    void this.tick();
+  };
 
   private clear(): void {
     if (this.timer !== null) {
