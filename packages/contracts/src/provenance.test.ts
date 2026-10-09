@@ -188,6 +188,29 @@ describe('provenance enforcement', () => {
     expect(classifySource('https://example.com/article', 'Unknown publisher')).toBe('unknown');
   });
 
+  it('classifies real finance and data publishers that dominate grounded citations', () => {
+    expect(classifySource('https://forbes.com/sites/example', 'forbes.com')).toBe('reputable_secondary');
+    expect(classifySource('https://cnbc.com/2026/example', 'cnbc.com')).toBe('reputable_secondary');
+    expect(classifySource('https://stockanalysis.com/stocks/tsla/', 'stockanalysis.com')).toBe('industry');
+    expect(classifySource('https://companiesmarketcap.com/tesla/marketcap/', 'companiesmarketcap.com')).toBe('industry');
+    expect(classifySource('https://investing.com/news/example', 'investing.com')).toBe('industry');
+    expect(classifySource('https://tracxn.com/d/example', 'tracxn.com')).toBe('industry');
+    expect(classifySource('https://www.woodmac.com/reports/example', 'woodmac.com')).toBe('industry');
+    expect(classifySource('https://energy-storage.news/example', 'energy-storage.news')).toBe('industry');
+    expect(classifySource('https://utilitydive.com/news/example', 'utilitydive.com')).toBe('industry');
+  });
+
+  it('resolves grounding redirects whose title records a publisher NAME, not a domain', () => {
+    const redirect = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUxQabc';
+    expect(classifySource(redirect, 'Reuters')).toBe('reputable_secondary');
+    expect(classifySource(redirect, 'Wood Mackenzie')).toBe('industry');
+    expect(classifySource(redirect, 'S&P Global')).toBe('industry');
+    // A known name must never let a random blog through the gate.
+    expect(classifySource(redirect, 'Reuters says something vague')).toBe('unknown');
+    expect(classifySource(redirect, 'Some Random Blog')).toBe('unknown');
+    expect(classifySource(redirect, '')).toBe('unknown');
+  });
+
   it('retains contradictory observations and chooses the stronger source', () => {
     const current = enforceMetricProvenance({
       ...base,

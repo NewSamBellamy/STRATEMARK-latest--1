@@ -117,25 +117,86 @@ export function classifySource(url: string, title?: string | null, officialWebsi
     } catch { return null; }
   };
   let host = hostOf(url);
-  // Grounding's opaque redirect carries a publisher domain in its metadata.
-  // Accept only a bare domain, never free-form titles such as "Reuters says...".
+  // Grounding's opaque redirect carries the real publisher in its metadata.
+  // Accept a bare domain ("reuters.com") or a known publisher name ("Reuters")
+  // — never free-form titles such as "Reuters says...". This is the difference
+  // between a citation classifying at all and every grounded citation staying
+  // 'unknown', which would make verification-grade promotion unreachable for
+  // anything but SEC-lane figures.
   if (host === 'vertexaisearch.cloud.google.com') {
-    host = /^[a-z0-9.-]+\.[a-z]{2,}$/i.test((title ?? '').trim()) ? hostOf(title!.trim()) : null;
+    const t = (title ?? '').trim();
+    host = /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(t)
+      ? hostOf(t)
+      : PUBLISHER_NAME_DOMAINS[t.toLowerCase()] ?? null;
   }
   if (!host) return 'unknown';
   const belongsTo = (domain: string) => host === domain || host!.endsWith(`.${domain}`);
   if (['reddit.com', 'twitter.com', 'x.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'quora.com', 'stocktwits.com', 'github.com', 'wikipedia.org'].some(belongsTo))
     return 'user_generated';
-  if (['sec.gov', 'uscourts.gov', 'companieshouse.gov.uk', 'find-and-update.company-information.service.gov.uk', 'sedarplus.ca', 'hkexnews.hk'].some(belongsTo))
+  if (PRIMARY_SOURCES.some(belongsTo))
     return 'primary';
   const official = officialWebsite ? hostOf(officialWebsite) : null;
   if (official && belongsTo(official)) return 'primary';
-  if (['reuters.com', 'bloomberg.com', 'wsj.com', 'ft.com', 'apnews.com', 'nytimes.com', 'bbc.com', 'bbc.co.uk', 'economist.com'].some(belongsTo))
+  if (REPUTABLE_SECONDARY_SOURCES.some(belongsTo))
     return 'reputable_secondary';
-  if (['techcrunch.com', 'theinformation.com', 'crunchbase.com', 'pitchbook.com', 'venturebeat.com', 'wired.com', 'arstechnica.com', 'statista.com', 'counterpointresearch.com', 'canalys.com', 'gartner.com', 'idc.com', 'similarweb.com', 'sacra.com', 'cbinsights.com', 'sensortower.com', 'tradingview.com', 'morningstar.com', 'factset.com'].some(belongsTo))
+  if (INDUSTRY_SOURCES.some(belongsTo))
     return 'industry';
   return 'unknown';
 }
+
+/** Government / exchange filings — primary evidence. */
+const PRIMARY_SOURCES = [
+  'sec.gov', 'uscourts.gov', 'companieshouse.gov.uk',
+  'find-and-update.company-information.service.gov.uk', 'sedarplus.ca', 'hkexnews.hk',
+  'irs.gov', 'europa.eu', 'fca.org.uk', 'nerc.gov', 'ferc.gov',
+];
+
+/** Major general or business press with editorial standards. */
+const REPUTABLE_SECONDARY_SOURCES = [
+  'reuters.com', 'bloomberg.com', 'wsj.com', 'ft.com', 'apnews.com', 'nytimes.com',
+  'bbc.com', 'bbc.co.uk', 'economist.com', 'cnbc.com', 'forbes.com', 'fortune.com',
+  'marketwatch.com', 'barrons.com', 'washingtonpost.com', 'theguardian.com',
+  'axios.com', 'businessinsider.com',
+];
+
+/** Sector trade press and market-data aggregators — industry-grade, not press. */
+const INDUSTRY_SOURCES = [
+  'techcrunch.com', 'theinformation.com', 'crunchbase.com', 'pitchbook.com',
+  'venturebeat.com', 'wired.com', 'arstechnica.com', 'statista.com',
+  'counterpointresearch.com', 'canalys.com', 'gartner.com', 'idc.com',
+  'similarweb.com', 'sacra.com', 'cbinsights.com', 'sensortower.com',
+  'tradingview.com', 'morningstar.com', 'factset.com', 'stockanalysis.com',
+  'macrotrends.net', 'companiesmarketcap.com', 'investing.com', 'wisesheets.io',
+  'simplywall.st', 'tracxn.com', 'spglobal.com', 'globaldata.com', 'mckinsey.com',
+  'bcg.com', 'deloitte.com', 'pwc.com', 'ey.com', 'iea.org', 'irena.org',
+  'woodmac.com', 'woodmackenzie.com', 'energy-storage.news', 'pv-magazine.com',
+  'greentechmedia.com', 'utilitydive.com', 'power-eng.com', 'marketscreener.com',
+];
+
+/**
+ * Publisher display names grounding supplies instead of domains ("Reuters",
+ * "Bloomberg"). Keyed lowercase; only names ambiguous hosts actually carry.
+ */
+const PUBLISHER_NAME_DOMAINS: Record<string, string> = {
+  reuters: 'reuters.com',
+  bloomberg: 'bloomberg.com',
+  cnbc: 'cnbc.com',
+  forbes: 'forbes.com',
+  fortune: 'fortune.com',
+  'financial times': 'ft.com',
+  'wall street journal': 'wsj.com',
+  'associated press': 'apnews.com',
+  bbc: 'bbc.com',
+  'the economist': 'economist.com',
+  techcrunch: 'techcrunch.com',
+  'new york times': 'nytimes.com',
+  'the guardian': 'theguardian.com',
+  axios: 'axios.com',
+  gartner: 'gartner.com',
+  statista: 'statista.com',
+  'wood mackenzie': 'woodmackenzie.com',
+  's&p global': 'spglobal.com',
+};
 
 /** True when a citation URL is an opaque grounding redirect (may expire). */
 export function isRedirectCitation(url: string): boolean {
