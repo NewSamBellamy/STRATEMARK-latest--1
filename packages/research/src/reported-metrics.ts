@@ -182,6 +182,7 @@ const basisPatterns: Record<string, RegExp> = {
   customers: /\bcustomers\b/i, paying_customers: /\bpaying customers\b/i,
   valuation: /\bvaluation|valued at\b/i, market_cap: /\bmarket cap(?:italization)?\b/i,
   market_share: /\bmarket share\b/i,
+  aum: /\b(?:AUM|assets under management)\b/i,
 };
 const speculativeValuation = /\b(?:preliminary|discussions|talks|seeking|targeting|proposed|potential|considering|negotiating)\b/i;
 
@@ -256,7 +257,7 @@ export function businessDates(text: string): string[] {
  * Multiple values for the same latest period are ambiguous and stay unknown. */
 function recoverOmittedClaim(companyName: string, website: string | null, type: MetricType,
   grounding?: ProviderGrounding, otherCompanies?: readonly string[]) {
-  if (!grounding || !['arr', 'employees', 'valuation', 'market_cap', 'market_share', 'users'].includes(type)) return undefined;
+  if (!grounding || !['arr', 'employees', 'valuation', 'market_cap', 'market_share', 'aum', 'users'].includes(type)) return undefined;
   const choices: Array<{ value: number; selector: NonNullable<NonNullable<EnrichmentOut['metrics']['arr']>['reportedClaim']> }> = [];
   for (const support of grounding.supports) {
     if (!grounding.answerText.includes(support.text)) continue;
@@ -323,7 +324,7 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
   if ((type === 'arr' && !['arr', 'annual_revenue'].includes(definition)) ||
     (type === 'users' && !['users', 'active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition)) ||
     (!['arr', 'users'].includes(type) && definition !== type)) return [];
-  if (proof.unit !== (['arr', 'valuation', 'market_cap'].includes(type) ? 'USD' : type === 'market_share' ? 'percent' : 'count')) return [];
+  if (proof.unit !== (['arr', 'valuation', 'market_cap', 'aum'].includes(type) ? 'USD' : type === 'market_share' ? 'percent' : 'count')) return [];
   const pattern = basisPatterns[definition];
   const citations = usableCitations(proof.support.sources, website ?? undefined);
   const expected = host(website);
@@ -395,7 +396,7 @@ export function reportedSupportCitations(companyName: string, website: string | 
   if ((type === 'arr' && !['arr', 'annual_revenue'].includes(definition)) ||
     (type === 'users' && !['users', 'active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition)) ||
     (!['arr', 'users'].includes(type) && definition !== type)) return [];
-  if (proof.unit !== (['arr', 'valuation', 'market_cap'].includes(type) ? 'USD' : type === 'market_share' ? 'percent' : 'count')) return [];
+  if (proof.unit !== (['arr', 'valuation', 'market_cap', 'aum'].includes(type) ? 'USD' : type === 'market_share' ? 'percent' : 'count')) return [];
     // User populations are always reported AS OF a date or period in any source
   // worth citing. A users claim with no reporting date ('1B active users',
   // full stop) is the unverifiable mega-figure the red team flagged: it

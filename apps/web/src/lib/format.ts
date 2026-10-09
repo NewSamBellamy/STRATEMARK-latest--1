@@ -48,6 +48,7 @@ export function formatMetricValue(type: MetricType, value: number | null): strin
     case 'market_cap':
     case 'valuation':
     case 'arr':
+    case 'aum':
       return formatUsd(value);
     case 'market_share':
       return formatPercent(value);

@@ -1,4 +1,4 @@
-import type { MetricType } from '@mi/contracts';
+import { classifyMarketProfile, profileMetricTypes, type MetricType } from '@mi/contracts';
 import type { EnrichmentOut } from './schemas';
 import { huntMetricsOutSchema } from './schemas';
 import { acceptedMetricPassage, normalizeMetricToUsd } from './metric-support';
@@ -24,7 +24,11 @@ export async function recoverInitialMetrics(input: {
     return acceptedMetricPassage({ companyName, officialWebsite: website, metricType: type,
       value: proposal?.value ?? null, support: proposal?.passageSupport, originals }).length > 0;
   };
-  const missing = (['employees', 'arr', 'users', 'valuation'] as const).filter(type =>
+  // The market profile decides which figures this card carries at all: a
+  // financial firm recovers AUM, not ARR/user figures no partnership publishes.
+  const profileTypes = profileMetricTypes(classifyMarketProfile({ name: companyName, oneLiner: enrichment.oneLiner }));
+  const wanted = (['employees', 'arr', 'aum', 'users', 'valuation'] as const).filter(type => profileTypes.includes(type));
+  const missing = wanted.filter(type =>
     !supported(type) && !(type === 'employees' && secFilingHeadcountObservation(companyName, originals)) &&
     !(type === 'arr' && secRevenueObservation(companyName, originals)) &&
     !(type === 'valuation' && supported('market_cap')));

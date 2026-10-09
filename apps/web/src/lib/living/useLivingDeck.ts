@@ -13,6 +13,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { isLowPower } from '@/lib/usage';
 import {
   METRIC_TYPE_LABELS,
+  PROFILE_CORE_SLOTS,
+  classifyMarketProfile,
   isEntityCardType,
   auditDeckConsistency,
   selectStaleMetrics,
@@ -56,10 +58,10 @@ const PREFETCH_COMPANY_LIMIT = Number.POSITIVE_INFINITY;
 /** Verification candidates considered per turn (top of the overdue ranking). */
 const STALE_BUDGET_PER_TURN = 3;
 const MAX_FEED_EVENTS = 30;
-const CORE_PROFILE_SLOTS: readonly (readonly MetricType[])[] = [
-  ['employees'], ['arr'], ['users'], ['valuation', 'market_cap'],
-];
-const CORE_PROFILE_TYPES = new Set(CORE_PROFILE_SLOTS.flat());
+// The core slots per market profile come from @mi/contracts — the same table
+// the card face renders. A financial firm's deck hunts AUM where an operating
+// company hunts users/ARR; the runtime and the card can never disagree.
+const CORE_PROFILE_SLOTS = PROFILE_CORE_SLOTS;
 
 // Hunts retry on an outcome-keyed ladder instead of firing once per company.
 // One-shot recovery was the direct cause of zero-figure companies staying at
@@ -121,7 +123,8 @@ function hasCoreGap(card: CardWithCompany): boolean {
   const metrics = buildMetricViews(card.metrics, card.company?.websiteUrl).map(view => view.metric);
   // Match the card's four core profile slots; either valuation or market cap
   // satisfies company value. Estimates with a value belong to verification.
-  return CORE_PROFILE_SLOTS
+  const slots = CORE_PROFILE_SLOTS[classifyMarketProfile(card.company)];
+  return slots
     .some(types => !metrics.some(m => types.includes(m.metricType) && m.value != null && m.confidence !== 'unknown'));
 }
 
@@ -289,8 +292,12 @@ export function useLivingDeck(
 
         // Company hunts own unresolved core slots. Do not immediately spend
         // another query per unknown row after a bounded hunt found no evidence.
-        const allMetrics: CompanyMetric[] = current.flatMap((c) => c.metrics).filter(m =>
-          !canHunt || !CORE_PROFILE_TYPES.has(m.metricType) || (m.value != null && m.confidence !== 'unknown'));
+        // Which rows are "core" follows each company's market profile.
+        const allMetrics: CompanyMetric[] = current.flatMap((c) => {
+          const coreTypes = new Set(CORE_PROFILE_SLOTS[classifyMarketProfile(c.company)].flat());
+          return c.metrics.filter(m =>
+            !canHunt || !coreTypes.has(m.metricType) || (m.value != null && m.confidence !== 'unknown'));
+        });
         // LOW POWER MODE: the spending cap pauses autonomous re-verification;
         // manual fact-checks and reads still work.
         const staleTargets = isLowPower()

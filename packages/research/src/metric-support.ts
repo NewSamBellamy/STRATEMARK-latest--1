@@ -33,6 +33,7 @@ const basis: Record<MetricType, RegExp> = {
   users: /\b(?:users|customers)\b/i,
   employees: /\b(?:employees|headcount)\b/i,
   market_share: /\bmarket share\b/i,
+  aum: /\b(?:AUM|assets under management)\b/i,
 };
 
 /** Conservative mechanical passage support, not semantic truth or exhaustive evidence. */
@@ -83,6 +84,7 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
     users: /\busers\b/i, active_users: /\bactive users\b/i,
     monthly_active_users: /\bmonthly active users\b/i, daily_active_users: /\bdaily active users\b/i,
     customers: /\bcustomers\b/i, paying_customers: /\bpaying customers\b/i,
+    aum: /\b(?:AUM|assets under management)\b/i,
   };
   const definitionBasis = definition === 'annual_revenue' ? 'arr'
     : ['active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition) ? 'users' : definition;
@@ -126,7 +128,7 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
     /\b(?:article|published|publication|retrieved|updated)\b/i.test(quote) ||
     (!intervalDate && !new RegExp(`\\b(?:as of|as at|on|at|ended|ending)\\s+${escape(literalDate)}(?![\\p{L}\\p{N}])`, 'iu').test(quote)) ||
     Object.entries(basis).some(([type, pattern]) => type !== input.metricType && pattern.test(quote))) return reject('Claim attribution is ambiguous. A direct company statement and metric reporting date are required, not an article date or another company’s figure.');
-  const expectedUnit = ['arr', 'valuation', 'market_cap'].includes(input.metricType) ? 'USD' : input.metricType === 'market_share' ? 'percent' : 'count';
+  const expectedUnit = ['arr', 'valuation', 'market_cap', 'aum'].includes(input.metricType) ? 'USD' : input.metricType === 'market_share' ? 'percent' : 'count';
   // A money figure may be quoted natively in a convertible currency: the model
   // sets unit to the ISO code the SOURCE uses and the quote must name that
   // currency. The stored metric row is converted to USD at the frozen
@@ -158,7 +160,7 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
     title: `Issuer-reported original passage (${proof.asOf}); not independently corroborated` })) };
 }
 
-const MONEY_METRICS: readonly MetricType[] = ['arr', 'valuation', 'market_cap'];
+const MONEY_METRICS: readonly MetricType[] = ['arr', 'valuation', 'market_cap', 'aum'];
 
 /**
  * The stored metric row is USD for money metrics so decks stay comparable.

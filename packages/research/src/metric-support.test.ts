@@ -240,4 +240,25 @@ describe('original metric passage gate', () => {
     expect(currencyConversionNote(40_000_000, 'USD')).toBe('');
     expect(currencyConversionNote(null, 'CNY')).toBe('');
   });
+  it('accepts an AUM disclosure for a financial firm and keeps it distinct from revenue', () => {
+    const text = 'Acme Partners reports AUM of USD 42 billion as of 2026-10-01.';
+    const candidate = { ...input, companyName: 'Acme Partners', metricType: 'aum' as const, value: 42_000_000_000,
+      support: { ...support, quote: text, basis: 'aum' as const, unit: 'USD' as const, definition: 'aum' as const },
+      originals: [{ ...source, text }] };
+    expect(acceptedMetricPassage(candidate)).toHaveLength(1);
+    const longhand = 'Acme Partners reports assets under management of USD 42 billion as of 2026-10-01.';
+    expect(acceptedMetricPassage({ ...candidate, support: { ...candidate.support, quote: longhand },
+      originals: [{ ...source, text: longhand }] })).toHaveLength(1);
+    // AUM is its own measurement: the same passage cannot verify an ARR row.
+    expect(acceptedMetricPassage({ ...candidate, metricType: 'arr' as const })).toEqual([]);
+    expect(acceptedMetricPassage({ ...candidate, support: { ...candidate.support, definition: undefined } })).toHaveLength(1);
+  });
+  it('normalizes a natively quoted AUM figure to USD like the other money metrics', () => {
+    expect(normalizeMetricToUsd('aum', 40_000_000_000, 'EUR')).toBeCloseTo(40_000_000_000 * 1.120761, 0);
+    expect(normalizeMetricToUsd('aum', 42_000_000_000, 'USD')).toBe(42_000_000_000);
+    expect(normalizeMetricToUsd('aum', 42_000_000_000, null)).toBe(42_000_000_000);
+    const note = currencyConversionNote(40_000_000_000, 'EUR');
+    expect(note).toContain('EUR');
+    expect(note).toContain('approximate');
+  });
 });

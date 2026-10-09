@@ -52,15 +52,18 @@ export const VOLATILITY_SECONDS: Record<VolatilityTier, number> = {
  *
  * `market_cap` is the most volatile thing here — it moves every trading day —
  * but it is also cheap to re-source, so it sits in `hot` with valuation and ARR.
- * Headcount and market share move on a hiring/quarterly rhythm. Nothing is
- * `cold` today because every figure the deck carries is financial or scale
- * related; the tier exists for the descriptive fields that will join later.
+ * Headcount and market share move on a hiring/quarterly rhythm. AUM moves on a
+ * firm-disclosure rhythm (quarterly/annual, market moves in between), so it
+ * shares the `warm` band. Nothing is `cold` today because every figure the deck
+ * carries is financial or scale related; the tier exists for the descriptive
+ * fields that will join later.
  */
 export const METRIC_VOLATILITY: Record<MetricType, VolatilityTier> = {
   market_cap: 'hot',
   valuation: 'hot',
   arr: 'hot',
   market_share: 'warm',
+  aum: 'warm',
   users: 'warm',
   employees: 'warm',
 };

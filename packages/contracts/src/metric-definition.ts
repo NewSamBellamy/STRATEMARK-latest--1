@@ -5,7 +5,7 @@ const labels: Record<NonNullable<MetricDefinition>, string> = {
   arr: 'ARR', annual_revenue: 'Annual revenue', users: 'Users', active_users: 'Active users',
   monthly_active_users: 'Monthly active users', daily_active_users: 'Daily active users',
   customers: 'Customers', paying_customers: 'Paying customers', employees: 'Employees',
-  valuation: 'Valuation', market_cap: 'Market cap', market_share: 'Market share',
+  valuation: 'Valuation', market_cap: 'Market cap', market_share: 'Market share', aum: 'AUM',
 };
 
 /** Definition metadata is not proof. Read projections must still validate originals. */

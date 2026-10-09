@@ -135,6 +135,22 @@ describe('collectible card evidence model', () => {
     expect(result.profileMetrics[3]!.label).toBe('Market cap');
     expect(result.profileMetrics[3]!.display).toBe('$100M');
   });
+  it('swaps the reach slot for AUM on financial-firm cards and keeps the operating layout unchanged', () => {
+    const firm = { ...company, name: 'Meridian Capital Partners',
+      oneLiner: 'A venture capital firm investing in early-stage deep tech.' };
+    const result = buildCardView({
+      card, company: firm, viceClaims: [],
+      metrics: [
+        metric({ metricType: 'aum', value: 42_000_000_000 }),
+        metric({ metricType: 'users', value: 1200 }),
+      ],
+    });
+    expect(result.profileMetrics.map((m) => m.key)).toEqual(['aum', 'employees', 'company_value', 'revenue']);
+    expect(result.profileMetrics[0]!.label).toBe('AUM');
+    expect(result.profileMetrics[0]!.display).toBe('$42B');
+    expect(result.profileMetrics.some((m) => m.key === 'reach')).toBe(false);
+    expect(view([]).profileMetrics.map((m) => m.key)).toEqual(['employees', 'revenue', 'reach', 'company_value']);
+  });
   it('shows the same core company fields across companies, independent of which facts were found', () => {
     const result = view([
       metric({ id: 'arr', metricType: 'arr', value: 9_000_000, confidence: 'estimated', citations: [] }),

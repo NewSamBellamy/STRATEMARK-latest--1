@@ -1,12 +1,13 @@
 import {
   CARD_TYPE_LABELS, CONFIDENCE_LABELS, TIER_LABELS, enforceMetricProvenance, currentMetricRevision,
-  isSignalCardType, usableCitations, metricDefinitionLabel, type CardWithCompany, type CompanyMetric, type MetricType,
+  isSignalCardType, usableCitations, metricDefinitionLabel, classifyMarketProfile, PROFILE_CORE_SLOTS,
+  type CardWithCompany, type CompanyMetric, type MetricType,
 } from '@mi/contracts';
 import { reportedSupportCitations } from '@mi/research';
 
 const LABELS: Record<MetricType, string> = {
   arr: 'ARR', valuation: 'Valuation', market_cap: 'Market cap',
-  market_share: 'Market share', users: 'Users', employees: 'Employees',
+  market_share: 'Market share', users: 'Users', employees: 'Employees', aum: 'AUM',
 };
 const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 
@@ -40,6 +41,7 @@ function frontTitle(value: string): string {
 function profileLabel(key: string, metric: CompanyMetric | undefined): string {
   if (metric && metricDefinitionLabel(metric)) return metricDefinitionLabel(metric)!;
   if (key === 'employees') return 'Employees';
+  if (key === 'aum') return 'AUM';
   if (key === 'revenue') {
     const note = metric?.methodNote?.toLowerCase() ?? '';
     if (/\brun[- ]?rate\b/.test(note)) return 'Revenue run-rate';
@@ -115,14 +117,21 @@ export function buildCardView(data: CardWithCompany) {
   const metrics = buildMetricViews(signal ? [] : data.metrics, data.company?.websiteUrl);
   const knownCount = metrics.filter((m) => m.metric.value != null).length;
   const sourcedCount = metrics.filter((m) => m.metric.value != null && m.citations.length > 0).length;
+  // The four front slots come from the market profile: an operating company
+  // keeps the original four; a financial firm swaps its reach slot for AUM so
+  // the figure its market actually publishes has somewhere to land (spec-level
+  // rule: fit the card to the market, never pressure the gates).
+  const marketProfile = signal || !data.company
+    ? 'operating_company'
+    : classifyMarketProfile(data.company);
   const profileMetrics = signal
     ? []
-    : [
-        { key: 'employees', types: ['employees'] as MetricType[] },
-        { key: 'revenue', types: ['arr'] as MetricType[] },
-        { key: 'reach', types: ['users'] as MetricType[] },
-        { key: 'company_value', types: ['valuation', 'market_cap'] as MetricType[] },
-      ].map(({ key, types }) => {
+    : PROFILE_CORE_SLOTS[marketProfile].map((slotTypes) => {
+        const key = slotTypes.length > 1 ? 'company_value'
+          : slotTypes[0] === 'arr' ? 'revenue'
+            : slotTypes[0] === 'aum' ? 'aum'
+              : slotTypes[0] === 'users' ? 'reach' : 'employees';
+        const types = [...slotTypes] as MetricType[];
         const candidates = types.flatMap((type) => metrics.filter((m) => m.metric.metricType === type));
         const confirmed = candidates.find((m) => m.metric.value != null && (
           m.metric.confidence === 'user_verified' ||
@@ -221,7 +230,7 @@ export function sourceUrl(value: string | null | undefined): string | null {
 function displayValue(metric: CompanyMetric): string {
   if (metric.value == null || metric.confidence === 'unknown') return 'Unknown';
   const number = compact.format(metric.value);
-  return ['arr', 'valuation', 'market_cap'].includes(metric.metricType) ? `$${number}` :
+  return ['arr', 'valuation', 'market_cap', 'aum'].includes(metric.metricType) ? `$${number}` :
     metric.metricType === 'market_share' ? `${metric.value.toLocaleString('en-US', { maximumFractionDigits: 1 })}%` : number;
 }
 export type CardView = ReturnType<typeof buildCardView>;

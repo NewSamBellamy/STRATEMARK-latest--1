@@ -175,7 +175,7 @@ export function computeCms(
  * metric table to the five weighted signals in one audited place.
  */
 export interface MetricLike {
-  metricType: 'market_cap' | 'valuation' | 'market_share' | 'arr' | 'users' | 'employees';
+  metricType: 'market_cap' | 'valuation' | 'market_share' | 'arr' | 'aum' | 'users' | 'employees';
   value: number | null;
   confidence: Confidence;
   passageSupport?: CompanyMetric['passageSupport'];

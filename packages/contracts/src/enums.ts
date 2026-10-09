@@ -89,6 +89,7 @@ export const METRIC_TYPES = [
   'valuation',
   'market_share',
   'arr',
+  'aum',
   'users',
   'employees',
 ] as const;
@@ -99,6 +100,7 @@ export const METRIC_TYPE_LABELS: Record<MetricType, string> = {
   valuation: 'Valuation',
   market_share: 'Market Share',
   arr: 'ARR',
+  aum: 'AUM',
   users: 'Users',
   employees: 'Employees',
 };

@@ -26,6 +26,7 @@ export function selectSourceExcerpt(text: string, scope?: { companyName: string;
     /\b(?:valuation|valued at)\b/gi,
     /\b(?:market cap|market capitalization)\b/gi,
     /\bmarket share\b/gi,
+    /\b(?:AUM|assets under management)\b/gi,
   ];
   const hits: { index: number; category: number }[] = [];
   cues.forEach((cue, category) => {
@@ -39,7 +40,7 @@ export function selectSourceExcerpt(text: string, scope?: { companyName: string;
     }
   });
   hits.sort((a, b) => a.index - b.index);
-  const categories = ['employees', 'arr', 'users', 'valuation', 'market_cap', 'market_share'];
+  const categories = ['employees', 'arr', 'users', 'valuation', 'market_cap', 'market_share', 'aum'];
   const category = categories.indexOf(scope?.metricType ?? '');
   // Literal company windows, never aliases or stitched quotes. This is relevance
   // selection only: the original-passage gate still decides whether a claim holds.

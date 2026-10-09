@@ -33,6 +33,7 @@ const DEEP_TOPIC: Record<MetricType, string> = {
   valuation: 'Valuation & funding history',
   market_cap: 'Market capitalization & stock performance',
   arr: 'Annual recurring revenue & growth',
+  aum: 'Assets under management & fund performance',
   users: 'User / customer base & adoption',
   employees: 'Team size, hiring & key people',
 };
@@ -46,7 +47,7 @@ const BAND_KEY: Partial<Record<MetricType, keyof typeof SIGNAL_BANDS>> = {
 };
 
 /** The display order; valuation/market_cap collapse to whichever is present. */
-const ORDER: MetricType[] = ['market_share', 'valuation', 'market_cap', 'arr', 'users', 'employees'];
+const ORDER: MetricType[] = ['market_share', 'valuation', 'market_cap', 'arr', 'aum', 'users', 'employees'];
 const metricLabel = (metric: CompanyMetric) => metricDefinitionLabel(metric) ?? METRIC_TYPE_LABELS[metric.metricType];
 
 /** Human-in-the-loop correction: value + source note → user_verified → re-tier. */
