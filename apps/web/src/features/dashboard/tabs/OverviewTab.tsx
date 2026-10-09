@@ -6,6 +6,7 @@ import { METRIC_TYPE_LABELS, metricDefinitionLabel } from '@mi/contracts';
 import { useCompany, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { HydratingPanel } from './HydratingPanel';
 import { formatMetricValue } from '@/lib/format';
 import { METRIC_COLORS } from '@/lib/theme';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
@@ -176,13 +177,13 @@ export function OverviewTab({ companyId }: { companyId: string }) {
   const name = company?.name ?? 'this company';
 
   return (
-    <QueryBoundary query={query}>
+    <QueryBoundary query={query} loading={<HydratingPanel label="Overview" />}>
       {(result) => {
         const { sections, figures } = parseSections(result.content.markdown);
         const structured = sections.length > 0 || figures.length > 0;
         const background = sections.find(s => /background/i.test(s.title));
         return (
-          <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
+          <div className="grid gap-5 cascade lg:grid-cols-[1fr_300px]">
             <div className="space-y-6">
               {structured ? (
                 <>

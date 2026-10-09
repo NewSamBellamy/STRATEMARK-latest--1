@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react';
-import { Bookmark, Share2, ArrowUpRight, RefreshCw, LoaderCircle } from 'lucide-react';
+import { Bookmark, Share2, ArrowUpRight, RefreshCw, LoaderCircle, Droplets } from 'lucide-react';
 import type { CardWithCompany } from '@mi/contracts';
 import { knownCompanyDomain, resolveLogo, rootDomain } from '@mi/research';
 import { useSaveCard, useSavedCards, useUnsaveCard } from '@/hooks/data';
+import { useDashboardHydrating } from '@/lib/living/useDashboardWarm';
 import { cn } from '@/lib/cn';
 import { CollectibleCard } from './CollectibleCard';
 import { buildCardView } from './card-view';
@@ -23,6 +24,9 @@ export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, class
   // say so on the face so the deck visibly fills as the agents work.
   const researching = (deckStatus === 'running' || deckStatus === 'partial' || deckStatus === 'refreshing') &&
     !data.card.tier && (data.card.cardType === 'company' || data.card.cardType === 'infrastructure' || data.card.cardType === 'distribution');
+  // Dashboards hydrating is a different fact from the card itself being
+  // researched: the cascade warm pass is filling this company's tabs.
+  const hydrating = useDashboardHydrating(data.company?.id);
   const [logoAvailable, setLogoAvailable] = useState<boolean | undefined>();
   const [logoRetryNonce, setLogoRetryNonce] = useState(0);
   const [logoUrlOverride, setLogoUrlOverride] = useState<string | null>(null);
@@ -52,6 +56,14 @@ export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, class
         title="A research agent is on this card right now — figures will appear as they are verified.">
         <LoaderCircle className="h-3 w-3 animate-spin" />
         Agent researching
+      </span>
+    )}
+    {!researching && hydrating && (
+      <span data-testid="card-hydrating"
+        className="absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-sky-300/60 bg-app/90 px-2.5 py-1 text-[10px] font-semibold text-sky-700 shadow-sm dark:text-sky-300"
+        title="This desk's dashboards are filling in from live sources — open the card and watch it cascade.">
+        <Droplets className="h-3 w-3 animate-pulse" />
+        Dashboards hydrating
       </span>
     )}
     {onOpen ? <button type="button" className="card-sleeve__open" onClick={onOpen}

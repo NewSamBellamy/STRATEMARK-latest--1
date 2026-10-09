@@ -6,6 +6,7 @@ import '@xyflow/react/dist/style.css';
 import type { OrgNode } from '@mi/contracts';
 import { useCompany, useDashboardTab, useGenerateReport } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { HydratingPanel } from './HydratingPanel';
 import { Modal } from '@/components/ui/Modal';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { LeaderGrid } from './LeaderGrid';
@@ -178,9 +179,10 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
   const navigate = useNavigate();
 
   return (
-    <QueryBoundary query={query} isEmpty={(r) => r.content.nodes.length === 0}>
+    <QueryBoundary query={query} loading={<HydratingPanel label="Team & Org" />}
+      isEmpty={(r) => r.content.nodes.length === 0}>
       {(result) => (
-        <div>
+        <div className="cascade">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted">
               Exec, AI, product, and design leadership. Hover a portrait for their background;

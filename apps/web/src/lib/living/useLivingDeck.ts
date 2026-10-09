@@ -43,13 +43,20 @@ import {
   type VerificationTarget,
 } from './runtime';
 
-/** Tabs worth warming before the user asks, in open-likelihood order. Live
- * Intel is deliberately absent: each prefetch is a full grounded research
- * pass, and Live Intel was the most expensive warm on the least-predictable
- * click — it researches on demand instead. */
+/** Tabs worth warming before the user asks — the cascade, in open-likelihood
+ * order. Metrics leads (a pure local projection — each warm costs no provider
+ * call), Overview next, then the research tabs within the runtime's maxActions
+ * pacing; hunts and verifications always claim budget first. Each entry below
+ * is one paced action per tick. */
 const PREFETCH_TABS: Array<{ tab: DashboardTab; label: string }> = [
-  { tab: 'overview', label: 'Overview' },
   { tab: 'metrics', label: 'Metrics' },
+  { tab: 'overview', label: 'Overview' },
+  { tab: 'live_intel', label: 'Live Intel' },
+  { tab: 'mission_governance', label: 'Mission & Governance' },
+  { tab: 'history', label: 'History' },
+  { tab: 'team_org', label: 'Team & Org Chart' },
+  { tab: 'products_roadmap', label: 'Products & Roadmap' },
+  { tab: 'live_landing', label: 'Live Landing Page' },
 ];
 /** Warm EVERY company's core tabs — the deck is not "done" until all its
  * dashboards are populated. One company per tick keeps the pacing honest;

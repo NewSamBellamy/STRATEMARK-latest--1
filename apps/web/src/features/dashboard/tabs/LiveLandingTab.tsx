@@ -3,6 +3,7 @@ import { ClipboardCheck, ExternalLink, Globe, Loader2, MonitorPlay } from 'lucid
 import { useNavigate } from 'react-router-dom';
 import { useAuditSite, useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { HydratingPanel } from './HydratingPanel';
 import {
   SHOT_MAX_ATTEMPTS as MAX_ATTEMPTS,
   SHOT_PLACEHOLDER_MAX_WIDTH as PLACEHOLDER_MAX_WIDTH,
@@ -121,11 +122,11 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
   const [tryEmbed, setTryEmbed] = useState(false);
 
   return (
-    <QueryBoundary query={query}>
+    <QueryBoundary query={query} loading={<HydratingPanel label="Live Landing Page" />}>
       {(result) => {
         const { url, embeddable, screenshotUrl } = result.content;
         return (
-          <div>
+          <div className="cascade">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-muted">
                 {name}’s live website, captured for a first-hand look at how they present

@@ -16,6 +16,7 @@ import {
   useOverrideMetric,
 } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { HydratingPanel } from './HydratingPanel';
 import { EmptyState } from '@/components/states/EmptyState';
 import { Modal } from '@/components/ui/Modal';
 import { formatMetricValue } from '@/lib/format';
@@ -380,6 +381,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
   return (
     <QueryBoundary
       query={metricsQ}
+      loading={<HydratingPanel label="Metrics" />}
       isEmpty={(m) => m.length === 0}
       empty={<EmptyState title="No metrics yet" description="Research didn’t surface quantitative metrics for this company." />}
     >
@@ -391,7 +393,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
         const series = seriesQ.data?.content;
         const hasSeries = !!series && (series.revenue.length > 1 || series.users.length > 1);
         return (
-          <div className="space-y-5">
+          <div className="space-y-5 cascade">
             <div className="space-y-3">
               <KpiBand tiles={tiles} />
               <span className="flex flex-wrap items-center justify-end gap-1.5">

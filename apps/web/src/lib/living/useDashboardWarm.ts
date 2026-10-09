@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
@@ -8,6 +8,15 @@ import { isLowPower } from '@/lib/usage';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { useResearchControl } from './researchControl';
+
+/** True while any dashboard tab for this company is actively researching —
+ * the card face's "actively hydrating" state. Paused means nothing is running,
+ * so the light goes out; an honest indicator, not a hope. */
+export function useDashboardHydrating(companyId: string | null | undefined): boolean {
+  const fetching = useIsFetching({ queryKey: ['dashboard', companyId ?? ''] });
+  const paused = useResearchControl(state => state.paused);
+  return !paused && fetching > 0;
+}
 
 /** One bounded sequential warm pass, sharing the deck's durable scheduling switch. */
 export function useDashboardWarm(companyId: string | undefined, activeTab: DashboardTab, companyName?: string) {

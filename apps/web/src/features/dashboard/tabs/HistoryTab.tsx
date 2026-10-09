@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, Quote } from 'lucide-react';
 import { useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { HydratingPanel } from './HydratingPanel';
 import { History } from 'lucide-react';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { InsightReader } from '@/components/reader/InsightReader';
@@ -23,11 +24,11 @@ export function HistoryTab({ companyId }: { companyId: string }) {
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [allQuotes, setAllQuotes] = useState(false);
   return (
-    <QueryBoundary query={query}>
+    <QueryBoundary query={query} loading={<HydratingPanel label="History" />}>
       {(result) => {
         const c = result.content;
         return (
-          <div className="space-y-4">
+          <div className="space-y-4 cascade">
             {/* The one-pager: the company's story, written to be read. */}
             {c.founderStory.trim().length > 0 && (
               <div className="panel p-6">

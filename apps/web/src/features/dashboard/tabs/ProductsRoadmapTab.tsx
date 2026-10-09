@@ -3,6 +3,7 @@ import { ExternalLink } from 'lucide-react';
 import type { Product, RoadmapItem } from '@mi/contracts';
 import { useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { HydratingPanel } from './HydratingPanel';
 import { AiCover } from '@/components/media/AiCover';
 import { Modal } from '@/components/ui/Modal';
 import { InsightReader } from '@/components/reader/InsightReader';
@@ -100,11 +101,11 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
   const [openProduct, setOpenProduct] = useState<Product | null>(null);
   const [openRoadmap, setOpenRoadmap] = useState<RoadmapItem | null>(null);
   return (
-    <QueryBoundary query={query}>
+    <QueryBoundary query={query} loading={<HydratingPanel label="Products & Roadmap" />}>
       {(result) => {
         const c = result.content;
         return (
-          <div className="space-y-6">
+          <div className="space-y-6 cascade">
             <section>
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>

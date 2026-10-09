@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Banknote, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { HydratingPanel } from './HydratingPanel';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { InsightReader, type InsightTone } from '@/components/reader/InsightReader';
 import { AiCover } from '@/components/media/AiCover';
@@ -31,7 +32,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
   // Click a signal → it opens as its own readable card (the deck-of-cards gist).
   const [openSignal, setOpenSignal] = useState<{ tone: InsightTone; text: string } | null>(null);
   return (
-    <QueryBoundary query={query}>
+    <QueryBoundary query={query} loading={<HydratingPanel label="Mission & Governance" />}>
       {(result) => {
         const c = result.content;
         // Model-authored arrays are untrusted data: a section the model omitted
@@ -43,7 +44,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
         const positives = c.positives ?? [];
         const negatives = c.negatives ?? [];
         return (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 cascade lg:grid-cols-2">
             <div className="panel p-5">
               <h3 className="font-display text-sm font-semibold text-content">Mission</h3>
               <div className="markdown mt-2 text-sm text-muted"><ResearchMarkdown text={c.mission ?? ''} /></div>
