@@ -39,6 +39,7 @@ import type {
   ResearchHandlers,
   Unsubscribe,
   ViceClaim,
+  HuntMetricsOptions,
   HuntMetricsResult,
   DeckBriefing,
   SiteAuditInput,
@@ -201,9 +202,9 @@ export class IpcRepository implements MarketIntelRepository {
   listReports(): Promise<Report[]> {
     return this.api.listReports();
   }
-  huntCompanyMetrics(id: string): Promise<HuntMetricsResult> {
+  huntCompanyMetrics(id: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
     if (!this.api.huntCompanyMetrics) return Promise.reject(new Error('Update the desktop shell to hunt metrics.'));
-    return this.api.huntCompanyMetrics(id);
+    return this.api.huntCompanyMetrics(id, options);
   }
   generateDeckBriefing(id: string, opts?: { windowHours?: number }): Promise<DeckBriefing> {
     if (!this.api.generateDeckBriefing) return Promise.reject(new Error('Update the desktop shell to generate briefings.'));

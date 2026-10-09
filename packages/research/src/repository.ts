@@ -43,6 +43,7 @@ import {
   type DeepDiveResult,
   type FactCheckInput,
   type FactCheckResult,
+  type HuntMetricsOptions,
   type HuntMetricsResult,
   type MetricType,
   type VerifyMetricInput,
@@ -2179,8 +2180,10 @@ export class GeminiRepository implements MarketIntelRepository {
    * required, junk-gated), and re-tier. Human-verified rows are never touched.
    * Protected paths retain at most two originals before interpretation. No
    * readable original means no second model call and no published figures.
+   * `options.escalation ≥ 1` marks a retry after empty earlier passes: the
+   * prompt varies its source strategy instead of repeating the same query.
    */
-  async huntCompanyMetrics(companyId: string): Promise<HuntMetricsResult> {
+  async huntCompanyMetrics(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company) throw new Error(`Company not found: ${companyId}`);
     const mine = () => this.snap.metrics.filter((m) => m.companyId === companyId);
@@ -2204,6 +2207,7 @@ export class GeminiRepository implements MarketIntelRepository {
     }
 
     const wanted = softTypes.map((t) => `- ${METRIC_TYPE_LABELS[t]}`).join('\n');
+    const escalation = Math.max(0, Math.floor(options?.escalation ?? 0));
     // Prior originals supply fetch leads, never current proof. Keep retries
     // company-scoped and bounded instead of forgetting discovered disclosures.
     const priorLeads: Citation[] = this.originalSources
@@ -2218,6 +2222,7 @@ export class GeminiRepository implements MarketIntelRepository {
         wanted,
         companySourceTargets(company.websiteUrl),
         ...(softTypes.includes('arr') ? ['Find the latest whole-company fiscal annual revenue OR explicitly reported ARR. Keep them distinct. Find the actual dated annual report, earnings disclosure or company-specific regulatory filing, not an investor homepage or regulator search page. Include the direct filing URL actually discovered; do not guess identifiers.'] : []),
+        ...(escalation > 0 ? [`ESCALATION PASS ${escalation}: earlier general searches for these figures came back empty. Vary the approach rather than repeating the same query shape: regulatory filings and exchange disclosures, investor presentations and earnings materials, trade-association market reports, sector trade press, funding announcements, or the company's own data book. For private companies look for the most recent credible estimate and name who published it. If a figure is still not reliably reported, say so plainly.`] : []),
         ...(priorTargets.length ? ['Previously retrieved URLs are leads only. Check for the latest reporting period and actual disclosure:', ...priorTargets.map(source => source.url)] : []),
         `Company: ${company.name} — ${company.oneLiner}`,
         `Use Google Search. For each figure name the value, its as-of date, and the source. Prefer primary sources and recent reputable coverage. If no reliable current figure exists for a metric, say so plainly for that metric. Never guess.`,

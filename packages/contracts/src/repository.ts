@@ -251,6 +251,16 @@ export interface HuntMetricsResult {
   retieredCardIds: string[];
 }
 
+/** Escalation knob for a repeated metric hunt. */
+export interface HuntMetricsOptions {
+  /**
+   * 0 = first attempt for this company this session; N ≥ 1 = N earlier
+   * general searches for these figures came back empty, so the hunt must
+   * vary its approach rather than repeat the same query shape.
+   */
+  escalation?: number;
+}
+
 /** A saved research report composed by the AI from deck/company evidence. */
 export interface ReportRequest {
   kind: 'deck' | 'company';
@@ -654,8 +664,9 @@ export interface MarketIntelRepository {
    * Hunt grounded values for ALL of a company's soft figures (missing rows,
    * unknowns, unverified estimates) in a single research pass, write them back
    * with citations, and re-tier. OPTIONAL — live-research transports only.
+   * `options.escalation` marks a retry after empty earlier passes.
    */
-  huntCompanyMetrics?(companyId: string): Promise<HuntMetricsResult>;
+  huntCompanyMetrics?(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult>;
 
   /**
    * Add a user-authored note to the deck's research knowledge base. The note

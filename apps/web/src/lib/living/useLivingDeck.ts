@@ -61,20 +61,27 @@ const CORE_PROFILE_SLOTS: readonly (readonly MetricType[])[] = [
 ];
 const CORE_PROFILE_TYPES = new Set(CORE_PROFILE_SLOTS.flat());
 
-// One automatic hunt per company for this repository's lifetime. Reserve BEFORE
-// awaiting: failures, slow invalidation, pause/resume, deck switches and remounts
-// must not turn an unresolved gap into repeated paid hunts. Manual hunts remain
-// available; reopening a deck does not reset this automatic recovery allowance.
-const recoveryAttempts = new WeakMap<MarketIntelRepository, Set<string>>();
+// Hunts retry on an outcome-keyed ladder instead of firing once per company.
+// One-shot recovery was the direct cause of zero-figure companies staying at
+// zero: a hunt that came back empty (wrong query shape, quiet news day) never
+// got another turn. Reserve BEFORE awaiting, cool down between attempts, and
+// cap attempts per session so a genuinely undocumented company still bottoms
+// out. Manual hunts remain unlimited; reopening the page resets the ladder.
+const HUNT_ATTEMPTS_PER_SESSION = 3;
+const HUNT_RETRY_COOLDOWN_MS = 10 * 60_000;
+interface HuntAttemptRecord { attempts: number; lastAt: number }
+const huntAttempts = new WeakMap<MarketIntelRepository, Map<string, HuntAttemptRecord>>();
 
-// One automatic verification per (company, metric) per repository lifetime, for
-// the same reason: a consistency finding that survives its check (or a check
+// One automatic verification per (company, metric) per time window, for the
+// same reason: a consistency finding that survives its check (or a check
 // that ends unverified) must not re-spend a grounded query every tick. The
 // freshness engine already cools the decay lane via lastVerificationAttemptAt,
-// but consistency findings bypass it — this ledger closes that loop. A changed
-// figure re-opens its slot once so the new value can be re-checked; manual
-// fact-checks remain unlimited.
-const verificationAttempts = new WeakMap<MarketIntelRepository, Set<string>>();
+// but consistency findings bypass it — this ledger closes that loop. Slots
+// RE-OPEN after VERIFY_SLOT_COOLDOWN_MS so a deck keeps fact-checking itself
+// across a long session instead of going silent after one pass; a changed
+// figure re-opens its slot immediately. Manual fact-checks remain unlimited.
+const VERIFY_SLOT_COOLDOWN_MS = 30 * 60_000;
+const verifyAttempts = new WeakMap<MarketIntelRepository, Map<string, number>>();
 
 // Coalesce job reads across decks/remounts. Unknown readiness defers paid work;
 // failures are cached too, so an unavailable transport cannot become a hot poll.
@@ -166,20 +173,22 @@ export function useLivingDeck(
 
     const seenFindings = new Set<string>();
     const prefetched = new Set<string>();
-    let attempted = recoveryAttempts.get(repo);
-    if (!attempted) {
-      attempted = new Set<string>();
-      recoveryAttempts.set(repo, attempted);
+    let hunts = huntAttempts.get(repo);
+    if (!hunts) {
+      hunts = new Map<string, HuntAttemptRecord>();
+      huntAttempts.set(repo, hunts);
     }
-    const attemptedCompanies = attempted;
-    let verified = verificationAttempts.get(repo);
+    let verified = verifyAttempts.get(repo);
     if (!verified) {
-      verified = new Set<string>();
-      verificationAttempts.set(repo, verified);
+      verified = new Map<string, number>();
+      verifyAttempts.set(repo, verified);
     }
     const attemptedVerifications = verified;
-    const verificationOpen = (target: VerificationTarget) =>
-      !attemptedVerifications.has(`${target.companyId}:${target.metricType}`);
+    const nowMs = () => Date.now();
+    const verificationOpen = (target: VerificationTarget) => {
+      const last = attemptedVerifications.get(`${target.companyId}:${target.metricType}`);
+      return last === undefined || nowMs() - last >= VERIFY_SLOT_COOLDOWN_MS;
+    };
 
     const nameOf = (companyId: string): string =>
       cardsRef.current.find((c) => c.company?.id === companyId)?.company?.name ?? 'A company';
@@ -199,17 +208,40 @@ export function useLivingDeck(
     const runtime = new LivingDeckRuntime({
       // Full-deck dashboard warming: every company needs its core tabs, plus
       // hunts and verifications — scale the session budget with the deck size.
-      maxActions: Math.max(60, deskCount * (PREFETCH_TABS.length + 2)),
-      canAct: async () => isLowPower() || !(await creationIsActive(repo, deckId)),
+      // Session budget scaled for the full workload: every company's core tab
+      // warm (2 each) plus the hunt ladder (up to 3 each) and verification
+      // cooldown windows. Each lane self-limits now, so the budget only has
+      // to outlast the lanes' worst case instead of rationing between them.
+      maxActions: Math.max(60, deskCount * (PREFETCH_TABS.length + 5)),
+      // Both gates must hold: low power pauses autonomous spend, and desks
+      // wait while the deck's initial creation run is still in flight. The
+      // old `isLowPower() ||` ran the desks THROUGH the spending cap.
+      canAct: async () => !isLowPower() && !(await creationIsActive(repo, deckId)),
       nextRecovery: () => {
         if (!(canHunt || canRecoverFree) || isLowPower() || useResearchControl.getState().paused) return null;
-        const card = entityDesks(cardsRef.current).find(c =>
-          !attemptedCompanies.has(c.company!.id) && hasCoreGap(c));
-        return card ? { companyId: card.company!.id, companyName: card.company!.name } : null;
+        const now = nowMs();
+        // Least-attempted first: every company with a core gap gets its first
+        // hunt before anyone gets a second, and empty hunts escalate only
+        // after the cooldown — never in the same breath as the failed one.
+        const candidate = entityDesks(cardsRef.current)
+          .filter(c => hasCoreGap(c))
+          .map(c => {
+            const entry = hunts.get(c.company!.id);
+            return {
+              card: c,
+              attempts: entry?.attempts ?? 0,
+              ready: !entry || now - entry.lastAt >= HUNT_RETRY_COOLDOWN_MS,
+            };
+          })
+          .filter(x => x.ready && x.attempts < HUNT_ATTEMPTS_PER_SESSION)
+          .sort((a, b) => a.attempts - b.attempts)[0];
+        return candidate
+          ? { companyId: candidate.card.company!.id, companyName: candidate.card.company!.name }
+          : null;
       },
       recover: (canHunt || canRecoverFree) ? async target => {
         // Saved evidence is re-projected for free first. Best-effort: a failed
-        // free pass must not consume the company's one automatic hunt attempt.
+        // free pass must not consume the company's hunt-ladder attempt.
         let freeFilled = 0;
         if (canRecoverFree) {
           try {
@@ -220,12 +252,15 @@ export function useLivingDeck(
             }
           } catch { /* the paid hunt below still runs */ }
         }
-        attemptedCompanies.add(target.companyId);
+        // Reserve before the call: a thrown hunt also spends this rung, so a
+        // persistent failure cannot become a hot retry loop.
+        const prior = hunts.get(target.companyId) ?? { attempts: 0, lastAt: 0 };
+        const escalation = prior.attempts;
+        hunts.set(target.companyId, { attempts: prior.attempts + 1, lastAt: nowMs() });
         if (!canHunt) return { filled: freeFilled };
-        // Fall through to the paid hunt even after a free fill: the hunt is
-        // this company's single automatic attempt, and a partial recovery must
-        // not leave the remaining core gaps unfilled for the repository's life.
-        const result = await repo.huntCompanyMetrics!(target.companyId);
+        // Escalate after empty passes: pass 1 is the broad hunt; retries tell
+        // the repository to vary its source strategy.
+        const result = await repo.huntCompanyMetrics!(target.companyId, escalation > 0 ? { escalation } : undefined);
         await invalidateMetricSurfaces(qc, target.companyId,
           result.filledTypes.length > 0 || result.retieredCardIds.length > 0);
         return { filled: freeFilled + result.filledTypes.length };
@@ -274,9 +309,9 @@ export function useLivingDeck(
       verify: canVerify
         ? async (target) => {
             // Reserve before the call: a thrown verification also spends the
-            // company's automatic attempt, so a persistent failure cannot
-            // become a hot retry loop.
-            attemptedVerifications.add(`${target.companyId}:${target.metricType}`);
+            // slot's cooldown window, so a persistent failure cannot become
+            // a hot retry loop.
+            attemptedVerifications.set(`${target.companyId}:${target.metricType}`, nowMs());
             // One batch action beats N per-metric actions: when a company has
             // several figures worth re-checking, one grounded pass verifies
             // them all (2 model calls instead of 2N) and promotes/demotes
@@ -289,7 +324,7 @@ export function useLivingDeck(
               for (const row of batch.results) {
                 const slot = `${target.companyId}:${row.metricType}`;
                 if (row.changed) attemptedVerifications.delete(slot);
-                else attemptedVerifications.add(slot);
+                else attemptedVerifications.set(slot, nowMs());
               }
               await invalidateMetricSurfaces(qc, target.companyId, batch.changedTypes.length > 0);
               const held = batch.results.filter((r) => r.verdict === 'supported' && !r.changed).length;
@@ -304,8 +339,8 @@ export function useLivingDeck(
               companyId: target.companyId,
               metricType: target.metricType as MetricType,
             });
-            // A correction is new information: allow one consistency pass
-            // against the fresh figure before the slot closes again.
+            // A correction is new information: re-open the slot so the fresh
+            // figure gets a consistency pass before its cooldown re-arms.
             if (result.changed) {
               attemptedVerifications.delete(`${target.companyId}:${target.metricType}`);
             }

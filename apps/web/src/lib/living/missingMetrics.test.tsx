@@ -55,7 +55,7 @@ it.each(['queued', 'running'] as const)('defers automatic hydration during %s cr
   job.status = 'completed';
   await act(async () => { await vi.advanceTimersByTimeAsync(22000); });
   expect(listResearchJobs).toHaveBeenCalledTimes(2);
-  expect(s.huntCompanyMetrics.mock.calls).toEqual([['company-0'], ['company-1'], ['company-2']]);
+  expect(s.huntCompanyMetrics.mock.calls.map(c => c[0])).toEqual(['company-0', 'company-1', 'company-2']);
   hook.unmount(); s.client.clear();
 });
 
@@ -145,10 +145,10 @@ it('hunts each empty entity once ahead of warming, excluding signals and duplica
   const hook = renderHook(() => useLivingDeck('deck', cards), { wrapper: s.wrapper });
   expect(hook.result.current.deskCount).toBe(3);
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
-  expect(s.huntCompanyMetrics.mock.calls).toEqual([['company-0']]);
+  expect(s.huntCompanyMetrics.mock.calls.map(c => c[0])).toEqual(['company-0']);
   expect(s.getDashboardTab).not.toHaveBeenCalled();
   await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
-  expect(s.huntCompanyMetrics.mock.calls).toEqual([['company-0'], ['company-1'], ['company-2']]);
+  expect(s.huntCompanyMetrics.mock.calls.map(c => c[0])).toEqual(['company-0', 'company-1', 'company-2']);
   expect(hook.result.current.events.some(e => /nothing met the sourcing bar/.test(e.message))).toBe(true);
   expect(hook.result.current.events.some(e => e.kind === 'verified' || e.kind === 'corrected')).toBe(false);
   hook.unmount(); s.client.clear();
@@ -167,6 +167,29 @@ it.each(['empty', 'failure'] as const)('does not repeat a %s hunt after rerender
   await act(async () => { await vi.advanceTimersByTimeAsync(180000); });
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
   reopened.unmount(); s.client.clear();
+});
+
+it('escalates an empty hunt after the cooldown and caps the ladder at three attempts', async () => {
+  const s = await setup();
+  s.huntCompanyMetrics.mockResolvedValue({ filledTypes: [], metrics: [], retieredCardIds: [] });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+  expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
+  expect(s.huntCompanyMetrics).toHaveBeenLastCalledWith('company-0', undefined);
+  // Inside the cooldown window the failed hunt gets no second breath.
+  await act(async () => { await vi.advanceTimersByTimeAsync(9 * 60_000); });
+  expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
+  // After the cooldown the desk retries with an escalated prompt.
+  await act(async () => { await vi.advanceTimersByTimeAsync(2 * 60_000); });
+  expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(2);
+  expect(s.huntCompanyMetrics).toHaveBeenLastCalledWith('company-0', { escalation: 1 });
+  await act(async () => { await vi.advanceTimersByTimeAsync(10.5 * 60_000); });
+  expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(3);
+  expect(s.huntCompanyMetrics).toHaveBeenLastCalledWith('company-0', { escalation: 2 });
+  // A still-empty company bottoms out instead of burning queries forever.
+  await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
+  expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(3);
+  hook.unmount(); s.client.clear();
 });
 
 it('invalidates real card, saved, metric and dashboard queries after recovery', async () => {
@@ -242,6 +265,6 @@ it('accepts market cap as company value but recovers absent or unknown core figu
   s.cards[2]!.metrics = s.cards[2]!.metrics.map(m => m.metricType === 'employees' ? { ...m, value: null, confidence: 'unknown' } : m);
   const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(10500); });
-  expect(s.huntCompanyMetrics.mock.calls).toEqual([['company-1'], ['company-2']]);
+  expect(s.huntCompanyMetrics.mock.calls.map(c => c[0])).toEqual(['company-1', 'company-2']);
   hook.unmount(); s.client.clear();
 });

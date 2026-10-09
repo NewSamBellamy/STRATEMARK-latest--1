@@ -7,9 +7,13 @@
  */
 import type {
   ProviderCapabilities,
+  HuntMetricsOptions,
   HuntMetricsResult,
   VerifyMetricInput,
   VerifyMetricResult,
+  VerifyCompanyMetricsResult,
+  BatchMetricVerification,
+  MetricType,
   AskResearchInput,
   Card,
   CardFilter,
@@ -850,7 +854,40 @@ export class SentinelRepository implements MarketIntelRepository {
     return res;
   }
 
-  async huntCompanyMetrics(companyId: string): Promise<HuntMetricsResult> {
+  /**
+   * Cloud-route batch verification: the cloud API verifies per metric, so the
+   * batch is a sequential fan-out over the company's estimated figures. This
+   * keeps `verifyCompanyMetrics` available on EVERY live-research transport —
+   * the living desk checks for it and silently degrades when it is missing,
+   * which is how the cloud route ended up with no batch lane at all.
+   */
+  async verifyCompanyMetrics(companyId: string): Promise<VerifyCompanyMetricsResult> {
+    const deckId = this.findDeckIdForCompany(companyId);
+    if (!deckId) throw new Error('Cannot verify metrics: Deck ID not found in local cache');
+    const targets = (await this.getCompanyMetrics(companyId))
+      .filter((m) => m.confidence === 'estimated' && m.value != null);
+    const results: BatchMetricVerification[] = [];
+    const changedTypes: MetricType[] = [];
+    const citations: Citation[] = [];
+    for (const metric of targets) {
+      const res = await verifyCloudMetric({ companyId, metricType: metric.metricType }, deckId);
+      if (!res) continue;
+      citations.push(...(res.citations ?? []));
+      results.push({
+        metricType: metric.metricType,
+        verdict: res.verdict,
+        changed: res.changed,
+        confidence: res.metric.confidence,
+        value: res.metric.value,
+        rationale: res.rationale ?? '',
+      });
+      if (res.changed) changedTypes.push(metric.metricType);
+    }
+    if (changedTypes.length) this.invalidateDeckCache(deckId);
+    return { examined: targets.map((m) => m.metricType), changedTypes, retieredCardIds: [], results, citations };
+  }
+
+  async huntCompanyMetrics(companyId: string, _options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
     const deckId = this.findDeckIdForCompany(companyId);
     if (!deckId) throw new Error('Cannot hunt metrics: Deck ID not found in local cache');
     const res = await huntCloudMetrics(companyId, deckId);
