@@ -210,6 +210,33 @@ export interface VerifyMetricResult {
   }[];
 }
 
+export interface BatchMetricVerification {
+  metricType: MetricType;
+  verdict: FactCheckVerdict;
+  changed: boolean;
+  /** Stored confidence AFTER verification applied (or was skipped). */
+  confidence: Confidence;
+  /** Stored value AFTER verification applied (or was skipped). */
+  value: number | null;
+  rationale: string;
+}
+
+/**
+ * ONE grounded pass re-checking every estimated figure a company has — the
+ * promote-to-verified / demote-on-contradiction lane. Unknown slots are the
+ * hunt's job; user-verified rows are law. One action instead of two calls per
+ * metric is what makes background verification affordable at deck scale.
+ */
+export interface VerifyCompanyMetricsResult {
+  /** Metric types the batch pass examined. */
+  examined: MetricType[];
+  /** Types whose stored value or confidence actually changed. */
+  changedTypes: MetricType[];
+  retieredCardIds: string[];
+  results: BatchMetricVerification[];
+  citations: Citation[];
+}
+
 /**
  * One targeted research pass over EVERY soft figure a company still has —
  * missing rows, unknowns, and unverified estimates. The "find more metrics"
@@ -610,6 +637,14 @@ export interface MarketIntelRepository {
    * live-research transports implement it; demo transports may confirm-only.
    */
   verifyMetric?(input: VerifyMetricInput): Promise<VerifyMetricResult>;
+
+  /**
+   * ONE grounded pass re-checking every estimated figure this company has:
+   * promote to verified on reputable corroboration, demote on contradiction,
+   * leave unknowns to hunts and user-verified rows untouched. Optional — only
+   * live-research transports implement it.
+   */
+  verifyCompanyMetrics?(companyId: string): Promise<VerifyCompanyMetricsResult>;
 
   /**
    * Hunt grounded values for ALL of a company's soft figures (missing rows,

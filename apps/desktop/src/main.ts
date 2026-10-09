@@ -390,6 +390,13 @@ function registerIpc(): void {
       companyId: z.string().min(1), companyName: z.string().min(1),
       text: z.string().min(1).max(20000), sourceUrl: z.string().url().optional(),
     }).parse(input)) ?? null);
+  ipcMain.handle(IPC_CHANNELS.verifyCompanyMetrics, (_e, input: unknown) => {
+    const parsed = z.object({ companyId: z.string().min(1) }).parse(input);
+    const verifier = repository as MarketIntelRepository & {
+      verifyCompanyMetrics?: (companyId: string) => unknown;
+    };
+    return verifier.verifyCompanyMetrics?.(parsed.companyId) ?? null;
+  });
   ipcMain.handle(IPC_CHANNELS.searchResearchCorpus, (_e, input: unknown) => {
     const parsed = z.object({
       query: z.string().max(500), companyIds: z.array(z.string().min(1)).max(60).optional(),

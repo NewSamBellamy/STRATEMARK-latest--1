@@ -34,6 +34,7 @@ export type PreloadRepositoryApi = Omit<
   getResearchEvidence(input: { companyId?: string; limit?: number }): unknown[];
   addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<unknown>;
   searchResearchCorpus(input: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }): Promise<unknown>;
+  verifyCompanyMetrics(companyId: string): Promise<unknown>;
   saveReport(input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }): Promise<unknown>;
   createResearchedDeck(
     brief: Parameters<MarketIntelRepository['createResearchedDeck']>[0],
@@ -85,6 +86,7 @@ export const IPC_CHANNELS = {
   listResearchJobs: 'mi:listResearchJobs',
   addResearchNote: 'mi:addResearchNote',
   searchResearchCorpus: 'mi:searchResearchCorpus',
+  verifyCompanyMetrics: 'mi:verifyCompanyMetrics',
   saveReport: 'mi:saveReport',
   getResearchEvidence: 'mi:getResearchEvidence',
   getResearchJob: 'mi:getResearchJob',

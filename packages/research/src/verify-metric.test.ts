@@ -649,3 +649,80 @@ describe('verifyMetric fast-path correction (fact-check evidence applied directl
     expect(users.confidence).toBe('user_verified');
   });
 });
+
+// Batch verification — one grounded pass re-checks every estimated figure.
+// Per-metric verification cost 2 calls per figure, which priced background
+// verification out of existence: the Oct 8 nuclear run ended 0-for-168.
+describe('verifyCompanyMetrics (batch)', () => {
+  it('promotes a corroborated estimate to verified without replacing the value', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { metrics: [
+      { metricType: 'arr', verdict: 'supported', currentValue: 995_000_000,
+        rationale: 'Reuters confirms the figure.', methodNote: 'reuters.com' },
+    ] } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyCompanyMetrics('cmp_openai');
+    expect(result.examined).toEqual(['arr']);
+    expect(result.changedTypes).toEqual(['arr']);
+    const arr = (await repo.getCompanyMetrics('cmp_openai')).find(m => m.metricType === 'arr')!;
+    expect(arr.confidence).toBe('verified');
+    expect(arr.value).toBe(990_000_000);
+    expect(result.results[0]).toMatchObject({ verdict: 'supported', changed: true });
+  });
+
+  it('replaces the value when a reputable source contradicts within the same pass', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { metrics: [
+      { metricType: 'arr', verdict: 'contradicted', currentValue: 40_000_000_000,
+        rationale: 'The stored estimate predates the latest disclosure.', methodNote: null },
+    ] } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyCompanyMetrics('cmp_openai');
+    expect(result.changedTypes).toEqual(['arr']);
+    const arr = (await repo.getCompanyMetrics('cmp_openai')).find(m => m.metricType === 'arr')!;
+    expect(arr.value).toBe(40_000_000_000);
+    expect(arr.confidence).toBe('verified');
+  });
+
+  it('examines only estimated rows: user figures are law, unknowns belong to hunts', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { metrics: [] } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyCompanyMetrics('cmp_openai');
+    expect(result.examined).toEqual(['arr']);
+    const users = (await repo.getCompanyMetrics('cmp_openai')).find(m => m.metricType === 'users')!;
+    expect(users.confidence).toBe('user_verified');
+  });
+
+  it('skips a row that changed mid-flight instead of overwriting it', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { metrics: [
+      { metricType: 'arr', verdict: 'contradicted', currentValue: 1_000_000_000,
+        rationale: 'Late evidence.', methodNote: null },
+    ] } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    vi.mocked(client.structure).mockImplementationOnce(async (_prompt, _schema, options) => {
+      // A concurrent single-metric verification lands while the batch is in flight.
+      await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+      void options;
+      return { metrics: [] } as never;
+    });
+    const result = await repo.verifyCompanyMetrics('cmp_openai');
+    expect(result.results[0]!.changed).toBe(false);
+    expect(result.results[0]!.rationale).toContain('changed during verification');
+  });
+
+  it('spends no model calls when there is nothing estimated to verify', async () => {
+    const seeded = seededSnapshot();
+    for (const metric of seeded.metrics ?? []) {
+      if (metric.confidence === 'estimated') metric.confidence = 'user_verified';
+    }
+    const { store } = memoryStore(seeded);
+    const client = stubClient({ structured: { metrics: [] } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyCompanyMetrics('cmp_openai');
+    expect(result.examined).toEqual([]);
+    expect(client.ground).not.toHaveBeenCalled();
+    expect(client.structure).not.toHaveBeenCalled();
+  });
+});

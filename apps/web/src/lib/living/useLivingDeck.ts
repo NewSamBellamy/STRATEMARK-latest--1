@@ -152,6 +152,7 @@ export function useLivingDeck(
   const hasKey = useApiKey((state) => state.hasKey);
   const researchAvailable = !isCommunityDesktop() || hasKey;
   const canVerify = researchAvailable && typeof repo.verifyMetric === 'function';
+  const canVerifyBatch = canVerify && typeof repo.verifyCompanyMetrics === 'function';
   const canHunt = researchAvailable && typeof repo.huntCompanyMetrics === 'function';
   const canRecoverFree = researchAvailable && typeof repo.recoverSavedCompanyMetrics === 'function';
 
@@ -271,6 +272,29 @@ export function useLivingDeck(
             // company's automatic attempt, so a persistent failure cannot
             // become a hot retry loop.
             attemptedVerifications.add(`${target.companyId}:${target.metricType}`);
+            // One batch action beats N per-metric actions: when a company has
+            // several figures worth re-checking, one grounded pass verifies
+            // them all (2 model calls instead of 2N) and promotes/demotes
+            // against the same credibility gates.
+            const estimatedCount = cardsRef.current
+              .find((c) => c.company?.id === target.companyId)?.metrics
+              .filter((m) => m.confidence === 'estimated' && m.value != null).length ?? 0;
+            if (canVerifyBatch && estimatedCount >= 2) {
+              const batch = await repo.verifyCompanyMetrics!(target.companyId);
+              for (const row of batch.results) {
+                const slot = `${target.companyId}:${row.metricType}`;
+                if (row.changed) attemptedVerifications.delete(slot);
+                else attemptedVerifications.add(slot);
+              }
+              await invalidateMetricSurfaces(qc, target.companyId, batch.changedTypes.length > 0);
+              const held = batch.results.filter((r) => r.verdict === 'supported' && !r.changed).length;
+              const corrected = batch.results.filter((r) => r.changed).length;
+              return {
+                changed: batch.changedTypes.length > 0,
+                citations: batch.citations.length,
+                summary: `${batch.examined.length} figures re-checked: ${held} held, ${corrected} corrected`,
+              };
+            }
             const result = await repo.verifyMetric!({
               companyId: target.companyId,
               metricType: target.metricType as MetricType,

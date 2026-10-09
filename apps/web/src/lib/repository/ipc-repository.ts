@@ -45,6 +45,7 @@ import type {
   ProviderCapabilities,
   ResearchNoteEntry,
   ResearchPassage,
+  VerifyCompanyMetricsResult,
 } from '@mi/contracts';
 
 /** Structural match of the research package's evidence record over IPC. */
@@ -171,6 +172,10 @@ export class IpcRepository implements MarketIntelRepository {
 
   searchResearchCorpus(query: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }) {
     return this.api.searchResearchCorpus?.(query) as Promise<ResearchPassage[] | []>;
+  }
+
+  verifyCompanyMetrics(companyId: string) {
+    return this.api.verifyCompanyMetrics?.(companyId) as Promise<VerifyCompanyMetricsResult>;
   }
 
   async saveReport(input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }) {

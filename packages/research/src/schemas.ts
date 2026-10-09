@@ -209,6 +209,35 @@ export const verifyMetricOutSchema = z.object({
   passageSupport: metricPassageSchema.nullable().default(null),
 });
 
+/** Structured output for the batch verification pass (verifyCompanyMetrics):
+ * one verdict per examined figure, keyed by metric type. Bare-array tolerant
+ * like the hunt schema — single-list structured outputs get the wrapper. */
+export const batchVerifyOutSchema = z.preprocess(
+  (input) => (Array.isArray(input) ? { metrics: input } : input),
+  z.object({
+    metrics: z
+      .array(
+        z.object({
+          metricType: z.enum([
+            'market_cap',
+            'valuation',
+            'market_share',
+            'arr',
+            'users',
+            'employees',
+          ]),
+          verdict: z.enum(['supported', 'contradicted', 'unverified']).default('unverified'),
+          /** Best current grounded value in the metric's native unit; null if unknown. */
+          currentValue: z.number().nullable().default(null),
+          rationale: z.string().default(''),
+          methodNote: z.string().nullable().default(null),
+          passageSupport: metricPassageSchema.nullable().default(null),
+        }),
+      )
+      .default([]),
+  }),
+);
+
 /**
  * Output of the multi-figure metrics hunt (huntCompanyMetrics): one grounded
  * pass, every soft figure the sources actually support. Bare-array tolerant —
