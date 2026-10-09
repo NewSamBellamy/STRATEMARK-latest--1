@@ -49,8 +49,10 @@ const PREFETCH_TABS: Array<{ tab: DashboardTab; label: string }> = [
   { tab: 'overview', label: 'Overview' },
   { tab: 'metrics', label: 'Metrics' },
 ];
-/** Warm the first N companies (deck order) — the ones a user opens first. */
-const PREFETCH_COMPANY_LIMIT = 4;
+/** Warm EVERY company's core tabs — the deck is not "done" until all its
+ * dashboards are populated. One company per tick keeps the pacing honest;
+ * the run-level feed shows the queue draining. */
+const PREFETCH_COMPANY_LIMIT = Number.POSITIVE_INFINITY;
 /** Verification candidates considered per turn (top of the overdue ranking). */
 const STALE_BUDGET_PER_TURN = 3;
 const MAX_FEED_EVENTS = 30;
@@ -195,6 +197,9 @@ export function useLivingDeck(
     });
 
     const runtime = new LivingDeckRuntime({
+      // Full-deck dashboard warming: every company needs its core tabs, plus
+      // hunts and verifications — scale the session budget with the deck size.
+      maxActions: Math.max(60, deskCount * (PREFETCH_TABS.length + 2)),
       canAct: async () => isLowPower() || !(await creationIsActive(repo, deckId)),
       nextRecovery: () => {
         if (!(canHunt || canRecoverFree) || isLowPower() || useResearchControl.getState().paused) return null;

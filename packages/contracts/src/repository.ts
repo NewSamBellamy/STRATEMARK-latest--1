@@ -521,6 +521,10 @@ export interface DeckRefreshEvent {
   addedCardIds: string[];
   updatedCardIds: string[];
   prunedCardIds: string[];
+  /** Companies whose stored figures or dashboards changed — lets the UI
+   * invalidate live-updating dashboard/company queries precisely. Optional
+   * for older emitters. */
+  companyIds?: string[];
 }
 
 export type DeckRefreshListener = (event: DeckRefreshEvent) => void;

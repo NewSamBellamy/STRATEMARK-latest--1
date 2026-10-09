@@ -519,6 +519,14 @@ export function useDeckRefreshSubscription(onEvent?: (evt: DeckRefreshEvent) => 
       // reads; do not invalidate researched dashboard tabs and spend keys.
       qc.invalidateQueries({ queryKey: ['companyMetrics'] });
       qc.invalidateQueries({ queryKey: qk.deck(evt.marketId) });
+      // Live dashboards: when the event names the companies it touched, every
+      // open dashboard surface for them refreshes in place — figures corrected
+      // by a background desk appear without a reload.
+      for (const companyId of evt.companyIds ?? []) {
+        qc.invalidateQueries({ queryKey: qk.company(companyId) });
+        qc.invalidateQueries({ queryKey: qk.companyMetrics(companyId) });
+        qc.invalidateQueries({ queryKey: ['dashboard', companyId] });
+      }
       onEvent?.(evt);
     });
     return unsub;

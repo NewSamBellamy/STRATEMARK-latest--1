@@ -2342,6 +2342,7 @@ export class GeminiRepository implements MarketIntelRepository {
           addedCardIds: [],
           updatedCardIds: retieredCardIds.length > 0 ? retieredCardIds : card ? [card.id] : [],
           prunedCardIds: [],
+          companyIds: [companyId],
         });
       }
     }

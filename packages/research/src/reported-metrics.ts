@@ -179,6 +179,7 @@ const basisPatterns: Record<string, RegExp> = {
   monthly_active_users: /\bmonthly active users\b/i, daily_active_users: /\bdaily active users\b/i,
   customers: /\bcustomers\b/i, paying_customers: /\bpaying customers\b/i,
   valuation: /\bvaluation|valued at\b/i, market_cap: /\bmarket cap(?:italization)?\b/i,
+  market_share: /\bmarket share\b/i,
 };
 const speculativeValuation = /\b(?:preliminary|discussions|talks|seeking|targeting|proposed|potential|considering|negotiating)\b/i;
 
@@ -253,7 +254,7 @@ export function businessDates(text: string): string[] {
  * Multiple values for the same latest period are ambiguous and stay unknown. */
 function recoverOmittedClaim(companyName: string, website: string | null, type: MetricType,
   grounding?: ProviderGrounding, otherCompanies?: readonly string[]) {
-  if (!grounding || !['arr', 'employees', 'valuation', 'market_cap'].includes(type)) return undefined;
+  if (!grounding || !['arr', 'employees', 'valuation', 'market_cap', 'market_share', 'users'].includes(type)) return undefined;
   const choices: Array<{ value: number; selector: NonNullable<NonNullable<EnrichmentOut['metrics']['arr']>['reportedClaim']> }> = [];
   for (const support of grounding.supports) {
     if (!grounding.answerText.includes(support.text)) continue;
@@ -274,7 +275,7 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
     const candidates: Array<NonNullable<ReportedMetricSupport['definition']>> =
       type === 'arr' ? ['arr', 'annual_revenue'] : [type];
     const definitions = candidates.filter(definition => basisPatterns[definition]?.test(text));
-    const unit = type === 'employees' ? 'count' : 'USD';
+    const unit = type === 'employees' || type === 'users' ? 'count' : type === 'market_share' ? 'percent' : 'USD';
     const pattern = /(?:\bUSD\s*|US\$|\$)?\s*(\d[\d,]*(?:\.\d+)?)\s*\+?\s*(trillion|billion|million|thousand|[kmbt]\b)?/gi;
     for (const match of text.matchAll(pattern)) {
       // Parenthetical breakdowns are not company-wide employee candidates.
