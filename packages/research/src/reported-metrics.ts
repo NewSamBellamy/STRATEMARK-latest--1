@@ -31,7 +31,9 @@ const entityAliases = (name: string): string[] => {
 };
 const entity = (text: string, name: string) => {
   const body = plain(text);
-  return entityAliases(name).some(alias => new RegExp(`^${escape(alias)}(?:['’]s)?\\b`, 'i').test(body));
+  // Lookahead, not \b: aliases ending in a legal abbreviation ("...Co.")
+  // are followed by a non-word character in prose, where \b never holds.
+  return entityAliases(name).some(alias => new RegExp(`^${escape(alias)}(?:['’]s)?(?![\\p{L}\\p{N}])`, 'iu').test(body));
 };
 
 // Legal suffixes and short forms whose period never ends a sentence. A
@@ -309,7 +311,7 @@ export function reportedMetricCitations(companyName: string, website: string | n
   if (!parsed.success) return [];
   const proof = parsed.data, type = metric.metricType;
   if (proof.companyName !== companyName || proof.basis !== type || proof.value !== metric.value ||
-    !validMetricVerificationValue(type, metric.value) || type === 'market_share' || metric.value === 0 ||
+    !validMetricVerificationValue(type, metric.value) || metric.value === 0 ||
     (['employees', 'users'].includes(type) && !Number.isSafeInteger(metric.value))) return [];
   const definition = proof.definition ?? type;
     // User populations are always reported AS OF a date or period in any source
@@ -321,7 +323,7 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
   if ((type === 'arr' && !['arr', 'annual_revenue'].includes(definition)) ||
     (type === 'users' && !['users', 'active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition)) ||
     (!['arr', 'users'].includes(type) && definition !== type)) return [];
-  if (proof.unit !== (['arr', 'valuation', 'market_cap'].includes(type) ? 'USD' : 'count')) return [];
+  if (proof.unit !== (['arr', 'valuation', 'market_cap'].includes(type) ? 'USD' : type === 'market_share' ? 'percent' : 'count')) return [];
   const pattern = basisPatterns[definition];
   const citations = usableCitations(proof.support.sources, website ?? undefined);
   const expected = host(website);
@@ -347,8 +349,11 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
   // so this path stays disabled.
   const namedBeforeBasis = rivals && identity?.otherCompanies ? (sentence: string) => {
     if (rivals!.test(sentence)) return false;
-    const alias = stripCorporateSuffix(companyName);
-    const subjectForms = [alias, companyName].filter(Boolean).map(escape).join('|');
+    // Alias set, not the raw stored name: sources open with the legal or DBA
+    // form ("Contemporary Amperex Technology Co., Limited") while the deck
+    // stores the display form ("...(CATL)"); without the set the subject is
+    // never found and every claim fails closed.
+    const subjectForms = entityAliases(companyName).map(escape).join('|');
     const subjectAt = new RegExp(`(?<![\\p{L}\\p{N}])(?:${subjectForms})(?![\\p{L}\\p{N}])`, 'iu').exec(sentence)?.index;
     const firstBasisAt = basisPatterns[definition] ? new RegExp(basisPatterns[definition]!.source, 'i').exec(sentence)?.index : undefined;
     return subjectAt !== undefined && firstBasisAt !== undefined && subjectAt < firstBasisAt;
@@ -384,13 +389,13 @@ export function reportedSupportCitations(companyName: string, website: string | 
   if (!parsed.success) return [];
   const proof = parsed.data, type = metric.metricType;
   if (proof.companyName !== companyName || proof.basis !== type || proof.value !== metric.value ||
-    !validMetricVerificationValue(type, metric.value) || type === 'market_share' || metric.value === 0 ||
+    !validMetricVerificationValue(type, metric.value) || metric.value === 0 ||
     (['employees', 'users'].includes(type) && !Number.isSafeInteger(metric.value))) return [];
   const definition = proof.definition ?? type;
   if ((type === 'arr' && !['arr', 'annual_revenue'].includes(definition)) ||
     (type === 'users' && !['users', 'active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition)) ||
     (!['arr', 'users'].includes(type) && definition !== type)) return [];
-  if (proof.unit !== (['arr', 'valuation', 'market_cap'].includes(type) ? 'USD' : 'count')) return [];
+  if (proof.unit !== (['arr', 'valuation', 'market_cap'].includes(type) ? 'USD' : type === 'market_share' ? 'percent' : 'count')) return [];
     // User populations are always reported AS OF a date or period in any source
   // worth citing. A users claim with no reporting date ('1B active users',
   // full stop) is the unverifiable mega-figure the red team flagged: it

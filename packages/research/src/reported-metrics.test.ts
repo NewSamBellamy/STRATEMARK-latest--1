@@ -650,3 +650,46 @@ describe('provider company summary (source-backed one-liner)', () => {
     expect(providerCompanySummary('NuScale Power Corporation', 'https://www.nuscalepower.com', text, grounding)).toBeNull();
   });
 });
+
+// The battery-storage run left CATL at zero figures although its retained
+// interview contained "captured a 20% global market share in ... BESS cell
+// shipments in 2025 ... according to Benchmark Mineral Intelligence".
+// market_share was blacklisted from citations and absent from the recovery
+// lanes; this pins the sourced-claim path end to end.
+describe('market-share recovery (sourced, whole-company)', () => {
+  const answer = 'Contemporary Amperex Technology Co., Limited captured a 20% global market share in battery energy stationary storage (BESS) cell shipments in 2025, ranking as the world largest supplier, according to Benchmark Mineral Intelligence reporting published in 2026.';
+  const fragment = 'Contemporary Amperex Technology Co., Limited captured a 20% global market share in battery energy stationary storage (BESS) cell shipments in 2025';
+  const groundingOf = () => extractProviderGrounding(answer, {
+    groundingChunks: [{ web: { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/catl-share', title: 'benchmarkminerals.com' } }],
+    groundingSupports: [{ segment: { text: fragment, startIndex: answer.indexOf(fragment),
+      endIndex: answer.indexOf(fragment) + fragment.length }, groundingChunkIndices: [0] }],
+  });
+
+  it('recovers a sourced market-share claim from retained evidence', () => {
+    const rows = reportedCompanyMetrics({
+      companyId: 'cmp_catl', companyName: 'Contemporary Amperex Technology Co., Limited (CATL)',
+      website: 'https://www.catl.com', enrichment: enrichmentOutSchema.parse({ metrics: {} }),
+      text: answer, grounding: groundingOf(), capturedAt: '2026-10-09T00:00:00.000Z',
+      identity: { answerText: answer, otherCompanies: ['Tesla, Inc. (Tesla Energy)', 'Sungrow Power Supply Co., Ltd.'] },
+    });
+    expect(rows.find(row => row.metricType === 'market_share')).toMatchObject({
+      value: 20, confidence: 'estimated' });
+  });
+
+  it('still refuses market-share claims that name a roster rival', () => {
+    const rivalAnswer = 'Sungrow Power Supply Co., Ltd. and Contemporary Amperex Technology Co., Limited each held about 15% of the BESS integrator market share in 2025.';
+    const rivalFragment = 'each held about 15% of the BESS integrator market share in 2025';
+    const grounding = extractProviderGrounding(rivalAnswer, {
+      groundingChunks: [{ web: { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/rival-share', title: 'woodmac.com' } }],
+      groundingSupports: [{ segment: { text: rivalFragment, startIndex: rivalAnswer.indexOf(rivalFragment),
+        endIndex: rivalAnswer.indexOf(rivalFragment) + rivalFragment.length }, groundingChunkIndices: [0] }],
+    });
+    const rows = reportedCompanyMetrics({
+      companyId: 'cmp_catl', companyName: 'Contemporary Amperex Technology Co., Limited (CATL)',
+      website: 'https://www.catl.com', enrichment: enrichmentOutSchema.parse({ metrics: {} }),
+      text: rivalAnswer, grounding, capturedAt: '2026-10-09T00:00:00.000Z',
+      identity: { answerText: rivalAnswer, otherCompanies: ['Sungrow Power Supply Co., Ltd.', 'Tesla, Inc. (Tesla Energy)'] },
+    });
+    expect(rows.find(row => row.metricType === 'market_share')?.value ?? null).toBeNull();
+  });
+});
