@@ -162,6 +162,33 @@ describe('original metric passage gate', () => {
     const text = quote.replace('2026-10-01', date);
     expect(acceptedMetricPassage({ ...input, support: { ...support, quote: text }, originals: [{ ...source, text }] })).toHaveLength(1);
   });
+  it('accepts the common press reporting verbs as direct company statements', () => {
+    for (const [text, metricType] of [
+      ['Acme Inc. posted ARR of USD 40 million as of 2026-10-01.', 'arr'],
+      ['Acme Inc. reached a valuation of USD 40 million as of 2026-10-01.', 'valuation'],
+      ['Acme Inc. generated ARR of USD 40 million as of 2026-10-01.', 'arr'],
+    ] as const) {
+      const text2 = text as string;
+      expect(acceptedMetricPassage({ ...input, metricType, value: 40_000_000,
+        support: { ...support, quote: text2, basis: metricType }, originals: [{ ...source, text: text2 }] })).toHaveLength(1);
+    }
+    // 'said its' is the company speaking about itself — direct attribution.
+    const said = 'Acme Inc. said its ARR was USD 40 million as of 2026-10-01.';
+    expect(acceptedMetricPassage({ ...input, support: { ...support, quote: said }, originals: [{ ...source, text: said }] })).toHaveLength(1);
+    // A possessive another entity still smuggles a borrowed figure in.
+    const borrowed = 'Acme Inc. posted a valuation of USD 40 million for its partner Beta’s business as of 2026-10-01.';
+    expect(acceptedMetricPassage({ ...input, support: { ...support, quote: borrowed }, originals: [{ ...source, text: borrowed }] })).toEqual([]);
+  });
+  it.each([
+    'Acme Inc. reports 45 employees as at 2026-10-01.',
+    'Acme Inc. reported 45 employees for the quarter ended June 30, 2026.',
+    'Acme Inc. reported 45 employees for the period ending September 30, 2026.',
+  ])('accepts quarter-end and as-at date phrasings: %s', (text) => {
+    const asOf = text.includes('June 30, 2026') ? '2026-06-30' : text.includes('September 30, 2026') ? '2026-09-30' : '2026-10-01';
+    expect(acceptedMetricPassage({ ...input, metricType: 'employees', value: 45,
+      support: { ...support, quote: text, asOf, basis: 'employees' as const, unit: 'count' as const },
+      originals: [{ ...source, text }] })).toHaveLength(1);
+  });
   it.each([
     { metricType: 'employees' as const, value: 120, unit: 'count' as const, figure: 'headcount of 120 employees' },
     { metricType: 'market_share' as const, value: 12.5, unit: 'percent' as const, figure: 'market share of 12.5 percent' },

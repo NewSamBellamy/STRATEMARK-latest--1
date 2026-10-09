@@ -119,12 +119,12 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
   // Keyword co-occurrence is not attribution: the company, metric and date
   // must form one direct statement. Ambiguous prose stays unknown rather than
   // borrowing a partner's figure or mistaking an article date for an as-of date.
-  const subject = new RegExp(`(?<![\\p{L}\\p{N}])${companyPattern}(?![\\p{L}\\p{N}])(?:['’]s)?\\s+(?:reports?|reported|has|had|recorded|disclosed|announced|employs?|employed|was|is)\\b`, 'iu');
+  const subject = new RegExp(`(?<![\\p{L}\\p{N}])${companyPattern}(?![\\p{L}\\p{N}])(?:['’]s)?\\s+(?:reports?|reported|has|had|recorded|disclosed|announced|employs?|employed|was|is|said|says|posted|generated|reached|serves|served|counts)\\b`, 'iu');
   const withoutCompany = quote.replace(new RegExp(`(?<![\\p{L}\\p{N}])${companyPattern}(?![\\p{L}\\p{N}])(?:['’]s)?`, 'giu'), 'COMPANY');
   if (!subject.test(quote) || /[.!?;]\s+/.test(withoutCompany) ||
     /\bthat\b|[\p{L}\p{N}]+['’]s\b/iu.test(withoutCompany) ||
-    /\b(?:article|published|publication|posted|retrieved|updated)\b/i.test(quote) ||
-    (!intervalDate && !new RegExp(`\\b(?:as of|on|at)\\s+${escape(literalDate)}(?![\\p{L}\\p{N}])`, 'iu').test(quote)) ||
+    /\b(?:article|published|publication|retrieved|updated)\b/i.test(quote) ||
+    (!intervalDate && !new RegExp(`\\b(?:as of|as at|on|at|ended|ending)\\s+${escape(literalDate)}(?![\\p{L}\\p{N}])`, 'iu').test(quote)) ||
     Object.entries(basis).some(([type, pattern]) => type !== input.metricType && pattern.test(quote))) return reject('Claim attribution is ambiguous. A direct company statement and metric reporting date are required, not an article date or another company’s figure.');
   const expectedUnit = ['arr', 'valuation', 'market_cap'].includes(input.metricType) ? 'USD' : input.metricType === 'market_share' ? 'percent' : 'count';
   // A money figure may be quoted natively in a convertible currency: the model
