@@ -107,7 +107,8 @@ export interface GeminiClientConfig {
   /**
    * Proactive pacing, per model, to stay under the free tier's per-MINUTE cap.
    * Measured 2026-07: 15 RPM on the flash line, 30 on flash-lite, 1,500 RPD.
-   * Defaults sit at those caps for maximum throughput. Set 0 to disable (tests).
+   * Defaults pace just under the cap (see DEFAULT_GROUNDED_RPM). Set 0 to
+   * disable (tests).
    */
   groundedRpm?: number;
   structureRpm?: number;
@@ -129,9 +130,17 @@ export interface GeminiClientConfig {
 
 
 
-/** Default RPM pacing: disabled for the hackathon (0). */
-export const DEFAULT_GROUNDED_RPM = 0;
-export const DEFAULT_STRUCTURE_RPM = 0;
+/**
+ * Default RPM pacing. 0 (the hackathon setting) fired every call at once,
+ * ate a wall of 429s on free-tier keys, and then sat in reactive backoff —
+ * which reads to the user as "slow and flaky". Free tier measures ~15 RPM
+ * on the flash line; pacing at 10 grounded / 15 structured leaves headroom
+ * for grounding's internal search calls and for the fallback ladder's
+ * unpaced reserve lines. Reactive `withRetry` stays as the safety net.
+ * Set 0 to disable (tests).
+ */
+export const DEFAULT_GROUNDED_RPM = 10;
+export const DEFAULT_STRUCTURE_RPM = 15;
 
 // Current Gemini API defaults. Vertex AI has a separate model line below because
 // the newest Developer API IDs are not necessarily published in every Vertex
