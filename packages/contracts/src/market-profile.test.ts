@@ -40,6 +40,13 @@ describe('profile metric tables', () => {
     expect(operating).not.toContain('aum');
   });
 
+  it('leads the financial hunt with AUM; the operating order is unchanged', () => {
+    expect(profileMetricTypes('financial_firm')[0]).toBe('aum');
+    expect(profileMetricTypes('operating_company')).toEqual([
+      'market_cap', 'valuation', 'market_share', 'arr', 'users', 'employees',
+    ]);
+  });
+
   it('keeps every table row inside the fixed metric enum and four slots per profile', () => {
     for (const profile of ['operating_company', 'financial_firm'] as const) {
       const slots = PROFILE_CORE_SLOTS[profile];

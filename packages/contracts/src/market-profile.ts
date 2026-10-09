@@ -39,14 +39,14 @@ export function classifyMarketProfile(company: MarketProfileInput | null | undef
 }
 
 /**
- * The metric types worth RESEARCHING per profile. Hunt targeting, enrichment
- * prompts and verification candidates all read from this table, so a financial
- * firm is never billed for a search for "a16z ARR" (a figure that does not
- * exist and never will) — the search budget goes to AUM instead.
+ * The metric types worth RESEARCHING per profile, priority order first. Hunt
+ * targeting, hunt prompt ordering and verification candidates all read from
+ * this table, so a financial firm's budget goes to AUM first — never to a
+ * search for "a16z ARR" (a figure that does not exist and never will).
  */
 export function profileMetricTypes(profile: MarketProfile): readonly MetricType[] {
   return profile === 'financial_firm'
-    ? ['market_cap', 'valuation', 'market_share', 'aum', 'employees']
+    ? ['aum', 'employees', 'market_cap', 'valuation', 'market_share']
     : ['market_cap', 'valuation', 'market_share', 'arr', 'users', 'employees'];
 }
 

@@ -48,7 +48,6 @@ import {
   buildCmsInput,
   computeCms,
   METRIC_TYPE_LABELS,
-  METRIC_TYPES,
   profileMetricTypes
 } from '@mi/contracts';
 import { dashboardTabSchema } from '@mi/contracts';
@@ -1011,11 +1010,10 @@ export function createApp(
     const company = companyCard.company!;
     const metrics = companyCard.metrics;
 
-    // Market profile decides which metric types exist for this company at all —
-    // a financial firm hunts AUM, not ARR/user figures that no fund publishes.
-    const profileTypes = profileMetricTypes(classifyMarketProfile(company));
-    const softTypes = METRIC_TYPES.filter(t => {
-      if (!profileTypes.includes(t)) return false;
+    // Market profile decides which metric types exist for this company at all,
+    // priority order first — a financial firm hunts AUM, not ARR/user figures
+    // that no fund publishes.
+    const softTypes = profileMetricTypes(classifyMarketProfile(company)).filter(t => {
       const current = currentMetricRevision(metrics, companyId, t);
       if (current?.ambiguous) return false;
       const m = current?.metric;

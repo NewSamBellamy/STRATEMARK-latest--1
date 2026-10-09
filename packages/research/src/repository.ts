@@ -2203,12 +2203,12 @@ export class GeminiRepository implements MarketIntelRepository {
 
     // A figure is a hunt target when we have nothing, an unknown, or a soft
     // estimate. Verified figures re-check via decay; user figures are law.
-    // The market profile decides WHICH types exist for this company at all:
-    // a financial firm's budget goes to AUM, never to a search for an ARR
-    // figure that no partnership publishes.
-    const profileTypes = profileMetricTypes(classifyMarketProfile(company));
-    const softTypes: MetricType[] = METRIC_TYPES.filter((t) => {
-      if (!profileTypes.includes(t)) return false;
+    // The market profile decides WHICH types exist for this company at all and
+    // in which order the hunt asks for them: a financial firm's budget goes to
+    // AUM, never to a search for an ARR figure that no partnership publishes.
+    const profile = classifyMarketProfile(company);
+    const profileTypes = profileMetricTypes(profile);
+    const softTypes: MetricType[] = profileTypes.filter((t) => {
       const current = currentMetricRevision(mine(), companyId, t);
       if (current?.ambiguous) return false;
       const m = current?.metric;
@@ -2239,6 +2239,7 @@ export class GeminiRepository implements MarketIntelRepository {
         ...(softTypes.includes('arr') ? ['Find the latest whole-company fiscal annual revenue OR explicitly reported ARR. Keep them distinct. Find the actual dated annual report, earnings disclosure or company-specific regulatory filing, not an investor homepage or regulator search page. Include the direct filing URL actually discovered; do not guess identifiers.'] : []),
         ...(softTypes.includes('aum') ? ['This is a financial-services firm: find its assets under management (AUM) — the total capital it manages for clients, not the firm\'s own revenue or valuation. Prefer the firm\'s own disclosures (Form ADV filings, firm publications, investor pages) or reputable financial coverage, and name the as-of date.'] : []),
         ...(escalation > 0 ? [`ESCALATION PASS ${escalation}: earlier general searches for these figures came back empty. Vary the approach rather than repeating the same query shape: regulatory filings and exchange disclosures, investor presentations and earnings materials, trade-association market reports, sector trade press, funding announcements, or the company's own data book. For private companies look for the most recent credible estimate and name who published it. If a figure is still not reliably reported, say so plainly.`] : []),
+        ...(escalation > 0 && profile === 'financial_firm' ? ['For this firm, regulatory assets under management appear in SEC Form ADV filings (adviserinfo.sec.gov), fund disclosures and the firm\'s own publications; a press AUM figure is usable only when it names its as-of date.'] : []),
         ...(priorTargets.length ? ['Previously retrieved URLs are leads only. Check for the latest reporting period and actual disclosure:', ...priorTargets.map(source => source.url)] : []),
         `Company: ${company.name} — ${company.oneLiner}`,
         `Use Google Search. For each figure name the value, its as-of date, and the source. Prefer primary sources and recent reputable coverage. If no reliable current figure exists for a metric, say so plainly for that metric. Never guess.`,
