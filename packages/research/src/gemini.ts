@@ -341,15 +341,24 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         const startedAt = Date.now();
         const primaryBudget = config.groundedAttemptBudgetMs ?? PRIMARY_GROUND_ATTEMPT_BUDGET_MS;
         const primaryAttemptTimeout = config.groundedAttemptTimeoutMs ?? PRIMARY_GROUND_ATTEMPT_BUDGET_MS;
+        // Every line deserves a real window: cap each non-final attempt so the
+        // lines after it keep at least FALLBACK_ATTEMPT_FLOOR_MS each. Two
+        // 110s hangs used to eat the whole 240s deadline and the last fallback
+        // never ran — and the third line is exactly what rescues a two-line
+        // congestion event, which is what killed the Oct 9 frontier-ai run.
+        const FALLBACK_ATTEMPT_FLOOR_MS = 45_000;
         let lastError: unknown;
-        for (const model of order) {
+        for (let index = 0; index < order.length; index++) {
+          const model = order[index]!;
           const remaining = GROUND_DEADLINE_MS - (Date.now() - startedAt);
           if (remaining < MIN_GROUND_ATTEMPT_BUDGET_MS) break;
+          const reserve = FALLBACK_ATTEMPT_FLOOR_MS * (order.length - 1 - index);
           const isPrimary = model === groundedModel;
+          const cap = Math.max(MIN_GROUND_ATTEMPT_BUDGET_MS, Math.min(remaining - 1000, remaining - reserve));
           try {
             const data = await call(model, body, signal, 'ground', {
-              retryBudgetMs: isPrimary ? Math.min(remaining - 1000, primaryBudget) : remaining - 1000,
-              attemptTimeoutMs: Math.min(remaining - 1000, isPrimary ? primaryAttemptTimeout : remaining - 1000),
+              retryBudgetMs: isPrimary ? Math.min(cap, primaryBudget) : cap,
+              attemptTimeoutMs: Math.min(cap, isPrimary ? primaryAttemptTimeout : cap),
             });
             if (isPrimary) primarySickUntil = 0;
             else { primarySickUntil = Date.now() + SICK_PRIMARY_COOLDOWN_MS; aggregate.fallbacks += 1; }

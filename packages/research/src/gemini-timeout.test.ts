@@ -81,15 +81,15 @@ it('bounds a hung fetch that ignores abort: the ladder walks the lines, the dead
   const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl });
   let settled = false;
   const result = client.ground('prompt').catch(error => { settled = true; return error; });
-  // The primary line gets a 110s attempt window, the first fallback most of
-  // the rest of the 240s ground deadline — a hung everything settles through
-  // the ladder just inside it.
+  // The primary line gets a 110s attempt window; each later line is capped so
+  // the lines after it keep a 45s floor — a hung everything still walks all
+  // three lines and settles through the ladder just inside the 240s deadline.
   await vi.advanceTimersByTimeAsync(DEADLINE - 2000);
   expect(settled).toBe(false);
   await vi.advanceTimersByTimeAsync(2000);
   expect(settled).toBe(true);
   expect(await result).toMatchObject({ name: 'TimeoutError' });
-  expect(fetchImpl).toHaveBeenCalledTimes(2);
+  expect(fetchImpl).toHaveBeenCalledTimes(3);
   expect(vi.getTimerCount()).toBe(0);
 });
 
@@ -233,10 +233,12 @@ it('does not retry a transport that completes after the deadline', async () => {
   void createGeminiClient({ apiKey: 'test-placeholder', fetchImpl, onCall }).ground('prompt').catch(value => { error = value; });
   await vi.advanceTimersByTimeAsync(DEADLINE);
   expect(error).toMatchObject({ name: 'TimeoutError' });
+  // All three lines got a window before the deadline fired; the late 503 must
+  // not conjure a FOURTH attempt once the deadline has already rejected.
   finish(new Response('ignored', { status: 503 }));
   await vi.advanceTimersByTimeAsync(DEADLINE);
-  expect(fetchImpl).toHaveBeenCalledTimes(2);
-  expect(onCall).toHaveBeenCalledTimes(2);
+  expect(fetchImpl).toHaveBeenCalledTimes(3);
+  expect(onCall).toHaveBeenCalledTimes(3);
   expect(vi.getTimerCount()).toBe(0);
 });
 
