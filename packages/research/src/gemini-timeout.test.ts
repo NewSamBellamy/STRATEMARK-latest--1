@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { createGeminiClient } from './gemini';
 
-const DEADLINE = 120_000;
+const DEADLINE = 240_000; // ground deadline (structure keeps the 120s default)
 const response = (text = 'answer') => new Response(JSON.stringify({
   candidates: [{ content: { parts: [{ text }] } }],
 }), { status: 200 });
@@ -81,8 +81,9 @@ it('bounds a hung fetch that ignores abort: the ladder walks the lines, the dead
   const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl });
   let settled = false;
   const result = client.ground('prompt').catch(error => { settled = true; return error; });
-  // The primary line gets a 45s attempt window, the first fallback most of the
-  // rest — a hung everything settles through the ladder before the 120s cap.
+  // The primary line gets a 110s attempt window, the first fallback most of
+  // the rest of the 240s ground deadline — a hung everything settles through
+  // the ladder just inside it.
   await vi.advanceTimersByTimeAsync(DEADLINE - 2000);
   expect(settled).toBe(false);
   await vi.advanceTimersByTimeAsync(2000);
@@ -142,7 +143,7 @@ it.each([400, 401, 403, 429, 500, 503, 599])('preserves safe HTTP status %s on s
   });
   const fetchImpl = vi.fn().mockRejectedValue(privateError);
   const result = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl }).ground('prompt').catch(error => error);
-  await vi.advanceTimersByTimeAsync(90000);
+  await vi.advanceTimersByTimeAsync(DEADLINE + 10_000);
   const error = await result;
   expect(error).toMatchObject({ status, message: `Gemini ${status}: request failed.` });
   expect(error).not.toBe(privateError);
@@ -156,7 +157,7 @@ it.each([undefined, '503', 399, 600, 503.5, NaN, Infinity])('does not copy inval
   vi.useFakeTimers();
   const fetchImpl = vi.fn().mockRejectedValue(Object.assign(new Error('private detail'), { status, retryAfterMs: 90000 }));
   const result = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl }).ground('prompt').catch(error => error);
-  await vi.advanceTimersByTimeAsync(90000);
+  await vi.advanceTimersByTimeAsync(DEADLINE + 10_000);
   const error = await result;
   expect(error.message).toBe('Gemini request failed.');
   expect(error.status).toBeUndefined();
@@ -189,11 +190,11 @@ it('shares the deadline across outbound retries and counts each dispatch', async
   let error: Error | undefined;
   void createGeminiClient({ apiKey: 'test-placeholder', fetchImpl, onCall }).ground('prompt').catch(value => { error = value; });
   await vi.advanceTimersByTimeAsync(90000);
-  // The primary's 45s retry budget declines the 90s Retry-After wait and hands
-  // off to the ladder; the first fallback is inside its own retry backoff now.
+  // The 90s Retry-After fits inside the primary's 110s budget, so attempt two
+  // is dispatched on the primary line at t=90s.
   expect(fetchImpl).toHaveBeenCalledTimes(2);
   expect(onCall).toHaveBeenCalledTimes(2);
-  await vi.advanceTimersByTimeAsync(30000);
+  await vi.advanceTimersByTimeAsync(150000);
   expect(error).toMatchObject({ name: 'TimeoutError' });
   expect(vi.getTimerCount()).toBe(0);
 });
@@ -259,7 +260,7 @@ it('counts each request in a successful retry and leaves no deadline timer', asy
 it('includes queued rate-limit pacing in the deadline without counting unsent requests', async () => {
   vi.useFakeTimers();
   const onCall = vi.fn(); const fetchImpl = vi.fn(async () => response());
-  const client = createGeminiClient({ apiKey: 'test-placeholder', groundedRpm: 1, fetchImpl, onCall });
+  const client = createGeminiClient({ apiKey: 'test-placeholder', groundedRpm: 1, fetchImpl, onCall, groundDeadlineMs: 120_000 });
   await client.ground('first');
   const second = client.ground('second');
   let thirdError: Error | undefined;

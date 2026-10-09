@@ -15,6 +15,10 @@ import { extractProviderGrounding } from './grounding-support';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const CALL_DEADLINE_MS = 120_000;
+/** Ground calls generate long cited answers over live search — measured legit
+ * calls run 11s (small) to 235s (six-metric hunts). The deadline gives one
+ * big call room to finish while still bounding the ladder. */
+const GROUND_DEADLINE_MS = 240_000;
 
 // A search-grounded model LINE can go bad for minutes at a time: observed
 // 2026-10-08, `gemini-3.7-flash` + google_search answered a metrics hunt in
@@ -25,9 +29,12 @@ const CALL_DEADLINE_MS = 120_000;
 // sick, and re-probe the primary after a cooldown.
 const GROUND_FALLBACK_MODELS = ['gemini-3.7-flash', 'gemini-2.5-flash'];
 const SICK_PRIMARY_COOLDOWN_MS = 10 * 60_000;
-/** The primary line's own retry budget; the rest of the deadline is left for
- * a fallback line to actually answer in. */
-const PRIMARY_GROUND_ATTEMPT_BUDGET_MS = 45_000;
+/** The primary line's window per attempt. 45s here murdered the Oct 9
+ * battery-storage catalog call — slow-but-working at >45s — by aborting all
+ * three ladder lines before any could answer. A hung line is cut at this
+ * window; a slow-but-alive one finishes. The rest of the ground deadline is
+ * left for fallback lines. */
+const PRIMARY_GROUND_ATTEMPT_BUDGET_MS = 110_000;
 const MIN_GROUND_ATTEMPT_BUDGET_MS = 8_000;
 
 /** A failure the fallback ladder can fix by asking a different model line:
@@ -44,7 +51,8 @@ function isLineFailure(error: unknown): boolean {
 class SafeGeminiError extends Error {}
 
 /** One deadline for pacing, requests, body reads and all retries/JSON repairs. */
-async function withDeadline<T>(work: (signal: AbortSignal) => Promise<T>, external?: AbortSignal): Promise<T> {
+async function withDeadline<T>(work: (signal: AbortSignal) => Promise<T>, external?: AbortSignal,
+  deadlineMs: number = CALL_DEADLINE_MS): Promise<T> {
   throwIfAborted(external);
   const controller = new AbortController();
   let cancellation: Error | undefined;
@@ -58,10 +66,10 @@ async function withDeadline<T>(work: (signal: AbortSignal) => Promise<T>, extern
   };
   const onAbort = () => cancel(new AbortError());
   const timer = setTimeout(() => {
-    const error = new Error('Gemini request timed out after 120 seconds.');
+    const error = new Error(`Gemini request timed out after ${Math.round(deadlineMs / 1000)} seconds.`);
     error.name = 'TimeoutError';
     cancel(error);
-  }, CALL_DEADLINE_MS);
+  }, deadlineMs);
   external?.addEventListener('abort', onAbort, { once: true });
   try {
     // Race as well as abort: injected transports/body readers may ignore signals.
@@ -108,6 +116,8 @@ export interface GeminiClientConfig {
    * deadline stays reserved for a healthy fallback line to answer in. */
   groundedAttemptTimeoutMs?: number;
   groundedAttemptBudgetMs?: number;
+  /** Total ground-call deadline including the fallback ladder. Default 240s. */
+  groundDeadlineMs?: number;
   /** Observability hook — fires once per outbound request (powers the usage meter). */
   onCall?: (info: { model: string; kind: 'ground' | 'structure' }) => void;
   /** Per-call latency decomposition (queue wait, dispatch, retry waits).
@@ -333,7 +343,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         const primaryAttemptTimeout = config.groundedAttemptTimeoutMs ?? PRIMARY_GROUND_ATTEMPT_BUDGET_MS;
         let lastError: unknown;
         for (const model of order) {
-          const remaining = CALL_DEADLINE_MS - (Date.now() - startedAt);
+          const remaining = GROUND_DEADLINE_MS - (Date.now() - startedAt);
           if (remaining < MIN_GROUND_ATTEMPT_BUDGET_MS) break;
           const isPrimary = model === groundedModel;
           try {
@@ -352,7 +362,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           }
         }
         throw lastError;
-      }, opts?.signal);
+      }, opts?.signal, config.groundDeadlineMs ?? GROUND_DEADLINE_MS);
     },
 
     async structure<T>(prompt: string, schema: ZodType<T, ZodTypeDef, unknown>, opts?: { system?: string; signal?: AbortSignal }): Promise<T> {
