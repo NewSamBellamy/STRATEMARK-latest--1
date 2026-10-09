@@ -151,3 +151,50 @@ steps: interpreting the brief, searching the web, verifying each candidate is a 
   market ids) — the refresh-vs-duplicate gap (#19) cost the owner a full second run.
 - "26 company decks" pill vs 28 entity companies: count logic is right in the current
   vault; the video showed a stale query cache — worth a cache-invalidation look, low priority.
+
+## Optimization plan — faster, higher quality, cheaper (Oct 8, after Phase 2)
+
+Where a fresh 28-company run actually goes (from code, not guesswork): interpret = 1
+reasoning call (3.1-pro-preview); discovery = 1–4 grounded calls (3.7-flash); hydration =
+**2 calls per company** (ground + flash-lite structure) = 56; market signal cards ≈ 4–8;
+tier review 1–2; then the living deck's background budget: up to 60 actions/session —
+hunts (1 grounded call each, all 6 soft metrics bundled), verifies (**2 calls per metric**),
+and prefetch warming (8 companies × 3 tabs × ~2–3 calls ≈ **up to ~50–70 background calls**
+per deck visit). RPM pacing is compiled in but defaults to 0 (off); wall time is throttled
+by hydration concurrency 3, not by the provider.
+
+Ranked levers — each reuses machinery that already exists:
+
+1. **Vault-wide company evidence cache keyed by identity (domain/name), freshness-windowed.**
+   A new deck consults the vault first: a company_profile captured < ~30 days ago is
+   re-projected for free (`savedCompanyProfile` is already the free projector) and queued
+   for one cheap re-verification instead of a full re-interview. Kills the duplicate-deck
+   double-spend at the root (#19), makes overlapping markets (nuclear → energy infra) mostly
+   free, and makes "Research again" incremental instead of full-price. Estimated 30–80%
+   call reduction on repeat/overlapping runs. This is the structural fix.
+2. **Batch verification per company.** `verifyMetric` spends 2 calls per metric; the hunt's
+   prompt shape already proves one grounded pass can check all of a company's estimated rows
+   at once. One ground+structure per company per sweep, judged against citations + the 571
+   working original receipts (`verifyCompanyCardOriginals` exists) — that is also the only
+   realistic route to `verified` confidence at scale. Quality AND cost.
+3. **Aimed hunts (Phase 3, doubled as a cost fix).** Per-metric targeted passes for the
+   2–3 highest-value slots beat one shotgun call for all 6 (34/168 fill rate = the money
+   today buys mostly rejections). Market-type-aware slot list: skip `users` for fuel
+   suppliers and non-profits, skip `market_share` where no market share exists — honest
+   emptiness without paying to re-confirm it.
+4. **Prefetch diet.** Auto-warming Live Intel (a full news research pass) × 8 companies is
+   the most expensive background spend for the least-clicked tab. Warm Overview + Metrics
+   only; Live Intel on demand; consider PREFETCH_COMPANY_LIMIT 8→4. Direct cut on every
+   session, zero user-visible loss.
+5. **Hydration concurrency 3 → 6.** With retries and 45s backoffs, hydration dominates the
+   17-minute wall clock; doubling worker concurrency roughly halves it. RPM pacing stays
+   available for free-tier keys (config, not code).
+6. **Session grounding cache.** Identical (question, context) pairs within a run dedupe to
+   one call — cheap insurance against overlapping hunt/verify asks. Minor.
+7. **What NOT to do:** no vector DB, no agent framework, no second provider, no
+   speculative research on decks nobody opened. Every lever above is a change to how the
+   existing calls are aimed, batched, or reused — not new infrastructure.
+
+Sequencing: 4 and 5 are small and independent (do first). 1 and 2 share the same
+"consult the vault, then spend" shape and belong with Phase 3's hunt ladder — that
+combined work is the next big chunk.

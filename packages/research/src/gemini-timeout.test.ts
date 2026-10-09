@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { createGeminiClient } from './gemini';
 
@@ -75,22 +75,20 @@ it('identifies browser transport failures without disclosing their raw message',
     .rejects.toThrow('Could not reach Gemini. Check your connection and try again.');
 });
 
-it('bounds a hung fetch that ignores abort at the default deadline', async () => {
+it('bounds a hung fetch that ignores abort: the ladder walks the lines, the deadline holds', async () => {
   vi.useFakeTimers();
-  let signal!: AbortSignal;
-  const fetchImpl = vi.fn((_url: unknown, init?: RequestInit) => {
-    signal = init!.signal!; return hung<Response>();
-  });
+  const fetchImpl = vi.fn(() => hung<Response>());
   const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl });
   let settled = false;
   const result = client.ground('prompt').catch(error => { settled = true; return error; });
-  await vi.advanceTimersByTimeAsync(DEADLINE - 1);
+  // The primary line gets a 45s attempt window, the first fallback most of the
+  // rest — a hung everything settles through the ladder before the 120s cap.
+  await vi.advanceTimersByTimeAsync(DEADLINE - 2000);
   expect(settled).toBe(false);
-  await vi.advanceTimersByTimeAsync(1);
+  await vi.advanceTimersByTimeAsync(2000);
   expect(settled).toBe(true);
-  expect(await result).toMatchObject({ name: 'TimeoutError', message: 'Gemini request timed out after 120 seconds.' });
-  expect(signal.aborted).toBe(true);
-  expect(fetchImpl).toHaveBeenCalledTimes(1);
+  expect(await result).toMatchObject({ name: 'TimeoutError' });
+  expect(fetchImpl).toHaveBeenCalledTimes(2);
   expect(vi.getTimerCount()).toBe(0);
 });
 
@@ -191,6 +189,8 @@ it('shares the deadline across outbound retries and counts each dispatch', async
   let error: Error | undefined;
   void createGeminiClient({ apiKey: 'test-placeholder', fetchImpl, onCall }).ground('prompt').catch(value => { error = value; });
   await vi.advanceTimersByTimeAsync(90000);
+  // The primary's 45s retry budget declines the 90s Retry-After wait and hands
+  // off to the ladder; the first fallback is inside its own retry backoff now.
   expect(fetchImpl).toHaveBeenCalledTimes(2);
   expect(onCall).toHaveBeenCalledTimes(2);
   await vi.advanceTimersByTimeAsync(30000);
@@ -234,8 +234,8 @@ it('does not retry a transport that completes after the deadline', async () => {
   expect(error).toMatchObject({ name: 'TimeoutError' });
   finish(new Response('ignored', { status: 503 }));
   await vi.advanceTimersByTimeAsync(DEADLINE);
-  expect(fetchImpl).toHaveBeenCalledTimes(1);
-  expect(onCall).toHaveBeenCalledTimes(1);
+  expect(fetchImpl).toHaveBeenCalledTimes(2);
+  expect(onCall).toHaveBeenCalledTimes(2);
   expect(vi.getTimerCount()).toBe(0);
 });
 
@@ -278,4 +278,61 @@ it.each(['transport', 'provider'] as const)('does not expose %s error details', 
     ? Promise.reject(new Error(detail)) : Promise.resolve(new Response(detail, { status: 400 })));
   await expect(createGeminiClient({ apiKey: 'test-placeholder', fetchImpl }).ground('prompt'))
     .rejects.toThrow(kind === 'provider' ? 'Gemini 400: request failed.' : 'Gemini request failed.');
+});
+
+// The 2026-10-08 incident: gemini-3.7-flash + google_search answered a metrics
+// hunt in 235s while gemini-2.5-flash answered the same question in 2.7s.
+// Every call pinned to the sick line burned the 120s deadline and the run
+// degraded into timeouts and "nothing met the sourcing bar".
+describe('grounded model-line fallback', () => {
+  const modelOf = (call: unknown[]) => String(call[0]).match(/models\/([^:]+):/)![1];
+
+  it('falls back to a healthy line when the primary fails, then prefers it', async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      if (modelOf([url]) === 'gemini-3.7-flash') return new Response('busy', { status: 503 });
+      return response('fallback-answer');
+    });
+    const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl });
+    const settled = client.ground('prompt');
+    await vi.advanceTimersByTimeAsync(20000);
+    expect((await settled).text).toBe('fallback-answer');
+    const models = fetchImpl.mock.calls.map(modelOf);
+    // The primary gets its own bounded retry loop (1 + 4 retries), then the ladder.
+    expect(models.filter(m => m === 'gemini-3.7-flash')).toHaveLength(5);
+    expect(models.at(-1)).toBe('gemini-flash-latest');
+    expect(client.metrics?.()).toMatchObject({ fallbacks: 1 });
+    // While the primary is sick, the next call asks the healthy line first.
+    await client.ground('second');
+    expect(modelOf(fetchImpl.mock.calls.at(-1)!)).toBe('gemini-flash-latest');
+  });
+
+  it('routes around a hung primary line via the per-attempt timeout', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      if (modelOf([url]) === 'gemini-3.7-flash') return hung<Response>();
+      return response('quick-answer');
+    });
+    const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl,
+      groundedAttemptTimeoutMs: 120, groundedAttemptBudgetMs: 150 });
+    const result = await client.ground('prompt');
+    expect(result.text).toBe('quick-answer');
+    const models = fetchImpl.mock.calls.map(modelOf);
+    expect(models[0]).toBe('gemini-3.7-flash');
+    expect(models.at(-1)).toBe('gemini-flash-latest');
+  });
+
+  it('does not fall back when the request itself is blocked', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ promptFeedback: { blockReason: 'SAFETY' } })));
+    const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl });
+    await expect(client.ground('prompt')).rejects.toThrow('Gemini blocked this research request.');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(client.metrics?.()).toMatchObject({ fallbacks: 0 });
+  });
+
+  it('does not fall back when the network itself is down', async () => {
+    const fetchImpl = vi.fn(async () => { throw new TypeError('PRIVATE NETWORK DETAIL'); });
+    const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl });
+    await expect(client.ground('prompt')).rejects.toThrow('Could not reach Gemini. Check your connection and try again.');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
 });

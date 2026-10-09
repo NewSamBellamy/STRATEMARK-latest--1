@@ -38,6 +38,8 @@ export interface CallMetricsAggregate {
   calls: number;
   retries: number;
   rateLimitedMs: number;
+  /** Ground calls answered by a fallback model line after the primary failed. */
+  fallbacks: number;
 }
 
 /** What the user submits from the "New deck" screen. */

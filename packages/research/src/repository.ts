@@ -395,7 +395,7 @@ export class GeminiRepository implements MarketIntelRepository {
         return provider.structure(prompt, schema, opts);
       },
       // Expose the underlying client's pacing counters (audit fix 4).
-      metrics: () => provider.metrics?.() ?? { calls: 0, retries: 0, rateLimitedMs: 0 },
+      metrics: () => provider.metrics?.() ?? { calls: 0, retries: 0, rateLimitedMs: 0, fallbacks: 0 },
     };
     this.client = recordResearchEvidence(guardedProvider, async (evidence) => {
       this.snap.researchEvidence = [...(this.snap.researchEvidence ?? []), evidence];

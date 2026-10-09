@@ -41,14 +41,16 @@ import {
   type VerificationTarget,
 } from './runtime';
 
-/** Tabs worth warming before the user asks, in open-likelihood order. */
+/** Tabs worth warming before the user asks, in open-likelihood order. Live
+ * Intel is deliberately absent: each prefetch is a full grounded research
+ * pass, and Live Intel was the most expensive warm on the least-predictable
+ * click — it researches on demand instead. */
 const PREFETCH_TABS: Array<{ tab: DashboardTab; label: string }> = [
   { tab: 'overview', label: 'Overview' },
   { tab: 'metrics', label: 'Metrics' },
-  { tab: 'live_intel', label: 'Live Intel' },
 ];
 /** Warm the first N companies (deck order) — the ones a user opens first. */
-const PREFETCH_COMPANY_LIMIT = 8;
+const PREFETCH_COMPANY_LIMIT = 4;
 /** Verification candidates considered per turn (top of the overdue ranking). */
 const STALE_BUDGET_PER_TURN = 3;
 const MAX_FEED_EVENTS = 30;

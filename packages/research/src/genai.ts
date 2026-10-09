@@ -207,7 +207,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     return limiter;
   };
 
-  const aggregate: CallMetricsAggregate = { calls: 0, retries: 0, rateLimitedMs: 0 };
+  const aggregate: CallMetricsAggregate = { calls: 0, retries: 0, rateLimitedMs: 0, fallbacks: 0 };
 
   async function call(
     model: string,

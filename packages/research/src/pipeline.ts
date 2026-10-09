@@ -876,7 +876,9 @@ export async function hydrateDeckCards(
   const emit: OnResearchEvent = options.onEvent ?? (() => {});
   const signal = options.signal;
   const coverage = resolveCoverage(options as RunResearchOptions);
-  const concurrency = options.concurrency ?? 3;
+  // 6 workers: a search-grounded interview runs 20-35s, so wall time is
+  // worker-bound. RPM pacing (groundedRpm) still protects free-tier keys.
+  const concurrency = options.concurrency ?? 6;
   const completedCards = options.existingCompletedCards ?? [];
 
   // Concurrently run market signals alongside entity enrichment via Promise.all
@@ -1073,8 +1075,9 @@ export async function runDeckResearch(
   const emit: OnResearchEvent = options.onEvent ?? (() => {});
   const signal = options.signal;
   const coverage = resolveCoverage(options);
-  // Default concurrency to 3 for higher data throughput and fast fan-out deck generation
-  const concurrency = options.concurrency ?? 3;
+  // Default concurrency to 6 for fast fan-out deck generation; RPM pacing
+  // (groundedRpm) is the free-tier guard, not worker count.
+  const concurrency = options.concurrency ?? 6;
   let plan: MarketPlan;
   let candidates: CompanyCandidate[];
   let market: Market;
