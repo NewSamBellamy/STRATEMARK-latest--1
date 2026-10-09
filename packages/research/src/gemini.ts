@@ -23,7 +23,7 @@ const CALL_DEADLINE_MS = 120_000;
 // degraded. Ground calls therefore walk a fallback ladder of model lines,
 // remember which line answered, prefer the healthy line while the primary is
 // sick, and re-probe the primary after a cooldown.
-const GROUND_FALLBACK_MODELS = ['gemini-flash-latest', 'gemini-2.5-flash'];
+const GROUND_FALLBACK_MODELS = ['gemini-3.7-flash', 'gemini-2.5-flash'];
 const SICK_PRIMARY_COOLDOWN_MS = 10 * 60_000;
 /** The primary line's own retry budget; the rest of the deadline is left for
  * a fallback line to actually answer in. */
@@ -126,7 +126,11 @@ export const DEFAULT_STRUCTURE_RPM = 0;
 // Current Gemini API defaults. Vertex AI has a separate model line below because
 // the newest Developer API IDs are not necessarily published in every Vertex
 // region.
-export const DEFAULT_GROUNDED_MODEL = 'gemini-3.7-flash';
+// The -latest alias tracks Google's current recommended GA flash line, so a
+// single sick pinned version (2026-10-08: gemini-3.7-flash + search at 235s)
+// stops taking the whole product down with it. The pinned line and the
+// older-stable line sit in the fallback ladder below.
+export const DEFAULT_GROUNDED_MODEL = 'gemini-flash-latest';
 export const DEFAULT_REASONING_MODEL = 'gemini-3.1-pro-preview';
 export const DEFAULT_STRUCTURE_MODEL = 'gemini-3.5-flash-lite';
 

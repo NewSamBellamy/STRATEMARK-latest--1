@@ -250,8 +250,8 @@ it('counts each request in a successful retry and leaves no deadline timer', asy
   expect((await result).text).toBe('answer');
   expect(fetchImpl).toHaveBeenCalledTimes(2);
   expect(onCall.mock.calls).toEqual([
-    [{ model: 'gemini-3.7-flash', kind: 'ground' }],
-    [{ model: 'gemini-3.7-flash', kind: 'ground' }],
+    [{ model: 'gemini-flash-latest', kind: 'ground' }],
+    [{ model: 'gemini-flash-latest', kind: 'ground' }],
   ]);
   expect(vi.getTimerCount()).toBe(0);
 });
@@ -290,7 +290,7 @@ describe('grounded model-line fallback', () => {
   it('falls back to a healthy line when the primary fails, then prefers it', async () => {
     vi.useFakeTimers();
     const fetchImpl = vi.fn(async (url: string | URL | Request) => {
-      if (modelOf([url]) === 'gemini-3.7-flash') return new Response('busy', { status: 503 });
+      if (modelOf([url]) === 'gemini-flash-latest') return new Response('busy', { status: 503 });
       return response('fallback-answer');
     });
     const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl });
@@ -299,17 +299,17 @@ describe('grounded model-line fallback', () => {
     expect((await settled).text).toBe('fallback-answer');
     const models = fetchImpl.mock.calls.map(modelOf);
     // The primary gets its own bounded retry loop (1 + 4 retries), then the ladder.
-    expect(models.filter(m => m === 'gemini-3.7-flash')).toHaveLength(5);
-    expect(models.at(-1)).toBe('gemini-flash-latest');
+    expect(models.filter(m => m === 'gemini-flash-latest')).toHaveLength(5);
+    expect(models.at(-1)).toBe('gemini-3.7-flash');
     expect(client.metrics?.()).toMatchObject({ fallbacks: 1 });
     // While the primary is sick, the next call asks the healthy line first.
     await client.ground('second');
-    expect(modelOf(fetchImpl.mock.calls.at(-1)!)).toBe('gemini-flash-latest');
+    expect(modelOf(fetchImpl.mock.calls.at(-1)!)).toBe('gemini-3.7-flash');
   });
 
   it('routes around a hung primary line via the per-attempt timeout', async () => {
     const fetchImpl = vi.fn(async (url: string | URL | Request) => {
-      if (modelOf([url]) === 'gemini-3.7-flash') return hung<Response>();
+      if (modelOf([url]) === 'gemini-flash-latest') return hung<Response>();
       return response('quick-answer');
     });
     const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl,
@@ -317,8 +317,8 @@ describe('grounded model-line fallback', () => {
     const result = await client.ground('prompt');
     expect(result.text).toBe('quick-answer');
     const models = fetchImpl.mock.calls.map(modelOf);
-    expect(models[0]).toBe('gemini-3.7-flash');
-    expect(models.at(-1)).toBe('gemini-flash-latest');
+    expect(models[0]).toBe('gemini-flash-latest');
+    expect(models.at(-1)).toBe('gemini-3.7-flash');
   });
 
   it('does not fall back when the request itself is blocked', async () => {
