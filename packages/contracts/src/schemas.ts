@@ -133,7 +133,14 @@ export const citationSchema = z.object({
 /** Retained extraction evidence, never a model assertion of verification. */
 export const metricPassageSupportSchema = z.object({
   sourceUrl: z.string().max(2048), quote: z.string().max(600), asOf: z.string().max(40),
-  basis: metricTypeSchema, unit: z.enum(['USD', 'count', 'percent']),
+  /**
+   * Money metrics (arr, valuation, market_cap) carry the ISO 4217 code the
+   * SOURCE quotes — USD or one of the convertible majors. A non-USD figure is
+   * stored converted to USD on the metric row; the quote and this code keep
+   * the native observation. count and percent are non-monetary units.
+   */
+  basis: metricTypeSchema, unit: z.enum(['USD', 'count', 'percent',
+    'EUR', 'GBP', 'JPY', 'CNY', 'KRW', 'TWD', 'INR', 'CAD', 'AUD', 'CHF', 'HKD', 'SGD', 'SEK', 'NOK', 'DKK', 'BRL', 'MXN']),
   /** basis is the legacy storage slot; definition is the actual measurement. */
   definition: z.enum(['arr', 'annual_revenue', 'users', 'active_users', 'monthly_active_users',
     'daily_active_users', 'customers', 'paying_customers', 'employees', 'valuation', 'market_cap', 'market_share']).optional(),

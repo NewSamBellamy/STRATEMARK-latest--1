@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acceptedMetricPassage, inspectMetricPassage } from './metric-support';
+import { acceptedMetricPassage, currencyConversionNote, inspectMetricPassage, normalizeMetricToUsd } from './metric-support';
 import type { MetricPassageSupport } from './metric-support';
 import type { OriginalSourceReceipt } from './original-source';
 
@@ -170,5 +170,47 @@ describe('original metric passage gate', () => {
   ])('accepts the correct units and basis for $metricType', ({ metricType, value, unit, figure }) => {
     const text = `Acme Inc. reports ${figure} as of 2026-10-01.`;
     expect(acceptedMetricPassage({ ...input, metricType, value, support: { ...support, quote: text, basis: metricType, unit }, originals: [{ ...source, text }] })).toHaveLength(1);
+  });
+  it('accepts a natively quoted CNY figure when the quote names the currency', () => {
+    const text = 'Acme Inc. reports ARR of CNY 40 million as of 2026-10-01.';
+    const yuanText = 'Acme Inc. reports ARR of 40 million yuan as of 2026-10-01.';
+    const candidate = { ...input, value: 40_000_000,
+      support: { ...support, quote: text, unit: 'CNY' as const }, originals: [{ ...source, text }] };
+    expect(acceptedMetricPassage(candidate)).toHaveLength(1);
+    expect(acceptedMetricPassage({ ...candidate, support: { ...candidate.support, quote: yuanText },
+      originals: [{ ...source, text: yuanText }] })).toHaveLength(1);
+  });
+  it.each([
+    { unit: 'JPY' as const, figure: '¥6 billion', value: 6_000_000_000 },
+    { unit: 'EUR' as const, figure: '€12.5 billion', value: 12_500_000_000 },
+    { unit: 'GBP' as const, figure: '£3.4 billion', value: 3_400_000_000 },
+  ])('accepts a natively quoted $unit figure', ({ unit, figure, value }) => {
+    const text = `Acme Inc. reports a valuation of ${figure} as of 2026-10-01.`;
+    expect(acceptedMetricPassage({ ...input, metricType: 'valuation', value,
+      support: { ...support, quote: text, basis: 'valuation' as const, unit }, originals: [{ ...source, text }] })).toHaveLength(1);
+  });
+  it('rejects a native unit the quote does not name, and a currency outside the reference table', () => {
+    const text = 'Acme Inc. reports ARR of 40 million as of 2026-10-01.';
+    expect(acceptedMetricPassage({ ...input, value: 40_000_000,
+      support: { ...support, quote: text, unit: 'CNY' as const }, originals: [{ ...source, text }] })).toEqual([]);
+    expect(acceptedMetricPassage({ ...input,
+      support: { ...support, quote: quote.replace('USD', 'EUR'), unit: 'USD' as const }, originals: [{ ...source, text: quote.replace('USD', 'EUR') }] })).toEqual([]);
+    expect(acceptedMetricPassage({ ...input, value: 40_000_000,
+      support: { ...support, quote: 'Acme Inc. reports ARR of RUB 40 million as of 2026-10-01.', unit: 'RUB' as unknown as MetricPassageSupport['unit'] },
+      originals: [{ ...source, text: 'Acme Inc. reports ARR of RUB 40 million as of 2026-10-01.' }] })).toEqual([]);
+  });
+  it('stores a natively quoted figure converted to USD with an honest note', () => {
+    expect(normalizeMetricToUsd('arr', 40_000_000, 'CNY')).toBeCloseTo(40_000_000 * 0.148915, 6);
+    expect(normalizeMetricToUsd('arr', 40_000_000, 'USD')).toBe(40_000_000);
+    expect(normalizeMetricToUsd('employees', 120, 'count')).toBe(120);
+    expect(normalizeMetricToUsd('market_share', 12.5, 'percent')).toBe(12.5);
+    expect(normalizeMetricToUsd('arr', null, 'CNY')).toBeNull();
+    expect(normalizeMetricToUsd('arr', 40_000_000, null)).toBe(40_000_000);
+    expect(normalizeMetricToUsd('arr', 40_000_000, 'RUB')).toBe(40_000_000);
+    const note = currencyConversionNote(40_000_000, 'CNY');
+    expect(note).toContain('CNY');
+    expect(note).toContain('approximate');
+    expect(currencyConversionNote(40_000_000, 'USD')).toBe('');
+    expect(currencyConversionNote(null, 'CNY')).toBe('');
   });
 });

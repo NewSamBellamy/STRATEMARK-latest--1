@@ -1,6 +1,7 @@
 import { hasVerificationGradeCitation, usableCitations, validMetricVerificationValue, type Citation, type MetricType, type CompanyMetric } from '@mi/contracts';
 import type { OriginalSourceReceipt } from './original-source';
 import { secFilingHeadcountObservation, secRevenueObservation } from './sec-revenue';
+import { currencyMentionPattern, describeCurrencyConversion, isConvertibleCurrency, usdPerUnit } from './fx';
 
 export type MetricPassageSupport = NonNullable<CompanyMetric['passageSupport']>;
 const normalize = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim();
@@ -126,7 +127,14 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
     (!intervalDate && !new RegExp(`\\b(?:as of|on|at)\\s+${escape(literalDate)}(?![\\p{L}\\p{N}])`, 'iu').test(quote)) ||
     Object.entries(basis).some(([type, pattern]) => type !== input.metricType && pattern.test(quote))) return reject('Claim attribution is ambiguous. A direct company statement and metric reporting date are required, not an article date or another company’s figure.');
   const expectedUnit = ['arr', 'valuation', 'market_cap'].includes(input.metricType) ? 'USD' : input.metricType === 'market_share' ? 'percent' : 'count';
-  if (proof.unit !== expectedUnit || (expectedUnit === 'USD' && !/\bUSD\b|US\$|U\.S\. dollars/i.test(quote)) ||
+  // A money figure may be quoted natively in a convertible currency: the model
+  // sets unit to the ISO code the SOURCE uses and the quote must name that
+  // currency. The stored metric row is converted to USD at the frozen
+  // reference rate (normalizeMetricToUsd); the quote keeps the native figure.
+  const unitIsNative = expectedUnit === 'USD' && isConvertibleCurrency(proof.unit);
+  if ((expectedUnit === 'USD' ? !(proof.unit === 'USD' || unitIsNative) : proof.unit !== expectedUnit) ||
+    (unitIsNative && !currencyMentionPattern(proof.unit)!.test(quote)) ||
+    (proof.unit === 'USD' && !/\bUSD\b|US\$|U\.S\. dollars/i.test(quote)) ||
     (expectedUnit === 'percent' && !/%|\bpercent\b/i.test(quote))) return reject('Metric unit is not explicitly supported. Revenue, ARR and currencies are not interchangeable.');
   // Exactly one distinct number (apart from the explicit date) avoids choosing
   // among conflicting/adjacent figures. Do not coerce revenue into ARR.
@@ -148,4 +156,26 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
   if (!hasVerificationGradeCitation(citations, input.officialWebsite)) return reject('Original publisher does not meet the source-quality requirements for this company. Find an eligible issuer or reputable reporting source.');
   return { reason: null, citations: hasVerificationGradeCitation(citations) ? citations : citations.map(citation => ({ ...citation,
     title: `Issuer-reported original passage (${proof.asOf}); not independently corroborated` })) };
+}
+
+const MONEY_METRICS: readonly MetricType[] = ['arr', 'valuation', 'market_cap'];
+
+/**
+ * The stored metric row is USD for money metrics so decks stay comparable.
+ * A natively-quoted figure converts at the frozen reference rate; the
+ * passageSupport quote and unit keep the native observation. count/percent,
+ * USD figures and missing rates pass through unchanged.
+ */
+export function normalizeMetricToUsd(metricType: MetricType, value: number | null | undefined, unit: string | null | undefined): number | null {
+  if (value == null) return null;
+  if (!MONEY_METRICS.includes(metricType) || !isConvertibleCurrency(unit)) return value;
+  const rate = usdPerUnit(unit);
+  return rate == null ? value : value * rate;
+}
+
+/** The methodNote sentence that keeps a converted figure honest on the card. */
+export function currencyConversionNote(value: number | null | undefined, unit: string | null | undefined): string {
+  if (value == null || !isConvertibleCurrency(unit)) return '';
+  const rate = usdPerUnit(unit);
+  return rate == null ? '' : describeCurrencyConversion(value, unit!, value * rate);
 }
