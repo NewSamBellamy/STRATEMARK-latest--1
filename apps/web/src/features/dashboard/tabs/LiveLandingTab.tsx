@@ -144,7 +144,7 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
                 <button
                   type="button"
                   className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-surface-2 hover:text-content disabled:opacity-60"
-                  title="Full CRO/UX teardown of this page, saved as a visual report with screenshots — exportable as PDF. One grounded pass on your key."
+                  title="A full review of this page: what works, what's missing and what to test, saved as a report with screenshots you can export as PDF. Uses one search on your key."
                   disabled={audit.isPending}
                   onClick={() =>
                     audit.mutate(

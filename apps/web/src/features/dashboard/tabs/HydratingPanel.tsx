@@ -34,11 +34,12 @@ export function HydratingPanel({
         </span>
         <div className="min-w-0">
           <p className="text-sm font-medium text-content">
-            Actively hydrating{label ? ` — ${label}` : ''}
+            Researching{label ? ` ${label}` : ''}
           </p>
           <p className="text-xs text-muted">
-            This section is being researched from live sources right now. It fills in as evidence
-            lands{elapsed >= 30 ? ' — your key’s rate cap keeps research paced; it will land.' : '.'}
+            {elapsed < 90
+              ? 'Searching live sources now. This section fills in as sourced findings arrive.'
+              : 'Taking longer than usual (research is paced to your key’s limits). You can keep browsing other tabs.'}
           </p>
         </div>
         {elapsed >= 5 && (

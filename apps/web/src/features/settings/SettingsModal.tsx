@@ -319,7 +319,7 @@ function EngineTab() {
   return (
     <div className="space-y-6 pb-6">
       <div>
-        <h2 className="font-display text-lg text-content">Research Execution Engine</h2>
+        <h2 className="font-display text-lg text-content">Research engine</h2>
         <p className="mt-1 text-sm text-muted">
           Choose where your competitive intelligence and deck research runs.
         </p>
@@ -340,11 +340,11 @@ function EngineTab() {
         >
           <div className="flex items-center gap-2 font-medium text-content text-sm">
             <Cloud className="h-4 w-4 text-primary-ink" />
-            <span>Sentinel Cloud Agent</span>
+            <span>Stratemark Cloud</span>
             {isPro && <span className="chip border-emerald-300 bg-emerald-50 text-emerald-700 text-[10px] py-0 px-1.5">Default (Pro)</span>}
           </div>
           <p className="mt-2 text-xs text-muted leading-relaxed">
-            Multi-pass research pipeline running on Cloud Run. Automatically links 24/7 CourtListener legal & market monitoring.
+            Research runs on our servers, so you don’t need your own key. Some features (briefings, reports, fact-checks) aren’t available here yet.
           </p>
         </button>
         )}

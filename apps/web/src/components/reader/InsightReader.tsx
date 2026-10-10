@@ -178,7 +178,7 @@ export function InsightReader({
             </p>
           ) : expandFailed ? (
             <p className="py-1 text-sm italic text-muted">
-              The grounded expansion couldn’t run here — use “Keep researching” below.
+              More detail couldn’t be loaded here. Try “Keep researching” below.
             </p>
           ) : (
             <div className="py-1">

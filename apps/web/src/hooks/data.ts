@@ -403,7 +403,7 @@ export function useVerifyMetric() {
       traceAgent(
         'Verifier',
         result.changed
-          ? `Corrected a figure — value, badge, and tier updated everywhere`
+          ? `Corrected a figure — updated everywhere it appears`
           : `Re-checked a figure — ${result.verdict === 'supported' ? 'it holds' : 'no better evidence found'}`,
         `${result.citations.length} sources`,
       );

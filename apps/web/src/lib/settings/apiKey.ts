@@ -16,8 +16,8 @@ const QUOTA_KEY = 'mi.quotaPreset';
  * is the latency floor; a paid key can run the same pipeline several times
  * faster. The values land in the Gemini client's proactive rate limiter. */
 export const QUOTA_PRESETS = {
-  free: { groundedRpm: 10, structureRpm: 15, label: 'Free tier (10 grounded / 15 structured per minute)' },
-  paid: { groundedRpm: 60, structureRpm: 120, label: 'Paid tier (60 grounded / 120 structured per minute)' },
+  free: { groundedRpm: 10, structureRpm: 15, label: 'Free key (slower, about 10 searches a minute)' },
+  paid: { groundedRpm: 60, structureRpm: 120, label: 'Paid key (faster, about 60 searches a minute)' },
 } as const;
 
 export type QuotaPreset = keyof typeof QUOTA_PRESETS;

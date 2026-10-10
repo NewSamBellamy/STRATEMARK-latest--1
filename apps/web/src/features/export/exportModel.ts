@@ -109,7 +109,7 @@ export function companiesFromCards(cards: readonly CardWithCompany[]): ExportCom
   const out: ExportCompany[] = [];
   const entities = cards
     .filter((c) => c.company && c.card.cardType !== 'culture' && c.card.cardType !== 'vice' && c.card.cardType !== 'insight')
-    .sort((a, b) => (b.card.tier ?? 0) - (a.card.tier ?? 0) || a.company!.name.localeCompare(b.company!.name));
+    .sort((a, b) => a.company!.name.localeCompare(b.company!.name));
   for (const c of entities) {
     const co = c.company!;
     if (seen.has(co.id)) continue;

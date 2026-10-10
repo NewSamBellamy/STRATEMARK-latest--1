@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef, useState } from 'react';
+import { useMemo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -196,7 +196,7 @@ export default function DeckPage() {
               {((market.data as { engine?: string } | undefined)?.engine === 'cloud' ||
                 (all[0]?.card as { engine?: string } | undefined)?.engine === 'cloud') && (
                 <span className="inline-flex items-center gap-1 rounded border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-700 dark:border-teal-800 dark:bg-teal-950/50 dark:text-teal-300">
-                  ☁️ Sentinel Cloud Agent
+                  ☁️ Stratemark Cloud
                 </span>
               )}
             </div>
@@ -257,16 +257,6 @@ export default function DeckPage() {
               <Newspaper className="h-3.5 w-3.5" />
               Briefing
             </Link>}
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-              disabled={all.length === 0}
-              title="Share this whole deck as a clean interactive snapshot — all the research travels inside the link, AI layer removed."
-              onClick={() => setShareOpen(true)}
-            >
-              <Share2 className="h-3.5 w-3.5" />
-              Share
-            </button>
             <ShareDialog
               open={shareOpen}
               onOpenChange={setShareOpen}
@@ -274,22 +264,40 @@ export default function DeckPage() {
               subtitle="Full deck — research snapshot"
               build={async () => buildDeckShare(all, market.data?.name ?? null)}
             />
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2 disabled:opacity-60"
-              disabled={all.length === 0 || filling}
-              title="Research every card that still shows Unknown — asks only for the missing figures, each with a source."
-              onClick={() => {
-                setFilling(true);
-                void living.fillCardFaces().finally(() => setFilling(false));
-              }}
-            >
-              <Sparkles className={`h-3.5 w-3.5 ${filling ? 'animate-pulse' : ''}`} />
-              {filling ? 'Filling cards…' : 'Fill cards'}
-            </button>
             <ExportMenu deck={{ title: market.data?.name ?? 'Market deck', cards: all }} />
-            <ThreadHistoryButton deckId={deckId} />
-            <MoreMenu marketId={marketId} refreshDeck={refreshDeck} />
+            <ThreadHistoryButton deckId={deckId} compact />
+            <MoreMenu
+              marketId={marketId}
+              refreshDeck={refreshDeck}
+              extra={(close) => (
+                <>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-content hover:bg-surface-2 disabled:opacity-60"
+                    disabled={all.length === 0}
+                    title="Share a read-only snapshot of this deck; all the research travels inside the link."
+                    onClick={() => { close(); setShareOpen(true); }}
+                  >
+                    <Share2 className="h-4 w-4 text-muted" />
+                    Share deck
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-content hover:bg-surface-2 disabled:opacity-60"
+                    disabled={all.length === 0 || filling}
+                    title="Look for sourced figures for every card slot that still shows Unknown."
+                    onClick={() => {
+                      close();
+                      setFilling(true);
+                      void living.fillCardFaces().finally(() => setFilling(false));
+                    }}
+                  >
+                    <Sparkles className={`h-4 w-4 text-muted ${filling ? 'animate-pulse' : ''}`} />
+                    {filling ? 'Filling cards…' : 'Fill missing figures'}
+                  </button>
+                </>
+              )}
+            />
           </div>
         </div>
 
@@ -610,9 +618,12 @@ export default function DeckPage() {
 function MoreMenu({
   marketId,
   refreshDeck,
+  extra,
 }: {
   marketId: string | undefined;
   refreshDeck: { isPending: boolean; mutate: (id: string) => void };
+  /** Deck actions that live here to keep the header to its primary few. */
+  extra?: (close: () => void) => ReactNode;
 }) {
   const canOpportunity = useSupports('getMarketOpportunity');
   const [open, setOpen] = useState(false);
@@ -639,7 +650,8 @@ function MoreMenu({
         <MoreHorizontal className="h-4 w-4" />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-1 w-48 rounded-xl border border-border bg-surface p-1 shadow-card">
+        <div className="absolute right-0 top-full z-30 mt-1 w-56 rounded-xl border border-border bg-surface p-1 shadow-card">
+          {extra?.(() => setOpen(false))}
           <Link
             to="/reports"
             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-content hover:bg-surface-2"

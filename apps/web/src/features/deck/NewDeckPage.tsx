@@ -100,7 +100,7 @@ const RESEARCH_PHASES = [
   { label: 'Scanning the market…', Icon: Radar },
   { label: 'Discovering companies…', Icon: ScanSearch },
   { label: 'Analyzing metrics…', Icon: TrendingUp },
-  { label: 'Scoring tiers…', Icon: Loader2 },
+  { label: 'Checking sources…', Icon: Loader2 },
 ] as const;
 
 const STAGE_LABELS: Record<string, string> = {
@@ -759,8 +759,8 @@ export default function NewDeckPage() {
                     {session.done.count > 0
                       ? `${session.done.count} cards built`
                       : 'cards are built'}
-                    , metrics sourced, tiers scored. Desks are pre-researching dashboard tabs in the
-                    background, so company pages open instantly.
+                    , each figure with its source. Company pages are being prepared in the background
+                    so they open instantly.
                   </p>
                   <div className="mt-3 flex items-center gap-3">
                     <Link

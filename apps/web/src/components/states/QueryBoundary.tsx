@@ -2,7 +2,19 @@ import type { ReactNode } from 'react';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { FullPageLoader } from './FullPageLoader';
 import { ErrorState } from './ErrorState';
+import { Link } from 'react-router-dom';
 import { EmptyState } from './EmptyState';
+
+/** A missing record is "not found" with a way back, never a vague empty page. */
+function NotFound() {
+  return (
+    <EmptyState
+      title="Not found"
+      description="This may have been deleted, or the link is out of date."
+      action={<Link to="/history" className="btn-primary">Go to your decks</Link>}
+    />
+  );
+}
 
 /**
  * Enforces the "all four states" rule (loading / error / empty / data) for a
@@ -39,7 +51,7 @@ export function QueryBoundary<T>({
     );
   }
   const data = query.data;
-  if (data == null) return <>{empty ?? <EmptyState title="Nothing here yet" />}</>;
+  if (data == null) return <>{empty ?? <NotFound />}</>;
   if (isEmpty?.(data as NonNullable<T>)) {
     if (typeof empty === 'function') return <>{empty(data as NonNullable<T>)}</>;
     return <>{empty ?? <EmptyState title="Nothing here yet" />}</>;

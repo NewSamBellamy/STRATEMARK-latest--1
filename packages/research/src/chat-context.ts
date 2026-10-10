@@ -63,7 +63,7 @@ export interface ChatCompanyBlock {
 }
 
 export function formatCompanyBlock(c: ChatCompanyBlock): string {
-  const head = `COMPANY: ${c.name}${c.tier ? ` (tier ${c.tier})` : ''}${c.oneLiner ? ` — ${c.oneLiner}` : ''}`;
+  const head = `COMPANY: ${c.name}${c.oneLiner ? ` — ${c.oneLiner}` : ''}`;
   const lines = c.metrics.length ? c.metrics.map(formatMetricLine) : ['- No figures recorded yet (Unknown)'];
   return [head, ...lines].join('\n');
 }

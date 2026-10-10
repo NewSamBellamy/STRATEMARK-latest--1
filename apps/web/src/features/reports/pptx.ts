@@ -29,7 +29,7 @@ export async function exportDeckPptx(args: {
   const { default: PptxGen } = await import('pptxgenjs');
   const pptx = new PptxGen();
   pptx.layout = 'LAYOUT_16x9';
-  pptx.author = 'Market Intel Deck Builder';
+  pptx.author = 'Stratemark';
 
   // 1) Title slide
   const title = pptx.addSlide();
@@ -40,7 +40,7 @@ export async function exportDeckPptx(args: {
   title.addText('Competitive intelligence deck · grounded research with cited sources', {
     x: 0.6, y: 2.7, w: 9, h: 0.5, fontSize: 14, color: MUTED,
   });
-  title.addText(`Generated ${new Date().toLocaleDateString()} · Market Intel Deck Builder (open source)`, {
+  title.addText(`Generated ${new Date().toLocaleDateString()} · Stratemark`, {
     x: 0.6, y: 4.9, w: 9, h: 0.4, fontSize: 10, color: MUTED,
   });
 

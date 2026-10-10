@@ -119,12 +119,12 @@ export function AgentActivityFeed({ living }: { living: LivingDeckState }) {
         <span className="text-[11px] text-faint">
           {living.canVerify ? (
             <>
-              · {living.deskCount} company desk{living.deskCount === 1 ? '' : 's'}
+              · tracking {living.deskCount} {living.deskCount === 1 ? 'company' : 'companies'}
               {living.actionCount > 0 &&
                 ` · ${living.actionCount} action${living.actionCount === 1 ? '' : 's'} this session`}
             </>
           ) : (
-            <>· add your Gemini key in Settings to put desks on this deck</>
+            <>· add your Gemini key in Settings to keep cards updating</>
           )}
         </span>
         {!expanded && latest && (

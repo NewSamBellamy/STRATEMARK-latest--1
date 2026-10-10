@@ -40,10 +40,13 @@ export function ThreadHistoryButton({
   deckId,
   companyId,
   className,
+  compact = false,
 }: {
   deckId?: string;
   companyId?: string;
   className?: string;
+  /** Match the deck's small bordered action buttons. */
+  compact?: boolean;
 }) {
   const repo = useRepository();
   const { openThread } = useDeepDive();
@@ -63,13 +66,15 @@ export function ThreadHistoryButton({
     <div className={cn('relative', className)} ref={ref}>
       <button
         type="button"
-        className="btn-ghost"
+        className={compact
+          ? 'inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2'
+          : 'btn-ghost'}
         onClick={() => setOpen((v) => !v)}
-        title="Your research conversations here"
+        title="Your past chats about this"
         aria-expanded={open}
       >
-        <History className="h-4 w-4" />
-        Research
+        <History className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
+        Chats
         {list.length > 0 && (
           <span className="ml-1 rounded-full bg-surface-2 px-1.5 text-xs tabular-nums text-muted">
             {list.length}

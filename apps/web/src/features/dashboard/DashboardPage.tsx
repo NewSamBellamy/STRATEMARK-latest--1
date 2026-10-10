@@ -318,7 +318,7 @@ export default function DashboardPage() {
   const headerSubtitle = company.data
     && company.data.oneLiner === UNSUPPORTED_COMPANY_SUMMARY
     && (metrics.data ?? []).some((m) => m.value != null && m.confidence !== 'unknown')
-      ? 'Provider-reported figures on file — desks still need a source-backed read to verify them.'
+      ? 'Some figures come from data providers and haven’t been checked against an original source yet.'
       : company.data?.oneLiner;
   const hasKey = useApiKey((s) => s.hasKey);
   const activeTab = tab as DashboardTab;

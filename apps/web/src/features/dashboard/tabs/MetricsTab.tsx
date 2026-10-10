@@ -585,7 +585,7 @@ function HuntMetricsButton({
           type="button"
           className="btn-ghost shrink-0"
           disabled={hunt.isPending}
-          title="One grounded research pass hunts current figures for every metric still missing, unknown, or estimated — sourced, junk-gated, and written back everywhere."
+          title="Searches for current figures for every metric that is still missing or unchecked. Only sourced figures are kept, and they update everywhere."
           onClick={() =>
             hunt.mutate(companyId, {
               onSuccess: (r) => {

@@ -49,8 +49,8 @@ describe('Research Engine Settings & Strict Execution', () => {
     );
 
     await user.click(screen.getByRole('button', { name: /^engine$/i }));
-    expect(screen.getByText('Research Execution Engine')).toBeInTheDocument();
-    const cloudBtn = screen.getByRole('button', { name: /sentinel cloud agent/i });
+    expect(screen.getByText('Research engine')).toBeInTheDocument();
+    const cloudBtn = screen.getByRole('button', { name: /stratemark cloud/i });
     const localBtn = screen.getByRole('button', { name: /local engine/i });
 
     expect(cloudBtn).toBeInTheDocument();

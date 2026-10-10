@@ -22,7 +22,7 @@ describe('AgentActivityFeed', () => {
   it('shows the live pill with the desk count and session actions', () => {
     renderWithProviders(<AgentActivityFeed living={state()} />);
     expect(screen.getByText('Live research')).toBeInTheDocument();
-    expect(screen.getByText(/20 company desks/)).toBeInTheDocument();
+    expect(screen.getByText(/tracking 20 companies/)).toBeInTheDocument();
     expect(screen.getByText(/3 actions this session/)).toBeInTheDocument();
   });
 

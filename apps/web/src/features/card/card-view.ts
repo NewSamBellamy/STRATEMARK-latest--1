@@ -122,7 +122,7 @@ export function buildMetricViews(input: readonly CompanyMetric[], officialWebsit
     if (metric.value != null && (!Number.isFinite(metric.value) || metric.value < 0 ||
       (metric.metricType === 'market_share' && metric.value > 100))) {
       metric = { ...metric, value: null, confidence: 'unknown' };
-      note = 'Invalid stored value. Not displayed or used in this card’s maturity breakdown.';
+      note = 'Invalid stored value, so it is not displayed.';
     }
     return {
       metric, label: metricDefinitionLabel(metric) ?? LABELS[metric.metricType], display: displayValue(metric),

@@ -64,7 +64,7 @@ export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, class
         className="absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-sky-300/60 bg-app/90 px-2.5 py-1 text-[10px] font-semibold text-sky-700 shadow-sm dark:text-sky-300"
         title="This desk's dashboards are filling in from live sources — open the card and watch it cascade.">
         <Droplets className="h-3 w-3 animate-pulse" />
-        Dashboards hydrating
+        Preparing company page
       </span>
     )}
     {onOpen ? <button type="button" className="card-sleeve__open" onClick={onOpen}
