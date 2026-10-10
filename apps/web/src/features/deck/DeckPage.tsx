@@ -18,6 +18,7 @@ import {
   SquareMousePointer,
   Target,
   X,
+  Sparkles,
 } from 'lucide-react';
 import {
   CARD_TYPE_DESCRIPTIONS,
@@ -151,6 +152,7 @@ export default function DeckPage() {
   // blank screen (audit 7:44): show a recovery path instead.
   const deckMissing = market.isSuccess && deck.isSuccess && (!market.data || !deck.data);
   const living = useLivingDeck(deckId, all);
+  const [filling, setFilling] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
   // Anchor the floating presence's "Chat" to THIS deck's synthesized research.
@@ -272,6 +274,19 @@ export default function DeckPage() {
               subtitle="Full deck — research snapshot"
               build={async () => buildDeckShare(all, market.data?.name ?? null)}
             />
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2 disabled:opacity-60"
+              disabled={all.length === 0 || filling}
+              title="Research every card that still shows Unknown — asks only for the missing figures, each with a source."
+              onClick={() => {
+                setFilling(true);
+                void living.fillCardFaces().finally(() => setFilling(false));
+              }}
+            >
+              <Sparkles className={`h-3.5 w-3.5 ${filling ? 'animate-pulse' : ''}`} />
+              {filling ? 'Filling cards…' : 'Fill cards'}
+            </button>
             <ExportMenu deck={{ title: market.data?.name ?? 'Market deck', cards: all }} />
             <ThreadHistoryButton deckId={deckId} />
             <MoreMenu marketId={marketId} refreshDeck={refreshDeck} />
