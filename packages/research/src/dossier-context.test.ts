@@ -144,7 +144,7 @@ describe('Ask uses the saved company dossier', () => {
     const prompt = ground.mock.calls[0]![0] as string;
     expect(prompt).not.toContain('arr=111');
     // Estimates remain inspectable raw observations, not current accepted facts.
-    expect(prompt).toContain('arr=unknown (unknown');
+    expect(prompt).toContain('ARR: Unknown');
     expect(prompt).not.toContain('arr=222');
     expect(await repo().getCompanyMetrics('cmp_a')).toEqual(snapshot.metrics);
   });

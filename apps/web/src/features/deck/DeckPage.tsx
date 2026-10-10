@@ -45,6 +45,7 @@ import { DemoDeckBanner } from './DemoDeckBanner';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
 import { buildDeckShare } from '@/lib/share/codec';
 import { ShareDialog } from '@/features/share/ShareDialog';
+import { ExportMenu } from '@/features/export/ExportMenu';
 import { AgentActivityFeed } from './AgentActivityFeed';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { ThreadHistoryButton } from '@/features/research/ResearchControls';
@@ -271,6 +272,7 @@ export default function DeckPage() {
               subtitle="Full deck — research snapshot"
               build={async () => buildDeckShare(all, market.data?.name ?? null)}
             />
+            <ExportMenu deck={{ title: market.data?.name ?? 'Market deck', cards: all }} />
             <ThreadHistoryButton deckId={deckId} />
             <MoreMenu marketId={marketId} refreshDeck={refreshDeck} />
           </div>

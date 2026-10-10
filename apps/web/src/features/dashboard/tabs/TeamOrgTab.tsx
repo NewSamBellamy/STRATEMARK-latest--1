@@ -417,7 +417,7 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
               description={
                 flat
                   ? 'Named leadership. No reporting lines were sourced, so people are listed rather than charted. Select a person for background and sources.'
-                  : 'Who reports to whom, as reported by sources. Select a person for background and sources; collapse a branch to focus.'
+                  : 'Who reports to whom, as reported by sources. Select a person for background and sources. Switch to List to collapse branches.'
               }
               actions={
                 // The org-chart teardown: a report researched specifically about
