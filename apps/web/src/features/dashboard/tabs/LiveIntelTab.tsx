@@ -19,6 +19,8 @@ import { DigDeeper } from '@/features/deepdive/DeepDive';
 import { formatRelative } from '@/lib/format';
 import { faviconUrl } from '@/lib/screenshot';
 import { cn } from '@/lib/cn';
+import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
+import { matchesQuery, RECENCY_LABEL, recencyBucket } from './tabHelpers';
 
 /**
  * A link the reader can ACTUALLY open. Grounding often returns opaque
@@ -169,6 +171,13 @@ function ArticleReader({
   );
 }
 
+const SOURCE_LABEL = { news: 'News', x: 'X', reddit: 'Reddit' } as const;
+const SENTIMENT_DOT = {
+  positive: 'bg-emerald-500',
+  neutral: 'bg-slate-400',
+  negative: 'bg-rose-500',
+} as const;
+
 function IntelRow({
   item,
   onOpen,
@@ -178,10 +187,11 @@ function IntelRow({
 }) {
   const Icon = SOURCE_ICON[item.source];
   const href = articleHref(item);
+  const publisher = /^https?:\/\//.test(item.url) ? publisherOf(item.url, null) : null;
   return (
     <li
       className={cn(
-        'panel cursor-pointer p-4 transition-all hover:-translate-y-px hover:shadow-card-hover',
+        'cursor-pointer px-4 py-3.5 transition-colors hover:bg-surface-2/60',
         item.stale && 'opacity-60',
       )}
       onClick={onOpen}
@@ -194,54 +204,41 @@ function IntelRow({
         }
       }}
     >
-      <div className="flex gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-xs text-muted">
-            <Icon className="h-3.5 w-3.5" />
-            <span className="uppercase">{item.source}</span>
-            <span>·</span>
-            {/* The honest date: the story's reported publish date when research
-                surfaced one; otherwise when WE found it — never a fake "just now". */}
-            <span title={item.publishedDate ? 'Reported publish date' : 'When our research surfaced this item'}>
-              {item.publishedDate
-                ? fmtPublishDate(item.publishedDate)
-                : `found ${formatRelative(item.publishedAt)}`}
-            </span>
-            <span className={cn('ml-auto font-semibold', SENTIMENT_STYLE[item.sentiment])}>
-              {item.sentiment}
-            </span>
-          </div>
-          <p className="mt-1.5 font-medium text-content">{item.title}</p>
-          <p className="mt-1 line-clamp-2 text-sm text-muted">{item.summary}</p>
-          <div className="mt-2 flex items-center gap-2">
-            {href && (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-0.5 text-[10.5px] text-muted hover:border-primary/50 hover:text-primary-ink"
-              >
-                <img src={faviconUrl(item.url)} alt="" className="h-3 w-3 rounded-sm" />
-                {publisherOf(item.url, null)}
-                <ExternalLink className="h-2.5 w-2.5" />
-              </a>
-            )}
-            <span className="ml-auto text-[11px] text-faint">Open story →</span>
-          </div>
-        </div>
-        {/* Generated cover — never a CAPTCHA; editorial cover until it lands. */}
-        <div className="hidden h-[84px] w-[128px] shrink-0 overflow-hidden rounded-lg border border-border sm:block">
-          <AiCover
-            cacheKey={item.id}
-            title={item.title}
-            context={item.detail ?? item.summary ?? null}
-            url={item.url}
-            source={item.source}
-            compact
-          />
-        </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+        {publisher && href ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1.5 font-medium text-content hover:text-primary-ink hover:underline"
+            title="Open the source"
+          >
+            <img src={faviconUrl(item.url)} alt="" className="h-3.5 w-3.5 rounded-sm" />
+            {publisher}
+            <ExternalLink className="h-2.5 w-2.5" aria-hidden />
+          </a>
+        ) : (
+          <span className="inline-flex items-center gap-1.5">
+            <Icon className="h-3.5 w-3.5" aria-hidden />
+            {SOURCE_LABEL[item.source]}
+          </span>
+        )}
+        <span aria-hidden>·</span>
+        {/* The honest date: the story's reported publish date when research
+            surfaced one; otherwise when WE found it — never a fake "just now". */}
+        <span title={item.publishedDate ? 'Reported publish date' : 'When our research surfaced this item'}>
+          {item.publishedDate
+            ? fmtPublishDate(item.publishedDate)
+            : `found ${formatRelative(item.publishedAt)}`}
+        </span>
+        <span className={cn('ml-auto inline-flex items-center gap-1.5 font-medium', SENTIMENT_STYLE[item.sentiment])}>
+          <span className={cn('h-1.5 w-1.5 rounded-full', SENTIMENT_DOT[item.sentiment])} aria-hidden />
+          {item.sentiment}
+        </span>
       </div>
+      <p className="mt-1.5 font-medium text-content">{item.title}</p>
+      {item.summary && <p className="mt-0.5 line-clamp-2 text-sm text-muted">{item.summary}</p>}
       {item.stale && (
         <p className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-700">
           <AlertCircle className="h-3.5 w-3.5" />
@@ -257,6 +254,9 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
   const companyName = useCompany(companyId).data?.name ?? 'this company';
   const rerun = useRerunDashboardTab(companyId, 'live_intel');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [source, setSource] = useState<LiveIntelItem['source'] | 'all'>('all');
+  const [sentiment, setSentiment] = useState<LiveIntelItem['sentiment'] | 'all'>('all');
+  const [search, setSearch] = useState('');
   return (
     <QueryBoundary query={query} loading={<HydratingPanel label="Live Intel" />}
       isEmpty={(r) => r.content.items.length === 0}
@@ -267,61 +267,124 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
           ? new Date(r.lastRefreshedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
           : null;
         return (
-        <div className="panel p-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="font-display text-sm font-semibold text-content">
-                {researchedAt ? 'No stories met the sourcing bar' : 'No stories yet'}
-              </h3>
-              <p className="mt-1 max-w-xl text-sm text-muted">
-                {researchedAt
-                  ? <>Live Intel researched {companyName} on {researchedAt} and nothing published surfaced. Sources come and go — search again for fresh coverage.</>
-                  : <>Live Intel searches fresh coverage of {companyName}. Run the first search now — or after the next research pass — and the latest verified stories will collect here.</>}
-              </p>
-            </div>
-            <button
-              type="button"
-              className="btn-ghost text-xs"
-              disabled={rerun.isPending}
-              title="Run a fresh grounded news search now."
-              onClick={() => rerun.mutate()}
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${rerun.isPending ? 'animate-spin' : ''}`} />
-              {rerun.isPending ? 'Searching latest news…' : 'Search latest news'}
-            </button>
-          </div>
-        </div>
+          <EmptyNote
+            title={researchedAt ? 'No stories met the sourcing bar' : 'No stories yet'}
+            action={
+              <button
+                type="button"
+                className="btn-ghost text-xs"
+                disabled={rerun.isPending}
+                title="Run a fresh grounded news search now."
+                onClick={() => rerun.mutate()}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${rerun.isPending ? 'animate-spin' : ''}`} />
+                {rerun.isPending ? 'Searching latest news…' : 'Search latest news'}
+              </button>
+            }
+          >
+            {researchedAt
+              ? <>Live Intel researched {companyName} on {researchedAt} and nothing published surfaced. Sources come and go — search again for fresh coverage.</>
+              : <>Live Intel searches fresh coverage of {companyName}. Run the first search now — or after the next research pass — and the latest verified stories will collect here.</>}
+          </EmptyNote>
         );
       }}>
       {(result) => {
-        const ordered = newsOrder(result.content.items);
-        const open = openId != null ? (ordered.find((i) => i.id === openId) ?? null) : null;
+        const all = newsOrder(result.content.items);
+        const open = openId != null ? (all.find((i) => i.id === openId) ?? null) : null;
+        const sourceCounts = all.reduce<Record<string, number>>((a, i) => ({ ...a, [i.source]: (a[i.source] ?? 0) + 1 }), {});
+        const sentimentCounts = all.reduce<Record<string, number>>((a, i) => ({ ...a, [i.sentiment]: (a[i.sentiment] ?? 0) + 1 }), {});
+        const ordered = all.filter(
+          (i) =>
+            (source === 'all' || i.source === source) &&
+            (sentiment === 'all' || i.sentiment === sentiment) &&
+            matchesQuery(`${i.title} ${i.summary} ${publisherOf(i.url, null) ?? ''}`, search),
+        );
+        const buckets = (['week', 'month', 'quarter', 'older', 'undated'] as const)
+          .map((b) => ({ bucket: b, items: ordered.filter((i) => recencyBucket(i.publishedDate) === b) }))
+          .filter((g) => g.items.length > 0);
         return (
           <div className="cascade">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-muted">
-                Latest first — the most recent verified story leads. Click a story for the full
-                picture; stale items are flagged and pruned (spec §8).
-              </p>
-              <span className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="btn-ghost text-xs"
-                  disabled={rerun.isPending}
-                  title="Run a fresh grounded news search now — new stories, reported publish dates, article detail."
-                  onClick={() => rerun.mutate()}
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${rerun.isPending ? 'animate-spin' : ''}`} />
-                  {rerun.isPending ? 'Searching latest news…' : 'Refresh news'}
-                </button>
-                <LiveBadge lastRefreshedAt={result.content.lastRefreshedAt} />
-              </span>
+            <SectionHeader
+              title="Live intel"
+              count={`${all.length} ${all.length === 1 ? 'story' : 'stories'}`}
+              description="Latest first. Dates are the reported publish date; items without one are grouped separately, never shown as recent. Open a story for the full picture."
+              actions={
+                <>
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs"
+                    disabled={rerun.isPending}
+                    title="Run a fresh grounded news search now — new stories, reported publish dates, article detail."
+                    onClick={() => rerun.mutate()}
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${rerun.isPending ? 'animate-spin' : ''}`} />
+                    {rerun.isPending ? 'Searching latest news…' : 'Refresh news'}
+                  </button>
+                  <LiveBadge lastRefreshedAt={result.content.lastRefreshedAt} />
+                </>
+              }
+            />
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {all.length > 5 && (
+                <SearchBox
+                  value={search}
+                  onChange={setSearch}
+                  label="Search stories"
+                  placeholder="Search stories or publishers"
+                  className="w-full sm:w-60"
+                />
+              )}
+              {Object.keys(sourceCounts).length > 1 && (
+                <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by source type">
+                  <FilterChip active={source === 'all'} onClick={() => setSource('all')} count={all.length}>All</FilterChip>
+                  {(['news', 'x', 'reddit'] as const)
+                    .filter((s) => (sourceCounts[s] ?? 0) > 0)
+                    .map((s) => (
+                      <FilterChip key={s} active={source === s} onClick={() => setSource(s)} count={sourceCounts[s]}>
+                        {SOURCE_LABEL[s]}
+                      </FilterChip>
+                    ))}
+                </div>
+              )}
+              {Object.keys(sentimentCounts).length > 1 && (
+                <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by sentiment">
+                  {(['positive', 'neutral', 'negative'] as const)
+                    .filter((s) => (sentimentCounts[s] ?? 0) > 0)
+                    .map((s) => (
+                      <FilterChip
+                        key={s}
+                        active={sentiment === s}
+                        onClick={() => setSentiment(sentiment === s ? 'all' : s)}
+                        count={sentimentCounts[s]}
+                      >
+                        <span className={cn('h-1.5 w-1.5 rounded-full', SENTIMENT_DOT[s])} aria-hidden />
+                        <span className="capitalize">{s}</span>
+                      </FilterChip>
+                    ))}
+                </div>
+              )}
             </div>
-            <ul className="space-y-3">
-              {ordered.map((item) => (
-                <IntelRow key={item.id} item={item} onOpen={() => setOpenId(item.id)} />
-              ))}
-            </ul>
+            {buckets.length === 0 ? (
+              <EmptyNote compact title="No stories match these filters">
+                Clear the search or filters to see everything research retained.
+              </EmptyNote>
+            ) : (
+              <div className="space-y-5">
+                {buckets.map(({ bucket, items }) => (
+                  <section key={bucket} aria-label={RECENCY_LABEL[bucket]}>
+                    <h4 className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-muted">
+                      {RECENCY_LABEL[bucket]}
+                      <span className="font-normal tabular-nums text-faint">{items.length}</span>
+                    </h4>
+                    <ul className="panel divide-y divide-border overflow-hidden">
+                      {items.map((item) => (
+                        <IntelRow key={item.id} item={item} onOpen={() => setOpenId(item.id)} />
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            )}
             {open && (
               <ArticleReader
                 item={open}

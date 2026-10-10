@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react';
-import { Loader2, Plus, StickyNote } from 'lucide-react';
+import { ChevronDown, Loader2, Plus, StickyNote } from 'lucide-react';
 import type { ResearchEvidence } from '@mi/research';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useCompany } from '@/hooks/data';
 import { presentable } from '@mi/research';
-import { Search } from 'lucide-react';
 import { EmptyState } from '@/components/states/EmptyState';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { usableCitations } from '@mi/contracts';
+import { faviconUrl } from '@/lib/screenshot';
+import { cn } from '@/lib/cn';
+import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
+import { groupByHost, hostOf, matchesQuery } from './tabHelpers';
 
 /** Human-readable topic names — provider topics are machine words. */
 const TOPIC_LABELS: Record<string, string> = {
@@ -25,41 +28,132 @@ function topicLabel(topic: string): string {
   return TOPIC_LABELS[topic] ?? topic.replaceAll('_', ' ');
 }
 
+/** Beyond this many characters an evidence record folds behind "Show full record". */
+const FOLD_AT = 700;
+
 function EvidenceCard({ evidence }: { evidence: ResearchEvidence }) {
+  const [expanded, setExpanded] = useState(false);
   const sources = usableCitations(evidence.citations);
   const supports = evidence.grounding?.supports ?? [];
+  const body = evidence.topic === 'user_note' ? evidence.text : presentable(evidence.text);
+  const long = body.length > FOLD_AT;
   return (
     <article className="panel p-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="font-display text-sm font-semibold text-content">
-          {evidence.companyName ? `${evidence.companyName} — ` : ''}{topicLabel(evidence.topic)}
-        </h3>
-        <span className="text-[11px] tabular-nums text-faint">{evidence.capturedAt.slice(0, 10)}</span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="chip border-border bg-surface-2 py-0.5 text-[11px] text-muted">
+            {topicLabel(evidence.topic)}
+          </span>
+          {evidence.companyName && (
+            <span className="truncate text-sm font-medium text-content">{evidence.companyName}</span>
+          )}
+        </div>
+        <span className="text-[11px] tabular-nums text-faint" title="When this research was collected, not a publication date">
+          Collected {evidence.capturedAt.slice(0, 10)}
+        </span>
       </div>
-      <div className="markdown mt-2 break-words text-sm leading-relaxed text-content/90">
+      <div
+        className={cn(
+          'markdown mt-3 break-words text-sm leading-relaxed text-content/90',
+          long && !expanded && 'relative max-h-40 overflow-hidden',
+        )}
+      >
         {/* Red team #6: provider evidence is agent output — presentation-clean
             (URL lines, bold field labels) before it reaches a human. User notes
             render exactly as written. */}
-        <ResearchMarkdown text={evidence.topic === 'user_note' ? evidence.text : presentable(evidence.text)} />
+        <ResearchMarkdown text={body} />
+        {long && !expanded && (
+          <span className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-surface to-transparent" aria-hidden />
+        )}
       </div>
-      {supports.length > 0 && (
-        <p className="mt-3 border-t border-border pt-2 text-[11px] text-faint">
-          {supports.length} source-attributed passage{supports.length === 1 ? '' : 's'} retained with this research.
-        </p>
+      {long && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-muted hover:text-primary-ink"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-180')} />
+          {expanded ? 'Show less' : 'Show full record'}
+        </button>
       )}
-      {sources.length > 0 && (
-        <ul className="mt-2 space-y-1">
-          {sources.slice(0, 8).map((c) => (
-            <li key={c.url}>
-              <a href={c.url} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline">
-                {c.title || c.url}
-              </a>
-            </li>
-          ))}
-        </ul>
+      {(sources.length > 0 || supports.length > 0) && (
+        <div className="mt-3 border-t border-border pt-3">
+          {supports.length > 0 && (
+            <p className="mb-2 text-[11px] text-faint">
+              {supports.length} source-attributed passage{supports.length === 1 ? '' : 's'} retained with this research.
+            </p>
+          )}
+          {sources.length > 0 && (
+            <ul className="flex flex-wrap gap-1.5">
+              {sources.slice(0, 8).map((c) => (
+                <li key={c.url} className="min-w-0 max-w-full">
+                  <a
+                    href={c.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={c.title || c.url}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-0.5 text-[11px] text-muted hover:border-primary/50 hover:text-primary-ink"
+                  >
+                    <img src={faviconUrl(c.url)} alt="" className="h-3 w-3 shrink-0 rounded-sm" loading="lazy" />
+                    <span className="truncate">{c.title || hostOf(c.url) || c.url}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </article>
+  );
+}
+
+/** Every distinct source across the retained evidence, grouped by publisher. */
+function SourcesView({ evidence, query }: { evidence: ResearchEvidence[]; query: string }) {
+  const groups = useMemo(() => {
+    const seen = new Map<string, { url: string; title: string; topics: Set<string> }>();
+    for (const e of evidence) {
+      for (const c of usableCitations(e.citations)) {
+        const row = seen.get(c.url) ?? { url: c.url, title: c.title || c.url, topics: new Set<string>() };
+        row.topics.add(topicLabel(e.topic));
+        seen.set(c.url, row);
+      }
+    }
+    return groupByHost([...seen.values()]).filter((g) =>
+      matchesQuery(`${g.host} ${g.items.map((i) => i.title).join(' ')}`, query),
+    );
+  }, [evidence, query]);
+  if (groups.length === 0) {
+    return (
+      <EmptyNote compact title={query.trim() ? 'No sources match' : 'No sources retained yet'}>
+        {query.trim()
+          ? `No retained source matches "${query.trim()}".`
+          : 'Sources appear here once a grounded research pass returns citations. Run research on a tab to collect some.'}
+      </EmptyNote>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {groups.map((g) => (
+        <section key={g.host} className="panel p-4" aria-label={g.host}>
+          <h4 className="flex items-center gap-2 text-sm font-medium text-content">
+            <img src={faviconUrl(`https://${g.host}`)} alt="" className="h-4 w-4 rounded-sm" loading="lazy" />
+            {g.host}
+            <span className="text-xs font-normal tabular-nums text-muted">{g.items.length}</span>
+          </h4>
+          <ul className="mt-2 space-y-1.5">
+            {g.items.map((s) => (
+              <li key={s.url} className="flex flex-wrap items-baseline gap-x-2">
+                <a href={s.url} target="_blank" rel="noopener noreferrer" className="break-words text-sm text-primary-ink hover:underline">
+                  {s.title}
+                </a>
+                <span className="text-[11px] text-faint">{[...s.topics].join(' · ')}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
   );
 }
 
@@ -69,6 +163,7 @@ export function ResearchTab({ companyId }: { companyId: string }) {
   const repo = useRepository();
   const company = useCompany(companyId);
   const name = company.data?.name ?? 'this company';
+  const [view, setView] = useState<'evidence' | 'sources'>('evidence');
   const [filter, setFilter] = useState<string>('all');
   const [searchText, setSearchText] = useState('');
   const [visible, setVisible] = useState(20);
@@ -88,12 +183,13 @@ export function ResearchTab({ companyId }: { companyId: string }) {
       return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
     });
   }, [evidence]);
-  const searchTerms = searchText.toLowerCase().match(/[a-z0-9]{2,}/g) ?? [];
-  const filtered = (filter === 'all' ? evidence : evidence.filter((e) => e.topic === filter)).filter((e) => {
-    if (!searchTerms.length) return true;
-    const haystack = `${e.topic} ${e.companyName ?? ''} ${e.text}`.toLowerCase();
-    return searchTerms.every((term) => haystack.includes(term));
-  });
+  const filtered = (filter === 'all' ? evidence : evidence.filter((e) => e.topic === filter)).filter((e) =>
+    matchesQuery(`${e.topic} ${e.companyName ?? ''} ${e.text}`, searchText),
+  );
+  const sourceTotal = useMemo(
+    () => new Set(evidence.flatMap((e) => usableCitations(e.citations).map((c) => c.url))).size,
+    [evidence],
+  );
 
   const addNote = async () => {
     if (!noteText.trim() || saving) return;
@@ -121,19 +217,25 @@ export function ResearchTab({ companyId }: { companyId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted">
-          {evidence.length} retained record{evidence.length === 1 ? '' : 's'} for {name} — research,
-          sources and your own notes in one knowledge base.
-        </p>
-        {canAdd && (
-          <button type="button" className="btn-ghost text-xs"
-            onClick={() => setComposerOpen((open) => !open)}>
-            <Plus className="h-3.5 w-3.5" />
-            Add to knowledge base
-          </button>
-        )}
-      </div>
+      <SectionHeader
+        title="Research & sources"
+        description={
+          <>
+            {evidence.length} retained record{evidence.length === 1 ? '' : 's'} for {name}
+            {sourceTotal > 0 ? ` · ${sourceTotal} distinct source${sourceTotal === 1 ? '' : 's'}` : ''}. Search
+            output is attribution, not independent verification.
+          </>
+        }
+        actions={
+          canAdd && (
+            <button type="button" className="btn-ghost text-xs"
+              onClick={() => setComposerOpen((open) => !open)}>
+              <Plus className="h-3.5 w-3.5" />
+              Add to knowledge base
+            </button>
+          )
+        }
+      />
 
       {composerOpen && (
         <div className="panel space-y-3 p-4">
@@ -160,45 +262,68 @@ export function ResearchTab({ companyId }: { companyId: string }) {
         </div>
       )}
 
-      {evidence.length > 0 && (
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
-          <input value={searchText} onChange={(e) => { setSearchText(e.target.value); setVisible(20); }}
-            placeholder="Search this knowledge base…"
-            className="w-full rounded-full border border-border bg-surface py-2 pl-9 pr-3 text-sm text-content outline-none focus:border-primary/50" />
-        </div>
-      )}
+      {evidence.length === 0 ? (
+        <EmptyNote title="No research retained yet">
+          Every grounded research pass on {name} is kept here with its sources, and you can add your
+          own notes. Open another tab or run research to start filling it.
+        </EmptyNote>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-border bg-surface-2/60 p-0.5" role="group" aria-label="View">
+              {(['evidence', 'sources'] as const).map((v) => (
+                <button key={v} type="button" aria-pressed={view === v}
+                  onClick={() => setView(v)}
+                  className={cn(
+                    'rounded-md px-3 py-1 text-xs font-medium transition-colors',
+                    view === v ? 'bg-surface text-content shadow-card' : 'text-muted hover:text-content',
+                  )}>
+                  {v === 'evidence' ? 'Evidence' : `Sources · ${sourceTotal}`}
+                </button>
+              ))}
+            </div>
+            <SearchBox
+              value={searchText}
+              onChange={(v) => { setSearchText(v); setVisible(20); }}
+              label="Search this knowledge base"
+              placeholder="Search this knowledge base…"
+              className="w-full sm:w-64"
+            />
+          </div>
 
-      {topics.length > 1 && (
-        <div className="flex flex-wrap gap-2">
-          <button type="button"
-            className={`chip ${filter === 'all' ? 'border-primary/40 bg-primary/10 text-primary-ink' : 'border-border bg-surface text-muted hover:text-content'}`}
-            onClick={() => setFilter('all')}>
-            All · {evidence.length}
-          </button>
-          {topics.map((topic) => (
-            <button key={topic} type="button"
-              className={`chip ${filter === topic ? 'border-primary/40 bg-primary/10 text-primary-ink' : 'border-border bg-surface text-muted hover:text-content'}`}
-              onClick={() => setFilter(topic)}>
-              {topicLabel(topic)} · {evidence.filter((e) => e.topic === topic).length}
-            </button>
-          ))}
-        </div>
-      )}
+          {view === 'evidence' && topics.length > 1 && (
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by topic">
+              <FilterChip active={filter === 'all'} onClick={() => setFilter('all')} count={evidence.length}>
+                All
+              </FilterChip>
+              {topics.map((topic) => (
+                <FilterChip key={topic} active={filter === topic} onClick={() => setFilter(topic)}
+                  count={evidence.filter((e) => e.topic === topic).length}>
+                  {topicLabel(topic)}
+                </FilterChip>
+              ))}
+            </div>
+          )}
 
-      <div className="space-y-4">
-        {filtered.slice(0, visible).map((e) => <EvidenceCard key={e.id} evidence={e} />)}
-        {filtered.length === 0 && (
-          <EmptyState title={searchText.trim() ? 'No matches' : 'Nothing here yet'}
-            description={searchText.trim() ? `Nothing in the knowledge base matches "${searchText.trim()}".` : 'No retained research under this filter — try All.'} />
-        )}
-        {filtered.length > visible && (
-          <button type="button" className="btn-ghost w-full text-xs"
-            onClick={() => setVisible((count) => count + 20)}>
-            Show {Math.min(20, filtered.length - visible)} more of {filtered.length}
-          </button>
-        )}
-      </div>
+          {view === 'sources' ? (
+            <SourcesView evidence={evidence} query={searchText} />
+          ) : (
+            <div className="space-y-4">
+              {filtered.slice(0, visible).map((e) => <EvidenceCard key={e.id} evidence={e} />)}
+              {filtered.length === 0 && (
+                <EmptyState title={searchText.trim() ? 'No matches' : 'Nothing here yet'}
+                  description={searchText.trim() ? `Nothing in the knowledge base matches "${searchText.trim()}".` : 'No retained research under this filter — try All.'} />
+              )}
+              {filtered.length > visible && (
+                <button type="button" className="btn-ghost w-full text-xs"
+                  onClick={() => setVisible((count) => count + 20)}>
+                  Show {Math.min(20, filtered.length - visible)} more of {filtered.length}
+                </button>
+              )}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
