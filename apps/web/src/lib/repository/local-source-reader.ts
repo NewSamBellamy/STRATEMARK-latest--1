@@ -40,3 +40,35 @@ export async function readPreviewSource(url: string, scope?: OriginalSourceScope
   } catch { return fallback; }
   finally { clearTimeout(timer); }
 }
+
+/**
+ * Asset lane reader: RAW HTML for logo/headshot parsing (the main bridge
+ * strips tags). Development loopback only; outside the bridge the browser
+ * cannot read cross-origin HTML, so the asset lane is honestly unavailable.
+ */
+export async function readAssetSource(url: string): Promise<OriginalSourceReceipt> {
+  if (!hasLocalSourceBridge()) {
+    return {
+      requestedUrl: url.slice(0, 2048), status: 'unavailable', retrievedAt: new Date().toISOString(),
+      reason: 'Asset reads need the local source bridge.',
+    };
+  }
+  const fallback: OriginalSourceReceipt = {
+    requestedUrl: url.slice(0, 2048), status: 'unavailable', retrievedAt: new Date().toISOString(),
+    reason: 'Asset source reader unavailable.',
+  };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch('/__stratemark/asset-source', {
+      method: 'POST', credentials: 'omit', redirect: 'error', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', 'X-Stratemark-Source': 'local-preview' },
+      body: JSON.stringify({ url }), signal: controller.signal,
+    });
+    if (!response.ok) return fallback;
+    const receipt = await response.json() as OriginalSourceReceipt;
+    if (receipt.requestedUrl !== url.slice(0, 2048) || !['retrieved', 'unavailable'].includes(receipt.status)) return fallback;
+    return receipt;
+  } catch { return fallback; }
+  finally { clearTimeout(timer); }
+}

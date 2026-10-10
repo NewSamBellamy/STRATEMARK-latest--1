@@ -394,8 +394,15 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
       setScope(s);
       setOpenState(true);
       setBusy(true);
-      void repo
-        .deepDive(input)
+      // Completeness gate: before the report is served, the same readiness
+      // pass the living deck uses (free recovery → structured lanes → one
+      // hunt) takes its shot at the company's known gaps. Research failure
+      // must never block the answer the user asked for.
+      const readiness = input.companyId && repo.ensureReportReadiness
+        ? repo.ensureReportReadiness([input.companyId]).catch(() => undefined)
+        : Promise.resolve();
+      void readiness
+        .then(() => repo.deepDive(input))
         .then((r) => {
           setThread({
             id: 'oneshot',

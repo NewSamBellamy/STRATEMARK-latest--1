@@ -73,13 +73,19 @@ export function InsightReader({
   const [expandFailed, setExpandFailed] = useState(false);
 
   // THE DEPTH: on the user's explicit request, not on open. Opening a stored
-  // claim costs nothing; expanding it is a deliberate research spend.
+  // claim costs nothing; expanding it is a deliberate research spend. The
+  // completeness gate runs first so known gaps get their shot at evidence;
+  // its failure never blocks the expansion itself.
   const runExpansion = () => {
     if (expansion || expanding) return;
     setExpandFailed(false);
     setExpanding(true);
-    repo
-      .deepDive({ companyId, companyName, topic: title, context: researchSeed })
+    const readiness = repo.ensureReportReadiness
+      ? repo.ensureReportReadiness([companyId]).catch(() => undefined)
+      : Promise.resolve();
+    readiness
+      .then(() =>
+        repo.deepDive({ companyId, companyName, topic: title, context: researchSeed }))
       .then((r) => {
         const value = { markdown: r.markdown, citations: r.citations };
         expansionCache.set(cacheKey, value);
