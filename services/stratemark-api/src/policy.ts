@@ -115,6 +115,20 @@ export interface LedgerDay {
   visitors: Record<string, number>; // micro-dollars spent + held per visitor
 }
 
+/** One finished day, kept so growth is visible when deciding to raise the budget. */
+export interface DaySummary { day: string; spentUsd: number; visitors: number }
+
+/** Roll a finished ledger day into the history (newest first, bounded). */
+export function rollHistory(history: readonly DaySummary[], finished: LedgerDay, keep = 60): DaySummary[] {
+  if (!finished.day) return [...history];
+  const summary: DaySummary = {
+    day: finished.day,
+    spentUsd: Math.round(finished.spentMicros / 10_000) / 100,
+    visitors: Object.keys(finished.visitors).length,
+  };
+  return [summary, ...history.filter((h) => h.day !== finished.day)].slice(0, keep);
+}
+
 export type ReserveResult = { ok: true; ledger: LedgerDay } | { ok: false; reason: 'global' | 'visitor'; ledger: LedgerDay };
 
 /** Pure ledger step: may this call proceed under the global and per-visitor daily budgets? */

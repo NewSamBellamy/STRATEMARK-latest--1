@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, priceFamily, reserveMicros, safePublicUrl, settle, tryReserve,
+  allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, priceFamily, reserveMicros, rollHistory, safePublicUrl, settle, tryReserve,
   type LedgerDay,
 } from './policy';
 
@@ -88,5 +88,18 @@ describe('dollar budget', () => {
     expect(tryReserve(l, day, 'x', 20, 1000, 50)).toMatchObject({ ok: false, reason: 'visitor' });
     expect(tryReserve(l, day, 'y', 20, 1000, 50).ok).toBe(true);
     expect(tryReserve(l, '2026-10-11', 'x', 20, 1000, 50).ok).toBe(true);
+  });
+});
+
+describe('spend history', () => {
+  it('keeps one line per finished day, newest first, without visitor addresses', () => {
+    const day1 = { day: '2026-10-09', spentMicros: 12_340_000, heldMicros: 0, visitors: { '1.1.1.1': 5, '2.2.2.2': 7 } } as LedgerDay;
+    const day2 = { day: '2026-10-10', spentMicros: 99_990_000, heldMicros: 0, visitors: { '3.3.3.3': 1 } } as LedgerDay;
+    const h = rollHistory(rollHistory([], day1), day2);
+    expect(h).toEqual([
+      { day: '2026-10-10', spentUsd: 99.99, visitors: 1 },
+      { day: '2026-10-09', spentUsd: 12.34, visitors: 2 },
+    ]);
+    expect(JSON.stringify(h)).not.toContain('1.1.1.1');
   });
 });

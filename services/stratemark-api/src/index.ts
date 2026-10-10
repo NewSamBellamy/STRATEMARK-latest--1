@@ -292,7 +292,9 @@ export default {
       const status = await ledger(env).status(new Date().toISOString().slice(0, 10)).catch(() => null);
       return json({
         ok: true, hostedResearch: shape.present, keyLength: shape.length, keyLooksValid: shape.looksValid,
-        budgetUsd: usd(budgets(env).budget), spentTodayUsd: status ? usd(status.spentMicros) : null,
+        budgetUsd: usd(budgets(env).budget), visitorBudgetUsd: usd(budgets(env).visitor),
+        spentTodayUsd: status ? usd(status.spentMicros) : null, visitorsToday: status?.visitors ?? null,
+        last7Days: status?.history ?? [],
       }, 200, null);
     }
 
