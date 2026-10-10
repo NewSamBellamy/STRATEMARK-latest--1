@@ -49,9 +49,10 @@ function fallbackColor(id: string): string {
 }
 
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
-/** Only trust a well-formed stored hex; anything else falls back. */
+/** Only trust a well-formed, scraped/manual stored hex; the default theme falls back. */
 function brandColor(row: DeckRow): string {
-  const primary = row.lead?.company?.brandTheme?.primary;
+  const theme = row.lead?.company?.brandTheme;
+  const primary = theme && theme.source !== 'default' ? theme.primary : undefined;
   return primary && HEX.test(primary) ? primary : fallbackColor(row.market.id);
 }
 
@@ -371,7 +372,7 @@ function Library({ markets, researching }: { markets: Market[]; researching: str
       {shown.length === 0 && !researching ? (
         <p className="py-16 text-center text-sm text-muted">No decks match &ldquo;{query}&rdquo;.</p>
       ) : (
-        <ul className="grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <ul className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-6 gap-y-10">
           {researching && !query && <ResearchingTile query={researching} />}
           {shown.map((row) => (
             <DeckTile
