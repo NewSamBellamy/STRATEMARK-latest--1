@@ -761,3 +761,66 @@
     transform: none;
   }
 }
+
+/* OVR rating plaque — trading-card style (FUT / Madden / 2K): big number, small label, rarity metal. */
+.collectible__ovr {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  right: 9px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 6px 7px 5px;
+  border-radius: 6px 6px 12px 12px;
+  border: 1px solid var(--ovr-edge);
+  color: var(--ovr-ink);
+  background: linear-gradient(160deg, var(--ovr-hi) 0%, var(--ovr-mid) 48%, var(--ovr-lo) 100%);
+  box-shadow:
+    inset 0 1px 0 #ffffffb3,
+    inset 0 -2px 3px #0000001f,
+    0 2px 5px -1px #1f2a2440;
+  font-family: 'Parkinsans', sans-serif;
+  line-height: 1;
+  text-shadow: 0 1px 0 #ffffff59;
+}
+.collectible__ovr-num {
+  font-size: 25px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.collectible__ovr-label {
+  margin-top: 2px;
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 1.4px;
+  opacity: 0.78;
+}
+.collectible__ovr--icon {
+  --ovr-hi: #fff6d6; --ovr-mid: #e6c66e; --ovr-lo: #b88a2c; --ovr-edge: #9c7424; --ovr-ink: #3b2a08;
+}
+.collectible__ovr--gold {
+  --ovr-hi: #fbf1d2; --ovr-mid: #e3cd8c; --ovr-lo: #c7a75a; --ovr-edge: #b0914a; --ovr-ink: #3d3112;
+}
+.collectible__ovr--silver {
+  --ovr-hi: #f8f9f8; --ovr-mid: #d6dad8; --ovr-lo: #aab1ae; --ovr-edge: #959d99; --ovr-ink: #26302c;
+}
+.collectible__ovr--bronze {
+  --ovr-hi: #f6e2d0; --ovr-mid: #d6a983; --ovr-lo: #a8714b; --ovr-edge: #8f5f3e; --ovr-ink: #331d0e;
+}
+.collectible__ovr--indicative {
+  border-style: dashed;
+}
+.collectible__ovr--indicative .collectible__ovr-num {
+  opacity: 0.82;
+}
+.collectible--foil .collectible__ovr--icon {
+  box-shadow:
+    inset 0 1px 0 #ffffffd9,
+    inset 0 -2px 3px #0000001f,
+    0 0 0 1px #f3dc9a80,
+    0 3px 8px -2px #7a5a1866;
+}

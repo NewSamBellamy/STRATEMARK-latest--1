@@ -19,13 +19,13 @@ const unsourced: CardWithCompany = { card: { ...card, tier: 7 }, company, viceCl
   metrics: [sourced({ confidence: 'estimated', citations: [] })] };
 
 describe('OVR on the card face', () => {
-  it('shows "NN OVR" in the footer slot instead of the tier label', () => {
+  it('shows the rating as a trading-card plaque on the art, keeping the footer stage label', () => {
     const rating = rateCardAlone(rated)!;
     renderWithProviders(<GameCard data={rated} />);
     const el = screen.getByTestId('card-ovr');
-    expect(el).toHaveTextContent(`${rating.overall} OVR`);
+    expect(el).toHaveTextContent(new RegExp(`^${rating.overall}OVR$`));
+    expect(el.className).toMatch(/collectible__ovr--(icon|gold|silver|bronze)/);
     expect(el.getAttribute('title')).toMatch(/Overall rating \d+\/99/);
-    expect(screen.queryByText('The Titans')).not.toBeInTheDocument();
   });
   it('withholds OVR when no figure is sourced, like the tier', () => {
     renderWithProviders(<GameCard data={unsourced} />);

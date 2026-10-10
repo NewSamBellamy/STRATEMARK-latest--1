@@ -4,6 +4,14 @@ import { deriveTriad } from '@/lib/brand';
 import { buildCardView, type CardView } from './card-view';
 import { Logo } from './Logo';
 import { ovrTooltip } from './rating';
+
+/** Classic trading-card rarity tiers for the rating plaque (FUT/Madden style). */
+function ovrRarity(n: number): 'icon' | 'gold' | 'silver' | 'bronze' {
+  if (n >= 90) return 'icon';
+  if (n >= 75) return 'gold';
+  if (n >= 60) return 'silver';
+  return 'bronze';
+}
 import { DEFAULT_CARD_ART, MarketCardArt } from './MarketCardArt';
 import './collectible.css';
 
@@ -83,6 +91,16 @@ export function CollectibleCard({
             </div>
           )}
           {!view.signal && <span className="collectible__art-label">{view.type}</span>}
+          {rating && (
+            <span
+              className={`collectible__ovr collectible__ovr--${ovrRarity(rating.overall)}${rating.indicative ? ' collectible__ovr--indicative' : ''}`}
+              title={ovrTooltip(rating)}
+              data-testid="card-ovr"
+            >
+              <span className="collectible__ovr-num">{rating.overall}</span>
+              <span className="collectible__ovr-label">OVR</span>
+            </span>
+          )}
         </div>
         <div className="collectible__identity">
           <span className="collectible__eyebrow">
@@ -112,11 +130,7 @@ export function CollectibleCard({
           </div>
         ) : null}
         <div className="collectible__footer">
-          {rating
-            ? <span title={ovrTooltip(rating)} data-testid="card-ovr">
-              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{rating.overall}</span> OVR{rating.indicative ? ' · Indicative' : ''}
-            </span>
-            : <span>{stage}</span>}
+          <span>{stage}</span>
           <span>{provenance}</span>
         </div>
       </div>
