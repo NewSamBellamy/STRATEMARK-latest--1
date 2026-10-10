@@ -18,7 +18,7 @@ export function AppShell() {
   // Queued hunts keep draining across navigation — the runner lives here.
   useHuntRunner();
   useSentinel();
-  const { isOpen: aiPanelOpen, closePanel } = useDeepDive();
+  const { pushWidth, closePanel } = useDeepDive();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -47,7 +47,9 @@ export function AppShell() {
 
       <div
         className="flex min-w-0 flex-1 flex-col transition-[margin] duration-300 ease-out"
-        style={{ marginRight: aiPanelOpen ? 400 : 0 }}
+        // Reserve exactly the docked panel's width (0 when floating or closed),
+        // so the page makes room instead of sliding under the chat.
+        style={{ marginRight: pushWidth }}
       >
         {/* Top bar with mobile menu button */}
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-surface px-4 md:justify-end md:px-5">

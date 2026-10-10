@@ -5,6 +5,7 @@ import {
   filterDecks,
   formatUpdated,
   pickLeadCard,
+  findSimilarMarket,
   researchState,
   sortDecks,
 } from './deck-library';
@@ -59,11 +60,12 @@ describe('computeCoverage', () => {
 });
 
 describe('pickLeadCard', () => {
-  it('prefers the best-filled card, then deck order', () => {
+  it('leads with the first company that has a logo (decks list leaders first)', () => {
     const a = card('a', [metric('users', 1)]);
-    const b = card('b', [metric('users', 1), metric('employees', 2)]);
-    expect(pickLeadCard([a, b])?.card.id).toBe('b');
-    expect(pickLeadCard([a, card('c', [metric('users', 1)])])?.card.id).toBe('a');
+    const b = card('b', [metric('users', 1), metric('employees', 2)], 'company', 'https://b.com/logo.png');
+    const c = card('c', [metric('users', 1)], 'company', 'https://c.com/logo.png');
+    expect(pickLeadCard([a, b, c])?.card.id).toBe('b');
+    expect(pickLeadCard([a, card('d', [])])?.card.id).toBe('a');
     expect(pickLeadCard([])).toBeNull();
   });
 });
@@ -97,5 +99,23 @@ describe('misc', () => {
     expect(formatUpdated('2026-05-10T01:00:00Z', now)).toBe('Today');
     expect(formatUpdated('2026-05-08T12:00:00Z', now)).toBe('2 days ago');
     expect(formatUpdated('', now)).toBe('Unknown');
+  });
+});
+
+describe('findSimilarMarket', () => {
+  const decks = [
+    { name: 'Civil & Commercial Unmanned Aircraft Systems (UAS)' },
+    { name: 'Global Non-Alcoholic Spirits Market' },
+    { name: 'Frontier AI Labs Market' },
+  ];
+  it('flags a near-copy of an existing deck', () => {
+    expect(findSimilarMarket('Commercial Unmanned Aircraft Systems', decks)?.name).toMatch(/Civil/);
+    expect(findSimilarMarket('non-alcoholic spirits brands', decks)?.name).toMatch(/Spirits/);
+    expect(findSimilarMarket('frontier AI labs', decks)?.name).toBe('Frontier AI Labs Market');
+  });
+  it('leaves genuinely different markets alone', () => {
+    expect(findSimilarMarket('non-alcoholic beer', decks)).toBeNull();
+    expect(findSimilarMarket('AI code-review startups', decks)).toBeNull();
+    expect(findSimilarMarket('market', decks)).toBeNull();
   });
 });

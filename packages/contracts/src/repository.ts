@@ -650,6 +650,12 @@ export interface MarketIntelRepository {
   // Cards
   listCards(deckId: string, filter?: CardFilter): Promise<CardWithCompany[]>;
   getCard(cardId: string): Promise<CardWithCompany | null>;
+  /**
+   * Take a card out of its deck because it does not belong in this market.
+   * The company stays out of that deck even if later research finds it again.
+   * OPTIONAL — engines without it simply do not offer the action.
+   */
+  removeCard?(cardId: string): Promise<void>;
   listSavedCards(): Promise<CardWithCompany[]>;
   saveCard(cardId: string): Promise<SavedCard>;
   unsaveCard(cardId: string): Promise<void>;

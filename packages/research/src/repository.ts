@@ -186,6 +186,8 @@ export interface RepoSnapshot {
   researchEvidence?: ResearchEvidence[];
   /** Original receipts retained before interpretation on local browser routes. */
   originalSourceAttempts?: OriginalSourceAttempt[];
+  /** Companies the user took out of a deck; they never come back into that deck. */
+  removedFromDeck?: Array<{ deckId: string; companyKey: string; at: string }>;
 }
 
 export interface ResearchStore {
@@ -1788,10 +1790,40 @@ export class GeminiRepository implements MarketIntelRepository {
       .filter((c) => c.deckId === deckId)
       .filter(c => !job?.catalogNames.length || !isEntityCardType(c.cardType) ||
         completed?.has(companyKey(this.snap.companies.find(company => company.id === c.companyId)?.name ?? '')))
+      .filter((c) => !this.isRemovedFromDeck(c))
       .filter((c) => (filter?.cardType ? c.cardType === filter.cardType : true))
       .filter((c) => (filter?.tier ? c.tier === filter.tier : true))
       .map((card) => this.hydrate(card));
     return this.cardsWithFacts(result);
+  }
+
+  /** A card whose company the user removed from this deck (read-time, so re-discovery can't undo it). */
+  private isRemovedFromDeck(card: Card): boolean {
+    const removed = this.snap.removedFromDeck;
+    if (!removed?.length || !card.companyId) return false;
+    const name = this.snap.companies.find((co) => co.id === card.companyId)?.name;
+    if (!name) return false;
+    const key = companyKey(name);
+    return removed.some((r) => r.deckId === card.deckId && r.companyKey === key);
+  }
+
+  async removeCard(cardId: string): Promise<void> {
+    const card = this.snap.cards.find((c) => c.id === cardId);
+    if (!card) return;
+    const name = card.companyId ? this.snap.companies.find((co) => co.id === card.companyId)?.name : null;
+    if (name) {
+      const key = companyKey(name);
+      const removed = this.snap.removedFromDeck ?? [];
+      if (!removed.some((r) => r.deckId === card.deckId && r.companyKey === key)) {
+        this.snap.removedFromDeck = [...removed, { deckId: card.deckId, companyKey: key, at: new Date().toISOString() }];
+      }
+      // Every card for that company in this deck goes (company card and its facets).
+      this.snap.cards = this.snap.cards.filter((c) => !(c.deckId === card.deckId && c.companyId === card.companyId));
+    } else {
+      this.snap.cards = this.snap.cards.filter((c) => c.id !== cardId);
+    }
+    this.snap.savedCards = this.snap.savedCards.filter((s) => this.snap.cards.some((c) => c.id === s.cardId));
+    await this.persist();
   }
   async getCard(cardId: string): Promise<CardWithCompany | null> {
     const card = this.snap.cards.find((c) => c.id === cardId);

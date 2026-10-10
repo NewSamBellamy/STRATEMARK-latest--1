@@ -551,8 +551,8 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     >
       {children}
 
-      {/* Floating pill — in floating mode, when minimized on deck/workspace pages, a tap reopens the chat. */}
-      {mode === 'floating' && !openState && scope && !isStartingPage && (
+      {/* Reopen pill: once a conversation exists, a closed panel is one tap away on any page but the start page. */}
+      {!openState && scope && (thread || mode === 'floating') && !isStartingPage && (
         <button
           type="button"
           onClick={() => setOpenState(true)}

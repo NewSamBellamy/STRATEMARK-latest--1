@@ -38,6 +38,8 @@ import { SettingsLink } from '@/components/SettingsLink';
 import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { useResearchSession } from './research-session';
 import { qk } from '@/lib/query/keys';
+import { useMarkets } from '@/hooks/data';
+import { findSimilarMarket } from '@/features/markets/deck-library';
 
 const SUGGESTION_SETS = [
   [
@@ -441,6 +443,11 @@ export default function NewDeckPage() {
   // Christian-apparel sample companies wearing an AI-labs title, under a "Live
   // research" pill. Never fake research: say what demo mode is, link the fix.
   const [demoGate, setDemoGate] = useState(false);
+  // Near-duplicate guard: a deck that already covers this market is offered
+  // first; creating a near-copy anyway is one more click, never an accident.
+  const markets = useMarkets();
+  const [duplicate, setDuplicate] = useState<{ query: string; id: string; name: string } | null>(null);
+  const [dupConfirmed, setDupConfirmed] = useState<string | null>(null);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -456,6 +463,12 @@ export default function NewDeckPage() {
       return;
     }
     setDemoGate(false);
+    const similar = dupConfirmed === q ? null : findSimilarMarket(q, markets.data ?? []);
+    if (similar) {
+      setDuplicate({ query: q, id: similar.id, name: similar.name });
+      return;
+    }
+    setDuplicate(null);
 
     const regionStr = region.trim();
     const userText = [q, regionStr].filter(Boolean).join(' — ');
@@ -598,6 +611,36 @@ export default function NewDeckPage() {
               </span>
             }
             onClose={() => setDemoGate(false)}
+          />
+        </div>
+      )}
+
+      {duplicate && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg px-4">
+          <NotificationToast
+            variant="warning"
+            title="You already have a deck like this"
+            description={
+              <span>
+                “{duplicate.name}” covers much of the same market.{' '}
+                <Link to={`/markets/${duplicate.id}/deck`} className="font-semibold underline hover:opacity-80">
+                  Open it
+                </Link>
+                {' '}or{' '}
+                <button
+                  type="button"
+                  className="font-semibold underline hover:opacity-80"
+                  onClick={() => {
+                    setDupConfirmed(duplicate.query);
+                    setDuplicate(null);
+                  }}
+                >
+                  create a new deck anyway
+                </button>
+                {' '}(press Research again).
+              </span>
+            }
+            onClose={() => setDuplicate(null)}
           />
         </div>
       )}

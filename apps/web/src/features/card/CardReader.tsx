@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, ExternalLink, Printer, Share2 } from 'lucide-react';
 import { publisherOf, type CardWithCompany } from '@mi/contracts';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/Modal';
-import { useMarket } from '@/hooks/data';
+import { useMarket, useRemoveCard } from '@/hooks/data';
+import { useSupports } from '@/lib/repository/RepositoryProvider';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { buildCardShare, buildReportShare } from '@/lib/share/codec';
 import { verifyCardForShare } from '@/lib/share/preflight';
@@ -41,6 +42,9 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
   const { chat } = useDeepDive();
   const [shareOpen, setShareOpen] = useState(false);
   const [fullFinding, setFullFinding] = useState(false);
+  const canRemove = useSupports('removeCard');
+  const removeCard = useRemoveCard();
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const dashboardUrl = company && !view.signal ? `/company/${company.id}/dashboard/overview?${new URLSearchParams({
     ...(marketId ? { deck: marketId } : {}), card: card.id, ...(deckView ? { view: deckView } : {}),
   })}` : null;
@@ -231,6 +235,22 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
             <div className="flex items-center gap-1"><SaveCardButton cardId={card.id} />
               <button type="button" className="card-control" aria-label="Share card" onClick={() => setShareOpen(true)}><Share2 size={15} /></button>
               <span className="ml-2 text-[11px] text-muted">Keep or share this card</span></div>
+            {canRemove && (confirmRemove ? (
+              <span className="flex items-center gap-2 text-[11px]">
+                <span className="text-muted">Remove {view.title} from this deck?</span>
+                <button type="button" className="font-semibold text-negative hover:underline" disabled={removeCard.isPending}
+                  onClick={() => removeCard.mutate(card.id, { onSuccess: () => onOpenChange(false) })}>
+                  {removeCard.isPending ? 'Removing…' : 'Remove'}
+                </button>
+                <button type="button" className="text-muted hover:underline" onClick={() => setConfirmRemove(false)}>Cancel</button>
+              </span>
+            ) : (
+              <button type="button" className="text-[11px] text-muted hover:text-negative hover:underline"
+                title="Take this card out of the deck if it doesn't belong in this market. It won't be added back."
+                onClick={() => setConfirmRemove(true)}>
+                Doesn’t belong here
+              </button>
+            ))}
             {(onPrevious || onNext) && <div className="flex items-center gap-1">
               <button type="button" className="card-control" aria-label="Previous card" onClick={onPrevious} disabled={!onPrevious}><ArrowLeft size={15} /></button>
               <button type="button" className="card-control" aria-label="Next card" onClick={onNext} disabled={!onNext}><ArrowRight size={15} /></button>

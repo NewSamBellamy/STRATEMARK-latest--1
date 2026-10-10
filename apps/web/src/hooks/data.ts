@@ -147,6 +147,23 @@ export function useSaveCard() {
   });
 }
 
+/** Take a card out of its deck (it doesn't belong in this market). */
+export function useRemoveCard() {
+  const repo = useRepository();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (cardId: string) => {
+      if (!repo.removeCard) throw new Error('Removing cards isn’t available on this engine.');
+      return repo.removeCard(cardId);
+    },
+    onSuccess: () => Promise.all([
+      qc.invalidateQueries({ queryKey: ['cards'] }),
+      qc.invalidateQueries({ queryKey: qk.savedCards }),
+      qc.invalidateQueries({ queryKey: qk.markets }),
+    ]),
+  });
+}
+
 export function useUnsaveCard() {
   const repo = useRepository();
   const qc = useQueryClient();

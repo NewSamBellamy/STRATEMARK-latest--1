@@ -44,6 +44,12 @@ export function computeCoverage(cards: readonly CardWithCompany[]): Coverage {
 
 /** The deck's lead company: the best-filled entity card, ties broken by deck order. */
 export function pickLeadCard(cards: readonly CardWithCompany[]): CardWithCompany | null {
+  // The deck lists its market leaders first, so the cover is the first
+  // company card that has a real logo — OpenAI for frontier AI, not whichever
+  // smaller lab happened to have the most filled slots.
+  const companies = cards.filter((c) => c.card.cardType === 'company' && c.company);
+  const lead = companies.find((c) => c.company!.logoUrl) ?? companies[0];
+  if (lead) return lead;
   let best: CardWithCompany | null = null;
   let bestScore = -1;
   for (const c of cards) {
@@ -140,4 +146,37 @@ export function formatUpdated(iso: string, now: number = Date.now()): string {
     day: 'numeric',
     year: days > 300 ? 'numeric' : undefined,
   });
+}
+
+const MARKET_STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'of', 'for', 'in', 'on', '&', 'global', 'market', 'markets', 'sector', 'industry',
+  'companies', 'company', 'brands', 'players', 'landscape', 'space', 'segment', 'worldwide',
+]);
+
+function marketTokens(name: string): Set<string> {
+  return new Set(name.toLowerCase().replace(/[()/,.:;'"]+/g, ' ').split(/\s+/)
+    .map((t) => t.replace(/s$/, ''))
+    .filter((t) => t.length > 1 && !MARKET_STOPWORDS.has(t) && !MARKET_STOPWORDS.has(`${t}s`)));
+}
+
+/**
+ * An existing deck that already covers what the user just typed, so creating
+ * a near-copy ("Commercial UAS" after "Civil & Commercial UAS") is a choice,
+ * not an accident. Word overlap on the meaningful terms of the name.
+ */
+export function findSimilarMarket<T extends { name: string }>(query: string, markets: readonly T[]): T | null {
+  const q = marketTokens(query);
+  if (q.size === 0) return null;
+  let best: T | null = null;
+  let bestScore = 0;
+  for (const m of markets) {
+    const t = marketTokens(m.name);
+    if (t.size === 0) continue;
+    const shared = [...q].filter((x) => t.has(x)).length;
+    const jaccard = shared / new Set([...q, ...t]).size;
+    const covered = shared / Math.min(q.size, t.size);
+    const score = Math.max(jaccard, shared >= 2 ? covered * 0.9 : 0);
+    if (score > bestScore) { best = m; bestScore = score; }
+  }
+  return bestScore >= 0.6 ? best : null;
 }
