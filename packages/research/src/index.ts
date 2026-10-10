@@ -42,3 +42,4 @@ export * from './semantic-memory';
 // Free structured + optional lanes (speed architecture)
 export * from './assets';
 export * from './crawl4ai';
+export * from './completeness';

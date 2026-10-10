@@ -33,6 +33,7 @@ import {
   type CardWithCompany,
   type Citation,
   type Company,
+  type CompanyCompleteness,
   type CompanyMetric,
   type CreateMarketInput,
   type DeckBriefing,
@@ -109,6 +110,7 @@ import { coalesceOriginalSources, isOriginalSourceAttempt, selectOriginalSourceC
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueObservation, secRevenueVerification } from './sec-revenue';
 import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
 import { companyNameKey, marketCapEstimate, secSharesConceptUrl, secTickerMapUrl, yahooChartUrl } from './market-quote';
+import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane } from './searxng';
 import { readCompanyOriginals } from './core-source-coverage';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
@@ -2773,6 +2775,52 @@ export class GeminiRepository implements MarketIntelRepository {
       }
     }
     return { filledTypes, metrics: mine(), retieredCardIds };
+  }
+
+  /** The completeness gate before a report or deep-dive is served (the owner's
+   * rule: ask what's missing, then kick the research that fills it). Per
+   * company: classify the market profile's core slots honestly, and when gaps
+   * remain run the living deck's fill ladder ONE pass per rung — free evidence
+   * reuse, free recovery, then at most ONE un-escalated hunt, whose first act
+   * on this transport is the structured-lane pass (fillFromStructuredSources),
+   * so the lanes run exactly once and whatever they fill never reaches the
+   * provider. Every rung persists and re-tiers through its own existing path;
+   * this method writes nothing itself and never proposes a value. Gaps that
+   * survive land in stillMissing, not in a fabricated figure. Unknown company
+   * ids are skipped rather than invented. */
+  async ensureReportReadiness(
+    companyIds: string[],
+    options?: { signal?: AbortSignal },
+  ): Promise<{ reports: CompanyCompleteness[]; researched: string[]; stillMissing: number }> {
+    const reports: CompanyCompleteness[] = [];
+    const researched: string[] = [];
+    let stillMissing = 0;
+    for (const companyId of companyIds) {
+      throwIfAborted(options?.signal);
+      const company = this.snap.companies.find((c) => c.id === companyId);
+      if (!company) continue;
+      const profile = classifyMarketProfile(company);
+      // Readiness reads the accepted facts projection — the same source the
+      // card face renders — never the raw observation ledger.
+      const before = computeCompanyCompleteness({ companyId, name: company.name,
+        metrics: await this.getCompanyFacts(companyId), profile });
+      if (before.gaps.length > 0) {
+        // A failed rung degrades to the next instead of consuming the batch;
+        // on this transport every lane exists, so degradation happens on throw.
+        let acted = false;
+        try { await this.reuseCompanyEvidence(companyId); acted = true; } catch { /* free recovery still runs */ }
+        try { await this.recoverSavedCompanyMetrics(companyId); acted = true; } catch { /* the hunt below still runs */ }
+        try { await this.huntCompanyMetrics(companyId); acted = true; } catch { /* gaps stay honest */ }
+        if (acted) researched.push(companyId);
+        const after = computeCompanyCompleteness({ companyId, name: company.name,
+          metrics: await this.getCompanyFacts(companyId), profile });
+        reports.push(after);
+        stillMissing += after.gaps.length;
+      } else {
+        reports.push(before);
+      }
+    }
+    return { reports, researched, stillMissing };
   }
 
   /** Recompute CMS tiers for a company's company-cards; returns moved card ids. */

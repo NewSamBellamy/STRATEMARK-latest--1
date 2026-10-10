@@ -19,6 +19,7 @@ import type {
   MetricType,
   RefreshCadence,
 } from './enums';
+import type { MarketProfile } from './market-profile';
 import type {
   Card,
   Company,
@@ -589,6 +590,26 @@ export interface ResearchCorpusQuery {
   limit?: number;
 }
 
+/** One unfilled core slot on a company's card: which metric it concerns and
+ * WHY it is a gap — a valueless row exists (`unknown`) or no row at all
+ * (`absent`). A gap never carries a proposed value; filling is research's job. */
+export interface CompanyCompletenessGap {
+  metricType: MetricType;
+  /** Human label for UI display (mirrors METRIC_TYPE_LABELS). */
+  label: string;
+  state: 'unknown' | 'absent';
+}
+
+/** The honest readiness of one company's report: every core slot of its market
+ * profile that still lacks a value. `ready` is true only when `gaps` is empty. */
+export interface CompanyCompleteness {
+  companyId: string;
+  name: string;
+  profile: MarketProfile;
+  gaps: CompanyCompletenessGap[];
+  ready: boolean;
+}
+
 export interface MarketIntelRepository {
   /** Capability report for the active engine/key. OPTIONAL — engines without
    * capability plumbing are assumed fully capable by callers that need a
@@ -714,6 +735,19 @@ export interface MarketIntelRepository {
    * provider call. OPTIONAL — engines holding saved evidence locally.
    */
   recoverSavedCompanyMetrics?(companyId: string): Promise<HuntMetricsResult>;
+
+  /**
+   * The completeness gate before a report or deep-dive is served: compute each
+   * company's honest core-slot gaps, and when any remain run one bounded fill
+   * pass — free recovery, the structured lanes, then at most ONE hunt with no
+   * escalation — before recomputing. `researched` lists companies any pass ran
+   * for; `stillMissing` counts what research honestly could not fill, never a
+   * proposed value. Optional — live-research transports only.
+   */
+  ensureReportReadiness?(
+    companyIds: string[],
+    options?: { signal?: AbortSignal },
+  ): Promise<{ reports: CompanyCompleteness[]; researched: string[]; stillMissing: number }>;
 
   /** Fill a gap in a deck via targeted micro-research (e.g. hunt Seed-stage companies). */
   expandDeck(
