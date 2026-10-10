@@ -1408,8 +1408,6 @@ export class GeminiRepository implements MarketIntelRepository {
         ``,
         `## Initial market participants`,
         ...stubsResult.candidates.slice(0, 10).map((c) => `- **${c.name}** (${c.primaryRole ?? 'company'}): ${c.descriptor}`),
-        ``,
-        `*Grounded research in progress — live metrics, proxy valuations, and risk signals are being hydrated continually in the background.*`,
       ].join('\n'),
       citations: [],
       createdAt: now,

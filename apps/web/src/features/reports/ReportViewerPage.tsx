@@ -4,42 +4,66 @@ import { Link, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ArrowDown, ArrowLeft, ArrowUp, Download, ExternalLink, Presentation, Printer, Share2 } from 'lucide-react';
-import type { CardWithCompany, MetricType } from '@mi/contracts';
+import type { CardWithCompany } from '@mi/contracts';
+import { buildCardView } from '@/features/card/card-view';
+import { cn } from '@/lib/cn';
 import { useCards, useReport } from '@/hooks/data';
 import { SiteAuditView } from './SiteAuditView';
 import { AiCover } from '@/components/media/AiCover';
 import { printScoped } from '@/lib/print';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
-import { formatMetricValue, formatRelative } from '@/lib/format';
+import { formatRelative } from '@/lib/format';
+import { ReportButton } from '@/features/research/ResearchControls';
 import { METRIC_COLORS, tint } from '@/lib/theme';
 import { buildReportShare } from '@/lib/share/codec';
 import { ShareDialog } from '@/features/share/ShareDialog';
 import { exportDeckPptx } from './pptx';
 
-type SortKey = 'name' | 'market_share' | 'arr' | 'value' | 'employees';
+type SortKey = 'name' | 'market_share' | 'revenue' | 'value' | 'employees';
 
-function metricValue(c: CardWithCompany, type: MetricType | 'value'): number | null {
-  if (type === 'value') {
-    const v = c.metrics.find(
-      (m) => (m.metricType === 'valuation' || m.metricType === 'market_cap') && m.value != null,
-    );
-    return v?.value ?? null;
-  }
-  return c.metrics.find((m) => m.metricType === type && m.value != null)?.value ?? null;
+interface LandscapeRow {
+  card: CardWithCompany;
+  share: number | null;
+  /** Card-face figures: the same slots, gates and display strings as the card itself. */
+  revenue: { value: number | null; display: string };
+  value: { value: number | null; display: string };
+  team: { value: number | null; display: string };
 }
 
-/** Sortable landscape grid built from the deck's real data (audit: no raw LLM tables). */
+function faceSlot(view: ReturnType<typeof buildCardView>, key: string) {
+  const item = view.profileMetrics.find((m) => m.key === key);
+  const known = !!item && item.display !== 'Unknown';
+  return { value: known ? item!.metric?.value ?? null : null, display: known ? item!.display : 'Unknown' };
+}
+
+/**
+ * Sortable landscape grid built from the deck's live cards. Every figure is
+ * read through buildCardView, so the report can never disagree with a card.
+ */
 function LandscapeTable({ deckId }: { deckId: string }) {
   const cards = useCards(deckId);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'value', dir: -1 });
 
-  const rows = useMemo(() => {
+  const rows = useMemo<LandscapeRow[]>(() => {
     const companies = (cards.data ?? []).filter((c) => c.card.cardType === 'company' && c.company);
-    const get = (c: CardWithCompany): number | string | null =>
-      sort.key === 'name'
-        ? c.company!.name.toLowerCase()
-        : metricValue(c, sort.key);
-    return [...companies].sort((a, b) => {
+    const built = companies.map((c) => {
+      const view = buildCardView(c);
+      const share = view.metrics.find((m) => m.metric.metricType === 'market_share' && m.metric.value != null && m.citations.length > 0);
+      return {
+        card: c,
+        share: share?.metric.value ?? null,
+        revenue: faceSlot(view, 'revenue'),
+        value: faceSlot(view, 'company_value'),
+        team: faceSlot(view, 'employees'),
+      };
+    });
+    const get = (r: LandscapeRow): number | string | null =>
+      sort.key === 'name' ? r.card.company!.name.toLowerCase()
+        : sort.key === 'market_share' ? r.share
+          : sort.key === 'revenue' ? r.revenue.value
+            : sort.key === 'employees' ? r.team.value
+              : r.value.value;
+    return built.sort((a, b) => {
       const av = get(a);
       const bv = get(b);
       if (av == null && bv == null) return 0;
@@ -63,7 +87,12 @@ function LandscapeTable({ deckId }: { deckId: string }) {
     </th>
   );
 
-  const maxShare = Math.max(...rows.map((r) => metricValue(r, 'market_share') ?? 0), 1);
+  // A column nobody has a sourced figure for is noise, not information.
+  const showShare = rows.some((r) => r.share != null);
+  const maxShare = Math.max(...rows.map((r) => r.share ?? 0), 1);
+  const cell = (d: { display: string }) => (
+    <td className={cn('px-3 py-2 tabular-nums', d.display === 'Unknown' && 'text-faint')}>{d.display}</td>
+  );
 
   return (
     <div className="panel mb-5 overflow-x-auto p-0">
@@ -71,46 +100,41 @@ function LandscapeTable({ deckId }: { deckId: string }) {
         <thead className="border-b border-border">
           <tr>
             <Th k="name" label="Company" />
-            <Th k="market_share" label="Share" />
-            <Th k="arr" label="ARR" />
-            <Th k="value" label="Valuation/Cap" />
+            {showShare && <Th k="market_share" label="Share" />}
+            <Th k="revenue" label="Revenue" />
+            <Th k="value" label="Valuation / cap" />
             <Th k="employees" label="Team" />
           </tr>
         </thead>
         <tbody>
-          {rows.map((c) => {
-            const share = metricValue(c, 'market_share');
-            return (
-              <tr key={c.card.id} className="border-b border-border/60 last:border-0 hover:bg-surface-2/60">
-                <td className="px-3 py-2 font-medium text-content">{c.company!.name}</td>
+          {rows.map((r) => (
+            <tr key={r.card.card.id} className="border-b border-border/60 last:border-0 hover:bg-surface-2/60">
+              <td className="px-3 py-2 font-medium text-content">{r.card.company!.name}</td>
+              {showShare && (
                 <td className="px-3 py-2 tabular-nums">
                   <div className="flex items-center gap-2">
-                    <span className="w-12">{share != null ? `${share}%` : '—'}</span>
-                    {share != null && (
+                    <span className="w-12">{r.share != null ? `${r.share}%` : '—'}</span>
+                    {r.share != null && (
                       <span className="h-1.5 w-16 overflow-hidden rounded-full" style={{ background: tint(METRIC_COLORS.market_share, 0.12) }}>
                         <span
                           className="block h-full rounded-full"
-                          style={{ width: `${(share / maxShare) * 100}%`, background: METRIC_COLORS.market_share }}
+                          style={{ width: `${(r.share / maxShare) * 100}%`, background: METRIC_COLORS.market_share }}
                         />
                       </span>
                     )}
                   </div>
                 </td>
-                <td className="px-3 py-2 tabular-nums">{formatMetricValue('arr', metricValue(c, 'arr'))}</td>
-                <td className="px-3 py-2 tabular-nums">
-                  {(() => {
-                    const v = c.metrics.find(
-                      (m) => (m.metricType === 'valuation' || m.metricType === 'market_cap') && m.value != null,
-                    );
-                    return v ? formatMetricValue(v.metricType, v.value) : 'Unknown';
-                  })()}
-                </td>
-                <td className="px-3 py-2 tabular-nums">{formatMetricValue('employees', metricValue(c, 'employees'))}</td>
-              </tr>
-            );
-          })}
+              )}
+              {cell(r.revenue)}
+              {cell(r.value)}
+              {cell(r.team)}
+            </tr>
+          ))}
         </tbody>
       </table>
+      <p className="border-t border-border px-3 py-2 text-[11px] text-faint">
+        Live figures from this deck&apos;s cards, with the same sourcing rules. Unknown means no sourced figure yet.
+      </p>
     </div>
   );
 }
@@ -132,7 +156,10 @@ export default function ReportViewerPage() {
       <QueryBoundary query={report}>
         {(r) => {
           if (r.kind === 'site_audit' && r.audit) return <SiteAuditView report={r} audit={r.audit} />;
-          const markdown = typeof r.markdown === 'string' ? r.markdown : '';
+          // The deck's opening brief was written before research ran; its
+          // "research in progress" footer is stale the moment research ends.
+          const markdown = (typeof r.markdown === 'string' ? r.markdown : '')
+            .split('\n').filter((line) => !/^\*?Grounded research in progress/i.test(line.trim())).join('\n');
           const citations = Array.isArray(r.citations) ? r.citations : [];
           return (
           <article className="brf-print-root panel p-6">
@@ -144,10 +171,16 @@ export default function ReportViewerPage() {
                 </p>
                 <h1 className="mt-1 font-display text-2xl font-bold tracking-tight text-content sm:text-3xl">{r.title}</h1>
                 <p className="mt-1 text-xs text-muted">
-                  Generated {formatRelative(r.createdAt)} · {citations.length} sources
+                  Generated {formatRelative(r.createdAt)} ·{' '}
+                  {citations.length > 0
+                    ? `${citations.length} ${citations.length === 1 ? 'source' : 'sources'}`
+                    : r.kind === 'deck' ? 'research plan · figures below are live from the deck' : 'no sources attached'}
                 </p>
               </div>
               <div className="brf-no-print flex flex-wrap gap-2">
+                {r.kind === 'deck' && citations.length === 0 && (
+                  <ReportButton kind="deck" subjectId={r.subjectId} />
+                )}
                 {r.kind === 'deck' && (
                   <button
                     type="button"

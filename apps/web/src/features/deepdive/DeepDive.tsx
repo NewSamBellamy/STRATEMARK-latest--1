@@ -169,6 +169,8 @@ function TypingBubble({ active }: { active: boolean }) {
 interface ChatOptions {
   seed?: string;
   placeholder?: string;
+  /** Prefills the box (editable) without sending — a ready question to start from. */
+  draft?: string;
 }
 
 interface DeepDiveContextValue {
@@ -408,6 +410,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     reset();
     setScope(s);
     setPlaceholder(opts?.placeholder);
+    if (opts?.draft) setDraft(opts.draft);
     setOpenState(true);
     if (opts?.seed) void ask(opts.seed, s);
   };

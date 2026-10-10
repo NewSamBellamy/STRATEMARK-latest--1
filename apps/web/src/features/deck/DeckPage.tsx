@@ -128,7 +128,10 @@ export default function DeckPage() {
     if (!deckId || selected.size === 0) return;
     chat(
       { kind: 'cards', deckId, cardIds: [...selected] },
-      { placeholder: 'Compare these…' },
+      {
+        placeholder: 'Compare these…',
+        draft: `Compare these ${selected.size} head-to-head: strengths, weaknesses and momentum.`,
+      },
     );
     exitCompare();
   };
