@@ -10,7 +10,16 @@ import { useEffect, useState } from 'react';
  */
 const SKELETON_PANELS = ['w-3/4', 'w-full', 'w-5/6', 'w-2/3'];
 
-export function HydratingPanel({ label }: { label?: string }) {
+export function HydratingPanel({
+  label,
+  variant = 'default',
+}: {
+  label?: string;
+  /** `compact` = status banner + a few text skeletons, for use inside a layout
+   * whose other regions (KPI tiles, peer block) are already rendering. `table`
+   * = banner + a table-shaped skeleton for the Metrics tab. */
+  variant?: 'default' | 'compact' | 'table';
+}) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setElapsed((e) => e + 1), 1000);
@@ -36,6 +45,25 @@ export function HydratingPanel({ label }: { label?: string }) {
           <span className="ml-auto shrink-0 tabular-nums text-[11px] text-faint">{elapsed}s</span>
         )}
       </div>
+      {variant === 'compact' && (
+        <div className="panel space-y-3 p-6" aria-hidden>
+          {SKELETON_PANELS.map((width, i) => (
+            <div key={i} className={`h-3.5 animate-pulse rounded bg-border ${width}`} style={{ animationDelay: `${i * 90}ms` }} />
+          ))}
+        </div>
+      )}
+      {variant === 'table' && (
+        <div className="panel divide-y divide-border" aria-hidden>
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="flex items-center gap-4 px-5 py-3.5">
+              <div className="h-3 w-28 animate-pulse rounded bg-border" style={{ animationDelay: `${i * 90}ms` }} />
+              <div className="ml-auto h-3 w-16 animate-pulse rounded bg-border" style={{ animationDelay: `${i * 90 + 45}ms` }} />
+              <div className="hidden h-3 w-20 animate-pulse rounded bg-border sm:block" style={{ animationDelay: `${i * 90 + 90}ms` }} />
+            </div>
+          ))}
+        </div>
+      )}
+      {variant === 'default' && (<>
       {/* Skeletons in the shape of the sections to come — cascade, not void. */}
       <div className="panel space-y-3 p-6">
         {SKELETON_PANELS.map((width, i) => (
@@ -66,6 +94,7 @@ export function HydratingPanel({ label }: { label?: string }) {
           ))}
         </div>
       </div>
+      </>)}
     </div>
   );
 }

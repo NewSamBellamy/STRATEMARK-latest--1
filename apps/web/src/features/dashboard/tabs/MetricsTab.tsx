@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Loader2, Pencil, Radar } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ChevronDown, ChevronsUpDown, ChevronUp, ExternalLink, Loader2, Pencil, Radar } from 'lucide-react';
 import {
   METRIC_TYPE_LABELS,
-  metricDefinitionLabel,
   comparableMetricBasis,
+  publisherOf,
   type SIGNAL_BANDS,
   type CompanyMetric,
   type MetricType,
@@ -17,16 +18,35 @@ import {
 } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
-import { EmptyState } from '@/components/states/EmptyState';
 import { Modal } from '@/components/ui/Modal';
+import { cn } from '@/lib/cn';
 import { formatMetricValue } from '@/lib/format';
-import { METRIC_COLORS } from '@/lib/theme';
+import { METRIC_COLORS, tint } from '@/lib/theme';
 import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
-import { UnknownSlot, UNKNOWN_REASON } from '@/features/card/UnknownValue';
+import { UnknownSlot, UnknownInline, UNKNOWN_REASON } from '@/features/card/UnknownValue';
 import { buildMetricViews } from '@/features/card/card-view';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { FactCheck } from '@/features/factcheck/FactCheck';
 import { BandGauge, ChartPanel, CompositionDonut, Delta, ShareDonut, TrendArea, TrendBar, TrendLine } from './metricViz';
+import {
+  FAMILY_LABELS,
+  FILL_HINT,
+  METRIC_FAMILY,
+  barPercent,
+  formatAsOf,
+  isKnown,
+  metricAsOf,
+  missingCoreTypes,
+  orderMetrics,
+  rankInDeck,
+  sortMetricRows,
+  type MetricFamily,
+  type PeerEntry,
+  type PeerRanking,
+  type SortKey,
+} from '../dashboardModel';
+import { ConfidenceMark, Section, metricLabel, useTabHref } from '../dashboardKit';
+import { usePeers, type PeerState } from '../usePeers';
 
 /** Readable deep-dive topics per metric. */
 const DEEP_TOPIC: Record<MetricType, string> = {
@@ -51,9 +71,6 @@ const BAND_KEY: Partial<Record<MetricType, keyof typeof SIGNAL_BANDS>> = {
   employees: 'employees',
 };
 
-/** The display order; valuation/market_cap collapse to whichever is present. */
-const ORDER: MetricType[] = ['market_share', 'valuation', 'market_cap', 'arr', 'aum', 'users', 'employees', 'revenue', 'funding_total', 'last_round', 'distribution'];
-const metricLabel = (metric: CompanyMetric) => metricDefinitionLabel(metric) ?? METRIC_TYPE_LABELS[metric.metricType];
 
 /** Human-in-the-loop correction: value + source note → user_verified → re-tier. */
 function OverrideModal({
@@ -139,95 +156,336 @@ function OverrideModal({
   );
 }
 
-/** Tile chrome shared by every metric: header, affordances, provenance. */
-function MetricTile({
-  metric,
-  companyId,
-  companyName,
-  highlight = false,
-  children,
+/** Header row of the detail panel: label, family, correction affordance. */
+function DetailHeader({
+  metric, companyName, highlight,
+}: { metric: CompanyMetric; companyName: string; highlight: boolean }) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="flex items-center gap-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
+          <span className="h-2 w-2 rounded-full" style={{ background: METRIC_COLORS[metric.metricType] }} aria-hidden />
+          {FAMILY_LABELS[METRIC_FAMILY[metric.metricType]]}
+          {highlight && (
+            <span className="rounded-full border border-emerald-300 bg-emerald-50 px-1.5 py-px text-[9px] font-semibold normal-case tracking-normal text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+              Updated from live sources
+            </span>
+          )}
+        </p>
+        <h3 className="mt-0.5 font-display text-lg font-semibold text-content">{metricLabel(metric)}</h3>
+      </div>
+      <button
+        type="button"
+        className="rounded-md p-1.5 text-faint transition-colors hover:bg-surface-2 hover:text-content"
+        title="Correct this figure (you know better)"
+        aria-label={`Correct ${metricLabel(metric)}`}
+        onClick={() => setEditing(true)}
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+      {editing && <OverrideModal metric={metric} companyName={companyName} open={editing} onOpenChange={setEditing} />}
+    </div>
+  );
+}
+
+/** Every source behind the figure, with the retained quote when there is one. */
+function SourceDrill({ metric }: { metric: CompanyMetric }) {
+  const quote = metric.passageSupport?.quote;
+  const cites = metric.citations.filter((c) => /^https?:\/\//i.test(c.url));
+  const known = isKnown(metric);
+  if (!known) return null;
+  return (
+    <div>
+      <h4 className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">Sources</h4>
+      {cites.length > 0 ? (
+        <ul className="space-y-1">
+          {cites.map((c) => (
+            <li key={c.url}>
+              <a href={c.url} target="_blank" rel="noopener noreferrer"
+                className="group inline-flex max-w-full items-center gap-1.5 text-[12.5px] text-primary-ink hover:underline">
+                <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+                <span className="truncate">{publisherOf(c.url, c.title)}</span>
+                {c.credibility && c.credibility !== 'unknown' && (
+                  <span className="shrink-0 rounded border border-border px-1 text-[10px] text-faint no-underline">
+                    {c.credibility.replace('_', ' ')}
+                  </span>
+                )}
+              </a>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-[12.5px] text-muted">No clickable source was recorded for this figure.</p>
+      )}
+      {quote && (
+        <blockquote className="mt-2 border-l-2 border-border pl-3 text-[12.5px] italic leading-snug text-muted">
+          “{quote}”
+        </blockquote>
+      )}
+      {metric.confidence === 'estimated' && metric.methodNote && (
+        <p className="mt-2 text-[12px] italic text-muted">How we got this: {metric.methodNote}</p>
+      )}
+    </div>
+  );
+}
+
+/** The selected metric against the rest of the deck. Unknown peers are listed, never charted. */
+function PeerComparison({
+  ranking, selfId, hrefFor, peerStatus, peers,
+}: {
+  ranking: PeerRanking;
+  selfId: string;
+  hrefFor: (peerId: string, type: MetricType) => string;
+  peerStatus: 'no_deck' | 'loading' | 'ready';
+  peers: readonly PeerEntry[];
+}) {
+  const [all, setAll] = useState(false);
+  const [hover, setHover] = useState<string | null>(null);
+  const color = METRIC_COLORS[ranking.metricType];
+  const max = ranking.points[0]?.value ?? 0;
+  const shown = all ? ranking.points : ranking.points.slice(0, 8);
+  const knownIds = new Set(ranking.points.map((p) => p.companyId));
+  const unknownNames = peers.filter((p) => !knownIds.has(p.companyId) && p.companyId !== selfId).map((p) => p.name);
+  return (
+    <div>
+      <h4 className="mb-1.5 flex items-center justify-between text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
+        <span>Versus this deck</span>
+        {ranking.rank != null && ranking.of > 1 && (
+          <span className="normal-case tracking-normal text-faint tabular-nums">#{ranking.rank} of {ranking.of} known</span>
+        )}
+      </h4>
+      {peerStatus === 'no_deck' ? (
+        <p className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-3 text-[12.5px] leading-snug text-muted">
+          Open this company from its deck to compare it with the other companies in that deck.
+        </p>
+      ) : peerStatus === 'loading' ? (
+        <div className="space-y-2" aria-hidden>
+          {[0, 1, 2].map((i) => <div key={i} className="h-4 animate-pulse rounded bg-border" style={{ animationDelay: `${i * 90}ms` }} />)}
+        </div>
+      ) : ranking.points.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-3 text-[12.5px] leading-snug text-muted">
+          No company in this deck has a known, comparable figure for this metric yet. Nothing is charted until one does.
+        </p>
+      ) : (
+        <>
+          <ul className="space-y-0.5" onMouseLeave={() => setHover(null)}>
+            {shown.map((p) => (
+              <li
+                key={p.companyId}
+                onMouseEnter={() => setHover(p.companyId)}
+                className={cn(
+                  'grid grid-cols-[minmax(0,92px)_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1.5 py-1 text-[12px] transition-colors',
+                  hover === p.companyId && 'bg-surface-2',
+                  p.isSelf && 'bg-primary/5',
+                )}
+              >
+                {p.isSelf ? (
+                  <span className="truncate font-semibold text-content" title={p.name}>{p.name}</span>
+                ) : (
+                  <Link to={hrefFor(p.companyId, ranking.metricType)} className="truncate text-muted hover:text-primary-ink hover:underline" title={`Open ${p.name}’s metrics`}>
+                    {p.name}
+                  </Link>
+                )}
+                <div className="h-2 overflow-hidden rounded-full bg-border/70">
+                  <div
+                    className={cn('h-full rounded-full', p.confidence === 'estimated' && 'mi-est-stripes')}
+                    style={{
+                      width: `${barPercent(p.value, max)}%`,
+                      color,
+                      background: p.confidence === 'estimated' ? tint(color, p.isSelf ? 0.5 : 0.3) : p.isSelf ? color : tint(color, 0.45),
+                    }}
+                  />
+                </div>
+                <span className={cn('tabular-nums', p.isSelf ? 'font-semibold text-content' : 'text-muted')}>
+                  {formatMetricValue(ranking.metricType, p.value)}
+                  {p.confidence === 'estimated' && <span className="ml-1 text-[10px] text-faint">est.</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {ranking.points.length > 8 && (
+            <button type="button" className="mt-1 text-[12px] text-primary-ink hover:underline" onClick={() => setAll(!all)}>
+              {all ? 'Show top 8' : `Show all ${ranking.points.length}`}
+            </button>
+          )}
+        </>
+      )}
+      {peerStatus === 'ready' && unknownNames.length > 0 && (
+        <p className="mt-2 text-[11.5px] leading-snug text-faint">
+          <span className="font-medium text-muted">Unknown, not charted: </span>
+          {unknownNames.slice(0, 6).join(', ')}{unknownNames.length > 6 ? ` and ${unknownNames.length - 6} more` : ''}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function MetricDetail({
+  metric, companyId, companyName, ranking, peers, highlight, hrefFor,
 }: {
   metric: CompanyMetric;
   companyId: string;
   companyName: string;
-  /** Just filled from live sources — make the update VISIBLE. */
-  highlight?: boolean;
-  children: React.ReactNode;
+  ranking: PeerRanking;
+  peers: PeerState;
+  highlight: boolean;
+  hrefFor: (peerId: string, type: MetricType) => string;
 }) {
-  const [editing, setEditing] = useState(false);
+  const known = isKnown(metric);
+  const asOf = known ? formatAsOf(metric) : null;
   return (
-    <div
-      className={
-        highlight
-          ? 'panel flex flex-col p-5 ring-2 ring-emerald-400/70 transition-shadow'
-          : 'panel flex flex-col p-5'
-      }
+    <aside
+      aria-label={`${metricLabel(metric)} detail`}
+      className={cn('panel space-y-5 p-5 lg:sticky lg:top-4', highlight && 'ring-2 ring-emerald-400/70')}
     >
-        <div className="flex items-center justify-between gap-2">
-          <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted">
-            {metricLabel(metric)}
-            {highlight && (
-              <span className="rounded-full border border-emerald-300 bg-emerald-50 px-1.5 py-px text-[9px] font-semibold normal-case tracking-normal text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-                Updated from live sources
-              </span>
-            )}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <ConfidenceBadge
-              confidence={metric.confidence}
-              note={metric.methodNote}
-              source={metric.source}
-              citations={metric.citations}
-              metricLabel={metricLabel(metric)}
-            />
-            <button
-              type="button"
-              className="rounded-md p-1 text-faint transition-colors hover:bg-surface-2 hover:text-content"
-              title="Correct this figure (you know better)"
-              aria-label={`Correct ${metricLabel(metric)}`}
-              onClick={() => setEditing(true)}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          </span>
+      <DetailHeader metric={metric} companyName={companyName} highlight={highlight} />
+      <MetricBody metric={metric} />
+      {known ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <ConfidenceBadge
+            confidence={metric.confidence}
+            note={metric.methodNote}
+            source={metric.source}
+            citations={metric.citations}
+            metricLabel={metricLabel(metric)}
+          />
+          {asOf && <span className="text-[12px] text-muted">{asOf}</span>}
         </div>
-        {editing && (
-          <OverrideModal metric={metric} companyName={companyName} open={editing} onOpenChange={setEditing} />
-        )}
+      ) : (
+        <div className="space-y-2">
+          <ConfidenceBadge confidence="unknown" note={metric.methodNote} source={metric.source} citations={metric.citations} metricLabel={metricLabel(metric)} />
+          <p className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2.5 text-[12.5px] leading-snug text-muted">
+            <span className="font-medium text-content">What would fill this: </span>
+            {FILL_HINT[metric.metricType]}
+          </p>
+        </div>
+      )}
+      <SourceDrill metric={metric} />
+      <PeerComparison ranking={ranking} selfId={companyId} hrefFor={hrefFor} peerStatus={peers.status} peers={peers.peers} />
+      {known && (
+        <div className="flex justify-end border-t border-border pt-3">
+          <FactCheck
+            claim={`${companyName}'s ${metricLabel(metric)} is ${formatMetricValue(metric.metricType, metric.value)}`}
+            companyName={companyName}
+            companyId={companyId}
+            metricType={metric.metricType}
+            storedValue={metric.value}
+          />
+        </div>
+      )}
+    </aside>
+  );
+}
 
-        <div className="mt-2 flex-1">{children}</div>
+// ---- Sortable table --------------------------------------------------------
 
-        {metric.confidence === 'estimated' && metric.methodNote && (
-          <p className="mt-2 text-[11px] italic text-muted">How we got this: {metric.methodNote}</p>
-        )}
-        <div className="mt-2 flex items-center justify-between gap-2">
-          {metric.source ? (
-            <a
-              href={metric.source}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[11px] text-primary-ink hover:underline"
-            >
-              Source ↗
-            </a>
-          ) : (
-            <span />
+interface Row { metric: CompanyMetric; ranking: PeerRanking; rank: number | null }
+
+function SortHeader({
+  label, k, sort, onSort, className,
+}: { label: string; k: SortKey; sort: { key: SortKey; dir: 'asc' | 'desc' }; onSort: (k: SortKey) => void; className?: string }) {
+  const active = sort.key === k;
+  const Icon = !active ? ChevronsUpDown : sort.dir === 'asc' ? ChevronUp : ChevronDown;
+  return (
+    <th scope="col" aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className={cn('px-3 py-2 text-left font-semibold', className)}>
+      <button type="button" onClick={() => onSort(k)} className={cn('inline-flex items-center gap-1 uppercase tracking-[0.1em] transition-colors hover:text-content', active && 'text-content')}>
+        {label}
+        <Icon className={cn('h-3 w-3', !active && 'opacity-50')} aria-hidden />
+      </button>
+    </th>
+  );
+}
+
+function MetricTable({
+  rows, selected, onSelect, sort, onSort, peersReady,
+}: {
+  rows: Row[];
+  selected: MetricType | null;
+  onSelect: (t: MetricType) => void;
+  sort: { key: SortKey; dir: 'asc' | 'desc' };
+  onSort: (k: SortKey) => void;
+  peersReady: boolean;
+}) {
+  return (
+    <div className="panel overflow-hidden">
+      <table className="w-full border-collapse text-[13px]">
+        <caption className="sr-only">Company metrics. Select a row for sources and peer comparison.</caption>
+        <thead>
+          <tr className="border-b border-border bg-surface-2/50 text-[10.5px] text-muted">
+            <SortHeader label="Metric" k="metric" sort={sort} onSort={onSort} />
+            <SortHeader label="Value" k="value" sort={sort} onSort={onSort} />
+            <SortHeader label="Confidence" k="confidence" sort={sort} onSort={onSort} className="hidden sm:table-cell" />
+            <SortHeader label="As of" k="asof" sort={sort} onSort={onSort} className="hidden md:table-cell" />
+            <SortHeader label="Deck rank" k="rank" sort={sort} onSort={onSort} className="hidden sm:table-cell" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {rows.map(({ metric, ranking, rank }) => {
+            const known = isKnown(metric);
+            const isSel = selected === metric.metricType;
+            const cite = metric.citations.find((c) => /^https?:\/\//i.test(c.url));
+            return (
+              <tr
+                key={metric.id}
+                tabIndex={0}
+                aria-selected={isSel}
+                onClick={() => onSelect(metric.metricType)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(metric.metricType); } }}
+                className={cn(
+                  'cursor-pointer transition-colors hover:bg-surface-2/70 focus-visible:bg-surface-2',
+                  isSel && 'bg-primary/5 shadow-[inset_2px_0_0_rgb(var(--c-primary))]',
+                )}
+              >
+                <td className="px-3 py-3">
+                  <span className="flex items-center gap-2 font-medium text-content">
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: METRIC_COLORS[metric.metricType] }} aria-hidden />
+                    {metricLabel(metric)}
+                  </span>
+                  <span className="mt-0.5 block pl-4 text-[11px] text-faint">{FAMILY_LABELS[METRIC_FAMILY[metric.metricType]]}</span>
+                </td>
+                <td className="px-3 py-3">
+                  {known ? (
+                    <span className="font-display text-[15px] font-semibold tabular-nums text-content">
+                      {formatMetricValue(metric.metricType, metric.value)}
+                    </span>
+                  ) : (
+                    <span title={UNKNOWN_REASON}><UnknownInline /></span>
+                  )}
+                  {cite && known && (
+                    <a
+                      href={cite.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="mt-0.5 block max-w-[150px] truncate text-[11px] text-primary-ink hover:underline"
+                      title={`Source: ${publisherOf(cite.url, cite.title)}`}
+                    >
+                      {publisherOf(cite.url, cite.title)} ↗
+                    </a>
+                  )}
+                </td>
+                <td className="hidden px-3 py-3 sm:table-cell"><ConfidenceMark confidence={metric.confidence} /></td>
+                <td className="hidden px-3 py-3 text-[12px] tabular-nums text-muted md:table-cell">
+                  {known ? (metricAsOf(metric).iso ?? '').slice(0, 10) || '—' : '—'}
+                </td>
+                <td className="hidden px-3 py-3 sm:table-cell">
+                  {rank != null && ranking.of > 1
+                    ? <span className="text-[12px] tabular-nums text-muted"><span className="font-semibold text-content">#{rank}</span> of {ranking.of}</span>
+                    : <span className="text-[12px] text-faint" title={peersReady ? 'Needs a known figure here and at least one known peer.' : 'Open from a deck to rank.'}>—</span>}
+                </td>
+              </tr>
+            );
+          })}
+          {rows.length === 0 && (
+            <tr><td colSpan={5} className="px-4 py-8 text-center text-[13px] text-muted">No metrics in this family yet.</td></tr>
           )}
-          <div className="flex items-center gap-1.5">
-            {metric.value != null && metric.confidence !== 'unknown' && (
-              <FactCheck
-                claim={`${companyName}'s ${metricLabel(metric)} is ${formatMetricValue(metric.metricType, metric.value)}`}
-                companyName={companyName}
-                companyId={companyId}
-                metricType={metric.metricType}
-                storedValue={metric.value}
-              />
-            )}
-          </div>
-        </div>
+        </tbody>
+      </table>
     </div>
   );
 }
+
 
 /**
  * The KPI band — the founder's reference dashboards all open with one: the
@@ -378,56 +636,133 @@ export function MetricsTab({ companyId }: { companyId: string }) {
   const seriesQ = useDashboardTab(companyId, 'metrics');
   const company = useCompany(companyId).data;
   const companyName = company?.name ?? 'this company';
+  const peerState = usePeers();
+  const [params] = useSearchParams();
+  const tabHref = useTabHref(companyId);
   // Figures the hunt just filled — their widgets light up so the update is
   // impossible to miss.
   const [justFilled, setJustFilled] = useState<ReadonlySet<MetricType>>(new Set());
+  const [family, setFamily] = useState<MetricFamily | 'all'>('all');
+  const [picked, setPicked] = useState<MetricType | null>(null);
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'metric', dir: 'asc' });
+  const wanted = params.get('metric') as MetricType | null;
+
+  const peerHref = (peerId: string, type: MetricType) => {
+    const next = new URLSearchParams(params);
+    next.set('metric', type);
+    return `/company/${peerId}/dashboard/metrics?${next.toString()}`;
+  };
 
   return (
     <QueryBoundary
       query={metricsQ}
-      loading={<HydratingPanel label="Metrics" />}
-      isEmpty={(m) => m.length === 0}
-      empty={<EmptyState title="No metrics yet" description="Research didn’t surface quantitative metrics for this company." />}
+      loading={<HydratingPanel label="Metrics" variant="table" />}
     >
       {(metrics) => {
         const seen = new Set<MetricType>();
         const projected = buildMetricViews(metrics, company?.websiteUrl).map(({ metric }) => metric);
-        const tiles = ORDER.map((t) => projected.find((m) => m.metricType === t))
-          .filter((m): m is CompanyMetric => !!m && !seen.has(m.metricType) && !!seen.add(m.metricType));
+        const real = orderMetrics(projected).filter((m) => !seen.has(m.metricType) && !!seen.add(m.metricType));
+        // Core figures with no row at all stay visible as labelled gaps, so a
+        // sparse company reads as "not yet found", not as an empty page.
+        const gaps: CompanyMetric[] = missingCoreTypes(real, 4).map((t) => ({
+          id: `gap-${t}`, companyId, metricType: t, value: null, confidence: 'unknown', source: null,
+          citations: [], methodNote: null, capturedAt: '',
+        } as CompanyMetric));
+        const all = orderMetrics([...real, ...gaps]);
+        const rows: Row[] = all.map((metric) => {
+          const ranking = rankInDeck(companyId, metric.metricType, peerState.peers);
+          return { metric, ranking, rank: ranking.rank };
+        });
+        const familyCounts = (f: MetricFamily) => rows.filter((r) => METRIC_FAMILY[r.metric.metricType] === f).length;
+        const filtered = rows.filter((r) => family === 'all' || METRIC_FAMILY[r.metric.metricType] === family);
+        const sorted = sortMetricRows(filtered, sort.key, sort.dir);
+        const firstKnown = sorted.find((r) => isKnown(r.metric)) ?? sorted.find((r) => !r.metric.id.startsWith('gap-')) ?? sorted[0];
+        const wantedType = picked ?? (wanted && all.some((m) => m.metricType === wanted) ? wanted : null);
+        const selectedRow = sorted.find((r) => r.metric.metricType === wantedType) ?? firstKnown;
+        const tiles = real; // the headline band shows only figures that have a row
         const series = seriesQ.data?.content;
-        const hasSeries = !!series && (series.revenue.length > 1 || series.users.length > 1);
+        const knownCount = real.filter(isKnown).length;
+        const hasSeries = !!series && (series.revenue.length > 1 || series.users.length > 1 || series.churn.length > 1 || series.capTable.length > 0);
+        const onSort = (k: SortKey) =>
+          setSort((s) => (s.key === k ? { key: k, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: k === 'value' || k === 'asof' ? 'desc' : 'asc' }));
         return (
-          <div className="space-y-5 cascade">
+          <div className="cascade space-y-6">
             <div className="space-y-3">
-              <KpiBand tiles={tiles} />
-              <span className="flex flex-wrap items-center justify-end gap-1.5">
-                <HuntMetricsButton
-                  companyId={companyId}
-                  metrics={metrics}
-                  onFilled={(types) => setJustFilled(new Set(types))}
-                />
-                <DigDeeperMenu
-                  topics={tiles.map((m) => m.passageSupport?.definition === 'annual_revenue' ? 'Annual revenue & growth' : DEEP_TOPIC[m.metricType])}
-                  companyId={companyId}
-                  companyName={companyName}
-                />
-              </span>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {tiles.map((m) => (
-                <MetricTile
-                  key={m.id}
-                  metric={m}
-                  companyId={companyId}
-                  companyName={companyName}
-                  highlight={justFilled.has(m.metricType)}
-                >
-                  <MetricBody metric={m} />
-                </MetricTile>
-              ))}
+              {tiles.length > 0 && <KpiBand tiles={tiles} />}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div role="group" aria-label="Filter metrics by family" className="flex flex-wrap items-center gap-1.5">
+                  {(['all', 'financials', 'value_funding', 'reach_scale'] as const).map((f) => {
+                    const count = f === 'all' ? rows.length : familyCounts(f);
+                    if (f !== 'all' && count === 0) return null;
+                    return (
+                      <button
+                        key={f}
+                        type="button"
+                        aria-pressed={family === f}
+                        onClick={() => setFamily(f)}
+                        className={cn(
+                          'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-medium transition-colors',
+                          family === f ? 'border-ink bg-ink text-ink-fg' : 'border-border bg-surface text-muted hover:text-content',
+                        )}
+                      >
+                        {f === 'all' ? 'All' : FAMILY_LABELS[f]}
+                        <span className={cn('tabular-nums', family === f ? 'opacity-70' : 'text-faint')}>{count}</span>
+                      </button>
+                    );
+                  })}
+                  <span className="ml-1 text-[12px] text-faint">{knownCount} of {rows.length} figures known</span>
+                </div>
+                <span className="flex flex-wrap items-center justify-end gap-1.5">
+                  <HuntMetricsButton
+                    companyId={companyId}
+                    metrics={metrics}
+                    onFilled={(types) => {
+                      setJustFilled(new Set(types));
+                      setFamily('all');
+                    }}
+                  />
+                  <DigDeeperMenu
+                    topics={real.map((m) => m.passageSupport?.definition === 'annual_revenue' ? 'Annual revenue & growth' : DEEP_TOPIC[m.metricType])}
+                    companyId={companyId}
+                    companyName={companyName}
+                  />
+                </span>
+              </div>
             </div>
 
+            <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+              <MetricTable
+                rows={sorted}
+                selected={selectedRow?.metric.metricType ?? null}
+                onSelect={setPicked}
+                sort={sort}
+                onSort={onSort}
+                peersReady={peerState.status === 'ready'}
+              />
+              {selectedRow && (
+                <MetricDetail
+                  key={selectedRow.metric.metricType}
+                  metric={selectedRow.metric}
+                  companyId={companyId}
+                  companyName={companyName}
+                  ranking={selectedRow.ranking}
+                  peers={peerState}
+                  highlight={justFilled.has(selectedRow.metric.metricType)}
+                  hrefFor={peerHref}
+                />
+              )}
+            </div>
+
+            {knownCount === 0 && (
+              <p className="rounded-xl border border-dashed border-border bg-surface-2/40 px-4 py-3 text-[12.5px] leading-snug text-muted">
+                No sourced figures have been found for {companyName} yet. Each row above says what kind of source would fill it;
+                use Find more metrics or correct a figure yourself. Nothing here is estimated to fill a gap.
+                {' '}<Link to={tabHref('research')} className="text-primary-ink hover:underline">See what was searched</Link>
+              </p>
+            )}
+
             {hasSeries && series && (
+              <Section title="Reported history" hint="Series the research found for this company. Charts only appear where real data points exist.">
               <div className="grid gap-4 lg:grid-cols-2">
                 {series.revenue.length > 1 && (
                   <ChartPanel
@@ -479,6 +814,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
                   />
                 )}
               </div>
+              </Section>
             )}
           </div>
         );
