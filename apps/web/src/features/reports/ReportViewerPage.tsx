@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ArrowDown, ArrowLeft, ArrowUp, Download, ExternalLink, Presentation, Printer, Share2 } from 'lucide-react';
-import { TIER_LABELS, type CardWithCompany, type MaturityTier, type MetricType } from '@mi/contracts';
+import type { CardWithCompany, MetricType } from '@mi/contracts';
 import { useCards, useReport } from '@/hooks/data';
 import { SiteAuditView } from './SiteAuditView';
 import { AiCover } from '@/components/media/AiCover';
@@ -15,10 +15,8 @@ import { METRIC_COLORS, tint } from '@/lib/theme';
 import { buildReportShare } from '@/lib/share/codec';
 import { ShareDialog } from '@/features/share/ShareDialog';
 import { exportDeckPptx } from './pptx';
-import { rateDeck } from '@/features/card/rating';
-import { OvrBadge } from '@/features/card/OvrBadge';
 
-type SortKey = 'name' | 'ovr' | 'market_share' | 'arr' | 'value' | 'employees';
+type SortKey = 'name' | 'market_share' | 'arr' | 'value' | 'employees';
 
 function metricValue(c: CardWithCompany, type: MetricType | 'value'): number | null {
   if (type === 'value') {
@@ -33,17 +31,14 @@ function metricValue(c: CardWithCompany, type: MetricType | 'value'): number | n
 /** Sortable landscape grid built from the deck's real data (audit: no raw LLM tables). */
 function LandscapeTable({ deckId }: { deckId: string }) {
   const cards = useCards(deckId);
-  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'ovr', dir: -1 });
-  const ratings = useMemo(() => rateDeck(cards.data ?? []), [cards.data]);
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'value', dir: -1 });
 
   const rows = useMemo(() => {
     const companies = (cards.data ?? []).filter((c) => c.card.cardType === 'company' && c.company);
     const get = (c: CardWithCompany): number | string | null =>
       sort.key === 'name'
         ? c.company!.name.toLowerCase()
-        : sort.key === 'ovr'
-          ? ratings.get(c.card.id)?.overall ?? null
-          : metricValue(c, sort.key);
+        : metricValue(c, sort.key);
     return [...companies].sort((a, b) => {
       const av = get(a);
       const bv = get(b);
@@ -52,7 +47,7 @@ function LandscapeTable({ deckId }: { deckId: string }) {
       if (bv == null) return -1;
       return (av < bv ? -1 : av > bv ? 1 : 0) * sort.dir;
     });
-  }, [cards.data, sort, ratings]);
+  }, [cards.data, sort]);
 
   if (rows.length === 0) return null;
 
@@ -76,7 +71,6 @@ function LandscapeTable({ deckId }: { deckId: string }) {
         <thead className="border-b border-border">
           <tr>
             <Th k="name" label="Company" />
-            <Th k="ovr" label="OVR" />
             <Th k="market_share" label="Share" />
             <Th k="arr" label="ARR" />
             <Th k="value" label="Valuation/Cap" />
@@ -89,17 +83,6 @@ function LandscapeTable({ deckId }: { deckId: string }) {
             return (
               <tr key={c.card.id} className="border-b border-border/60 last:border-0 hover:bg-surface-2/60">
                 <td className="px-3 py-2 font-medium text-content">{c.company!.name}</td>
-                <td className="px-3 py-2">
-                  {(() => {
-                    const rating = ratings.get(c.card.id);
-                    return rating ? (
-                      <span className="inline-flex items-center gap-2">
-                        <OvrBadge rating={rating} />
-                        {c.card.tier != null && <span className="text-[11px] text-muted">T{c.card.tier} {TIER_LABELS[c.card.tier as MaturityTier]}</span>}
-                      </span>
-                    ) : null;
-                  })()}
-                </td>
                 <td className="px-3 py-2 tabular-nums">
                   <div className="flex items-center gap-2">
                     <span className="w-12">{share != null ? `${share}%` : '—'}</span>

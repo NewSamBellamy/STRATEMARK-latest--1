@@ -7,7 +7,6 @@ import { useDashboardHydrating } from '@/lib/living/useDashboardWarm';
 import { cn } from '@/lib/cn';
 import { CollectibleCard } from './CollectibleCard';
 import { buildCardView } from './card-view';
-import { rateCardAlone, type OvrBreakdown } from './rating';
 
 export interface GameCardProps {
   data: CardWithCompany;
@@ -18,11 +17,10 @@ export interface GameCardProps {
   hideActions?: boolean;
   className?: string;
   /** The card's OVR against its deck. Omit and it is rated on its own (tier only). */
-  rating?: OvrBreakdown | null;
 }
 
-export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, className, rating }: GameCardProps) {
-  const view = buildCardView(data, rating === undefined ? rateCardAlone(data) : rating);
+export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, className }: GameCardProps) {
+  const view = buildCardView(data);
   // A pending entity card during an active run is being researched RIGHT NOW:
   // say so on the face so the deck visibly fills as the agents work.
   const researching = (deckStatus === 'running' || deckStatus === 'partial' || deckStatus === 'refreshing') &&

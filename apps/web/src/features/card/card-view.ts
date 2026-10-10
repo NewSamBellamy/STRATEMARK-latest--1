@@ -224,8 +224,10 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
   const maturity = data.card.cardType === 'company' && !signal && data.card.tier != null &&
     profileMetrics.some((m) => m.metric?.value != null && m.citations.length > 0)
     ? { tier: data.card.tier, label: TIER_LABELS[data.card.tier] } : null;
-  const position = signal ? 'Market signal' : data.card.cardType !== 'company' ? 'Entity profile' : !maturity ? 'Stage pending' :
-    sourcedCount >= 2 ? `Maturity · T${maturity.tier}` : `Indicative · T${maturity.tier}`;
+  // Scoring (tiers, OVR) is parked: the face footer reports evidence, not a grade.
+  const faceSourced = profileMetrics.filter((m) => (m.metric?.value != null || m.metric?.reportedBand != null) && m.citations.length > 0).length;
+  const position = signal ? 'Market signal' : data.card.cardType !== 'company' ? 'Entity profile' :
+    profileMetrics.length ? `${faceSourced}/${profileMetrics.length} figures sourced` : 'Research pending';
   const viceCitations = data.viceClaims.flatMap((claim) => sourceUrl(claim.sourceUrl)
     ? [{ url: claim.sourceUrl, title: claim.sourceTitle || 'Source' }]
     : []);

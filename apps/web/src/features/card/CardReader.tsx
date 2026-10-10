@@ -13,14 +13,12 @@ import { CardStage } from './CardStage';
 import { SaveCardButton } from './GameCard';
 import { ViceDisclaimer } from './CardDisclaimer';
 import { buildCardView, sourceUrl } from './card-view';
-import { rateCardAlone, type OvrBreakdown } from './rating';
 import { printScoped } from '@/lib/print';
 
 type Props = {
   data: CardWithCompany | null; open: boolean; onOpenChange: (open: boolean) => void;
   marketId?: string; position?: number; total?: number;
   deckView?: string;
-  rating?: OvrBreakdown | null;
   onPrevious?: () => void; onNext?: () => void;
 };
 
@@ -35,9 +33,9 @@ export function CardReader({ data, open, ...props }: Props) {
 }
 
 function CardReaderBody({ data, open, onOpenChange, marketId,
-  deckView, position, total, onPrevious, onNext, rating }: Omit<Props, 'data'> & { data: CardWithCompany }) {
+  deckView, position, total, onPrevious, onNext }: Omit<Props, 'data'> & { data: CardWithCompany }) {
   const { card, company, viceClaims } = data;
-  const view = buildCardView(data, rating === undefined ? rateCardAlone(data) : rating);
+  const view = buildCardView(data);
   const marketName = useMarket(marketId).data?.name ?? null;
   const repo = useRepository();
   const { chat } = useDeepDive();

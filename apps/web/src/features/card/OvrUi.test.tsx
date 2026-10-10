@@ -18,19 +18,16 @@ const rated: CardWithCompany = { card: { ...card, tier: 7 }, company, metrics: [
 const unsourced: CardWithCompany = { card: { ...card, tier: 7 }, company, viceClaims: [],
   metrics: [sourced({ confidence: 'estimated', citations: [] })] };
 
-describe('OVR on the card face', () => {
-  it('shows the rating as a trading-card plaque on the art, keeping the footer stage label', () => {
-    const rating = rateCardAlone(rated)!;
+describe('card face without scoring', () => {
+  it('shows no OVR plaque or tier label, even for a sourced high-tier company', () => {
     renderWithProviders(<GameCard data={rated} />);
-    const el = screen.getByTestId('card-ovr');
-    expect(el).toHaveTextContent(new RegExp(`^${rating.overall}OVR$`));
-    expect(el.className).toMatch(/collectible__ovr--(icon|gold|silver|bronze)/);
-    expect(el.getAttribute('title')).toMatch(/Overall rating \d+\/99/);
-  });
-  it('withholds OVR when no figure is sourced, like the tier', () => {
-    renderWithProviders(<GameCard data={unsourced} />);
     expect(screen.queryByTestId('card-ovr')).not.toBeInTheDocument();
-    expect(screen.getByText('Stage pending')).toBeInTheDocument();
+    expect(screen.queryByText(/OVR|Maturity · T|Indicative · T/)).not.toBeInTheDocument();
+    expect(screen.getByText('1/4 figures sourced')).toBeInTheDocument();
+  });
+  it('reports zero coverage when no figure is sourced', () => {
+    renderWithProviders(<GameCard data={unsourced} />);
+    expect(screen.getByText('0/4 figures sourced')).toBeInTheDocument();
   });
 });
 

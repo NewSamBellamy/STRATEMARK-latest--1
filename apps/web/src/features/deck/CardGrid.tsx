@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Check } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import type { CardWithCompany } from '@mi/contracts';
@@ -10,7 +10,6 @@ import { verifyCardForShare } from '@/lib/share/preflight';
 import { ShareDialog } from '@/features/share/ShareDialog';
 import { GameCard } from '@/features/card/GameCard';
 import { CardReader } from '@/features/card/CardReader';
-import { rateDeck } from '@/features/card/rating';
 
 /**
  * A responsive grid of game cards.
@@ -23,7 +22,6 @@ import { rateDeck } from '@/features/card/rating';
  */
 export function CardGrid({
   cards,
-  deckCards,
   deckUserValues,
   marketId,
   deckStatus,
@@ -32,7 +30,7 @@ export function CardGrid({
   onToggle,
 }: {
   cards: CardWithCompany[];
-  /** The whole deck: OVR ranks within it, even when `cards` is a filtered slice. */
+  /** The whole deck, when `cards` is a filtered slice. */
   deckCards?: CardWithCompany[];
   deckUserValues: number[];
   /** Lets the reader hand the dashboard a real way back to this deck. */
@@ -46,7 +44,6 @@ export function CardGrid({
   // refetch, the OPEN reader updates in place instead of showing a frozen
   // snapshot — change it in one place, it changes everywhere.
   const [searchParams, setSearchParams] = useSearchParams();
-  const ratings = useMemo(() => rateDeck(deckCards ?? cards), [deckCards, cards]);
   const activeId = searchParams.get('card');
   const activeIndex = cards.findIndex((c) => c.card.id === activeId);
   const active = activeIndex >= 0 ? cards[activeIndex]! : null;
@@ -76,7 +73,6 @@ export function CardGrid({
             <div key={c.card.id} className={cn('relative', selectable && 'cursor-pointer')}>
               <GameCard
                 data={c}
-                rating={ratings.get(c.card.id) ?? null}
                 deckUserValues={deckUserValues}
                 deckStatus={deckStatus}
                 onOpen={() => (selectable ? onToggle?.(c.card.id) : setActiveId(c.card.id))}
@@ -112,7 +108,6 @@ export function CardGrid({
       />
       <CardReader
         data={active}
-        rating={active ? ratings.get(active.card.id) ?? null : null}
         open={active !== null}
         onOpenChange={(o) => {
           if (!o) setActiveId(null);

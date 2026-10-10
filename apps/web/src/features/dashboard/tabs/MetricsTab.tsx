@@ -98,7 +98,7 @@ function OverrideModal({
       open={open}
       onOpenChange={onOpenChange}
       title={`Correct ${metricLabel(metric)}`}
-      description={`${companyName} — your value becomes ground truth (User verified) and the maturity tier recomputes instantly.`}
+      description={`${companyName} — your value becomes ground truth (User verified) and every view updates instantly.`}
     >
       <div className="space-y-4">
         <div>

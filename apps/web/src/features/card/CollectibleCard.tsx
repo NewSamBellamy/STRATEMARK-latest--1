@@ -3,7 +3,6 @@ import type { CardWithCompany } from '@mi/contracts';
 import { deriveTriad } from '@/lib/brand';
 import { buildCardView, type CardView } from './card-view';
 import { Logo } from './Logo';
-import { OvrPlaque } from './OvrPlaque';
 
 import { DEFAULT_CARD_ART, MarketCardArt } from './MarketCardArt';
 import './collectible.css';
@@ -48,15 +47,16 @@ export function CollectibleCard({
     : hasBrandEvidence
       ? triad.accent
       : '#6a756f';
-  const stage = view.maturity?.label ?? view.position;
-  const rating = view.rating;
+  const stage = view.position;
+  const complete = view.profileMetrics.length > 0 &&
+    view.profileMetrics.every((m) => (m.metric?.value != null || m.metric?.reportedBand != null) && m.citations.length > 0);
   const provenance = view.sourceCount > 0
     ? `${view.sourceCount} ${view.sourceCount === 1 ? 'source' : 'sources'} tracked`
       : 'Research needed';
 
   return (
     <div
-      className={`collectible ${view.signal || artwork ? 'collectible--signal' : ''} ${view.maturity && view.maturity.tier >= 7 && view.sourcedCount >= 2 ? 'collectible--foil' : ''}`}
+      className={`collectible ${view.signal || artwork ? 'collectible--signal' : ''} ${!view.signal && complete ? 'collectible--foil' : ''}`}
       style={{ '--card-accent': accent, '--card-highlight': highlight } as CSSProperties}
       data-testid="collectible-card-front"
     >
@@ -84,7 +84,6 @@ export function CollectibleCard({
             </div>
           )}
           {!view.signal && <span className="collectible__art-label">{view.type}</span>}
-          {rating && <OvrPlaque rating={rating} />}
         </div>
         <div className="collectible__identity">
           <span className="collectible__eyebrow">

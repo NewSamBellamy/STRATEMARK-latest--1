@@ -206,7 +206,7 @@ export function csvCell(v: string | number | null | undefined): string {
 }
 
 export const CSV_HEADER = [
-  'market', 'company', 'tier', 'metric', 'value', 'value_display', 'confidence', 'as_of', 'captured_at',
+  'market', 'company', 'metric', 'value', 'value_display', 'confidence', 'as_of', 'captured_at',
   'source_title', 'source_url', 'other_source_urls', 'method_note',
 ] as const;
 
@@ -218,7 +218,7 @@ export function metricsToCsv(market: string | null, companies: readonly ExportCo
       const [first, ...rest] = r.sources;
       lines.push(
         [
-          market, co.name, co.tier ? `T${co.tier}` : '', r.label, r.value, r.valueText, r.confidence,
+          market, co.name, r.label, r.value, r.valueText, r.confidence,
           r.asOf, r.capturedAt ? r.capturedAt.slice(0, 10) : '', first?.title ?? '', first?.url ?? '',
           rest.map((s) => s.url).join(' | '), r.note,
         ].map(csvCell).join(','),

@@ -12,10 +12,8 @@ import remarkGfm from 'remark-gfm';
 import { ExternalLink, Layers, Link2Off, MapPin } from 'lucide-react';
 import {
   METRIC_TYPE_LABELS,
-  TIER_LABELS,
   publisherOf,
   type CardWithCompany,
-  type MaturityTier,
 } from '@mi/contracts';
 import { decodeSharePayload, sharedToCardWithCompany, type SharePayload } from '@/lib/share/codec';
 import { GameCard } from '@/features/card/GameCard';
@@ -76,11 +74,6 @@ function SharedReader({
                     <ExternalLink className="h-3 w-3" />
                     {company.websiteUrl.replace(/^https?:\/\//, '')}
                   </a>
-                )}
-                {card.tier != null && (
-                  <span className="font-medium text-muted">
-                    Tier {card.tier} · {TIER_LABELS[card.tier as MaturityTier]}
-                  </span>
                 )}
               </div>
             </div>

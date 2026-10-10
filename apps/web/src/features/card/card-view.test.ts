@@ -195,14 +195,15 @@ describe('collectible card evidence model', () => {
     const result = view([]);
     expect(result.profileMetrics).toHaveLength(4);
     expect(result.profileMetrics.every((m) => m.display === 'Unknown')).toBe(true);
-    expect(result.position).toBe('Stage pending');
+    expect(result.position).toBe('0/4 figures sourced');
     expect(result.maturity).toBeNull();
   });
-  it('marks single-source tiers as indicative instead of a confident ranking', () => {
+  it('reports sourced-figure coverage on the face instead of a tier grade', () => {
     const result = view([metric({ metricType: 'users', value: 1200 })], {
       card: { ...card, tier: 6 },
     });
-    expect(result.position).toBe('Indicative · T6');
+    expect(result.position).toBe('1/4 figures sourced');
+    expect(result.position).not.toMatch(/T\d|Tier|Maturity/);
   });
   it('withholds even a recorded high tier from the face when no source backs any figure', () => {
     const result = view([metric({ metricType: 'arr', value: 9_000_000, confidence: 'estimated', citations: [] })], {
@@ -210,7 +211,7 @@ describe('collectible card evidence model', () => {
     });
     expect(result.profileMetrics[1]!.display).toBe('Unknown');
     expect(result.maturity).toBeNull();
-    expect(result.position).toBe('Stage pending');
+    expect(result.position).toBe('0/4 figures sourced');
   });
   it('keeps unscoped market share in Evidence, not on the face or as a tier receipt', () => {
     const result = view([metric({ metricType: 'market_share', value: 24 })], {

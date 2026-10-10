@@ -5,8 +5,6 @@
  * derived from stored data in ./deck-library; nothing is estimated.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { rateDeck, type OvrBreakdown } from '@/features/card/rating';
-import { OvrPlaque } from '@/features/card/OvrPlaque';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueries } from '@tanstack/react-query';
 import { MoreHorizontal, PlusCircle, Search } from 'lucide-react';
@@ -40,7 +38,6 @@ interface DeckRow {
   state: ResearchState;
   coverage: Coverage | null;
   lead: CardWithCompany | null;
-  ovr: OvrBreakdown | null;
 }
 
 /** Quiet fallback hues, used only when a lead company has no stored brand colour. */
@@ -83,10 +80,6 @@ function useDeckRows(markets: Market[]): DeckRow[] {
       state: researchState(data?.deck?.status),
       coverage: cards && cards.length > 0 ? computeCoverage(cards) : null,
       lead: cards ? pickLeadCard(cards) : null,
-      ovr: (() => {
-        const lead = cards ? pickLeadCard(cards) : null;
-        return cards && lead ? rateDeck(cards).get(lead.card.id) ?? null : null;
-      })(),
     };
   });
 }
@@ -120,11 +113,6 @@ function DeckStack({ row }: { row: DeckRow }) {
           background: `linear-gradient(155deg, ${color} 0%, ${color} 55%, rgb(0 0 0 / 0.35) 140%)`,
         }}
       >
-        {row.ovr && (
-          <span className="absolute right-3 top-3">
-            <OvrPlaque rating={row.ovr} inline />
-          </span>
-        )}
         <span className="absolute left-1/2 top-[34%] grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-2xl bg-white shadow-sm">
           {logo && !logoFailed ? (
             <img

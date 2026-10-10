@@ -10,7 +10,7 @@ import remarkGfm from 'remark-gfm';
 import { usableCitations, type ThreadMessage } from '@mi/contracts';
 import { Logo } from '@/features/card/Logo';
 import { splitFollowUps } from '@/features/deepdive/followUps';
-import { tierLabel, type ReportModel } from './exportModel';
+import type { ReportModel } from './exportModel';
 import './print.css';
 
 export type PrintJob =
@@ -60,7 +60,7 @@ function ReportBody({ model }: { model: ReportModel }) {
                 <a href={`#sm-co-${c.id}`}>
                   <span className="sm-toc-n">{String(i + 1).padStart(2, '0')}</span>
                   <span className="sm-toc-name">{c.name}</span>
-                  <span className="sm-toc-meta">{tierLabel(c.tier) ?? ''}</span>
+                  <span className="sm-toc-meta">{c.hq ?? ''}</span>
                 </a>
               </li>
             ))}
@@ -78,7 +78,7 @@ function ReportBody({ model }: { model: ReportModel }) {
                 {multi && <span className="sm-h2-n">{String(i + 1).padStart(2, '0')}</span>}
                 {c.name}
               </h2>
-              <p className="sm-sub">{[tierLabel(c.tier), c.hq].filter(Boolean).join(' · ')}</p>
+              {c.hq && <p className="sm-sub">{c.hq}</p>}
             </div>
           </header>
           {c.oneLiner && <p className="sm-lede">{c.oneLiner}</p>}

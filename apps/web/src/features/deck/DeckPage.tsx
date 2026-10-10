@@ -24,9 +24,6 @@ import {
   CARD_TYPE_DESCRIPTIONS,
   CARD_TYPE_LABELS,
   CARD_TYPE_ORDER,
-  MATURITY_TIERS,
-  TIER_BLURBS,
-  TIER_LABELS,
   isEntityCardType,
   type CardType,
   type CardWithCompany,
@@ -57,7 +54,6 @@ import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
 import { CardGrid } from './CardGrid';
-import { TierBadge } from '@/features/card/TierBadge';
 import { deckActionPolicy } from './deck-actions';
 
 /** Human count noun per card type — fixes the old "20 company companies" bug. */
@@ -469,34 +465,6 @@ export default function DeckPage() {
         }
       >
         {(list) => {
-          // Level 2 — Company sub-deck split into 8 tier-decks.
-          if (split === 'company') {
-            return (
-              <section>
-                <TypeNav
-                  cards={list}
-                  active="company"
-                  onSelect={(t) => setSplit(t === 'company' ? {} : (t ? { type: t } : {}))}
-                  split={split}
-                  onToggleSplit={() => setSplit({})}
-                />
-                <p className="mb-4 text-[12px] text-muted">
-                  Companies grouped by maturity tier — T8 giants down to T1 seeds.
-                  <span className="text-faint"> {CARD_TYPE_DESCRIPTIONS.company}</span>
-                </p>
-                <TierSplit cards={list} deckCards={all} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} />
-                {/* The deck never hard-stops in this view either. */}
-                <div className="mt-8">
-                  <ExpandPrompt
-                    marketId={marketId}
-                    focus={{}}
-                    label="Hunt for more companies in this market"
-                    compact
-                  />
-                </div>
-              </section>
-            );
-          }
           // Level 1 leaf — a specific non-company sub-deck's cards.
           if (split === 'types' && typeParam) {
             const filtered = list.filter((c) => c.card.cardType === typeParam);
@@ -507,7 +475,6 @@ export default function DeckPage() {
                   active={typeParam}
                   onSelect={(t) => setSplit(t ? { type: t } : {})}
                   split={split}
-                  onToggleSplit={() => setSplit({ split: 'company' })}
                 />
                 <h2 className="mb-1 font-display text-lg text-content">
                   {CARD_TYPE_LABELS[typeParam]} — {filtered.length} card
@@ -532,7 +499,7 @@ export default function DeckPage() {
                     type={t}
                     count={countByType.get(t) ?? 0}
                     onClick={() =>
-                      t === 'company' ? setSplit({ split: 'company' }) : setSplit({ split: 'types', type: t })
+                      t === 'company' ? setSplit({ type: 'company' }) : setSplit({ split: 'types', type: t })
                     }
                   />
                 ))}
@@ -555,7 +522,6 @@ export default function DeckPage() {
                 active={defaultType}
                 onSelect={(t) => setSplit(t ? { type: t } : {})}
                 split={split}
-                onToggleSplit={() => setSplit(split === 'company' ? {} : { split: 'company' })}
               />
               <div className="mb-4">
                 <p className="text-[12px] text-muted">
@@ -733,7 +699,7 @@ function SubDeckTile({
       </div>
       <p className="mt-2 text-sm text-muted">{CARD_TYPE_DESCRIPTIONS[type]}</p>
       <span className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-primary-ink opacity-0 transition-opacity group-hover:opacity-100">
-        {type === 'company' ? 'Split into 8 tiers' : 'View cards'}
+        View cards
         <ChevronRight className="h-3.5 w-3.5" />
       </span>
     </button>
@@ -753,13 +719,11 @@ function TypeNav({
   active,
   onSelect,
   split,
-  onToggleSplit,
 }: {
   cards: CardWithCompany[];
   active: CardType | null;
   onSelect: (t: CardType | null) => void;
   split?: string | null;
-  onToggleSplit?: () => void;
 }) {
   const counts = new Map<CardType, number>();
   for (const c of cards) counts.set(c.card.cardType, (counts.get(c.card.cardType) ?? 0) + 1);
@@ -818,37 +782,6 @@ function TypeNav({
           />
         ))}
       </nav>
-      {onToggleSplit && (
-        <div className="mb-1 flex shrink-0 items-center gap-1.5">
-          <details className="group relative">
-            <summary className="cursor-pointer list-none rounded-lg px-2 py-1.5 text-[11px] font-medium text-muted hover:bg-surface-2 hover:text-content">
-              Tier guide
-            </summary>
-            <div className="absolute right-0 top-full z-30 mt-1 w-72 rounded-xl border border-border bg-surface p-3 shadow-card">
-              <p className="mb-2 text-[10px] leading-relaxed text-muted">
-                Tiers combine source-backed scale signals. Missing figures are excluded, never scored as zero.
-              </p>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                {[...MATURITY_TIERS].reverse().map((tier) => <div key={tier} className="flex items-baseline gap-1.5 text-[10px]">
-                  <strong className="w-5 text-content">T{tier}</strong>
-                  <span className="truncate text-muted">{TIER_LABELS[tier]}</span>
-                </div>)}
-              </div>
-            </div>
-          </details>
-          <button
-            type="button"
-            onClick={onToggleSplit}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2',
-              split === 'company' && 'border-primary bg-primary/10 text-primary-ink',
-            )}
-          >
-            <Layers className="h-3.5 w-3.5" />
-            {split === 'company' ? 'Ungroup' : 'Group by Tier'}
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -922,49 +855,3 @@ function ExpandPrompt({
   );
 }
 
-function TierSplit({
-  cards,
-  deckCards,
-  deckUserValues,
-  marketId,
-  deckStatus,
-}: {
-  cards: CardWithCompany[];
-  deckCards: CardWithCompany[];
-  deckUserValues: number[];
-  marketId: string | undefined;
-  deckStatus?: 'running' | 'refreshing' | 'partial' | 'failed' | 'ready' | 'ready_stale';
-}) {
-  const companyCards = cards.filter((c) => c.card.cardType === 'company');
-  const byTier = new Map<MaturityTier, CardWithCompany[]>();
-  for (const t of MATURITY_TIERS) byTier.set(t, []);
-  for (const c of companyCards) {
-    if (c.card.tier != null) byTier.get(c.card.tier)!.push(c);
-  }
-
-  return (
-    <div className="space-y-8">
-      {MATURITY_TIERS.map((tier) => {
-        const group = byTier.get(tier)!;
-        return (
-          <section key={tier}>
-            <div className="mb-3 flex items-center gap-3 border-b border-border pb-2">
-              <TierBadge tier={tier} size="md" />
-              <span className="text-sm text-muted">{TIER_BLURBS[tier]}</span>
-              <span className="ml-auto chip border-border text-muted">{group.length}</span>
-            </div>
-            {group.length > 0 ? (
-              <CardGrid cards={group} deckCards={deckCards} deckUserValues={deckUserValues} marketId={marketId} deckStatus={deckStatus} />
-            ) : (
-              <ExpandPrompt
-                marketId={marketId}
-                focus={{ tier }}
-                label={`Hunt for ${TIER_LABELS[tier]} companies`}
-              />
-            )}
-          </section>
-        );
-      })}
-    </div>
-  );
-}
