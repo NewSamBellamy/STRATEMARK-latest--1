@@ -113,7 +113,7 @@ import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl
 import { companyNameKey, marketCapEstimate, secSharesConceptUrl, secTickerMapUrl, yahooChartUrl } from './market-quote';
 import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane } from './searxng';
-import { resolveCompanyLogo, type CompanyLogo } from './assets';
+import { resolveCompanyBrand, type CompanyLogo } from './assets';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
  * persists per card and every provider call is deadline-bounded, so a job
@@ -124,6 +124,8 @@ const JOB_STALL_MS = 8 * 60_000;
 /** The hydration-time logo is a gstatic favicon guess, not company art. The
  * asset lane (and only the asset lane, or the user) replaces it. */
 const GUESSED_LOGO_RE = /^https:\/\/t2\.gstatic\.com\/faviconV2/;
+/** Favicon-sized store thumbnails (e.g. Shopify ?height=32) are not brand logos. */
+const TINY_LOGO_RE = /[?&](?:height|width)=(?:1\d|[2-5]\d|6[0-3])(?:&|$)/;
 import { readCompanyOriginals } from './core-source-coverage';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
@@ -999,6 +1001,10 @@ export class GeminiRepository implements MarketIntelRepository {
           // art with a source URL; the hydration favicon is a guess. Real wins.
           if (prior.logoUrl && !GUESSED_LOGO_RE.test(prior.logoUrl)) {
             hydrated.company.logoUrl = prior.logoUrl;
+          }
+          // Colours the asset lane scraped from the company's own site beat a hydration default.
+          if (prior.brandTheme?.source === 'scraped' && hydrated.company.brandTheme?.source !== 'scraped') {
+            hydrated.company.brandTheme = prior.brandTheme;
           }
           this.snap.companies[coIdx] = hydrated.company;
         } else {
@@ -3237,8 +3243,9 @@ export class GeminiRepository implements MarketIntelRepository {
   ): Promise<{ logo: CompanyLogo | null }> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company?.websiteUrl) return { logo: null };
-    const guessed = !company.logoUrl || GUESSED_LOGO_RE.test(company.logoUrl);
-    if (!guessed) return { logo: null };
+    const guessed = !company.logoUrl || GUESSED_LOGO_RE.test(company.logoUrl) || TINY_LOGO_RE.test(company.logoUrl);
+    const needsColors = !company.brandTheme || company.brandTheme.source === 'default';
+    if (!guessed && !needsColors) return { logo: null };
     // One read per URL per call: retention reuses the exact receipt the
     // resolution ladder already fetched.
     const readMemo = new Map<string, Promise<OriginalSourceReceipt>>();
@@ -3251,10 +3258,20 @@ export class GeminiRepository implements MarketIntelRepository {
       }
       return entry;
     };
-    const logo = await resolveCompanyLogo(company.websiteUrl, memoRead);
-    if (!logo) return { logo: null };
-    company.logoUrl = logo.url;
-    if (this.originalSources) {
+    const { logo: found, colors } = await resolveCompanyBrand(company.websiteUrl, memoRead, { name: company.name, skipWikidata: !guessed });
+    const logo = guessed ? found : null;
+    if (colors) {
+      // Real colours only; text/background/font keep their existing values.
+      const prev = company.brandTheme;
+      company.brandTheme = {
+        primary: colors.primary, secondary: colors.secondary, accent: colors.accent,
+        text: prev?.text ?? '#14181F', background: prev?.background ?? '#FFFFFF',
+        fontFamily: prev?.fontFamily ?? null, source: 'scraped', signal: colors.signal,
+      };
+    }
+    if (!logo && !colors) return { logo: null };
+    if (logo) company.logoUrl = logo.url;
+    if (logo && this.originalSources) {
       try {
         const receipt = await memoRead(company.websiteUrl);
         if (receipt.status === 'retrieved' && receipt.text) {

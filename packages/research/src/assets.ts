@@ -18,12 +18,15 @@
  */
 import { z } from 'zod';
 import type { OriginalSourceReceipt } from './original-source';
+import { resolveBrand, type BrandOptions, type ScrapedBrandColors } from './brand';
 
 export const companyLogoSchema = z.object({
   kind: z.literal('logo'),
   url: z.string().url(),
   sourceUrl: z.string().url(),
   retrievedAt: z.string(),
+  /** Which ladder rung supplied the logo (json-ld, header-logo, wikidata, ...). */
+  via: z.string().optional(),
 });
 export type CompanyLogo = z.infer<typeof companyLogoSchema>;
 
@@ -76,85 +79,27 @@ function looksLikeHtml(text: string): boolean {
   return /<(?:!doctype|html|head|body|div|section|main|nav|img|a|p|ul|li|h[1-6])\b/i.test(text);
 }
 
-function asLogo(url: string, pageUrl: URL, retrievedAt: string | undefined): CompanyLogo | null {
-  const parsed = companyLogoSchema.safeParse({
-    kind: 'logo', url, sourceUrl: pageUrl.href, retrievedAt: retrievedAt ?? new Date().toISOString(),
-  });
-  return parsed.success ? parsed.data : null;
-}
-
-// Ladder tiers: a declared SVG is sharp at any size; among rasters the largest
-// declared size wins (apple-touch-icons are rasters that default to 180px when
-// sizes is absent, so they compete inside the PNG tier rather than beating a
-// 192px favicon with a smaller one); any other rel icon ranks last.
-const ICON_TIERS = { svg: 0, png: 1, apple: 2, other: 3 } as const;
-
-interface IconCandidate { url: string; tier: number; size: number }
-
-function declaredSize(sizes: string | null): number | null {
-  if (!sizes || sizes.trim().toLowerCase() === 'any') return null;
-  let max = 0;
-  for (const match of sizes.matchAll(/(\d+)x(\d+)/gi)) max = Math.max(max, Number(match[1]), Number(match[2]));
-  return max > 0 ? max : null;
-}
-
-function iconCandidates(html: string, pageUrl: URL): IconCandidate[] {
-  const candidates = new Map<string, IconCandidate>();
-  for (const match of html.matchAll(/<link\b[^>]*>/gi)) {
-    const tag = match[0];
-    const rel = (tagAttr(tag, 'rel') ?? '').toLowerCase().split(/\s+/);
-    if (!rel.includes('icon') && !rel.includes('apple-touch-icon')) continue;
-    const url = resolveAssetUrl(tagAttr(tag, 'href'), pageUrl);
-    if (!url) continue;
-    const type = (tagAttr(tag, 'type') ?? '').toLowerCase();
-    const apple = rel.includes('apple-touch-icon');
-    const svg = type === 'image/svg+xml' || /\.svg(?:[?#]|$)/i.test(url);
-    const png = type === 'image/png' || /\.png(?:[?#]|$)/i.test(url);
-    const size = declaredSize(tagAttr(tag, 'sizes')) ?? (apple ? 180 : 0);
-    const tier = svg ? ICON_TIERS.svg : png ? ICON_TIERS.png : apple ? ICON_TIERS.apple : ICON_TIERS.other;
-    if (!candidates.has(url)) candidates.set(url, { url, tier, size });
-  }
-  return [...candidates.values()].sort((a, b) => a.tier - b.tier || b.size - a.size);
-}
-
-/** og:logo is the site's own brand declaration; twitter:image is a weaker
- * social fallback — keep og:logo ahead of it even when it appears later. */
-function socialLogo(html: string, pageUrl: URL): string | null {
-  let twitter: string | null = null;
-  for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
-    const tag = match[0];
-    const key = (tagAttr(tag, 'property') ?? tagAttr(tag, 'name') ?? '').trim().toLowerCase();
-    if (key !== 'og:logo' && key !== 'twitter:image') continue;
-    const url = resolveAssetUrl(tagAttr(tag, 'content'), pageUrl);
-    if (!url) continue;
-    if (key === 'og:logo') return url;
-    twitter ??= url;
-  }
-  return twitter;
-}
-
 /**
- * Logo ladder: (1) declared <link rel~=icon> variants — SVG first, then the
- * largest declared PNG, then apple-touch-icon; (2) og:logo / twitter:image;
- * (3) /favicon.ico — but only when a read proves the file exists, so an
- * absent icon is an honest null instead of a broken image on the card.
+ * Brand resolution (logo + colours) from the homepage the read returns. See
+ * ./brand for the ladder: JSON-LD logo, header/nav logo <img>, domain-verified
+ * Wikidata P154, apple-touch-icon / og:logo / logo-named og:image, favicon
+ * >=64px. Honest null when nothing qualifies; callers keep any existing guess.
  */
+export async function resolveCompanyBrand(
+  websiteUrl: string,
+  read: AssetRead,
+  opts: Omit<BrandOptions, 'read'> = {},
+): Promise<{ logo: CompanyLogo | null; colors: ScrapedBrandColors | null }> {
+  const res = await resolveBrand(websiteUrl, { ...opts, read });
+  const logo = res.logo ? companyLogoSchema.safeParse({
+    kind: 'logo', url: res.logo.url, sourceUrl: res.logo.sourceUrl, retrievedAt: res.logo.retrievedAt, via: res.logo.via,
+  }) : null;
+  return { logo: logo?.success ? logo.data : null, colors: res.colors };
+}
+
+/** Logo only, no Wikidata network rung (kept for callers that must stay offline). */
 export async function resolveCompanyLogo(websiteUrl: string, read: AssetRead): Promise<CompanyLogo | null> {
-  const base = pageBase(websiteUrl);
-  if (!base) return null;
-  const home = await read(base.href).catch(() => null);
-  if (home?.status === 'retrieved' && home.text) {
-    const pageUrl = receiptPageUrl(home, base);
-    const icon = iconCandidates(home.text, pageUrl)[0];
-    if (icon) return asLogo(icon.url, pageUrl, home.retrievedAt);
-    const social = socialLogo(home.text, pageUrl);
-    if (social) return asLogo(social, pageUrl, home.retrievedAt);
-  }
-  const favicon = new URL('/favicon.ico', receiptPageUrl(home, base));
-  const probe = await read(favicon.href).catch(() => null);
-  // Provenance for the convention rung is the site's own page (its origin),
-  // not the icon file the probe returned.
-  return probe?.status === 'retrieved' ? asLogo(favicon.href, receiptPageUrl(home, base), probe.retrievedAt) : null;
+  return (await resolveCompanyBrand(websiteUrl, read, { skipWikidata: true })).logo;
 }
 
 const TEAM_PAGE_PATHS = ['/team', '/about', '/leadership', '/management', '/people'];

@@ -319,6 +319,7 @@ describe('fillCompanyAssets', () => {
   it('never touches curated or Wikidata art', async () => {
     const snap = snapshot([]);
     snap.companies[0]!.logoUrl = 'https://commons.wikimedia.org/wiki/Special:FilePath/OpenAI_Logo.svg';
+    snap.companies[0]!.brandTheme = { primary: '#111111', secondary: '#222222', accent: '#333333', text: '#000000', background: '#ffffff', fontFamily: null, source: 'scraped' };
     const read = vi.fn(async (url: string) => rawReceipt(url, '<html></html>'));
     const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snap), client: assetClient });
 
@@ -326,6 +327,23 @@ describe('fillCompanyAssets', () => {
 
     expect(logo).toBeNull();
     expect(read).not.toHaveBeenCalled();
+  });
+
+  it('stores scraped brand colours (with their signal) and keeps default when none exist', async () => {
+    const snap = snapshot([]);
+    snap.companies[0]!.logoUrl = 'https://commons.wikimedia.org/wiki/Special:FilePath/OpenAI_Logo.svg';
+    const store = memoryStore(snap);
+    const repo = new GeminiRepository({ apiKey: 'k', store, client: assetClient });
+    await repo.fillCompanyAssets('cmp_1', vi.fn(async (url: string) => rawReceipt(url, '<meta name="theme-color" content="#E4572E">')));
+    expect(store.read()?.companies[0]!.brandTheme).toMatchObject({ primary: '#e4572e', source: 'scraped', signal: 'theme-color' });
+
+    const snap2 = snapshot([]);
+    snap2.companies[0]!.logoUrl = 'https://commons.wikimedia.org/wiki/Special:FilePath/OpenAI_Logo.svg';
+    snap2.companies[0]!.brandTheme = null;
+    const store2 = memoryStore(snap2);
+    const repo2 = new GeminiRepository({ apiKey: 'k', store: store2, client: assetClient });
+    await repo2.fillCompanyAssets('cmp_1', vi.fn(async (url: string) => rawReceipt(url, '<html></html>')));
+    expect(store2.read()?.companies[0]!.brandTheme).toBeNull();
   });
 
   it('stays honest when the site yields nothing', async () => {
