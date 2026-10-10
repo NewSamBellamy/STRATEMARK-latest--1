@@ -1,7 +1,7 @@
 /**
  * stratemark-api — the hosted half of the web app (Cloudflare Worker).
  *
- *   POST /v1/gemini/:model:generateContent  Gemini on the server-held key, behind daily caps
+ *   POST /v1/gemini/:model:generateContent  Gemini on the server-held key, behind a daily dollar budget
  *   POST /v1/source        { url, scope }    original-source read (same reader + policy as desktop)
  *   POST /v1/asset-source  { url }           raw HTML for logo/headshot parsing
  *   GET  /v1/image?url=                      a public image with CORS, for brand-colour sampling
@@ -14,15 +14,20 @@
 import { Buffer } from 'node:buffer';
 import { retrieveOriginalSource, type SourceTransport } from '@mi/research/original-source-node';
 import type { OriginalSourceReceipt, OriginalSourceScope } from '@mi/research';
-import { allowedModel, allowedOrigin, isPrivateIpv4, safePublicUrl, takeDailyCap, type Counter } from './policy';
+import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, reserveMicros, safePublicUrl, type GeminiUsage } from './policy';
+import type { BudgetCounter } from './budget';
+
+export { BudgetCounter } from './budget';
 
 export interface Env {
   GEMINI_API_KEY?: string;
-  USAGE: Counter;
+  BUDGET: DurableObjectNamespace<BudgetCounter>;
   ALLOWED_ORIGINS?: string;
   ALLOW_LOCALHOST?: string;
-  DAILY_GLOBAL_CAP?: string;
-  DAILY_VISITOR_CAP?: string;
+  /** Hard ceiling on hosted Gemini spend per UTC day, all visitors together. */
+  DAILY_BUDGET_USD?: string;
+  /** Per-visitor (IP) share of that budget per UTC day. */
+  DAILY_VISITOR_BUDGET_USD?: string;
 }
 
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -115,35 +120,82 @@ export function keyShape(raw: string | undefined): { present: boolean; length: n
   return { present: key.length > 0, length: key.length, looksValid: /^AIza[0-9A-Za-z_-]{35}$/.test(key) };
 }
 
+const usd = (micros: number) => Math.round(micros / 10_000) / 100;
+
+function budgets(env: Env): { budget: number; visitor: number } {
+  const budget = Number(env.DAILY_BUDGET_USD ?? 100);
+  const visitor = Number(env.DAILY_VISITOR_BUDGET_USD ?? 20);
+  return {
+    budget: Math.round((Number.isFinite(budget) && budget > 0 ? budget : 100) * 1_000_000),
+    visitor: Math.round((Number.isFinite(visitor) && visitor > 0 ? visitor : 20) * 1_000_000),
+  };
+}
+
+function ledger(env: Env) {
+  return env.BUDGET.get(env.BUDGET.idFromName('global'));
+}
+
 async function geminiProxy(request: Request, env: Env, model: string, origin: string): Promise<Response> {
   const key = cleanKey(env.GEMINI_API_KEY);
   if (!key) return json({ error: 'Hosted research is not configured.' }, 503, origin);
   if (!allowedModel(model)) return json({ error: 'Model not allowed.' }, 400, origin);
   const body = await request.text();
   if (body.length > MAX_JSON_BODY) return json({ error: 'Request too large.' }, 413, origin);
+
+  // Dollar budget: hold this call's worst-case cost before it runs, settle to
+  // the real cost (from Google's usage report) after. Exact under bursts.
   const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
-  const cap = await takeDailyCap(env.USAGE, ip,
-    Number(env.DAILY_GLOBAL_CAP ?? 2000) || 2000, Number(env.DAILY_VISITOR_CAP ?? 300) || 300);
-  if (!cap.ok) {
+  const day = new Date().toISOString().slice(0, 10);
+  const grounded = /"google_?search"|"googleSearch"/.test(body);
+  const held = reserveMicros(model, grounded, body.length);
+  const caps = budgets(env);
+  const counter = ledger(env);
+  const reservation = await counter.reserve(day, ip, held, caps.budget, caps.visitor);
+  if (!reservation.ok) {
+    // 402, not 429: a spent budget must not look like a transient rate limit
+    // (clients retry 429s). The web app shows a banner and stops asking.
     return json({
-      error: cap.reason === 'global'
-        ? 'Free research is at today’s limit. Add your own Gemini key in Settings to keep going.'
-        : 'You’ve reached today’s free research limit. Add your own Gemini key in Settings to keep going.',
-    }, 429, origin);
+      budget: 'exhausted', reason: reservation.reason,
+      error: reservation.reason === 'global'
+        ? 'Free research has reached today’s budget. It resets at midnight UTC, or add your own Gemini key in Settings to keep going.'
+        : 'You’ve used today’s free research. It resets at midnight UTC, or add your own Gemini key in Settings to keep going.',
+    }, 402, origin);
   }
-  const upstream = await fetch(`${GEMINI}/${model}:generateContent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-    body,
-  });
-  // Pass Google's body and status through; never its headers (no key echo).
-  // Buffered, not streamed: a streamed error body arrived empty at the browser.
-  const text = await upstream.text();
-  if (!upstream.ok) console.log(`gemini ${model} -> ${upstream.status}: ${text.slice(0, 300)}`);
-  return new Response(text, {
-    status: upstream.status,
-    headers: { 'Content-Type': upstream.headers.get('content-type') ?? 'application/json', 'Cache-Control': 'no-store', ...cors(origin) },
-  });
+
+  let actual = 0;
+  try {
+    const upstream = await fetch(`${GEMINI}/${model}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      body,
+    });
+    // Pass Google's body and status through; never its headers (no key echo).
+    // Buffered, not streamed: a streamed error body arrived empty at the browser.
+    const text = await upstream.text();
+    if (upstream.ok) {
+      try {
+        const parsed = JSON.parse(text) as {
+          usageMetadata?: GeminiUsage;
+          candidates?: Array<{ groundingMetadata?: { webSearchQueries?: unknown[] } }>;
+        };
+        const queries = (parsed.candidates ?? []).reduce((n, c) => n + (c.groundingMetadata?.webSearchQueries?.length ?? 0), 0);
+        actual = callCostMicros(model, parsed.usageMetadata, grounded, queries);
+      } catch {
+        actual = held; // unreadable usage: charge the worst case rather than nothing
+      }
+    } else {
+      console.log(`gemini ${model} -> ${upstream.status}: ${text.slice(0, 300)}`);
+    }
+    return new Response(text, {
+      status: upstream.status,
+      headers: { 'Content-Type': upstream.headers.get('content-type') ?? 'application/json', 'Cache-Control': 'no-store', ...cors(origin) },
+    });
+  } catch (cause) {
+    actual = 0; // the request never reached Google, so it was not billed
+    throw cause;
+  } finally {
+    await counter.settle(day, ip, held, actual);
+  }
 }
 
 async function sourceRead(request: Request, origin: string): Promise<Response> {
@@ -237,7 +289,11 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
       const shape = keyShape(env.GEMINI_API_KEY);
-      return json({ ok: true, hostedResearch: shape.present, keyLength: shape.length, keyLooksValid: shape.looksValid }, 200, null);
+      const status = await ledger(env).status(new Date().toISOString().slice(0, 10)).catch(() => null);
+      return json({
+        ok: true, hostedResearch: shape.present, keyLength: shape.length, keyLooksValid: shape.looksValid,
+        budgetUsd: usd(budgets(env).budget), spentTodayUsd: status ? usd(status.spentMicros) : null,
+      }, 200, null);
     }
 
     const origin = request.headers.get('origin');

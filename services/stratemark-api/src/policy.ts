@@ -56,34 +56,90 @@ export function isPrivateIpv4(ip: string): boolean {
     (a === 198 && (b === 18 || b === 19)) || a >= 224;
 }
 
-export interface Counter {
-  get(key: string): Promise<string | null>;
-  put(key: string, value: string, opts?: { expirationTtl?: number }): Promise<void>;
-}
-
-export interface CapResult { ok: boolean; reason?: 'global' | 'visitor'; used: number }
+// ---- Dollar budget ---------------------------------------------------------
 
 /**
- * Daily spend caps: one for the whole deployment, one per visitor IP. KV is
- * eventually consistent, so the count is approximate (it can overshoot by a
- * handful under a burst) — fine for a beta budget guard, and it fails closed
- * when the cap is reached. Counters expire on their own after two days.
+ * Conservative Gemini prices (USD per 1M tokens), the HIGHEST current list
+ * price in each family (ai.google.dev/gemini-api/docs/pricing, checked
+ * 2026-10-10, including the 2027 Flash increase). Free allowances are ignored.
+ * The meter may stop early; it must never stop late.
  */
-export async function takeDailyCap(
-  kv: Counter, ip: string, globalCap: number, visitorCap: number, now = new Date(),
-): Promise<CapResult> {
-  const day = now.toISOString().slice(0, 10);
-  const gKey = `cap:${day}:all`;
-  const vKey = `cap:${day}:ip:${ip}`;
-  const [g, v] = await Promise.all([kv.get(gKey), kv.get(vKey)]);
-  const used = Number(g ?? 0) || 0;
-  const mine = Number(v ?? 0) || 0;
-  if (used >= globalCap) return { ok: false, reason: 'global', used };
-  if (mine >= visitorCap) return { ok: false, reason: 'visitor', used };
-  const ttl = 60 * 60 * 48;
-  await Promise.all([
-    kv.put(gKey, String(used + 1), { expirationTtl: ttl }),
-    kv.put(vKey, String(mine + 1), { expirationTtl: ttl }),
-  ]);
-  return { ok: true, used: used + 1 };
+export const PRICE_PER_M = {
+  lite: { input: 0.30, output: 2.50 },
+  flash: { input: 1.50, output: 7.50 },
+  pro: { input: 4.00, output: 18.00 },
+} as const;
+/** Search grounding: $35 per 1,000 grounded prompts (2.5) or $14 per 1,000 queries (3.x) — take the higher. */
+export const GROUNDED_PROMPT_USD = 0.035;
+export const SEARCH_QUERY_USD = 0.014;
+
+export function priceFamily(model: string): keyof typeof PRICE_PER_M {
+  if (/lite/.test(model)) return 'lite';
+  if (/flash/.test(model)) return 'flash';
+  return 'pro'; // unknown models are charged at the most expensive rate
+}
+
+export interface GeminiUsage {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  thoughtsTokenCount?: number;
+  toolUsePromptTokenCount?: number;
+}
+
+/** Cost of one finished call, in micro-dollars (integer, so the ledger never drifts). */
+export function callCostMicros(model: string, usage: GeminiUsage | undefined, grounded: boolean, searchQueries: number): number {
+  const p = PRICE_PER_M[priceFamily(model)];
+  const input = (usage?.promptTokenCount ?? 0) + (usage?.toolUsePromptTokenCount ?? 0);
+  const output = (usage?.candidatesTokenCount ?? 0) + (usage?.thoughtsTokenCount ?? 0);
+  const tokens = input * p.input + output * p.output; // USD per 1M tokens x tokens = micro-dollars
+  const search = grounded ? Math.max(GROUNDED_PROMPT_USD, SEARCH_QUERY_USD * Math.max(1, searchQueries)) * 1_000_000 : 0;
+  return Math.ceil(tokens + search);
+}
+
+/**
+ * Held before a call so concurrent calls can't jointly overshoot: the worst
+ * plausible cost of one request (a long grounded prompt with a long answer).
+ */
+export function reserveMicros(model: string, grounded: boolean, bodyChars: number): number {
+  const p = PRICE_PER_M[priceFamily(model)];
+  const inputTokens = Math.ceil(bodyChars / 3) + 20_000; // + grounding context Google adds
+  const outputTokens = 16_000;
+  const search = grounded ? Math.max(GROUNDED_PROMPT_USD, SEARCH_QUERY_USD * 6) * 1_000_000 : 0;
+  return Math.ceil(inputTokens * p.input + outputTokens * p.output + search);
+}
+
+export interface LedgerDay {
+  day: string;
+  spentMicros: number;
+  heldMicros: number;
+  visitors: Record<string, number>; // micro-dollars spent + held per visitor
+}
+
+export type ReserveResult = { ok: true; ledger: LedgerDay } | { ok: false; reason: 'global' | 'visitor'; ledger: LedgerDay };
+
+/** Pure ledger step: may this call proceed under the global and per-visitor daily budgets? */
+export function tryReserve(ledger: LedgerDay, day: string, ip: string, amount: number, budgetMicros: number, visitorBudgetMicros: number): ReserveResult {
+  const current: LedgerDay = ledger.day === day ? ledger : { day, spentMicros: 0, heldMicros: 0, visitors: {} };
+  if (current.spentMicros + current.heldMicros + amount > budgetMicros) return { ok: false, reason: 'global', ledger: current };
+  const mine = current.visitors[ip] ?? 0;
+  if (mine + amount > visitorBudgetMicros) return { ok: false, reason: 'visitor', ledger: current };
+  return {
+    ok: true,
+    ledger: { ...current, heldMicros: current.heldMicros + amount, visitors: { ...current.visitors, [ip]: mine + amount } },
+  };
+}
+
+/** Pure ledger step: swap a hold for the call's actual cost (0 if Google didn't bill it). */
+export function settle(ledger: LedgerDay, day: string, ip: string, held: number, actual: number): LedgerDay {
+  if (ledger.day !== day) {
+    // The call straddled UTC midnight: charge it to the new day, nothing to release.
+    return { day, spentMicros: actual, heldMicros: 0, visitors: { [ip]: actual } };
+  }
+  const mine = Math.max(0, (ledger.visitors[ip] ?? 0) - held + actual);
+  return {
+    ...ledger,
+    spentMicros: ledger.spentMicros + actual,
+    heldMicros: Math.max(0, ledger.heldMicros - held),
+    visitors: { ...ledger.visitors, [ip]: mine },
+  };
 }

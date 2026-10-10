@@ -1,5 +1,5 @@
 import { hasLocalSourceBridge } from './local-source-reader';
-import { HOSTED_KEY, hasHostedApi, hostedUrl } from '@/lib/hostedApi';
+import { HOSTED_KEY, hasHostedApi, hostedUrl, useHostedBudget } from '@/lib/hostedApi';
 
 /**
  * Gemini transport shim.
@@ -19,6 +19,12 @@ export const previewGeminiFetch: typeof fetch = (input, init) => {
     headers.delete('x-goog-api-key');
     return fetch(hostedUrl(`gemini/${match[1]}:generateContent`), {
       ...init, headers, credentials: 'omit', redirect: 'error', cache: 'no-store',
+    }).then(async (res) => {
+      if (res.status === 402) {
+        const body = await res.clone().json().catch(() => null) as { reason?: 'global' | 'visitor' } | null;
+        useHostedBudget.setState({ exhausted: body?.reason === 'visitor' ? 'visitor' : 'global' });
+      }
+      return res;
     });
   }
   if (!hasLocalSourceBridge() || !match) return fetch(input, init);

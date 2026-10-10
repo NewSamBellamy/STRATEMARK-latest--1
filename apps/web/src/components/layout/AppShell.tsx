@@ -11,6 +11,25 @@ import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { useHuntRunner } from '@/lib/agentic/useHuntRunner';
 import { useSentinel } from '@/lib/agentic/useSentinel';
 import { SettingsModal } from '@/features/settings/SettingsModal';
+import { SettingsLink } from '@/components/SettingsLink';
+import { useHostedBudget } from '@/lib/hostedApi';
+import { useApiKey } from '@/lib/settings/apiKey';
+
+/** Free hosted research hit today's budget: say so once, plainly, with the fix. */
+function HostedBudgetBanner() {
+  const exhausted = useHostedBudget((s) => s.exhausted);
+  const hosted = useApiKey((s) => s.hosted);
+  if (!exhausted || !hosted) return null;
+  return (
+    <div role="status" className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-[12.5px] text-amber-900 md:px-6">
+      {exhausted === 'visitor'
+        ? 'You’ve used today’s free research. '
+        : 'Free research has reached today’s budget. '}
+      Your decks are safe and everything already researched still works. New research resumes at midnight UTC, or{' '}
+      <SettingsLink className="font-semibold underline">add your own Gemini key</SettingsLink> to keep going now.
+    </div>
+  );
+}
 
 export function AppShell() {
   useDeckRefreshSubscription();
@@ -64,6 +83,7 @@ export function AppShell() {
           <TopBar />
         </header>
 
+        <HostedBudgetBanner />
         <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
           <ErrorBoundary>
             <Suspense fallback={<FullPageLoader />}>

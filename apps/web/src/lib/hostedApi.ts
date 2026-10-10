@@ -10,6 +10,11 @@
  *     the way the dev-only Vite bridges do locally.
  * A user's own key always wins and is still sent only to Google.
  */
+import { create } from 'zustand';
+
+/** Set when the hosted Worker says today's free budget is spent (HTTP 402). */
+export const useHostedBudget = create<{ exhausted: null | 'global' | 'visitor' }>(() => ({ exhausted: null }));
+
 export const HOSTED_API_URL: string = String(import.meta.env.VITE_STRATEMARK_API_URL ?? '').trim().replace(/\/+$/, '');
 
 /** Stand-in "key" that marks the hosted engine. Never sent anywhere: the fetch shim strips it. */

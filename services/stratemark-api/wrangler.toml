@@ -5,20 +5,25 @@ compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 preview_urls = false
 
-# Daily spend counters (approximate; see src/policy.ts).
-# Namespace "stratemark-api-usage" (created 2026-10-10).
-[[kv_namespaces]]
-binding = "USAGE"
-id = "2f60a0249e3e4c98b1ebc26ad6b9ffc2"
+# Daily dollar budget ledger: one Durable Object instance, exact under bursts.
+[[durable_objects.bindings]]
+name = "BUDGET"
+class_name = "BudgetCounter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BudgetCounter"]
 
 [vars]
 # Browser origins allowed to call the API (full origins or *.host wildcards).
 # Never add a shared-hosting wildcard like *.pages.dev: anyone could host a page there.
 ALLOWED_ORIGINS = "https://getstratemark.com,https://*.getstratemark.com,https://stratemark.pages.dev,https://*.stratemark.pages.dev"
 ALLOW_LOCALHOST = "false"
-# Gemini calls per UTC day: whole deployment, and per visitor IP.
-DAILY_GLOBAL_CAP = "2000"
-DAILY_VISITOR_CAP = "300"
+# Hosted Gemini spend ceiling per UTC day (USD), all visitors together, and
+# each visitor's (IP's) share of it. Costs are metered at the highest current
+# list price per model family, so real spend stays at or under these.
+DAILY_BUDGET_USD = "100"
+DAILY_VISITOR_BUDGET_USD = "20"
 
 # Secret (never in this file):  npx.cmd wrangler secret put GEMINI_API_KEY
 
