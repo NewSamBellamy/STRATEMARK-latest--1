@@ -4,6 +4,7 @@ import {
   type CardWithCompany, type CompanyMetric, type MetricType,
 } from '@mi/contracts';
 import { reportedSupportCitations } from '@mi/research';
+import type { OvrBreakdown } from './rating';
 
 const LABELS: Record<MetricType, string> = {
   arr: 'ARR', valuation: 'Valuation', market_cap: 'Market cap',
@@ -131,7 +132,7 @@ export function buildMetricViews(input: readonly CompanyMetric[], officialWebsit
 }
 
 /** A single read-only boundary for deck and inspection. Never updates stored research. */
-export function buildCardView(data: CardWithCompany) {
+export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null = null) {
   const signal = isSignalCardType(data.card.cardType) || !data.company;
   const metrics = buildMetricViews(signal ? [] : data.metrics, data.company?.websiteUrl);
   const knownCount = metrics.filter((m) => m.metric.value != null).length;
@@ -237,7 +238,7 @@ export function buildCardView(data: CardWithCompany) {
     description,
     frontDescription: signal ? signalLines[0] ?? null : description,
     frontFinding: signal ? signalLines[1] ?? null : null,
-    type: CARD_TYPE_LABELS[data.card.cardType], signal, maturity, position, metrics,
+    type: CARD_TYPE_LABELS[data.card.cardType], signal, maturity, rating, position, metrics,
     profileMetrics, knownCount, sourcedCount,
     // A source count is evidence DEPTH, not retrieved-item volume: the same
     // receipt repeated across metrics is one source, not many. Distinct pages,

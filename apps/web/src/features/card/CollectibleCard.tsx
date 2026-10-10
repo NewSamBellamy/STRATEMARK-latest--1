@@ -3,6 +3,7 @@ import type { CardWithCompany } from '@mi/contracts';
 import { deriveTriad } from '@/lib/brand';
 import { buildCardView, type CardView } from './card-view';
 import { Logo } from './Logo';
+import { ovrTooltip } from './rating';
 import { DEFAULT_CARD_ART, MarketCardArt } from './MarketCardArt';
 import './collectible.css';
 
@@ -47,6 +48,7 @@ export function CollectibleCard({
       ? triad.accent
       : '#6a756f';
   const stage = view.maturity?.label ?? view.position;
+  const rating = view.rating;
   const provenance = view.sourceCount > 0
     ? `${view.sourceCount} ${view.sourceCount === 1 ? 'source' : 'sources'} tracked`
       : 'Research needed';
@@ -110,7 +112,11 @@ export function CollectibleCard({
           </div>
         ) : null}
         <div className="collectible__footer">
-          <span>{stage}</span>
+          {rating
+            ? <span title={ovrTooltip(rating)} data-testid="card-ovr">
+              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{rating.overall}</span> OVR{rating.indicative ? ' · Indicative' : ''}
+            </span>
+            : <span>{stage}</span>}
           <span>{provenance}</span>
         </div>
       </div>
