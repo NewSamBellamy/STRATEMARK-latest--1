@@ -46,7 +46,7 @@ describe('dashboard metric evidence projection', () => {
       citations: [{ title: 'Reuters', url: 'https://reuters.com.attacker.test/figure', credibility: 'primary' }] });
     await screen.findByRole('button', { name: 'Correct Employees' });
     expect(screen.queryByText('Verified')).not.toBeInTheDocument();
-    expect(screen.getByText('Estimated')).toBeInTheDocument();
+    expect(screen.getAllByText('Estimated').length).toBeGreaterThan(0);
     expect(metric.confidence).toBe('verified');
   });
   it.each([
@@ -57,5 +57,51 @@ describe('dashboard metric evidence projection', () => {
       citations: [{ title: 'Filing', url: 'https://sec.gov/Archives/report', credibility: 'primary' }] });
     expect((await screen.findAllByText('Unknown')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Verified')).not.toBeInTheDocument();
+  });
+
+  it('shows a labelled gap with what would fill it for sparse companies, never a zero', async () => {
+    show({ value: null, confidence: 'unknown' });
+    await screen.findByRole('button', { name: 'Correct Employees' });
+    expect(screen.getAllByText(/What would fill this/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Unknown').length).toBeGreaterThan(1);
+    expect(screen.queryByText('0')).not.toBeInTheDocument();
+  });
+  it('filters the table by metric family and selects a row for detail', async () => {
+    const { user } = (() => {
+      const metrics = [
+        { ...seed, id: 'm1', metricType: 'employees' as const, value: 120, confidence: 'estimated' as const, source: null, citations: [] },
+        { ...seed, id: 'm2', metricType: 'valuation' as const, value: 5e9, confidence: 'estimated' as const, source: null, citations: [] },
+      ];
+      const repository = Object.assign(makeRepo(), {
+        getCompanyMetrics: vi.fn().mockResolvedValue(metrics),
+        getDashboardTab: vi.fn().mockResolvedValue(null),
+      });
+      return renderWithProviders(<MetricsTab companyId={seed.companyId} />, { repository });
+    })();
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText('Employees')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Financials/ }));
+    expect(within(table).queryByText('Employees')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Value & funding/ }));
+    await user.click(within(table).getByText('Valuation'));
+    expect(screen.getByRole('complementary', { name: 'Valuation detail' })).toBeInTheDocument();
+    expect(screen.getByText(/Open this company from its deck to compare/)).toBeInTheDocument();
+  });
+  it('sorts by value when a header is clicked, keeping unknowns last', async () => {
+    const metrics = [
+      { ...seed, id: 'm1', metricType: 'employees' as const, value: 120, confidence: 'estimated' as const, source: null, citations: [] },
+      { ...seed, id: 'm2', metricType: 'valuation' as const, value: 5e9, confidence: 'estimated' as const, source: null, citations: [] },
+    ];
+    const repository = Object.assign(makeRepo(), {
+      getCompanyMetrics: vi.fn().mockResolvedValue(metrics),
+      getDashboardTab: vi.fn().mockResolvedValue(null),
+    });
+    const { user } = renderWithProviders(<MetricsTab companyId={seed.companyId} />, { repository });
+    const table = await screen.findByRole('table');
+    await user.click(within(table).getByRole('button', { name: /Value/ }));
+    const rows = within(table).getAllByRole('row').slice(1).map((r) => r.textContent ?? '');
+    expect(rows[0]).toMatch(/Valuation/);
+    expect(rows[1]).toMatch(/Employees/);
+    expect(rows[2]).toMatch(/Unknown/);
   });
 });

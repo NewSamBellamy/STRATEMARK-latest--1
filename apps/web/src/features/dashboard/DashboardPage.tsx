@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQueryClient, useIsFetching } from '@tanstack/react-query';
-import { ArrowLeft, ChevronDown, FileText, Search } from 'lucide-react';
+import { ArrowLeft, ChevronDown, FileText, Globe, MapPin, Search } from 'lucide-react';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 import { useCompany, useCompanyMetrics, useReports, useRerunDashboardTab } from '@/hooks/data';
@@ -62,6 +62,30 @@ function ResearchComposer({ companyId, companyName }: { companyId: string; compa
         Research
       </button>
     </form>
+  );
+}
+
+/** One quiet row of facts under the company name; each only if it exists. */
+function KeyFacts({ hq, website, known, total }: { hq: string | null; website: string | null; known: number; total: number }) {
+  if (!hq && !website && total === 0) return null;
+  return (
+    <ul className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted" aria-label="Key facts">
+      {hq && (
+        <li className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 text-faint" aria-hidden />{hq}</li>
+      )}
+      {website && (
+        <li>
+          <a href={website} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:text-primary-ink hover:underline">
+            <Globe className="h-3.5 w-3.5 text-faint" aria-hidden />{website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+          </a>
+        </li>
+      )}
+      {total > 0 && (
+        <li className="tabular-nums" title="Figures with a value on file, out of every metric tracked for this company.">
+          {known} of {total} figures known
+        </li>
+      )}
+    </ul>
   );
 }
 
@@ -336,6 +360,12 @@ export default function DashboardPage() {
               <div className="min-w-0 flex-1">
                 <h1 className="font-display text-2xl font-semibold text-content">{c.name}</h1>
                 <p className="text-sm text-muted">{headerSubtitle}</p>
+                <KeyFacts
+                  hq={c.hqLocation}
+                  website={c.websiteUrl}
+                  known={(metrics.data ?? []).filter((m) => m.value != null && m.confidence !== 'unknown').length}
+                  total={(metrics.data ?? []).length}
+                />
               </div>
               <ThreadHistoryButton companyId={c.id} className="shrink-0" />
               <ReportButton kind="company" subjectId={c.id} className="shrink-0" />
