@@ -2,11 +2,11 @@
   "market": "utility-scale battery energy storage",
   "label": "utility-scale battery energy storage (operating profile)",
   "mode": "mock",
-  "startedAt": "2026-10-10T03:53:11.064Z",
-  "wallMs": 379,
+  "startedAt": "2026-10-10T05:00:06.592Z",
+  "wallMs": 703,
   "entities": [
     {
-      "companyId": "cmp_northgrid-storage-systems_zvjm9",
+      "companyId": "cmp_northgrid-storage-systems_p4w3r",
       "name": "Northgrid Storage Systems",
       "profile": "operating_company",
       "verified": 4,
@@ -14,7 +14,7 @@
       "unknown": 2
     },
     {
-      "companyId": "cmp_voltarc-energy_h6ypn",
+      "companyId": "cmp_voltarc-energy_xia2y",
       "name": "Voltarc Energy",
       "profile": "operating_company",
       "verified": 4,
@@ -22,7 +22,7 @@
       "unknown": 2
     },
     {
-      "companyId": "cmp_cathode-works_rv7rd",
+      "companyId": "cmp_cathode-works_r44wt",
       "name": "Cathode Works",
       "profile": "operating_company",
       "verified": 4,
@@ -30,7 +30,7 @@
       "unknown": 2
     },
     {
-      "companyId": "cmp_gridspan-utilities_z6kzq",
+      "companyId": "cmp_gridspan-utilities_8zjrs",
       "name": "Gridspan Utilities",
       "profile": "operating_company",
       "verified": 4,
@@ -38,7 +38,7 @@
       "unknown": 2
     },
     {
-      "companyId": "cmp_ampereon-power_m6cje",
+      "companyId": "cmp_ampereon-power_x0871",
       "name": "Ampereon Power",
       "profile": "operating_company",
       "verified": 4,
@@ -46,7 +46,7 @@
       "unknown": 2
     },
     {
-      "companyId": "cmp_cellfield-technologies_ksdlc",
+      "companyId": "cmp_cellfield-technologies_47x0n",
       "name": "Cellfield Technologies",
       "profile": "operating_company",
       "verified": 4,
@@ -77,24 +77,24 @@
   "milestones": {
     "firstCard": {
       "callIndex": 6,
-      "wallMs": 106,
+      "wallMs": 146,
       "companyName": "Northgrid Storage Systems"
     },
     "firstVerifiedFigure": {
       "callIndex": 21,
-      "wallMs": 253,
+      "wallMs": 456,
       "companyName": "Northgrid Storage Systems"
     },
     "filled": {
       "callIndex": 19,
-      "wallMs": 143
+      "wallMs": 232
     }
   },
   "projected": {
     "groundedRpm": 10,
     "structureRpm": 15,
-    "firstCardMs": 12001,
-    "firstVerifiedMs": 56001,
+    "firstCardMs": 12002,
+    "firstVerifiedMs": 56000,
     "filledMs": 52000
   },
   "rates": {

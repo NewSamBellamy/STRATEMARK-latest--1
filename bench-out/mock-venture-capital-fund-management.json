@@ -2,11 +2,11 @@
   "market": "venture capital fund management",
   "label": "venture capital fund management (financial profile)",
   "mode": "mock",
-  "startedAt": "2026-10-10T03:53:07.886Z",
-  "wallMs": 344,
+  "startedAt": "2026-10-10T04:59:37.018Z",
+  "wallMs": 368,
   "entities": [
     {
-      "companyId": "cmp_meridian-venture-capital_55qr5",
+      "companyId": "cmp_meridian-venture-capital_juk59",
       "name": "Meridian Venture Capital",
       "profile": "financial_firm",
       "verified": 3,
@@ -14,7 +14,7 @@
       "unknown": 2
     },
     {
-      "companyId": "cmp_harborlight-capital-management_cpaos",
+      "companyId": "cmp_harborlight-capital-management_u9qlp",
       "name": "Harborlight Capital Management",
       "profile": "financial_firm",
       "verified": 3,
@@ -22,7 +22,7 @@
       "unknown": 2
     },
     {
-      "companyId": "cmp_bluewater-growth-equity_0a53p",
+      "companyId": "cmp_bluewater-growth-equity_8xd94",
       "name": "Bluewater Growth Equity",
       "profile": "financial_firm",
       "verified": 3,
@@ -30,7 +30,7 @@
       "unknown": 2
     },
     {
-      "companyId": "cmp_cobalt-peak-private-equity_vojyh",
+      "companyId": "cmp_cobalt-peak-private-equity_y7oil",
       "name": "Cobalt Peak Private Equity",
       "profile": "financial_firm",
       "verified": 3,
@@ -38,7 +38,7 @@
       "unknown": 2
     },
     {
-      "companyId": "cmp_ironwood-family-office_e4hfk",
+      "companyId": "cmp_ironwood-family-office_k65zw",
       "name": "Ironwood Family Office",
       "profile": "financial_firm",
       "verified": 3,
@@ -46,7 +46,7 @@
       "unknown": 2
     },
     {
-      "companyId": "cmp_summit-ridge-wealth-management_isuy6",
+      "companyId": "cmp_summit-ridge-wealth-management_lcz0y",
       "name": "Summit Ridge Wealth Management",
       "profile": "financial_firm",
       "verified": 3,
@@ -77,17 +77,17 @@
   "milestones": {
     "firstCard": {
       "callIndex": 6,
-      "wallMs": 98,
+      "wallMs": 96,
       "companyName": "Meridian Venture Capital"
     },
     "firstVerifiedFigure": {
       "callIndex": 21,
-      "wallMs": 236,
+      "wallMs": 244,
       "companyName": "Meridian Venture Capital"
     },
     "filled": {
       "callIndex": 19,
-      "wallMs": 135
+      "wallMs": 137
     }
   },
   "projected": {

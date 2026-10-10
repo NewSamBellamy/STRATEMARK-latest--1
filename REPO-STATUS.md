@@ -30,6 +30,59 @@ BENCH_MODE=mock BENCH_MARKET="venture capital fund management" BENCH_OUT=../../b
 Live baseline (real key, real wall-clock): pending — will be recorded from the
 running app before WS1/WS2 changes and appended per workstream below.
 
+## Speed architecture — after WS0-WS6 (measured)
+
+Structural counts are unchanged BY DESIGN: the pipeline still runs the same
+creation → hunt → verify phases, and the bench's scripted provider drives every
+phase regardless of which lane fills first. The speed delta is WHERE figures
+come from: structured lanes fill them with **zero provider calls**, so in the
+live app each lane fill is a provider call that never happens.
+
+**Live-verified lanes (2026-10-09, `LIVE_LANES=1`, no key needed — these lanes
+are plain HTTPS against official endpoints):**
+
+| Lane | Live result | Provider calls |
+|---|---|---|
+| SEC Form ADV | Andreessen Horowitz CRD 160489 — 738 employees, AUM $106,476,153,956 as of 2025-12-31, straight from the official PDF | **0** (was: a grounded hunt ladder per figure) |
+| Market cap quote | Apple (AAPL) $4.9T estimated market cap = $336.64/share × 14,594,180,000 SEC-reported shares, honestly labeled a computation | **0** |
+| SearXNG discovery | Absent container reported honestly, grounded fallback intact | 0 extra |
+
+The live run caught and fixed three reader bugs the mock bench could never see
+(`0813e1f`): JSON API responses were rejected at the content gate (IAPD search,
+XBRL shares, Yahoo chart all dead), the ticker-map slice never fired because the
+production flow appends `?lookup=`, and the ADV PDF arrives as
+`application/octet-stream`. All three would have made the lanes dead-on-arrival
+in production; each is locked by a regression test in
+`src/original-source.node.test.ts`.
+
+Per-deck savings at 6 financial entities (live arithmetic, not projection):
+ADV lane replaces up to 2 grounded hunt ladders per firm (aum + employees) and
+the quote lane replaces the market-cap ladder for any public company; the
+market-batch fill caps cold-start at ONE grounded call per 8 companies before
+any per-company hunt. Full pipeline live measurements (real wall-clock, real
+key) are recorded in the WS7 section below as they are taken.
+
+| Commit | What it does |
+|---|---|
+| `7476cb1` | WS0 — bench harness: real pipeline + gates headlessly, both markets, call counts by phase, pacing floor |
+| `826c08f` | WS2 — research-speed presets (free 10/15 or paid 60/120 RPM) as a user knob in Settings |
+| `0a4d1be` | WS1/WS3/WS4 — structured-first lanes (SEC ADV PDF, Yahoo×SEC quote), SearXNG discovery lane, node-reader fetch memoization |
+| `9ecc988` | WS5/WS6 — market-batch estimated fill (1 call / 8 companies) + cross-run evidence reuse between twin companies |
+| `0813e1f` | WS7 — live-verified lane fixes: JSON evidence accepted, ticker-map lookup param, octet-stream ADV PDF |
+
+## Scrape-first goal — judge split, completeness gate, asset lane (2026-10-10)
+
+| Goal item | Landed as | Notes |
+|---|---|---|
+| Crawl4AI optional lane | `706bf5f` | Probe-gated on 127.0.0.1:11235 like SearXNG, memoized 5-min, second-chance reader for blocked/JS-shell pages; blocked receipts never retry; zero cost when absent. Run guide: docs/OPTIONAL-LANES.md |
+| Judge-model split | `e927c78` | `judgeModel` setting (mi.geminiJudgeModel) — verification-class calls (metric verify, batch verify, red-team) route to the judge model when set; unset = byte-identical dispatch. Third call kind 'judge' for metering; server budget prices it as grounded-class. Settings: "Verification model (judge)" |
+| Completeness gate | `b36943e` + `4474d0f` | `computeCompanyCompleteness` classifies every core slot (filled/unknown/absent); `ensureReportReadiness` runs evidence reuse → free recovery → one hunt per gapped company BEFORE any deep-dive is served (both call sites); failures never block the answer |
+| Asset lane v1 | `706bf5f` + `4474d0f` + `94a209e` | Logos resolved from the company's own site with source URLs (declared icons → og:logo → verified favicon.ico), stored ONLY over guessed favicons during hydration (`fillCompanyAssets`, once per company per session); headshots from public team pages returned with provenance; raw-HTML dev bridge endpoint added |
+| Vice-coverage fix | `aa09188` | Root cause: unconditional vice/culture discovery minimums burned free-tier RPM hunting entities that cannot exist in financial markets until the lead-card gate killed the deck. `signalRolesApply(plan)` reads the plan's words — financial/infra/B2B markets skip those roles entirely; consumer markets enforce as before (pinned by test) |
+| Live lane verification | `0813e1f` | Three production bugs the mock bench could never see, caught live and locked with regression tests; lanes live-proven zero-provider-calls (table above) |
+
+Suites: research **900** (+4 gated) · contracts **118** · web **271** · desktop **54** — all green, all typechecks clean.
+
 ## What changed this session (newest last)
 
 | Commit | What it fixes |
