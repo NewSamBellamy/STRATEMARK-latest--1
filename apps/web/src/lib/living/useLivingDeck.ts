@@ -100,6 +100,9 @@ const assetFilledCompanies = new WeakMap<MarketIntelRepository, Set<string>>();
 // Coalesce job reads across decks/remounts. Unknown readiness defers paid work;
 // failures are cached too, so an unavailable transport cannot become a hot poll.
 const JOB_CHECK_INTERVAL_MS = 60_000;
+// While a creation job is queued/running, poll briskly so the first hunts start
+// the moment creation completes instead of up to a minute later.
+const JOB_CHECK_ACTIVE_INTERVAL_MS = 5_000;
 const jobChecks = new WeakMap<MarketIntelRepository, {
   expiresAt: number;
   result: Promise<ResearchJob[] | null>;
@@ -120,7 +123,11 @@ async function creationIsActive(repo: MarketIntelRepository, deckId: string): Pr
     const entry = { expiresAt: Infinity, result: Promise.resolve<ResearchJob[] | null>(null) };
     // Promise indirection also catches synchronous transport failures.
     entry.result = Promise.resolve().then(() => repo.listResearchJobs!()).catch(() => null)
-      .finally(() => { entry.expiresAt = Date.now() + JOB_CHECK_INTERVAL_MS; });
+      .then(jobs => {
+        const active = jobs?.some(job => job.status === 'queued' || job.status === 'running') ?? false;
+        entry.expiresAt = Date.now() + (active ? JOB_CHECK_ACTIVE_INTERVAL_MS : JOB_CHECK_INTERVAL_MS);
+        return jobs;
+      }, () => { entry.expiresAt = Date.now() + JOB_CHECK_INTERVAL_MS; return null; });
     jobChecks.set(repo, entry);
     check = entry;
   }
@@ -271,14 +278,14 @@ export function useLivingDeck(
       // wait while the deck's initial creation run is still in flight. The
       // old `isLowPower() ||` ran the desks THROUGH the spending cap.
       canAct: async () => !isLowPower() && !(await creationIsActive(repo, deckId)),
-      nextRecovery: () => {
+      nextRecovery: (exclude) => {
         if (!(canHunt || canRecoverFree) || isLowPower() || useResearchControl.getState().paused) return null;
         const now = nowMs();
         // Least-attempted first: every company with a core gap gets its first
         // hunt before anyone gets a second, and empty hunts escalate only
         // after the cooldown — never in the same breath as the failed one.
         const candidate = entityDesks(cardsRef.current)
-          .filter(c => hasCoreGap(c))
+          .filter(c => hasCoreGap(c) && !exclude?.has(c.company!.id))
           .map(c => {
             const entry = hunts.get(c.company!.id);
             return {

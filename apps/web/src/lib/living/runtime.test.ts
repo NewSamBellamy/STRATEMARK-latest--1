@@ -31,7 +31,7 @@ function target(
 /** Manual timer harness: runs scheduled callbacks only when we say so. */
 function harness(overrides: Partial<LivingDeckDeps> = {}) {
   const events: AgentActivityEvent[] = [];
-  const pending: Array<{ fn: () => void }> = [];
+  const pending: Array<{ fn: () => void; ms?: number }> = [];
   const deps: LivingDeckDeps = {
     plan: () => ({ consistencyTargets: [], staleTargets: [], freshFindings: [] }),
     verify: null,
@@ -41,8 +41,8 @@ function harness(overrides: Partial<LivingDeckDeps> = {}) {
     now: () => 1_000_000,
     intervalMs: 100,
     idleIntervalMs: 1000,
-    setTimer: (fn) => {
-      const entry = { fn };
+    setTimer: (fn, ms) => {
+      const entry = { fn, ms };
       pending.push(entry);
       return entry as unknown as ReturnType<typeof setTimeout>;
     },
@@ -84,6 +84,54 @@ describe('LivingDeckRuntime', () => {
     await runNext();
     expect(recover).toHaveBeenCalledTimes(1);
     expect(runtime.status).toBe('resting');
+  });
+
+  it('runs up to three distinct recoveries concurrently, then a short gap while gaps remain', async () => {
+    const names = ['A', 'B', 'C', 'D'];
+    const hunted = new Set<string>();
+    let inFlight = 0, peak = 0;
+    const recover = vi.fn(async (t: { companyId: string }) => {
+      inFlight += 1; peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      hunted.add(t.companyId); inFlight -= 1;
+      return { filled: 1 };
+    });
+    const { runtime, pending, runNext } = harness({
+      intervalMs: 10_000, recoveryGapMs: 2_000,
+      nextRecovery: (exclude) => {
+        const name = names.find((n) => !hunted.has(n) && !exclude?.has(n));
+        return name ? { companyId: name, companyName: name } : null;
+      },
+      recover,
+    });
+    runtime.start(4);
+    await runNext();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(recover.mock.calls.map((c) => c[0].companyId)).toEqual(['A', 'B', 'C']);
+    expect(peak).toBe(3);
+    expect(runtime.actionCount).toBe(3);
+    expect(pending.at(-1)?.ms).toBe(2_000); // D still has a gap
+    await runNext();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(recover).toHaveBeenCalledTimes(4);
+    expect(pending.at(-1)?.ms).toBe(10_000); // no gaps left: normal pacing
+  });
+
+  it('never exceeds the remaining action budget and survives one failing desk', async () => {
+    const recover = vi.fn(async (t: { companyId: string }) => {
+      if (t.companyId === 'B') throw new Error('offline');
+      return { filled: 0 };
+    });
+    const { runtime, events, runNext } = harness({
+      nextRecovery: (exclude) => ['A', 'B', 'C'].filter((n) => !exclude?.has(n)).map((n) => ({ companyId: n, companyName: n }))[0] ?? null,
+      recover, maxActions: 2,
+    });
+    runtime.start(3);
+    await runNext();
+    expect(recover).toHaveBeenCalledTimes(2);
+    expect(runtime.actionCount).toBe(2);
+    expect(events.some((e) => e.kind === 'error' && e.companyName === 'B')).toBe(true);
+    expect(events.some((e) => e.kind === 'hunted' && e.companyName === 'A')).toBe(true);
   });
 
   it('charges a failed recovery to the action budget and reports failure honestly', async () => {

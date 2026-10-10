@@ -16,7 +16,8 @@
  *   4. REST — nothing due: idle quietly and re-check on a slow cadence.
  *
  * Cost discipline (deliberate, not incidental):
- *   - ONE action per tick, ticks paced by `intervalMs` (default 15s ≈ 4/min)
+ *   - at most `maxConcurrentRecoveries` (3) hunts, or ONE verify/prefetch, per tick;
+ *     ticks paced by `intervalMs`, or `recoveryGapMs` (~2s) while core gaps remain
  *   - a hard `maxActions` budget per session — the loop rests when spent
  *   - verification is skipped entirely on transports without live research;
  *     prefetching still runs (cache-warm only, no extra spend once cached)
@@ -130,7 +131,7 @@ export interface LivingDeckDeps {
   /** Readiness gate for automatic work only; deferral spends no action budget. */
   canAct?(): Promise<boolean>;
   /** Caller enforces per-company attempt limits, including failures/remounts. */
-  nextRecovery?(): RecoveryTarget | null;
+  nextRecovery?(exclude?: ReadonlySet<string>): RecoveryTarget | null;
   recover?: ((target: RecoveryTarget) => Promise<{ filled: number }>) | null;
   /** Recompute the audit + stale queue. Called at most once per tick. */
   plan(nowMs: number): {
@@ -156,6 +157,12 @@ export interface LivingDeckDeps {
   prefetchIntervalMs?: number;
   /** Re-check cadence while resting. */
   idleIntervalMs?: number;
+  /** Re-check cadence while automatic work is deferred (creation in flight). */
+  deferIntervalMs?: number;
+  /** Max concurrent recovery/hunt actions per tick (distinct companies). */
+  maxConcurrentRecoveries?: number;
+  /** Gap after a recovery batch while more companies still have core gaps. */
+  recoveryGapMs?: number;
   /** Hard per-session action budget (hunts + verifications + prefetches). */
   maxActions?: number;
   /** Timer handle is opaque — the default scheduler may not be setTimeout. */
@@ -169,7 +176,8 @@ export class LivingDeckRuntime {
   private deps: Required<
     Pick<
       LivingDeckDeps,
-      'now' | 'intervalMs' | 'prefetchIntervalMs' | 'idleIntervalMs' | 'maxActions' | 'setTimer' | 'clearTimer'
+      'now' | 'intervalMs' | 'prefetchIntervalMs' | 'idleIntervalMs' | 'maxActions' | 'setTimer' | 'clearTimer' |
+      'maxConcurrentRecoveries' | 'recoveryGapMs' | 'deferIntervalMs'
     >
   > &
     LivingDeckDeps;
@@ -189,6 +197,10 @@ export class LivingDeckRuntime {
       intervalMs: 10_000,
       prefetchIntervalMs: 5_000,
       idleIntervalMs: 60_000,
+      deferIntervalMs: 5_000,
+      maxConcurrentRecoveries: 3,
+      // Short gap while core gaps remain: hunts are the reveal-to-face path.
+      recoveryGapMs: 2_000,
       maxActions: 60,
       // Worker-backed default keeps the cadence alive in background tabs; the
       // cancel closure doubles as the opaque timer handle.
@@ -314,7 +326,7 @@ export class LivingDeckRuntime {
             this.statusValue = 'resting';
             this.emit('resting', null, 'Automatic research deferred — waiting for initial deck research readiness.');
           }
-          this.schedule(this.deps.idleIntervalMs);
+          this.schedule(this.deps.deferIntervalMs);
           return;
         }
       }
@@ -325,19 +337,41 @@ export class LivingDeckRuntime {
         this.emit('finding', null, finding.message, { severity: finding.severity });
       }
 
-      const recoveryTarget = this.deps.recover ? this.deps.nextRecovery?.() : null;
-      if (recoveryTarget && this.deps.recover) {
-        this.statusValue = 'running';
-        this.emit('hunting', recoveryTarget.companyName,
-          `${recoveryTarget.companyName} desk is hunting missing figures — research in progress.`);
-        const result = await this.deps.recover(recoveryTarget);
-        this.actionsTaken += 1;
-        this.emit('hunted', recoveryTarget.companyName,
-          result.filled > 0
-            ? `${recoveryTarget.companyName} desk: Filled ${result.filled} soft figure${result.filled === 1 ? '' : 's'} from live sources.`
-            : `${recoveryTarget.companyName} desk hunted missing figures — nothing met the sourcing bar; gaps remain unknown.`);
-        this.schedule(this.deps.intervalMs);
-        return;
+      if (this.deps.recover && this.deps.nextRecovery) {
+        // Up to N concurrent hunts on DISTINCT companies, bounded by the
+        // remaining action budget. Per-company attempts/cooldowns live in
+        // nextRecovery; the exclude set only keeps one batch from repeating.
+        const room = Math.min(this.deps.maxConcurrentRecoveries, this.deps.maxActions - this.actionsTaken);
+        const targets: RecoveryTarget[] = [];
+        const picked = new Set<string>();
+        while (targets.length < room) {
+          const next = this.deps.nextRecovery(picked);
+          if (!next || picked.has(next.companyId)) break;
+          picked.add(next.companyId);
+          targets.push(next);
+        }
+        if (targets.length > 0) {
+          this.statusValue = 'running';
+          const recover = this.deps.recover;
+          await Promise.all(targets.map(async (target) => {
+            this.emit('hunting', target.companyName,
+              `${target.companyName} desk is hunting missing figures — research in progress.`);
+            try {
+              const result = await recover(target);
+              this.actionsTaken += 1;
+              this.emit('hunted', target.companyName,
+                result.filled > 0
+                  ? `${target.companyName} desk: Filled ${result.filled} soft figure${result.filled === 1 ? '' : 's'} from live sources.`
+                  : `${target.companyName} desk hunted missing figures — nothing met the sourcing bar; gaps remain unknown.`);
+            } catch (err) {
+              this.actionsTaken += 1; // failures spend budget too — no hot error loops
+              this.emit('error', target.companyName, `A research turn failed and was skipped: ${(err as Error).message}`);
+            }
+          }));
+          // Quick follow-up only while another company still has a core gap.
+          this.schedule(this.deps.nextRecovery(new Set()) ? this.deps.recoveryGapMs : this.deps.intervalMs);
+          return;
+        }
       }
 
       const verifyTarget = this.deps.verify

@@ -48,13 +48,17 @@ it.each(['queued', 'running'] as const)('defers automatic hydration during %s cr
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   hook.rerender({ cards: s.cards }); // the catalog arrives while creation is still running
   await act(async () => { await vi.advanceTimersByTimeAsync(58500); });
-  expect(listResearchJobs).toHaveBeenCalledTimes(1);
+  // An active creation job is polled briskly (~5s), not once a minute.
+  expect(listResearchJobs.mock.calls.length).toBeGreaterThanOrEqual(10);
+  expect(listResearchJobs.mock.calls.length).toBeLessThanOrEqual(13);
   expect(s.huntCompanyMetrics).not.toHaveBeenCalled();
   expect(s.getDashboardTab).not.toHaveBeenCalled();
   expect(hook.result.current.actionCount).toBe(0);
+  const polledWhileActive = listResearchJobs.mock.calls.length;
   job.status = 'completed';
-  await act(async () => { await vi.advanceTimersByTimeAsync(22000); });
-  expect(listResearchJobs).toHaveBeenCalledTimes(2);
+  // Hunts start within a few seconds of completion, all three desks at once.
+  await act(async () => { await vi.advanceTimersByTimeAsync(11000); });
+  expect(listResearchJobs.mock.calls.length).toBeGreaterThan(polledWhileActive);
   expect(s.huntCompanyMetrics.mock.calls.map(c => c[0])).toEqual(['company-0', 'company-1', 'company-2']);
   hook.unmount(); s.client.clear();
 });
@@ -177,7 +181,8 @@ it('hunts each empty entity once ahead of warming, excluding signals and duplica
   const hook = renderHook(() => useLivingDeck('deck', cards), { wrapper: s.wrapper });
   expect(hook.result.current.deskCount).toBe(3);
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
-  expect(s.huntCompanyMetrics.mock.calls.map(c => c[0])).toEqual(['company-0']);
+  // Up to three distinct desks hunt concurrently on the first tick.
+  expect(s.huntCompanyMetrics.mock.calls.map(c => c[0])).toEqual(['company-0', 'company-1', 'company-2']);
   expect(s.getDashboardTab).not.toHaveBeenCalled();
   await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
   expect(s.huntCompanyMetrics.mock.calls.map(c => c[0])).toEqual(['company-0', 'company-1', 'company-2']);
