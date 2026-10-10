@@ -141,6 +141,27 @@ function identityKeys(name: string, domain: string | null): string[] {
   return [nameKey, ...(domainKey ? [domainKey] : [])];
 }
 
+/**
+ * Vice (documented controversies) and culture (community ethos) are
+ * consumer-market signals. Financial, infrastructure and B2B markets have no
+ * such facet to find, and enforcing the quota there killed otherwise-complete
+ * decks: a VC deck can never hold four "vice" companies, so discovery burned
+ * fallback passes hunting what cannot exist and the job recorded "Coverage
+ * shortfall for vice: found 0, minimum is 4". The plan's own words decide —
+ * never a model assertion — mirroring the read-what-it-is rule of
+ * contracts' classifyMarketProfile. Deliberately tight: a missed read keeps
+ * today's enforcement, so only a confident financial/infrastructure/B2B read
+ * silences the roles.
+ */
+const SIGNAL_ROLES_IRRELEVANT_PATTERN =
+  /\b(?:venture capital|venture firm|vc firm|private equity|private credit|private debt|growth equity|hedge funds?|asset manag\w+|fund manag\w+|capital manag\w+|wealth manag\w+|investment bank(?:ing)?|investment firms?|merchant bank|family offices?|financial (?:firms?|services)|capital markets?|broker-dealers?|institutional investors?|b2b|enterprise software|cloud infrastructure|data ?centers?|semiconductors?|infrastructure)\b/i;
+
+/** Whether the vice/culture signal roles can apply to this market at all. */
+function signalRolesApply(plan: MarketPlan): boolean {
+  const text = [plan.marketName, plan.vertical, plan.notes ?? '', ...plan.searchThemes].join(' ');
+  return !SIGNAL_ROLES_IRRELEVANT_PATTERN.test(text);
+}
+
 const DEFAULT_COVERAGE: ResearchCoverage = {
   // max raised 20 -> 30: the deck must never hard-stop while the user wants
   // more coverage; 'Hunt for more' can keep expanding to this ceiling.
@@ -427,6 +448,17 @@ export async function discoverMarket(
   // search themes (schemas.ts defaults searchThemes to []) silently skipped
   // every fallback pass and shipped a deck with zero infrastructure and zero
   // distribution entities. Coverage minimums are a contract, not an optimization.
+  // The vice/culture exception: where those roles cannot exist (financial,
+  // infrastructure and B2B markets) hunting them only burns discovery quota
+  // before declaring a hollow shortfall, so the passes never run.
+  const signalPasses: { role: DiscoveryFocus; needed: number; target: number }[] = signalRolesApply(
+    plan,
+  )
+    ? [
+        { role: 'vice', needed: coverage.vice.min, target: coverage.vice.target },
+        { role: 'culture', needed: coverage.culture.min, target: coverage.culture.target },
+      ]
+    : [];
   const fallbackPasses: { role: DiscoveryFocus; needed: number; target: number }[] = [
     { role: 'company', needed: coverage.companies.min, target: coverage.companies.target },
     {
@@ -439,8 +471,7 @@ export async function discoverMarket(
       needed: coverage.distribution.min,
       target: coverage.distribution.target,
     },
-    { role: 'vice', needed: coverage.vice.min, target: coverage.vice.target },
-    { role: 'culture', needed: coverage.culture.min, target: coverage.culture.target },
+    ...signalPasses,
   ];
   for (const pass of fallbackPasses) {
     const current =
@@ -726,7 +757,12 @@ export async function discoverDeckStubs(
     culture: candidates.filter((c) => c.cardTypes.includes('culture')).length,
   };
   if (exactCompanyNames.length === 0) {
+    // A role that cannot exist in this market is skipped silently: "a VC deck
+    // has no vice companies" is the role not applying, not a data gap the deck
+    // failed to fill — so no shortfall warning is emitted for it.
+    const signalRolesRelevant = signalRolesApply(plan);
     for (const [role, count] of Object.entries(roleCounts)) {
+      if ((role === 'vice' || role === 'culture') && !signalRolesRelevant) continue;
       const minimum = coverage[role as keyof typeof coverage]?.min;
       if (minimum != null && count < minimum) {
         await emit({

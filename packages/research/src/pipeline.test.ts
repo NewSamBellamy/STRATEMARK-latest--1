@@ -1198,6 +1198,135 @@ describe('discovery coverage contract', () => {
     expect(client.ground).toHaveBeenCalledTimes(3);
   });
 
+  it('skips vice and culture coverage for a financial market instead of reporting a shortfall', async () => {
+    // The live failure this pins: a 10-firm VC deck died under
+    // "Coverage shortfall for vice: found 0, minimum is 4" — a role that cannot
+    // exist in that market. It must be silent (role not applicable), run no
+    // fallback passes for it, and leave deck creation unblocked.
+    const warnings: string[] = [];
+    const structure = vi.fn(async (prompt: string, schema: ZodType<unknown>) => {
+      if (prompt.includes('market definition')) {
+        return schema.parse({
+          marketName: 'Venture Capital Fund Management',
+          vertical: 'Venture capital firms',
+          geography: null,
+          notes: null,
+          searchThemes: ['vc fund managers', 'institutional investors'],
+        });
+      }
+      // A focused vice/culture pass would honestly find nothing here; if one
+      // ever runs, the ground-count assertion below fails first.
+      if (prompt.includes('This pass is focused on')) return schema.parse({ companies: [] });
+      return schema.parse({
+        companies: [
+          ...Array.from({ length: 10 }, (_, i) => ({
+            name: `Fund ${i} Capital`,
+            domain: `fund-${i}.example`,
+            descriptor: 'venture capital firm',
+            cardTypes: ['company'],
+          })),
+          ...Array.from({ length: 4 }, (_, i) => ({
+            name: `Data Provider ${i}`,
+            domain: `data-${i}.example`,
+            descriptor: 'market data infrastructure',
+            cardTypes: ['infrastructure'],
+          })),
+          ...Array.from({ length: 2 }, (_, i) => ({
+            name: `Placement Agent ${i}`,
+            domain: `placement-${i}.example`,
+            descriptor: 'fund placement channel',
+            cardTypes: ['distribution'],
+          })),
+        ],
+      });
+    }) as LlmClient['structure'];
+    const client: LlmClient = {
+      ground: vi.fn(async () => ({ text: 'grounded fund evidence', citations: [], queries: [] })),
+      structure,
+    };
+
+    const result = await discoverDeckStubs(
+      { prompt: 'Venture capital fund management', region: null },
+      client,
+      {
+        onEvent: async (event) => {
+          if (event.type === 'warning') warnings.push(event.message);
+        },
+      },
+    );
+
+    // Silence is the honest signal: no vice or culture shortfall, and no
+    // discovery pass burned hunting entities the market cannot have.
+    // (Two ground calls total: market interpretation + the initial census.)
+    expect(warnings).toEqual([]);
+    expect(client.ground).toHaveBeenCalledTimes(2);
+    expect(result.candidates).toHaveLength(16);
+    expect(result.minimumCompaniesSatisfied).toBe(true);
+  });
+
+  it('still enforces the vice and culture minimum for a consumer market', async () => {
+    const warnings: string[] = [];
+    const structure = vi.fn(async (prompt: string, schema: ZodType<unknown>) => {
+      if (prompt.includes('market definition')) {
+        return schema.parse({
+          marketName: 'Christian apparel brands',
+          vertical: 'Consumer apparel',
+          geography: null,
+          notes: null,
+          searchThemes: ['faith-based clothing lines'],
+        });
+      }
+      // A focused vice/culture pass on this market honestly finds nothing.
+      if (prompt.includes('This pass is focused on')) return schema.parse({ companies: [] });
+      return schema.parse({
+        companies: [
+          ...Array.from({ length: 10 }, (_, i) => ({
+            name: `Brand ${i} Apparel`,
+            domain: `brand-${i}.example`,
+            descriptor: 'apparel brand',
+            cardTypes: ['company'],
+          })),
+          ...Array.from({ length: 4 }, (_, i) => ({
+            name: `Print Shop ${i}`,
+            domain: `print-${i}.example`,
+            descriptor: 'garment printing infrastructure',
+            cardTypes: ['infrastructure'],
+          })),
+          ...Array.from({ length: 2 }, (_, i) => ({
+            name: `Shop ${i} Marketplace`,
+            domain: `shop-${i}.example`,
+            descriptor: 'marketplace channel',
+            cardTypes: ['distribution'],
+          })),
+        ],
+      });
+    }) as LlmClient['structure'];
+    const client: LlmClient = {
+      ground: vi.fn(async () => ({ text: 'grounded apparel evidence', citations: [], queries: [] })),
+      structure,
+    };
+
+    const result = await discoverDeckStubs(
+      { prompt: 'Christian apparel companies', region: null },
+      client,
+      {
+        onEvent: async (event) => {
+          if (event.type === 'warning') warnings.push(event.message);
+        },
+      },
+    );
+
+    // Consumer markets keep the quota exactly as before: the vice and culture
+    // fallback passes still run and the shortfalls are still reported.
+    // (Four ground calls: interpretation + census + one focused pass each.)
+    expect(warnings).toEqual([
+      'Coverage shortfall for vice: found 0, minimum is 4. No unsupported entities were invented.',
+      'Coverage shortfall for culture: found 0, minimum is 4. No unsupported entities were invented.',
+    ]);
+    expect(client.ground).toHaveBeenCalledTimes(4);
+    expect(result.minimumCompaniesSatisfied).toBe(true);
+  });
+
   it('selects the requested entity and signal coverage without duplicates', () => {
     const candidates = [
       ...Array.from({ length: 12 }, (_, i) => ({
