@@ -205,7 +205,7 @@ function GeneralTab() {
         <div className="mt-2">
           <input
             className="input font-mono w-full"
-            placeholder="gemini-flash-latest (default)"
+            placeholder="gemini-flash-lite-latest (default)"
             value={model}
             onChange={(e) => setModel(e.target.value)}
           />

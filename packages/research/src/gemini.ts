@@ -28,14 +28,20 @@ const GROUND_DEADLINE_MS = 240_000;
 // degraded. Ground calls therefore walk a fallback ladder of model lines,
 // remember which line answered, prefer the healthy line while the primary is
 // sick, and re-probe the primary after a cooldown.
-const GROUND_FALLBACK_MODELS = ['gemini-3.7-flash', 'gemini-2.5-flash'];
+// 2026-10-10 benchmark (same grounded prompts, paid key): flash-lite-latest
+// answered discovery/metrics in 2-3s with grounding chunks on every run and
+// the same facts as gemini-flash-latest (22-32s). gemini-2.5-* now 404s for new
+// API users ("no longer available"), so it can't be a fallback line.
+const GROUND_FALLBACK_MODELS = ['gemini-flash-latest', 'gemini-3.5-flash-lite'];
 const SICK_PRIMARY_COOLDOWN_MS = 10 * 60_000;
 /** The primary line's window per attempt. 45s here murdered the Oct 9
  * battery-storage catalog call — slow-but-working at >45s — by aborting all
  * three ladder lines before any could answer. A hung line is cut at this
  * window; a slow-but-alive one finishes. The rest of the ground deadline is
  * left for fallback lines. */
-const PRIMARY_GROUND_ATTEMPT_BUDGET_MS = 110_000;
+// The lite primary answers in ~2-3s; 45s means the line is sick, and the
+// slower flash fallback still gets the rest of the ground deadline.
+const PRIMARY_GROUND_ATTEMPT_BUDGET_MS = 45_000;
 const MIN_GROUND_ATTEMPT_BUDGET_MS = 8_000;
 
 /** A failure the fallback ladder can fix by asking a different model line:
@@ -158,7 +164,7 @@ export const DEFAULT_STRUCTURE_RPM = 15;
 // single sick pinned version (2026-10-08: gemini-3.7-flash + search at 235s)
 // stops taking the whole product down with it. The pinned line and the
 // older-stable line sit in the fallback ladder below.
-export const DEFAULT_GROUNDED_MODEL = 'gemini-flash-latest';
+export const DEFAULT_GROUNDED_MODEL = 'gemini-flash-lite-latest';
 export const DEFAULT_REASONING_MODEL = 'gemini-3.1-pro-preview';
 export const DEFAULT_STRUCTURE_MODEL = 'gemini-3.5-flash-lite';
 
