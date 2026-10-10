@@ -40,6 +40,7 @@ import { useResearchSession } from './research-session';
 import { qk } from '@/lib/query/keys';
 import { useMarkets } from '@/hooks/data';
 import { findSimilarMarket } from '@/features/markets/deck-library';
+import { isHostedBeta } from '@/lib/beta';
 
 const SUGGESTION_SETS = [
   [
@@ -701,6 +702,12 @@ export default function NewDeckPage() {
                 <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.7} />
               </button>
             </div>
+            {isHostedBeta() && (
+              <p className="mt-6 text-[12px] text-faint">
+                Free beta: we cover the AI costs. Your research stays in this browser.{' '}
+                <Link to="/beta" className="text-muted underline hover:text-content">About this beta</Link>
+              </p>
+            )}
           </div>
         ) : (
           /* ── Active / completed session ── */

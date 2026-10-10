@@ -27,5 +27,10 @@ DAILY_VISITOR_BUDGET_USD = "20"
 
 # Secret (never in this file):  npx.cmd wrangler secret put GEMINI_API_KEY
 
+# Privacy: no invocation logs (they record request URLs). Only our own
+# status-code lines are kept; research content is never logged.
 [observability]
 enabled = true
+
+[observability.logs]
+invocation_logs = false

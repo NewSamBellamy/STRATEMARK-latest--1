@@ -8,7 +8,13 @@
  *   GET  /health
  *
  * The Gemini key lives only in the GEMINI_API_KEY secret; it is never echoed,
- * logged or returned. These routes replace the Vite dev-only /__stratemark
+ * logged or returned.
+ *
+ * Privacy (a beta promise, see the web app's "About this beta" page): request
+ * and response bodies pass through and are never stored or logged. Invocation
+ * logs (which record URLs) are off; the only logs are status codes. The budget
+ * ledger keeps today's per-IP spend to enforce the free limit and replaces it
+ * with a count each day. These routes replace the Vite dev-only /__stratemark
  * bridges so a production build reads sources and logos the same way dev does.
  */
 import { Buffer } from 'node:buffer';
@@ -184,7 +190,8 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
         actual = held; // unreadable usage: charge the worst case rather than nothing
       }
     } else {
-      console.log(`gemini ${model} -> ${upstream.status}: ${text.slice(0, 300)}`);
+      // Status only: Google's error text can quote the request, and we never log research content.
+      console.log(`gemini ${model} -> ${upstream.status}`);
     }
     return new Response(text, {
       status: upstream.status,

@@ -4,11 +4,13 @@ import {
   BookmarkSimple,
   CaretLeft,
   CaretRight,
-  ClockCounterClockwise,
   FileText,
   Gear,
+  Info,
   PlusCircle,
+  Stack,
 } from '@phosphor-icons/react';
+import { isHostedBeta } from '@/lib/beta';
 import { cn } from '@/lib/cn';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useMarkets } from '@/hooks/data';
@@ -81,12 +83,11 @@ export function Sidebar() {
       <nav className="flex shrink-0 flex-col gap-0.5" aria-label="Primary">
         <SidebarLink to="/" end icon={PlusCircle} label="New Deck" collapsed={collapsed} primary />
         {/* Collapsed: no room for the inline list, so keep a link to the full history page. */}
-        {collapsed && (
-          <SidebarLink to="/history" icon={ClockCounterClockwise} label="Deck History" collapsed />
-        )}
+        <SidebarLink to="/history" icon={Stack} label="All Decks" collapsed={collapsed} />
         <SidebarLink to="/saved" icon={BookmarkSimple} label="Saved Cards" collapsed={collapsed} />
         <SidebarLink to="/reports" icon={FileText} label="Reports" collapsed={collapsed} />
         <SettingsTrigger collapsed={collapsed} />
+        {isHostedBeta() && <SidebarLink to="/beta" icon={Info} label="About this beta" collapsed={collapsed} />}
       </nav>
 
       {/* Recent decks — inline history (expanded only) */}

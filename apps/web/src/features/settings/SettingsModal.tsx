@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { createGeminiClient } from '@mi/research';
 import { exportSnapshot, importSnapshot, marketCountOf } from '@/lib/repository/vault';
+import { OPEN_SOURCE_LAUNCH } from '@/lib/beta';
 import { readBrowserResearchData } from '@/lib/repository/browserResearchStore';
 import { clearAccess, getAccessProfile } from '@/lib/access';
 import {
@@ -45,8 +46,10 @@ type TestState = { status: 'idle' | 'testing' | 'ok' | 'fail'; detail?: string }
 type TabId = 'general' | 'engine' | 'data' | 'usage' | 'pricing';
 
 export function SettingsModal() {
-  const { isOpen, close } = useSettingsModal();
+  const { isOpen, close, tab: requestedTab } = useSettingsModal();
   const [activeTab, setActiveTab] = useState<TabId>('general');
+  // A link can open a specific tab ("Export my research" → Data controls).
+  useEffect(() => { if (isOpen && requestedTab) setActiveTab(requestedTab as TabId); }, [isOpen, requestedTab]);
 
   return (
     <Modal
@@ -458,7 +461,7 @@ function DataSafetyPanel() {
       <div>
         <h2 className="font-display text-lg text-content">Data safety</h2>
         <p className="mt-1 text-sm text-muted">
-          Your research is saved locally in this browser’s research vault. Each committed update keeps the previous saved version as a backup. Export a copy to protect against browser data removal. Note: generated images live in a separate vault store and are not part of this export.
+          Your research is saved only in this browser. We don’t keep a copy and can’t see it. The export is one file with every deck, card, sourced figure, report and AI conversation, and it imports into the open-source version of Stratemark when it launches at {OPEN_SOURCE_LAUNCH}. Clearing browser data deletes your research, so export a copy now and then. Generated cover images aren’t included; they’re recreated when needed.
         </p>
       </div>
 
@@ -490,6 +493,7 @@ function DataSafetyPanel() {
         <button
           type="button"
           className="btn-ghost text-sm border border-border"
+          title="Restore from a Stratemark export file"
           onClick={() => fileRef.current?.click()}
         >
           <Upload className="h-4 w-4" /> Import

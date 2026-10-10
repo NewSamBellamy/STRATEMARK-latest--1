@@ -23,6 +23,7 @@ const ReportViewerPage = lazy(() => import('@/features/reports/ReportViewerPage'
 const SavedCardsPage = lazy(() => import('@/features/saved/SavedCardsPage'));
 const SharePage = lazy(() => import('@/features/share/SharePage'));
 const NotFoundPage = lazy(() => import('@/features/NotFoundPage'));
+const BetaPage = lazy(() => import('@/features/beta/BetaPage'));
 
 /** Shared route tree, used by both the app (HashRouter) and tests (MemoryRouter). */
 export function AppRoutes() {
@@ -44,6 +45,7 @@ export function AppRoutes() {
         <Route path="saved" element={<SavedCardsPage />} />
         <Route path="settings" element={<LegacySettingsRoute />} />
         <Route path="reports" element={<ReportsListPage />} />
+        <Route path="beta" element={<BetaPage />} />
         <Route path="reports/:reportId" element={<ReportViewerPage />} />
         <Route path="markets/:marketId/deck" element={<DeckPage />} />
         <Route path="markets/:marketId/opportunity" element={<OpportunityPage />} />
