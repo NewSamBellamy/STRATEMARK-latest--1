@@ -12,7 +12,7 @@ import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { CardStage } from './CardStage';
 import { SaveCardButton } from './GameCard';
 import { ViceDisclaimer } from './CardDisclaimer';
-import { buildCardView, sourceUrl } from './card-view';
+import { buildCardView, faceFigureStatus, sourceUrl } from './card-view';
 import { printScoped } from '@/lib/print';
 
 type Props = {
@@ -111,12 +111,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
               {view.profileMetrics.map((item) => {
                 const metric = item.metric;
                 const citation = item.citations[0];
-                const status = metric?.confidence === 'user_verified' ? 'Human checked' :
-                  item.confidence === 'Source reported' ? 'Source reported · not verified' :
-                  citation?.credibility === 'primary' ? 'Primary source' :
-                    citation?.credibility === 'reputable_secondary' ? 'Independent reporting' :
-                      citation?.credibility === 'industry' ? 'Industry source' :
-                        citation ? 'Source linked' : 'No source-backed figure';
+                const status = faceFigureStatus(item);
                 const date = metric ? new Date(metric.capturedAt) : null;
                 const formattedDate = date && Number.isFinite(date.getTime()) ? capturedDate.format(date) : null;
 

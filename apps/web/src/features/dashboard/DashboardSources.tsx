@@ -1,4 +1,4 @@
-import { usableCitations, type DashboardTab } from '@mi/contracts';
+import { isRedirectCitation, publisherOf, usableCitations, type DashboardTab } from '@mi/contracts';
 import { useDashboardTab } from '@/hooks/data';
 import { faviconUrl } from '@/lib/screenshot';
 import { hostOf } from './tabs/tabHelpers';
@@ -8,6 +8,16 @@ export function DashboardSources({ companyId, tab }: { companyId: string; tab: D
   const query = useDashboardTab(companyId, tab);
   if (!query.data || tab === 'metrics' || tab === 'live_landing') return null;
   const citations = usableCitations(query.data.citations);
+  // Grounding redirects carry the publisher in the title; group by publisher so
+  // one site cited four times reads as one chip, not four Google links.
+  const byPublisher = new Map<string, { name: string; url: string; count: number }>();
+  for (const c of citations) {
+    const name = publisherOf(c.url, c.title) || (isRedirectCitation(c.url) ? 'Unrecorded publisher' : hostOf(c.url) ?? c.title);
+    const prev = byPublisher.get(name);
+    if (prev) prev.count += 1;
+    else byPublisher.set(name, { name, url: c.url, count: 1 });
+  }
+  const publishers = [...byPublisher.values()].sort((x, y) => y.count - x.count);
   const diagnostics = query.data.sourceDiagnostics;
   const reads = Array.isArray(diagnostics?.reads) ? diagnostics.reads.filter(read =>
     read && typeof read.host === 'string' && /^[a-z0-9.-]+$/i.test(read.host) &&
@@ -55,15 +65,14 @@ export function DashboardSources({ companyId, tab }: { companyId: string; tab: D
         {query.data.lastRefreshedAt && <p className="mt-2">
           Research collected: {query.data.lastRefreshedAt.slice(0, 10)} — not the source publication date.
         </p>}
-        <ul className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">
-          {citations.map(citation => <li key={citation.url} className="flex min-w-0 items-start gap-2">
-            <img src={faviconUrl(citation.url)} alt="" className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded-sm" loading="lazy" />
-            <span className="min-w-0">
-              <a href={citation.url} target="_blank" rel="noopener noreferrer" className="break-words text-primary-ink hover:underline">
-                {citation.title}
-              </a>
-              {hostOf(citation.url) && <span className="block truncate text-[11px] text-faint">{hostOf(citation.url)}</span>}
-            </span>
+        <ul className="mt-3 flex flex-wrap gap-1.5">
+          {publishers.map(({ name, url, count }) => <li key={name}>
+            <a href={url} target="_blank" rel="noopener noreferrer"
+              className="inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-[11.5px] text-content transition-colors hover:border-primary/40 hover:text-primary-ink">
+              {/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(name) && <img src={faviconUrl(`https://${name}`)} alt="" className="h-3.5 w-3.5 shrink-0 rounded-sm" loading="lazy" />}
+              <span className="truncate">{name}</span>
+              {count > 1 && <span className="tabular-nums text-faint">×{count}</span>}
+            </a>
           </li>)}
         </ul>
       </section>

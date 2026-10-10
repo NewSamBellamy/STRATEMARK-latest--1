@@ -236,7 +236,9 @@ const stripMarkdown = (s: string) =>
 
 function leadSentences(text: string, maxChars: number): string {
   const clean = stripMarkdown(text).replace(/\s+/g, ' ');
-  const sentences = clean.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) ?? [clean];
+  // Split only where a sentence really ends: punctuation, then space and a
+  // capital/quote/digit-start. "Claude 4.5", "U.S." and "Inc." never split.
+  const sentences = clean.split(/(?<=[.!?])\s+(?=[A-Z"“(])/).map((x) => `${x} `);
   let out = '';
   for (const s of sentences) {
     if (out && (out + s).length > maxChars) break;
@@ -258,8 +260,10 @@ export function extractTakeaways(sections: readonly OverviewSection[], max = 5):
     for (const block of blocks) {
       const { text, links } = splitAttribution(block);
       if (!text || text.startsWith('#')) continue;
+      // A list of figures (mostly "Unknown") is data, not a takeaway.
+      if ((text.match(/\bUnknown\b/g) ?? []).length >= 2) continue;
       const lead = leadSentences(text, 220);
-      if (lead.length < 20) continue;
+      if (lead.length < 20 || /^[^A-Za-z"“(]/.test(lead)) continue;
       out.push({ section: section.title, text: lead, links });
       break; // one takeaway per section keeps the list scannable
     }

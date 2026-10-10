@@ -132,6 +132,18 @@ export function buildMetricViews(input: readonly CompanyMetric[], officialWebsit
 }
 
 /** A single read-only boundary for deck and inspection. Never updates stored research. */
+/** One plain-English trust line per face figure, shared by the reader and the dashboard. */
+export function faceFigureStatus(item: CardView['profileMetrics'][number]): string {
+  const metric = item.metric;
+  const citation = item.citations[0];
+  return metric?.confidence === 'user_verified' ? 'Human checked' :
+    item.confidence === 'Source reported' ? 'Source reported · not verified' :
+      citation?.credibility === 'primary' ? 'Primary source' :
+        citation?.credibility === 'reputable_secondary' ? 'Independent reporting' :
+          citation?.credibility === 'industry' ? 'Industry source' :
+            citation ? 'Source linked' : 'No source-backed figure';
+}
+
 export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null = null) {
   const signal = isSignalCardType(data.card.cardType) || !data.company;
   const metrics = buildMetricViews(signal ? [] : data.metrics, data.company?.websiteUrl);

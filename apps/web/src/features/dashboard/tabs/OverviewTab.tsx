@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowRight, ExternalLink } from 'lucide-react';
-import type { CompanyMetric } from '@mi/contracts';
-import { useCompanyMetrics, useDashboardTab } from '@/hooks/data';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ArrowRight, ExternalLink, SearchX } from 'lucide-react';
+import { publisherOf, type CompanyMetric, type MetricType } from '@mi/contracts';
+import { useCard, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
+import { buildCardView, faceFigureStatus, type CardView } from '@/features/card/card-view';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { ErrorState } from '@/components/states/ErrorState';
 import { cn } from '@/lib/cn';
@@ -10,6 +11,7 @@ import { formatMetricValue } from '@/lib/format';
 import { METRIC_COLORS } from '@/lib/theme';
 import { HydratingPanel } from './HydratingPanel';
 import {
+  FILL_HINT,
   barPercent,
   extractTakeaways,
   missingCoreTypes,
@@ -98,6 +100,66 @@ function Empty({ title, text }: { title: string; text: string }) {
       <p className="text-sm font-medium text-content">{title}</p>
       <p className="mx-auto mt-1 max-w-md text-[12.5px] leading-snug text-muted">{text}</p>
     </div>
+  );
+}
+
+// ---- At a glance: the card's own four figures -----------------------------
+
+type FaceItem = CardView['profileMetrics'][number];
+const SLOT_TYPE: Record<string, MetricType> = {
+  employees: 'employees', revenue: 'revenue', reach: 'users', company_value: 'valuation', aum: 'aum',
+};
+const asOfFormat = new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+const shortDate = (iso: string | null | undefined) => {
+  const d = iso ? new Date(iso) : null;
+  return d && Number.isFinite(d.getTime()) ? asOfFormat.format(d) : null;
+};
+
+/** Mirrors the card face exactly: same slots, same gates, same trust wording as the reader. */
+function FaceTile({ item, ranking, href }: { item: FaceItem; ranking: PeerRanking | null; href: string }) {
+  const known = item.display !== 'Unknown';
+  const type = item.metric?.metricType ?? SLOT_TYPE[item.key] ?? 'valuation';
+  const citation = item.citations[0];
+  const dated = item.metric?.reportedSupport?.asOf ?? item.metric?.reportedBand?.asOf ?? null;
+  const when = dated ? `Figure dated ${shortDate(dated) ?? dated}` : item.metric ? `Recorded ${shortDate(item.metric.capturedAt) ?? ''}`.trim() : null;
+  return (
+    <article
+      className={cn(
+        'flex min-w-0 flex-col rounded-xl border bg-surface p-4',
+        known ? 'border-border shadow-soft' : 'border-dashed border-border bg-surface-2/40',
+      )}
+      style={known ? { borderTopColor: METRIC_COLORS[type], borderTopWidth: 2 } : undefined}
+      aria-label={`${item.label}: ${item.display}`}
+    >
+      <h3 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">{item.label}</h3>
+      {known ? (
+        <>
+          <p className="mt-1.5 font-display text-[26px] font-semibold leading-none tabular-nums text-content">{item.display}</p>
+          <p className="mt-2 text-[11px] leading-snug text-muted">{faceFigureStatus(item)}</p>
+          <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-2.5 text-[11px] text-faint">
+            {citation && (
+              <a href={citation.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-w-0 items-center gap-1 text-primary-ink hover:underline">
+                <span className="truncate">{publisherOf(citation.url, citation.title)}</span>
+                <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+              </a>
+            )}
+            {when && <span>{when}</span>}
+            <RankChip ranking={ranking} href={href} />
+          </div>
+        </>
+      ) : (
+        <div className="mt-1.5 flex flex-1 flex-col">
+          <p className="flex items-center gap-1.5 font-display text-lg font-semibold text-muted">
+            <SearchX className="h-4 w-4" aria-hidden />
+            Unknown
+          </p>
+          <p className="mt-1 text-[11px] leading-snug text-faint">
+            <span className="font-medium text-muted">To fill: </span>
+            {FILL_HINT[type]}
+          </p>
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -280,6 +342,15 @@ export function OverviewTab({ companyId }: { companyId: string }) {
   const href = useTabHref(companyId);
   const [briefIdx, setBriefIdx] = useState(0);
 
+  const [params] = useSearchParams();
+  const cardQ = useCard(params.get('card') ?? undefined);
+  const face = useMemo(() => {
+    const data = cardQ.data;
+    if (!data || data.company?.id !== companyId) return null;
+    // Live metrics win over the deck snapshot so a fresh correction shows at once.
+    return buildCardView({ ...data, metrics: metricsQ.data ?? data.metrics }).profileMetrics;
+  }, [cardQ.data, companyId, metricsQ.data]);
+
   const tiles = useMemo(() => {
     const kpis = pickKpis(metrics);
     // Fill the grid with labelled gaps for core metrics that have no row at all.
@@ -302,26 +373,30 @@ export function OverviewTab({ companyId }: { companyId: string }) {
     ...(parsed.figures.length > 0 ? [{ key: '__figures', label: 'Sourced figures', section: null }] : []),
   ];
   const active = briefTabs[Math.min(briefIdx, Math.max(0, briefTabs.length - 1))];
-  const hasGaps = tiles.some((m) => m.value == null || m.confidence === 'unknown');
+  const hasGaps = face ? face.some((i) => i.display === 'Unknown') : tiles.some((m) => m.value == null || m.confidence === 'unknown');
 
   return (
     <div className="cascade mx-auto max-w-4xl space-y-8">
-      <Section title="At a glance" hint="The four figures on this company's card — each with its source and date.">
+      <Section title="At a glance" hint={face ? "The four figures on this company's card, with the source behind each one." : 'Headline figures, each with its source and date.'}>
         {metricsQ.isPending ? (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {[0, 1, 2, 3].map((i) => <KpiTileSkeleton key={i} i={i} />)}
           </div>
-        ) : tiles.length === 0 ? (
+        ) : !face && tiles.length === 0 ? (
           <Empty title="No figures yet" text="Sourced figures appear here as research lands." />
         ) : (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            {tiles.slice(0, 4).map((m) => {
+            {face ? face.map((item) => {
+              const ranking = item.metric && item.display !== 'Unknown' && peerState.status === 'ready'
+                ? rankInDeck(companyId, item.metric.metricType, peerState.peers) : null;
+              return <FaceTile key={item.key} item={item} ranking={ranking} href={href('metrics', { metric: item.metric?.metricType ?? SLOT_TYPE[item.key] ?? 'valuation' })} />;
+            }) : tiles.slice(0, 4).map((m) => {
               const ranking = peerState.status === 'ready' ? rankInDeck(companyId, m.metricType, peerState.peers) : null;
               return <KpiTile key={m.id} metric={m} ranking={ranking} href={href('metrics', { metric: m.metricType })} />;
             })}
           </div>
         )}
-        {!metricsQ.isPending && tiles.length > 0 && (
+        {!metricsQ.isPending && (face || tiles.length > 0) && (
           <p className="mt-2 text-[12px]">
             <Link to={href('metrics')} className="text-primary-ink hover:underline">
               {hasGaps ? 'See all figures and what would fill the gaps →' : 'See all figures and peer comparison →'}

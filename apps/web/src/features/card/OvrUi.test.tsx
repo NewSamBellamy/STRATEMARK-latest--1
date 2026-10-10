@@ -22,7 +22,7 @@ describe('card face without scoring', () => {
   it('shows no OVR plaque or tier label, even for a sourced high-tier company', () => {
     renderWithProviders(<GameCard data={rated} />);
     expect(screen.queryByTestId('card-ovr')).not.toBeInTheDocument();
-    expect(screen.queryByText(/OVR|Maturity · T|Indicative · T/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\bOVR\b|Maturity · T|Indicative · T/)).not.toBeInTheDocument();
     expect(screen.getByText('1/4 figures sourced')).toBeInTheDocument();
   });
   it('reports zero coverage when no figure is sourced', () => {

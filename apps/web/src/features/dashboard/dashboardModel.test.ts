@@ -127,6 +127,14 @@ describe('overview parsing', () => {
     expect(t[0]!.links).toHaveLength(2);
     expect(t[1]!.text).toMatch(/leading share/);
   });
+  it('keeps version numbers whole and skips figure dumps', () => {
+    const t = extractTakeaways([
+      { title: 'Products and services', body: 'The lineup includes Claude Haiku 4.5 as a high-speed small model. It also ships an API.' },
+      { title: 'Business figures', body: 'Employees: Unknown - Users: Unknown - Revenue (USD): Unknown' },
+    ]);
+    expect(t).toHaveLength(1);
+    expect(t[0]!.text).toMatch(/^The lineup includes Claude Haiku 4\.5 as a high-speed small model\./);
+  });
   it('returns nothing for unstructured text', () => {
     expect(extractTakeaways(parseOverviewSections('just prose').sections)).toEqual([]);
   });

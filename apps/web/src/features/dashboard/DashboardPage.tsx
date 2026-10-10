@@ -66,9 +66,14 @@ function ResearchComposer({ companyId, companyName }: { companyId: string; compa
   );
 }
 
+/** A fallback one-liner that only says where the company is adds nothing next to the HQ chip. */
+function restatesHq(line: string, hq: string | null | undefined): boolean {
+  return Boolean(hq) && line.includes(hq!) && /\b(?:is |are )?(?:headquartered|based|located) in\b/i.test(line) && line.length < hq!.length + 90;
+}
+
 /** One quiet row of facts under the company name; each only if it exists. */
-function KeyFacts({ hq, website, known, total }: { hq: string | null; website: string | null; known: number; total: number }) {
-  if (!hq && !website && total === 0) return null;
+function KeyFacts({ hq, website }: { hq: string | null; website: string | null }) {
+  if (!hq && !website) return null;
   return (
     <ul className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted" aria-label="Key facts">
       {hq && (
@@ -79,11 +84,6 @@ function KeyFacts({ hq, website, known, total }: { hq: string | null; website: s
           <a href={website} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:text-primary-ink hover:underline">
             <Globe className="h-3.5 w-3.5 text-faint" aria-hidden />{website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
           </a>
-        </li>
-      )}
-      {total > 0 && (
-        <li className="tabular-nums" title="Figures with a value on file, out of every metric tracked for this company.">
-          {known} of {total} figures known
         </li>
       )}
     </ul>
@@ -376,12 +376,10 @@ export default function DashboardPage() {
               />
               <div className="min-w-[14rem] flex-1 basis-[60%]">
                 <h1 className="font-display text-2xl font-semibold text-content">{c.name}</h1>
-                <p className="text-sm text-muted">{headerSubtitle}</p>
+                {headerSubtitle && !restatesHq(headerSubtitle, c.hqLocation) && <p className="text-sm text-muted">{headerSubtitle}</p>}
                 <KeyFacts
                   hq={c.hqLocation}
                   website={c.websiteUrl}
-                  known={(metrics.data ?? []).filter((m) => m.value != null && m.confidence !== 'unknown').length}
-                  total={(metrics.data ?? []).length}
                 />
               </div>
               <ExportMenu
