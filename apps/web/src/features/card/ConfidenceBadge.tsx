@@ -28,8 +28,11 @@ export function ConfidenceBadge({
   source,
   citations = [],
   metricLabel,
+  reported = false,
 }: {
   confidence: Confidence;
+  /** A provider-attributed figure: says "Source reported", matching the card reader. */
+  reported?: boolean;
   note?: string | null;
   source?: string | null;
   citations?: Citation[];
@@ -37,6 +40,7 @@ export function ConfidenceBadge({
   metricLabel?: string;
 }) {
   const Icon = ICON[confidence];
+  const label = reported && confidence === 'estimated' ? 'Source reported' : CONFIDENCE_LABELS[confidence];
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -65,10 +69,10 @@ export function ConfidenceBadge({
   const badge = (
     <span
       className={cn('chip', CONFIDENCE_STYLES[confidence], interactive ? 'cursor-pointer' : 'cursor-help')}
-      aria-label={`Confidence: ${CONFIDENCE_LABELS[confidence]}. ${tip}`}
+      aria-label={`Confidence: ${label}. ${tip}`}
     >
       <Icon className="h-3 w-3" aria-hidden />
-      {CONFIDENCE_LABELS[confidence]}
+      {label}
     </span>
   );
 
@@ -117,7 +121,7 @@ export function ConfidenceBadge({
               <div className="mb-2 flex items-start justify-between gap-2">
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">
-                    {CONFIDENCE_LABELS[confidence]}
+                    {label}
                     {metricLabel ? ` · ${metricLabel}` : ''}
                   </p>
                   <p className="font-display text-sm font-semibold text-content">

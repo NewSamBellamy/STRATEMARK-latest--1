@@ -118,7 +118,7 @@ export function KpiTile({
           </p>
           <p className="mt-1.5 min-h-[16px] text-[11px] text-faint">{asOf ?? ''}</p>
           <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
-            <ConfidenceBadge
+            <ConfidenceBadge reported={metric.reportedSupport != null || metric.reportedBand != null}
               confidence={metric.confidence}
               note={metric.methodNote}
               source={metric.source}

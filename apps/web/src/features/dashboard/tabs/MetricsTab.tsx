@@ -3,9 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronsUpDown, ChevronUp, ExternalLink, Loader2, Pencil, Radar } from 'lucide-react';
 import {
   METRIC_TYPE_LABELS,
-  comparableMetricBasis,
+  classifyMarketProfile,
   publisherOf,
-  type SIGNAL_BANDS,
   type CompanyMetric,
   type MetricType,
 } from '@mi/contracts';
@@ -27,7 +26,7 @@ import { UnknownSlot, UnknownInline, UNKNOWN_REASON } from '@/features/card/Unkn
 import { buildMetricViews } from '@/features/card/card-view';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { FactCheck } from '@/features/factcheck/FactCheck';
-import { BandGauge, ChartPanel, CompositionDonut, Delta, ShareDonut, TrendArea, TrendBar, TrendLine } from './metricViz';
+import { ChartPanel, CompositionDonut, Delta, ShareDonut, TrendArea, TrendBar, TrendLine } from './metricViz';
 import {
   FAMILY_LABELS,
   FILL_HINT,
@@ -61,14 +60,6 @@ const DEEP_TOPIC: Record<MetricType, string> = {
   funding_total: 'Funding history & investors',
   last_round: 'Latest funding round',
   distribution: 'Distribution footprint & retail reach',
-};
-
-const BAND_KEY: Partial<Record<MetricType, keyof typeof SIGNAL_BANDS>> = {
-  market_share: 'marketShare',
-  valuation: 'value',
-  market_cap: 'value',
-  arr: 'arr',
-  employees: 'employees',
 };
 
 
@@ -343,7 +334,7 @@ function MetricDetail({
       <MetricBody metric={metric} />
       {known ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          <ConfidenceBadge
+          <ConfidenceBadge reported={metric.reportedSupport != null || metric.reportedBand != null}
             confidence={metric.confidence}
             note={metric.methodNote}
             source={metric.source}
@@ -553,17 +544,9 @@ function MetricBody({ metric }: { metric: CompanyMetric }) {
     );
   }
 
-  const bandKey = comparableMetricBasis(metric) ? BAND_KEY[metric.metricType] : undefined;
   return (
-    <div>
-      <div className="font-display text-3xl font-semibold tabular-nums leading-none text-content">
-        {formatMetricValue(metric.metricType, metric.value)}
-      </div>
-      {bandKey && (
-        <div className="mt-3">
-          <BandGauge bandKey={bandKey} value={metric.value} confidence={metric.confidence} color={color} />
-        </div>
-      )}
+    <div className="font-display text-3xl font-semibold tabular-nums leading-none text-content">
+      {formatMetricValue(metric.metricType, metric.value)}
     </div>
   );
 }
@@ -631,6 +614,25 @@ function HuntMetricsButton({
   );
 }
 
+/**
+ * An Unknown row that a known sibling already answers is noise, not a gap:
+ * "Revenue: Unknown" under a sourced annual revenue, "Market cap: Unknown"
+ * under a sourced valuation, AUM on a company that isn't a fund manager.
+ */
+function pruneRedundantGaps(rows: CompanyMetric[], financialFirm: boolean): CompanyMetric[] {
+  const known = new Set(rows.filter(isKnown).map((m) => m.metricType));
+  const answeredBy: Partial<Record<MetricType, MetricType[]>> = {
+    revenue: ['arr'], arr: ['revenue'],
+    market_cap: ['valuation'], valuation: ['market_cap'],
+    last_round: ['market_cap'], funding_total: ['market_cap'],
+  };
+  return rows.filter((m) => {
+    if (isKnown(m)) return true;
+    if (m.metricType === 'aum' && !financialFirm) return false;
+    return !(answeredBy[m.metricType] ?? []).some((t) => known.has(t));
+  });
+}
+
 export function MetricsTab({ companyId }: { companyId: string }) {
   const metricsQ = useCompanyMetrics(companyId);
   const seriesQ = useDashboardTab(companyId, 'metrics');
@@ -661,14 +663,16 @@ export function MetricsTab({ companyId }: { companyId: string }) {
       {(metrics) => {
         const seen = new Set<MetricType>();
         const projected = buildMetricViews(metrics, company?.websiteUrl).map(({ metric }) => metric);
-        const real = orderMetrics(projected).filter((m) => !seen.has(m.metricType) && !!seen.add(m.metricType));
+        const deduped = orderMetrics(projected).filter((m) => !seen.has(m.metricType) && !!seen.add(m.metricType));
+        const financialFirm = company ? classifyMarketProfile(company) === 'financial_firm' : false;
+        const real = pruneRedundantGaps(deduped, financialFirm);
         // Core figures with no row at all stay visible as labelled gaps, so a
         // sparse company reads as "not yet found", not as an empty page.
-        const gaps: CompanyMetric[] = missingCoreTypes(real, 4).map((t) => ({
+        const gaps: CompanyMetric[] = missingCoreTypes(deduped, 4).map((t) => ({
           id: `gap-${t}`, companyId, metricType: t, value: null, confidence: 'unknown', source: null,
           citations: [], methodNote: null, capturedAt: '',
         } as CompanyMetric));
-        const all = orderMetrics([...real, ...gaps]);
+        const all = orderMetrics(pruneRedundantGaps([...deduped, ...gaps], financialFirm));
         const rows: Row[] = all.map((metric) => {
           const ranking = rankInDeck(companyId, metric.metricType, peerState.peers);
           return { metric, ranking, rank: ranking.rank };
@@ -679,7 +683,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
         const firstKnown = sorted.find((r) => isKnown(r.metric)) ?? sorted.find((r) => !r.metric.id.startsWith('gap-')) ?? sorted[0];
         const wantedType = picked ?? (wanted && all.some((m) => m.metricType === wanted) ? wanted : null);
         const selectedRow = sorted.find((r) => r.metric.metricType === wantedType) ?? firstKnown;
-        const tiles = real; // the headline band shows only figures that have a row
+        const tiles = real.filter(isKnown); // the headline band shows only figures that exist
         const series = seriesQ.data?.content;
         const knownCount = real.filter(isKnown).length;
         const hasSeries = !!series && (series.revenue.length > 1 || series.users.length > 1 || series.churn.length > 1 || series.capTable.length > 0);
