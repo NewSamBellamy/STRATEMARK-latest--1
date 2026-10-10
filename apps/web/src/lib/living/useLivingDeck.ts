@@ -105,6 +105,14 @@ const jobChecks = new WeakMap<MarketIntelRepository, {
   result: Promise<ResearchJob[] | null>;
 }>();
 
+/** A running job whose record goes this long without a persist is de facto
+ * dead — every active stage persists per card. The repository's stall
+ * watchdog force-completes such records; until it lands (older persisted
+ * state, other transports), the gate itself must not rest the runtime on a
+ * zombie job: live-verified, a hung summary tail held a job 'running' for
+ * 13+ minutes with zero provider activity while cards never filled. */
+const CREATION_STALL_MS = 6 * 60_000;
+
 async function creationIsActive(repo: MarketIntelRepository, deckId: string): Promise<boolean> {
   if (!repo.listResearchJobs) return false;
   let check = jobChecks.get(repo);
@@ -117,9 +125,16 @@ async function creationIsActive(repo: MarketIntelRepository, deckId: string): Pr
     check = entry;
   }
   const jobs = await check.result;
-  return jobs === null || jobs.some(job =>
-    (job.status === 'queued' || job.status === 'running') &&
-    (job.deck?.id === deckId || job.partialCards?.some(c => c.card.deckId === deckId)));
+  if (jobs === null) return true;
+  const now = Date.now();
+  return jobs.some(job => {
+    if (job.status !== 'queued' && job.status !== 'running') return false;
+    if (job.deck?.id !== deckId && !job.partialCards?.some(c => c.card.deckId === deckId)) return false;
+    // Unknown recency defers (safe default); a parsed-and-stale record is a
+    // zombie and must not rest the runtime on it.
+    const lastTouch = Date.parse(job.updatedAt || job.createdAt);
+    return !(Number.isFinite(lastTouch) && now - lastTouch >= CREATION_STALL_MS);
+  });
 }
 
 function entityDesks(cards: CardWithCompany[]): CardWithCompany[] {

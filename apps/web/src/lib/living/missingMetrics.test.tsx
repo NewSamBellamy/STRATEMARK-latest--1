@@ -122,6 +122,38 @@ it('ignores creation jobs belonging to another deck', async () => {
   hook.unmount(); s.client.clear();
 });
 
+it('ignores a zombie creation job whose record went stale while running', async () => {
+  // Live-verified failure mode: a hung research tail held a job 'running' for
+  // 13+ minutes with zero provider activity while the deck was rendered — the
+  // runtime rested on it and cards never filled.
+  const s = await setup();
+  const stale = new Date(Date.now() - 6 * 60_000 - 1000).toISOString();
+  Object.assign(s.repo, {
+    listResearchJobs: vi.fn().mockResolvedValue([
+      { status: 'running', deck: { id: 'deck' }, updatedAt: stale },
+    ]),
+  });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+  expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
+  hook.unmount(); s.client.clear();
+});
+
+it('keeps deferring on a fresh running job even when other jobs went stale', async () => {
+  const s = await setup();
+  const stale = new Date(Date.now() - 10 * 60_000).toISOString();
+  Object.assign(s.repo, {
+    listResearchJobs: vi.fn().mockResolvedValue([
+      { status: 'running', deck: { id: 'deck' }, updatedAt: new Date().toISOString() },
+      { status: 'running', deck: { id: 'earlier-deck' }, updatedAt: stale },
+    ]),
+  });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+  expect(s.huntCompanyMetrics).not.toHaveBeenCalled();
+  hook.unmount(); s.client.clear();
+});
+
 it('reports in-flight recovery before the hunt resolves', async () => {
   const s = await setup();
   let finish!: () => void;

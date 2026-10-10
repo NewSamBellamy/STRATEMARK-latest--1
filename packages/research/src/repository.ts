@@ -113,6 +113,13 @@ import { companyNameKey, marketCapEstimate, secSharesConceptUrl, secTickerMapUrl
 import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane } from './searxng';
 import { resolveCompanyLogo, type CompanyLogo } from './assets';
+
+/** Silence threshold for the research-job stall watchdog: every active stage
+ * persists per card and every provider call is deadline-bounded, so a job
+ * record with no persist for this long is de facto dead (live-verified: a
+ * hung summary tail held a job 'running' for 13+ minutes with zero provider
+ * activity while the deck was already rendered). */
+const JOB_STALL_MS = 8 * 60_000;
 import { readCompanyOriginals } from './core-source-coverage';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
@@ -357,6 +364,8 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly originalSources?: OriginalSourceServices;
   private readonly jobControllers = new Map<string, AbortController>();
   private readonly activeBackgroundJobs = new Map<string, Promise<void>>();
+  /** Stall watchdogs per research job — see watchJobForStall. */
+  private readonly jobWatchdogs = new Map<string, ReturnType<typeof setInterval>>();
   private listeners = new Set<DeckRefreshListener>();
   private startupWrite: Promise<void> = Promise.resolve();
   private startupError: unknown;
@@ -659,6 +668,27 @@ export class GeminiRepository implements MarketIntelRepository {
   }
 
   listResearchJobs(): Promise<ResearchJob[]> {
+    // Self-heal on read: a running job stale beyond JOB_STALL_MS is de facto
+    // dead (same rule as the watchdog) — force-complete it so the living
+    // runtime resumes filling. This is what revives decks stuck by a hung
+    // research tail in an earlier session.
+    let healed = false;
+    const now = Date.now();
+    for (const job of this.snap.researchJobs) {
+      if (job.status !== 'running' && job.status !== 'queued') continue;
+      const lastTouch = Date.parse(job.updatedAt || job.createdAt);
+      if (Number.isFinite(lastTouch) && now - lastTouch < JOB_STALL_MS) continue;
+      job.status = 'completed';
+      job.stage = 'signals';
+      job.updatedAt = new Date().toISOString();
+      job.warnings = [...job.warnings,
+        'Deck research was wrapped up automatically after its final stage stalled. Completed research is kept; automatic filling has resumed.'];
+      healed = true;
+    }
+    if (healed) void Promise.race([
+      this.persist(),
+      new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+    ]).catch(() => undefined);
     return Promise.resolve(
       [...this.snap.researchJobs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     );
@@ -689,6 +719,7 @@ export class GeminiRepository implements MarketIntelRepository {
     job.status = 'running';
     job.error = null;
     job.updatedAt = new Date().toISOString();
+    this.watchJobForStall(job);
     await this.persist();
     try {
       const result = await runDeckResearch(job.brief, this.client, {
@@ -1407,6 +1438,7 @@ export class GeminiRepository implements MarketIntelRepository {
     })();
 
     this.activeBackgroundJobs.set(job.id, backgroundPromise);
+    this.watchJobForStall(job);
     // The UI observes job status rather than awaiting this background promise.
     // Attach a rejection observer without pretending a failed save succeeded.
     void backgroundPromise.catch(() => {
@@ -2789,6 +2821,41 @@ export class GeminiRepository implements MarketIntelRepository {
    * this method writes nothing itself and never proposes a value. Gaps that
    * survive land in stillMissing, not in a fabricated figure. Unknown company
    * ids are skipped rather than invented. */
+  /** A research job whose record goes this long without a single persist is
+   * de facto dead: every active stage persists per card, and every provider
+   * call is deadline-bounded — a hung await in the research tail once held
+   * jobs 'running' forever while the UI already showed the deck, and the
+   * living runtime rests on exactly that status, so cards never filled. The
+   * watchdog force-completes the record with an honest warning. The in-memory
+   * mutation alone unblocks the runtime (listResearchJobs reads the
+   * snapshot); the persist is best-effort in case IT is the hung await. */
+  private watchJobForStall(job: { id: string }): void {
+    const existing = this.jobWatchdogs.get(job.id);
+    if (existing) clearInterval(existing);
+    const timer = setInterval(() => {
+      const current = this.snap.researchJobs.find((j) => j.id === job.id);
+      if (!current || (current.status !== 'queued' && current.status !== 'running')) {
+        clearInterval(timer);
+        this.jobWatchdogs.delete(job.id);
+        return;
+      }
+      const lastTouch = Date.parse(current.updatedAt || current.createdAt);
+      if (Number.isFinite(lastTouch) && Date.now() - lastTouch < JOB_STALL_MS) return;
+      clearInterval(timer);
+      this.jobWatchdogs.delete(job.id);
+      current.status = 'completed';
+      current.stage = 'signals';
+      current.updatedAt = new Date().toISOString();
+      current.warnings = [...current.warnings,
+        'Deck research was wrapped up automatically after its final stage stalled. Completed research is kept; automatic filling has resumed.'];
+      void Promise.race([
+        this.persist(),
+        new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+      ]).catch(() => undefined);
+    }, 60_000);
+    this.jobWatchdogs.set(job.id, timer);
+  }
+
   async ensureReportReadiness(
     companyIds: string[],
     options?: { signal?: AbortSignal },
