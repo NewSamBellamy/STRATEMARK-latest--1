@@ -188,8 +188,8 @@ describe('one current company facts projection', () => {
     expect((await repo.getDashboardTab('cmp', 'metrics'))!.content.revenue).toEqual([]);
     await repo.askResearch({ scope: { kind: 'company', companyId: 'cmp', deckId: 'deck' }, question: 'What are the business figures?' });
     const prompt = vi.mocked(client.ground).mock.calls[0]![0];
-    expect(prompt).toContain('employees=45');
-    expect(prompt).toContain('arr=unknown');
+    expect(prompt).toContain('Employees: 45');
+    expect(prompt).toContain('ARR: Unknown');
     expect(prompt).not.toContain('999000000');
   });
   it('rechecks originals on reopen and preserves the raw historical figure', async () => {

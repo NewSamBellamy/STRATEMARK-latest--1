@@ -15,6 +15,7 @@ import { cn } from '@/lib/cn';
 import { formatRelative } from '@/lib/format';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { Logo } from '@/features/card/Logo';
+import { ExportMenu } from '@/features/export/ExportMenu';
 import { DigDeeper, useDeepDive } from '@/features/deepdive/DeepDive';
 import { OverviewTab } from './tabs/OverviewTab';
 import { ResearchTab } from './tabs/ResearchTab';
@@ -337,6 +338,19 @@ export default function DashboardPage() {
                 <h1 className="font-display text-2xl font-semibold text-content">{c.name}</h1>
                 <p className="text-sm text-muted">{headerSubtitle}</p>
               </div>
+              <ExportMenu
+                className="shrink-0"
+                company={{
+                  id: c.id,
+                  name: c.name,
+                  oneLiner: c.oneLiner === UNSUPPORTED_COMPANY_SUMMARY ? null : c.oneLiner ?? null,
+                  hq: c.hqLocation ?? null,
+                  website: c.websiteUrl ?? null,
+                  logoUrl: c.logoUrl ?? null,
+                  tier: null,
+                  metrics: metrics.data ?? [],
+                }}
+              />
               <ThreadHistoryButton companyId={c.id} className="shrink-0" />
               <ReportButton kind="company" subjectId={c.id} className="shrink-0" />
               <DigDeeper

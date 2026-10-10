@@ -3,17 +3,23 @@
  * Client-side via pptxgenjs (dynamically imported to keep the bundle lean).
  */
 import type PptxGenJS from 'pptxgenjs';
-import type { CardWithCompany, MaturityTier } from '@mi/contracts';
+import type { CardWithCompany, MaturityTier, MetricType } from '@mi/contracts';
 import { TIER_LABELS } from '@mi/contracts';
-import { formatMetricValue } from '@/lib/format';
+import { toMetricRow } from '@/features/export/exportModel';
 
 const INK = '18181B';
 const MUTED = '6B6B72';
 const ACCENT = 'F15A24';
 
-function metric(c: CardWithCompany, type: string): string {
-  const m = c.metrics.find((x) => x.metricType === type && x.value != null);
-  return m ? formatMetricValue(m.metricType, m.value) : '—';
+/** A figure only appears when it is sourced (Rule 9); otherwise an honest Unknown. */
+function metric(c: CardWithCompany, type: MetricType): string {
+  const row = toMetricRow(type, c.metrics.find((x) => x.metricType === type));
+  return row.unknown ? 'Unknown' : row.valueText;
+}
+
+function valuation(c: CardWithCompany): string {
+  const v = metric(c, 'valuation');
+  return v !== 'Unknown' ? v : metric(c, 'market_cap');
 }
 
 export async function exportDeckPptx(args: {
@@ -48,14 +54,12 @@ export async function exportDeckPptx(args: {
     })),
   ];
   for (const c of companies.slice(0, 14)) {
-    const val =
-      c.metrics.find((m) => (m.metricType === 'valuation' || m.metricType === 'market_cap') && m.value != null);
     rows.push([
       { text: c.company!.name, options: { fontSize: 11, bold: true, color: INK } },
       { text: c.card.tier ? `T${c.card.tier} ${TIER_LABELS[c.card.tier as MaturityTier]}` : '—', options: { fontSize: 10, color: MUTED } },
       { text: metric(c, 'market_share'), options: { fontSize: 11, color: INK } },
       { text: metric(c, 'arr'), options: { fontSize: 11, color: INK } },
-      { text: val ? formatMetricValue(val.metricType, val.value) : '—', options: { fontSize: 11, color: INK } },
+      { text: valuation(c), options: { fontSize: 11, color: INK } },
       { text: metric(c, 'employees'), options: { fontSize: 11, color: INK } },
     ]);
   }
@@ -87,7 +91,7 @@ export async function exportDeckPptx(args: {
     const facts = [
       `Market share: ${metric(c, 'market_share')}`,
       `ARR: ${metric(c, 'arr')}`,
-      `Valuation/Cap: ${(() => { const v = c.metrics.find((m) => (m.metricType === 'valuation' || m.metricType === 'market_cap') && m.value != null); return v ? formatMetricValue(v.metricType, v.value) : '—'; })()}`,
+      `Valuation/Cap: ${valuation(c)}`,
       `Team: ${metric(c, 'employees')}`,
       `Users: ${metric(c, 'users')}`,
     ];

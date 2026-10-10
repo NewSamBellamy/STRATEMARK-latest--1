@@ -33,6 +33,10 @@ import { useCards, useCompany, useReports } from '@/hooks/data';
 import { cn } from '@/lib/cn';
 import { MicButton } from '@/components/ui/MicButton';
 import { Logo } from '@/features/card/Logo';
+import { useApiKey } from '@/lib/settings/apiKey';
+import { useSettingsModal } from '@/lib/settings/settingsModal';
+import { ExportMenu } from '@/features/export/ExportMenu';
+import { splitFollowUps } from './followUps';
 
 type PanelMode = 'locked' | 'floating';
 
@@ -120,6 +124,33 @@ function useThinkingPhase(active: boolean): string {
     return () => clearInterval(id);
   }, [active]);
   return THINKING_PHASES[index]!;
+}
+
+/** Markdown tables (compare-two-companies answers) scroll sideways instead of overflowing the panel. */
+const CHAT_MD_COMPONENTS = {
+  table: ({ children }: { children?: ReactNode }) => (
+    <div className="my-2 overflow-x-auto rounded-lg border border-border">
+      <table className="w-full border-collapse text-[12px]">{children}</table>
+    </div>
+  ),
+  th: ({ children }: { children?: ReactNode }) => (
+    <th className="border-b border-border bg-surface-2 px-2 py-1 text-left font-semibold text-content">{children}</th>
+  ),
+  td: ({ children }: { children?: ReactNode }) => (
+    <td className="border-b border-border px-2 py-1 align-top">{children}</td>
+  ),
+  a: ({ href, children }: { href?: string; children?: ReactNode }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="link">{children}</a>
+  ),
+};
+
+/** Friendlier wording for the failures people actually hit. */
+function chatErrorMessage(raw: string, hasKey: boolean): string {
+  if (!hasKey || /api[ _-]?key|unauthori[sz]ed|permission_denied|\b40[13]\b/i.test(raw)) {
+    return 'Chat needs a Gemini API key. Add yours in Settings and ask again - your question is still in the box.';
+  }
+  if (/\b429\b|quota|rate/i.test(raw)) return 'The research service is rate-limited right now. Wait a moment and send again.';
+  return raw;
 }
 
 /** Assistant-bubble-shaped "typing" indicator — bouncing dots + cycling status text. */
@@ -235,6 +266,8 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
   const qc = useQueryClient();
   const conversational = typeof repo.askResearch === 'function';
   const { isStartingPage } = useCurrentRoute();
+  const hasKey = useApiKey((st) => st.hasKey);
+  const openSettings = useSettingsModal((st) => st.open);
 
   const [openState, setOpenState] = useState(false);
   const [scope, setScope] = useState<ResearchScope | null>(null);
@@ -348,7 +381,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
       setThread(t);
       void qc.invalidateQueries({ queryKey: ['researchThreads'] });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(chatErrorMessage(e instanceof Error ? e.message : String(e), hasKey));
     } finally {
       setBusy(false);
     }
@@ -560,6 +593,12 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
             >
               {mode === 'locked' ? <PictureInPicture2 className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
             </button>
+            {thread && hasAnswer && (
+              <ExportMenu
+                variant="icon"
+                transcript={{ title: thread.title ?? scopeLabel, scopeLabel, messages: thread.messages }}
+              />
+            )}
             {canConverse && hasAnswer && repo.saveThreadAsReport && !thread?.reportId && (
               <button
                 type="button"
@@ -642,8 +681,10 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
           )}
 
           <div className="space-y-4">
-            {(thread?.messages ?? []).map((m) =>
-              m.role === 'user' ? (
+            {(thread?.messages ?? []).map((m, idx, all) => {
+              const isLast = idx === all.length - 1;
+              const parsed = m.role === 'assistant' ? splitFollowUps(m.text) : null;
+              return m.role === 'user' ? (
                 <div key={m.id} className="flex justify-end">
                   <div className="max-w-[85%] rounded-2xl rounded-br-md bg-content/5 px-3 py-2 text-[13px] text-content">
                     {m.text}
@@ -651,19 +692,41 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                 </div>
               ) : (
                 <div key={m.id} className="max-w-full">
-                  <article className="markdown text-[13px]">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+                  <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-faint">Stratemark</p>
+                  <article className="markdown text-[13px] text-content/90">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={CHAT_MD_COMPONENTS}>
+                      {parsed?.body ?? m.text}
+                    </ReactMarkdown>
                   </article>
                   <SourceChips citations={m.citations} />
+                  {isLast && !busy && conversational && parsed && parsed.followUps.length > 0 && (
+                    <div className="mt-2.5 flex flex-wrap gap-1.5" aria-label="Suggested follow-up questions">
+                      {parsed.followUps.map((q) => (
+                        <button
+                          key={q}
+                          type="button"
+                          className="rounded-full border border-border bg-surface px-2.5 py-1 text-left text-[11.5px] text-muted transition-colors hover:border-primary/50 hover:text-primary-ink"
+                          onClick={() => void ask(q, scope, thread && thread.id !== 'oneshot' ? thread.id : undefined)}
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ),
-            )}
+              );
+            })}
           </div>
 
           {busy && <TypingBubble active={busy} />}
           {error && (
             <div className="mt-4 rounded-lg border border-negative/40 bg-negative/10 p-3 text-[13px] text-negative">
               {error}
+              {!hasKey && (
+                <button type="button" className="ml-2 font-semibold underline" onClick={openSettings}>
+                  Open Settings
+                </button>
+              )}
             </div>
           )}
         </div>
