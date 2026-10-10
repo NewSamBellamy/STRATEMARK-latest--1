@@ -24,6 +24,7 @@ import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
 import { Modal } from '@/components/ui/Modal';
 import { FullPageLoader } from '@/components/states/FullPageLoader';
 import { formatMetricValue } from '@/lib/format';
+import { siteUrl } from '@/lib/siteUrl';
 
 /** Read-only card reader: evidence only, no AI actions. */
 function SharedReader({
@@ -66,7 +67,7 @@ function SharedReader({
                 )}
                 {company.websiteUrl && (
                   <a
-                    href={company.websiteUrl}
+                    href={siteUrl(company.websiteUrl) ?? undefined}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-primary-ink hover:underline"

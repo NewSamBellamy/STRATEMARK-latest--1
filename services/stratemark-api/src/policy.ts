@@ -4,9 +4,13 @@
  * becoming an open, unmetered proxy.
  */
 
-/** Gemini model ids the hosted key may call. Anything else is refused. */
+/**
+ * Gemini text model ids the hosted key may call. Image/video/audio models are
+ * refused: the hosted app uses real images, and media output is priced far
+ * above what the budget meter assumes.
+ */
 export function allowedModel(model: string): boolean {
-  return /^gemini-[a-z0-9.-]{1,80}$/.test(model);
+  return /^gemini-[a-z0-9.-]{1,80}$/.test(model) && !/image|imagen|veo|tts|audio|live|embedding/.test(model);
 }
 
 /**
@@ -157,3 +161,4 @@ export function settle(ledger: LedgerDay, day: string, ip: string, held: number,
     visitors: { ...ledger.visitors, [ip]: mine },
   };
 }
+

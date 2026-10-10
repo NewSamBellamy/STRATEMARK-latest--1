@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useCompany, useDashboardTab } from '@/hooks/data';
+import { siteUrl } from '@/lib/siteUrl';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
@@ -44,7 +45,8 @@ function ProseBlock({ label, text, missing }: { label: string; text: string; mis
 
 export function MissionGovernanceTab({ companyId }: { companyId: string }) {
   const query = useDashboardTab(companyId, 'mission_governance');
-  const name = useCompany(companyId).data?.name ?? 'this company';
+  const companyQ = useCompany(companyId).data;
+  const name = companyQ?.name ?? 'this company';
   // Click a signal → it opens as its own readable card (the deck-of-cards gist).
   const [openSignal, setOpenSignal] = useState<{ tone: InsightTone; text: string } | null>(null);
   const [kind, setKind] = useState<string>('all');
@@ -114,14 +116,14 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                       <p className="mt-3 text-sm text-muted">No board members surfaced yet.</p>
                     )}
                   </div>
-                  {/* The identity, illustrated: generated from THIS company's
-                      mission + governance so every company's panel is unique. */}
+                  {/* The identity: the image the company's own site publishes
+                      (real, credited); generated art only as a BYOK fallback. */}
                   <div className="h-[96px] overflow-hidden rounded-xl border border-border">
                     <AiCover
                       cacheKey={`mission:${companyId}`}
                       title={`${name} — organizational identity`}
                       context={`Abstract editorial illustration of this organization's identity and governance structure. Mission: ${c.mission?.slice(0, 200) ?? ''} Governance: ${c.governanceStructure?.slice(0, 200) ?? ''} Depict the structure and ethos conceptually — clean geometric diagram-like abstraction, unique to this company.`}
-                      url=""
+                      url={siteUrl(companyQ?.websiteUrl) ?? ''}
                       source="news"
                       compact
                     />

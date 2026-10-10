@@ -4,7 +4,8 @@
  *   POST /v1/gemini/:model:generateContent  Gemini on the server-held key, behind a daily dollar budget
  *   POST /v1/source        { url, scope }    original-source read (same reader + policy as desktop)
  *   POST /v1/asset-source  { url }           raw HTML for logo/headshot parsing
- *   GET  /v1/image?url=                      a public image with CORS, for brand-colour sampling
+ *   GET  /v1/image?url=                      a public image with CORS (logos, real cover images)
+ *   GET  /v1/preview?url=                    the real image a page publishes for link previews
  *   GET  /health
  *
  * The Gemini key lives only in the GEMINI_API_KEY secret; it is never echoed,
@@ -22,6 +23,7 @@ import { retrieveOriginalSource, type SourceTransport } from '@mi/research/origi
 import type { OriginalSourceReceipt, OriginalSourceScope } from '@mi/research';
 import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, reserveMicros, safePublicUrl, type GeminiUsage } from './policy';
 import type { BudgetCounter } from './budget';
+import { previewFromHtml, type PagePreview } from './preview';
 
 export { BudgetCounter } from './budget';
 
@@ -255,6 +257,57 @@ async function assetRead(request: Request, origin: string): Promise<Response> {
   return json(unavailable('Source retrieval failed'), 200, origin);
 }
 
+/** A public page's HTML (head is enough), following up to 3 safe redirects. */
+async function fetchPublicHtml(start: URL, limit: number): Promise<{ finalUrl: string; html: string } | null> {
+  let url = start;
+  for (let hop = 0; hop <= 3; hop++) {
+    if (!(await hostIsPublic(url.hostname))) return null;
+    const res = await fetch(url.href, {
+      redirect: 'manual', signal: AbortSignal.timeout(8_000),
+      headers: { 'User-Agent': UA, Accept: 'text/html' },
+    }).catch(() => null);
+    if (!res) return null;
+    if ([301, 302, 303, 307, 308].includes(res.status)) {
+      const next = safePublicUrl(res.headers.get('location') ? new URL(res.headers.get('location')!, url).href : '');
+      if (!next) return null;
+      url = next;
+      continue;
+    }
+    const type = (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
+    if (res.status !== 200 || !['text/html', 'application/xhtml+xml'].includes(type)) return null;
+    const bytes = await readCapped(res, limit).catch(() => null);
+    const html = bytes ? new TextDecoder().decode(bytes) : null;
+    return html ? { finalUrl: url.href, html } : null;
+  }
+  return null;
+}
+
+/**
+ * GET /v1/preview?url= — the real image a page publishes for link previews.
+ * Cached at the edge for a week, so each story or product page is fetched
+ * once for everyone. The image itself is then shown through /v1/image, so
+ * publishers never see our users' addresses.
+ */
+async function previewRead(request: Request, origin: string): Promise<Response> {
+  const target = safePublicUrl(new URL(request.url).searchParams.get('url'));
+  if (!target) return json({ image: null, title: null, site: null }, 400, origin);
+  const cache = (caches as unknown as { default: Cache }).default;
+  const cacheKey = new Request(`https://preview.cache/${encodeURIComponent(target.href)}`);
+  const hit = await cache.match(cacheKey);
+  let body: PagePreview;
+  if (hit) {
+    body = await hit.json() as PagePreview;
+  } else {
+    // Over-long pages fail the cap and simply get no preview image.
+    const page = await fetchPublicHtml(target, 1_500_000);
+    body = page ? previewFromHtml(page.html, page.finalUrl) : { image: null, title: null, site: null };
+    await cache.put(cacheKey, new Response(JSON.stringify(body), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${body.image ? 604_800 : 86_400}` },
+    }));
+  }
+  return json(body, 200, origin, { 'Cache-Control': 'public, max-age=86400' });
+}
+
 async function imageRead(request: Request, origin: string): Promise<Response> {
   let url = safePublicUrl(new URL(request.url).searchParams.get('url'));
   if (!url) return new Response(null, { status: 400, headers: cors(origin) });
@@ -318,6 +371,7 @@ export default {
       if (url.pathname === '/v1/source' && request.method === 'POST') return await sourceRead(request, allowed);
       if (url.pathname === '/v1/asset-source' && request.method === 'POST') return await assetRead(request, allowed);
       if (url.pathname === '/v1/image' && request.method === 'GET') return await imageRead(request, allowed);
+      if (url.pathname === '/v1/preview' && request.method === 'GET') return await previewRead(request, allowed);
       return json({ error: 'Not found.' }, 404, origin);
     } catch {
       return json({ error: 'The request failed.' }, 500, origin);

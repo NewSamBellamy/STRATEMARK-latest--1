@@ -31,6 +31,8 @@ describe('model allowlist', () => {
     expect(allowedModel('gemini-2.5-pro')).toBe(true);
     expect(allowedModel('imagen-4')).toBe(false);
     expect(allowedModel('gemini-x/../../keys')).toBe(false);
+    expect(allowedModel('gemini-3.1-flash-lite-image')).toBe(false);
+    expect(allowedModel('gemini-2.5-flash-preview-tts')).toBe(false);
   });
 });
 

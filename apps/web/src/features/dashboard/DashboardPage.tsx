@@ -8,6 +8,7 @@ import { useCompany, useCompanyMetrics, useReports, useRerunDashboardTab } from 
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
 import { useDashboardWarm } from '@/lib/living/useDashboardWarm';
 import { BackgroundResearchControl } from '@/lib/living/BackgroundResearchControl';
+import { siteUrl } from '@/lib/siteUrl';
 import { ReportButton, ThreadHistoryButton } from '@/features/research/ResearchControls';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { ContextRerun } from '@/components/ui/ContextRerun';
@@ -81,7 +82,7 @@ function KeyFacts({ hq, website }: { hq: string | null; website: string | null }
       )}
       {website && (
         <li>
-          <a href={website} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:text-primary-ink hover:underline">
+          <a href={siteUrl(website) ?? undefined} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:text-primary-ink hover:underline">
             <Globe className="h-3.5 w-3.5 text-faint" aria-hidden />{website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
           </a>
         </li>
