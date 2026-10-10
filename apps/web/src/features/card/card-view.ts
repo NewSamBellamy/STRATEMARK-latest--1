@@ -3,7 +3,7 @@ import {
   isSignalCardType, usableCitations, metricDefinitionLabel, classifyMarketProfile, PROFILE_CORE_SLOTS, MONEY_METRIC_TYPES,
   type CardWithCompany, type CompanyMetric, type MetricType,
 } from '@mi/contracts';
-import { reportedSupportCitations } from '@mi/research';
+import { reportedBandCitations, reportedSupportCitations } from '@mi/research';
 import type { OvrBreakdown } from './rating';
 
 const LABELS: Record<MetricType, string> = {
@@ -175,6 +175,17 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
         if (reported) {
           shown.add(reported.metric.metricType);
           return { ...reported, key, label: profileLabel(key, reported.metric), confidence: 'Source reported' };
+        }
+        // A stated headcount BAND ("51–100") is shown as a range, never a point:
+        // the row's value stays null, confidence stays estimated, and the same
+        // company-named-sentence + usable-citation gate that stored it re-runs.
+        const band = data.company ? candidates.find(m => m.metric.metricType === 'employees' &&
+          m.metric.value === null && m.metric.confidence === 'estimated' && m.metric.reportedBand != null &&
+          reportedBandCitations(data.company!.name, data.company!.websiteUrl, m.metric).length > 0) : undefined;
+        if (band) {
+          const range = band.metric.reportedBand!;
+          shown.add('employees');
+          return { ...band, key, label: 'Employees (range)', display: `${range.low}–${range.high}`, confidence: 'Source reported' };
         }
         const estimate = candidates.find((m) => m.metric.value != null);
         if (estimate) {

@@ -13,6 +13,7 @@ function state(overrides: Partial<LivingDeckState> = {}): LivingDeckState {
     canVerify: true,
     pause: vi.fn(),
     resume: vi.fn(),
+    fillCardFaces: vi.fn(async () => ({ targeted: 0, filledCompanies: 0, filledTypes: 0, failed: 0 })),
     ...overrides,
   };
 }

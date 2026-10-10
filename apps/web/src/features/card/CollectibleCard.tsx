@@ -121,7 +121,7 @@ export function CollectibleCard({
             {view.profileMetrics.map((m) => (
               <div
                 key={m.key}
-                className={m.metric?.value == null ? 'collectible__metric--unknown' : undefined}
+                className={m.metric?.value == null && m.metric?.reportedBand == null ? 'collectible__metric--unknown' : undefined}
               >
                 <span className="collectible__metric-value">{m.display}</span>
                 <span className="collectible__metric-label">{m.label}</span>

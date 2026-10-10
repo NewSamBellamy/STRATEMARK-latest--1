@@ -89,7 +89,7 @@ import {
 import type { CompanyCandidate, MarketPlan } from './types';
 import { hydrateCompanyCard, hydrateCompanyCardsBatch, type HydrateCompanyCardResult } from './company-agent';
 import { latestSavedCompanyProfile } from './saved-profile';
-import { CARD_FACT_TYPES as CARD_FACT_HUNT_TYPES, reportedCompanyMetrics, reportedMetricCitations } from './reported-metrics';
+import { CARD_FACT_TYPES as CARD_FACT_HUNT_TYPES, reportedCompanyMetrics, reportedEmployeeBandRow, reportedMetricCitations } from './reported-metrics';
 import { businessDates } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
@@ -2778,6 +2778,11 @@ export class GeminiRepository implements MarketIntelRepository {
       if (m.confidence === 'verified') return acceptedAtStart !== null && acceptedAtStart.get(t)?.confidence !== 'verified';
       return m.value == null || m.confidence === 'unknown' || m.confidence === 'estimated';
     });
+    // Face sweep: ask ONLY for types a card-face slot can display.
+    if (options?.faceSlotsOnly) {
+      const faceTypes = new Set<MetricType>(PROFILE_CORE_SLOTS[profile].flat());
+      for (let i = softTypes.length - 1; i >= 0; i--) if (!faceTypes.has(softTypes[i]!)) softTypes.splice(i, 1);
+    }
     // Card-fact alternatives (revenue, funding, last round, distribution) are
     // only worth a provider call while a face slot they could fill is still
     // empty; a filled slot never triggers a hunt for its other alternatives.
@@ -2839,7 +2844,7 @@ export class GeminiRepository implements MarketIntelRepository {
         `Find the most current, reliable figures for these metrics of ${company.name}:`,
         wanted,
         companySourceTargets(company.websiteUrl),
-        ...cardFactsHuntRequest(company.name, softTypes),
+        ...cardFactsHuntRequest(company.name, softTypes, { faceSweep: options?.faceSlotsOnly === true }),
         ...(softTypes.includes('arr') ? ['Find the latest whole-company fiscal annual revenue OR explicitly reported ARR. Keep them distinct. Find the actual dated annual report, earnings disclosure or company-specific regulatory filing, not an investor homepage or regulator search page. Include the direct filing URL actually discovered; do not guess identifiers.'] : []),
         ...(softTypes.includes('aum') ? ['This is a financial-services firm: find its assets under management (AUM) — the total capital it manages for clients, not the firm\'s own revenue or valuation. Prefer the firm\'s own disclosures (Form ADV filings, firm publications, investor pages) or reputable financial coverage, and name the as-of date.'] : []),
         ...(escalation > 0 ? [`ESCALATION PASS ${escalation}: earlier general searches for these figures came back empty. Vary the approach rather than repeating the same query shape: regulatory filings and exchange disclosures, investor presentations and earnings materials, trade-association market reports, sector trade press, funding announcements, or the company's own data book. For private companies look for the most recent credible estimate and name who published it. If a figure is still not reliably reported, say so plainly.`] : []),
@@ -3021,7 +3026,30 @@ export class GeminiRepository implements MarketIntelRepository {
       }
       written.push(row.metricType);
     }
+    // Headcount band: only when no point figure was written and the slot is open.
+    if (slots.includes('employees') && !written.includes('employees') &&
+      JSON.stringify(mine().filter((m) => m.metricType === 'employees')) === revisions.get('employees')) {
+      const band = reportedEmployeeBandRow({ companyId: company.id, companyName: company.name, website: company.websiteUrl,
+        text: g.text, grounding: g.grounding, capturedAt: nowIso, identity: { answerText: g.text, otherCompanies } });
+      if (band && this.writeEmployeeBand(company.id, band, nowIso)) written.push('employees');
+    }
     return written;
+  }
+
+  /** Write a gated employee BAND row into an open employees slot. Never
+   * overwrites a point value, a verified row or a human edit. */
+  private writeEmployeeBand(companyId: string, band: CompanyMetric, nowIso: string): boolean {
+    const revision = currentMetricRevision(this.snap.metrics.filter((m) => m.companyId === companyId), companyId, 'employees');
+    if (revision?.ambiguous) return false;
+    const current = revision?.metric;
+    if (current && (current.value != null || current.confidence === 'user_verified' || current.confidence === 'verified')) return false;
+    if (current) {
+      Object.assign(current, { value: null, confidence: 'estimated', source: band.source, citations: band.citations,
+        passageSupport: null, reportedSupport: null, reportedBand: band.reportedBand, methodNote: band.methodNote, capturedAt: nowIso });
+    } else {
+      this.snap.metrics.push({ ...band, id: `met_hunt_${Date.now().toString(36)}_employees_band`, capturedAt: nowIso });
+    }
+    return true;
   }
 
   /** Persist + re-tier + notify after the reported hunt lane wrote rows. */
@@ -3140,6 +3168,12 @@ export class GeminiRepository implements MarketIntelRepository {
       }
       filledTypes.push(row.metricType);
     }
+    // No point headcount anywhere in the saved answer: a stated BAND may fill
+    // the slot (stored as a range, never a point; estimated).
+    const savedBand = reportedEmployeeBandRow({ companyId, companyName: company.name, website: company.websiteUrl,
+      text: evidence.text, grounding: evidence.grounding, capturedAt: nowIso,
+      identity: { answerText: evidence.text, otherCompanies } });
+    if (savedBand && !filledTypes.includes('employees') && this.writeEmployeeBand(companyId, savedBand, nowIso)) filledTypes.push('employees');
     const retieredCardIds =
       filledTypes.length > 0
         ? this.retierCompany(companyId, 'Re-tiered after recovering saved research evidence.')

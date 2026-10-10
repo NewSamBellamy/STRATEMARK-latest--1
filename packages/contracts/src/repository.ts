@@ -260,6 +260,11 @@ export interface HuntMetricsOptions {
    * vary its approach rather than repeat the same query shape.
    */
   escalation?: number;
+  /**
+   * Face sweep: ask ONLY for the metric types whose card-face slots are still
+   * empty (PROFILE_CORE_SLOTS alternatives), nothing else from the profile.
+   */
+  faceSlotsOnly?: boolean;
 }
 
 /** A saved research report composed by the AI from deck/company evidence. */

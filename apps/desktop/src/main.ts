@@ -342,7 +342,7 @@ function registerIpc(): void {
     if (!repository.huntCompanyMetrics) throw new Error('Metric hunting is unavailable.');
     return repository.huntCompanyMetrics(
       z.string().min(1).parse(id),
-      z.object({ escalation: z.number().int().min(0).max(9).optional() }).optional().parse(options),
+      z.object({ escalation: z.number().int().min(0).max(9).optional(), faceSlotsOnly: z.boolean().optional() }).optional().parse(options),
     );
   });
   ipcMain.handle(IPC_CHANNELS.generateDeckBriefing, (_e, id: unknown, opts: unknown) => {

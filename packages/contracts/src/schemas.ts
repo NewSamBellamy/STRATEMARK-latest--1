@@ -169,6 +169,22 @@ export const reportedMetricSupportSchema = z.object({
   }),
 });
 
+/**
+ * A headcount BAND ("51 to 100 employees") a source states instead of a point
+ * value. A band is never a point: the metric row keeps `value: null` and the
+ * band lives here, with the same provider support proof a reported figure has.
+ * Additive: older snapshots without it parse unchanged.
+ */
+export const reportedBandSchema = z.object({
+  provider: z.literal('google-search'), companyName: z.string().min(1),
+  basis: z.literal('employees'),
+  low: z.number().int().positive(), high: z.number().int().positive(),
+  unit: z.literal('count'),
+  asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  support: reportedMetricSupportSchema.shape.support,
+}).refine((band) => band.high > band.low, { message: 'band high must exceed low' });
+export type ReportedBand = z.infer<typeof reportedBandSchema>;
+
 export const companyMetricSchema = z.object({
   id: z.string(),
   companyId: z.string(),
@@ -188,6 +204,8 @@ export const companyMetricSchema = z.object({
   methodNote: z.string().nullable(), // "how we got this number" for estimated figures
   passageSupport: metricPassageSupportSchema.nullish(),
   reportedSupport: reportedMetricSupportSchema.nullish(),
+  /** Employees only: a stated headcount range; `value` stays null (never a point). */
+  reportedBand: reportedBandSchema.nullish(),
   capturedAt: isoTimestamp,
   /**
    * When a source last CONFIRMED this figure, as opposed to when we wrote the

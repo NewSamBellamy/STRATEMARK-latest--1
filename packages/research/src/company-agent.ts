@@ -71,7 +71,7 @@ import type {
 import { selectOriginalSourceCitations, type OriginalSourceServices } from './original-source';
 import { sourceBackedCompanySummary, UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
 import { providerCompanySummary, reportedCompanyMetrics } from './reported-metrics';
-export { reportedMetricCitations, reportedSupportCitations } from './reported-metrics';
+export { reportedMetricCitations, reportedSupportCitations, reportedBandCitations, reportedEmployeeBandRow, employeeBandIn } from './reported-metrics';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueObservation } from './sec-revenue';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
 import { readCompanyOriginals } from './core-source-coverage';

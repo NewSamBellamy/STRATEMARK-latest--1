@@ -319,7 +319,10 @@ export function enforceMetricProvenance(metric: CompanyMetric, officialWebsite?:
   // An "unknown" figure cannot carry a number.
   const value = confidence === 'unknown' ? null : metric.value;
   // Conversely, a null value can only be unknown or a deliberate human override.
-  if (value === null && confidence !== 'unknown' && confidence !== 'user_verified') {
+  // The one exception: an estimated headcount BAND, which by design has no point
+  // value (its range lives in reportedBand and is re-gated at display time).
+  const isBand = metric.metricType === 'employees' && confidence === 'estimated' && metric.reportedBand != null;
+  if (value === null && confidence !== 'unknown' && confidence !== 'user_verified' && !isBand) {
     confidence = 'unknown';
   }
 
