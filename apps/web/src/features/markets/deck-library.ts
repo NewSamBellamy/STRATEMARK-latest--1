@@ -82,7 +82,7 @@ export function researchState(status: string | null | undefined): ResearchState 
 
 export const RESEARCH_STATE_LABEL: Record<ResearchState, string | null> = {
   live: 'Researching',
-  complete: 'Complete',
+  complete: 'Ready',
   stale: 'Needs refresh',
   incomplete: 'Incomplete',
   unknown: null,

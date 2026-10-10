@@ -95,36 +95,31 @@ function useCurrentRoute(): { isStartingPage: boolean } {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
+  // Hash routing: the pathname is always "/", so only the hash says where we
+  // are. Path routing (no hash route) falls back to the pathname.
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
-  const isStart =
-    !hash ||
-    hash === '#/' ||
-    hash.startsWith('#/new') ||
-    path === '/' ||
-    path === '/new';
+  const isStart = hash.startsWith('#/') ? hash === '#/' || hash.startsWith('#/?') : path === '/';
 
   return { isStartingPage: isStart };
 }
 
-/** Rotating status phrases shown inside the assistant "typing" bubble. */
-const THINKING_PHASES = [
-  'Searching the web…',
-  'Reading sources…',
-  'Cross-checking claims…',
-  'Drafting the answer…',
-] as const;
-
+/**
+ * Honest progress: what the engine is doing (one grounded search, then the
+ * write-up) and how long it has taken — not a timer pretending to be steps.
+ */
 function useThinkingPhase(active: boolean): string {
-  const [index, setIndex] = useState(0);
+  const [seconds, setSeconds] = useState(0);
   useEffect(() => {
     if (!active) {
-      setIndex(0);
+      setSeconds(0);
       return;
     }
-    const id = setInterval(() => setIndex((i) => (i + 1) % THINKING_PHASES.length), 2200);
+    const started = Date.now();
+    const id = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
     return () => clearInterval(id);
   }, [active]);
-  return THINKING_PHASES[index]!;
+  const label = seconds < 45 ? 'Searching and reading sources' : 'Still working — deep questions can take a minute';
+  return seconds < 3 ? `${label}…` : `${label} · ${seconds}s`;
 }
 
 /** Markdown tables (compare-two-companies answers) scroll sideways instead of overflowing the panel. */
@@ -278,6 +273,10 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
   const [error, setError] = useState<string | null>(null);
   const [placeholder, setPlaceholder] = useState<string | undefined>(undefined);
   const [draft, setDraft] = useState('');
+  // The question in flight: shown as your bubble at once, restored to the box
+  // if it fails so nothing you typed is lost.
+  const [pending, setPending] = useState<string | null>(null);
+  const [failed, setFailed] = useState<{ question: string; scope: ResearchScope | null; threadId?: string } | null>(null);
   // Pinned context: reports/conversations attached to THIS chat. They ride
   // along with every question as the grounding's main focus.
   const [attachOpen, setAttachOpen] = useState(false);
@@ -330,7 +329,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     if (el && typeof el.scrollTo === 'function') {
       el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     }
-  }, [thread?.messages.length, busy]);
+  }, [thread?.messages.length, busy, pending]);
 
   // Conversation starters: quick ways in, so the chat feels like a
   // conversation you steer rather than a research job that fires instantly.
@@ -361,6 +360,8 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     setShowReportForm(false);
     setReportFocus('');
     setDraft('');
+    setPending(null);
+    setFailed(null);
     setAttachOpen(false);
     setAttachedReportIds([]);
     setAttachedThreadIds([]);
@@ -370,6 +371,8 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     if (!repo.askResearch) return;
     setBusy(true);
     setError(null);
+    setFailed(null);
+    setPending(question);
     try {
       const attachments =
         attachedReportIds.length > 0 || attachedThreadIds.length > 0
@@ -384,12 +387,24 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
       void qc.invalidateQueries({ queryKey: ['researchThreads'] });
     } catch (e) {
       setError(chatErrorMessage(e instanceof Error ? e.message : String(e), hasKey));
+      setFailed({ question, scope: forScope, threadId });
+      setDraft((d) => (d.trim() ? d : question));
     } finally {
       setBusy(false);
+      setPending(null);
     }
   };
 
   const chat = (s: ResearchScope, opts?: ChatOptions) => {
+    // Reopening the same conversation keeps it: closing the panel is not
+    // "start over". A seeded question or a different subject starts fresh.
+    const same = scope && thread && thread.id !== 'oneshot' &&
+      scope.kind === s.kind && scope.deckId === s.deckId && scope.companyId === s.companyId &&
+      (scope.cardIds ?? []).join() === (s.cardIds ?? []).join();
+    if (same && !opts?.seed) {
+      setOpenState(true);
+      return;
+    }
     reset();
     setScope(s);
     setPlaceholder(opts?.placeholder);
@@ -720,10 +735,24 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
             })}
           </div>
 
+          {busy && pending && (
+            <div className="mt-4 flex justify-end">
+              <div className="max-w-[85%] rounded-2xl rounded-br-md bg-content/5 px-3 py-2 text-[13px] text-content">{pending}</div>
+            </div>
+          )}
           {busy && <TypingBubble active={busy} />}
           {error && (
             <div className="mt-4 rounded-lg border border-negative/40 bg-negative/10 p-3 text-[13px] text-negative">
               {error}
+              {failed && hasKey && (
+                <button
+                  type="button"
+                  className="ml-2 font-semibold underline"
+                  onClick={() => { setDraft(''); void ask(failed.question, failed.scope, failed.threadId); }}
+                >
+                  Retry
+                </button>
+              )}
               {!hasKey && (
                 <button type="button" className="ml-2 font-semibold underline" onClick={openSettings}>
                   Open Settings
