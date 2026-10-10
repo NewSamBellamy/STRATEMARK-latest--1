@@ -12,6 +12,7 @@ import type { CallMetrics, CallMetricsAggregate, Citation, LlmClient } from './t
 export type { CallMetrics, CallMetricsAggregate };
 import { AbortError, throwIfAborted, createRateLimiter, extractJson, withRetry, type RetryableError } from './util';
 import { extractProviderGrounding } from './grounding-support';
+import { batchVerifyOutSchema, redTeamOutSchema, verifyMetricOutSchema } from './schemas';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const CALL_DEADLINE_MS = 120_000;
@@ -102,6 +103,14 @@ export interface GeminiClientConfig {
   model?: string;
   /** Structuring model (non-grounded JSON). */
   structureModel?: string;
+  /**
+   * Judge model (LLM-as-judge): verification-class calls — metric verification,
+   * batch verify, red-team — run here instead of on the filler models. Blank
+   * keeps verification on the grounded model exactly as before; the judge
+   * changes WHO verifies, never the evidentiary standard (passage/provenance
+   * gates are applied downstream and untouched).
+   */
+  judgeModel?: string;
   /** Injectable for tests. */
   fetchImpl?: typeof fetch;
   /**
@@ -120,7 +129,7 @@ export interface GeminiClientConfig {
   /** Total ground-call deadline including the fallback ladder. Default 240s. */
   groundDeadlineMs?: number;
   /** Observability hook — fires once per outbound request (powers the usage meter). */
-  onCall?: (info: { model: string; kind: 'ground' | 'structure' }) => void;
+  onCall?: (info: { model: string; kind: 'ground' | 'structure' | 'judge' }) => void;
   /** Per-call latency decomposition (queue wait, dispatch, retry waits).
    * Fires once per settled call; a throwing consumer never breaks the call. */
   onCallMetrics?: (metrics: CallMetrics) => void;
@@ -193,6 +202,27 @@ function extractCitations(data: GeminiResponse): Citation[] {
 export function createGeminiClient(config: GeminiClientConfig): LlmClient {
   const groundedModel = config.model ?? DEFAULT_GROUNDED_MODEL;
   const structureModel = config.structureModel ?? DEFAULT_STRUCTURE_MODEL;
+  const judgeModel = config.judgeModel || undefined;
+
+  // Verification-class calls (metric verify, batch verify, red-team) belong to
+  // the judge: the model that verifies dashboards must be configurable apart
+  // from the model that fills them. The repository already marks these calls
+  // in-band — the verify passes carry a `verify:` evidence topic, the red-team
+  // pass marks its prompt, and the verdict steps validate against the
+  // verification output schemas — so routing happens here with no repository
+  // changes. An unset judgeModel keeps every call on today's model and kind.
+  const VERIFICATION_SCHEMAS: Set<unknown> = new Set([
+    verifyMetricOutSchema, batchVerifyOutSchema, redTeamOutSchema,
+  ]);
+  const groundRoute = (prompt: string, topic: string | undefined) =>
+    judgeModel && (Boolean(topic?.startsWith('verify:')) || prompt.startsWith('RED-TEAM'))
+      ? { model: judgeModel, kind: 'judge' as const }
+      : { model: groundedModel, kind: 'ground' as const };
+  const structureRoute = (schema: unknown) =>
+    judgeModel && VERIFICATION_SCHEMAS.has(schema)
+      ? { model: judgeModel, kind: 'judge' as const }
+      : { model: structureModel, kind: 'structure' as const };
+
   const doFetch = config.fetchImpl ?? fetch;
   // Defence in depth: the key rides in an HTTP header, and headers must be
   // ISO-8859-1. Pasted keys often carry invisible characters (zero-width space,
@@ -202,14 +232,19 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
 
   // One bucket per model — grounded calls are the scarce resource, and when
   // grounding and structuring share one model, they share that model's real
-  // per-minute cap instead of each keeping a bucket of its own.
+  // per-minute cap instead of each keeping a bucket of its own. The judge
+  // rides the grounded RPM — verification is a grounded, search-bearing
+  // class — and when it names the grounded model the two share that bucket.
   const groundedRpm = config.groundedRpm ?? DEFAULT_GROUNDED_RPM;
   const structureRpm = config.structureRpm ?? DEFAULT_STRUCTURE_RPM;
   const limiters = new Map<string, ReturnType<typeof createRateLimiter> | null>();
   const limiterFor = (model: string) => {
     if (limiters.has(model)) return limiters.get(model)!;
-    const rpms = [model === groundedModel ? groundedRpm : 0, model === structureModel ? structureRpm : 0]
-      .filter((rpm) => rpm > 0);
+    const rpms = [
+      model === groundedModel ? groundedRpm : 0,
+      model === structureModel ? structureRpm : 0,
+      model === judgeModel ? groundedRpm : 0,
+    ].filter((rpm) => rpm > 0);
     const limiter = rpms.length ? createRateLimiter(Math.min(...rpms)) : null;
     limiters.set(model, limiter);
     return limiter;
@@ -219,7 +254,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
     model: string,
     body: Record<string, unknown>,
     signal?: AbortSignal,
-    kind: 'ground' | 'structure' = 'ground',
+    kind: 'ground' | 'structure' | 'judge' = 'ground',
     budget?: { retryBudgetMs?: number; attemptTimeoutMs?: number },
   ): Promise<GeminiResponse> {
     const limiter = limiterFor(model);
@@ -342,11 +377,16 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
             grounding: extractProviderGrounding(extractText(data), data.candidates?.[0]?.groundingMetadata),
           };
         };
+        // The verification-class route (if any) is decided once: the judge
+        // line leads the ladder and the kind marks the role for metering even
+        // when a reserve line ends up answering.
+        const route = groundRoute(prompt, opts?.researchContext?.topic);
+        const primary = route.model;
         // While the primary is sick, the healthy line answers first and the
         // primary moves to the back — one re-probe per cooldown window.
         const order = Date.now() < primarySickUntil
-          ? [...GROUND_FALLBACK_MODELS, groundedModel]
-          : [groundedModel, ...GROUND_FALLBACK_MODELS];
+          ? [...GROUND_FALLBACK_MODELS, primary]
+          : [primary, ...GROUND_FALLBACK_MODELS];
         const startedAt = Date.now();
         const primaryBudget = config.groundedAttemptBudgetMs ?? PRIMARY_GROUND_ATTEMPT_BUDGET_MS;
         const primaryAttemptTimeout = config.groundedAttemptTimeoutMs ?? PRIMARY_GROUND_ATTEMPT_BUDGET_MS;
@@ -362,10 +402,10 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           const remaining = GROUND_DEADLINE_MS - (Date.now() - startedAt);
           if (remaining < MIN_GROUND_ATTEMPT_BUDGET_MS) break;
           const reserve = FALLBACK_ATTEMPT_FLOOR_MS * (order.length - 1 - index);
-          const isPrimary = model === groundedModel;
+          const isPrimary = model === primary;
           const cap = Math.max(MIN_GROUND_ATTEMPT_BUDGET_MS, Math.min(remaining - 1000, remaining - reserve));
           try {
-            const data = await call(model, body, signal, 'ground', {
+            const data = await call(model, body, signal, route.kind, {
               retryBudgetMs: isPrimary ? Math.min(cap, primaryBudget) : cap,
               attemptTimeoutMs: Math.min(cap, isPrimary ? primaryAttemptTimeout : cap),
             });
@@ -400,9 +440,10 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           generationConfig: { responseMimeType: 'application/json', temperature: 0 },
         };
         if (opts?.system) body.systemInstruction = { parts: [{ text: opts.system }] };
+        const route = structureRoute(schema);
         // One reparse retry: JSON-mode is reliable but not infallible.
         for (let attempt = 0; attempt < 2; attempt += 1) {
-          const data = await call(structureModel, body, signal, 'structure');
+          const data = await call(route.model, body, signal, route.kind);
           try {
             return schema.parse(extractJson(extractText(data)));
           } catch (err) {

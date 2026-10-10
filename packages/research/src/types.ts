@@ -19,7 +19,9 @@ import type {
  * "why is research slow": limiter queue wait, retry backoff, or the model. */
 export interface CallMetrics {
   model: string;
-  kind: 'ground' | 'structure';
+  /** `judge` marks verification-class calls (metric verify, batch verify,
+   * red-team) so cost metering can separate who verifies from who fills. */
+  kind: 'ground' | 'structure' | 'judge';
   /** Dispatched attempts, including any 429/5xx retries. */
   attempts: number;
   retries: number;

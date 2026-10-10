@@ -34,6 +34,7 @@ import {
   DEFAULT_STRUCTURE_MODEL,
   DEFAULT_STRUCTURE_RPM,
 } from './gemini';
+import { batchVerifyOutSchema, redTeamOutSchema, verifyMetricOutSchema } from './schemas';
 
 export interface GenAiUsage {
   promptTokens?: number;
@@ -53,13 +54,21 @@ export interface GenAiClientConfig {
   model?: string;
   /** Structuring model (non-grounded JSON). */
   structureModel?: string;
+  /**
+   * Judge model (LLM-as-judge): verification-class calls — metric verification,
+   * batch verify, red-team — run here instead of on the filler models. Blank
+   * keeps verification on the grounded model exactly as before; the judge
+   * changes WHO verifies, never the evidentiary standard (passage/provenance
+   * gates are applied downstream and untouched).
+   */
+  judgeModel?: string;
   /** Proactive pacing per model line. Set 0 to disable (tests). */
   groundedRpm?: number;
   structureRpm?: number;
   /** Observability hook — fires once per outbound request. Powers cost metering. */
   onCall?: (info: {
     model: string;
-    kind: 'ground' | 'structure';
+    kind: 'ground' | 'structure' | 'judge';
     usage?: GenAiUsage;
   }) => void;
   /** Per-call latency decomposition (queue wait, dispatch, retry waits). */
@@ -177,6 +186,26 @@ export function zodToGenAiSchema(schema: ZodType<unknown, ZodTypeDef, unknown>):
 export function createGenAiClient(config: GenAiClientConfig): LlmClient {
   const groundedModel = config.model ?? DEFAULT_GROUNDED_MODEL;
   const structureModel = config.structureModel ?? DEFAULT_STRUCTURE_MODEL;
+  const judgeModel = config.judgeModel || undefined;
+
+  // Verification-class calls (metric verify, batch verify, red-team) belong to
+  // the judge: the model that verifies dashboards must be configurable apart
+  // from the model that fills them. The repository already marks these calls
+  // in-band — the verify passes carry a `verify:` evidence topic, the red-team
+  // pass marks its prompt, and the verdict steps validate against the
+  // verification output schemas — so routing happens here with no repository
+  // changes. An unset judgeModel keeps every call on today's model and kind.
+  const VERIFICATION_SCHEMAS: Set<unknown> = new Set([
+    verifyMetricOutSchema, batchVerifyOutSchema, redTeamOutSchema,
+  ]);
+  const groundRoute = (prompt: string, topic: string | undefined) =>
+    judgeModel && (Boolean(topic?.startsWith('verify:')) || prompt.startsWith('RED-TEAM'))
+      ? { model: judgeModel, kind: 'judge' as const }
+      : { model: groundedModel, kind: 'ground' as const };
+  const structureRoute = (schema: unknown) =>
+    judgeModel && VERIFICATION_SCHEMAS.has(schema)
+      ? { model: judgeModel, kind: 'judge' as const }
+      : { model: structureModel, kind: 'structure' as const };
 
   if (!config.clientImpl && !config.apiKey && !config.vertex) {
     throw new Error(
@@ -196,12 +225,17 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
   const groundedRpm = config.groundedRpm ?? DEFAULT_GROUNDED_RPM;
   const structureRpm = config.structureRpm ?? DEFAULT_STRUCTURE_RPM;
   // One bucket per model (mirrors gemini.ts): grounding and structuring that
-  // share a model also share that model's real per-minute cap.
+  // share a model also share that model's real per-minute cap. The judge rides
+  // the grounded RPM — verification is a grounded, search-bearing class — and
+  // when it names the grounded model the two share that one bucket.
   const limiters = new Map<string, ReturnType<typeof createRateLimiter> | null>();
   const limiterFor = (model: string) => {
     if (limiters.has(model)) return limiters.get(model)!;
-    const rpms = [model === groundedModel ? groundedRpm : 0, model === structureModel ? structureRpm : 0]
-      .filter((rpm) => rpm > 0);
+    const rpms = [
+      model === groundedModel ? groundedRpm : 0,
+      model === structureModel ? structureRpm : 0,
+      model === judgeModel ? groundedRpm : 0,
+    ].filter((rpm) => rpm > 0);
     const limiter = rpms.length ? createRateLimiter(Math.min(...rpms)) : null;
     limiters.set(model, limiter);
     return limiter;
@@ -214,7 +248,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     contents: string,
     cfg: Record<string, unknown>,
     signal: AbortSignal | undefined,
-    kind: 'ground' | 'structure',
+    kind: 'ground' | 'structure' | 'judge',
   ): Promise<GenerateContentResponse> {
     const limiter = limiterFor(model);
     const callStartedAt = Date.now();
@@ -301,7 +335,8 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
         temperature: 0.2,
       };
       if (opts?.system) cfg.systemInstruction = opts.system;
-      const res = await call(groundedModel, prompt, cfg, opts?.signal, 'ground');
+      const route = groundRoute(prompt, opts?.researchContext?.topic);
+      const res = await call(route.model, prompt, cfg, opts?.signal, route.kind);
       if (res.promptFeedback?.blockReason) {
         throw new Error(`Gemini blocked the request: ${res.promptFeedback.blockReason}`);
       }
@@ -324,10 +359,11 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
         temperature: 0,
       };
       if (opts?.system) cfg.systemInstruction = opts.system;
+      const route = structureRoute(schema);
       let lastError: unknown;
       // One reparse retry, matching gemini.ts: JSON mode is reliable, not infallible.
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const res = await call(structureModel, prompt, cfg, opts?.signal, 'structure');
+        const res = await call(route.model, prompt, cfg, opts?.signal, route.kind);
         try {
           return schema.parse(extractJson((res.text ?? '').trim()));
         } catch (err) {

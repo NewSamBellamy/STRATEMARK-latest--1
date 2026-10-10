@@ -50,3 +50,16 @@ describe('desktop key persistence', () => {
     expect(window.miSecure.setApiKey).toHaveBeenCalledWith('');
   });
 });
+
+describe('judge model setting (LLM as judge)', () => {
+  it('persists the trimmed override and clears it when blanked', async () => {
+    const { useApiKey } = await import('./apiKey');
+    useApiKey.getState().setJudgeModel('  gemini-2.5-pro  ');
+    expect(useApiKey.getState().judgeModel).toBe('gemini-2.5-pro');
+    expect(localStorage.getItem('mi.geminiJudgeModel')).toBe('gemini-2.5-pro');
+    // Blank = unset: verifications ride the research model again.
+    useApiKey.getState().setJudgeModel(' ');
+    expect(useApiKey.getState().judgeModel).toBe('');
+    expect(localStorage.getItem('mi.geminiJudgeModel')).toBeNull();
+  });
+});

@@ -9,6 +9,7 @@ import { create } from 'zustand';
 
 const STORAGE_KEY = 'mi.geminiApiKey';
 const MODEL_KEY = 'mi.geminiModel';
+const JUDGE_MODEL_KEY = 'mi.geminiJudgeModel';
 const QUOTA_KEY = 'mi.quotaPreset';
 
 /** Outbound pacing presets (WS2): the free tier's measured 10/15 RPM ceiling
@@ -76,12 +77,19 @@ interface ApiKeyState {
   apiKey: string;
   /** Optional grounded-model override (defaults handled by the client). */
   model: string;
+  /**
+   * Optional judge/verification-model override (LLM as judge): metric
+   * verification, batch verify and red-team run on this model instead of the
+   * research model. Blank = same as the research model (today's behavior).
+   */
+  judgeModel: string;
   /** Outbound pacing preset — how fast the pipeline may spend the quota. */
   quotaPreset: QuotaPreset;
   hasKey: boolean;
   storageError: string | null;
   setApiKey: (key: string) => Promise<void>;
   setModel: (model: string) => void;
+  setJudgeModel: (model: string) => void;
   setQuotaPreset: (preset: QuotaPreset) => void;
   clear: () => Promise<void>;
 }
@@ -96,6 +104,7 @@ function removePlaintextKeys(): void {
 export const useApiKey = create<ApiKeyState>((set) => ({
   apiKey: secure ? '' : readLocal(STORAGE_KEY),
   model: readLocal(MODEL_KEY),
+  judgeModel: readLocal(JUDGE_MODEL_KEY),
   quotaPreset: readQuotaPreset(),
   hasKey: !secure && readLocal(STORAGE_KEY).length > 0,
   storageError: null,
@@ -114,6 +123,10 @@ export const useApiKey = create<ApiKeyState>((set) => ({
   setModel: (model) => {
     writeLocal(MODEL_KEY, model.trim());
     set({ model: model.trim() });
+  },
+  setJudgeModel: (model) => {
+    writeLocal(JUDGE_MODEL_KEY, model.trim());
+    set({ judgeModel: model.trim() });
   },
   setQuotaPreset: (preset) => {
     writeLocal(QUOTA_KEY, preset);

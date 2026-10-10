@@ -61,7 +61,7 @@ export interface ResolveOptions {
   /** Raw `X-Gemini-Key` header value, if the caller sent one. */
   callerKey?: string | undefined;
   /** Per-request metering hook. */
-  onCall?: (info: { model: string; kind: 'ground' | 'structure' }) => void;
+  onCall?: (info: { model: string; kind: 'ground' | 'structure' | 'judge' }) => void;
   /** Escape hatch for tests. */
   factory?: typeof createGenAiClient;
 }

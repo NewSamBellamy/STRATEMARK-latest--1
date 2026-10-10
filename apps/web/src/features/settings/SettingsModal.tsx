@@ -98,7 +98,7 @@ function TabButton({ id, active, onClick, icon: Icon, label }: { id: TabId, acti
 }
 
 function GeneralTab() {
-  const { model, hasKey, setApiKey, setModel, setQuotaPreset, quotaPreset, clear, apiKey, storageError } = useApiKey();
+  const { model, hasKey, setApiKey, setModel, setJudgeModel, setQuotaPreset, quotaPreset, clear, apiKey, storageError, judgeModel } = useApiKey();
   const [draft, setDraft] = useState(apiKey);
   const [saved, setSaved] = useState(false);
   const [test, setTest] = useState<TestState>({ status: 'idle' });
@@ -210,6 +210,21 @@ function GeneralTab() {
           />
           <p className="mt-1 text-xs text-muted">
             Leave blank for the default rolling alias.
+          </p>
+        </div>
+        <div className="mt-3">
+          <label className="mb-1 block font-medium text-content" htmlFor="judge-model">
+            Verification model (judge)
+          </label>
+          <input
+            id="judge-model"
+            className="input font-mono w-full"
+            placeholder="Same as the research model"
+            value={judgeModel}
+            onChange={(e) => setJudgeModel(e.target.value)}
+          />
+          <p className="mt-1 text-xs text-muted">
+            Verifications run on this model. Blank = same as the research model.
           </p>
         </div>
       </details>

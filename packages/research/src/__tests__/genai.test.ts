@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { z } from 'zod';
 import type { GenerateContentResponse } from '@google/genai';
 import { createGenAiClient, zodToGenAiSchema, type GenAiLike } from '../genai';
-import { enrichmentOutSchema, metricOutSchema } from '../schemas';
+import { enrichmentOutSchema, metricOutSchema, verifyMetricOutSchema } from '../schemas';
 import type { LlmClient } from '../types';
 
 /**
@@ -212,6 +212,61 @@ describe('createGenAiClient', () => {
     const out = await client.ground('q');
     expect(out.text).toBe('recovered');
     expect(calls).toBe(2);
+  });
+});
+
+describe('judge model routing (LLM as judge)', () => {
+  it('dispatches verification-class calls to the judge model and marks them judge', async () => {
+    const seen: Array<{ model: string; kind: string }> = [];
+    const spy = vi.fn(async (_p: GenerateArgs) => res({ text: '{"ok":true}' }));
+    const client = createGenAiClient({
+      apiKey: 'k',
+      model: 'filler-ground',
+      structureModel: 'filler-structure',
+      judgeModel: 'judge-x',
+      groundedRpm: 0,
+      structureRpm: 0,
+      onCall: (info) => seen.push(info),
+      clientImpl: stub(spy),
+    });
+
+    // Metric verification: the verify passes tag their evidence topic `verify:*`.
+    await client.ground('recheck the figure', { researchContext: { topic: 'verify:arr' } });
+    // The red-team pass predates the evidence-topic taxonomy and marks its prompt.
+    await client.ground('RED-TEAM these stored figures');
+    // Verdict steps validate against the verification output schemas.
+    await client.structure('notes', verifyMetricOutSchema);
+
+    const models = spy.mock.calls.map((c) => c[0]?.model);
+    expect(models).toEqual(['judge-x', 'judge-x', 'judge-x']);
+    expect(seen.map((c) => c.kind)).toEqual(['judge', 'judge', 'judge']);
+  });
+
+  it('keeps fill calls on the filler lines, and an unset judge byte-identical to today', async () => {
+    const seen: Array<{ model: string; kind: string }> = [];
+    const client = createGenAiClient({
+      apiKey: 'k',
+      model: 'filler-ground',
+      structureModel: 'filler-structure',
+      groundedRpm: 0,
+      structureRpm: 0,
+      onCall: (info) => seen.push(info),
+      clientImpl: stub(async () => res({ text: '{"ok":true}' })),
+    });
+
+    // Dashboard-fill calls are not verification-class: they stay on the filler.
+    await client.ground('fill this dashboard');
+    await client.structure('x', z.object({ ok: z.boolean() }));
+    // Verification-class calls with no judge configured ride today's lines.
+    await client.ground('recheck', { researchContext: { topic: 'verify:arr' } });
+    await client.structure('notes', verifyMetricOutSchema);
+
+    expect(seen).toEqual([
+      { model: 'filler-ground', kind: 'ground' },
+      { model: 'filler-structure', kind: 'structure' },
+      { model: 'filler-ground', kind: 'ground' },
+      { model: 'filler-structure', kind: 'structure' },
+    ]);
   });
 });
 

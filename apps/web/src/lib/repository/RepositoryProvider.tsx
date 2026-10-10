@@ -28,7 +28,7 @@ export type RepositoryMode = 'demo' | 'browser-live' | 'ipc' | 'cloud';
 const RepositoryModeContext = createContext<RepositoryMode>('demo');
 
 export function selectRepository(apiKey: string, model: string, engine?: string, store?: ResearchStore,
-  quotaPreset: 'free' | 'paid' = 'free'): MarketIntelRepository {
+  quotaPreset: 'free' | 'paid' = 'free', judgeModel = ''): MarketIntelRepository {
   if (isElectron() && window.mi) {
     return new IpcRepository(window.mi);
   }
@@ -52,6 +52,9 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       apiKey,
       fetchImpl: previewGeminiFetch,
       model: model || undefined,
+      // LLM as judge: verifications (metric verify, batch verify, red-team)
+      // run on this model; blank keeps them on the research model.
+      judgeModel: judgeModel || undefined,
       groundedRpm: quota.groundedRpm,
       structureRpm: quota.structureRpm,
       store,
@@ -60,7 +63,9 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       targetCompanies,
       concurrency: 3,
       // Count every request locally so the user can see their free-tier headroom.
-      onCall: ({ kind }) => recordCall(kind),
+      // Judge calls are verification-class; the local meter has no judge bucket,
+      // and the grounded estimate is the honest (never-undercount) side.
+      onCall: ({ kind }) => recordCall(kind === 'judge' ? 'ground' : kind),
       onCallMetrics: (m) => recordCallMetrics(m),
     });
   }
@@ -82,6 +87,7 @@ export function RepositoryProvider({
 }) {
   const apiKey = useApiKey((s) => s.apiKey);
   const model = useApiKey((s) => s.model);
+  const judgeModel = useApiKey((s) => s.judgeModel);
   const quotaPreset = useApiKey((s) => s.quotaPreset);
   const { engine } = useEngineChoice();
   const [value, setValue] = useState<MarketIntelRepository | null>(repository ?? null);
@@ -96,7 +102,7 @@ export function RepositoryProvider({
       try {
         const store = !repository && !isElectron() && engine !== 'cloud' && apiKey
           ? await openBrowserResearchStore() : undefined;
-        const selected = repository ?? selectRepository(apiKey, model, engine, store, quotaPreset);
+        const selected = repository ?? selectRepository(apiKey, model, engine, store, quotaPreset, judgeModel);
         if (selected instanceof GeminiRepository) await selected.ready();
         if (live) {
           setValue(selected);
@@ -113,7 +119,7 @@ export function RepositoryProvider({
     return () => {
       live = false;
     };
-  }, [repository, apiKey, model, engine, quotaPreset, retry]);
+  }, [repository, apiKey, model, engine, quotaPreset, judgeModel, retry]);
   if (error) return <div role="alert" className="m-8 space-y-3 text-content"><p>{error}</p><p>Your existing research has not been deleted.</p><button className="btn-ghost" onClick={() => setRetry((n) => n + 1)}>Retry</button></div>;
   if (!value) return <p role="status" className="m-8 text-muted">Opening your research…</p>;
   return (
