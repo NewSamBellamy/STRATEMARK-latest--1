@@ -1,378 +1,411 @@
 /**
- * All decks — ONE shelf, and every deck finally looks like a deck of cards.
- *
- * Founder's spec, third pass (verbatim): "Make it like a deck of cards front
- * and center and then the next deck of cards, and just one carousel you can
- * scroll through… use the image generation to make a really nice face card
- * for each deck… It should just be all decks." So:
- *
- *  · ONE section. No "Your decks" + "All decks" duplication.
- *  · Each deck renders as a physical portrait card stack (two offset card
- *    edges behind the face), with a GENERATED face-card image (nano-banana,
- *    vault-cached — one image per deck, ever) and the deck's name set over a
- *    quiet scrim. No rainbow accent bands — the art carries the color.
- *  · Hand-pull carousel: grab and drag anywhere; scroll-snap centers the
- *    nearest stack; the centered deck is the hero with its info strip and
- *    actions below. Oldest left, newest right.
- *  · A deck being researched RIGHT NOW appears at the right end as a live,
- *    pulsing card back — starting a hunt is never invisible.
+ * All decks. Each deck reads as a physical stack of cards: two card backs
+ * fanned behind a face card carrying the lead company's logo and brand
+ * colour. Every figure shown (company count, coverage, status, updated) is
+ * derived from stored data in ./deck-library; nothing is estimated.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, Cloud, Cpu, MapPin, PlusCircle, Trash2 } from 'lucide-react';
-import { useDeleteDeck, useMarkets } from '@/hooks/data';
-import { useAiCover } from '@/lib/ai/aiCover';
+import { useQueries } from '@tanstack/react-query';
+import { MoreHorizontal, PlusCircle, Search } from 'lucide-react';
+import type { CardWithCompany, Deck, Market } from '@mi/contracts';
+import { useDeleteDeck, useMarkets, projectCard } from '@/hooks/data';
+import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
 import { useResearchSession } from '@/features/deck/research-session';
 import { cn } from '@/lib/cn';
-import type { Market } from '@mi/contracts';
 import logoMark from '@/assets/wordmark.svg';
+import {
+  RESEARCH_STATE_LABEL,
+  companyCount,
+  computeCoverage,
+  filterDecks,
+  formatUpdated,
+  pickLeadCard,
+  researchState,
+  sortDecks,
+  type Coverage,
+  type DeckSort,
+  type ResearchState,
+} from './deck-library';
 
-/** Market objects returned by SentinelRepository carry an optional runtime `engine` tag. */
-type MarketWithEngine = Market & { engine?: string };
-
-/**
- * Quiet, deterministic card-back palette per deck — used only until (or
- * unless) the generated face art exists. Muted duotones, not Christmas.
- */
-const BACKS = [
-  ['#1f2937', '#374151'], // graphite
-  ['#1e3a5f', '#2d4a73'], // deep navy
-  ['#3b3054', '#4a3d68'], // aubergine
-  ['#1f3d33', '#2d5445'], // forest
-  ['#4a3728', '#5e4536'], // umber
-  ['#2d3a4a', '#3d4d61'], // slate blue
-] as const;
-
-function backOf(id: string): readonly [string, string] {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0;
-  return BACKS[Math.abs(h) % BACKS.length]!;
+interface DeckRow {
+  market: Market;
+  size: number | null;
+  updatedAt: string;
+  state: ResearchState;
+  coverage: Coverage | null;
+  lead: CardWithCompany | null;
 }
 
-/** The face card: generated art (vault-cached) or the designed card back. */
-function DeckFace({ market }: { market: MarketWithEngine }) {
-  const scope = market.scopeDefinition;
-  const { url: art } = useAiCover(
-    `deckface:${market.id}`,
-    market.name,
-    `The face card of a premium trading-card deck about the "${market.name}" competitive market (${scope.vertical}${scope.geography ? `, ${scope.geography}` : ''}). One striking editorial illustration that captures this industry — concrete subject matter, no text, no logos.`,
-    '3:4',
-  );
-  const [c1, c2] = backOf(market.id);
+/** Quiet fallback hues, used only when a lead company has no stored brand colour. */
+const FALLBACKS = ['#1f2937', '#1e3a5f', '#3b3054', '#1f3d33', '#4a3728', '#2d3a4a'] as const;
+function fallbackColor(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0;
+  return FALLBACKS[Math.abs(h) % FALLBACKS.length]!;
+}
+
+const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+/** Only trust a well-formed stored hex; anything else falls back. */
+function brandColor(row: DeckRow): string {
+  const primary = row.lead?.company?.brandTheme?.primary;
+  return primary && HEX.test(primary) ? primary : fallbackColor(row.market.id);
+}
+
+/** Loads every deck's status and cards once, so sorting by size/recency is real. */
+function useDeckRows(markets: Market[]): DeckRow[] {
+  const repo = useRepository();
+  const results = useQueries({
+    queries: markets.map((m) => ({
+      queryKey: ['library', m.id],
+      staleTime: 30_000,
+      queryFn: async () => {
+        const deck = (await repo.getDeckByMarket(m.id)) as (Deck & { status?: string }) | null;
+        const cards = deck ? await repo.listCards(deck.id) : [];
+        return { deck, cards: cards.map(projectCard) };
+      },
+    })),
+  });
+  return markets.map((market, i) => {
+    const data = results[i]?.data;
+    const cards = data?.cards ?? null;
+    return {
+      market,
+      size: cards ? companyCount(cards) : null,
+      updatedAt: data?.deck?.lastRefreshedAt ?? data?.deck?.createdAt ?? market.createdAt,
+      state: researchState(data?.deck?.status),
+      coverage: cards && cards.length > 0 ? computeCoverage(cards) : null,
+      lead: cards ? pickLeadCard(cards) : null,
+    };
+  });
+}
+
+/** Fanned stack: two backs behind the face card. Motion is disabled under reduced-motion. */
+function DeckStack({ row }: { row: DeckRow }) {
+  const color = brandColor(row);
+  const logo = row.lead?.company?.logoUrl ?? null;
+  const [logoFailed, setLogoFailed] = useState(false);
+  const back =
+    'absolute inset-0 rounded-2xl border border-border shadow-sm transition-transform duration-300 ease-out motion-reduce:transition-none';
   return (
-    <>
-      {art ? (
-        <img src={art} alt="" className="absolute inset-0 h-full w-full object-cover" />
-      ) : (
-        /* The card back: quiet duotone with an embossed monogram ring. */
-        <div
-          aria-hidden
-          className="absolute inset-0"
-          style={{ background: `linear-gradient(150deg, ${c1} 0%, ${c2} 100%)` }}
-        >
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-            <img src={logoMark} alt="" className="h-10 w-10 opacity-[0.15] drop-shadow-sm grayscale invert" />
-          </div>
-        </div>
-      )}
-      {/* The nameplate: the deck's identity over a quiet scrim. */}
+    <div className="relative aspect-[3/4] w-full">
       <span
         aria-hidden
-        className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/80 via-black/40 to-transparent"
+        className={cn(
+          back,
+          'bg-surface-2 [transform:rotate(3deg)] group-hover:[transform:translate(10px,-2px)_rotate(5.5deg)] group-focus-visible:[transform:translate(10px,-2px)_rotate(5.5deg)] motion-reduce:group-hover:[transform:rotate(3deg)] motion-reduce:group-focus-visible:[transform:rotate(3deg)]',
+        )}
       />
-      <span className="absolute inset-x-0 bottom-0 p-4 text-left">
-        <span className="block text-[10px] font-medium tracking-normal text-white/60">
-          Stratemark Deck
+      <span
+        aria-hidden
+        className={cn(
+          back,
+          'bg-surface [transform:rotate(-2deg)] group-hover:[transform:translate(-8px,-2px)_rotate(-4deg)] group-focus-visible:[transform:translate(-8px,-2px)_rotate(-4deg)] motion-reduce:group-hover:[transform:rotate(-2deg)] motion-reduce:group-focus-visible:[transform:rotate(-2deg)]',
+        )}
+      />
+      <span
+        className="absolute inset-0 overflow-hidden rounded-2xl border border-black/10 shadow-card transition-all duration-300 ease-out group-hover:-translate-y-1.5 group-hover:shadow-card-hover motion-reduce:transition-none motion-reduce:group-hover:translate-y-0"
+        style={{
+          background: `linear-gradient(155deg, ${color} 0%, ${color} 55%, rgb(0 0 0 / 0.35) 140%)`,
+        }}
+      >
+        <span className="absolute left-1/2 top-[34%] grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-2xl bg-white shadow-sm">
+          {logo && !logoFailed ? (
+            <img
+              src={logo}
+              alt=""
+              loading="lazy"
+              draggable={false}
+              onError={() => setLogoFailed(true)}
+              className="h-10 w-10 object-contain"
+            />
+          ) : (
+            <img src={logoMark} alt="" className="h-7 w-7 opacity-40 grayscale" />
+          )}
         </span>
-        <span className="mt-1 block font-display text-[17px] font-bold leading-snug text-white [text-wrap:balance]">
-          {market.name}
-        </span>
-        <span className="mt-0.5 block truncate text-[11px] text-white/70">
-          {scope.vertical}
+        <span
+          aria-hidden
+          className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 via-black/35 to-transparent"
+        />
+        <span className="absolute inset-x-0 bottom-0 p-4 text-left">
+          <span className="block text-[10px] font-medium text-white/65">Stratemark deck</span>
+          <span className="mt-1 line-clamp-3 block font-display text-[17px] font-semibold leading-snug text-white [text-wrap:balance]">
+            {row.market.name}
+          </span>
         </span>
       </span>
-      {art && (
-        <span className="absolute right-2.5 top-2 font-display text-[8px] italic tracking-wide text-white/60">
-          AI-generated
-        </span>
+    </div>
+  );
+}
+
+function StatusChip({ state }: { state: ResearchState }) {
+  const label = RESEARCH_STATE_LABEL[state];
+  if (!label) return null;
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium',
+        state === 'live' ? 'border-primary/30 text-primary-ink' : 'border-border text-muted',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'h-1.5 w-1.5 rounded-full',
+          state === 'live' && 'animate-pulse bg-primary motion-reduce:animate-none',
+          state === 'complete' && 'bg-positive',
+          state === 'stale' && 'bg-neutral',
+          state === 'incomplete' && 'bg-negative',
+        )}
+      />
+      {label}
+    </span>
+  );
+}
+
+function OverflowMenu({
+  market,
+  onOpen,
+  onDelete,
+}: {
+  market: Market;
+  onOpen: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+  const item = 'block w-full px-3 py-1.5 text-left text-[13px] text-content hover:bg-surface-2';
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-label={`More actions for ${market.name}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="grid h-8 w-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-content"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute bottom-full right-0 z-10 mb-1 w-40 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-card-hover"
+        >
+          <button role="menuitem" type="button" className={item} onClick={onOpen}>
+            Open deck
+          </button>
+          <button
+            role="menuitem"
+            type="button"
+            className={item}
+            onClick={() => navigate(`/markets/${market.id}/settings`)}
+          >
+            Deck settings
+          </button>
+          <button
+            role="menuitem"
+            type="button"
+            className={cn(item, 'text-negative hover:bg-negative/10')}
+            onClick={() => {
+              setOpen(false);
+              onDelete();
+            }}
+          >
+            Delete deck
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DeckTile({
+  row,
+  onOpen,
+  onDelete,
+}: {
+  row: DeckRow;
+  onOpen: () => void;
+  onDelete: () => void;
+}) {
+  const { market } = row;
+  const pct = row.coverage?.percent ?? null;
+  return (
+    <li className="flex flex-col">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Open ${market.name}`}
+        className="group mx-3 mt-2 block cursor-pointer rounded-2xl text-left outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-bg"
+      >
+        <DeckStack row={row} />
+      </button>
+      <div className="mt-5 flex items-start justify-between gap-2 px-1">
+        <div className="min-w-0">
+          <p className="truncate font-display text-[15px] font-semibold text-content">
+            {market.name}
+          </p>
+          <p className="mt-0.5 truncate text-[12px] text-muted">{market.scopeDefinition.vertical}</p>
+        </div>
+        <OverflowMenu market={market} onOpen={onOpen} onDelete={onDelete} />
+      </div>
+      <dl className="mt-2 grid grid-cols-3 gap-2 px-1 text-[12px]">
+        <div>
+          <dt className="text-faint">Companies</dt>
+          <dd className="tabular-nums text-content">{row.size ?? '—'}</dd>
+        </div>
+        <div>
+          <dt className="text-faint">Coverage</dt>
+          <dd className="tabular-nums text-content">{pct != null ? `${pct}%` : '—'}</dd>
+        </div>
+        <div>
+          <dt className="text-faint">Updated</dt>
+          <dd className="truncate text-content">{formatUpdated(row.updatedAt)}</dd>
+        </div>
+      </dl>
+      <div className="mt-2 px-1">
+        <StatusChip state={row.state} />
+      </div>
+    </li>
+  );
+}
+
+function Controls({
+  query,
+  setQuery,
+  sort,
+  setSort,
+}: {
+  query: string;
+  setQuery: (v: string) => void;
+  sort: DeckSort;
+  setSort: (v: DeckSort) => void;
+}) {
+  return (
+    <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center">
+      <label className="relative flex-1">
+        <span className="sr-only">Search decks</span>
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search decks"
+          className="input w-full pl-9"
+        />
+      </label>
+      <label className="flex items-center gap-2 text-[13px] text-muted">
+        Sort by
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as DeckSort)}
+          className="input w-auto"
+        >
+          <option value="recent">Recent</option>
+          <option value="name">Name</option>
+          <option value="size">Size</option>
+        </select>
+      </label>
+    </div>
+  );
+}
+
+function ResearchingTile({ query }: { query: string }) {
+  return (
+    <li className="flex flex-col">
+      <Link
+        to="/"
+        aria-label={`Watch research for ${query}`}
+        className="group mx-3 mt-2 block rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-bg"
+      >
+        <div className="relative aspect-[3/4] w-full">
+          <span
+            aria-hidden
+            className="absolute inset-0 rounded-2xl border border-border bg-surface-2 [transform:rotate(3deg)]"
+          />
+          <span className="absolute inset-0 grid place-items-center rounded-2xl border border-dashed border-primary/40 bg-surface shadow-card">
+            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-primary motion-reduce:animate-none" />
+          </span>
+        </div>
+      </Link>
+      <div className="mt-5 px-1">
+        <p className="truncate font-display text-[15px] font-semibold text-content">{query}</p>
+        <p className="mt-0.5 text-[12px] text-muted">Cards appear as they are found.</p>
+        <div className="mt-2">
+          <StatusChip state="live" />
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function Library({ markets, researching }: { markets: Market[]; researching: string | null }) {
+  const navigate = useNavigate();
+  const deleteDeck = useDeleteDeck();
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<DeckSort>('recent');
+  const rows = useDeckRows(markets);
+  const shown = useMemo(() => sortDecks(filterDecks(rows, query), sort), [rows, query, sort]);
+
+  return (
+    <>
+      <Controls query={query} setQuery={setQuery} sort={sort} setSort={setSort} />
+      {shown.length === 0 && !researching ? (
+        <p className="py-16 text-center text-sm text-muted">No decks match &ldquo;{query}&rdquo;.</p>
+      ) : (
+        <ul className="grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {researching && !query && <ResearchingTile query={researching} />}
+          {shown.map((row) => (
+            <DeckTile
+              key={row.market.id}
+              row={row}
+              onOpen={() => navigate(`/markets/${row.market.id}/deck`)}
+              onDelete={() => {
+                if (confirm(`Delete "${row.market.name}"? This removes the deck and its cards.`)) {
+                  deleteDeck.mutate(row.market.id);
+                }
+              }}
+            />
+          ))}
+        </ul>
       )}
     </>
   );
 }
 
-/** A deck as a physical stack of cards — two edges peeking behind the face. */
-function DeckStack({
-  market,
-  onOpen,
-}: {
-  market: MarketWithEngine;
-  onOpen: () => void;
-}) {
-  return (
-    <div className="group relative select-none">
-      <span
-        aria-hidden
-        className="absolute inset-x-2 -bottom-2 h-full rounded-2xl border border-border bg-surface-2 shadow-sm"
-        style={{ transform: 'rotate(1.4deg)' }}
-      />
-      <span
-        aria-hidden
-        className="absolute inset-x-1 -bottom-1 h-full rounded-2xl border border-border bg-surface shadow-sm"
-        style={{ transform: 'rotate(-1deg)' }}
-      />
-      <button
-        type="button"
-        onClick={onOpen}
-        className="relative block aspect-[3/4] w-full cursor-pointer overflow-hidden rounded-2xl border border-border bg-surface text-left shadow-card transition-all hover:-translate-y-1 hover:shadow-card-hover"
-        title={`Open ${market.name}`}
-      >
-        <DeckFace market={market} />
-      </button>
-    </div>
-  );
-}
-
-/** The deck that's still in the oven — a pulsing card back at the shelf's end. */
-function ResearchingStack({ query, onOpen }: { query: string; onOpen: () => void }) {
-  return (
-    <div className="relative select-none">
-      <span
-        aria-hidden
-        className="absolute inset-x-2 -bottom-2 h-full rounded-2xl border border-border bg-surface-2 shadow-sm"
-        style={{ transform: 'rotate(1.4deg)' }}
-      />
-      <button
-        type="button"
-        onClick={onOpen}
-        className="relative block aspect-[3/4] w-full cursor-pointer overflow-hidden rounded-2xl border border-dashed border-primary/40 bg-surface text-left shadow-card"
-        title="Research is running — open the live progress"
-      >
-        <div className="absolute inset-0 grid place-items-center">
-          <span className="grid h-16 w-16 place-items-center rounded-full border border-primary/30">
-            <span className="h-3 w-3 animate-ping rounded-full bg-primary" />
-          </span>
-        </div>
-        <span className="absolute inset-x-0 bottom-0 p-4">
-          <span className="block text-[9px] font-semibold uppercase tracking-[0.28em] text-primary-ink">
-            Researching now
-          </span>
-          <span className="mt-1 block font-display text-[17px] font-bold leading-snug text-content [text-wrap:balance]">
-            {query}
-          </span>
-          <span className="mt-1.5 block h-2 w-2/3 animate-pulse rounded bg-surface-2" />
-        </span>
-      </button>
-    </div>
-  );
-}
-
-/**
- * THE shelf — every deck on one hand-pull carousel. Native scroll-snap does
- * the physics; pointer-drag makes the whole rail grabbable.
- */
-function DeckShelf({
-  decks,
-  researching,
-  onOpen,
-  onDelete,
-}: {
-  decks: MarketWithEngine[];
-  researching: string | null;
-  onOpen: (id: string) => void;
-  onDelete: (m: MarketWithEngine) => void;
-}) {
-  const railRef = useRef<HTMLDivElement>(null);
-  const count = decks.length + (researching ? 1 : 0);
-  const [activeIdx, setActiveIdx] = useState(count - 1);
-  const drag = useRef<{ startX: number; startScroll: number; moved: boolean } | null>(null);
-  const navigate = useNavigate();
-
-  // Open on the newest item (right end of the shelf).
-  useEffect(() => {
-    const el = railRef.current;
-    if (el) el.scrollLeft = el.scrollWidth;
-  }, []);
-
-  // Track which stack sits at center — its info strip renders below.
-  const onScroll = useCallback(() => {
-    const el = railRef.current;
-    if (!el) return;
-    const center = el.scrollLeft + el.clientWidth / 2;
-    const kids = Array.from(el.children) as HTMLElement[];
-    let best = 0;
-    let bestDist = Infinity;
-    kids.forEach((kid, i) => {
-      const mid = kid.offsetLeft + kid.offsetWidth / 2;
-      const dist = Math.abs(mid - center);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = i;
-      }
-    });
-    setActiveIdx(best);
-  }, []);
-
-  const active: MarketWithEngine | null = decks[activeIdx] ?? null;
-  const activeIsResearch = researching != null && activeIdx === decks.length;
-
-  return (
-    <section>
-      <div
-        ref={railRef}
-        onScroll={onScroll}
-        onPointerDown={(e) => {
-          const el = railRef.current;
-          if (!el) return;
-          drag.current = { startX: e.clientX, startScroll: el.scrollLeft, moved: false };
-        }}
-        onPointerMove={(e) => {
-          const el = railRef.current;
-          if (!el || !drag.current) return;
-          const dx = e.clientX - drag.current.startX;
-          if (Math.abs(dx) > 4) {
-            drag.current.moved = true;
-            el.scrollLeft = drag.current.startScroll - dx;
-          }
-        }}
-        onPointerUp={() => {
-          drag.current = null;
-        }}
-        onPointerLeave={() => {
-          drag.current = null;
-        }}
-        className="flex cursor-grab snap-x snap-mandatory gap-8 overflow-x-auto px-[30%] pb-8 pt-4 [scrollbar-width:none] active:cursor-grabbing [&::-webkit-scrollbar]:hidden"
-        aria-label="All decks — drag to browse, oldest left to newest right"
-      >
-        {decks.map((m, i) => (
-          <div
-            key={m.id}
-            className={cn(
-              'w-[220px] shrink-0 snap-center transition-all duration-200 sm:w-[250px]',
-              i === activeIdx ? 'scale-100 opacity-100' : 'scale-[0.88] opacity-55',
-            )}
-          >
-            <DeckStack
-              market={m}
-              onOpen={() => {
-                // A drag that ended on the card is a pull, not a click.
-                if (!drag.current?.moved) onOpen(m.id);
-              }}
-            />
-          </div>
-        ))}
-        {researching && (
-          <div
-            className={cn(
-              'w-[220px] shrink-0 snap-center transition-all duration-200 sm:w-[250px]',
-              activeIsResearch ? 'scale-100 opacity-100' : 'scale-[0.88] opacity-55',
-            )}
-          >
-            <ResearchingStack
-              query={researching}
-              onOpen={() => {
-                if (!drag.current?.moved) navigate('/');
-              }}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* The info strip: what's centered, with its actions. */}
-      <div className="mx-auto max-w-md text-center">
-        {activeIsResearch ? (
-          <div>
-            <p className="font-display text-[15px] font-semibold text-content">{researching}</p>
-            <p className="mt-0.5 text-[12px] text-muted">
-              The desk is researching this market right now — cards appear as they're found.
-            </p>
-            <Link to="/" className="btn-primary mt-3 inline-flex">
-              Watch the research
-            </Link>
-          </div>
-        ) : active ? (
-          <div>
-            <p className="font-display text-[15px] font-semibold text-content">{active.name}</p>
-            <p className="mt-0.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[12px] text-muted">
-              <span>{active.scopeDefinition.vertical}</span>
-              {active.scopeDefinition.geography && (
-                <span className="inline-flex items-center gap-1">
-                  <MapPin className="h-3 w-3" />
-                  {active.scopeDefinition.geography}
-                </span>
-              )}
-              <span className="inline-flex items-center gap-1">
-                {active.engine === 'cloud' ? (
-                  <>
-                    <Cloud className="h-3 w-3 text-teal-500" /> Sentinel cloud
-                  </>
-                ) : (
-                  <>
-                    <Cpu className="h-3 w-3" /> Local engine
-                  </>
-                )}
-              </span>
-              <span className="text-faint">
-                {new Date(active.createdAt).toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                })}
-              </span>
-              <span className="tabular-nums text-faint">
-                {activeIdx + 1} / {count}
-              </span>
-            </p>
-            <div className="mt-3 flex items-center justify-center gap-2">
-              <button type="button" className="btn-primary" onClick={() => onOpen(active.id)}>
-                Open deck
-                <ArrowRight className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                title={`Delete "${active.name}"`}
-                onClick={() => onDelete(active)}
-                className="grid h-9 w-9 place-items-center rounded-lg border border-border text-faint transition-colors hover:border-red-300 hover:bg-red-500/10 hover:text-red-500"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
 export default function MarketsListPage() {
   const markets = useMarkets();
-  const deleteDeck = useDeleteDeck();
-  const navigate = useNavigate();
-  const open = (id: string) => navigate(`/markets/${id}/deck`);
-  // A deck being researched right now belongs on the shelf already.
   const session = useResearchSession((s) => s.session);
   const researching = session?.running ? session.query : null;
 
-  const sorted = useMemo(
-    () =>
-      [...((markets.data ?? []) as MarketWithEngine[])].sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-      ),
-    [markets.data],
-  );
-
   return (
-    <div className="mx-auto max-w-5xl">
-      <div className="mb-2 flex items-end justify-between">
+    <div className="mx-auto max-w-6xl">
+      <div className="mb-6 flex items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-semibold text-content">All decks</h1>
           <p className="mt-1 text-sm text-muted">
-            Every market you've researched, as a deck of cards. Drag the shelf — oldest left,
-            newest right.
+            Every market you have researched, as a deck of cards.
           </p>
         </div>
-        <Link to="/" className="btn-primary">
+        <Link to="/" className="btn-primary shrink-0">
           <PlusCircle className="h-4 w-4" />
           New deck
         </Link>
@@ -380,34 +413,23 @@ export default function MarketsListPage() {
 
       <QueryBoundary
         query={markets}
-        loading={<CardGridSkeleton count={3} />}
+        loading={<CardGridSkeleton count={4} />}
         isEmpty={(list) => list.length === 0 && !researching}
         empty={
           <EmptyState
             title="No decks yet"
-            description="Describe a market in plain language and we'll research it into a deck of cards."
+            description="Describe a market in plain language and it is researched into a deck of cards, with every figure sourced."
             icon={<img src={logoMark} alt="" className="h-6 w-6 opacity-40 grayscale" />}
             action={
               <Link to="/" className="btn-primary mt-2">
                 <PlusCircle className="h-4 w-4" />
-                Create your first deck
+                Build your first deck
               </Link>
             }
           />
         }
       >
-        {() => (
-          <DeckShelf
-            decks={sorted}
-            researching={researching}
-            onOpen={open}
-            onDelete={(m) => {
-              if (confirm(`Are you sure you want to delete "${m.name}"?`)) {
-                deleteDeck.mutate(m.id);
-              }
-            }}
-          />
-        )}
+        {(list) => <Library markets={list} researching={researching} />}
       </QueryBoundary>
     </div>
   );
