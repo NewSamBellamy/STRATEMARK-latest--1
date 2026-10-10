@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { buildDataset } from '@mi/mocks';
-import { buildCmsInput, computeCms } from '@mi/contracts';
 import { renderWithProviders } from '@/test/test-utils';
 import { GameCard } from './GameCard';
 
@@ -21,7 +20,7 @@ function hydrate(cardId: string) {
 }
 
 describe('GameCard', () => {
-  it('renders the required face fields (spec §7) for a company card', () => {
+  it('shows a collectible face with truthful metrics, not a quality rating', () => {
     const cwc = hydrate(companyCard.id);
     const deckUserValues = data.metrics
       .filter((m) => m.metricType === 'users' && m.confidence !== 'unknown' && m.value !== null)
@@ -29,21 +28,10 @@ describe('GameCard', () => {
     renderWithProviders(<GameCard data={cwc} deckUserValues={deckUserValues} />);
     expect(screen.getAllByText('GraceWear Global').length).toBeGreaterThan(0);
     expect(screen.getByText(cwc.company!.oneLiner)).toBeInTheDocument();
-    expect(screen.getByText('ARR')).toBeInTheDocument();
-    expect(screen.getByText('Team')).toBeInTheDocument();
-    // The score is REAL: derived from the same shared CMS engine the tiers use
-    // (continuous weighted-tier average → 0–100), never a hardcoded per-tier
-    // constant. This replaced `tierToScore`, which pinned every Tier-8 company
-    // to a cosmetic "95" and produced meaningless four-way ties.
-    const cms = computeCms(buildCmsInput(cwc.metrics), { deckUserValues });
-    const nudge = cwc.card.tier != null && cms.baseTier != null ? cwc.card.tier - cms.baseTier : 0;
-    const adjusted = Math.min(8, Math.max(1, (cms.weightedTierRaw as number) + nudge));
-    // The 2K rule: 99 ceiling, unknown signals shave points.
-    const expected = Math.max(
-      1,
-      Math.min(99, Math.round((adjusted / 8) * 99 - Math.max(0, 5 - cms.availableSignalCount) * 2)),
-    );
-    expect(screen.getByText(String(expected))).toBeInTheDocument();
+    expect(screen.getByText('Revenue / ARR')).toBeInTheDocument();
+    expect(screen.getByText('Stage pending')).toBeInTheDocument();
+    expect(screen.queryByText(/Very Strong|Very Weak/)).not.toBeInTheDocument();
+    expect(screen.getByText(/research needed/i)).toBeInTheDocument();
     // HQ shown.
     expect(screen.getByText(/Los Angeles/)).toBeInTheDocument();
   });
@@ -53,17 +41,71 @@ describe('GameCard', () => {
     // own digits. Growth indicators are banned until real history exists.
     renderWithProviders(<GameCard data={hydrate(companyCard.id)} />);
     expect(screen.queryByText(/%\s*YoY/i)).not.toBeInTheDocument();
-    // Confidence provenance chips render instead (Verified / Estimated).
-    expect(
-      screen.getAllByText(/Verified|Estimated|User verified/).length,
-    ).toBeGreaterThan(0);
+    // Dense provenance labels stay off the collectible face; its footer carries
+    // the source count and the first-look inspector owns source receipts.
+    expect(screen.queryByText(/Source linked|Not confirmed|Human checked/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/sourced figures|research needed/i)).toBeInTheDocument();
   });
 
   it('fires onOpen when clicked', async () => {
     const onOpen = vi.fn();
-    const { user } = renderWithProviders(<GameCard data={hydrate(companyCard.id)} onOpen={onOpen} />);
-    await user.click(screen.getByRole('button', { name: /GraceWear Global/ }));
+    const { user } = renderWithProviders(
+      <GameCard data={hydrate(companyCard.id)} onOpen={onOpen} />,
+    );
+    await user.click(screen.getByRole('button', { name: /^GraceWear Global — Company card$/ }));
     expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it('does not treat the generic placeholder theme as a company brand', () => {
+    const cwc = hydrate(companyCard.id);
+    renderWithProviders(
+      <GameCard
+        data={{
+          ...cwc,
+          company: {
+            ...cwc.company!,
+            brandTheme: {
+              primary: '#4f46e5',
+              secondary: '#a5b4fc',
+              accent: '#f59e0b',
+              text: '#0f172a',
+              background: '#ffffff',
+              fontFamily: null,
+              source: 'default',
+            },
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId('collectible-card-front')).not.toHaveStyle('--card-accent: #4f46e5');
+  });
+  it('does not pass off a model-guessed palette as the company brand', () => {
+    const cwc = hydrate(companyCard.id);
+    renderWithProviders(
+      <GameCard
+        data={{
+          ...cwc,
+          company: {
+            ...cwc.company!,
+            brandTheme: { ...cwc.company!.brandTheme!, source: 'llm' },
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId('collectible-card-front')).not.toHaveStyle('--card-accent: #111827');
+  });
+
+  it('keeps save and share controls outside the card-opening button', async () => {
+    const onOpen = vi.fn();
+    const onShare = vi.fn();
+    const { user } = renderWithProviders(
+      <GameCard data={hydrate(companyCard.id)} onOpen={onOpen} onShare={onShare} />,
+    );
+    const inspect = screen.getByRole('button', { name: /^GraceWear Global — Company card$/ });
+    expect(inspect.querySelector('button')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Share card' }));
+    expect(onShare).toHaveBeenCalledOnce();
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it('shows a sourced-risk indicator on a Vice card', () => {

@@ -20,6 +20,7 @@
  */
 import { createGenAiClient } from '@mi/research';
 import type { LlmClient } from '@mi/research';
+import { DEFAULT_VERTEX_GROUNDED_MODEL, DEFAULT_VERTEX_STRUCTURE_MODEL } from '@mi/research';
 import { hasServerCredentials, type ServiceEnv } from '../env';
 
 export type KeySource = 'caller' | 'server';
@@ -60,7 +61,7 @@ export interface ResolveOptions {
   /** Raw `X-Gemini-Key` header value, if the caller sent one. */
   callerKey?: string | undefined;
   /** Per-request metering hook. */
-  onCall?: (info: { model: string; kind: 'ground' | 'structure' }) => void;
+  onCall?: (info: { model: string; kind: 'ground' | 'structure' | 'judge' }) => void;
   /** Escape hatch for tests. */
   factory?: typeof createGenAiClient;
 }
@@ -82,11 +83,16 @@ export function resolveClient(opts: ResolveOptions): ResolvedClient {
   if (!hasServerCredentials(opts.env)) throw new NoCredentialsError();
 
   return {
-    client: make(
-      opts.env.vertex
-        ? { vertex: opts.env.vertex, onCall: opts.onCall }
+      client: make(
+        opts.env.vertex
+        ? {
+            vertex: opts.env.vertex,
+            model: DEFAULT_VERTEX_GROUNDED_MODEL,
+            structureModel: DEFAULT_VERTEX_STRUCTURE_MODEL,
+            onCall: opts.onCall,
+          }
         : { apiKey: opts.env.geminiApiKey, onCall: opts.onCall },
-    ),
+      ),
     keySource: 'server',
   };
 }

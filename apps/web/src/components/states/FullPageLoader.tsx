@@ -45,7 +45,7 @@ export function FullPageLoader({ label }: { label?: string }) {
         <span className="max-w-sm text-center text-[11px] leading-relaxed text-faint">
           {elapsed < 35
             ? 'Live research usually runs 15–30 seconds — every figure arrives with its sources.'
-            : 'Still working — several research passes are queued (free-tier pacing keeps your key under its rate cap). This tab is in line and WILL land; feel free to browse other tabs meanwhile.'}
+            : 'Still working — your key’s rate cap keeps research paced, and this section is in line. It will land; feel free to browse other tabs meanwhile.'}
         </span>
       )}
     </div>

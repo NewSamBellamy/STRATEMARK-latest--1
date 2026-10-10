@@ -5,15 +5,43 @@
  * permissive (missing → Unknown/null) to honor the missing-data protocol.
  */
 import { z } from 'zod';
-import { cardTypeSchema, confidenceSchema } from '@mi/contracts';
+import { cardTypeSchema, modelConfidenceSchema, metricPassageSupportSchema } from '@mi/contracts';
+import { FUNDING_ROUND_TYPES, parseFundingRoundType } from './proxy-estimator';
+
+/**
+ * Coerce a model's funding round into the canonical vocabulary, or drop it.
+ *
+ * Dropping is the honest outcome for an unreadable round: the alternative is
+ * either guessing a dilution bracket (an invented figure) or failing the entire
+ * enrichment over a single optional fact.
+ */
+function normalizeFundingRound(raw: unknown): unknown {
+  if (raw === undefined) return undefined; // let .default() apply
+  if (raw === null || typeof raw !== 'object') return null;
+  const round = raw as { amount?: unknown; roundType?: unknown };
+  if (typeof round.amount !== 'number' || !Number.isFinite(round.amount)) return null;
+  const roundType =
+    typeof round.roundType === 'string' ? parseFundingRoundType(round.roundType) : null;
+  if (roundType === null) return null;
+  return { amount: round.amount, roundType };
+}
+
+const metricPassageSchema = metricPassageSupportSchema;
 
 export const metricOutSchema = z.object({
   value: z.number().nullable().default(null),
-  confidence: confidenceSchema.default('unknown'),
+  // Model-facing vocabulary: `user_verified` is human-only and is excluded from
+  // the generated native responseSchema (issue #48).
+  confidence: modelConfidenceSchema,
   /** Index into the grounded citations array; null if not attributable. */
   sourceIndex: z.number().int().nullable().default(null),
   /** One-line "how we got this" note for estimated figures. */
   method: z.string().nullable().default(null),
+  passageSupport: metricPassageSchema.nullable().optional(),
+  /** Claim selector only. Actual attribution comes from provider metadata. */
+  reportedClaim: metricPassageSchema.omit({ format: true }).extend({
+    asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  }).nullish(),
 });
 export type MetricOut = z.infer<typeof metricOutSchema>;
 
@@ -23,6 +51,10 @@ export const marketPlanOutSchema = z.object({
   geography: z.string().nullable().default(null),
   notes: z.string().nullable().default(null),
   searchThemes: z.array(z.string()).default([]),
+  companyScope: z.object({
+    mode: z.enum(['market', 'selected_only']).default('market'),
+    names: z.array(z.string().trim().min(1)).max(30).default([]),
+  }).default({ mode: 'market', names: [] }),
 });
 
 // Tolerant of the model returning either { companies: [...] } or a bare [...].
@@ -79,6 +111,7 @@ export const enrichmentOutSchema = z.object({
       valuation: metricOutSchema.nullish(),
       market_cap: metricOutSchema.nullish(),
       arr: metricOutSchema.nullish(),
+      aum: metricOutSchema.nullish(),
       users: metricOutSchema.nullish(),
       employees: metricOutSchema.nullish(),
     })
@@ -86,9 +119,22 @@ export const enrichmentOutSchema = z.object({
   facts: z
     .object({
       headcount: z.number().nullable().default(null),
+      /**
+       * Constrained outcome: the round selects a dilution bracket and so moves
+       * the estimated valuation. The enum is what reaches the native
+       * `responseSchema`, so a conforming model can only emit a canonical
+       * value. The preprocess handles the non-conforming case without letting
+       * one bad field cost us the whole company: recognisable prose is
+       * normalised, and anything else drops the round to null rather than
+       * inventing a bracket for it (issue #48).
+       */
       lastFundingRound: z
-        .object({ amount: z.number(), roundType: z.string() })
-        .nullable()
+        .preprocess(
+          normalizeFundingRound,
+          z
+            .object({ amount: z.number(), roundType: z.enum(FUNDING_ROUND_TYPES) })
+            .nullable(),
+        )
         .default(null),
       scrapedPricing: z
         .object({
@@ -161,7 +207,74 @@ export const verifyMetricOutSchema = z.object({
   rationale: z.string().default(''),
   /** One-line method note explaining where the figure comes from. */
   methodNote: z.string().nullable().default(null),
+  passageSupport: metricPassageSchema.nullable().default(null),
 });
+
+/** Structured output for the batch verification pass (verifyCompanyMetrics):
+ * one verdict per examined figure, keyed by metric type. Bare-array tolerant
+ * like the hunt schema — single-list structured outputs get the wrapper. */
+export const batchVerifyOutSchema = z.preprocess(
+  (input) => (Array.isArray(input) ? { metrics: input } : input),
+  z.object({
+    metrics: z
+      .array(
+        z.object({
+          metricType: z.enum([
+            'market_cap',
+            'valuation',
+            'market_share',
+            'arr',
+            'aum',
+            'users',
+            'employees',
+          ]),
+          verdict: z.enum(['supported', 'contradicted', 'unverified']).default('unverified'),
+          /** Best current grounded value in the metric's native unit; null if unknown. */
+          currentValue: z.number().nullable().default(null),
+          rationale: z.string().default(''),
+          methodNote: z.string().nullable().default(null),
+          passageSupport: metricPassageSchema.nullable().default(null),
+        }),
+      )
+      .default([]),
+  }),
+);
+
+/**
+ * Output of the market-batch estimated fill (WS5): ONE grounded call proposes
+ * estimated-tier figures for several companies at once, each with its own
+ * support line. These land at estimated tier with provider attribution —
+ * verified stays citation-earned through the original-source gates.
+ */
+export const marketBatchOutSchema = z.preprocess(
+  (input) => (Array.isArray(input) ? { estimates: input } : input),
+  z.object({
+    estimates: z
+      .array(
+        z.object({
+          companyName: z.string().min(1),
+          metricType: z.enum([
+            'market_cap',
+            'valuation',
+            'market_share',
+            'arr',
+            'aum',
+            'users',
+            'employees',
+          ]),
+          value: z.number(),
+          /** The unit the figure is quoted in (USD, count, percent, or a convertible currency code). */
+          unit: z.string().min(1).max(8),
+          /** Literal as-of date the support names; null when none is stated. */
+          asOf: z.string().max(40).nullable().default(null),
+          /** One line naming who reported the figure and where. */
+          methodNote: z.string().min(1).max(400),
+        }),
+      )
+      .max(80)
+      .default([]),
+  }),
+);
 
 /**
  * Output of the multi-figure metrics hunt (huntCompanyMetrics): one grounded
@@ -180,6 +293,7 @@ export const huntMetricsOutSchema = z.preprocess(
             'valuation',
             'market_share',
             'arr',
+            'aum',
             'users',
             'employees',
           ]),
@@ -187,6 +301,7 @@ export const huntMetricsOutSchema = z.preprocess(
           value: z.number().nullable().default(null),
           /** One line naming where the figure comes from. */
           methodNote: z.string().nullable().default(null),
+          passageSupport: metricPassageSchema.nullable().default(null),
         }),
       )
       .default([]),
@@ -199,13 +314,14 @@ export const huntMetricsOutSchema = z.preprocess(
  * about the market rather than about a company, so they share a research call —
  * two card types for the price of one against a 15 RPM free-tier ceiling.
  *
- * `sourceIndex` points into the grounded citation list so each claim keeps its
- * evidence, the same discipline metrics and vice claims already follow.
+ * `sourceIndex` preserves the primary receipt; `sourceIndexes` retains every
+ * additional grounded source that directly supports the same finding.
  */
 const marketClaimSchema = z.object({
   title: z.string(),
   summary: z.string(),
   sourceIndex: z.number().int().nullable().default(null),
+  sourceIndexes: z.array(z.number().int()).default([]),
   /** The scannable substance behind the headline — 1-2 sentences each. */
   keyPoints: z.array(z.string()).default([]),
 });
@@ -298,6 +414,7 @@ export const redTeamOutSchema = z.preprocess(
             'valuation',
             'market_share',
             'arr',
+            'aum',
             'users',
             'employees',
           ]),

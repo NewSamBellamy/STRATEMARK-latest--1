@@ -11,6 +11,7 @@ import {
 import { publisherOf, type LiveIntelItem } from '@mi/contracts';
 import { useCompany, useDashboardTab, useRerunDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { HydratingPanel } from './HydratingPanel';
 import { Modal } from '@/components/ui/Modal';
 import { AiCover } from '@/components/media/AiCover';
 import { LiveBadge } from '../LiveBadge';
@@ -257,12 +258,46 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
   const rerun = useRerunDashboardTab(companyId, 'live_intel');
   const [openId, setOpenId] = useState<string | null>(null);
   return (
-    <QueryBoundary query={query} isEmpty={(r) => r.content.items.length === 0}>
+    <QueryBoundary query={query} loading={<HydratingPanel label="Live Intel" />}
+      isEmpty={(r) => r.content.items.length === 0}
+      empty={(r) => {
+        // Empty-state taxonomy (red team #16): "researched, nothing surfaced"
+        // and "never searched" are different facts and must read differently.
+        const researchedAt = r.lastRefreshedAt
+          ? new Date(r.lastRefreshedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+          : null;
+        return (
+        <div className="panel p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-display text-sm font-semibold text-content">
+                {researchedAt ? 'No stories met the sourcing bar' : 'No stories yet'}
+              </h3>
+              <p className="mt-1 max-w-xl text-sm text-muted">
+                {researchedAt
+                  ? <>Live Intel researched {companyName} on {researchedAt} and nothing published surfaced. Sources come and go — search again for fresh coverage.</>
+                  : <>Live Intel searches fresh coverage of {companyName}. Run the first search now — or after the next research pass — and the latest verified stories will collect here.</>}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              disabled={rerun.isPending}
+              title="Run a fresh grounded news search now."
+              onClick={() => rerun.mutate()}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${rerun.isPending ? 'animate-spin' : ''}`} />
+              {rerun.isPending ? 'Searching latest news…' : 'Search latest news'}
+            </button>
+          </div>
+        </div>
+        );
+      }}>
       {(result) => {
         const ordered = newsOrder(result.content.items);
         const open = openId != null ? (ordered.find((i) => i.id === openId) ?? null) : null;
         return (
-          <div>
+          <div className="cascade">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-muted">
                 Latest first — the most recent verified story leads. Click a story for the full

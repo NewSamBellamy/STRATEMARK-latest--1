@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { assertCapturable, CaptureError, type CaptureReceipt } from '../lib/capture';
-import { verifyBySignature, verifyCapture, parseVisionVerdict } from '../lib/verify';
+import { zodToGenAiSchema } from '@mi/research';
+import {
+  VISION_BLOCK_KINDS,
+  parseVisionVerdict,
+  verifyBySignature,
+  verifyCapture,
+  visionVerdictSchema,
+} from '../lib/verify';
 import { renderFallbackCard, fallbackCaption } from '../lib/fallback';
 
 function receipt(over: Partial<CaptureReceipt> = {}): CaptureReceipt {
@@ -144,9 +151,67 @@ describe('parseVisionVerdict', () => {
     expect(parseVisionVerdict('{"isRealPage":false,"blockKind":"alien_invasion"}').blockKind).toBe('empty');
   });
 
-  it('clamps confidence into range', () => {
-    expect(parseVisionVerdict('{"isRealPage":true,"confidence":7}').confidence).toBe(1);
-    expect(parseVisionVerdict('{"isRealPage":true,"confidence":-2}').confidence).toBe(0);
+  // ------------------------------------------------------------------------
+  // Strict agent output — issue #48
+  // ------------------------------------------------------------------------
+
+  const valid = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      isRealPage: true,
+      blockKind: null,
+      confidence: 0.9,
+      evidence: 'A product landing page with pricing.',
+      ...over,
+    });
+
+  it('accepts a verdict that conforms to the contract', () => {
+    const v = parseVisionVerdict(valid());
+    expect(v).toMatchObject({ isRealPage: true, blockKind: null, confidence: 0.9 });
+    expect(v.evidence).toBe('A product landing page with pricing.');
+  });
+
+  it('refuses an out-of-range confidence instead of reading it as certainty', () => {
+    // Clamping 7 to 1.0 turned malformed output into MAXIMUM confidence — the
+    // worst possible reading. Out of range means the model did not follow the
+    // contract, so the capture is unverified and we fail closed.
+    const v = parseVisionVerdict(valid({ confidence: 7 }));
+    expect(v.isRealPage).toBe(false);
+    expect(v.confidence).toBe(0); // the fail-closed sentinel, not a clamp
+    expect(v.evidence).toMatch(/did not match/i);
+  });
+
+  it('invents no confidence figure for output it could not read', () => {
+    // The old parser returned 0.5 for unparseable output: a plausible-looking
+    // number standing in for no information at all.
+    const v = parseVisionVerdict('the screenshot seems fine to me');
+    expect(v.isRealPage).toBe(false);
+    expect(v.confidence).not.toBe(0.5);
+    expect(v.evidence).toMatch(/did not match|could not/i);
+  });
+
+  it('does not trust a verdict that states no evidence', () => {
+    // `evidence` is printed in the report as the reason. A verdict with none is
+    // unusable, so it must not pass as a real page.
+    const v = parseVisionVerdict('{"isRealPage":true,"confidence":0.95}');
+    expect(v.isRealPage).toBe(false);
+  });
+
+  it('rejects a non-boolean isRealPage rather than coercing it', () => {
+    expect(parseVisionVerdict(valid({ isRealPage: 'yes' })).isRealPage).toBe(false);
+  });
+});
+
+describe('the vision contract handed to the model (issue #48)', () => {
+  it('constrains blockKind to the known set in the native response schema', () => {
+    const schema = zodToGenAiSchema(visionVerdictSchema);
+    const props = schema.properties as Record<string, Record<string, unknown>>;
+    expect(props.blockKind!.enum).toEqual([...VISION_BLOCK_KINDS]);
+    expect(props.isRealPage!.type).toBe('BOOLEAN');
+  });
+
+  it('requires the model to state its evidence', () => {
+    const schema = zodToGenAiSchema(visionVerdictSchema);
+    expect(schema.required as string[]).toContain('evidence');
   });
 });
 

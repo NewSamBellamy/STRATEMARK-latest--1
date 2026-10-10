@@ -14,6 +14,8 @@
  *      assigned from scratch — see `applyNudge`, which throws on |nudge| > 1).
  */
 import type { Confidence, MaturityTier } from './enums';
+import type { CompanyMetric } from './types';
+import { comparableMetricBasis } from './metric-definition';
 import {
   CMS_SIGNAL_KEYS,
   CMS_WEIGHTS,
@@ -173,13 +175,14 @@ export function computeCms(
  * metric table to the five weighted signals in one audited place.
  */
 export interface MetricLike {
-  metricType: 'market_cap' | 'valuation' | 'market_share' | 'arr' | 'users' | 'employees';
+  metricType: 'market_cap' | 'valuation' | 'market_share' | 'arr' | 'aum' | 'users' | 'employees';
   value: number | null;
   confidence: Confidence;
+  passageSupport?: CompanyMetric['passageSupport'];
 }
 
 export function buildCmsInput(metrics: MetricLike[]): CmsInput {
-  const find = (type: MetricLike['metricType']) => metrics.find((m) => m.metricType === type);
+  const find = (type: MetricLike['metricType']) => metrics.find((m) => m.metricType === type && comparableMetricBasis(m));
 
   const valuation = find('valuation');
   const marketCap = find('market_cap');

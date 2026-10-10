@@ -62,5 +62,22 @@ service cloud.firestore {
         allow read, write: if isOwner(userId);
       }
     }
+
+    // Top-level collections - API only access
+    match /decks/{deckId} {
+      allow read, write: if false;
+    }
+
+    match /markets/{marketId} {
+      allow read, write: if false;
+    }
+
+    match /saved_cards/{docId} {
+      allow read, write: if false;
+    }
+    
+    match /entitlements/{docId} {
+      allow read, write: if false;
+    }
   }
 }

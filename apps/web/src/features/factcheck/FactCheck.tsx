@@ -1,29 +1,10 @@
-/**
- * Inline grounded fact-check. Sits next to any claim/figure; on click it runs a
- * live Google-Search verification and renders a verdict pill + rationale +
- * sources in place — the "always be able to fact-check" affordance.
- *
- * When the claim IS a stored metric (companyId + metricType provided) a
- * contradiction is no longer a dead end: the verdict carries the corrected
- * figure, and one click applies it through the repository's live-verification
- * write path — the value revises with citations, the company re-tiers, and
- * every open view updates. A fact-check that can't fix anything is a smoke
- * detector without a bell.
- */
-import { useEffect, useRef, useState } from 'react';
-import {
-  CheckCheck,
-  ExternalLink,
-  Loader2,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldQuestion,
-  Wand2,
-} from 'lucide-react';
-import type { FactCheckResult, FactCheckVerdict, MetricType } from '@mi/contracts';
+/** Stored metrics use one protected verification/write-back; narratives remain read-only checks. */
+import { useState } from 'react';
+import { CheckCheck, ExternalLink, Loader2, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
+import type { FactCheckResult, FactCheckVerdict, MetricType, VerifyMetricResult } from '@mi/contracts';
 import { useFactCheck, useVerifyMetric } from '@/hooks/data';
-import { formatMetricValue } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { sourceUrl } from '@/features/card/card-view';
 
 const VERDICT_STYLE: Record<FactCheckVerdict, { label: string; cls: string; Icon: typeof ShieldCheck }> = {
   supported: { label: 'Supported', cls: 'border-emerald-300 bg-emerald-50 text-emerald-800', Icon: ShieldCheck },
@@ -31,210 +12,94 @@ const VERDICT_STYLE: Record<FactCheckVerdict, { label: string; cls: string; Icon
   unverified: { label: 'Unverified', cls: 'border-slate-300 bg-slate-100 text-slate-700', Icon: ShieldQuestion },
 };
 
-export function FactCheck({
-  claim,
-  companyName,
-  context,
-  companyId,
-  metricType,
-  storedValue,
-  className,
-}: {
-  claim: string;
-  companyName: string | null;
-  context?: string | null;
-  /** Present when the claim is a stored metric — unlocks one-click correction. */
-  companyId?: string | null;
-  metricType?: MetricType | null;
-  storedValue?: number | null;
-  className?: string;
+export function FactCheck({ claim, companyName, context, companyId, metricType, className }: {
+  claim: string; companyName: string | null; context?: string | null;
+  companyId?: string | null; metricType?: MetricType | null; storedValue?: number | null; className?: string;
 }) {
   const factCheck = useFactCheck();
   const verify = useVerifyMetric();
   const [result, setResult] = useState<FactCheckResult | null>(null);
-  // What the write-back actually did — the confirmation must tell the truth:
-  // 'corrected' when the stored value/badge changed, 'confirmed' when live
-  // evidence re-affirmed the stored figure (freshness stamp still updates).
-  const [applied, setApplied] = useState<'corrected' | 'confirmed' | null>(null);
+  const [outcome, setOutcome] = useState<VerifyMetricResult | null>(null);
+  const anchored = !!companyId && !!metricType;
+  const pending = verify.isPending || factCheck.isPending;
+  const unavailable = anchored && !verify.isAvailable;
 
-  const run = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (factCheck.isPending) return;
-    factCheck.mutate(
-      {
-        claim,
-        companyName,
-        context: context ?? null,
-        companyId: companyId ?? null,
-        metricType: metricType ?? null,
-        storedValue: storedValue ?? null,
-      },
-      { onSuccess: setResult },
-    );
+  const run = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (pending || unavailable) return;
+    setResult(null);
+    setOutcome(null);
+    if (companyId && metricType) {
+      // Never show a summary-only verdict first or silently launch a second hunt.
+      verify.mutate({ companyId, metricType }, { onSuccess: (verified) => {
+        setOutcome(verified);
+        setResult({ verdict: verified.verdict, rationale: verified.rationale, citations: verified.citations });
+      } });
+    } else {
+      factCheck.mutate({ claim, companyName, context: context ?? null }, { onSuccess: setResult });
+    }
   };
 
-  const metricAnchored = !!companyId && !!metricType && verify.isAvailable && !applied;
-  const canApply =
-    result?.verdict === 'contradicted' && result.correctedValue != null && metricAnchored;
-  // A non-supported verdict with NO usable correction still demands action —
-  // "contradicted" with nothing happening is the exact failure the founder
-  // filmed twice. These run the full re-verification (which can correct,
-  // downgrade, or re-confirm) instead of the fast path.
-  const needsFullReconcile =
-    metricAnchored &&
-    result != null &&
-    result.verdict !== 'supported' &&
-    !(result.verdict === 'contradicted' && result.correctedValue != null);
-
-  // AUTO-RECONCILE: any anchored, non-supported verdict resolves ITSELF.
-  // Contradicted with a cited figure → the fast path applies that exact
-  // evidence (milliseconds). Contradicted without a usable figure, or
-  // unverified → the full re-verification runs automatically. Nothing waits
-  // for a click; the buttons below remain only as retry paths.
-  const autoFired = useRef(false);
-  useEffect(() => {
-    if (autoFired.current || verify.isPending || !companyId || !metricType) return;
-    if (!canApply && !needsFullReconcile) return;
-    autoFired.current = true;
-    verify.mutate(
-      {
-        companyId,
-        metricType,
-        correction:
-          canApply && result?.correctedValue != null
-            ? {
-                value: result.correctedValue,
-                citations: result.citations,
-                rationale: result.rationale ?? null,
-                asOf: result.correctedAsOf ?? null,
-              }
-            : null,
-      },
-      { onSuccess: (res) => setApplied(res.changed ? 'corrected' : 'confirmed') },
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canApply, needsFullReconcile]);
-  // Manual retry path for the full-reconcile case (auto already fired once).
-  const canReconcile = needsFullReconcile;
-
-  const apply = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!companyId || !metricType || verify.isPending) return;
-    // The reconciliation ran either way: a correction wrote back, a downgrade
-    // wrote back, or fresh evidence re-confirmed the badge. All three resolve
-    // the on-screen disagreement. A contradicted verdict carries its own
-    // evidence — passed through so the retry is instant, not a re-hunt.
-    verify.mutate(
-      {
-        companyId,
-        metricType,
-        correction:
-          result?.verdict === 'contradicted' && result.correctedValue != null
-            ? {
-                value: result.correctedValue,
-                citations: result.citations,
-                rationale: result.rationale ?? null,
-                asOf: result.correctedAsOf ?? null,
-              }
-            : null,
-      },
-      { onSuccess: (res) => setApplied(res.changed ? 'corrected' : 'confirmed') },
-    );
-  };
+  const confirmation = outcome ? outcome.metric.confidence === 'user_verified'
+    ? 'Your human-reviewed figure was preserved; automated research did not replace it.'
+    : outcome.verdict === 'unverified'
+      ? 'The figure remains unverified. This attempt did not renew its evidence.'
+      : outcome.changed && outcome.verdict === 'contradicted'
+        ? 'Stored figure updated from accepted evidence; connected views refreshed.'
+        : 'Stored figure supported by accepted evidence.'
+    : null;
 
   if (result) {
-    const v = VERDICT_STYLE[result.verdict];
-    return (
-      <div className={cn('rounded-lg border border-border bg-surface-2 p-2.5 text-left', className)}>
-        <span className={cn('chip', v.cls)}>
-          <v.Icon className="h-3.5 w-3.5" />
-          {v.label}
-        </span>
-        {result.rationale && (
-          <p className="mt-1.5 text-[11px] leading-relaxed text-muted">{result.rationale}</p>
-        )}
-        {canApply && metricType && (
-          <button
-            type="button"
-            onClick={apply}
-            disabled={verify.isPending}
-            className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-60 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-          >
-            {verify.isPending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Wand2 className="h-3 w-3" />
-            )}
-            {verify.isPending
-              ? `Correcting to ${formatMetricValue(metricType, result.correctedValue!)}…`
-              : `Retry correction to ${formatMetricValue(metricType, result.correctedValue!)}`}
-          </button>
-        )}
-        {canReconcile && (
-          <button
-            type="button"
-            onClick={apply}
-            disabled={verify.isPending}
-            className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-60 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
-          >
-            {verify.isPending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Wand2 className="h-3 w-3" />
-            )}
-            {verify.isPending ? 'Re-verifying…' : 'Re-verify & update the badge'}
-          </button>
-        )}
-        {result.verdict === 'supported' && metricType && (
-          <p className="mt-1.5 text-[11px] font-medium text-positive">
-            Confirms the stored figure.
-          </p>
-        )}
-        {applied && (
-          <p className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-positive">
-            <CheckCheck className="h-3.5 w-3.5" />
-            {applied === 'corrected'
-              ? 'Corrected from live sources — value, badge, card, and tier updated everywhere.'
-              : 'Re-checked against live sources — the stored figure stands; freshness updated.'}
-          </p>
-        )}
-        {result.citations.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
-            {result.citations.slice(0, 4).map((c, i) => (
-              <a
-                key={i}
-                href={c.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <ExternalLink className="h-3 w-3" />
-                {c.title || 'source'}
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
-    );
+    const style = VERDICT_STYLE[result.verdict];
+    return <div className={cn('rounded-lg border border-border bg-surface-2 p-2.5 text-left', className)}>
+      <span className={cn('chip', style.cls)}><style.Icon className="h-3.5 w-3.5" />{style.label}</span>
+      {result.rationale && <p className="mt-1.5 text-[11px] leading-relaxed text-muted">{result.rationale}</p>}
+      {confirmation && <p className={cn('mt-2 inline-flex items-center gap-1 text-[11px] font-medium',
+        outcome?.verdict === 'unverified' ? 'text-muted' : 'text-positive')}>
+        {outcome?.verdict !== 'unverified' && <CheckCheck className="h-3.5 w-3.5" />}{confirmation}
+      </p>}
+      {outcome?.verdict === 'unverified' && <button type="button" onClick={run} disabled={pending}
+        className="mt-2 block text-[11px] text-primary-ink hover:underline">Retry verification</button>}
+      {outcome?.originalSources && (outcome.originalSources.length === 0 ?
+        <p className="mt-2 text-[11px] text-muted">No original pages were attempted; search returned no usable source links. This does not mean no information exists.</p> :
+        <details className="mt-2 text-[11px] text-muted">
+          <summary className="cursor-pointer text-primary-ink">Inspect source checks ({outcome.originalSources.length})</summary>
+          <p className="mt-2">Reading a page does not confirm the figure. These are retrieval results, separate from the verdict above.</p>
+          <ul className="mt-2 space-y-3">
+            {outcome.originalSources.map((source, index) => {
+              const url = sourceUrl(source.finalUrl) ?? sourceUrl(source.requestedUrl);
+              return <li key={index} className="border-t border-border pt-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{source.status === 'retrieved' ? 'Readable' : source.status === 'blocked' ? 'Blocked' : 'Unavailable'}</span>
+                  {url ? <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary-ink hover:underline"
+                    onClick={event => event.stopPropagation()}>{new URL(url).hostname}</a> : <span>Source link unavailable</span>}
+                </div>
+                <p className="mt-1">Retrieval attempted: {source.retrievedAt}</p>
+                {source.reason && <p className="mt-1">{source.reason}</p>}
+                {source.status === 'retrieved' && source.text && <>
+                  <p className="mt-1">{source.truncated ? 'Partial page extract' : 'Retained page extract'} · not a confirmed claim</p>
+                  <blockquote className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words border-l-2 border-border pl-2">{source.text}</blockquote>
+                </>}
+              </li>;
+            })}
+          </ul>
+        </details>)}
+      {result.citations.length > 0 && <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+        {result.citations.slice(0, 4).map((citation, index) => <a key={index} href={citation.url}
+          target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"
+          onClick={event => event.stopPropagation()}><ExternalLink className="h-3 w-3" />{citation.title || 'source'}</a>)}
+      </div>}
+    </div>;
   }
 
-  return (
-    <button
-      type="button"
-      onClick={run}
-      disabled={factCheck.isPending}
-      className={cn(
-        'inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-0.5 text-[11px] font-medium text-muted transition-colors hover:border-primary/50 hover:text-primary-ink disabled:opacity-60',
-        className,
-      )}
-    >
-      {factCheck.isPending ? (
-        <Loader2 className="h-3 w-3 animate-spin" />
-      ) : (
-        <ShieldQuestion className="h-3 w-3" />
-      )}
-      {factCheck.isPending ? 'Checking…' : 'Fact-check'}
+  const failed = anchored ? verify.isError : factCheck.isError;
+  return <div className={className}>
+    <button type="button" onClick={run} disabled={pending || unavailable}
+      title={unavailable ? 'This research connection does not support stored-metric verification.' : undefined}
+      className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-0.5 text-[11px] font-medium text-muted transition-colors hover:border-primary/50 hover:text-primary-ink disabled:opacity-60">
+      {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldQuestion className="h-3 w-3" />}
+      {pending ? 'Checking…' : unavailable ? 'Verification unavailable' : failed ? 'Retry verification' : 'Fact-check'}
     </button>
-  );
+    {failed && <p role="alert" className="mt-1 text-[11px] text-muted">The check could not finish. No result has been confirmed; try again.</p>}
+  </div>;
 }

@@ -82,6 +82,25 @@ function useIsDesktop(): boolean {
   return desktop;
 }
 
+function useCurrentRoute(): { isStartingPage: boolean } {
+  const [hash, setHash] = useState(() => (typeof window !== 'undefined' ? window.location.hash : ''));
+  useEffect(() => {
+    const onHashChange = () => setHash(window.location.hash);
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  const path = typeof window !== 'undefined' ? window.location.pathname : '';
+  const isStart =
+    !hash ||
+    hash === '#/' ||
+    hash.startsWith('#/new') ||
+    path === '/' ||
+    path === '/new';
+
+  return { isStartingPage: isStart };
+}
+
 /** Rotating status phrases shown inside the assistant "typing" bubble. */
 const THINKING_PHASES = [
   'Searching the web…',
@@ -215,6 +234,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
   const repo = useRepository();
   const qc = useQueryClient();
   const conversational = typeof repo.askResearch === 'function';
+  const { isStartingPage } = useCurrentRoute();
 
   const [openState, setOpenState] = useState(false);
   const [scope, setScope] = useState<ResearchScope | null>(null);
@@ -374,8 +394,15 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
       setScope(s);
       setOpenState(true);
       setBusy(true);
-      void repo
-        .deepDive(input)
+      // Completeness gate: before the report is served, the same readiness
+      // pass the living deck uses (free recovery → structured lanes → one
+      // hunt) takes its shot at the company's known gaps. Research failure
+      // must never block the answer the user asked for.
+      const readiness = input.companyId && repo.ensureReportReadiness
+        ? repo.ensureReportReadiness([input.companyId]).catch(() => undefined)
+        : Promise.resolve();
+      void readiness
+        .then(() => repo.deepDive(input))
         .then((r) => {
           setThread({
             id: 'oneshot',
@@ -389,6 +416,20 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           });
+          // A finished deep-dive is a finished product (red team #10): persist it
+          // as a Report so "Saved" opens the full-page reader instead of leaving
+          // long-form findings trapped in this panel.
+          void repo.saveReport?.({
+            kind: input.companyId ? 'company' : 'deck',
+            subjectId: input.companyId ?? 'deep-dive',
+            title: input.topic,
+            markdown: r.markdown,
+            citations: r.citations.map((c) => ({ title: c.title, url: c.url })),
+          })
+            .then((report) => {
+              if (report) setThread((prev) => (prev && prev.id === 'oneshot' ? { ...prev, reportId: report.id } : prev));
+            })
+            .catch(() => { /* the modal copy still reads fine unsaved; saving is best-effort */ });
         })
         .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
         .finally(() => setBusy(false));
@@ -457,8 +498,8 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     >
       {children}
 
-      {/* Floating pill — in floating mode, when minimized, a tap reopens the chat. */}
-      {mode === 'floating' && !openState && scope && (
+      {/* Floating pill — in floating mode, when minimized on deck/workspace pages, a tap reopens the chat. */}
+      {mode === 'floating' && !openState && scope && !isStartingPage && (
         <button
           type="button"
           onClick={() => setOpenState(true)}
@@ -534,7 +575,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                 onClick={close}
                 className="inline-flex items-center gap-1 rounded-lg border border-positive/40 bg-positive/10 px-2 py-1 text-[11px] text-positive"
               >
-                <FileText className="h-3 w-3" /> Saved
+                <FileText className="h-3 w-3" /> Open full report
               </Link>
             )}
             <button

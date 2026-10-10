@@ -6,6 +6,7 @@ import type {
   capTableSliceSchema,
   cardSchema,
   companyMetricSchema,
+  reportedMetricSupportSchema,
   companySchema,
   deckSchema,
   historyContentSchema,
@@ -40,6 +41,7 @@ export type Deck = z.infer<typeof deckSchema>;
 export type BrandTheme = z.infer<typeof brandThemeSchema>;
 export type Company = z.infer<typeof companySchema>;
 export type CompanyMetric = z.infer<typeof companyMetricSchema>;
+export type ReportedMetricSupport = z.infer<typeof reportedMetricSupportSchema>;
 export type Card = z.infer<typeof cardSchema>;
 export type ViceClaim = z.infer<typeof viceClaimSchema>;
 
@@ -62,8 +64,15 @@ export type RoadmapItem = z.infer<typeof roadmapItemSchema>;
 export type ProductsRoadmapContent = z.infer<typeof productsRoadmapContentSchema>;
 
 /** Strongly-typed map from tab id → its content payload type. */
+/** The Research & Sources tab reads retained evidence directly — it never
+ * runs provider research, so its content is a local projection, not a cache. */
+export interface ResearchContent {
+  markdown: string;
+}
+
 export interface DashboardContentMap {
   overview: OverviewContent;
+  research: ResearchContent;
   live_intel: LiveIntelContent;
   team_org: TeamOrgContent;
   live_landing: LiveLandingContent;

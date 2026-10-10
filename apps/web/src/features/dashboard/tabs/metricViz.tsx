@@ -13,6 +13,8 @@ import {
   AreaChart,
   Bar,
   BarChart,
+  Line,
+  LineChart,
   CartesianGrid,
   Cell,
   Pie,
@@ -257,6 +259,36 @@ export function TrendArea({
   );
 }
 
+// ---- Line chart (precision view for the switcher) --------------------------
+
+export function TrendLine({
+  data, color, width, height = 180, fmt, estimated = true,
+}: {
+  data: TimePoint[];
+  color: string;
+  width: number;
+  height?: number;
+  fmt?: (v: number) => string;
+  estimated?: boolean;
+}) {
+  const c = useChartTheme();
+  return (
+    <LineChart width={width} height={height} data={data} margin={{ top: 8, right: 12, bottom: 0, left: 4 }}>
+      <CartesianGrid stroke={c.grid} strokeDasharray="3 3" vertical={false} />
+      <XAxis dataKey="period" stroke={c.axis} fontSize={10} tickLine={false} axisLine={false} />
+      <YAxis stroke={c.axis} fontSize={10} tickLine={false} axisLine={false} width={52} tickFormatter={fmt} domain={['auto', 'auto']} />
+      <ReTooltip contentStyle={tooltipStyle(c)} formatter={(v: number) => (fmt ? fmt(v) : v)} />
+      <Line
+        type="monotone" dataKey="value" stroke={color} strokeWidth={2}
+        strokeDasharray={estimated ? '6 4' : undefined}
+        dot={{ r: 2.5, fill: color, strokeWidth: 0 }}
+        activeDot={{ r: 4 }}
+        isAnimationActive={false}
+      />
+    </LineChart>
+  );
+}
+
 // ---- Composition donut (cap table) ----------------------------------------
 
 export function CompositionDonut({
@@ -299,17 +331,22 @@ export function CompositionDonut({
   );
 }
 
-/** Shared chart panel with a measured width. */
+/** Shared chart panel with a measured width and an optional view switcher
+ * (Bar / Line / Area pills) - the owner's ask: switchable chart views. */
 export function ChartPanel({
-  title, sub, right, height = 180, render,
+  title, sub, right, height = 180, render, views,
 }: {
   title: string;
   sub?: string;
   right?: ReactElement | null;
   height?: number;
-  render: (w: number) => ReactElement;
+  render: (w: number, view: string) => ReactElement;
+  /** When provided, renders view pills and passes the selected key to render. */
+  views?: { options: Array<{ key: string; label: string }>; default: string };
 }) {
   const [ref, w] = useWidth();
+  const [view, setView] = useState(views?.default ?? '');
+  const active = views ? view : '';
   return (
     <div className="panel p-5">
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -317,10 +354,27 @@ export function ChartPanel({
           <h3 className="font-display text-sm font-semibold text-content">{title}</h3>
           {sub && <p className="mt-0.5 text-[10.5px] text-faint">{sub}</p>}
         </div>
-        {right}
+        <div className="flex items-center gap-2">
+          {right}
+          {views && (
+            <div role="tablist" aria-label={title + ' chart style'}
+              className="flex overflow-hidden rounded-full border border-border">
+              {views.options.map((option) => (
+                <button key={option.key} role="tab" aria-selected={active === option.key}
+                  onClick={() => setView(option.key)}
+                  className={'px-2.5 py-1 text-[11px] font-medium transition-colors ' +
+                    (active === option.key
+                      ? 'bg-ink text-ink-fg'
+                      : 'bg-surface text-muted hover:text-content')}>
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       <div ref={ref} className="w-full" style={{ height }}>
-        {w > 0 && render(w)}
+        {w > 0 && render(w, active)}
       </div>
     </div>
   );

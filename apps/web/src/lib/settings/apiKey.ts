@@ -3,12 +3,32 @@
  *
  * The key lives ONLY in the user's browser (localStorage) and is sent only to
  * Google's API. It is never logged or transmitted anywhere else. In the Electron
- * build this will move to the OS keychain via safeStorage (main process).
+ * build persistence is exclusively through OS-backed safeStorage (main process).
  */
 import { create } from 'zustand';
 
 const STORAGE_KEY = 'mi.geminiApiKey';
 const MODEL_KEY = 'mi.geminiModel';
+const JUDGE_MODEL_KEY = 'mi.geminiJudgeModel';
+const QUOTA_KEY = 'mi.quotaPreset';
+
+/** Outbound pacing presets (WS2): the free tier's measured 10/15 RPM ceiling
+ * is the latency floor; a paid key can run the same pipeline several times
+ * faster. The values land in the Gemini client's proactive rate limiter. */
+export const QUOTA_PRESETS = {
+  free: { groundedRpm: 10, structureRpm: 15, label: 'Free tier (10 grounded / 15 structured per minute)' },
+  paid: { groundedRpm: 60, structureRpm: 120, label: 'Paid tier (60 grounded / 120 structured per minute)' },
+} as const;
+
+export type QuotaPreset = keyof typeof QUOTA_PRESETS;
+
+export function readQuotaPreset(): QuotaPreset {
+  try {
+    return localStorage.getItem(QUOTA_KEY) === 'paid' ? 'paid' : 'free';
+  } catch {
+    return 'free';
+  }
+}
 
 /**
  * Strip characters that can't legally travel in an HTTP header.
@@ -57,38 +77,85 @@ interface ApiKeyState {
   apiKey: string;
   /** Optional grounded-model override (defaults handled by the client). */
   model: string;
+  /**
+   * Optional judge/verification-model override (LLM as judge): metric
+   * verification, batch verify and red-team run on this model instead of the
+   * research model. Blank = same as the research model (today's behavior).
+   */
+  judgeModel: string;
+  /** Outbound pacing preset — how fast the pipeline may spend the quota. */
+  quotaPreset: QuotaPreset;
   hasKey: boolean;
-  setApiKey: (key: string) => void;
+  storageError: string | null;
+  setApiKey: (key: string) => Promise<void>;
   setModel: (model: string) => void;
-  clear: () => void;
+  setJudgeModel: (model: string) => void;
+  setQuotaPreset: (preset: QuotaPreset) => void;
+  clear: () => Promise<void>;
+}
+
+const secure = typeof window !== 'undefined' ? window.miSecure : undefined;
+let hydration: Promise<void> = Promise.resolve();
+function removePlaintextKeys(): void {
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem('mi.apiKey');
 }
 
 export const useApiKey = create<ApiKeyState>((set) => ({
-  apiKey: readLocal(STORAGE_KEY),
+  apiKey: secure ? '' : readLocal(STORAGE_KEY),
   model: readLocal(MODEL_KEY),
-  hasKey: readLocal(STORAGE_KEY).length > 0,
-  setApiKey: (key) => {
+  judgeModel: readLocal(JUDGE_MODEL_KEY),
+  quotaPreset: readQuotaPreset(),
+  hasKey: !secure && readLocal(STORAGE_KEY).length > 0,
+  storageError: null,
+  setApiKey: async (key) => {
+    await hydration;
     const trimmed = sanitizeApiKey(key);
-    writeLocal(STORAGE_KEY, trimmed);
-    // In the Electron shell, also persist to the OS keychain (safeStorage).
-    void window.miSecure?.setApiKey(trimmed);
-    set({ apiKey: trimmed, hasKey: trimmed.length > 0 });
+    if (secure) {
+      await secure.setApiKey(trimmed);
+      removePlaintextKeys();
+    } else {
+      writeLocal(STORAGE_KEY, trimmed);
+      localStorage.removeItem('mi.apiKey');
+    }
+    set({ apiKey: trimmed, hasKey: trimmed.length > 0, storageError: null });
   },
   setModel: (model) => {
     writeLocal(MODEL_KEY, model.trim());
     set({ model: model.trim() });
   },
-  clear: () => {
-    writeLocal(STORAGE_KEY, '');
-    void window.miSecure?.setApiKey('');
-    set({ apiKey: '', hasKey: false });
+  setJudgeModel: (model) => {
+    writeLocal(JUDGE_MODEL_KEY, model.trim());
+    set({ judgeModel: model.trim() });
+  },
+  setQuotaPreset: (preset) => {
+    writeLocal(QUOTA_KEY, preset);
+    set({ quotaPreset: preset });
+  },
+  clear: async () => {
+    await hydration;
+    if (secure) await secure.setApiKey('');
+    removePlaintextKeys();
+    set({ apiKey: '', hasKey: false, storageError: null });
   },
 }));
 
 // In Electron, hydrate the key from the OS keychain on boot (authoritative over
 // the localStorage cache).
-if (typeof window !== 'undefined' && window.miSecure) {
-  void window.miSecure.getApiKey().then((key) => {
-    if (key) useApiKey.setState({ apiKey: key, hasKey: true });
+if (secure) {
+  hydration = (async () => {
+    let key = await secure.getApiKey();
+    // Migrate older plaintext caches only after encrypted persistence succeeds.
+    const legacy = sanitizeApiKey(readLocal(STORAGE_KEY));
+    if (!key && legacy) {
+      await secure.setApiKey(legacy);
+      key = legacy;
+    }
+    removePlaintextKeys();
+    useApiKey.setState({ apiKey: key, hasKey: !!key });
+  })().catch(() => {
+    useApiKey.setState({ storageError: 'Could not open secure key storage. Save your key again after checking your system keyring.' });
   });
 }
+
+export const apiKeyReady = hydration;

@@ -37,17 +37,75 @@ gcloud services enable \
   cloudbuild.googleapis.com \
   artifactregistry.googleapis.com \
   cloudscheduler.googleapis.com \
+  cloudtasks.googleapis.com \
   secretmanager.googleapis.com \
   aiplatform.googleapis.com \
+  firestore.googleapis.com \
   --project "${PROJECT}" --quiet
+
+# Ensure Firestore database exists in native mode
+if ! gcloud firestore databases describe --project "${PROJECT}" >/dev/null 2>&1; then
+  echo "▸ Provisioning Firestore Database (default) in ${REGION}"
+  gcloud firestore databases create --location="${REGION}" --type=firestore-native --project "${PROJECT}" --quiet || true
+fi
+
+QUEUE_NAME="stratemark-tasks"
+if ! gcloud tasks queues describe "${QUEUE_NAME}" --project "${PROJECT}" --location "${REGION}" >/dev/null 2>&1; then
+  echo "▸ Creating Cloud Tasks queue ${QUEUE_NAME}"
+  gcloud tasks queues create "${QUEUE_NAME}" --project "${PROJECT}" --location "${REGION}" --max-attempts=3 --max-retry-duration=1800s --quiet
+else
+  echo "▸ Updating Cloud Tasks queue ${QUEUE_NAME} retry policy"
+  gcloud tasks queues update "${QUEUE_NAME}" --project "${PROJECT}" --location "${REGION}" --max-attempts=3 --max-retry-duration=1800s --quiet || true
+fi
+
+PROJECT_NUM="$(gcloud projects describe "${PROJECT}" --format='value(projectNumber)')"
+WORKER_SA="${PROJECT_NUM}-compute@developer.gserviceaccount.com"
+
+add_project_iam_binding() {
+  local member="$1"
+  local role="$2"
+  local delay=2
+  local attempt
+
+  for attempt in 1 2 3 4 5; do
+    if gcloud projects add-iam-policy-binding "${PROJECT}" \
+      --member="${member}" \
+      --role="${role}" \
+      --condition=None \
+      --quiet; then
+      return 0
+    fi
+
+    if [[ "${attempt}" -lt 5 ]]; then
+      echo "  IAM policy changed concurrently; retrying in ${delay}s (attempt ${attempt}/5)" >&2
+      sleep "${delay}"
+      delay=$((delay * 2))
+    fi
+  done
+
+  echo "IAM policy update failed after 5 attempts: ${role} -> ${member}" >&2
+  return 1
+}
+
+echo "▸ Granting Cloud Tasks Enqueuer role to default compute SA"
+add_project_iam_binding "serviceAccount:${WORKER_SA}" "roles/cloudtasks.enqueuer"
+
+EXISTING_URL="$(gcloud run services describe "${SERVICE}" --project "${PROJECT}" --region "${REGION}" --format='value(status.url)' 2>/dev/null || echo '')"
+if [[ -z "${EXISTING_URL}" ]]; then
+  echo "▸ Service not yet deployed. Deploying skeleton to get URL..."
+  gcloud run deploy "${SERVICE}" --image="us-docker.pkg.dev/cloudrun/container/hello" --project "${PROJECT}" --region "${REGION}" --quiet
+  EXISTING_URL="$(gcloud run services describe "${SERVICE}" --project "${PROJECT}" --region "${REGION}" --format='value(status.url)')"
+fi
+
+WORKER_URL="${EXISTING_URL}/tasks/worker/research"
 
 # DAILY_CAP_USD is the per-instance ceiling on spend from server credentials.
 # Worst case across the service is DAILY_CAP_USD × MAX_INSTANCES, so both are
 # set deliberately rather than left to defaults.
 DAILY_CAP_USD="${DAILY_CAP_USD:-4}"
 MAX_INSTANCES="${MAX_INSTANCES:-2}"
-ENV_VARS="USE_VERTEX_AI=${USE_VERTEX},GOOGLE_CLOUD_PROJECT=${PROJECT},GOOGLE_CLOUD_LOCATION=${REGION},DAILY_CAP_USD=${DAILY_CAP_USD}"
-SECRET_ARGS=()
+ENV_VARS="USE_VERTEX_AI=${USE_VERTEX},GOOGLE_CLOUD_PROJECT=${PROJECT},GOOGLE_CLOUD_LOCATION=${REGION},DAILY_CAP_USD=${DAILY_CAP_USD},TASKS_QUEUE=${QUEUE_NAME},WORKER_URL=${WORKER_URL},WORKER_SERVICE_ACCOUNT_EMAIL=${WORKER_SA},SCHEDULER_SERVICE_ACCOUNT_EMAIL=${WORKER_SA}"
+SECRET_BINDINGS=()
 
 if [[ "${USE_VERTEX}" != "true" ]]; then
   if ! gcloud secrets describe "${SECRET}" --project "${PROJECT}" >/dev/null 2>&1; then
@@ -59,7 +117,10 @@ if [[ "${USE_VERTEX}" != "true" ]]; then
     unset KEY
     echo "▸ Secret created."
   fi
-  SECRET_ARGS=(--set-secrets "GEMINI_API_KEY=${SECRET}:latest")
+  # Use update-secrets so this can be combined with the existing app and
+  # scheduler secret bindings below. Cloud Run rejects set-secrets alongside
+  # update-secrets in the same deploy command.
+  SECRET_BINDINGS+=("GEMINI_API_KEY=${SECRET}:latest")
 fi
 
 # A shared token authorising use of the service's OWN credentials. Without it
@@ -71,7 +132,7 @@ if ! gcloud secrets describe app-token --project "${PROJECT}" >/dev/null 2>&1; t
   openssl rand -hex 24 | tr -d '\n' | gcloud secrets create app-token \
     --data-file=- --replication-policy=automatic --project "${PROJECT}" --quiet
 fi
-SECRET_ARGS+=(--update-secrets "APP_TOKEN=app-token:latest")
+SECRET_BINDINGS+=("APP_TOKEN=app-token:latest")
 
 # A shared secret so only Cloud Scheduler can trigger paid refresh work.
 if ! gcloud secrets describe scheduler-token --project "${PROJECT}" >/dev/null 2>&1; then
@@ -79,7 +140,15 @@ if ! gcloud secrets describe scheduler-token --project "${PROJECT}" >/dev/null 2
   openssl rand -hex 32 | tr -d '\n' | gcloud secrets create scheduler-token \
     --data-file=- --replication-policy=automatic --project "${PROJECT}" --quiet
 fi
-SECRET_ARGS+=(--update-secrets "SCHEDULER_TOKEN=scheduler-token:latest")
+SECRET_BINDINGS+=("SCHEDULER_TOKEN=scheduler-token:latest")
+
+# Cloud Run accepts one update-secrets mapping per deploy. Keep the bindings
+# together so API-key mode and the shared service tokens can be deployed at
+# the same time.
+SECRET_ARGS=(--update-secrets "${SECRET_BINDINGS[0]}")
+for binding in "${SECRET_BINDINGS[@]:1}"; do
+  SECRET_ARGS[1]+=",${binding}"
+done
 
 echo "▸ Building and deploying (Cloud Build does the container work)"
 gcloud run deploy "${SERVICE}" \
@@ -90,7 +159,7 @@ gcloud run deploy "${SERVICE}" \
   --allow-unauthenticated \
   --memory 2Gi \
   --cpu 2 \
-  --timeout 600 \
+  --timeout 1800 \
   --concurrency 4 \
   --max-instances "${MAX_INSTANCES}" \
   --set-env-vars "${ENV_VARS}" \

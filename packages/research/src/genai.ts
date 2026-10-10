@@ -22,16 +22,25 @@
  *                 this means the service account, so no key exists to leak.
  */
 import type { ZodType, ZodTypeDef } from 'zod';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import type { GenerateContentResponse } from '@google/genai';
 import type { Citation, LlmClient } from './types';
+import { extractProviderGrounding } from './grounding-support';
 import { createRateLimiter, extractJson, withRetry, type RetryableError } from './util';
+import type { CallMetrics, CallMetricsAggregate } from './types';
 import {
   DEFAULT_GROUNDED_MODEL,
   DEFAULT_GROUNDED_RPM,
   DEFAULT_STRUCTURE_MODEL,
   DEFAULT_STRUCTURE_RPM,
 } from './gemini';
+import { batchVerifyOutSchema, redTeamOutSchema, verifyMetricOutSchema } from './schemas';
+
+export interface GenAiUsage {
+  promptTokens?: number;
+  candidatesTokens?: number;
+  totalTokens?: number;
+}
 
 export interface GenAiClientConfig {
   /** Gemini Developer API key. Omit when using `vertex`. */
@@ -45,11 +54,25 @@ export interface GenAiClientConfig {
   model?: string;
   /** Structuring model (non-grounded JSON). */
   structureModel?: string;
+  /**
+   * Judge model (LLM-as-judge): verification-class calls — metric verification,
+   * batch verify, red-team — run here instead of on the filler models. Blank
+   * keeps verification on the grounded model exactly as before; the judge
+   * changes WHO verifies, never the evidentiary standard (passage/provenance
+   * gates are applied downstream and untouched).
+   */
+  judgeModel?: string;
   /** Proactive pacing per model line. Set 0 to disable (tests). */
   groundedRpm?: number;
   structureRpm?: number;
   /** Observability hook — fires once per outbound request. Powers cost metering. */
-  onCall?: (info: { model: string; kind: 'ground' | 'structure' }) => void;
+  onCall?: (info: {
+    model: string;
+    kind: 'ground' | 'structure' | 'judge';
+    usage?: GenAiUsage;
+  }) => void;
+  /** Per-call latency decomposition (queue wait, dispatch, retry waits). */
+  onCallMetrics?: (metrics: CallMetrics) => void;
   /** Injectable for tests — anything satisfying the slice of the SDK we use. */
   clientImpl?: GenAiLike;
 }
@@ -65,9 +88,22 @@ export interface GenAiLike {
   };
 }
 
+/** A DOMException's legacy numeric `.code` is not an HTTP status (ABORT_ERR === 20). */
+export function isAbortError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const rec = err as { name?: unknown; code?: unknown; message?: unknown };
+  return (
+    rec.name === 'AbortError' ||
+    rec.code === 'ABORT_ERR' ||
+    rec.code === 20 ||
+    (typeof rec.message === 'string' && rec.message.includes('This operation was aborted'))
+  );
+}
+
 /** HTTP status carried on SDK errors, when it can be recovered. */
 function statusOf(err: unknown): number | undefined {
   if (typeof err !== 'object' || err === null) return undefined;
+  if (isAbortError(err)) return undefined;
   const rec = err as Record<string, unknown>;
   if (typeof rec.status === 'number') return rec.status;
   if (typeof rec.code === 'number') return rec.code;
@@ -87,9 +123,89 @@ function citationsOf(res: GenerateContentResponse): Citation[] {
   return out;
 }
 
+export function zodToGenAiSchema(schema: ZodType<unknown, ZodTypeDef, unknown>): Record<string, unknown> {
+  const def = schema._def as Record<string, unknown>;
+  const typeName = def?.typeName as string | undefined;
+
+  if (typeName === 'ZodOptional' || typeName === 'ZodNullable' || typeName === 'ZodDefault') {
+    return zodToGenAiSchema((def.innerType || def.type) as ZodType);
+  }
+  if (typeName === 'ZodEffects') {
+    return zodToGenAiSchema(def.schema as ZodType);
+  }
+  if (typeName === 'ZodString') {
+    return { type: Type.STRING };
+  }
+  if (typeName === 'ZodNumber') {
+    return { type: Type.NUMBER };
+  }
+  if (typeName === 'ZodBoolean') {
+    return { type: Type.BOOLEAN };
+  }
+  if (typeName === 'ZodEnum') {
+    return { type: Type.STRING, enum: def.values };
+  }
+  if (typeName === 'ZodNativeEnum') {
+    return { type: Type.STRING, enum: Object.values((def.values as Record<string, unknown>) ?? {}) };
+  }
+  if (typeName === 'ZodArray') {
+    return { type: Type.ARRAY, items: zodToGenAiSchema(def.type as ZodType) };
+  }
+  if (typeName === 'ZodObject') {
+    const shape = (typeof def.shape === 'function' ? def.shape() : def.shape) as Record<string, ZodType>;
+    const properties: Record<string, unknown> = {};
+    const required: string[] = [];
+    if (shape) {
+      for (const [key, propSchema] of Object.entries(shape)) {
+        const propTypeName = (propSchema._def as Record<string, unknown>)?.typeName;
+        const isOptional =
+          propTypeName === 'ZodOptional' ||
+          propTypeName === 'ZodNullable' ||
+          propTypeName === 'ZodDefault';
+        properties[key] = zodToGenAiSchema(propSchema);
+        if (!isOptional) {
+          required.push(key);
+        }
+      }
+    }
+    return {
+      type: Type.OBJECT,
+      properties,
+      ...(required.length > 0 ? { required } : {}),
+    };
+  }
+  if (typeName === 'ZodUnion' || typeName === 'ZodDiscriminatedUnion') {
+    const options = (def.options || (def.optionsMap as Map<string, ZodType> | undefined)?.values()) as ZodType[];
+    if (Array.isArray(options) && options.length > 0) {
+      return zodToGenAiSchema(options[0]!);
+    }
+  }
+  return { type: Type.STRING };
+}
+
 export function createGenAiClient(config: GenAiClientConfig): LlmClient {
   const groundedModel = config.model ?? DEFAULT_GROUNDED_MODEL;
   const structureModel = config.structureModel ?? DEFAULT_STRUCTURE_MODEL;
+  const judgeModel = config.judgeModel || undefined;
+
+  // Verification-class calls (metric verify, batch verify, red-team) belong to
+  // the judge: the model that verifies dashboards must be configurable apart
+  // from the model that fills them. The repository already marks these calls
+  // in-band — the verify passes carry a `verify:` evidence topic, the red-team
+  // pass marks its prompt, and the verdict steps validate against the
+  // verification output schemas — so routing happens here with no repository
+  // changes. An unset judgeModel keeps every call on today's model and kind.
+  const VERIFICATION_SCHEMAS: Set<unknown> = new Set([
+    verifyMetricOutSchema, batchVerifyOutSchema, redTeamOutSchema,
+  ]);
+  const groundRoute = (prompt: string, topic: string | undefined) =>
+    judgeModel && (Boolean(topic?.startsWith('verify:')) || prompt.startsWith('RED-TEAM'))
+      ? { model: judgeModel, kind: 'judge' as const }
+      : { model: groundedModel, kind: 'ground' as const };
+  const structureRoute = (schema: unknown) =>
+    judgeModel && VERIFICATION_SCHEMAS.has(schema)
+      ? { model: judgeModel, kind: 'judge' as const }
+      : { model: structureModel, kind: 'structure' as const };
 
   if (!config.clientImpl && !config.apiKey && !config.vertex) {
     throw new Error(
@@ -108,27 +224,61 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
 
   const groundedRpm = config.groundedRpm ?? DEFAULT_GROUNDED_RPM;
   const structureRpm = config.structureRpm ?? DEFAULT_STRUCTURE_RPM;
-  const groundLimiter = groundedRpm > 0 ? createRateLimiter(groundedRpm) : null;
-  const structureLimiter = structureRpm > 0 ? createRateLimiter(structureRpm) : null;
+  // One bucket per model (mirrors gemini.ts): grounding and structuring that
+  // share a model also share that model's real per-minute cap. The judge rides
+  // the grounded RPM — verification is a grounded, search-bearing class — and
+  // when it names the grounded model the two share that one bucket.
+  const limiters = new Map<string, ReturnType<typeof createRateLimiter> | null>();
+  const limiterFor = (model: string) => {
+    if (limiters.has(model)) return limiters.get(model)!;
+    const rpms = [
+      model === groundedModel ? groundedRpm : 0,
+      model === structureModel ? structureRpm : 0,
+      model === judgeModel ? groundedRpm : 0,
+    ].filter((rpm) => rpm > 0);
+    const limiter = rpms.length ? createRateLimiter(Math.min(...rpms)) : null;
+    limiters.set(model, limiter);
+    return limiter;
+  };
+
+  const aggregate: CallMetricsAggregate = { calls: 0, retries: 0, rateLimitedMs: 0, fallbacks: 0 };
 
   async function call(
     model: string,
     contents: string,
     cfg: Record<string, unknown>,
     signal: AbortSignal | undefined,
-    kind: 'ground' | 'structure',
+    kind: 'ground' | 'structure' | 'judge',
   ): Promise<GenerateContentResponse> {
-    await (kind === 'ground' ? groundLimiter : structureLimiter)?.acquire(signal);
-    config.onCall?.({ model, kind });
-    return withRetry(
+    const limiter = limiterFor(model);
+    const callStartedAt = Date.now();
+    let attempts = 0;
+    let queuedMs = 0;
+    let retryWaitMs = 0;
+    const res = await withRetry(
       async () => {
+        // Retries re-dispatch too: pace every attempt, not just the first.
+        const acquireStartedAt = Date.now();
+        attempts += 1;
+        await limiter?.acquire(signal);
+        queuedMs += Date.now() - acquireStartedAt;
+        const timeoutSignal = AbortSignal.timeout(60_000);
+        const reqSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
         try {
           return await ai.models.generateContent({
             model,
             contents,
-            config: signal ? { ...cfg, abortSignal: signal } : cfg,
+            config: { ...cfg, abortSignal: reqSignal },
           });
         } catch (err) {
+          if (isAbortError(err) && signal?.aborted) {
+            throw err;
+          }
+          if (timeoutSignal.aborted && (!signal || !signal.aborted)) {
+            const wrapped = new Error('Gemini API request timed out after 60s') as RetryableError;
+            wrapped.status = 504;
+            throw wrapped;
+          }
           // Re-shape into the retry contract shared with the fetch client, so
           // 429/5xx back off identically no matter which client is in play.
           const status = statusOf(err);
@@ -139,18 +289,54 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
           throw wrapped;
         }
       },
-      { signal },
+      {
+        signal,
+        onRetryWait: (waitMs) => { retryWaitMs += waitMs; },
+      },
     );
+
+    const usageMeta = res.usageMetadata;
+    const usage: GenAiUsage | undefined = usageMeta
+      ? {
+          ...(typeof usageMeta.promptTokenCount === 'number' ? { promptTokens: usageMeta.promptTokenCount } : {}),
+          ...(typeof usageMeta.candidatesTokenCount === 'number'
+            ? { candidatesTokens: usageMeta.candidatesTokenCount }
+            : {}),
+          ...(typeof usageMeta.totalTokenCount === 'number' ? { totalTokens: usageMeta.totalTokenCount } : {}),
+        }
+      : undefined;
+
+    config.onCall?.({
+      model,
+      kind,
+      ...(usage && Object.keys(usage).length > 0 ? { usage } : {}),
+    });
+
+    const totalMs = Date.now() - callStartedAt;
+    aggregate.calls += 1;
+    aggregate.retries += Math.max(0, attempts - 1);
+    aggregate.rateLimitedMs += retryWaitMs;
+    try {
+      config.onCallMetrics?.({
+        model, kind, attempts, retries: Math.max(0, attempts - 1),
+        queuedMs, requestMs: Math.max(0, totalMs - queuedMs - retryWaitMs),
+        retryWaitMs, totalMs,
+      });
+    } catch { /* a metrics consumer must never break the call */ }
+
+    return res;
   }
 
   return {
+    metrics: () => ({ ...aggregate }),
     async ground(prompt, opts) {
       const cfg: Record<string, unknown> = {
         tools: [{ googleSearch: {} }],
         temperature: 0.2,
       };
       if (opts?.system) cfg.systemInstruction = opts.system;
-      const res = await call(groundedModel, prompt, cfg, opts?.signal, 'ground');
+      const route = groundRoute(prompt, opts?.researchContext?.topic);
+      const res = await call(route.model, prompt, cfg, opts?.signal, route.kind);
       if (res.promptFeedback?.blockReason) {
         throw new Error(`Gemini blocked the request: ${res.promptFeedback.blockReason}`);
       }
@@ -158,6 +344,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
         text: (res.text ?? '').trim(),
         citations: citationsOf(res),
         queries: res.candidates?.[0]?.groundingMetadata?.webSearchQueries ?? [],
+        grounding: extractProviderGrounding(res.text ?? '', res.candidates?.[0]?.groundingMetadata),
       };
     },
 
@@ -168,13 +355,15 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     ): Promise<T> {
       const cfg: Record<string, unknown> = {
         responseMimeType: 'application/json',
+        responseSchema: zodToGenAiSchema(schema),
         temperature: 0,
       };
       if (opts?.system) cfg.systemInstruction = opts.system;
+      const route = structureRoute(schema);
       let lastError: unknown;
       // One reparse retry, matching gemini.ts: JSON mode is reliable, not infallible.
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const res = await call(structureModel, prompt, cfg, opts?.signal, 'structure');
+        const res = await call(route.model, prompt, cfg, opts?.signal, route.kind);
         try {
           return schema.parse(extractJson((res.text ?? '').trim()));
         } catch (err) {

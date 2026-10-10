@@ -23,6 +23,7 @@ import {
 import { cn } from '@/lib/cn';
 import type { LivingDeckState } from '@/lib/living/useLivingDeck';
 import type { AgentActivityEvent } from '@/lib/living/runtime';
+import { useResearchControl } from '@/lib/living/researchControl';
 
 function ago(at: number, now: number): string {
   const s = Math.max(0, Math.round((now - at) / 1000));
@@ -67,6 +68,7 @@ function EventRow({ event, now }: { event: AgentActivityEvent; now: number }) {
 }
 
 export function AgentActivityFeed({ living }: { living: LivingDeckState }) {
+  const storageError = useResearchControl(state => state.storageError);
   const [expanded, setExpanded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -107,7 +109,7 @@ export function AgentActivityFeed({ living }: { living: LivingDeckState }) {
         </span>
         <span className="text-[11px] font-semibold text-content">
           {!living.canVerify
-            ? 'Sample deck — live research off'
+            ? 'Research snapshot — live updates off'
             : paused
               ? 'Live research paused'
               : active
@@ -135,6 +137,7 @@ export function AgentActivityFeed({ living }: { living: LivingDeckState }) {
           <button
             type="button"
             title={paused ? 'Resume live research' : 'Pause live research'}
+            aria-label={paused ? 'Resume live research' : 'Pause live research'}
             className="rounded p-1 text-faint transition-colors hover:bg-surface-2 hover:text-content"
             onClick={() => (paused ? living.resume() : living.pause())}
           >
@@ -150,6 +153,8 @@ export function AgentActivityFeed({ living }: { living: LivingDeckState }) {
           </button>
         </span>
       </div>
+      {paused && <p className="px-3 pb-2 text-[11px] text-muted">Background research is paused across this app. Opening tabs and manual checks can still use your key; work already sent may finish.</p>}
+      {storageError && <p role="alert" className="px-3 pb-2 text-[11px] text-muted">{storageError}</p>}
       {expanded && (
         <div className="border-t border-border px-3 py-1.5">
           {visible.length > 0 ? (

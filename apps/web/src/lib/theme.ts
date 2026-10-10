@@ -11,6 +11,7 @@ export const METRIC_COLORS: Record<MetricType, string> = {
   valuation: '#8B5CF6', // violet
   market_cap: '#8B5CF6', // violet (same family — mutually exclusive with valuation)
   arr: '#F59E0B', // amber
+  aum: '#0EA5E9', // sky (financial-firm scale — distinct from users' blue)
   users: '#3B82F6', // blue
   employees: '#14B8A6', // teal
 };

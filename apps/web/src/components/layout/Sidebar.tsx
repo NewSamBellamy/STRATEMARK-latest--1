@@ -14,6 +14,26 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { useMarkets } from '@/hooks/data';
 import { useResearchSession } from '@/features/deck/research-session';
 import wordmark from '@/assets/wordmark.svg';
+import { useSettingsModal } from '@/lib/settings/settingsModal';
+import { SettingsLink } from '@/components/SettingsLink';
+
+export function SettingsTrigger({ collapsed }: { collapsed: boolean }) {
+  const { open } = useSettingsModal();
+  return (
+    <button
+      type="button"
+      onClick={open}
+      title={collapsed ? "Settings" : undefined}
+      className={cn(
+        'flex items-center gap-3 rounded-lg transition-colors text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-content',
+        collapsed ? 'justify-center px-0 py-2.5 w-full' : 'px-3 py-2 w-full text-left'
+      )}
+    >
+      <Gear weight="duotone" size={collapsed ? 22 : 20} />
+      {!collapsed && "Settings"}
+    </button>
+  );
+}
 
 export function Sidebar() {
   const hasKey = useApiKey((s) => s.hasKey);
@@ -57,12 +77,7 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Workspace */}
-      {!collapsed && (
-        <p className="mb-2 px-3 text-[10px] font-medium tracking-[0.08em] text-faint">
-          workspace
-        </p>
-      )}
+      {/* Primary Navigation */}
       <nav className="flex shrink-0 flex-col gap-0.5" aria-label="Primary">
         <SidebarLink to="/" end icon={PlusCircle} label="New Deck" collapsed={collapsed} primary />
         {/* Collapsed: no room for the inline list, so keep a link to the full history page. */}
@@ -71,13 +86,14 @@ export function Sidebar() {
         )}
         <SidebarLink to="/saved" icon={BookmarkSimple} label="Saved Cards" collapsed={collapsed} />
         <SidebarLink to="/reports" icon={FileText} label="Reports" collapsed={collapsed} />
+        <SettingsTrigger collapsed={collapsed} />
       </nav>
 
       {/* Recent decks — inline history (expanded only) */}
       {!collapsed && (
         <div className="mt-6 flex min-h-0 flex-1 flex-col">
           <div className="mb-2 flex items-center justify-between px-3">
-            <p className="text-[10px] font-medium tracking-[0.08em] text-faint">recent decks</p>
+            <p className="text-[10px] font-medium text-faint">Recent Decks</p>
             {recentDecks.length > 0 && (
               <NavLink to="/history" className="text-[10px] font-medium text-faint transition-colors hover:text-content">
                 View all
@@ -105,22 +121,38 @@ export function Sidebar() {
                     </NavLink>
                   </li>
                 )}
-                {recentDecks.map((m) => (
-                  <li key={m.id}>
-                    <NavLink
-                      to={`/markets/${m.id}/deck`}
-                      title={m.name}
-                      className={({ isActive }) => cn(
-                        'block truncate rounded-lg px-3 py-1.5 text-[13px] transition-colors',
-                        isActive
-                          ? 'bg-primary/8 font-medium text-primary'
-                          : 'text-muted hover:bg-surface-2 hover:text-content',
-                      )}
-                    >
-                      {m.name}
-                    </NavLink>
-                  </li>
-                ))}
+                {recentDecks.map((m) => {
+                  const isRunning = (m as { status?: string }).status === 'running';
+                  return (
+                    <li key={m.id}>
+                      <NavLink
+                        to={`/markets/${m.id}/deck`}
+                        title={isRunning ? `Researching: ${m.name}` : m.name}
+                        className={({ isActive }) => cn(
+                          'flex items-center justify-between truncate rounded-lg px-3 py-1.5 text-[13px] transition-colors',
+                          isActive
+                            ? 'bg-primary/8 font-medium text-primary'
+                            : 'text-muted hover:bg-surface-2 hover:text-content',
+                        )}
+                      >
+                        {/* Red team #19: same-name decks must be distinguishable —
+                            creation date is the identity the sidebar can always give. */}
+                        <span className="min-w-0">
+                          <span className="block truncate">{m.name}</span>
+                          <span className="block text-[10px] text-faint">
+                            {new Date(m.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                          </span>
+                        </span>
+                        {isRunning && (
+                          <span
+                            className="ml-1.5 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary"
+                            title="Research in progress"
+                          />
+                        )}
+                      </NavLink>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -128,57 +160,22 @@ export function Sidebar() {
       )}
       {collapsed && <div className="flex-1" />}
 
-      {/* System */}
-      {!collapsed && (
-        <p className="mb-2 mt-4 px-3 text-[10px] font-medium tracking-[0.08em] text-faint">
-          system
-        </p>
-      )}
-      {collapsed && <div className="mt-4" />}
-      <nav className="flex shrink-0 flex-col gap-0.5">
-        <SidebarLink to="/settings" icon={Gear} label="Settings" collapsed={collapsed} />
-      </nav>
-
-      <div className="shrink-0 px-2 pt-4">
-        {!collapsed && (
-          hasKey ? (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-positive">
-              <span className="h-1.5 w-1.5 rounded-full bg-positive" />
-              Connected
-            </span>
-          ) : (
-            <NavLink
-              to="/settings"
+      {(!hasKey) && (
+        <div className="shrink-0 px-2 pt-4">
+          {!collapsed ? (
+            <SettingsLink
               className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted hover:text-content"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-neutral" />
               Add your API key
-            </NavLink>
-          )
-        )}
-        {collapsed && (
-          <div className="flex justify-center">
-            <span className={cn('h-2 w-2 rounded-full', hasKey ? 'bg-positive' : 'bg-neutral')} />
-          </div>
-        )}
-        {/* The build stamp: browsers cache the published app hard, and a stale
-            build reads as "you broke my features". One glance answers it —
-            if this time looks old, hard-refresh (Cmd/Ctrl+Shift+R). */}
-        {!collapsed && (
-          <p
-            className="mt-2 text-[9px] tabular-nums text-faint"
-            title="When this build was made. If features look missing, hard-refresh (Cmd/Ctrl+Shift+R) to pull the newest build."
-          >
-            build{' '}
-            {new Date(__BUILD_AT__).toLocaleString(undefined, {
-              month: 'short',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit',
-            })}
-          </p>
-        )}
-      </div>
+            </SettingsLink>
+          ) : (
+            <div className="flex justify-center">
+              <span className="h-2 w-2 rounded-full bg-neutral" />
+            </div>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

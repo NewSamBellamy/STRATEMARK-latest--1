@@ -558,6 +558,42 @@ describe('runAdkTaskGraph', () => {
 
     expect(seen).toEqual(['solo:running', 'solo:succeeded']);
   });
+
+  it('aborts stalled nodes exceeding node-level timeoutMs without failing the graph', async () => {
+    const hub = createDeterministicTelemetry();
+    const result = await runAdkTaskGraph({
+      telemetry: hub,
+      nodes: [
+        {
+          id: 'slow-worker',
+          dependsOn: [],
+          critical: false,
+          timeoutMs: 20,
+          run: async ({ signal }) => {
+            return new Promise((resolve, reject) => {
+              const timer = setTimeout(() => resolve('done'), 200);
+              signal?.addEventListener('abort', () => {
+                clearTimeout(timer);
+                reject(new Error('timed out'));
+              });
+            });
+          },
+        },
+        {
+          id: 'fast-worker',
+          dependsOn: [],
+          critical: true,
+          run: async () => 'completed',
+        },
+      ],
+    });
+
+    expect(result.aborted).toBe(false);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]?.nodeId).toBe('slow-worker');
+    expect(result.session.get('fast-worker')).toBeUndefined();
+    expect(result.statuses.find((s) => s.nodeId === 'fast-worker')?.state).toBe('succeeded');
+  });
 });
 
 // ============================================================================

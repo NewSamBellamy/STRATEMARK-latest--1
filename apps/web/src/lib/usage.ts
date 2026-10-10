@@ -17,6 +17,7 @@
 const KEY = 'mi.usage.v1';
 const MONTH_KEY = 'mi.usage.month.v1';
 const CONTROLS_KEY = 'mi.costctl.v1';
+import type { CallMetrics } from '@mi/research';
 
 /** Documented free-tier daily request cap. */
 export const DAILY_REQUEST_CAP = 1500;
@@ -39,6 +40,10 @@ export interface UsageDay {
   structure: number;
   image: number;
   decks: number;
+  /** Retries after 429/5xx — the pacing pain, not the plan. */
+  retries: number;
+  /** Cumulative ms spent sleeping on Retry-After / backoff. */
+  rateLimitedMs: number;
 }
 
 export interface UsageMonth {
@@ -53,7 +58,7 @@ const today = (): string => new Date().toISOString().slice(0, 10);
 const thisMonth = (): string => new Date().toISOString().slice(0, 7);
 
 function readDay(): UsageDay {
-  const fresh: UsageDay = { day: today(), grounded: 0, structure: 0, image: 0, decks: 0 };
+  const fresh: UsageDay = { day: today(), grounded: 0, structure: 0, image: 0, decks: 0, retries: 0, rateLimitedMs: 0 };
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return fresh;
@@ -101,6 +106,16 @@ export function recordCall(kind: 'ground' | 'structure' | 'image'): void {
   }
   write(KEY, d);
   write(MONTH_KEY, m);
+  notify();
+}
+
+/** Record the pacing pain of one settled provider call (retries + waits). */
+export function recordCallMetrics(metrics: Pick<CallMetrics, 'retries' | 'retryWaitMs'>): void {
+  if (metrics.retries <= 0 && metrics.retryWaitMs <= 0) return;
+  const d = readDay();
+  d.retries += metrics.retries;
+  d.rateLimitedMs += metrics.retryWaitMs;
+  write(KEY, d);
   notify();
 }
 

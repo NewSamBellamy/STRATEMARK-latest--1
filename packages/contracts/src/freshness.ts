@@ -52,15 +52,18 @@ export const VOLATILITY_SECONDS: Record<VolatilityTier, number> = {
  *
  * `market_cap` is the most volatile thing here — it moves every trading day —
  * but it is also cheap to re-source, so it sits in `hot` with valuation and ARR.
- * Headcount and market share move on a hiring/quarterly rhythm. Nothing is
- * `cold` today because every figure the deck carries is financial or scale
- * related; the tier exists for the descriptive fields that will join later.
+ * Headcount and market share move on a hiring/quarterly rhythm. AUM moves on a
+ * firm-disclosure rhythm (quarterly/annual, market moves in between), so it
+ * shares the `warm` band. Nothing is `cold` today because every figure the deck
+ * carries is financial or scale related; the tier exists for the descriptive
+ * fields that will join later.
  */
 export const METRIC_VOLATILITY: Record<MetricType, VolatilityTier> = {
   market_cap: 'hot',
   valuation: 'hot',
   arr: 'hot',
   market_share: 'warm',
+  aum: 'warm',
   users: 'warm',
   employees: 'warm',
 };
@@ -132,13 +135,18 @@ export function isUnauditedAtBirth(metric: CompanyMetric): boolean {
 /** Epoch ms when this figure next needs attention, or null if never. */
 export function nextRefreshDueAtMs(metric: CompanyMetric): number | null {
   if (isHumanAuthored(metric)) return null;
+  const attempted = Date.parse(metric.lastVerificationAttemptAt ?? '');
+  const attemptMs = Number.isFinite(attempted) ? attempted : null;
   // BIRTH AUDIT: soft figures with no verification history are due NOW, not
   // after a decay window. The deck starts fact-checking itself the moment it
   // lands, instead of trusting first-pass research for hours.
-  if (isUnauditedAtBirth(metric)) return 0;
+  if (isUnauditedAtBirth(metric) && attemptMs === null) return 0;
   const seconds = metric.staleAfterSeconds ?? staleAfterSecondsFor(metric);
   if (seconds === null) return null;
-  const from = verifiedAtMs(metric);
+  const supported = verifiedAtMs(metric);
+  // Scheduling cooldown is not factual freshness: inconclusive attempts delay
+  // another paid query but never change lastVerifiedAt or capturedAt.
+  const from = attemptMs === null ? supported : Math.max(attemptMs, supported ?? attemptMs);
   // An unparseable or missing timestamp means we cannot vouch for the figure's
   // age, so it is due immediately rather than treated as fresh.
   if (from === null) return 0;

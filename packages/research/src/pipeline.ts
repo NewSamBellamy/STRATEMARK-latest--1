@@ -13,6 +13,7 @@
 import type { infer as ZodInfer } from 'zod';
 import {
   buildCmsInput,
+  comparableMetricBasis,
   computeCms,
   type Card,
   type CardType,
@@ -45,6 +46,7 @@ import type {
   LlmClient,
   MarketPlan,
   OnResearchEvent,
+  ResearchBrief,
   ResearchCoverage,
   RunResearchOptions,
 } from './types';
@@ -59,6 +61,7 @@ import {
 } from './company-agent';
 import { researchMarketSignals } from './signal-agents';
 import { expandDeckWithDeltaAgent } from './delta-agent';
+import type { OriginalSourceServices } from './original-source';
 
 export interface ResearchResult {
   market: Market;
@@ -77,6 +80,7 @@ export interface DeckStubsResult {
 }
 
 export interface HydrateDeckCardsOptions {
+  originalSources?: OriginalSourceServices;
   concurrency?: number;
   coverage?: Partial<ResearchCoverage>;
   signal?: AbortSignal;
@@ -93,23 +97,35 @@ const now = (): string => new Date().toISOString();
 
 async function interpret(
   client: LlmClient,
-  brief: { prompt: string; region: string | null },
+  brief: ResearchBrief,
   signal?: AbortSignal,
 ): Promise<MarketPlan> {
   const grounded = await client.ground(interpretMarketPrompt(brief.prompt, brief.region), {
     system: GROUNDED_SYSTEM,
     signal,
   });
-  const plan = await client.structure(structureMarketPrompt(grounded.text), marketPlanOutSchema, {
+  const plan = await client.structure(
+    structureMarketPrompt(grounded.text, brief.prompt),
+    marketPlanOutSchema,
+    {
     system: STRUCTURE_SYSTEM,
     signal,
-  });
+    },
+  );
   return {
     marketName: plan.marketName,
     vertical: plan.vertical,
     geography: plan.geography ?? brief.region,
     notes: plan.notes,
     searchThemes: plan.searchThemes,
+    companyScope: brief.companyScope
+      ? {
+          mode: brief.companyScope.mode,
+          names: brief.companyScope.mode === 'selected_only'
+            ? [...new Set(brief.companyScope.names.map((name) => name.trim()).filter(Boolean))].slice(0, 30)
+            : [],
+        }
+      : plan.companyScope,
   };
 }
 
@@ -117,12 +133,33 @@ function identityKeys(name: string, domain: string | null): string[] {
   const nameKey = name
     .toLowerCase()
     .replace(
-      /\b(incorporated|corporation|company|limited|holdings|group|inc|llc|ltd|corp|plc|ag)\b/g,
+      /\b(incorporated|corporation|company|limited|holdings|group|inc|llc|ltd|corp|plc|ag|lp|llp|pbc|gmbh|sas|trust|labs|technologies)\b/g,
       '',
     )
     .replace(/[^a-z0-9]/g, '');
   const domainKey = domain ? rootDomain(domain) : null;
   return [nameKey, ...(domainKey ? [domainKey] : [])];
+}
+
+/**
+ * Vice (documented controversies) and culture (community ethos) are
+ * consumer-market signals. Financial, infrastructure and B2B markets have no
+ * such facet to find, and enforcing the quota there killed otherwise-complete
+ * decks: a VC deck can never hold four "vice" companies, so discovery burned
+ * fallback passes hunting what cannot exist and the job recorded "Coverage
+ * shortfall for vice: found 0, minimum is 4". The plan's own words decide —
+ * never a model assertion — mirroring the read-what-it-is rule of
+ * contracts' classifyMarketProfile. Deliberately tight: a missed read keeps
+ * today's enforcement, so only a confident financial/infrastructure/B2B read
+ * silences the roles.
+ */
+const SIGNAL_ROLES_IRRELEVANT_PATTERN =
+  /\b(?:venture capital|venture firm|vc firm|private equity|private credit|private debt|growth equity|hedge funds?|asset manag\w+|fund manag\w+|capital manag\w+|wealth manag\w+|investment bank(?:ing)?|investment firms?|merchant bank|family offices?|financial (?:firms?|services)|capital markets?|broker-dealers?|institutional investors?|b2b|enterprise software|cloud infrastructure|data ?centers?|semiconductors?|infrastructure)\b/i;
+
+/** Whether the vice/culture signal roles can apply to this market at all. */
+function signalRolesApply(plan: MarketPlan): boolean {
+  const text = [plan.marketName, plan.vertical, plan.notes ?? '', ...plan.searchThemes].join(' ');
+  return !SIGNAL_ROLES_IRRELEVANT_PATTERN.test(text);
 }
 
 const DEFAULT_COVERAGE: ResearchCoverage = {
@@ -162,9 +199,10 @@ async function discover(
   focus: DiscoveryFocus = 'all',
   excludeNames: string[] = [],
   searchAngle?: string,
+  exactCompanyNames: string[] = [],
 ): Promise<{ candidates: CompanyCandidate[]; rejected: string[] }> {
   const grounded = await client.ground(
-    discoverPrompt(plan, target, focus, excludeNames, searchAngle),
+    discoverPrompt(plan, target, focus, excludeNames, searchAngle, exactCompanyNames),
     {
       system: GROUNDED_SYSTEM,
       signal,
@@ -177,23 +215,23 @@ async function discover(
       // The primary schema is intentionally strict: a successful primary pass is
       // already guaranteed to contain ten unique companies. Underfill is handled
       // by the bounded fallback below rather than by inventing rows.
-      out = await client.structure(
-        structureDiscoveryPrompt(grounded.text, focus),
-        discoveryMinimumOutSchema,
+    out = await client.structure(
+      structureDiscoveryPrompt(grounded.text, focus, exactCompanyNames),
+      discoveryMinimumOutSchema,
         structureOptions,
       );
     } catch (err) {
       // An abort is a decision, not a schema failure — never retry past it.
       if (err instanceof AbortError) throw err;
       out = await client.structure(
-        structureDiscoveryPrompt(grounded.text, focus),
+        structureDiscoveryPrompt(grounded.text, focus, exactCompanyNames),
         discoveryOutSchema,
         structureOptions,
       );
     }
   } else {
     out = await client.structure(
-      structureDiscoveryPrompt(grounded.text, focus),
+      structureDiscoveryPrompt(grounded.text, focus, exactCompanyNames),
       discoveryOutSchema,
       structureOptions,
     );
@@ -203,6 +241,15 @@ async function discover(
   const rejected: string[] = [];
   for (const c of out.companies ?? []) {
     const name = c.name.trim();
+    if (
+      exactCompanyNames.length > 0 &&
+      !exactCompanyNames.some((requested) => {
+        const requestedKey = identityKeys(requested, null)[0] ?? '';
+        const candidateKey = identityKeys(name, null)[0] ?? '';
+        return requestedKey.length >= 3 &&
+          (candidateKey === requestedKey || candidateKey.startsWith(requestedKey));
+      })
+    ) continue;
     const domain = rootDomain(c.domain);
     const keys = identityKeys(name, domain);
     if (keys.some((key) => seen.has(key))) continue;
@@ -220,12 +267,15 @@ async function discover(
       }
       facets = ['company', ...facets];
     }
-    if (focus !== 'all' && !facets.includes(focus as CardType)) continue;
+    // An exact-name request is about entity identity, not a request to force
+    // every named business into the current discovery role. In particular, a
+    // named hyperscaler may correctly resolve as infrastructure; dropping it
+    // here silently turns an exact comparison into a partial deck.
+    if (exactCompanyNames.length === 0 && focus !== 'all' && !facets.includes(focus as CardType)) continue;
     const descriptor = c.descriptor ?? '';
-    const focusRole =
+    const focusRole = exactCompanyNames.length === 0 && (
       focus === 'company' || focus === 'infrastructure' || focus === 'distribution'
-        ? focus
-        : undefined;
+    ) ? focus : undefined;
     const primaryRole = c.primaryRole ?? primaryEntityType(facets, name, descriptor, focusRole);
     if (!facets.includes(primaryRole)) facets = [primaryRole, ...facets];
 
@@ -315,19 +365,63 @@ export function selectCandidates(
   return selected;
 }
 
-export async function discoverWithCoverage(
+/** Phase 1 of deck construction: interpret the brief into a plan and the
+ * durable market/deck rows. Exported so streaming callers can start their
+ * hydration machinery before discovery begins. */
+export async function interpretMarket(
+  brief: ResearchBrief,
+  client: LlmClient,
+  signal?: AbortSignal,
+): Promise<{ plan: MarketPlan; market: Market; deck: Deck }> {
+  const plan = await interpret(client, brief, signal);
+  const marketSlug = slugify(plan.marketName);
+  const market: Market = {
+    id: uid('mkt', marketSlug),
+    name: plan.marketName,
+    scopeDefinition: { vertical: plan.vertical, geography: plan.geography, notes: plan.notes },
+    refreshCadence: 'weekly',
+    createdAt: now(),
+  };
+  const deck: Deck = {
+    id: uid('dck', marketSlug),
+    marketId: market.id,
+    createdAt: now(),
+    lastRefreshedAt: now(),
+  };
+  return { plan, market, deck };
+}
+
+/** Phase 2 of deck construction: discover the market's entities. Streamed
+ * variants hand each pass's NEW candidates to `onCandidates` so stubs can be
+ * ingested and hydrated while later passes are still running. */
+export async function discoverMarket(
   client: LlmClient,
   plan: MarketPlan,
   coverage: ResearchCoverage,
   signal?: AbortSignal,
   catalogMax = 50,
   catalogPasses = plan.searchThemes.length,
+  onCandidates?: (batch: CompanyCandidate[]) => void,
 ): Promise<{
   candidates: CompanyCandidate[];
   rejected: string[];
   minimumCompaniesSatisfied: boolean;
 }> {
+  // Stream the SELECTION delta, not the raw discovery delta: selectCandidates
+  // is monotonic-append on a growing candidate list (role minimums, targets and
+  // the catalogMax cap only ever add), so everything streamed here is within
+  // the final selection. Streaming raw candidates would hydrate entities the
+  // catalog cap drops — pure spend with no card to show for it.
+  const emitSelectionDelta = (previousSelected: CompanyCandidate[]) => {
+    if (!onCandidates) return previousSelected;
+    const selectedNow = selectCandidates(candidates, coverage, catalogMax);
+    const known = new Set(previousSelected.map((c) => identityKeys(c.name, c.domain)[0]));
+    const fresh = selectedNow.filter((c) => !known.has(identityKeys(c.name, c.domain)[0]));
+    if (fresh.length) onCandidates(fresh);
+    return selectedNow;
+  };
   let candidates: CompanyCandidate[] = [];
+  let selectedSoFar: CompanyCandidate[] = [];
   const rejected: string[] = [];
   const initial = await discover(
     client,
@@ -339,6 +433,7 @@ export async function discoverWithCoverage(
     signal,
   );
   candidates = mergeCandidates(candidates, initial.candidates);
+  selectedSoFar = emitSelectionDelta(selectedSoFar);
   rejected.push(...initial.rejected);
 
   const countRole = (role: 'company' | 'infrastructure' | 'distribution') =>
@@ -353,6 +448,17 @@ export async function discoverWithCoverage(
   // search themes (schemas.ts defaults searchThemes to []) silently skipped
   // every fallback pass and shipped a deck with zero infrastructure and zero
   // distribution entities. Coverage minimums are a contract, not an optimization.
+  // The vice/culture exception: where those roles cannot exist (financial,
+  // infrastructure and B2B markets) hunting them only burns discovery quota
+  // before declaring a hollow shortfall, so the passes never run.
+  const signalPasses: { role: DiscoveryFocus; needed: number; target: number }[] = signalRolesApply(
+    plan,
+  )
+    ? [
+        { role: 'vice', needed: coverage.vice.min, target: coverage.vice.target },
+        { role: 'culture', needed: coverage.culture.min, target: coverage.culture.target },
+      ]
+    : [];
   const fallbackPasses: { role: DiscoveryFocus; needed: number; target: number }[] = [
     { role: 'company', needed: coverage.companies.min, target: coverage.companies.target },
     {
@@ -365,8 +471,7 @@ export async function discoverWithCoverage(
       needed: coverage.distribution.min,
       target: coverage.distribution.target,
     },
-    { role: 'vice', needed: coverage.vice.min, target: coverage.vice.target },
-    { role: 'culture', needed: coverage.culture.min, target: coverage.culture.target },
+    ...signalPasses,
   ];
   for (const pass of fallbackPasses) {
     const current =
@@ -374,36 +479,55 @@ export async function discoverWithCoverage(
         ? countSignal(pass.role)
         : countRole(pass.role as 'company' | 'infrastructure' | 'distribution');
     if (current >= pass.needed) continue;
-    const fallback = await discover(
-      client,
-      plan,
-      Math.min(pass.target, pass.needed - current + 2),
-      signal,
-      pass.role,
-      candidates.map((c) => c.name),
-    );
+    let fallback: Awaited<ReturnType<typeof discover>>;
+    try {
+      fallback = await discover(
+        client,
+        plan,
+        Math.min(pass.target, pass.needed - current + 2),
+        signal,
+        pass.role,
+        candidates.map((c) => c.name),
+      );
+    } catch (err) {
+      // A provider outage during an expansion pass must not discard the
+      // hydrations already streaming from earlier passes — both live 504
+      // failures died here AFTER companies had completed. Keep what the deck
+      // has; the coverage-shortfall warnings downstream are the honest signal.
+      if (signal?.aborted) throw err;
+      break;
+    }
     candidates = mergeCandidates(candidates, fallback.candidates);
+    selectedSoFar = emitSelectionDelta(selectedSoFar);
     rejected.push(...fallback.rejected);
   }
 
   // Catalog expansion searches each market angle independently. Stop when the
   // market has stopped yielding new identities twice in a row or the safety cap
   // is reached; this makes the census broad without turning one deck into an
-  // unbounded free-tier job.
+  // unbounded free-tier job. A provider failure ends the expansion the same way
+  // — the deck proceeds with the identities already discovered.
   let noGrowth = 0;
   for (const angle of plan.searchThemes.slice(0, catalogPasses)) {
     if (candidates.length >= catalogMax || noGrowth >= 2) break;
     const before = candidates.length;
-    const pass = await discover(
-      client,
-      plan,
-      Math.min(8, catalogMax - candidates.length),
-      signal,
-      'all',
-      candidates.map((candidate) => candidate.name),
-      angle,
-    );
+    let pass: Awaited<ReturnType<typeof discover>>;
+    try {
+      pass = await discover(
+        client,
+        plan,
+        Math.min(8, catalogMax - candidates.length),
+        signal,
+        'all',
+        candidates.map((candidate) => candidate.name),
+        angle,
+      );
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      break;
+    }
     candidates = mergeCandidates(candidates, pass.candidates);
+    selectedSoFar = emitSelectionDelta(selectedSoFar);
     rejected.push(...pass.rejected);
     noGrowth = candidates.length === before ? noGrowth + 1 : 0;
   }
@@ -423,6 +547,9 @@ export async function discoverWithCoverage(
   const minimumCompaniesSatisfied = new Set(companyNames).size >= coverage.companies.min;
   return { candidates: selected, rejected, minimumCompaniesSatisfied };
 }
+
+/** Back-compat alias: discoverMarket is the same phase under its original name. */
+export const discoverWithCoverage = discoverMarket;
 
 /**
  * Review the whole cohort's tiers in ONE call.
@@ -480,6 +607,7 @@ export async function researchMarketCards(
  * Returns fully-assembled cards; the caller stamps deckId and ingests.
  */
 export async function expandDeckResearch(args: {
+  originalSources?: OriginalSourceServices;
   client: LlmClient;
   marketName: string;
   vertical: string;
@@ -493,6 +621,7 @@ export async function expandDeckResearch(args: {
   signal?: AbortSignal;
 }): Promise<CardWithCompany[]> {
   return expandDeckWithDeltaAgent({
+    originalSources: args.originalSources,
     client: args.client,
     marketName: args.marketName,
     vertical: args.vertical,
@@ -513,7 +642,7 @@ export async function expandDeckResearch(args: {
  * UI can navigate immediately.
  */
 export async function discoverDeckStubs(
-  brief: { prompt: string; region: string | null },
+  brief: ResearchBrief,
   client: LlmClient,
   options: Partial<RunResearchOptions> = {},
 ): Promise<DeckStubsResult> {
@@ -521,41 +650,95 @@ export async function discoverDeckStubs(
   const signal = options.signal;
   const coverage = resolveCoverage(options);
 
-  emit({ type: 'status', step: 'interpret', message: 'Understanding the market…' });
-  const plan = await interpret(client, brief, signal);
-  emit({ type: 'market', market: plan });
+  await emit({ type: 'status', step: 'interpret', message: 'Understanding the market…' });
+  const { plan, market, deck } = await interpretMarket(brief, client, signal);
+  // The interpreted trio streams before discovery so streamed stubs carry
+  // real deck ids while fallback passes are still running.
+  options.onInterpreted?.({ plan, market, deck });
+  await emit({ type: 'market', market: plan });
 
-  emit({
+  await emit({
     type: 'status',
     step: 'discover',
-    message: 'Discovering companies via 3-vector Google ADK topology mapping…',
+    message: 'Searching the open web for companies in this market…',
   });
 
   let candidates: CompanyCandidate[] = [];
   let rejected: string[] = [];
   let minimumCompaniesSatisfied = false;
 
-  const discovery = await discoverWithCoverage(
-    client,
-    plan,
-    coverage,
-    signal,
-    options.catalogMax ?? 50,
-    options.catalogPasses ?? 0,
-  );
-  candidates = discovery.candidates;
-  rejected = discovery.rejected;
-  minimumCompaniesSatisfied = discovery.minimumCompaniesSatisfied;
+  // Streaming: each discovery pass hands its NEW entities to the caller as
+  // ingestible stub cards (stable ids, deduped by identity) while the next
+  // pass is still running.
+  const streamed: Array<{ stub: CardWithCompany; candidate: CompanyCandidate }> = [];
+  const streamedKeys = new Set<string>();
+  const streamStubs = (batch: CompanyCandidate[]) => {
+    if (!options.onStubs) return;
+    const fresh = batch.filter((candidate) => {
+      const key = identityKeys(candidate.name, candidate.domain)[0]!;
+      if (streamedKeys.has(key)) return false;
+      streamedKeys.add(key);
+      return true;
+    });
+    for (const candidate of fresh) {
+      const entry = { stub: buildStubCard(candidate, deck), candidate };
+      streamed.push(entry);
+      options.onStubs([entry]);
+    }
+  };
+
+  const exactCompanyNames = plan.companyScope?.mode === 'selected_only'
+    ? [...new Set(plan.companyScope.names.map((name) => name.trim()).filter(Boolean))].slice(0, 30)
+    : [];
+  let marketMinimumSatisfied = false;
+  if (exactCompanyNames.length > 0) {
+    const discovery = await discover(
+        client,
+        plan,
+        exactCompanyNames.length,
+        signal,
+        'company',
+        [],
+        undefined,
+        exactCompanyNames,
+      )
+    candidates = discovery.candidates;
+    rejected = discovery.rejected;
+    streamStubs(candidates);
+  } else {
+    const discovery = await discoverMarket(
+        client,
+        plan,
+        coverage,
+        signal,
+        options.catalogMax ?? 50,
+        options.catalogPasses ?? 0,
+        (batch) => streamStubs(batch),
+      );
+    candidates = discovery.candidates;
+    rejected = discovery.rejected;
+    marketMinimumSatisfied = discovery.minimumCompaniesSatisfied;
+  }
+  minimumCompaniesSatisfied = exactCompanyNames.length > 0
+    ? exactCompanyNames.every((requested) => {
+        const requestedKey = identityKeys(requested, null)[0] ?? '';
+        return requestedKey.length >= 3 && candidates.some((candidate) =>
+          (identityKeys(candidate.name, null)[0] ?? '').startsWith(requestedKey),
+        );
+      })
+    : marketMinimumSatisfied;
   if (rejected.length > 0) {
-    emit({
+    await emit({
       type: 'warning',
       message: `Skipped ${rejected.length} result${rejected.length === 1 ? '' : 's'} that ${rejected.length === 1 ? 'was' : 'were'} a topic rather than a company: ${rejected.join(', ')}.`,
     });
   }
   if (!minimumCompaniesSatisfied) {
-    emit({
+    await emit({
       type: 'warning',
-      message: `Primary discovery remained below the ${coverage.companies.min}-company minimum after bounded fallback passes. The deck will continue with sourced entities only.`,
+      message: exactCompanyNames.length > 0
+        ? `Exact company scope was not fully resolved. Verified ${candidates.length} of ${exactCompanyNames.length} requested companies; no substitutes were added.`
+        : `Primary discovery remained below the ${coverage.companies.min}-company minimum after bounded fallback passes. The deck will continue with sourced entities only.`,
     });
   }
   const roleCounts = {
@@ -573,126 +756,33 @@ export async function discoverDeckStubs(
     vice: candidates.filter((c) => c.cardTypes.includes('vice')).length,
     culture: candidates.filter((c) => c.cardTypes.includes('culture')).length,
   };
-  for (const [role, count] of Object.entries(roleCounts)) {
-    const minimum = coverage[role as keyof typeof coverage]?.min;
-    if (minimum != null && count < minimum) {
-      emit({
-        type: 'warning',
-        message: `Coverage shortfall for ${role}: found ${count}, minimum is ${minimum}. No unsupported entities were invented.`,
-      });
+  if (exactCompanyNames.length === 0) {
+    // A role that cannot exist in this market is skipped silently: "a VC deck
+    // has no vice companies" is the role not applying, not a data gap the deck
+    // failed to fill — so no shortfall warning is emitted for it.
+    const signalRolesRelevant = signalRolesApply(plan);
+    for (const [role, count] of Object.entries(roleCounts)) {
+      if ((role === 'vice' || role === 'culture') && !signalRolesRelevant) continue;
+      const minimum = coverage[role as keyof typeof coverage]?.min;
+      if (minimum != null && count < minimum) {
+        await emit({
+          type: 'warning',
+          message: `Coverage shortfall for ${role}: found ${count}, minimum is ${minimum}. No unsupported entities were invented.`,
+        });
+      }
     }
   }
-  emit({ type: 'candidates', candidates });
+  await emit({ type: 'candidates', candidates });
 
-  const marketSlug = slugify(plan.marketName);
-  const market: Market = {
-    id: uid('mkt', marketSlug),
-    name: plan.marketName,
-    scopeDefinition: { vertical: plan.vertical, geography: plan.geography, notes: plan.notes },
-    refreshCadence: 'weekly',
-    createdAt: now(),
-  };
-  const deck: Deck = {
-    id: uid('dck', marketSlug),
-    marketId: market.id,
-    createdAt: now(),
-    lastRefreshedAt: now(),
-  };
-
-  const stubCards: CardWithCompany[] = candidates.map((candidate) => {
-    const slug = slugify(candidate.name);
-    const companyId = uid('cmp', slug);
-    const domain = candidate.domain ? rootDomain(candidate.domain) ?? candidate.domain : null;
-    const website = candidate.domain ? `https://${candidate.domain}` : null;
-    const logoUrl =
-      faviconUrl(domain) ??
-      faviconUrl('example.com') ??
-      'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://example.com&size=128';
-    const company: Company = {
-      id: companyId,
-      name: candidate.name,
-      oneLiner: candidate.descriptor || '',
-      logoUrl,
-      hqLocation: null,
-      websiteUrl: website,
-      brandTheme: {
-        primary: '#4f46e5',
-        secondary: '#a5b4fc',
-        accent: '#f59e0b',
-        text: '#0f172a',
-        background: '#ffffff',
-        fontFamily: null,
-        source: 'default',
-      },
-    };
-    const primaryRole =
-      candidate.primaryRole ??
-      primaryEntityType(candidate.cardTypes, candidate.name, candidate.descriptor);
-    const cardId = uid('crd', `${slugify(candidate.name)}-${primaryRole}`);
-    const isValuationReported = candidate.reportedValuation != null;
-    const isArrReported = candidate.reportedArr != null;
-    const isHeadcountReported = candidate.reportedHeadcount != null;
-    const initialMetrics: CompanyMetric[] = [];
-    if (isHeadcountReported && candidate.reportedHeadcount != null) {
-      initialMetrics.push({
-        id: uid('met', `${companyId}-employees`),
-        companyId,
-        metricType: 'employees' as const,
-        value: candidate.reportedHeadcount,
-        confidence: 'verified' as const,
-        source: 'Reported in search grounding results',
-        methodNote: 'Disclosed team headcount',
-        capturedAt: new Date().toISOString(),
-        citations: [],
-      });
-    }
-    if (isArrReported && candidate.reportedArr != null) {
-      initialMetrics.push({
-        id: uid('met', `${companyId}-arr`),
-        companyId,
-        metricType: 'arr' as const,
-        value: candidate.reportedArr,
-        confidence: 'verified' as const,
-        source: 'Reported in search grounding results',
-        methodNote: 'Disclosed annual revenue/run-rate',
-        capturedAt: new Date().toISOString(),
-        citations: [],
-      });
-    }
-    if (isValuationReported && candidate.reportedValuation != null) {
-      initialMetrics.push({
-        id: uid('met', `${companyId}-valuation`),
-        companyId,
-        metricType: 'valuation' as const,
-        value: candidate.reportedValuation,
-        confidence: 'verified' as const,
-        source: 'Reported in search grounding results',
-        methodNote: 'Disclosed valuation/market cap',
-        capturedAt: new Date().toISOString(),
-        citations: [],
-      });
-    }
-
-    const card: Card = {
-      id: cardId,
-      deckId: deck.id,
-      companyId: company.id,
-      cardType: primaryRole,
-      title: null,
-      summary: candidate.descriptor || null,
-      tier: null,
-      tierReason: null,
-      citations: [],
-      keyPoints: [],
-      createdAt: now(),
-    };
-    return {
-      card,
-      company,
-      metrics: initialMetrics,
-      viceClaims: [],
-    };
-  });
+  // Finalize stub cards: reuse streamed stubs (their ids are already ingested
+  // by the caller — new ids would duplicate companies) and build any that
+  // were never streamed.
+  const stubBySource = new Map(
+    streamed.map((entry) => [identityKeys(entry.candidate.name, entry.candidate.domain)[0]!, entry.stub]),
+  );
+  const stubCards = candidates.map(
+    (candidate) => stubBySource.get(identityKeys(candidate.name, candidate.domain)[0]!) ?? buildStubCard(candidate, deck),
+  );
 
   return {
     plan,
@@ -702,6 +792,109 @@ export async function discoverDeckStubs(
     cards: stubCards,
     rejected,
     minimumCompaniesSatisfied,
+  };
+}
+
+/** Phase 3 of deck construction: candidates → ingestible placeholder cards.
+ * Reuses stubs already built during streaming when the caller passes them. */
+export function buildStubs(candidates: CompanyCandidate[], deck: Deck): CardWithCompany[] {
+  return candidates.map((candidate) => buildStubCard(candidate, deck));
+}
+
+/** One candidate → one ingestible placeholder card with stable ids. Extracted
+ * so discovery can stream stubs mid-flight and the final deck can reuse them. */
+function buildStubCard(candidate: CompanyCandidate, deck: Deck): CardWithCompany {
+  const slug = slugify(candidate.name);
+  const companyId = uid('cmp', slug);
+  const domain = candidate.domain ? rootDomain(candidate.domain) ?? candidate.domain : null;
+  const website = candidate.domain ? `https://${candidate.domain}` : null;
+  const logoUrl =
+    faviconUrl(domain) ??
+    faviconUrl('example.com') ??
+    'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://example.com&size=128';
+  const company: Company = {
+    id: companyId,
+    name: candidate.name,
+    oneLiner: candidate.descriptor || '',
+    logoUrl,
+    hqLocation: null,
+    websiteUrl: website,
+    brandTheme: {
+      primary: '#4f46e5',
+      secondary: '#a5b4fc',
+      accent: '#f59e0b',
+      text: '#0f172a',
+      background: '#ffffff',
+      fontFamily: null,
+      source: 'default',
+    },
+  };
+  const primaryRole =
+    candidate.primaryRole ??
+    primaryEntityType(candidate.cardTypes, candidate.name, candidate.descriptor);
+  const cardId = uid('crd', `${slugify(candidate.name)}-${primaryRole}`);
+  const isValuationReported = candidate.reportedValuation != null;
+  const isArrReported = candidate.reportedArr != null;
+  const isHeadcountReported = candidate.reportedHeadcount != null;
+  const initialMetrics: CompanyMetric[] = [];
+  if (isHeadcountReported && candidate.reportedHeadcount != null) {
+    initialMetrics.push({
+      id: uid('met', `${companyId}-employees`),
+      companyId,
+      metricType: 'employees' as const,
+      value: candidate.reportedHeadcount,
+      confidence: 'verified' as const,
+      source: 'Reported in search grounding results',
+      methodNote: 'Disclosed team headcount',
+      capturedAt: new Date().toISOString(),
+      citations: [],
+    });
+  }
+  if (isArrReported && candidate.reportedArr != null) {
+    initialMetrics.push({
+      id: uid('met', `${companyId}-arr`),
+      companyId,
+      metricType: 'arr' as const,
+      value: candidate.reportedArr,
+      confidence: 'verified' as const,
+      source: 'Reported in search grounding results',
+      methodNote: 'Disclosed annual revenue/run-rate',
+      capturedAt: new Date().toISOString(),
+      citations: [],
+    });
+  }
+  if (isValuationReported && candidate.reportedValuation != null) {
+    initialMetrics.push({
+      id: uid('met', `${companyId}-valuation`),
+      companyId,
+      metricType: 'valuation' as const,
+      value: candidate.reportedValuation,
+      confidence: 'verified' as const,
+      source: 'Reported in search grounding results',
+      methodNote: 'Disclosed valuation/market cap',
+      capturedAt: new Date().toISOString(),
+      citations: [],
+    });
+  }
+
+  const card: Card = {
+    id: cardId,
+    deckId: deck.id,
+    companyId: company.id,
+    cardType: primaryRole,
+    title: null,
+    summary: candidate.descriptor || null,
+    tier: null,
+    tierReason: null,
+    citations: [],
+    keyPoints: [],
+    createdAt: now(),
+  };
+  return {
+    card,
+    company,
+    metrics: initialMetrics,
+    viceClaims: [],
   };
 }
 
@@ -719,13 +912,33 @@ export async function hydrateDeckCards(
   const emit: OnResearchEvent = options.onEvent ?? (() => {});
   const signal = options.signal;
   const coverage = resolveCoverage(options as RunResearchOptions);
-  const concurrency = options.concurrency ?? 3;
+  // 6 workers: a search-grounded interview runs 20-35s, so wall time is
+  // worker-bound. RPM pacing (groundedRpm) still protects free-tier keys.
+  const concurrency = options.concurrency ?? 6;
   const completedCards = options.existingCompletedCards ?? [];
 
   // Concurrently run market signals alongside entity enrichment via Promise.all
   const [marketCards, entityCards] = await Promise.all([
     (async () => {
-      emit({
+      // A resume whose signals already landed must not re-buy them: the pass
+      // is a pair (barrier + insight), so both present means both are kept.
+      const resumedSignals = completedCards.filter(
+        (c) => c.card.cardType === 'barrier' || c.card.cardType === 'insight',
+      );
+      const signalsDone =
+        resumedSignals.some((c) => c.card.cardType === 'barrier') &&
+        resumedSignals.some((c) => c.card.cardType === 'insight');
+      if (signalsDone) {
+        await emit({
+          type: 'status',
+          step: 'barriers',
+          message: 'Barriers and insights already researched — keeping them.',
+        });
+        // Completed cards flow through the final return; returning them here
+        // too would double-count them.
+        return [];
+      }
+      await emit({
         type: 'status',
         step: 'barriers',
         message: 'Identifying barriers and market insights…',
@@ -738,14 +951,14 @@ export async function hydrateDeckCards(
         for (const cardType of ['barrier', 'insight'] as const) {
           const count = mc.filter((card) => card.card.cardType === cardType).length;
           if (count < coverage[cardType].min) {
-            emit({
+            await emit({
               type: 'warning',
               message: `Coverage shortfall for ${cardType}: found ${count}, minimum is ${coverage[cardType].min}. No unsupported market claims were invented.`,
             });
           }
         }
         for (const b of mc) {
-          emit({ type: 'card', card: b });
+          await emit({ type: 'card', card: b });
         }
         await options.onMarketSignals?.(mc);
         return mc;
@@ -753,7 +966,7 @@ export async function hydrateDeckCards(
         // Same rule: degrade on real failure, stop on cancellation. Previously
         // an abort here let entity enrichment carry on burning search quota.
         if (err instanceof AbortError) throw err;
-        emit({
+        await emit({
           type: 'warning',
           message: 'Could not research market-level barriers and insights.',
         });
@@ -762,7 +975,7 @@ export async function hydrateDeckCards(
     })(),
 
     (async () => {
-      emit({
+      await emit({
         type: 'status',
         step: 'enrich',
         message: 'Researching company summaries and headline metrics…',
@@ -776,6 +989,8 @@ export async function hydrateDeckCards(
             throwIfAborted(signal);
             try {
               const result = await hydrateCompanyCard({
+                originalSources: options.originalSources,
+                recoverMissingMetrics: true,
                 candidate,
                 client,
                 plan,
@@ -783,7 +998,7 @@ export async function hydrateDeckCards(
                 signal,
               });
               done += 1;
-              emit({
+              await emit({
                 type: 'status',
                 step: 'enrich',
                 message: `Researched ${candidate.name} (${done}/${candidates.length})`,
@@ -793,7 +1008,7 @@ export async function hydrateDeckCards(
               return result;
             } catch (error) {
               if (signal?.aborted) throw error;
-              emit({
+              await emit({
                 type: 'warning',
                 message: `Could not enrich ${candidate.name}; preserving the rest of the deck. ${error instanceof Error ? error.message : 'Research failed.'}`,
               });
@@ -804,7 +1019,7 @@ export async function hydrateDeckCards(
         )
       ).filter((entry): entry is HydrateCompanyCardResult => entry !== null);
 
-      emit({ type: 'status', step: 'score', message: 'Scoring maturity tiers…' });
+      await emit({ type: 'status', step: 'score', message: 'Scoring maturity tiers…' });
 
       // Score: relative user values across the whole deck
       const allMetrics = [
@@ -815,6 +1030,7 @@ export async function hydrateDeckCards(
         .filter(
           (metric) =>
             metric.metricType === 'users' &&
+            comparableMetricBasis(metric) &&
             metric.confidence !== 'unknown' &&
             metric.value !== null,
         )
@@ -837,7 +1053,16 @@ export async function hydrateDeckCards(
         });
       }
 
-      const reviews = await reviewTiersBatch(client, plan.marketName, reviewRows, signal);
+      // Same degradation rule as the run path: a provider blip in the AI
+      // review must not discard the hydrations already paid for. Deterministic
+      // base tiers carry the deck when the nudge pass fails.
+      let reviews = new Map<string, { nudge: -1 | 0 | 1; reason: string | null }>();
+      try {
+        reviews = await reviewTiersBatch(client, plan.marketName, reviewRows, signal);
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        reviews = new Map();
+      }
 
       const assembledCompanyCards: CardWithCompany[] = [];
       for (const r of hydratedResults) {
@@ -866,7 +1091,7 @@ export async function hydrateDeckCards(
             cwc.card.tierReason = tierReason;
           }
           assembledCompanyCards.push(cwc);
-          emit({ type: 'card', card: cwc });
+          await emit({ type: 'card', card: cwc });
         }
       }
 
@@ -879,15 +1104,16 @@ export async function hydrateDeckCards(
 
 /** Run the full deck-research pipeline. Streams progress via `onEvent`. */
 export async function runDeckResearch(
-  brief: { prompt: string; region: string | null },
+  brief: ResearchBrief,
   client: LlmClient,
   options: RunResearchOptions,
 ): Promise<ResearchResult> {
   const emit: OnResearchEvent = options.onEvent ?? (() => {});
   const signal = options.signal;
   const coverage = resolveCoverage(options);
-  // Default concurrency to 3 for higher data throughput and fast fan-out deck generation
-  const concurrency = options.concurrency ?? 3;
+  // Default concurrency to 6 for fast fan-out deck generation; RPM pacing
+  // (groundedRpm) is the free-tier guard, not worker count.
+  const concurrency = options.concurrency ?? 6;
   let plan: MarketPlan;
   let candidates: CompanyCandidate[];
   let market: Market;
@@ -908,13 +1134,13 @@ export async function runDeckResearch(
     candidates = candidates.filter(
       (candidate) => !completedNames.has(candidate.name.toLowerCase()),
     );
-    emit({
+    await emit({
       type: 'status',
       step: 'enrich',
       message: `Resuming research with ${candidates.length} remaining players…`,
     });
-    emit({ type: 'market', market: plan });
-    emit({ type: 'candidates', candidates: [...options.resume.candidates] });
+    await emit({ type: 'market', market: plan });
+    await emit({ type: 'candidates', candidates: [...options.resume.candidates] });
   } else {
     const stubs = await discoverDeckStubs(brief, client, options);
     plan = stubs.plan;
@@ -924,6 +1150,7 @@ export async function runDeckResearch(
   }
 
   const cards = await hydrateDeckCards(plan, deck, candidates, client, {
+    originalSources: options.originalSources,
     concurrency,
     coverage,
     signal,
@@ -931,6 +1158,6 @@ export async function runDeckResearch(
     existingCompletedCards: completedCards,
   });
 
-  emit({ type: 'done', total: cards.length });
+  await emit({ type: 'done', total: cards.length });
   return { market, deck, cards };
 }

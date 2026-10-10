@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { ChevronDown, Quote } from 'lucide-react';
 import { useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { HydratingPanel } from './HydratingPanel';
 import { History } from 'lucide-react';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { InsightReader } from '@/components/reader/InsightReader';
 import { useRerunDashboardTab } from '@/hooks/data';
 import { WikiAvatar } from './LeaderGrid';
+import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 
 /** "— Sam Altman, CEO (2024)" → "Sam Altman" for the headshot lookup. */
 function speakerNameOf(attribution: string): string | null {
@@ -22,14 +24,13 @@ export function HistoryTab({ companyId }: { companyId: string }) {
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [allQuotes, setAllQuotes] = useState(false);
   return (
-    <QueryBoundary query={query}>
+    <QueryBoundary query={query} loading={<HydratingPanel label="History" />}>
       {(result) => {
         const c = result.content;
-        const paragraphs = c.founderStory.split(/\n\n+/).filter((x) => x.trim().length > 0);
         return (
-          <div className="space-y-4">
+          <div className="space-y-4 cascade">
             {/* The one-pager: the company's story, written to be read. */}
-            {paragraphs.length > 0 && (
+            {c.founderStory.trim().length > 0 && (
               <div className="panel p-6">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <h3 className="font-display text-lg font-semibold text-content">The story</h3>
@@ -39,12 +40,8 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                     companyName={name}
                   />
                 </div>
-                <div className="max-w-3xl space-y-3">
-                  {paragraphs.map((para, i) => (
-                    <p key={i} className="text-[15px] leading-relaxed text-content/90">
-                      {para}
-                    </p>
-                  ))}
+                <div className="markdown max-w-3xl text-[15px] leading-relaxed text-content/90">
+                  <ResearchMarkdown text={c.founderStory} />
                 </div>
               </div>
             )}
@@ -116,8 +113,18 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                             {speaker && (
                               <WikiAvatar name={speaker} companyName={name} size="sm" />
                             )}
-                            <span className="text-xs text-muted">— {q.attribution}</span>
+                            <span className="text-xs text-muted">
+                              — {q.attribution}{q.date ? `, ${q.date}` : ''}
+                            </span>
                           </span>
+                        )}
+                        {/* Provenance at the point of use (red team #18): the
+                            source travels with the quote or it does not exist. */}
+                        {q.sourceUrl && (
+                          <a href={q.sourceUrl} target="_blank" rel="noopener noreferrer"
+                            className="mt-1 inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline">
+                            {q.sourceTitle || new URL(q.sourceUrl).hostname.replace(/^www\./, '')}
+                          </a>
                         )}
                       </li>
                     );

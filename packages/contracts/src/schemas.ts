@@ -10,6 +10,7 @@ import {
   CONFIDENCE_LEVELS,
   DASHBOARD_TABS,
   METRIC_TYPES,
+  MODEL_PROPOSABLE_CONFIDENCE,
   REFRESH_CADENCES,
   SUBSCRIPTION_STATUSES,
   SUBSCRIPTION_TIERS,
@@ -19,6 +20,30 @@ import {
 export const cardTypeSchema = z.enum(CARD_TYPES);
 export const metricTypeSchema = z.enum(METRIC_TYPES);
 export const confidenceSchema = z.enum(CONFIDENCE_LEVELS);
+
+/**
+ * Confidence as a MODEL may state it (issue #48). Use this — never
+ * `confidenceSchema` — on any structured-output schema handed to a model.
+ *
+ * Two jobs. Declaring the narrow enum makes the generated native
+ * `responseSchema` exclude `user_verified`, so a conforming model cannot emit a
+ * forged human sign-off at all. Normalising first stops a NON-conforming model
+ * from costing us an entire enrichment payload: the human-only value is demoted
+ * to `verified` (which must then be earned from a citation downstream), and
+ * anything unrecognisable becomes `unknown` rather than being trusted.
+ * `enforceModelMetricProvenance` applies the same demotion for callers that
+ * bypass this schema, so both entry points agree.
+ */
+export const modelConfidenceSchema = z
+  .preprocess((raw) => {
+    if (raw === undefined || raw === null) return undefined; // let .default() apply
+    if (raw === 'user_verified') return 'verified'; // human-only: never asserted
+    return (MODEL_PROPOSABLE_CONFIDENCE as readonly string[]).includes(raw as string)
+      ? raw
+      : 'unknown'; // malformed is a gap, not a figure to trust
+  }, z.enum(MODEL_PROPOSABLE_CONFIDENCE))
+  .default('unknown');
+
 export const refreshCadenceSchema = z.enum(REFRESH_CADENCES);
 export const dashboardTabSchema = z.enum(DASHBOARD_TABS);
 export const subscriptionTierSchema = z.enum(SUBSCRIPTION_TIERS);
@@ -96,6 +121,52 @@ export const companySchema = z.object({
   brandTheme: brandThemeSchema.nullable(),
 });
 
+// Citation schema ----------------------------------------------------------
+export const citationSchema = z.object({
+  title: z.string(),
+  url: z.string(),
+  credibility: z
+    .enum(['primary', 'reputable_secondary', 'industry', 'user_generated', 'unknown'])
+    .optional(),
+});
+
+/** Retained extraction evidence, never a model assertion of verification. */
+export const metricPassageSupportSchema = z.object({
+  sourceUrl: z.string().max(2048), quote: z.string().max(600), asOf: z.string().max(40),
+  /**
+   * Money metrics (arr, valuation, market_cap, aum) carry the ISO 4217 code the
+   * SOURCE quotes — USD or one of the convertible majors. A non-USD figure is
+   * stored converted to USD on the metric row; the quote and this code keep
+   * the native observation. count and percent are non-monetary units.
+   */
+  basis: metricTypeSchema, unit: z.enum(['USD', 'count', 'percent',
+    'EUR', 'GBP', 'JPY', 'CNY', 'KRW', 'TWD', 'INR', 'CAD', 'AUD', 'CHF', 'HKD', 'SGD', 'SEK', 'NOK', 'DKK', 'BRL', 'MXN']),
+  /** basis is the legacy storage slot; definition is the actual measurement. */
+  definition: z.enum(['arr', 'annual_revenue', 'users', 'active_users', 'monthly_active_users',
+    'daily_active_users', 'customers', 'paying_customers', 'employees', 'valuation', 'market_cap', 'market_share', 'aum']).optional(),
+  /** Inclusive annual reporting interval; asOf is its end, not retrieval time. */
+  periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /** Deterministic retained SEC evidence, never generated prose. 'sec-adv' is
+   * the IAPD Form ADV PDF report (Item 5.A employees, Item 5.F regulatory AUM). */
+  format: z.enum(['sec-companyconcept', 'sec-filing', 'sec-adv']).optional(),
+});
+
+/** Provider-attributed reported claim, explicitly NOT original verification. */
+export const reportedMetricSupportSchema = z.object({
+  provider: z.literal('google-search'), companyName: z.string().min(1),
+  basis: metricTypeSchema, value: z.number().finite().nonnegative(),
+  unit: metricPassageSupportSchema.shape.unit,
+  asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  definition: metricPassageSupportSchema.shape.definition,
+  periodStart: metricPassageSupportSchema.shape.periodStart,
+  support: z.object({
+    supportIndex: z.number().int().nonnegative(), text: z.string().min(1).max(12000),
+    sources: z.array(z.object({ chunkIndex: z.number().int().nonnegative(), url: z.string().max(2048), title: z.string() })).min(1),
+    startIndex: z.number().int().nonnegative().optional(), endIndex: z.number().int().nonnegative().optional(),
+    partIndex: z.number().int().nonnegative().optional(),
+  }),
+});
+
 export const companyMetricSchema = z.object({
   id: z.string(),
   companyId: z.string(),
@@ -111,18 +182,10 @@ export const companyMetricSchema = z.object({
    * expire, so the publisher name is the durable half of the provenance.
    * Defaulted to [] so snapshots written before this field still parse.
    */
-  citations: z
-    .array(
-      z.object({
-        title: z.string(),
-        url: z.string(),
-        credibility: z
-          .enum(['primary', 'reputable_secondary', 'industry', 'user_generated', 'unknown'])
-          .optional(),
-      }),
-    )
-    .default([]),
+  citations: z.array(citationSchema).default([]),
   methodNote: z.string().nullable(), // "how we got this number" for estimated figures
+  passageSupport: metricPassageSupportSchema.nullish(),
+  reportedSupport: reportedMetricSupportSchema.nullish(),
   capturedAt: isoTimestamp,
   /**
    * When a source last CONFIRMED this figure, as opposed to when we wrote the
@@ -132,6 +195,8 @@ export const companyMetricSchema = z.object({
    * Defaulted so snapshots written before freshness tracking still parse.
    */
   lastVerifiedAt: isoTimestamp.nullish(),
+  /** Last completed check, including inconclusive attempts; not evidence of support. */
+  lastVerificationAttemptAt: isoTimestamp.nullish(),
   /**
    * This figure's own decay window. Written onto the row rather than derived at
    * read time, so a later policy change cannot silently reinterpret the
@@ -148,6 +213,7 @@ export const companyMetricSchema = z.object({
             confidence: confidenceSchema,
             source: z.string().nullable(),
             capturedAt: isoTimestamp,
+            passageSupport: metricPassageSupportSchema.nullish(),
           }),
         ),
         detectedAt: isoTimestamp,
@@ -234,6 +300,10 @@ export const overviewContentSchema = z.object({
   markdown: prose(),
 });
 
+/** The Research & Sources tab renders retained evidence directly; the
+// cached-content stub only satisfies the shared content contract. */
+export const researchContentSchema = z.object({ markdown: z.string() });
+
 export const liveIntelItemSchema = z.object({
   id: z.string(),
   source: z.enum(['news', 'x', 'reddit']),
@@ -274,6 +344,10 @@ export const orgNodeSchema = z.object({
   priorCompany: prose().nullable().optional().catch(null),
   /** Notable project or ownership area explicitly tied to the person. */
   notableProject: prose().nullable().optional().catch(null),
+  /** Exact retained original that supports this person/title, when available. */
+  sourceUrl: z.string().url().nullable().optional().catch(null),
+  supportingQuote: prose().nullable().optional().catch(null),
+  sourceRetrievedAt: isoTimestamp.nullable().optional().catch(null),
 });
 /**
  * Tolerant to the model returning the node list bare instead of wrapped in
@@ -340,7 +414,16 @@ export const timelineEventSchema = z.object({
   title: z.string(),
   detail: prose(),
 });
-export const quoteSchema = z.object({ text: z.string(), attribution: prose() });
+export const quoteSchema = z.object({
+  text: z.string(),
+  attribution: prose(),
+  /** Provenance (red team #18): who said it needs when and where. All
+   * optional so cached content parses; the dashboard builder drops source
+   * fields that do not match the response's real citations. */
+  date: prose().optional(),
+  sourceTitle: prose().optional(),
+  sourceUrl: z.string().url().optional(),
+});
 export const historyContentSchema = z.object({
   founderStory: prose(),
   timeline: rows(timelineEventSchema),
@@ -378,6 +461,7 @@ export const productsRoadmapContentSchema = z.object({
 /** Tab → content schema. Used to validate `dashboard_data.content_json` per tab. */
 export const DASHBOARD_CONTENT_SCHEMAS = {
   overview: overviewContentSchema,
+  research: researchContentSchema,
   live_intel: liveIntelContentSchema,
   team_org: teamOrgContentSchema,
   live_landing: liveLandingContentSchema,
@@ -394,3 +478,67 @@ export const dashboardDataSchema = z.object({
   contentJson: z.unknown(),
   lastRefreshedAt: isoTimestamp.nullable(),
 });
+
+// Semantic Memory & Research Thread Schemas (spec #56) -----------------------
+export const distilledSemanticFactSchema = z.object({
+  id: z.string(),
+  fact: z.string().min(1),
+  category: z
+    .enum(['metric', 'finding', 'competitor', 'trend', 'risk', 'general'])
+    .default('general'),
+  companyId: z.string().nullable().optional(),
+  subject: z.string().nullable().optional(),
+  citations: z.array(citationSchema).default([]),
+  extractedAt: isoTimestamp,
+  userVerified: z.boolean().optional(),
+});
+
+export const semanticMemorySchema = z.object({
+  threadId: z.string(),
+  distilledFacts: z.array(distilledSemanticFactSchema).default([]),
+  lastDistilledTurnIndex: z.number().int().nonnegative(),
+  totalTurnsDistilled: z.number().int().nonnegative(),
+  distilledAt: isoTimestamp,
+});
+
+export const distillationExtractionSchema = z.object({
+  facts: z.array(
+    z.object({
+      fact: z.string().min(1),
+      category: z
+        .enum(['metric', 'finding', 'competitor', 'trend', 'risk', 'general'])
+        .default('general'),
+      companyId: z.string().nullable().optional(),
+      subject: z.string().nullable().optional(),
+      citations: z.array(citationSchema).default([]),
+    }),
+  ),
+});
+
+export const researchScopeSchema = z.object({
+  kind: z.enum(['deck', 'company', 'cards', 'datapoint']),
+  deckId: z.string().nullable(),
+  companyId: z.string().nullable().optional(),
+  cardIds: z.array(z.string()).optional(),
+  subject: z.string().nullable().optional(),
+});
+
+export const threadMessageSchema = z.object({
+  id: z.string(),
+  role: z.enum(['user', 'assistant']),
+  text: z.string(),
+  citations: z.array(citationSchema).default([]),
+  at: isoTimestamp,
+});
+
+export const researchThreadSchema = z.object({
+  id: z.string(),
+  scope: researchScopeSchema,
+  title: z.string(),
+  messages: z.array(threadMessageSchema),
+  reportId: z.string().nullable().default(null),
+  semanticMemory: semanticMemorySchema.nullable().optional(),
+  createdAt: isoTimestamp,
+  updatedAt: isoTimestamp,
+});
+

@@ -21,6 +21,7 @@ import type { CardWithCompany, ExpandFocus, LivingDeckDelta } from '@mi/contract
 import { IncrementalDeltaAgent } from '../delta-agent';
 import { throwIfAborted, sleep, type RateLimiter } from '../util';
 import type { CompanyCandidate, LlmClient, MarketPlan } from '../types';
+import type { OriginalSourceServices } from '../original-source';
 import { toTraceError, type AdkSpan, type AdkTelemetryHub } from './telemetry';
 import type { AdkTaskNode } from './task-graph';
 import { ENRICHMENT_STATE_KEY, isEnrichmentPoolResult } from './enrichment-pool';
@@ -60,6 +61,7 @@ export interface ExistingEntity {
 }
 
 export interface SignalWatcherOptions {
+  originalSources?: OriginalSourceServices;
   client: LlmClient;
   plan: MarketPlan;
   telemetry: AdkTelemetryHub;
@@ -198,6 +200,7 @@ export async function runSignalWatcher(
 
       passSpan.toolCall('delta_agent.search', { iteration: iteration + 1 });
       const result = await agent.searchDelta({
+        originalSources: options.originalSources,
         focus,
         target: targetPerIteration,
         exclude: [...exclude],

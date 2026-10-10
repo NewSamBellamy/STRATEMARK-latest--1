@@ -4,14 +4,45 @@
  * (and is Zod-validated before it does).
  */
 import type { ZodType, ZodTypeDef } from 'zod';
+import type { OriginalSourceServices } from './original-source';
 import type {
   CardType,
   CardWithCompany,
+  CompanyScope,
   DashboardTab,
   Deck,
   Market,
   SourceCredibility,
 } from '@mi/contracts';
+
+/** Where the time of one settled provider call went. The honest answer to
+ * "why is research slow": limiter queue wait, retry backoff, or the model. */
+export interface CallMetrics {
+  model: string;
+  /** `judge` marks verification-class calls (metric verify, batch verify,
+   * red-team) so cost metering can separate who verifies from who fills. */
+  kind: 'ground' | 'structure' | 'judge';
+  /** Dispatched attempts, including any 429/5xx retries. */
+  attempts: number;
+  retries: number;
+  /** Time spent waiting for a rate-limiter slot before dispatches. */
+  queuedMs: number;
+  /** Dispatch → response of all attempts (body reads and JSON parse included). */
+  requestMs: number;
+  /** Retry-After / backoff sleeps between attempts. */
+  retryWaitMs: number;
+  totalMs: number;
+}
+
+/** Rolling spend/pacing totals since a client's construction, read through
+ * LlmClient.metrics?.() — the honest answer to "why is research slow". */
+export interface CallMetricsAggregate {
+  calls: number;
+  retries: number;
+  rateLimitedMs: number;
+  /** Ground calls answered by a fallback model line after the primary failed. */
+  fallbacks: number;
+}
 
 /** What the user submits from the "New deck" screen. */
 export interface ResearchBrief {
@@ -19,6 +50,8 @@ export interface ResearchBrief {
   prompt: string;
   /** Optional geography/region scope, e.g. "California, USA". */
   region: string | null;
+  /** Explicit company-only scope; absent means discover the whole market. */
+  companyScope?: CompanyScope;
 }
 
 /** Normalized market definition (output of the scope-interpreter step). */
@@ -29,6 +62,8 @@ export interface MarketPlan {
   notes: string | null;
   /** Angles the discovery step should search along. */
   searchThemes: string[];
+  /** Named companies are priority anchors by default; exact scope prevents market expansion. */
+  companyScope?: CompanyScope;
 }
 
 export interface ResearchResumeState {
@@ -74,7 +109,7 @@ export type ResearchEvent =
 
 export type ResearchStep = 'interpret' | 'discover' | 'enrich' | 'barriers' | 'score' | 'assemble';
 
-export type OnResearchEvent = (event: ResearchEvent) => void;
+export type OnResearchEvent = ((event: ResearchEvent) => void) | ((event: ResearchEvent) => Promise<void>);
 
 export interface GeminiConfig {
   apiKey: string;
@@ -100,6 +135,7 @@ export interface ResearchCoverage {
 }
 
 export interface RunResearchOptions extends GeminiConfig {
+  originalSources?: OriginalSourceServices;
   onEvent?: OnResearchEvent;
   signal?: AbortSignal;
   /** Cap concurrent enrichment calls (free-tier friendly). Default 2. */
@@ -112,12 +148,38 @@ export interface RunResearchOptions extends GeminiConfig {
   catalogMax?: number;
   /** Maximum catalog search-angle passes; defaults to the market's search themes. */
   catalogPasses?: number;
+  /** Streamed once the market is interpreted (plan + market + deck rows all
+   * real), before discovery: lets the caller start hydration planning while
+   * discovery runs. */
+  onInterpreted?: (interpreted: { plan: MarketPlan; market: Market; deck: Deck }) => void;
+  /** Streamed per discovery pass: each new entity as its stub card, alongside
+   * the candidate it was built from. Lets the caller ingest and hydrate
+   * entities while fallback discovery passes are still running. */
+  onStubs?: (entries: Array<{ stub: CardWithCompany; candidate: CompanyCandidate }>) => void;
   /** Resume a durable job from its persisted catalog and completed cards. */
   resume?: ResearchResumeState;
 }
 
 /** The abstraction the pipeline steps talk to (implemented by the Gemini client). */
+export interface ProviderGrounding {
+  /** Provider attribution on generated answer text, NOT original-page evidence. */
+  provider: 'google-search';
+  answerText: string;
+  supports: Array<{
+    supportIndex: number;
+    text: string;
+    /** Provider offsets retained verbatim; never slice JS strings with them. */
+    startIndex?: number;
+    endIndex?: number;
+    partIndex?: number;
+    sources: Array<{ chunkIndex: number; url: string; title: string }>;
+  }>;
+}
+
 export interface LlmClient {
+  /** Rolling spend/pacing totals since construction. OPTIONAL - the concrete
+   * Gemini clients provide it; mocks and test doubles may not. */
+  metrics?: () => CallMetricsAggregate;
   /**
    * Grounded generation — ALWAYS sends the Google Search tool. Returns the
    * model's text plus the source citations Google attached. This is the only
@@ -125,8 +187,8 @@ export interface LlmClient {
    */
   ground(
     prompt: string,
-    opts?: { system?: string; signal?: AbortSignal },
-  ): Promise<{ text: string; citations: Citation[]; queries: string[] }>;
+    opts?: { system?: string; signal?: AbortSignal; researchContext?: { companyId?: string; companyName?: string; topic: string } },
+  ): Promise<{ text: string; citations: Citation[]; queries: string[]; grounding?: ProviderGrounding }>;
 
   /**
    * Structured extraction — converts prior grounded text into strict JSON,

@@ -2,10 +2,13 @@ import { useState } from 'react';
 import { Banknote, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { HydratingPanel } from './HydratingPanel';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { InsightReader, type InsightTone } from '@/components/reader/InsightReader';
 import { AiCover } from '@/components/media/AiCover';
 import { WikiAvatar } from './LeaderGrid';
+import { ResearchMarkdown } from '@/components/ResearchMarkdown';
+import { UnknownInline } from '@/features/card/UnknownValue';
 
 const INVESTOR_KIND_LABEL: Record<string, string> = {
   vc: 'Venture',
@@ -29,18 +32,26 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
   // Click a signal → it opens as its own readable card (the deck-of-cards gist).
   const [openSignal, setOpenSignal] = useState<{ tone: InsightTone; text: string } | null>(null);
   return (
-    <QueryBoundary query={query}>
+    <QueryBoundary query={query} loading={<HydratingPanel label="Mission & Governance" />}>
       {(result) => {
         const c = result.content;
+        // Model-authored arrays are untrusted data: a section the model omitted
+        // must render as an honest empty, never crash the tab (taste-test found
+        // 'Cannot read properties of undefined (reading length)' here).
+        const board = c.board ?? [];
+        const fundingRounds = c.fundingRounds ?? [];
+        const investors = c.investors ?? [];
+        const positives = c.positives ?? [];
+        const negatives = c.negatives ?? [];
         return (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 cascade lg:grid-cols-2">
             <div className="panel p-5">
               <h3 className="font-display text-sm font-semibold text-content">Mission</h3>
-              <p className="mt-2 text-sm text-muted">{c.mission}</p>
+              <div className="markdown mt-2 text-sm text-muted"><ResearchMarkdown text={c.mission ?? ''} /></div>
               <h3 className="mt-4 font-display text-sm font-semibold text-content">Ethos</h3>
-              <p className="mt-2 text-sm text-muted">{c.ethos}</p>
+              <div className="markdown mt-2 text-sm text-muted"><ResearchMarkdown text={c.ethos ?? ''} /></div>
               <h3 className="mt-4 font-display text-sm font-semibold text-content">Governance</h3>
-              <p className="mt-2 text-sm text-muted">{c.governanceStructure}</p>
+              <div className="markdown mt-2 text-sm text-muted"><ResearchMarkdown text={c.governanceStructure ?? ''} /></div>
               {/* The identity, illustrated: generated from THIS company's
                   mission + governance so every company's panel is unique. */}
               <div className="mt-4 h-[130px] overflow-hidden rounded-xl border border-border">
@@ -70,7 +81,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
               {/* The same framed-portrait treatment as the leadership grid —
                   a board of famous names deserves faces, not a text list. */}
               <ul className="mt-3 space-y-3">
-                {c.board.map((b) => (
+                {board.map((b) => (
                   <li key={b.name} className="flex items-center gap-3">
                     <WikiAvatar name={b.name} companyName={name} size="sm" />
                     <div className="min-w-0">
@@ -81,23 +92,23 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                     </div>
                   </li>
                 ))}
-                {c.board.length === 0 && (
+                {board.length === 0 && (
                   <li className="text-sm text-muted">No board members surfaced yet.</li>
                 )}
               </ul>
             </div>
 
             {/* Funding & the investor board — whose money is in, and when. */}
-            {(c.fundingRounds.length > 0 || c.investors.length > 0) && (
+            {(fundingRounds.length > 0 || investors.length > 0) && (
               <div className="panel p-5 lg:col-span-2">
                 <h3 className="flex items-center gap-2 font-display text-sm font-semibold text-content">
                   <Banknote className="h-4 w-4 text-primary-ink" /> Funding & investors
                 </h3>
                 <div className="mt-3 grid gap-5 lg:grid-cols-[1fr_320px]">
                   <div>
-                    {c.fundingRounds.length > 0 ? (
+                    {fundingRounds.length > 0 ? (
                       <ol className="space-y-2.5">
-                        {c.fundingRounds.map((r, i) => (
+                        {fundingRounds.map((r, i) => (
                           <li key={i} className="flex items-baseline gap-3">
                             <span className="w-20 shrink-0 text-xs font-bold tabular-nums text-primary-ink">
                               {r.date ?? '—'}
@@ -105,8 +116,9 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                             <div className="min-w-0">
                               <span className="text-sm font-medium text-content">{r.round}</span>
                               <span className="text-sm text-muted">
-                                {r.amountUsd != null ? ` · ${fmtUsd(r.amountUsd)}` : ' · undisclosed'}
-                                {r.leadInvestors.length > 0 && ` · led by ${r.leadInvestors.join(', ')}`}
+                                {' · '}
+                                {r.amountUsd != null ? fmtUsd(r.amountUsd) : <UnknownInline />}
+                                {(r.leadInvestors ?? []).length > 0 && ` · led by ${(r.leadInvestors ?? []).join(', ')}`}
                               </span>
                             </div>
                           </li>
@@ -121,7 +133,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                       Investor board
                     </p>
                     <ul className="space-y-2">
-                      {c.investors.slice(0, 10).map((inv) => (
+                      {investors.slice(0, 10).map((inv) => (
                         <li key={inv.name} className="flex items-start gap-2.5">
                           <WikiAvatar name={inv.name} companyName={name} size="sm" />
                           <div className="min-w-0">
@@ -137,7 +149,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                           </div>
                         </li>
                       ))}
-                      {c.investors.length === 0 && (
+                      {investors.length === 0 && (
                         <li className="text-sm text-muted">No named investors surfaced yet.</li>
                       )}
                     </ul>
@@ -153,7 +165,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                 <ThumbsUp className="h-4 w-4" /> Positive signals
               </h3>
               <ul className="mt-2 space-y-1">
-                {c.positives.map((p, i) => (
+                {positives.map((p, i) => (
                   <li key={i}>
                     <button
                       type="button"
@@ -173,7 +185,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                 <ThumbsDown className="h-4 w-4" /> Concerns
               </h3>
               <ul className="mt-2 space-y-1">
-                {c.negatives.map((n, i) => (
+                {negatives.map((n, i) => (
                   <li key={i}>
                     <button
                       type="button"

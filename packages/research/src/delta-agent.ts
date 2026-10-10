@@ -52,6 +52,7 @@ import {
 } from './prompts';
 import { rootDomain, throwIfAborted } from './util';
 import { hydrateCompanyCard } from './company-agent';
+import type { OriginalSourceServices } from './original-source';
 import type {
   Citation,
   CompanyCandidate,
@@ -103,6 +104,7 @@ export interface DeltaExecutionStats {
 }
 
 export interface DeltaSearchOptions {
+  originalSources?: OriginalSourceServices;
   focus: ExpandFocus | string;
   target?: number;
   exclude?: EntityExclusionInput;
@@ -123,6 +125,7 @@ export interface DeltaSearchResult {
 }
 
 export interface ExpandDeckWithDeltaAgentArgs {
+  originalSources?: OriginalSourceServices;
   client: LlmClient;
   marketName: string;
   vertical: string;
@@ -496,7 +499,7 @@ export class IncrementalDeltaAgent {
     // 2. Build Exclusion Clause & Identity Key Set
     const exclusion = buildExclusionClause(options.exclude);
 
-    emit({
+    await emit({
       type: 'status',
       step: 'discover',
       message: `Hunting: ${translated.focusPrompt}`,
@@ -595,7 +598,7 @@ export class IncrementalDeltaAgent {
       }
     }
 
-    emit({ type: 'candidates', candidates });
+    await emit({ type: 'candidates', candidates });
 
     // 6. Full Subagent Hydration via CompanyAgent
     const resultCards: CardWithCompany[] = [];
@@ -604,7 +607,7 @@ export class IncrementalDeltaAgent {
     for (const candidate of candidates) {
       throwIfAborted(options.signal);
 
-      emit({
+      await emit({
         type: 'status',
         step: 'enrich',
         message: `Researched ${candidate.name}`,
@@ -612,6 +615,8 @@ export class IncrementalDeltaAgent {
 
       // Hydrate via deep module company-agent
       const hydration = await hydrateCompanyCard({
+        originalSources: options.originalSources,
+        recoverMissingMetrics: true,
         candidate,
         client: this.client,
         plan,
@@ -627,6 +632,7 @@ export class IncrementalDeltaAgent {
 
       // Perform tier review if candidate was scored and tier review is enabled
       if (
+        !options.originalSources &&
         options.reviewTiers !== false &&
         hydration.cmsResult.baseTier != null &&
         hydration.cmsResult.finalTier != null
@@ -680,7 +686,7 @@ export class IncrementalDeltaAgent {
       // Collect emitted cards
       for (const cwc of hydration.cards) {
         resultCards.push(cwc);
-        emit({ type: 'card', card: cwc });
+        await emit({ type: 'card', card: cwc });
       }
     }
 
@@ -759,6 +765,7 @@ export async function expandDeckWithDeltaAgent(
     args.focus ?? (args.focusPrompt || 'notable companies missed in the initial pass');
 
   const result = await agent.searchDelta({
+    originalSources: args.originalSources,
     focus: focusInput,
     target: args.target ?? 3,
     exclude: excludeItems,

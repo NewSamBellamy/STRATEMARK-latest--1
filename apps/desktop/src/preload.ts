@@ -12,6 +12,10 @@ import {
   type DeckRefreshEvent,
   type DeckRefreshListener,
   type PreloadRepositoryApi,
+  type ResearchNoteEntry,
+  type ResearchPassage,
+  type VerifyCompanyMetricsResult,
+  type Report,
   type ResearchJob,
   type ResearchProgressEvent,
   type ResearchProgressListener,
@@ -36,6 +40,7 @@ const api: PreloadRepositoryApi = {
   unsaveCard: (cardId) => ipcRenderer.invoke(IPC_CHANNELS.unsaveCard, cardId),
   getCompany: (companyId) => ipcRenderer.invoke(IPC_CHANNELS.getCompany, companyId),
   getCompanyMetrics: (companyId) => ipcRenderer.invoke(IPC_CHANNELS.getCompanyMetrics, companyId),
+  getCompanyFacts: (companyId) => ipcRenderer.invoke(IPC_CHANNELS.getCompanyFacts, companyId),
   getViceClaims: (cardId) => ipcRenderer.invoke(IPC_CHANNELS.getViceClaims, cardId),
   getDashboardTab: (companyId, tab, force) =>
     ipcRenderer.invoke(IPC_CHANNELS.getDashboardTab, companyId, tab, force),
@@ -44,6 +49,10 @@ const api: PreloadRepositoryApi = {
   verifyMetric: (input) => ipcRenderer.invoke(IPC_CHANNELS.verifyMetric, input),
   generateReport: (request) => ipcRenderer.invoke(IPC_CHANNELS.generateReport, request),
   listReports: () => ipcRenderer.invoke(IPC_CHANNELS.listReports),
+  huntCompanyMetrics: (id, options) => ipcRenderer.invoke(IPC_CHANNELS.huntCompanyMetrics, id, options),
+  generateDeckBriefing: (id, opts) => ipcRenderer.invoke(IPC_CHANNELS.generateDeckBriefing, id, opts),
+  listDeckBriefings: (id) => ipcRenderer.invoke(IPC_CHANNELS.listDeckBriefings, id),
+  auditSite: (input) => ipcRenderer.invoke(IPC_CHANNELS.auditSite, input),
   getReport: (id) => ipcRenderer.invoke(IPC_CHANNELS.getReport, id),
   expandDeck: (marketId, focus) => ipcRenderer.invoke(IPC_CHANNELS.expandDeck, marketId, focus),
   overrideMetric: (input) => ipcRenderer.invoke(IPC_CHANNELS.overrideMetric, input),
@@ -62,6 +71,16 @@ const api: PreloadRepositoryApi = {
     ipcRenderer.invoke(IPC_CHANNELS.cancelResearchJob, id) as Promise<ResearchJob | null>,
   resumeResearchJob: (id) =>
     ipcRenderer.invoke(IPC_CHANNELS.resumeResearchJob, id) as Promise<ResearchJob | null>,
+  addResearchNote: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.addResearchNote, input) as Promise<ResearchNoteEntry>,
+  searchResearchCorpus: (input: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.searchResearchCorpus, input) as Promise<ResearchPassage[]>,
+  verifyCompanyMetrics: (companyId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.verifyCompanyMetrics, { companyId }) as Promise<VerifyCompanyMetricsResult>,
+  saveReport: (input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveReport, input) as Promise<Report>,
+  getResearchEvidence: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getResearchEvidence, input) as unknown as unknown[],
   googleSignIn: () => ipcRenderer.invoke(IPC_CHANNELS.googleSignIn),
   googleSignOut: () => ipcRenderer.invoke(IPC_CHANNELS.googleSignOut),
   onAuthCallback: (listener) => {
@@ -92,6 +111,9 @@ contextBridge.exposeInMainWorld('mi', api);
 const secure: SecureApi = {
   getApiKey: () => ipcRenderer.invoke(SECURE_CHANNELS.getApiKey),
   setApiKey: (key) => ipcRenderer.invoke(SECURE_CHANNELS.setApiKey, key),
+  exportResearch: () => ipcRenderer.invoke(SECURE_CHANNELS.exportResearch),
+  importResearch: (json) => ipcRenderer.invoke(SECURE_CHANNELS.importResearch, json),
+  getResearchStorageInfo: () => ipcRenderer.invoke(SECURE_CHANNELS.getResearchStorageInfo),
   googleSignIn: () => ipcRenderer.invoke(SECURE_CHANNELS.googleSignIn),
   googleSignOut: () => ipcRenderer.invoke(SECURE_CHANNELS.googleSignOut),
 };

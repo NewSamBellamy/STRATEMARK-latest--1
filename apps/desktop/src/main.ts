@@ -8,8 +8,8 @@
  * persists to a JSON snapshot in userData. (SQLite/Drizzle remains the
  * documented upgrade path — same ResearchStore seam.)
  */
-import { app, BrowserWindow, ipcMain, Menu, type MenuItemConstructorOptions, nativeImage, net, protocol, safeStorage } from 'electron';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { app, BrowserWindow, ipcMain as electronIpcMain, Menu, type MenuItemConstructorOptions, nativeImage, net, protocol, safeStorage, shell, dialog } from 'electron';
+import { pathToFileURL } from 'node:url';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { IPC_CHANNELS, SECURE_CHANNELS, type MarketIntelRepository } from '@mi/contracts';
@@ -29,20 +29,50 @@ import {
   refreshCadenceSchema,
   dashboardTabSchema,
 } from './ipc-schemas.js';
-import { MockRepository } from '@mi/mocks';
-import { GeminiRepository, type RepoSnapshot, type ResearchStore } from '@mi/research';
+import { GeminiRepository, migrateSnapshot, type RepoSnapshot } from '@mi/research';
+
+// Unhandled main-process failures otherwise die silently (the Oct-6 audit:
+// only startup was protected). Surface the first one honestly and keep
+// running — research commits atomically to disk, so a crashed handler cannot
+// corrupt saved data. No telemetry: the error stays on this machine.
+let didReportCrash = false;
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception in the main process:', error);
+  if (didReportCrash) return;
+  didReportCrash = true;
+  try {
+    dialog.showErrorBox('Stratemark hit an unexpected error',
+      `${error.message || String(error)}\n\nThe app kept running and your saved research is safe on disk. If anything looks wrong, restart the app.`);
+  } catch { /* headless failure — the log above is the record */ }
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection in the main process:', reason);
+});
+import sampleSnapshot from '../../web/src/sample/frontier-snapshot.json';
+import { createFileStore, parseResearchExport } from './storage.js';
+import { createSqliteStore } from './sqlite.js';
+import { createOriginalSourceServices } from './original-sources.js';
 import { performGoogleOAuthFlow, loadDesktopEnv, type OAuthUser } from './oauth.js';
 
 loadDesktopEnv();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DESKTOP_DIST = path.join(app.getAppPath(), 'dist');
 const WEB_DIST = app.isPackaged
   ? path.join(process.resourcesPath, 'web-dist')
-  : path.join(__dirname, '../../web/dist');
+  : path.join(DESKTOP_DIST, '../../web/dist');
 
 app.name = 'Stratemark';
 app.setName('Stratemark');
 process.title = 'Stratemark';
+
+// Development previews use a separate workspace so testing never touches a
+// previously installed app's research or saved key. Ignored by packaged builds.
+const previewData = process.argv.find((arg) => arg.startsWith('--preview-data-dir='));
+if (!app.isPackaged && previewData) {
+  const directory = path.resolve(previewData.slice('--preview-data-dir='.length));
+  mkdirSync(directory, { recursive: true });
+  app.setPath('userData', directory);
+}
 
 function createApplicationMenu(): void {
   const isMac = process.platform === 'darwin';
@@ -111,27 +141,13 @@ protocol.registerSchemesAsPrivileged([
 // ---------------------------------------------------------------------------
 // Persistence + key management (main-process only)
 // ---------------------------------------------------------------------------
-function createFileStore(file: string): ResearchStore {
-  return {
-    read(): RepoSnapshot | null {
-      try {
-        return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as RepoSnapshot) : null;
-      } catch {
-        return null;
-      }
-    },
-    write(snapshot: RepoSnapshot): void {
-      try {
-        mkdirSync(path.dirname(file), { recursive: true });
-        const temp = `${file}.tmp`;
-        writeFileSync(temp, JSON.stringify(snapshot));
-        renameSync(temp, file);
-      } catch (err) {
-        console.error('Failed to persist research snapshot:', err);
-      }
-    },
-  };
-}
+const researchFile = () => path.join(app.getPath('userData'), 'research', 'repo.json');
+// SQLite is the system of record when this runtime provides node:sqlite; the
+// JSON file seeds the first import and stays on disk as a last-good backup.
+// researchFile() keeps its name and location for exactly that reason.
+const researchStore = () => createSqliteStore(researchFile()) ?? createFileStore(researchFile());
+const encryptionAvailable = () => safeStorage.isEncryptionAvailable() &&
+  (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
 
 const keyFile = (): string => path.join(app.getPath('userData'), 'gemini.key.enc');
 
@@ -156,7 +172,7 @@ function loadApiKey(): string {
     // Only ever read back through the same encryption that wrote it. Reading a
     // file as plaintext when encryption is unavailable is how a key written by
     // the old code path would keep being honored.
-    if (!safeStorage.isEncryptionAvailable()) return '';
+    if (!encryptionAvailable()) return '';
     return safeStorage.decryptString(readFileSync(keyFile()));
   } catch {
     return '';
@@ -179,10 +195,12 @@ function saveApiKey(key: string): void {
     if (existsSync(keyFile())) rmSync(keyFile());
     return;
   }
-  if (!safeStorage.isEncryptionAvailable()) {
+  if (!encryptionAvailable()) {
     throw new SecureStorageUnavailableError();
   }
-  writeFileSync(keyFile(), safeStorage.encryptString(key));
+  mkdirSync(path.dirname(keyFile()), { recursive: true });
+  writeFileSync(`${keyFile()}.tmp`, safeStorage.encryptString(key), { mode: 0o600, flush: true });
+  renameSync(`${keyFile()}.tmp`, keyFile());
 }
 
 // ---------------------------------------------------------------------------
@@ -193,15 +211,34 @@ let repository: MarketIntelRepository;
 let unwireRefresh: (() => void) | null = null;
 let mainWin: BrowserWindow | null = null;
 
+// Every native method is restricted to our main frame, never an embedded website.
+const ipcMain = {
+  handle(channel: string, listener: Parameters<typeof electronIpcMain.handle>[1]) {
+    electronIpcMain.handle(channel, (event, ...args: unknown[]) => {
+      if (!mainWin || event.sender !== mainWin.webContents || event.senderFrame !== mainWin.webContents.mainFrame) {
+        throw new Error('Untrusted IPC sender.');
+      }
+      return listener(event, ...args);
+    });
+  },
+};
+
 function makeRepository(): MarketIntelRepository {
   const apiKey = loadApiKey();
-  if (!apiKey) return new MockRepository();
+  const store = researchStore();
+  if (!store.read()) store.write(migrateSnapshot(sampleSnapshot as unknown as RepoSnapshot).snapshot);
+  const requireKey = async (): Promise<never> => { throw new Error('Add your Gemini API key in Settings to run live research.'); };
   return new GeminiRepository({
     apiKey,
-    store: createFileStore(path.join(app.getPath('userData'), 'research', 'repo.json')),
+    ...(apiKey ? {} : { client: { ground: requireKey, structure: requireKey } }),
+    store,
     targetCompanies: 10,
-    // Broad markets are researched as a sequential queue to stay predictable on free tier.
-    concurrency: 1,
+    originalSources: createOriginalSourceServices(path.join(app.getPath('userData'), 'original-sources')),
+    // Match the bounded browser worker pool. Shared provider RPM limits below
+    // still pace requests; one slow company no longer stalls every other card.
+    concurrency: 3,
+    groundedRpm: 8,
+    structureRpm: 8,
   });
 }
 
@@ -272,6 +309,11 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getCompanyMetrics, (_e, companyId: unknown) =>
     repository.getCompanyMetrics(z.string().min(1).parse(companyId)),
   );
+  ipcMain.handle(IPC_CHANNELS.getCompanyFacts, (_e, companyId: unknown) => {
+    const id = z.string().min(1).max(200).parse(companyId);
+    if (!repository.getCompanyFacts) throw new Error('Accepted company facts are unavailable. Restart the updated desktop app.');
+    return repository.getCompanyFacts(id);
+  });
   ipcMain.handle(IPC_CHANNELS.getViceClaims, (_e, cardId: unknown) =>
     repository.getViceClaims(z.string().min(1).parse(cardId)),
   );
@@ -296,6 +338,22 @@ function registerIpc(): void {
     repository.generateReport(reportRequestSchema.parse(request)),
   );
   ipcMain.handle(IPC_CHANNELS.listReports, () => repository.listReports());
+  ipcMain.handle(IPC_CHANNELS.huntCompanyMetrics, (_e, id: unknown, options: unknown) => {
+    if (!repository.huntCompanyMetrics) throw new Error('Metric hunting is unavailable.');
+    return repository.huntCompanyMetrics(
+      z.string().min(1).parse(id),
+      z.object({ escalation: z.number().int().min(0).max(9).optional() }).optional().parse(options),
+    );
+  });
+  ipcMain.handle(IPC_CHANNELS.generateDeckBriefing, (_e, id: unknown, opts: unknown) => {
+    if (!repository.generateDeckBriefing) throw new Error('Briefings are unavailable.');
+    return repository.generateDeckBriefing(z.string().min(1).parse(id), z.object({ windowHours: z.number().int().min(1).max(720).optional() }).optional().parse(opts));
+  });
+  ipcMain.handle(IPC_CHANNELS.listDeckBriefings, (_e, id: unknown) => repository.listDeckBriefings?.(z.string().min(1).parse(id)) ?? []);
+  ipcMain.handle(IPC_CHANNELS.auditSite, (_e, input: unknown) => {
+    if (!repository.auditSite) throw new Error('Site audits are unavailable.');
+    return repository.auditSite(z.object({ url: z.string().url().refine((url) => /^https?:\/\//.test(url)), siteName: z.string().nullable().optional(), companyId: z.string().nullable().optional() }).parse(input));
+  });
   ipcMain.handle(IPC_CHANNELS.getReport, (_e, id: unknown) =>
     repository.getReport(z.string().min(1).parse(id)),
   );
@@ -330,6 +388,44 @@ function registerIpc(): void {
     ),
   );
   ipcMain.handle(IPC_CHANNELS.listResearchJobs, () => repository.listResearchJobs?.() ?? []);
+  ipcMain.handle(IPC_CHANNELS.addResearchNote, (_e, input: unknown) =>
+    repository.addResearchNote?.(z.object({
+      companyId: z.string().min(1), companyName: z.string().min(1),
+      text: z.string().min(1).max(20000), sourceUrl: z.string().url().optional(),
+    }).parse(input)) ?? null);
+  ipcMain.handle(IPC_CHANNELS.verifyCompanyMetrics, (_e, input: unknown) => {
+    const parsed = z.object({ companyId: z.string().min(1) }).parse(input);
+    const verifier = repository as MarketIntelRepository & {
+      verifyCompanyMetrics?: (companyId: string) => unknown;
+    };
+    return verifier.verifyCompanyMetrics?.(parsed.companyId) ?? null;
+  });
+  ipcMain.handle(IPC_CHANNELS.searchResearchCorpus, (_e, input: unknown) => {
+    const parsed = z.object({
+      query: z.string().max(500), companyIds: z.array(z.string().min(1)).max(60).optional(),
+      topics: z.array(z.string().min(1)).max(20).optional(), limit: z.number().int().min(1).max(25).optional(),
+    }).parse(input);
+    const searcher = repository as MarketIntelRepository & {
+      searchResearchCorpus?: (query: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }) => unknown[];
+    };
+    return searcher.searchResearchCorpus?.(parsed) ?? [];
+  });
+  ipcMain.handle(IPC_CHANNELS.saveReport, (_e, input: unknown) => {
+    const parsed = z.object({
+      kind: z.enum(['company', 'deck', 'site_audit']), subjectId: z.string().min(1),
+      title: z.string().min(1).max(200), markdown: z.string().min(1).max(500_000),
+      citations: z.array(z.object({ title: z.string(), url: z.string().url() })).max(100),
+    }).parse(input);
+    const saver = repository as MarketIntelRepository & {
+      saveReport?: (input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }) => Promise<unknown>;
+    };
+    return saver.saveReport?.(parsed) ?? null;
+  });
+  ipcMain.handle(IPC_CHANNELS.getResearchEvidence, (_e, input: unknown) => {
+    const parsed = z.object({ companyId: z.string().optional(), limit: z.number().int().optional() }).parse(input);
+    const evidenceReader = repository as MarketIntelRepository & { getResearchEvidence?: (input: { companyId?: string; limit?: number }) => unknown[] };
+    return evidenceReader.getResearchEvidence?.(parsed) ?? [];
+  });
   ipcMain.handle(IPC_CHANNELS.getResearchJob, (_e, id: unknown) =>
     repository.getResearchJob?.(z.string().min(1).parse(id)) ?? null,
   );
@@ -343,8 +439,22 @@ function registerIpc(): void {
   // Secure key storage — persists to the OS keychain and hot-swaps the backend.
   ipcMain.handle(SECURE_CHANNELS.getApiKey, (): string => loadApiKey());
   ipcMain.handle(SECURE_CHANNELS.setApiKey, (_e, key: unknown): void => {
-    const validatedKey = z.string().parse(key);
+    const validatedKey = z.string().max(256).regex(/^[\x20-\x7E]*$/).parse(key).trim();
     saveApiKey(validatedKey);
+    swapRepository();
+  });
+  ipcMain.handle(SECURE_CHANNELS.exportResearch, () => {
+    const snapshot = researchStore().read();
+    return snapshot ? JSON.stringify(snapshot) : null;
+  });
+  ipcMain.handle(SECURE_CHANNELS.getResearchStorageInfo, () => {
+    const snapshot = researchStore().read();
+    return { marketCount: snapshot?.markets.length ?? 0, sizeBytes: snapshot ? Buffer.byteLength(JSON.stringify(snapshot)) : 0, hasBackup: existsSync(`${researchFile()}.bak`) };
+  });
+  ipcMain.handle(SECURE_CHANNELS.importResearch, async (_e, json: unknown) => {
+    const jobs = await repository.listResearchJobs?.() ?? [];
+    if (jobs.some((job) => job.status === 'running' || job.status === 'queued')) throw new Error('Finish or cancel active research before importing.');
+    researchStore().write(parseResearchExport(z.string().max(50 * 1024 * 1024).parse(json)));
     swapRepository();
   });
 
@@ -373,7 +483,7 @@ function registerIpc(): void {
 }
 
 function createWindow(): void {
-  const iconPath = path.join(__dirname, '../build/icon.png');
+  const iconPath = path.join(DESKTOP_DIST, '../build/icon.png');
   const appIcon = existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : undefined;
 
   mainWin = new BrowserWindow({
@@ -384,12 +494,20 @@ function createWindow(): void {
     icon: appIcon,
     backgroundColor: '#EDECE8',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.mjs'),
+      preload: path.join(DESKTOP_DIST, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false, // required for an ESM preload; the bridge is still isolated
+      sandbox: true,
+      webSecurity: true,
     },
   });
+
+  mainWin.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWin.webContents.on('will-navigate', (event) => { event.preventDefault(); });
+  mainWin.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 
   mainWin.once('ready-to-show', () => {
     mainWin?.show();
@@ -409,7 +527,7 @@ function createWindow(): void {
 
   wireRefreshForwarding();
 
-  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  const devUrl = !app.isPackaged ? (process.env.VITE_DEV_SERVER_URL ?? (process.argv.includes('--dev-server') ? 'http://localhost:5173' : undefined)) : undefined;
   if (devUrl) void mainWin.loadURL(devUrl);
   else void mainWin.loadURL('app://bundle/index.html');
 }
@@ -417,9 +535,12 @@ function createWindow(): void {
 void app.whenReady().then(() => {
   // Serve the web build under app:// (raw file:// blocks ES modules).
   protocol.handle('app', (request) => {
-    const { pathname } = new URL(request.url);
+    const { pathname, hostname } = new URL(request.url);
+    if (hostname !== 'bundle') return new Response('Not found', { status: 404 });
     const rel = pathname === '/' ? '/index.html' : pathname;
-    const filePath = path.join(WEB_DIST, decodeURIComponent(rel));
+    const filePath = path.resolve(WEB_DIST, `.${decodeURIComponent(rel)}`);
+    const relative = path.relative(WEB_DIST, filePath);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return new Response('Forbidden', { status: 403 });
     return net.fetch(pathToFileURL(filePath).toString());
   });
 
@@ -431,6 +552,9 @@ void app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+}).catch(() => {
+  dialog.showErrorBox('Stratemark could not start', 'Your saved research could not be opened. No data was deleted. Restore a valid backup or upgrade to the version that saved it.');
+  app.quit();
 });
 
 app.on('window-all-closed', () => {

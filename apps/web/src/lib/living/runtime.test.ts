@@ -64,6 +64,57 @@ function harness(overrides: Partial<LivingDeckDeps> = {}) {
 }
 
 describe('LivingDeckRuntime', () => {
+  it('paces recovery as one budgeted action before stale verification or warming', async () => {
+    const recover = vi.fn().mockResolvedValue({ filled: 0 });
+    const verify = vi.fn();
+    const prefetch = vi.fn();
+    const { runtime, events, runNext } = harness({
+      nextRecovery: () => ({ companyId: 'x', companyName: 'Example' }), recover,
+      plan: () => ({ consistencyTargets: [], staleTargets: [target('Example', 'arr', 'stale')], freshFindings: [] }),
+      verify, prefetch, maxActions: 1,
+    });
+    runtime.start(1);
+    await runNext();
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(verify).not.toHaveBeenCalled();
+    expect(prefetch).not.toHaveBeenCalled();
+    expect(runtime.actionCount).toBe(1);
+    expect(events.at(-1)).toMatchObject({ kind: 'hunted', companyName: 'Example' });
+    expect(events.at(-1)?.message).toContain('nothing met the sourcing bar');
+    await runNext();
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(runtime.status).toBe('resting');
+  });
+
+  it('charges a failed recovery to the action budget and reports failure honestly', async () => {
+    const { runtime, events, runNext } = harness({
+      nextRecovery: () => ({ companyId: 'x', companyName: 'Example' }),
+      recover: vi.fn().mockRejectedValue(new Error('offline')), maxActions: 1,
+    });
+    runtime.start(1);
+    await runNext();
+    expect(runtime.actionCount).toBe(1);
+    expect(events.at(-1)?.kind).toBe('error');
+    await runNext();
+    expect(runtime.status).toBe('resting');
+  });
+
+  it.each(['resolve', 'reject'] as const)('preserves pause when an in-flight turn finishes (%s)', async outcome => {
+    let finish!: () => void;
+    const verify = vi.fn(() => new Promise<{ changed: boolean; citations: number; summary: string }>((resolve, reject) => {
+      finish = () => outcome === 'resolve' ? resolve({ changed: false, citations: 0, summary: 'unverified' }) : reject(new Error('failed'));
+    }));
+    const { runtime, pending, runNext } = harness({ verify,
+      plan: () => ({ consistencyTargets: [], staleTargets: [target('Example', 'arr', 'stale')], freshFindings: [] }) });
+    runtime.start(1);
+    await runNext();
+    runtime.pause();
+    finish();
+    await runNext();
+    expect(runtime.status).toBe('paused');
+    expect(pending).toHaveLength(0);
+    expect(verify).toHaveBeenCalledTimes(1);
+  });
   it('announces itself on start and prioritizes consistency doubt over freshness decay', async () => {
     const verify = vi.fn().mockResolvedValue({ changed: false, citations: 2, summary: 'holds' });
     const { runtime, events, runNext } = harness({
@@ -83,7 +134,7 @@ describe('LivingDeckRuntime', () => {
     // The doubted figure won the turn, not the merely-stale one.
     expect(verify).toHaveBeenCalledTimes(1);
     expect(verify.mock.calls[0]?.[0].companyName).toBe('OpenAI');
-    expect(events.at(-1)?.kind).toBe('verified');
+    expect(events.at(-1)?.kind).toBe('checked');
     expect(events.at(-1)?.message).toContain('consistency check');
   });
 
@@ -227,7 +278,32 @@ describe('LivingDeckRuntime', () => {
     await runNext();
     expect(events.at(-1)?.kind).toBe('error');
     await runNext();
-    expect(events.at(-1)?.kind).toBe('verified');
+    expect(events.at(-1)?.kind).toBe('checked');
     expect(runtime.actionCount).toBe(2);
+  });
+
+  it('catches up an overdue turn the moment a throttled tab becomes visible again', async () => {
+    const verify = vi.fn().mockResolvedValue({ changed: false, citations: 1, summary: 'holds' });
+    const { runtime, pending } = harness({
+      plan: () => ({
+        consistencyTargets: [],
+        staleTargets: [target('OpenAI', 'arr', 'stale')],
+        freshFindings: [],
+      }),
+      verify,
+    });
+    runtime.start(1);
+    // The tab was hidden and its timer throttled: the scheduled tick has NOT
+    // run, but returning to the tab must fire the overdue turn immediately.
+    expect(pending).toHaveLength(1);
+    expect(verify).not.toHaveBeenCalled();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(verify).toHaveBeenCalledTimes(1);
+    // A stopped runtime must ignore visibility entirely.
+    runtime.stop();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(verify).toHaveBeenCalledTimes(1);
   });
 });

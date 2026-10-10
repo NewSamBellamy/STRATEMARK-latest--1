@@ -7,6 +7,9 @@ import {
   type Card,
   type CardFilter,
   type CardWithCompany,
+  type ProviderCapabilities,
+  type ResearchNoteEntry,
+
   isEntityCardType,
   type Company,
   type CompanyMetric,
@@ -78,7 +81,73 @@ const uid = (prefix: string): string => {
   return `${prefix}_${Date.now().toString(36)}${counter}`;
 };
 
+/** Structural match of the research package's evidence record (the mock
+ * package cannot import @mi/research). */
+interface MockEvidence {
+  id: string; companyId: string; companyName: string; topic: string;
+  capturedAt: string; text: string; citations: { title: string; url: string }[]; queries: string[];
+}
+
 export class MockRepository implements MarketIntelRepository {
+  capabilities(): ProviderCapabilities {
+    return { ground: true, structure: true, image: true };
+  }
+
+
+  /** In-memory knowledge base so the preview's Research tab can grow. */
+  async searchResearchCorpus(query: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }) {
+    const records = (this as unknown as { snap?: { researchEvidence?: Array<{ id: string; companyId?: string; companyName?: string; topic: string; capturedAt: string; text: string; citations: { title: string; url: string }[] }> } }).snap?.researchEvidence ?? [];
+    const terms = query.query.toLowerCase().match(/[a-z0-9]{2,}/g) ?? [];
+    const companyFilter = query.companyIds ? new Set(query.companyIds) : null;
+    const topicFilter = query.topics ? new Set(query.topics.map((t) => t.toLowerCase())) : null;
+    return records
+      .filter((r) => (!companyFilter || (r.companyId && companyFilter.has(r.companyId))) &&
+        (!topicFilter || topicFilter.has(r.topic.toLowerCase())))
+      .map((r) => {
+        const haystack = `${r.topic} ${r.companyName ?? ''} ${r.text}`.toLowerCase();
+        const score = terms.reduce((sum, term) => sum + (haystack.includes(term) ? 1 : 0), 0);
+        return { r, score };
+      })
+      .filter(({ score }) => !terms.length || score > 0)
+      .sort((a, b) => b.score - a.score || b.r.capturedAt.localeCompare(a.r.capturedAt))
+      .slice(0, query.limit ?? 8)
+      .map(({ r }) => ({
+        evidenceId: r.id, companyId: r.companyId ?? null, companyName: r.companyName ?? null,
+        topic: r.topic, capturedAt: r.capturedAt, snippet: r.text.slice(0, 700),
+        citations: r.citations.map((c) => ({ ...c })),
+      }));
+  }
+  private readonly savedReports: Array<{ id: string; kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[]; createdAt: string }> = [];
+  async saveReport(input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }) {
+    const report = {
+      id: `rpt_${Date.now().toString(36)}`, kind: input.kind, subjectId: input.subjectId,
+      title: input.title, markdown: input.markdown, citations: input.citations,
+      createdAt: new Date().toISOString(),
+    };
+    this.savedReports.unshift(report);
+    return report;
+  }
+  private readonly userNotes: ResearchNoteEntry[] = [];
+
+  addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<ResearchNoteEntry> {
+    const nowIso = new Date().toISOString();
+    const note: ResearchNoteEntry = {
+      id: `ev_note_${nowIso}_${Math.random().toString(36).slice(2, 7)}`, companyId: input.companyId,
+      companyName: input.companyName, topic: 'user_note', capturedAt: nowIso, text: input.text,
+      citations: input.sourceUrl ? [{ title: 'Added source', url: input.sourceUrl }] : [],
+    };
+    this.userNotes.unshift(note);
+    return Promise.resolve(note);
+  }
+
+  getResearchEvidence(input: { companyId?: string; limit?: number }): MockEvidence[] {
+    const mine = this.userNotes.filter((n) => !input.companyId || n.companyId === input.companyId);
+    return mine.slice(0, input.limit ?? 50).map((n) => ({
+      id: n.id, companyId: n.companyId, companyName: n.companyName, topic: n.topic,
+      capturedAt: n.capturedAt, text: n.text, citations: n.citations, queries: [],
+    }));
+  }
+
   private readonly latency: number;
   private markets: Market[];
   private decks: Deck[];
@@ -355,6 +424,11 @@ export class MockRepository implements MarketIntelRepository {
   // Company detail ----------------------------------------------------------
   getCompany(companyId: string): Promise<Company | null> {
     return this.delay(this.companies.find((c) => c.id === companyId) ?? null);
+  }
+
+  // Explicit demo data only; production repositories revalidate original evidence.
+  getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
+    return this.getCompanyMetrics(companyId);
   }
 
   getCompanyMetrics(companyId: string): Promise<CompanyMetric[]> {

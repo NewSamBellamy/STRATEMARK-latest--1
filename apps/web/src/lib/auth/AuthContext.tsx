@@ -17,11 +17,17 @@ import {
   GoogleAuthProvider as FirebaseGoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  browserPopupRedirectResolver,
+  browserLocalPersistence,
+  initializeAuth,
   type Auth,
 } from 'firebase/auth';
 import { isElectron } from '@/lib/repository/ipc-repository';
+import { fetchUserProfile } from '@/lib/sentinelApi';
 
 export interface AuthUser {
   id: string;
@@ -39,6 +45,7 @@ export interface AuthState {
   error: string | null;
   signIn: () => Promise<AuthUser | null>;
   signInWithGoogle: () => Promise<AuthUser | null>;
+  signInWithEmail: (email: string, pass: string) => Promise<AuthUser | null>;
   signOut: () => Promise<void>;
   clearError: () => void;
   getToken: () => Promise<string | null>;
@@ -78,10 +85,24 @@ function initFirebaseAuth(): Auth | null {
     const config = getFirebaseConfig();
     if (!config) return null;
     const app: FirebaseApp = getApps().length === 0 ? initializeApp(config) : getApp();
-    return getAuth(app);
-  } catch (err) {
-    console.warn('Firebase Auth initialization failed:', err);
-    return null;
+    
+    // Switch to browserLocalPersistence (localStorage) instead of IndexedDB.
+    // IndexedDB is prone to "Database is closing/hidden" errors during Vite HMR reloads
+    // or when multiple tabs fight for the same IndexedDB lock. LocalStorage is synchronous
+    // and immune to this specific locking issue.
+    const auth = initializeAuth(app, {
+      persistence: browserLocalPersistence,
+      popupRedirectResolver: browserPopupRedirectResolver,
+    });
+    return auth;
+  } catch (err: unknown) {
+    // If initializeAuth fails (likely because it was already initialized), fallback to getAuth
+    try {
+      return getAuth(getApp());
+    } catch {
+      console.warn('Firebase Auth initialization failed:', err);
+      return null;
+    }
   }
 }
 
@@ -143,6 +164,18 @@ export function GoogleAuthProvider({ children }: { children: ReactNode }) {
             } catch (err) {
               console.warn('Failed to save user to localStorage:', err);
             }
+            fbUser.getIdToken().then(token => {
+              fetchUserProfile(token).then(profile => {
+                if (profile) {
+                  setUser(prev => {
+                    if (!prev || prev.id !== fbUser.uid) return prev;
+                    const enriched = { ...prev, subscriptionTier: profile.subscriptionTier, subscriptionStatus: profile.subscriptionStatus };
+                    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(enriched)); } catch { /* ignore */ }
+                    return enriched;
+                  });
+                }
+              }).catch(() => {});
+            }).catch(() => {});
           } else {
             setUser(null);
             try {
@@ -278,6 +311,84 @@ export function GoogleAuthProvider({ children }: { children: ReactNode }) {
     }
   }, [authInstance]);
 
+  const signInWithEmail = useCallback(async (email: string, pass: string): Promise<AuthUser | null> => {
+    setError(null);
+    setIsLoading(true);
+    let signedInUser: AuthUser | null = null;
+    try {
+      if (isElectron()) {
+         throw new Error('Email sign-in is not supported in the desktop application.');
+      } else if (authInstance) {
+        try {
+          const cred = await signInWithEmailAndPassword(authInstance, email, pass);
+          if (cred?.user) {
+            signedInUser = enrichUserSubscription({
+              id: cred.user.uid,
+              name: cred.user.displayName || cred.user.email?.split('@')[0] || 'Email User',
+              email: cred.user.email,
+              photoURL: cred.user.photoURL,
+            });
+          }
+        } catch (authErr: unknown) {
+          const e = authErr as Error & { code?: string };
+          // If user doesn't exist yet in Firebase Auth, create the account automatically
+          if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential') {
+            try {
+              const newCred = await createUserWithEmailAndPassword(authInstance, email, pass);
+              if (newCred?.user) {
+                signedInUser = enrichUserSubscription({
+                  id: newCred.user.uid,
+                  name: newCred.user.displayName || newCred.user.email?.split('@')[0] || 'Email User',
+                  email: newCred.user.email,
+                  photoURL: newCred.user.photoURL,
+                });
+              }
+            } catch (createErr: unknown) {
+              const ce = createErr as Error & { code?: string };
+              if (ce.code === 'auth/email-already-in-use') {
+                throw new Error('Incorrect password for this email.');
+              }
+              if (ce.code === 'auth/weak-password') {
+                throw new Error('Password should be at least 6 characters.');
+              }
+              throw new Error(ce.message || 'Authentication failed.');
+            }
+          } else {
+            console.warn('Firebase email auth error:', e.code, e.message);
+            throw new Error(e.message || 'Invalid email or password.');
+          }
+        }
+      } else {
+        // Fallback for dev / unconfigured Firebase mode: create a local user session
+        signedInUser = {
+          id: 'user_' + btoa(email.toLowerCase()).replace(/=/g, '').slice(0, 16),
+          name: email.split('@')[0] || 'Email User',
+          email,
+          photoURL: null,
+          subscriptionTier: 'pro',
+          subscriptionStatus: 'active',
+        };
+      }
+      
+      if (signedInUser) {
+        setUser(signedInUser);
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(signedInUser));
+        } catch (err) {
+          console.warn('Failed to save user to localStorage:', err);
+        }
+      }
+      return signedInUser;
+    } catch (err: unknown) {
+      console.error('Email Sign In error:', err);
+      const msg = (err as { message?: string })?.message;
+      setError(msg || 'Sign-in failed');
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [authInstance]);
+
   const signOut = useCallback(async () => {
     setError(null);
     setIsLoading(true);
@@ -313,11 +424,8 @@ export function GoogleAuthProvider({ children }: { children: ReactNode }) {
         console.warn('Failed to get Firebase idToken:', err);
       }
     }
-    if (user?.id) {
-      return user.id;
-    }
     return null;
-  }, [authInstance, user]);
+  }, [authInstance]);
 
   const value = useMemo<AuthState>(
     () => ({
@@ -327,11 +435,12 @@ export function GoogleAuthProvider({ children }: { children: ReactNode }) {
       error,
       signIn: signInWithGoogle,
       signInWithGoogle,
+      signInWithEmail,
       signOut,
       clearError,
       getToken,
     }),
-    [user, isLoading, error, signInWithGoogle, signOut, clearError, getToken],
+    [user, isLoading, error, signInWithGoogle, signInWithEmail, signOut, clearError, getToken],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

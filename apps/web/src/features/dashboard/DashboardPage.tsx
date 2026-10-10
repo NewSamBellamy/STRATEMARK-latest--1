@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useIsFetching, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, FileText, Search } from 'lucide-react';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
-import { useCompany, useReports, useRerunDashboardTab } from '@/hooks/data';
-import { useRepository } from '@/lib/repository/RepositoryProvider';
+import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
+import { useCompany, useCompanyMetrics, useReports, useRerunDashboardTab } from '@/hooks/data';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
-import { qk } from '@/lib/query/keys';
+import { useDashboardWarm } from '@/lib/living/useDashboardWarm';
+import { BackgroundResearchControl } from '@/lib/living/BackgroundResearchControl';
 import { ReportButton, ThreadHistoryButton } from '@/features/research/ResearchControls';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { ContextRerun } from '@/components/ui/ContextRerun';
@@ -16,6 +17,7 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { Logo } from '@/features/card/Logo';
 import { DigDeeper, useDeepDive } from '@/features/deepdive/DeepDive';
 import { OverviewTab } from './tabs/OverviewTab';
+import { ResearchTab } from './tabs/ResearchTab';
 import { LiveIntelTab } from './tabs/LiveIntelTab';
 import { TeamOrgTab } from './tabs/TeamOrgTab';
 import { LiveLandingTab } from './tabs/LiveLandingTab';
@@ -23,6 +25,8 @@ import { MetricsTab } from './tabs/MetricsTab';
 import { MissionGovernanceTab } from './tabs/MissionGovernanceTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { ProductsRoadmapTab } from './tabs/ProductsRoadmapTab';
+import { DashboardSources } from './DashboardSources';
+import { SavedResearchNotes } from './SavedResearchNotes';
 import NotFoundPage from '@/features/NotFoundPage';
 
 /**
@@ -100,6 +104,8 @@ function TabView({ tab, companyId }: { tab: DashboardTab; companyId: string }) {
   switch (tab) {
     case 'overview':
       return <OverviewTab companyId={companyId} />;
+    case 'research':
+      return <ResearchTab companyId={companyId} />;
     case 'live_intel':
       return <LiveIntelTab companyId={companyId} />;
     case 'team_org':
@@ -126,18 +132,31 @@ const VISIBLE_TAB_COUNT = 6;
  * it appears when work is genuinely happening and vanishes when it's done.
  */
 function AgentWorkingPill({ companyId }: { companyId: string }) {
+  const queryClient = useQueryClient();
+  // Red team #15: "Agent researching 1 section" was too vague. The query cache
+  // knows EXACTLY which dashboard tabs are in flight — name them.
   const inFlight = useIsFetching({ queryKey: ['dashboard', companyId] });
   if (inFlight === 0) return null;
+  const fetchingTabs = queryClient
+    .getQueryCache()
+    .getAll()
+    .filter((q) => Array.isArray(q.queryKey) && q.queryKey[0] === 'dashboard' &&
+      q.queryKey[1] === companyId && q.state.fetchStatus === 'fetching')
+    .map((q) => DASHBOARD_TAB_LABELS[(q.queryKey[2] as DashboardTab) ?? ''] ?? String(q.queryKey[2] ?? 'section'))
+    .slice(0, 3);
+  const named = fetchingTabs.length
+    ? fetchingTabs.join(fetchingTabs.length > 1 ? ' · ' : '')
+    : 'dashboard sections';
   return (
     <span
       className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap pb-1 text-[11px] font-medium text-muted"
-      title="Desk agents are researching sections of this dashboard in the background — each finishes and fills in live."
+      title="Desk agents are researching these sections in the background — each finishes and fills in live."
     >
       <span className="relative flex h-1.5 w-1.5">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
       </span>
-      {inFlight === 1 ? 'Agent researching 1 section…' : `Agents researching ${inFlight} sections…`}
+      Researching {named}…
     </span>
   );
 }
@@ -146,10 +165,14 @@ function DashboardTabNav({
   companyId,
   activeTab,
   fromMarketId,
+  fromCardId,
+  fromDeckView,
 }: {
   companyId: string;
   activeTab: DashboardTab;
   fromMarketId: string | null;
+  fromCardId: string | null;
+  fromDeckView: string | null;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -167,7 +190,7 @@ function DashboardTabNav({
   const overflowTabs = DASHBOARD_TABS.slice(VISIBLE_TAB_COUNT);
   const activeInOverflow = overflowTabs.includes(activeTab);
 
-  const qs = fromMarketId ? `?deck=${fromMarketId}` : '';
+  const qs = fromMarketId ? `?${new URLSearchParams({ deck: fromMarketId, ...(fromCardId ? { card: fromCardId } : {}), ...(fromDeckView ? { view: fromDeckView } : {}) })}` : '';
 
   return (
     <nav
@@ -202,7 +225,7 @@ function DashboardTabNav({
                 : 'border-transparent text-muted hover:text-content',
             )}
           >
-            {activeInOverflow ? DASHBOARD_TAB_LABELS[activeTab] : 'More'}
+            More
             <ChevronDown className={cn('h-3 w-3 transition-transform', moreOpen && 'rotate-180')} />
           </button>
           {moreOpen && (
@@ -238,75 +261,38 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const fromMarketId = params.get('deck');
+  const fromCardId = params.get('card');
+  const fromDeckView = params.get('view');
+  const returnToDeck = () => {
+    if (!fromMarketId) return navigate(-1);
+    const deckParams = new URLSearchParams(fromDeckView ?? '');
+    if (fromCardId) deckParams.set('card', fromCardId);
+    navigate(`/markets/${fromMarketId}/deck${deckParams.size ? `?${deckParams}` : ''}`);
+  };
   const company = useCompany(companyId);
+  const metrics = useCompanyMetrics(companyId);
+  // The fallback oneLiner reads as a contradiction when the metrics grid below
+  // it shows figures. With provider-reported figures on file, say what state
+  // the snapshot is actually in instead of claiming nothing exists.
+  const headerSubtitle = company.data
+    && company.data.oneLiner === UNSUPPORTED_COMPANY_SUMMARY
+    && (metrics.data ?? []).some((m) => m.value != null && m.confidence !== 'unknown')
+      ? 'Provider-reported figures on file — desks still need a source-backed read to verify them.'
+      : company.data?.oneLiner;
   const hasKey = useApiKey((s) => s.hasKey);
   const activeTab = tab as DashboardTab;
   const rerunTab = useRerunDashboardTab(companyId, activeTab);
-  const repo = useRepository();
-  const qc = useQueryClient();
-  const [prefetchFailed, setPrefetchFailed] = useState<string[]>([]);
-
-  // Warm EVERY tab the moment the dashboard opens (founder's audit: "as I'm
-  // reading the overview I want all the other tabs to start loading"). Runs
-  // sequentially so the free-tier rate limiter never sees a burst; each tab is
-  // cached in the snapshot, so revisits cost nothing.
-  // CLICK PRIORITY (founder's video audit: Live Intel spun for 30s while the
-  // background quietly warmed other tabs ahead of it). The warm loop re-checks
-  // the CURRENTLY ACTIVE tab before every step and always researches it first,
-  // so a user's click jumps the queue instead of waiting behind prefetch work.
-  const activeTabRef = useRef(activeTab);
-  activeTabRef.current = activeTab;
+  const prefetchFailed = useDashboardWarm(companyId, activeTab, company.data?.name);
 
   // Anchor the floating presence's "Chat" to THIS company's research context.
   const setChatContext = useAgentTrace((s) => s.setChatContext);
   const companyName = company.data?.name;
-  // Ref for the warm loop below: the loop must not restart when the name loads.
-  const companyNameRef = useRef(companyName);
-  companyNameRef.current = companyName;
   useEffect(() => {
     if (companyId && companyName) {
       setChatContext({ kind: 'company', companyId, subject: companyName });
     }
     return () => setChatContext(null);
   }, [companyId, companyName, setChatContext]);
-
-  useEffect(() => {
-    if (!companyId) return;
-    setPrefetchFailed([]);
-    let cancelled = false;
-    const warm = async (t: DashboardTab) => {
-      if (qc.getQueryData(qk.dashboard(companyId, t)) != null) return;
-      try {
-        useAgentTrace
-          .getState()
-          .trace(
-            `${companyNameRef.current ?? 'Company'} desk`,
-            `Researching ${DASHBOARD_TAB_LABELS[t]} in the background`,
-          );
-        await qc.prefetchQuery({
-          queryKey: qk.dashboard(companyId, t),
-          queryFn: () => repo.getDashboardTab(companyId, t),
-          staleTime: Infinity,
-        });
-      } catch {
-        if (!cancelled) setPrefetchFailed((failed) => [...new Set([...failed, t])]);
-      }
-    };
-    void (async () => {
-      const pending = new Set<DashboardTab>(DASHBOARD_TABS);
-      while (pending.size > 0 && !cancelled) {
-        // Whatever the user is looking at RIGHT NOW always wins.
-        const next = pending.has(activeTabRef.current)
-          ? activeTabRef.current
-          : (DASHBOARD_TABS.find((t) => pending.has(t)) as DashboardTab);
-        pending.delete(next);
-        await warm(next);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [companyId, qc, repo]);
 
   if (!companyId || !DASHBOARD_TABS.includes(activeTab)) return <NotFoundPage />;
 
@@ -321,11 +307,11 @@ export default function DashboardPage() {
           // A real route back to the deck. History fallback only when the
           // dashboard was reached without deck context. NOTE: the deck lives
           // at /markets/:id/deck — /markets/:id alone is a 404.
-          onClick={() => (fromMarketId ? navigate(`/markets/${fromMarketId}/deck`) : navigate(-1))}
+          onClick={returnToDeck}
           className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-content"
         >
           <ArrowLeft className="h-4 w-4" />
-          {fromMarketId ? 'Back to deck' : 'Back'}
+          {fromMarketId ? fromCardId ? 'Back to card' : 'Back to deck' : 'Back'}
         </button>
         <span className="text-faint">·</span>
         <Link
@@ -349,7 +335,7 @@ export default function DashboardPage() {
               />
               <div className="min-w-0 flex-1">
                 <h1 className="font-display text-2xl font-semibold text-content">{c.name}</h1>
-                <p className="text-sm text-muted">{c.oneLiner}</p>
+                <p className="text-sm text-muted">{headerSubtitle}</p>
               </div>
               <ThreadHistoryButton companyId={c.id} className="shrink-0" />
               <ReportButton kind="company" subjectId={c.id} className="shrink-0" />
@@ -373,7 +359,10 @@ export default function DashboardPage() {
               companyId={companyId}
               activeTab={activeTab}
               fromMarketId={fromMarketId}
+              fromCardId={fromCardId}
+              fromDeckView={fromDeckView}
             />
+            <BackgroundResearchControl />
             {prefetchFailed.length > 0 && (
               <div className="mb-3 rounded-lg border border-negative/30 bg-negative/5 px-3 py-2 text-[12px] text-negative">
                 Some dashboard research did not finish in the background:{' '}
@@ -393,6 +382,8 @@ export default function DashboardPage() {
             >
               <TabView tab={activeTab} companyId={companyId} />
             </ContextRerun>
+            <DashboardSources companyId={companyId} tab={activeTab} />
+            <SavedResearchNotes companyId={companyId} />
           </>
         )}
       </QueryBoundary>

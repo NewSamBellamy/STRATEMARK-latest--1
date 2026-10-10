@@ -11,41 +11,73 @@
  * *derived* state that requires evidence, enforced here and applied at every
  * point a metric is created or updated.
  */
-import type { Confidence } from './enums';
+import { MODEL_PROPOSABLE_CONFIDENCE, type Confidence } from './enums';
 import type { Citation, MetricConflict, SourceCredibility } from './repository';
 import type { CompanyMetric } from './types';
+import { metricObservationIdentity } from './metric-definition';
 
 /** Reason text stamped on a figure that lost its "verified" claim. */
 export const UNSOURCED_DOWNGRADE_NOTE =
-  'Confidence lowered automatically: the research pass claimed this figure was verified but returned no source for it.';
+  'Confidence lowered automatically: the research pass claimed this figure was verified but returned no usable clickable source for it.';
 
 /**
  * Confidence levels a model is allowed to assert on its own.
  * `verified` is absent by design — it must be earned with a citation.
  * `user_verified` is absent too: only a human override may set it.
  */
-const MODEL_ASSERTABLE: readonly Confidence[] = ['estimated', 'unknown'];
+const MODEL_ASSERTABLE: readonly Confidence[] = MODEL_PROPOSABLE_CONFIDENCE.filter(
+  (level) => level !== 'verified',
+);
 
 export function isModelAssertable(confidence: Confidence): boolean {
   return MODEL_ASSERTABLE.includes(confidence);
 }
 
+/** Reason text stamped on a figure whose forged human sign-off was removed. */
+export const HUMAN_ONLY_CONFIDENCE_NOTE =
+  'Human-verification claim removed automatically: only a person can mark a figure user-verified, and no person did.';
+
 /** Drop citations that can't be shown or clicked. */
-export function usableCitations(citations: readonly Citation[] | undefined): Citation[] {
-  if (!citations) return [];
+export function usableCitations(citations: readonly Citation[] | undefined, officialWebsite?: string | null): Citation[] {
+  if (!Array.isArray(citations)) return [];
   const seen = new Set<string>();
   const out: Citation[] = [];
   for (const c of citations) {
-    const url = (c?.url ?? '').trim();
+    // Provider responses and imported vaults are not made safe by TS types.
+    // Drop malformed rows without taking down their well-formed siblings.
+    if (!c || typeof c.url !== 'string') continue;
+    const url = c.url.trim();
+    const title = typeof c.title === 'string' ? c.title.trim() : '';
     if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    try {
+      const parsed = new URL(url);
+      if (!parsed.hostname || parsed.username || parsed.password) continue;
+    } catch { continue; }
     seen.add(url);
     out.push({
       url,
-      title: (c.title ?? '').trim() || publisherOf(url),
-      credibility: c.credibility ?? classifySource(url, c.title),
+      title: title || publisherOf(url),
+      // Supplied labels are untrusted (model output and imported snapshots).
+      credibility: classifySource(url, title, scopedIssuerWebsite(url, officialWebsite)),
     });
   }
   return out;
+}
+
+/** A declared issuer is contextual attribution, not independent corroboration.
+ * Match the exact website host (www alias only); do not grant an entire public
+ * suffix, shared hosting service or unreviewed subdomain authority. */
+function scopedIssuerWebsite(sourceUrl: string, website?: string | null): string | null {
+  const host = (raw: string) => {
+    try {
+      const url = new URL(raw);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+        (url.port && !['80', '443'].includes(url.port))) return null;
+      return url.hostname.toLowerCase().replace(/^www\./, '');
+    } catch { return null; }
+  };
+  const issuer = website ? host(website) : null;
+  return issuer && issuer.includes('.') && host(sourceUrl) === issuer ? website! : null;
 }
 
 /**
@@ -77,28 +109,132 @@ export const UNRECORDED_PUBLISHER = 'Publisher not recorded';
  * publisher is always correct: verified still requires the source to state the
  * exact figure and survive provenance enforcement.
  */
-export function classifySource(url: string, title?: string | null): SourceCredibility {
-  const haystack = `${url} ${title ?? ''}`.toLowerCase();
-  if (/sec\.gov|secfilings|edgar|pacer\.uscourts\.gov|investor\.[^\s/]+/.test(haystack))
-    return 'primary';
-  if (
-    /reuters|bloomberg|wsj\.com|ft\.com|apnews|nytimes|bbc\.com|economist\.com|associated press/.test(
-      haystack,
-    )
-  ) {
-    return 'reputable_secondary';
+export function classifySource(url: string, title?: string | null, officialWebsite?: string | null): SourceCredibility {
+  const hostOf = (value: string): string | null => {
+    try {
+      const parsed = new URL(value.includes('://') ? value : `https://${value}`);
+      return ['http:', 'https:'].includes(parsed.protocol) ? parsed.hostname.toLowerCase().replace(/^www\./, '') : null;
+    } catch { return null; }
+  };
+  let host = hostOf(url);
+  // Grounding's opaque redirect carries the real publisher in its metadata.
+  // Accept a bare domain ("reuters.com") or a known publisher name ("Reuters")
+  // — never free-form titles such as "Reuters says...". This is the difference
+  // between a citation classifying at all and every grounded citation staying
+  // 'unknown', which would make verification-grade promotion unreachable for
+  // anything but SEC-lane figures.
+  if (host === 'vertexaisearch.cloud.google.com') {
+    const t = (title ?? '').trim();
+    host = /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(t)
+      ? hostOf(t)
+      : PUBLISHER_NAME_DOMAINS[t.toLowerCase()] ?? null;
   }
-  if (
-    /techcrunch|theinformation|crunchbase|pitchbook|venturebeat|wired|arstechnica|statista|counterpointresearch|canalys|gartner|idc\.com|similarweb|sacra\.com|cbinsights|sensortower/.test(
-      haystack,
-    )
-  ) {
-    return 'industry';
-  }
-  if (/reddit|twitter\.com|x\.com|facebook|instagram|tiktok|quora|forum/.test(haystack))
+  if (!host) return 'unknown';
+  const belongsTo = (domain: string) => host === domain || host!.endsWith(`.${domain}`);
+  if (['reddit.com', 'twitter.com', 'x.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'quora.com', 'stocktwits.com', 'github.com', 'wikipedia.org'].some(belongsTo))
     return 'user_generated';
+  if (PRIMARY_SOURCES.some(belongsTo))
+    return 'primary';
+  const official = officialWebsite ? hostOf(officialWebsite) : null;
+  if (official && belongsTo(official)) return 'primary';
+  if (REPUTABLE_SECONDARY_SOURCES.some(belongsTo))
+    return 'reputable_secondary';
+  if (INDUSTRY_SOURCES.some(belongsTo))
+    return 'industry';
   return 'unknown';
 }
+
+/** Government / exchange filings — primary evidence. */
+const PRIMARY_SOURCES = [
+  'sec.gov', 'uscourts.gov', 'companieshouse.gov.uk',
+  'find-and-update.company-information.service.gov.uk', 'sedarplus.ca', 'hkexnews.hk',
+  'irs.gov', 'europa.eu', 'fca.org.uk', 'nerc.gov', 'ferc.gov',
+];
+
+/** Major general or business press with editorial standards. */
+const REPUTABLE_SECONDARY_SOURCES = [
+  'reuters.com', 'bloomberg.com', 'wsj.com', 'ft.com', 'apnews.com', 'nytimes.com',
+  'bbc.com', 'bbc.co.uk', 'economist.com', 'cnbc.com', 'forbes.com', 'fortune.com',
+  'marketwatch.com', 'barrons.com', 'washingtonpost.com', 'theguardian.com',
+  'axios.com', 'businessinsider.com', 'nikkei.com', 'scmp.com',
+];
+
+/** Sector trade press and market-data aggregators — industry-grade, not press. */
+const INDUSTRY_SOURCES = [
+  'techcrunch.com', 'theinformation.com', 'crunchbase.com', 'pitchbook.com',
+  'venturebeat.com', 'wired.com', 'arstechnica.com', 'statista.com',
+  'counterpointresearch.com', 'canalys.com', 'gartner.com', 'idc.com',
+  'similarweb.com', 'sacra.com', 'cbinsights.com', 'sensortower.com',
+  'tradingview.com', 'morningstar.com', 'factset.com', 'stockanalysis.com',
+  'macrotrends.net', 'companiesmarketcap.com', 'investing.com', 'wisesheets.io',
+  'simplywall.st', 'tracxn.com', 'spglobal.com', 'globaldata.com', 'mckinsey.com',
+  'bcg.com', 'deloitte.com', 'pwc.com', 'ey.com', 'iea.org', 'irena.org',
+  'woodmac.com', 'woodmackenzie.com', 'energy-storage.news', 'pv-magazine.com',
+  'greentechmedia.com', 'utilitydive.com', 'power-eng.com', 'marketscreener.com',
+  'finance.yahoo.com', 'trendforce.com', 'businesswire.com', 'prnewswire.com',
+  'globenewswire.com', 'electrek.co', 'cleantechnica.com', 'yolegroup.com',
+];
+
+/**
+ * Publisher display names grounding supplies instead of domains ("Reuters",
+ * "Bloomberg"). Keyed lowercase; only names ambiguous hosts actually carry.
+ * Grown from production: every unresolved redirect shows the user "Publisher
+ * not recorded", and each recurring name seen there belongs in this table.
+ */
+const PUBLISHER_NAME_DOMAINS: Record<string, string> = {
+  reuters: 'reuters.com',
+  bloomberg: 'bloomberg.com',
+  cnbc: 'cnbc.com',
+  forbes: 'forbes.com',
+  fortune: 'fortune.com',
+  'financial times': 'ft.com',
+  'the financial times': 'ft.com',
+  'wall street journal': 'wsj.com',
+  'the wall street journal': 'wsj.com',
+  'associated press': 'apnews.com',
+  'ap news': 'apnews.com',
+  bbc: 'bbc.com',
+  'the economist': 'economist.com',
+  techcrunch: 'techcrunch.com',
+  'new york times': 'nytimes.com',
+  'the new york times': 'nytimes.com',
+  'the guardian': 'theguardian.com',
+  axios: 'axios.com',
+  gartner: 'gartner.com',
+  statista: 'statista.com',
+  'wood mackenzie': 'woodmackenzie.com',
+  's&p global': 'spglobal.com',
+  'yahoo finance': 'finance.yahoo.com',
+  nikkei: 'nikkei.com',
+  'nikkei asia': 'nikkei.com',
+  'south china morning post': 'scmp.com',
+  scmp: 'scmp.com',
+  marketwatch: 'marketwatch.com',
+  "barron's": 'barrons.com',
+  barrons: 'barrons.com',
+  'the information': 'theinformation.com',
+  venturebeat: 'venturebeat.com',
+  wired: 'wired.com',
+  'ars technica': 'arstechnica.com',
+  'utility dive': 'utilitydive.com',
+  'pv magazine': 'pv-magazine.com',
+  'energy-storage.news': 'energy-storage.news',
+  canalys: 'canalys.com',
+  idc: 'idc.com',
+  'counterpoint research': 'counterpointresearch.com',
+  counterpoint: 'counterpointresearch.com',
+  trendforce: 'trendforce.com',
+  morningstar: 'morningstar.com',
+  crunchbase: 'crunchbase.com',
+  pitchbook: 'pitchbook.com',
+  'business wire': 'businesswire.com',
+  'pr newswire': 'prnewswire.com',
+  globenewswire: 'globenewswire.com',
+  electrek: 'electrek.co',
+  cleantechnica: 'cleantechnica.com',
+  businessinsider: 'businessinsider.com',
+  'business insider': 'businessinsider.com',
+};
 
 /** True when a citation URL is an opaque grounding redirect (may expire). */
 export function isRedirectCitation(url: string): boolean {
@@ -123,22 +259,24 @@ export function isJunkSource(url: string, title?: string | null): boolean {
 }
 
 /**
- * True when at least one citation is fit to stand behind a "verified" badge:
- * not a junk domain, and not user-generated content.
+ * Recognized publisher gate, NOT proof that a page supports a claim. Unknown
+ * sources remain inspectable but need independent review before verification.
+ * Ignore supplied credibility; never let it override the URL classification.
  */
 export function hasVerificationGradeCitation(
   citations: readonly Citation[] | undefined,
+  officialWebsite?: string | null,
 ): boolean {
   if (!citations) return false;
-  return citations.some(
+  return usableCitations(citations, officialWebsite).some(
     (c) =>
       !isJunkSource(c.url, c.title) &&
-      (c.credibility ?? classifySource(c.url, c.title)) !== 'user_generated',
+      ['primary', 'reputable_secondary', 'industry'].includes(c.credibility ?? 'unknown'),
   );
 }
 
 const JUNK_DOWNGRADE_NOTE =
-  'Downgraded: the only sources behind this figure are low-credibility domains (SEO/content-mill class); a verification-grade source is required for a Verified badge.';
+  'Downgraded: sources are low-credibility, user-generated or not independently classified; a recognized source and claim-support review are required for verification.';
 
 /**
  * Bring a freshly-researched metric in line with the provenance rules.
@@ -149,14 +287,11 @@ const JUNK_DOWNGRADE_NOTE =
  * - `unknown` must not carry a value (an unknown with a number is a contradiction).
  * - `source` is kept in sync with the first citation.
  */
-export function enforceMetricProvenance(metric: CompanyMetric): CompanyMetric {
-  const citations = usableCitations(metric.citations);
-  // Evidence is either a clickable citation OR a written attribution the reader
-  // can weigh ("company's published team page"). What's forbidden is a
-  // "verified" claim backed by *nothing* — that's indistinguishable from an
-  // invented number, and it's the bug the 2026-07-29 audit found 3 of.
+export function enforceMetricProvenance(metric: CompanyMetric, officialWebsite?: string | null): CompanyMetric {
+  const citations = usableCitations(metric.citations, officialWebsite);
+  // Prose attribution survives for transparency but cannot earn verification.
   const proseSource = (metric.source ?? '').trim();
-  const hasEvidence = citations.length > 0 || proseSource.length > 0;
+  const hasEvidence = citations.length > 0;
 
   let confidence = metric.confidence;
   let methodNote = metric.methodNote;
@@ -173,7 +308,7 @@ export function enforceMetricProvenance(metric: CompanyMetric): CompanyMetric {
   if (
     confidence === 'verified' &&
     citations.length > 0 &&
-    !hasVerificationGradeCitation(citations)
+    !hasVerificationGradeCitation(citations, officialWebsite)
   ) {
     confidence = 'estimated';
     methodNote = methodNote
@@ -198,6 +333,41 @@ export function enforceMetricProvenance(metric: CompanyMetric): CompanyMetric {
     source: citations[0]?.url ?? (proseSource.length > 0 ? proseSource : null),
     methodNote,
   };
+}
+
+/**
+ * The automation-ingest gate. Use this — never `enforceMetricProvenance` — at
+ * every point a metric enters the system from a MODEL.
+ *
+ * `enforceMetricProvenance` deliberately preserves `user_verified`, because on
+ * the canonical path a human really did set it and a refresh must not erase it.
+ * That same leniency is a hole on the way IN: a model that returns
+ * `confidence: "user_verified"` is asserting a human sign-off that never
+ * happened, and because `evidenceWeight` ranks `user_verified` above
+ * `verified`, an unchallenged forgery would also WIN a value conflict in
+ * `reconcileMetric` against a genuinely sourced observation.
+ *
+ * So automation may propose evidence, never authorship of a human decision. A
+ * forged claim is demoted to `verified` — the strongest thing a model may aim
+ * at — and then has to earn even that from a citation under the ordinary rules
+ * below. The figure itself always survives; only the claim about it drops.
+ */
+export function enforceModelMetricProvenance(metric: CompanyMetric): CompanyMetric {
+  if (isModelAssertable(metric.confidence) || metric.confidence === 'verified') {
+    return enforceMetricProvenance(metric);
+  }
+  return enforceMetricProvenance({
+    ...metric,
+    confidence: 'verified',
+    methodNote: metric.methodNote
+      ? `${metric.methodNote} — ${HUMAN_ONLY_CONFIDENCE_NOTE}`
+      : HUMAN_ONLY_CONFIDENCE_NOTE,
+  });
+}
+
+/** Convenience for whole model-sourced rows at once. */
+export function enforceModelMetricsProvenance(metrics: CompanyMetric[]): CompanyMetric[] {
+  return metrics.map(enforceModelMetricProvenance);
 }
 
 function evidenceWeight(metric: CompanyMetric): number {
@@ -225,14 +395,17 @@ function evidenceWeight(metric: CompanyMetric): number {
  * are never silently discarded: both observations are retained, while the most
  * credible observation becomes the canonical value used by existing cards/tabs.
  */
-export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric): CompanyMetric {
-  const current = enforceMetricProvenance(existing);
-  const next = enforceMetricProvenance(incoming);
-  if (current.value === next.value || next.value === null) {
+export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric, officialWebsite?: string | null): CompanyMetric {
+  const current = enforceMetricProvenance(existing, officialWebsite);
+  const next = enforceMetricProvenance(incoming, officialWebsite);
+  const humanLocked = current.confidence === 'user_verified' && next.confidence !== 'user_verified';
+  const preferNext = !humanLocked && (next.confidence === 'user_verified' || evidenceWeight(next) > evidenceWeight(current));
+  if ((current.value === next.value && metricObservationIdentity(current) === metricObservationIdentity(next)) || next.value === null) {
+    const preferred = next.value !== null && preferNext ? next : current;
     return {
-      ...current,
-      ...(next.value !== null ? next : {}),
-      revision: (current.revision ?? 0) + 1,
+      ...preferred,
+      conflicts: [...(current.conflicts ?? []), ...(next.conflicts ?? [])],
+      revision: Math.max(current.revision ?? 0, next.revision ?? 0) + 1,
     };
   }
   const observations = [
@@ -241,15 +414,17 @@ export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric
       confidence: current.confidence,
       source: current.source,
       capturedAt: current.capturedAt,
+      passageSupport: current.passageSupport,
     },
     {
       value: next.value,
       confidence: next.confidence,
       source: next.source,
       capturedAt: next.capturedAt,
+      passageSupport: next.passageSupport,
     },
   ];
-  const preferredObservation = evidenceWeight(next) > evidenceWeight(current) ? 1 : 0;
+  const preferredObservation = preferNext ? 1 : 0;
   const conflict: MetricConflict = {
     metricType: current.metricType,
     observations,
@@ -264,17 +439,31 @@ export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric
   };
 }
 
-/** Reconcile all metrics for one company and keep one canonical row per type. */
+/**
+ * Reconcile metrics and keep one canonical row per company/type.
+ *
+ * Both sides use the CANONICAL path deliberately. This is a merge primitive:
+ * `existing` is the stored snapshot, which legitimately holds human overrides,
+ * and a future caller could just as well merge two stored snapshots. Applying
+ * the model-ingest gate here would therefore strip real `user_verified` rows.
+ * Model output is gated where it ENTERS the system (`metricRows`), so anything
+ * reaching this function has already been through
+ * `enforceModelMetricsProvenance`.
+ */
 export function reconcileMetrics(
   existing: CompanyMetric[],
   incoming: CompanyMetric[],
+  officialWebsite?: string | null,
 ): CompanyMetric[] {
-  const byType = new Map(existing.map((metric) => [metric.metricType, metric]));
-  for (const metric of incoming) {
-    const current = byType.get(metric.metricType);
+  const byType = new Map<string, CompanyMetric>();
+  // Stored duplicates must pass the same conflict/human-lock rules, not a
+  // last-row-wins Map constructor that silently discards an override.
+  for (const metric of [...existing, ...incoming]) {
+    const key = JSON.stringify([metric.companyId, metric.metricType]);
+    const current = byType.get(key);
     byType.set(
-      metric.metricType,
-      current ? reconcileMetric(current, metric) : enforceMetricProvenance(metric),
+      key,
+      current ? reconcileMetric(current, metric, officialWebsite) : enforceMetricProvenance(metric, officialWebsite),
     );
   }
   return [...byType.values()];
@@ -282,5 +471,5 @@ export function reconcileMetrics(
 
 /** Convenience for whole rows at once. */
 export function enforceMetricsProvenance(metrics: CompanyMetric[]): CompanyMetric[] {
-  return metrics.map(enforceMetricProvenance);
+  return metrics.map(metric => enforceMetricProvenance(metric));
 }

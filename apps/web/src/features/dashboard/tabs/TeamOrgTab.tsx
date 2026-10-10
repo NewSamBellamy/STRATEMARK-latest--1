@@ -6,9 +6,11 @@ import '@xyflow/react/dist/style.css';
 import type { OrgNode } from '@mi/contracts';
 import { useCompany, useDashboardTab, useGenerateReport } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { HydratingPanel } from './HydratingPanel';
 import { Modal } from '@/components/ui/Modal';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { LeaderGrid } from './LeaderGrid';
+import { UnknownInline } from '@/features/card/UnknownValue';
 
 const GROUP_COLOR: Record<OrgNode['group'], string> = {
   exec: '#6366f1',
@@ -51,8 +53,10 @@ function layout(nodes: OrgNode[]): { rfNodes: Node[]; rfEdges: Edge[] } {
         ),
       },
       style: {
-        background: '#ffffff',
-        color: '#18181B',
+        // Theme tokens, not hard-coded light values: in dark mode this node
+        // used to render as a blinding white rectangle.
+        background: 'rgb(var(--c-surface))',
+        color: 'rgb(var(--c-content))',
         border: `2px solid ${GROUP_COLOR[n.group]}`,
         borderRadius: 10,
         fontSize: 12,
@@ -70,7 +74,7 @@ function layout(nodes: OrgNode[]): { rfNodes: Node[]; rfEdges: Edge[] } {
       id: `${n.parentId}->${n.id}`,
       source: n.parentId as string,
       target: n.id,
-      style: { stroke: '#D8D7D2' },
+      style: { stroke: 'rgb(var(--c-border))' },
       animated: false,
     }));
 
@@ -118,10 +122,8 @@ function PersonDetail({
             <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted">
               {label}
             </dt>
-            <dd
-              className={`mt-1 text-sm ${reportedValue(value) === UNKNOWN ? 'text-faint' : 'text-content'}`}
-            >
-              {reportedValue(value)}
+            <dd className="mt-1 text-sm text-content">
+              {reportedValue(value) === UNKNOWN ? <UnknownInline /> : reportedValue(value)}
             </dd>
           </div>
         ))}
@@ -131,12 +133,28 @@ function PersonDetail({
         <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted">
           Reported background
         </h3>
-        <p
-          className={`mt-2 text-sm leading-relaxed ${reportedValue(person.bio) === UNKNOWN ? 'text-faint' : 'text-content/90'}`}
-        >
-          {reportedValue(person.bio)}
-        </p>
+        {reportedValue(person.bio) === UNKNOWN ? (
+          <p className="mt-2"><UnknownInline /></p>
+        ) : (
+          <p className="mt-2 text-sm leading-relaxed text-content/90">{reportedValue(person.bio)}</p>
+        )}
       </div>
+
+      {person.sourceUrl && person.supportingQuote && (
+        <div className="rounded-lg border border-border bg-surface-2/60 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted">
+              Reported source{person.sourceRetrievedAt ? ` · retrieved ${person.sourceRetrievedAt.slice(0, 10)}` : ''}
+            </h3>
+            <a href={person.sourceUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-primary-ink hover:underline">
+              Open original ↗
+            </a>
+          </div>
+          <blockquote className="mt-2 border-l-2 border-primary/40 pl-3 text-sm leading-relaxed text-content/90">
+            “{person.supportingQuote}”
+          </blockquote>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
         <p className="max-w-xs text-[11px] leading-relaxed text-faint">
@@ -161,9 +179,10 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
   const navigate = useNavigate();
 
   return (
-    <QueryBoundary query={query} isEmpty={(r) => r.content.nodes.length === 0}>
+    <QueryBoundary query={query} loading={<HydratingPanel label="Team & Org" />}
+      isEmpty={(r) => r.content.nodes.length === 0}>
       {(result) => (
-        <div>
+        <div className="cascade">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted">
               Exec, AI, product, and design leadership. Hover a portrait for their background;

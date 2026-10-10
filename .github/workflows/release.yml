@@ -23,12 +23,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
+        # Version comes from package.json's "packageManager" field — a manual
+        # pin drifted to pnpm 9 against the pnpm-10 lockfile and would fail the
+        # first tagged build. Same pattern as ci.yml.
+        uses: pnpm/action-setup@v4
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

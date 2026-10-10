@@ -2,8 +2,8 @@
  * Typed data hooks — the ONLY way feature components read/write data. They wrap
  * the repository behind TanStack Query, so the mock↔IPC swap is invisible here.
  */
-import { useEffect } from 'react';
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
+import { useMutation, useQuery, useQueryClient, type QueryClient, type UseQueryResult } from '@tanstack/react-query';
 import type {
   CardFilter,
   CardWithCompany,
@@ -23,6 +23,22 @@ import type {
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { traceAgent } from '@/lib/agentic/agentTrace';
 import { qk } from '@/lib/query/keys';
+import { buildMetricViews } from '@/features/card/card-view';
+
+// All UI consumers (including reports/compare/overview) share the same
+// read-only revision and provenance rules; raw cache/storage stays intact.
+const projectMetrics = (metrics: CompanyMetric[], website?: string | null) => buildMetricViews(metrics, website).map(view => view.metric);
+const projectCard = (card: CardWithCompany): CardWithCompany => ({ ...card, metrics: projectMetrics(card.metrics, card.company?.websiteUrl) });
+
+export function invalidateMetricSurfaces(qc: QueryClient, companyId: string, dashboard: boolean) {
+  return Promise.all([
+    qc.invalidateQueries({ queryKey: qk.companyMetrics(companyId) }),
+    qc.invalidateQueries({ queryKey: ['cards'] }),
+    qc.invalidateQueries({ queryKey: ['card'] }),
+    qc.invalidateQueries({ queryKey: qk.savedCards }),
+    ...(dashboard ? [qc.invalidateQueries({ queryKey: ['dashboard', companyId] })] : []),
+  ]);
+}
 
 export function useMarkets(): UseQueryResult<Market[]> {
   const repo = useRepository();
@@ -44,6 +60,13 @@ export function useDeckByMarket(marketId: string | undefined): UseQueryResult<De
     queryKey: qk.deck(marketId ?? ''),
     queryFn: () => repo.getDeckByMarket(marketId as string),
     enabled: !!marketId,
+    refetchInterval: (query) => {
+      const deck = query.state.data as { status?: string } | null;
+      if (deck?.status === 'running' || deck?.status === 'partial' || deck?.status === 'refreshing') {
+        return 3000;
+      }
+      return false;
+    },
   });
 }
 
@@ -52,9 +75,15 @@ export function useCards(
   filter?: CardFilter,
 ): UseQueryResult<CardWithCompany[]> {
   const repo = useRepository();
+  const qc = useQueryClient();
+  const emptyReadySince = useRef<number | null>(null);
+  useEffect(() => {
+    emptyReadySince.current = null;
+  }, [deckId]);
   return useQuery({
     queryKey: qk.cards(deckId ?? '', filter),
     queryFn: () => repo.listCards(deckId as string, filter),
+    select: cards => cards.map(projectCard),
     enabled: !!deckId,
     // SAFE STATE for back-navigation: returning to a deck renders the cached
     // cards INSTANTLY (any refetch happens quietly behind them). Without this,
@@ -67,6 +96,28 @@ export function useCards(
       if (cards && cards.some((c) => c.card.tier === null)) {
         return 3000;
       }
+      const cachedDeck = qc.getQueryData<Deck & { status?: string }>(qk.deck(deckId ?? ''));
+      const deckInProgress =
+        cachedDeck?.status === 'running' ||
+        cachedDeck?.status === 'partial' ||
+        cachedDeck?.status === 'refreshing';
+      let readyDeckStillMissingCards = false;
+      if (cards?.length === 0 && cachedDeck?.status === 'ready') {
+        const now = Date.now();
+        emptyReadySince.current ??= now;
+        readyDeckStillMissingCards = emptyReadySince.current + 60_000 > now;
+      } else {
+        emptyReadySince.current = null;
+      }
+      const unknownDeckStillLoading =
+        cards &&
+        cards.length === 0 &&
+        cachedDeck?.status !== 'ready' &&
+        cachedDeck?.status !== 'failed' &&
+        cachedDeck?.status !== 'ready_stale';
+      if (deckInProgress || readyDeckStillMissingCards || unknownDeckStillLoading) {
+        return 3000;
+      }
       return false;
     },
   });
@@ -77,13 +128,14 @@ export function useCard(cardId: string | undefined): UseQueryResult<CardWithComp
   return useQuery({
     queryKey: qk.card(cardId ?? ''),
     queryFn: () => repo.getCard(cardId as string),
+    select: card => card ? projectCard(card) : null,
     enabled: !!cardId,
   });
 }
 
 export function useSavedCards(): UseQueryResult<CardWithCompany[]> {
   const repo = useRepository();
-  return useQuery({ queryKey: qk.savedCards, queryFn: () => repo.listSavedCards() });
+  return useQuery({ queryKey: qk.savedCards, queryFn: () => repo.listSavedCards(), select: cards => cards.map(projectCard) });
 }
 
 export function useSaveCard() {
@@ -115,9 +167,14 @@ export function useCompany(companyId: string | undefined): UseQueryResult<Compan
 
 export function useCompanyMetrics(companyId: string | undefined): UseQueryResult<CompanyMetric[]> {
   const repo = useRepository();
+  const company = useCompany(companyId);
   return useQuery({
     queryKey: qk.companyMetrics(companyId ?? ''),
-    queryFn: () => repo.getCompanyMetrics(companyId as string),
+    queryFn: () => {
+      if (!repo.getCompanyFacts) throw new Error('Accepted company facts are unavailable. Update or restart the app.');
+      return repo.getCompanyFacts(companyId as string);
+    },
+    select: metrics => projectMetrics(metrics, company.data?.websiteUrl),
     enabled: !!companyId,
   });
 }
@@ -131,6 +188,9 @@ export function useDashboardTab<T extends DashboardTab>(
     queryKey: qk.dashboard(companyId ?? '', tab),
     queryFn: () => repo.getDashboardTab(companyId as string, tab),
     enabled: !!companyId,
+    // This read may start paid research. The provider already has bounded
+    // transport retries; a query retry must not silently buy another full pass.
+    retry: false,
   });
 }
 
@@ -183,6 +243,46 @@ export function useRefreshDeck() {
     onSuccess: (deck) => {
       qc.invalidateQueries({ queryKey: qk.deck(deck.marketId) });
       qc.invalidateQueries({ queryKey: ['cards', deck.id] });
+    },
+  });
+}
+
+/** Resumable failed/partial creation job for a deck, when the engine keeps them. */
+export function useResumableJob(marketId: string | undefined) {
+  const repo = useRepository();
+  const available = typeof repo.listResearchJobs === 'function' &&
+    typeof repo.resumeResearchJob === 'function';
+  return useQuery({
+    queryKey: ['research-jobs', marketId],
+    queryFn: async () => {
+      const jobs = await repo.listResearchJobs!();
+      return jobs
+        .filter((job) => job.deck?.marketId === marketId &&
+          (job.status === 'failed' || job.status === 'cancelled') &&
+          job.marketPlan && job.market && job.deck && job.catalog)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
+    },
+    enabled: available && !!marketId,
+    staleTime: 30_000,
+  });
+}
+
+export function useResumeResearchJob() {
+  const repo = useRepository();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (jobId: string) => {
+      if (typeof repo.resumeResearchJob !== 'function') {
+        throw new Error('This engine cannot resume research.');
+      }
+      return repo.resumeResearchJob(jobId);
+    },
+    onSuccess: (job) => {
+      if (job?.deck) {
+        qc.invalidateQueries({ queryKey: qk.deck(job.deck.marketId) });
+        qc.invalidateQueries({ queryKey: ['cards', job.deck.id] });
+      }
+      qc.invalidateQueries({ queryKey: ['research-jobs'] });
     },
   });
 }
@@ -311,12 +411,7 @@ export function useVerifyMetric() {
       // verification stamps lastVerifiedAt (the "checked Xm ago" chips) and
       // may have downgraded a badge. Gating this on `changed` left page two
       // showing what page one had already reconciled — the continuity bug.
-      qc.invalidateQueries({ queryKey: qk.companyMetrics(input.companyId) });
-      qc.invalidateQueries({ queryKey: ['cards'] });
-      if (result.changed) {
-        // A correction also voids the researched tab cache repo-side; refetch it.
-        qc.invalidateQueries({ queryKey: ['dashboard', input.companyId] });
-      }
+      return invalidateMetricSurfaces(qc, input.companyId, result.changed);
     },
   });
   return { ...mutation, isAvailable: typeof repo.verifyMetric === 'function' };
@@ -344,11 +439,7 @@ export function useHuntMetrics() {
           ? `Filled ${result.filledTypes.length} soft figure${result.filledTypes.length === 1 ? '' : 's'} from live sources`
           : 'Hunted soft figures — nothing met the sourcing bar (gaps stay honest)',
       );
-      qc.invalidateQueries({ queryKey: qk.companyMetrics(companyId) });
-      if (result.filledTypes.length > 0) {
-        qc.invalidateQueries({ queryKey: ['cards'] });
-        qc.invalidateQueries({ queryKey: ['dashboard', companyId] });
-      }
+      return invalidateMetricSurfaces(qc, companyId, result.filledTypes.length > 0);
     },
   });
   return { ...mutation, isAvailable: typeof repo.huntCompanyMetrics === 'function' };
@@ -372,9 +463,7 @@ export function useOverrideMetric() {
   return useMutation({
     mutationFn: (input: Parameters<typeof repo.overrideMetric>[0]) => repo.overrideMetric(input),
     onSuccess: (metric) => {
-      qc.invalidateQueries({ queryKey: qk.companyMetrics(metric.companyId) });
-      qc.invalidateQueries({ queryKey: ['cards'] });
-      qc.invalidateQueries({ queryKey: ['dashboard', metric.companyId] });
+      return invalidateMetricSurfaces(qc, metric.companyId, true);
     },
   });
 }
@@ -424,7 +513,20 @@ export function useDeckRefreshSubscription(onEvent?: (evt: DeckRefreshEvent) => 
   useEffect(() => {
     const unsub = repo.subscribeDeckRefresh((evt) => {
       qc.invalidateQueries({ queryKey: ['cards', evt.deckId] });
+      qc.invalidateQueries({ queryKey: ['card'] });
+      qc.invalidateQueries({ queryKey: qk.savedCards });
+      // Events expose card IDs, not company IDs. These are local/repository
+      // reads; do not invalidate researched dashboard tabs and spend keys.
+      qc.invalidateQueries({ queryKey: ['companyMetrics'] });
       qc.invalidateQueries({ queryKey: qk.deck(evt.marketId) });
+      // Live dashboards: when the event names the companies it touched, every
+      // open dashboard surface for them refreshes in place — figures corrected
+      // by a background desk appear without a reload.
+      for (const companyId of evt.companyIds ?? []) {
+        qc.invalidateQueries({ queryKey: qk.company(companyId) });
+        qc.invalidateQueries({ queryKey: qk.companyMetrics(companyId) });
+        qc.invalidateQueries({ queryKey: ['dashboard', companyId] });
+      }
       onEvent?.(evt);
     });
     return unsub;

@@ -61,6 +61,8 @@ export async function withRetry<T>(
     signal?: AbortSignal;
     /** Total wall-clock budget across all attempts. Default 120s. */
     maxTotalMs?: number;
+    /** Observes every retry sleep (Retry-After / backoff) as it starts. */
+    onRetryWait?: (waitMs: number) => void;
   } = {},
 ): Promise<T> {
   const retries = opts.retries ?? 4;
@@ -86,6 +88,7 @@ export async function withRetry<T>(
       if (Date.now() - startedAt + delay > maxTotalMs) throw err;
 
       attempt += 1;
+      opts.onRetryWait?.(delay);
       await sleep(delay, opts.signal);
     }
   }

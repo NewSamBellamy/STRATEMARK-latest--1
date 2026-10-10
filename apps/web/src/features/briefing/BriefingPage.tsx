@@ -25,6 +25,7 @@ import { deckBakedState, type DeckBriefing } from '@mi/contracts';
 import { useCards, useDeckBriefings, useDeckByMarket, useGenerateBriefing, useMarket } from '@/hooks/data';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useApiKey } from '@/lib/settings/apiKey';
+import { SettingsLink } from '@/components/SettingsLink';
 import { buildBriefingShare } from '@/lib/share/codec';
 import { ShareDialog } from '@/features/share/ShareDialog';
 import { cn } from '@/lib/cn';
@@ -113,9 +114,9 @@ export default function BriefingPage() {
             real developments across every company in this deck and composes them into an editorial
             report. Connect your Gemini key in Settings to turn it on.
           </p>
-          <Link to="/settings" className="btn-primary mt-5 inline-flex">
+          <SettingsLink className="btn-primary mt-5 inline-flex">
             Open Settings
-          </Link>
+          </SettingsLink>
         </div>
       )}
 

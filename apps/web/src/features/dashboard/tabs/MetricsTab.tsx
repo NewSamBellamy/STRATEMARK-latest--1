@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { Loader2, Pencil, Radar, SearchX } from 'lucide-react';
+import { Loader2, Pencil, Radar } from 'lucide-react';
 import {
   METRIC_TYPE_LABELS,
+  metricDefinitionLabel,
+  comparableMetricBasis,
   type SIGNAL_BANDS,
   type CompanyMetric,
   type MetricType,
@@ -14,14 +16,17 @@ import {
   useOverrideMetric,
 } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { HydratingPanel } from './HydratingPanel';
 import { EmptyState } from '@/components/states/EmptyState';
 import { Modal } from '@/components/ui/Modal';
 import { formatMetricValue } from '@/lib/format';
 import { METRIC_COLORS } from '@/lib/theme';
 import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
+import { UnknownSlot, UNKNOWN_REASON } from '@/features/card/UnknownValue';
+import { buildMetricViews } from '@/features/card/card-view';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { FactCheck } from '@/features/factcheck/FactCheck';
-import { BandGauge, ChartPanel, CompositionDonut, Delta, ShareDonut, TrendArea, TrendBar } from './metricViz';
+import { BandGauge, ChartPanel, CompositionDonut, Delta, ShareDonut, TrendArea, TrendBar, TrendLine } from './metricViz';
 
 /** Readable deep-dive topics per metric. */
 const DEEP_TOPIC: Record<MetricType, string> = {
@@ -29,6 +34,7 @@ const DEEP_TOPIC: Record<MetricType, string> = {
   valuation: 'Valuation & funding history',
   market_cap: 'Market capitalization & stock performance',
   arr: 'Annual recurring revenue & growth',
+  aum: 'Assets under management & fund performance',
   users: 'User / customer base & adoption',
   employees: 'Team size, hiring & key people',
 };
@@ -42,7 +48,8 @@ const BAND_KEY: Partial<Record<MetricType, keyof typeof SIGNAL_BANDS>> = {
 };
 
 /** The display order; valuation/market_cap collapse to whichever is present. */
-const ORDER: MetricType[] = ['market_share', 'valuation', 'market_cap', 'arr', 'users', 'employees'];
+const ORDER: MetricType[] = ['market_share', 'valuation', 'market_cap', 'arr', 'aum', 'users', 'employees'];
+const metricLabel = (metric: CompanyMetric) => metricDefinitionLabel(metric) ?? METRIC_TYPE_LABELS[metric.metricType];
 
 /** Human-in-the-loop correction: value + source note → user_verified → re-tier. */
 function OverrideModal({
@@ -69,7 +76,7 @@ function OverrideModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title={`Correct ${METRIC_TYPE_LABELS[metric.metricType]}`}
+      title={`Correct ${metricLabel(metric)}`}
       description={`${companyName} — your value becomes ground truth (User verified) and the maturity tier recomputes instantly.`}
     >
       <div className="space-y-4">
@@ -154,7 +161,7 @@ function MetricTile({
     >
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted">
-            {METRIC_TYPE_LABELS[metric.metricType]}
+            {metricLabel(metric)}
             {highlight && (
               <span className="rounded-full border border-emerald-300 bg-emerald-50 px-1.5 py-px text-[9px] font-semibold normal-case tracking-normal text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
                 Updated from live sources
@@ -167,13 +174,13 @@ function MetricTile({
               note={metric.methodNote}
               source={metric.source}
               citations={metric.citations}
-              metricLabel={METRIC_TYPE_LABELS[metric.metricType]}
+              metricLabel={metricLabel(metric)}
             />
             <button
               type="button"
               className="rounded-md p-1 text-faint transition-colors hover:bg-surface-2 hover:text-content"
               title="Correct this figure (you know better)"
-              aria-label={`Correct ${METRIC_TYPE_LABELS[metric.metricType]}`}
+              aria-label={`Correct ${metricLabel(metric)}`}
               onClick={() => setEditing(true)}
             >
               <Pencil className="h-3.5 w-3.5" />
@@ -205,7 +212,7 @@ function MetricTile({
           <div className="flex items-center gap-1.5">
             {metric.value != null && metric.confidence !== 'unknown' && (
               <FactCheck
-                claim={`${companyName}'s ${METRIC_TYPE_LABELS[metric.metricType]} is ${formatMetricValue(metric.metricType, metric.value)}`}
+                claim={`${companyName}'s ${metricLabel(metric)} is ${formatMetricValue(metric.metricType, metric.value)}`}
                 companyName={companyName}
                 companyId={companyId}
                 metricType={metric.metricType}
@@ -214,20 +221,6 @@ function MetricTile({
             )}
           </div>
         </div>
-    </div>
-  );
-}
-/** Honest gap: unknown is a finding, not a blank (design system §4). */
-function UnknownSlot() {
-  return (
-    <div className="flex h-full min-h-[72px] flex-col items-start justify-center gap-1 rounded-lg border border-dashed border-border bg-surface-2/50 px-3 py-2.5">
-      <span className="flex items-center gap-1.5 font-display text-lg font-semibold text-muted">
-        <SearchX className="h-4 w-4" />
-        Unknown
-      </span>
-      <span className="text-[11px] leading-snug text-faint">
-        No credible public figure found — we don’t invent data. Dig deeper or correct it if you know it.
-      </span>
     </div>
   );
 }
@@ -245,12 +238,12 @@ function KpiBand({ tiles }: { tiles: CompanyMetric[] }) {
     user_verified: '#0284C7',
   };
   return (
-    <div className="panel grid grid-cols-2 divide-border sm:grid-cols-3 sm:divide-x lg:grid-cols-5">
+    <section aria-label="Company headline metrics" className="panel grid w-full min-w-0 grid-cols-2 divide-border sm:grid-cols-3 sm:divide-x lg:grid-cols-5">
       {tiles.map((m) => (
-        <div key={m.id} className="px-4 py-3.5">
+        <div key={m.id} className="min-w-0 px-4 py-3.5">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-semibold uppercase tracking-widest text-muted">
-              {METRIC_TYPE_LABELS[m.metricType]}
+              {metricLabel(m)}
             </span>
             <span
               className="h-1.5 w-1.5 rounded-full"
@@ -264,6 +257,7 @@ function KpiBand({ tiles }: { tiles: CompanyMetric[] }) {
                 ? 'mt-1 font-display text-xl font-semibold tabular-nums text-content'
                 : 'mt-1 font-display text-xl font-semibold text-faint'
             }
+            title={m.value != null && m.confidence !== 'unknown' ? undefined : UNKNOWN_REASON}
           >
             {m.value != null && m.confidence !== 'unknown'
               ? formatMetricValue(m.metricType, m.value)
@@ -271,7 +265,7 @@ function KpiBand({ tiles }: { tiles: CompanyMetric[] }) {
           </div>
         </div>
       ))}
-    </div>
+    </section>
   );
 }
 
@@ -297,7 +291,7 @@ function MetricBody({ metric }: { metric: CompanyMetric }) {
     );
   }
 
-  const bandKey = BAND_KEY[metric.metricType];
+  const bandKey = comparableMetricBasis(metric) ? BAND_KEY[metric.metricType] : undefined;
   return (
     <div>
       <div className="font-display text-3xl font-semibold tabular-nums leading-none text-content">
@@ -337,7 +331,7 @@ function HuntMetricsButton({
     ).length + Math.max(0, 5 - metrics.length);
   if (!hunt.isAvailable || (softCount === 0 && !outcome)) return null;
   return (
-    <span className="flex items-center gap-2">
+    <span className="flex min-w-0 flex-wrap items-center gap-2">
       {outcome && <span className="text-[11px] font-medium text-positive">{outcome}</span>}
       {softCount > 0 && (
         <button
@@ -352,7 +346,10 @@ function HuntMetricsButton({
                 // change was the filmed confusion.
                 setOutcome(
                   r.filledTypes.length > 0
-                    ? `Filled ${r.filledTypes.map((t) => METRIC_TYPE_LABELS[t]).join(' & ')} from live sources — highlighted below.`
+                    ? `Filled ${r.filledTypes.map((t) => {
+                      const metric = r.metrics.find(m => m.metricType === t);
+                      return metric ? metricLabel(metric) : METRIC_TYPE_LABELS[t];
+                    }).join(' & ')} from live sources — highlighted below.`
                     : 'No additional figures met the sourcing bar — gaps stay honest.',
                 );
                 if (r.filledTypes.length > 0) onFilled?.(r.filledTypes);
@@ -375,7 +372,8 @@ function HuntMetricsButton({
 export function MetricsTab({ companyId }: { companyId: string }) {
   const metricsQ = useCompanyMetrics(companyId);
   const seriesQ = useDashboardTab(companyId, 'metrics');
-  const companyName = useCompany(companyId).data?.name ?? 'this company';
+  const company = useCompany(companyId).data;
+  const companyName = company?.name ?? 'this company';
   // Figures the hunt just filled — their widgets light up so the update is
   // impossible to miss.
   const [justFilled, setJustFilled] = useState<ReadonlySet<MetricType>>(new Set());
@@ -383,27 +381,29 @@ export function MetricsTab({ companyId }: { companyId: string }) {
   return (
     <QueryBoundary
       query={metricsQ}
+      loading={<HydratingPanel label="Metrics" />}
       isEmpty={(m) => m.length === 0}
       empty={<EmptyState title="No metrics yet" description="Research didn’t surface quantitative metrics for this company." />}
     >
       {(metrics) => {
         const seen = new Set<MetricType>();
-        const tiles = ORDER.map((t) => metrics.find((m) => m.metricType === t))
+        const projected = buildMetricViews(metrics, company?.websiteUrl).map(({ metric }) => metric);
+        const tiles = ORDER.map((t) => projected.find((m) => m.metricType === t))
           .filter((m): m is CompanyMetric => !!m && !seen.has(m.metricType) && !!seen.add(m.metricType));
         const series = seriesQ.data?.content;
         const hasSeries = !!series && (series.revenue.length > 1 || series.users.length > 1);
         return (
-          <div className="space-y-5">
-            <div className="flex items-center justify-between gap-3">
+          <div className="space-y-5 cascade">
+            <div className="space-y-3">
               <KpiBand tiles={tiles} />
-              <span className="flex shrink-0 items-center gap-1.5">
+              <span className="flex flex-wrap items-center justify-end gap-1.5">
                 <HuntMetricsButton
                   companyId={companyId}
                   metrics={metrics}
                   onFilled={(types) => setJustFilled(new Set(types))}
                 />
                 <DigDeeperMenu
-                  topics={tiles.map((m) => DEEP_TOPIC[m.metricType])}
+                  topics={tiles.map((m) => m.passageSupport?.definition === 'annual_revenue' ? 'Annual revenue & growth' : DEEP_TOPIC[m.metricType])}
                   companyId={companyId}
                   companyName={companyName}
                 />
@@ -428,11 +428,14 @@ export function MetricsTab({ companyId }: { companyId: string }) {
                 {series.revenue.length > 1 && (
                   <ChartPanel
                     title="Revenue trend"
-                    sub={`${series.revenue[0]!.period} → ${series.revenue[series.revenue.length - 1]!.period} · estimated series`}
+                    sub={`${series.revenue[0]!.period} → ${series.revenue[series.revenue.length - 1]!.period} · ${series.revenue[0]!.period === 'Current' ? 'current point' : 'SEC filing-reported annual revenue'}`}
                     right={<Delta data={series.revenue} fmt={(v) => formatMetricValue('arr', v)} />}
-                    render={(w) => (
-                      <TrendBar data={series.revenue} color={METRIC_COLORS.arr} width={w} fmt={(v) => formatMetricValue('arr', v)} />
-                    )}
+                    views={{ options: [{ key: 'bar', label: 'Bar' }, { key: 'line', label: 'Line' }, { key: 'area', label: 'Area' }], default: 'bar' }}
+                    render={(w, view) => view === 'line'
+                      ? <TrendLine data={series.revenue} color={METRIC_COLORS.arr} width={w} fmt={(v) => formatMetricValue('arr', v)} />
+                      : view === 'area'
+                        ? <TrendArea data={series.revenue} color={METRIC_COLORS.arr} width={w} fmt={(v) => formatMetricValue('arr', v)} />
+                        : <TrendBar data={series.revenue} color={METRIC_COLORS.arr} width={w} fmt={(v) => formatMetricValue('arr', v)} />}
                   />
                 )}
                 {series.users.length > 1 && (
@@ -440,9 +443,12 @@ export function MetricsTab({ companyId }: { companyId: string }) {
                     title="Users trend"
                     sub={`${series.users[0]!.period} → ${series.users[series.users.length - 1]!.period} · estimated series`}
                     right={<Delta data={series.users} fmt={(v) => formatMetricValue('users', v)} />}
-                    render={(w) => (
-                      <TrendBar data={series.users} color={METRIC_COLORS.users} width={w} fmt={(v) => formatMetricValue('users', v)} />
-                    )}
+                    views={{ options: [{ key: 'bar', label: 'Bar' }, { key: 'line', label: 'Line' }, { key: 'area', label: 'Area' }], default: 'bar' }}
+                    render={(w, view) => view === 'line'
+                      ? <TrendLine data={series.users} color={METRIC_COLORS.users} width={w} fmt={(v) => formatMetricValue('users', v)} />
+                      : view === 'area'
+                        ? <TrendArea data={series.users} color={METRIC_COLORS.users} width={w} fmt={(v) => formatMetricValue('users', v)} />
+                        : <TrendBar data={series.users} color={METRIC_COLORS.users} width={w} fmt={(v) => formatMetricValue('users', v)} />}
                   />
                 )}
                 {series.churn.length > 1 && (

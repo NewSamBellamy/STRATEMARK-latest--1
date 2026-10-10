@@ -3,3 +3,8 @@ packages:
   - "apps/desktop"
   - "apps/api"
   - "packages/*"
+
+onlyBuiltDependencies:
+  - esbuild
+  - msw
+  - electron

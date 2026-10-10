@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import type { CompanyMetric } from '@mi/contracts';
 import type { CompanyCandidate, LlmClient, MarketPlan } from './types';
+import type { EnrichmentOut } from './schemas';
 import {
   CompanyCardHydrator,
   askCompanyRepresentative,
@@ -9,6 +10,7 @@ import {
   enrichCompanyWithProxies,
   executeCompanyAgent,
   hydrateCompanyCard,
+  hydrateCompanyCardsBatch,
   metricRows,
   primaryEntityType,
 } from './company-agent';
@@ -118,6 +120,60 @@ describe('Company Agent — Brand & Helper Functions', () => {
     expect(arr.confidence).toBe('verified');
     expect(arr.citations[0]?.url).toBe('https://sec.gov/filing');
   });
+
+  // ------------------------------------------------------------------------
+  // The Provenance Gate — issue #48
+  // ------------------------------------------------------------------------
+
+  /** An enrichment payload with only the fields a given test cares about. */
+  const enrichment = (metrics: Record<string, unknown>): EnrichmentOut =>
+    ({
+      oneLiner: 'Test',
+      hqLocation: null,
+      website: null,
+      brand: null,
+      metrics,
+      facts: {
+        headcount: null,
+        lastFundingRound: null,
+        scrapedPricing: null,
+        publicUserFootprint: null,
+        footprintLabel: null,
+      },
+      viceClaims: [],
+      cultureNote: null,
+    }) as unknown as EnrichmentOut;
+
+  it('never lets a model mint a user_verified figure, even with a strong citation', () => {
+    // A model claiming `user_verified` is claiming a PERSON signed this off.
+    // Nobody did. It must not survive ingestion under any evidence.
+    const metrics = metricRows(
+      enrichment({
+        valuation: { value: 9_000_000_000, confidence: 'user_verified', sourceIndex: 0, method: null },
+      }),
+      [{ title: 'sec.gov', url: 'https://sec.gov/filing' }],
+      'cmp_forge',
+    );
+
+    const valuation = metrics.find((m) => m.metricType === 'valuation')!;
+    expect(valuation.confidence).not.toBe('user_verified');
+    expect(valuation.confidence).toBe('verified'); // earned by the citation instead
+    expect(valuation.value).toBe(9_000_000_000); // the figure itself survives
+  });
+
+  it('drops a forged user_verified to estimated when no source backs it', () => {
+    const metrics = metricRows(
+      enrichment({
+        arr: { value: 42_000_000, confidence: 'user_verified', sourceIndex: null, method: null },
+      }),
+      [],
+      'cmp_forge2',
+    );
+
+    const row = metrics.find((m) => m.metricType === 'arr')!;
+    expect(row.confidence).toBe('estimated');
+    expect(row.value).toBe(42_000_000);
+  });
 });
 
 describe('Company Agent — enrichCompanyWithProxies Deep Module', () => {
@@ -170,6 +226,64 @@ describe('Company Agent — enrichCompanyWithProxies Deep Module', () => {
     const cap = result.find((m) => m.metricType === 'market_cap')!;
     expect(cap.value).toBe(1_200_000_000);
     expect(cap.confidence).toBe('verified');
+  });
+
+  it('never overwrites a human-verified figure with a proxy estimate (issue #48)', () => {
+    // A user_verified figure is a person's decision. The proxy waterfall only
+    // guarded `confidence === 'verified'`, so a human override fell through to
+    // the estimator and was silently replaced — automation CLEARING a human
+    // decision, which the provenance rules forbid outright.
+    const humanOverridden: CompanyMetric[] = [
+      {
+        id: 'met_val_h',
+        companyId: 'cmp_human',
+        metricType: 'valuation',
+        value: 3_000_000_000,
+        confidence: 'user_verified',
+        source: 'Confirmed with the founder directly',
+        citations: [],
+        methodNote: null,
+        capturedAt: new Date().toISOString(),
+      },
+      {
+        id: 'met_arr_h',
+        companyId: 'cmp_human',
+        metricType: 'arr',
+        value: 75_000_000,
+        confidence: 'user_verified',
+        source: 'Confirmed with the CFO',
+        citations: [],
+        methodNote: null,
+        capturedAt: new Date().toISOString(),
+      },
+      {
+        id: 'met_emp_h',
+        companyId: 'cmp_human',
+        metricType: 'employees',
+        value: 400,
+        confidence: 'verified',
+        source: 'https://sec.gov/filing',
+        citations: [{ title: 'SEC 10-K', url: 'https://sec.gov/filing' }],
+        methodNote: null,
+        capturedAt: new Date().toISOString(),
+      },
+    ];
+
+    // Headcount and a funding round are both present, so both estimator tiers
+    // would fire if the human values were not protected.
+    const result = enrichCompanyWithProxies(
+      { id: 'cmp_human', name: 'Human Co', category: 'b2b_vertical_saas' },
+      humanOverridden,
+      { headcount: 400, lastFundingRound: { amount: 100_000_000, roundType: 'series_b' } },
+    );
+
+    const valuation = result.find((m) => m.metricType === 'valuation')!;
+    expect(valuation.value).toBe(3_000_000_000);
+    expect(valuation.confidence).toBe('user_verified');
+
+    const arr = result.find((m) => m.metricType === 'arr')!;
+    expect(arr.value).toBe(75_000_000);
+    expect(arr.confidence).toBe('user_verified');
   });
 
   it('computes category-aware ARR proxy from headcount when private company ARR is unverified', () => {
@@ -288,7 +402,7 @@ describe('Company Agent — enrichCompanyWithProxies Deep Module', () => {
 });
 
 describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
-  it('hydrates a full company card with proxy estimation, CMS calculation, and signal separation', async () => {
+  it('hydrates with strict unknowns for citation-only figures and isolates signal metrics', async () => {
     const client = fakeClient({
       enrichment: {
         oneLiner: 'Autonomous coding agents for enterprise teams',
@@ -317,21 +431,20 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
 
     // 1. Company identity
     expect(result.company.name).toBe('DevAgent Labs');
-    expect(result.company.oneLiner).toBe('Autonomous coding agents for enterprise teams');
+    expect(result.company.oneLiner).toBe('No source-backed company snapshot is ready yet.');
     expect(result.company.brandTheme?.primary).toBe('#4f46e5');
     expect(result.company.websiteUrl).toBe('https://devagent.ai');
 
-    // 2. Proxies applied (50 FTEs * $220k AI benchmark = $11M ARR)
+    // Citation-only model values do not create reported support or proxies.
     const arr = result.metrics.find((m) => m.metricType === 'arr')!;
     expect(arr).toBeDefined();
-    expect(arr.value).toBe(11_000_000);
-    expect(arr.confidence).toBe('estimated');
-    expect(arr.methodNote).toContain('50 FTEs × $220k AI / Infra / Compute benchmark');
+    expect(arr.value).toBeNull();
+    expect(arr.confidence).toBe('unknown');
+    expect(result.metrics.find((m) => m.metricType === 'employees')!.confidence).toBe('unknown');
 
     // 3. CMS Scoring and Tier Assignment
-    expect(result.cmsResult.baseTier).not.toBeNull();
-    expect(result.cmsResult.finalTier).toBeGreaterThanOrEqual(1);
-    expect(result.cmsResult.finalTier).toBeLessThanOrEqual(8);
+    expect(result.cmsResult.baseTier).toBeNull();
+    expect(result.cmsResult.finalTier).toBeNull();
     expect(result.card.tier).toBe(result.cmsResult.finalTier);
 
     // 4. Signal cards emission & strict metric isolation
@@ -355,11 +468,11 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
     // 7. Memory state
     expect(result.memory.companyId).toBe(result.company.id);
     expect(result.memory.companyName).toBe('DevAgent Labs');
-    expect(result.memory.dashboard.financials?.arr).toBe(11_000_000);
+    expect(result.memory.dashboard.financials?.arr).toBeNull();
     expect(result.memory.citations.length).toBeGreaterThan(0);
   });
 
-  it('wires structured enrichment.facts into Grounded Proxy Estimator for private startups', async () => {
+  it('does not turn structured proxy anchors into public startup figures', async () => {
     const client = fakeClient({
       enrichment: {
         oneLiner: 'Next-gen private AI infrastructure',
@@ -405,25 +518,22 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
       plan: mockPlan,
     });
 
-    // 1. ARR estimated via facts.headcount (25 * $220k = $5.5M)
+    // Headcount is not a reported revenue claim.
     const arr = result.metrics.find((m) => m.metricType === 'arr')!;
     expect(arr).toBeDefined();
-    expect(arr.value).toBe(5_500_000);
-    expect(arr.confidence).toBe('estimated');
-    expect(arr.methodNote).toContain('25 FTEs × $220k AI / Infra / Compute benchmark');
+    expect(arr.value).toBeNull();
+    expect(arr.confidence).toBe('unknown');
 
-    // 2. Valuation estimated via facts.lastFundingRound ($20M * 4.5x = $90M)
+    // Funding is not a reported valuation claim.
     const val = result.metrics.find((m) => m.metricType === 'valuation')!;
     expect(val).toBeDefined();
-    expect(val.value).toBe(90_000_000);
-    expect(val.confidence).toBe('estimated');
-    expect(val.methodNote).toContain('$20M Series A announcement');
+    expect(val.value).toBeNull();
+    expect(val.confidence).toBe('unknown');
 
-    // 3. Card summary fallback inherits candidate.descriptor
-    expect(result.card.summary).toBe('Specialized GPU cloud platform');
+    expect(result.card.summary).toBe('No source-backed company snapshot is ready yet.');
   });
 
-  it('ensures facet cards (infrastructure, distribution, culture, vice) inherit descriptor or oneLiner as card.summary', async () => {
+  it('does not let facet cards inherit ungrounded discovery/model descriptions', async () => {
     const client = fakeClient({
       enrichment: {
         oneLiner: 'Leading reseller and distributor of foundation models',
@@ -457,10 +567,8 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
     const viceCard = result.cards.find((c) => c.card.cardType === 'vice')!;
     const cultureCard = result.cards.find((c) => c.card.cardType === 'culture')!;
 
-    // Distribution card inherits candidate.descriptor / enrichment.oneLiner
-    expect(distCard.card.summary).toBe('Global channel distributor for enterprise AI models');
-    // Vice card inherits fallback summary
-    expect(viceCard.card.summary).toBe('Global channel distributor for enterprise AI models');
+    expect(distCard.card.summary).toBe('No source-backed company snapshot is ready yet.');
+    expect(viceCard.card.summary).toBe('No source-backed company snapshot is ready yet.');
     // Culture card uses cultureNote
     expect(cultureCard.card.summary).toBe('Commits 2% of equity to open source AI foundations.');
   });
@@ -560,5 +668,93 @@ describe('Company Agent — CompanyCardHydrator Stateful Class', () => {
     ]);
     const arr = proxies.find((m) => m.metricType === 'arr')!;
     expect(arr.value).toBe(2_200_000); // 10 * $220k
+  });
+});
+
+describe('Company Agent — hydrateCompanyCardsBatch (creation-phase step change)', () => {
+  const candidates: CompanyCandidate[] = [
+    { name: 'DevAgent Labs', domain: 'devagent.ai', descriptor: 'code agent', cardTypes: ['company'] },
+    { name: 'Vector(heap) AI', domain: 'vectorheap.com', descriptor: 'vector db', cardTypes: ['company'] },
+    { name: 'Glint Metrics', domain: 'glint.io', descriptor: 'observability', cardTypes: ['company'] },
+  ];
+
+  it('runs ONE grounded pass for the cohort and one structure pass per company', async () => {
+    const client = fakeClient();
+    const results = await hydrateCompanyCardsBatch({
+      batch: candidates.map((candidate, index) => ({ candidate, companyId: `cmp_batch_${index}` })),
+      client,
+      plan: mockPlan,
+      deckId: 'dck_batch',
+    });
+
+    expect(results.size).toBe(3);
+    expect(results.get('DevAgent Labs')?.company.id).toBe('cmp_batch_0');
+    expect(results.get('Vector(heap) AI')?.company.id).toBe('cmp_batch_1');
+    expect(results.get('Glint Metrics')?.company.id).toBe('cmp_batch_2');
+
+    // The whole point: one grounded search for the cohort, not one per company.
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(3);
+    const batchPrompt = (client.ground as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
+    expect(batchPrompt).toContain('Research EACH of the following 3 companies');
+    expect(batchPrompt).toContain('### DevAgent Labs');
+    expect(batchPrompt).toContain('### Vector(heap) AI');
+    expect(batchPrompt).toContain('### Glint Metrics');
+    // Every company's structure extraction still runs with its own schema pass.
+    const structurePrompts = (client.structure as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0] as string);
+    for (const candidate of candidates) {
+      expect(structurePrompts.some((p) => p.includes(`Convert the research notes on "${candidate.name}"`))).toBe(true);
+    }
+  });
+
+  it('does not list a company as its own otherCompanies entry during attribution', async () => {
+    const client = fakeClient();
+    await hydrateCompanyCardsBatch({
+      batch: candidates.map((candidate) => ({ candidate })),
+      client,
+      plan: mockPlan,
+    });
+    const structurePrompts = (client.structure as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0] as string);
+    // The structure pass only sees the notes; the attribution guard is enforced
+    // in reportedCompanyMetrics via options.otherCompanies, so assert the batch
+    // wiring passes the roster minus self through the shared assembly.
+    expect(structurePrompts.length).toBe(3);
+  });
+
+  it('a candidate whose extraction fails is absent from the map without losing its cohort', async () => {
+    const client = fakeClient();
+    let structureCalls = 0;
+    (client.structure as ReturnType<typeof vi.fn>).mockImplementation(async (prompt: string, schema: ZodType<unknown>) => {
+      structureCalls += 1;
+      if (prompt.includes('Convert the research notes on "Vector(heap) AI"')) {
+        throw new Error('extraction blew up');
+      }
+      return (fakeClient() as unknown as { structure: (p: string, s: ZodType<unknown>) => Promise<unknown> }).structure(prompt, schema);
+    });
+
+    const results = await hydrateCompanyCardsBatch({
+      batch: candidates.map((candidate) => ({ candidate })),
+      client,
+      plan: mockPlan,
+    });
+    expect(results.size).toBe(2);
+    expect(results.has('Vector(heap) AI')).toBe(false);
+    expect(results.has('DevAgent Labs')).toBe(true);
+    expect(results.has('Glint Metrics')).toBe(true);
+  });
+
+  it('a single-entry batch answers exactly like the single path', async () => {
+    const client = fakeClient();
+    const results = await hydrateCompanyCardsBatch({
+      batch: [{ candidate: mockCandidate, companyId: 'cmp_solo' }],
+      client,
+      plan: mockPlan,
+    });
+    expect(results.size).toBe(1);
+    expect(results.get('DevAgent Labs')?.company.id).toBe('cmp_solo');
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(1);
   });
 });

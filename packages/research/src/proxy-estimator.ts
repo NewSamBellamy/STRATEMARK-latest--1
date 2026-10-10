@@ -41,14 +41,57 @@ export type FundingRoundKey =
   | 'series_b_c_growth'
   | 'general_venture';
 
-export type FundingRoundType =
-  | 'pre_seed'
-  | 'seed'
-  | 'series_a'
-  | 'series_b'
-  | 'series_c'
-  | 'series_d_plus'
-  | 'growth';
+/**
+ * The canonical funding-round vocabulary (issue #48).
+ *
+ * This tuple is the single source of truth: the `FundingRoundType` union, the
+ * model-facing Zod enum in `schemas.ts`, and therefore the native
+ * `responseSchema` handed to Gemini are all derived from it. A round type is a
+ * CONSTRAINED outcome — it selects a dilution bracket and so moves an estimated
+ * valuation — and must never arrive as free prose.
+ */
+export const FUNDING_ROUND_TYPES = [
+  'pre_seed',
+  'seed',
+  'series_a',
+  'series_b',
+  'series_c',
+  'series_d_plus',
+  'growth',
+] as const;
+
+export type FundingRoundType = (typeof FUNDING_ROUND_TYPES)[number];
+
+/** Human-readable round names, for method notes a reader has to understand. */
+export const FUNDING_ROUND_LABELS: Record<FundingRoundType, string> = {
+  pre_seed: 'Pre-Seed',
+  seed: 'Seed',
+  series_a: 'Series A',
+  series_b: 'Series B',
+  series_c: 'Series C',
+  series_d_plus: 'Series D+',
+  growth: 'Growth',
+};
+
+/**
+ * Which dilution bracket each canonical round belongs to. Explicit rather than
+ * pattern-matched, so adding a round value is a compile error here instead of a
+ * silent fall-through to `general_venture` (a different multiplier, hence a
+ * different valuation).
+ */
+const CANONICAL_ROUND_BRACKET: Record<FundingRoundType, FundingRoundKey> = {
+  pre_seed: 'seed',
+  seed: 'seed',
+  series_a: 'series_a',
+  series_b: 'series_b_c_growth',
+  series_c: 'series_b_c_growth',
+  series_d_plus: 'series_b_c_growth',
+  growth: 'series_b_c_growth',
+};
+
+export function isFundingRoundType(value: unknown): value is FundingRoundType {
+  return (FUNDING_ROUND_TYPES as readonly unknown[]).includes(value);
+}
 
 export type ProxyTier = 1 | 2 | 3 | 4;
 
@@ -243,6 +286,15 @@ export function detectCategoryBenchmark(categoryOrPrompt?: string | null): Categ
  */
 export function detectFundingBenchmark(roundTypeOrText?: string | null): FundingBenchmark {
   if (!roundTypeOrText) return FUNDING_DILUTION_BENCHMARKS.general_venture;
+
+  // A canonical enum value is an exact lookup — no pattern matching, so
+  // `series_a` can never miss its bracket on an underscore.
+  if (isFundingRoundType(roundTypeOrText)) {
+    return FUNDING_DILUTION_BENCHMARKS[CANONICAL_ROUND_BRACKET[roundTypeOrText]];
+  }
+
+  // Legacy fallback ONLY: decks stored before the enum, and prose that reached
+  // us from a non-conforming model. New model output is enum-constrained.
   const s = roundTypeOrText.toLowerCase();
 
   if (/(seed|pre[- ]?seed|angel|safe|incubator|grant)/i.test(s)) {
@@ -272,6 +324,7 @@ export function parseIndustryCategory(input: string | null | undefined): Industr
  */
 export function parseFundingRoundType(input: string | null | undefined): FundingRoundType | null {
   if (!input) return null;
+  if (isFundingRoundType(input)) return input;
   const s = input.toLowerCase();
 
   if (/pre[- ]?seed|angel/.test(s)) return 'pre_seed';
@@ -563,7 +616,14 @@ export function estimateValuationFromFunding(
 
   const valuation = Math.round(funding.amount * multiplier);
   const amountStr = formatCurrencyAuditable(funding.amount);
-  const roundLabel = funding.roundType?.trim() || benchmark.label;
+  // Canonical values are machine vocabulary ("series_a"); a method note is read
+  // by a person, so present the human label.
+  const rawRound = funding.roundType?.trim();
+  const roundLabel = rawRound
+    ? isFundingRoundType(rawRound)
+      ? FUNDING_ROUND_LABELS[rawRound]
+      : rawRound
+    : benchmark.label;
   const dilutionStr = `${benchmark.dilutionPercent}%`;
   const multStr = `${multiplier}x`;
   const valuationStr = formatCurrencyAuditable(valuation);

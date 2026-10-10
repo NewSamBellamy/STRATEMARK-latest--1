@@ -81,7 +81,11 @@ describe('resolveClient — account tier and key source are independent', () => 
     const out = resolveClient({ env, factory });
 
     expect(out.keySource).toBe('server');
-    expect(seen[0]).toMatchObject({ vertex: { project: 'proj', location: 'europe-west1' } });
+    expect(seen[0]).toMatchObject({
+      vertex: { project: 'proj', location: 'europe-west1' },
+      model: 'gemini-2.5-flash',
+      structureModel: 'gemini-2.5-flash-lite',
+    });
   });
 
   it('lets a caller key override Vertex — bring-your-own-key beats our service account', () => {

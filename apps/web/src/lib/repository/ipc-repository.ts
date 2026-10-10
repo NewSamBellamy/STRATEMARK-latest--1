@@ -39,13 +39,33 @@ import type {
   ResearchHandlers,
   Unsubscribe,
   ViceClaim,
+  HuntMetricsOptions,
+  HuntMetricsResult,
+  DeckBriefing,
+  SiteAuditInput,
+  ProviderCapabilities,
+  ResearchNoteEntry,
+  ResearchPassage,
+  VerifyCompanyMetricsResult,
 } from '@mi/contracts';
+
+/** Structural match of the research package's evidence record over IPC. */
+interface ResearchEvidenceRow {
+  id: string; companyId?: string; companyName?: string; topic: string;
+  capturedAt: string; text: string;
+  citations: { title: string; url: string }[]; queries: string[];
+}
 
 export function isElectron(): boolean {
   return typeof window !== 'undefined' && typeof window.mi !== 'undefined';
 }
 
 export class IpcRepository implements MarketIntelRepository {
+  capabilities(): ProviderCapabilities {
+    // Desktop research is the local BYOK Gemini path, which performs all
+    // three capabilities in the main process.
+    return { ground: true, structure: true, image: true };
+  }
   constructor(private readonly api: PreloadRepositoryApi) {}
 
   listMarkets(): Promise<Market[]> {
@@ -97,6 +117,10 @@ export class IpcRepository implements MarketIntelRepository {
   getCompanyMetrics(companyId: string): Promise<CompanyMetric[]> {
     return this.api.getCompanyMetrics(companyId);
   }
+  async getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
+    if (!this.api.getCompanyFacts) throw new Error('Restart the updated desktop app to load accepted company facts.');
+    return this.api.getCompanyFacts(companyId);
+  }
   getViceClaims(cardId: string): Promise<ViceClaim[]> {
     return this.api.getViceClaims(cardId);
   }
@@ -143,6 +167,26 @@ export class IpcRepository implements MarketIntelRepository {
   listResearchJobs(): Promise<ResearchJob[]> {
     return this.api.listResearchJobs?.() ?? Promise.resolve([]);
   }
+  getResearchEvidence(input: { companyId?: string; limit?: number }): ResearchEvidenceRow[] {
+    return (this.api.getResearchEvidence?.(input) ?? []) as ResearchEvidenceRow[];
+  }
+
+  searchResearchCorpus(query: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }) {
+    return this.api.searchResearchCorpus?.(query) as Promise<ResearchPassage[] | []>;
+  }
+
+  verifyCompanyMetrics(companyId: string) {
+    return this.api.verifyCompanyMetrics?.(companyId) as Promise<VerifyCompanyMetricsResult>;
+  }
+
+  async saveReport(input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }) {
+    return (await this.api.saveReport?.(input)) as never;
+  }
+  async addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<ResearchNoteEntry> {
+    const result = await this.api.addResearchNote?.(input);
+    if (!result) throw new Error('Research notes are unavailable in this session.');
+    return result;
+  }
   getResearchJob(id: string): Promise<ResearchJob | null> {
     return this.api.getResearchJob?.(id) ?? Promise.resolve(null);
   }
@@ -157,6 +201,21 @@ export class IpcRepository implements MarketIntelRepository {
   }
   listReports(): Promise<Report[]> {
     return this.api.listReports();
+  }
+  huntCompanyMetrics(id: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
+    if (!this.api.huntCompanyMetrics) return Promise.reject(new Error('Update the desktop shell to hunt metrics.'));
+    return this.api.huntCompanyMetrics(id, options);
+  }
+  generateDeckBriefing(id: string, opts?: { windowHours?: number }): Promise<DeckBriefing> {
+    if (!this.api.generateDeckBriefing) return Promise.reject(new Error('Update the desktop shell to generate briefings.'));
+    return this.api.generateDeckBriefing(id, opts);
+  }
+  listDeckBriefings(id: string): Promise<DeckBriefing[]> {
+    return this.api.listDeckBriefings?.(id) ?? Promise.resolve([]);
+  }
+  auditSite(input: SiteAuditInput): Promise<Report> {
+    if (!this.api.auditSite) return Promise.reject(new Error('Update the desktop shell to audit sites.'));
+    return this.api.auditSite(input);
   }
   getReport(id: string): Promise<Report | null> {
     return this.api.getReport(id);

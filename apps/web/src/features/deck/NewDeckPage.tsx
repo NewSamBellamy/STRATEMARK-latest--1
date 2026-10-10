@@ -18,6 +18,7 @@ import {
   Globe2,
   Loader2,
   Radar,
+  RefreshCw,
   ScanSearch,
   TrendingUp,
   X,
@@ -32,17 +33,46 @@ import { cn } from '@/lib/cn';
 import logoMark from '@/assets/logo-mark.svg';
 import wordmark from '@/assets/wordmark.svg';
 import { MicButton } from '@/components/ui/MicButton';
+import { NotificationToast } from '@/components/ui/NotificationToast';
+import { SettingsLink } from '@/components/SettingsLink';
+import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { useResearchSession } from './research-session';
 import { qk } from '@/lib/query/keys';
 
-const SUGGESTIONS = [
-  'Christian apparel companies',
-  'AI code-review startups',
-  'Non-alcoholic spirits brands',
-  'Precision fermentation companies',
-  'Direct-to-consumer pet food',
-  'Vertical farming startups',
-];
+const SUGGESTION_SETS = [
+  [
+    'Christian apparel companies',
+    'AI code-review startups',
+    'Non-alcoholic spirits brands',
+    'Precision fermentation companies',
+    'Direct-to-consumer pet food',
+    'Vertical farming startups',
+  ],
+  [
+    'Space infrastructure companies',
+    'Independent game studios',
+    'Climate-risk software',
+    'Modern dental groups',
+    'Creator economy tools',
+    'Battery recycling companies',
+  ],
+  [
+    'Private credit platforms',
+    'Robotics foundation models',
+    'Luxury resale marketplaces',
+    'Next-generation nuclear energy',
+    'Women’s health startups',
+    'Warehouse automation companies',
+  ],
+  [
+    'Sustainable packaging companies',
+    'AI-native accounting software',
+    'Functional beverage brands',
+    'Commercial drone platforms',
+    'Alternative protein companies',
+    'Industrial cybersecurity startups',
+  ],
+] as const;
 
 const REGIONS = [
   'Global',
@@ -199,6 +229,8 @@ function EnginePicker({
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
+  if (isCommunityDesktop()) return <span className="text-xs text-muted">Local Engine</span>;
+
   return (
     <div ref={ref} className="relative inline-block">
       <button
@@ -348,9 +380,9 @@ function InputPill({
       {showHint && !hasKey && (
         <p className="mt-2 text-center text-[11px] text-faint">
           <span>
-            <Link to="/settings" className="text-primary-ink hover:underline">
+            <SettingsLink className="text-primary-ink hover:underline">
               Add Gemini API key
-            </Link>{' '}
+            </SettingsLink>{' '}
             in Settings for live Google grounded research.
           </span>
         </p>
@@ -375,14 +407,17 @@ export default function NewDeckPage() {
 
   const [prompt, setPrompt] = useState('');
   const [region, setRegion] = useState('');
+  const [suggestionSet, setSuggestionSet] = useState(() =>
+    Math.floor(Math.random() * SUGGESTION_SETS.length),
+  );
   const { engine, setEngine } = useEngineChoice();
   const [logsOpen, setLogsOpen] = useState(false);
 
   useEffect(() => {
-    if (isPro && !localStorage.getItem('mi.researchEngine')) {
+    if (user && !localStorage.getItem('mi.researchEngine')) {
       setEngine('cloud');
     }
-  }, [isPro, setEngine]);
+  }, [user, setEngine]);
 
   // Session from the store — survives navigation
   const session = useResearchSession((s) => s.session);
@@ -410,6 +445,10 @@ export default function NewDeckPage() {
     e.preventDefault();
     const q = prompt.trim();
     if (!q || session?.running) return;
+    const restoreSubmittedRequest = () => {
+      setPrompt(q);
+      setRegion(region);
+    };
 
     if (engine !== 'cloud' && !hasKey) {
       setDemoGate(true);
@@ -418,7 +457,7 @@ export default function NewDeckPage() {
     setDemoGate(false);
 
     const regionStr = region.trim();
-    const userText = regionStr ? `${q} — ${regionStr}` : q;
+    const userText = [q, regionStr].filter(Boolean).join(' — ');
 
     startSession(userText, timeLabel());
     setPrompt('');
@@ -426,29 +465,57 @@ export default function NewDeckPage() {
 
     if (engine === 'cloud') {
       try {
+        let targetCompanies = 10;
+        try {
+          const raw = Number(localStorage.getItem('mi.targetCompanies'));
+          if (Number.isFinite(raw) && raw >= 2 && raw <= 30) targetCompanies = raw;
+        } catch {
+          /* opaque origin — keep default */
+        }
+
         addLog('Connecting to Sentinel Cloud Agent…', { stage: 'interpret' });
-        const authToken = (await getToken()) || user?.id || null;
-        const res = await runCloudResearchDeck(q, regionStr || null, undefined, authToken);
+        const authToken = await getToken();
+        const res = await runCloudResearchDeck(
+          q,
+          regionStr || null,
+          targetCompanies,
+          authToken,
+        );
         const market =
           res.market ||
           res.result?.market ||
+          (res.deckId ? { id: res.deckId } : null) ||
           (res.deck?.marketId ? { id: res.deck.marketId as string } : null) ||
           (res.deck?.id ? { id: res.deck.id as string } : null);
         if (res.ok && market && (market as { id?: string }).id) {
           const m = market as { id: string };
-          const cardCount = res.cards?.length || res.candidates?.length || res.result?.cards?.length || 12;
+          if (
+            'cacheCloudDeckResponse' in repo &&
+            typeof repo.cacheCloudDeckResponse === 'function'
+          ) {
+            (repo as { cacheCloudDeckResponse: (r: typeof res) => void }).cacheCloudDeckResponse(
+              res,
+            );
+          }
+          const cardCount =
+            res.cards?.length || res.candidates?.length || res.result?.cards?.length || 0;
+          setPrompt('');
+          setRegion('');
           finish(`/markets/${m.id}/deck`, cardCount);
           // The deck exists NOW — every deck list refetches immediately.
           void qc.invalidateQueries({ queryKey: qk.markets });
+          navigate(`/markets/${m.id}/deck`);
           return;
         } else {
           const errMsg = res.error || 'Sentinel Cloud Agent failed to create deck.';
+          restoreSubmittedRequest();
           addLog('Sentinel Cloud Agent error: ' + errMsg);
           fail(errMsg);
           return;
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
+        restoreSubmittedRequest();
         addLog('Sentinel Cloud Agent request failed: ' + errMsg);
         fail('Sentinel Cloud Agent error: ' + errMsg);
         return;
@@ -459,7 +526,10 @@ export default function NewDeckPage() {
     let listedEarly = false;
     try {
       const { market } = await repo.createResearchedDeck(
-        { prompt: q, region: regionStr || null },
+        {
+          prompt: q,
+          region: regionStr || null,
+        },
         {
           onProgress: (p) => {
             if (p.message) {
@@ -489,11 +559,14 @@ export default function NewDeckPage() {
           },
         },
       );
+      setPrompt('');
+      setRegion('');
       finish(`/markets/${market.id}/deck`, cardCount);
       // Belt & braces: the finished deck must be in every list before we land on it.
       void qc.invalidateQueries({ queryKey: qk.markets });
       navigate(`/markets/${market.id}/deck`);
     } catch (err) {
+      restoreSubmittedRequest();
       fail(err instanceof Error ? err.message : 'Research failed.');
     }
   };
@@ -502,24 +575,63 @@ export default function NewDeckPage() {
   const running = session?.running ?? false;
 
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="relative flex min-h-full flex-col">
+      {/* Floating System Notification at Top */}
+      {demoGate && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg px-4 transition-all duration-300 animate-in fade-in slide-in-from-top-4">
+          <NotificationToast
+            variant="warning"
+            title="Gemini API Key Required"
+            description={
+              <span>
+                Grounded research runs on your own key — nothing here is ever faked.{' '}
+                <SettingsLink className="font-semibold underline hover:opacity-80">
+                  Add your key in Settings
+                </SettingsLink>{' '}
+                (free tier works), then come back and run “{prompt.trim() || 'this market'}” for
+                real.
+              </span>
+            }
+            onClose={() => setDemoGate(false)}
+          />
+        </div>
+      )}
+
       {/* Main content area */}
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6">
         {!hasSession ? (
           /* ── Empty state ── */
           <div className="w-full max-w-2xl pb-32">
-            <div className="mb-8">
+            <div className="mb-6">
               <div className="flex items-center gap-2.5">
                 <img src={logoMark} alt="Stratemark" className="h-8 w-8" />
-                <span className="font-display text-lg font-bold tracking-tight text-content">Stratemark</span>
-                <span className="text-[13px] text-muted ml-1">{timeLabel()}</span>
+                <span className="font-display text-lg font-bold tracking-tight text-content">
+                  Stratemark
+                </span>
               </div>
               <h1 className="mt-2 font-display text-2xl font-semibold text-content md:text-3xl">
                 What market should we dive into?
               </h1>
             </div>
-            <div className="mt-5 flex flex-wrap gap-2">
-              {SUGGESTIONS.map((ex) => (
+
+            <div className="mb-6 w-full">
+              <InputPill
+                prompt={prompt}
+                setPrompt={setPrompt}
+                region={region}
+                setRegion={setRegion}
+                engine={engine}
+                setEngine={setEngine}
+                isPro={isPro || !!user}
+                onSubmit={onSubmit}
+                disabled={running}
+                hasKey={hasKey}
+                showHint={true}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {SUGGESTION_SETS[suggestionSet]!.map((ex) => (
                 <button
                   key={ex}
                   type="button"
@@ -529,6 +641,17 @@ export default function NewDeckPage() {
                   {ex}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() =>
+                  setSuggestionSet((current) => (current + 1) % SUGGESTION_SETS.length)
+                }
+                className="grid h-8 w-8 place-items-center rounded-full text-faint transition-colors hover:bg-surface hover:text-muted"
+                aria-label="Show different suggestions"
+                title="Refresh suggestions"
+              >
+                <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.7} />
+              </button>
             </div>
           </div>
         ) : (
@@ -608,7 +731,7 @@ export default function NewDeckPage() {
                         <ChevronRight
                           className={cn('h-3 w-3 transition-transform', logsOpen && 'rotate-90')}
                         />
-                        {session.logLines.length} steps completed
+                        {session.logLines.length} step{session.logLines.length === 1 ? '' : 's'} completed
                       </button>
                       {logsOpen && (
                         <div className="mt-2 max-h-48 overflow-y-auto text-[12px] text-muted">
@@ -631,8 +754,8 @@ export default function NewDeckPage() {
                     {session.done.count > 0
                       ? `${session.done.count} cards built`
                       : 'cards are built'}
-                    , metrics sourced, tiers scored. Desks are pre-researching dashboard
-                    tabs in the background, so company pages open instantly.
+                    , metrics sourced, tiers scored. Desks are pre-researching dashboard tabs in the
+                    background, so company pages open instantly.
                   </p>
                   <div className="mt-3 flex items-center gap-3">
                     <Link
@@ -655,6 +778,34 @@ export default function NewDeckPage() {
               {session.error && (
                 <div className="rounded-xl border border-negative/30 bg-negative/5 p-4">
                   <p className="text-[13px] text-negative">{session.error}</p>
+                  {session.logLines.length > 0 && (
+                    <div className="mt-3 border-t border-negative/15 pt-2.5">
+                      <button
+                        type="button"
+                        aria-expanded={logsOpen}
+                        onClick={() => setLogsOpen(!logsOpen)}
+                        className="flex items-center gap-1 text-[12px] text-muted hover:text-content"
+                      >
+                        <ChevronRight
+                          className={cn('h-3 w-3 transition-transform', logsOpen && 'rotate-90')}
+                        />
+                        Show research steps ({session.logLines.length})
+                      </button>
+                      {logsOpen && (
+                        <div
+                          role="log"
+                          aria-label="Research steps before failure"
+                          className="mt-2 max-h-48 overflow-y-auto text-[12px] text-muted"
+                        >
+                          {session.logLines.map((line, index) => (
+                            <div key={`${index}-${line}`} className="py-0.5">
+                              {line}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={clear}
@@ -670,39 +821,26 @@ export default function NewDeckPage() {
       </div>
 
       {/* Floating input pill */}
-      <div
-        className="sticky bottom-0 z-20 flex justify-center px-6 pb-5 pt-3"
-        style={{ background: 'linear-gradient(transparent, rgb(var(--c-bg)) 40%)' }}
-      >
-        <InputPill
-          prompt={prompt}
-          setPrompt={setPrompt}
-          region={region}
-          setRegion={setRegion}
-          engine={engine}
-          setEngine={setEngine}
-          isPro={isPro}
-          onSubmit={onSubmit}
-          disabled={running}
-          hasKey={hasKey}
-          showHint={!hasSession}
-        />
-        {demoGate && (
-          <div className="mx-auto mt-3 max-w-xl rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-center dark:border-amber-800 dark:bg-amber-950/40">
-            <p className="text-[13px] font-medium text-amber-900 dark:text-amber-200">
-              Researching a new market needs your Gemini API key.
-            </p>
-            <p className="mt-1 text-[12px] leading-relaxed text-amber-800/90 dark:text-amber-300/90">
-              Grounded research runs on your own key — nothing here is ever faked.{' '}
-              <Link to="/settings" className="font-semibold underline">
-                Add your key in Settings
-              </Link>{' '}
-              (free tier works), then come back and run “{prompt.trim() || 'this market'}” for
-              real.
-            </p>
-          </div>
-        )}
-      </div>
+      {hasSession && (
+        <div
+          className="sticky bottom-0 z-20 flex justify-center px-6 pb-5 pt-3"
+          style={{ background: 'linear-gradient(transparent, rgb(var(--c-bg)) 40%)' }}
+        >
+          <InputPill
+            prompt={prompt}
+            setPrompt={setPrompt}
+            region={region}
+            setRegion={setRegion}
+            engine={engine}
+            setEngine={setEngine}
+            isPro={isPro || !!user}
+            onSubmit={onSubmit}
+            disabled={running}
+            hasKey={hasKey}
+            showHint={false}
+          />
+        </div>
+      )}
     </div>
   );
 }
