@@ -749,6 +749,18 @@ export interface MarketIntelRepository {
     options?: { signal?: AbortSignal },
   ): Promise<{ reports: CompanyCompleteness[]; researched: string[]; stillMissing: number }>;
 
+  /**
+   * Asset lane: resolve the company's real logo from its own site and store it
+   * only over a guessed favicon (curated/Wikidata art stays). `read` must
+   * return RAW-HTML receipts (the transport's asset reader). Optional — needs
+   * a transport with web-read access; the result is honest-null when the site
+   * yields nothing.
+   */
+  fillCompanyAssets?(
+    companyId: string,
+    read: (url: string) => Promise<unknown>,
+  ): Promise<{ logo: { url: string; sourceUrl: string } | null }>;
+
   /** Fill a gap in a deck via targeted micro-research (e.g. hunt Seed-stage companies). */
   expandDeck(
     marketId: string,

@@ -28,6 +28,7 @@ import {
 } from '@mi/contracts';
 import { buildMetricViews } from '@/features/card/card-view';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
+import { readAssetSource } from '@/lib/repository/local-source-reader';
 import { invalidateMetricSurfaces } from '@/hooks/data';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { isCommunityDesktop } from '@/lib/settings/runtime';
@@ -93,6 +94,8 @@ const VERIFY_SLOT_COOLDOWN_MS = 30 * 60_000;
 const verifyAttempts = new WeakMap<MarketIntelRepository, Map<string, number>>();
 /** Decks whose one-shot market-batch estimated fill already ran (WS5). */
 const batchFilledDecks = new WeakMap<MarketIntelRepository, Set<string>>();
+/** Companies whose asset-lane logo fill already ran this session. */
+const assetFilledCompanies = new WeakMap<MarketIntelRepository, Set<string>>();
 
 // Coalesce job reads across decks/remounts. Unknown readiness defers paid work;
 // failures are cached too, so an unavailable transport cannot become a hot poll.
@@ -178,6 +181,23 @@ export function useLivingDeck(
   const canRecoverFree = researchAvailable && typeof repo.recoverSavedCompanyMetrics === 'function';
   const canBatchFill = researchAvailable && typeof repo.fillMissingMarketEstimates === 'function';
   const canReuseEvidence = researchAvailable && typeof repo.reuseCompanyEvidence === 'function';
+  const canFillAssets = researchAvailable && typeof repo.fillCompanyAssets === 'function';
+
+  // Asset lane, once per company per session: a real logo from the company's
+  // own site replaces a guessed favicon. One bounded raw read per page, zero
+  // provider calls; curated/Wikidata art is never touched and a failure keeps
+  // the honest fallback.
+  const fillAssetsOnce = (companyId: string): void => {
+    if (!canFillAssets) return;
+    let done = assetFilledCompanies.get(repo);
+    if (!done) {
+      done = new Set();
+      assetFilledCompanies.set(repo, done);
+    }
+    if (done.has(companyId)) return;
+    done.add(companyId);
+    void repo.fillCompanyAssets!(companyId, readAssetSource).catch(() => { /* favicon fallback stays */ });
+  };
 
   useEffect(() => {
     if (!deckId || deskCount === 0 || !researchAvailable) {
@@ -199,6 +219,11 @@ export function useLivingDeck(
     }
     const attemptedVerifications = verified;
     const nowMs = () => Date.now();
+    // Already-loaded decks get their logo sweep immediately; streaming cards
+    // are covered by the hunt handler below.
+    for (const desk of entityDesks(cardsRef.current)) {
+      if (desk.company?.id) fillAssetsOnce(desk.company.id);
+    }
     const verificationOpen = (target: VerificationTarget) => {
       const last = attemptedVerifications.get(`${target.companyId}:${target.metricType}`);
       return last === undefined || nowMs() - last >= VERIFY_SLOT_COOLDOWN_MS;
@@ -301,6 +326,9 @@ export function useLivingDeck(
         const prior = hunts.get(target.companyId) ?? { attempts: 0, lastAt: 0 };
         const escalation = prior.attempts;
         hunts.set(target.companyId, { attempts: prior.attempts + 1, lastAt: nowMs() });
+        // Opportunistic asset fill: a company being researched for figures is
+        // also due its once-per-session logo resolution.
+        fillAssetsOnce(target.companyId);
         if (!canHunt) return { filled: freeFilled };
         // Escalate after empty passes: pass 1 is the broad hunt; retries tell
         // the repository to vary its source strategy.

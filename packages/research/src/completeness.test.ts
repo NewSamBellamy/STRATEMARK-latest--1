@@ -283,3 +283,63 @@ describe('ensureReportReadiness', () => {
     expect(ground).not.toHaveBeenCalled();
   });
 });
+
+// fillCompanyAssets — the asset lane. The read fn stands in for the
+// transport's raw-HTML reader (readAssetSource on the web bridge).
+// ---------------------------------------------------------------------------
+
+import type { OriginalSourceReceipt } from './original-source';
+
+function rawReceipt(url: string, text: string): OriginalSourceReceipt {
+  return {
+    requestedUrl: url.slice(0, 2048), finalUrl: url, status: 'retrieved',
+    retrievedAt: new Date().toISOString(), httpStatus: 200, text, truncated: false,
+  };
+}
+
+const assetClient = { ground: vi.fn(), structure: vi.fn() } as unknown as LlmClient;
+
+describe('fillCompanyAssets', () => {
+  it('replaces a guessed favicon with the site-resolved logo', async () => {
+    const snap = snapshot([]);
+    snap.companies[0]!.logoUrl =
+      'https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&url=https://openai.com&size=256';
+    const store = memoryStore(snap);
+    const read = vi.fn(async (url: string) =>
+      rawReceipt(url, '<html><head><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head></html>'));
+    const repo = new GeminiRepository({ apiKey: 'k', store, client: assetClient });
+
+    const { logo } = await repo.fillCompanyAssets('cmp_1', read);
+
+    expect(logo?.url).toBe('https://openai.com/favicon.svg');
+    expect(logo?.sourceUrl).toBe('https://openai.com/');
+    expect(store.read()?.companies[0]!.logoUrl).toBe('https://openai.com/favicon.svg');
+  });
+
+  it('never touches curated or Wikidata art', async () => {
+    const snap = snapshot([]);
+    snap.companies[0]!.logoUrl = 'https://commons.wikimedia.org/wiki/Special:FilePath/OpenAI_Logo.svg';
+    const read = vi.fn(async (url: string) => rawReceipt(url, '<html></html>'));
+    const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snap), client: assetClient });
+
+    const { logo } = await repo.fillCompanyAssets('cmp_1', read);
+
+    expect(logo).toBeNull();
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('stays honest when the site yields nothing', async () => {
+    const snap = snapshot([]);
+    snap.companies[0]!.logoUrl = null;
+    const store = memoryStore(snap);
+    const read = vi.fn(async (url: string) => ({
+      requestedUrl: url.slice(0, 2048), status: 'unavailable' as const, retrievedAt: new Date().toISOString(),
+    }));
+    const repo = new GeminiRepository({ apiKey: 'k', store, client: assetClient });
+
+    const { logo } = await repo.fillCompanyAssets('cmp_1', read);
+
+    expect(logo).toBeNull();
+    expect(store.read()?.companies[0]!.logoUrl).toBeNull();
+  });
+});

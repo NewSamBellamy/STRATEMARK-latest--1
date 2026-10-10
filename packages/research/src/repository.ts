@@ -112,6 +112,7 @@ import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl
 import { companyNameKey, marketCapEstimate, secSharesConceptUrl, secTickerMapUrl, yahooChartUrl } from './market-quote';
 import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane } from './searxng';
+import { resolveCompanyLogo, type CompanyLogo } from './assets';
 import { readCompanyOriginals } from './core-source-coverage';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
@@ -2821,6 +2822,52 @@ export class GeminiRepository implements MarketIntelRepository {
       }
     }
     return { reports, researched, stillMissing };
+  }
+
+  /** Asset lane v1: resolve the company's real logo from its own site and
+   * store it ONLY over a guessed favicon — curated/Wikidata art stays. The
+   * homepage receipt lands in the retained ledger so the mark's provenance is
+   * auditable like every other claim. The read fn must return RAW HTML
+   * (readAssetSource on the web transport); resolution is honest-null when
+   * the site yields nothing. */
+  async fillCompanyAssets(
+    companyId: string,
+    read: (url: string) => Promise<OriginalSourceReceipt>,
+  ): Promise<{ logo: CompanyLogo | null }> {
+    const company = this.snap.companies.find((c) => c.id === companyId);
+    if (!company?.websiteUrl) return { logo: null };
+    const guessed = !company.logoUrl ||
+      /^https:\/\/t2\.gstatic\.com\/faviconV2/.test(company.logoUrl);
+    if (!guessed) return { logo: null };
+    // One read per URL per call: retention reuses the exact receipt the
+    // resolution ladder already fetched.
+    const readMemo = new Map<string, Promise<OriginalSourceReceipt>>();
+    const memoRead = (url: string): Promise<OriginalSourceReceipt> => {
+      const key = url.slice(0, 2048);
+      let entry = readMemo.get(key);
+      if (!entry) {
+        entry = read(url);
+        readMemo.set(key, entry);
+      }
+      return entry;
+    };
+    const logo = await resolveCompanyLogo(company.websiteUrl, memoRead);
+    if (!logo) return { logo: null };
+    company.logoUrl = logo.url;
+    if (this.originalSources) {
+      try {
+        const receipt = await memoRead(company.websiteUrl);
+        if (receipt.status === 'retrieved' && receipt.text) {
+          await this.originalSources.save({
+            id: `src_asset_${globalThis.crypto.randomUUID()}`,
+            companyId, metricType: 'company_profile', capturedAt: new Date().toISOString(),
+            receipts: [receipt],
+          });
+        }
+      } catch { /* the logo is already stored; the ledger stays honest */ }
+    }
+    await this.persist();
+    return { logo };
   }
 
   /** Recompute CMS tiers for a company's company-cards; returns moved card ids. */
