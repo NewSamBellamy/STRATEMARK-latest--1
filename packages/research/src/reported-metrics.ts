@@ -2,6 +2,7 @@ import { MONEY_METRIC_TYPES, reportedMetricSupportSchema, usableCitations, valid
   type CompanyMetric, type MetricType, type ReportedMetricSupport } from '@mi/contracts';
 import type { ProviderGrounding } from './types';
 import type { EnrichmentOut } from './schemas';
+import { describeCurrencyConversion, isConvertibleCurrency, usdPerUnit } from './fx';
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const sentences = (text: string) => text.split(/(?<=[.!?])\s+(?=[A-Z])/);
@@ -9,6 +10,50 @@ const plain = (text: string) => text.replace(/[*_`]/g, '')
   .replace(/^\s*Original source:\s*https?:\/\/[^\n]+\n/i, '')
   .replace(/^\s*(?:[-•]|\d+[.)])\s*/, '')
   .trim().replace(/^(?:Company Description|Headquarters Location|Headcount \/ Number of Employees|Employees(?: \(Headcount\))?|Annual Revenue(?: & Recurring Revenue \(ARR\))?|Valuation|Market Capitalization|Users \/ Customers|Official Website)(?::|\r?\n)\s*/i, '').trim();
+/** Like plain(), but keeps an inline bullet label ("**Valuation:** £270 million…").
+ * A label directly beside its own figure is the claim's measurement basis in
+ * list-style answers; plain() drops it because a heading ABOVE several claims is
+ * presentation, not evidence. Callers admit this variant only through the same
+ * identity gates and keep the number-nearest-basis rule on top. */
+const plainKeepLabel = (text: string) => text.replace(/[*_`]/g, '')
+  .replace(/^\s*Original source:\s*https?:\/\/[^\n]+\n/i, '')
+  .replace(/^\s*(?:[-•]|\d+[.)])\s*/, '').trim();
+
+const NON_USD_LEAD = /[£€₹₩]|\b(?:GBP|EUR|JPY|CNY|KRW|TWD|INR|CAD|AUD|CHF|HKD|SGD|SEK|NOK|DKK|BRL|MXN)\b/;
+const SCALE = String.raw`(?:trillion|billion|million|thousand|[kmbt]\b)`;
+const USD_FIGURE = String.raw`(?:US\$|\$|USD\s*)\s*\d[\d,]*(?:\.\d+)?\s*${SCALE}?`;
+/** A leading native-currency figure may be followed by an approximate USD
+ * conversion: "£270 million (GBP) / ~$360 million to $362 million (USD)". The
+ * conversion is a convenience, not a second claim, and its "~" does not make the
+ * native figure an estimate. Stripped only when a non-USD figure leads. */
+const CONVERSION_CLAUSE = new RegExp(String.raw`\s*(?:\/\s*|\(\s*)(?:~|≈|approx(?:imately|\.)?\s*)?${USD_FIGURE}(?:\s*(?:to|–|-)\s*${USD_FIGURE})?(?:\s*\((?:USD|US dollars?)\))?\s*\)?`, 'gi');
+export function stripCurrencyConversion(text: string): string {
+  const lead = NON_USD_LEAD.exec(text);
+  if (!lead) return text;
+  return text.slice(0, lead.index + lead[0].length) +
+    text.slice(lead.index + lead[0].length).replace(CONVERSION_CLAUSE, '');
+}
+/** The ISO currency a figure is quoted in, from the symbol/code beside it. */
+function currencyAround(text: string, start: number, end: number): string | null {
+  const before = text.slice(Math.max(0, start - 6), start);
+  const symbol = /([£€₹₩])\s*$/.exec(before)?.[1];
+  if (symbol) return ({ '£': 'GBP', '€': 'EUR', '₹': 'INR', '₩': 'KRW' } as Record<string, string>)[symbol] ?? null;
+  const code = /\b([A-Z]{3})\s*$/.exec(before)?.[1] ?? /^[\s(]*([A-Z]{3})\b/.exec(text.slice(end, end + 10))?.[1];
+  return code && isConvertibleCurrency(code) ? code : null;
+}
+/** True when the figure is the lower or upper end of a range ("51 to 100"). A
+ * range is a band, never a point value: it must not become either end. */
+function inRange(text: string, start: number, end: number): boolean {
+  return /\d\s*\+?\s*(?:trillion|billion|million|thousand|[kmbt])?\s*(?:to|–|—|-)\s*(?:US\$|\$|[£€¥₹₩]|[A-Z]{3}\s)?\s*$/i.test(text.slice(0, start)) ||
+    /^\s*\+?\s*(?:trillion|billion|million|thousand|[kmbt])?\s*(?:to|–|—|-)\s*(?:US\$|\$|[£€¥₹₩])?\s*\d/i.test(text.slice(end));
+}
+/** The stored row is USD; the proof keeps the native observation. */
+const sameValue = (type: MetricType, proofValue: number, proofUnit: string, stored: number | null) =>
+  stored === proofValue || (MONEY_METRIC_TYPES.includes(type) && isConvertibleCurrency(proofUnit) &&
+    stored === proofValue * usdPerUnit(proofUnit)!);
+const unitAllowed = (type: MetricType, unit: string) => MONEY_METRIC_TYPES.includes(type)
+  ? unit === 'USD' || isConvertibleCurrency(unit) : unit === (type === 'market_share' ? 'percent' : 'count');
+
 /** Sentence-initial identity forms for a stored company name. Deck names mix
  * display, legal and DBA forms ("Radiant Nuclear (Radiant Industries, Inc.)",
  * "BWX Technologies, Inc. (BWXT)") while grounded answers open with whichever
@@ -194,6 +239,8 @@ const basisPatterns: Record<string, RegExp> = {
 /** Card-fact types: always dated; never estimates; revenue only for an explicit annual period. */
 export const CARD_FACT_TYPES: readonly MetricType[] = ['revenue', 'funding_total', 'last_round', 'distribution'];
 const CARD_FACT_SPECULATIVE = /\b(?:not|estimated?|projects?|projected|forecasts?|targets?|expects?|expected|might|could|would|may|approximately|about)\b|~/i;
+/** Narrow anaphoric continuation: names the valuation it follows and the company's own round. */
+const CONTINUATION = /^(?:This|The)\s+(?:post-money\s+|pre-money\s+)?valuation\s+(?:was|is)\s+\w+\s+(?:during|in|at|with)\s+its\b/i;
 const ANNUAL_PERIOD = /\b(?:(?:fiscal )?year ended|for (?:the )?(?:fiscal |full )?year|FY\s?\d{2,4})\b/i;
 const speculativeValuation = /\b(?:preliminary|discussions|talks|seeking|targeting|proposed|potential|considering|negotiating)\b/i;
 
@@ -213,7 +260,8 @@ function hasDate(text: string, date: string): boolean {
   return text.includes(date) || new RegExp(`\\b(?:${month} ${day}(?:st|nd|rd|th)?[,]? ${year}|${day} ${month} ${year})\\b`, 'i').test(text);
 }
 
-function hasNumber(text: string, value: number, unit: ReportedMetricSupport['unit'], definition: string): boolean {
+function hasNumber(text: string, value: number, unit: ReportedMetricSupport['unit'], definition: string, bindBasis = true): boolean {
+  const native = isConvertibleCurrency(unit);
   if (unit === 'USD' && /\b(?:CAD|AUD|HKD|SGD|NZD|Canadian dollars?|Australian dollars?)\b|(?:C|A|HK|S|NZ)\$/i.test(text)) return false;
   // Match reported figures, not other numerals such as dates or page counts.
   // "$65+ billion" separates the scale with an optional plus; without the
@@ -224,15 +272,21 @@ function hasNumber(text: string, value: number, unit: ReportedMetricSupport['uni
     const multiplier = magnitude ? ({ trillion: 1e12, billion: 1e9, million: 1e6, thousand: 1e3, t: 1e12, b: 1e9, m: 1e6, k: 1e3 }[magnitude] ?? 1) : 1;
     const number = Number(match[3]!.replace(/,/g, '')) * multiplier;
     if (number !== value) continue;
-    if (unit === 'USD' && !(match[1] || match[2] || /USD|US dollar/i.test(match[5] ?? ''))) continue;
-    if (unit === 'percent' && !/%|percent/i.test(match[5] ?? '')) continue;
-    if (unit === 'count' && (match[1] || match[2] || /USD|dollar|%|percent/i.test(match[5] ?? ''))) continue;
     const start = match.index!, end = start + match[0].trimEnd().length;
+    if (native) {
+      // A native figure must carry its own currency and no dollar marker.
+      if (match[1] || match[2] || /USD|dollar/i.test(match[5] ?? '') || currencyAround(text, start, end) !== unit) continue;
+    } else if (unit === 'USD' && !(match[1] || match[2] || /USD|US dollar/i.test(match[5] ?? ''))) continue;
+    if (unit === 'percent' && !/%|percent/i.test(match[5] ?? '')) continue;
+    if (unit === 'count' && (match[1] || match[2] || /USD|dollar|%|percent/i.test(match[5] ?? '') ||
+      /[£€¥₹₩]\s*$/.test(text.slice(Math.max(0, start - 3), start)))) continue;
+    if (inRange(text, start, end)) continue;
     if (definition === 'employees' &&
       LOCATIVE_AFTER_NUMBER.test(text.slice(end, end + 24))) continue;
     // Bind completed valuations separately from later financing discussions in
     // the same provider segment. This check is local to this candidate number.
     if (definition === 'valuation' && speculativeValuation.test(text.slice(0, start).split(/[;,]/).at(-1) ?? '')) continue;
+    if (!bindBasis) return true;
     const mentions = Object.entries(basisPatterns).flatMap(([basis, expression]) =>
       [...text.matchAll(new RegExp(expression.source, 'gi'))].map(mention => {
         const left = mention.index!, right = left + mention[0].length;
@@ -268,14 +322,16 @@ export function businessDates(text: string): string[] {
  * Multiple values for the same latest period are ambiguous and stay unknown. */
 function recoverOmittedClaim(companyName: string, website: string | null, type: MetricType,
   grounding?: ProviderGrounding, otherCompanies?: readonly string[]) {
-  if (!grounding || !['arr', 'employees', 'valuation', 'market_cap', 'market_share', 'aum', 'users'].includes(type)) return undefined;
+  if (!grounding || !['arr', 'employees', 'valuation', 'market_cap', 'market_share', 'aum', 'users', ...CARD_FACT_TYPES].includes(type)) return undefined;
   const choices: Array<{ value: number; selector: NonNullable<NonNullable<EnrichmentOut['metrics']['arr']>['reportedClaim']> }> = [];
   for (const support of grounding.supports) {
     if (!grounding.answerText.includes(support.text)) continue;
     // Labels are presentation, not measurement evidence (ARR in a heading must
     // not relabel the annual-revenue claim beneath it). Keep support untouched;
     // read the claim from the full sentence the fragment came from.
-    const text = plain(sentenceAround(support.text, grounding.answerText, support.startIndex));
+    // The inline label ("Valuation:") stays: it is the claim's own basis word
+    // when it sits beside the figure. A conversion clause never becomes a claim.
+    const text = stripCurrencyConversion(plainKeepLabel(sentenceAround(support.text, grounding.answerText, support.startIndex)));
     // Omitted employee extraction cannot resolve a passage mixing employees
     // with contractors/contingent workers. Prefer a separate clean segment.
     if (type === 'employees' && /\b(?:including|includes|include|with)\b[^.!?\n]{0,100}\b(?:contractors?|contract workers?|contingent workers?)\b/i.test(text)) continue;
@@ -289,7 +345,7 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
     const candidates: Array<NonNullable<ReportedMetricSupport['definition']>> =
       type === 'arr' ? ['arr', 'annual_revenue'] : [type];
     const definitions = candidates.filter(definition => basisPatterns[definition]?.test(text));
-    const unit = type === 'employees' || type === 'users' ? 'count' : type === 'market_share' ? 'percent' : 'USD';
+    const baseUnit = type === 'employees' || type === 'users' || type === 'distribution' ? 'count' : type === 'market_share' ? 'percent' : 'USD';
     const pattern = /(?:\bUSD\s*|US\$|\$)?\s*(\d[\d,]*(?:\.\d+)?)\s*\+?\s*(trillion|billion|million|thousand|[kmbt]\b)?/gi;
     for (const match of text.matchAll(pattern)) {
       // Parenthetical breakdowns are not company-wide employee candidates.
@@ -300,8 +356,14 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
       // the regional breakdown can appear as a comma list, not only in parens.
       if (type === 'employees' &&
         LOCATIVE_AFTER_NUMBER.test(text.slice(match.index! + match[0].length, match.index! + match[0].length + 24))) continue;
+      // A band ("51 to 100") has no single value; never pick one end of it.
+      if (inRange(text, match.index!, match.index! + match[0].trimEnd().length)) continue;
       const scale = match[2]?.toLowerCase();
       const value = Number(match[1]!.replace(/,/g, '')) * (scale ? ({ trillion: 1e12, billion: 1e9, million: 1e6, thousand: 1e3, t: 1e12, b: 1e9, m: 1e6, k: 1e3 }[scale] ?? 1) : 1);
+      // A money figure may be quoted natively ("£270 million"); the unit is the
+      // currency written beside it, never assumed.
+      const unit: ReportedMetricSupport['unit'] = baseUnit === 'USD' && !/^\s*(?:\$|USD|US\$)/i.test(match[0]) && !/\bUSD\s*$/.test(text.slice(Math.max(0, match.index! - 4), match.index!))
+        ? ((currencyAround(text, match.index!, match.index! + match[0].trimEnd().length) ?? 'USD') as ReportedMetricSupport['unit']) : baseUnit;
       const asOf = dates[0] ?? null;
       for (const definition of definitions) {
         const proof = reportedMetricSupportSchema.safeParse({ provider: grounding.provider, companyName, basis: type, value, unit, definition, asOf, support });
@@ -322,7 +384,7 @@ export function reportedMetricCitations(companyName: string, website: string | n
   const parsed = reportedMetricSupportSchema.safeParse(metric.reportedSupport);
   if (!parsed.success) return [];
   const proof = parsed.data, type = metric.metricType;
-  if (proof.companyName !== companyName || proof.basis !== type || proof.value !== metric.value ||
+  if (proof.companyName !== companyName || proof.basis !== type || !sameValue(type, proof.value, proof.unit, metric.value) ||
     !validMetricVerificationValue(type, metric.value) || metric.value === 0 ||
     (['employees', 'users'].includes(type) && !Number.isSafeInteger(metric.value))) return [];
   const definition = proof.definition ?? type;
@@ -335,7 +397,7 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
   if ((type === 'arr' && !['arr', 'annual_revenue'].includes(definition)) ||
     (type === 'users' && !['users', 'active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition)) ||
     (!['arr', 'users'].includes(type) && definition !== type)) return [];
-  if (proof.unit !== (MONEY_METRIC_TYPES.includes(type) ? 'USD' : type === 'market_share' ? 'percent' : 'count')) return [];
+  if (!unitAllowed(type, proof.unit)) return [];
   const cardFact = CARD_FACT_TYPES.includes(type);
   if (cardFact && !proof.asOf) return [];
   const pattern = basisPatterns[definition];
@@ -372,17 +434,46 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
     const firstBasisAt = basisPatterns[definition] ? new RegExp(basisPatterns[definition]!.source, 'i').exec(sentence)?.index : undefined;
     return subjectAt !== undefined && firstBasisAt !== undefined && subjectAt < firstBasisAt;
   } : null;
-  const claims = sentences(sentenceAround(proof.support.text, identity?.answerText, proof.support.startIndex)).map(plain).filter(sentence => entity(sentence, companyName) ||
-    (official && /^(?:annual revenue|ARR|annual recurring revenue|headcount|employees|users|customers|valuation|market cap)\b/i.test(sentence)) ||
-    (answerAnchored && anonymousClaimLabel.test(sentence) && !rivals!.test(sentence)) ||
-    (namedBeforeBasis?.(sentence) ?? false));
+  // Each source sentence is considered as its bare text (inline label dropped,
+  // as before) and, for an inline bullet label beside the figure, with the label
+  // kept as the claim's own basis word. A conversion clause that follows a
+  // native-currency figure is not a claim and its "~" is not an estimate.
+  const raw = sentences(sentenceAround(proof.support.text, identity?.answerText, proof.support.startIndex));
+  const inherits = new Set<string>();
+  const admitted: string[] = [];
+  let leadDated: string | null = null;
+  for (const sentenceRaw of raw) {
+    const bare = stripCurrencyConversion(plain(sentenceRaw));
+    const kept = stripCurrencyConversion(plainKeepLabel(sentenceRaw));
+    const bareOk = !!entity(bare, companyName) ||
+      (official && /^(?:annual revenue|ARR|annual recurring revenue|headcount|employees|users|customers|valuation|market cap)\b/i.test(bare)) ||
+      (answerAnchored && anonymousClaimLabel.test(bare) && !rivals!.test(bare)) ||
+      (namedBeforeBasis?.(bare) ?? false);
+    const keptOk = kept !== bare && (!!entity(plain(sentenceRaw), companyName) ||
+      (answerAnchored && anonymousClaimLabel.test(kept) && !rivals!.test(kept)));
+    if (bareOk) admitted.push(bare);
+    if (keptOk) admitted.push(kept);
+    if (bareOk || keptOk) {
+      leadDated = proof.asOf && hasDate(kept, proof.asOf) ? kept : null;
+      continue;
+    }
+    // "This post-money valuation was established during its £20 million Series A
+    // round" continues the subject-anchored, dated sentence just before it in the
+    // same list item; it inherits that sentence's subject and date, nothing else.
+    if (leadDated && CONTINUATION.test(bare) && !(rivals?.test(bare) ?? false)) {
+      admitted.push(bare);
+      inherits.add(bare);
+    }
+    leadDated = null;
+  }
+  const claims = admitted;
   if (!pattern || !claims.some(sentence => pattern.test(sentence) && hasNumber(sentence, proof.value, proof.unit, definition) &&
     (!cardFact || (!CARD_FACT_SPECULATIVE.test(sentence) && (type !== 'revenue' || ANNUAL_PERIOD.test(sentence)))) &&
     // A subsequent discussion/reporting clause cannot date a completed round.
     (!proof.asOf || definition !== 'valuation' || sentence.split(/,\s+(?:with|while|but)\b/i).some(clause =>
       hasNumber(clause, proof.value, proof.unit, definition) && hasDate(clause, proof.asOf!))) &&
     (!proof.asOf || !businessDates(proof.support.text).length || businessDates(proof.support.text).includes(proof.asOf)) &&
-    (!proof.asOf || hasDate(sentence, proof.asOf) ||
+    (!proof.asOf || hasDate(sentence, proof.asOf) || inherits.has(sentence) ||
       sentences(proof.support.text).some(context => /^(?:reporting date|as of|for (?:the )?year ended)\b/i.test(plain(context)) && hasDate(context, proof.asOf!))) &&
     (!proof.periodStart || hasDate(proof.support.text, proof.periodStart)) &&
     // A sentence naming a partner/customer is not an attributed company figure.
@@ -403,14 +494,14 @@ export function reportedSupportCitations(companyName: string, website: string | 
   const parsed = reportedMetricSupportSchema.safeParse(metric.reportedSupport);
   if (!parsed.success) return [];
   const proof = parsed.data, type = metric.metricType;
-  if (proof.companyName !== companyName || proof.basis !== type || proof.value !== metric.value ||
+  if (proof.companyName !== companyName || proof.basis !== type || !sameValue(type, proof.value, proof.unit, metric.value) ||
     !validMetricVerificationValue(type, metric.value) || metric.value === 0 ||
     (['employees', 'users'].includes(type) && !Number.isSafeInteger(metric.value))) return [];
   const definition = proof.definition ?? type;
   if ((type === 'arr' && !['arr', 'annual_revenue'].includes(definition)) ||
     (type === 'users' && !['users', 'active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition)) ||
     (!['arr', 'users'].includes(type) && definition !== type)) return [];
-  if (proof.unit !== (MONEY_METRIC_TYPES.includes(type) ? 'USD' : type === 'market_share' ? 'percent' : 'count')) return [];
+  if (!unitAllowed(type, proof.unit)) return [];
     // User populations are always reported AS OF a date or period in any source
   // worth citing. A users claim with no reporting date ('1B active users',
   // full stop) is the unverifiable mega-figure the red team flagged: it
@@ -419,6 +510,34 @@ export function reportedSupportCitations(companyName: string, website: string | 
 if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its .{0,30}suite|active base of .{0,30}devices)\b/i.test(proof.support.text)) return [];
   if (CARD_FACT_TYPES.includes(type) && !proof.asOf) return [];
   return usableCitations(metric.citations, website ?? undefined);
+}
+
+/** Display/projection recheck for a STORED estimated row. The write-time gate
+ * (reportedMetricCitations with the retained answer text) already bound the
+ * claim to its company; a stored row no longer carries that answer text, so the
+ * claim-sentence identity gates cannot be re-run. Run them when the support text
+ * alone satisfies them; otherwise accept the row on the identity-free checks
+ * (schema, subject, basis/definition/unit/value coherence, dated card facts,
+ * usable citations) PLUS the literal figure appearing in the stored support text
+ * as a point value (never one end of a range). The storage lane and the card
+ * face therefore cannot disagree about a figure the gate accepted. */
+export function reportedStoredCitations(companyName: string, website: string | null,
+  metric: Pick<CompanyMetric, 'metricType' | 'value' | 'reportedSupport' | 'citations'>) {
+  const strict = reportedMetricCitations(companyName, website, metric);
+  if (strict.length) return strict;
+  const lenient = reportedSupportCitations(companyName, website, metric);
+  if (!lenient.length) return [];
+  const proof = reportedMetricSupportSchema.parse(metric.reportedSupport);
+  const definition = proof.definition ?? metric.metricType;
+  // Anonymous means a label-led list item or a fragment that does not open with
+  // a capitalised subject; a sentence opening with another name ("Zenith is sold
+  // in 60 countries") is someone else's claim and never rides this path.
+  const appears = sentences(proof.support.text).some(raw => {
+    const kept = plainKeepLabel(raw);
+    const anonymous = kept !== plain(raw) || /^[^\p{Lu}]/u.test(plain(raw)) || CONTINUATION.test(plain(raw));
+    return anonymous && hasNumber(stripCurrencyConversion(kept), proof.value, proof.unit, definition, false);
+  });
+  return appears ? lenient : [];
 }
 
 /** Model fields select claims only; support is copied from the provider, never JSON. */
@@ -435,7 +554,7 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
   // market_cap belongs with valuation in the always-audited set: it is a core
   // profile slot, recovery supports it, and omitting it here made the free
   // saved-evidence lane structurally unable to fill it.
-  if (input.includeUnknowns !== false) for (const type of ['employees', 'arr', 'users', 'valuation', 'market_cap', 'market_share'] as const) types.add(type);
+  if (input.includeUnknowns !== false) for (const type of ['employees', 'arr', 'users', 'valuation', 'market_cap', 'market_share', ...CARD_FACT_TYPES] as const) types.add(type);
   return [...types].map(type => {
     const row: CompanyMetric = { id: `met_${input.companyId}_${type}`, companyId: input.companyId, metricType: type,
       value: null, confidence: 'unknown', source: null, citations: [], methodNote: 'No provider-supported reported claim.',
@@ -468,8 +587,13 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
       const proposed = { ...row, value: proposal.value, reportedSupport: proof.data };
       const citations = reportedMetricCitations(input.companyName, input.website, proposed, identity);
       if (!citations.length) continue;
-      return { ...proposed, confidence: 'estimated', citations, source: citations[0]!.url,
-        methodNote: `Source reported ${proof.data.definition ?? type} (${proof.data.asOf ? `as of ${proof.data.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original.${CARD_FACT_TYPES.includes(type) ? ` Source statement: ${JSON.stringify(proof.data.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}` : ''}` };
+      // The stored row is USD (decks stay comparable); the proof keeps the
+      // native observation and the methodNote says how it was converted.
+      const conversion = MONEY_METRIC_TYPES.includes(type) && isConvertibleCurrency(proof.data.unit)
+        ? ` ${describeCurrencyConversion(proposal.value, proof.data.unit, proposal.value * usdPerUnit(proof.data.unit)!)}` : '';
+      return { ...proposed, value: MONEY_METRIC_TYPES.includes(type) && isConvertibleCurrency(proof.data.unit)
+        ? proposal.value * usdPerUnit(proof.data.unit)! : proposal.value, confidence: 'estimated', citations, source: citations[0]!.url,
+        methodNote: `Source reported ${proof.data.definition ?? type} (${proof.data.asOf ? `as of ${proof.data.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original.${CARD_FACT_TYPES.includes(type) ? ` Source statement: ${JSON.stringify(proof.data.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}` : ''}`+conversion };
     }
     return row;
   });

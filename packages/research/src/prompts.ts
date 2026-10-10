@@ -4,7 +4,7 @@
  * assert a figure from training data. Structuring steps convert that grounded
  * text into JSON and must mark anything unsupported as Unknown/Estimated.
  */
-import { CARD_TYPE_LABELS, TIER_LABELS, type CardType } from '@mi/contracts';
+import { CARD_TYPE_LABELS, TIER_LABELS, type CardType, type MetricType } from '@mi/contracts';
 import type { CompanyCandidate, MarketPlan } from './types';
 import type { Citation } from './types';
 import { SOURCE_PRIORITY_POLICY, companySourceTargets } from './source-policy';
@@ -147,6 +147,25 @@ export const CARD_FACTS_REQUEST = [
   'Write "not disclosed" for any figure no source states; make no estimates of your own and never derive one figure from another.',
   'State each figure in one sentence that names the company, the exact figure (name the currency, e.g. USD) and the date, e.g. "Acme has raised a total of USD 53 million as of March 3, 2026." or "Acme raised USD 5 million in a Series A round on March 3, 2026." or "Acme is sold in 60 countries as of March 3, 2026." Annual revenue must say which fiscal year ended on which date.',
 ].join('\n');
+
+/** Hunt-side card-figure request for exactly the card-fact types still missing.
+ * Same wording discipline as CARD_FACTS_REQUEST: one sentence per figure naming
+ * the company, the exact figure with its currency, and the date; "not
+ * disclosed" for anything no source states; no estimates, no derivations. */
+export function cardFactsHuntRequest(companyName: string, types: readonly MetricType[]): string[] {
+  const lines: string[] = [];
+  if (types.includes('revenue')) lines.push('- annual revenue (say which fiscal year ended on which date)');
+  if (types.includes('funding_total')) lines.push('- total funding raised to date');
+  if (types.includes('last_round')) lines.push('- the latest funding round (amount, stage and date)');
+  if (types.includes('distribution')) lines.push('- the number of countries it is sold in, or its retail doors / stockists / stores');
+  if (!lines.length) return [];
+  return [
+    `CARD FIGURES for ${companyName} — report each of these that a source actually states:`,
+    ...lines,
+    'Write "not disclosed" for any figure no source states; make no estimates of your own and never derive one figure from another.',
+    `State each figure in ONE sentence that names the company, gives the exact figure with its currency (e.g. USD or GBP) and carries the date, e.g. "${companyName} has raised a total of USD 53 million as of March 3, 2026." or "${companyName} raised USD 5 million in a Series A round on March 3, 2026." or "${companyName} is sold in 60 countries as of March 3, 2026." Put the figure in its own currency first; do not add conversions, ranges or "approximately".`,
+  ];
+}
 
 export function enrichPrompt(candidate: CompanyCandidate, plan: MarketPlan): string {
   return [

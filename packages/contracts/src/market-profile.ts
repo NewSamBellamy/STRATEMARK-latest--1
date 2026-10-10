@@ -50,6 +50,23 @@ export function profileMetricTypes(profile: MarketProfile): readonly MetricType[
     : ['market_cap', 'valuation', 'market_share', 'arr', 'users', 'employees'];
 }
 
+/** Card-fact types: small private brands rarely publish ARR or a valuation, so
+ * the card face accepts these as ordered alternatives in its slots. */
+const CARD_FACT_SLOT_TYPES: readonly MetricType[] = ['revenue', 'funding_total', 'last_round', 'distribution'];
+
+/**
+ * What a metrics HUNT should ask for: the profile's research priorities plus
+ * every card-fact alternative its face slots accept. A hunt that only asks for
+ * profileMetricTypes can never fill a slot whose honest figure is a funding
+ * round or a distribution footprint. Derived from PROFILE_CORE_SLOTS so the
+ * hunt and the card face cannot drift apart.
+ */
+export function profileHuntTypes(profile: MarketProfile): readonly MetricType[] {
+  const base = profileMetricTypes(profile);
+  const slotFacts = PROFILE_CORE_SLOTS[profile].flat().filter((type) => CARD_FACT_SLOT_TYPES.includes(type));
+  return [...new Set<MetricType>([...base, ...slotFacts])];
+}
+
 /**
  * The card's four front slots per profile, in display order. Operating company
  * is the original four (spec §6.1). A financial firm leads with AUM — the

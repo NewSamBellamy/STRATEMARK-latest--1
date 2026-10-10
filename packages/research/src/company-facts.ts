@@ -1,7 +1,7 @@
 import { METRIC_TYPES, companyMetricSchema, currentMetricRevision, metricPassageSupportSchema,
   validMetricVerificationValue, isSignalCardType, type CardWithCompany, type Company, type CompanyMetric } from '@mi/contracts';
-import { inspectMetricPassage } from './metric-support';
-import { CARD_FACT_TYPES, reportedMetricCitations } from './reported-metrics';
+import { currencyConversionNote, inspectMetricPassage } from './metric-support';
+import { CARD_FACT_TYPES, reportedStoredCitations } from './reported-metrics';
 import { isOriginalSourceAttempt, originalSupportReferences, selectOriginalSourceAttempts, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceQuery } from './original-source';
 
 /** Read adapter for the existing retained cloud verification ledger. Synthetic
@@ -46,7 +46,7 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
       (!['employees', 'users'].includes(type) || Number.isSafeInteger(metric.value));
     if (!current.ambiguous && bounded && metric.confidence === 'user_verified') return [structuredClone(metric)];
     const reportedCitations = !current.ambiguous && bounded && metric.confidence === 'estimated'
-      ? reportedMetricCitations(company.name, company.websiteUrl, metric) : [];
+      ? reportedStoredCitations(company.name, company.websiteUrl, metric) : [];
     // A computation from retained sources (the market-cap quote lane) keeps its
     // own two named citations — both are retained originals; the row's
     // methodNote labels it a computation, never a reported figure.
@@ -57,7 +57,7 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
     }
     if (reportedCitations.length) return [{ ...structuredClone(metric), citations: reportedCitations,
       source: reportedCitations[0]!.url, passageSupport: null, lastVerifiedAt: null,
-      methodNote: `Source reported ${metric.reportedSupport!.definition ?? type} (${metric.reportedSupport!.asOf ? `as of ${metric.reportedSupport!.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original.${CARD_FACT_TYPES.includes(type) ? ` Source statement: ${JSON.stringify(metric.reportedSupport!.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}` : ''}` }];
+      methodNote: `Source reported ${metric.reportedSupport!.definition ?? type} (${metric.reportedSupport!.asOf ? `as of ${metric.reportedSupport!.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original.${CARD_FACT_TYPES.includes(type) ? ` Source statement: ${JSON.stringify(metric.reportedSupport!.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}` : ''}${metric.reportedSupport!.unit !== 'USD' && metric.reportedSupport!.unit !== 'count' && metric.reportedSupport!.unit !== 'percent' ? ` ${currencyConversionNote(metric.reportedSupport!.value, metric.reportedSupport!.unit)}` : ''}` }];
     const proof = metricPassageSupportSchema.safeParse(metric.passageSupport);
     // Market share needs a defined market/denominator/period contract. A dated
     // percentage in a sentence is not that contract; automatic shares wait.
