@@ -378,6 +378,8 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly hydrationFirstBatchMax?: number;
   private readonly jobControllers = new Map<string, AbortController>();
   private readonly activeBackgroundJobs = new Map<string, Promise<void>>();
+  /** Detached post-reveal discovery tails (reveal-at-first-card). */
+  private readonly detachedDiscovery = new Map<string, Promise<void>>();
   /** Stall watchdogs per research job — see watchJobForStall. */
   private readonly jobWatchdogs = new Map<string, ReturnType<typeof setInterval>>();
   private listeners = new Set<DeckRefreshListener>();
@@ -789,6 +791,10 @@ export class GeminiRepository implements MarketIntelRepository {
   }
 
   async waitForBackgroundJobs(jobId?: string): Promise<void> {
+    // Discovery that continues after the deck was revealed must finish
+    // registering its background track before we look for it.
+    if (jobId) await this.detachedDiscovery.get(jobId);
+    else await Promise.all(Array.from(this.detachedDiscovery.values()));
     if (jobId) {
       await this.activeBackgroundJobs.get(jobId);
     } else {
@@ -887,22 +893,45 @@ export class GeminiRepository implements MarketIntelRepository {
     // Form ADV, real logo from the company's own site). These are network
     // reads with ZERO provider calls, so they land figures on cards while
     // the model passes are still running instead of waiting for the fill
-    // phase. Serialized through a chain to stay polite to SEC/Yahoo.
+    // phase. Bounded to a few companies at a time to stay polite to SEC/Yahoo.
     const prewarmedCompanies = new Set<string>();
-    let lanePrewarmChain: Promise<void> = Promise.resolve();
-    const prewarmStubLanes = (company: Company) => {
-      if (!company?.id || prewarmedCompanies.has(company.id)) return;
-      prewarmedCompanies.add(company.id);
-      lanePrewarmChain = lanePrewarmChain.then(async () => {
-        if (controller.signal.aborted) return;
+    const PREWARM_CONCURRENCY = 4;
+    const prewarmQueue: Company[] = [];
+    let prewarmActive = 0;
+    const prewarmOne = async (company: Company): Promise<void> => {
+      if (controller.signal.aborted) return;
+      // Logo/asset fill runs concurrently with the structured-source fill so a
+      // slow SEC ADV read never delays a logo.
+      const structured = (async () => {
         try {
           await this.fillFromStructuredSources(company, ['market_cap', 'aum', 'employees']);
         } catch { /* the hunt ladder remains the fallback, not a failure */ }
-        if (controller.signal.aborted || !this.assetSourceReader) return;
+      })();
+      const assets = (async () => {
+        if (!this.assetSourceReader) return;
         try {
           await this.fillCompanyAssets(company.id, this.assetSourceReader);
         } catch { /* favicon fallback stands */ }
-      }).catch(() => { /* prewarm never blocks the run */ });
+      })();
+      await Promise.all([structured, assets]);
+    };
+    const pumpPrewarm = () => {
+      while (prewarmActive < PREWARM_CONCURRENCY && prewarmQueue.length > 0) {
+        const next = prewarmQueue.shift()!;
+        prewarmActive += 1;
+        void prewarmOne(next)
+          .catch(() => { /* prewarm never blocks the run */ })
+          .finally(() => {
+            prewarmActive -= 1;
+            pumpPrewarm();
+          });
+      }
+    };
+    const prewarmStubLanes = (company: Company) => {
+      if (!company?.id || prewarmedCompanies.has(company.id)) return;
+      prewarmedCompanies.add(company.id);
+      prewarmQueue.push(company);
+      pumpPrewarm();
     };
 
     const ingestStreamedStub = (stub: CardWithCompany) => {
@@ -922,6 +951,7 @@ export class GeminiRepository implements MarketIntelRepository {
     // Order companies finished hydrating — the dashboard warm-up track serves
     // them in this order (lead first, then the rest as the user reads).
     const hydratedOrder: string[] = [];
+    let discoveredResult: DeckStubsResult | undefined;
 
     const hydrateOne = async (
       candidate: CompanyCandidate,
@@ -955,7 +985,7 @@ export class GeminiRepository implements MarketIntelRepository {
           type: 'status',
           step: 'enrich',
           message: `Researched ${candidate.name} (${hydratedCount}/${candidatesSeen})`,
-          progress: stubsResult ? Math.min(1, hydratedCount / Math.max(1, stubsResult.candidates.length)) : undefined,
+          progress: discoveredResult ? Math.min(1, hydratedCount / Math.max(1, discoveredResult.candidates.length)) : undefined,
         });
 
         // Update company in snap
@@ -1230,6 +1260,24 @@ export class GeminiRepository implements MarketIntelRepository {
     };
     const hydrationWorkers = Array.from({ length: this.concurrency ?? 3 }, () => runHydrationWorker());
 
+    // Everything from discovery through the background-track launch runs in
+    // `finishRun`. The caller is released as soon as the lead card is
+    // hydrated (reveal-at-first-card); the rest of discovery and the
+    // post-discovery setup continue detached and keep filling the deck.
+    let revealed = false;
+    const emitStubsAdded = (cardIds: string[]) => {
+      const trio = interpreted as { market: Market; deck: Deck } | null;
+      if (!revealed || !trio || cardIds.length === 0) return;
+      this.emit({
+        marketId: trio.market.id,
+        deckId: trio.deck.id,
+        refreshedAt: new Date().toISOString(),
+        addedCardIds: cardIds,
+        updatedCardIds: [],
+        prunedCardIds: [],
+      });
+    };
+    const finishRun = async (): Promise<DeckStubsResult> => {
     let stubsResult: DeckStubsResult;
     try {
       stubsResult = await discoverDeckStubs(brief, this.client, {
@@ -1243,14 +1291,17 @@ export class GeminiRepository implements MarketIntelRepository {
           interpreted = trio;
         },
         onStubs: (entries) => {
+          const addedStubCardIds: string[] = [];
           for (const { stub, candidate } of entries) {
             candidatesSeen += 1;
             rosterNames.push(candidate.name);
             if (stub.company) candidateById.set(stub.company.id, candidate);
             ingestStreamedStub(stub);
+            addedStubCardIds.push(stub.card.id);
             admitted.push({ stub, candidate });
             stubQueue.push({ stub, candidate, attempts: 0 });
           }
+          emitStubsAdded(addedStubCardIds);
         },
         onEvent: async (evt) => {
           await checkpoint(evt);
@@ -1300,6 +1351,7 @@ export class GeminiRepository implements MarketIntelRepository {
       this.jobControllers.delete(job.id);
       throw new Error('Research cancelled');
     }
+    discoveredResult = stubsResult;
     await checkpoint({
       type: 'status',
       step: 'discover',
@@ -1605,8 +1657,46 @@ export class GeminiRepository implements MarketIntelRepository {
     void backgroundPromise.catch(() => {
       console.error('Background research could not save its final status. Previously committed research is retained.');
     });
+    return stubsResult;
+    };
+
+    const finishPromise = finishRun();
+    void leadCardReady.catch(() => undefined);
+    const winner = await Promise.race([
+      finishPromise.then(() => 'finished' as const),
+      leadCardReady.then(() => 'lead' as const),
+    ]);
+    const earlyTrio = interpreted as { plan: MarketPlan; market: Market; deck: Deck } | null;
+    if (winner === 'lead' && earlyTrio) {
+      // Reveal at first card: the lead card is hydrated, so the deck route can
+      // load now. Persist the market/deck rows first (the deck view reads
+      // them), then release the caller while discovery's remaining passes and
+      // the post-discovery setup keep streaming into the persisted deck.
+      this.snap.markets = [earlyTrio.market, ...this.snap.markets.filter((m) => m.id !== earlyTrio.market.id)];
+      this.snap.decks = [earlyTrio.deck, ...this.snap.decks.filter((d) => d.id !== earlyTrio.deck.id)];
+      job.market = earlyTrio.market;
+      job.deck = earlyTrio.deck;
+      job.updatedAt = new Date().toISOString();
+      await this.persist();
+      revealed = true;
+      this.watchJobForStall(job);
+      const tail = finishPromise.then(
+        () => undefined,
+        () => undefined,
+      ).finally(() => { this.detachedDiscovery.delete(job.id); });
+      this.detachedDiscovery.set(job.id, tail);
+      void finishPromise.catch((error) => {
+        // finishRun already recorded failed/cancelled on the job; this only
+        // keeps the detached rejection from going unhandled.
+        if (!controller.signal.aborted) {
+          console.error('Deck discovery failed after the lead card was revealed:', error instanceof Error ? error.message : error);
+        }
+      });
+      return { market: earlyTrio.market, deck: earlyTrio.deck };
+    }
+    const finalResult = await finishPromise;
     await leadCardReady;
-    return { market: stubsResult.market, deck: stubsResult.deck };
+    return { market: finalResult.market, deck: finalResult.deck };
   }
 
   /**

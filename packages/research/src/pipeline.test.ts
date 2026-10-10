@@ -705,6 +705,86 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
     }
   });
 
+  it('reveals the deck at the first hydrated card while later discovery passes are still running', async () => {
+    const base = fakeClient();
+    const gate = deferred<void>();
+    let groundCalls = 0;
+    let companiesCalls = 0;
+    const client: LlmClient = {
+      ground: async (prompt, options) => {
+        groundCalls += 1;
+        if (groundCalls === 3) await gate.promise;
+        return base.ground(prompt, options);
+      },
+      structure: async (prompt, schema, opts) => {
+        if (typeof prompt === 'string' && prompt.includes('"companies"')) {
+          companiesCalls += 1;
+          if (companiesCalls === 1) {
+            return schema.parse({
+              companies: [{ name: 'Alpha Inc', domain: 'alpha.com', descriptor: 'big co', cardTypes: ['company'] }],
+            });
+          }
+        }
+        return base.structure(prompt, schema, opts);
+      },
+    } as LlmClient;
+    const repo = new GeminiRepository({ apiKey: 'x', client,
+      coverage: { ...testCoverage, companies: { min: 2, target: 2, max: 2 } },
+      catalogMax: 2, catalogPasses: 0, store: memStore() });
+    // Resolves while the fallback discovery pass is still blocked on the gate.
+    const { market, deck } = await repo.createResearchedDeck({ prompt: 'test', region: 'CA' });
+    const job = (await repo.listResearchJobs()).find((j) => j.deck?.id === deck.id);
+    expect(job?.status).toBe('running');
+    expect(await repo.getDeckByMarket(market.id)).not.toBeNull();
+    const early = (await repo.listCards(deck.id)).filter((c) => c.company);
+    expect(early.some((c) => c.card.tier !== null)).toBe(true);
+    const earlyCount = early.length;
+
+    gate.resolve();
+    await repo.waitForBackgroundJobs();
+    const later = (await repo.listCards(deck.id)).filter((c) => c.company);
+    expect(later.length).toBeGreaterThan(earlyCount);
+    const finished = (await repo.listResearchJobs()).find((j) => j.deck?.id === deck.id);
+    expect(finished?.status).toBe('completed');
+  }, 20000);
+
+  it('prewarms several companies concurrently and never lets a slow structured lane delay a logo', async () => {
+    const repo = new GeminiRepository({ apiKey: 'x', client: fakeClient(false), coverage: testCoverage,
+      catalogMax: 3, catalogPasses: 0, store: memStore(),
+      assetSourceReader: async (url) => ({ requestedUrl: url, finalUrl: url, status: 'unavailable',
+        retrievedAt: new Date().toISOString(), reason: 'none' }) });
+    const slow = deferred<void>();
+    let structuredActive = 0;
+    let structuredMax = 0;
+    const logoStarted = new Set<string>();
+    const structuredStarted = new Set<string>();
+    let logoBeforeStructuredDone = false;
+    const internals = repo as unknown as {
+      fillFromStructuredSources: (c: { id: string }) => Promise<void>;
+      fillCompanyAssets: (id: string) => Promise<void>;
+    };
+    internals.fillFromStructuredSources = async (company) => {
+      structuredStarted.add(company.id);
+      structuredActive += 1;
+      structuredMax = Math.max(structuredMax, structuredActive);
+      await slow.promise;
+      structuredActive -= 1;
+    };
+    internals.fillCompanyAssets = async (id) => {
+      logoStarted.add(id);
+      if (structuredActive > 0) logoBeforeStructuredDone = true;
+    };
+    const creation = repo.createResearchedDeck({ prompt: 'test', region: 'CA' });
+    await vi.waitFor(() => expect(structuredMax).toBeGreaterThan(1), { timeout: 5000 });
+    // Structured reads are all parked, yet logos already ran.
+    await vi.waitFor(() => expect(logoStarted.size).toBeGreaterThanOrEqual(2), { timeout: 5000 });
+    expect(logoBeforeStructuredDone).toBe(true);
+    slow.resolve();
+    await creation;
+    await repo.waitForBackgroundJobs();
+    expect(structuredStarted.size).toBeGreaterThanOrEqual(3);
+  }, 20000);
+
   it('adds user notes to the knowledge base as user_note evidence', async () => {
     const repo = new GeminiRepository({ apiKey: 'x', client: fakeClient(),
       coverage: testCoverage, catalogMax: 3, catalogPasses: 0, store: memStore() });
