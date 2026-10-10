@@ -1,0 +1,24 @@
+/**
+ * The hosted Stratemark API (Cloudflare Worker `stratemark-api`).
+ *
+ * Set `VITE_STRATEMARK_API_URL` at build time (for example
+ * https://stratemark-api.<account>.workers.dev). When it is set, a production
+ * build:
+ *   - runs research on the server-held Gemini key when the user has not added
+ *     their own (free beta, capped per day on the server), and
+ *   - reads original sources, logo pages and logo images through the Worker,
+ *     the way the dev-only Vite bridges do locally.
+ * A user's own key always wins and is still sent only to Google.
+ */
+export const HOSTED_API_URL: string = String(import.meta.env.VITE_STRATEMARK_API_URL ?? '').trim().replace(/\/+$/, '');
+
+/** Stand-in "key" that marks the hosted engine. Never sent anywhere: the fetch shim strips it. */
+export const HOSTED_KEY = 'stratemark-hosted';
+
+export function hasHostedApi(): boolean {
+  return /^https:\/\//.test(HOSTED_API_URL) || (import.meta.env.DEV && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(HOSTED_API_URL));
+}
+
+export function hostedUrl(path: string): string {
+  return `${HOSTED_API_URL}/v1/${path.replace(/^\/+/, '')}`;
+}

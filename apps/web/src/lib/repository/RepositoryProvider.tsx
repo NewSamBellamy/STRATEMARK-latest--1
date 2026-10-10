@@ -15,6 +15,7 @@ import sampleSnapshot from '@/sample/frontier-snapshot.json';
 import { GeminiRepository, type ResearchStore } from '@mi/research';
 import { readAssetSource, readPreviewSource, supportsPreviewSource } from './local-source-reader';
 import { previewGeminiFetch } from './local-gemini-fetch';
+import { HOSTED_KEY } from '@/lib/hostedApi';
 import { IpcRepository, isElectron } from './ipc-repository';
 import { SentinelRepository } from './SentinelRepository';
 import { openBrowserResearchStore } from './browserResearchStore';
@@ -87,7 +88,10 @@ export function RepositoryProvider({
   /** Injectable for tests. */
   repository?: MarketIntelRepository;
 }) {
-  const apiKey = useApiKey((s) => s.apiKey);
+  const userKey = useApiKey((s) => s.apiKey);
+  const hosted = useApiKey((s) => s.hosted);
+  // No personal key on a hosted build: research runs on the Worker's key.
+  const apiKey = userKey || (hosted ? HOSTED_KEY : '');
   const model = useApiKey((s) => s.model);
   const judgeModel = useApiKey((s) => s.judgeModel);
   const quotaPreset = useApiKey((s) => s.quotaPreset);

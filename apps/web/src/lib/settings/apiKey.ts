@@ -6,6 +6,10 @@
  * build persistence is exclusively through OS-backed safeStorage (main process).
  */
 import { create } from 'zustand';
+import { hasHostedApi } from '@/lib/hostedApi';
+
+/** A build with the hosted Worker can research without a personal key (free beta). */
+const HOSTED = typeof window !== 'undefined' && !window.miSecure && hasHostedApi();
 
 const STORAGE_KEY = 'mi.geminiApiKey';
 const MODEL_KEY = 'mi.geminiModel';
@@ -85,7 +89,10 @@ interface ApiKeyState {
   judgeModel: string;
   /** Outbound pacing preset — how fast the pipeline may spend the quota. */
   quotaPreset: QuotaPreset;
+  /** Research is available: the user's own key, or the hosted free tier. */
   hasKey: boolean;
+  /** No personal key; research runs on Stratemark's hosted key (capped per day). */
+  hosted: boolean;
   storageError: string | null;
   setApiKey: (key: string) => Promise<void>;
   setModel: (model: string) => void;
@@ -106,7 +113,8 @@ export const useApiKey = create<ApiKeyState>((set) => ({
   model: readLocal(MODEL_KEY),
   judgeModel: readLocal(JUDGE_MODEL_KEY),
   quotaPreset: readQuotaPreset(),
-  hasKey: !secure && readLocal(STORAGE_KEY).length > 0,
+  hasKey: (!secure && readLocal(STORAGE_KEY).length > 0) || HOSTED,
+  hosted: HOSTED && !(!secure && readLocal(STORAGE_KEY).length > 0),
   storageError: null,
   setApiKey: async (key) => {
     await hydration;
@@ -118,7 +126,7 @@ export const useApiKey = create<ApiKeyState>((set) => ({
       writeLocal(STORAGE_KEY, trimmed);
       localStorage.removeItem('mi.apiKey');
     }
-    set({ apiKey: trimmed, hasKey: trimmed.length > 0, storageError: null });
+    set({ apiKey: trimmed, hasKey: trimmed.length > 0 || HOSTED, hosted: !trimmed && HOSTED, storageError: null });
   },
   setModel: (model) => {
     writeLocal(MODEL_KEY, model.trim());
@@ -136,7 +144,7 @@ export const useApiKey = create<ApiKeyState>((set) => ({
     await hydration;
     if (secure) await secure.setApiKey('');
     removePlaintextKeys();
-    set({ apiKey: '', hasKey: false, storageError: null });
+    set({ apiKey: '', hasKey: HOSTED, hosted: HOSTED, storageError: null });
   },
 }));
 

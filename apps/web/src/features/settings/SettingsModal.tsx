@@ -99,6 +99,7 @@ function TabButton({ id, active, onClick, icon: Icon, label }: { id: TabId, acti
 }
 
 function GeneralTab() {
+  const hosted = useApiKey((st) => st.hosted);
   const { model, hasKey, setApiKey, setModel, setJudgeModel, setQuotaPreset, quotaPreset, clear, apiKey, storageError, judgeModel } = useApiKey();
   const [draft, setDraft] = useState(apiKey);
   const [saved, setSaved] = useState(false);
@@ -155,13 +156,17 @@ function GeneralTab() {
       <div>
         <div className="flex items-center gap-2 mb-2">
           <h2 className="font-display text-lg text-content">Google AI Studio API key</h2>
-          {hasKey && (
+          {hasKey && !hosted && (
             <span className="chip border-emerald-300 bg-emerald-50 text-emerald-700">
               <CheckCircle2 className="h-3.5 w-3.5" /> Connected
             </span>
           )}
         </div>
-        <p className="text-sm text-muted mb-4">Connect Gemini to run live grounded research.</p>
+        <p className="text-sm text-muted mb-4">
+          {hosted
+            ? 'You’re using Stratemark’s free research, which has a daily limit. Add your own Gemini key for unlimited research on your own quota.'
+            : 'Add your Gemini key to run live research. It’s stored in this browser and sent only to Google.'}
+        </p>
 
         <label className="label" htmlFor="key">API key</label>
         <input

@@ -1,0 +1,24 @@
+name = "stratemark-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Daily spend counters (approximate; see src/policy.ts).
+# Namespace "stratemark-api-usage" (created 2026-10-10).
+[[kv_namespaces]]
+binding = "USAGE"
+id = "2f60a0249e3e4c98b1ebc26ad6b9ffc2"
+
+[vars]
+# Browser origins allowed to call the API (full origins or *.host wildcards).
+# Never add a shared-hosting wildcard like *.pages.dev: anyone could host a page there.
+ALLOWED_ORIGINS = "https://getstratemark.com,https://*.getstratemark.com,https://stratemark.pages.dev,https://*.stratemark.pages.dev"
+ALLOW_LOCALHOST = "false"
+# Gemini calls per UTC day: whole deployment, and per visitor IP.
+DAILY_GLOBAL_CAP = "2000"
+DAILY_VISITOR_CAP = "300"
+
+# Secret (never in this file):  npx.cmd wrangler secret put GEMINI_API_KEY
+
+[observability]
+enabled = true
