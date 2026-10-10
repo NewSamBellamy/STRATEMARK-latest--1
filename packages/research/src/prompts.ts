@@ -13,7 +13,7 @@ import { SOURCE_PRIORITY_POLICY, companySourceTargets } from './source-policy';
 export const CURRENCY_UNIT_LIST = 'USD, EUR, GBP, JPY, CNY, KRW, TWD, INR, CAD, AUD, CHF, HKD, SGD, SEK, NOK, DKK, BRL, MXN';
 
 /** Shared across first hydration, verification and targeted hunts, local/cloud. */
-export const METRIC_MEASUREMENT_INSTRUCTIONS = 'In passageSupport also set definition to the actual measurement: arr, annual_revenue, users, active_users, monthly_active_users, daily_active_users, customers, paying_customers, employees, valuation, market_cap, market_share or aum. basis remains the storage key (arr for annual_revenue, users for the listed user/customer populations, aum for assets under management). Do not put downloads, followers, registrations or stars in users. Do not annualize monthly revenue or convert annual revenue to ARR. AUM (assets under management) is the total capital a firm manages for clients, not the firm\'s own revenue or valuation. For annual_revenue only, include periodStart YYYY-MM-DD and asOf as the interval end; the unchanged quote must explicitly say "annual revenue" and either "for the period YYYY-MM-DD to YYYY-MM-DD" or "for the fiscal year ended [literal calendar date]" (also "for the year ended") spanning an annual period. All other measurements require a literal as-of date and no periodStart. CURRENCY: monetary figures (ARR, annual revenue, valuation, market cap, AUM) are reported in the currency the source actually quotes — set passageSupport.unit to USD or the ISO code (EUR, GBP, JPY, CNY, KRW, TWD, INR, CAD, AUD, CHF, HKD, SGD, SEK, NOK, DKK, BRL, MXN), set value to the figure in that native currency, and the unchanged quote must name that currency. Never convert currencies yourself and never rewrite the quote\'s figures or currency. An original on the issuer website may use the company name without its terminal legal suffix (Inc., Corporation, PBC); do not invent aliases or remove Group/Holdings. Use whole-company observations only. When sources give multiple conflicting estimates for the same figure, report the one with the most recent explicit as-of date and keep its own source; never average conflicting figures, never default to the oldest or smallest, and prefer an explicitly dated estimate over an undated one. Missing literal definition/date/interval support means unknown; do not rewrite source text to fit this contract.';
+export const METRIC_MEASUREMENT_INSTRUCTIONS = 'In passageSupport also set definition to the actual measurement: arr, annual_revenue, users, active_users, monthly_active_users, daily_active_users, customers, paying_customers, employees, valuation, market_cap, market_share, aum, revenue, funding_total, last_round or distribution. basis remains the storage key (arr for annual_revenue, users for the listed user/customer populations, aum for assets under management). Do not put downloads, followers, registrations or stars in users. Do not annualize monthly revenue or convert annual revenue to ARR. AUM (assets under management) is the total capital a firm manages for clients, not the firm\'s own revenue or valuation. For annual_revenue only, include periodStart YYYY-MM-DD and asOf as the interval end; the unchanged quote must explicitly say "annual revenue" and either "for the period YYYY-MM-DD to YYYY-MM-DD" or "for the fiscal year ended [literal calendar date]" (also "for the year ended") spanning an annual period. All other measurements require a literal as-of date and no periodStart. CURRENCY: monetary figures (ARR, annual revenue, valuation, market cap, AUM) are reported in the currency the source actually quotes — set passageSupport.unit to USD or the ISO code (EUR, GBP, JPY, CNY, KRW, TWD, INR, CAD, AUD, CHF, HKD, SGD, SEK, NOK, DKK, BRL, MXN), set value to the figure in that native currency, and the unchanged quote must name that currency. Never convert currencies yourself and never rewrite the quote\'s figures or currency. An original on the issuer website may use the company name without its terminal legal suffix (Inc., Corporation, PBC); do not invent aliases or remove Group/Holdings. Use whole-company observations only. When sources give multiple conflicting estimates for the same figure, report the one with the most recent explicit as-of date and keep its own source; never average conflicting figures, never default to the oldest or smallest, and prefer an explicitly dated estimate over an undated one. Missing literal definition/date/interval support means unknown; do not rewrite source text to fit this contract.';
 
 /**
  * Roles discovery may assign to a company. Barrier and Insight are market-level
@@ -135,6 +135,19 @@ export function structureDiscoveryPrompt(
   ].join('\n');
 }
 
+/** The face of a card carries four figures. Small private brands rarely publish
+ * ARR or a valuation, so ask for every figure a source may honestly state. A
+ * figure no source states is "not disclosed" — never an estimate of our own. */
+export const CARD_FACTS_REQUEST = [
+  'CARD FIGURES — for each company state, in its own section, every one of these that a source actually states:',
+  '- employees (headcount); annual revenue; ARR (only if described as recurring revenue); users/customers;',
+  '- total funding raised to date; the latest funding round (amount, stage and date);',
+  '- valuation (private) and market cap (public);',
+  '- number of countries it is sold in, and retail doors / stockists / stores.',
+  'Write "not disclosed" for any figure no source states; make no estimates of your own and never derive one figure from another.',
+  'State each figure in one sentence that names the company, the exact figure (name the currency, e.g. USD) and the date, e.g. "Acme has raised a total of USD 53 million as of March 3, 2026." or "Acme raised USD 5 million in a Series A round on March 3, 2026." or "Acme is sold in 60 countries as of March 3, 2026." Annual revenue must say which fiscal year ended on which date.',
+].join('\n');
+
 export function enrichPrompt(candidate: CompanyCandidate, plan: MarketPlan): string {
   return [
     `Research the company "${candidate.name}"${candidate.domain ? ` (${candidate.domain})` : ''} in the context of the market: ${plan.marketName}.`,
@@ -149,6 +162,7 @@ export function enrichPrompt(candidate: CompanyCandidate, plan: MarketPlan): str
     `- annual revenue for any business when reported; ARR only when the source explicitly describes recurring revenue; preserve the exact basis and as-of date`,
     `- number of users/customers`,
     `- number of employees`,
+    `- total funding raised, latest round (amount, stage, date), countries sold in, retail doors/stockists`,
     candidate.cardTypes.includes('vice')
       ? `- any lawsuits, controversy, or integrity concerns (each MUST have a source)`
       : ``,
@@ -187,6 +201,7 @@ export function batchEnrichPrompt(candidates: CompanyCandidate[], plan: MarketPl
     `- annual revenue for any business when reported; ARR only when the source explicitly describes recurring revenue; preserve the exact basis and as-of date`,
     `- number of users/customers`,
     `- number of employees`,
+    `- total funding raised, latest round (amount, stage, date), countries sold in, retail doors/stockists`,
     `- the brand's primary colors (hex) from its website if visible`,
     ``,
     `Search priorities per company:`,
@@ -217,11 +232,11 @@ export function structureEnrichPrompt(
   return [
     `Convert the research notes on "${candidate.name}" into JSON with this shape:`,
     `{ "oneLiner", "hqLocation"|null, "website"|null, "brand": {"primary","secondary","accent"}|null,`,
-    `  "metrics": { "market_share": metricObj|null, "valuation": metricObj|null, "market_cap": metricObj|null, "arr": metricObj|null, "aum": metricObj|null, "users": metricObj|null, "employees": metricObj|null } where metricObj is`,
+    `  "metrics": { "market_share": metricObj|null, "valuation": metricObj|null, "market_cap": metricObj|null, "arr": metricObj|null, "aum": metricObj|null, "users": metricObj|null, "employees": metricObj|null, "revenue": metricObj|null, "funding_total": metricObj|null, "last_round": metricObj|null, "distribution": metricObj|null } where metricObj is`,
     `     { "value": number|null (raw number — dollars for money, count for users/employees, percent for share), "confidence": "estimated"|"unknown", "sourceIndex": number|null (index into SOURCES), "method": string|null, "reportedClaim": { "sourceUrl": string, "quote": string, "asOf": "YYYY-MM-DD"|null, "basis": storage key, "unit": "USD"|"count"|"percent", "definition": actual measurement }|null },`,
     `  "viceClaims": [ { "text", "sourceIndex": number|null } ], "cultureNote": string|null }`,
     ``,
-    `Rules: all figures describe the WHOLE COMPANY, never a division's. Copy the precise source-reported number, never round or derive it. Preserve the actual measurement: annual revenue is not ARR; customers are not total users; funding is not valuation; downloads, followers, registrations and stars are not users. For an asset manager, investment firm, or fund (venture capital, private equity, hedge fund), aum is assets under management — report it when the notes state it; AUM is not the firm's revenue. Prefer the most recent reporting period actually supported by the notes, not a newer webpage repeating an older figure. Do not label undated figures current. Include market_share, valuation (or market_cap), arr, users and employees; missing figures are value null and confidence unknown. Initial source-reported figures use confidence estimated and a method note stating source reported, not verified. Never synthesize figures from proxy anchors. Every viceClaim MUST have a sourceIndex. Provide only valuation OR market_cap, not both.`,
+    `Rules: all figures describe the WHOLE COMPANY, never a division's. Copy the precise source-reported number, never round or derive it. Preserve the actual measurement: annual revenue is not ARR; customers are not total users; funding is not valuation; downloads, followers, registrations and stars are not users. For an asset manager, investment firm, or fund (venture capital, private equity, hedge fund), aum is assets under management — report it when the notes state it; AUM is not the firm's revenue. Prefer the most recent reporting period actually supported by the notes, not a newer webpage repeating an older figure. Do not label undated figures current. Include market_share, valuation (or market_cap), arr, users and employees; missing figures are value null and confidence unknown. Initial source-reported figures use confidence estimated and a method note stating source reported, not verified. Card figures: revenue is annual revenue for a stated fiscal year (not ARR); funding_total is the cumulative amount raised to date; last_round is the single latest round amount (name its stage and date in the quote); distribution is a count of countries OR of retail doors/stockists/stores as the source states it (say which in the quote). Each needs a dated, company-named sentence; otherwise value null. Never synthesize figures from proxy anchors. Every viceClaim MUST have a sourceIndex. Provide only valuation OR market_cap, not both.`,
     ``,
     `SOURCES:`,
     sources,

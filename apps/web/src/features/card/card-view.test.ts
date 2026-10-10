@@ -290,4 +290,33 @@ describe('collectible card evidence model', () => {
     expect(result.title).toBe(title);
     expect(result.frontTitle).toBe('Bifurcation of Token Economics');
   });
+  describe('ordered-alternative face slots for small private brands', () => {
+    const funding = metric({ id: 'f', metricType: 'funding_total', value: 53_000_000, methodNote: 'Total raised to date, as of 2026-10-01.' });
+    const people = metric({ id: 'p', metricType: 'employees', value: 120 });
+    const countries = metric({ id: 'd', metricType: 'distribution', value: 60, methodNote: 'Sold in 60+ countries as of 2026-10-01.' });
+    it('fills three slots with honest labels and never repeats a metric row', () => {
+      const result = view([funding, people, countries]);
+      expect(result.profileMetrics.map((m) => m.label)).toEqual(['Employees', 'Total raised', 'Countries', 'Valuation / market cap']);
+      expect(result.profileMetrics.map((m) => m.display).slice(0, 3)).toEqual(['120', '$53M', '60+']);
+      expect(result.profileMetrics.filter((m) => m.metric?.value != null)).toHaveLength(3);
+      expect(result.profileMetrics[3]!.display).toBe('Unknown');
+      const shown = result.profileMetrics.flatMap((m) => (m.metric ? [m.metric.id] : []));
+      expect(new Set(shown).size).toBe(shown.length);
+    });
+    it('uses another metric for the value slot once funding_total is taken, and names stockists', () => {
+      const round = metric({ id: 'r', metricType: 'last_round', value: 5_000_000, methodNote: 'Series A, 2026-10-01.' });
+      const doors = metric({ id: 'd2', metricType: 'distribution', value: 1000, methodNote: '1,000+ retail stockists as of 2026-10-01.' });
+      const result = view([funding, round, doors, people]);
+      expect(result.profileMetrics.map((m) => m.label)).toEqual(['Employees', 'Total raised', 'Stockists', 'Latest round']);
+      expect(result.profileMetrics[2]!.display).toBe('1K+');
+      const valued = view([funding, metric({ id: 'v', metricType: 'valuation', value: 200_000_000 })]);
+      expect(valued.profileMetrics.map((m) => m.label)).toEqual(['Employees', 'Total raised', 'Users / customers', 'Valuation']);
+    });
+    it('keeps revenue ahead of funding in the revenue slot', () => {
+      const revenue = metric({ id: 'rev', metricType: 'revenue', value: 4_000_000 });
+      const result = view([funding, revenue]);
+      expect(result.profileMetrics[1]).toMatchObject({ label: 'Revenue', display: '$4M' });
+      expect(result.profileMetrics[3]).toMatchObject({ label: 'Total raised', display: '$53M' });
+    });
+  });
 });

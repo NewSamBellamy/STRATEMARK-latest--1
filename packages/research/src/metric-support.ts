@@ -1,4 +1,4 @@
-import { hasVerificationGradeCitation, usableCitations, validMetricVerificationValue, type Citation, type MetricType, type CompanyMetric } from '@mi/contracts';
+import { MONEY_METRIC_TYPES, hasVerificationGradeCitation, usableCitations, validMetricVerificationValue, type Citation, type MetricType, type CompanyMetric } from '@mi/contracts';
 import type { OriginalSourceReceipt } from './original-source';
 import { secFilingHeadcountObservation, secRevenueObservation } from './sec-revenue';
 import { secAdvObservationFor } from './sec-adv';
@@ -32,10 +32,20 @@ const basis: Record<MetricType, RegExp> = {
   valuation: /\b(?:valuation|valued at)\b/i,
   market_cap: /\b(?:market cap|market capitalization)\b/i,
   users: /\b(?:users|customers)\b/i,
-  employees: /\b(?:employees|headcount)\b/i,
+  // "employs" is accepted as a basis word only: the number, company, date and
+  // direct-statement gates below apply unchanged ("Skydio employs 900 people as of ...").
+  employees: /\b(?:employees|headcount|employs?)\b/i,
   market_share: /\bmarket share\b/i,
   aum: /\b(?:AUM|assets under management)\b/i,
+  // Revenue deliberately excludes "annual revenue"/"recurring revenue" (the arr
+  // basis owns those), so one quote can never satisfy two basis patterns.
+  revenue: /\b(?:(?<!annual )(?<!recurring )revenues?|sales|turnover)\b/i,
+  // Cumulative wording only: a single round is last_round, never a total.
+  funding_total: /\b(?:total funding|funding to date|raised to date|total (?:capital )?raised|(?:has|have) raised|raised a total of)\b/i,
+  last_round: /\b(?:Series [A-Z]\d?|(?:pre-)?seed|(?:funding|investment|financing|bridge) round|round of (?:funding|financing))\b/i,
+  distribution: /\b(?:countries|markets|retailers|stores|doors|stockists|retail locations|points of sale)\b/i,
 };
+const NEW_TYPES: readonly MetricType[] = ['revenue', 'funding_total', 'last_round', 'distribution'];
 
 /** Conservative mechanical passage support, not semantic truth or exhaustive evidence. */
 export function acceptedMetricPassage(input: { companyName: string; officialWebsite?: string | null; nowMs?: number; metricType: MetricType; value: number | null; support?: MetricPassageSupport | null; originals: readonly OriginalSourceReceipt[] }): Citation[] {
@@ -112,7 +122,7 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
   }
   if (input.metricType === 'arr' && (definition === 'arr' ? /\bannual revenue|run[- ]?rate\b/i.test(quote) : /\bARR|annual recurring revenue|run[- ]?rate\b/i.test(quote))) return reject('Annual revenue, recurring revenue and run-rate are different measurements.');
   let intervalDate: string | undefined;
-  if (definition === 'annual_revenue') {
+  if (definition === 'annual_revenue' || definition === 'revenue') {
     intervalDate = proof.periodStart;
     const start = new Date(`${intervalDate}T00:00:00.000Z`);
     const days = (date.getTime() - start.getTime()) / 86400000 + 1;
@@ -134,14 +144,14 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
   // Keyword co-occurrence is not attribution: the company, metric and date
   // must form one direct statement. Ambiguous prose stays unknown rather than
   // borrowing a partner's figure or mistaking an article date for an as-of date.
-  const subject = new RegExp(`(?<![\\p{L}\\p{N}])${companyPattern}(?![\\p{L}\\p{N}])(?:['’]s)?\\s+(?:reports?|reported|has|had|recorded|disclosed|announced|employs?|employed|was|is|said|says|posted|generated|reached|serves|served|counts)\\b`, 'iu');
+  const subject = new RegExp(`(?<![\\p{L}\\p{N}])${companyPattern}(?![\\p{L}\\p{N}])(?:['’]s)?\\s+(?:reports?|reported|has|had|recorded|disclosed|announced|employs?|employed|was|is|said|says|posted|generated|reached|serves|served|counts${NEW_TYPES.includes(input.metricType) ? '|raised|closed|secured|sells|sold|operates|distributes|available' : ''})\\b`, 'iu');
   const withoutCompany = quote.replace(new RegExp(`(?<![\\p{L}\\p{N}])${companyPattern}(?![\\p{L}\\p{N}])(?:['’]s)?`, 'giu'), 'COMPANY');
   if (!subject.test(quote) || /[.!?;]\s+/.test(withoutCompany) ||
     /\bthat\b|[\p{L}\p{N}]+['’]s\b/iu.test(withoutCompany) ||
     /\b(?:article|published|publication|retrieved|updated)\b/i.test(quote) ||
     (!intervalDate && !new RegExp(`\\b(?:as of|as at|on|at|ended|ending)\\s+${escape(literalDate)}(?![\\p{L}\\p{N}])`, 'iu').test(quote)) ||
     Object.entries(basis).some(([type, pattern]) => type !== input.metricType && pattern.test(quote))) return reject('Claim attribution is ambiguous. A direct company statement and metric reporting date are required, not an article date or another company’s figure.');
-  const expectedUnit = ['arr', 'valuation', 'market_cap', 'aum'].includes(input.metricType) ? 'USD' : input.metricType === 'market_share' ? 'percent' : 'count';
+  const expectedUnit = MONEY_METRIC_TYPES.includes(input.metricType) ? 'USD' : input.metricType === 'market_share' ? 'percent' : 'count';
   // A money figure may be quoted natively in a convertible currency: the model
   // sets unit to the ISO code the SOURCE uses and the quote must name that
   // currency. The stored metric row is converted to USD at the frozen
@@ -173,7 +183,7 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
     title: `Issuer-reported original passage (${proof.asOf}); not independently corroborated` })) };
 }
 
-const MONEY_METRICS: readonly MetricType[] = ['arr', 'valuation', 'market_cap', 'aum'];
+const MONEY_METRICS: readonly MetricType[] = MONEY_METRIC_TYPES;
 
 /**
  * The stored metric row is USD for money metrics so decks stay comparable.

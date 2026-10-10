@@ -62,4 +62,14 @@ describe('profile metric tables', () => {
     expect(PROFILE_CORE_SLOTS.operating_company).not.toContainEqual(['aum']);
     expect(PROFILE_CORE_SLOTS.operating_company.some(types => types.includes('users'))).toBe(true);
   });
+
+  it('gives operating companies ordered alternatives that reach small private brands', () => {
+    expect(PROFILE_CORE_SLOTS.operating_company).toEqual([
+      ['employees'],
+      ['arr', 'revenue', 'funding_total'],
+      ['users', 'distribution'],
+      ['valuation', 'market_cap', 'last_round', 'funding_total'],
+    ]);
+    expect(PROFILE_CORE_SLOTS.financial_firm).toEqual([['aum'], ['employees'], ['valuation', 'market_cap'], ['arr']]);
+  });
 });

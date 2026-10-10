@@ -14,6 +14,10 @@ export const METRIC_COLORS: Record<MetricType, string> = {
   aum: '#0EA5E9', // sky (financial-firm scale — distinct from users' blue)
   users: '#3B82F6', // blue
   employees: '#14B8A6', // teal
+  revenue: '#F59E0B', // amber (same family as arr)
+  funding_total: '#8B5CF6', // violet (capital family)
+  last_round: '#8B5CF6', // violet
+  distribution: '#3B82F6', // blue (reach family)
 };
 
 /** Maturity tier scale, cool → warm as maturity rises. Saturated enough to hold

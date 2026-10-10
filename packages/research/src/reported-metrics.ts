@@ -1,4 +1,4 @@
-import { reportedMetricSupportSchema, usableCitations, validMetricVerificationValue,
+import { MONEY_METRIC_TYPES, reportedMetricSupportSchema, usableCitations, validMetricVerificationValue,
   type CompanyMetric, type MetricType, type ReportedMetricSupport } from '@mi/contracts';
 import type { ProviderGrounding } from './types';
 import type { EnrichmentOut } from './schemas';
@@ -176,7 +176,14 @@ const basisPatterns: Record<string, RegExp> = {
   // modifier can precede "annual" and the noun is usually plural. Without both
   // orders, the standard 10-K phrasing matches no basis at all.
   annual_revenue: /\b(?:annual (?:(?:consolidated|total|net) )?revenues?|(?:(?:consolidated|total|net) )?annual revenues?|revenue (?:for|of) (?:the )?(?:fiscal )?year)\b/i,
-  employees: /\b(?:employees|headcount|workforce|full[- ]time personnel|full[- ]time staff|employed)\b/i,
+  employees: /\b(?:employees|headcount|workforce|full[- ]time personnel|full[- ]time staff|employed|employs?)\b/i,
+  // Card-fact types (small private brands). Same shape as the rest: a basis
+  // word beside the number, in a sentence naming the company with a date.
+  // Revenue excludes "annual revenue"/"recurring revenue" (owned by arr).
+  revenue: /\b(?:(?<!annual )(?<!recurring )revenues?|sales|turnover)\b/i,
+  funding_total: /\b(?:total funding|funding to date|raised to date|total (?:capital )?raised|(?:has|have) raised|raised a total of)\b/i,
+  last_round: /\b(?:Series [A-Z]\d?|(?:pre-)?seed|(?:funding|investment|financing|bridge) round|round of (?:funding|financing))\b/i,
+  distribution: /\b(?:countries|markets|retailers|stores|doors|stockists|retail locations|points of sale)\b/i,
   users: /\busers\b/i, active_users: /\bactive users\b/i,
   monthly_active_users: /\bmonthly active users\b/i, daily_active_users: /\bdaily active users\b/i,
   customers: /\bcustomers\b/i, paying_customers: /\bpaying customers\b/i,
@@ -184,6 +191,10 @@ const basisPatterns: Record<string, RegExp> = {
   market_share: /\bmarket share\b/i,
   aum: /\b(?:AUM|assets under management)\b/i,
 };
+/** Card-fact types: always dated; never estimates; revenue only for an explicit annual period. */
+export const CARD_FACT_TYPES: readonly MetricType[] = ['revenue', 'funding_total', 'last_round', 'distribution'];
+const CARD_FACT_SPECULATIVE = /\b(?:not|estimated?|projects?|projected|forecasts?|targets?|expects?|expected|might|could|would|may|approximately|about)\b|~/i;
+const ANNUAL_PERIOD = /\b(?:(?:fiscal )?year ended|for (?:the )?(?:fiscal |full )?year|FY\s?\d{2,4})\b/i;
 const speculativeValuation = /\b(?:preliminary|discussions|talks|seeking|targeting|proposed|potential|considering|negotiating)\b/i;
 
 // A count immediately followed by a locative phrase belongs to that region or
@@ -324,7 +335,9 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
   if ((type === 'arr' && !['arr', 'annual_revenue'].includes(definition)) ||
     (type === 'users' && !['users', 'active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition)) ||
     (!['arr', 'users'].includes(type) && definition !== type)) return [];
-  if (proof.unit !== (['arr', 'valuation', 'market_cap', 'aum'].includes(type) ? 'USD' : type === 'market_share' ? 'percent' : 'count')) return [];
+  if (proof.unit !== (MONEY_METRIC_TYPES.includes(type) ? 'USD' : type === 'market_share' ? 'percent' : 'count')) return [];
+  const cardFact = CARD_FACT_TYPES.includes(type);
+  if (cardFact && !proof.asOf) return [];
   const pattern = basisPatterns[definition];
   const citations = usableCitations(proof.support.sources, website ?? undefined);
   const expected = host(website);
@@ -364,6 +377,7 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
     (answerAnchored && anonymousClaimLabel.test(sentence) && !rivals!.test(sentence)) ||
     (namedBeforeBasis?.(sentence) ?? false));
   if (!pattern || !claims.some(sentence => pattern.test(sentence) && hasNumber(sentence, proof.value, proof.unit, definition) &&
+    (!cardFact || (!CARD_FACT_SPECULATIVE.test(sentence) && (type !== 'revenue' || ANNUAL_PERIOD.test(sentence)))) &&
     // A subsequent discussion/reporting clause cannot date a completed round.
     (!proof.asOf || definition !== 'valuation' || sentence.split(/,\s+(?:with|while|but)\b/i).some(clause =>
       hasNumber(clause, proof.value, proof.unit, definition) && hasDate(clause, proof.asOf!))) &&
@@ -396,13 +410,14 @@ export function reportedSupportCitations(companyName: string, website: string | 
   if ((type === 'arr' && !['arr', 'annual_revenue'].includes(definition)) ||
     (type === 'users' && !['users', 'active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition)) ||
     (!['arr', 'users'].includes(type) && definition !== type)) return [];
-  if (proof.unit !== (['arr', 'valuation', 'market_cap', 'aum'].includes(type) ? 'USD' : type === 'market_share' ? 'percent' : 'count')) return [];
+  if (proof.unit !== (MONEY_METRIC_TYPES.includes(type) ? 'USD' : type === 'market_share' ? 'percent' : 'count')) return [];
     // User populations are always reported AS OF a date or period in any source
   // worth citing. A users claim with no reporting date ('1B active users',
   // full stop) is the unverifiable mega-figure the red team flagged: it
   // stays unknown rather than rendering with authority it never earned.
   if (type === 'users' && !proof.asOf) return [];
 if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its .{0,30}suite|active base of .{0,30}devices)\b/i.test(proof.support.text)) return [];
+  if (CARD_FACT_TYPES.includes(type) && !proof.asOf) return [];
   return usableCitations(metric.citations, website ?? undefined);
 }
 
@@ -454,7 +469,7 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
       const citations = reportedMetricCitations(input.companyName, input.website, proposed, identity);
       if (!citations.length) continue;
       return { ...proposed, confidence: 'estimated', citations, source: citations[0]!.url,
-        methodNote: `Source reported ${proof.data.definition ?? type} (${proof.data.asOf ? `as of ${proof.data.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original.` };
+        methodNote: `Source reported ${proof.data.definition ?? type} (${proof.data.asOf ? `as of ${proof.data.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original.${CARD_FACT_TYPES.includes(type) ? ` Source statement: ${JSON.stringify(proof.data.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}` : ''}` };
     }
     return row;
   });

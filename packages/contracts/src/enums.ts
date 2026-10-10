@@ -92,8 +92,17 @@ export const METRIC_TYPES = [
   'aum',
   'users',
   'employees',
+  'revenue',
+  'funding_total',
+  'last_round',
+  'distribution',
 ] as const;
 export type MetricType = (typeof METRIC_TYPES)[number];
+
+/** Metric types whose value is money (stored in USD). Every unit check reads this. */
+export const MONEY_METRIC_TYPES: readonly MetricType[] = [
+  'arr', 'valuation', 'market_cap', 'aum', 'revenue', 'funding_total', 'last_round',
+];
 
 export const METRIC_TYPE_LABELS: Record<MetricType, string> = {
   market_cap: 'Market Cap',
@@ -103,6 +112,10 @@ export const METRIC_TYPE_LABELS: Record<MetricType, string> = {
   aum: 'AUM',
   users: 'Users',
   employees: 'Employees',
+  revenue: 'Revenue',
+  funding_total: 'Total raised',
+  last_round: 'Latest round',
+  distribution: 'Distribution',
 };
 
 // ---------------------------------------------------------------------------

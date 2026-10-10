@@ -3,8 +3,11 @@ import { z } from 'zod';
 import { createGeminiClient } from './gemini';
 
 const DEADLINE = 240_000; // ground deadline (structure keeps the 120s default)
-const response = (text = 'answer') => new Response(JSON.stringify({
-  candidates: [{ content: { parts: [{ text }] } }],
+// Grounded by default: a zero-chunk answer from the lite primary is retried
+// once on the next line (see the ungrounded-escalation tests below).
+const response = (text = 'answer', grounded = true) => new Response(JSON.stringify({
+  candidates: [{ content: { parts: [{ text }] },
+    ...(grounded ? { groundingMetadata: { groundingChunks: [{ web: { uri: 'https://example.com/source', title: 'Source' } }] } } : {}) }],
 }), { status: 200 });
 const hung = <T>() => new Promise<T>(() => undefined);
 
@@ -337,5 +340,42 @@ describe('grounded model-line fallback', () => {
     const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl });
     await expect(client.ground('prompt')).rejects.toThrow('Could not reach Gemini. Check your connection and try again.');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ungrounded answer escalation', () => {
+  const modelOf = (call: unknown[]) => String(call[0]).match(/models\/([^:]+):/)![1];
+
+  it('retries once on the next ladder line when the lite primary answers with zero grounding chunks', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) =>
+      modelOf([url]) === 'gemini-flash-lite-latest' ? response('ungrounded', false) : response('grounded'));
+    const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl });
+    const result = await client.ground('prompt');
+    expect(result.text).toBe('grounded');
+    expect(result.citations).toHaveLength(1);
+    expect(fetchImpl.mock.calls.map(modelOf)).toEqual(['gemini-flash-lite-latest', 'gemini-flash-latest']);
+    expect(client.metrics?.()).toMatchObject({ ungroundedRetries: 1, fallbacks: 0 });
+    // The primary is not marked sick by an ungrounded answer.
+    await client.ground('second');
+    expect(modelOf(fetchImpl.mock.calls[2]!)).toBe('gemini-flash-lite-latest');
+  });
+
+  it('does not retry a grounded primary answer', async () => {
+    const fetchImpl = vi.fn(async () => response('grounded'));
+    const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl });
+    expect((await client.ground('prompt')).text).toBe('grounded');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(client.metrics?.()).toMatchObject({ ungroundedRetries: 0 });
+  });
+
+  it('keeps the ungrounded answer rather than failing when the escalation line is down', async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi.fn(async (url: string | URL | Request) =>
+      modelOf([url]) === 'gemini-flash-lite-latest' ? response('ungrounded', false) : new Response('busy', { status: 503 }));
+    const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl });
+    const settled = client.ground('prompt');
+    await vi.advanceTimersByTimeAsync(60000);
+    expect((await settled).text).toBe('ungrounded');
+    expect(client.metrics?.()).toMatchObject({ ungroundedRetries: 1 });
   });
 });

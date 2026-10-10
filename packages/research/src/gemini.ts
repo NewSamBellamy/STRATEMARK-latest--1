@@ -360,7 +360,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
 
   /** Epoch ms until which the primary grounded line is considered sick; 0 = healthy. */
   let primarySickUntil = 0;
-  const aggregate: CallMetricsAggregate = { calls: 0, retries: 0, rateLimitedMs: 0, fallbacks: 0 };
+  const aggregate: CallMetricsAggregate = { calls: 0, retries: 0, rateLimitedMs: 0, fallbacks: 0, ungroundedRetries: 0 };
 
   return {
     metrics: () => ({ ...aggregate }),
@@ -403,6 +403,10 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         // congestion event, which is what killed the Oct 9 frontier-ai run.
         const FALLBACK_ATTEMPT_FLOOR_MS = 45_000;
         let lastError: unknown;
+        // A lite primary sometimes answers WITHOUT grounding (zero chunks): such
+        // an answer has no supports, so every evidence gate rejects it. Retry once
+        // on the next line; keep the ungrounded answer only if that line fails.
+        let ungroundedAnswer: ReturnType<typeof parse> | undefined;
         for (let index = 0; index < order.length; index++) {
           const model = order[index]!;
           const remaining = GROUND_DEADLINE_MS - (Date.now() - startedAt);
@@ -416,8 +420,15 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
               attemptTimeoutMs: Math.min(cap, isPrimary ? primaryAttemptTimeout : cap),
             });
             if (isPrimary) primarySickUntil = 0;
-            else { primarySickUntil = Date.now() + SICK_PRIMARY_COOLDOWN_MS; aggregate.fallbacks += 1; }
-            return parse(data);
+            else if (!ungroundedAnswer) { primarySickUntil = Date.now() + SICK_PRIMARY_COOLDOWN_MS; aggregate.fallbacks += 1; }
+            const answer = parse(data);
+            const chunkCount = data.candidates?.[0]?.groundingMetadata?.groundingChunks?.length ?? 0;
+            if (chunkCount === 0 && !ungroundedAnswer && isPrimary && /lite/i.test(model) && index + 1 < order.length) {
+              ungroundedAnswer = answer;
+              aggregate.ungroundedRetries = (aggregate.ungroundedRetries ?? 0) + 1;
+              continue;
+            }
+            return answer;
           } catch (err) {
             lastError = err;
             // A blocked prompt or a dead network is nobody else's to fix.
@@ -425,6 +436,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
             if (isPrimary) primarySickUntil = Date.now() + SICK_PRIMARY_COOLDOWN_MS;
           }
         }
+        if (ungroundedAnswer) return ungroundedAnswer;
         throw lastError;
       }, opts?.signal, config.groundDeadlineMs ?? GROUND_DEADLINE_MS);
     },

@@ -59,6 +59,11 @@ export function profileMetricTypes(profile: MarketProfile): readonly MetricType[
  * real-estate or biotech profile later is one more table row plus one regex.
  */
 export const PROFILE_CORE_SLOTS: Record<MarketProfile, readonly (readonly MetricType[])[]> = {
-  operating_company: [['employees'], ['arr'], ['users'], ['valuation', 'market_cap']],
+  operating_company: [
+    ['employees'],
+    ['arr', 'revenue', 'funding_total'],
+    ['users', 'distribution'],
+    ['valuation', 'market_cap', 'last_round', 'funding_total'],
+  ],
   financial_firm: [['aum'], ['employees'], ['valuation', 'market_cap'], ['arr']],
 };

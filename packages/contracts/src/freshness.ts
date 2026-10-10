@@ -66,6 +66,10 @@ export const METRIC_VOLATILITY: Record<MetricType, VolatilityTier> = {
   aum: 'warm',
   users: 'warm',
   employees: 'warm',
+  revenue: 'hot',
+  funding_total: 'warm',
+  last_round: 'warm',
+  distribution: 'warm',
 };
 
 /**

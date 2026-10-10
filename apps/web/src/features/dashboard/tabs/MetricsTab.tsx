@@ -37,6 +37,10 @@ const DEEP_TOPIC: Record<MetricType, string> = {
   aum: 'Assets under management & fund performance',
   users: 'User / customer base & adoption',
   employees: 'Team size, hiring & key people',
+  revenue: 'Annual revenue & growth',
+  funding_total: 'Funding history & investors',
+  last_round: 'Latest funding round',
+  distribution: 'Distribution footprint & retail reach',
 };
 
 const BAND_KEY: Partial<Record<MetricType, keyof typeof SIGNAL_BANDS>> = {
@@ -48,7 +52,7 @@ const BAND_KEY: Partial<Record<MetricType, keyof typeof SIGNAL_BANDS>> = {
 };
 
 /** The display order; valuation/market_cap collapse to whichever is present. */
-const ORDER: MetricType[] = ['market_share', 'valuation', 'market_cap', 'arr', 'aum', 'users', 'employees'];
+const ORDER: MetricType[] = ['market_share', 'valuation', 'market_cap', 'arr', 'aum', 'users', 'employees', 'revenue', 'funding_total', 'last_round', 'distribution'];
 const metricLabel = (metric: CompanyMetric) => metricDefinitionLabel(metric) ?? METRIC_TYPE_LABELS[metric.metricType];
 
 /** Human-in-the-loop correction: value + source note → user_verified → re-tier. */
@@ -69,7 +73,7 @@ function OverrideModal({
   const unit =
     metric.metricType === 'market_share'
       ? 'percent (0–100)'
-      : metric.metricType === 'users' || metric.metricType === 'employees'
+      : metric.metricType === 'users' || metric.metricType === 'employees' || metric.metricType === 'distribution'
         ? 'count'
         : 'USD';
   return (

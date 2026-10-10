@@ -49,11 +49,15 @@ export function formatMetricValue(type: MetricType, value: number | null): strin
     case 'valuation':
     case 'arr':
     case 'aum':
+    case 'revenue':
+    case 'funding_total':
+    case 'last_round':
       return formatUsd(value);
     case 'market_share':
       return formatPercent(value);
     case 'users':
     case 'employees':
+    case 'distribution':
       return formatCount(value);
   }
 }

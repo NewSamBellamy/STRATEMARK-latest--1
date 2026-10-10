@@ -13,7 +13,7 @@
  *   4. The LLM may nudge ±1 with a logged reason (applied here as data, never
  *      assigned from scratch — see `applyNudge`, which throws on |nudge| > 1).
  */
-import type { Confidence, MaturityTier } from './enums';
+import type { Confidence, MaturityTier, MetricType } from './enums';
 import type { CompanyMetric } from './types';
 import { comparableMetricBasis } from './metric-definition';
 import {
@@ -175,7 +175,7 @@ export function computeCms(
  * metric table to the five weighted signals in one audited place.
  */
 export interface MetricLike {
-  metricType: 'market_cap' | 'valuation' | 'market_share' | 'arr' | 'aum' | 'users' | 'employees';
+  metricType: MetricType;
   value: number | null;
   confidence: Confidence;
   passageSupport?: CompanyMetric['passageSupport'];

@@ -114,6 +114,11 @@ export const enrichmentOutSchema = z.object({
       aum: metricOutSchema.nullish(),
       users: metricOutSchema.nullish(),
       employees: metricOutSchema.nullish(),
+      // Card-fact figures for small/private brands (never aggregated into scores).
+      revenue: metricOutSchema.nullish(),
+      funding_total: metricOutSchema.nullish(),
+      last_round: metricOutSchema.nullish(),
+      distribution: metricOutSchema.nullish(),
     })
     .default({}),
   facts: z
@@ -227,6 +232,10 @@ export const batchVerifyOutSchema = z.preprocess(
             'aum',
             'users',
             'employees',
+            'revenue',
+            'funding_total',
+            'last_round',
+            'distribution',
           ]),
           verdict: z.enum(['supported', 'contradicted', 'unverified']).default('unverified'),
           /** Best current grounded value in the metric's native unit; null if unknown. */
@@ -261,6 +270,10 @@ export const marketBatchOutSchema = z.preprocess(
             'aum',
             'users',
             'employees',
+            'revenue',
+            'funding_total',
+            'last_round',
+            'distribution',
           ]),
           value: z.number(),
           /** The unit the figure is quoted in (USD, count, percent, or a convertible currency code). */
@@ -296,6 +309,10 @@ export const huntMetricsOutSchema = z.preprocess(
             'aum',
             'users',
             'employees',
+            'revenue',
+            'funding_total',
+            'last_round',
+            'distribution',
           ]),
           /** Grounded value in the metric's native unit; null when the notes name none. */
           value: z.number().nullable().default(null),
@@ -417,6 +434,10 @@ export const redTeamOutSchema = z.preprocess(
             'aum',
             'users',
             'employees',
+            'revenue',
+            'funding_total',
+            'last_round',
+            'distribution',
           ]),
           verdict: z.enum(['holds', 'wrong', 'unverifiable']).catch('unverifiable'),
           /** Corrected value in native units — only meaningful for 'wrong'. */

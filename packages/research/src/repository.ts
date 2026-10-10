@@ -2418,7 +2418,7 @@ export class GeminiRepository implements MarketIntelRepository {
     );
 
     const nowIso = new Date().toISOString();
-    const byType = new Map(out.metrics.map(m => [m.metricType, m]));
+    const byType = new Map<MetricType, (typeof out.metrics)[number]>(out.metrics.map(m => [m.metricType, m]));
     const results: BatchMetricVerification[] = [];
     const changedTypes: MetricType[] = [];
     for (const target of targets) {

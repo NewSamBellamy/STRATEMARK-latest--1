@@ -1,6 +1,6 @@
 import {
   CARD_TYPE_LABELS, CONFIDENCE_LABELS, TIER_LABELS, enforceMetricProvenance, currentMetricRevision,
-  isSignalCardType, usableCitations, metricDefinitionLabel, classifyMarketProfile, PROFILE_CORE_SLOTS,
+  isSignalCardType, usableCitations, metricDefinitionLabel, classifyMarketProfile, PROFILE_CORE_SLOTS, MONEY_METRIC_TYPES,
   type CardWithCompany, type CompanyMetric, type MetricType,
 } from '@mi/contracts';
 import { reportedSupportCitations } from '@mi/research';
@@ -8,6 +8,7 @@ import { reportedSupportCitations } from '@mi/research';
 const LABELS: Record<MetricType, string> = {
   arr: 'ARR', valuation: 'Valuation', market_cap: 'Market cap',
   market_share: 'Market share', users: 'Users', employees: 'Employees', aum: 'AUM',
+  revenue: 'Revenue', funding_total: 'Total raised', last_round: 'Latest round', distribution: 'Distribution',
 };
 const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 
@@ -38,7 +39,25 @@ function frontTitle(value: string): string {
   return firstClause && firstClause.length >= 16 && firstClause.length <= 64 ? firstClause : value;
 }
 
+/** The face label must name the figure actually shown, never the slot's default. */
+function metricTypeLabel(metric: CompanyMetric): string | null {
+  switch (metric.metricType) {
+    case 'revenue': return 'Revenue';
+    case 'funding_total': return 'Total raised';
+    case 'last_round': return 'Latest round';
+    case 'distribution': {
+      const text = `${metric.passageSupport?.quote ?? ''} ${metric.reportedSupport?.support.text ?? ''} ${metric.methodNote ?? ''}`.toLowerCase();
+      if (/\b(?:stockists?|retailers?|retail doors?|doors|stores|retail locations?|points of sale)\b/.test(text)) return 'Stockists';
+      if (/\b(?:countries|country|markets)\b/.test(text)) return 'Countries';
+      return 'Distribution';
+    }
+    default: return null;
+  }
+}
+
 function profileLabel(key: string, metric: CompanyMetric | undefined): string {
+  const typed = metric ? metricTypeLabel(metric) : null;
+  if (typed) return typed;
   if (metric && metricDefinitionLabel(metric)) return metricDefinitionLabel(metric)!;
   if (key === 'employees') return 'Employees';
   if (key === 'aum') return 'AUM';
@@ -124,20 +143,27 @@ export function buildCardView(data: CardWithCompany) {
   const marketProfile = signal || !data.company
     ? 'operating_company'
     : classifyMarketProfile(data.company);
+  const shown = new Set<MetricType>();
   const profileMetrics = signal
     ? []
     : PROFILE_CORE_SLOTS[marketProfile].map((slotTypes) => {
-        const key = slotTypes.length > 1 ? 'company_value'
-          : slotTypes[0] === 'arr' ? 'revenue'
-            : slotTypes[0] === 'aum' ? 'aum'
-              : slotTypes[0] === 'users' ? 'reach' : 'employees';
-        const types = [...slotTypes] as MetricType[];
+        const lead = slotTypes[0];
+        const key = lead === 'arr' ? 'revenue'
+          : lead === 'aum' ? 'aum'
+            : lead === 'users' ? 'reach'
+              : lead === 'employees' ? 'employees' : 'company_value';
+        // Ordered alternatives; a metric row already shown in an earlier slot
+        // (e.g. funding_total in slot 2) is never repeated in a later one.
+        const types = [...slotTypes].filter((type) => !shown.has(type)) as MetricType[];
         const candidates = types.flatMap((type) => metrics.filter((m) => m.metric.metricType === type));
         const confirmed = candidates.find((m) => m.metric.value != null && (
           m.metric.confidence === 'user_verified' ||
           (m.metric.confidence === 'verified' && m.citations.length > 0)
         ));
-        if (confirmed) return { ...confirmed, key, label: profileLabel(key, confirmed.metric) };
+        if (confirmed) {
+          shown.add(confirmed.metric.metricType);
+          return { ...confirmed, key, label: profileLabel(key, confirmed.metric) };
+        }
         // The row was accepted by the full identity-aware gate when written;
         // this recheck validates everything that survives without the retained
         // answer text (subject, basis, units, citations). Re-running the claim
@@ -145,7 +171,10 @@ export function buildCardView(data: CardWithCompany) {
         const reported = candidates.find(m => m.metric.confidence === 'estimated' && data.company &&
           m.metric.reportedSupport != null &&
           reportedSupportCitations(data.company.name, data.company.websiteUrl, m.metric).length > 0);
-        if (reported) return { ...reported, key, label: profileLabel(key, reported.metric), confidence: 'Source reported' };
+        if (reported) {
+          shown.add(reported.metric.metricType);
+          return { ...reported, key, label: profileLabel(key, reported.metric), confidence: 'Source reported' };
+        }
         const estimate = candidates.find((m) => m.metric.value != null);
         if (estimate) {
           return {
@@ -230,7 +259,13 @@ export function sourceUrl(value: string | null | undefined): string | null {
 function displayValue(metric: CompanyMetric): string {
   if (metric.value == null || metric.confidence === 'unknown') return 'Unknown';
   const number = compact.format(metric.value);
-  return ['arr', 'valuation', 'market_cap', 'aum'].includes(metric.metricType) ? `$${number}` :
+  if (metric.metricType === 'distribution') {
+    // Keep the source's "60+" qualifier only when the retained text states it.
+    const text = `${metric.passageSupport?.quote ?? ''} ${metric.reportedSupport?.support.text ?? ''} ${metric.methodNote ?? ''}`;
+    const plus = new RegExp(`(?<![0-9,.])${metric.value.toLocaleString('en-US')}\\s?\\+`).test(text);
+    return plus ? `${number}+` : number;
+  }
+  return MONEY_METRIC_TYPES.includes(metric.metricType) ? `$${number}` :
     metric.metricType === 'market_share' ? `${metric.value.toLocaleString('en-US', { maximumFractionDigits: 1 })}%` : number;
 }
 export type CardView = ReturnType<typeof buildCardView>;

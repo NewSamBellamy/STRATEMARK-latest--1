@@ -19,7 +19,7 @@ const overviewSources = (args: TabResearchArgs, originals: readonly OriginalSour
   const rank = classifySource(source.finalUrl!, 'Original', args.company.websiteUrl);
   return rank === 'primary' || rank === 'reputable_secondary' || rank === 'industry';
 }).slice(0, 4);
-const metricLabels: Record<MetricType, string> = { employees: 'Employees', arr: 'ARR (USD)', users: 'Users', valuation: 'Valuation (USD)', market_cap: 'Market capitalization (USD)', market_share: 'Market share (%)', aum: 'AUM (USD)' };
+const metricLabels: Record<MetricType, string> = { employees: 'Employees', arr: 'ARR (USD)', users: 'Users', valuation: 'Valuation (USD)', market_cap: 'Market capitalization (USD)', market_share: 'Market share (%)', aum: 'AUM (USD)', revenue: 'Revenue (USD)', funding_total: 'Total funding raised (USD)', last_round: 'Latest round (USD)', distribution: 'Distribution (countries or stockists)' };
 
 function scopedReceipts(args: TabResearchArgs, attempts: unknown): OriginalSourceReceipt[] {
   return companyOriginalReceipts(args.company.id, attempts, originalSupportReferences(args.storedMetrics, args.company.id));

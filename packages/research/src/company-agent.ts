@@ -46,6 +46,7 @@ import {
   GROUNDED_SYSTEM,
   STRUCTURE_SYSTEM,
   METRIC_MEASUREMENT_INSTRUCTIONS,
+  CARD_FACTS_REQUEST,
   batchEnrichPrompt,
   enrichPrompt,
   structureEnrichPrompt,
@@ -630,6 +631,7 @@ export async function hydrateCompanyCard(
   const grounded = await client.ground([enrichPrompt(candidate, plan),
     'PROFILE OUTPUT: Give each reported metric its own self-contained sentence naming this company, the precise figure, currency/count/population and source. Include the source reporting date if published; explicitly say undated otherwise. Never substitute retrieval date for a business reporting date. Do not estimate from funding, pricing or headcount. Give a factual company description with its own source. Avoid combining multiple companies or multiple measurements into one sentence.',
     'For each measurement report only the latest source-supported observation, not several historical years in the same sentence. Write plain company-named sentences without field-label prefixes. Find the latest issuer annual report/earnings for annual revenue and employees; do not stop at an older report when a newer issuer report is available. A product subscriber count is not a company-wide user count.',
+    CARD_FACTS_REQUEST,
   ].join('\n\n'), {
     system: GROUNDED_SYSTEM,
     signal: options.signal,
@@ -660,7 +662,7 @@ async function hydrateFromGrounded(
     [structureEnrichPrompt(candidate, grounded.text, grounded.citations),
       'PROVIDER SUPPORT CATALOG (trusted attribution; select from these exact passages and source URLs):',
       JSON.stringify(grounded.grounding?.supports.map(support => ({ supportIndex: support.supportIndex, quote: support.text, sources: support.sources.map(source => ({ sourceUrl: source.url, title: source.title })) })) ?? []),
-      'Every non-null metric MUST include reportedClaim in the metric object. Copy quote EXACTLY from one supported passage above and sourceUrl EXACTLY from that same passage, including an opaque Google redirect when supplied. Never replace the attribution URL with a URL mentioned inside the prose. asOf is the BUSINESS measurement date after as of / fiscal year ended, NOT a date when a report was published or filed; use null when the measurement date is not stated. Annual revenue goes in metrics.arr with basis arr and definition annual_revenue; employees goes in metrics.employees with basis employees and definition employees. Without an eligible supported passage return value null, confidence unknown, reportedClaim null. Do not omit reportedClaim on a numeric metric.',
+      'Every non-null metric MUST include reportedClaim in the metric object. Copy quote EXACTLY from one supported passage above and sourceUrl EXACTLY from that same passage, including an opaque Google redirect when supplied. Never replace the attribution URL with a URL mentioned inside the prose. asOf is the BUSINESS measurement date after as of / fiscal year ended, NOT a date when a report was published or filed; use null when the measurement date is not stated. Annual revenue goes in metrics.arr with basis arr and definition annual_revenue (or, when the source says revenue/sales/turnover for a fiscal year ended on a literal date, metrics.revenue with definition revenue); total funding raised goes in metrics.funding_total, the latest round amount in metrics.last_round (quote must name stage and date), countries sold in OR retail doors/stockists in metrics.distribution (definition equals the metric key; unit USD for money, count for distribution); employees goes in metrics.employees with basis employees and definition employees. Without an eligible supported passage return value null, confidence unknown, reportedClaim null. Do not omit reportedClaim on a numeric metric.',
       'For every metric select reportedClaim: null or {sourceUrl, quote, asOf, basis, unit, definition, periodStart?}. This selects a claim in the grounded answer, not verified original evidence. quote must occur verbatim in that answer and state this company\'s actual measurement and number with USD/$ or count. asOf is YYYY-MM-DD when published, otherwise null (undated); never use retrieval time. periodStart is optional and only included if a literal interval is supplied; absence of a full interval does not cancel annual revenue. basis is the storage key: arr for annual_revenue, users for supported user/customer populations. Set definition to the actual measurement (arr, annual_revenue, users, active_users, monthly_active_users, daily_active_users, customers, paying_customers, employees, valuation or market_cap); do not put downloads, registrations, followers or stars in users. Source-reported claims use confidence estimated and are not verified. No matching support: value null, confidence unknown. Never infer revenue from headcount, prices or funding, annualize monthly revenue, convert annual revenue to ARR, or invent dates. Provider metadata, not your JSON, establishes attribution.',
     ].join('\n\n'),
     enrichmentOutSchema,
@@ -845,6 +847,7 @@ export async function hydrateCompanyCardsBatch(
   const grounded = await client.ground([batchEnrichPrompt(batch.map((entry) => entry.candidate), plan),
     'PROFILE OUTPUT: Keep every company in its own section. Give each reported metric its own self-contained sentence naming that company, the precise figure, currency/count/population and source. Include the source reporting date if published; explicitly say undated otherwise. Never substitute retrieval date for a business reporting date. Do not estimate from funding, pricing or headcount. Give a factual company description with its own source. Avoid combining multiple companies or multiple measurements into one sentence.',
     'For each measurement report only the latest source-supported observation, not several historical years in the same sentence. Write plain company-named sentences without field-label prefixes. Find the latest issuer annual report/earnings for annual revenue and employees; do not stop at an older report when a newer issuer report is available. A product subscriber count is not a company-wide user count.',
+    CARD_FACTS_REQUEST,
   ].join('\n\n'), {
     system: GROUNDED_SYSTEM,
     signal: input.signal,

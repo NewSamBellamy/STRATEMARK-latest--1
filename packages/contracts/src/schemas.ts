@@ -143,7 +143,7 @@ export const metricPassageSupportSchema = z.object({
     'EUR', 'GBP', 'JPY', 'CNY', 'KRW', 'TWD', 'INR', 'CAD', 'AUD', 'CHF', 'HKD', 'SGD', 'SEK', 'NOK', 'DKK', 'BRL', 'MXN']),
   /** basis is the legacy storage slot; definition is the actual measurement. */
   definition: z.enum(['arr', 'annual_revenue', 'users', 'active_users', 'monthly_active_users',
-    'daily_active_users', 'customers', 'paying_customers', 'employees', 'valuation', 'market_cap', 'market_share', 'aum']).optional(),
+    'daily_active_users', 'customers', 'paying_customers', 'employees', 'valuation', 'market_cap', 'market_share', 'aum', 'revenue', 'funding_total', 'last_round', 'distribution']).optional(),
   /** Inclusive annual reporting interval; asOf is its end, not retrieval time. */
   periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   /** Deterministic retained SEC evidence, never generated prose. 'sec-adv' is

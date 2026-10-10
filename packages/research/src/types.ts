@@ -42,6 +42,8 @@ export interface CallMetricsAggregate {
   rateLimitedMs: number;
   /** Ground calls answered by a fallback model line after the primary failed. */
   fallbacks: number;
+  /** Lite-primary answers that came back with zero grounding chunks and were retried once on the next ladder line. */
+  ungroundedRetries?: number;
 }
 
 /** What the user submits from the "New deck" screen. */
