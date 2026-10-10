@@ -53,7 +53,8 @@ export function computeCompanyCompleteness(input: {
     // Filled: any member carries a value at better-than-unknown confidence —
     // the same criterion the living deck's hasCoreGap applies to the card.
     if (slot.some((type) => input.metrics.some((m) =>
-      m.metricType === type && m.value != null && m.confidence !== 'unknown'))) continue;
+      m.metricType === type && ((m.value != null && m.confidence !== 'unknown') ||
+        (type === 'employees' && m.value == null && m.confidence === 'estimated' && m.reportedBand != null))))) continue;
     const rowed = slot.find((type) => input.metrics.some((m) => m.metricType === type));
     // Unknown names the row that exists (the concrete story); absent names the
     // member this profile's hunt would chase first, so the gap points where

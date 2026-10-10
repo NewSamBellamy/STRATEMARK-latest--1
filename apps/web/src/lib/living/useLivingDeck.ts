@@ -8,7 +8,7 @@
  * write-back invalidates exactly the queries it touched so open views update
  * in place.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { isLowPower } from '@/lib/usage';
 import {
@@ -36,6 +36,7 @@ import { qk } from '@/lib/query/keys';
 import { traceAgent } from '@/lib/agentic/agentTrace';
 import { formatMetricValue } from '@/lib/format';
 import { useResearchControl } from './researchControl';
+import { runFaceSweep, selectFaceSweepTargets, type FaceSweepResult } from './faceSweep';
 import {
   LivingDeckRuntime,
   type AgentActivityEvent,
@@ -94,6 +95,10 @@ const VERIFY_SLOT_COOLDOWN_MS = 30 * 60_000;
 const verifyAttempts = new WeakMap<MarketIntelRepository, Map<string, number>>();
 /** Decks whose one-shot market-batch estimated fill already ran (WS5). */
 const batchFilledDecks = new WeakMap<MarketIntelRepository, Set<string>>();
+/** Decks whose automatic post-reveal face sweep already ran this session. */
+const sweptDecks = new WeakMap<MarketIntelRepository, Set<string>>();
+/** Decks with a face sweep in flight (manual and automatic share one run). */
+const sweepsInFlight = new WeakMap<MarketIntelRepository, Map<string, Promise<FaceSweepResult>>>();
 /** Companies whose asset-lane logo fill already ran this session. */
 const assetFilledCompanies = new WeakMap<MarketIntelRepository, Set<string>>();
 
@@ -159,7 +164,10 @@ function hasCoreGap(card: CardWithCompany): boolean {
   // satisfies company value. Estimates with a value belong to verification.
   const slots = CORE_PROFILE_SLOTS[classifyMarketProfile(card.company)];
   return slots
-    .some(types => !metrics.some(m => types.includes(m.metricType) && m.value != null && m.confidence !== 'unknown'));
+    .some(types => !metrics.some(m => types.includes(m.metricType) &&
+      ((m.value != null && m.confidence !== 'unknown') ||
+        // A stated headcount band fills the employees slot (range, not a point).
+        (m.metricType === 'employees' && m.value == null && m.confidence === 'estimated' && m.reportedBand != null))));
 }
 
 export interface LivingDeckState {
@@ -169,6 +177,12 @@ export interface LivingDeckState {
   actionCount: number;
   pause: () => void;
   resume: () => void;
+  /**
+   * "Fill card faces": one targeted grounded pass over every company card with
+   * an empty face slot, concurrency 4, outside the per-session hunt cap and
+   * cooldown. Safe to call repeatedly; a call during a running sweep joins it.
+   */
+  fillCardFaces: () => Promise<FaceSweepResult>;
   /** False on transports with no live research (mock/demo) — prefetch only. */
   canVerify: boolean;
 }
@@ -176,7 +190,9 @@ export interface LivingDeckState {
 export function useLivingDeck(
   deckId: string | undefined,
   cards: CardWithCompany[],
+  options: { /** Automatic post-reveal face sweep; on by default. */ faceSweep?: boolean } = {},
 ): LivingDeckState {
+  const autoFaceSweep = options.faceSweep !== false;
   const repo = useRepository();
   const qc = useQueryClient();
   const [events, setEvents] = useState<AgentActivityEvent[]>([]);
@@ -204,6 +220,45 @@ export function useLivingDeck(
   const canBatchFill = researchAvailable && typeof repo.fillMissingMarketEstimates === 'function';
   const canReuseEvidence = researchAvailable && typeof repo.reuseCompanyEvidence === 'function';
   const canFillAssets = researchAvailable && typeof repo.fillCompanyAssets === 'function';
+
+  const canSweep = researchAvailable && (canHunt || canRecoverFree);
+  const sweepEventId = useRef(0);
+  const pushSweepEvent = useCallback((message: string, companyName: string | null, kind: AgentActivityEvent['kind']) => {
+    sweepEventId.current += 1;
+    const event: AgentActivityEvent = { id: -sweepEventId.current, at: Date.now(), kind, companyName, message };
+    setEvents((prev) => [event, ...prev].slice(0, MAX_FEED_EVENTS));
+  }, []);
+
+  /** The sweep. Joins an in-flight run for the same deck instead of doubling spend. */
+  const fillCardFaces = useCallback(async (): Promise<FaceSweepResult> => {
+    const empty: FaceSweepResult = { targeted: 0, filledCompanies: 0, filledTypes: 0, failed: 0 };
+    if (!deckId || !canSweep) return empty;
+    let running = sweepsInFlight.get(repo);
+    if (!running) { running = new Map(); sweepsInFlight.set(repo, running); }
+    const existing = running.get(deckId);
+    if (existing) return existing;
+    const cards = cardsRef.current;
+    const targets = selectFaceSweepTargets(cards).length;
+    if (targets === 0) return empty;
+    pushSweepEvent(`Filling card faces — ${targets} ${targets === 1 ? 'card has' : 'cards have'} empty slots`, null, 'hunting');
+    const run = runFaceSweep(cards, {
+      repo,
+      shouldStop: () => useResearchControl.getState().paused,
+      onCompany: async (target, outcome) => {
+        await invalidateMetricSurfaces(qc, target.companyId, outcome.filled > 0);
+        pushSweepEvent(outcome.failed
+          ? `Card-face fill did not complete for ${target.companyName}`
+          : outcome.filled > 0
+            ? `Filled ${outcome.filled} card-face ${outcome.filled === 1 ? 'figure' : 'figures'} for ${target.companyName}`
+            : `No sourced card-face figures found for ${target.companyName}`,
+        target.companyName, outcome.failed ? 'error' : outcome.filled > 0 ? 'hunted' : 'checked');
+      },
+    }).finally(() => { running!.delete(deckId); });
+    running.set(deckId, run);
+    return run;
+  }, [deckId, canSweep, repo, qc, pushSweepEvent]);
+  const fillCardFacesRef = useRef(fillCardFaces);
+  fillCardFacesRef.current = fillCardFaces;
 
   // Asset lane, once per company per session: a real logo from the company's
   // own site replaces a guessed favicon. One bounded raw read per page, zero
@@ -512,7 +567,33 @@ export function useLivingDeck(
     syncControl();
     const unsubscribe = useResearchControl.subscribe(syncControl);
 
+    // Automatic face sweep right after reveal: once per deck per session, as
+    // soon as the creation run is no longer active (the same readiness gate
+    // the desks use), unless research is paused or low-power.
+    let sweepTimer: ReturnType<typeof setTimeout> | null = null;
+    let sweepCancelled = false;
+    const autoSweep = async () => {
+      sweepTimer = null;
+      if (sweepCancelled || !canSweep) return;
+      let swept = sweptDecks.get(repo);
+      if (!swept) { swept = new Set(); sweptDecks.set(repo, swept); }
+      if (swept.has(deckId)) return;
+      const blocked = isLowPower() || useResearchControl.getState().paused || await creationIsActive(repo, deckId);
+      if (sweepCancelled) return;
+      if (blocked) { sweepTimer = setTimeout(() => { void autoSweep(); }, 5_000); return; }
+      // Cards may still be streaming into the query cache right after reveal.
+      if (selectFaceSweepTargets(cardsRef.current).length === 0 && cardsRef.current.length === 0) {
+        sweepTimer = setTimeout(() => { void autoSweep(); }, 5_000);
+        return;
+      }
+      swept.add(deckId);
+      void fillCardFacesRef.current().catch(() => { /* faces stay honestly Unknown */ });
+    };
+    if (autoFaceSweep) sweepTimer = setTimeout(() => { void autoSweep(); }, 1_000);
+
     return () => {
+      sweepCancelled = true;
+      if (sweepTimer) clearTimeout(sweepTimer);
       unsubscribe();
       runtime.stop();
       runtimeRef.current = null;
@@ -524,6 +605,7 @@ export function useLivingDeck(
   return {
     events,
     status: paused ? 'paused' : status,
+    fillCardFaces,
     deskCount,
     actionCount,
     // Existing feed consumers use this as the live-research capability flag.

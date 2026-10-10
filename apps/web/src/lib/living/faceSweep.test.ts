@@ -1,0 +1,88 @@
+import { describe, expect, it, vi } from 'vitest';
+import { buildDataset } from '@mi/mocks';
+import type { CardWithCompany, CompanyMetric } from '@mi/contracts';
+import { buildCardView } from '@/features/card/card-view';
+import { FACE_SWEEP_CONCURRENCY, missingFaceSlots, runFaceSweep, selectFaceSweepTargets } from './faceSweep';
+
+const dataset = buildDataset();
+const baseCard = dataset.cards.find((c) => c.cardType === 'company' && c.companyId)!;
+const baseCompany = dataset.companies.find((c) => c.id === baseCard.companyId)!;
+const seed = dataset.metrics.find((m) => m.companyId === baseCompany.id)!;
+const cite = [{ title: 'Reuters', url: 'https://www.reuters.com/x', credibility: 'reputable_secondary' as const }];
+
+function human(companyId: string, metricType: CompanyMetric['metricType'], value: number): CompanyMetric {
+  return { ...seed, id: `${companyId}_${metricType}`, companyId, metricType, value, confidence: 'user_verified', citations: cite, source: cite[0]!.url };
+}
+function deckCard(n: number, metrics: CompanyMetric[]): CardWithCompany {
+  const id = `cmp_sweep_${n}`;
+  return { card: { ...baseCard, id: `card_${n}`, companyId: id },
+    company: { ...baseCompany, id, name: `Sweep Co ${n}`, oneLiner: `Sweep Co ${n} sells skincare.` },
+    metrics: metrics.map((m) => ({ ...m, companyId: id })), viceClaims: [] };
+}
+const full = (n: number) => deckCard(n, [human('x', 'employees', 40), human('x', 'arr', 2e6), human('x', 'users', 900), human('x', 'valuation', 2e7)]);
+
+describe('face sweep selection', () => {
+  it('targets only cards with an empty face slot, most empty first, and names the missing slots', () => {
+    const partial = deckCard(2, [human('x', 'employees', 40), human('x', 'users', 900)]);
+    const empty = deckCard(3, []);
+    const targets = selectFaceSweepTargets([full(1), partial, empty]);
+    expect(targets.map((t) => t.companyName)).toEqual(['Sweep Co 3', 'Sweep Co 2']);
+    expect(targets[1]!.missingSlots).toEqual(['revenue', 'company_value']);
+    expect(targets[0]!.missingSlots).toHaveLength(4);
+    expect(missingFaceSlots(full(1))).toEqual([]);
+  });
+
+  it('counts a stored headcount band as a filled employees slot and shows it as a range', () => {
+    const text = 'Sweep Co 4 has 51 to 100 employees.';
+    const band: CompanyMetric = { ...seed, id: 'band', metricType: 'employees', value: null, confidence: 'estimated', citations: cite,
+      source: cite[0]!.url, methodNote: 'band', passageSupport: null, reportedSupport: null,
+      reportedBand: { provider: 'google-search', companyName: 'Sweep Co 4', basis: 'employees', low: 51, high: 100, unit: 'count', asOf: null,
+        support: { supportIndex: 0, text, sources: [{ chunkIndex: 0, url: cite[0]!.url, title: 'Reuters' }] } } };
+    const card = deckCard(4, [band]);
+    const first = buildCardView(card).profileMetrics[0]!;
+    expect(first).toMatchObject({ display: '51–100', label: 'Employees (range)', confidence: 'Source reported' });
+    expect(first.metric?.value).toBeNull();
+    expect(missingFaceSlots(card)).toEqual(['revenue', 'reach', 'company_value']);
+    // A tampered band (different company) is never shown.
+    const forged = deckCard(4, [{ ...band, reportedBand: { ...band.reportedBand!, companyName: 'Someone Else' } }]);
+    expect(buildCardView(forged).profileMetrics[0]!.display).toBe('Unknown');
+  });
+});
+
+describe('face sweep run', () => {
+  it('asks the hunt for face slots only, once per target, with concurrency 4 and no repeat budget', async () => {
+    const cards = Array.from({ length: 10 }, (_, i) => deckCard(i + 10, []));
+    cards.push(full(99));
+    let active = 0, peak = 0;
+    const huntCompanyMetrics = vi.fn(async (_id: string, _options?: unknown) => {
+      active += 1; peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 5));
+      active -= 1;
+      return { filledTypes: ['employees' as const], metrics: [], retieredCardIds: [] };
+    });
+    const recoverSavedCompanyMetrics = vi.fn(async () => ({ filledTypes: [], metrics: [], retieredCardIds: [] }));
+    const done: string[] = [];
+    const result = await runFaceSweep(cards, { repo: { huntCompanyMetrics, recoverSavedCompanyMetrics }, onCompany: (t) => { done.push(t.companyId); } });
+    expect(FACE_SWEEP_CONCURRENCY).toBe(4);
+    expect(peak).toBe(4);
+    expect(huntCompanyMetrics).toHaveBeenCalledTimes(10);
+    for (const call of huntCompanyMetrics.mock.calls) expect(call[1]).toEqual({ faceSlotsOnly: true });
+    expect(huntCompanyMetrics.mock.calls.map((c) => c[0])).not.toContain('cmp_sweep_99');
+    expect(new Set(done).size).toBe(10);
+    expect(result).toEqual({ targeted: 10, filledCompanies: 10, filledTypes: 10, failed: 0 });
+  });
+
+  it('a failing company is counted and skipped; stop signal halts new work', async () => {
+    const cards = [deckCard(1, []), deckCard(2, []), deckCard(3, [])];
+    const huntCompanyMetrics = vi.fn(async (id: string) => {
+      if (id === 'cmp_sweep_1') throw new Error('provider down');
+      return { filledTypes: [], metrics: [], retieredCardIds: [] };
+    });
+    const result = await runFaceSweep(cards, { repo: { huntCompanyMetrics }, concurrency: 1 });
+    expect(result).toMatchObject({ targeted: 3, failed: 1, filledCompanies: 0 });
+    let stop = false;
+    const stopped = vi.fn(async () => { stop = true; return { filledTypes: [], metrics: [], retieredCardIds: [] }; });
+    await runFaceSweep(cards, { repo: { huntCompanyMetrics: stopped }, concurrency: 1, shouldStop: () => stop });
+    expect(stopped).toHaveBeenCalledTimes(1);
+  });
+});

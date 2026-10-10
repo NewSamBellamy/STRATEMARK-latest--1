@@ -157,8 +157,10 @@ export const CARD_FACTS_REQUEST = [
  * Same wording discipline as CARD_FACTS_REQUEST: one sentence per figure naming
  * the company, the exact figure with its currency, and the date; "not
  * disclosed" for anything no source states; no estimates, no derivations. */
-export function cardFactsHuntRequest(companyName: string, types: readonly MetricType[]): string[] {
+export function cardFactsHuntRequest(companyName: string, types: readonly MetricType[], opts: { faceSweep?: boolean } = {}): string[] {
   const lines: string[] = [];
+  // Face sweep only: small private brands often publish a headcount BAND, not a number.
+  if (opts.faceSweep && types.includes('employees')) lines.push('- headcount: the exact number of employees if a source states one; otherwise the headcount range a source states (e.g. "51 to 100 employees") in a sentence that names the company');
   if (types.includes('revenue')) lines.push('- annual revenue (say which fiscal year ended on which date)');
   if (types.includes('funding_total')) lines.push('- total funding raised to date');
   if (types.includes('last_round')) lines.push('- the latest funding round (amount, stage and date)');

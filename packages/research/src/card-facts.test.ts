@@ -94,8 +94,9 @@ describe.each(reportedCases)('provider-reported gate: $type ($value)', (c) => {
     expect(reportedMetricCitations('Acme', null, reported(c.type, c.value, c.unit, c.ok.replace('Acme', 'Zenith'), c.asOf))).toEqual([]);
   });
   it('rejects an undated sentence, even if the row claims a date', () => {
-    // employees keeps its pre-existing lane rule (undated rows allowed); the new types require a date.
-    if (c.type !== 'employees') expect(reportedMetricCitations('Acme', null, reported(c.type, c.value, c.unit, c.undated, null))).toEqual([]);
+    // employees keeps its pre-existing lane rule (undated rows allowed); distribution may be undated
+    // when the sentence names the company (see face-fill.test.ts); the other card facts require a date.
+    if (c.type !== 'employees' && c.type !== 'distribution') expect(reportedMetricCitations('Acme', null, reported(c.type, c.value, c.unit, c.undated, null))).toEqual([]);
     expect(reportedMetricCitations('Acme', null, reported(c.type, c.value, c.unit, c.undated, c.asOf))).toEqual([]);
   });
   it('rejects a different number and an estimate', () => {

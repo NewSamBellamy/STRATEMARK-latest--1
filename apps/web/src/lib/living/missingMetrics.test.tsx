@@ -42,7 +42,7 @@ it.each(['queued', 'running'] as const)('defers automatic hydration during %s cr
   const job = { status, deck: { id: 'deck' }, catalogNames: s.cards.map(c => c.company!.name) } as ResearchJob;
   const listResearchJobs = vi.fn().mockImplementation(async () => [job]);
   Object.assign(s.repo, { listResearchJobs });
-  const hook = renderHook(({ cards }) => useLivingDeck('deck', cards), {
+  const hook = renderHook(({ cards }) => useLivingDeck('deck', cards, { faceSweep: false }), {
     wrapper: s.wrapper, initialProps: { cards: s.cards.slice(0, 1) },
   });
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
@@ -67,10 +67,10 @@ it('shares readiness reads across remounts and defers on failure without spendin
   const s = await setup();
   const listResearchJobs = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue([]);
   Object.assign(s.repo, { listResearchJobs });
-  const first = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const first = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   first.unmount();
-  const reopened = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const reopened = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   expect(listResearchJobs).toHaveBeenCalledTimes(1);
   expect(s.huntCompanyMetrics).not.toHaveBeenCalled();
@@ -89,7 +89,7 @@ it('honors pause while the asynchronous readiness check is pending', async () =>
     finish = () => resolve([]);
   }));
   Object.assign(s.repo, { listResearchJobs });
-  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   act(() => hook.result.current.pause());
   await act(async () => { finish(); });
@@ -109,7 +109,7 @@ it('defers dashboard prefetch and verification during creation even without a hu
   const verifyMetric = vi.fn();
   Object.assign(s.repo, { huntCompanyMetrics: undefined, verifyMetric,
     listResearchJobs: vi.fn().mockResolvedValue([{ status: 'running', deck: { id: 'deck' } }]) });
-  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(59000); });
   expect(s.getDashboardTab).not.toHaveBeenCalled();
   expect(verifyMetric).not.toHaveBeenCalled();
@@ -120,7 +120,7 @@ it('defers dashboard prefetch and verification during creation even without a hu
 it('ignores creation jobs belonging to another deck', async () => {
   const s = await setup();
   Object.assign(s.repo, { listResearchJobs: vi.fn().mockResolvedValue([{ status: 'running', deck: { id: 'other' } }]) });
-  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
   hook.unmount(); s.client.clear();
@@ -137,7 +137,7 @@ it('ignores a zombie creation job whose record went stale while running', async 
       { status: 'running', deck: { id: 'deck' }, updatedAt: stale },
     ]),
   });
-  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
   hook.unmount(); s.client.clear();
@@ -152,7 +152,7 @@ it('keeps deferring on a fresh running job even when other jobs went stale', asy
       { status: 'running', deck: { id: 'earlier-deck' }, updatedAt: stale },
     ]),
   });
-  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   expect(s.huntCompanyMetrics).not.toHaveBeenCalled();
   hook.unmount(); s.client.clear();
@@ -164,7 +164,7 @@ it('reports in-flight recovery before the hunt resolves', async () => {
   s.huntCompanyMetrics.mockImplementation(() => new Promise(resolve => {
     finish = () => resolve({ filledTypes: [], metrics: [], retieredCardIds: [] });
   }));
-  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
   expect(hook.result.current.events[0]).toMatchObject({ kind: 'hunting', companyName: s.cards[0]!.company!.name });
@@ -178,7 +178,7 @@ it('reports in-flight recovery before the hunt resolves', async () => {
 it('hunts each empty entity once ahead of warming, excluding signals and duplicate desks', async () => {
   const s = await setup(['company', 'infrastructure', 'distribution', 'culture', 'vice', 'insight']);
   const cards = [...s.cards, s.cards[0]!];
-  const hook = renderHook(() => useLivingDeck('deck', cards), { wrapper: s.wrapper });
+  const hook = renderHook(() => useLivingDeck('deck', cards, { faceSweep: false }), { wrapper: s.wrapper });
   expect(hook.result.current.deskCount).toBe(3);
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   // Up to three distinct desks hunt concurrently on the first tick.
@@ -194,13 +194,13 @@ it('hunts each empty entity once ahead of warming, excluding signals and duplica
 it.each(['empty', 'failure'] as const)('does not repeat a %s hunt after rerender, pause/resume, or remount', async outcome => {
   const s = await setup();
   if (outcome === 'failure') s.huntCompanyMetrics.mockRejectedValue(new Error('offline'));
-  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   hook.rerender();
   act(() => hook.result.current.pause()); act(() => hook.result.current.resume());
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   hook.unmount();
-  const reopened = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const reopened = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(180000); });
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
   reopened.unmount(); s.client.clear();
@@ -209,7 +209,7 @@ it.each(['empty', 'failure'] as const)('does not repeat a %s hunt after rerender
 it('escalates an empty hunt after the cooldown and caps the ladder at three attempts', async () => {
   const s = await setup();
   s.huntCompanyMetrics.mockResolvedValue({ filledTypes: [], metrics: [], retieredCardIds: [] });
-  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
   expect(s.huntCompanyMetrics).toHaveBeenLastCalledWith('company-0', undefined);
@@ -234,7 +234,7 @@ it('invalidates real card, saved, metric and dashboard queries after recovery', 
   s.huntCompanyMetrics.mockResolvedValue({ filledTypes: ['employees'], metrics: [], retieredCardIds: ['card-0'] });
   const keys = [qk.cards('deck'), qk.card('card-0'), qk.savedCards, qk.companyMetrics('company-0'), qk.dashboard('company-0', 'overview')];
   keys.forEach(key => s.client.setQueryData(key, []));
-  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   expect(hook.result.current.canVerify).toBe(true); // hunt-only transport is live research
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   keys.forEach(key => expect(s.client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true));
@@ -273,7 +273,7 @@ it('does not fall back to repeated single-metric checks for unresolved core gaps
   const verifyMetric = vi.fn().mockResolvedValue({ metric: s.cards[0]!.metrics[0],
     changed: false, verdict: 'unverified', citations: [] });
   Object.assign(s.repo, { verifyMetric });
-  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(180000); });
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
   expect(verifyMetric).not.toHaveBeenCalled();
@@ -286,7 +286,7 @@ it.each(['paused', 'low power', 'keyless', 'unsupported'] as const)('does not hu
   if (mode === 'low power') vi.spyOn(usage, 'isLowPower').mockReturnValue(true);
   if (mode === 'keyless') vi.stubEnv('VITE_DESKTOP', '1');
   if (mode === 'unsupported') Object.assign(s.repo, { huntCompanyMetrics: undefined });
-  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
   expect(s.huntCompanyMetrics).not.toHaveBeenCalled();
   hook.unmount(); s.client.clear();
@@ -300,7 +300,7 @@ it('accepts market cap as company value but recovers absent or unknown core figu
     metricType, value: 100, confidence: 'user_verified' })); });
   s.cards[1]!.metrics = s.cards[1]!.metrics.filter(m => m.metricType !== 'users');
   s.cards[2]!.metrics = s.cards[2]!.metrics.map(m => m.metricType === 'employees' ? { ...m, value: null, confidence: 'unknown' } : m);
-  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(10500); });
   expect(s.huntCompanyMetrics.mock.calls.map(c => c[0])).toEqual(['company-1', 'company-2']);
   hook.unmount(); s.client.clear();

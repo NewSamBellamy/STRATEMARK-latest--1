@@ -1,7 +1,7 @@
 import { METRIC_TYPES, companyMetricSchema, currentMetricRevision, metricPassageSupportSchema,
   validMetricVerificationValue, isSignalCardType, type CardWithCompany, type Company, type CompanyMetric } from '@mi/contracts';
 import { currencyConversionNote, inspectMetricPassage } from './metric-support';
-import { CARD_FACT_TYPES, reportedStoredCitations } from './reported-metrics';
+import { CARD_FACT_TYPES, reportedBandCitations, reportedStoredCitations } from './reported-metrics';
 import { isOriginalSourceAttempt, originalSupportReferences, selectOriginalSourceAttempts, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceQuery } from './original-source';
 
 /** Read adapter for the existing retained cloud verification ledger. Synthetic
@@ -42,6 +42,13 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
     const current = currentMetricRevision(valid, company.id, type);
     if (!current) return [];
     const metric = current.metric;
+    // A stated headcount BAND has no point value (value stays null); it passes
+    // through only when its stored sentence still passes the band gate.
+    if (!current.ambiguous && type === 'employees' && metric.confidence === 'estimated' && metric.value === null && metric.reportedBand) {
+      const bandCitations = reportedBandCitations(company.name, company.websiteUrl, metric);
+      return bandCitations.length ? [{ ...structuredClone(metric), citations: bandCitations, source: bandCitations[0]!.url,
+        passageSupport: null, reportedSupport: null, lastVerifiedAt: null }] : [];
+    }
     const bounded = validMetricVerificationValue(type, metric.value) &&
       (!['employees', 'users'].includes(type) || Number.isSafeInteger(metric.value));
     if (!current.ambiguous && bounded && metric.confidence === 'user_verified') return [structuredClone(metric)];

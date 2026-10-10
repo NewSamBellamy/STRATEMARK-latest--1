@@ -134,6 +134,8 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                     {formattedDate && <time dateTime={metric!.capturedAt}>Recorded {formattedDate}</time>}
                     {metric?.reportedSupport && <span>{metric.reportedSupport.asOf
                       ? `Figure dated ${metric.reportedSupport.asOf}` : 'Reporting date unavailable'}</span>}
+                    {metric?.reportedBand && <span>{metric.reportedBand.asOf
+                      ? `Range dated ${metric.reportedBand.asOf}` : 'Reporting date unavailable'}</span>}
                   </div>
                 </li>;
               })}

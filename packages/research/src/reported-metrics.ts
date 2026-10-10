@@ -1,4 +1,4 @@
-import { MONEY_METRIC_TYPES, reportedMetricSupportSchema, usableCitations, validMetricVerificationValue,
+import { MONEY_METRIC_TYPES, reportedBandSchema, reportedMetricSupportSchema, usableCitations, validMetricVerificationValue,
   type CompanyMetric, type MetricType, type ReportedMetricSupport } from '@mi/contracts';
 import type { ProviderGrounding } from './types';
 import type { EnrichmentOut } from './schemas';
@@ -399,7 +399,10 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
     (!['arr', 'users'].includes(type) && definition !== type)) return [];
   if (!unitAllowed(type, proof.unit)) return [];
   const cardFact = CARD_FACT_TYPES.includes(type);
-  if (cardFact && !proof.asOf) return [];
+  // Distribution is the one card fact that may be undated ("sold in 60+ countries"):
+  // it still needs the company named beside the figure, enforced by the claim
+  // gates below. Revenue/funding/rounds stay always-dated.
+  if (cardFact && type !== 'distribution' && !proof.asOf) return [];
   const pattern = basisPatterns[definition];
   const citations = usableCitations(proof.support.sources, website ?? undefined);
   const expected = host(website);
@@ -508,7 +511,14 @@ export function reportedSupportCitations(companyName: string, website: string | 
   // stays unknown rather than rendering with authority it never earned.
   if (type === 'users' && !proof.asOf) return [];
 if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its .{0,30}suite|active base of .{0,30}devices)\b/i.test(proof.support.text)) return [];
-  if (CARD_FACT_TYPES.includes(type) && !proof.asOf) return [];
+  if (CARD_FACT_TYPES.includes(type) && type !== 'distribution' && !proof.asOf) return [];
+  // Undated distribution: only when the stored sentence itself names the
+  // company and states the number, since nothing else anchors it in time.
+  if (type === 'distribution' && !proof.asOf && !sentences(proof.support.text).some(raw => {
+    const bare = stripCurrencyConversion(plain(raw));
+    return mentionsCompany(bare, companyName) && !CARD_FACT_SPECULATIVE.test(bare) &&
+      hasNumber(bare, proof.value, proof.unit, definition);
+  })) return [];
   return usableCitations(metric.citations, website ?? undefined);
 }
 
@@ -614,4 +624,82 @@ export function providerCompanySummary(companyName: string, website: string | nu
     if (summary && citations.length) return { summary, citations };
   }
   return null;
+}
+
+
+// ---------------------------------------------------------------------------
+// Headcount BANDS ("51 to 100 employees"). A band is never a point value: the
+// metric row keeps value=null and carries `reportedBand`. Same identity gates
+// as a reported figure (sentence names the company; no rival; no contractors,
+// no regional breakdown, no forward-looking language), estimated confidence.
+// ---------------------------------------------------------------------------
+const BAND_NOUN = String.raw`(?:full[- ]time\s+)?(?:employees|staff|team members|people|workers)`;
+const BAND_AFTER = new RegExp(String.raw`(?<![\d,.$£€])(\d[\d,]*)\s*(?:to|–|—|-)\s*(\d[\d,]*)\s*\+?\s*${BAND_NOUN}\b`, 'gi');
+const BAND_BEFORE = new RegExp(String.raw`\b(?:employees|headcount|staff|workforce|team size)\b[^.\d\n]{0,24}?(?<![\d,.$£€])(\d[\d,]*)\s*(?:to|–|—|-)\s*(\d[\d,]*)(?![\d,]*\s*(?:%|percent|countries|markets|stores|doors|users|customers|million|billion|thousand|years?))`, 'gi');
+const BAND_DISQUALIFIER = /\b(?:including|includes|include)\b[^.!?\n]{0,100}\b(?:contractors?|contract workers?|contingent)\b|\b(?:plans? to|aims? to|expects?|expected|target(?:s|ing)?|projected|will|hiring|open roles?|job openings?|could|might|may)\b|\b(?:based in|in the (?:americas?|emea|apac|us|u\.s\.|europe|uk))\b/i;
+
+/** The single employee band a sentence states, or null. Never one end of a range. */
+export function employeeBandIn(text: string): { low: number; high: number } | null {
+  const found = new Map<string, { low: number; high: number }>();
+  for (const pattern of [BAND_AFTER, BAND_BEFORE]) {
+    for (const match of text.matchAll(new RegExp(pattern.source, 'gi'))) {
+      const low = Number(match[1]!.replace(/,/g, '')), high = Number(match[2]!.replace(/,/g, ''));
+      const year = (n: number) => n >= 1900 && n <= 2100;
+      if (!Number.isSafeInteger(low) || !Number.isSafeInteger(high) || low < 1 || high <= low || high > 5_000_000 ||
+        (year(low) && year(high))) continue;
+      found.set(`${low}-${high}`, { low, high });
+    }
+  }
+  return found.size === 1 ? [...found.values()][0]! : null;
+}
+
+/** Display + write gate for a stored band: schema, subject named in the stored
+ * sentence, the literal band in that sentence, usable citations. */
+export function reportedBandCitations(companyName: string, website: string | null,
+  metric: Pick<CompanyMetric, 'metricType' | 'value' | 'reportedBand' | 'citations'>) {
+  if (metric.metricType !== 'employees' || metric.value !== null) return [];
+  const parsed = reportedBandSchema.safeParse(metric.reportedBand);
+  if (!parsed.success) return [];
+  const band = parsed.data;
+  if (band.companyName !== companyName) return [];
+  const claim = sentences(band.support.text).map(raw => stripCurrencyConversion(plain(raw))).find(sentence => {
+    const found = employeeBandIn(sentence);
+    return found && found.low === band.low && found.high === band.high && mentionsCompany(sentence, companyName) &&
+      !BAND_DISQUALIFIER.test(sentence);
+  });
+  if (!claim) return [];
+  return usableCitations(metric.citations.length ? metric.citations : band.support.sources.map(s => ({ url: s.url, title: s.title })),
+    website ?? undefined);
+}
+
+/** Build an estimated, band-only employees row from a grounded answer. Returns
+ * null when no single, company-named, citable band is stated. */
+export function reportedEmployeeBandRow(input: { companyId: string; companyName: string; website: string | null;
+  text: string; grounding?: ProviderGrounding; capturedAt: string; identity?: ReportedIdentityContext }): CompanyMetric | null {
+  const grounding = input.grounding;
+  if (grounding?.provider !== 'google-search' || grounding.answerText.trim() !== input.text.trim()) return null;
+  const rivals = rivalMatcher(input.companyName, input.identity?.otherCompanies);
+  const bands: Array<{ low: number; high: number; support: ProviderGrounding['supports'][number]; sentence: string }> = [];
+  for (const support of grounding.supports) {
+    if (!grounding.answerText.includes(support.text)) continue;
+    const sentence = stripCurrencyConversion(plainKeepLabel(sentenceAround(support.text, grounding.answerText, support.startIndex)));
+    for (const part of sentences(sentence)) {
+      const band = employeeBandIn(part);
+      if (!band || BAND_DISQUALIFIER.test(part) || !mentionsCompany(part, input.companyName) || (rivals?.test(part) ?? false)) continue;
+      bands.push({ ...band, support, sentence: part });
+    }
+  }
+  if (!bands.length || new Set(bands.map(b => `${b.low}-${b.high}`)).size !== 1) return null;
+  const pick = bands[0]!;
+  const asOf = businessDates(pick.sentence)[0] ?? null;
+  const parsed = reportedBandSchema.safeParse({ provider: 'google-search', companyName: input.companyName, basis: 'employees',
+    low: pick.low, high: pick.high, unit: 'count', asOf, support: structuredClone(pick.support) });
+  if (!parsed.success) return null;
+  const citations = reportedBandCitations(input.companyName, input.website,
+    { metricType: 'employees', value: null, reportedBand: parsed.data, citations: usableCitations(pick.support.sources, input.website ?? undefined) });
+  if (!citations.length) return null;
+  return { id: `met_${input.companyId}_employees_band`, companyId: input.companyId, metricType: 'employees', value: null,
+    confidence: 'estimated', source: citations[0]!.url, citations, reportedBand: parsed.data,
+    methodNote: `Source reported a headcount band of ${pick.low}–${pick.high} employees (${asOf ? `as of ${asOf}` : 'undated; reporting date not published'}); stored as a range, not a point value; provider-grounded, not verified against an original. Source statement: ${JSON.stringify(parsed.data.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}`,
+    capturedAt: input.capturedAt, lastVerifiedAt: null, passageSupport: null, reportedSupport: null };
 }
