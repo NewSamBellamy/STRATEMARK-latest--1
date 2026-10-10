@@ -43,14 +43,17 @@ export function DeckCompletionBanner({ deckId }: { deckId: string | undefined })
     /coverage shortfall|remained below|skipped \d+ results/i.test(warning));
 
   const CoverageList = () => coverage.length > 0 && (
-    <div className="mt-2 w-full space-y-1 border-t border-border pt-2">
-      {coverage.map((warning, index) => (
-        <p key={index} className="flex items-start gap-1.5 text-xs text-muted">
-          <Info className="mt-0.5 h-3 w-3 shrink-0" />
-          {warning}
-        </p>
-      ))}
-    </div>
+    <details className="mt-1 w-full text-xs text-muted">
+      <summary className="cursor-pointer select-none hover:text-content">Coverage notes ({coverage.length})</summary>
+      <div className="mt-1.5 space-y-1">
+        {coverage.map((warning, index) => (
+          <p key={index} className="flex items-start gap-1.5">
+            <Info className="mt-0.5 h-3 w-3 shrink-0" />
+            {warning}
+          </p>
+        ))}
+      </div>
+    </details>
   );
 
   if (job.status === 'completed') {
@@ -60,12 +63,9 @@ export function DeckCompletionBanner({ deckId }: { deckId: string | undefined })
         style={{ borderLeft: '3px solid var(--c-positive, #0F766E)' }}>
         <CheckCircle2 className="h-4 w-4 shrink-0 text-primary-ink" />
         <span className="font-medium text-content">
-          Baseline research complete — {companies} compan{companies === 1 ? 'y' : 'ies'} · finished {finished}.
+          Deck ready — {companies} compan{companies === 1 ? 'y' : 'ies'} · {finished}
         </span>
-        <span className="text-muted">
-          Company desks keep verifying and hunting in the background — figures still marked
-          Estimated or Unknown have open gaps.
-        </span>
+        <span className="text-muted">Cards keep filling in as research verifies more figures.</span>
         <CoverageList />
       </div>
     );
