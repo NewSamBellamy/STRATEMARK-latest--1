@@ -221,7 +221,9 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
       // Part 1 text (bounded pages, early exit) and keep only the deterministic
       // identity + Item 5 slice. The hash covers the whole document.
       if (secAdvCrd(url.href)) {
-        if (type !== 'application/pdf' && !type.includes('pdf')) return { ...receipt, reason: 'ADV report did not return a PDF' };
+        // reports.adviserinfo.sec.gov serves the PDF as application/octet-stream;
+        // the extraction below is the real validation.
+        if (!type.includes('pdf') && type !== 'application/octet-stream') return { ...receipt, reason: 'ADV report did not return a PDF' };
         const fullText = await extractAdvText(response.body);
         const retained = selectSecAdvRetainedText(fullText);
         if (!retained.trim()) return { ...receipt, reason: 'ADV PDF yielded no parsable text' };
@@ -230,15 +232,18 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
       }
       // The official ticker map is 800 KB of rows; retain only the entries the
       // lookup names, hashed against the full document.
-      if (/^https:\/\/www\.sec\.gov\/files\/company_tickers\.json$/.test(url.href)) {
+      if (/^https:\/\/www\.sec\.gov\/files\/company_tickers\.json(\?|$)/.test(url.href)) {
         const lookup = url.searchParams.get('lookup') ?? '';
         if (!lookup) return { ...receipt, reason: 'Ticker-map reads require a lookup name' };
         const slice = selectTickerMapSlice(response.body.toString('utf8'), lookup);
         return { ...receipt, status: 'retrieved', text: slice, truncated: false,
           contentHash: createHash('sha256').update(response.body).digest('hex') };
       }
-      const secJson = type === 'application/json' && Boolean(secRevenueCik(url.href));
-      if ((!['text/html', 'text/plain'].includes(type) && !secJson) ||
+      // JSON APIs are evidence lanes too (IAPD search, XBRL shares, Yahoo
+      // chart): accepted bounded and parse-validated below, like any page.
+      const jsonSource = type === 'application/json';
+      const secConceptJson = jsonSource && Boolean(secRevenueCik(url.href));
+      if ((!['text/html', 'text/plain'].includes(type) && !jsonSource) ||
         (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity')) {
         return { ...receipt, reason: 'Unsupported or oversized source content' };
       }
@@ -247,10 +252,16 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
         /<meta\b(?=[^>]*\bname\s*=\s*["']?(?:robots|googlebot)\b)(?=[^>]*\bcontent\s*=\s*["'][^"']*(?:noarchive|nosnippet))[^>]*>/i.test(body)) {
         return { ...receipt, status: 'blocked', reason: 'Source prohibits retained extracts' };
       }
-      if (secJson) {
+      if (secConceptJson) {
         if (body.length > MAX_SEC_CONCEPT_TEXT) return { ...receipt, reason: 'SEC concept exceeds the retained document limit' };
         try { JSON.parse(body); } catch { return { ...receipt, reason: 'SEC source did not return valid JSON' }; }
         return { ...receipt, status: 'retrieved', format: 'sec-companyconcept', text: body, truncated: false,
+          contentHash: createHash('sha256').update(response.body).digest('hex') };
+      }
+      if (jsonSource) {
+        if (body.length > MAX_SEC_CONCEPT_TEXT) return { ...receipt, reason: 'JSON source exceeds the retained document limit' };
+        try { JSON.parse(body); } catch { return { ...receipt, reason: 'Source did not return valid JSON' }; }
+        return { ...receipt, status: 'retrieved', text: body, truncated: false,
           contentHash: createHash('sha256').update(response.body).digest('hex') };
       }
       const filingDocument = type === 'text/html' && scope?.metricType === 'employees' ? secIndexDocument(body, url) : null;
