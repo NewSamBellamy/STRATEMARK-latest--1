@@ -1,6 +1,7 @@
 import { hasVerificationGradeCitation, usableCitations, validMetricVerificationValue, type Citation, type MetricType, type CompanyMetric } from '@mi/contracts';
 import type { OriginalSourceReceipt } from './original-source';
 import { secFilingHeadcountObservation, secRevenueObservation } from './sec-revenue';
+import { secAdvObservationFor } from './sec-adv';
 import { currencyMentionPattern, describeCurrencyConversion, isConvertibleCurrency, usdPerUnit } from './fx';
 
 export type MetricPassageSupport = NonNullable<CompanyMetric['passageSupport']>;
@@ -62,6 +63,18 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
       proof.asOf === observed.passageSupport.asOf && proof.quote === observed.passageSupport.quote
       ? { citations: observed.citations, reason: null }
       : reject('SEC filing headcount does not match the retained issuer, employee disclosure and reporting date.');
+  }
+  if (proof?.format === 'sec-adv') {
+    // The retained Form ADV PDF report IS the original: the claim must be the
+    // deterministic re-derivation of the retained record, value for value.
+    const observed = secAdvObservationFor(input.metricType, input.companyName,
+      input.originals.filter(source => source.finalUrl === proof.sourceUrl), input.nowMs);
+    return observed && input.value === observed.value &&
+      proof.basis === observed.passageSupport.basis && proof.unit === observed.passageSupport.unit &&
+      proof.definition === observed.passageSupport.definition &&
+      proof.asOf === observed.passageSupport.asOf && proof.quote === observed.passageSupport.quote
+      ? { citations: observed.citations, reason: null }
+      : reject('SEC Form ADV figures must match the retained filing exactly — Item 5.A employees and Item 5.F.(2)(c) regulatory AUM only.');
   }
   if (!proof || !validMetricVerificationValue(input.metricType, input.value) || proof.basis !== input.metricType ||
     !/^\d{4}-\d{2}-\d{2}$/.test(proof.asOf)) return reject('Missing or incompatible claim evidence. Research needs a dated passage for this metric and unit.');

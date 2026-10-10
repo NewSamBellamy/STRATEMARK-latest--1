@@ -47,6 +47,14 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
     if (!current.ambiguous && bounded && metric.confidence === 'user_verified') return [structuredClone(metric)];
     const reportedCitations = !current.ambiguous && bounded && metric.confidence === 'estimated'
       ? reportedMetricCitations(company.name, company.websiteUrl, metric) : [];
+    // A computation from retained sources (the market-cap quote lane) keeps its
+    // own two named citations — both are retained originals; the row's
+    // methodNote labels it a computation, never a reported figure.
+    if (!current.ambiguous && bounded && metric.confidence === 'estimated' && metric.passageSupport === null &&
+      metric.reportedSupport === null && metric.citations.length > 0 && !reportedCitations.length &&
+      metric.citations.every((c) => originals.some((o) => o.finalUrl === c.url || o.requestedUrl === c.url))) {
+      return [structuredClone(metric)];
+    }
     if (reportedCitations.length) return [{ ...structuredClone(metric), citations: reportedCitations,
       source: reportedCitations[0]!.url, passageSupport: null, lastVerifiedAt: null,
       methodNote: `Source reported ${metric.reportedSupport!.definition ?? type} (${metric.reportedSupport!.asOf ? `as of ${metric.reportedSupport!.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original.` }];

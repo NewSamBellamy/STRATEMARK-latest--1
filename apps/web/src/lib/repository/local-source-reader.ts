@@ -1,4 +1,4 @@
-import { isBrowserOriginalSourceSupported, retrieveBrowserOriginalSource } from '@mi/research';
+import { isBrowserOriginalSourceSupported, retrieveBrowserOriginalSource, secAdvCrd } from '@mi/research';
 import type { OriginalSourceReceipt, OriginalSourceScope } from '@mi/research';
 
 export function hasLocalSourceBridge(): boolean {
@@ -22,7 +22,10 @@ export async function readPreviewSource(url: string, scope?: OriginalSourceScope
     reason: 'Local source reader unavailable. No source-backed facts were accepted.',
   };
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  // The official Form ADV PDF download + bounded text extraction takes tens of
+  // seconds; plain page reads stay on the snappy 8s budget.
+  const timeoutMs = secAdvCrd(url) ? 90_000 : 8000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch('/__stratemark/source', {
       method: 'POST', credentials: 'omit', redirect: 'error', cache: 'no-store',

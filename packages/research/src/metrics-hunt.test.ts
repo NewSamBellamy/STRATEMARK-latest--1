@@ -115,7 +115,9 @@ it('keeps annual filing routing for missing workforce even when revenue is alrea
   const result = await repo.huntCompanyMetrics('cmp_1');
   expect(result.filledTypes).toEqual(['employees']);
   expect(read.mock.calls.map(([url]) => url)).toContain(index);
-  expect(read).toHaveBeenCalledTimes(4);
+  // +1: the structured-first quote lane probes the SEC ticker map once for the
+  // missing market_cap before the provider hunt runs.
+  expect(read).toHaveBeenCalledTimes(5);
   expect((await repo.getCompanyFacts('cmp_1')).find(m => m.metricType === 'employees'))
     .toMatchObject({ value: 223000, confidence: 'verified' });
 });
@@ -241,7 +243,8 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
     const result = await repo.huntCompanyMetrics('cmp_1');
     expect(result.filledTypes).toEqual([]);
     expect(structure).not.toHaveBeenCalled();
-    expect(read).toHaveBeenCalledTimes(1);
+    // +1: the structured-first quote lane's ticker-map probe, unavailable here.
+    expect(read).toHaveBeenCalledTimes(2);
     expect(result.metrics.find(m => m.metricType === 'employees')?.value).toBeNull();
     const reopened = new GeminiRepository({ apiKey: 'k', store, client: { ground, structure } as unknown as LlmClient });
     expect((await reopened.getOriginalSourceEvidence({ companyId: 'cmp_1' }))[0]?.receipts[0]?.reason)
@@ -272,7 +275,9 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
     expect(result.filledTypes).toEqual(['employees']);
     expect(ground).toHaveBeenCalledTimes(1);
     expect(structure).toHaveBeenCalledTimes(1);
-    expect(reader).toHaveBeenCalledTimes(1);
+    // +1: the structured-first quote lane's ticker-map probe for the missing
+    // market_cap — it must not change which passages figures come from.
+    expect(reader).toHaveBeenCalledTimes(2);
     const reopened = new GeminiRepository({ apiKey: 'k', store, client });
     const metrics = await reopened.getCompanyMetrics('cmp_1');
     expect(metrics.find(m => m.metricType === 'employees')).toMatchObject({ value: 3500,

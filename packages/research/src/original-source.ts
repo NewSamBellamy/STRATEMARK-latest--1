@@ -1,5 +1,6 @@
 import { classifySource, isRedirectCitation, usableCitations, currentMetricRevision, metricPassageSupportSchema, METRIC_TYPES, type CompanyMetric, type Citation } from '@mi/contracts';
 import { MAX_SEC_CONCEPT_TEXT, secFilingCik, secRevenueSourceUrl, secRevenueCik } from './sec-revenue';
+import { MAX_SEC_ADV_TEXT, secAdvCrd } from './sec-adv';
 
 /** Discovery hints only. Never trust a title, fabricate a URL or accept a fact
  * because a page looks like a financial document. Original gates still apply. */
@@ -101,7 +102,7 @@ export interface OriginalSourceReceipt {
   issuerName?: string;
   truncated?: boolean;
   reason?: string;
-  format?: 'sec-companyconcept' | 'sec-filing';
+  format?: 'sec-companyconcept' | 'sec-filing' | 'sec-adv';
 }
 
 export interface OriginalSourceAttempt {
@@ -133,7 +134,9 @@ export function isOriginalSourceAttempt(value: unknown): value is OriginalSource
               ? Boolean(secRevenueCik(receipt.finalUrl!)) && receipt.truncated !== true && bounded(receipt.text, MAX_SEC_CONCEPT_TEXT)
               : receipt.format === 'sec-filing'
                 ? Boolean(secFilingCik(receipt.finalUrl!)) && bounded(receipt.issuerName, 256) && receipt.truncated !== true && bounded(receipt.text, 4000)
-                : false)
+                : receipt.format === 'sec-adv'
+                  ? Boolean(secAdvCrd(receipt.finalUrl!)) && receipt.truncated !== true && bounded(receipt.text, MAX_SEC_ADV_TEXT)
+                  : false)
         : receipt.text === undefined && receipt.contentHash === undefined;
     });
 }

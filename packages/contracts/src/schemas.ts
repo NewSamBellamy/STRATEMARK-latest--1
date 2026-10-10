@@ -146,8 +146,9 @@ export const metricPassageSupportSchema = z.object({
     'daily_active_users', 'customers', 'paying_customers', 'employees', 'valuation', 'market_cap', 'market_share', 'aum']).optional(),
   /** Inclusive annual reporting interval; asOf is its end, not retrieval time. */
   periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  /** Deterministic retained SEC evidence, never generated prose. */
-  format: z.enum(['sec-companyconcept', 'sec-filing']).optional(),
+  /** Deterministic retained SEC evidence, never generated prose. 'sec-adv' is
+   * the IAPD Form ADV PDF report (Item 5.A employees, Item 5.F regulatory AUM). */
+  format: z.enum(['sec-companyconcept', 'sec-filing', 'sec-adv']).optional(),
 });
 
 /** Provider-attributed reported claim, explicitly NOT original verification. */

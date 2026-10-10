@@ -23,6 +23,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ZodType, ZodTypeDef } from 'zod';
 import { classifyMarketProfile, profileMetricTypes, PROFILE_CORE_SLOTS } from '@mi/contracts';
+import { selectSecAdvRetainedText } from '../sec-adv';
+import { selectTickerMapSlice } from '../market-quote';
 import type { ResearchProgress } from '@mi/contracts';
 import { GeminiRepository, type RepoSnapshot, type ResearchStore } from '../repository';
 import type { CallMetricsAggregate, LlmClient } from '../types';
@@ -109,6 +111,9 @@ function companyClaims(spec: BenchCompanySpec): BenchClaim[] {
 
 export function buildClaimsIndex(market: string): Map<string, { company: string; text: string }> {
   const index = new Map<string, { company: string; text: string }>();
+  // Marker so the mock reader knows which market's canned structured-lane
+  // corpus to serve (the reader is the only consumer of this map).
+  index.set('__market__', { company: market, text: '' });
   for (const spec of BENCH_MARKETS[market]!.companies) {
     const claims = companyClaims(spec);
     // One disclosures page per company carrying every claim sentence — the
@@ -123,19 +128,80 @@ function sha256(text: string): string {
 }
 
 /** Serves the bench corpus as receipts. A hit carries every claim sentence
- * verbatim — the acceptance gates then decide, exactly as with a real page. */
+ * verbatim — the acceptance gates then decide, exactly as with a real page.
+ * The structured-lane endpoints (IAPD search/ADV PDF, Yahoo chart, SEC ticker
+ * map and dei shares) are served from the same canned corpus so the
+ * structured-first lanes measure against the harness too. */
 export function makeMockReader(claims: Map<string, { company: string; text: string }>): (url: string) => Promise<OriginalSourceReceipt> {
+  const market = claims.get('__market__')?.company ?? '';
+  const specs = BENCH_MARKETS[market]?.companies ?? [];
+  const byName = new Map(specs.map((c) => [c.name.toUpperCase(), c]));
+  const crdOf = (spec: BenchCompanySpec): string => String(300_000 + spec.employees % 700_000);
+  const tickerOf = (spec: BenchCompanySpec): string => spec.name.replaceAll(/[^A-Z]/g, '').slice(0, 4) || 'CO';
+  const advRetained = (spec: BenchCompanySpec): string => selectSecAdvRetainedText([
+    '                                                         FORM ADV',
+    'Primary Business Name: ' + spec.name.toUpperCase() + '                    CRD Number: ' + crdOf(spec),
+    '3/30/2026 5:50:59 PM',
+    ' A. Your full legal name (if you are a sole proprietor, your last, first, and middle names):',
+    '        ' + spec.name.toUpperCase() + ' L.P.',
+    ' B. In what month does your fiscal year end each year?',
+    '        DECEMBER',
+    ' A. Approximately how many employees do you have? Include full- and part-time employees but do not include any clerical workers.',
+    '        ' + spec.employees.toLocaleString('en-US'),
+    '(2) If yes, what is the amount of your regulatory assets under management and total number of accounts?',
+    '                    U.S. Dollar Amount                                                   Total Number of Accounts',
+    'Discretionary:      (a) $ 18,000,000,000                                                (d) 40',
+    'Non-Discretionary:  (b) $ 0                                                              (e) 0',
+    'Total:              (c) $ 18,000,000,000                                                (f) 40',
+  ].join('\n'));
+  const sharesJson = (spec: BenchCompanySpec): string => JSON.stringify({
+    cik: Number(crdOf(spec)) % 10_000_000, taxonomy: 'dei', tag: 'EntityCommonStockSharesOutstanding',
+    entityName: spec.name.toUpperCase(),
+    units: { shares: [{ end: '2025-09-27', val: 1_200_000_000, accn: '0000000000-26-000001', fy: 2025, fp: 'FY', form: '10-K', filed: '2025-10-30' }] },
+  });
+  const chartJson = (spec: BenchCompanySpec): string => JSON.stringify({
+    chart: { result: [{ meta: { currency: 'USD', symbol: tickerOf(spec), instrumentType: 'EQUITY',
+      regularMarketTime: 1791576000, regularMarketPrice: 42.5, longName: spec.name, shortName: spec.name } }], error: null },
+  });
   return async (url: string): Promise<OriginalSourceReceipt> => {
+    const serve = (text: string, format?: OriginalSourceReceipt['format']): OriginalSourceReceipt => ({
+      requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200,
+      contentHash: sha256(text), retrievedAt: new Date().toISOString(), text, truncated: false, ...(format ? { format } : {}),
+    });
+    // Structured-lane endpoints are matched before the generic corpus.
+    if (url.startsWith('https://api.adviserinfo.sec.gov/search/firm?')) {
+      const hit = specs.find((c) => url.toLowerCase().includes(encodeURIComponent(c.name).toLowerCase().slice(0, 24)));
+      if (!hit) return serve(JSON.stringify({ hits: { hits: [] } }));
+      return serve(JSON.stringify({ hits: { hits: [{ _source: { firm_source_id: crdOf(hit), firm_name: hit.name.toUpperCase(), firm_other_names: [] } }] } }));
+    }
+    if (/^https:\/\/reports\.adviserinfo\.sec\.gov\/reports\/ADV\/\d+\/PDF\//.test(url)) {
+      const hit = specs.find((c) => url.includes(crdOf(c)));
+      return hit ? serve(advRetained(hit), 'sec-adv') : { requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'No canned ADV record.' };
+    }
+    if (url.startsWith('https://www.sec.gov/files/company_tickers.json')) {
+      const lookup = /lookup=([^&]+)/.exec(url)?.[1] ? decodeURIComponent(/lookup=([^&]+)/.exec(url)![1]!) : '';
+      const mapJson = JSON.stringify(Object.fromEntries(specs.map((c, i) => [String(i), { cik_str: Number(crdOf(c)) % 10_000_000, ticker: tickerOf(c), title: c.name }])));
+      return serve(lookup ? selectTickerMapSlice(mapJson, lookup) : mapJson.slice(0, 3000));
+    }
+    if (/^https:\/\/query1\.finance\.yahoo\.com\/v1\/finance\/search\?/.test(url)) {
+      const query = decodeURIComponent(/q=([^&]+)/.exec(url)?.[1] ?? '');
+      const hit = byName.get(query.toUpperCase());
+      return serve(JSON.stringify({ quotes: hit ? [{ symbol: tickerOf(hit), shortname: hit.name, longname: hit.name, quoteType: 'EQUITY' }] : [] }));
+    }
+    if (/^https:\/\/query1\.finance\.yahoo\.com\/v8\/finance\/chart\//.test(url)) {
+      const hit = specs.find((c) => url.includes(tickerOf(c)));
+      return hit ? serve(chartJson(hit)) : { requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'No canned quote.' };
+    }
+    if (url.includes('/dei/EntityCommonStockSharesOutstanding.json')) {
+      const cik = /CIK(\d+)/.exec(url)?.[1] ?? '';
+      const hit = specs.find((c) => String(Number(crdOf(c)) % 10_000_000) === cik.replace(/^0+/, ''));
+      return hit ? serve(sharesJson(hit), 'sec-companyconcept') : { requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'No canned shares concept.' };
+    }
     const hit = claims.get(url);
     if (!hit) {
       return { requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'Not in the bench corpus.' };
     }
-    return {
-      requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200,
-      contentHash: sha256(hit.text), retrievedAt: new Date().toISOString(),
-      text: `${hit.company} — investor disclosures page. ${hit.text} Filed under periodic reporting.`,
-      truncated: false,
-    };
+    return serve(`${hit.company} — investor disclosures page. ${hit.text} Filed under periodic reporting.`);
   };
 }
 

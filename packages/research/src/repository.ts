@@ -106,6 +106,9 @@ import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvi
 import { searchEvidenceCorpus } from './retrieval';
 import { coalesceOriginalSources, isOriginalSourceAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueObservation, secRevenueVerification } from './sec-revenue';
+import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
+import { marketCapEstimate, secSharesConceptUrl, secTickerMapUrl, yahooChartUrl } from './market-quote';
+import { getSearxngLane } from './searxng';
 import { readCompanyOriginals } from './core-source-coverage';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
@@ -2193,6 +2196,123 @@ export class GeminiRepository implements MarketIntelRepository {
    * `options.escalation ≥ 1` marks a retry after empty earlier passes: the
    * prompt varies its source strategy instead of repeating the same query.
    */
+  /** Structured-first fills (WS1): zero provider calls. The SEC Form ADV lane
+   * covers a financial firm's AUM (Item 5.F) and employees (Item 5.A) as exact
+   * filed figures from the official PDF report; the quote lane covers a public
+   * company's market cap as an honest estimate (share price × filed share
+   * count, both sources named). Every fill rides the same gates and row rules
+   * as the hunt — these lanes skip the search, never the proof. Lane failures
+   * degrade quietly: the provider hunt remains the fallback. */
+  private async fillFromStructuredSources(company: Company, missing: readonly MetricType[]): Promise<MetricType[]> {
+    const sources = this.originalSources;
+    if (!sources) return [];
+    const profile = classifyMarketProfile(company);
+    const nowIso = new Date().toISOString();
+    const filled: MetricType[] = [];
+    const scope = { companyId: company.id, companyName: company.name, metricType: 'metrics_hunt', forceRefresh: true };
+    const rowsFor = (type: MetricType) => this.snap.metrics.filter((m) => m.companyId === company.id && m.metricType === type);
+    // The facts projection re-derives every figure from RETAINED originals —
+    // a structured-lane receipt is evidence exactly like a hunted page, so it
+    // lands in the same ledger.
+    const retain = async (metricType: string, receipts: OriginalSourceReceipt[]): Promise<void> => {
+      for (let index = 0; index < receipts.length; index += 2) {
+        await sources.save({
+          id: `src_struct_${globalThis.crypto.randomUUID()}`,
+          companyId: company.id, metricType, capturedAt: nowIso,
+          receipts: receipts.slice(index, index + 2),
+        });
+      }
+    };
+
+    const advTypes = profile === 'financial_firm' ? missing.filter((t) => t === 'aum' || t === 'employees') : [];
+    if (advTypes.length > 0) {
+      try {
+        const searchReceipt = await sources.retrieve(secAdvSearchUrl(company.name), scope);
+        const match = searchReceipt.status === 'retrieved' && searchReceipt.text ? secAdvFirmMatch(searchReceipt.text, company.name) : null;
+        if (match) {
+          const reportReceipt = await sources.retrieve(secAdvReportUrl(match.crd), { ...scope, metricType: 'sec-adv' });
+          const originals = [searchReceipt, reportReceipt].filter((r) => r.status === 'retrieved' && r.text);
+          await retain('sec-adv', originals);
+          for (const type of advTypes) {
+            const observed = secAdvObservationFor(type, company.name, originals);
+            if (!observed) continue;
+            const supported = acceptedMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl,
+              metricType: type, value: observed.value, support: observed.passageSupport, originals });
+            if (!supported.length) continue;
+            const current = currentMetricRevision(rowsFor(type), company.id, type);
+            if (current?.ambiguous) continue;
+            let metric = current?.metric;
+            if (metric?.confidence === 'user_verified' || metric?.confidence === 'verified') continue;
+            if (!metric) {
+              metric = {
+                id: `met_struct_${Date.now().toString(36)}_${type}`,
+                companyId: company.id, metricType: type, value: null, confidence: 'unknown',
+                source: null, citations: [], methodNote: null, capturedAt: nowIso,
+              };
+              this.snap.metrics.push(metric);
+            }
+            metric.value = normalizeMetricToUsd(type, observed.value, observed.passageSupport.unit);
+            metric.confidence = 'verified';
+            metric.passageSupport = observed.passageSupport;
+            metric.citations = observed.citations;
+            metric.source = observed.citations[0]?.url ?? metric.source;
+            metric.methodNote = observed.methodNote;
+            metric.capturedAt = nowIso;
+            Object.assign(metric, markVerified(metric, nowIso));
+            filled.push(type);
+          }
+        }
+      } catch { /* the hunt ladder is the fallback, not a failure */ }
+    }
+
+    if (missing.includes('market_cap')) {
+      try {
+        const mapReceipt = await sources.retrieve(`${secTickerMapUrl()}?lookup=${encodeURIComponent(company.name)}`,
+          { ...scope, metricType: 'market_cap' });
+        const parsed = mapReceipt.status === 'retrieved' && mapReceipt.text
+          ? JSON.parse(mapReceipt.text) as { matches?: Array<{ cik: string; ticker: string; title: string }> }
+          : null;
+        const match = parsed?.matches?.length === 1 ? parsed.matches[0] : null;
+        if (match) {
+          const [chartReceipt, sharesReceipt] = await Promise.all([
+            sources.retrieve(yahooChartUrl(match.ticker), { ...scope, metricType: 'market_cap' }),
+            sources.retrieve(secSharesConceptUrl(match.cik), { ...scope, metricType: 'market_cap' }),
+          ]);
+          await retain('market_cap', [mapReceipt, chartReceipt, sharesReceipt].filter((r) => r.status === 'retrieved' && r.text));
+          const estimate = marketCapEstimate(company.name, [chartReceipt, sharesReceipt], match.title);
+          if (estimate) {
+            const current = currentMetricRevision(rowsFor('market_cap'), company.id, 'market_cap');
+            const existing = current?.metric;
+            if (!current?.ambiguous && existing?.confidence !== 'user_verified' && existing?.confidence !== 'verified') {
+              const row = existing ?? {
+                id: `met_struct_${Date.now().toString(36)}_market_cap`,
+                companyId: company.id, metricType: 'market_cap' as const, value: null,
+                confidence: 'unknown' as const, source: null, citations: [] as Citation[], methodNote: null,
+                capturedAt: nowIso,
+              };
+              if (!existing) this.snap.metrics.push(row);
+              row.value = estimate.value;
+              row.confidence = 'estimated';
+              row.passageSupport = null;
+              row.citations = estimate.citations;
+              row.source = estimate.citations[0]?.url ?? null;
+              row.methodNote = estimate.methodNote;
+              row.capturedAt = nowIso;
+              filled.push('market_cap');
+            }
+          }
+        }
+      } catch { /* the hunt ladder is the fallback, not a failure */ }
+    }
+
+    if (filled.length > 0) {
+      this.snap.dashboards[company.id] = {};
+      await this.persist();
+      this.retierCompany(company.id, 'Re-tiered after a structured-lane fill.');
+    }
+    return filled;
+  }
+
   async huntCompanyMetrics(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company) throw new Error(`Company not found: ${companyId}`);
@@ -2221,6 +2341,23 @@ export class GeminiRepository implements MarketIntelRepository {
       return { filledTypes: [], metrics: mine(), retieredCardIds: [] };
     }
 
+    // Structured lanes go first: a financial firm's AUM is one HTTP call to
+    // the official Form ADV filing, not a grounded search ladder, and a public
+    // company's market cap is a quote times a filed share count. Whatever
+    // these lanes fill honestly never reaches the provider; the hunt below
+    // only asks for what is still missing.
+    let structuredFilled: MetricType[] = [];
+    if (this.originalSources) {
+      structuredFilled = await this.fillFromStructuredSources(company, softTypes);
+      if (structuredFilled.length > 0) {
+        const remaining = softTypes.filter((t) => !structuredFilled.includes(t));
+        if (remaining.length === 0) {
+          return { filledTypes: structuredFilled, metrics: mine(), retieredCardIds: [] };
+        }
+        softTypes.splice(0, softTypes.length, ...remaining);
+      }
+    }
+
     const wanted = softTypes.map((t) => `- ${METRIC_TYPE_LABELS[t]}`).join('\n');
     const escalation = Math.max(0, Math.floor(options?.escalation ?? 0));
     // Prior originals supply fetch leads, never current proof. Keep retries
@@ -2231,7 +2368,19 @@ export class GeminiRepository implements MarketIntelRepository {
           .map(receipt => ({ url: receipt.finalUrl!, title: 'Previously retrieved original (recheck required)' }))) : [];
     const needsAnnualFiling = softTypes.includes('arr') || softTypes.includes('employees');
     const priorTargets = selectOriginalSourceCitations(priorLeads, company.websiteUrl, needsAnnualFiling, this.originalSources?.supports);
-    const g = await this.client.ground(
+    // Free discovery first (WS3): a local SearXNG, when present, answers the
+    // hunt's search without spending provider quota. Its result URLs face the
+    // same original-read + passage gates as grounded citations; absent or
+    // broken, the Gemini grounded lane runs exactly as before.
+    const searxng = await getSearxngLane();
+    const g = searxng
+      ? await searxng.discover([
+          company.name,
+          ...softTypes.map((t) => METRIC_TYPE_LABELS[t]),
+          ...(profile === 'financial_firm' ? ['assets under management Form ADV'] : []),
+          ...(escalation > 0 ? ['regulatory filing disclosure'] : []),
+        ].join(' '))
+      : await this.client.ground(
       [
         `Find the most current, reliable figures for these metrics of ${company.name}:`,
         wanted,
@@ -2368,7 +2517,7 @@ export class GeminiRepository implements MarketIntelRepository {
         });
       }
     }
-    return { filledTypes, metrics: mine(), retieredCardIds };
+    return { filledTypes: [...structuredFilled, ...filledTypes], metrics: mine(), retieredCardIds };
   }
 
   /** Free offline recovery: re-project retained company_profile evidence through
