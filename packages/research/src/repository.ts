@@ -86,7 +86,7 @@ import {
   type ResearchResult,
 } from './pipeline';
 import type { CompanyCandidate, MarketPlan } from './types';
-import { hydrateCompanyCard } from './company-agent';
+import { hydrateCompanyCard, hydrateCompanyCardsBatch, type HydrateCompanyCardResult } from './company-agent';
 import { latestSavedCompanyProfile } from './saved-profile';
 import { reportedCompanyMetrics } from './reported-metrics';
 import { businessDates } from './reported-metrics';
@@ -120,6 +120,9 @@ import { resolveCompanyLogo, type CompanyLogo } from './assets';
  * hung summary tail held a job 'running' for 13+ minutes with zero provider
  * activity while the deck was already rendered). */
 const JOB_STALL_MS = 8 * 60_000;
+/** The hydration-time logo is a gstatic favicon guess, not company art. The
+ * asset lane (and only the asset lane, or the user) replaces it. */
+const GUESSED_LOGO_RE = /^https:\/\/t2\.gstatic\.com\/faviconV2/;
 import { readCompanyOriginals } from './core-source-coverage';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
@@ -348,6 +351,14 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   originalSourceReader?: (url: string, scope?: OriginalSourceScope) => Promise<OriginalSourceReceipt>;
   /** Optional preflight so unsupported leads do not consume the reader's bounded page budget. */
   originalSourceSupports?: (url: string) => boolean;
+  /** RAW-HTML reader for the asset lane (real logos over favicon guesses).
+   * Browser transports pass the local-source bridge reader; without it the
+   * lane is honestly unavailable and the favicon fallback stands. */
+  assetSourceReader?: (url: string) => Promise<OriginalSourceReceipt>;
+  /** Creation-phase cohort sizes for batched hydration (grounded passes).
+   * Defaults 5/3 (first cohorts dispatch immediately for lead-card latency). */
+  hydrationBatchMax?: number;
+  hydrationFirstBatchMax?: number;
 }
 
 export class GeminiRepository implements MarketIntelRepository {
@@ -362,6 +373,9 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly catalogMax?: number;
   private readonly catalogPasses?: number;
   private readonly originalSources?: OriginalSourceServices;
+  private readonly assetSourceReader?: (url: string) => Promise<OriginalSourceReceipt>;
+  private readonly hydrationBatchMax?: number;
+  private readonly hydrationFirstBatchMax?: number;
   private readonly jobControllers = new Map<string, AbortController>();
   private readonly activeBackgroundJobs = new Map<string, Promise<void>>();
   /** Stall watchdogs per research job — see watchJobForStall. */
@@ -380,6 +394,9 @@ export class GeminiRepository implements MarketIntelRepository {
     this.catalogMax = options.catalogMax;
     this.catalogPasses = options.catalogPasses;
     this.originalSources = options.originalSources;
+    this.assetSourceReader = options.assetSourceReader;
+    this.hydrationBatchMax = options.hydrationBatchMax;
+    this.hydrationFirstBatchMax = options.hydrationFirstBatchMax;
     // Migrate on load, not on demand. A snapshot written by an older build is
     // brought forward once, here, so nothing downstream has to reason about
     // which format it is looking at.
@@ -852,7 +869,7 @@ export class GeminiRepository implements MarketIntelRepository {
     // forever — invisible to the research grid and unreachable by healing.
     const HYDRATION_RETRIES = 2;
     const HYDRATION_RETRY_BACKOFF_MS = 45_000;
-    const stubQueue: Array<{ stub: CardWithCompany; candidate: CompanyCandidate; attempts: number }> = [];
+    const stubQueue: Array<{ stub: CardWithCompany; candidate: CompanyCandidate; attempts: number; solo?: boolean }> = [];
     const admitted: Array<{ stub: CardWithCompany; candidate: CompanyCandidate }> = [];
     let discoveryDone = false;
 
@@ -865,6 +882,29 @@ export class GeminiRepository implements MarketIntelRepository {
       rejectLeadCardReady = reject;
     });
 
+    // Structured-lane + asset prewarm: the moment a stub streams in, its
+    // free lanes start filling (market cap via quote lane, AUM/headcount via
+    // Form ADV, real logo from the company's own site). These are network
+    // reads with ZERO provider calls, so they land figures on cards while
+    // the model passes are still running instead of waiting for the fill
+    // phase. Serialized through a chain to stay polite to SEC/Yahoo.
+    const prewarmedCompanies = new Set<string>();
+    let lanePrewarmChain: Promise<void> = Promise.resolve();
+    const prewarmStubLanes = (company: Company) => {
+      if (!company?.id || prewarmedCompanies.has(company.id)) return;
+      prewarmedCompanies.add(company.id);
+      lanePrewarmChain = lanePrewarmChain.then(async () => {
+        if (controller.signal.aborted) return;
+        try {
+          await this.fillFromStructuredSources(company, ['market_cap', 'aum', 'employees']);
+        } catch { /* the hunt ladder remains the fallback, not a failure */ }
+        if (controller.signal.aborted || !this.assetSourceReader) return;
+        try {
+          await this.fillCompanyAssets(company.id, this.assetSourceReader);
+        } catch { /* favicon fallback stands */ }
+      }).catch(() => { /* prewarm never blocks the run */ });
+    };
+
     const ingestStreamedStub = (stub: CardWithCompany) => {
       if (!stub.company) return;
       const existingIdx = this.snap.companies.findIndex((c) => c.id === stub.company!.id);
@@ -876,16 +916,26 @@ export class GeminiRepository implements MarketIntelRepository {
         ...this.snap.metrics.filter((m) => m.companyId !== stub.company!.id),
         ...stub.metrics,
       ];
+      prewarmStubLanes(stub.company);
     };
 
-    const hydrateOne = async (candidate: CompanyCandidate, stub: CardWithCompany, attempts = 0) => {
+    // Order companies finished hydrating — the dashboard warm-up track serves
+    // them in this order (lead first, then the rest as the user reads).
+    const hydratedOrder: string[] = [];
+
+    const hydrateOne = async (
+      candidate: CompanyCandidate,
+      stub: CardWithCompany,
+      attempts = 0,
+      precomputed?: HydrateCompanyCardResult,
+    ) => {
       throwIfAborted(controller.signal);
       if (!stub.company) return;
       const companyStartedAt = Date.now();
       try {
         const plan = interpreted?.plan;
         if (!plan) throw new Error('Research plan was not streamed before hydration started.');
-        const hydrated = await hydrateCompanyCard({
+        const hydrated = precomputed ?? await hydrateCompanyCard({
           originalSources: this.originalSources,
           recoverMissingMetrics: true,
           candidate,
@@ -899,6 +949,7 @@ export class GeminiRepository implements MarketIntelRepository {
           // re-projects with the complete roster after the deck lands.
           otherCompanies: rosterNames.filter((name) => name !== candidate.name),
         });
+        if (!hydratedOrder.includes(hydrated.company.id)) hydratedOrder.push(hydrated.company.id);
         hydratedCount += 1;
         await checkpoint({
           type: 'status',
@@ -912,6 +963,12 @@ export class GeminiRepository implements MarketIntelRepository {
         // in an older deck must retain its identity and evidence links.
         const coIdx = this.snap.companies.findIndex((c) => c.id === hydrated.company.id);
         if (coIdx >= 0) {
+          const prior = this.snap.companies[coIdx]!;
+          // A logo the asset lane already resolved (or a user upload) is real
+          // art with a source URL; the hydration favicon is a guess. Real wins.
+          if (prior.logoUrl && !GUESSED_LOGO_RE.test(prior.logoUrl)) {
+            hydrated.company.logoUrl = prior.logoUrl;
+          }
           this.snap.companies[coIdx] = hydrated.company;
         } else {
           this.snap.companies.push(hydrated.company);
@@ -1075,15 +1132,100 @@ export class GeminiRepository implements MarketIntelRepository {
       }
     };
 
+    // Batch-taking workers: the grounded search pass is the long call, so the
+    // queue is drained in cohorts (one grounded pass per cohort) instead of
+    // one desk at a time. The first cohorts dispatch immediately — lead-card
+    // latency beats call count — while later cohorts coalesce briefly so
+    // streaming stubs batch up. Live math: an 18-company deck drops from 18
+    // grounded passes to ~6.
+    const HYDRATION_BATCH_MAX = Math.max(1, this.hydrationBatchMax ?? 5);
+    const FIRST_BATCH_MAX = Math.max(1, this.hydrationFirstBatchMax ?? 3);
+    const COALESCE_MS = 3_000;
+    let batchesTaken = 0;
+    const requeueEntry = async (
+      entry: { stub: CardWithCompany; candidate: CompanyCandidate; attempts: number; solo?: boolean },
+      error: unknown,
+      solo = false,
+    ) => {
+      if (entry.attempts < HYDRATION_RETRIES) {
+        // A cohort that already failed once retries solo: if batching was the
+        // problem (over-broad search, thin sections), single hydration still
+        // lands the desk; if the key is rate-limited, single passes drain too.
+        stubQueue.push({ ...entry, attempts: entry.attempts + 1, solo: solo || entry.solo });
+        await checkpoint({
+          type: 'status',
+          step: 'enrich',
+          message: `Retrying ${entry.candidate.name} after a failed research pass (attempt ${entry.attempts + 2} of ${HYDRATION_RETRIES + 1}).`,
+        });
+        return true;
+      }
+      await checkpoint({
+        type: 'warning',
+        message: `Could not enrich ${entry.candidate.name}; preserving the rest of the deck. ${error instanceof Error ? error.message : 'Research failed.'}`,
+      });
+      return false;
+    };
+
     const runHydrationWorker = async () => {
       for (;;) {
-        const next = stubQueue.shift();
-        if (!next) {
+        const first = stubQueue.shift();
+        if (!first) {
           if (discoveryDone) return;
           await new Promise((r) => setTimeout(r, 50));
           continue;
         }
-        await hydrateOne(next.candidate, next.stub, next.attempts);
+        const batchMax = first.solo ? 1 : batchesTaken === 0 ? FIRST_BATCH_MAX : HYDRATION_BATCH_MAX;
+        const batch = [first];
+        // First cohorts dispatch immediately; later ones coalesce to batch up.
+        const coalesceDeadline = batchesTaken === 0 ? 0 : Date.now() + COALESCE_MS;
+        while (batch.length < batchMax) {
+          const next = stubQueue.shift();
+          if (next) {
+            // Same-name candidates would collide in the batch result map;
+            // defer this one to a later cohort. Put it back at the FRONT and
+            // stop coalescing — re-pushing to the end and re-shifting it here
+            // would spin forever on a queue holding only that item.
+            if (!batch.some((entry) => entry.candidate.name === next.candidate.name)) {
+              batch.push(next);
+              continue;
+            }
+            stubQueue.unshift(next);
+            break;
+          }
+          if (discoveryDone || Date.now() >= coalesceDeadline) break;
+          await new Promise((r) => setTimeout(r, 150));
+        }
+        batchesTaken += 1;
+        if (batch.length === 1) {
+          await hydrateOne(first.candidate, first.stub, first.attempts);
+          continue;
+        }
+        try {
+          const plan = interpreted?.plan;
+          if (!plan) throw new Error('Research plan was not streamed before hydration started.');
+          const hydratedBatch = batch.filter((entry) => entry.stub.company);
+          const results = await hydrateCompanyCardsBatch({
+            batch: hydratedBatch.map(({ stub, candidate }) => ({ candidate, companyId: stub.company?.id })),
+            client: this.client,
+            plan,
+            originalSources: this.originalSources,
+            recoverMissingMetrics: true,
+            deckId: first.stub.card.deckId,
+            signal: controller.signal,
+            otherCompanies: [...rosterNames],
+          });
+          for (const entry of hydratedBatch) {
+            const precomputed = results.get(entry.candidate.name);
+            if (precomputed) await hydrateOne(entry.candidate, entry.stub, entry.attempts, precomputed);
+            else await requeueEntry(entry, new Error('Cohort extraction did not return this company.'));
+          }
+        } catch (error) {
+          if (controller.signal.aborted) throw error;
+          // Cohort-level failure: back the whole batch off once inside this
+          // worker, then requeue for single hydration.
+          for (const entry of batch) await requeueEntry(entry, error, true);
+          await new Promise((resolve) => setTimeout(resolve, HYDRATION_RETRY_BACKOFF_MS));
+        }
       }
     };
     const hydrationWorkers = Array.from({ length: this.concurrency ?? 3 }, () => runHydrationWorker());
@@ -1262,10 +1404,6 @@ export class GeminiRepository implements MarketIntelRepository {
                 ),
               );
             }
-            // Core card evidence has priority over speculative dashboard work.
-            // Dashboard tabs research on demand when a user opens them; the
-            // in-flight dedupe on getDashboardTab keeps concurrent tab opens
-            // to a single research pass each.
           })(),
 
           // Track 2: Background Macro Signals (BarrierToEntryAgent, MarketInsightAgent).
@@ -1324,6 +1462,29 @@ export class GeminiRepository implements MarketIntelRepository {
             }
           })(),
         ]);
+
+        // Track 3: Dashboard warm-up — runs OUTSIDE the completion gate so it
+        // can never hold the job 'running' (that was the zombie freeze). The
+        // lead company's overview researches right after the lead card lands
+        // (it is the first screen the user clicks); the rest of the roster
+        // warms after the core research drains. getDashboardTab's in-flight
+        // dedupe means a user click during warm-up joins the same pass.
+        void (async () => {
+          try {
+            await leadCardReady;
+            const leadCompanyId = hydratedOrder[0];
+            if (leadCompanyId && !controller.signal.aborted) {
+              await this.getDashboardTab(leadCompanyId, 'overview').catch(() => undefined);
+            }
+            // The rest wait for core card evidence — dashboards never compete
+            // with the hydration pool for model slots.
+            await Promise.all(hydrationWorkers);
+            for (const companyId of hydratedOrder) {
+              if (controller.signal.aborted) return;
+              await this.getDashboardTab(companyId, 'overview').catch(() => undefined);
+            }
+          } catch { /* dashboards remain on-demand */ }
+        })();
 
         // Deterministic base tiers & review across whole deck
         const deckCards = this.snap.cards.filter(
@@ -2903,8 +3064,7 @@ export class GeminiRepository implements MarketIntelRepository {
   ): Promise<{ logo: CompanyLogo | null }> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company?.websiteUrl) return { logo: null };
-    const guessed = !company.logoUrl ||
-      /^https:\/\/t2\.gstatic\.com\/faviconV2/.test(company.logoUrl);
+    const guessed = !company.logoUrl || GUESSED_LOGO_RE.test(company.logoUrl);
     if (!guessed) return { logo: null };
     // One read per URL per call: retention reuses the exact receipt the
     // resolution ladder already fetched.

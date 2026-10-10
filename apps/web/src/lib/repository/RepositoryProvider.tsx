@@ -13,7 +13,7 @@ import type { MarketIntelRepository } from '@mi/contracts';
 import { MockRepository, type SeedSnapshot } from '@mi/mocks';
 import sampleSnapshot from '@/sample/frontier-snapshot.json';
 import { GeminiRepository, type ResearchStore } from '@mi/research';
-import { readPreviewSource, supportsPreviewSource } from './local-source-reader';
+import { readAssetSource, readPreviewSource, supportsPreviewSource } from './local-source-reader';
 import { previewGeminiFetch } from './local-gemini-fetch';
 import { IpcRepository, isElectron } from './ipc-repository';
 import { SentinelRepository } from './SentinelRepository';
@@ -60,6 +60,8 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       store,
       originalSourceReader: readPreviewSource,
       originalSourceSupports: supportsPreviewSource,
+      // RAW-HTML lane for real company logos at stub time (creation prewarm).
+      assetSourceReader: readAssetSource,
       targetCompanies,
       concurrency: 3,
       // Count every request locally so the user can see their free-tier headroom.

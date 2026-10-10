@@ -579,14 +579,74 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
     return { read: () => s, write: (snap) => (s = snap) };
   }
 
-  it('finishes deck research without launching hidden dashboard work', async () => {
+  it('warms the lead company overview at lead-ready and finishes the job without waiting for dashboards', async () => {
     const repo = new GeminiRepository({ apiKey: 'x', client: fakeClient(),
       coverage: testCoverage, catalogMax: 3, catalogPasses: 0, store: memStore() });
     const dashboard = vi.spyOn(repo, 'getDashboardTab');
-    await repo.createResearchedDeck({ prompt: 'test', region: 'CA' });
+    const { deck } = await repo.createResearchedDeck({ prompt: 'test', region: 'CA' });
+    // Dashboard warm-up (Track 3) starts when the lead card lands — the first
+    // screen the user clicks hydrates before the deck is even revealed.
+    await vi.waitFor(() => expect(dashboard).toHaveBeenCalledWith(expect.any(String), 'overview'));
     await repo.waitForBackgroundJobs();
-    expect(dashboard).not.toHaveBeenCalled();
+    // The warm-up track runs OUTSIDE the completion gate: the job reports
+    // completed while later dashboards may still be warming.
+    const job = (await repo.listResearchJobs()).find((j) => j.deck?.id === deck.id);
+    expect(job?.status).toBe('completed');
+    // Every warm-up target is a hydrated company card of this deck.
+    const cardIds = new Set((await repo.listCards(deck.id)).map((entry) => entry.company?.id));
+    for (const call of dashboard.mock.calls) {
+      expect(cardIds.has(call[0] as string)).toBe(true);
+    }
   });
+
+  it('hydrates the roster in cohorts — fewer grounded passes than companies', async () => {
+    let snapshot: RepoSnapshot | null = null;
+    const client = fakeClient(false);
+    const repo = new GeminiRepository({ apiKey: 'x', client, coverage: testCoverage,
+      catalogMax: 3, catalogPasses: 0, concurrency: 2,
+      store: { read: () => snapshot, write: (next) => { snapshot = next; } } });
+    const { deck } = await repo.createResearchedDeck({ prompt: 'test', region: 'CA' });
+    await repo.waitForBackgroundJobs();
+    const entities = (await repo.listCards(deck.id)).filter((entry) => entry.company &&
+      ['company', 'infrastructure', 'distribution'].includes(entry.card.cardType));
+    expect(entities.length).toBeGreaterThanOrEqual(3);
+    const groundPrompts = (client.ground as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0] as string);
+    const batchPasses = groundPrompts.filter((p) => p.includes('Research EACH of the following'));
+    const singlePasses = groundPrompts.filter((p) => p.startsWith('Research the company "'));
+    // Cohort batching actually engaged: at least one multi-company grounded
+    // pass, and strictly fewer grounded passes than hydrated desks.
+    expect(batchPasses.length).toBeGreaterThanOrEqual(1);
+    expect(batchPasses.length + singlePasses.length).toBeLessThan(entities.length);
+    // A batch prompt lists each cohort member under its own header.
+    const batchHeaders = batchPasses.join('\n').match(/### /g)?.length ?? 0;
+    expect(batchHeaders).toBeGreaterThanOrEqual(2);
+  }, 20000);
+
+  it('prewarms real logos at stub time and hydration never clobbers them with favicon guesses', async () => {
+    let snapshot: RepoSnapshot | null = null;
+    const repo = new GeminiRepository({ apiKey: 'x', client: fakeClient(false), coverage: testCoverage,
+      catalogMax: 3, catalogPasses: 0,
+      store: { read: () => snapshot, write: (next) => { snapshot = next; } },
+      originalSourceReader: async (url) => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'no lane' }),
+      // RAW-HTML asset lane: every company's site declares an SVG mark.
+      assetSourceReader: async (url) => ({
+        requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200,
+        retrievedAt: new Date().toISOString(), contentHash: 'b'.repeat(64),
+        text: '<link rel="icon" type="image/svg+xml" href="/static/mark.svg">',
+      }),
+    });
+    const { deck } = await repo.createResearchedDeck({ prompt: 'test', region: 'CA' });
+    await repo.waitForBackgroundJobs();
+    const entries = (await repo.listCards(deck.id)).filter((entry) => entry.company &&
+      entry.card.cardType === 'company');
+    expect(entries.length).toBeGreaterThanOrEqual(3);
+    for (const entry of entries) {
+      const logo = entry.company!.logoUrl ?? '';
+      expect(logo.startsWith('https://t2.gstatic.com/faviconV2')).toBe(false);
+      expect(logo.endsWith('/static/mark.svg')).toBe(true);
+    }
+  }, 20000);
 
   it('starts hydrating the first entity while fallback discovery passes are still running', async () => {
     // Slice 2c pin: discovery streams each pass's selected entities as stubs;
@@ -1534,6 +1594,11 @@ describe('Progressive Fast-Boot & Continual Background Research Architecture', (
       catalogMax: 3,
       catalogPasses: 0,
       store,
+      // The wait-contract choreography keys on per-company grounded prompts;
+      // batch of 1 keeps that shape while cohort batching is covered by the
+      // dedicated tests above.
+      hydrationBatchMax: 1,
+      hydrationFirstBatchMax: 1,
     });
 
     const refreshEvents: DeckRefreshEvent[] = [];

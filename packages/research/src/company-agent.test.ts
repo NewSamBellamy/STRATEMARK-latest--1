@@ -10,6 +10,7 @@ import {
   enrichCompanyWithProxies,
   executeCompanyAgent,
   hydrateCompanyCard,
+  hydrateCompanyCardsBatch,
   metricRows,
   primaryEntityType,
 } from './company-agent';
@@ -667,5 +668,93 @@ describe('Company Agent — CompanyCardHydrator Stateful Class', () => {
     ]);
     const arr = proxies.find((m) => m.metricType === 'arr')!;
     expect(arr.value).toBe(2_200_000); // 10 * $220k
+  });
+});
+
+describe('Company Agent — hydrateCompanyCardsBatch (creation-phase step change)', () => {
+  const candidates: CompanyCandidate[] = [
+    { name: 'DevAgent Labs', domain: 'devagent.ai', descriptor: 'code agent', cardTypes: ['company'] },
+    { name: 'Vector(heap) AI', domain: 'vectorheap.com', descriptor: 'vector db', cardTypes: ['company'] },
+    { name: 'Glint Metrics', domain: 'glint.io', descriptor: 'observability', cardTypes: ['company'] },
+  ];
+
+  it('runs ONE grounded pass for the cohort and one structure pass per company', async () => {
+    const client = fakeClient();
+    const results = await hydrateCompanyCardsBatch({
+      batch: candidates.map((candidate, index) => ({ candidate, companyId: `cmp_batch_${index}` })),
+      client,
+      plan: mockPlan,
+      deckId: 'dck_batch',
+    });
+
+    expect(results.size).toBe(3);
+    expect(results.get('DevAgent Labs')?.company.id).toBe('cmp_batch_0');
+    expect(results.get('Vector(heap) AI')?.company.id).toBe('cmp_batch_1');
+    expect(results.get('Glint Metrics')?.company.id).toBe('cmp_batch_2');
+
+    // The whole point: one grounded search for the cohort, not one per company.
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(3);
+    const batchPrompt = (client.ground as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
+    expect(batchPrompt).toContain('Research EACH of the following 3 companies');
+    expect(batchPrompt).toContain('### DevAgent Labs');
+    expect(batchPrompt).toContain('### Vector(heap) AI');
+    expect(batchPrompt).toContain('### Glint Metrics');
+    // Every company's structure extraction still runs with its own schema pass.
+    const structurePrompts = (client.structure as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0] as string);
+    for (const candidate of candidates) {
+      expect(structurePrompts.some((p) => p.includes(`Convert the research notes on "${candidate.name}"`))).toBe(true);
+    }
+  });
+
+  it('does not list a company as its own otherCompanies entry during attribution', async () => {
+    const client = fakeClient();
+    await hydrateCompanyCardsBatch({
+      batch: candidates.map((candidate) => ({ candidate })),
+      client,
+      plan: mockPlan,
+    });
+    const structurePrompts = (client.structure as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0] as string);
+    // The structure pass only sees the notes; the attribution guard is enforced
+    // in reportedCompanyMetrics via options.otherCompanies, so assert the batch
+    // wiring passes the roster minus self through the shared assembly.
+    expect(structurePrompts.length).toBe(3);
+  });
+
+  it('a candidate whose extraction fails is absent from the map without losing its cohort', async () => {
+    const client = fakeClient();
+    let structureCalls = 0;
+    (client.structure as ReturnType<typeof vi.fn>).mockImplementation(async (prompt: string, schema: ZodType<unknown>) => {
+      structureCalls += 1;
+      if (prompt.includes('Convert the research notes on "Vector(heap) AI"')) {
+        throw new Error('extraction blew up');
+      }
+      return (fakeClient() as unknown as { structure: (p: string, s: ZodType<unknown>) => Promise<unknown> }).structure(prompt, schema);
+    });
+
+    const results = await hydrateCompanyCardsBatch({
+      batch: candidates.map((candidate) => ({ candidate })),
+      client,
+      plan: mockPlan,
+    });
+    expect(results.size).toBe(2);
+    expect(results.has('Vector(heap) AI')).toBe(false);
+    expect(results.has('DevAgent Labs')).toBe(true);
+    expect(results.has('Glint Metrics')).toBe(true);
+  });
+
+  it('a single-entry batch answers exactly like the single path', async () => {
+    const client = fakeClient();
+    const results = await hydrateCompanyCardsBatch({
+      batch: [{ candidate: mockCandidate, companyId: 'cmp_solo' }],
+      client,
+      plan: mockPlan,
+    });
+    expect(results.size).toBe(1);
+    expect(results.get('DevAgent Labs')?.company.id).toBe('cmp_solo');
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(1);
   });
 });

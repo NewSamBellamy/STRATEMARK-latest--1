@@ -46,6 +46,7 @@ import {
   GROUNDED_SYSTEM,
   STRUCTURE_SYSTEM,
   METRIC_MEASUREMENT_INSTRUCTIONS,
+  batchEnrichPrompt,
   enrichPrompt,
   structureEnrichPrompt,
 } from './prompts';
@@ -131,6 +132,14 @@ export interface HydrateCompanyCardOptions {
 
 export interface HydrateCompanyCardInput extends HydrateCompanyCardOptions {
   candidate: CompanyCandidate;
+  client: LlmClient;
+  plan: MarketPlan;
+}
+
+/** Cohort hydration: the batch entries carry their stable company ids (stub
+ * ids) because the deck ingests stubs before this pass runs. */
+export interface HydrateCompanyBatchInput extends HydrateCompanyCardOptions {
+  batch: Array<{ candidate: CompanyCandidate; companyId?: string }>;
   client: LlmClient;
   plan: MarketPlan;
 }
@@ -627,6 +636,22 @@ export async function hydrateCompanyCard(
     researchContext: { companyId, companyName: candidate.name, topic: 'company_profile' },
   });
 
+  return hydrateFromGrounded(candidate, client, grounded, options, companyId);
+}
+
+/** Shared assembly: structure extraction + card/memory construction from an
+ * ALREADY-grounded research answer. Both the single-company pass and the
+ * batched cohort pass (one grounded search for N companies) funnel through
+ * here, so schema gates, provenance and identity guards are identical. */
+async function hydrateFromGrounded(
+  candidate: CompanyCandidate,
+  client: LlmClient,
+  grounded: Awaited<ReturnType<LlmClient['ground']>>,
+  options: HydrateCompanyCardOptions,
+  resolvedCompanyId?: string,
+): Promise<HydrateCompanyCardResult> {
+  const slug = slugify(candidate.name);
+  const companyId = resolvedCompanyId ?? options.companyId ?? options.existingMemory?.companyId ?? uid('cmp', slug);
   throwIfAborted(options.signal);
 
   const officialWebsite = candidate.domain ? `https://${candidate.domain}` : null;
@@ -783,6 +808,68 @@ export async function hydrateCompanyCard(
     cultureNote: cultureNote ?? null,
     memory,
   };
+}
+
+/**
+ * Batched hydration — the creation-phase step change.
+ *
+ * ONE grounded search pass covers the whole cohort (each company in its own
+ * `### name` section), then per-company structure extraction runs over the
+ * shared notes. Everything downstream of grounding (schema gates, provenance,
+ * identity attribution, CMS, memory) is the exact single-company assembly, so
+ * an honest batch answer and an honest single answer are indistinguishable to
+ * the deck.
+ *
+ * Latency: a grounded pass is the ~40-90s call; per-company grounding made an
+ * 18-company deck spend its whole run in hydration. Batching divides the
+ * grounded-pass count by the cohort size; structure calls are cheap in
+ * comparison and run concurrently here.
+ *
+ * Failure surface: a cohort-level failure (the grounded pass throws) rejects —
+ * the caller requeues those candidates for single hydration. A candidate whose
+ * structure/assembly fails is simply absent from the returned map; the caller
+ * detects the gap and requeues only that candidate. Never fabricated.
+ */
+export async function hydrateCompanyCardsBatch(
+  input: HydrateCompanyBatchInput,
+): Promise<Map<string, HydrateCompanyCardResult>> {
+  const { batch, client, plan } = input;
+  if (batch.length === 0) return new Map();
+  if (batch.length === 1) {
+    const { candidate, companyId } = batch[0]!;
+    const result = await hydrateCompanyCard({ ...input, candidate, companyId });
+    return new Map([[result.candidate.name, result]]);
+  }
+  throwIfAborted(input.signal);
+
+  const grounded = await client.ground([batchEnrichPrompt(batch.map((entry) => entry.candidate), plan),
+    'PROFILE OUTPUT: Keep every company in its own section. Give each reported metric its own self-contained sentence naming that company, the precise figure, currency/count/population and source. Include the source reporting date if published; explicitly say undated otherwise. Never substitute retrieval date for a business reporting date. Do not estimate from funding, pricing or headcount. Give a factual company description with its own source. Avoid combining multiple companies or multiple measurements into one sentence.',
+    'For each measurement report only the latest source-supported observation, not several historical years in the same sentence. Write plain company-named sentences without field-label prefixes. Find the latest issuer annual report/earnings for annual revenue and employees; do not stop at an older report when a newer issuer report is available. A product subscriber count is not a company-wide user count.',
+  ].join('\n\n'), {
+    system: GROUNDED_SYSTEM,
+    signal: input.signal,
+    researchContext: { companyName: batch.map((entry) => entry.candidate.name).join(' + '), topic: 'company_profile' },
+  });
+
+  // Per-company extraction over the shared batch notes. otherCompanies at this
+  // level is the full known roster; each candidate's own assembly must not see
+  // itself listed as another company, or named-claim attribution degrades.
+  // One candidate's extraction failing must not discard its cohort-mates'
+  // finished work: failures requeue individually at the caller.
+  const settled = await Promise.all(batch.map(async ({ candidate, companyId }) => {
+    try {
+      const result = await hydrateFromGrounded(candidate, client, grounded, {
+        ...input,
+        companyId,
+        otherCompanies: (input.otherCompanies ?? []).filter((name) => name !== candidate.name),
+      });
+      return [candidate.name, result] as const;
+    } catch (error) {
+      if (input.signal?.aborted) throw error;
+      return null;
+    }
+  }));
+  return new Map(settled.filter((row): row is readonly [string, HydrateCompanyCardResult] => row !== null));
 }
 
 /** Supplementary bounded original verification, deliberately outside first-card

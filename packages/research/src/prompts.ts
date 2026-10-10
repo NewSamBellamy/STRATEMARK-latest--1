@@ -165,6 +165,49 @@ export function enrichPrompt(candidate: CompanyCandidate, plan: MarketPlan): str
     .join('\n');
 }
 
+/** Batch enrichment: ONE grounded search pass covers a small cohort of
+ * companies, each in its own clearly-delimited section. Latency math from the
+ * live benchmark: per-company grounding is 2 calls × ~40s per desk, which made
+ * an 18-company deck spend ~6 minutes in hydration alone. Batching keeps the
+ * per-company output contract (sections + per-fact sentences) while dividing
+ * the grounded-pass count by the cohort size; per-company structure extraction
+ * still runs individually so schemas and identity guards are unchanged. */
+export function batchEnrichPrompt(candidates: CompanyCandidate[], plan: MarketPlan): string {
+  return [
+    `Research EACH of the following ${candidates.length} companies independently, in the context of the market: ${plan.marketName}.`,
+    `Give every company its own section, and start each section with EXACTLY this header on its own line:`,
+    ...candidates.map((candidate) => `### ${candidate.name}`),
+    ``,
+    `Under each header report, with sources:`,
+    `- a one-line description of what it does`,
+    `- HQ location (city, region/country)`,
+    `- official website`,
+    `- market share (as a % of the market, if reported)`,
+    `- valuation (if private) OR market cap (if public) — whichever applies`,
+    `- annual revenue for any business when reported; ARR only when the source explicitly describes recurring revenue; preserve the exact basis and as-of date`,
+    `- number of users/customers`,
+    `- number of employees`,
+    `- the brand's primary colors (hex) from its website if visible`,
+    ``,
+    `Search priorities per company:`,
+    ...candidates.map((candidate) => {
+      const extras = [
+        candidate.cardTypes.includes('vice') ? 'lawsuits/controversy (each MUST have a source)' : '',
+        candidate.cardTypes.includes('culture') ? 'notable positive community/culture signals (giving, non-profit ties)' : '',
+      ].filter(Boolean);
+      return `- "${candidate.name}": ${companySourceTargets(candidate.domain)}${extras.length ? ` Also: ${extras.join('; ')}.` : ''}`;
+    }),
+    ``,
+    `Keep every finding inside its own company's section, and keep every sentence about exactly one company. Report only figures stated by sources, each with its actual measurement, source and reporting date when published. If no reporting date is disclosed, say undated; never use retrieval time. If a figure is not disclosed, leave it unknown. Do not derive revenue, valuation or user counts from funding, headcount, pricing, installs or other proxy anchors. Do not fabricate numbers.`,
+    ``,
+    `MEASUREMENT BASIS — CRITICAL: all financial figures (revenue/ARR, valuation, market cap, employees) must describe the WHOLE LEGAL COMPANY, even when the market's topic is one of its divisions. For a conglomerate like Alphabet or Meta appearing in an AI-focused market, report Alphabet's total revenue and market cap — NEVER a silent estimate of just the AI division's revenue. If sources only discuss a division figure, report the whole-company figure from broader sources and mention the division context in the method note. Mixing whole-company and division figures under the same label is how a deck ends up claiming a $4T company has $1.3B revenue.`,
+    ``,
+    `COMPANIES:`,
+    ...candidates.map((candidate, index) =>
+      `${index + 1}. "${candidate.name}"${candidate.domain ? ` (${candidate.domain})` : ''}${candidate.descriptor ? ` — ${candidate.descriptor}` : ''}`),
+  ].join('\n');
+}
+
 export function structureEnrichPrompt(
   candidate: CompanyCandidate,
   groundedText: string,
