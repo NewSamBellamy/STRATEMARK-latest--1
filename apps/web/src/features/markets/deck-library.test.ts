@@ -9,8 +9,18 @@ import {
   sortDecks,
 } from './deck-library';
 
-const metric = (metricType: string, value: number | null, confidence = 'estimated') =>
-  ({ metricType, value, confidence }) as never;
+const metric = (metricType: string, value: number | null, confidence = 'verified') =>
+  ({
+    id: metricType,
+    companyId: 'a',
+    metricType,
+    value,
+    confidence,
+    source: value == null ? null : 'https://www.reuters.com/x',
+    citations: value == null ? [] : [{ title: 'reuters.com', url: 'https://www.reuters.com/x' }],
+    methodNote: null,
+    capturedAt: '2026-01-01T00:00:00Z',
+  }) as never;
 const card = (id: string, metrics: unknown[], cardType = 'company', logoUrl: string | null = null) =>
   ({
     card: { id, companyId: cardType === 'company' ? id : null, cardType },
@@ -32,15 +42,19 @@ describe('computeCoverage', () => {
     expect(computeCoverage([]).percent).toBeNull();
     expect(computeCoverage([card('s', [metric('users', 5)], 'insight')]).percent).toBeNull();
   });
-  it('counts slots once, ignoring unknown and null values', () => {
+  it('matches the card face: 4 adaptive slots, honesty gates applied', () => {
     const c = card('a', [
-      metric('market_cap', 10),
-      metric('valuation', 20), // same slot as market_cap
-      metric('employees', 100),
-      metric('users', null, 'unknown'),
-      metric('arr', 0, 'unknown'),
+      metric('employees', 100), // slot 1, verified + cited
+      metric('valuation', 20), // slot 4
+      metric('market_cap', 10), // same slot as valuation, not counted twice
+      metric('users', null, 'unknown'), // unknown: unfilled
+      metric('arr', 5, 'estimated'), // estimated without reportedSupport: not shown
     ]);
-    expect(computeCoverage([c])).toEqual({ filled: 2, total: 5, percent: 40 });
+    expect(computeCoverage([c])).toEqual({ filled: 2, total: 4, percent: 50 });
+  });
+  it('does not count a verified figure that has no citation', () => {
+    const bare = { ...(metric('employees', 100) as object), citations: [], source: null } as never;
+    expect(computeCoverage([card('a', [bare])]).filled).toBe(0);
   });
 });
 

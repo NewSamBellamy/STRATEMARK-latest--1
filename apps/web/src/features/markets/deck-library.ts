@@ -3,16 +3,11 @@
  * Everything here is derived from stored data. Nothing is estimated or
  * imputed; a slot with no usable value counts as unfilled, never as zero.
  */
-import type { CardWithCompany, Market, MetricType } from '@mi/contracts';
+import type { CardWithCompany, Market } from '@mi/contracts';
+import { buildCardView } from '@/features/card/card-view';
 
-/** Face-of-card figure slots; a slot is filled by any one of its metric types. */
-export const FACE_SLOTS: readonly (readonly MetricType[])[] = [
-  ['market_cap', 'valuation', 'aum'],
-  ['arr', 'revenue'],
-  ['employees'],
-  ['users'],
-  ['market_share'],
-];
+/** Slots on every card face (PROFILE_CORE_SLOTS has four per profile). */
+export const FACE_SLOT_COUNT = 4;
 
 const ENTITY_TYPES = new Set(['company', 'infrastructure', 'distribution']);
 
@@ -27,19 +22,21 @@ function isEntity(c: CardWithCompany): boolean {
   return c.card.companyId != null && ENTITY_TYPES.has(c.card.cardType);
 }
 
-/** Number of face slots with a real (non-null, non-unknown) value on one card. */
+/**
+ * Face slots showing a real value on one card. Delegates to buildCardView, the
+ * same projection the card face uses, so honesty gates (verified needs a
+ * citation, estimated needs passing reportedSupport) apply identically.
+ */
 export function filledSlots(c: CardWithCompany): number {
-  return FACE_SLOTS.filter((types) =>
-    c.metrics.some(
-      (m) => types.includes(m.metricType) && m.value != null && m.confidence !== 'unknown',
-    ),
-  ).length;
+  const view = buildCardView(c);
+  if (view.signal) return 0;
+  return view.profileMetrics.filter((slot) => slot.metric?.value != null).length;
 }
 
-/** Share of entity-card face slots that hold a real figure. Signal cards are excluded. */
+/** Share of entity-card face slots (4 per card) that show a real figure. */
 export function computeCoverage(cards: readonly CardWithCompany[]): Coverage {
   const entities = cards.filter(isEntity);
-  const total = entities.length * FACE_SLOTS.length;
+  const total = entities.length * FACE_SLOT_COUNT;
   if (total === 0) return { filled: 0, total: 0, percent: null };
   const filled = entities.reduce((n, c) => n + filledSlots(c), 0);
   return { filled, total, percent: Math.round((filled / total) * 100) };
