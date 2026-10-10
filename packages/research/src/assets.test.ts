@@ -24,14 +24,13 @@ function readFrom(pages: Record<string, string>) {
 }
 
 describe('resolveCompanyLogo', () => {
-  it('prefers a declared SVG over og:logo and an .ico link', async () => {
+  it('prefers a declared SVG favicon over an .ico link', async () => {
     const read = readFrom({
       [HOME]: `<link rel="shortcut icon" href="/favicon.ico" sizes="any">
-        <meta property="og:logo" content="https://cdn.acme.example/og.png">
         <link rel="icon" type="image/svg+xml" href="/static/mark.svg">`,
     });
     expect(await resolveCompanyLogo('https://acme.example', read)).toEqual({
-      kind: 'logo', url: 'https://acme.example/static/mark.svg', sourceUrl: HOME, retrievedAt: AT,
+      kind: 'logo', url: 'https://acme.example/static/mark.svg', sourceUrl: HOME, retrievedAt: AT, via: 'favicon',
     });
   });
 
@@ -51,26 +50,29 @@ describe('resolveCompanyLogo', () => {
     expect(reversed?.url).toBe('https://acme.example/img/og.png');
   });
 
-  it('ranks any declared icon link (step 1) above og:logo (step 2)', async () => {
+  it('ranks og:logo above a favicon and never takes an .ico of unknowable size', async () => {
     const read = readFrom({
       [HOME]: `<meta property="og:logo" content="/img/og.png">
         <link rel="shortcut icon" href="/favicon.ico">`,
     });
-    expect((await resolveCompanyLogo('https://acme.example', read))?.url).toBe('https://acme.example/favicon.ico');
+    expect((await resolveCompanyLogo('https://acme.example', read))?.url).toBe('https://acme.example/img/og.png');
   });
 
-  it('ranks rasters by declared size and defaults apple-touch-icons to 180px', async () => {
-    const sized = await resolveCompanyLogo('https://acme.example', readFrom({
+  it('ranks apple-touch-icon (default 180px) above favicons and rejects <64px rasters', async () => {
+    const apple = await resolveCompanyLogo('https://acme.example', readFrom({
       [HOME]: `<link rel="icon" type="image/png" sizes="32x32" href="/fav-32.png">
         <link rel="apple-touch-icon" href="/apple.png">
         <link rel="icon" type="image/png" sizes="192x192" href="/fav-192.png">`,
     }));
-    expect(sized?.url).toBe('https://acme.example/fav-192.png');
-    const apple = await resolveCompanyLogo('https://acme.example', readFrom({
-      [HOME]: `<link rel="icon" type="image/png" sizes="32x32" href="/fav-32.png">
-        <link rel="apple-touch-icon" href="/apple.png">`,
-    }));
     expect(apple?.url).toBe('https://acme.example/apple.png');
+    const big = await resolveCompanyLogo('https://acme.example', readFrom({
+      [HOME]: `<link rel="icon" type="image/png" sizes="32x32" href="/fav-32.png">
+        <link rel="icon" type="image/png" sizes="192x192" href="/fav-192.png">`,
+    }));
+    expect(big?.url).toBe('https://acme.example/fav-192.png');
+    expect(await resolveCompanyLogo('https://acme.example', readFrom({
+      [HOME]: '<link rel="icon" type="image/png" sizes="32x32" href="/fav-32.png">',
+    }))).toBeNull();
   });
 
   it('resolves relative and protocol-relative hrefs against the fetched page', async () => {
@@ -86,19 +88,15 @@ describe('resolveCompanyLogo', () => {
   it('skips data: URI icons in favor of a real declared one', async () => {
     const read = readFrom({
       [HOME]: `<link rel="icon" href="data:image/png;base64,AAAA">
-        <link rel="icon" href="/real.png">`,
+        <link rel="icon" sizes="128x128" href="/real.png">`,
     });
     expect((await resolveCompanyLogo('https://acme.example', read))?.url).toBe('https://acme.example/real.png');
   });
 
-  it('uses the root favicon only when a read proves it exists', async () => {
-    const verified = readFrom({ [HOME]: '<html><body>plain</body></html>', 'https://acme.example/favicon.ico': 'bytes' });
-    expect(await resolveCompanyLogo('https://acme.example', verified)).toEqual({
-      kind: 'logo', url: 'https://acme.example/favicon.ico', sourceUrl: HOME, retrievedAt: AT,
-    });
-    const absent = readFrom({ [HOME]: '<html><body>plain</body></html>' });
-    expect(await resolveCompanyLogo('https://acme.example', absent)).toBeNull();
-    expect(absent).toHaveBeenCalledWith('https://acme.example/favicon.ico');
+  it('does not guess /favicon.ico — an unseen icon is an honest null', async () => {
+    const read = readFrom({ [HOME]: '<html><body>plain</body></html>', 'https://acme.example/favicon.ico': 'bytes' });
+    expect(await resolveCompanyLogo('https://acme.example', read)).toBeNull();
+    expect(read).not.toHaveBeenCalledWith('https://acme.example/favicon.ico');
   });
 
   it('returns null honestly when the site never answers', async () => {

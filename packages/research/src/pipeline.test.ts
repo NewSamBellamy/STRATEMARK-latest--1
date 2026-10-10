@@ -636,8 +636,11 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
         text: '<link rel="icon" type="image/svg+xml" href="/static/mark.svg">',
       }),
     });
+    // Offline: the Wikidata rung must not reach the real network from a unit test.
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
     const { deck } = await repo.createResearchedDeck({ prompt: 'test', region: 'CA' });
     await repo.waitForBackgroundJobs();
+    vi.unstubAllGlobals();
     const entries = (await repo.listCards(deck.id)).filter((entry) => entry.company &&
       entry.card.cardType === 'company');
     expect(entries.length).toBeGreaterThanOrEqual(3);

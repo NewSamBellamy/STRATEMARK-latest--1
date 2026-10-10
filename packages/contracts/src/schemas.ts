@@ -109,6 +109,8 @@ export const brandThemeSchema = z.object({
   background: z.string(),
   fontFamily: z.string().nullable(),
   source: z.enum(['scraped', 'llm', 'manual', 'default']),
+  /** Which extraction signal supplied a scraped primary (theme-color, css-vars, logo-svg, ...). */
+  signal: z.string().optional(),
 });
 
 export const companySchema = z.object({
