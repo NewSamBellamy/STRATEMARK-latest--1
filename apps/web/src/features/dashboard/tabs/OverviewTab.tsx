@@ -1,17 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, ExternalLink, MapPin } from 'lucide-react';
+import { ArrowRight, ExternalLink } from 'lucide-react';
 import type { CompanyMetric } from '@mi/contracts';
-import { useCompany, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
-import { useRepository } from '@/lib/repository/RepositoryProvider';
+import { useCompanyMetrics, useDashboardTab } from '@/hooks/data';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { ErrorState } from '@/components/states/ErrorState';
 import { cn } from '@/lib/cn';
 import { formatMetricValue } from '@/lib/format';
 import { METRIC_COLORS } from '@/lib/theme';
-import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
-import { AiCover } from '@/components/media/AiCover';
 import { HydratingPanel } from './HydratingPanel';
 import {
   barPercent,
@@ -214,46 +210,6 @@ function PositionBlock({ companyId, metrics }: { companyId: string; metrics: Com
 // ---- Archive passages ------------------------------------------------------
 
 /** From the deck's own research archive, retrieved locally (free, no web call). */
-function FromArchive({ companyId }: { companyId: string }) {
-  const repo = useRepository();
-  const enabled = typeof repo.searchResearchCorpus === 'function';
-  const query = useQuery({
-    queryKey: ['corpus', 'what-matters', companyId],
-    queryFn: async () => (await repo.searchResearchCorpus!({
-      query: 'market position competition momentum risks headwinds outlook customers',
-      companyIds: [companyId], limit: 3,
-    })) ?? [],
-    enabled,
-    staleTime: 60_000,
-  });
-  const passages = query.data ?? [];
-  if (!enabled || (query.isSuccess && passages.length === 0)) return null;
-  return (
-    <Section title="From the research archive" label="What matters" hint="Retrieved from this deck’s saved evidence.">
-      {query.isLoading && <p className="text-sm text-muted">Searching the research archive…</p>}
-      <div className="grid gap-3 md:grid-cols-3">
-        {passages.map((passage) => (
-          <article key={passage.evidenceId} className="panel-2 p-4">
-            <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted">
-              {passage.topic} · {passage.capturedAt.slice(0, 10)}
-            </p>
-            <p className="text-sm leading-relaxed text-content">{passage.snippet}</p>
-            {passage.citations.length > 0 && (
-              <p className="mt-2 text-xs text-muted">
-                {passage.citations.slice(0, 2).map((citation, index) => (
-                  <a key={citation.url ?? index} href={citation.url} target="_blank" rel="noopener noreferrer"
-                    className="text-primary-ink hover:underline">
-                    {citation.title || citation.url.replace(/^https?:\/\//, '').slice(0, 40)}{index < Math.min(1, passage.citations.length - 1) ? ' · ' : ''}
-                  </a>
-                ))}
-              </p>
-            )}
-          </article>
-        ))}
-      </div>
-    </Section>
-  );
-}
 
 // ---- Recent signals --------------------------------------------------------
 
@@ -318,12 +274,10 @@ function RecentSignals({ companyId }: { companyId: string }) {
 
 export function OverviewTab({ companyId }: { companyId: string }) {
   const query = useDashboardTab(companyId, 'overview');
-  const company = useCompany(companyId).data;
   const metricsQ = useCompanyMetrics(companyId);
   const metrics = useMemo(() => metricsQ.data ?? [], [metricsQ.data]);
   const peerState = usePeers();
   const href = useTabHref(companyId);
-  const name = company?.name ?? 'this company';
   const [briefIdx, setBriefIdx] = useState(0);
 
   const tiles = useMemo(() => {
@@ -351,149 +305,105 @@ export function OverviewTab({ companyId }: { companyId: string }) {
   const hasGaps = tiles.some((m) => m.value == null || m.confidence === 'unknown');
 
   return (
-    <div className="cascade space-y-7">
-      <Section title="Headline figures" hint="Each value carries its source, date and confidence. Unknown means no evidence yet, not zero.">
+    <div className="cascade mx-auto max-w-4xl space-y-8">
+      <Section title="At a glance" hint="The four figures on this company's card — each with its source and date.">
         {metricsQ.isPending ? (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {[0, 1, 2, 3].map((i) => <KpiTileSkeleton key={i} i={i} />)}
           </div>
         ) : tiles.length === 0 ? (
-          <Empty title="No quantitative figures yet" text="Research has not surfaced any sourced figures for this company. They appear here as they land." />
+          <Empty title="No figures yet" text="Sourced figures appear here as research lands." />
         ) : (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-            {tiles.map((m) => {
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            {tiles.slice(0, 4).map((m) => {
               const ranking = peerState.status === 'ready' ? rankInDeck(companyId, m.metricType, peerState.peers) : null;
               return <KpiTile key={m.id} metric={m} ranking={ranking} href={href('metrics', { metric: m.metricType })} />;
             })}
           </div>
         )}
         {!metricsQ.isPending && tiles.length > 0 && (
-          <p className="mt-2 text-[11.5px] text-faint">
+          <p className="mt-2 text-[12px]">
             <Link to={href('metrics')} className="text-primary-ink hover:underline">
-              {hasGaps ? 'See every figure and what would fill the gaps' : 'See every figure, source and peer comparison'}
+              {hasGaps ? 'See all figures and what would fill the gaps →' : 'See all figures and peer comparison →'}
             </Link>
           </p>
         )}
       </Section>
 
-      <div className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="min-w-0 space-y-7">
-          <PositionBlock companyId={companyId} metrics={metrics} />
-
-          {query.isPending ? (
-            <HydratingPanel label="Overview" variant="compact" />
-          ) : query.isError ? (
-            <ErrorState
-              title="Failed to load the overview"
-              message={query.error instanceof Error ? query.error.message : String(query.error)}
-              onRetry={() => void query.refetch()}
-            />
-          ) : !result ? (
-            <Section title="Research brief">
-              <Empty title="Not researched yet" text="No overview has been saved for this company. Use Research above, or re-run this tab, to generate a sourced brief." />
-            </Section>
-          ) : !structured ? (
-            <Section title="Research brief">
-              <article className="markdown panel p-6">
-                {result.content.markdown.trim()
-                  ? <ResearchMarkdown text={result.content.markdown} />
-                  : <p className="text-sm text-muted">No overview is available from the saved research yet.</p>}
-              </article>
-            </Section>
-          ) : (
-            <>
-              {takeaways.length > 0 && (
-                <Section title="Key takeaways" hint="The lead finding from each researched section, with its sources.">
-                  <ol className="panel divide-y divide-border">
-                    {takeaways.map((t, i) => (
-                      <li key={t.section} className="flex gap-3.5 px-5 py-4">
-                        <span className="mt-0.5 w-5 shrink-0 font-display text-sm font-semibold tabular-nums text-faint">{i + 1}</span>
-                        <div className="min-w-0">
-                          <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-faint">{sectionLabel(t.section)}</p>
-                          <p className="mt-0.5 text-[14.5px] leading-relaxed text-content">{t.text}</p>
-                          <SourceChips links={t.links} />
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                </Section>
-              )}
-
-              {active && (
-                <Section title="Research brief" hint="One section at a time. Every paragraph keeps its source links.">
-                  <div className="panel overflow-hidden">
-                    <div role="tablist" aria-label="Research brief sections" className="flex gap-1 overflow-x-auto border-b border-border px-3 pt-2">
-                      {briefTabs.map((t, i) => (
-                        <button
-                          key={t.key}
-                          role="tab"
-                          type="button"
-                          aria-selected={active.key === t.key}
-                          onClick={() => setBriefIdx(i)}
-                          className={cn(
-                            '-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors',
-                            active.key === t.key ? 'border-primary text-content' : 'border-transparent text-muted hover:text-content',
-                          )}
-                        >
-                          {t.label}
-                        </button>
-                      ))}
+      {query.isPending ? (
+        <HydratingPanel label="Overview" variant="compact" />
+      ) : query.isError ? (
+        <ErrorState
+          title="Failed to load the overview"
+          message={query.error instanceof Error ? query.error.message : String(query.error)}
+          onRetry={() => void query.refetch()}
+        />
+      ) : !result ? (
+        <Section title="What matters">
+          <Empty title="Not researched yet" text="Use Research above to generate a sourced brief." />
+        </Section>
+      ) : !structured ? (
+        <Section title="What matters">
+          <article className="markdown panel p-6">
+            {result.content.markdown.trim()
+              ? <ResearchMarkdown text={result.content.markdown} />
+              : <p className="text-sm text-muted">No overview is available from the saved research yet.</p>}
+          </article>
+        </Section>
+      ) : (
+        <>
+          {takeaways.length > 0 && (
+            <Section title="What matters">
+              <ol className="panel divide-y divide-border">
+                {takeaways.slice(0, 4).map((t, i) => (
+                  <li key={t.section} className="flex gap-3.5 px-5 py-4">
+                    <span className="mt-0.5 w-5 shrink-0 font-display text-sm font-semibold tabular-nums text-faint">{i + 1}</span>
+                    <div className="min-w-0">
+                      <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-faint">{sectionLabel(t.section)}</p>
+                      <p className="mt-0.5 text-[14.5px] leading-relaxed text-content">{t.text}</p>
+                      <SourceChips links={t.links} />
                     </div>
-                    <div role="tabpanel" aria-label={active.label} className="max-w-[72ch] space-y-4 p-6">
-                      {active.section
-                        ? active.section.body.split('\n\n').map((b) => b.trim()).filter(Boolean).map((block, i) => <Paragraph key={i} block={block} />)
-                        : <ul className="divide-y divide-border">{parsed.figures.map((line, i) => <FigureRow key={i} line={line} />)}</ul>}
-                    </div>
-                  </div>
-                </Section>
-              )}
-              <FromArchive companyId={companyId} />
-            </>
+                  </li>
+                ))}
+              </ol>
+            </Section>
           )}
 
-          <div className="flex justify-end">
-            <DigDeeperMenu
-              topics={['Business model & how they make money', 'Competitive landscape & closest rivals', 'Risks & headwinds']}
-              companyId={companyId}
-              companyName={name}
-            />
-          </div>
-        </div>
-
-        <aside className="min-w-0 space-y-7">
-          <RecentSignals companyId={companyId} />
-          {company && (company.hqLocation || company.websiteUrl) && (
-            <Section title="Company profile">
-              <div className="panel space-y-2 p-4 text-sm">
-                {company.hqLocation && (
-                  <>
-                    <p className="flex items-start gap-2 text-muted">
-                      <MapPin className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                      {company.hqLocation}
-                    </p>
-                    <div className="h-[110px] overflow-hidden rounded-lg border border-border">
-                      <AiCover
-                        cacheKey={`hq:${companyId}`}
-                        title={`${name} — ${company.hqLocation}`}
-                        context={`A cityscape of ${company.hqLocation} that is INSTANTLY RECOGNIZABLE as that specific place: its most famous landmarks, skyline silhouette, geography and light (e.g. San Francisco = Golden Gate Bridge + fog + hills + bay). Concrete and place-specific, never a generic city.`}
-                        url={company.websiteUrl ?? ''}
-                        source="news"
-                        compact
-                      />
-                    </div>
-                  </>
-                )}
-                {company.websiteUrl && (
-                  <a href={company.websiteUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-primary-ink hover:underline">
-                    <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                    {company.websiteUrl.replace(/^https?:\/\//, '')}
-                  </a>
-                )}
+          {active && (
+            <details className="panel group overflow-hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3.5 text-[13px] font-medium text-content hover:bg-surface-muted">
+                Read the full research brief
+                <span className="text-faint transition-transform group-open:rotate-90">›</span>
+              </summary>
+              <div role="tablist" aria-label="Research brief sections" className="flex gap-1 overflow-x-auto border-y border-border px-3 pt-2">
+                {briefTabs.map((t, i) => (
+                  <button
+                    key={t.key}
+                    role="tab"
+                    type="button"
+                    aria-selected={active.key === t.key}
+                    onClick={() => setBriefIdx(i)}
+                    className={cn(
+                      '-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors',
+                      active.key === t.key ? 'border-primary text-content' : 'border-transparent text-muted hover:text-content',
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
               </div>
-            </Section>
+              <div role="tabpanel" aria-label={active.label} className="max-w-[72ch] space-y-4 p-6">
+                {active.section
+                  ? active.section.body.split('\n\n').map((b) => b.trim()).filter(Boolean).map((block, i) => <Paragraph key={i} block={block} />)
+                  : <ul className="divide-y divide-border">{parsed.figures.map((line, i) => <FigureRow key={i} line={line} />)}</ul>}
+              </div>
+            </details>
           )}
-        </aside>
-      </div>
+        </>
+      )}
+
+      <PositionBlock companyId={companyId} metrics={metrics} />
+      <RecentSignals companyId={companyId} />
     </div>
   );
 }

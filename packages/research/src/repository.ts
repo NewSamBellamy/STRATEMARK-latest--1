@@ -2243,6 +2243,7 @@ export class GeminiRepository implements MarketIntelRepository {
         `Based ONLY on these verification notes about ${company.name}'s ${label}, output JSON {`,
         `  "verdict": "supported" (stored figure holds) | "contradicted" (evidence names a different figure) | "unverified" (no reliable current figure),`,
         `  "currentValue": number|null — the best-supported current figure in the currency the notes report (record it in passageSupport.unit); null when the notes name none. NEVER invent one.`,
+        `  "currentUnit": string|null — the ISO currency code currentValue is in (USD, EUR, GBP, DKK, …), or "count"/"percent"; never convert it yourself,`,
         `  "rationale": string (1-2 sentences),`,
         `  "methodNote": string|null — one line naming where the figure comes from`,
         `}`,
@@ -2279,8 +2280,9 @@ export class GeminiRepository implements MarketIntelRepository {
     }) : g.citations;
     // A natively-quoted observation is compared and stored in USD; the quote
     // and unit keep the native figure for the dig-deeper view.
-    const verifiedValue = normalizeMetricToUsd(metric.metricType, out.currentValue, out.passageSupport?.unit);
-    const conversion = currencyConversionNote(out.currentValue, out.passageSupport?.unit);
+    const observedUnit = out.passageSupport?.unit ?? out.currentUnit?.toUpperCase() ?? null;
+    const verifiedValue = normalizeMetricToUsd(metric.metricType, out.currentValue, observedUnit);
+    const conversion = currencyConversionNote(out.currentValue, observedUnit);
     const verifiedObservation = this.originalSources && passageCitations.length ? {
       ...out, currentValue: verifiedValue, methodNote: `Original reported ${metric.metricType} as of ${out.passageSupport!.asOf}. ${conversion} ${out.methodNote ?? ''}`.trim(),
     } : { ...out, currentValue: verifiedValue };

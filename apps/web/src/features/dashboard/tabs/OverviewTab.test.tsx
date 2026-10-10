@@ -32,7 +32,7 @@ describe('OverviewTab executive summary', () => {
     const tile = await screen.findByRole('article', { name: 'Employees headline figure' });
     expect(within(tile).getByText('250')).toBeInTheDocument();
     expect(within(tile).getByText('Checked 2026-05-04')).toBeInTheDocument();
-    const takeaways = await screen.findByRole('region', { name: 'Key takeaways' });
+    const takeaways = await screen.findByRole('region', { name: 'What matters' });
     expect(within(takeaways).getByRole('link', { name: 'Reuters' })).toHaveAttribute('href', 'https://reuters.com/a');
     await user.click(screen.getByRole('tab', { name: 'Where they stand' }));
     expect(screen.getByRole('tabpanel', { name: 'Where they stand' })).toHaveTextContent('leading share');

@@ -3,15 +3,8 @@ import type { CardWithCompany } from '@mi/contracts';
 import { deriveTriad } from '@/lib/brand';
 import { buildCardView, type CardView } from './card-view';
 import { Logo } from './Logo';
-import { ovrTooltip } from './rating';
+import { OvrPlaque } from './OvrPlaque';
 
-/** Classic trading-card rarity tiers for the rating plaque (FUT/Madden style). */
-function ovrRarity(n: number): 'icon' | 'gold' | 'silver' | 'bronze' {
-  if (n >= 90) return 'icon';
-  if (n >= 75) return 'gold';
-  if (n >= 60) return 'silver';
-  return 'bronze';
-}
 import { DEFAULT_CARD_ART, MarketCardArt } from './MarketCardArt';
 import './collectible.css';
 
@@ -91,16 +84,7 @@ export function CollectibleCard({
             </div>
           )}
           {!view.signal && <span className="collectible__art-label">{view.type}</span>}
-          {rating && (
-            <span
-              className={`collectible__ovr collectible__ovr--${ovrRarity(rating.overall)}${rating.indicative ? ' collectible__ovr--indicative' : ''}`}
-              title={ovrTooltip(rating)}
-              data-testid="card-ovr"
-            >
-              <span className="collectible__ovr-num">{rating.overall}</span>
-              <span className="collectible__ovr-label">OVR</span>
-            </span>
-          )}
+          {rating && <OvrPlaque rating={rating} />}
         </div>
         <div className="collectible__identity">
           <span className="collectible__eyebrow">

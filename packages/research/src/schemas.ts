@@ -209,6 +209,8 @@ export const verifyMetricOutSchema = z.object({
   verdict: z.enum(['supported', 'contradicted', 'unverified']).default('unverified'),
   /** Best current grounded value in the metric's native unit; null if unknown. */
   currentValue: z.number().nullable().default(null),
+  /** Currency code (or count/percent) currentValue is expressed in — converts non-USD money to USD. */
+  currentUnit: z.string().nullable().default(null),
   rationale: z.string().default(''),
   /** One-line method note explaining where the figure comes from. */
   methodNote: z.string().nullable().default(null),

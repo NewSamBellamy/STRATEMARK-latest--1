@@ -4,7 +4,9 @@ import { useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, FileText, Globe, MapPin, Search } from 'lucide-react';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
-import { useCompany, useCompanyMetrics, useReports, useRerunDashboardTab } from '@/hooks/data';
+import { useCards, useCompany, useCompanyMetrics, useDeckByMarket, useReports, useRerunDashboardTab } from '@/hooks/data';
+import { rateDeck } from '@/features/card/rating';
+import { OvrPlaque } from '@/features/card/OvrPlaque';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
 import { useDashboardWarm } from '@/lib/living/useDashboardWarm';
 import { BackgroundResearchControl } from '@/lib/living/BackgroundResearchControl';
@@ -148,7 +150,35 @@ function TabView({ tab, companyId }: { tab: DashboardTab; companyId: string }) {
   }
 }
 
-const VISIBLE_TAB_COUNT = 6;
+const VISIBLE_TAB_COUNT = 5;
+
+/** The company's OVR, ranked against the deck it was opened from (same as its card). */
+function useDeckOvr(companyId: string | undefined) {
+  const [params] = useSearchParams();
+  const deck = useDeckByMarket(params.get('deck') ?? undefined);
+  const cards = useCards(deck.data?.id);
+  if (!companyId || !cards.data) return null;
+  const own = cards.data.find((c) => c.company?.id === companyId && c.card.cardType === 'company')
+    ?? cards.data.find((c) => c.company?.id === companyId);
+  if (!own) return null;
+  return rateDeck(cards.data).get(own.card.id) ?? null;
+}
+
+/**
+ * Tab order shown in the nav. 'research' (the raw Research & Sources dump) is
+ * no longer a tab — every figure already carries its own source drill-in. The
+ * route still resolves so old deep links keep working.
+ */
+const NAV_TABS: DashboardTab[] = [
+  'overview',
+  'metrics',
+  'team_org',
+  'history',
+  'products_roadmap',
+  'live_intel',
+  'mission_governance',
+  'live_landing',
+];
 
 /**
  * The non-intrusive agentic trace: while desk agents research tabs in the
@@ -211,8 +241,8 @@ function DashboardTabNav({
     return () => document.removeEventListener('mousedown', close);
   }, [moreOpen]);
 
-  const visibleTabs = DASHBOARD_TABS.slice(0, VISIBLE_TAB_COUNT);
-  const overflowTabs = DASHBOARD_TABS.slice(VISIBLE_TAB_COUNT);
+  const visibleTabs = NAV_TABS.slice(0, VISIBLE_TAB_COUNT);
+  const overflowTabs = NAV_TABS.slice(VISIBLE_TAB_COUNT);
   const activeInOverflow = overflowTabs.includes(activeTab);
 
   const qs = fromMarketId ? `?${new URLSearchParams({ deck: fromMarketId, ...(fromCardId ? { card: fromCardId } : {}), ...(fromDeckView ? { view: fromDeckView } : {}) })}` : '';
@@ -283,6 +313,7 @@ function DashboardTabNav({
 
 export default function DashboardPage() {
   const { companyId, tab } = useParams();
+  const ovr = useDeckOvr(companyId);
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const fromMarketId = params.get('deck');
@@ -358,6 +389,7 @@ export default function DashboardPage() {
                 logoUrl={c.logoUrl}
                 className="h-14 w-14 border border-border"
               />
+              {ovr && <OvrPlaque rating={ovr} inline style={{ minWidth: 52, padding: '7px 8px 6px' }} />}
               <div className="min-w-[14rem] flex-1 basis-[60%]">
                 <h1 className="font-display text-2xl font-semibold text-content">{c.name}</h1>
                 <p className="text-sm text-muted">{headerSubtitle}</p>
