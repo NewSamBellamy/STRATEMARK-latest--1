@@ -104,8 +104,20 @@ async function readJson<T>(request: Request): Promise<T | null> {
   try { return JSON.parse(text) as T; } catch { return null; }
 }
 
+/** The secret as typed into a terminal can carry quotes, spaces or a stray CR/LF; headers can't. */
+function cleanKey(raw: string | undefined): string {
+  return (raw ?? '').replace(/[^!-~]/g, '').replace(/^['"]+|['"]+$/g, '');
+}
+
+/** Shape check only — never the key itself. AI Studio keys are "AIza" + 35 URL-safe chars. */
+export function keyShape(raw: string | undefined): { present: boolean; length: number; looksValid: boolean } {
+  const key = cleanKey(raw);
+  return { present: key.length > 0, length: key.length, looksValid: /^AIza[0-9A-Za-z_-]{35}$/.test(key) };
+}
+
 async function geminiProxy(request: Request, env: Env, model: string, origin: string): Promise<Response> {
-  if (!env.GEMINI_API_KEY) return json({ error: 'Hosted research is not configured.' }, 503, origin);
+  const key = cleanKey(env.GEMINI_API_KEY);
+  if (!key) return json({ error: 'Hosted research is not configured.' }, 503, origin);
   if (!allowedModel(model)) return json({ error: 'Model not allowed.' }, 400, origin);
   const body = await request.text();
   if (body.length > MAX_JSON_BODY) return json({ error: 'Request too large.' }, 413, origin);
@@ -121,11 +133,14 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
   }
   const upstream = await fetch(`${GEMINI}/${model}:generateContent`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
     body,
   });
   // Pass Google's body and status through; never its headers (no key echo).
-  return new Response(upstream.body, {
+  // Buffered, not streamed: a streamed error body arrived empty at the browser.
+  const text = await upstream.text();
+  if (!upstream.ok) console.log(`gemini ${model} -> ${upstream.status}: ${text.slice(0, 300)}`);
+  return new Response(text, {
     status: upstream.status,
     headers: { 'Content-Type': upstream.headers.get('content-type') ?? 'application/json', 'Cache-Control': 'no-store', ...cors(origin) },
   });
@@ -220,7 +235,10 @@ async function imageRead(request: Request, origin: string): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === '/health') return json({ ok: true, hostedResearch: Boolean(env.GEMINI_API_KEY) }, 200, null);
+    if (url.pathname === '/health') {
+      const shape = keyShape(env.GEMINI_API_KEY);
+      return json({ ok: true, hostedResearch: shape.present, keyLength: shape.length, keyLooksValid: shape.looksValid }, 200, null);
+    }
 
     const origin = request.headers.get('origin');
     if (!allowedOrigin(origin, env.ALLOWED_ORIGINS ?? '', env.ALLOW_LOCALHOST === 'true')) {
