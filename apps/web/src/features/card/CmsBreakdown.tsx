@@ -7,6 +7,8 @@ import {
   type MaturityTier,
 } from '@mi/contracts';
 import { TierBadge } from './TierBadge';
+import { OvrBadge } from './OvrBadge';
+import { OVR_EXPLAINER, type OvrBreakdown } from './rating';
 
 /**
  * Shows the auditable CMS derivation (spec §6.3): per-signal tier + effective
@@ -17,10 +19,13 @@ export function CmsBreakdown({
   card,
   metrics,
   deckUserValues,
+  rating = null,
 }: {
   card: Card;
   metrics: CompanyMetric[];
   deckUserValues: number[];
+  /** OVR against the deck. Null/omitted: withheld, nothing rated without evidence. */
+  rating?: OvrBreakdown | null;
 }) {
   const base = computeCms(buildCmsInput(metrics), { deckUserValues });
   const finalTier = card.tier;
@@ -30,6 +35,26 @@ export function CmsBreakdown({
 
   return (
     <div className="panel-2 p-4">
+      <div className="mb-3 flex items-center justify-between gap-3" data-testid="ovr-breakdown">
+        <h4 className="font-display text-sm font-semibold text-content">Overall rating</h4>
+        {rating ? <OvrBadge rating={rating} size="md" /> : <span className="text-xs font-semibold text-muted">Not rated</span>}
+      </div>
+      {rating ? (
+        <ul className="mb-2 space-y-1 text-xs">
+          {rating.components.map((c) => (
+            <li key={c.key} className="flex items-baseline justify-between gap-3 border-t border-border/60 pt-1.5">
+              <span className="text-content">{c.label}<span className="block text-[11px] text-muted">{c.detail}</span></span>
+              <span className="shrink-0 font-semibold tabular-nums text-content">{c.key === 'evidence' ? `+${c.score}` : c.score}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mb-2 text-xs leading-relaxed text-muted">No rating: there is no maturity tier and no sourced figure that can be ranked within this deck.</p>
+      )}
+      {rating && <p className="mb-2 text-[11px] leading-snug text-muted">{rating.basis}</p>}
+      <p className="mb-4 rounded-md bg-surface p-2 text-[11px] leading-snug text-muted">
+        <strong className="text-content">How OVR is calculated.</strong> {OVR_EXPLAINER} The tier below is one of its inputs.
+      </p>
       <h4 className="mb-3 font-display text-sm font-semibold text-content">
         Company Maturity Score
       </h4>

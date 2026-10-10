@@ -467,7 +467,7 @@ export default function DeckPage() {
                   Companies grouped by maturity tier — T8 giants down to T1 seeds.
                   <span className="text-faint"> {CARD_TYPE_DESCRIPTIONS.company}</span>
                 </p>
-                <TierSplit cards={list} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} />
+                <TierSplit cards={list} deckCards={all} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} />
                 {/* The deck never hard-stops in this view either. */}
                 <div className="mt-8">
                   <ExpandPrompt
@@ -498,7 +498,7 @@ export default function DeckPage() {
                 </h2>
                 <p className="mb-3 text-[12px] text-faint">{CARD_TYPE_DESCRIPTIONS[typeParam]}</p>
                 {filtered.length > 0 ? (
-                  <CardGrid cards={filtered} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} />
+                  <CardGrid cards={filtered} deckCards={all} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} />
                 ) : (
                   <ExpandPrompt marketId={marketId} focus={{ cardType: typeParam }} label={`Hunt for ${cardCountNoun(typeParam, 2)} in this market`} />
                 )}
@@ -550,6 +550,7 @@ export default function DeckPage() {
                 <>
                   <CardGrid
                     cards={filtered}
+                    deckCards={all}
                     deckUserValues={userValues}
                     marketId={marketId}
                     deckStatus={deckStatus}
@@ -906,11 +907,13 @@ function ExpandPrompt({
 
 function TierSplit({
   cards,
+  deckCards,
   deckUserValues,
   marketId,
   deckStatus,
 }: {
   cards: CardWithCompany[];
+  deckCards: CardWithCompany[];
   deckUserValues: number[];
   marketId: string | undefined;
   deckStatus?: 'running' | 'refreshing' | 'partial' | 'failed' | 'ready' | 'ready_stale';
@@ -934,7 +937,7 @@ function TierSplit({
               <span className="ml-auto chip border-border text-muted">{group.length}</span>
             </div>
             {group.length > 0 ? (
-              <CardGrid cards={group} deckUserValues={deckUserValues} marketId={marketId} deckStatus={deckStatus} />
+              <CardGrid cards={group} deckCards={deckCards} deckUserValues={deckUserValues} marketId={marketId} deckStatus={deckStatus} />
             ) : (
               <ExpandPrompt
                 marketId={marketId}

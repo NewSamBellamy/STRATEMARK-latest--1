@@ -5,6 +5,7 @@
 import type PptxGenJS from 'pptxgenjs';
 import type { CardWithCompany, MaturityTier } from '@mi/contracts';
 import { TIER_LABELS } from '@mi/contracts';
+import { rateDeck } from '@/features/card/rating';
 import { formatMetricValue } from '@/lib/format';
 
 const INK = '18181B';
@@ -41,8 +42,10 @@ export async function exportDeckPptx(args: {
 
   // 2) Landscape table slide
   const companies = args.cards.filter((c) => c.card.cardType === 'company' && c.company);
+  const ratings = rateDeck(args.cards);
+  const ovr = (c: CardWithCompany) => ratings.get(c.card.id)?.overall ?? null;
   const rows: PptxGenJS.TableRow[] = [
-    ['Company', 'Tier', 'Mkt share', 'ARR', 'Valuation/Cap', 'Team'].map((t) => ({
+    ['Company', 'OVR / Tier', 'Mkt share', 'ARR', 'Valuation/Cap', 'Team'].map((t) => ({
       text: t,
       options: { bold: true, color: 'FFFFFF', fill: { color: INK }, fontSize: 11 },
     })),
@@ -52,7 +55,7 @@ export async function exportDeckPptx(args: {
       c.metrics.find((m) => (m.metricType === 'valuation' || m.metricType === 'market_cap') && m.value != null);
     rows.push([
       { text: c.company!.name, options: { fontSize: 11, bold: true, color: INK } },
-      { text: c.card.tier ? `T${c.card.tier} ${TIER_LABELS[c.card.tier as MaturityTier]}` : '—', options: { fontSize: 10, color: MUTED } },
+      { text: [ovr(c) != null ? `${ovr(c)} OVR` : null, c.card.tier ? `T${c.card.tier} ${TIER_LABELS[c.card.tier as MaturityTier]}` : null].filter(Boolean).join(' · ') || '—', options: { fontSize: 10, color: MUTED } },
       { text: metric(c, 'market_share'), options: { fontSize: 11, color: INK } },
       { text: metric(c, 'arr'), options: { fontSize: 11, color: INK } },
       { text: val ? formatMetricValue(val.metricType, val.value) : '—', options: { fontSize: 11, color: INK } },
@@ -72,15 +75,15 @@ export async function exportDeckPptx(args: {
     });
   }
 
-  // 4) One slide per company (top 10 by tier desc)
-  const top = [...companies].sort((a, b) => (b.card.tier ?? 0) - (a.card.tier ?? 0)).slice(0, 10);
+  // 4) One slide per company (top 10 by OVR desc; unrated last)
+  const top = [...companies].sort((a, b) => (ovr(b) ?? -1) - (ovr(a) ?? -1)).slice(0, 10);
   for (const c of top) {
     const s = pptx.addSlide();
     const brand = (c.company!.brandTheme?.primary ?? '#F15A24').replace('#', '');
     s.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.25, fill: { color: brand } });
     s.addText(c.company!.name, { x: 0.5, y: 0.5, w: 9, h: 0.6, fontSize: 26, bold: true, color: INK });
     s.addText(
-      `${c.card.tier ? `${TIER_LABELS[c.card.tier as MaturityTier]} (T${c.card.tier})` : 'Untiered'} · ${c.company!.hqLocation ?? ''}`,
+      `${ovr(c) != null ? `${ovr(c)} OVR · ` : ''}${c.card.tier ? `${TIER_LABELS[c.card.tier as MaturityTier]} (T${c.card.tier})` : 'Untiered'} · ${c.company!.hqLocation ?? ''}`,
       { x: 0.5, y: 1.1, w: 9, h: 0.4, fontSize: 12, color: MUTED },
     );
     s.addText(c.company!.oneLiner, { x: 0.5, y: 1.6, w: 9, h: 0.8, fontSize: 13, color: INK });
