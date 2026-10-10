@@ -1,5 +1,7 @@
 import { usableCitations, type DashboardTab } from '@mi/contracts';
 import { useDashboardTab } from '@/hooks/data';
+import { faviconUrl } from '@/lib/screenshot';
+import { hostOf } from './tabs/tabHelpers';
 
 /** One quiet source inspector shared by every researched company section. */
 export function DashboardSources({ companyId, tab }: { companyId: string; tab: DashboardTab }) {
@@ -53,11 +55,15 @@ export function DashboardSources({ companyId, tab }: { companyId: string; tab: D
         {query.data.lastRefreshedAt && <p className="mt-2">
           Research collected: {query.data.lastRefreshedAt.slice(0, 10)} — not the source publication date.
         </p>}
-        <ul className="mt-3 space-y-2">
-          {citations.map(citation => <li key={citation.url}>
-            <a href={citation.url} target="_blank" rel="noopener noreferrer" className="break-words text-primary-ink hover:underline">
-              {citation.title}
-            </a>
+        <ul className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+          {citations.map(citation => <li key={citation.url} className="flex min-w-0 items-start gap-2">
+            <img src={faviconUrl(citation.url)} alt="" className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded-sm" loading="lazy" />
+            <span className="min-w-0">
+              <a href={citation.url} target="_blank" rel="noopener noreferrer" className="break-words text-primary-ink hover:underline">
+                {citation.title}
+              </a>
+              {hostOf(citation.url) && <span className="block truncate text-[11px] text-faint">{hostOf(citation.url)}</span>}
+            </span>
           </li>)}
         </ul>
       </section>

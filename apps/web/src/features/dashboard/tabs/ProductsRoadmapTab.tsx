@@ -9,6 +9,8 @@ import { Modal } from '@/components/ui/Modal';
 import { InsightReader } from '@/components/reader/InsightReader';
 import { DigDeeper, DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { cn } from '@/lib/cn';
+import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
+import { hostOf, matchesQuery } from './tabHelpers';
 
 const STATUS_STYLE: Record<Product['status'], string> = {
   live: 'border-emerald-300 text-emerald-700 bg-emerald-50',
@@ -95,152 +97,222 @@ function ProductReader({
   );
 }
 
+const STATUS_LABEL: Record<Product['status'], string> = {
+  live: 'Live',
+  beta: 'Beta',
+  sunset: 'Sunset',
+};
+
 export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
   const query = useDashboardTab(companyId, 'products_roadmap');
   const name = useCompany(companyId).data?.name ?? 'this company';
   const [openProduct, setOpenProduct] = useState<Product | null>(null);
   const [openRoadmap, setOpenRoadmap] = useState<RoadmapItem | null>(null);
+  const [status, setStatus] = useState<Product['status'] | 'all'>('all');
+  const [search, setSearch] = useState('');
   return (
     <QueryBoundary query={query} loading={<HydratingPanel label="Products & Roadmap" />}>
       {(result) => {
         const c = result.content;
+        const statusCounts = c.products.reduce<Partial<Record<Product['status'], number>>>((acc, p) => {
+          acc[p.status] = (acc[p.status] ?? 0) + 1;
+          return acc;
+        }, {});
+        const products = c.products.filter(
+          (p) =>
+            (status === 'all' || p.status === status) &&
+            matchesQuery(`${p.name} ${p.description} ${p.revenueNote}`, search),
+        );
         return (
-          <div className="space-y-6 cascade">
-            <section>
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="font-display text-sm font-semibold text-content">Product lineup</h3>
-                  <p className="text-xs text-muted">
-                    {c.products.length
-                      ? 'Company-reported product disclosures, not a revenue ranking. Revenue contribution is not established.'
-                      : (result.lastRefreshedAt
-                        ? `Researched ${new Date(result.lastRefreshedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} — no original-backed product details met the sourcing bar. Refresh to check official sources again; earlier notes remain saved.`
-                        : 'No original-backed product details are available yet. Refresh research to check official sources; earlier notes remain saved.')}
-                  </p>
-                </div>
-                <DigDeeperMenu
-                  topics={['Product strategy & pricing', 'Roadmap & upcoming launches']}
-                  companyId={companyId}
-                  companyName={name}
-                />
-              </div>
-              <ol className="space-y-2.5">
-                {c.products.map((p, i) => {
-                  const hasUrl = !!p.url && /^https?:\/\//.test(p.url);
-                  return (
-                    <li
-                      key={p.name}
-                      className="panel flex cursor-pointer items-start gap-3.5 p-4 transition-all hover:-translate-y-px hover:shadow-card-hover"
-                      onClick={() => setOpenProduct(p)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          setOpenProduct(p);
-                        }
-                      }}
-                      title="Open this product — source disclosure and research"
-                    >
-                      <span
-                        className={cn(
-                          'mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg font-display text-sm font-bold',
-                          i === 0
-                            ? 'bg-primary text-white'
-                            : 'border border-border bg-surface-2 text-muted',
-                        )}
-                      >
-                        {i + 1}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="font-medium text-content">{p.name}</h4>
-                          <span className={cn('chip capitalize', STATUS_STYLE[p.status])}>{p.status}</span>
-                          {p.revenueNote && (
-                            <span className="chip border-border bg-surface-2 text-muted" title="What sources report about revenue contribution">
-                              {p.revenueNote}
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-1 text-sm text-muted">{p.description}</p>
-                        {hasUrl && (
-                          <a
-                            href={p.url!}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                            {p.url!.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-                          </a>
-                        )}
-                      </div>
-                      {/* The card art, in miniature — generated, never a CAPTCHA. */}
-                      <span className="hidden h-[76px] w-[120px] shrink-0 overflow-hidden rounded-lg border border-border sm:block">
-                        <AiCover
-                          cacheKey={`product:${name}:${p.name}`}
-                          title={`${name} — ${p.name}`}
-                          context={`Product card art. ${p.description} Depict the essence of using this product — the experience, the interface mood, the domain — as premium collectible-card artwork.`}
-                          url={p.url ?? ''}
-                          source="news"
-                          compact
+          <div className="space-y-8 cascade">
+            <section aria-label="Product lineup">
+              <SectionHeader
+                title="Product lineup"
+                count={c.products.length > 0 ? c.products.length : undefined}
+                description={
+                  c.products.length
+                    ? 'Company-reported product disclosures, not a revenue ranking. Revenue contribution is not established.'
+                    : (result.lastRefreshedAt
+                      ? `Researched ${new Date(result.lastRefreshedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} — no original-backed product details met the sourcing bar. Refresh to check official sources again; earlier notes remain saved.`
+                      : 'No original-backed product details are available yet. Refresh research to check official sources; earlier notes remain saved.')
+                }
+                actions={
+                  <DigDeeperMenu
+                    topics={['Product strategy & pricing', 'Roadmap & upcoming launches']}
+                    companyId={companyId}
+                    companyName={name}
+                  />
+                }
+              />
+              {c.products.length === 0 ? (
+                <EmptyNote compact title="No products sourced yet">
+                  This section lists named products and their lifecycle status (live, beta, sunset)
+                  once research finds an official page or filing that describes them.
+                </EmptyNote>
+              ) : (
+                <>
+                  {(c.products.length > 3 || Object.keys(statusCounts).length > 1) && (
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      {c.products.length > 8 && (
+                        <SearchBox
+                          value={search}
+                          onChange={setSearch}
+                          label="Search products"
+                          placeholder="Search products"
+                          className="w-full sm:w-56"
                         />
-                      </span>
-                    </li>
-                  );
-                })}
-              </ol>
-            </section>
-
-            <section>
-              <h3 className="mb-3 font-display text-sm font-semibold text-content">Roadmap</h3>
-              <div className="grid gap-3 md:grid-cols-3">
-                {HORIZONS.map(({ key, label, accent, dot }) => {
-                  const items = c.roadmap.filter((r) => r.horizon === key);
-                  return (
-                    <div key={key} className="panel overflow-hidden p-0">
-                      <div className={cn('flex items-center gap-2 border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide', accent)}>
-                        <span className={cn('h-2 w-2 rounded-full', dot)} />
-                        {label}
-                        <span className="ml-1.5 font-normal normal-case opacity-70">
-                          {items.length} item{items.length === 1 ? '' : 's'}
-                        </span>
+                      )}
+                      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by status">
+                        <FilterChip active={status === 'all'} onClick={() => setStatus('all')} count={c.products.length}>
+                          All
+                        </FilterChip>
+                        {(['live', 'beta', 'sunset'] as const)
+                          .filter((s) => (statusCounts[s] ?? 0) > 0)
+                          .map((s) => (
+                            <FilterChip key={s} active={status === s} onClick={() => setStatus(s)} count={statusCounts[s]}>
+                              {STATUS_LABEL[s]}
+                            </FilterChip>
+                          ))}
                       </div>
-                      <ul className="space-y-0 px-4 py-3">
-                        {items.map((r, i) => (
-                          <li key={i} className="relative pb-3 pl-5 last:pb-0">
-                            {/* Timeline spine: dot per item, line connecting them. */}
-                            <span className={cn('absolute left-0 top-1.5 h-2 w-2 rounded-full', dot)} />
-                            {i < items.length - 1 && (
-                              <span className="absolute bottom-0 left-[3.5px] top-4 w-px bg-border" />
-                            )}
-                            <button
-                              type="button"
-                              className="w-full rounded-md text-left transition-colors hover:bg-surface-2/70"
-                              title="Open this roadmap item — the full gist, plus grounded research"
-                              onClick={() => setOpenRoadmap(r)}
-                            >
-                              <div className="flex items-baseline justify-between gap-2">
-                                <span className="text-sm font-medium text-content">{r.title}</span>
-                                {r.date && (
-                                  <span className="shrink-0 text-[10px] font-bold tabular-nums text-primary-ink">
-                                    {r.date}
-                                  </span>
+                    </div>
+                  )}
+                  {products.length === 0 ? (
+                    <EmptyNote compact title="No products match these filters">
+                      Clear the search or choose All.
+                    </EmptyNote>
+                  ) : (
+                    <ul className={cn('grid gap-3', products.length > 1 && 'md:grid-cols-2')}>
+                      {products.map((p) => {
+                        const hasUrl = !!p.url && /^https?:\/\//.test(p.url);
+                        return (
+                          <li
+                            key={p.name}
+                            className="panel group flex cursor-pointer flex-col overflow-hidden transition-colors hover:border-primary/40"
+                            onClick={() => setOpenProduct(p)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setOpenProduct(p);
+                              }
+                            }}
+                            title="Open this product — source disclosure and research"
+                          >
+                            {/* The card art, in miniature — generated, never a CAPTCHA. */}
+                            <span className="block h-[110px] overflow-hidden border-b border-border">
+                              <AiCover
+                                cacheKey={`product:${name}:${p.name}`}
+                                title={`${name} — ${p.name}`}
+                                context={`Product card art. ${p.description} Depict the essence of using this product — the experience, the interface mood, the domain — as premium collectible-card artwork.`}
+                                url={p.url ?? ''}
+                                source="news"
+                                compact
+                              />
+                            </span>
+                            <div className="flex flex-1 flex-col p-4">
+                              <div className="flex items-start justify-between gap-2">
+                                <h4 className="font-medium text-content">{p.name}</h4>
+                                <span className={cn('chip shrink-0 py-0.5 text-[11px]', STATUS_STYLE[p.status])}>
+                                  {STATUS_LABEL[p.status]}
+                                </span>
+                              </div>
+                              {p.description ? (
+                                <p className="mt-1.5 line-clamp-3 text-sm text-muted">{p.description}</p>
+                              ) : (
+                                <p className="mt-1.5 text-sm text-faint">No description retained.</p>
+                              )}
+                              <div className="mt-auto flex items-end justify-between gap-3 pt-3">
+                                <span
+                                  className="min-w-0 text-[11px] text-muted"
+                                  title="What sources report about revenue contribution"
+                                >
+                                  {p.revenueNote ? (
+                                    <span className="line-clamp-2">{p.revenueNote}</span>
+                                  ) : (
+                                    <span className="text-faint">Revenue role not disclosed</span>
+                                  )}
+                                </span>
+                                {hasUrl && (
+                                  <a
+                                    href={p.url!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex shrink-0 items-center gap-1 text-[11px] text-primary-ink hover:underline"
+                                  >
+                                    <ExternalLink className="h-3 w-3" />
+                                    {hostOf(p.url!) ?? 'Source'}
+                                  </a>
                                 )}
                               </div>
-                              <div className="line-clamp-2 text-xs text-muted">{r.detail}</div>
-                            </button>
+                            </div>
                           </li>
-                        ))}
-                        {items.length === 0 && (
-                          <li className="py-1 text-xs text-faint">No source-backed plan retained for this horizon.</li>
-                        )}
-                      </ul>
-                    </div>
-                  );
-                })}
-              </div>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </>
+              )}
+            </section>
+
+            <section aria-label="Roadmap">
+              <SectionHeader
+                title="Roadmap"
+                count={c.roadmap.length > 0 ? c.roadmap.length : undefined}
+                description="Announced or reported plans grouped by horizon. Dates appear only when a source gave one."
+              />
+              {c.roadmap.length === 0 ? (
+                <EmptyNote compact title="No source-backed roadmap retained">
+                  Research fills this from official announcements, earnings commentary and filings.
+                  Rumours and guesses are not retained.
+                </EmptyNote>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-3">
+                  {HORIZONS.map(({ key, label, dot }) => {
+                    const items = c.roadmap.filter((r) => r.horizon === key);
+                    return (
+                      <div key={key} className="panel overflow-hidden p-0">
+                        <div className="flex items-center gap-2 border-b border-border bg-surface-2/60 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-content">
+                          <span className={cn('h-2 w-2 rounded-full', dot)} />
+                          {label}
+                          <span className="ml-1.5 font-normal normal-case tabular-nums text-muted">{items.length}</span>
+                        </div>
+                        <ul className="px-4 py-3">
+                          {items.map((r, i) => (
+                            <li key={i} className="relative pb-3 pl-5 last:pb-0">
+                              {/* Timeline spine: dot per item, line connecting them. */}
+                              <span className={cn('absolute left-0 top-1.5 h-2 w-2 rounded-full', dot)} />
+                              {i < items.length - 1 && (
+                                <span className="absolute bottom-0 left-[3.5px] top-4 w-px bg-border" />
+                              )}
+                              <button
+                                type="button"
+                                className="w-full rounded-md text-left transition-colors hover:bg-surface-2/70"
+                                title="Open this roadmap item — the full gist, plus grounded research"
+                                onClick={() => setOpenRoadmap(r)}
+                              >
+                                <div className="flex items-baseline justify-between gap-2">
+                                  <span className="text-sm font-medium text-content">{r.title}</span>
+                                  {r.date && (
+                                    <span className="shrink-0 text-[10px] font-semibold tabular-nums text-primary-ink">
+                                      {r.date}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="line-clamp-2 text-xs text-muted">{r.detail}</div>
+                              </button>
+                            </li>
+                          ))}
+                          {items.length === 0 && (
+                            <li className="py-1 text-xs text-faint">Nothing source-backed for this horizon.</li>
+                          )}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </section>
 
             {openProduct && (

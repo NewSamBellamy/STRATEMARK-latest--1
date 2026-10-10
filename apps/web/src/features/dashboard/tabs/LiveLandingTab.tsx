@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuditSite, useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
+import { EmptyNote, SectionHeader } from './TabKit';
 import {
   SHOT_MAX_ATTEMPTS as MAX_ATTEMPTS,
   SHOT_PLACEHOLDER_MAX_WIDTH as PLACEHOLDER_MAX_WIDTH,
@@ -125,14 +126,20 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
     <QueryBoundary query={query} loading={<HydratingPanel label="Live Landing Page" />}>
       {(result) => {
         const { url, embeddable, screenshotUrl } = result.content;
+        if (!/^https?:\/\//.test(url)) {
+          return (
+            <EmptyNote title="No official website recorded">
+              Live Website shows a capture of the company’s own site. It fills in once research
+              identifies {name}’s official domain.
+            </EmptyNote>
+          );
+        }
         return (
           <div className="cascade">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-muted">
-                {name}’s live website, captured for a first-hand look at how they present
-                themselves right now — audit the messaging or open the site directly.
-              </p>
-              {/* Compact actions (the full-size trio read as overwhelming). */}
+            <SectionHeader
+              title="Live website"
+              description={`${name}’s own site as it looks right now, captured for a first-hand read of how they present themselves. Audit the messaging or open the site directly.`}
+              actions={
               <div className="flex items-center gap-1">
                 <button
                   type="button"
@@ -178,16 +185,17 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
                   Open site
                 </a>
               </div>
-            </div>
+              }
+            />
 
             {/* Browser-chrome frame: the preview reads as a window onto the
                 real site, not a broken image. */}
             <div className="panel overflow-hidden">
               <div className="flex items-center gap-2 border-b border-border bg-surface-2/70 px-3 py-2">
                 <span className="flex gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#FF5F57]" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#FEBC2E]" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#28C840]" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-border" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-border" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-border" />
                 </span>
                 <span className="ml-2 flex min-w-0 flex-1 items-center gap-1.5 rounded-md bg-surface px-2.5 py-1 text-[11px] text-muted">
                   <Globe className="h-3 w-3 shrink-0" />
@@ -209,6 +217,11 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
                 )}
               </div>
             </div>
+            <p className="mt-2 text-[11px] text-faint">
+              {tryEmbed && embeddable
+                ? `Live embed of ${url.replace(/^https?:\/\//, '')}.`
+                : `Third-party screenshot of ${url.replace(/^https?:\/\//, '')}; it may lag the live page.`}
+            </p>
           </div>
         );
       }}
