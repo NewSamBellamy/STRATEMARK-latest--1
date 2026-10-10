@@ -91,6 +91,8 @@ const huntAttempts = new WeakMap<MarketIntelRepository, Map<string, HuntAttemptR
 // figure re-opens its slot immediately. Manual fact-checks remain unlimited.
 const VERIFY_SLOT_COOLDOWN_MS = 30 * 60_000;
 const verifyAttempts = new WeakMap<MarketIntelRepository, Map<string, number>>();
+/** Decks whose one-shot market-batch estimated fill already ran (WS5). */
+const batchFilledDecks = new WeakMap<MarketIntelRepository, Set<string>>();
 
 // Coalesce job reads across decks/remounts. Unknown readiness defers paid work;
 // failures are cached too, so an unavailable transport cannot become a hot poll.
@@ -174,6 +176,8 @@ export function useLivingDeck(
   const canVerifyBatch = canVerify && typeof repo.verifyCompanyMetrics === 'function';
   const canHunt = researchAvailable && typeof repo.huntCompanyMetrics === 'function';
   const canRecoverFree = researchAvailable && typeof repo.recoverSavedCompanyMetrics === 'function';
+  const canBatchFill = researchAvailable && typeof repo.fillMissingMarketEstimates === 'function';
+  const canReuseEvidence = researchAvailable && typeof repo.reuseCompanyEvidence === 'function';
 
   useEffect(() => {
     if (!deckId || deskCount === 0 || !researchAvailable) {
@@ -253,6 +257,36 @@ export function useLivingDeck(
         // Saved evidence is re-projected for free first. Best-effort: a failed
         // free pass must not consume the company's hunt-ladder attempt.
         let freeFilled = 0;
+        // Cross-run reuse (WS6): a twin company from another deck lends its
+        // retained evidence so free recovery can re-derive facts offline.
+        if (canReuseEvidence) {
+          try { await repo.reuseCompanyEvidence!(target.companyId); } catch { /* free recovery still runs */ }
+        }
+        // Market-batch first fill (WS5): once per session, ONE grounded call
+        // soft-fills the whole roster's remaining core gaps before any
+        // per-company hunt spends its ladder. Structured lanes still win
+        // inside each hunt; this only pre-fills what they left open.
+        if (canBatchFill && !batchFilledDecks.get(repo)?.has(deckId)) {
+          const gapped = entityDesks(cardsRef.current)
+            .filter((c) => hasCoreGap(c)).length;
+          if (gapped >= 2) {
+            if (!batchFilledDecks.get(repo)) batchFilledDecks.set(repo, new Set());
+            batchFilledDecks.get(repo)!.add(deckId);
+            try {
+              const batch = await repo.fillMissingMarketEstimates!(deckId);
+              if (batch.filledTypes > 0) {
+                for (const desk of entityDesks(cardsRef.current)) {
+                  await invalidateMetricSurfaces(qc, desk.company!.id, true);
+                }
+                // The batch's estimates count as this desk's free fill.
+                freeFilled += batch.filledTypes;
+              }
+            } catch { /* per-company hunts remain the fallback */ }
+          } else {
+            if (!batchFilledDecks.get(repo)) batchFilledDecks.set(repo, new Set());
+            batchFilledDecks.get(repo)!.add(deckId);
+          }
+        }
         if (canRecoverFree) {
           try {
             const free = await repo.recoverSavedCompanyMetrics!(target.companyId);

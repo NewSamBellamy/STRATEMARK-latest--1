@@ -241,6 +241,42 @@ export const batchVerifyOutSchema = z.preprocess(
 );
 
 /**
+ * Output of the market-batch estimated fill (WS5): ONE grounded call proposes
+ * estimated-tier figures for several companies at once, each with its own
+ * support line. These land at estimated tier with provider attribution —
+ * verified stays citation-earned through the original-source gates.
+ */
+export const marketBatchOutSchema = z.preprocess(
+  (input) => (Array.isArray(input) ? { estimates: input } : input),
+  z.object({
+    estimates: z
+      .array(
+        z.object({
+          companyName: z.string().min(1),
+          metricType: z.enum([
+            'market_cap',
+            'valuation',
+            'market_share',
+            'arr',
+            'aum',
+            'users',
+            'employees',
+          ]),
+          value: z.number(),
+          /** The unit the figure is quoted in (USD, count, percent, or a convertible currency code). */
+          unit: z.string().min(1).max(8),
+          /** Literal as-of date the support names; null when none is stated. */
+          asOf: z.string().max(40).nullable().default(null),
+          /** One line naming who reported the figure and where. */
+          methodNote: z.string().min(1).max(400),
+        }),
+      )
+      .max(80)
+      .default([]),
+  }),
+);
+
+/**
  * Output of the multi-figure metrics hunt (huntCompanyMetrics): one grounded
  * pass, every soft figure the sources actually support. Bare-array tolerant —
  * single-list structured outputs get the preprocess wrapper by default (the

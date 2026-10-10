@@ -669,6 +669,22 @@ export interface MarketIntelRepository {
   huntCompanyMetrics?(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult>;
 
   /**
+   * Market-batch estimated fill: ONE grounded call proposes estimated-tier
+   * figures for several gapped companies at once, per-claim provider support,
+   * identity-guarded against the deck roster. Estimated tier only; structured
+   * lanes and verified evidence always take precedence. Optional capability.
+   */
+  fillMissingMarketEstimates?(deckId: string): Promise<{ filledCompanies: number; filledTypes: number }>;
+
+  /**
+   * Cross-run evidence reuse: copy a same-company (root domain or normalized
+   * legal name) twin's retained originals and evidence into this company so
+   * free recovery can re-derive its facts without provider calls. Copies
+   * evidence only — confidence is re-earned by the gates. Optional capability.
+   */
+  reuseCompanyEvidence?(companyId: string): Promise<number>;
+
+  /**
    * Add a user-authored note to the deck's research knowledge base. The note
    * is stored as a user_note evidence record so it flows through the same
    * rendering and export paths as provider research. OPTIONAL.

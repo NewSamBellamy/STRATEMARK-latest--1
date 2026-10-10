@@ -19,6 +19,7 @@ import {
   isJunkSource,
   isSignalCardType,
   markVerified,
+  PROFILE_CORE_SLOTS,
   applyMetricVerification,
   currentMetricRevision,
   validMetricVerificationValue,
@@ -90,7 +91,7 @@ import { reportedCompanyMetrics } from './reported-metrics';
 import { businessDates } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
-import { mapWithConcurrency, throwIfAborted } from './util';
+import { mapWithConcurrency, rootDomain, throwIfAborted } from './util';
 import { expandDeckWithDeltaAgent } from './delta-agent';
 import {
   shouldDistillThread,
@@ -99,7 +100,7 @@ import {
 } from './semantic-memory';
 import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST } from './prompts';
 import type { ResearchPassage } from '@mi/contracts';
-import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
+import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { LlmClient, ResearchCoverage, RunResearchOptions } from './types';
 import type { ResearchNoteEntry } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
@@ -107,7 +108,7 @@ import { searchEvidenceCorpus } from './retrieval';
 import { coalesceOriginalSources, isOriginalSourceAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueObservation, secRevenueVerification } from './sec-revenue';
 import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
-import { marketCapEstimate, secSharesConceptUrl, secTickerMapUrl, yahooChartUrl } from './market-quote';
+import { companyNameKey, marketCapEstimate, secSharesConceptUrl, secTickerMapUrl, yahooChartUrl } from './market-quote';
 import { getSearxngLane } from './searxng';
 import { readCompanyOriginals } from './core-source-coverage';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
@@ -2311,6 +2312,136 @@ export class GeminiRepository implements MarketIntelRepository {
       this.retierCompany(company.id, 'Re-tiered after a structured-lane fill.');
     }
     return filled;
+  }
+
+  /** Cross-run company evidence reuse (WS6): a company already researched in
+   * another deck lends its RETAINED originals and evidence to its twin here —
+   * same root domain or normalized legal name. The twin's facts re-derive
+   * through the same gates afterward, so confidence is re-earned, never
+   * copied, and a company with its own evidence never borrows. */
+  async reuseCompanyEvidence(companyId: string): Promise<number> {
+    const company = this.snap.companies.find((c) => c.id === companyId);
+    if (!company) return 0;
+    if ((this.snap.originalSourceAttempts ?? []).some((a) => a.companyId === companyId)) return 0;
+    const domain = company.websiteUrl ? rootDomain(company.websiteUrl) : null;
+    const nameKey = companyNameKey(company.name);
+    const prior = this.snap.companies.find((c) => c.id !== companyId &&
+      ((domain && c.websiteUrl && rootDomain(c.websiteUrl) === domain) ||
+        (nameKey.length >= 4 && companyNameKey(c.name) === nameKey)));
+    if (!prior) return 0;
+    let copied = 0;
+    for (const attempt of this.snap.originalSourceAttempts ?? []) {
+      if (attempt.companyId !== prior.id) continue;
+      const clone = structuredClone(attempt);
+      clone.id = `src_reuse_${crypto.randomUUID()}`;
+      clone.companyId = companyId;
+      (this.snap.originalSourceAttempts ??= []).push(clone);
+      copied += 1;
+    }
+    for (const evidence of this.snap.researchEvidence ?? []) {
+      if (evidence.companyId !== prior.id) continue;
+      const clone = structuredClone(evidence);
+      clone.id = `ev_reuse_${crypto.randomUUID()}`;
+      clone.companyId = companyId;
+      (this.snap.researchEvidence ??= []).push(clone);
+      copied += 1;
+    }
+    if (copied > 0) await this.persist();
+    return copied;
+  }
+
+  /** Market-batch estimated fill (WS5): ONE grounded call proposes
+   * estimated-tier figures for several gapped companies at once, every claim
+   * carrying its own provider support text naming the company. Identity is
+   * guarded against the deck roster, values land at estimated tier with
+   * provider attribution (never verified), and verified rows stay untouchable.
+   * The structured lanes (which run inside each hunt) always take precedence:
+   * this pass only soft-fills what they and creation left open. */
+  async fillMissingMarketEstimates(deckId: string): Promise<{ filledCompanies: number; filledTypes: number }> {
+    const cards = this.snap.cards.filter((c) => c.deckId === deckId &&
+      ['company', 'infrastructure', 'distribution'].includes(c.cardType) && c.companyId);
+    const batch = cards.flatMap((card) => {
+      const company = this.snap.companies.find((x) => x.id === card.companyId);
+      if (!company) return [];
+      const missing = PROFILE_CORE_SLOTS[classifyMarketProfile(company)].flat()
+        .filter((type) => !this.snap.metrics.some((m) => m.companyId === company.id && m.metricType === type && m.value != null));
+      return missing.length > 0 ? [{ company, missing }] : [];
+    }).slice(0, 8);
+    if (batch.length < 2) return { filledCompanies: 0, filledTypes: 0 };
+
+    const g = await this.client.ground(
+      [
+        `One research pass over a ${batch.length}-company roster in one market. For EACH company below, report its missing figures:`,
+        ...batch.map(({ company, missing }) => `- ${company.name}: ${missing.map((t) => METRIC_TYPE_LABELS[t]).join(', ')}`),
+        `Use Google Search. Every figure needs the value, its as-of date, who reported it, and where. If a figure is not reliably reported for a company, omit that figure entirely — never guess.`,
+        `MEASUREMENT BASIS: whole legal company, never a division. UNITS: ${CURRENCY_UNIT_LIST} for money figures; plain counts for users and employees.`,
+      ].join('\n'),
+      { system: GROUNDED_SYSTEM, researchContext: { topic: 'market_batch_fill' } },
+    );
+    const out = await this.client.structure(
+      [
+        `From these research notes, output JSON { "estimates": [ { "companyName", "metricType", "value", "unit", "asOf" (YYYY-MM-DD or null), "methodNote" (one line naming who reported it and where) } ] }.`,
+        `Include ONLY figures the notes actually support, each for the exact company named. Omit the rest entirely. NEVER invent a value.`,
+        `NOTES:`,
+        g.text,
+      ].join('\n'),
+      marketBatchOutSchema,
+      { system: STRUCTURE_SYSTEM },
+    );
+
+    const roster = new Map(batch.map(({ company, missing }) => [companyNameKey(company.name), { company, missing }]));
+    const nowIso = new Date().toISOString();
+    let filledTypes = 0;
+    const touched = new Set<string>();
+    for (const estimate of out.estimates) {
+      const target = roster.get(companyNameKey(estimate.companyName));
+      if (!target || !target.missing.includes(estimate.metricType)) continue;
+      // Provider attribution must actually name the company it attributes to.
+      const support = (g.grounding?.supports ?? []).find((row) => row.text.includes(target.company.name));
+      if (!support || !support.sources.length) continue;
+      const unitOk = (['USD', 'count', 'percent', 'EUR', 'GBP', 'JPY', 'CNY', 'KRW', 'TWD', 'INR', 'CAD', 'AUD', 'CHF', 'HKD', 'SGD', 'SEK', 'NOK', 'DKK', 'BRL', 'MXN'] as const)
+        .includes(estimate.unit as 'USD' | 'count' | 'percent');
+      if (!unitOk) continue;
+      const unit = estimate.unit as 'USD' | 'count' | 'percent';
+      const asOf = estimate.asOf && /^\d{4}-\d{2}-\d{2}$/.test(estimate.asOf) ? estimate.asOf : null;
+      const current = currentMetricRevision(
+        this.snap.metrics.filter((m) => m.companyId === target.company.id && m.metricType === estimate.metricType),
+        target.company.id, estimate.metricType);
+      if (current?.ambiguous) continue;
+      let metric = current?.metric;
+      if (metric?.confidence === 'user_verified' || metric?.confidence === 'verified') continue;
+      if (!metric) {
+        metric = {
+          id: `met_batch_${Date.now().toString(36)}_${estimate.metricType}`,
+          companyId: target.company.id, metricType: estimate.metricType, value: null, confidence: 'unknown',
+          source: null, citations: [], methodNote: null, capturedAt: nowIso,
+        };
+        this.snap.metrics.push(metric);
+      }
+      metric.value = normalizeMetricToUsd(estimate.metricType, estimate.value, unit);
+      metric.confidence = 'estimated';
+      metric.reportedSupport = {
+        provider: 'google-search', companyName: target.company.name,
+        basis: estimate.metricType, value: estimate.value, unit,
+        asOf, definition: estimate.metricType, periodStart: undefined,
+        support: { supportIndex: support.supportIndex, text: support.text.slice(0, 12000),
+          sources: support.sources.slice(0, 4).map((s) => ({ chunkIndex: s.chunkIndex, url: s.url.slice(0, 2048), title: s.title })) },
+      };
+      metric.citations = support.sources.slice(0, 2).map((s) => ({ title: s.title, url: s.url }));
+      metric.source = metric.citations[0]?.url ?? null;
+      metric.methodNote = `${estimate.methodNote} Provider-reported estimate, not verified against an original.`;
+      metric.capturedAt = nowIso;
+      touched.add(target.company.id);
+      filledTypes += 1;
+    }
+    if (filledTypes > 0) {
+      for (const companyId of touched) this.snap.dashboards[companyId] = {};
+      await this.persist();
+      for (const companyId of touched) {
+        this.retierCompany(companyId, 'Re-tiered after a market-batch estimated fill.');
+      }
+    }
+    return { filledCompanies: touched.size, filledTypes };
   }
 
   async huntCompanyMetrics(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
