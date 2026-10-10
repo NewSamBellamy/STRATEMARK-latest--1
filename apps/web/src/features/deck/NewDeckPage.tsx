@@ -415,7 +415,7 @@ export default function NewDeckPage() {
   const [logsOpen, setLogsOpen] = useState(false);
 
   useEffect(() => {
-    if (user && !localStorage.getItem('mi.researchEngine')) {
+    if (user && isSentinelConfigured() && !localStorage.getItem('mi.researchEngine')) {
       setEngine('cloud');
     }
   }, [user, setEngine]);

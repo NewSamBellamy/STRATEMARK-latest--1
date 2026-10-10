@@ -32,6 +32,7 @@ import {
 } from '@/lib/usage';
 import { looksLikeGeminiKey, QUOTA_PRESETS, sanitizeApiKey, useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
+import { isSentinelConfigured } from '@/lib/sentinelApi';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { Modal } from '@/components/ui/Modal';
@@ -327,6 +328,7 @@ function EngineTab() {
       <CapabilityRow />
 
       <div className="grid grid-cols-1 gap-3">
+        {isSentinelConfigured() && (
         <button
           type="button"
           onClick={() => setEngine('cloud')}
@@ -345,6 +347,7 @@ function EngineTab() {
             Multi-pass research pipeline running on Cloud Run. Automatically links 24/7 CourtListener legal & market monitoring.
           </p>
         </button>
+        )}
 
         <button
           type="button"
