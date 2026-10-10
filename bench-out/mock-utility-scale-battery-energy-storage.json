@@ -1,0 +1,151 @@
+{
+  "market": "utility-scale battery energy storage",
+  "label": "utility-scale battery energy storage (operating profile)",
+  "mode": "mock",
+  "startedAt": "2026-10-10T01:59:31.586Z",
+  "wallMs": 371,
+  "entities": [
+    {
+      "companyId": "cmp_northgrid-storage-systems_omh32",
+      "name": "Northgrid Storage Systems",
+      "profile": "operating_company",
+      "verified": 4,
+      "estimated": 0,
+      "unknown": 2
+    },
+    {
+      "companyId": "cmp_voltarc-energy_ej1vk",
+      "name": "Voltarc Energy",
+      "profile": "operating_company",
+      "verified": 4,
+      "estimated": 0,
+      "unknown": 2
+    },
+    {
+      "companyId": "cmp_cathode-works_6dnrk",
+      "name": "Cathode Works",
+      "profile": "operating_company",
+      "verified": 4,
+      "estimated": 0,
+      "unknown": 2
+    },
+    {
+      "companyId": "cmp_gridspan-utilities_ong4s",
+      "name": "Gridspan Utilities",
+      "profile": "operating_company",
+      "verified": 4,
+      "estimated": 0,
+      "unknown": 2
+    },
+    {
+      "companyId": "cmp_ampereon-power_i3buo",
+      "name": "Ampereon Power",
+      "profile": "operating_company",
+      "verified": 4,
+      "estimated": 0,
+      "unknown": 2
+    },
+    {
+      "companyId": "cmp_cellfield-technologies_4ryox",
+      "name": "Cellfield Technologies",
+      "profile": "operating_company",
+      "verified": 4,
+      "estimated": 0,
+      "unknown": 2
+    }
+  ],
+  "deckStatus": "ready",
+  "calls": {
+    "ground": 15,
+    "structure": 16,
+    "total": 31,
+    "byPhase": {
+      "creation": {
+        "ground": 9,
+        "structure": 10
+      },
+      "hunt": {
+        "ground": 6,
+        "structure": 6
+      },
+      "verify": {
+        "ground": 0,
+        "structure": 0
+      }
+    }
+  },
+  "milestones": {
+    "firstCard": {
+      "callIndex": 6,
+      "wallMs": 100,
+      "companyName": "Northgrid Storage Systems"
+    },
+    "firstVerifiedFigure": {
+      "callIndex": 21,
+      "wallMs": 244,
+      "companyName": "Northgrid Storage Systems"
+    },
+    "filled": {
+      "callIndex": 19,
+      "wallMs": 152
+    }
+  },
+  "projected": {
+    "groundedRpm": 10,
+    "structureRpm": 15,
+    "firstCardMs": 12002,
+    "firstVerifiedMs": 56000,
+    "filledMs": 52000
+  },
+  "rates": {
+    "metrics": 36,
+    "verified": 24,
+    "estimated": 0,
+    "unknown": 12,
+    "userVerified": 0,
+    "nullValues": 12,
+    "byType": {
+      "market_cap": {
+        "verified": 6,
+        "estimated": 0,
+        "unknown": 0,
+        "user_verified": 0
+      },
+      "valuation": {
+        "verified": 0,
+        "estimated": 0,
+        "unknown": 6,
+        "user_verified": 0
+      },
+      "market_share": {
+        "verified": 0,
+        "estimated": 0,
+        "unknown": 6,
+        "user_verified": 0
+      },
+      "arr": {
+        "verified": 6,
+        "estimated": 0,
+        "unknown": 0,
+        "user_verified": 0
+      },
+      "users": {
+        "verified": 6,
+        "estimated": 0,
+        "unknown": 0,
+        "user_verified": 0
+      },
+      "employees": {
+        "verified": 6,
+        "estimated": 0,
+        "unknown": 0,
+        "user_verified": 0
+      }
+    }
+  },
+  "notes": [
+    "mock mode: provider responses are scripted; the pipeline, repository and acceptance gates are the real ones.",
+    "projected times are a pacing floor from the free-tier limiter (serial issue, recorded durations) — lower bounds.",
+    "the scripted hunt returns honestly empty figures, so hunt-phase calls measure attempt cost; structured lanes (WS1) remove them."
+  ]
+}

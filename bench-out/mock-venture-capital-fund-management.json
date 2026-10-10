@@ -1,0 +1,157 @@
+{
+  "market": "venture capital fund management",
+  "label": "venture capital fund management (financial profile)",
+  "mode": "mock",
+  "startedAt": "2026-10-10T01:59:28.404Z",
+  "wallMs": 338,
+  "entities": [
+    {
+      "companyId": "cmp_meridian-venture-capital_2e4gg",
+      "name": "Meridian Venture Capital",
+      "profile": "financial_firm",
+      "verified": 3,
+      "estimated": 2,
+      "unknown": 2
+    },
+    {
+      "companyId": "cmp_harborlight-capital-management_jgevc",
+      "name": "Harborlight Capital Management",
+      "profile": "financial_firm",
+      "verified": 3,
+      "estimated": 2,
+      "unknown": 2
+    },
+    {
+      "companyId": "cmp_bluewater-growth-equity_e8pit",
+      "name": "Bluewater Growth Equity",
+      "profile": "financial_firm",
+      "verified": 3,
+      "estimated": 2,
+      "unknown": 2
+    },
+    {
+      "companyId": "cmp_cobalt-peak-private-equity_lam0r",
+      "name": "Cobalt Peak Private Equity",
+      "profile": "financial_firm",
+      "verified": 3,
+      "estimated": 2,
+      "unknown": 2
+    },
+    {
+      "companyId": "cmp_ironwood-family-office_ehf4v",
+      "name": "Ironwood Family Office",
+      "profile": "financial_firm",
+      "verified": 3,
+      "estimated": 2,
+      "unknown": 2
+    },
+    {
+      "companyId": "cmp_summit-ridge-wealth-management_8zahm",
+      "name": "Summit Ridge Wealth Management",
+      "profile": "financial_firm",
+      "verified": 3,
+      "estimated": 2,
+      "unknown": 2
+    }
+  ],
+  "deckStatus": "ready",
+  "calls": {
+    "ground": 21,
+    "structure": 22,
+    "total": 43,
+    "byPhase": {
+      "creation": {
+        "ground": 9,
+        "structure": 10
+      },
+      "hunt": {
+        "ground": 6,
+        "structure": 6
+      },
+      "verify": {
+        "ground": 6,
+        "structure": 6
+      }
+    }
+  },
+  "milestones": {
+    "firstCard": {
+      "callIndex": 6,
+      "wallMs": 96,
+      "companyName": "Meridian Venture Capital"
+    },
+    "firstVerifiedFigure": {
+      "callIndex": 21,
+      "wallMs": 221,
+      "companyName": "Meridian Venture Capital"
+    },
+    "filled": {
+      "callIndex": 19,
+      "wallMs": 136
+    }
+  },
+  "projected": {
+    "groundedRpm": 10,
+    "structureRpm": 15,
+    "firstCardMs": 12001,
+    "firstVerifiedMs": 56000,
+    "filledMs": 52000
+  },
+  "rates": {
+    "metrics": 42,
+    "verified": 18,
+    "estimated": 12,
+    "unknown": 12,
+    "userVerified": 0,
+    "nullValues": 12,
+    "byType": {
+      "market_cap": {
+        "verified": 6,
+        "estimated": 0,
+        "unknown": 0,
+        "user_verified": 0
+      },
+      "valuation": {
+        "verified": 0,
+        "estimated": 0,
+        "unknown": 6,
+        "user_verified": 0
+      },
+      "market_share": {
+        "verified": 0,
+        "estimated": 0,
+        "unknown": 6,
+        "user_verified": 0
+      },
+      "arr": {
+        "verified": 0,
+        "estimated": 6,
+        "unknown": 0,
+        "user_verified": 0
+      },
+      "aum": {
+        "verified": 6,
+        "estimated": 0,
+        "unknown": 0,
+        "user_verified": 0
+      },
+      "users": {
+        "verified": 0,
+        "estimated": 6,
+        "unknown": 0,
+        "user_verified": 0
+      },
+      "employees": {
+        "verified": 6,
+        "estimated": 0,
+        "unknown": 0,
+        "user_verified": 0
+      }
+    }
+  },
+  "notes": [
+    "mock mode: provider responses are scripted; the pipeline, repository and acceptance gates are the real ones.",
+    "projected times are a pacing floor from the free-tier limiter (serial issue, recorded durations) — lower bounds.",
+    "the scripted hunt returns honestly empty figures, so hunt-phase calls measure attempt cost; structured lanes (WS1) remove them."
+  ]
+}

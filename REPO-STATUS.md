@@ -1,7 +1,34 @@
 # Stratemark Production Hardening — Status
 
-Updated: 2026-10-09 (universal-deck quality pass — second autonomous session)
+Updated: 2026-10-09 (speed architecture — third autonomous session)
 Branch: `fix/zcode-identity-gate-recovery` — local commits only, never pushed.
+
+## Speed architecture — WS0 baseline (measured, before any lane changes)
+
+Harness: `packages/research/src/bench/` — runs the repo's REAL pipeline,
+repository and acceptance gates headlessly on two fixed markets with a
+scripted provider. Structural counts are the pipeline's call pattern;
+wall-clock is a pacing floor projected from the free-tier limiter (10 grounded
+/ 15 structured RPM, serial issue). Reports in `bench-out/`.
+
+```
+cd packages/research
+BENCH_MODE=mock BENCH_MARKET="venture capital fund management" BENCH_OUT=../../bench-out npx vitest run src/bench/bench.run.test.ts
+```
+
+| Metric | VC fund management (financial) | Battery storage (operating) |
+|---|---|---|
+| Provider calls / deck (creation) | 19 (9 ground + 10 structure) | 19 (9g + 10s) |
+| Provider calls / deck (hunt pass, 1 attempt per gapped entity) | 12 (6g + 6s) | 12 (6g + 6s) |
+| Provider calls / deck (verify pass) | 12 (6g + 6s) | 0 (nothing left estimated) |
+| Total calls to filled+hydrated deck | **43** | **31** |
+| Time-to-first-card (projected) | ~12s | ~12s |
+| Time-to-first-verified-figure (projected) | ~56s (first hunt fill) | ~56s |
+| Time-to-filled-deck (projected, creation only) | ~0.9 min | ~0.9 min |
+| Verified / estimated / unknown | 18 / 12 / 12 of 42 | 24 / 0 / 12 of 36 |
+
+Live baseline (real key, real wall-clock): pending — will be recorded from the
+running app before WS1/WS2 changes and appended per workstream below.
 
 ## What changed this session (newest last)
 
