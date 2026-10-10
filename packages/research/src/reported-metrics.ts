@@ -72,7 +72,24 @@ const entityAliases = (name: string): string[] => {
     add(paren[1]);
     add(paren[2]);
   }
+  // Deck names join a parent and its brands with " / " ("Heineken N.V. /
+  // Heineken 0.0"); every part IS the subject, so each is its own alias.
+  for (const part of name.split(/\s+\/\s+/)) if (part !== name) add(part);
   return [...forms];
+};
+
+/** Aliases that carry digits ("Heineken 0.0") would read as a second figure in
+ * the claim sentence. Rewrite them to the first digit-free alias so number
+ * checks see only the claimed figure; identity is unchanged. */
+const neutralizeNumericAliases = (text: string, name: string): string => {
+  const aliases = entityAliases(name);
+  const plainAlias = aliases.find((a) => !/\d/.test(a));
+  if (!plainAlias) return text;
+  let out = text;
+  for (const alias of aliases.filter((a) => /\d/.test(a)).sort((a, b) => b.length - a.length)) {
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escape(alias)}(?![\\p{L}\\p{N}])`, 'giu'), plainAlias);
+  }
+  return out;
 };
 const entity = (text: string, name: string) => {
   const body = plain(text);
@@ -167,12 +184,11 @@ export interface ReportedIdentityContext {
 }
 
 const stripCorporateSuffix = (name: string) =>
-  name.replace(/[,]?\s+(?:Inc\.?|Incorporated|Ltd\.?|Limited|LLC|Corporation|Corp\.?|PBC|GmbH|SAS|SA|AG|PLC|Co\.?)$/i, '').trim();
+  name.replace(/[,]?\s+(?:Inc\.?|Incorporated|Ltd\.?|Limited|LLC|Corporation|Corp\.?|PBC|GmbH|SAS|SA|S\.A\.|AG|PLC|Co\.?|N\.?V\.?|B\.?V\.?|SE|ASA|A\/S)$/i, '').trim();
 
 const mentionsCompany = (text: string, name: string) => {
-  const alias = stripCorporateSuffix(name);
-  if (alias && new RegExp(`(?<![\\p{L}\\p{N}])${escape(alias)}(?![\\p{L}\\p{N}])`, 'iu').test(text)) return true;
-  return name.length > 0 && new RegExp(`(?<![\\p{L}\\p{N}])${escape(name)}(?![\\p{L}\\p{N}])`, 'iu').test(text);
+  const forms = [stripCorporateSuffix(name), name, ...entityAliases(name)].filter((f) => f.length > 0);
+  return forms.some((alias) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(alias)}(?![\\p{L}\\p{N}])`, 'iu').test(text));
 };
 
 // A catalog section's claim sentence opens with its measurement label, after
@@ -446,8 +462,8 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
   const admitted: string[] = [];
   let leadDated: string | null = null;
   for (const sentenceRaw of raw) {
-    const bare = stripCurrencyConversion(plain(sentenceRaw));
-    const kept = stripCurrencyConversion(plainKeepLabel(sentenceRaw));
+    const bare = stripCurrencyConversion(neutralizeNumericAliases(plain(sentenceRaw), companyName));
+    const kept = stripCurrencyConversion(neutralizeNumericAliases(plainKeepLabel(sentenceRaw), companyName));
     const bareOk = !!entity(bare, companyName) ||
       (official && /^(?:annual revenue|ARR|annual recurring revenue|headcount|employees|users|customers|valuation|market cap)\b/i.test(bare)) ||
       (answerAnchored && anonymousClaimLabel.test(bare) && !rivals!.test(bare)) ||
@@ -542,10 +558,19 @@ export function reportedStoredCitations(companyName: string, website: string | n
   // Anonymous means a label-led list item or a fragment that does not open with
   // a capitalised subject; a sentence opening with another name ("Zenith is sold
   // in 60 countries") is someone else's claim and never rides this path.
-  const appears = sentences(proof.support.text).some(raw => {
+  // Catalog answers pack one metric per list line; judge each line on its own so
+  // a neighbouring "Market Cap: not disclosed" line never masks the claim.
+  const pieces = proof.support.text.split(/\n+/).flatMap((line) => sentences(line));
+  const appears = pieces.some(raw => {
     const kept = plainKeepLabel(raw);
-    const anonymous = kept !== plain(raw) || /^[^\p{Lu}]/u.test(plain(raw)) || CONTINUATION.test(plain(raw));
-    return anonymous && hasNumber(stripCurrencyConversion(kept), proof.value, proof.unit, definition, false);
+    const bare = plain(raw);
+    // A sentence that names THIS company anywhere ("PitchBook states that Mash
+    // Gang has 9 employees") binds to it as well as an anonymous label-led one.
+    // The named path also needs the stored as-of date in the same sentence, so
+    // an undated sentence never borrows a date from elsewhere.
+    const named = mentionsCompany(bare, companyName) && (!proof.asOf || hasDate(bare, proof.asOf));
+    const anonymous = kept !== bare || /^[^\p{Lu}]/u.test(bare) || CONTINUATION.test(bare) || named;
+    return anonymous && hasNumber(stripCurrencyConversion(neutralizeNumericAliases(kept, companyName)), proof.value, proof.unit, definition, false);
   });
   return appears ? lenient : [];
 }
