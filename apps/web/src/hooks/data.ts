@@ -28,7 +28,7 @@ import { buildMetricViews } from '@/features/card/card-view';
 // All UI consumers (including reports/compare/overview) share the same
 // read-only revision and provenance rules; raw cache/storage stays intact.
 const projectMetrics = (metrics: CompanyMetric[], website?: string | null) => buildMetricViews(metrics, website).map(view => view.metric);
-const projectCard = (card: CardWithCompany): CardWithCompany => ({ ...card, metrics: projectMetrics(card.metrics, card.company?.websiteUrl) });
+export const projectCard = (card: CardWithCompany): CardWithCompany => ({ ...card, metrics: projectMetrics(card.metrics, card.company?.websiteUrl) });
 
 export function invalidateMetricSurfaces(qc: QueryClient, companyId: string, dashboard: boolean) {
   return Promise.all([

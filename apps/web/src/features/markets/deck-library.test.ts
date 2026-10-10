@@ -1,0 +1,101 @@
+import { describe, expect, it } from 'vitest';
+import type { CardWithCompany, Market } from '@mi/contracts';
+import {
+  computeCoverage,
+  filterDecks,
+  formatUpdated,
+  pickLeadCard,
+  researchState,
+  sortDecks,
+} from './deck-library';
+
+const metric = (metricType: string, value: number | null, confidence = 'verified') =>
+  ({
+    id: metricType,
+    companyId: 'a',
+    metricType,
+    value,
+    confidence,
+    source: value == null ? null : 'https://www.reuters.com/x',
+    citations: value == null ? [] : [{ title: 'reuters.com', url: 'https://www.reuters.com/x' }],
+    methodNote: null,
+    capturedAt: '2026-01-01T00:00:00Z',
+  }) as never;
+const card = (id: string, metrics: unknown[], cardType = 'company', logoUrl: string | null = null) =>
+  ({
+    card: { id, companyId: cardType === 'company' ? id : null, cardType },
+    company: cardType === 'company' ? { id, name: id, logoUrl } : null,
+    metrics,
+    viceClaims: [],
+  }) as unknown as CardWithCompany;
+const market = (name: string, vertical = 'v'): Market =>
+  ({
+    id: name,
+    name,
+    scopeDefinition: { vertical, geography: null, notes: null },
+    refreshCadence: 'manual',
+    createdAt: '2026-01-01T00:00:00Z',
+  }) as unknown as Market;
+
+describe('computeCoverage', () => {
+  it('is null for empty decks and never counts signal cards', () => {
+    expect(computeCoverage([]).percent).toBeNull();
+    expect(computeCoverage([card('s', [metric('users', 5)], 'insight')]).percent).toBeNull();
+  });
+  it('matches the card face: 4 adaptive slots, honesty gates applied', () => {
+    const c = card('a', [
+      metric('employees', 100), // slot 1, verified + cited
+      metric('valuation', 20), // slot 4
+      metric('market_cap', 10), // same slot as valuation, not counted twice
+      metric('users', null, 'unknown'), // unknown: unfilled
+      metric('arr', 5, 'estimated'), // estimated without reportedSupport: not shown
+    ]);
+    expect(computeCoverage([c])).toEqual({ filled: 2, total: 4, percent: 50 });
+  });
+  it('does not count a verified figure that has no citation', () => {
+    const bare = { ...(metric('employees', 100) as object), citations: [], source: null } as never;
+    expect(computeCoverage([card('a', [bare])]).filled).toBe(0);
+  });
+});
+
+describe('pickLeadCard', () => {
+  it('prefers the best-filled card, then deck order', () => {
+    const a = card('a', [metric('users', 1)]);
+    const b = card('b', [metric('users', 1), metric('employees', 2)]);
+    expect(pickLeadCard([a, b])?.card.id).toBe('b');
+    expect(pickLeadCard([a, card('c', [metric('users', 1)])])?.card.id).toBe('a');
+    expect(pickLeadCard([])).toBeNull();
+  });
+});
+
+describe('sort and filter', () => {
+  const rows = [
+    { market: market('Beta'), size: 3, updatedAt: '2026-02-01T00:00:00Z' },
+    { market: market('alpha'), size: null, updatedAt: '2026-03-01T00:00:00Z' },
+    { market: market('Gamma'), size: 9, updatedAt: '2026-01-01T00:00:00Z' },
+  ];
+  it('sorts by recent, name, size (unknown last)', () => {
+    expect(sortDecks(rows, 'recent').map((r) => r.market.name)).toEqual(['alpha', 'Beta', 'Gamma']);
+    expect(sortDecks(rows, 'name').map((r) => r.market.name)).toEqual(['alpha', 'Beta', 'Gamma']);
+    expect(sortDecks(rows, 'size').map((r) => r.market.name)).toEqual(['Gamma', 'Beta', 'alpha']);
+  });
+  it('filters by name or vertical, case-insensitively', () => {
+    expect(filterDecks(rows, ' GAM ').length).toBe(1);
+    expect(filterDecks(rows, '').length).toBe(3);
+    expect(filterDecks([{ market: market('X', 'Aerospace') }], 'aero').length).toBe(1);
+  });
+});
+
+describe('misc', () => {
+  it('maps deck status to research state', () => {
+    expect(researchState('running')).toBe('live');
+    expect(researchState('ready')).toBe('complete');
+    expect(researchState(undefined)).toBe('unknown');
+  });
+  it('formats relative dates', () => {
+    const now = new Date('2026-05-10T12:00:00Z').getTime();
+    expect(formatUpdated('2026-05-10T01:00:00Z', now)).toBe('Today');
+    expect(formatUpdated('2026-05-08T12:00:00Z', now)).toBe('2 days ago');
+    expect(formatUpdated('', now)).toBe('Unknown');
+  });
+});
