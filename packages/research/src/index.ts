@@ -38,3 +38,7 @@ export * from './adk/engine';
 
 // Semantic Memory Distillation (Issue #56)
 export * from './semantic-memory';
+
+// Free structured + optional lanes (speed architecture)
+export * from './assets';
+export * from './crawl4ai';

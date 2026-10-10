@@ -39,6 +39,7 @@ export type { OriginalSourceReceipt } from './original-source';
 import type { OriginalSourceReceipt, OriginalSourceScope } from './original-source';
 import { secAdvCrd, selectSecAdvRetainedText } from './sec-adv';
 import { selectTickerMapSlice } from './market-quote';
+import { getCrawl4aiLane } from './crawl4ai';
 
 /** Whole-document fetch memoization (WS4): the bytes for a URL are immutable
  * evidence — the same market report or filing read for five companies or three
@@ -189,6 +190,59 @@ async function extractAdvText(body: Buffer): Promise<string> {
   return parts.join('\n');
 }
 
+/** Optional Crawl4AI retry — strictly additive. Eligibility is deliberately
+ * narrow: policy rejections ('Unsafe source URL', 'Non-public or unsupported
+ * source address') and site prohibitions (robots noarchive) stand — the
+ * rendering lane must never route around them — so only 'unavailable' reads
+ * and thin generic pages retry. JSON API receipts (brace-led, no format tag)
+ * are not pages and never retry. The crawl target re-passes the same safeUrl
+ * + public-DNS policy the read loop applies before ANY fetch, and the one
+ * retry lives inside the original deadline. With no healthy lane the primary
+ * receipt returns unchanged: behavior identical to the direct-only path. */
+
+// JS-rendered pages arrive at the direct reader as navigation shells or fail
+// outright; below this length a retrieved generic page is suspiciously thin.
+const CRAWL4AI_MIN_TEXT = 500;
+
+async function crawl4aiFallback(
+  primary: OriginalSourceReceipt,
+  deadlineAt: number,
+  io: SourceTransport,
+  scope?: OriginalSourceScope,
+): Promise<OriginalSourceReceipt> {
+  const directText = primary.status === 'retrieved' && !primary.format && !primary.truncated ? primary.text : undefined;
+  const thin = directText !== undefined && !/^\s*[[{]/.test(directText) && directText.length < CRAWL4AI_MIN_TEXT;
+  if (primary.status !== 'unavailable' && !thin) return primary;
+  const url = safeUrl(primary.finalUrl ?? primary.requestedUrl);
+  if (!url || Date.now() >= deadlineAt) return primary;
+  let addresses: string[];
+  try {
+    addresses = await io.lookup(url.hostname);
+  } catch { return primary; }
+  if (!addresses.length || addresses.some((ip) => isIP(ip) !== 4 || denied.check(ip, 'ipv4'))) return primary;
+  const lane = await getCrawl4aiLane();
+  if (!lane) return primary;
+  const crawled = await lane.read(url.href, Math.max(0, deadlineAt - Date.now()));
+  if (!crawled || crawled.status !== 200 || !crawled.markdown.trim()) return primary;
+  // Markdown link/image syntax is transport noise; the retained prose keeps
+  // evidence quotes verbatim-in-text and human-readable.
+  const text = pageText(crawled.markdown.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1'), false);
+  if (!text) return primary;
+  const excerpt = selectSourceExcerpt(text, scope);
+  if (!excerpt.trim()) return primary;
+  return {
+    requestedUrl: primary.requestedUrl,
+    finalUrl: url.href,
+    status: 'retrieved',
+    retrievedAt: new Date().toISOString(),
+    httpStatus: crawled.status,
+    contentHash: createHash('sha256').update(crawled.markdown, 'utf8').digest('hex'),
+    text: excerpt,
+    truncated: text.length > excerpt.length,
+    reason: 'Retrieved via the optional local Crawl4AI rendering lane after a thin or failed direct read',
+  };
+}
+
 /** Retrieval is a receipt, NOT proof of entity, metric, period or truth. */
 export async function retrieveOriginalSource(raw: string, io: SourceTransport = transport, scope?: OriginalSourceScope): Promise<OriginalSourceReceipt> {
   const receipt: OriginalSourceReceipt = { requestedUrl: raw.slice(0, 2048), status: 'unavailable', retrievedAt: new Date().toISOString() };
@@ -286,9 +340,15 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
     // The ADV PDF download + bounded text extraction takes tens of seconds; a
     // plain page read stays on the 6s budget.
     const deadlineMs = secAdvCrd(raw) ? 120_000 : 6000;
-    return await Promise.race([work(), new Promise<OriginalSourceReceipt>((resolve) => {
+    const deadlineAt = Date.now() + deadlineMs;
+    const primary = await Promise.race([work(), new Promise<OriginalSourceReceipt>((resolve) => {
       timer = setTimeout(() => { controller.abort(); resolve({ ...receipt, reason: 'Source retrieval timed out' }); }, deadlineMs);
     })]);
+    // The race is settled, so the timer no longer governs anything; the
+    // optional Crawl4AI lane below enforces the same wall clock on its one retry.
+    if (timer) { clearTimeout(timer); timer = undefined; }
+    try { return await crawl4aiFallback(primary, deadlineAt, io, scope); }
+    catch { return primary; }
   } catch (error) {
     const oversized = error && typeof error === 'object' && 'code' in error && error.code === 'SOURCE_TOO_LARGE';
     return { ...receipt, reason: oversized ? 'Source exceeds the 2 MB document limit' : 'Source retrieval failed' };

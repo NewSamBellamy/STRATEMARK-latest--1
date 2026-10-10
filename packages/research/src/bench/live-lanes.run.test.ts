@@ -66,7 +66,8 @@ describe.skipIf(!live)('live structured lanes (WS7)', () => {
     const lane = await getSearxngLane();
     // Either state is honest; the assertion is that probing never throws and
     // the result is explicit, so the fallback path is a decision, not a crash.
-    expect([true, false]).toContain(lane?.healthy ?? false);
-    console.log(`[Discovery lane] SearXNG healthy: ${lane?.healthy ?? false}`);
+    const healthy = lane !== null;
+    expect([true, false]).toContain(healthy);
+    console.log(`[Discovery lane] SearXNG healthy: ${healthy}`);
   }, 30_000);
 });
