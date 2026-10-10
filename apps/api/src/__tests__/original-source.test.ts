@@ -33,14 +33,20 @@ describe('bounded original-source retrieval', () => {
     expect(indexRead).toHaveBeenCalledTimes(1);
     expect(receipt.format).toBeUndefined();
   });
-  it('retains complete bounded SEC concept JSON with the original byte hash, but does not enable arbitrary JSON sources', async () => {
+  it('retains complete bounded SEC concept JSON with the original byte hash; other JSON only bounded and valid', async () => {
     const target = 'https://data.sec.gov/api/xbrl/companyconcept/CIK0000789019/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax.json';
     const body = Buffer.from(JSON.stringify({ cik: 789019, entityName: 'MICROSOFT CORPORATION', padding: 'x'.repeat(6000) }));
     const jsonRead = vi.fn(async () => ({ status: 200, headers: { 'content-type': 'application/json' }, body }));
     const receipt = await retrieveOriginalSource(target, { lookup, read: jsonRead });
     expect(receipt).toMatchObject({ status: 'retrieved', format: 'sec-companyconcept', text: body.toString('utf8'), truncated: false });
     expect(receipt.contentHash).toMatch(/^[a-f0-9]{64}$/);
-    expect((await retrieveOriginalSource('https://example.com/data.json', { lookup, read: jsonRead })).status).toBe('unavailable');
+    // JSON APIs are evidence lanes now (IAPD, XBRL shares, quotes): accepted only
+    // bounded and parse-validated, and never tagged as an SEC concept.
+    const other = await retrieveOriginalSource('https://example.com/data.json', { lookup, read: jsonRead });
+    expect(other).toMatchObject({ status: 'retrieved' });
+    expect(other.format).toBeUndefined();
+    const notJson = vi.fn(async () => ({ status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from('{not json') }));
+    expect((await retrieveOriginalSource('https://example.com/data.json', { lookup, read: notJson })).status).toBe('unavailable');
     const tooBig = vi.fn(async () => ({ status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from(' '.repeat(32001)) }));
     expect((await retrieveOriginalSource(target, { lookup, read: tooBig })).status).toBe('unavailable');
   });

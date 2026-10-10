@@ -725,9 +725,7 @@ describe('Company Agent — hydrateCompanyCardsBatch (creation-phase step change
 
   it('a candidate whose extraction fails is absent from the map without losing its cohort', async () => {
     const client = fakeClient();
-    let structureCalls = 0;
     (client.structure as ReturnType<typeof vi.fn>).mockImplementation(async (prompt: string, schema: ZodType<unknown>) => {
-      structureCalls += 1;
       if (prompt.includes('Convert the research notes on "Vector(heap) AI"')) {
         throw new Error('extraction blew up');
       }
