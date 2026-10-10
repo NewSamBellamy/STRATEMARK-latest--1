@@ -30,7 +30,7 @@ import {
   setCostControls,
   subscribeUsage,
 } from '@/lib/usage';
-import { looksLikeGeminiKey, sanitizeApiKey, useApiKey } from '@/lib/settings/apiKey';
+import { looksLikeGeminiKey, QUOTA_PRESETS, sanitizeApiKey, useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useAuth } from '@/lib/auth/AuthContext';
@@ -98,7 +98,7 @@ function TabButton({ id, active, onClick, icon: Icon, label }: { id: TabId, acti
 }
 
 function GeneralTab() {
-  const { model, hasKey, setApiKey, setModel, clear, apiKey, storageError } = useApiKey();
+  const { model, hasKey, setApiKey, setModel, setQuotaPreset, quotaPreset, clear, apiKey, storageError } = useApiKey();
   const [draft, setDraft] = useState(apiKey);
   const [saved, setSaved] = useState(false);
   const [test, setTest] = useState<TestState>({ status: 'idle' });
@@ -213,6 +213,25 @@ function GeneralTab() {
           </p>
         </div>
       </details>
+
+      <div className="text-sm">
+        <label className="mb-1 block font-medium text-content" htmlFor="quota-preset">
+          Research speed
+        </label>
+        <select
+          id="quota-preset"
+          className="input w-full"
+          value={quotaPreset}
+          onChange={(e) => setQuotaPreset(e.target.value === 'paid' ? 'paid' : 'free')}
+        >
+          {(Object.keys(QUOTA_PRESETS) as Array<keyof typeof QUOTA_PRESETS>).map((preset) => (
+            <option key={preset} value={preset}>{QUOTA_PRESETS[preset].label}</option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-muted">
+          How fast research may spend your quota. Free-tier pacing stays under Google's per-minute cap; paid keys can fill decks several times faster.
+        </p>
+      </div>
 
       {test.status !== 'idle' && (
         <div

@@ -9,6 +9,25 @@ import { create } from 'zustand';
 
 const STORAGE_KEY = 'mi.geminiApiKey';
 const MODEL_KEY = 'mi.geminiModel';
+const QUOTA_KEY = 'mi.quotaPreset';
+
+/** Outbound pacing presets (WS2): the free tier's measured 10/15 RPM ceiling
+ * is the latency floor; a paid key can run the same pipeline several times
+ * faster. The values land in the Gemini client's proactive rate limiter. */
+export const QUOTA_PRESETS = {
+  free: { groundedRpm: 10, structureRpm: 15, label: 'Free tier (10 grounded / 15 structured per minute)' },
+  paid: { groundedRpm: 60, structureRpm: 120, label: 'Paid tier (60 grounded / 120 structured per minute)' },
+} as const;
+
+export type QuotaPreset = keyof typeof QUOTA_PRESETS;
+
+export function readQuotaPreset(): QuotaPreset {
+  try {
+    return localStorage.getItem(QUOTA_KEY) === 'paid' ? 'paid' : 'free';
+  } catch {
+    return 'free';
+  }
+}
 
 /**
  * Strip characters that can't legally travel in an HTTP header.
@@ -57,10 +76,13 @@ interface ApiKeyState {
   apiKey: string;
   /** Optional grounded-model override (defaults handled by the client). */
   model: string;
+  /** Outbound pacing preset — how fast the pipeline may spend the quota. */
+  quotaPreset: QuotaPreset;
   hasKey: boolean;
   storageError: string | null;
   setApiKey: (key: string) => Promise<void>;
   setModel: (model: string) => void;
+  setQuotaPreset: (preset: QuotaPreset) => void;
   clear: () => Promise<void>;
 }
 
@@ -74,6 +96,7 @@ function removePlaintextKeys(): void {
 export const useApiKey = create<ApiKeyState>((set) => ({
   apiKey: secure ? '' : readLocal(STORAGE_KEY),
   model: readLocal(MODEL_KEY),
+  quotaPreset: readQuotaPreset(),
   hasKey: !secure && readLocal(STORAGE_KEY).length > 0,
   storageError: null,
   setApiKey: async (key) => {
@@ -91,6 +114,10 @@ export const useApiKey = create<ApiKeyState>((set) => ({
   setModel: (model) => {
     writeLocal(MODEL_KEY, model.trim());
     set({ model: model.trim() });
+  },
+  setQuotaPreset: (preset) => {
+    writeLocal(QUOTA_KEY, preset);
+    set({ quotaPreset: preset });
   },
   clear: async () => {
     await hydration;

@@ -18,7 +18,7 @@ import { previewGeminiFetch } from './local-gemini-fetch';
 import { IpcRepository, isElectron } from './ipc-repository';
 import { SentinelRepository } from './SentinelRepository';
 import { openBrowserResearchStore } from './browserResearchStore';
-import { useApiKey } from '@/lib/settings/apiKey';
+import { QUOTA_PRESETS, useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
 import { recordCall, recordCallMetrics } from '@/lib/usage';
 
@@ -27,7 +27,8 @@ const RepositoryContext = createContext<MarketIntelRepository | null>(null);
 export type RepositoryMode = 'demo' | 'browser-live' | 'ipc' | 'cloud';
 const RepositoryModeContext = createContext<RepositoryMode>('demo');
 
-export function selectRepository(apiKey: string, model: string, engine?: string, store?: ResearchStore): MarketIntelRepository {
+export function selectRepository(apiKey: string, model: string, engine?: string, store?: ResearchStore,
+  quotaPreset: 'free' | 'paid' = 'free'): MarketIntelRepository {
   if (isElectron() && window.mi) {
     return new IpcRepository(window.mi);
   }
@@ -36,6 +37,9 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
   }
   if (apiKey) {
     if (!store) throw new Error('Research storage must be opened before starting research.');
+    // Outbound pacing (WS2): the free tier paces at its measured 10/15 RPM;
+    // a paid key can run the same pipeline 6x faster.
+    const quota = QUOTA_PRESETS[quotaPreset];
     // Power-user knob (also used by scripted demos): localStorage 'mi.targetCompanies'.
     let targetCompanies = 10;
     try {
@@ -48,6 +52,8 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       apiKey,
       fetchImpl: previewGeminiFetch,
       model: model || undefined,
+      groundedRpm: quota.groundedRpm,
+      structureRpm: quota.structureRpm,
       store,
       originalSourceReader: readPreviewSource,
       originalSourceSupports: supportsPreviewSource,
@@ -76,6 +82,7 @@ export function RepositoryProvider({
 }) {
   const apiKey = useApiKey((s) => s.apiKey);
   const model = useApiKey((s) => s.model);
+  const quotaPreset = useApiKey((s) => s.quotaPreset);
   const { engine } = useEngineChoice();
   const [value, setValue] = useState<MarketIntelRepository | null>(repository ?? null);
   const [mode, setMode] = useState<RepositoryMode>(repository ? 'browser-live' : 'demo');
@@ -89,7 +96,7 @@ export function RepositoryProvider({
       try {
         const store = !repository && !isElectron() && engine !== 'cloud' && apiKey
           ? await openBrowserResearchStore() : undefined;
-        const selected = repository ?? selectRepository(apiKey, model, engine, store);
+        const selected = repository ?? selectRepository(apiKey, model, engine, store, quotaPreset);
         if (selected instanceof GeminiRepository) await selected.ready();
         if (live) {
           setValue(selected);
@@ -106,7 +113,7 @@ export function RepositoryProvider({
     return () => {
       live = false;
     };
-  }, [repository, apiKey, model, engine, retry]);
+  }, [repository, apiKey, model, engine, quotaPreset, retry]);
   if (error) return <div role="alert" className="m-8 space-y-3 text-content"><p>{error}</p><p>Your existing research has not been deleted.</p><button className="btn-ghost" onClick={() => setRetry((n) => n + 1)}>Retry</button></div>;
   if (!value) return <p role="status" className="m-8 text-muted">Opening your research…</p>;
   return (
