@@ -37,6 +37,7 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { ExportMenu } from '@/features/export/ExportMenu';
 import { splitFollowUps } from './followUps';
+import { useSupports } from '@/lib/repository/RepositoryProvider';
 
 type PanelMode = 'locked' | 'floating';
 
@@ -263,6 +264,7 @@ export function DeepDiveProvider({ children }: { children: ReactNode }) {
  */
 export function DeepDiveProviderWithPanel({ children }: { children: ReactNode }) {
   const repo = useRepository();
+  const canSaveReport = useSupports('saveThreadAsReport');
   const qc = useQueryClient();
   const conversational = typeof repo.askResearch === 'function';
   const { isStartingPage } = useCurrentRoute();
@@ -599,7 +601,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                 transcript={{ title: thread.title ?? scopeLabel, scopeLabel, messages: thread.messages }}
               />
             )}
-            {canConverse && hasAnswer && repo.saveThreadAsReport && !thread?.reportId && (
+            {canConverse && hasAnswer && canSaveReport && !thread?.reportId && (
               <button
                 type="button"
                 onClick={() => setShowReportForm((v) => !v)}
@@ -946,7 +948,11 @@ function ContextChips({ scope }: { scope: ResearchScope }) {
  * plus a free-form option, so "engage the AI about this" keeps its power with
  * exactly one entry point.
  */
-export function DigDeeperMenu({
+export function DigDeeperMenu(props: Parameters<typeof DigDeeperMenuInner>[0]) {
+  return useSupports('deepDive') ? <DigDeeperMenuInner {...props} /> : null;
+}
+
+function DigDeeperMenuInner({
   topics,
   companyId,
   companyName,
@@ -1030,7 +1036,11 @@ export function DigDeeperMenu({
  * AI affordance icon — replaces the old "Shovel" with a MessageCircle icon.
  * Appears beside data points everywhere, so it stays quiet.
  */
-export function DigDeeper({
+export function DigDeeper(props: Parameters<typeof DigDeeperInner>[0]) {
+  return useSupports('deepDive') ? <DigDeeperInner {...props} /> : null;
+}
+
+function DigDeeperInner({
   topic,
   companyId,
   companyName,

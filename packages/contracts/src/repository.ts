@@ -573,6 +573,11 @@ export interface ProviderCapabilities {
   structure: boolean;
   /** Image generation (Nano Banana covers). */
   image: boolean;
+  /**
+   * Repository methods this engine cannot run (they would only throw). The UI
+   * hides the matching controls instead of offering a button that always fails.
+   */
+  unsupported?: readonly string[];
 }
 
 export interface ResearchPassage {

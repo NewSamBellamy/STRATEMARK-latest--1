@@ -297,7 +297,7 @@ export function GoogleAuthProvider({ children }: { children: ReactNode }) {
           return signedInUser;
         }
         throw new Error(
-          'Google Authentication is not configured. Missing Firebase credentials (VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_APP_ID).',
+          'Google sign-in isn’t set up on this build yet.',
         );
       }
       return signedInUser;
@@ -359,7 +359,11 @@ export function GoogleAuthProvider({ children }: { children: ReactNode }) {
           }
         }
       } else {
-        // Fallback for dev / unconfigured Firebase mode: create a local user session
+        // Unconfigured Firebase: a local session is a dev convenience only. In a
+        // production build it would let any email + password in as "pro".
+        if (!import.meta.env.DEV) {
+          throw new Error('Email sign-in isn’t available on this build yet.');
+        }
         signedInUser = {
           id: 'user_' + btoa(email.toLowerCase()).replace(/=/g, '').slice(0, 16),
           name: email.split('@')[0] || 'Email User',

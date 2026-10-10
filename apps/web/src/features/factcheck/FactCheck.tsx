@@ -5,6 +5,7 @@ import type { FactCheckResult, FactCheckVerdict, MetricType, VerifyMetricResult 
 import { useFactCheck, useVerifyMetric } from '@/hooks/data';
 import { cn } from '@/lib/cn';
 import { sourceUrl } from '@/features/card/card-view';
+import { useSupports } from '@/lib/repository/RepositoryProvider';
 
 const VERDICT_STYLE: Record<FactCheckVerdict, { label: string; cls: string; Icon: typeof ShieldCheck }> = {
   supported: { label: 'Supported', cls: 'border-emerald-300 bg-emerald-50 text-emerald-800', Icon: ShieldCheck },
@@ -12,7 +13,11 @@ const VERDICT_STYLE: Record<FactCheckVerdict, { label: string; cls: string; Icon
   unverified: { label: 'Unverified', cls: 'border-slate-300 bg-slate-100 text-slate-700', Icon: ShieldQuestion },
 };
 
-export function FactCheck({ claim, companyName, context, companyId, metricType, className }: {
+export function FactCheck(props: Parameters<typeof FactCheckInner>[0]) {
+  return useSupports('factCheck') ? <FactCheckInner {...props} /> : null;
+}
+
+function FactCheckInner({ claim, companyName, context, companyId, metricType, className }: {
   claim: string; companyName: string | null; context?: string | null;
   companyId?: string | null; metricType?: MetricType | null; storedValue?: number | null; className?: string;
 }) {

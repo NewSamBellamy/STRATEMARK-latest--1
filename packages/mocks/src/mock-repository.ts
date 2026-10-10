@@ -645,11 +645,10 @@ export class MockRepository implements MarketIntelRepository {
     thread.messages.push({
       id: `msg_${rid()}`,
       role: 'assistant',
-      text: `Research Insight for "${input.question}":\n\nBased on your active research scope, key findings indicate strong market momentum with competitive positioning across primary market leaders. Metrics and citations have been updated.`,
-      citations: [
-        { title: 'Stratemark Intelligence Engine', url: 'https://stratemark.com/research' },
-        { title: 'Market Data Snapshot', url: 'https://stratemark.com/data' },
-      ],
+      // Demo mode has no research engine: say so plainly rather than inventing
+      // findings or citing sources that were never read.
+      text: 'This is demo data, so there is no live research to answer from. Add a Gemini key in Settings to get a sourced answer.',
+      citations: [],
       at: new Date().toISOString(),
     });
     thread.updatedAt = new Date().toISOString();

@@ -134,7 +134,10 @@ export class SentinelRepository implements MarketIntelRepository {
   capabilities(): ProviderCapabilities {
     // The cloud engine researches and structures server-side; it has no
     // image-generation route, and pretending otherwise wastes user time.
-    return { ground: true, structure: true, image: false };
+    return {
+      ground: true, structure: true, image: false,
+      unsupported: ['updateMarketCadence', 'deepDive', 'factCheck', 'overrideMetric', 'getMarketOpportunity', 'saveThreadAsReport', 'generateReport'],
+    };
   }
 
   private fallbackRepo: MockRepository;

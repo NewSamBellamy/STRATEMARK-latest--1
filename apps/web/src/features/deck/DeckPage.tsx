@@ -55,6 +55,7 @@ import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
 import { CardGrid } from './CardGrid';
 import { deckActionPolicy } from './deck-actions';
+import { useSupports } from '@/lib/repository/RepositoryProvider';
 
 /** Human count noun per card type — fixes the old "20 company companies" bug. */
 function cardCountNoun(type: CardType, count: number): string {
@@ -610,6 +611,7 @@ function MoreMenu({
   marketId: string | undefined;
   refreshDeck: { isPending: boolean; mutate: (id: string) => void };
 }) {
+  const canOpportunity = useSupports('getMarketOpportunity');
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -655,14 +657,14 @@ function MoreMenu({
             <RefreshCw className={`h-4 w-4 text-muted ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
             {refreshDeck.isPending ? 'Refreshing…' : 'Refresh deck'}
           </button>
-          <Link
+          {canOpportunity && <Link
             to={`/markets/${marketId}/opportunity`}
             className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-content hover:bg-surface-2"
             onClick={() => setOpen(false)}
           >
             <Target className="h-4 w-4 text-muted" />
             Opportunity
-          </Link>
+          </Link>}
           <Link
             to={`/markets/${marketId}/settings`}
             className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-content hover:bg-surface-2"

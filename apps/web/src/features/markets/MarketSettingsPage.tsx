@@ -9,12 +9,14 @@ import {
 import { useDeckByMarket, useMarket, useRefreshDeck, useUpdateCadence } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { formatRelative } from '@/lib/format';
+import { useSupports } from '@/lib/repository/RepositoryProvider';
 
 export default function MarketSettingsPage() {
   const { marketId } = useParams();
   const market = useMarket(marketId);
   const deck = useDeckByMarket(marketId);
   const updateCadence = useUpdateCadence();
+  const canSchedule = useSupports('updateMarketCadence');
   const refreshDeck = useRefreshDeck();
 
   return (
@@ -48,7 +50,7 @@ export default function MarketSettingsPage() {
                   id="cadence"
                   className="input max-w-xs"
                   value={m.refreshCadence}
-                  disabled={updateCadence.isPending}
+                  disabled={updateCadence.isPending || !canSchedule}
                   onChange={(e) =>
                     updateCadence.mutate({ id: m.id, cadence: e.target.value as RefreshCadence })
                   }
@@ -59,16 +61,10 @@ export default function MarketSettingsPage() {
                     </option>
                   ))}
                 </select>
-                <p className="mt-2 max-w-md text-[11px] leading-relaxed text-faint">
-                  This cadence drives the Deck Sentinel: once you've unboxed this deck's first
-                  briefing, the Sentinel runs the next one automatically whenever the app is open
-                  past its due time. True background delivery (Telegram, email) ships with Pro
-                  cloud.
-                </p>
-                <p className="mt-2 text-xs text-muted">
-                  Auto-refresh runs when the app is open: shortly after launch if the interval has
-                  elapsed, then on a periodic check — one deck at a time to respect free-tier
-                  quotas. You can always refresh manually.
+                <p className="mt-2 max-w-md text-xs leading-relaxed text-muted">
+                  {canSchedule
+                    ? 'While the app is open, this deck refreshes on this schedule (one deck at a time). You can always refresh by hand.'
+                    : 'Scheduled refresh isn’t available on the cloud engine yet. Use Refresh now instead.'}
                 </p>
               </div>
 

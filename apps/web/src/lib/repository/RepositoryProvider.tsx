@@ -137,6 +137,16 @@ export function useRepository(): MarketIntelRepository {
   return repo;
 }
 
+/**
+ * False when the active engine reports it cannot run `method` (it would only
+ * throw). Hide the control rather than offer a button that always fails.
+ */
+export function useSupports(method: keyof MarketIntelRepository): boolean {
+  const repo = useContext(RepositoryContext);
+  if (!repo || typeof repo[method] !== 'function') return false;
+  return !(repo.capabilities?.().unsupported ?? []).includes(method);
+}
+
 /** 'demo' = keyless sample data; everything else is real research. UI must
  * label demo state so sample figures are never mistaken for live findings. */
 export function useRepositoryMode(): RepositoryMode {

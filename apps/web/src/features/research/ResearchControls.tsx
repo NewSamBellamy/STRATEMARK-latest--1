@@ -14,6 +14,7 @@ import { useGenerateReport } from '@/hooks/data';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { formatRelative } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { useSupports } from '@/lib/repository/RepositoryProvider';
 
 /** Close-on-outside-click without a dependency. */
 function useDismiss(onDismiss: () => void) {
@@ -126,7 +127,11 @@ export function ThreadHistoryButton({
  * Generate a report with an optional focus prompt — "what should this report
  * concentrate on" — instead of a fixed one-size composition.
  */
-export function ReportButton({
+export function ReportButton(props: Parameters<typeof ReportButtonInner>[0]) {
+  return useSupports('generateReport') ? <ReportButtonInner {...props} /> : null;
+}
+
+function ReportButtonInner({
   kind,
   subjectId,
   className,
