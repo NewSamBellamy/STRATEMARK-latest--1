@@ -152,8 +152,10 @@ export class IpcRepository implements MarketIntelRepository {
   getMarketOpportunity(marketId: string, force?: boolean): Promise<DeepDiveResult> {
     return this.api.getMarketOpportunity(marketId, force);
   }
+  // An older desktop shell may lack these: fail with a clear message instead of a TypeError.
   askResearch(input: AskResearchInput): Promise<ResearchThread> {
-    return this.api.askResearch!.call(this.api, input);
+    if (!this.api.askResearch) return Promise.reject(new Error('Update the desktop app to chat with your research.'));
+    return this.api.askResearch.call(this.api, input);
   }
   listResearchThreads(filter?: { deckId?: string; companyId?: string }): Promise<ResearchThread[]> {
     return this.api.listResearchThreads!.call(this.api, filter);

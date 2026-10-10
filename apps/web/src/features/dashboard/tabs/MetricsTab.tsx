@@ -44,7 +44,7 @@ import {
   type PeerRanking,
   type SortKey,
 } from '../dashboardModel';
-import { ConfidenceMark, Section, metricLabel, useTabHref } from '../dashboardKit';
+import { ConfidenceMark, Section, metricLabel } from '../dashboardKit';
 import { usePeers, type PeerState } from '../usePeers';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
 
@@ -642,7 +642,6 @@ export function MetricsTab({ companyId }: { companyId: string }) {
   const companyName = company?.name ?? 'this company';
   const peerState = usePeers();
   const [params] = useSearchParams();
-  const tabHref = useTabHref(companyId);
   // Figures the hunt just filled — their widgets light up so the update is
   // impossible to miss.
   const [justFilled, setJustFilled] = useState<ReadonlySet<MetricType>>(new Set());
@@ -763,7 +762,6 @@ export function MetricsTab({ companyId }: { companyId: string }) {
               <p className="rounded-xl border border-dashed border-border bg-surface-2/40 px-4 py-3 text-[12.5px] leading-snug text-muted">
                 No sourced figures have been found for {companyName} yet. Each row above says what kind of source would fill it;
                 use Find more metrics or correct a figure yourself. Nothing here is estimated to fill a gap.
-                {' '}<Link to={tabHref('research')} className="text-primary-ink hover:underline">See what was searched</Link>
               </p>
             )}
 

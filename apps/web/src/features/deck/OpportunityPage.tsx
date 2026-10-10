@@ -145,13 +145,24 @@ export default function OpportunityPage() {
         )}
       </div>
 
-      {/* Grounded whitespace thesis — right-click to re-run the analysis. */}
+      {/* Grounded whitespace thesis — re-run from the button (or right-click). */}
+      <div className="mt-6 flex items-center justify-between gap-3">
+        <h2 className="font-display text-sm font-semibold text-content">Where a new entrant could win</h2>
+        <button
+          type="button"
+          className="btn-ghost px-3 py-1.5 text-[12px]"
+          disabled={!hasKey || rerunOpportunity.isPending}
+          onClick={() => rerunOpportunity.mutate()}
+        >
+          {rerunOpportunity.isPending ? 'Re-running…' : 'Re-run analysis'}
+        </button>
+      </div>
       <ContextRerun
         label="the whitespace analysis"
         onRerun={() => rerunOpportunity.mutate()}
         running={rerunOpportunity.isPending}
         disabled={!hasKey}
-        className="mt-4"
+        className="mt-2"
       >
       <div className="panel p-6">
         <QueryBoundary

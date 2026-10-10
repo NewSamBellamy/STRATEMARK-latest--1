@@ -377,7 +377,7 @@ function EngineTab() {
 }
 
 function CommunityPanel() {
-  return <div className="space-y-4"><h2 className="font-display text-lg">Stratemark Community</h2><p className="text-sm text-muted">Open-source desktop research, licensed under MIT. No account or subscription required. Research is stored on this device; Gemini requests use your own key and Google’s quotas.</p><a className="btn-ghost" href="https://github.com/lYlarufAhmed/STRATEMARK-latest-" target="_blank" rel="noopener noreferrer"><Github className="h-4 w-4" /> Source code</a></div>;
+  return <div className="space-y-4"><h2 className="font-display text-lg">Stratemark Community</h2><p className="text-sm text-muted">Open-source desktop research, licensed under MIT. No account or subscription required. Research is stored on this device; Gemini requests use your own key and Google’s quotas.</p><a className="btn-ghost" href="https://github.com/NewSamBellamy/STRATEMARK-latest--1" target="_blank" rel="noopener noreferrer"><Github className="h-4 w-4" /> Source code</a></div>;
 }
 
 function DesktopDataPanel() {
@@ -675,7 +675,7 @@ function PricingPanel() {
           <p className="text-[11px] font-medium text-faint">Demo & open source</p>
           <p className="mt-1 font-display text-2xl font-bold tabular-nums text-content">$0</p>
           <a
-            href="https://github.com/NewSamBellamy/STRATEMARK"
+            href="https://github.com/NewSamBellamy/STRATEMARK-latest--1"
             target="_blank"
             rel="noopener noreferrer"
             className="btn-ghost mt-3 w-full justify-center py-1.5 text-[12px] border border-border"
@@ -707,7 +707,7 @@ function PricingPanel() {
             className="btn-primary mt-3 w-full justify-center py-1.5 text-[12px] opacity-60"
             disabled
           >
-            Get easy install · ${oneTime}
+            Coming soon
           </button>
         </div>
       </div>
@@ -715,7 +715,7 @@ function PricingPanel() {
       <div className="border-t border-border pt-4">
         <p className="text-sm font-semibold text-content">Stratemark Pro — subscription</p>
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
-          Fully hosted on Google Cloud — no API key to manage, usage included up to your tier's monthly cap.
+          Planned: fully hosted, no API key to manage, usage included up to your plan's monthly cap. Not open yet during the beta.
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {TIERS.map((t) => (
@@ -742,8 +742,9 @@ function PricingPanel() {
                 type="button"
                 className="btn-primary mt-3 w-full justify-center py-1.5 text-[12px] opacity-60"
                 disabled
+                title="Paid plans aren't open yet during the beta."
               >
-                Subscribe
+                Coming soon
               </button>
             </div>
           ))}
