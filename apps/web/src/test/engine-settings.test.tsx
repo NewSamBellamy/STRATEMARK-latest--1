@@ -34,6 +34,7 @@ describe('Research Engine Settings & Strict Execution', () => {
   beforeEach(() => {
     localStorage.clear();
     useEngineChoice.setState({ engine: 'local' });
+    localStorage.setItem('mi.sentinelApiUrl', 'https://sentinel.test');
     useResearchSession.getState().clear();
     vi.restoreAllMocks();
   });

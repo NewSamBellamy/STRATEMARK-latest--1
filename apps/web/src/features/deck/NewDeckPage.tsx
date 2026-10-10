@@ -25,7 +25,7 @@ import {
   Cpu,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth/AuthContext';
-import { runCloudResearchDeck } from '@/lib/sentinelApi';
+import { isSentinelConfigured, runCloudResearchDeck } from '@/lib/sentinelApi';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice, type EngineChoice } from '@/lib/settings/engine';
@@ -229,7 +229,8 @@ function EnginePicker({
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
-  if (isCommunityDesktop()) return <span className="text-xs text-muted">Local Engine</span>;
+  if (isCommunityDesktop() || !isSentinelConfigured())
+    return <span className="text-xs text-muted">Local Engine</span>;
 
   return (
     <div ref={ref} className="relative inline-block">
@@ -517,7 +518,11 @@ export default function NewDeckPage() {
         const errMsg = err instanceof Error ? err.message : String(err);
         restoreSubmittedRequest();
         addLog('Sentinel Cloud Agent request failed: ' + errMsg);
-        fail('Sentinel Cloud Agent error: ' + errMsg);
+        fail(
+          /VITE_|not configured/i.test(errMsg)
+            ? 'The cloud engine is unavailable right now. Switch to the Local Engine and try again.'
+            : 'Sentinel Cloud Agent error: ' + errMsg,
+        );
         return;
       }
     }
