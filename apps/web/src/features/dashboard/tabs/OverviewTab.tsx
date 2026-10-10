@@ -68,7 +68,8 @@ function SourceChips({ links }: { links: Array<{ title: string; url: string }> }
   );
 }
 
-function Paragraph({ block }: { block: string }) {
+/** One brief paragraph with its own source chips; shared with tabs that reuse the brief. */
+export function Paragraph({ block }: { block: string }) {
   const { text, links } = splitAttribution(block);
   return (
     <div>

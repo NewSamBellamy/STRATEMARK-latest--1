@@ -10,7 +10,10 @@ import { InsightReader } from '@/components/reader/InsightReader';
 import { DigDeeper, DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
-import { hostOf, matchesQuery } from './tabHelpers';
+import { classifyEvent, hostOf, matchesQuery } from './tabHelpers';
+import { parseOverviewSections } from '../dashboardModel';
+import { useCachedDashboardTab } from '../useCachedTab';
+import { Paragraph } from './OverviewTab';
 
 const STATUS_STYLE: Record<Product['status'], string> = {
   live: 'border-emerald-300 text-emerald-700 bg-emerald-50',
@@ -103,6 +106,51 @@ const STATUS_LABEL: Record<Product['status'], string> = {
   sunset: 'Sunset',
 };
 
+/**
+ * When no product passed the strict lineup bar, the research the company
+ * already has still says what it sells: the brief's own products section
+ * (with its source chips) and the dated launches from the timeline. Nothing
+ * new is generated; both are reused verbatim from cached, sourced tabs.
+ */
+function ProductsFromResearch({ companyId }: { companyId: string }) {
+  const overview = useCachedDashboardTab(companyId, 'overview').data;
+  const history = useCachedDashboardTab(companyId, 'history').data;
+  const brief = overview
+    ? parseOverviewSections(overview.content.markdown).sections.find((s) => /products?\b/i.test(s.title))
+    : undefined;
+  const blocks = brief ? brief.body.split('\n\n').map((b) => b.trim()).filter(Boolean).slice(0, 3) : [];
+  const launches = (history?.content.timeline ?? [])
+    .filter((t) => classifyEvent(t.title, t.detail) === 'product')
+    .slice(-6)
+    .reverse();
+  if (blocks.length === 0 && launches.length === 0) return null;
+  return (
+    <div className="panel mt-3 space-y-4 p-5">
+      <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-faint">From this company's research brief</p>
+      {blocks.length > 0 && (
+        <div className="max-w-[72ch] space-y-3">
+          {blocks.map((block, i) => <Paragraph key={i} block={block} />)}
+        </div>
+      )}
+      {launches.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-faint">Product milestones</p>
+          <ol className="space-y-1.5 border-l border-border pl-3">
+            {launches.map((e, i) => (
+              <li key={i} className="relative text-[13px] leading-snug">
+                <span className="absolute -left-[16.5px] top-1.5 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+                <span className="tabular-nums text-faint">{e.date}</span>
+                <span className="font-medium text-content"> {e.title}</span>
+                {e.detail && <span className="block text-[12.5px] text-muted">{e.detail}</span>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
   const query = useDashboardTab(companyId, 'products_roadmap');
   const name = useCompany(companyId).data?.name ?? 'this company';
@@ -133,7 +181,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                   c.products.length
                     ? 'Company-reported product disclosures, not a revenue ranking. Revenue contribution is not established.'
                     : (result.lastRefreshedAt
-                      ? `Researched ${new Date(result.lastRefreshedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} — no original-backed product details met the sourcing bar. Refresh to check official sources again; earlier notes remain saved.`
+                      ? `Last researched ${new Date(result.lastRefreshedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}.`
                       : 'No original-backed product details are available yet. Refresh research to check official sources; earlier notes remain saved.')
                 }
                 actions={
@@ -145,10 +193,13 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                 }
               />
               {c.products.length === 0 ? (
-                <EmptyNote compact title="No products sourced yet">
-                  This section lists named products and their lifecycle status (live, beta, sunset)
-                  once research finds an official page or filing that describes them.
-                </EmptyNote>
+                <>
+                  <EmptyNote compact title="No product lineup confirmed yet">
+                    Named products with a lifecycle status (live, beta, sunset) appear once research
+                    finds an official page or filing that describes them.
+                  </EmptyNote>
+                  <ProductsFromResearch companyId={companyId} />
+                </>
               ) : (
                 <>
                   {(c.products.length > 3 || Object.keys(statusCounts).length > 1) && (

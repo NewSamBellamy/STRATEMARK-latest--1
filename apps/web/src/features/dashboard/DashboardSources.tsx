@@ -12,7 +12,9 @@ export function DashboardSources({ companyId, tab }: { companyId: string; tab: D
   // one site cited four times reads as one chip, not four Google links.
   const byPublisher = new Map<string, { name: string; url: string; count: number }>();
   for (const c of citations) {
-    const name = publisherOf(c.url, c.title) || (isRedirectCitation(c.url) ? 'Unrecorded publisher' : hostOf(c.url) ?? c.title);
+    // "Google Search report for X · anthropic.com" → "anthropic.com".
+    const raw = publisherOf(c.url, c.title) || (isRedirectCitation(c.url) ? 'Unrecorded publisher' : hostOf(c.url) ?? c.title);
+    const name = raw.split(' · ').pop()!.trim() || raw;
     const prev = byPublisher.get(name);
     if (prev) prev.count += 1;
     else byPublisher.set(name, { name, url: c.url, count: 1 });
