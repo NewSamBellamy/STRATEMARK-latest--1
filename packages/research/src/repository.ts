@@ -23,6 +23,7 @@ import {
   applyMetricVerification,
   currentMetricRevision,
   validMetricVerificationValue,
+  reportedMetricSupportSchema,
   metricVerificationDiffers,
   profileMetricTypes,
   reconcileMetrics,
@@ -88,7 +89,7 @@ import {
 import type { CompanyCandidate, MarketPlan } from './types';
 import { hydrateCompanyCard, hydrateCompanyCardsBatch, type HydrateCompanyCardResult } from './company-agent';
 import { latestSavedCompanyProfile } from './saved-profile';
-import { reportedCompanyMetrics } from './reported-metrics';
+import { reportedCompanyMetrics, reportedMetricCitations } from './reported-metrics';
 import { businessDates } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
@@ -102,7 +103,7 @@ import {
 import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST } from './prompts';
 import type { ResearchPassage } from '@mi/contracts';
 import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
-import type { LlmClient, ResearchCoverage, RunResearchOptions } from './types';
+import type { LlmClient, ProviderGrounding, ResearchCoverage, RunResearchOptions } from './types';
 import type { ResearchNoteEntry } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { searchEvidenceCorpus } from './retrieval';
@@ -2643,7 +2644,7 @@ export class GeminiRepository implements MarketIntelRepository {
    * provider attribution (never verified), and verified rows stay untouchable.
    * The structured lanes (which run inside each hunt) always take precedence:
    * this pass only soft-fills what they and creation left open. */
-  async fillMissingMarketEstimates(deckId: string): Promise<{ filledCompanies: number; filledTypes: number }> {
+  async fillMissingMarketEstimates(deckId: string): Promise<{ filledCompanies: number; filledTypes: number; rejected?: number }> {
     const cards = this.snap.cards.filter((c) => c.deckId === deckId &&
       ['company', 'infrastructure', 'distribution'].includes(c.cardType) && c.companyId);
     const batch = cards.flatMap((card) => {
@@ -2678,18 +2679,40 @@ export class GeminiRepository implements MarketIntelRepository {
     const roster = new Map(batch.map(({ company, missing }) => [companyNameKey(company.name), { company, missing }]));
     const nowIso = new Date().toISOString();
     let filledTypes = 0;
+    let rejected = 0;
     const touched = new Set<string>();
     for (const estimate of out.estimates) {
       const target = roster.get(companyNameKey(estimate.companyName));
       if (!target || !target.missing.includes(estimate.metricType)) continue;
-      // Provider attribution must actually name the company it attributes to.
-      const support = (g.grounding?.supports ?? []).find((row) => row.text.includes(target.company.name));
-      if (!support || !support.sources.length) continue;
-      const unitOk = (['USD', 'count', 'percent', 'EUR', 'GBP', 'JPY', 'CNY', 'KRW', 'TWD', 'INR', 'CAD', 'AUD', 'CHF', 'HKD', 'SGD', 'SEK', 'NOK', 'DKK', 'BRL', 'MXN'] as const)
-        .includes(estimate.unit as 'USD' | 'count' | 'percent');
-      if (!unitOk) continue;
-      const unit = estimate.unit as 'USD' | 'count' | 'percent';
+      // Only USD / count / percent figures can be checked against the support
+      // sentence without a conversion; native-currency rows are not stored.
+      const expectedUnit = ['arr', 'valuation', 'market_cap', 'aum'].includes(estimate.metricType) ? 'USD'
+        : estimate.metricType === 'market_share' ? 'percent' : 'count';
+      if (estimate.unit !== expectedUnit || !validMetricVerificationValue(estimate.metricType, estimate.value)) { rejected += 1; continue; }
+      const unit = expectedUnit as 'USD' | 'count' | 'percent';
       const asOf = estimate.asOf && /^\d{4}-\d{2}-\d{2}$/.test(estimate.asOf) ? estimate.asOf : null;
+      // The grounding support must itself state THIS figure for THIS company
+      // under the same projection gate the card face runs; anything else is
+      // rejected rather than stored behind an unrelated sentence.
+      const marketId = this.snap.companyMarket[target.company.id];
+      const otherCompanies = marketId === undefined ? [] : this.snap.companies
+        .filter((c) => c.id !== target.company.id && this.snap.companyMarket[c.id] === marketId).map((c) => c.name);
+      let support: NonNullable<typeof g.grounding>['supports'][number] | undefined;
+      let reportedSupport: CompanyMetric['reportedSupport'] = null;
+      for (const candidate of g.grounding?.supports ?? []) {
+        if (!candidate.sources.length) continue;
+        const proof = reportedMetricSupportSchema.safeParse({ provider: 'google-search', companyName: target.company.name,
+          basis: estimate.metricType, value: estimate.value, unit, asOf, definition: estimate.metricType,
+          support: { supportIndex: candidate.supportIndex, text: candidate.text.slice(0, 12000), startIndex: candidate.startIndex,
+            endIndex: candidate.endIndex, partIndex: candidate.partIndex,
+            sources: candidate.sources.slice(0, 4).map((src) => ({ chunkIndex: src.chunkIndex, url: src.url.slice(0, 2048), title: src.title })) } });
+        if (!proof.success) continue;
+        if (!reportedMetricCitations(target.company.name, target.company.websiteUrl,
+          { metricType: estimate.metricType, value: estimate.value, reportedSupport: proof.data },
+          { answerText: g.text, otherCompanies }).length) continue;
+        support = candidate; reportedSupport = proof.data; break;
+      }
+      if (!support || !reportedSupport) { rejected += 1; continue; }
       const current = currentMetricRevision(
         this.snap.metrics.filter((m) => m.companyId === target.company.id && m.metricType === estimate.metricType),
         target.company.id, estimate.metricType);
@@ -2704,15 +2727,9 @@ export class GeminiRepository implements MarketIntelRepository {
         };
         this.snap.metrics.push(metric);
       }
-      metric.value = normalizeMetricToUsd(estimate.metricType, estimate.value, unit);
+      metric.value = estimate.value;
       metric.confidence = 'estimated';
-      metric.reportedSupport = {
-        provider: 'google-search', companyName: target.company.name,
-        basis: estimate.metricType, value: estimate.value, unit,
-        asOf, definition: estimate.metricType, periodStart: undefined,
-        support: { supportIndex: support.supportIndex, text: support.text.slice(0, 12000),
-          sources: support.sources.slice(0, 4).map((s) => ({ chunkIndex: s.chunkIndex, url: s.url.slice(0, 2048), title: s.title })) },
-      };
+      metric.reportedSupport = reportedSupport;
       metric.citations = support.sources.slice(0, 2).map((s) => ({ title: s.title, url: s.url }));
       metric.source = metric.citations[0]?.url ?? null;
       metric.methodNote = `${estimate.methodNote} Provider-reported estimate, not verified against an original.`;
@@ -2727,7 +2744,7 @@ export class GeminiRepository implements MarketIntelRepository {
         this.retierCompany(companyId, 'Re-tiered after a market-batch estimated fill.');
       }
     }
-    return { filledCompanies: touched.size, filledTypes };
+    return { filledCompanies: touched.size, filledTypes, rejected };
   }
 
   async huntCompanyMetrics(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
@@ -2823,7 +2840,11 @@ export class GeminiRepository implements MarketIntelRepository {
         needsAnnualFiling, this.originalSources.supports, g.text, 4) }) : [];
     if (this.originalSources) {
       if (!originals.some(source => source.status === 'retrieved' && Boolean(source.text?.trim()))) {
-        return { filledTypes: [], metrics: mine(), retieredCardIds: [] };
+        // No readable original: the grounded answer may still state a figure
+        // under the reported-claim gate. Those land as estimated, never verified.
+        const reported = await this.fillReportedHuntRows(company, softTypes, g, revisions);
+        const retieredCardIds = await this.finalizeHuntFill(company.id, reported);
+        return { filledTypes: [...structuredFilled, ...reported], metrics: mine(), retieredCardIds };
       }
     }
     const out = await this.client.structure(
@@ -2910,6 +2931,10 @@ export class GeminiRepository implements MarketIntelRepository {
       }
     }
 
+    // Slots the passage path left unknown may still carry a gated reported figure.
+    filledTypes.push(...await this.fillReportedHuntRows(company,
+      softTypes.filter((t) => !filledTypes.includes(t)), g, revisions));
+
     const retieredCardIds =
       filledTypes.length > 0
         ? this.retierCompany(companyId, 'Re-tiered after a metrics hunt filled soft figures.')
@@ -2935,6 +2960,64 @@ export class GeminiRepository implements MarketIntelRepository {
       }
     }
     return { filledTypes: [...structuredFilled, ...filledTypes], metrics: mine(), retieredCardIds };
+  }
+
+  /** Hunt reported-estimate lane: runs the grounded hunt answer through the SAME
+   * reported-claim gate recovery uses and writes passing rows as `estimated`
+   * for slots that currently hold no value. Never overwrites a value, never
+   * touches verified/user rows, never invents; returns the types written. */
+  private async fillReportedHuntRows(
+    company: Company, slots: MetricType[], g: { text: string; grounding?: ProviderGrounding },
+    revisions: Map<MetricType, string>,
+  ): Promise<MetricType[]> {
+    if (slots.length === 0 || g.grounding?.provider !== 'google-search' || g.grounding.supports.length === 0) return [];
+    const marketId = this.snap.companyMarket[company.id];
+    const otherCompanies = marketId === undefined ? [] : this.snap.companies
+      .filter((c) => c.id !== company.id && this.snap.companyMarket[c.id] === marketId).map((c) => c.name);
+    const nowIso = new Date().toISOString();
+    const rows = reportedCompanyMetrics({
+      companyId: company.id, companyName: company.name, website: company.websiteUrl,
+      enrichment: enrichmentOutSchema.parse({ metrics: {} }), text: g.text, grounding: g.grounding,
+      capturedAt: nowIso, identity: { answerText: g.text, otherCompanies },
+    });
+    const mine = () => this.snap.metrics.filter((m) => m.companyId === company.id);
+    const written: MetricType[] = [];
+    for (const row of rows) {
+      if (row.value == null || row.confidence !== 'estimated' || !row.reportedSupport || !slots.includes(row.metricType)) continue;
+      // A concurrent write during the hunt wins over this one.
+      if (JSON.stringify(mine().filter((m) => m.metricType === row.metricType)) !== revisions.get(row.metricType)) continue;
+      const revision = currentMetricRevision(mine(), company.id, row.metricType);
+      if (revision?.ambiguous) continue;
+      const current = revision?.metric;
+      if (current && (current.value != null || current.confidence === 'user_verified' || current.confidence === 'verified')) continue;
+      const value = normalizeMetricToUsd(row.metricType, row.value, row.reportedSupport.unit);
+      if (current) {
+        Object.assign(current, { value, confidence: 'estimated', source: row.source, citations: row.citations,
+          passageSupport: null, reportedSupport: row.reportedSupport, methodNote: row.methodNote, capturedAt: nowIso });
+      } else {
+        this.snap.metrics.push({ ...row, id: `met_hunt_${Date.now().toString(36)}_${row.metricType}`, value, capturedAt: nowIso });
+      }
+      written.push(row.metricType);
+    }
+    return written;
+  }
+
+  /** Persist + re-tier + notify after the reported hunt lane wrote rows. */
+  private async finalizeHuntFill(companyId: string, filled: MetricType[]): Promise<string[]> {
+    if (filled.length === 0) return [];
+    const retieredCardIds = this.retierCompany(companyId, 'Re-tiered after a metrics hunt filled reported estimates.');
+    this.snap.dashboards[companyId] = {};
+    await this.persist();
+    const card = this.snap.cards.find((c) => c.companyId === companyId && c.cardType === 'company');
+    const deck = card ? this.snap.decks.find((d) => d.id === card.deckId) : undefined;
+    if (deck) {
+      this.emit({
+        marketId: deck.marketId, deckId: deck.id, refreshedAt: new Date().toISOString(), addedCardIds: [],
+        updatedCardIds: retieredCardIds.length > 0 ? retieredCardIds : card ? [card.id] : [],
+        prunedCardIds: [], companyIds: [companyId],
+      });
+    }
+    return retieredCardIds;
   }
 
   /** Free offline recovery: re-project retained company_profile evidence through
