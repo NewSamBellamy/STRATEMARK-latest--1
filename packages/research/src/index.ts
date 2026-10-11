@@ -22,6 +22,7 @@ export type { OriginalSourceReceipt, OriginalSourceAttempt, OriginalSourceServic
 export { coalesceOriginalSources, isOriginalSourceAttempt, selectOriginalSourceCitations } from './original-source';
 export { isBrowserOriginalSourceSupported, retrieveBrowserOriginalSource } from './original-source.browser';
 export { acceptedMetricPassage } from './metric-support';
+export { quoteHolds, quotedSupportHolds, quotedStoredCitations } from './quoted-estimate';
 export { UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
 export { searchEvidenceCorpus, presentable, type ResearchPassage, type CorpusQuery, type ScoredPassage } from './retrieval';
 export * from './proxy-estimator';

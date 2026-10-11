@@ -338,4 +338,53 @@ describe('collectible card evidence model', () => {
       expect(result.profileMetrics[3]).toMatchObject({ label: 'Total raised', display: '$53M' });
     });
   });
+
+  describe('card face: the four strongest sourced figures', () => {
+    const asOf = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    const url = 'https://www.prnewswire.com/news-releases/raise.html';
+    const quotedValuation = metric({ id: 'qv', metricType: 'valuation', value: 44_000_000_000, confidence: 'estimated',
+      citations: [{ title: 'prnewswire.com (original page, quoted)', url, credibility: 'reputable_secondary' }],
+      quotedSupport: { sourceUrl: url, asOf, unit: 'USD', value: 44_000_000_000,
+        quote: `Today, ${company.name} announced a $750 million financing round, valuing the company at $44 billion.` } });
+    const round = metric({ id: 'lr', metricType: 'last_round', value: 750_000_000 });
+    const raised = metric({ id: 'ft', metricType: 'funding_total', value: 1_000_000_000 });
+    const people = metric({ id: 'em', metricType: 'employees', value: 1200 });
+    const share = metric({ id: 'ms', metricType: 'market_share', value: 12 });
+
+    it('fills all four places from whatever is sourced, instead of leaving family holes', () => {
+      // No users: the fixed slots leave a hole (and drop the latest round entirely).
+      const result = view([quotedValuation, round, raised, people]);
+      expect(result.profileMetrics.filter((m) => m.display === 'Unknown')).toHaveLength(1);
+      expect(result.faceMetrics.map((m) => m.label)).toEqual(['Valuation', 'Employees', 'Total raised', 'Latest round']);
+      expect(result.faceMetrics.every((m) => m.display !== 'Unknown' && m.display !== 'Not found yet')).toBe(true);
+      expect(result.faceMetrics[0]).toMatchObject({ display: '$44B', confidence: 'Source reported' });
+    });
+
+    it('prefers verified over estimated, and one figure per family', () => {
+      const verifiedCap = metric({ id: 'mc', metricType: 'market_cap', value: 50_000_000_000 });
+      const result = view([quotedValuation, verifiedCap, round, raised, people, share]);
+      const labels = result.faceMetrics.map((m) => m.label);
+      expect(labels).toContain('Market cap');
+      expect(labels).not.toContain('Valuation');
+      expect(result.faceMetrics).toHaveLength(4);
+    });
+
+    it('never shows an estimate that cannot re-check, and says plainly what is missing', () => {
+      const forged = metric({ id: 'x', metricType: 'valuation', value: 9e9, confidence: 'estimated', quotedSupport: null });
+      const tampered = { ...quotedValuation, quotedSupport: { ...quotedValuation.quotedSupport!, quote: 'Another company is valued at $44 billion.' } };
+      const result = view([forged, tampered, people]);
+      expect(result.faceMetrics).toHaveLength(4);
+      expect(result.faceMetrics.map((m) => m.display)).toEqual(['1.2K', 'Not found yet', 'Not found yet', 'Not found yet']);
+      expect(result.faceMetrics.slice(1).every((m) => m.metric === undefined && m.citations.length === 0)).toBe(true);
+    });
+
+    it('shows a human-checked figure even without a link', () => {
+      const human = metric({ id: 'h', metricType: 'arr', value: 5_000_000, confidence: 'user_verified', citations: [] });
+      expect(view([human]).faceMetrics[0]).toMatchObject({ display: '$5M' });
+    });
+
+    it('re-checked quoted figures also fill the fixed slot used by reports', () => {
+      expect(view([quotedValuation]).profileMetrics[3]).toMatchObject({ label: 'Valuation', display: '$44B', confidence: 'Source reported' });
+    });
+  });
 });

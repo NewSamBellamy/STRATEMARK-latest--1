@@ -185,6 +185,17 @@ export const reportedBandSchema = z.object({
 }).refine((band) => band.high > band.low, { message: 'band high must exceed low' });
 export type ReportedBand = z.infer<typeof reportedBandSchema>;
 
+/** A figure quoted word for word from a fetched original page; see companyMetricSchema.quotedSupport. */
+export const quotedSupportSchema = z.object({
+  sourceUrl: z.string().max(2048),
+  quote: z.string().min(1).max(600),
+  asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** The figure as the source states it, before any USD conversion. */
+  value: z.number(),
+  unit: z.string().max(16),
+});
+export type QuotedSupport = z.infer<typeof quotedSupportSchema>;
+
 export const companyMetricSchema = z.object({
   id: z.string(),
   companyId: z.string(),
@@ -206,6 +217,12 @@ export const companyMetricSchema = z.object({
   reportedSupport: reportedMetricSupportSchema.nullish(),
   /** Employees only: a stated headcount range; `value` stays null (never a point). */
   reportedBand: reportedBandSchema.nullish(),
+  /**
+   * Estimated only: the exact sentence a fetched original page states this
+   * figure in (press/news prose the verified gate does not accept). Kept so
+   * every reader re-checks it instead of trusting the stored label.
+   */
+  quotedSupport: quotedSupportSchema.nullish(),
   capturedAt: isoTimestamp,
   /**
    * When a source last CONFIRMED this figure, as opposed to when we wrote the

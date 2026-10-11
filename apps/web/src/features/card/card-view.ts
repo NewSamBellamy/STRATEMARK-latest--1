@@ -3,7 +3,7 @@ import {
   isSignalCardType, usableCitations, metricDefinitionLabel, classifyMarketProfile, PROFILE_CORE_SLOTS, MONEY_METRIC_TYPES,
   type CardWithCompany, type CompanyMetric, type MetricType,
 } from '@mi/contracts';
-import { reportedBandCitations, reportedSupportCitations } from '@mi/research';
+import { quotedSupportHolds, reportedBandCitations, reportedSupportCitations } from '@mi/research';
 import type { OvrBreakdown } from './rating';
 
 const LABELS: Record<MetricType, string> = {
@@ -147,9 +147,83 @@ export function buildMetricViews(input: readonly CompanyMetric[], officialWebsit
   });
 }
 
+type MetricView = ReturnType<typeof buildMetricViews>[number];
+type ProfileSlot = {
+  key: string; label: string; display: string; confidence: string; citations: MetricView['citations'];
+  metric?: CompanyMetric; note?: string | null;
+};
+
+/** Most useful first when two figures are equally well sourced. */
+const FACE_IMPORTANCE: Record<'operating_company' | 'financial_firm', readonly MetricType[]> = {
+  operating_company: ['arr', 'revenue', 'valuation', 'market_cap', 'employees', 'users', 'funding_total', 'last_round', 'distribution', 'aum', 'market_share'],
+  financial_firm: ['aum', 'valuation', 'market_cap', 'arr', 'revenue', 'employees', 'funding_total', 'last_round', 'users', 'distribution', 'market_share'],
+};
+/** One figure per family on the face: revenue OR ARR, valuation OR market cap. */
+const FACE_FAMILY: Partial<Record<MetricType, string>> = { arr: 'revenue', revenue: 'revenue', valuation: 'value', market_cap: 'value' };
+const FACE_KEY: Partial<Record<MetricType, string>> = { arr: 'revenue', revenue: 'revenue', valuation: 'company_value', market_cap: 'company_value', users: 'reach', employees: 'employees', aum: 'aum' };
+
+/**
+ * The card face: the four strongest SOURCED figures this company has, whatever
+ * they are — human-checked, then verified, then source-reported estimates —
+ * instead of four fixed families that leave "Unknown" holes while other good
+ * figures sit unused. Every figure shown still carries its citation (the rows
+ * arrive already projected through the repository's acceptance gates). When a
+ * company has fewer than four sourced figures, the remaining places say so
+ * plainly ("Not found yet"); a figure is never invented to fill a slot.
+ */
+function strongestFaceMetrics(metrics: readonly MetricView[], profile: readonly ProfileSlot[],
+  marketProfile: 'operating_company' | 'financial_firm', company: CardWithCompany['company']): ProfileSlot[] {
+  const importance = FACE_IMPORTANCE[marketProfile];
+  const rank = (type: MetricType) => { const i = importance.indexOf(type); return i < 0 ? importance.length : i; };
+  type Candidate = ProfileSlot & { strength: number; type: MetricType };
+  const candidates: Candidate[] = [];
+  for (const m of metrics) {
+    const metric = m.metric;
+    const type = metric.metricType;
+    const key = FACE_KEY[type] ?? type;
+    // A human-checked figure stands on its own; every other figure needs a source.
+    if (metric.value != null && (m.citations.length > 0 || metric.confidence === 'user_verified')) {
+      const strength = metric.confidence === 'user_verified' ? 0 : metric.confidence === 'verified' ? 1 : metric.confidence === 'estimated' ? 2 : -1;
+      if (strength < 0) continue;
+      // Estimates must re-check here: a grounded-answer sentence or a quote from
+      // a fetched page. An estimate with neither stays off the face.
+      if (strength === 2 && !(company && (
+        (metric.reportedSupport != null && reportedSupportCitations(company.name, company.websiteUrl, metric).length > 0) ||
+        quotedSupportHolds(company.name, metric)))) continue;
+      const label = FACE_KEY[type] ? profileLabel(key, metric) : (metricTypeLabel(metric) ?? LABELS[type]);
+      candidates.push({ ...m, key, label, type, strength, confidence: strength === 2 ? 'Source reported' : m.confidence });
+    } else if (type === 'employees' && metric.value === null && metric.confidence === 'estimated' && metric.reportedBand && company &&
+      reportedBandCitations(company.name, company.websiteUrl, metric).length > 0) {
+      const range = metric.reportedBand;
+      candidates.push({ ...m, key, label: 'Employees (range)', display: `${range.low}–${range.high}`, type, strength: 3, confidence: 'Source reported' });
+    }
+  }
+  candidates.sort((a, b) => a.strength - b.strength || rank(a.type) - rank(b.type));
+  const families = new Set<string>();
+  const chosen: Candidate[] = [];
+  for (const c of candidates) {
+    const family = FACE_FAMILY[c.type] ?? c.type;
+    if (families.has(family)) continue;
+    families.add(family);
+    chosen.push(c);
+    if (chosen.length === 4) break;
+  }
+  // Stable reading order on the face: by importance, not by strength.
+  chosen.sort((a, b) => rank(a.type) - rank(b.type));
+  const face: ProfileSlot[] = chosen.map(({ strength: _s, type: _t, ...slot }) => slot);
+  // Fewer than four sourced figures: name what is still missing, most useful first.
+  for (const slot of profile) {
+    if (face.length >= 4) break;
+    if (face.some((f) => f.key === slot.key)) continue;
+    face.push({ key: slot.key, label: slot.label, display: 'Not found yet', confidence: 'Unknown', citations: [], metric: undefined,
+      note: 'No source-backed figure has been found for this yet. It is never estimated without a source.' });
+  }
+  return face;
+}
+
 /** A single read-only boundary for deck and inspection. Never updates stored research. */
 /** One plain-English trust line per face figure, shared by the reader and the dashboard. */
-export function faceFigureStatus(item: CardView['profileMetrics'][number]): string {
+export function faceFigureStatus(item: Pick<ProfileSlot, 'metric' | 'confidence' | 'citations'>): string {
   const metric = item.metric;
   const citation = item.citations[0];
   return metric?.confidence === 'user_verified' ? 'Human checked' :
@@ -215,6 +289,12 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
           shown.add('employees');
           return { ...band, key, label: 'Employees (range)', display: `${range.low}–${range.high}`, confidence: 'Source reported' };
         }
+        // A figure quoted word for word from a fetched page, re-checked here.
+        const quoted = data.company ? candidates.find((m) => m.metric.value != null && quotedSupportHolds(data.company!.name, m.metric)) : undefined;
+        if (quoted) {
+          shown.add(quoted.metric.metricType);
+          return { ...quoted, key, label: profileLabel(key, quoted.metric), confidence: 'Source reported' };
+        }
         const estimate = candidates.find((m) => m.metric.value != null);
         if (estimate) {
           return {
@@ -249,13 +329,16 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
           metric: undefined,
         };
       });
+  const faceMetrics = signal ? [] : strongestFaceMetrics(metrics, profileMetrics, marketProfile, data.company);
   const maturity = data.card.cardType === 'company' && !signal && data.card.tier != null &&
     profileMetrics.some((m) => m.metric?.value != null && m.citations.length > 0)
     ? { tier: data.card.tier, label: TIER_LABELS[data.card.tier] } : null;
   // Scoring (tiers, OVR) is parked: the face footer reports evidence, not a grade.
-  const faceSourced = profileMetrics.filter((m) => (m.metric?.value != null || m.metric?.reportedBand != null) && m.citations.length > 0).length;
+  // The footer counts what the face actually shows.
+  const faceSourced = faceMetrics.filter((m) => (m.metric?.value != null || m.metric?.reportedBand != null) &&
+    (m.citations.length > 0 || m.metric?.confidence === 'user_verified')).length;
   const position = signal ? 'Market signal' : data.card.cardType !== 'company' ? 'Entity profile' :
-    profileMetrics.length ? `${faceSourced}/${profileMetrics.length} figures sourced` : 'Research pending';
+    faceMetrics.length ? `${faceSourced}/${faceMetrics.length} figures sourced` : 'Research pending';
   const viceCitations = data.viceClaims.flatMap((claim) => sourceUrl(claim.sourceUrl)
     ? [{ url: claim.sourceUrl, title: claim.sourceTitle || 'Source' }]
     : []);
@@ -280,7 +363,7 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
     frontDescription: signal ? signalLines[0] ?? null : description,
     frontFinding: signal ? signalLines[1] ?? null : null,
     type: CARD_TYPE_LABELS[data.card.cardType], signal, maturity, rating, position, metrics,
-    profileMetrics, knownCount, sourcedCount,
+    profileMetrics, faceMetrics, knownCount, sourcedCount,
     // A source count is evidence DEPTH, not retrieved-item volume: the same
     // receipt repeated across metrics is one source, not many. Distinct pages,
     // not distinct hosts — different pages on one domain are real evidence.

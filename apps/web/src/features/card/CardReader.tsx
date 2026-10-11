@@ -112,14 +112,14 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
               <span className="text-[9px] text-muted">Source receipts</span>
             </div>
             <ul className="card-inspector__facts">
-              {view.profileMetrics.map((item) => {
+              {view.faceMetrics.map((item) => {
                 const metric = item.metric;
                 const citation = item.citations[0];
                 const status = faceFigureStatus(item);
                 const date = metric ? new Date(metric.capturedAt) : null;
                 const formattedDate = date && Number.isFinite(date.getTime()) ? capturedDate.format(date) : null;
 
-                return <li className="card-inspector__fact" key={item.key}>
+                return <li className="card-inspector__fact" key={`${item.key}-${item.label}`}>
                   <span className="card-inspector__fact-label">{item.label}</span>
                   <strong className="card-inspector__fact-value">{item.display}</strong>
                   <div className="card-inspector__fact-meta">
@@ -129,6 +129,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                       <span>{publisherOf(citation.url, citation.title)}</span><ExternalLink size={10} aria-hidden="true" />
                     </a>}
                     {formattedDate && <time dateTime={metric!.capturedAt}>Recorded {formattedDate}</time>}
+                    {metric?.quotedSupport && <span>Figure dated {metric.quotedSupport.asOf} · quoted from the page</span>}
                     {metric?.reportedSupport && <span>{metric.reportedSupport.asOf
                       ? `Figure dated ${metric.reportedSupport.asOf}` : 'Reporting date unavailable'}</span>}
                     {metric?.reportedBand && <span>{metric.reportedBand.asOf

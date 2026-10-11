@@ -48,8 +48,8 @@ export function CollectibleCard({
       ? triad.accent
       : '#6a756f';
   const stage = view.position;
-  const complete = view.profileMetrics.length > 0 &&
-    view.profileMetrics.every((m) => (m.metric?.value != null || m.metric?.reportedBand != null) && m.citations.length > 0);
+  const complete = view.faceMetrics.length > 0 &&
+    view.faceMetrics.every((m) => (m.metric?.value != null || m.metric?.reportedBand != null) && (m.citations.length > 0 || m.metric?.confidence === 'user_verified'));
   const provenance = view.sourceCount > 0
     ? `${view.sourceCount} ${view.sourceCount === 1 ? 'source' : 'sources'} tracked`
       : 'Research needed';
@@ -99,11 +99,11 @@ export function CollectibleCard({
             </span>
             <p>{view.frontFinding}</p>
           </div>
-        ) : view.profileMetrics.length ? (
+        ) : view.faceMetrics.length ? (
           <div className="collectible__metrics">
-            {view.profileMetrics.map((m) => (
+            {view.faceMetrics.map((m) => (
               <div
-                key={m.key}
+                key={`${m.key}-${m.label}`}
                 className={m.metric?.value == null && m.metric?.reportedBand == null ? 'collectible__metric--unknown' : undefined}
               >
                 <span className="collectible__metric-value">{m.display}</span>

@@ -15,7 +15,7 @@
  * dated within the evidence window (in the quote or the article's dateline
  * directly before it) and is not hedged. Anything else stays unknown.
  */
-import { MONEY_METRIC_TYPES, validMetricVerificationValue, type Citation, type MetricType } from '@mi/contracts';
+import { MONEY_METRIC_TYPES, validMetricVerificationValue, type Citation, type CompanyMetric, type MetricType } from '@mi/contracts';
 import type { OriginalSourceReceipt } from './original-source';
 import type { MetricPassageSupport } from './metric-support';
 import { currencyMentionPattern, isConvertibleCurrency } from './fx';
@@ -89,34 +89,64 @@ export interface QuotedEstimateInput {
   nowMs?: number;
 }
 
-/** Citations when the figure qualifies as a quoted-original estimate, else []. */
-export function quotedOriginalEstimate(input: QuotedEstimateInput): Citation[] {
-  const proof = input.support;
+/** The checks a stored quote must pass on its own (no page needed): metric
+ * wording, the company as written, the exact value bound to that wording with
+ * its currency, a current reporting date, no hedging. Readers without the
+ * retained page (the card face) re-run exactly this. */
+export function quoteHolds(input: { companyName: string; metricType: MetricType; value: number | null;
+  quote: string; asOf: string; unit: string; nowMs?: number }): boolean {
   const wording = WORDING[input.metricType];
-  if (!proof || !wording || proof.basis !== input.metricType || input.value == null ||
-    !validMetricVerificationValue(input.metricType, input.value) || !/^\d{4}-\d{2}-\d{2}$/.test(proof.asOf)) return [];
-  const asOf = new Date(`${proof.asOf}T00:00:00.000Z`);
+  if (!wording || input.value == null || !validMetricVerificationValue(input.metricType, input.value) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(input.asOf)) return false;
+  const asOf = new Date(`${input.asOf}T00:00:00.000Z`);
   const nowMs = input.nowMs ?? Date.now();
-  if (!Number.isFinite(asOf.getTime()) || asOf.toISOString().slice(0, 10) !== proof.asOf ||
-    asOf.getTime() > nowMs || nowMs - asOf.getTime() > EVIDENCE_WINDOW_DAYS * 86_400_000) return [];
+  if (!Number.isFinite(asOf.getTime()) || asOf.toISOString().slice(0, 10) !== input.asOf ||
+    asOf.getTime() > nowMs || nowMs - asOf.getTime() > EVIDENCE_WINDOW_DAYS * 86_400_000) return false;
 
-  const quote = normalize(proof.quote ?? '');
-  if (quote.length < 15 || quote.length > 600 || HEDGE.test(quote) || !wording.test(quote)) return [];
+  const quote = normalize(input.quote);
+  if (quote.length < 15 || quote.length > 600 || HEDGE.test(quote) || !wording.test(quote)) return false;
 
   // The company exactly as written (case-sensitive): "Ramp", not "ramp up".
   const brand = brandOf(input.companyName);
-  if (brand.length < 2 || !new RegExp(`(?<![\\p{L}\\p{N}])${escape(brand)}(?![\\p{L}\\p{N}])`, 'u').test(quote)) return [];
+  if (brand.length < 2 || !new RegExp(`(?<![\\p{L}\\p{N}])${escape(brand)}(?![\\p{L}\\p{N}])`, 'u').test(quote)) return false;
 
   // The exact value, in the unit the source uses.
-  const forms = dateForms(proof.asOf);
-  const withoutDates = forms.reduce((text, form) => text.replaceAll(form, ' '), quote);
+  const withoutDates = dateForms(input.asOf).reduce((text, form) => text.replaceAll(form, ' '), quote);
   const attached = nearestAmount(withoutDates, wording);
-  if (attached == null || Math.abs(attached - input.value) > Math.max(1, input.value) * 1e-9) return [];
+  if (attached == null || Math.abs(attached - input.value) > Math.max(1, input.value) * 1e-9) return false;
   if (MONEY_METRIC_TYPES.includes(input.metricType)) {
-    const unit = proof.unit;
-    const currency = unit === 'USD' ? /\$|\bUSD\b|U\.S\. dollars/ : isConvertibleCurrency(unit) ? currencyMentionPattern(unit) : null;
-    if (!currency || !currency.test(quote)) return [];
-  } else if (proof.unit !== 'count') return [];
+    const currency = input.unit === 'USD' ? /\$|\bUSD\b|U\.S\. dollars/ : isConvertibleCurrency(input.unit) ? currencyMentionPattern(input.unit) : null;
+    return Boolean(currency && currency.test(quote));
+  }
+  return input.unit === 'count';
+}
+
+/** Card/reader re-check of a stored quoted-estimate row (no page available). */
+export function quotedSupportHolds(companyName: string,
+  metric: Pick<CompanyMetric, 'metricType' | 'confidence' | 'quotedSupport' | 'citations'>, nowMs?: number): boolean {
+  const q = metric.quotedSupport;
+  return metric.confidence === 'estimated' && q != null &&
+    metric.citations.some((c) => c.url === q.sourceUrl) &&
+    quoteHolds({ companyName, metricType: metric.metricType, value: q.value, quote: q.quote, asOf: q.asOf, unit: q.unit, nowMs });
+}
+
+/** Projection re-check with the retained originals: the full lane, page included. */
+export function quotedStoredCitations(companyName: string,
+  metric: Pick<CompanyMetric, 'metricType' | 'confidence' | 'quotedSupport'>,
+  originals: readonly OriginalSourceReceipt[], nowMs?: number): Citation[] {
+  const q = metric.quotedSupport;
+  if (metric.confidence !== 'estimated' || !q) return [];
+  return quotedOriginalEstimate({ companyName, metricType: metric.metricType, value: q.value, originals, nowMs,
+    support: { sourceUrl: q.sourceUrl, quote: q.quote, asOf: q.asOf, basis: metric.metricType, unit: q.unit as MetricPassageSupport['unit'] } });
+}
+
+/** Citations when the figure qualifies as a quoted-original estimate, else []. */
+export function quotedOriginalEstimate(input: QuotedEstimateInput): Citation[] {
+  const proof = input.support;
+  if (!proof || proof.basis !== input.metricType || !quoteHolds({ companyName: input.companyName, metricType: input.metricType,
+    value: input.value, quote: proof.quote ?? '', asOf: proof.asOf, unit: proof.unit, nowMs: input.nowMs })) return [];
+  const quote = normalize(proof.quote ?? '');
+  const forms = dateForms(proof.asOf);
 
   // Verbatim in a page we fetched, and dated in the quote or its dateline.
   const page = input.originals.find((source) => source.status === 'retrieved' && source.text &&

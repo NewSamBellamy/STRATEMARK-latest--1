@@ -2,6 +2,7 @@ import { METRIC_TYPES, companyMetricSchema, currentMetricRevision, metricPassage
   validMetricVerificationValue, isSignalCardType, type CardWithCompany, type Company, type CompanyMetric } from '@mi/contracts';
 import { currencyConversionNote, inspectMetricPassage } from './metric-support';
 import { CARD_FACT_TYPES, reportedBandCitations, reportedStoredCitations } from './reported-metrics';
+import { quotedStoredCitations } from './quoted-estimate';
 import { isOriginalSourceAttempt, originalSupportReferences, selectOriginalSourceAttempts, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceQuery } from './original-source';
 
 /** Read adapter for the existing retained cloud verification ledger. Synthetic
@@ -56,11 +57,17 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
     const staleMarketCap = type === 'market_cap' && metric.reportedSupport != null && !metric.reportedSupport.asOf;
     const reportedCitations = !current.ambiguous && bounded && metric.confidence === 'estimated' && !staleMarketCap
       ? reportedStoredCitations(company.name, company.websiteUrl, metric) : [];
+    // A figure quoted word for word from a fetched page: re-run the whole lane
+    // (quote, company, value, date, hedging, and presence on the retained page).
+    if (!current.ambiguous && bounded && metric.quotedSupport) {
+      const quoted = quotedStoredCitations(company.name, metric, originals);
+      if (quoted.length) return [{ ...structuredClone(metric), citations: quoted, source: quoted[0]!.url, passageSupport: null, lastVerifiedAt: null }];
+    }
     // A computation from retained sources (the market-cap quote lane) keeps its
     // own two named citations — both are retained originals; the row's
     // methodNote labels it a computation, never a reported figure.
     if (!current.ambiguous && bounded && metric.confidence === 'estimated' && metric.passageSupport === null &&
-      metric.reportedSupport === null && metric.citations.length > 0 && !reportedCitations.length &&
+      metric.reportedSupport === null && !metric.quotedSupport && metric.citations.length > 0 && !reportedCitations.length &&
       metric.citations.every((c) => originals.some((o) => o.finalUrl === c.url || o.requestedUrl === c.url))) {
       return [structuredClone(metric)];
     }

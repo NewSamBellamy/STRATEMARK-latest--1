@@ -153,8 +153,13 @@ export function originalSupportReferences(metrics: readonly CompanyMetric[], com
   return METRIC_TYPES.flatMap(type => {
     const revision = currentMetricRevision(metrics, companyId, type);
     const parsed = metricPassageSupportSchema.safeParse(revision?.metric.passageSupport);
-    return !revision?.ambiguous && parsed.success && usableCitations([{ url: parsed.data.sourceUrl, title: '' }]).length
-      ? [{ sourceUrl: parsed.data.sourceUrl, quote: parsed.data.quote }] : [];
+    if (!revision?.ambiguous && parsed.success && usableCitations([{ url: parsed.data.sourceUrl, title: '' }]).length) {
+      return [{ sourceUrl: parsed.data.sourceUrl, quote: parsed.data.quote }];
+    }
+    // A quoted-original estimate locates its page the same way.
+    const quoted = revision?.ambiguous ? null : revision?.metric.quotedSupport;
+    return quoted && quoted.quote.trim() && usableCitations([{ url: quoted.sourceUrl, title: '' }]).length
+      ? [{ sourceUrl: quoted.sourceUrl, quote: quoted.quote }] : [];
   });
 }
 export function validatedOriginalSupport(support: OriginalSourceQuery['support'] = []) {

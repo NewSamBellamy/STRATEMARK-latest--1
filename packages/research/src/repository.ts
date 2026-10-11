@@ -3031,6 +3031,8 @@ export class GeminiRepository implements MarketIntelRepository {
         if (current && (current.value != null || current.confidence === 'user_verified' || current.confidence === 'verified')) continue;
         const row = { value: normalizeMetricToUsd(fig.metricType, fig.value, fig.passageSupport.unit), confidence: 'estimated' as const,
           source: citations[0]!.url, citations, passageSupport: null, reportedSupport: null,
+          quotedSupport: { sourceUrl: fig.passageSupport.sourceUrl, quote: fig.passageSupport.quote, asOf: fig.passageSupport.asOf,
+            value: fig.value!, unit: fig.passageSupport.unit },
           methodNote: `${quotedEstimateNote(fig.passageSupport, citations[0]!)} ${currencyConversionNote(fig.value, fig.passageSupport.unit)}`.trim(),
           capturedAt: nowIso };
         if (current) Object.assign(current, row);
