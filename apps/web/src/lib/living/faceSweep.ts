@@ -22,7 +22,7 @@ import { buildCardView } from '@/features/card/card-view';
 export interface FaceSweepTarget {
   companyId: string;
   companyName: string;
-  /** Face-slot keys still showing Unknown (employees / revenue / reach / company_value / aum). */
+  /** Families the face still lacks a sourced figure for (employees / revenue / reach / company_value / aum). */
   missingSlots: string[];
 }
 
@@ -34,10 +34,12 @@ export interface FaceSweepResult {
   failed: number;
 }
 
-/** Face slots on this card that still show Unknown. Signal cards have none. */
+/** Places on the card face with no sourced figure yet (the face shows the four
+ * strongest sourced figures of any type, so a company with four already needs
+ * no sweep even if one metric family is missing). Signal cards have none. */
 export function missingFaceSlots(card: CardWithCompany): string[] {
   if (!card.company || !isEntityCardType(card.card.cardType)) return [];
-  return buildCardView(card).profileMetrics.filter((slot) => slot.display === 'Unknown').map((slot) => slot.key);
+  return buildCardView(card).faceMetrics.filter((slot) => slot.metric === undefined).map((slot) => slot.key);
 }
 
 /** One target per company with at least one empty face slot, most-empty first. */

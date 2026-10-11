@@ -32,6 +32,14 @@ describe('face sweep selection', () => {
     expect(missingFaceSlots(full(1))).toEqual([]);
   });
 
+  it('skips a company whose face already shows four sourced figures, whatever their families', () => {
+    // No users and no ARR, but four sourced figures: the face is full, so no hunt is spent.
+    const mixed = deckCard(5, [human('x', 'employees', 40), human('x', 'valuation', 2e7),
+      human('x', 'funding_total', 9e6), human('x', 'last_round', 4e6)]);
+    expect(missingFaceSlots(mixed)).toEqual([]);
+    expect(selectFaceSweepTargets([mixed])).toEqual([]);
+  });
+
   it('counts a stored headcount band as a filled employees slot and shows it as a range', () => {
     const text = 'Sweep Co 4 has 51 to 100 employees.';
     const band: CompanyMetric = { ...seed, id: 'band', metricType: 'employees', value: null, confidence: 'estimated', citations: cite,
