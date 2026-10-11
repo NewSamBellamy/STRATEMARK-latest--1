@@ -410,6 +410,11 @@ export function reportedMetricCitations(companyName: string, website: string | n
   // stays unknown rather than rendering with authority it never earned.
   if (type === 'users' && !proof.asOf) return [];
 if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its .{0,30}suite|active base of .{0,30}devices)\b/i.test(proof.support.text)) return [];
+  // A market cap is a listed share price times shares: undated it reads as
+  // today's figure, and a private round ("Market Cap: $565M (post-money
+  // valuation from its Series C)") is a valuation wearing the wrong label.
+  if (type === 'market_cap' && (!proof.asOf ||
+    /\b(?:post-money|pre-money|valuation|valued at|funding round|series [a-h]|privately held|private company)\b/i.test(proof.support.text))) return [];
   if ((type === 'arr' && !['arr', 'annual_revenue'].includes(definition)) ||
     (type === 'users' && !['users', 'active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition)) ||
     (!['arr', 'users'].includes(type) && definition !== type)) return [];

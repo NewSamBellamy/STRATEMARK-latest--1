@@ -2697,8 +2697,11 @@ export class GeminiRepository implements MarketIntelRepository {
     const batch = cards.flatMap((card) => {
       const company = this.snap.companies.find((x) => x.id === card.companyId);
       if (!company) return [];
-      const missing = PROFILE_CORE_SLOTS[classifyMarketProfile(company)].flat()
-        .filter((type) => !this.snap.metrics.some((m) => m.companyId === company.id && m.metricType === type && m.value != null));
+      // A slot is missing only when none of its alternatives is known: asking for
+      // a "market cap" beside a known valuation got private valuations relabelled.
+      const has = (type: MetricType) => this.snap.metrics.some((m) => m.companyId === company.id && m.metricType === type && m.value != null);
+      const missing = PROFILE_CORE_SLOTS[classifyMarketProfile(company)]
+        .filter((types) => !types.some(has)).flat();
       return missing.length > 0 ? [{ company, missing }] : [];
     }).slice(0, 8);
     if (batch.length < 2) return { filledCompanies: 0, filledTypes: 0 };

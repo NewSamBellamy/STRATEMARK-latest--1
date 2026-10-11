@@ -63,6 +63,10 @@ describe('undated market cap', () => {
   it('stays unknown when the source gives no date — it would read as today', () => {
     expect(rows('Xero has a market capitalization of USD 9.86 billion.', null)).toMatchObject({ value: null, confidence: 'unknown' });
   });
+  it('rejects a private valuation labelled as market cap', () => {
+    expect(rows('Digits Market Cap: USD 565 million (post-money valuation from its Series C round) as of March 24, 2022.', '2022-03-24'))
+      .toMatchObject({ value: null, confidence: 'unknown' });
+  });
   it('is kept when the source dates it', () => {
     expect(rows('Xero had a market capitalization of USD 9.86 billion as of October 9, 2026.', '2026-10-09'))
       .toMatchObject({ value: 9_860_000_000, confidence: 'estimated' });
