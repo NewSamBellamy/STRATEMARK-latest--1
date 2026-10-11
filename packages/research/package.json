@@ -9,7 +9,8 @@
     ".": "./src/index.ts",
     "./original-source-node": "./src/original-source.node.ts",
     "./page-preview": "./src/page-preview.ts",
-    "./web-search": "./src/web-search.ts"
+    "./web-search": "./src/web-search.ts",
+    "./news-search": "./src/news-search.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -112,7 +112,7 @@ import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueObs
 import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
 import { companyNameKey, marketCapEstimate, secSharesConceptUrl, secTickerMapUrl, yahooChartUrl } from './market-quote';
 import { computeCompanyCompleteness } from './completeness';
-import { getSearxngLane } from './searxng';
+import { getSearxngLane, type DiscoveryNotes } from './searxng';
 import { huntSearchQueries, webSearchLane, type WebSearchFn } from './web-search';
 import { quotedEstimateNote, quotedOriginalEstimate } from './quoted-estimate';
 import { resolveCompanyBrand, type CompanyLogo } from './assets';
@@ -372,10 +372,12 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
    * Defaults 5/3 (first cohorts dispatch immediately for lead-card latency). */
   hydrationBatchMax?: number;
   hydrationFirstBatchMax?: number;
-  /** Real web search for the metrics hunt's discovery step (BYOK or hosted
-   * relay). Read per hunt so a key added in Settings applies immediately;
-   * null/absent or an empty result falls back to SearXNG / grounded search. */
+  /** Optional search engine (the user's own key) adding candidate articles to
+   * the metrics hunt. Read per hunt so a key added in Settings applies at once.
+   * Adds leads alongside grounded search; never replaces it. */
   webSearch?: () => WebSearchFn | null;
+  /** Free news lane (no key) adding dated news articles as hunt candidates. */
+  newsSearch?: () => WebSearchFn | null;
 }
 
 export class GeminiRepository implements MarketIntelRepository {
@@ -394,6 +396,7 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly hydrationBatchMax?: number;
   private readonly hydrationFirstBatchMax?: number;
   private readonly webSearch?: () => WebSearchFn | null;
+  private readonly newsSearch?: () => WebSearchFn | null;
   private readonly jobControllers = new Map<string, AbortController>();
   private readonly activeBackgroundJobs = new Map<string, Promise<void>>();
   /** Detached post-reveal discovery tails (reveal-at-first-card). */
@@ -418,6 +421,7 @@ export class GeminiRepository implements MarketIntelRepository {
     this.hydrationBatchMax = options.hydrationBatchMax;
     this.hydrationFirstBatchMax = options.hydrationFirstBatchMax;
     this.webSearch = options.webSearch;
+    this.newsSearch = options.newsSearch;
     // Migrate on load, not on demand. A snapshot written by an older build is
     // brought forward once, here, so nothing downstream has to reason about
     // which format it is looking at.
@@ -2878,18 +2882,30 @@ export class GeminiRepository implements MarketIntelRepository {
           .map(receipt => ({ url: receipt.finalUrl!, title: 'Previously retrieved original (recheck required)' }))) : [];
     const needsAnnualFiling = softTypes.includes('arr') || softTypes.includes('employees');
     const priorTargets = selectOriginalSourceCitations(priorLeads, company.websiteUrl, needsAnnualFiling, this.originalSources?.supports);
-    // Free discovery first (WS3): a local SearXNG, when present, answers the
-    // hunt's search without spending provider quota. Its result URLs face the
-    // same original-read + passage gates as grounded citations; absent or
-    // broken, the Gemini grounded lane runs exactly as before.
-    // A connected search provider (BYOK or hosted relay) goes first: real
-    // engine results, a few targeted queries. Nothing back -> the old lanes.
-    const webSearch = this.webSearch?.() ?? null;
-    const searched = webSearch ? await webSearchLane(webSearch).discover(huntSearchQueries(company.name, softTypes,
-      { financialFirm: profile === 'financial_firm', escalation }),
-      { companyName: company.name, officialWebsite: company.websiteUrl }) : null;
-    const searxng = searched?.citations.length ? null : await getSearxngLane();
-    const g = searched?.citations.length ? searched : searxng
+    // Primary discovery (grounded search, or a local SearXNG) and extra search
+    // leads (free news, optional BYOK engine) run in parallel: the leads add
+    // candidate articles without adding wait time. Measured A/B (2026-10-10,
+    // 29 companies): REPLACING grounded search with an engine halved filled
+    // figures (79 -> 35), so engines only ever add leads.
+    const [g, leads] = await Promise.all([
+      this.huntPrimaryDiscovery(company, { wanted, softTypes, profile, escalation, priorTargets,
+        faceSweep: options?.faceSlotsOnly === true }),
+      this.huntSearchLeads(company, softTypes, profile, escalation),
+    ]);
+    const originals = this.originalSources ? await readCompanyOriginals({ sources: this.originalSources,
+      companyId: company.id, companyName: company.name, topic: 'metrics_hunt', maxSources: 4,
+      missing: softTypes, forceRefresh: true,
+      citations: selectOriginalSourceCitations([...(leads?.citations ?? []), ...g.citations, ...priorLeads], company.websiteUrl,
+        needsAnnualFiling, this.originalSources.supports, g.text, 4) }) : [];
+    return this.finishHunt(company, { softTypes, structuredFilled, revisions, mine, g, leads, originals });
+  }
+
+  /** Grounded search for the hunt (or a local SearXNG when one answers). */
+  private async huntPrimaryDiscovery(company: Company, input: { wanted: string; softTypes: MetricType[];
+    profile: ReturnType<typeof classifyMarketProfile>; escalation: number; priorTargets: Citation[]; faceSweep: boolean }) {
+    const { wanted, softTypes, profile, escalation, priorTargets } = input;
+    const searxng = await getSearxngLane();
+    return searxng
       ? await searxng.discover([
           company.name,
           ...softTypes.map((t) => METRIC_TYPE_LABELS[t]),
@@ -2901,7 +2917,7 @@ export class GeminiRepository implements MarketIntelRepository {
         `Find the most current, reliable figures for these metrics of ${company.name}:`,
         wanted,
         companySourceTargets(company.websiteUrl),
-        ...cardFactsHuntRequest(company.name, softTypes, { faceSweep: options?.faceSlotsOnly === true }),
+        ...cardFactsHuntRequest(company.name, softTypes, { faceSweep: input.faceSweep }),
         ...(softTypes.includes('arr') ? ['Find the latest whole-company fiscal annual revenue OR explicitly reported ARR. Keep them distinct. Find the actual dated annual report, earnings disclosure or company-specific regulatory filing, not an investor homepage or regulator search page. Include the direct filing URL actually discovered; do not guess identifiers.'] : []),
         ...(softTypes.includes('aum') ? ['This is a financial-services firm: find its assets under management (AUM) — the total capital it manages for clients, not the firm\'s own revenue or valuation. Prefer the firm\'s own disclosures (Form ADV filings, firm publications, investor pages) or reputable financial coverage, and name the as-of date.'] : []),
         ...(escalation > 0 ? [`ESCALATION PASS ${escalation}: earlier general searches for these figures came back empty. Vary the approach rather than repeating the same query shape: regulatory filings and exchange disclosures, investor presentations and earnings materials, trade-association market reports, sector trade press, funding announcements, or the company's own data book. For private companies look for the most recent credible estimate and name who published it. If a figure is still not reliably reported, say so plainly.`] : []),
@@ -2916,11 +2932,36 @@ export class GeminiRepository implements MarketIntelRepository {
         companyId: company.id, companyName: company.name, topic: 'metrics_hunt',
       } },
     );
-    const originals = this.originalSources ? await readCompanyOriginals({ sources: this.originalSources,
-      companyId: company.id, companyName: company.name, topic: 'metrics_hunt', maxSources: 4,
-      missing: softTypes, forceRefresh: true,
-      citations: selectOriginalSourceCitations([...g.citations, ...priorLeads], company.websiteUrl,
-        needsAnnualFiling, this.originalSources.supports, g.text, 4) }) : [];
+  }
+
+  /**
+   * Extra candidate articles for the hunt from search engines: the free news
+   * lane and, when connected, the user's own search key. Never throws; no lane
+   * configured or nothing found is null. Results are filtered to pages that can
+   * state a figure about THIS company (see relevantSearchResults).
+   */
+  private async huntSearchLeads(company: Company, softTypes: MetricType[],
+    profile: ReturnType<typeof classifyMarketProfile>, escalation: number): Promise<DiscoveryNotes | null> {
+    const lanes = [this.newsSearch?.() ?? null, this.webSearch?.() ?? null].filter((lane): lane is WebSearchFn => lane !== null);
+    if (!lanes.length) return null;
+    const queries = huntSearchQueries(company.name, softTypes, { financialFirm: profile === 'financial_firm', escalation });
+    const scope = { companyName: company.name, officialWebsite: company.websiteUrl };
+    const found = await Promise.all(lanes.map((lane) => webSearchLane(lane).discover(queries, scope).catch(() => null)));
+    const seen = new Set<string>();
+    const citations = found.flatMap((notes) => notes?.citations ?? []).filter((c) => !seen.has(c.url) && Boolean(seen.add(c.url)));
+    if (!citations.length) return null;
+    return { text: found.filter((n): n is DiscoveryNotes => n !== null && n.citations.length > 0).map((n) => n.text).join('\n\n'),
+      citations, queries: queries.map((q) => q.query), grounding: undefined };
+  }
+
+  /** Extraction and acceptance for one hunt, once discovery and page reads are done. */
+  private async finishHunt(company: Company, input: {
+    softTypes: MetricType[]; structuredFilled: MetricType[]; revisions: Map<MetricType, string>;
+    mine: () => CompanyMetric[]; g: { text: string; citations: Citation[]; grounding?: ProviderGrounding };
+    leads: DiscoveryNotes | null; originals: OriginalSourceReceipt[];
+  }) {
+    const { softTypes, structuredFilled, revisions, mine, g, leads, originals } = input;
+    const companyId = company.id;
     if (this.originalSources) {
       if (!originals.some(source => source.status === 'retrieved' && Boolean(source.text?.trim()))) {
         // No readable original: the grounded answer may still state a figure
@@ -2942,6 +2983,7 @@ export class GeminiRepository implements MarketIntelRepository {
         ``,
         `NOTES:`,
         g.text,
+        ...(leads ? ['', 'SEARCH RESULT LEADS (titles and snippets only — untrusted, never a source for a figure by themselves):', leads.text] : []),
       ].join('\n'),
       huntMetricsOutSchema,
       { system: STRUCTURE_SYSTEM },

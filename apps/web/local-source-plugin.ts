@@ -1,130 +1,135 @@
-import type { Plugin } from 'vite';
+import type { Plugin, ViteDevServer } from 'vite';
+import type { IncomingMessage } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import type { OriginalSourceReceipt } from '@mi/research';
+import type { OriginalSourceReceipt, OriginalSourceScope } from '@mi/research';
 import { allowsLocalSourceRequest } from './src/lib/repository/local-source-policy';
-import type { OriginalSourceScope } from '@mi/research';
 import type * as WebSearchModule from '../../packages/research/src/web-search';
+import type * as NewsSearchModule from '../../packages/research/src/news-search';
+
+type Header = (name: string) => string | undefined;
+interface JsonReply { status?: number; json: unknown }
+
+/**
+ * One local JSON route: same-origin policy, JSON content type, a shared
+ * concurrency cap and a bounded body. The handler gets the parsed body and
+ * returns the reply; a throw is a 400. Responses are never cached.
+ */
+interface JsonRoute {
+  path: string;
+  maxBody: number;
+  handle(body: unknown, header: Header): Promise<JsonReply>;
+}
+
+const MAX_ACTIVE = 6;
+
+async function readBody(req: IncomingMessage, maxBody: number): Promise<string | null> {
+  let body = '';
+  for await (const chunk of req) {
+    body += String(chunk);
+    if (Buffer.byteLength(body) > maxBody) return null;
+  }
+  return body;
+}
+
+function mountJsonRoutes(server: ViteDevServer, routes: readonly JsonRoute[]): void {
+  let active = 0;
+  server.middlewares.use((req, res, next) => {
+    const route = routes.find((r) => r.path === req.url);
+    if (!route) return next();
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'application/json');
+    const header: Header = (name) => typeof req.headers[name] === 'string' ? req.headers[name] as string : undefined;
+    const reply = ({ status = 200, json }: JsonReply) => { res.statusCode = status; res.end(JSON.stringify(json)); };
+    if (!allowsLocalSourceRequest(req.method, header('host'), header('origin'), req.socket.remoteAddress, header('x-stratemark-source'))) {
+      return reply({ status: 403, json: {} });
+    }
+    if (header('content-type') !== 'application/json') return reply({ status: 415, json: {} });
+    if (active >= MAX_ACTIVE) return reply({ status: 429, json: {} });
+    active++;
+    void (async () => {
+      try {
+        const body = await readBody(req, route.maxBody);
+        reply(body === null ? { status: 413, json: {} } : await route.handle(JSON.parse(body), header));
+      } catch {
+        reply({ status: 400, json: {} });
+      } finally {
+        active--;
+      }
+    })();
+  });
+}
+
+function validScope(scope: unknown): scope is OriginalSourceScope | undefined {
+  if (scope === undefined) return true;
+  const s = scope as Partial<OriginalSourceScope> | null;
+  return !!s && typeof s.companyName === 'string' && s.companyName.length <= 300 &&
+    typeof s.companyId === 'string' && s.companyId.length <= 300 &&
+    (s.metricType === undefined || (typeof s.metricType === 'string' && s.metricType.length <= 100));
+}
 
 /** No production hook: this bridge exists only on Vite's local dev server. */
 export function localSourcePlugin(): Plugin {
-  let active = 0;
   return {
     name: 'stratemark-local-source', apply: 'serve',
     configureServer(server) {
       // Load workspace TypeScript through Vite, not Node's extensionless ESM resolver.
-      const sourceModulePath = fileURLToPath(new URL('../../packages/research/src/original-source.node.ts', import.meta.url));
-      server.middlewares.use((req, res, next) => {
-        if (req.url !== '/__stratemark/source') return next();
-        res.setHeader('Cache-Control', 'no-store');
-        res.setHeader('Content-Type', 'application/json');
-        const header = (name: string) => typeof req.headers[name] === 'string' ? req.headers[name] as string : undefined;
-        if (!allowsLocalSourceRequest(req.method, header('host'), header('origin'),
-          req.socket.remoteAddress, header('x-stratemark-source'))) {
-          res.statusCode = 403; res.end('{}'); return;
-        }
-        if (header('content-type') !== 'application/json') {
-          res.statusCode = 415; res.end('{}'); return;
-        }
-        if (active >= 6) { res.statusCode = 429; res.end('{}'); return; }
-        active++;
-        void (async () => {
-          try {
-            let body = '';
-            for await (const chunk of req) {
-              body += String(chunk);
-              if (Buffer.byteLength(body) > 8192) { res.statusCode = 413; res.end('{}'); return; }
-            }
-            const input = JSON.parse(body) as { url?: unknown; scope?: OriginalSourceScope };
-            if (typeof input.url !== 'string' || input.url.length > 2048 ||
-              (input.scope && (typeof input.scope.companyName !== 'string' || input.scope.companyName.length > 300 ||
-                typeof input.scope.companyId !== 'string' || input.scope.companyId.length > 300 ||
-                (input.scope.metricType !== undefined && (typeof input.scope.metricType !== 'string' || input.scope.metricType.length > 100))))) {
-              res.statusCode = 400; res.end('{}'); return;
-            }
-            const sourceModule = await server.ssrLoadModule(sourceModulePath) as {
+      const research = (file: string) => fileURLToPath(new URL(`../../packages/research/src/${file}`, import.meta.url));
+      mountJsonRoutes(server, [
+        {
+          path: '/__stratemark/source', maxBody: 8192,
+          async handle(body) {
+            const input = body as { url?: unknown; scope?: unknown };
+            if (typeof input.url !== 'string' || input.url.length > 2048 || !validScope(input.scope)) return { status: 400, json: {} };
+            const reader = await server.ssrLoadModule(research('original-source.node.ts')) as {
               retrieveOriginalSource: (url: string, io: undefined, scope?: OriginalSourceScope) => Promise<OriginalSourceReceipt>;
             };
-            const receipt = await sourceModule.retrieveOriginalSource(input.url, undefined, input.scope);
-            res.end(JSON.stringify(receipt));
-          } catch { res.statusCode = 400; res.end('{}'); }
-          finally { active--; }
-        })();
-      });
-      server.middlewares.use((req, res, next) => {
-        if (req.url !== '/__stratemark/asset-source') return next();
-        res.setHeader('Cache-Control', 'no-store');
-        res.setHeader('Content-Type', 'application/json');
-        const header = (name: string) => typeof req.headers[name] === 'string' ? req.headers[name] as string : undefined;
-        if (!allowsLocalSourceRequest(req.method, header('host'), header('origin'),
-          req.socket.remoteAddress, header('x-stratemark-source'))) {
-          res.statusCode = 403; res.end('{}'); return;
-        }
-        if (header('content-type') !== 'application/json') {
-          res.statusCode = 415; res.end('{}'); return;
-        }
-        if (active >= 6) { res.statusCode = 429; res.end('{}'); return; }
-        active++;
-        void (async () => {
-          try {
-            let body = '';
-            for await (const chunk of req) {
-              body += String(chunk);
-              if (Buffer.byteLength(body) > 8192) { res.statusCode = 413; res.end('{}'); return; }
-            }
-            const input = JSON.parse(body) as { url?: unknown };
-            const receipt = await readRawAssetPage(typeof input.url === 'string' ? input.url : '');
-            res.end(JSON.stringify(receipt));
-          } catch { res.statusCode = 400; res.end('{}'); }
-          finally { active--; }
-        })();
-      });
-      // Search relay: provider APIs are not all browser-callable (CORS), so the
-      // page asks this local bridge. The user's key arrives in X-Search-Key and
-      // is used for this one request only; without it, a <PROVIDER>_API_KEY in
-      // the dev environment stands in. Neither is ever logged or echoed.
-      const searchModulePath = fileURLToPath(new URL('../../packages/research/src/web-search.ts', import.meta.url));
-      server.middlewares.use((req, res, next) => {
-        if (req.url !== '/__stratemark/search') return next();
-        res.setHeader('Cache-Control', 'no-store');
-        res.setHeader('Content-Type', 'application/json');
-        const header = (name: string) => typeof req.headers[name] === 'string' ? req.headers[name] as string : undefined;
-        if (!allowsLocalSourceRequest(req.method, header('host'), header('origin'),
-          req.socket.remoteAddress, header('x-stratemark-source'))) {
-          res.statusCode = 403; res.end('{}'); return;
-        }
-        if (header('content-type') !== 'application/json') {
-          res.statusCode = 415; res.end('{}'); return;
-        }
-        if (active >= 6) { res.statusCode = 429; res.end('{}'); return; }
-        active++;
-        void (async () => {
-          try {
-            let body = '';
-            for await (const chunk of req) {
-              body += String(chunk);
-              if (Buffer.byteLength(body) > 4096) { res.statusCode = 413; res.end('{}'); return; }
-            }
-            const search = await server.ssrLoadModule(searchModulePath) as typeof WebSearchModule;
-            const input = search.parseSearchRelayRequest(JSON.parse(body));
-            if (!input) { res.statusCode = 400; res.end('{}'); return; }
+            return { json: await reader.retrieveOriginalSource(input.url, undefined, input.scope) };
+          },
+        },
+        {
+          path: '/__stratemark/asset-source', maxBody: 8192,
+          async handle(body) {
+            const url = (body as { url?: unknown }).url;
+            return { json: await readRawAssetPage(typeof url === 'string' ? url : '') };
+          },
+        },
+        {
+          // Provider APIs are not all browser-callable (CORS). The user's key
+          // arrives in X-Search-Key for this one request; without it a
+          // <PROVIDER>_API_KEY in the dev environment stands in. Never logged.
+          path: '/__stratemark/search', maxBody: 4096,
+          async handle(body, header) {
+            const search = await server.ssrLoadModule(research('web-search.ts')) as typeof WebSearchModule;
+            const input = search.parseSearchRelayRequest(body);
+            if (!input) return { status: 400, json: {} };
             const key = header('x-search-key') ?? process.env[`${input.provider.toUpperCase()}_API_KEY`];
-            if (!search.isPlausibleSearchKey(key)) {
-              res.statusCode = 401; res.end(JSON.stringify({ error: 'No search key is connected. Add one in Settings.' })); return;
+            if (!search.isPlausibleSearchKey(key)) return { status: 401, json: { error: 'No search key is connected. Add one in Settings.' } };
+            try {
+              return { json: { results: await search.runProviderSearch(input.provider, key, input.query, fetch, undefined, input) } };
+            } catch (error) {
+              const status = error instanceof search.WebSearchError ? error.status : 502;
+              return { status: status >= 400 && status < 600 ? status : 502,
+                json: { error: error instanceof search.WebSearchError ? error.message : 'Search failed.' } };
             }
-            const results = await search.runProviderSearch(input.provider, key, input.query, fetch, undefined, input);
-            res.end(JSON.stringify({ results }));
-          } catch (error) {
-            const status = typeof (error as { status?: unknown })?.status === 'number' ? (error as { status: number }).status : 400;
-            res.statusCode = status >= 400 && status < 600 ? status : 502;
-            res.end(JSON.stringify({ error: error instanceof Error && error.name === 'WebSearchError' ? error.message : 'Search failed.' }));
-          } finally { active--; }
-        })();
-      });
+          },
+        },
+        {
+          // Free news lane: no key. Failures are an empty result, never an error.
+          path: '/__stratemark/news', maxBody: 1024,
+          async handle(body) {
+            const news = await server.ssrLoadModule(research('news-search.ts')) as typeof NewsSearchModule;
+            const input = news.parseNewsRelayRequest(body);
+            if (!input) return { status: 400, json: {} };
+            return { json: { results: await news.runNewsSearch(input.query, fetch) } };
+          },
+        },
+      ]);
     },
   };
 }
+
 
 /** Dev-only bridge for the asset lane: fetch a page's RAW HTML (the main
  * reader strips tags, which logo/headshot parsing needs). Same policy class as

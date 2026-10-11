@@ -6,12 +6,14 @@ export function hasLocalSourceBridge(): boolean {
   return import.meta.env.DEV && ['127.0.0.1', 'localhost', '[::1]'].includes(window.location.hostname);
 }
 
+export type RelayRoute = 'source' | 'asset-source' | 'search' | 'news';
+
 /**
- * Where server-side page reads go: the Vite dev bridge on localhost, the
- * hosted Worker in a production build that has one, otherwise nowhere (the
- * browser falls back to the few sources it can read directly).
+ * Where server-side work goes (page reads, search, news): the Vite dev bridge
+ * on localhost, the hosted Worker in a production build that has one,
+ * otherwise nowhere (the browser falls back to what it can do directly).
  */
-function sourceEndpoint(kind: 'source' | 'asset-source'): { url: string; headers: Record<string, string> } | null {
+export function relayEndpoint(kind: RelayRoute): { url: string; headers: Record<string, string> } | null {
   if (hasLocalSourceBridge()) {
     return { url: `/__stratemark/${kind}`, headers: { 'Content-Type': 'application/json', 'X-Stratemark-Source': 'local-preview' } };
   }
@@ -20,7 +22,7 @@ function sourceEndpoint(kind: 'source' | 'asset-source'): { url: string; headers
 }
 
 export function supportsPreviewSource(raw: string): boolean {
-  if (!sourceEndpoint('source')) return isBrowserOriginalSourceSupported(raw);
+  if (!relayEndpoint('source')) return isBrowserOriginalSourceSupported(raw);
   try {
     const url = new URL(raw);
     return raw.length <= 2048 && url.protocol === 'https:' && !url.username && !url.password &&
@@ -30,7 +32,7 @@ export function supportsPreviewSource(raw: string): boolean {
 
 /** Server-side read (dev bridge or hosted Worker); both apply the desktop DNS/SSRF policy. */
 export async function readPreviewSource(url: string, scope?: OriginalSourceScope): Promise<OriginalSourceReceipt> {
-  const endpoint = sourceEndpoint('source');
+  const endpoint = relayEndpoint('source');
   if (!endpoint) return retrieveBrowserOriginalSource(url, undefined, scope);
   const fallback: OriginalSourceReceipt = {
     requestedUrl: url.slice(0, 2048), status: 'unavailable', retrievedAt: new Date().toISOString(),
@@ -61,7 +63,7 @@ export async function readPreviewSource(url: string, scope?: OriginalSourceScope
  * read cross-origin HTML, so the asset lane is honestly unavailable.
  */
 export async function readAssetSource(url: string): Promise<OriginalSourceReceipt> {
-  const endpoint = sourceEndpoint('asset-source');
+  const endpoint = relayEndpoint('asset-source');
   if (!endpoint) {
     return {
       requestedUrl: url.slice(0, 2048), status: 'unavailable', retrievedAt: new Date().toISOString(),

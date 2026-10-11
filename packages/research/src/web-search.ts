@@ -334,6 +334,23 @@ export function cappedWebSearch(search: WebSearchFn, max: number, onSpend?: (use
   return capped;
 }
 
+/** Memoize identical queries (same text and options) for `ttlMs`: escalation
+ * passes and the face sweep often repeat a company's query minutes apart. A
+ * failed search is not cached. Bounded so a long session cannot grow it. */
+export function cachedWebSearch(search: WebSearchFn, ttlMs = 30 * 60_000, maxEntries = 200, now = () => Date.now()): WebSearchFn {
+  const cache = new Map<string, { at: number; results: Promise<WebSearchResult[]> }>();
+  return (query, options) => {
+    const key = JSON.stringify([query, options?.news ?? false, options?.sinceDays ?? null]);
+    const hit = cache.get(key);
+    if (hit && now() - hit.at < ttlMs) return hit.results;
+    const results = search(query, options);
+    cache.set(key, { at: now(), results });
+    results.catch(() => cache.delete(key));
+    if (cache.size > maxEntries) cache.delete(cache.keys().next().value!);
+    return results;
+  };
+}
+
 export interface WebSearchLane {
   /** Run each query, merge distinct results into one set of discovery notes. */
   discover(queries: ReadonlyArray<string | HuntQuery>, scope?: { companyName: string; officialWebsite?: string | null }): Promise<DiscoveryNotes>;

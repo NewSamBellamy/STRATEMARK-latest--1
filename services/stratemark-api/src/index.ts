@@ -3,6 +3,7 @@
  *
  *   POST /v1/gemini/:model:generateContent  Gemini on the server-held key, behind a daily dollar budget
  *   POST /v1/search        { provider, query } web-search discovery (visitor's key, or hosted Serper on the budget)
+ *   POST /v1/news          { query }         free news discovery (Bing News RSS, no key)
  *   POST /v1/source        { url, scope }    original-source read (same reader + policy as desktop)
  *   POST /v1/asset-source  { url }           raw HTML for logo/headshot parsing
  *   GET  /v1/image?url=                      a public image with CORS (logos, real cover images)
@@ -25,6 +26,7 @@ import type { OriginalSourceReceipt, OriginalSourceScope } from '@mi/research';
 import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, reserveMicros, safePublicUrl, type GeminiUsage } from './policy';
 import type { BudgetCounter } from './budget';
 import { previewFromHtml, type PagePreview } from './preview';
+import { parseNewsRelayRequest, runNewsSearch } from '@mi/research/news-search';
 import { isPlausibleSearchKey, parseSearchRelayRequest, runProviderSearch, WebSearchError, type SearchProvider, type SearchRelayRequest } from '@mi/research/web-search';
 
 export { BudgetCounter } from './budget';
@@ -256,6 +258,14 @@ async function runSearch(provider: SearchProvider, key: string, input: SearchRel
   }
 }
 
+/** POST /v1/news { query } — the free news lane (no key, no budget). Any
+ * upstream failure is an empty result: news only ever adds candidate articles. */
+async function newsRelay(request: Request, origin: string): Promise<Response> {
+  const input = parseNewsRelayRequest(await readJson<unknown>(request));
+  if (!input) return json({ error: 'Bad news request.' }, 400, origin);
+  return json({ results: await runNewsSearch(input.query, fetch) }, 200, origin);
+}
+
 async function sourceRead(request: Request, origin: string): Promise<Response> {
   const input = await readJson<{ url?: unknown; scope?: OriginalSourceScope }>(request);
   if (!input || typeof input.url !== 'string' || input.url.length > 2048) return json({}, 400, origin);
@@ -418,6 +428,7 @@ export default {
       const gemini = url.pathname.match(/^\/v1\/gemini\/([a-zA-Z0-9][a-zA-Z0-9._-]{0,119}):generateContent$/);
       if (gemini && request.method === 'POST') return await geminiProxy(request, env, gemini[1]!, allowed);
       if (url.pathname === '/v1/search' && request.method === 'POST') return await searchRelay(request, env, allowed);
+      if (url.pathname === '/v1/news' && request.method === 'POST') return await newsRelay(request, allowed);
       if (url.pathname === '/v1/source' && request.method === 'POST') return await sourceRead(request, allowed);
       if (url.pathname === '/v1/asset-source' && request.method === 'POST') return await assetRead(request, allowed);
       if (url.pathname === '/v1/image' && request.method === 'GET') return await imageRead(request, allowed);

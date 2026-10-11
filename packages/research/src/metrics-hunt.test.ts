@@ -388,29 +388,47 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
   });
 });
 
-describe('huntCompanyMetrics with a connected search provider', () => {
-  const noFigures = vi.fn(async (_prompt: string, schema: { parse(v: unknown): unknown }) => schema.parse({ figures: [] }));
+describe('huntCompanyMetrics search leads', () => {
+  const noFigures = () => vi.fn(async (_prompt: string, schema: { parse(v: unknown): unknown }) => schema.parse({ figures: [] }));
+  const grounded = () => vi.fn(async () => ({ text: 'Grounded notes.', citations: [], queries: [] }));
+  const article = (url: string, title: string) => [{ url, title, snippet: 'funding news', published: '2026-09-01' }];
 
-  it('discovers through the search engine and skips grounded search', async () => {
-    const ground = vi.fn();
-    const search = vi.fn(async (q: string) => [{ url: 'https://news.example.com/openai-funding', title: 'OpenAI raises', snippet: `${q} result` }]);
-    const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snapshot()), client: { ground, structure: noFigures } as unknown as LlmClient,
-      webSearch: () => search });
+  it('keeps grounded search and adds news and engine results as leads', async () => {
+    const ground = grounded();
+    const structure = noFigures();
+    const news = vi.fn(async (_q: string, _o?: unknown) => article('https://news.example.com/openai-funding', 'OpenAI raises new round'));
+    const engine = vi.fn(async (_q: string, _o?: unknown) => article('https://press.example.com/openai-valuation', 'OpenAI valuation'));
+    const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snapshot()), client: { ground, structure } as unknown as LlmClient,
+      newsSearch: () => news, webSearch: () => engine });
     await repo.huntCompanyMetrics('cmp_1');
-    expect(ground).not.toHaveBeenCalled();
-    expect(search).toHaveBeenCalled();
-    expect(search.mock.calls.every(([q]) => q.startsWith('"OpenAI"'))).toBe(true);
-    expect(String(noFigures.mock.calls.at(-1)?.[0])).toContain('https://news.example.com/openai-funding');
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(news.mock.calls.every(([q, o]) => q.startsWith('"OpenAI"') && (o as { sinceDays?: number }).sinceDays === 366)).toBe(true);
+    const prompt = String(structure.mock.calls.at(-1)?.[0]);
+    expect(prompt).toContain('Grounded notes.');
+    expect(prompt).toContain('SEARCH RESULT LEADS');
+    expect(prompt).toContain('https://news.example.com/openai-funding');
+    expect(prompt).toContain('https://press.example.com/openai-valuation');
   });
 
-  it('falls back to grounded search when the engine finds nothing or fails', async () => {
-    for (const search of [vi.fn(async () => []), vi.fn(async () => { throw new Error('quota'); })]) {
-      const ground = vi.fn(async () => ({ text: 'No reliable figures.', citations: [], queries: [] }));
-      const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snapshot()), client: { ground, structure: noFigures } as unknown as LlmClient,
-        webSearch: () => search });
+  it('runs exactly as before when every lead lane is empty, failing or off', async () => {
+    for (const lane of [vi.fn(async () => []), vi.fn(async () => { throw new Error('quota'); }), null]) {
+      const ground = grounded();
+      const structure = noFigures();
+      const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snapshot()), client: { ground, structure } as unknown as LlmClient,
+        ...(lane ? { newsSearch: () => lane } : {}) });
       await repo.huntCompanyMetrics('cmp_1');
       expect(ground).toHaveBeenCalledTimes(1);
+      expect(String(structure.mock.calls.at(-1)?.[0])).not.toContain('SEARCH RESULT LEADS');
     }
+  });
+
+  it('drops leads that do not name the company', async () => {
+    const structure = noFigures();
+    const news = vi.fn(async () => article('https://news.example.com/other', 'Anthropic raises new round'));
+    const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snapshot()), client: { ground: grounded(), structure } as unknown as LlmClient,
+      newsSearch: () => news });
+    await repo.huntCompanyMetrics('cmp_1');
+    expect(String(structure.mock.calls.at(-1)?.[0])).not.toContain('https://news.example.com/other');
   });
 });
 describe('huntCompanyMetrics quoted-original estimates', () => {

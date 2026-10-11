@@ -12,8 +12,8 @@
  */
 import { create } from 'zustand';
 import { isSearchProvider, relayWebSearch, type SearchProvider, type WebSearchFn } from '@mi/research';
-import { hasHostedApi, hostedUrl } from '@/lib/hostedApi';
-import { hasLocalSourceBridge } from '@/lib/repository/local-source-reader';
+import { hasHostedApi } from '@/lib/hostedApi';
+import { hasLocalSourceBridge, relayEndpoint } from '@/lib/repository/local-source-reader';
 import { sanitizeApiKey } from './apiKey';
 
 const PROVIDER_KEY = 'mi.searchProvider';
@@ -91,12 +91,7 @@ export function spendSearch(cap = SEARCH_MONTHLY_CAP): boolean {
   return true;
 }
 
-/** Where search requests go, or null when this build has no relay. */
-function searchEndpoint(): { url: string; headers: Record<string, string> } | null {
-  if (hasLocalSourceBridge()) return { url: '/__stratemark/search', headers: { 'X-Stratemark-Source': 'local-preview' } };
-  if (hasHostedApi()) return { url: hostedUrl('search'), headers: {} };
-  return null;
-}
+const searchEndpoint = () => relayEndpoint('search');
 
 /** Keyless searches go to the hosted allowance (production build with the Worker). */
 export function hostedSearchAvailable(): boolean {

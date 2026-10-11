@@ -31,7 +31,8 @@ import type { CallMetricsAggregate, LlmClient } from '../types';
 import type { OriginalSourceReceipt } from '../original-source';
 import { createGeminiClient, DEFAULT_GROUNDED_RPM, DEFAULT_STRUCTURE_RPM } from '../gemini';
 import { retrieveOriginalSource } from '../original-source.node';
-import { cappedWebSearch, runProviderSearch, type CappedWebSearch } from '../web-search';
+import { cachedWebSearch, cappedWebSearch, runProviderSearch, type CappedWebSearch } from '../web-search';
+import { runNewsSearch } from '../news-search';
 
 export type BenchPhase = 'creation' | 'hunt' | 'verify';
 
@@ -627,12 +628,14 @@ export function formatReport(report: BenchReport): string {
 // ---------------------------------------------------------------------------
 
 export interface HuntAbVariant {
-  label: 'search-off' | 'search-on';
+  label: string;
   /** Figures with a value AND at least one citation, by confidence. */
   sourced: { verified: number; estimated: number; total: number };
   byType: Record<string, number>;
   calls: { ground: number; structure: number; total: number };
   searches: number;
+  /** Companies whose card face can show four sourced figures (one per family). */
+  fullFaces: number;
   wallMs: number;
   perCompany: Array<{ name: string; sourced: number; figures: string[] }>;
 }
@@ -646,6 +649,11 @@ export interface HuntAbReport {
   variants: HuntAbVariant[];
 }
 
+/** Distinct card-face families among these metric types (revenue/ARR and valuation/market cap count once). */
+function faceFamilies(types: readonly string[]): number {
+  return new Set(types.map((t) => (t === 'arr' || t === 'revenue' ? 'revenue' : t === 'valuation' || t === 'market_cap' ? 'value' : t))).size;
+}
+
 function sourcedFacts(facts: Awaited<ReturnType<GeminiRepository['getCompanyFacts']>>) {
   return facts.filter((m) => m.value != null && m.citations.length > 0 && (m.confidence === 'verified' || m.confidence === 'estimated'));
 }
@@ -653,12 +661,19 @@ function sourcedFacts(facts: Awaited<ReturnType<GeminiRepository['getCompanyFact
 /**
  * Live only. Builds the market's deck once with the real reader, freezes the
  * snapshot, then runs the app's hunt (up to `attempts` escalating passes per
- * entity) from that identical snapshot with search off and with search on.
+ * entity) from that identical snapshot once per discovery variant: grounded
+ * only, grounded plus the free news lane, and (when `tavilyMax` is set and
+ * TAVILY_API_KEY is present) grounded plus news plus a capped Tavily lane.
  */
-export async function runHuntAb(options: { market: string; catalogMax?: number; attempts?: number; searchMax: number }): Promise<HuntAbReport> {
+export async function runHuntAb(options: { market: string; catalogMax?: number; attempts?: number; tavilyMax?: number }): Promise<HuntAbReport> {
   const apiKey = process.env.GEMINI_API_KEY;
-  const searchKey = process.env.TAVILY_API_KEY;
-  if (!apiKey || !searchKey) throw new Error('hunt A/B needs GEMINI_API_KEY and TAVILY_API_KEY in the environment (read at runtime only).');
+  if (!apiKey) throw new Error('hunt A/B needs GEMINI_API_KEY in the environment (read at runtime only).');
+  const tavilyKey = process.env.TAVILY_API_KEY;
+  const variantSpecs: Array<{ label: string; news: boolean; tavily: boolean }> = [
+    { label: 'grounded', news: false, tavily: false },
+    { label: 'grounded+news', news: true, tavily: false },
+    ...(tavilyKey && (options.tavilyMax ?? 0) > 0 ? [{ label: 'grounded+news+tavily', news: true, tavily: true }] : []),
+  ];
   const attempts = Math.max(1, Math.min(3, options.attempts ?? 3));
   const reader = (url: string, scope?: Parameters<typeof retrieveOriginalSource>[2]) => retrieveOriginalSource(url, undefined, scope);
   const startedAt = new Date().toISOString();
@@ -678,19 +693,20 @@ export async function runHuntAb(options: { market: string; catalogMax?: number; 
   for (const e of entityIds) deckOnly += sourcedFacts(await builder.getCompanyFacts(e.id)).length;
   const frozen = JSON.stringify(built);
 
-  // 2) Fill twice from the identical snapshot.
+  // 2) Fill once per variant from the identical snapshot.
   const variants: HuntAbVariant[] = [];
-  for (const label of ['search-off', 'search-on'] as const) {
+  for (const { label, news, tavily } of variantSpecs) {
     let snap: RepoSnapshot | null = JSON.parse(frozen) as RepoSnapshot;
     const store: ResearchStore = { read: () => snap, write: (next) => { snap = next; } };
     const epoch = Date.now();
     const counting = new CountingClient(createGeminiClient({ apiKey }), epoch);
     counting.phase = 'hunt';
-    const search = label === 'search-on'
-      ? cappedWebSearch((q, o) => runProviderSearch('tavily', searchKey, q, fetch, undefined, o), options.searchMax) : null;
+    const search = tavily && tavilyKey
+      ? cappedWebSearch((q, o) => runProviderSearch('tavily', tavilyKey, q, fetch, undefined, o), options.tavilyMax ?? 0) : null;
+    const newsLane = news ? cappedWebSearch(cachedWebSearch((q) => runNewsSearch(q, fetch)), Number.MAX_SAFE_INTEGER) : null;
     const repo = new GeminiRepository({ apiKey, client: counting, store, originalSourceReader: reader,
       catalogMax: options.catalogMax ?? 10, catalogPasses: 0, coverage: benchCoverage,
-      ...(search ? { webSearch: () => search } : {}) });
+      ...(search ? { webSearch: () => search } : {}), ...(newsLane ? { newsSearch: () => newsLane } : {}) });
     await repo.ready();
     for (const e of entityIds) {
       for (let attempt = 0; attempt < attempts; attempt++) {
@@ -700,8 +716,10 @@ export async function runHuntAb(options: { market: string; catalogMax?: number; 
     const perCompany: HuntAbVariant['perCompany'] = [];
     const byType: Record<string, number> = {};
     const sourced = { verified: 0, estimated: 0, total: 0 };
+    let fullFaces = 0;
     for (const e of entityIds) {
       const facts = sourcedFacts(await repo.getCompanyFacts(e.id));
+      if (faceFamilies(facts.map((m) => m.metricType)) >= 4) fullFaces += 1;
       for (const m of facts) {
         sourced.total += 1;
         if (m.confidence === 'verified') sourced.verified += 1; else sourced.estimated += 1;
@@ -713,7 +731,7 @@ export async function runHuntAb(options: { market: string; catalogMax?: number; 
       label, sourced, byType, perCompany, wallMs: Date.now() - epoch,
       calls: { ground: counting.calls.filter((c) => c.kind === 'ground').length,
         structure: counting.calls.filter((c) => c.kind === 'structure').length, total: counting.calls.length },
-      searches: search?.used() ?? 0,
+      searches: (search?.used() ?? 0) + (newsLane?.used() ?? 0), fullFaces,
     });
   }
   return { market: options.market, startedAt, companies: entityIds.length, attemptsPerCompany: attempts, deckOnly: { sourced: deckOnly }, variants };
@@ -722,7 +740,7 @@ export async function runHuntAb(options: { market: string; catalogMax?: number; 
 export function formatHuntAb(report: HuntAbReport): string {
   const lines = [`hunt A/B — ${report.market}: ${report.companies} companies, ${report.attemptsPerCompany} attempts each; deck alone: ${report.deckOnly.sourced} sourced`];
   for (const v of report.variants) {
-    lines.push(`  ${v.label}: ${v.sourced.total} sourced (${v.sourced.verified} verified, ${v.sourced.estimated} estimated) · Gemini ${v.calls.total} (${v.calls.ground}g+${v.calls.structure}s) · searches ${v.searches} · ${(v.wallMs / 1000).toFixed(0)}s`);
+    lines.push(`  ${v.label}: ${v.sourced.total} sourced (${v.sourced.verified} verified, ${v.sourced.estimated} estimated) · full faces ${v.fullFaces}/${report.companies} · Gemini ${v.calls.total} (${v.calls.ground}g+${v.calls.structure}s) · searches ${v.searches} · ${(v.wallMs / 1000).toFixed(0)}s`);
     lines.push(`    by type: ${Object.entries(v.byType).map(([t, n]) => `${t} ${n}`).join(', ') || '—'}`);
   }
   return lines.join('\n');
