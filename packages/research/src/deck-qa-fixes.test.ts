@@ -76,6 +76,18 @@ describe('third-party marks in the header', () => {
     expect(isThirdPartyMark('rillet-logo.svg')).toBe(false);
     expect(isThirdPartyMark('logo-g2x.svg')).toBe(false);
   });
+  it('ignores customer logos that follow the badge in a header', () => {
+    const html = `<header><img class="img-full" alt="g2 logo" src="https://cdn.prod.website-files.com/a/x_g2.svg">
+      <img class="img-full" alt="Mercor" src="https://cdn.prod.website-files.com/b/mercor%20logo%201.avif">
+      <img class="img-full" alt="Temporal" src="https://cdn.prod.website-files.com/b/Temporal%20Logo.svg"></header>
+      <link href="https://cdn.prod.website-files.com/a/Webclip.png" rel="apple-touch-icon"/>`;
+    expect(collectLogoCandidates(html, new URL('https://www.rillet.com/')).map(c => c.url))
+      .toEqual(['https://cdn.prod.website-files.com/a/Webclip.png']);
+  });
+  it('trusts icons the site declares in its own head, even on its separate CDN', () => {
+    const html = '<link rel="apple-touch-icon" sizes="180x180" href="https://www-cdn.djiits.com/dps/5622.png">';
+    expect(collectLogoCandidates(html, new URL('https://www.dji.com/'))[0]?.url).toBe('https://www-cdn.djiits.com/dps/5622.png');
+  });
   it('never offers a G2 badge as the company logo', () => {
     const html = `<header><a href="/"><img class="nav-logo" src="https://cdn.prod.website-files.com/a/rillet-logo.svg"></a>
       <div class="nav-logos"><img class="logo" alt="G2 logo" src="https://cdn.prod.website-files.com/a/67c6ebb0_g2.svg"></div></header>`;

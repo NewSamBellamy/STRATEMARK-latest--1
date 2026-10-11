@@ -102,10 +102,13 @@ function isSvg(url: string): boolean {
   return /\.svg(?:[?#]|$)/i.test(url);
 }
 
-/** Returns a normalised URL or null when unusable (tiny, tracking, foreign). */
-function vet(url: string, pageUrl: URL, declared: number | null): { url: string; size: number } | null {
+/** Returns a normalised URL or null when unusable (tiny, tracking, foreign).
+ * `headDeclared` marks URLs the site's own <head> metadata names (icons,
+ * og:logo, JSON-LD): the site chose them, so its separate CDN host is fine
+ * (DJI serves every icon from djiits.com). Body images stay host-checked. */
+function vet(url: string, pageUrl: URL, declared: number | null, headDeclared = false): { url: string; size: number } | null {
   if (TRACKING.test(url)) return null;
-  if (!allowedHost(url, pageUrl)) return null;
+  if (!headDeclared && !allowedHost(url, pageUrl)) return null;
   const hinted = urlDimension(url);
   let out = url;
   if (hinted !== null && hinted < MIN_PX) {
@@ -137,9 +140,8 @@ function declaredSize(sizes: string | null): number | null {
   return max || null;
 }
 
-function headerRegions(html: string, pageUrl: URL): string[] {
+function homeLinkRegions(html: string, pageUrl: URL): string[] {
   const out: string[] = [];
-  for (const m of html.matchAll(/<(header|nav)\b[\s\S]*?<\/\1>/gi)) out.push(m[0]);
   const host = pageUrl.hostname.replace(/^www\./, '').replace(/\./g, '\\.');
   const homeHref = new RegExp(`href\\s*=\\s*["'](?:/|\\./|https?://(?:www\\.)?${host}/?)["']`, 'i');
   for (const m of html.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/gi)) {
@@ -149,12 +151,24 @@ function headerRegions(html: string, pageUrl: URL): string[] {
   return out;
 }
 
+function headerRegions(html: string, pageUrl: URL): string[] {
+  const out: string[] = [];
+  for (const m of html.matchAll(/<(header|nav)\b[\s\S]*?<\/\1>/gi)) out.push(m[0]);
+  return [...out, ...homeLinkRegions(html, pageUrl)];
+}
+
+/** The site's own name as it appears in asset names: "rillet" for www.rillet.com. */
+function brandToken(pageUrl: URL): string | null {
+  const label = (registrableDomain(pageUrl.hostname) ?? pageUrl.hostname).replace(/^www\./, '').split('.')[0] ?? '';
+  return label.length >= 3 ? label.toLowerCase() : null;
+}
+
 /** Candidates in rank order, best first. */
 export function collectLogoCandidates(html: string, pageUrl: URL): LogoCandidate[] {
   const found = new Map<string, LogoCandidate>();
   const push = (url: string | null, via: LogoVia, rank: number, declared: number | null) => {
     if (!url) return;
-    const v = vet(url, pageUrl, declared);
+    const v = vet(url, pageUrl, declared, via !== 'header-logo');
     if (!v) return;
     const prior = found.get(v.url);
     if (prior && prior.rank <= rank) return;
@@ -165,9 +179,16 @@ export function collectLogoCandidates(html: string, pageUrl: URL): LogoCandidate
   const org = extractOrganizationJsonLd(html);
   if (org?.logo) push(resolveUrl(org.logo, pageUrl), 'json-ld', 1, null);
 
-  // 2. header / nav / home-link <img> naming "logo"
+  // 2. header / nav / home-link <img> naming "logo". Headers also carry
+  // customer and badge marks that say "logo" (Rillet: G2, Mercor, Temporal).
+  // A site puts its own mark first; any later logo-like image must sit in the
+  // home link or name the site itself.
   const seen = new Set<string>();
+  const homeRegions = new Set(homeLinkRegions(html, pageUrl));
+  const token = brandToken(pageUrl);
   for (const region of headerRegions(html, pageUrl)) {
+    const inHomeLink = homeRegions.has(region);
+    let firstLogoSeen = false;
     for (const m of region.matchAll(/<img\b[^>]*>/gi)) {
       const tag = m[0];
       if (seen.has(tag)) continue;
@@ -177,7 +198,11 @@ export function collectLogoCandidates(html: string, pageUrl: URL): LogoCandidate
         tagAttr(tag, 'src'),
       ].find((v) => v && !v.startsWith('data:')) ?? null;
       const hay = `${tagAttr(tag, 'class') ?? ''} ${tagAttr(tag, 'id') ?? ''} ${tagAttr(tag, 'alt') ?? ''} ${raw ?? ''}`;
-      if (!/logo/i.test(hay) || /partner|client|sponsor|footer-logo/i.test(hay) || isThirdPartyMark(hay)) continue;
+      if (!/logo/i.test(hay)) continue;
+      const first = !firstLogoSeen;
+      firstLogoSeen = true;
+      if (/partner|client|sponsor|footer-logo/i.test(hay) || isThirdPartyMark(hay)) continue;
+      if (!first && !inHomeLink && !(token && hay.toLowerCase().includes(token))) continue;
       const w = Number(tagAttr(tag, 'width')) || null;
       const h = Number(tagAttr(tag, 'height')) || null;
       const declared = w && h ? Math.min(w, h) : w ?? h;
