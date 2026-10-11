@@ -1,3 +1,14 @@
+/* Deck grid: columns follow the space the grid actually has (the sidebar takes
+   part of the window, so viewport breakpoints put 230px cards in two columns
+   at 768px and three at 1024px). A card face clips its figures and footer
+   below ~260px, so columns never go narrower than that, and never more than
+   three across, which keeps wide screens exactly as before. */
+.card-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, max(260px, calc((100% - 2rem) / 3))), 1fr));
+}
+
 .card-sleeve {
   position: relative;
   width: 100%;
