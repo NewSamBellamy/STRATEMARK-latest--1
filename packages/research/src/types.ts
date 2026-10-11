@@ -189,7 +189,11 @@ export interface LlmClient {
    */
   ground(
     prompt: string,
-    opts?: { system?: string; signal?: AbortSignal; researchContext?: { companyId?: string; companyName?: string; topic: string } },
+    opts?: {
+      system?: string; signal?: AbortSignal; researchContext?: { companyId?: string; companyName?: string; topic: string };
+      /** Live draft while the answer streams (clients that can stream); the returned text is authoritative. */
+      onText?: (textSoFar: string) => void;
+    },
   ): Promise<{ text: string; citations: Citation[]; queries: string[]; grounding?: ProviderGrounding }>;
 
   /**

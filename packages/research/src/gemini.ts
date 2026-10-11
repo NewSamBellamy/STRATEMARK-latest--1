@@ -134,6 +134,10 @@ export interface GeminiClientConfig {
   groundedAttemptBudgetMs?: number;
   /** Total ground-call deadline including the fallback ladder. Default 240s. */
   groundDeadlineMs?: number;
+  /** The transport supports streamGenerateContent (SSE). When true, a ground
+   * call with `onText` streams its answer; otherwise `onText` is ignored and
+   * the call behaves exactly as before. Off by default: relays must opt in. */
+  streaming?: boolean;
   /** Observability hook — fires once per outbound request (powers the usage meter). */
   onCall?: (info: { model: string; kind: 'ground' | 'structure' | 'judge' }) => void;
   /** Per-call latency decomposition (queue wait, dispatch, retry waits).
@@ -193,6 +197,55 @@ function extractText(data: GeminiResponse): string {
   return parts
     .map((p) => p.text ?? '')
     .join('');
+}
+
+/**
+ * Read a streamGenerateContent?alt=sse body into the same response shape a
+ * plain generateContent call returns, reporting the answer so far after each
+ * chunk. Text parts are deltas and are concatenated; grounding metadata and
+ * prompt feedback arrive on later chunks and the last ones seen win.
+ */
+export async function readGeminiSse(res: Response, onText: (textSoFar: string) => void, signal?: AbortSignal): Promise<GeminiResponse> {
+  if (!res.body) return await res.json() as GeminiResponse;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let text = '';
+  let groundingMetadata: GeminiCandidate['groundingMetadata'];
+  let promptFeedback: GeminiResponse['promptFeedback'];
+  let usageMetadata: unknown;
+  const consume = (event: string) => {
+    const data = event.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('');
+    if (!data || data === '[DONE]') return;
+    const chunk = JSON.parse(data) as GeminiResponse & { usageMetadata?: unknown };
+    const candidate = chunk.candidates?.[0];
+    const delta = (candidate?.content?.parts ?? []).map((p) => p.text ?? '').join('');
+    if (candidate?.groundingMetadata) groundingMetadata = candidate.groundingMetadata;
+    if (chunk.promptFeedback) promptFeedback = chunk.promptFeedback;
+    if (chunk.usageMetadata) usageMetadata = chunk.usageMetadata;
+    if (delta) {
+      text += delta;
+      try { onText(text); } catch { /* a draft consumer must never break the call */ }
+    }
+  };
+  for (;;) {
+    throwIfAborted(signal);
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary >= 0) {
+      consume(buffer.slice(0, boundary));
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf('\n\n');
+    }
+  }
+  if (buffer.trim()) consume(buffer);
+  return {
+    candidates: [{ content: { parts: [{ text }] }, ...(groundingMetadata ? { groundingMetadata } : {}) }],
+    ...(promptFeedback ? { promptFeedback } : {}),
+    ...(usageMetadata ? { usageMetadata } : {}),
+  } as GeminiResponse;
 }
 
 function extractCitations(data: GeminiResponse): Citation[] {
@@ -262,8 +315,10 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
     signal?: AbortSignal,
     kind: 'ground' | 'structure' | 'judge' = 'ground',
     budget?: { retryBudgetMs?: number; attemptTimeoutMs?: number },
+    onText?: (textSoFar: string) => void,
   ): Promise<GeminiResponse> {
     const limiter = limiterFor(model);
+    const stream = Boolean(onText && config.streaming);
     const callStartedAt = Date.now();
     let attempts = 0;
     let queuedMs = 0;
@@ -288,7 +343,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           ? (signal ? AbortSignal.any([signal, AbortSignal.timeout(attemptMs)])
             : AbortSignal.timeout(attemptMs))
           : signal;
-        const attempt = doFetch(`${BASE}/${model}:generateContent`, {
+        const attempt = doFetch(stream ? `${BASE}/${model}:streamGenerateContent?alt=sse` : `${BASE}/${model}:generateContent`, {
           method: 'POST',
           headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -335,7 +390,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           if (retryAfter) err.retryAfterMs = Number(retryAfter) * 1000;
           throw err;
         }
-        const parsed = await res.json() as GeminiResponse;
+        const parsed = stream ? await readGeminiSse(res, onText!, signal) : await res.json() as GeminiResponse;
         throwIfAborted(signal);
         return parsed;
       },
@@ -423,7 +478,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
             const data = await call(model, body, signal, route.kind, {
               retryBudgetMs: isPrimary ? Math.min(cap, primaryBudget) : cap,
               attemptTimeoutMs: Math.min(cap, isPrimary ? primaryAttemptTimeout : cap),
-            });
+            }, opts?.onText);
             if (isPrimary) primarySickUntil = 0;
             else if (!ungroundedAnswer) { primarySickUntil = Date.now() + SICK_PRIMARY_COOLDOWN_MS; aggregate.fallbacks += 1; }
             const answer = parse(data);
