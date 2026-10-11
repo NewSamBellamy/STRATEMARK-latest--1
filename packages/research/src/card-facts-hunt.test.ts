@@ -128,6 +128,27 @@ describe('hunt targeting and request', () => {
   } as unknown as RepoSnapshot);
   const store = (s: RepoSnapshot): ResearchStore => { let d: RepoSnapshot | null = s; return { read: () => d, write: (x: RepoSnapshot) => { d = x; } }; };
 
+  it('asks for funding figures while the face has a free place, even when their fixed slots are covered', async () => {
+    const human = (metricType: string, value: number) => ({ id: `h_${metricType}`, companyId: 'cmp_l', metricType, value,
+      confidence: 'user_verified', source: null, citations: [], methodNote: 'analyst', capturedAt: new Date().toISOString() });
+    const prompts = async (metrics: unknown[]) => {
+      const s = snap();
+      s.metrics = metrics as RepoSnapshot['metrics'];
+      const ground = vi.fn().mockResolvedValue({ text: 'nothing', citations: [], queries: [] });
+      const repo = new GeminiRepository({ apiKey: 'k', store: store(s), client: { ground, structure: vi.fn().mockResolvedValue({ figures: [] }) } as unknown as LlmClient });
+      await repo.huntCompanyMetrics('cmp_l');
+      return String(ground.mock.calls[0]?.[0] ?? '');
+    };
+    // Three families on the face (employees, revenue via ARR, value): one free place.
+    const three = [human('employees', 120), human('arr', 5e6), human('valuation', 4e8)];
+    const asked = await prompts(three);
+    expect(asked).toContain('total funding');
+    expect(asked).toContain('latest funding round');
+    expect(asked).not.toContain('annual revenue'); // revenue's family is already shown via ARR
+    // Four families: the face is full, so the slot rule applies again.
+    expect(await prompts([...three, human('distribution', 40)])).not.toContain('total funding');
+  });
+
   it('the live hunt asks for the card figures and fills valuation and last_round, nothing else', async () => {
     const ground = vi.fn().mockResolvedValue({ text: ANSWER, citations: [], queries: [], grounding: grounding() });
     const structure = vi.fn().mockResolvedValue({ figures: [] });

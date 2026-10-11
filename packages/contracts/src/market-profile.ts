@@ -55,6 +55,15 @@ export function profileMetricTypes(profile: MarketProfile): readonly MetricType[
     : ['market_cap', 'valuation', 'market_share', 'arr', 'users', 'employees'];
 }
 
+/** A card face shows this many sourced figures (the strongest, of any type). */
+export const CARD_FACE_SIZE = 4;
+
+/** The face shows one figure per family: revenue OR ARR, valuation OR market cap. */
+export function faceFamilyOf(type: MetricType): string {
+  return type === 'arr' || type === 'revenue' ? 'revenue'
+    : type === 'valuation' || type === 'market_cap' ? 'value' : type;
+}
+
 /** Card-fact types: small private brands rarely publish ARR or a valuation, so
  * the card face accepts these as ordered alternatives in its slots. */
 const CARD_FACT_SLOT_TYPES: readonly MetricType[] = ['revenue', 'funding_total', 'last_round', 'distribution'];

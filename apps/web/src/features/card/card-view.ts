@@ -1,6 +1,7 @@
 import {
   CARD_TYPE_LABELS, CONFIDENCE_LABELS, TIER_LABELS, enforceMetricProvenance, currentMetricRevision,
   isSignalCardType, usableCitations, metricDefinitionLabel, classifyMarketProfile, PROFILE_CORE_SLOTS, MONEY_METRIC_TYPES,
+  CARD_FACE_SIZE, faceFamilyOf,
   type CardWithCompany, type Company, type CompanyMetric, type MetricType,
 } from '@mi/contracts';
 import { quotedSupportHolds, reportedBandCitations, reportedSupportCitations } from '@mi/research';
@@ -158,8 +159,6 @@ const FACE_IMPORTANCE: Record<'operating_company' | 'financial_firm', readonly M
   operating_company: ['arr', 'revenue', 'valuation', 'market_cap', 'employees', 'users', 'funding_total', 'last_round', 'distribution', 'aum', 'market_share'],
   financial_firm: ['aum', 'valuation', 'market_cap', 'arr', 'revenue', 'employees', 'funding_total', 'last_round', 'users', 'distribution', 'market_share'],
 };
-/** One figure per family on the face: revenue OR ARR, valuation OR market cap. */
-const FACE_FAMILY: Partial<Record<MetricType, string>> = { arr: 'revenue', revenue: 'revenue', valuation: 'value', market_cap: 'value' };
 const FACE_KEY: Partial<Record<MetricType, string>> = { arr: 'revenue', revenue: 'revenue', valuation: 'company_value', market_cap: 'company_value', users: 'reach', employees: 'employees', aum: 'aum' };
 
 /**
@@ -202,18 +201,18 @@ function strongestFaceMetrics(metrics: readonly MetricView[], profile: readonly 
   const families = new Set<string>();
   const chosen: Candidate[] = [];
   for (const c of candidates) {
-    const family = FACE_FAMILY[c.type] ?? c.type;
+    const family = faceFamilyOf(c.type);
     if (families.has(family)) continue;
     families.add(family);
     chosen.push(c);
-    if (chosen.length === 4) break;
+    if (chosen.length === CARD_FACE_SIZE) break;
   }
   // Stable reading order on the face: by importance, not by strength.
   chosen.sort((a, b) => rank(a.type) - rank(b.type));
   const face: ProfileSlot[] = chosen.map(({ strength: _s, type: _t, ...slot }) => slot);
   // Fewer than four sourced figures: name what is still missing, most useful first.
   for (const slot of profile) {
-    if (face.length >= 4) break;
+    if (face.length >= CARD_FACE_SIZE) break;
     if (face.some((f) => f.key === slot.key)) continue;
     face.push({ key: slot.key, label: slot.label, display: 'Not found yet', confidence: 'Unknown', citations: [], metric: undefined,
       note: 'No source-backed figure has been found for this yet. It is never estimated without a source.' });

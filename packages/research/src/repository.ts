@@ -20,6 +20,8 @@ import {
   isSignalCardType,
   markVerified,
   PROFILE_CORE_SLOTS,
+  CARD_FACE_SIZE,
+  faceFamilyOf,
   applyMetricVerification,
   currentMetricRevision,
   validMetricVerificationValue,
@@ -2838,18 +2840,27 @@ export class GeminiRepository implements MarketIntelRepository {
       const faceTypes = new Set<MetricType>(PROFILE_CORE_SLOTS[profile].flat());
       for (let i = softTypes.length - 1; i >= 0; i--) if (!faceTypes.has(softTypes[i]!)) softTypes.splice(i, 1);
     }
-    // Card-fact alternatives (revenue, funding, last round, distribution) are
-    // only worth a provider call while a face slot they could fill is still
-    // empty; a filled slot never triggers a hunt for its other alternatives.
+    // Card-fact alternatives (revenue, funding, last round, distribution). The
+    // face shows the four strongest sourced figures of any type, so while it
+    // has a free place these are worth asking for even when their fixed slot
+    // is covered: total raised and the latest round are among the most
+    // published facts for private companies, yet hunting them only as slot
+    // fallbacks filled them for 1-2 of 30 companies (A/B, 2026-10-11). A family
+    // already on the face (revenue OR ARR, valuation OR market cap) is not
+    // asked again, and a full face keeps the old slot rule.
     const slotFilled = (type: MetricType): boolean => {
       const m = currentMetricRevision(mine(), companyId, type)?.metric;
       return !!m && m.value != null && m.confidence !== 'unknown';
     };
+    const shownFamilies = new Set((acceptedAtStart ? [...acceptedAtStart.values()] : mine())
+      .filter((m) => m.value != null && m.confidence !== 'unknown').map((m) => faceFamilyOf(m.metricType)));
+    const faceFull = shownFamilies.size >= CARD_FACE_SIZE;
     for (let i = softTypes.length - 1; i >= 0; i--) {
       const type = softTypes[i]!;
       if (!CARD_FACT_HUNT_TYPES.includes(type)) continue;
       const slots = PROFILE_CORE_SLOTS[profile].filter((slot) => slot.includes(type));
-      if (slots.length > 0 && slots.every((slot) => slot.some(slotFilled))) softTypes.splice(i, 1);
+      const familyShown = shownFamilies.has(faceFamilyOf(type));
+      if (familyShown || (faceFull && slots.length > 0 && slots.every((slot) => slot.some(slotFilled)))) softTypes.splice(i, 1);
     }
     if (softTypes.length === 0) {
       return { filledTypes: [], metrics: mine(), retieredCardIds: [] };
