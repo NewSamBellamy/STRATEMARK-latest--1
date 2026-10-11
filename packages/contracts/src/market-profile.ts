@@ -32,10 +32,15 @@ export interface MarketProfileInput {
   oneLiner?: string | null;
 }
 
+// "Venture capital portfolio management software" builds a product for the
+// industry: the industry words are its customers, not its business.
+const FINANCIAL_PRODUCT_PATTERN =
+  /\b(?:software|saas|platform|app|application|tools?|api|fintech|data provider|analytics|crm|erp)\b/i;
+
 export function classifyMarketProfile(company: MarketProfileInput | null | undefined): MarketProfile {
   const text = `${company?.name ?? ''} ${company?.oneLiner ?? ''}`;
   if (!FINANCIAL_FIRM_PATTERN.test(text)) return 'operating_company';
-  return SERVES_FINANCIAL_PATTERN.test(text) ? 'operating_company' : 'financial_firm';
+  return SERVES_FINANCIAL_PATTERN.test(text) || FINANCIAL_PRODUCT_PATTERN.test(text) ? 'operating_company' : 'financial_firm';
 }
 
 /**

@@ -19,6 +19,10 @@ describe('market profile classification', () => {
   it('does not mistake a vendor that SERVES financial firms for a fund', () => {
     expect(classifyMarketProfile({ name: 'Carta', oneLiner: 'Cap table software for private equity and venture capital.' })).toBe('operating_company');
     expect(classifyMarketProfile({ name: 'Affinity', oneLiner: 'Relationship intelligence platform serving venture capital firms.' })).toBe('operating_company');
+    // The industry words describe its customers, not its business.
+    expect(classifyMarketProfile({ name: 'Edda', oneLiner: 'Venture capital portfolio management software.' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'Allvue Systems', oneLiner: 'Private equity fund administration SaaS.' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'Accel', oneLiner: 'Early and growth-stage venture capital firm.' })).toBe('financial_firm');
   });
 
   it('treats a missing company as an operating company, never a crash', () => {
