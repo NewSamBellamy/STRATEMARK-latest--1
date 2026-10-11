@@ -113,6 +113,7 @@ import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl
 import { companyNameKey, marketCapEstimate, secSharesConceptUrl, secTickerMapUrl, yahooChartUrl } from './market-quote';
 import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane } from './searxng';
+import { huntSearchQueries, webSearchLane, type WebSearchFn } from './web-search';
 import { resolveCompanyBrand, type CompanyLogo } from './assets';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
@@ -370,6 +371,10 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
    * Defaults 5/3 (first cohorts dispatch immediately for lead-card latency). */
   hydrationBatchMax?: number;
   hydrationFirstBatchMax?: number;
+  /** Real web search for the metrics hunt's discovery step (BYOK or hosted
+   * relay). Read per hunt so a key added in Settings applies immediately;
+   * null/absent or an empty result falls back to SearXNG / grounded search. */
+  webSearch?: () => WebSearchFn | null;
 }
 
 export class GeminiRepository implements MarketIntelRepository {
@@ -387,6 +392,7 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly assetSourceReader?: (url: string) => Promise<OriginalSourceReceipt>;
   private readonly hydrationBatchMax?: number;
   private readonly hydrationFirstBatchMax?: number;
+  private readonly webSearch?: () => WebSearchFn | null;
   private readonly jobControllers = new Map<string, AbortController>();
   private readonly activeBackgroundJobs = new Map<string, Promise<void>>();
   /** Detached post-reveal discovery tails (reveal-at-first-card). */
@@ -410,6 +416,7 @@ export class GeminiRepository implements MarketIntelRepository {
     this.assetSourceReader = options.assetSourceReader;
     this.hydrationBatchMax = options.hydrationBatchMax;
     this.hydrationFirstBatchMax = options.hydrationFirstBatchMax;
+    this.webSearch = options.webSearch;
     // Migrate on load, not on demand. A snapshot written by an older build is
     // brought forward once, here, so nothing downstream has to reason about
     // which format it is looking at.
@@ -2874,8 +2881,13 @@ export class GeminiRepository implements MarketIntelRepository {
     // hunt's search without spending provider quota. Its result URLs face the
     // same original-read + passage gates as grounded citations; absent or
     // broken, the Gemini grounded lane runs exactly as before.
-    const searxng = await getSearxngLane();
-    const g = searxng
+    // A connected search provider (BYOK or hosted relay) goes first: real
+    // engine results, a few targeted queries. Nothing back -> the old lanes.
+    const webSearch = this.webSearch?.() ?? null;
+    const searched = webSearch ? await webSearchLane(webSearch).discover(huntSearchQueries(company.name, softTypes,
+      { financialFirm: profile === 'financial_firm', escalation })) : null;
+    const searxng = searched?.citations.length ? null : await getSearxngLane();
+    const g = searched?.citations.length ? searched : searxng
       ? await searxng.discover([
           company.name,
           ...softTypes.map((t) => METRIC_TYPE_LABELS[t]),

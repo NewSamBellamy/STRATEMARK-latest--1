@@ -21,6 +21,7 @@ import { SentinelRepository } from './SentinelRepository';
 import { openBrowserResearchStore } from './browserResearchStore';
 import { QUOTA_PRESETS, useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
+import { currentWebSearch } from '@/lib/settings/searchKey';
 import { recordCall, recordCallMetrics } from '@/lib/usage';
 
 const RepositoryContext = createContext<MarketIntelRepository | null>(null);
@@ -63,6 +64,9 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       originalSourceSupports: supportsPreviewSource,
       // RAW-HTML lane for real company logos at stub time (creation prewarm).
       assetSourceReader: readAssetSource,
+      // Real search engine for the metrics hunt (BYOK or hosted); null keeps
+      // the grounded lane.
+      webSearch: currentWebSearch,
       targetCompanies,
       concurrency: 3,
       // Count every request locally so the user can see their free-tier headroom.

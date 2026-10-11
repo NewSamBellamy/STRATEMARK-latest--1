@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./original-source-node": "./src/original-source.node.ts",
-    "./page-preview": "./src/page-preview.ts"
+    "./page-preview": "./src/page-preview.ts",
+    "./web-search": "./src/web-search.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -5,6 +5,7 @@ import { isIP } from 'node:net';
 import type { OriginalSourceReceipt } from '@mi/research';
 import { allowsLocalSourceRequest } from './src/lib/repository/local-source-policy';
 import type { OriginalSourceScope } from '@mi/research';
+import type * as WebSearchModule from '../../packages/research/src/web-search';
 
 /** No production hook: this bridge exists only on Vite's local dev server. */
 export function localSourcePlugin(): Plugin {
@@ -77,6 +78,48 @@ export function localSourcePlugin(): Plugin {
             res.end(JSON.stringify(receipt));
           } catch { res.statusCode = 400; res.end('{}'); }
           finally { active--; }
+        })();
+      });
+      // Search relay: provider APIs are not all browser-callable (CORS), so the
+      // page asks this local bridge. The user's key arrives in X-Search-Key and
+      // is used for this one request only; without it, a <PROVIDER>_API_KEY in
+      // the dev environment stands in. Neither is ever logged or echoed.
+      const searchModulePath = fileURLToPath(new URL('../../packages/research/src/web-search.ts', import.meta.url));
+      server.middlewares.use((req, res, next) => {
+        if (req.url !== '/__stratemark/search') return next();
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Content-Type', 'application/json');
+        const header = (name: string) => typeof req.headers[name] === 'string' ? req.headers[name] as string : undefined;
+        if (!allowsLocalSourceRequest(req.method, header('host'), header('origin'),
+          req.socket.remoteAddress, header('x-stratemark-source'))) {
+          res.statusCode = 403; res.end('{}'); return;
+        }
+        if (header('content-type') !== 'application/json') {
+          res.statusCode = 415; res.end('{}'); return;
+        }
+        if (active >= 6) { res.statusCode = 429; res.end('{}'); return; }
+        active++;
+        void (async () => {
+          try {
+            let body = '';
+            for await (const chunk of req) {
+              body += String(chunk);
+              if (Buffer.byteLength(body) > 4096) { res.statusCode = 413; res.end('{}'); return; }
+            }
+            const search = await server.ssrLoadModule(searchModulePath) as typeof WebSearchModule;
+            const input = search.parseSearchRelayRequest(JSON.parse(body));
+            if (!input) { res.statusCode = 400; res.end('{}'); return; }
+            const key = header('x-search-key') ?? process.env[`${input.provider.toUpperCase()}_API_KEY`];
+            if (!search.isPlausibleSearchKey(key)) {
+              res.statusCode = 401; res.end(JSON.stringify({ error: 'No search key is connected. Add one in Settings.' })); return;
+            }
+            const results = await search.runProviderSearch(input.provider, key, input.query, fetch);
+            res.end(JSON.stringify({ results }));
+          } catch (error) {
+            const status = typeof (error as { status?: unknown })?.status === 'number' ? (error as { status: number }).status : 400;
+            res.statusCode = status >= 400 && status < 600 ? status : 502;
+            res.end(JSON.stringify({ error: error instanceof Error && error.name === 'WebSearchError' ? error.message : 'Search failed.' }));
+          } finally { active--; }
         })();
       });
     },

@@ -2,6 +2,7 @@
  * stratemark-api — the hosted half of the web app (Cloudflare Worker).
  *
  *   POST /v1/gemini/:model:generateContent  Gemini on the server-held key, behind a daily dollar budget
+ *   POST /v1/search        { provider, query } web-search discovery (visitor's key, or hosted Serper on the budget)
  *   POST /v1/source        { url, scope }    original-source read (same reader + policy as desktop)
  *   POST /v1/asset-source  { url }           raw HTML for logo/headshot parsing
  *   GET  /v1/image?url=                      a public image with CORS (logos, real cover images)
@@ -24,11 +25,14 @@ import type { OriginalSourceReceipt, OriginalSourceScope } from '@mi/research';
 import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, reserveMicros, safePublicUrl, type GeminiUsage } from './policy';
 import type { BudgetCounter } from './budget';
 import { previewFromHtml, type PagePreview } from './preview';
+import { isPlausibleSearchKey, parseSearchRelayRequest, runProviderSearch, WebSearchError, type SearchProvider } from '@mi/research/web-search';
 
 export { BudgetCounter } from './budget';
 
 export interface Env {
   GEMINI_API_KEY?: string;
+  /** Hosted web search for visitors without their own search key. */
+  SERPER_API_KEY?: string;
   BUDGET: DurableObjectNamespace<BudgetCounter>;
   ALLOWED_ORIGINS?: string;
   ALLOW_LOCALHOST?: string;
@@ -48,7 +52,7 @@ function cors(origin: string | null): Record<string, string> {
   return origin ? {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Search-Key',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   } : {};
@@ -204,6 +208,51 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
     throw cause;
   } finally {
     await counter.settle(day, ip, held, actual);
+  }
+}
+
+/** One hosted Serper query, held against the same daily dollar budget as Gemini. */
+const SEARCH_COST_MICROS = 1_000;
+
+/**
+ * POST /v1/search { provider, query } — the hunt's web-search discovery.
+ * With X-Search-Key the visitor's own key is forwarded for this one request
+ * (never stored, logged or charged). Without it the server's SERPER_API_KEY
+ * answers, behind the daily budget.
+ */
+async function searchRelay(request: Request, env: Env, origin: string): Promise<Response> {
+  const input = parseSearchRelayRequest(await readJson<unknown>(request));
+  if (!input) return json({ error: 'Bad search request.' }, 400, origin);
+  const userKey = cleanKey(request.headers.get('x-search-key') ?? undefined);
+  if (userKey) {
+    if (!isPlausibleSearchKey(userKey)) return json({ error: 'That search key does not look right.' }, 400, origin);
+    return runSearch(input.provider, userKey, input.query, origin);
+  }
+  const hostedKey = cleanKey(env.SERPER_API_KEY);
+  if (!hostedKey) return json({ error: 'Hosted search is not configured.' }, 503, origin);
+  const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
+  const day = new Date().toISOString().slice(0, 10);
+  const caps = budgets(env);
+  const counter = ledger(env);
+  const reservation = await counter.reserve(day, ip, SEARCH_COST_MICROS, caps.budget, caps.visitor);
+  if (!reservation.ok) return json({ budget: 'exhausted', reason: reservation.reason, error: 'Free search has reached today’s budget.' }, 402, origin);
+  let actual = 0;
+  try {
+    const response = await runSearch('serper', hostedKey, input.query, origin);
+    actual = response.ok ? SEARCH_COST_MICROS : 0;
+    return response;
+  } finally {
+    await counter.settle(day, ip, SEARCH_COST_MICROS, actual);
+  }
+}
+
+async function runSearch(provider: SearchProvider, key: string, query: string, origin: string): Promise<Response> {
+  try {
+    return json({ results: await runProviderSearch(provider, key, query, fetch) }, 200, origin);
+  } catch (error) {
+    const status = error instanceof WebSearchError ? error.status : 502;
+    console.log(`search ${provider} -> ${status}`);
+    return json({ error: error instanceof WebSearchError ? error.message : 'Search failed.' }, status >= 400 && status < 600 ? status : 502, origin);
   }
 }
 
@@ -368,6 +417,7 @@ export default {
     try {
       const gemini = url.pathname.match(/^\/v1\/gemini\/([a-zA-Z0-9][a-zA-Z0-9._-]{0,119}):generateContent$/);
       if (gemini && request.method === 'POST') return await geminiProxy(request, env, gemini[1]!, allowed);
+      if (url.pathname === '/v1/search' && request.method === 'POST') return await searchRelay(request, env, allowed);
       if (url.pathname === '/v1/source' && request.method === 'POST') return await sourceRead(request, allowed);
       if (url.pathname === '/v1/asset-source' && request.method === 'POST') return await assetRead(request, allowed);
       if (url.pathname === '/v1/image' && request.method === 'GET') return await imageRead(request, allowed);

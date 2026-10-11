@@ -40,6 +40,7 @@ import { Modal } from '@/components/ui/Modal';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { cn } from '@/lib/cn';
 import { isCommunityDesktop } from '@/lib/settings/runtime';
+import { WebSearchPanel } from './WebSearchPanel';
 
 type TestState = { status: 'idle' | 'testing' | 'ok' | 'fail'; detail?: string };
 
@@ -311,7 +312,9 @@ function GeneralTab() {
         Your key is stored on this device and sent only to Google’s API.
       </div>
       {(saveError || storageError) && <p role="alert" className="text-sm text-negative">{saveError || storageError}</p>}
-      
+
+      {!isCommunityDesktop() && <WebSearchPanel />}
+
       {!isCommunityDesktop() && <AccessPanel />}
     </div>
   );

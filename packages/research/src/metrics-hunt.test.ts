@@ -387,3 +387,29 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
     expect(result.filledTypes).toEqual([]);
   });
 });
+
+describe('huntCompanyMetrics with a connected search provider', () => {
+  const noFigures = vi.fn(async (_prompt: string, schema: { parse(v: unknown): unknown }) => schema.parse({ figures: [] }));
+
+  it('discovers through the search engine and skips grounded search', async () => {
+    const ground = vi.fn();
+    const search = vi.fn(async (q: string) => [{ url: 'https://news.example.com/openai-funding', title: 'OpenAI raises', snippet: `${q} result` }]);
+    const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snapshot()), client: { ground, structure: noFigures } as unknown as LlmClient,
+      webSearch: () => search });
+    await repo.huntCompanyMetrics('cmp_1');
+    expect(ground).not.toHaveBeenCalled();
+    expect(search).toHaveBeenCalled();
+    expect(search.mock.calls.every(([q]) => q.startsWith('"OpenAI"'))).toBe(true);
+    expect(String(noFigures.mock.calls.at(-1)?.[0])).toContain('https://news.example.com/openai-funding');
+  });
+
+  it('falls back to grounded search when the engine finds nothing or fails', async () => {
+    for (const search of [vi.fn(async () => []), vi.fn(async () => { throw new Error('quota'); })]) {
+      const ground = vi.fn(async () => ({ text: 'No reliable figures.', citations: [], queries: [] }));
+      const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snapshot()), client: { ground, structure: noFigures } as unknown as LlmClient,
+        webSearch: () => search });
+      await repo.huntCompanyMetrics('cmp_1');
+      expect(ground).toHaveBeenCalledTimes(1);
+    }
+  });
+});
