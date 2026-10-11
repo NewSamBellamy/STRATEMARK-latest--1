@@ -192,6 +192,24 @@ describe('one current company facts projection', () => {
     expect(prompt).toContain('ARR: Unknown');
     expect(prompt).not.toContain('999000000');
   });
+  it('gives Ask every company in a large deck, judged against its own originals, with rankings first', async () => {
+    const { store, client } = setup();
+    const snapshot = store.read()!;
+    // Nine companies ahead of Acme: Acme is outside any first-eight window.
+    for (let i = 0; i < 9; i++) {
+      snapshot.companies.unshift({ id: `co${i}`, name: `Filler ${i}`, oneLiner: 'Other', websiteUrl: null, logoUrl: null, hqLocation: null, brandTheme: null });
+      snapshot.cards.unshift({ ...snapshot.cards[snapshot.cards.length - 1]!, id: `card${i}`, companyId: `co${i}` });
+      snapshot.metrics.push({ ...employee, id: `h${i}`, companyId: `co${i}`, value: 10 + i, confidence: 'user_verified', passageSupport: null, citations: [] });
+    }
+    await store.write(snapshot);
+    const repo = new GeminiRepository({ apiKey: 'test', store, client });
+    await repo.askResearch({ scope: { kind: 'deck', deckId: 'deck' }, question: 'Which company has the most employees?' });
+    const prompt = String(vi.mocked(client.ground).mock.calls[0]![0]);
+    expect(prompt).toContain('DECK FIGURES BY METRIC');
+    expect(prompt).toMatch(/Employees \(highest first\): Acme 45 \[verified, as of 2026-10-01\]; Filler 8 18/);
+    expect(prompt).toContain('COMPANY: Acme');
+    expect(prompt).not.toContain('999000000');
+  });
   it('rechecks originals on reopen and preserves the raw historical figure', async () => {
     const { store, client } = setup();
     const snapshot = store.read()!;

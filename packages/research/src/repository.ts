@@ -132,7 +132,7 @@ import { readCompanyOriginals } from './core-source-coverage';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
-import { buildChatPrompt, formatCompanyBlock } from './chat-context';
+import { buildChatPrompt, formatCompanyBlock, formatDeckRankings } from './chat-context';
 import { savedCompanyProfile } from './saved-profile';
 import { companySourceTargets } from './source-policy';
 import { renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
@@ -3952,74 +3952,91 @@ export class GeminiRepository implements MarketIntelRepository {
    * confidence tags and publishers intact. This is half of the grounding
    * contract for chat: prior grounded research + a fresh search — never
    * training data.
+   *
+   * Figures come from getCompanyFacts, the projection cards use, so each
+   * company is judged against its OWN retained originals. (Projecting every
+   * company against one shared, capped set of originals downgraded figures of
+   * companies outside the cap to Unknown, and a hard character slice dropped
+   * the last companies silently: asked for the highest valuation, chat missed
+   * an $8B figure printed on a card in the same deck.) Comparative rankings go
+   * first; over budget, whole sections are omitted and named, never cut.
    */
-  private scopeDigest(scope: ResearchScope, attempts: OriginalSourceAttempt[]): { text: string; citations: Citation[] } {
-    const lines: string[] = [];
-    const citations: Citation[] = [];
-    const push = (l: string) => lines.push(l);
-
-    const companyLines = (co: Company) => {
-      const tierCard = this.snap.cards.find((c) => c.companyId === co.id && c.tier != null);
-      const ms = projectCompanyFacts(co, this.snap.metrics, attempts);
-      const metricSources = usableCitations(ms.filter(m => m.confidence !== 'unknown' && m.value !== null).flatMap(metric => metric.citations));
-      push(formatCompanyBlock({ name: co.name, oneLiner: co.oneLiner, tier: tierCard?.tier ?? null, metrics: ms }));
-      citations.push(...metricSources);
-      for (const vc of this.snap.viceClaims.filter((v) =>
-        this.snap.cards.some((c) => c.id === v.cardId && c.companyId === co.id),
-      )) {
-        const sources = usableCitations([{ url: vc.sourceUrl, title: vc.sourceTitle ?? '' }]);
-        if (!hasVerificationGradeCitation(sources)) continue;
-        push(`  RISK SIGNAL (cited, not independently verified): ${vc.claimText}`);
-        citations.push(...sources);
-        for (const citation of sources) push(`  RISK SOURCE: ${citation.url}`);
-      }
-    };
-
-    const marketCardLine = (card: Card) => {
-      const sources = usableCitations(card.citations);
-      if (card.cardType === 'vice' && !hasVerificationGradeCitation(sources)) {
-        push('VICE: Saved finding lacks a usable supporting source; do not repeat its allegation.');
-        return;
-      }
-      push(`${card.cardType.toUpperCase()}: ${card.title} — ${card.summary ?? ''}`);
-      for (const k of card.keyPoints ?? []) push(`  · ${k}`);
-      push('  Saved finding: cited material is not independent verification; distinguish analysis and allegations from established facts.');
-      citations.push(...sources);
-      for (const citation of sources) push(`  FINDING SOURCE: ${citation.url}`);
-    };
-
+  private async scopeDigest(scope: ResearchScope): Promise<{ text: string; citations: Citation[] }> {
+    const MAX_CHARS = 12_000;
     const deck = scope.deckId ? this.snap.decks.find((d) => d.id === scope.deckId) : null;
     const market = deck ? this.snap.markets.find((m) => m.id === deck.marketId) : null;
-    if (market) push(`MARKET: ${market.name} (${market.scopeDefinition.vertical})`);
 
+    const companies: Company[] = [];
+    const signalCards: Card[] = [];
+    const addCompany = (id: string | null | undefined) => {
+      const co = id ? this.snap.companies.find((c) => c.id === id) : undefined;
+      if (co && !companies.includes(co)) companies.push(co);
+    };
     if (scope.kind === 'cards' && scope.cardIds?.length) {
       for (const id of scope.cardIds) {
         const card = this.snap.cards.find((c) => c.id === id);
         if (!card || (scope.deckId && card.deckId !== scope.deckId)) continue;
-        const co = card.companyId ? this.snap.companies.find((c) => c.id === card.companyId) : null;
-        if (co && !isSignalCardType(card.cardType)) companyLines(co);
-        else marketCardLine(card);
+        if (card.companyId && !isSignalCardType(card.cardType)) addCompany(card.companyId);
+        else signalCards.push(card);
       }
     } else if (scope.companyId) {
-      const co = this.snap.companies.find((c) => c.id === scope.companyId);
-      if (co) companyLines(co);
-    } else if (deck) {
-      for (const card of this.snap.cards.filter((c) => c.deckId === deck.id && !c.companyId)) {
-        marketCardLine(card);
-      }
-      const companyIds = new Set(
-        this.snap.cards
-          .filter((c) => c.deckId === deck.id && c.companyId)
-          .map((c) => c.companyId as string),
-      );
-      for (const id of companyIds) {
-        const co = this.snap.companies.find((c) => c.id === id);
-        if (co) companyLines(co);
+      addCompany(scope.companyId);
+    } else if (scope.deckId) {
+      for (const card of this.snap.cards.filter((c) => c.deckId === scope.deckId)) {
+        if (card.companyId) addCompany(card.companyId);
+        else signalCards.push(card);
       }
     }
-    // A digest is context, not a payload — cap it well under the model's window.
-    const text = lines.join('\n').slice(0, 9000);
-    return { text, citations: usableCitations(citations).filter(citation => text.includes(citation.url)) };
+
+    const companyBlocks = await mapWithConcurrency(companies, 4, async (co) => {
+      const metrics = await this.getCompanyFacts(co.id);
+      const tierCard = this.snap.cards.find((c) => c.companyId === co.id && c.tier != null);
+      const lines = [formatCompanyBlock({ name: co.name, oneLiner: co.oneLiner, tier: tierCard?.tier ?? null, metrics })];
+      const citations = usableCitations(metrics.filter((m) => m.confidence !== 'unknown' && m.value !== null).flatMap((m) => m.citations));
+      for (const vc of this.snap.viceClaims.filter((v) => this.snap.cards.some((c) => c.id === v.cardId && c.companyId === co.id))) {
+        const sources = usableCitations([{ url: vc.sourceUrl, title: vc.sourceTitle ?? '' }]);
+        if (!hasVerificationGradeCitation(sources)) continue;
+        lines.push(`  RISK SIGNAL (cited, not independently verified): ${vc.claimText}`, ...sources.map((c) => `  RISK SOURCE: ${c.url}`));
+        citations.push(...sources);
+      }
+      return { name: co.name, metrics, text: lines.join('\n'), citations };
+    });
+
+    const signalBlocks = signalCards.map((card) => {
+      const sources = usableCitations(card.citations);
+      const name = card.title ?? `${card.cardType} card`;
+      if (card.cardType === 'vice' && !hasVerificationGradeCitation(sources)) {
+        return { name, text: 'VICE: Saved finding lacks a usable supporting source; do not repeat its allegation.', citations: [] as Citation[] };
+      }
+      return {
+        name,
+        text: [
+          `${card.cardType.toUpperCase()}: ${card.title} — ${card.summary ?? ''}`,
+          ...(card.keyPoints ?? []).map((k) => `  · ${k}`),
+          '  Saved finding: cited material is not independent verification; distinguish analysis and allegations from established facts.',
+          ...sources.map((c) => `  FINDING SOURCE: ${c.url}`),
+        ].join('\n'),
+        citations: sources,
+      };
+    });
+
+    const sections: string[] = [];
+    if (market) sections.push(`MARKET: ${market.name} (${market.scopeDefinition.vertical})`);
+    if (companyBlocks.length > 1) {
+      sections.push(`DECK FIGURES BY METRIC (every company's sourced figure, highest first — use these for any comparison or ranking):\n${formatDeckRankings(companyBlocks)}`);
+    }
+    let used = sections.join('\n\n').length;
+    const citations: Citation[] = [];
+    const omitted: string[] = [];
+    for (const block of [...companyBlocks, ...signalBlocks]) {
+      if (used + block.text.length + 2 > MAX_CHARS) { omitted.push(block.name); continue; }
+      sections.push(block.text);
+      citations.push(...block.citations);
+      used += block.text.length + 2;
+    }
+    if (omitted.length) sections.push(`(Omitted for length: ${omitted.join(', ')}. Their figures still appear in the rankings above; say so if asked for detail.)`);
+    const text = sections.join('\n\n');
+    return { text, citations: usableCitations(citations).filter((citation) => text.includes(citation.url)) };
   }
 
   async askResearch(input: AskResearchInput): Promise<ResearchThread> {
@@ -4118,7 +4135,7 @@ export class GeminiRepository implements MarketIntelRepository {
       `ARCHIVE PASSAGE — ${passage.companyName ?? passage.companyId ?? 'corpus'}, ${passage.topic}, captured ${passage.capturedAt} (not a source publication date):\n${passage.snippet}\nSOURCES:\n${passage.citations.slice(0, 6).map((c) => `${c.title}: ${c.url}`).join('\n')}`,
     ).join('\n\n');
 
-    const digest = this.scopeDigest(thread.scope, originalAttempts.flat());
+    const digest = await this.scopeDigest(thread.scope);
 
     const g = await this.client.ground(
       buildChatPrompt({

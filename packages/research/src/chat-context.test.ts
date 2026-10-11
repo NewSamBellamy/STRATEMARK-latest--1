@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CompanyMetric } from '@mi/contracts';
 import { CHAT_SYSTEM, NOT_IN_RESEARCH_PHRASE } from './prompts';
-import { buildChatPrompt, buildDeckChatContext, formatMetricLine, formatConversation } from './chat-context';
+import { buildChatPrompt, buildDeckChatContext, formatDeckRankings, formatMetricLine, formatConversation } from './chat-context';
 
 const base = {
   id: 'm1', companyId: 'c1', source: null, methodNote: null, capturedAt: '2026-01-01T00:00:00.000Z',
@@ -27,6 +27,25 @@ describe('chat context', () => {
     const line = formatMetricLine(metric({ value: 5e9, confidence: 'verified', citations: [] }));
     expect(line).toMatch(/Unknown/);
     expect(line).not.toContain('5B');
+  });
+
+  it('ranks every statable figure per metric, highest first, and counts the gaps', () => {
+    const sourced = (value: number, type: CompanyMetric['metricType'] = 'valuation') =>
+      metric({ metricType: type, value, confidence: 'verified', citations: [{ title: 'r', url: 'https://r.com/a' }] });
+    const text = formatDeckRankings([
+      { name: 'FloQast', metrics: [sourced(1.6e9)] },
+      { name: 'Plaid', metrics: [sourced(8e9)] },
+      { name: 'Ghost', metrics: [metric({ metricType: 'valuation', value: 9e12, confidence: 'verified', citations: [] })] },
+      { name: 'Human', metrics: [metric({ metricType: 'valuation', value: 2e9, confidence: 'user_verified', citations: [] })] },
+    ]);
+    expect(text).toBe('Valuation (highest first): Plaid $8B [verified]; Human $2B [user_verified]; FloQast $1.6B [verified]; 1 company has no sourced figure');
+    expect(formatDeckRankings([{ name: 'X', metrics: [] }])).toBe('No sourced figures in this deck yet.');
+  });
+
+  it('states a human-checked figure without a link instead of hiding it', () => {
+    const line = formatMetricLine(metric({ metricType: 'employees', value: 37, confidence: 'user_verified', citations: [] }));
+    expect(line).toContain('37');
+    expect(line).toContain('human-checked');
   });
 
   it('keeps the deck context within budget and says what it omitted', () => {

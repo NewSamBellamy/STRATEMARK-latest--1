@@ -35,22 +35,53 @@ export function formatMetricValue(type: MetricType, value: number): string {
 
 /** When a source says the figure was true, falling back to when we captured it. */
 export function metricAsOf(m: CompanyMetric): string | null {
-  return m.passageSupport?.asOf || m.reportedSupport?.asOf || null;
+  return m.passageSupport?.asOf || m.reportedSupport?.asOf || m.quotedSupport?.asOf || null;
+}
+
+/** A figure the chat may state: a value with a source, or a human-checked value. */
+function isStatable(m: CompanyMetric): m is CompanyMetric & { value: number } {
+  if (m.confidence === 'unknown' || m.value === null) return false;
+  return m.confidence === 'user_verified' || usableCitations(m.citations ?? []).length > 0;
 }
 
 /** One line per metric. Unknown / unsourced figures never carry a number. */
 export function formatMetricLine(m: CompanyMetric): string {
   const label = METRIC_TYPE_LABELS[m.metricType] ?? m.metricType;
-  const sources = m.confidence === 'unknown' || m.value === null ? [] : usableCitations(m.citations ?? []);
-  if (m.confidence === 'unknown' || m.value === null || sources.length === 0) {
-    return `- ${label}: Unknown (not in this deck's research)`;
-  }
+  if (!isStatable(m)) return `- ${label}: Unknown (not in this deck's research)`;
   const asOf = metricAsOf(m);
-  const src = sources
-    .slice(0, 2)
-    .map((c) => `${c.title || 'source'} <${c.url}>`)
-    .join('; ');
+  const sources = usableCitations(m.citations ?? []);
+  const src = sources.length
+    ? sources.slice(0, 2).map((c) => `${c.title || 'source'} <${c.url}>`).join('; ')
+    : 'confirmed by the analyst (human-checked)';
   return `- ${label}: ${formatMetricValue(m.metricType, m.value)} [${m.confidence}]${asOf ? `, as of ${asOf}` : ', as-of date not stated'}; source: ${src}`;
+}
+
+/**
+ * Comparative questions ("which company has the highest valuation?") answered
+ * from the deck itself: per metric, every company's statable figure, highest
+ * first. Small enough to always fit ahead of the per-company blocks, so a
+ * ranking never depends on which companies survived the length budget.
+ */
+export function formatDeckRankings(companies: ReadonlyArray<{ name: string; metrics: readonly CompanyMetric[] }>): string {
+  const byType = new Map<MetricType, Array<{ name: string; metric: CompanyMetric & { value: number } }>>();
+  for (const company of companies) {
+    for (const metric of company.metrics) {
+      if (!isStatable(metric)) continue;
+      const rows = byType.get(metric.metricType) ?? [];
+      rows.push({ name: company.name, metric });
+      byType.set(metric.metricType, rows);
+    }
+  }
+  const lines: string[] = [];
+  for (const [type, rows] of byType) {
+    rows.sort((a, b) => b.metric.value - a.metric.value);
+    const missing = companies.length - rows.length;
+    lines.push(`${METRIC_TYPE_LABELS[type] ?? type} (highest first): ${rows.map(({ name, metric }) => {
+      const asOf = metricAsOf(metric);
+      return `${name} ${formatMetricValue(type, metric.value)} [${metric.confidence}${asOf ? `, as of ${asOf}` : ''}]`;
+    }).join('; ')}${missing > 0 ? `; ${missing} compan${missing === 1 ? 'y has' : 'ies have'} no sourced figure` : ''}`);
+  }
+  return lines.length ? lines.join('\n') : 'No sourced figures in this deck yet.';
 }
 
 export interface ChatCompanyBlock {
