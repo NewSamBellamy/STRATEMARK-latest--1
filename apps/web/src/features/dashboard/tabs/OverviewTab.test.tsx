@@ -26,20 +26,26 @@ function render(metrics: CompanyMetric[], md: string | null = markdown) {
 }
 
 describe('OverviewTab executive summary', () => {
-  it('shows dated headline figures, cited takeaways and a sectioned brief', async () => {
-    const { user } = render([{ ...seed, metricType: 'employees', value: 250, confidence: 'estimated', source: null, citations: [],
-      passageSupport: null, reportedSupport: null, lastVerifiedAt: '2026-05-04T00:00:00Z' }]);
-    const tile = await screen.findByRole('article', { name: 'Employees headline figure' });
-    expect(within(tile).getByText('250')).toBeInTheDocument();
-    expect(within(tile).getByText('Checked 2026-05-04')).toBeInTheDocument();
+  it('shows the card face figures with their sources, cited takeaways and a sectioned brief', async () => {
+    const { user } = render([{ ...seed, metricType: 'employees', value: 250, confidence: 'verified', source: 'https://sec.gov/x',
+      citations: [{ title: 'SEC filing', url: 'https://sec.gov/x', credibility: 'primary' }],
+      passageSupport: null, reportedSupport: null, capturedAt: '2026-05-04T00:00:00Z' }]);
+    const tile = await screen.findByRole('article', { name: 'Employees: 250' });
+    expect(within(tile).getByRole('link', { name: /SEC filing/ })).toHaveAttribute('href', 'https://sec.gov/x');
     const takeaways = await screen.findByRole('region', { name: 'What matters' });
     expect(within(takeaways).getByRole('link', { name: 'Reuters' })).toHaveAttribute('href', 'https://reuters.com/a');
     await user.click(screen.getByRole('tab', { name: 'Where they stand' }));
     expect(screen.getByRole('tabpanel', { name: 'Where they stand' })).toHaveTextContent('leading share');
   });
+  it('never shows an unsourced estimate as a figure, matching the card face', async () => {
+    render([{ ...seed, metricType: 'employees', value: 250, confidence: 'estimated', source: null, citations: [],
+      passageSupport: null, reportedSupport: null }]);
+    expect(await screen.findByRole('region', { name: 'What matters' })).toBeInTheDocument();
+    expect(screen.queryByText('250')).not.toBeInTheDocument();
+  });
   it('renders an intentional empty state for a company with no figures and no peers', async () => {
     render([], null);
-    expect((await screen.findAllByText('Unknown')).length).toBeGreaterThanOrEqual(4);
+    expect((await screen.findAllByText('Not found yet')).length).toBe(4);
     expect(screen.getByText('Open this company from its deck to compare')).toBeInTheDocument();
     expect(screen.getByText('Not researched yet')).toBeInTheDocument();
     expect(screen.queryByText('0')).not.toBeInTheDocument();

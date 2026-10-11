@@ -1,7 +1,7 @@
 import {
   CARD_TYPE_LABELS, CONFIDENCE_LABELS, TIER_LABELS, enforceMetricProvenance, currentMetricRevision,
   isSignalCardType, usableCitations, metricDefinitionLabel, classifyMarketProfile, PROFILE_CORE_SLOTS, MONEY_METRIC_TYPES,
-  type CardWithCompany, type CompanyMetric, type MetricType,
+  type CardWithCompany, type Company, type CompanyMetric, type MetricType,
 } from '@mi/contracts';
 import { quotedSupportHolds, reportedBandCitations, reportedSupportCitations } from '@mi/research';
 import type { OvrBreakdown } from './rating';
@@ -371,6 +371,17 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
       c.url.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '').toLowerCase())).size,
     citations,
   };
+}
+
+/**
+ * The card face for a company without needing its deck card: the same four
+ * strongest sourced figures the collectible shows, so every surface that
+ * mirrors "the card" (dashboard overview, reader) agrees however it was opened.
+ */
+export function companyFace(company: Company, metrics: readonly CompanyMetric[]): CardView['faceMetrics'] {
+  const card = { id: `face_${company.id}`, deckId: '', companyId: company.id, cardType: 'company', title: company.name,
+    tier: null, summary: null, keyPoints: [], citations: [] } as unknown as CardWithCompany['card'];
+  return buildCardView({ card, company, metrics: [...metrics], viceClaims: [] }).faceMetrics;
 }
 
 export function sourceUrl(value: string | null | undefined): string | null {

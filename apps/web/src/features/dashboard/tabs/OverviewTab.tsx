@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { ArrowRight, ExternalLink, SearchX } from 'lucide-react';
 import { publisherOf, type CompanyMetric, type MetricType } from '@mi/contracts';
-import { useCard, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
-import { buildCardView, faceFigureStatus, type CardView } from '@/features/card/card-view';
+import { useCompany, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
+import { companyFace, faceFigureStatus, type CardView } from '@/features/card/card-view';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { ErrorState } from '@/components/states/ErrorState';
 import { cn } from '@/lib/cn';
@@ -14,15 +14,13 @@ import {
   FILL_HINT,
   barPercent,
   extractTakeaways,
-  missingCoreTypes,
   parseOverviewSections,
-  pickKpis,
   positionRankings,
   rankInDeck,
   splitAttribution,
   type PeerRanking,
 } from '../dashboardModel';
-import { KpiTile, KpiTileSkeleton, RankChip, Section, metricLabel, useTabHref } from '../dashboardKit';
+import { KpiTileSkeleton, RankChip, Section, metricLabel, useTabHref } from '../dashboardKit';
 import { usePeers } from '../usePeers';
 import { useCachedDashboardTab } from '../useCachedTab';
 
@@ -106,7 +104,7 @@ function Empty({ title, text }: { title: string; text: string }) {
 
 // ---- At a glance: the card's own four figures -----------------------------
 
-type FaceItem = CardView['profileMetrics'][number];
+type FaceItem = CardView['faceMetrics'][number];
 const SLOT_TYPE: Record<string, MetricType> = {
   employees: 'employees', revenue: 'revenue', reach: 'users', company_value: 'valuation', aum: 'aum',
 };
@@ -118,10 +116,10 @@ const shortDate = (iso: string | null | undefined) => {
 
 /** Mirrors the card face exactly: same slots, same gates, same trust wording as the reader. */
 function FaceTile({ item, ranking, href }: { item: FaceItem; ranking: PeerRanking | null; href: string }) {
-  const known = item.display !== 'Unknown';
+  const known = item.metric !== undefined;
   const type = item.metric?.metricType ?? SLOT_TYPE[item.key] ?? 'valuation';
   const citation = item.citations[0];
-  const dated = item.metric?.reportedSupport?.asOf ?? item.metric?.reportedBand?.asOf ?? null;
+  const dated = item.metric?.reportedSupport?.asOf ?? item.metric?.quotedSupport?.asOf ?? item.metric?.reportedBand?.asOf ?? null;
   const when = dated ? `Figure dated ${shortDate(dated) ?? dated}` : item.metric ? `Recorded ${shortDate(item.metric.capturedAt) ?? ''}`.trim() : null;
   return (
     <article
@@ -152,7 +150,7 @@ function FaceTile({ item, ranking, href }: { item: FaceItem; ranking: PeerRankin
         <div className="mt-1.5 flex flex-1 flex-col">
           <p className="flex items-center gap-1.5 font-display text-lg font-semibold text-muted">
             <SearchX className="h-4 w-4" aria-hidden />
-            Unknown
+            {item.display}
           </p>
           <p className="mt-1 text-[11px] leading-snug text-faint">
             <span className="font-medium text-muted">To fill: </span>
@@ -343,24 +341,14 @@ export function OverviewTab({ companyId }: { companyId: string }) {
   const href = useTabHref(companyId);
   const [briefIdx, setBriefIdx] = useState(0);
 
-  const [params] = useSearchParams();
-  const cardQ = useCard(params.get('card') ?? undefined);
-  const face = useMemo(() => {
-    const data = cardQ.data;
-    if (!data || data.company?.id !== companyId) return null;
-    // Live metrics win over the deck snapshot so a fresh correction shows at once.
-    return buildCardView({ ...data, metrics: metricsQ.data ?? data.metrics }).profileMetrics;
-  }, [cardQ.data, companyId, metricsQ.data]);
-
-  const tiles = useMemo(() => {
-    const kpis = pickKpis(metrics);
-    // Fill the grid with labelled gaps for core metrics that have no row at all.
-    const gaps: CompanyMetric[] = missingCoreTypes(metrics, 4 - kpis.length).map((t) => ({
-      id: `gap-${t}`, companyId, metricType: t, value: null, confidence: 'unknown', source: null,
-      citations: [], methodNote: null, capturedAt: '',
-    } as CompanyMetric));
-    return [...kpis, ...gaps];
-  }, [metrics, companyId]);
+  // The card's own face, however the dashboard was opened (from a card or a
+  // link): the same four strongest sourced figures, from live metrics so a
+  // fresh correction shows at once.
+  const companyQ = useCompany(companyId);
+  const face = useMemo(
+    () => (companyQ.data ? companyFace(companyQ.data, metrics) : null),
+    [companyQ.data, metrics],
+  );
 
   const result = query.data;
   const parsed = useMemo(
@@ -374,30 +362,26 @@ export function OverviewTab({ companyId }: { companyId: string }) {
     ...(parsed.figures.length > 0 ? [{ key: '__figures', label: 'Sourced figures', section: null }] : []),
   ];
   const active = briefTabs[Math.min(briefIdx, Math.max(0, briefTabs.length - 1))];
-  const hasGaps = face ? face.some((i) => i.display === 'Unknown') : tiles.some((m) => m.value == null || m.confidence === 'unknown');
+  const hasGaps = face?.some((i) => i.metric === undefined) ?? false;
 
   return (
     <div className="cascade mx-auto max-w-4xl space-y-8">
-      <Section title="At a glance" hint={face ? "The four figures on this company's card, with the source behind each one." : 'Headline figures, each with its source and date.'}>
-        {metricsQ.isPending ? (
+      <Section title="At a glance" hint="The four figures on this company's card, with the source behind each one.">
+        {metricsQ.isPending || !face ? (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {[0, 1, 2, 3].map((i) => <KpiTileSkeleton key={i} i={i} />)}
           </div>
-        ) : !face && tiles.length === 0 ? (
-          <Empty title="No figures yet" text="Sourced figures appear here as research lands." />
         ) : (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            {face ? face.map((item) => {
-              const ranking = item.metric && item.display !== 'Unknown' && peerState.status === 'ready'
+            {face.map((item) => {
+              const ranking = item.metric && peerState.status === 'ready'
                 ? rankInDeck(companyId, item.metric.metricType, peerState.peers) : null;
-              return <FaceTile key={item.key} item={item} ranking={ranking} href={href('metrics', { metric: item.metric?.metricType ?? SLOT_TYPE[item.key] ?? 'valuation' })} />;
-            }) : tiles.slice(0, 4).map((m) => {
-              const ranking = peerState.status === 'ready' ? rankInDeck(companyId, m.metricType, peerState.peers) : null;
-              return <KpiTile key={m.id} metric={m} ranking={ranking} href={href('metrics', { metric: m.metricType })} />;
+              return <FaceTile key={`${item.key}-${item.label}`} item={item} ranking={ranking}
+                href={href('metrics', { metric: item.metric?.metricType ?? SLOT_TYPE[item.key] ?? 'valuation' })} />;
             })}
           </div>
         )}
-        {!metricsQ.isPending && (face || tiles.length > 0) && (
+        {!metricsQ.isPending && face && (
           <p className="mt-2 text-[12px]">
             <Link to={href('metrics')} className="text-primary-ink hover:underline">
               {hasGaps ? 'See all figures and what would fill the gaps →' : 'See all figures and peer comparison →'}
