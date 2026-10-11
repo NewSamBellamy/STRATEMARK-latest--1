@@ -1,7 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { buildDataset } from '@mi/mocks';
 import type { CardWithCompany, CompanyMetric } from '@mi/contracts';
-import { buildCardView, buildMetricViews } from './card-view';
+import { buildCardView, buildMetricViews, companyFrontName } from './card-view';
+
+describe('card face company name', () => {
+  it.each([
+    ['SZ DJI Technology Co., Ltd. (DJI)', 'DJI'],
+    ['Skydio, Inc.', 'Skydio'],
+    ['Quantum-Systems GmbH', 'Quantum-Systems'],
+    ['Pix4D SA', 'Pix4D'],
+    ['Delair SAS', 'Delair'],
+    ['Ondas Holdings Inc. (Ondas Autonomous Systems)', 'Ondas Holdings'],
+    ['Measure (Adranos / Global Aerial Services channels)', 'Measure'],
+    ['Radiant Nuclear (Radiant Industries, Inc.)', 'Radiant Nuclear'],
+    ['Mastercard Open Banking / Finicity', 'Mastercard Open Banking / Finicity'],
+    ['Vic.ai', 'Vic.ai'],
+    ['Intuit QuickBooks', 'Intuit QuickBooks'],
+  ])('%s → %s', (name, expected) => {
+    expect(companyFrontName(name)).toBe(expected);
+  });
+});
 
 const dataset = buildDataset();
 const card = dataset.cards.find((c) => c.cardType === 'company' && c.companyId)!;

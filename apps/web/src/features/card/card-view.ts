@@ -40,6 +40,22 @@ function frontTitle(value: string): string {
   return firstClause && firstClause.length >= 16 && firstClause.length <= 64 ? firstClause : value;
 }
 
+const LEGAL_SUFFIX = /,?\s+(?:Inc\.?|Incorporated|Corp\.?|Corporation|Co\.,?\s*Ltd\.?|Co\.|Ltd\.?|Limited|LLC|L\.L\.C\.|PLC|plc|GmbH|AG|S\.?A\.?S?\.?|SE|N\.?V\.?|B\.?V\.?|AB|Oy|ASA|A\/S|S\.p\.A\.|Pty\.?\s*Ltd\.?|Pte\.?\s*Ltd\.?|K\.K\.)$/;
+
+/** "SZ DJI Technology Co., Ltd. (DJI)" → "DJI"; "Skydio, Inc." → "Skydio".
+ * Display only: the stored name stays the legal name research matched on. */
+export function companyFrontName(name: string): string {
+  let outer = name.trim();
+  const paren = /^(.+?)\s*\(([^)]+)\)\s*$/.exec(outer);
+  if (paren) {
+    const inner = paren[2]!.trim();
+    if (inner.length <= 20 && !LEGAL_SUFFIX.test(` ${inner}`) && !/[,/]/.test(inner)) return inner;
+    outer = paren[1]!.trim();
+  }
+  for (let i = 0; i < 3 && LEGAL_SUFFIX.test(outer); i++) outer = outer.replace(LEGAL_SUFFIX, '').trim();
+  return outer.length >= 2 ? outer : name;
+}
+
 /** The face label must name the figure actually shown, never the slot's default. */
 function metricTypeLabel(metric: CompanyMetric): string | null {
   switch (metric.metricType) {
@@ -259,7 +275,7 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
   const title = data.company?.name ?? data.card.title ?? 'Research card';
   return {
     title,
-    frontTitle: signal ? frontTitle(title) : title,
+    frontTitle: signal ? frontTitle(title) : data.company?.name ? companyFrontName(data.company.name) : title,
     description,
     frontDescription: signal ? signalLines[0] ?? null : description,
     frontFinding: signal ? signalLines[1] ?? null : null,
