@@ -3,7 +3,8 @@
  * Client-side via pptxgenjs (dynamically imported to keep the bundle lean).
  */
 import type PptxGenJS from 'pptxgenjs';
-import { isEntityCardType, type CardWithCompany, type MetricType } from '@mi/contracts';
+import { isEntityCardType, publisherOf, type CardWithCompany, type MetricType } from '@mi/contracts';
+import { sourceHref } from '@/lib/sourceHref';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 import { toMetricRow } from '@/features/export/exportModel';
 
@@ -115,7 +116,7 @@ export async function exportDeckPptx(args: {
     if (sources.length) {
       s.addText([
         { text: 'Sources', options: { bold: true, fontSize: 10, color: MUTED, breakLine: true } },
-        ...sources.map((src) => ({ text: src.title || src.url, options: { fontSize: 9, color: MUTED, hyperlink: { url: src.url }, breakLine: true } })),
+        ...sources.map((src) => ({ text: publisherOf(src.url, src.title), options: { fontSize: 9, color: MUTED, hyperlink: { url: sourceHref(src.url, src.title) }, breakLine: true } })),
       ], { x: 6.2, y: 2.6, w: 3.3, h: 2.4, valign: 'top' });
     }
   }

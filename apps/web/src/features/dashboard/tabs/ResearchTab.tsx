@@ -6,11 +6,12 @@ import { useCompany } from '@/hooks/data';
 import { presentable } from '@mi/research';
 import { EmptyState } from '@/components/states/EmptyState';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
-import { usableCitations } from '@mi/contracts';
+import { publisherOf, usableCitations } from '@mi/contracts';
+import { isDirectSource, sourceHref } from '@/lib/sourceHref';
 import { faviconUrl } from '@/lib/screenshot';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
-import { groupByHost, hostOf, matchesQuery } from './tabHelpers';
+import { groupByHost, matchesQuery } from './tabHelpers';
 
 /** Human-readable topic names — provider topics are machine words. */
 const TOPIC_LABELS: Record<string, string> = {
@@ -89,14 +90,14 @@ function EvidenceCard({ evidence }: { evidence: ResearchEvidence }) {
               {sources.slice(0, 8).map((c) => (
                 <li key={c.url} className="min-w-0 max-w-full">
                   <a
-                    href={c.url}
+                    href={sourceHref(c.url, c.title)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    title={c.title || c.url}
+                    title={isDirectSource(c.url) ? publisherOf(c.url, c.title) : 'Find the original story'}
                     className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-0.5 text-[11px] text-muted hover:border-primary/50 hover:text-primary-ink"
                   >
-                    <img src={faviconUrl(c.url)} alt="" className="h-3 w-3 shrink-0 rounded-sm" loading="lazy" />
-                    <span className="truncate">{c.title || hostOf(c.url) || c.url}</span>
+                    {isDirectSource(c.url) && <img src={faviconUrl(c.url)} alt="" className="h-3 w-3 shrink-0 rounded-sm" loading="lazy" />}
+                    <span className="truncate">{publisherOf(c.url, c.title)}</span>
                   </a>
                 </li>
               ))}
@@ -114,7 +115,7 @@ function SourcesView({ evidence, query }: { evidence: ResearchEvidence[]; query:
     const seen = new Map<string, { url: string; title: string; topics: Set<string> }>();
     for (const e of evidence) {
       for (const c of usableCitations(e.citations)) {
-        const row = seen.get(c.url) ?? { url: c.url, title: c.title || c.url, topics: new Set<string>() };
+        const row = seen.get(c.url) ?? { url: c.url, title: publisherOf(c.url, c.title), topics: new Set<string>() };
         row.topics.add(topicLabel(e.topic));
         seen.set(c.url, row);
       }

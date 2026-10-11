@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ArrowDown, ArrowLeft, ArrowUp, Download, ExternalLink, Presentation, Printer, Share2 } from 'lucide-react';
-import type { CardWithCompany } from '@mi/contracts';
+import { publisherOf, type CardWithCompany } from '@mi/contracts';
 import { buildCardView } from '@/features/card/card-view';
 import { cn } from '@/lib/cn';
 import { useCards, useReport } from '@/hooks/data';
@@ -300,7 +300,7 @@ export default function ReportViewerPage() {
                         title={isDirectSource(c.url) ? 'Read the source' : 'Find the original story'}
                       >
                         <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
-                        <span className="line-clamp-1">{c.title || c.url}</span>
+                        <span className="line-clamp-1">{publisherOf(c.url, c.title)}</span>
                       </a>
                     </li>
                   ))}

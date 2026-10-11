@@ -1,7 +1,6 @@
-import { isRedirectCitation, publisherOf, usableCitations, type DashboardTab } from '@mi/contracts';
+import { publisherOf, usableCitations, type DashboardTab } from '@mi/contracts';
 import { useDashboardTab } from '@/hooks/data';
 import { faviconUrl } from '@/lib/screenshot';
-import { hostOf } from './tabs/tabHelpers';
 
 /** One quiet source inspector shared by every researched company section. */
 export function DashboardSources({ companyId, tab }: { companyId: string; tab: DashboardTab }) {
@@ -13,7 +12,7 @@ export function DashboardSources({ companyId, tab }: { companyId: string; tab: D
   const byPublisher = new Map<string, { name: string; url: string; count: number }>();
   for (const c of citations) {
     // "Google Search report for X · anthropic.com" → "anthropic.com".
-    const raw = publisherOf(c.url, c.title) || (isRedirectCitation(c.url) ? 'Unrecorded publisher' : hostOf(c.url) ?? c.title);
+    const raw = publisherOf(c.url, c.title);
     const name = raw.split(' · ').pop()!.trim() || raw;
     const prev = byPublisher.get(name);
     if (prev) prev.count += 1;

@@ -7,7 +7,7 @@
  */
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { usableCitations, type ThreadMessage } from '@mi/contracts';
+import { isRedirectCitation, publisherOf, usableCitations, type ThreadMessage } from '@mi/contracts';
 import { Logo } from '@/features/card/Logo';
 import { splitFollowUps } from '@/features/deepdive/followUps';
 import type { ReportModel } from './exportModel';
@@ -159,7 +159,9 @@ function TranscriptBody({ job }: { job: Extract<PrintJob, { kind: 'transcript' }
                 <ol className="sm-notes">
                   {cites.map((c, i) => (
                     <li key={c.url} value={i + 1}>
-                      <span className="sm-note-title">{c.title || c.url}</span> <span className="sm-note-url">{c.url}</span>
+                      <span className="sm-note-title">{publisherOf(c.url, c.title)}</span>
+                      {/* A grounding redirect is opaque and expires; printing it helps no reader. */}
+                      {!isRedirectCitation(c.url) && <> <span className="sm-note-url">{c.url}</span></>}
                     </li>
                   ))}
                 </ol>
