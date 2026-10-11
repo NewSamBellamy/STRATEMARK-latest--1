@@ -30,6 +30,8 @@ import { GeminiRepository, type RepoSnapshot, type ResearchStore } from '../repo
 import type { CallMetricsAggregate, LlmClient } from '../types';
 import type { OriginalSourceReceipt } from '../original-source';
 import { createGeminiClient, DEFAULT_GROUNDED_RPM, DEFAULT_STRUCTURE_RPM } from '../gemini';
+import { retrieveOriginalSource } from '../original-source.node';
+import { cappedWebSearch, runProviderSearch, type CappedWebSearch } from '../web-search';
 
 export type BenchPhase = 'creation' | 'hunt' | 'verify';
 
@@ -413,6 +415,12 @@ export interface BenchReport {
     filledMs: number;
   };
   rates: BenchRates;
+  /** Which page reader ran: scripted pages (mock) or the real network reader. */
+  reader: 'mock' | 'real';
+  /** Web-search discovery, when enabled: provider requests actually sent vs the hard cap. */
+  search: { provider: 'tavily'; used: number; max: number } | null;
+  /** Run label (e.g. before/after) so reports don't overwrite each other. */
+  variant?: string;
   notes: string[];
 }
 
@@ -421,6 +429,11 @@ export interface BenchOptions {
   mode?: 'mock' | 'live';
   catalogMax?: number;
   outDir?: string;
+  /** Live only: 'real' reads actual pages (needed to measure discovery changes). */
+  reader?: 'mock' | 'real';
+  /** Live only: web-search discovery with a hard request cap. Key from TAVILY_API_KEY. */
+  search?: { provider: 'tavily'; max: number } | null;
+  variant?: string;
 }
 
 function emptySnapshot(): RepoSnapshot {
@@ -449,6 +462,13 @@ export async function runBench(options: BenchOptions): Promise<BenchReport> {
     inner = makeMockClient(market);
   }
   const counting = new CountingClient(inner, epoch);
+  const reader = mode === 'live' && options.reader === 'real' ? 'real' : 'mock';
+  let search: CappedWebSearch | null = null;
+  if (mode === 'live' && options.search) {
+    const key = process.env.TAVILY_API_KEY;
+    if (!key) throw new Error('search needs TAVILY_API_KEY in the environment (read at runtime only).');
+    search = cappedWebSearch((q) => runProviderSearch('tavily', key, q, fetch), options.search.max);
+  }
 
   let snapshot: RepoSnapshot | null = emptySnapshot();
   const store: ResearchStore = { read: () => snapshot, write: (next) => { snapshot = next; } };
@@ -459,7 +479,10 @@ export async function runBench(options: BenchOptions): Promise<BenchReport> {
     store,
     // Reader only: the repository builds its own retention services, exactly
     // like the browser app — receipts persist into the snapshot it owns.
-    originalSourceReader: makeMockReader(buildClaimsIndex(market)),
+    originalSourceReader: reader === 'real'
+      ? (url, scope) => retrieveOriginalSource(url, undefined, scope)
+      : makeMockReader(buildClaimsIndex(market)),
+    ...(search ? { webSearch: () => search } : {}),
     catalogMax: options.catalogMax ?? 6,
     catalogPasses: 0,
     coverage: benchCoverage,
@@ -559,6 +582,9 @@ export async function runBench(options: BenchOptions): Promise<BenchReport> {
       filledMs: completedAt(filled.callIndex) ?? Math.round(projected[projected.length - 1] ?? 0),
     },
     rates,
+    reader,
+    search: search && options.search ? { provider: options.search.provider, used: search.used(), max: options.search.max } : null,
+    ...(options.variant ? { variant: options.variant } : {}),
     notes: mode === 'mock'
       ? [
           'mock mode: provider responses are scripted; the pipeline, repository and acceptance gates are the real ones.',
@@ -576,7 +602,7 @@ export function reportSlug(market: string): string {
 
 export function writeReport(report: BenchReport, outDir: string): string {
   mkdirSync(outDir, { recursive: true });
-  const file = join(outDir, `${report.mode}-${reportSlug(report.market)}.json`);
+  const file = join(outDir, `${report.mode}-${reportSlug(report.market)}${report.variant ? `-${reportSlug(report.variant)}` : ''}.json`);
   writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   return file;
 }
@@ -589,6 +615,7 @@ export function formatReport(report: BenchReport): string {
     `    creation ${report.calls.byPhase.creation.ground}g+${report.calls.byPhase.creation.structure}s · hunt ${report.calls.byPhase.hunt.ground}g+${report.calls.byPhase.hunt.structure}s · verify ${report.calls.byPhase.verify.ground}g+${report.calls.byPhase.verify.structure}s`,
     `  milestones: first card ${report.milestones.firstCard ? `@call ${report.milestones.firstCard.callIndex}` : '—'} · first verified ${report.milestones.firstVerifiedFigure ? `@call ${report.milestones.firstVerifiedFigure.callIndex}` : '—'} · filled @call ${report.milestones.filled.callIndex}`,
     `  projected @ ${report.projected.groundedRpm}/15 RPM: first card ${report.projected.firstCardMs ? `${(report.projected.firstCardMs / 1000).toFixed(0)}s` : '—'} · first verified ${report.projected.firstVerifiedMs ? `${(report.projected.firstVerifiedMs / 1000).toFixed(0)}s` : '—'} · filled ${(report.projected.filledMs / 60000).toFixed(1)}min`,
+    `  reader: ${report.reader} · search: ${report.search ? `${report.search.provider} ${report.search.used}/${report.search.max} requests` : 'off'}${report.variant ? ` · variant: ${report.variant}` : ''}`,
     `  rates: ${report.rates.verified} verified / ${report.rates.estimated} estimated / ${report.rates.unknown} unknown of ${report.rates.metrics} metrics (${report.rates.nullValues} null)`,
     ...report.entities.map((e) => `    ${e.name} [${e.profile}]: ${e.verified}v ${e.estimated}e ${e.unknown}u`),
   ];

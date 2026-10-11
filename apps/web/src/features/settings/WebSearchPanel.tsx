@@ -7,7 +7,14 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Search, Trash2 } from 'lucide-react';
 import { SEARCH_PROVIDER_INFO, type SearchProvider } from '@mi/research';
 import { sanitizeApiKey } from '@/lib/settings/apiKey';
-import { canUseSearchKey, hostedSearchAvailable, testSearchKey, useSearchKey } from '@/lib/settings/searchKey';
+import {
+  canUseSearchKey,
+  hostedSearchAvailable,
+  SEARCH_MONTHLY_CAP,
+  searchUsageThisMonth,
+  testSearchKey,
+  useSearchKey,
+} from '@/lib/settings/searchKey';
 import { cn } from '@/lib/cn';
 
 type TestState = { status: 'idle' | 'testing' | 'ok' | 'fail'; detail?: string };
@@ -126,6 +133,11 @@ export function WebSearchPanel() {
           </button>
         )}
       </div>
+      {connected && (
+        <p className="mt-3 text-xs text-muted">
+          {searchUsageThisMonth()} of {SEARCH_MONTHLY_CAP} searches used this month. At the limit, research switches back to Gemini’s built-in search until next month.
+        </p>
+      )}
     </div>
   );
 }

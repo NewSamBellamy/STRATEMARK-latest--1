@@ -60,6 +60,37 @@ export const useSearchKey = create<SearchKeyState>((set) => ({
   },
 }));
 
+const USAGE_KEY = 'mi.searchUsage';
+/** Safely under the smallest common free tier (Tavily: 1,000/month). */
+export const SEARCH_MONTHLY_CAP = 900;
+
+function thisMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Searches sent on the user's own key this calendar month. */
+export function searchUsageThisMonth(): number {
+  try {
+    const saved = JSON.parse(localStorage.getItem(USAGE_KEY) ?? 'null') as { month?: unknown; count?: unknown } | null;
+    return saved?.month === thisMonth() && typeof saved.count === 'number' ? saved.count : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Reserve one search under the monthly cap; false when the cap is reached. */
+export function spendSearch(cap = SEARCH_MONTHLY_CAP): boolean {
+  const used = searchUsageThisMonth();
+  if (used >= cap) return false;
+  try {
+    localStorage.setItem(USAGE_KEY, JSON.stringify({ month: thisMonth(), count: used + 1 }));
+  } catch {
+    /* storage unavailable: still bounded per session by the hunt's own limits */
+  }
+  return true;
+}
+
 /** Where search requests go, or null when this build has no relay. */
 function searchEndpoint(): { url: string; headers: Record<string, string> } | null {
   if (hasLocalSourceBridge()) return { url: '/__stratemark/search', headers: { 'X-Stratemark-Source': 'local-preview' } };
@@ -94,7 +125,16 @@ export function currentWebSearch(): WebSearchFn | null {
   const endpoint = searchEndpoint();
   if (!endpoint) return null;
   const { provider, key } = useSearchKey.getState();
-  if (key) return relayWebSearch({ endpoint: endpoint.url, headers: endpoint.headers, provider, key });
+  if (key) {
+    const search = relayWebSearch({ endpoint: endpoint.url, headers: endpoint.headers, provider, key });
+    // The user's own free allowance: count every request this month and stop
+    // at the cap, so research falls back to grounded search instead of
+    // exhausting their key (or running up a bill).
+    return async (query) => {
+      if (!spendSearch()) return [];
+      return search(query);
+    };
+  }
   if (hostedSearchAvailable()) return relayWebSearch({ endpoint: endpoint.url, headers: endpoint.headers, provider: 'serper' });
   return null;
 }

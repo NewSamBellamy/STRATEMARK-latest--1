@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildSearchRequest,
+  cappedWebSearch,
   huntSearchQueries,
   isPlausibleSearchKey,
   parseSearchRelayRequest,
@@ -123,6 +124,19 @@ describe('huntSearchQueries', () => {
       '"Acme Capital" assets under management Form ADV',
       '"Acme Capital" employees customers 2026',
     ]);
+  });
+});
+
+describe('cappedWebSearch', () => {
+  it('stops calling the provider at the cap', async () => {
+    const inner = vi.fn(async () => [{ url: 'https://a.com/', title: 'A', snippet: '' }]);
+    const spent: number[] = [];
+    const search = cappedWebSearch(inner, 2, (n) => spent.push(n));
+    await search('a'); await search('b');
+    expect(await search('c')).toEqual([]);
+    expect(inner).toHaveBeenCalledTimes(2);
+    expect(search.used()).toBe(2);
+    expect(spent).toEqual([1, 2]);
   });
 });
 

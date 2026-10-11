@@ -245,6 +245,26 @@ export function huntSearchQueries(companyName: string, missing: readonly string[
   return (queries.length ? queries : [`${name} company overview ${year}`]).slice(0, 3);
 }
 
+export interface CappedWebSearch extends WebSearchFn {
+  /** Provider requests actually sent so far. */
+  readonly used: () => number;
+}
+
+/** Hard ceiling on provider requests (free allowances are small). Past the cap
+ * the function answers [] without calling the provider, so the hunt falls back
+ * to grounded search instead of spending more. */
+export function cappedWebSearch(search: WebSearchFn, max: number, onSpend?: (used: number) => void): CappedWebSearch {
+  let used = 0;
+  const capped = (async (query: string) => {
+    if (used >= max) return [];
+    used += 1;
+    onSpend?.(used);
+    return search(query);
+  }) as CappedWebSearch;
+  Object.defineProperty(capped, 'used', { value: () => used });
+  return capped;
+}
+
 export interface WebSearchLane {
   /** Run each query, merge distinct results into one set of discovery notes. */
   discover(queries: readonly string[]): Promise<DiscoveryNotes>;

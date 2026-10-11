@@ -18,7 +18,19 @@ describe.skipIf(!mode)('bench (WS0 harness)', () => {
     : 'venture capital fund management';
 
   it('runs the market end to end and records the report', async () => {
-    const report = await runBench({ market, mode: mode! });
+    // Before/after discovery comparison (live only):
+    //   BENCH_READER=real          read actual pages instead of scripted ones
+    //   BENCH_SEARCH=tavily        web-search discovery, key from TAVILY_API_KEY
+    //   BENCH_SEARCH_MAX=150       hard cap on provider requests for this run
+    //   BENCH_VARIANT=before|after report label (separate output files)
+    const searchMax = Number(process.env.BENCH_SEARCH_MAX ?? 150);
+    const report = await runBench({
+      market, mode: mode!,
+      reader: process.env.BENCH_READER === 'real' ? 'real' : 'mock',
+      search: process.env.BENCH_SEARCH === 'tavily'
+        ? { provider: 'tavily', max: Number.isFinite(searchMax) && searchMax >= 0 ? Math.floor(searchMax) : 150 } : null,
+      ...(process.env.BENCH_VARIANT ? { variant: process.env.BENCH_VARIANT } : {}),
+    });
     // The report exists to be read — print it in full for the run log.
     console.log(formatReport(report));
     expect(report.deckStatus).toBe('ready');
