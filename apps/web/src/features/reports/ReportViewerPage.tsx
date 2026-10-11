@@ -30,9 +30,11 @@ interface LandscapeRow {
   team: { value: number | null; display: string };
 }
 
-function faceSlot(view: ReturnType<typeof buildCardView>, key: string) {
+/** A card slot falls back to other figures (a "company value" slot may show
+ * Total raised); a column only takes the figure its header names. */
+function faceSlot(view: ReturnType<typeof buildCardView>, key: string, types: readonly string[]) {
   const item = view.profileMetrics.find((m) => m.key === key);
-  const known = !!item && item.display !== 'Unknown';
+  const known = !!item && item.display !== 'Unknown' && !!item.metric && types.includes(item.metric.metricType);
   return { value: known ? item!.metric?.value ?? null : null, display: known ? item!.display : 'Unknown' };
 }
 
@@ -52,9 +54,9 @@ function LandscapeTable({ deckId }: { deckId: string }) {
       return {
         card: c,
         share: share?.metric.value ?? null,
-        revenue: faceSlot(view, 'revenue'),
-        value: faceSlot(view, 'company_value'),
-        team: faceSlot(view, 'employees'),
+        revenue: faceSlot(view, 'revenue', ['arr', 'revenue']),
+        value: faceSlot(view, 'company_value', ['valuation', 'market_cap']),
+        team: faceSlot(view, 'employees', ['employees']),
       };
     });
     const get = (r: LandscapeRow): number | string | null =>

@@ -31,7 +31,8 @@ function Cover({ eyebrow, title, meta }: { eyebrow: string; title: string; meta:
       </ul>
       <p className="sm-cover-note">
         Every figure in this document carries its source. Where the research does not support a figure it is shown as{' '}
-        <strong>Unknown</strong> - never estimated or filled in.
+        <strong>Unknown</strong> - never guessed or filled in. &ldquo;Estimated&rdquo; means a source reported the
+        figure but it has not yet been checked against the original document.
       </p>
     </section>
   );

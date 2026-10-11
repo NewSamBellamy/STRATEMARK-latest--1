@@ -460,7 +460,10 @@ function MetricTable({
                 </td>
                 <td className="hidden px-3 py-3 sm:table-cell"><ConfidenceMark confidence={metric.confidence} /></td>
                 <td className="hidden px-3 py-3 text-[12px] tabular-nums text-muted md:table-cell">
-                  {known ? (metricAsOf(metric).iso ?? '').slice(0, 10) || '—' : '—'}
+                  {/* Only a source-stated date is an "as of"; capture time is not the figure's date. */}
+                  {!known ? '—' : metricAsOf(metric).kind === 'as_of'
+                    ? (metricAsOf(metric).iso ?? '').slice(0, 10) || '—'
+                    : <span title={formatAsOf(metric) ?? undefined}>Undated</span>}
                 </td>
                 <td className="hidden px-3 py-3 sm:table-cell">
                   {rank != null && ranking.of > 1

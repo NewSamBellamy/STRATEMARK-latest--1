@@ -161,15 +161,15 @@ export function Logo({
     // product, regional site, or similarly named company and return the wrong mark.
     const domain = knownCompanyDomain(name) ?? domainOf(website);
     if (!domain) return preferred;
-    // NOTE: icon.horse is deliberately absent (returns its own grey placeholder
-    // with HTTP 200) and gstatic runs WITHOUT fallback_opts (so it 404s instead
-    // of serving a default globe). Sources must fail honestly — a generic
-    // placeholder poisons both the hero and the brand-color extraction.
+    // NOTE: icon.horse and DuckDuckGo are deliberately absent (both serve their
+    // own grey placeholder image — DuckDuckGo even with a 404 status, which an
+    // <img> still renders) and gstatic runs WITHOUT fallback_opts (so it 404s
+    // instead of serving a default globe). Sources must fail honestly — a
+    // generic placeholder poisons both the hero and the brand-color extraction.
     return [
       ...preferred,
       `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&url=https://${domain}&size=256${q('&')}`,
       `https://unavatar.io/${domain}?fallback=false${q('&')}`,
-      `https://icons.duckduckgo.com/ip3/${domain}.ico${q('?')}`,
     ];
   }, [website, retryNonce, logoUrl, name]);
 

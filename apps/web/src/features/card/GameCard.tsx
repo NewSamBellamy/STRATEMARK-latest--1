@@ -74,9 +74,12 @@ export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, class
     </button> : <CollectibleCard data={data} view={view} logoRetryNonce={logoRetryNonce}
       logoUrlOverride={logoUrlOverride} onLogoAvailabilityChange={onLogoAvailabilityChange} />}
     {!hideActions && <div className="card-sleeve__actions">
-      <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted">
-        {onOpen && <><ArrowUpRight size={13} aria-hidden="true" /> Inspect card</>}
-      </span>
+      {onOpen
+        ? <button type="button" onClick={onOpen} tabIndex={-1}
+          className="flex min-w-0 items-center gap-1 text-[11px] text-muted hover:text-content">
+          <ArrowUpRight size={13} aria-hidden="true" /> Inspect card
+        </button>
+        : <span />}
       <div className="flex gap-1">
         {data.company && logoAvailable === false && <button type="button" className="card-control"
           aria-label={`Retry logo lookup for ${data.company.name}`} title="Try the saved and public logo sources again"

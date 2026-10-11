@@ -21,6 +21,7 @@ import {
   companiesFromCards,
   downloadText,
   fileSlug,
+  localDate,
   metricsToCsv,
   transcriptToMarkdown,
   type ExportCompany,
@@ -108,7 +109,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
   }, []);
 
   const deckCompanies = deck ? companiesFromCards(deck.cards) : [];
-  const date = new Date().toISOString().slice(0, 10);
+  const date = localDate();
 
   const deckReport = () =>
     deck &&

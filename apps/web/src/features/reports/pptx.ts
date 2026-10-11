@@ -3,7 +3,8 @@
  * Client-side via pptxgenjs (dynamically imported to keep the bundle lean).
  */
 import type PptxGenJS from 'pptxgenjs';
-import type { CardWithCompany, MetricType } from '@mi/contracts';
+import { isEntityCardType, type CardWithCompany, type MetricType } from '@mi/contracts';
+import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 import { toMetricRow } from '@/features/export/exportModel';
 
 const INK = '18181B';
@@ -44,8 +45,14 @@ export async function exportDeckPptx(args: {
     x: 0.6, y: 4.9, w: 9, h: 0.4, fontSize: 10, color: MUTED,
   });
 
-  // 2) Landscape table slide
-  const companies = args.cards.filter((c) => c.card.cardType === 'company' && c.company);
+  // 2) Landscape table slide. Every entity card counts (the deck header's
+  // "16 companies" includes infrastructure and distribution), once each.
+  const seen = new Set<string>();
+  const companies = args.cards.filter((c) => {
+    if (!isEntityCardType(c.card.cardType) || !c.company || seen.has(c.company.id)) return false;
+    seen.add(c.company.id);
+    return true;
+  });
   const rows: PptxGenJS.TableRow[] = [
     ['Company', 'HQ', 'Mkt share', 'ARR', 'Valuation/Cap', 'Team'].map((t) => ({
       text: t,
@@ -75,8 +82,8 @@ export async function exportDeckPptx(args: {
     });
   }
 
-  // 4) One slide per company (first 10, in deck order)
-  const top = companies.slice(0, 10);
+  // 4) One slide per company (first 16, in deck order)
+  const top = companies.slice(0, 16);
   for (const c of top) {
     const s = pptx.addSlide();
     const brand = (c.company!.brandTheme?.primary ?? '#F15A24').replace('#', '');
@@ -86,7 +93,9 @@ export async function exportDeckPptx(args: {
       c.company!.hqLocation?.trim() || 'Location unknown',
       { x: 0.5, y: 1.1, w: 9, h: 0.4, fontSize: 12, color: MUTED },
     );
-    s.addText(c.company!.oneLiner, { x: 0.5, y: 1.6, w: 9, h: 0.8, fontSize: 13, color: INK });
+    if (c.company!.oneLiner && c.company!.oneLiner !== UNSUPPORTED_COMPANY_SUMMARY) {
+      s.addText(c.company!.oneLiner, { x: 0.5, y: 1.6, w: 9, h: 0.8, fontSize: 13, color: INK });
+    }
     const facts = [
       `Market share: ${metric(c, 'market_share')}`,
       `ARR: ${metric(c, 'arr')}`,
@@ -97,6 +106,18 @@ export async function exportDeckPptx(args: {
     s.addText(facts.map((f) => ({ text: f, options: { bullet: true, fontSize: 13, color: INK } })), {
       x: 0.5, y: 2.6, w: 5.5, h: 2.4, valign: 'top',
     });
+    // The title slide promises cited sources; each company slide carries its own.
+    const sources = [...new Map(
+      (['market_share', 'arr', 'valuation', 'market_cap', 'employees', 'users'] as MetricType[])
+        .flatMap((type) => toMetricRow(type, c.metrics.find((x) => x.metricType === type)).sources)
+        .map((src) => [src.url, src]),
+    ).values()].slice(0, 4);
+    if (sources.length) {
+      s.addText([
+        { text: 'Sources', options: { bold: true, fontSize: 10, color: MUTED, breakLine: true } },
+        ...sources.map((src) => ({ text: src.title || src.url, options: { fontSize: 9, color: MUTED, hyperlink: { url: src.url }, breakLine: true } })),
+      ], { x: 6.2, y: 2.6, w: 3.3, h: 2.4, valign: 'top' });
+    }
   }
 
   await pptx.writeFile({
