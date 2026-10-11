@@ -79,7 +79,9 @@ const CORE_PROFILE_SLOTS = PROFILE_CORE_SLOTS;
 // cap attempts per session so a genuinely undocumented company still bottoms
 // out. Manual hunts remain unlimited; reopening the page resets the ladder.
 const HUNT_ATTEMPTS_PER_SESSION = 3;
-const HUNT_RETRY_COOLDOWN_MS = 10 * 60_000;
+// Short enough that a watched deck keeps filling (a 10-minute wait read as
+// "stuck at half-filled"); the 3-attempt cap is what bounds spend.
+const HUNT_RETRY_COOLDOWN_MS = 90_000;
 interface HuntAttemptRecord { attempts: number; lastAt: number }
 const huntAttempts = new WeakMap<MarketIntelRepository, Map<string, HuntAttemptRecord>>();
 

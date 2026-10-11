@@ -324,7 +324,7 @@ export class LivingDeckRuntime {
         if (!ready) {
           if (this.statusValue !== 'resting') {
             this.statusValue = 'resting';
-            this.emit('resting', null, 'Automatic research deferred — waiting for initial deck research readiness.');
+            this.emit('resting', null, 'Finishing the first research pass — gap-filling starts right after.');
           }
           this.schedule(this.deps.deferIntervalMs);
           return;
@@ -420,7 +420,7 @@ export class LivingDeckRuntime {
       // Nothing to do: rest and re-check slowly.
       if (this.statusValue !== 'resting') {
         this.statusValue = 'resting';
-        this.emit('resting', null, 'No further automatic research queued — unresolved gaps may remain.');
+        this.emit('resting', null, 'Resting between passes — blanks stay Unknown until a sourced figure turns up.');
       }
       this.schedule(this.deps.idleIntervalMs);
     } catch (err) {

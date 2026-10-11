@@ -201,7 +201,7 @@ it.each(['empty', 'failure'] as const)('does not repeat a %s hunt after rerender
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   hook.unmount();
   const reopened = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
-  await act(async () => { await vi.advanceTimersByTimeAsync(180000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
   reopened.unmount(); s.client.clear();
 });
@@ -214,13 +214,13 @@ it('escalates an empty hunt after the cooldown and caps the ladder at three atte
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
   expect(s.huntCompanyMetrics).toHaveBeenLastCalledWith('company-0', undefined);
   // Inside the cooldown window the failed hunt gets no second breath.
-  await act(async () => { await vi.advanceTimersByTimeAsync(9 * 60_000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(80_000); });
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
   // After the cooldown the desk retries with an escalated prompt.
   await act(async () => { await vi.advanceTimersByTimeAsync(2 * 60_000); });
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(2);
   expect(s.huntCompanyMetrics).toHaveBeenLastCalledWith('company-0', { escalation: 1 });
-  await act(async () => { await vi.advanceTimersByTimeAsync(10.5 * 60_000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(2.5 * 60_000); });
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(3);
   expect(s.huntCompanyMetrics).toHaveBeenLastCalledWith('company-0', { escalation: 2 });
   // A still-empty company bottoms out instead of burning queries forever.
@@ -274,7 +274,7 @@ it('does not fall back to repeated single-metric checks for unresolved core gaps
     changed: false, verdict: 'unverified', citations: [] });
   Object.assign(s.repo, { verifyMetric });
   const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
-  await act(async () => { await vi.advanceTimersByTimeAsync(180000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
   expect(verifyMetric).not.toHaveBeenCalled();
   hook.unmount(); s.client.clear();
