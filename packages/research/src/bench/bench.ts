@@ -467,7 +467,7 @@ export async function runBench(options: BenchOptions): Promise<BenchReport> {
   if (mode === 'live' && options.search) {
     const key = process.env.TAVILY_API_KEY;
     if (!key) throw new Error('search needs TAVILY_API_KEY in the environment (read at runtime only).');
-    search = cappedWebSearch((q) => runProviderSearch('tavily', key, q, fetch), options.search.max);
+    search = cappedWebSearch((q, o) => runProviderSearch('tavily', key, q, fetch, undefined, o), options.search.max);
   }
 
   let snapshot: RepoSnapshot | null = emptySnapshot();

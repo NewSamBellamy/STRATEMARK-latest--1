@@ -113,7 +113,7 @@ export function localSourcePlugin(): Plugin {
             if (!search.isPlausibleSearchKey(key)) {
               res.statusCode = 401; res.end(JSON.stringify({ error: 'No search key is connected. Add one in Settings.' })); return;
             }
-            const results = await search.runProviderSearch(input.provider, key, input.query, fetch);
+            const results = await search.runProviderSearch(input.provider, key, input.query, fetch, undefined, input);
             res.end(JSON.stringify({ results }));
           } catch (error) {
             const status = typeof (error as { status?: unknown })?.status === 'number' ? (error as { status: number }).status : 400;

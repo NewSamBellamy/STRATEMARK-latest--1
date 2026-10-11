@@ -25,7 +25,7 @@ import type { OriginalSourceReceipt, OriginalSourceScope } from '@mi/research';
 import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, reserveMicros, safePublicUrl, type GeminiUsage } from './policy';
 import type { BudgetCounter } from './budget';
 import { previewFromHtml, type PagePreview } from './preview';
-import { isPlausibleSearchKey, parseSearchRelayRequest, runProviderSearch, WebSearchError, type SearchProvider } from '@mi/research/web-search';
+import { isPlausibleSearchKey, parseSearchRelayRequest, runProviderSearch, WebSearchError, type SearchProvider, type SearchRelayRequest } from '@mi/research/web-search';
 
 export { BudgetCounter } from './budget';
 
@@ -226,7 +226,7 @@ async function searchRelay(request: Request, env: Env, origin: string): Promise<
   const userKey = cleanKey(request.headers.get('x-search-key') ?? undefined);
   if (userKey) {
     if (!isPlausibleSearchKey(userKey)) return json({ error: 'That search key does not look right.' }, 400, origin);
-    return runSearch(input.provider, userKey, input.query, origin);
+    return runSearch(input.provider, userKey, input, origin);
   }
   const hostedKey = cleanKey(env.SERPER_API_KEY);
   if (!hostedKey) return json({ error: 'Hosted search is not configured.' }, 503, origin);
@@ -238,7 +238,7 @@ async function searchRelay(request: Request, env: Env, origin: string): Promise<
   if (!reservation.ok) return json({ budget: 'exhausted', reason: reservation.reason, error: 'Free search has reached today’s budget.' }, 402, origin);
   let actual = 0;
   try {
-    const response = await runSearch('serper', hostedKey, input.query, origin);
+    const response = await runSearch('serper', hostedKey, input, origin);
     actual = response.ok ? SEARCH_COST_MICROS : 0;
     return response;
   } finally {
@@ -246,9 +246,9 @@ async function searchRelay(request: Request, env: Env, origin: string): Promise<
   }
 }
 
-async function runSearch(provider: SearchProvider, key: string, query: string, origin: string): Promise<Response> {
+async function runSearch(provider: SearchProvider, key: string, input: SearchRelayRequest, origin: string): Promise<Response> {
   try {
-    return json({ results: await runProviderSearch(provider, key, query, fetch) }, 200, origin);
+    return json({ results: await runProviderSearch(provider, key, input.query, fetch, undefined, input) }, 200, origin);
   } catch (error) {
     const status = error instanceof WebSearchError ? error.status : 502;
     console.log(`search ${provider} -> ${status}`);

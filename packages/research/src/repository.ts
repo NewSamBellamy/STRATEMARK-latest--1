@@ -114,6 +114,7 @@ import { companyNameKey, marketCapEstimate, secSharesConceptUrl, secTickerMapUrl
 import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane } from './searxng';
 import { huntSearchQueries, webSearchLane, type WebSearchFn } from './web-search';
+import { quotedEstimateNote, quotedOriginalEstimate } from './quoted-estimate';
 import { resolveCompanyBrand, type CompanyLogo } from './assets';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
@@ -2885,7 +2886,8 @@ export class GeminiRepository implements MarketIntelRepository {
     // engine results, a few targeted queries. Nothing back -> the old lanes.
     const webSearch = this.webSearch?.() ?? null;
     const searched = webSearch ? await webSearchLane(webSearch).discover(huntSearchQueries(company.name, softTypes,
-      { financialFirm: profile === 'financial_firm', escalation })) : null;
+      { financialFirm: profile === 'financial_firm', escalation }),
+      { companyName: company.name, officialWebsite: company.websiteUrl }) : null;
     const searxng = searched?.citations.length ? null : await getSearxngLane();
     const g = searched?.citations.length ? searched : searxng
       ? await searxng.discover([
@@ -3008,6 +3010,31 @@ export class GeminiRepository implements MarketIntelRepository {
           : fig.methodNote ?? 'Filled by a targeted metrics hunt.';
         metric.capturedAt = nowIso;
         Object.assign(metric, markVerified(metric, nowIso));
+        filledTypes.push(fig.metricType);
+      }
+    }
+
+    // Figures quoted word for word from a page we fetched, but phrased as
+    // ordinary press/news prose the mechanical verified gate rejects, land as
+    // ESTIMATED with the page as citation (see quoted-estimate.ts). Open slots
+    // only: never overwrites a value, a verified row or a human edit.
+    if (this.originalSources) {
+      for (const fig of out.figures) {
+        if (filledTypes.includes(fig.metricType) || !softTypes.includes(fig.metricType) || !fig.passageSupport) continue;
+        const citations = quotedOriginalEstimate({ companyName: company.name, metricType: fig.metricType,
+          value: fig.value, support: fig.passageSupport, originals });
+        if (!citations.length) continue;
+        if (JSON.stringify(mine().filter(m => m.metricType === fig.metricType)) !== revisions.get(fig.metricType)) continue;
+        const revision = currentMetricRevision(mine(), companyId, fig.metricType);
+        if (revision?.ambiguous) continue;
+        const current = revision?.metric;
+        if (current && (current.value != null || current.confidence === 'user_verified' || current.confidence === 'verified')) continue;
+        const row = { value: normalizeMetricToUsd(fig.metricType, fig.value, fig.passageSupport.unit), confidence: 'estimated' as const,
+          source: citations[0]!.url, citations, passageSupport: null, reportedSupport: null,
+          methodNote: `${quotedEstimateNote(fig.passageSupport, citations[0]!)} ${currencyConversionNote(fig.value, fig.passageSupport.unit)}`.trim(),
+          capturedAt: nowIso };
+        if (current) Object.assign(current, row);
+        else this.snap.metrics.push({ id: `met_hunt_${Date.now().toString(36)}_${fig.metricType}_q`, companyId, metricType: fig.metricType, ...row });
         filledTypes.push(fig.metricType);
       }
     }

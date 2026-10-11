@@ -62,22 +62,42 @@ export interface SearchRequest {
 
 const MAX_RESULTS = 8;
 
-export function buildSearchRequest(provider: SearchProvider, key: string, query: string): SearchRequest {
+export interface SearchOptions {
+  /** News articles (dated reporting) instead of the general web index. */
+  news?: boolean;
+  /** Only results published within this many days, where the provider supports it. */
+  sinceDays?: number;
+}
+
+function sinceDate(days: number, now: Date): string {
+  return new Date(now.getTime() - days * 86_400_000).toISOString().slice(0, 10);
+}
+
+export function buildSearchRequest(provider: SearchProvider, key: string, query: string,
+  options: SearchOptions = {}, now = new Date()): SearchRequest {
   const json = { 'Content-Type': 'application/json', Accept: 'application/json' };
+  const since = options.sinceDays && options.sinceDays > 0 ? Math.floor(options.sinceDays) : null;
   switch (provider) {
-    case 'serper':
-      return { url: 'https://google.serper.dev/search', init: { method: 'POST',
-        headers: { ...json, 'X-API-KEY': key }, body: JSON.stringify({ q: query, num: 10 }) } };
+    case 'serper': {
+      // Google's relative windows: past month / past year (no 2-year window).
+      const tbs = since == null ? null : since <= 31 ? 'qdr:m' : since <= 366 ? 'qdr:y' : null;
+      return { url: `https://google.serper.dev/${options.news ? 'news' : 'search'}`, init: { method: 'POST',
+        headers: { ...json, 'X-API-KEY': key }, body: JSON.stringify({ q: query, num: 10, ...(tbs ? { tbs } : {}) }) } };
+    }
     case 'tavily':
       return { url: 'https://api.tavily.com/search', init: { method: 'POST',
         headers: { ...json, Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ query, max_results: MAX_RESULTS, search_depth: 'basic' }) } };
+        body: JSON.stringify({ query, max_results: MAX_RESULTS, search_depth: 'basic',
+          ...(options.news ? { topic: 'news' } : {}), ...(since ? { start_date: sinceDate(since, now) } : {}) }) } };
     case 'exa':
       return { url: 'https://api.exa.ai/search', init: { method: 'POST',
         headers: { ...json, 'x-api-key': key },
-        body: JSON.stringify({ query, numResults: MAX_RESULTS, contents: { highlights: { numSentences: 3 } } }) } };
+        body: JSON.stringify({ query, numResults: MAX_RESULTS, contents: { highlights: { numSentences: 3 } },
+          ...(options.news ? { category: 'news' } : {}),
+          ...(since ? { startPublishedDate: `${sinceDate(since, now)}T00:00:00.000Z` } : {}) }) } };
     case 'brave':
-      return { url: `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${MAX_RESULTS}`,
+      return { url: `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${MAX_RESULTS}${
+        since ? `&freshness=${sinceDate(since, now)}to${now.toISOString().slice(0, 10)}` : ''}`,
         init: { method: 'GET', headers: { Accept: 'application/json', 'X-Subscription-Token': key } } };
     case 'jina':
       return { url: `https://s.jina.ai/?q=${encodeURIComponent(query)}`,
@@ -86,7 +106,8 @@ export function buildSearchRequest(provider: SearchProvider, key: string, query:
 }
 
 const text = z.string().nullish();
-const serperSchema = z.object({ organic: z.array(z.object({ link: z.string(), title: text, snippet: text, date: text })).default([]) }).passthrough();
+const serperRow = z.object({ link: z.string(), title: text, snippet: text, date: text });
+const serperSchema = z.object({ organic: z.array(serperRow).default([]), news: z.array(serperRow).default([]) }).passthrough();
 const tavilySchema = z.object({ results: z.array(z.object({ url: z.string(), title: text, content: text, published_date: text })).default([]) }).passthrough();
 const exaSchema = z.object({ results: z.array(z.object({ url: z.string(), title: text, highlights: z.array(z.string()).nullish(), text, summary: text, publishedDate: text })).default([]) }).passthrough();
 const braveSchema = z.object({ web: z.object({ results: z.array(z.object({ url: z.string(), title: text, description: text, page_age: text, age: text })).default([]) }).nullish() }).passthrough();
@@ -98,7 +119,7 @@ function rawRows(provider: SearchProvider, body: unknown): RawRow[] {
   switch (provider) {
     case 'serper': {
       const p = serperSchema.safeParse(body);
-      return p.success ? p.data.organic.map((r) => ({ url: r.link, title: r.title, snippet: r.snippet, published: r.date })) : [];
+      return p.success ? [...p.data.organic, ...p.data.news].map((r) => ({ url: r.link, title: r.title, snippet: r.snippet, published: r.date })) : [];
     }
     case 'tavily': {
       const p = tavilySchema.safeParse(body);
@@ -165,8 +186,8 @@ export function searchFailureMessage(provider: SearchProvider, status: number): 
 
 /** Relay side: call the provider directly. Throws WebSearchError with a safe message. */
 export async function runProviderSearch(provider: SearchProvider, key: string, query: string,
-  fetchImpl: typeof fetch, timeoutMs = 10_000): Promise<WebSearchResult[]> {
-  const request = buildSearchRequest(provider, key, query.slice(0, 400));
+  fetchImpl: typeof fetch, timeoutMs = 10_000, options: SearchOptions = {}): Promise<WebSearchResult[]> {
+  const request = buildSearchRequest(provider, key, query.slice(0, 400), options);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -181,31 +202,36 @@ export async function runProviderSearch(provider: SearchProvider, key: string, q
   }
 }
 
-export interface SearchRelayRequest { provider: SearchProvider; query: string }
+export interface SearchRelayRequest extends SearchOptions { provider: SearchProvider; query: string }
 
 /** Validate a relay request body; null when malformed. */
 export function parseSearchRelayRequest(body: unknown): SearchRelayRequest | null {
   if (!body || typeof body !== 'object') return null;
-  const { provider, query } = body as Record<string, unknown>;
+  const { provider, query, news, sinceDays } = body as Record<string, unknown>;
   if (!isSearchProvider(provider) || typeof query !== 'string') return null;
   const q = query.trim();
-  return q.length >= 2 && q.length <= 400 ? { provider, query: q } : null;
+  if (q.length < 2 || q.length > 400) return null;
+  return {
+    provider, query: q,
+    ...(news === true ? { news: true } : {}),
+    ...(typeof sinceDays === 'number' && Number.isInteger(sinceDays) && sinceDays > 0 && sinceDays <= 3650 ? { sinceDays } : {}),
+  };
 }
 
-export type WebSearchFn = (query: string) => Promise<WebSearchResult[]>;
+export type WebSearchFn = (query: string, options?: SearchOptions) => Promise<WebSearchResult[]>;
 
 /** Page side: ask a relay to search. `key` omitted = the relay's hosted key. */
 export function relayWebSearch(options: { endpoint: string; provider: SearchProvider; key?: string | null;
   headers?: Record<string, string>; fetchImpl?: typeof fetch; timeoutMs?: number }): WebSearchFn {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
-  return async (query) => {
+  return async (query, searchOptions = {}) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000);
     try {
       const response = await fetchImpl(options.endpoint, {
         method: 'POST', signal: controller.signal, credentials: 'omit',
         headers: { ...options.headers, 'Content-Type': 'application/json', ...(options.key ? { 'X-Search-Key': options.key } : {}) },
-        body: JSON.stringify({ provider: options.provider, query } satisfies SearchRelayRequest),
+        body: JSON.stringify({ provider: options.provider, query, ...searchOptions } satisfies SearchRelayRequest),
       });
       const body = await response.json().catch(() => null) as { results?: unknown; error?: unknown } | null;
       if (!response.ok) {
@@ -223,26 +249,69 @@ export function relayWebSearch(options: { endpoint: string; provider: SearchProv
 /** Metric families searched together — one query per family keeps the
  * engine's ranking focused (a "revenue employees valuation" soup ranks
  * aggregator pages over the disclosure that actually states the figure). */
-const QUERY_FAMILIES: ReadonlyArray<{ types: readonly string[]; terms: string }> = [
-  { types: ['arr', 'revenue'], terms: 'annual revenue' },
-  { types: ['valuation', 'funding_total', 'last_round', 'market_cap'], terms: 'valuation funding round' },
-  { types: ['aum'], terms: 'assets under management' },
-  { types: ['employees', 'users', 'distribution', 'market_share'], terms: 'employees customers' },
+// News-style wording on purpose: a verifiable figure is a dated sentence in a
+// press release or article ("X raised $Y at a $Z valuation, the company said
+// on ..."). Measured live: "annual revenue 2026" instead matched a company's
+// own market-research reports about OTHER companies, and data-aggregator
+// pages that list bare, undated numbers the passage gate rightly rejects.
+// News mode (measured live): dated articles and press releases instead of
+// aggregator and social pages. Filing-style queries stay on the web index.
+const QUERY_FAMILIES: ReadonlyArray<{ types: readonly string[]; terms: string; news: boolean }> = [
+  { types: ['valuation', 'funding_total', 'last_round', 'market_cap'], terms: 'raises funding round valuation', news: true },
+  { types: ['arr', 'revenue'], terms: 'revenue ARR million announced', news: true },
+  { types: ['aum'], terms: 'assets under management billion', news: false },
+  { types: ['employees', 'users', 'distribution', 'market_share'], terms: 'employees customers company says', news: true },
 ];
+
+/** The passage gate's notion of "current": older reporting can't be accepted anyway. */
+export const HUNT_SEARCH_SINCE_DAYS = 366;
+
+export interface HuntQuery { query: string; news: boolean }
+
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** Own-site pages that state facts ABOUT the company (not its content marketing). */
+const OWN_SITE_FACT_PATH = /^\/?$|\/(news|newsroom|press|press-releases?|media|about|about-us|company|investors?|ir|blog\/.*(announc|raise|funding|series|milestone))/i;
+
+/**
+ * Keep results that can plausibly state a figure about THIS company:
+ * on the official site only newsroom/press/about/investor pages (the site's
+ * reports, guides and product pages are about everyone else); elsewhere the
+ * title or snippet must name the company.
+ */
+export function relevantSearchResults<T extends { url: string; title: string; snippet: string }>(results: readonly T[],
+  companyName: string, officialWebsite?: string | null): T[] {
+  const official = officialWebsite ? hostOf(officialWebsite.includes('://') ? officialWebsite : `https://${officialWebsite}`) : null;
+  const name = companyName.replace(/\s*\(.*?\)\s*/g, ' ').replace(/,?\s+(inc|llc|ltd|corp|corporation|co|limited|plc|gmbh|s\.?a)\.?$/i, '').trim().toLowerCase();
+  return results.filter((row) => {
+    const host = hostOf(row.url);
+    if (!host) return false;
+    if (official && (host === official || host.endsWith(`.${official}`))) {
+      return OWN_SITE_FACT_PATH.test(new URL(row.url).pathname);
+    }
+    return !name || `${row.title} ${row.snippet}`.toLowerCase().includes(name);
+  });
+}
 
 /** At most three engine queries for the missing metrics, most valuable family first. */
 export function huntSearchQueries(companyName: string, missing: readonly string[],
-  options: { financialFirm?: boolean; escalation?: number; year?: number } = {}): string[] {
+  options: { financialFirm?: boolean; escalation?: number; year?: number } = {}): HuntQuery[] {
   const year = options.year ?? new Date().getFullYear();
   const name = `"${companyName.replace(/"/g, '').trim()}"`;
-  const queries = QUERY_FAMILIES
+  const queries: HuntQuery[] = QUERY_FAMILIES
     .filter((family) => family.types.some((t) => missing.includes(t)))
-    .map((family) => `${name} ${family.terms} ${year}`);
-  if (options.financialFirm && !queries.some((q) => q.includes('assets under management'))) {
-    queries.unshift(`${name} assets under management Form ADV`);
+    .map((family) => ({ query: `${name} ${family.terms}`, news: family.news }));
+  if (options.financialFirm && !queries.some((q) => q.query.includes('assets under management'))) {
+    queries.unshift({ query: `${name} assets under management Form ADV`, news: false });
   }
-  if ((options.escalation ?? 0) > 0) queries.unshift(`${name} annual report filing disclosure`);
-  return (queries.length ? queries : [`${name} company overview ${year}`]).slice(0, 3);
+  if ((options.escalation ?? 0) > 0) queries.unshift({ query: `${name} annual report filing disclosure`, news: false });
+  return (queries.length ? queries : [{ query: `${name} company overview ${year}`, news: false }]).slice(0, 3);
 }
 
 export interface CappedWebSearch extends WebSearchFn {
@@ -255,11 +324,11 @@ export interface CappedWebSearch extends WebSearchFn {
  * to grounded search instead of spending more. */
 export function cappedWebSearch(search: WebSearchFn, max: number, onSpend?: (used: number) => void): CappedWebSearch {
   let used = 0;
-  const capped = (async (query: string) => {
+  const capped = (async (query: string, options?: SearchOptions) => {
     if (used >= max) return [];
     used += 1;
     onSpend?.(used);
-    return search(query);
+    return search(query, options);
   }) as CappedWebSearch;
   Object.defineProperty(capped, 'used', { value: () => used });
   return capped;
@@ -267,15 +336,16 @@ export function cappedWebSearch(search: WebSearchFn, max: number, onSpend?: (use
 
 export interface WebSearchLane {
   /** Run each query, merge distinct results into one set of discovery notes. */
-  discover(queries: readonly string[]): Promise<DiscoveryNotes>;
+  discover(queries: ReadonlyArray<string | HuntQuery>, scope?: { companyName: string; officialWebsite?: string | null }): Promise<DiscoveryNotes>;
 }
 
 /** Wrap a search function as a hunt discovery lane. A failing query is skipped
  * (the caller falls back when nothing at all comes back). */
-export function webSearchLane(search: WebSearchFn): WebSearchLane {
+export function webSearchLane(search: WebSearchFn, sinceDays = HUNT_SEARCH_SINCE_DAYS): WebSearchLane {
   return {
-    discover: async (queries) => {
-      const settled = await Promise.allSettled(queries.map((q) => search(q)));
+    discover: async (rawQueries, scope) => {
+      const queries = rawQueries.map((q) => typeof q === 'string' ? { query: q, news: false } : q);
+      const settled = await Promise.allSettled(queries.map((q) => search(q.query, { news: q.news, sinceDays })));
       const seen = new Set<string>();
       const merged: WebSearchResult[] = [];
       for (const result of settled) {
@@ -286,9 +356,10 @@ export function webSearchLane(search: WebSearchFn): WebSearchLane {
           merged.push(row);
         }
       }
-      const notes = searxngNotes(queries.join(' | '), merged.map((r) => ({ ...r,
+      const kept = scope ? relevantSearchResults(merged, scope.companyName, scope.officialWebsite) : merged;
+      const notes = searxngNotes(queries.map((q) => q.query).join(' | '), kept.map((r) => ({ ...r,
         snippet: r.published ? `${r.snippet} [published ${r.published}]` : r.snippet })));
-      return { ...notes, queries: [...queries] };
+      return { ...notes, queries: queries.map((q) => q.query) };
     },
   };
 }

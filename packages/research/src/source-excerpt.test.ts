@@ -98,6 +98,19 @@ describe('bounded contiguous source excerpt', () => {
     expect(selectSourceExcerpt(text)).toHaveLength(4000);
   });
 
+  it('keeps a press release body over its headline and site navigation', () => {
+    // Shape of a real PR Newswire page: headline, ~4k of menus, then the release.
+    const headline = 'Ramp Raises Series F at $44 Billion Valuation';
+    const nav = ' Skip Navigation Resources Investor Relations Journalists Send a Release News Products Contact Search Browse News Releases'.repeat(40);
+    const body = 'NEW YORK, June 4, 2026 /PRNewswire/ -- Today, Ramp announced a $750 million primary financing round led by ICONIQ, valuing the company at $44 billion. With this round, Ramp has raised over $3 billion in total equity financing. Ramp reported revenue growth.';
+    const text = `${headline}${nav} ${body}${' Footer links.'.repeat(300)}`;
+    const result = selectSourceExcerpt(text, { companyName: 'Ramp' });
+    expect(result).toContain(body);
+    expect(text).toContain(result);
+    expect(selectSourceExcerpt(text, { companyName: 'Ramp', metricType: 'valuation' })).toContain(body);
+    expect(selectSourceExcerpt(text, { companyName: 'Ramp', metricType: 'funding_total' })).toContain(body);
+  });
+
   it('includes a metric at the very end without shrinking the saved window', () => {
     const quote = 'Société Acme reported a valuation of USD 20 million on October 1, 2026.';
     const text = `${'Earlier prose. '.repeat(700)}${quote}`;

@@ -413,3 +413,33 @@ describe('huntCompanyMetrics with a connected search provider', () => {
     }
   });
 });
+describe('huntCompanyMetrics quoted-original estimates', () => {
+  const url = 'https://www.prnewswire.com/news-releases/openai-raises-series-x.html';
+  const sentence = 'Today, OpenAI announced a $40 billion financing round, valuing the company at $300 billion.';
+  const today = new Date();
+  const asOf = new Date(today.getTime() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const dateline = new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })
+    .format(new Date(`${asOf}T00:00:00Z`));
+  const read = vi.fn(async (u: string): Promise<OriginalSourceReceipt> => ({ requestedUrl: u, finalUrl: u, status: 'retrieved', httpStatus: 200,
+    contentHash: 'b'.repeat(64), retrievedAt: today.toISOString(),
+    text: u === url ? `SAN FRANCISCO, ${dateline} /PRNewswire/ -- ${sentence} More text.` : 'Nothing here.' }));
+
+  it('lands a dated press-release figure as estimated with the page as citation, never verified', async () => {
+    const ground = vi.fn(async () => ({ text: 'notes', citations: [{ url, title: 'PR Newswire' }], queries: [] }));
+    const structure = vi.fn(async (_p: string, schema: { parse(v: unknown): unknown }) => schema.parse({ figures: [
+      { metricType: 'valuation', value: 300_000_000_000, methodNote: null,
+        passageSupport: { sourceUrl: url, quote: sentence, asOf, basis: 'valuation', unit: 'USD' } },
+      // Hedge-free but not attached to its own wording: rejected.
+      { metricType: 'market_cap', value: 300_000_000_000, methodNote: null,
+        passageSupport: { sourceUrl: url, quote: sentence, asOf, basis: 'market_cap', unit: 'USD' } },
+    ] }));
+    const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snapshot()), client: { ground, structure } as unknown as LlmClient,
+      originalSourceReader: read });
+    const result = await repo.huntCompanyMetrics('cmp_1');
+    expect(result.filledTypes).toContain('valuation');
+    const valuation = (await repo.getCompanyFacts('cmp_1')).find((m) => m.metricType === 'valuation');
+    expect(valuation).toMatchObject({ value: 300_000_000_000, confidence: 'estimated', source: url });
+    expect(valuation?.methodNote).toContain('not independently verified');
+    expect((await repo.getCompanyFacts('cmp_1')).find((m) => m.metricType === 'market_cap')?.value ?? null).toBeNull();
+  });
+});

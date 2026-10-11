@@ -8,6 +8,7 @@ import {
   parseSearchRelayRequest,
   parseSearchResponse,
   relayWebSearch,
+  relevantSearchResults,
   runProviderSearch,
   SEARCH_PROVIDERS,
   WebSearchError,
@@ -28,6 +29,17 @@ describe('buildSearchRequest', () => {
     expect(buildSearchRequest('serper', 'k'.repeat(10), 'q').init.headers['X-API-KEY']).toBe('k'.repeat(10));
     expect(buildSearchRequest('tavily', 'tvly-abcdefgh', 'q').init.headers.Authorization).toBe('Bearer tvly-abcdefgh');
     expect(buildSearchRequest('brave', 'k'.repeat(10), 'a b').url).toContain('q=a%20b');
+  });
+
+  it('maps news mode and recency onto each provider', () => {
+    const now = new Date('2026-10-10T00:00:00Z');
+    const body = (p: Parameters<typeof buildSearchRequest>[0]) => JSON.parse(buildSearchRequest(p, 'k'.repeat(10), 'q', { news: true, sinceDays: 730 }, now).init.body ?? '{}');
+    expect(body('tavily')).toMatchObject({ topic: 'news', start_date: '2024-10-10' });
+    expect(body('exa')).toMatchObject({ category: 'news', startPublishedDate: '2024-10-10T00:00:00.000Z' });
+    expect(buildSearchRequest('serper', 'k'.repeat(10), 'q', { news: true }, now).url).toBe('https://google.serper.dev/news');
+    expect(JSON.parse(buildSearchRequest('serper', 'k'.repeat(10), 'q', { sinceDays: 365 }, now).init.body!)).toMatchObject({ tbs: 'qdr:y' });
+    expect(buildSearchRequest('brave', 'k'.repeat(10), 'q', { sinceDays: 730 }, now).url).toContain('freshness=2024-10-10to2026-10-10');
+    expect(JSON.parse(buildSearchRequest('tavily', 'k'.repeat(10), 'q', {}, now).init.body!)).not.toHaveProperty('topic');
   });
 });
 
@@ -82,6 +94,10 @@ describe('relay validation', () => {
     expect(parseSearchRelayRequest({ provider: 'tavily', query: 'x' })).toBeNull();
     expect(parseSearchRelayRequest({ provider: 'tavily', query: 'x'.repeat(401) })).toBeNull();
     expect(parseSearchRelayRequest(null)).toBeNull();
+    expect(parseSearchRelayRequest({ provider: 'tavily', query: 'ramp', news: true, sinceDays: 730 }))
+      .toEqual({ provider: 'tavily', query: 'ramp', news: true, sinceDays: 730 });
+    expect(parseSearchRelayRequest({ provider: 'tavily', query: 'ramp', news: 'yes', sinceDays: -1 }))
+      .toEqual({ provider: 'tavily', query: 'ramp' });
   });
 
   it('rejects keys that could break a header', () => {
@@ -113,17 +129,43 @@ describe('relayWebSearch', () => {
 
 describe('huntSearchQueries', () => {
   it('asks one focused query per missing family, at most three', () => {
-    expect(huntSearchQueries('Ramp', ['arr', 'valuation'], { year: 2026 }))
-      .toEqual(['"Ramp" annual revenue 2026', '"Ramp" valuation funding round 2026']);
+    expect(huntSearchQueries('Ramp', ['arr', 'valuation'], { year: 2026 })).toEqual([
+      { query: '"Ramp" raises funding round valuation', news: true },
+      { query: '"Ramp" revenue ARR million announced', news: true },
+    ]);
     expect(huntSearchQueries('Ramp', ['arr', 'valuation', 'aum', 'employees'], { year: 2026 })).toHaveLength(3);
   });
 
   it('leads with filings on escalation and Form ADV for financial firms', () => {
     expect(huntSearchQueries('Acme "Capital"', ['employees'], { escalation: 1, financialFirm: true, year: 2026 })).toEqual([
-      '"Acme Capital" annual report filing disclosure',
-      '"Acme Capital" assets under management Form ADV',
-      '"Acme Capital" employees customers 2026',
+      { query: '"Acme Capital" annual report filing disclosure', news: false },
+      { query: '"Acme Capital" assets under management Form ADV', news: false },
+      { query: '"Acme Capital" employees customers company says', news: true },
     ]);
+  });
+});
+
+describe('relevantSearchResults', () => {
+  const row = (url: string, title: string, snippet = '') => ({ url, title, snippet });
+
+  it('keeps the company newsroom but not its content about other companies', () => {
+    const kept = relevantSearchResults([
+      row('https://carta.com/data/state-of-private-markets-q1-2026/', 'State of Private Markets'),
+      row('https://carta.com/learn/startups/financial-reporting/', 'Financial reporting'),
+      row('https://carta.com/newsroom/carta-raises-series-h/', 'Carta raises Series H'),
+      row('https://carta.com/about/', 'About Carta'),
+      row('https://ir.carta.com/', 'Investors'),
+    ], 'Carta', 'https://carta.com').map((r) => r.url);
+    expect(kept).toEqual(['https://carta.com/newsroom/carta-raises-series-h/', 'https://carta.com/about/', 'https://ir.carta.com/']);
+  });
+
+  it('keeps third-party pages only when they name the company', () => {
+    const kept = relevantSearchResults([
+      row('https://techcrunch.com/a', 'Carta raises $500M at a $7.4B valuation'),
+      row('https://example.com/b', 'Top 10 cap table tools', 'Pulley, Ledgy and more'),
+      row('https://news.com/c', 'Fintech roundup', 'Ramp, Inc. said its revenue doubled'),
+    ], 'Ramp, Inc.', 'https://ramp.com').map((r) => r.url);
+    expect(kept).toEqual(['https://news.com/c']);
   });
 });
 

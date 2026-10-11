@@ -130,9 +130,9 @@ export function currentWebSearch(): WebSearchFn | null {
     // The user's own free allowance: count every request this month and stop
     // at the cap, so research falls back to grounded search instead of
     // exhausting their key (or running up a bill).
-    return async (query) => {
+    return async (query, options) => {
       if (!spendSearch()) return [];
-      return search(query);
+      return search(query, options);
     };
   }
   if (hostedSearchAvailable()) return relayWebSearch({ endpoint: endpoint.url, headers: endpoint.headers, provider: 'serper' });
