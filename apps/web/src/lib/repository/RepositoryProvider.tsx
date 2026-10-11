@@ -11,7 +11,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { MarketIntelRepository } from '@mi/contracts';
 import { MockRepository, type SeedSnapshot } from '@mi/mocks';
-import sampleSnapshot from '@/sample/frontier-snapshot.json';
+import { loadSampleSnapshot } from '@/sample/loadSampleSnapshot';
 import { GeminiRepository, type ResearchStore } from '@mi/research';
 import { readAssetSource, readPreviewSource, supportsPreviewSource } from './local-source-reader';
 import { previewGeminiFetch } from './local-gemini-fetch';
@@ -30,8 +30,13 @@ const RepositoryContext = createContext<MarketIntelRepository | null>(null);
 export type RepositoryMode = 'demo' | 'browser-live' | 'ipc' | 'cloud';
 const RepositoryModeContext = createContext<RepositoryMode>('demo');
 
+/** Demo mode (no key, no desktop bridge, not the cloud engine): the only branch that needs the bundled sample deck. */
+export function needsSampleDeck(apiKey: string, engine?: string): boolean {
+  return !(isElectron() && window.mi) && engine !== 'cloud' && !apiKey;
+}
+
 export function selectRepository(apiKey: string, model: string, engine?: string, store?: ResearchStore,
-  quotaPreset: 'free' | 'paid' = 'free', judgeModel = ''): MarketIntelRepository {
+  quotaPreset: 'free' | 'paid' = 'free', judgeModel = '', sample?: SeedSnapshot): MarketIntelRepository {
   if (isElectron() && window.mi) {
     return new IpcRepository(window.mi);
   }
@@ -78,11 +83,12 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       onCallMetrics: (m) => recordCallMetrics(m),
     });
   }
+  if (!sample) throw new Error('Demo mode needs the sample deck loaded first (loadSampleSnapshot).');
   return new MockRepository({
     latencyMs: import.meta.env.MODE === 'test' ? 0 : 220,
     // Zero-state: a REAL researched deck (Frontier AI, live-baked with citations
     // and confidence tags intact) so first launch shows the finished product.
-    seedSnapshot: sampleSnapshot as unknown as SeedSnapshot,
+    seedSnapshot: sample,
   });
 }
 
@@ -114,7 +120,8 @@ export function RepositoryProvider({
       try {
         const store = !repository && !isElectron() && engine !== 'cloud' && apiKey
           ? await openBrowserResearchStore() : undefined;
-        const selected = repository ?? selectRepository(apiKey, model, engine, store, quotaPreset, judgeModel);
+        const sample = !repository && needsSampleDeck(apiKey, engine) ? await loadSampleSnapshot() : undefined;
+        const selected = repository ?? selectRepository(apiKey, model, engine, store, quotaPreset, judgeModel, sample);
         if (selected instanceof GeminiRepository) await selected.ready();
         if (live) {
           setValue(selected);

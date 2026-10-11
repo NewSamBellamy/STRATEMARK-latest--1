@@ -45,9 +45,8 @@ import type {
   Unsubscribe,
   ViceClaim,
 } from '@mi/contracts';
-import {
-  MockRepository, type SeedSnapshot } from '@mi/mocks';
-import sampleSnapshot from '@/sample/frontier-snapshot.json';
+import { MockRepository } from '@mi/mocks';
+import { loadSampleSnapshot } from '@/sample/loadSampleSnapshot';
 import { isOriginalSourceAttempt, projectCompanyCardFacts, retainedDiagnosticAttempts, type OriginalSourceAttempt } from '@mi/research';
 
 /** A Market/Deck object that optionally carries a runtime `engine` tag. */
@@ -140,7 +139,12 @@ export class SentinelRepository implements MarketIntelRepository {
     };
   }
 
-  private fallbackRepo: MockRepository;
+  private fallbackRepo: Promise<MockRepository> | null = null;
+  /** Local fallback for non-cloud decks; built on first use so the demo deck stays out of the first-load bundle. */
+  private fallback(): Promise<MockRepository> {
+    this.fallbackRepo ??= loadSampleSnapshot().then((seedSnapshot) => new MockRepository({ latencyMs: 0, seedSnapshot }));
+    return this.fallbackRepo;
+  }
   private memoryMarkets = new Map<string, Market>();
   private memoryDecks = new Map<string, Deck>();
   private memoryCards = new Map<string, CardWithCompany[]>();
@@ -149,13 +153,6 @@ export class SentinelRepository implements MarketIntelRepository {
   private factsCard(card: CardWithCompany): CardWithCompany {
     const originals = this.memoryOriginals.get(card.card.deckId) ?? readCloudCache().get(card.card.deckId)?.companySourceAttempts;
     return projectCompanyCardFacts(card, originals);
-  }
-
-  constructor() {
-    this.fallbackRepo = new MockRepository({
-      latencyMs: 0,
-      seedSnapshot: sampleSnapshot as unknown as SeedSnapshot,
-    });
   }
 
   async listMarkets(): Promise<Market[]> {
@@ -327,7 +324,7 @@ export class SentinelRepository implements MarketIntelRepository {
     }
 
     if (!isCloud) {
-      await this.fallbackRepo.deleteMarket?.(id);
+      await (await this.fallback()).deleteMarket?.(id);
     }
     return true;
   }
@@ -356,7 +353,7 @@ export class SentinelRepository implements MarketIntelRepository {
         writeCloudCache(cache);
       }
       if (!isCloud) {
-        await this.fallbackRepo.deleteDeck?.(deckId);
+        await (await this.fallback()).deleteDeck?.(deckId);
       }
       return res;
     } catch {
