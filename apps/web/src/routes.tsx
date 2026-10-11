@@ -1,12 +1,14 @@
 import { lazy, useEffect } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { RequireAuth } from '@/lib/auth/RequireAuth';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 
-function LegacySettingsRoute() {
+/** #/settings and #/settings/:tab open the Settings modal (on that tab) over home. */
+function SettingsRoute() {
   const open = useSettingsModal((state) => state.open);
-  useEffect(() => { open(); }, [open]);
+  const { tab } = useParams();
+  useEffect(() => { open(tab); }, [open, tab]);
   return <Navigate to="/" replace />;
 }
 
@@ -43,7 +45,8 @@ export function AppRoutes() {
         <Route index element={<NewDeckPage />} />
         <Route path="history" element={<MarketsListPage />} />
         <Route path="saved" element={<SavedCardsPage />} />
-        <Route path="settings" element={<LegacySettingsRoute />} />
+        <Route path="settings" element={<SettingsRoute />} />
+        <Route path="settings/:tab" element={<SettingsRoute />} />
         <Route path="reports" element={<ReportsListPage />} />
         <Route path="beta" element={<BetaPage />} />
         <Route path="reports/:reportId" element={<ReportViewerPage />} />
