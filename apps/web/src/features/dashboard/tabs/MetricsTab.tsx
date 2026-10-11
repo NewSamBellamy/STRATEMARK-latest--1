@@ -292,7 +292,8 @@ function PeerComparison({
                 </div>
                 <span className={cn('tabular-nums', p.isSelf ? 'font-semibold text-content' : 'text-muted')}>
                   {formatMetricValue(ranking.metricType, p.value)}
-                  {p.confidence === 'estimated' && <span className="ml-1 text-[10px] text-faint">est.</span>}
+                  {/* A real space, not margin: copy-paste and screen readers otherwise get "$8.0Best.". */}
+                  {p.confidence === 'estimated' && <>{' '}<abbr title="Estimated" className="text-[10px] text-faint no-underline">est.</abbr></>}
                 </span>
               </li>
             ))}
