@@ -52,7 +52,7 @@ import {
   structureEnrichPrompt,
 } from './prompts';
 import { faviconUrl } from './logos';
-import { rootDomain, slugify, throwIfAborted } from './util';
+import { rootDomain, slugify, throwIfAborted, websiteUrlOf } from './util';
 import { ViceAgent, extractCultureNote } from './signal-agents';
 import {
   estimateArrFromHeadcount,
@@ -675,7 +675,7 @@ async function hydrateFromGrounded(
   const sourceSummary = providerCompanySummary(candidate.name, officialWebsite, grounded.text, grounded.grounding);
 
   // 3. Company Entity Construction
-  const website = enrichment.website ?? (candidate.domain ? `https://${candidate.domain}` : null);
+  const website = websiteUrlOf(enrichment.website) ?? websiteUrlOf(candidate.domain);
   const domain = rootDomain(website) ?? candidate.domain;
 
   const logoUrl = faviconUrl(domain);

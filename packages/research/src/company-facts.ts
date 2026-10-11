@@ -52,7 +52,9 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
     const bounded = validMetricVerificationValue(type, metric.value) &&
       (!['employees', 'users'].includes(type) || Number.isSafeInteger(metric.value));
     if (!current.ambiguous && bounded && metric.confidence === 'user_verified') return [structuredClone(metric)];
-    const reportedCitations = !current.ambiguous && bounded && metric.confidence === 'estimated'
+    // Undated market caps read as today's figure; see reportedCompanyMetrics.
+    const staleMarketCap = type === 'market_cap' && metric.reportedSupport != null && !metric.reportedSupport.asOf;
+    const reportedCitations = !current.ambiguous && bounded && metric.confidence === 'estimated' && !staleMarketCap
       ? reportedStoredCitations(company.name, company.websiteUrl, metric) : [];
     // A computation from retained sources (the market-cap quote lane) keeps its
     // own two named citations — both are retained originals; the row's

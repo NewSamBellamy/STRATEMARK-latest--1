@@ -1,5 +1,5 @@
 import { MONEY_METRIC_TYPES, reportedBandSchema, reportedMetricSupportSchema, usableCitations, validMetricVerificationValue,
-  type CompanyMetric, type MetricType, type ReportedMetricSupport } from '@mi/contracts';
+  type Citation, type CompanyMetric, type MetricType, type ReportedMetricSupport } from '@mi/contracts';
 import type { ProviderGrounding } from './types';
 import type { EnrichmentOut } from './schemas';
 import { describeCurrencyConversion, isConvertibleCurrency, usdPerUnit } from './fx';
@@ -619,6 +619,9 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
         periodStart: selector.periodStart && hasDate(support.text, selector.periodStart) ? selector.periodStart : undefined,
         support: structuredClone(support) });
       if (!proof.success) continue;
+      // A share price moves daily; an undated market cap can be years stale
+      // (Xero's "9.86B AUD" was) and reads as today's figure on the card.
+      if (type === 'market_cap' && !proof.data.asOf) continue;
       const proposed = { ...row, value: proposal.value, reportedSupport: proof.data };
       const citations = reportedMetricCitations(input.companyName, input.website, proposed, identity);
       if (!citations.length) continue;
@@ -634,21 +637,37 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
   });
 }
 
+// A location or website line is a fact the card already shows elsewhere, not a
+// description of what the company does — only used when nothing better exists.
+const LOCATION_ONLY = /\b(?:is headquartered|headquartered in|is based in|official website|website (?:of|is))\b/i;
+// Statements about the absence of a figure ("is a private company, so it has
+// no market cap") pass the "is a" gate but describe nothing.
+const ABOUT_FIGURES = /\b(?:market cap(?:italization)?|valuation|not (?:publicly )?disclosed|no public(?:ly)?|publicly traded|ticker|stock symbol)\b/i;
+
 export function providerCompanySummary(companyName: string, website: string | null, text: string, grounding?: ProviderGrounding) {
   if (grounding?.provider !== 'google-search' || grounding.answerText.trim() !== text.trim()) return null;
+  let fallback: { summary: string; citations: Citation[] } | null = null;
   for (const support of grounding.supports) {
     if (!grounding.answerText.includes(support.text)) continue;
-    const summary = sentences(sentenceAround(support.text, grounding.answerText, support.startIndex)).map(plain).find(sentence => entity(sentence, companyName) && sentence.length >= 30 && sentence.length <= 500 &&
+    // Catalog answers put a "### Company" heading line in front of the first
+    // bullet, and supports often span it; judge each line on its own.
+    const candidates = sentenceAround(support.text, grounding.answerText, support.startIndex).split(/\n+/)
+      .filter(line => !/^\s*#{1,6}\s/.test(line)).flatMap(sentences).map(plain);
+    const eligible = candidates.filter(sentence => entity(sentence, companyName) && sentence.length >= 30 && sentence.length <= 500 &&
+      !ABOUT_FIGURES.test(sentence) &&
       !(/\d/.test(sentence) && /\b(?:valuation|valued at|funding round|market cap(?:italization)?|annual revenue|ARR|headcount|employees)\b|[$€£]/i.test(sentence)) &&
       // The verb gate keeps label/boilerplate lines out; it must describe what
       // companies actually SAY about themselves. "NuScale designs and
       // commercializes SMR technology" failed this gate for one missing word —
       // the ideal sourced one-liner, rejected while weaker sentences passed.
-      /\b(?:builds?|provides?|develops?|designs?|manufactures?|commercializes?|delivers?|specializes?|focuses?|operates?|offers?|serves?|makes?|sells?|is a|is an|is headquartered)\b/i.test(sentence));
+      /\b(?:builds?|provides?|develops?|designs?|manufactures?|commercializes?|delivers?|specializes?|focuses?|operates?|offers?|serves?|makes?|sells?|automates?|helps?|describes itself|positions itself|is a|is an|is headquartered)\b/i.test(sentence));
     const citations = usableCitations(support.sources, website ?? undefined);
-    if (summary && citations.length) return { summary, citations };
+    if (!citations.length) continue;
+    const descriptive = eligible.find(sentence => !LOCATION_ONLY.test(sentence));
+    if (descriptive) return { summary: descriptive, citations };
+    if (!fallback && eligible[0]) fallback = { summary: eligible[0], citations };
   }
-  return null;
+  return fallback;
 }
 
 
@@ -672,6 +691,9 @@ export function employeeBandIn(text: string): { low: number; high: number } | nu
       const year = (n: number) => n >= 1900 && n <= 2100;
       if (!Number.isSafeInteger(low) || !Number.isSafeInteger(high) || low < 1 || high <= low || high > 5_000_000 ||
         (year(low) && year(high))) continue;
+      // "50 to 5,000 employees" says nothing; standard bands (1–10, 11–50,
+      // 1,001–5,000) stay within 10x.
+      if (high > Math.max(low, 1) * 10) continue;
       found.set(`${low}-${high}`, { low, high });
     }
   }

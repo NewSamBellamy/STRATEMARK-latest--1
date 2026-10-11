@@ -126,6 +126,22 @@ export function rootDomain(input: string | null | undefined): string | null {
   }
 }
 
+/** Models return bare hosts ("rillet.com", "www.x.com"), but every official-host
+ * gate parses websiteUrl with `new URL`. A bare host silently failed all of them,
+ * so a company's own site never counted as its own site. Full URLs pass through. */
+export function websiteUrlOf(input: string | null | undefined): string | null {
+  const value = input?.trim();
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.includes('://') || /\s/.test(value)) return null;
+  try {
+    const url = new URL(`https://${value}`);
+    return url.hostname.includes('.') ? url.href.replace(/\/$/, '') : null;
+  } catch {
+    return null;
+  }
+}
+
 export function slugify(text: string): string {
   return text
     .toLowerCase()

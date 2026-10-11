@@ -17,6 +17,25 @@ import { useRepository, useRepositoryMode } from '@/lib/repository/RepositoryPro
  * The living runtime's ambient verification is HEALTH, not incompleteness; it
  * keeps working after this banner says complete, and that is stated too.
  */
+const CATEGORY_LABEL: Record<string, string> = {
+  vice: 'risk and controversy signals',
+  culture: 'culture signals',
+  insight: 'market insights',
+  barrier: 'barriers to entry',
+  company: 'companies',
+  infrastructure: 'infrastructure providers',
+  distribution: 'distribution channels',
+};
+
+/** "Coverage shortfall for vice: found 0, minimum is 4. …" in plain English. */
+export function plainCoverageNote(warning: string): string {
+  const match = /^Coverage shortfall for (\w+): found (\d+), minimum is (\d+)\./i.exec(warning);
+  if (!match) return warning;
+  const [, role, found, minimum] = match;
+  const label = CATEGORY_LABEL[role!.toLowerCase()] ?? role;
+  return `Found ${found} sourced ${label} (aiming for ${minimum}). Only findings with a source are shown — nothing was made up to fill the gap.`;
+}
+
 export function DeckCompletionBanner({ deckId }: { deckId: string | undefined }) {
   const repo = useRepository();
   const mode = useRepositoryMode();
@@ -40,7 +59,7 @@ export function DeckCompletionBanner({ deckId }: { deckId: string | undefined })
   // Coverage shortfalls are emitted by discovery as plain sentences; show them
   // verbatim so an empty category explains itself instead of showing a zero.
   const coverage = (job.warnings ?? []).filter((warning) =>
-    /coverage shortfall|remained below|skipped \d+ results/i.test(warning));
+    /coverage shortfall|remained below|skipped \d+ results|no sourced barriers/i.test(warning));
 
   const CoverageList = () => coverage.length > 0 && (
     <details className="mt-1 w-full text-xs text-muted">
@@ -49,7 +68,7 @@ export function DeckCompletionBanner({ deckId }: { deckId: string | undefined })
         {coverage.map((warning, index) => (
           <p key={index} className="flex items-start gap-1.5">
             <Info className="mt-0.5 h-3 w-3 shrink-0" />
-            {warning}
+            {plainCoverageNote(warning)}
           </p>
         ))}
       </div>

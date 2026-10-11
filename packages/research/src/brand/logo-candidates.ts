@@ -88,6 +88,16 @@ export function upsizeShopify(url: string): string {
 
 const TRACKING = /pixel|beacon|1x1|spacer|tracking|analytics|\/collect\b|doubleclick|facebook\.com\/tr/i;
 
+// Review-site, award and compliance badges sit in headers next to the real
+// mark and often say "logo" (Rillet's header carried G2's). Bounded by
+// non-alphanumerics because filenames join words with _ and -.
+const THIRD_PARTY_MARK = /(?:^|[^a-z0-9])(?:g2|g2crowd|capterra|getapp|trustpilot|trustradius|gartner|forrester|idc|soc-?2|soc_2|aicpa|gdpr|hipaa|iso-?27001|pci-?dss|ccpa|forbes|techcrunch|inc-?5000|deloitte|product-?hunt|ycombinator|y-?combinator|app-?store|google-?play|badge|award|rating|reviews?)(?:[^a-z0-9]|$)/i;
+
+/** True when an image's own attributes name someone else's mark. */
+export function isThirdPartyMark(hay: string): boolean {
+  return THIRD_PARTY_MARK.test(hay.toLowerCase());
+}
+
 function isSvg(url: string): boolean {
   return /\.svg(?:[?#]|$)/i.test(url);
 }
@@ -167,7 +177,7 @@ export function collectLogoCandidates(html: string, pageUrl: URL): LogoCandidate
         tagAttr(tag, 'src'),
       ].find((v) => v && !v.startsWith('data:')) ?? null;
       const hay = `${tagAttr(tag, 'class') ?? ''} ${tagAttr(tag, 'id') ?? ''} ${tagAttr(tag, 'alt') ?? ''} ${raw ?? ''}`;
-      if (!/logo/i.test(hay) || /partner|client|sponsor|footer-logo/i.test(hay)) continue;
+      if (!/logo/i.test(hay) || /partner|client|sponsor|footer-logo/i.test(hay) || isThirdPartyMark(hay)) continue;
       const w = Number(tagAttr(tag, 'width')) || null;
       const h = Number(tagAttr(tag, 'height')) || null;
       const declared = w && h ? Math.min(w, h) : w ?? h;
@@ -214,6 +224,7 @@ export function inlineHeaderSvgs(html: string, pageUrl: URL): string[] {
     for (const m of region.matchAll(/<svg\b[\s\S]*?<\/svg>/gi)) {
       const open = /<svg\b[^>]*>/i.exec(m[0])![0];
       const before = region.slice(Math.max(0, (m.index ?? 0) - 200), m.index ?? 0);
+      if (isThirdPartyMark(`${open} ${/<title>([^<]*)<\/title>/i.exec(m[0])?.[1] ?? ''}`)) continue;
       if (/logo/i.test(open) || /logo/i.test(before)) out.push(m[0]);
     }
   }

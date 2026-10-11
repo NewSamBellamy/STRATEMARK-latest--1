@@ -139,6 +139,15 @@ it('does not dispatch, count or expose the reason of an already aborted call', a
   expect(vi.getTimerCount()).toBe(0);
 });
 
+it('tells the user their key was rejected without echoing the provider body', async () => {
+  const body = JSON.stringify({ error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT',
+    details: [{ reason: 'API_KEY_INVALID', metadata: { secret: 'private detail' } }] } });
+  const fetchImpl = vi.fn(async () => new Response(body, { status: 400 }));
+  const error = await createGeminiClient({ apiKey: 'test-placeholder', fetchImpl }).ground('prompt').catch(e => e);
+  expect(error).toMatchObject({ status: 400, message: 'Your Gemini API key was rejected. Check or replace it in Settings.' });
+  expect(String(error.message)).not.toContain('private detail');
+});
+
 it.each([400, 401, 403, 429, 500, 503, 599])('preserves safe HTTP status %s on sanitized errors for callers', async status => {
   vi.useFakeTimers();
   const privateError = Object.assign(new Error('private transport/credential detail'), {

@@ -93,7 +93,7 @@ import { CARD_FACT_TYPES as CARD_FACT_HUNT_TYPES, reportedCompanyMetrics, report
 import { businessDates } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
-import { mapWithConcurrency, rootDomain, throwIfAborted } from './util';
+import { mapWithConcurrency, rootDomain, throwIfAborted, websiteUrlOf } from './util';
 import { expandDeckWithDeltaAgent } from './delta-agent';
 import {
   shouldDistillThread,
@@ -317,6 +317,11 @@ function normalize(raw: RepoSnapshot | null): RepoSnapshot {
   return {
     ...empty(),
     ...raw,
+    // Older decks stored bare hosts; repair them so official-source gates work.
+    companies: (raw.companies ?? []).map((company) => {
+      const websiteUrl = websiteUrlOf(company.websiteUrl);
+      return company.websiteUrl && websiteUrl && websiteUrl !== company.websiteUrl ? { ...company, websiteUrl } : company;
+    }),
     reports: raw.reports ?? [],
     briefings: raw.briefings ?? [],
     savedCards: raw.savedCards ?? [],
@@ -1485,6 +1490,9 @@ export class GeminiRepository implements MarketIntelRepository {
                 { signal: controller.signal, coverage: this.coverage },
               );
 
+              if (marketCards.length === 0) {
+                await checkpoint({ type: 'warning', message: 'No sourced barriers or market insights were found on this pass.' });
+              }
               const addedSignalIds: string[] = [];
               for (const mc of marketCards) {
                 this.snap.cards.push(mc.card);

@@ -643,6 +643,26 @@ describe('provider company summary (source-backed one-liner)', () => {
       .toMatch(/^Radiant Industries, Inc\. is headquartered/);
   });
 
+  // Live batch answer, 2026-10-10: every card in the deck fell back to the
+  // placeholder because the first support began with the "### Rillet" heading.
+  it('reads the description line under a batch heading and prefers it to the HQ line', () => {
+    const { text, grounding } = build([
+      '### Rillet\n- Rillet describes itself as an AI-native ERP and accounting platform where the general ledger serves as the system of record to keep books continuously updated',
+      '- Rillet is headquartered in New York City, New York, United States',
+    ]);
+    expect(providerCompanySummary('Rillet', 'https://www.rillet.com', text, grounding)?.summary)
+      .toBe('Rillet describes itself as an AI-native ERP and accounting platform where the general ledger serves as the system of record to keep books continuously updated');
+  });
+
+  it('prefers a later descriptive support over an earlier location-only one', () => {
+    const { text, grounding } = build([
+      'Campfire is headquartered in San Francisco, California, United States.',
+      'Campfire delivers AI-native ERP software featuring core accounting for multi-entity consolidations.',
+    ]);
+    expect(providerCompanySummary('Campfire', 'https://meetcampfire.com', text, grounding)?.summary)
+      .toMatch(/^Campfire delivers AI-native ERP/);
+  });
+
   it('still refuses figure-bearing sentences as the summary', () => {
     const { text, grounding } = build([
       'NuScale Power Corporation is a publicly traded company on the New York Stock Exchange under ticker symbol SMR, with a reported market capitalization of $3.2 billion as of October 2026.',

@@ -320,8 +320,13 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         throwIfAborted(signal);
         if (!res.ok) {
           // Drain the body inside the same deadline, but never echo its content.
-          await res.text().catch(() => undefined);
+          const body = await res.text().catch(() => '');
           throwIfAborted(signal);
+          // A rejected key is the one failure the user can fix themselves; say so
+          // with a fixed message (the provider body is still never echoed).
+          if ([400, 401, 403].includes(res.status) && /API_KEY_INVALID|API key not valid|API key expired|API_KEY_SERVICE_BLOCKED/i.test(body ?? '')) {
+            throw Object.assign(new SafeGeminiError('Your Gemini API key was rejected. Check or replace it in Settings.'), { status: res.status });
+          }
           const err = new Error(
             `Gemini ${res.status}: request failed.`,
           ) as RetryableError & { retryAfterMs?: number };

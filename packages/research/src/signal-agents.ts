@@ -952,8 +952,13 @@ export async function researchMarketSignals(
   };
 
   const firstPass = await runGroundedPass('both');
-  const firstBarrierCount = firstPass.out.barriers?.length ?? 0;
-  const firstInsightCount = firstPass.out.insights?.length ?? 0;
+  // Count only items that will survive the citation gate below: an answer whose
+  // items all lack a usable source used to look "complete" here, skip the
+  // fallback, and leave the deck with zero insight/barrier cards.
+  const sourced = (items: Array<{ sourceIndex?: number | null; sourceIndexes?: number[] | null }> | undefined) =>
+    (items ?? []).filter((item) => resolveClaimCitations(item.sourceIndex, item.sourceIndexes, firstPass.citations).length > 0).length;
+  const firstBarrierCount = sourced(firstPass.out.barriers);
+  const firstInsightCount = sourced(firstPass.out.insights);
 
   // 2. Bounded Fallback Pass if initial yield is below minimums
   let secondPass: {

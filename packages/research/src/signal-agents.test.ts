@@ -617,6 +617,27 @@ describe('Signal Agents Deep Module', () => {
       expect(barrier2.card.citations[0]!.url).toBe('https://sec.gov/p2');
     });
 
+    it('runs the fallback pass when first-pass items have no usable source', async () => {
+      let calls = 0;
+      const claim = (title: string, sourceIndex: number | null) => ({ title, summary: `${title} summary`, sourceIndex, keyPoints: ['p'] });
+      const client: LlmClient = {
+        ground: vi.fn(async () => {
+          calls += 1;
+          return calls === 1
+            ? { text: 'Ungrounded notes', citations: [], queries: [] }
+            : { text: 'Grounded notes', citations: [{ title: 'sec.gov', url: 'https://sec.gov/p2' }], queries: ['q'] };
+        }),
+        structure: vi.fn(async (_prompt: string, schema: ZodType<unknown>) => schema.parse({
+          barriers: [claim('B1', 0), claim('B2', 0)],
+          insights: [claim('I1', calls === 1 ? null : 0), claim('I2', 0)],
+        })) as LlmClient['structure'],
+      };
+      const cards = await researchMarketSignals(client, samplePlan, 'dck_unsourced', { minBarriers: 2, minInsights: 2 });
+      expect(client.ground).toHaveBeenCalledTimes(2);
+      expect(cards.filter((c) => c.card.cardType === 'insight').length).toBeGreaterThan(0);
+      expect(cards.every((c) => c.card.citations.length > 0)).toBe(true);
+    });
+
     it('respects AbortSignal and cancels gracefully', async () => {
       const controller = new AbortController();
       controller.abort();
