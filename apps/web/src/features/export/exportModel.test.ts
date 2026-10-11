@@ -4,6 +4,7 @@ import { splitFollowUps } from '@/features/deepdive/followUps';
 import {
   buildReportModel,
   csvCell,
+  exportSource,
   metricRowsFor,
   metricsToCsv,
   transcriptToMarkdown,
@@ -27,6 +28,19 @@ const sourced = m({
 });
 
 describe('export model', () => {
+  it('exports sources by publisher with a link that works, never an opaque redirect', () => {
+    const redirect = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQabc';
+    expect(exportSource({ url: redirect, title: 'techcrunch.com' })).toEqual({
+      title: 'techcrunch.com', url: 'https://www.google.com/search?q=techcrunch.com', direct: false });
+    expect(exportSource({ url: redirect, title: '' }).title).toBe('Publisher not recorded');
+    expect(exportSource({ url: 'https://reuters.com/acme', title: '' })).toEqual({ title: 'reuters.com', url: 'https://reuters.com/acme', direct: true });
+    const viaRedirect = m({ ...sourced, citations: [{ title: 'reuters.com', url: redirect }] });
+    const csv = metricsToCsv('Widgets', [co([viaRedirect])]);
+    expect(csv).not.toContain('vertexaisearch');
+    const report = buildReportModel({ title: 'Widgets', kind: 'deck', companies: [co([viaRedirect])] });
+    expect(report.companies[0]!.footnotes.every((f) => !f.url.includes('vertexaisearch') && f.direct === false)).toBe(true);
+  });
+
   it('keeps sourced figures with as-of and marks the rest Unknown', () => {
     const rows = metricRowsFor(co([sourced]));
     const arr = rows.find((r) => r.type === 'arr')!;

@@ -111,7 +111,8 @@ function ReportBody({ model }: { model: ReportModel }) {
             <ol className="sm-notes">
               {c.footnotes.map((f) => (
                 <li key={f.n} value={f.n}>
-                  <span className="sm-note-title">{f.title}</span> <span className="sm-note-url">{f.url}</span>
+                  <span className="sm-note-title">{f.title}</span>
+                  {f.direct && <> <span className="sm-note-url">{f.url}</span></>}
                 </li>
               ))}
             </ol>

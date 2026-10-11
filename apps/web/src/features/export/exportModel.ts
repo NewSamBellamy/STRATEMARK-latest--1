@@ -12,6 +12,7 @@
 import {
   METRIC_TYPE_LABELS,
   TIER_LABELS,
+  publisherOf,
   usableCitations,
   type CardWithCompany,
   type Citation,
@@ -21,6 +22,7 @@ import {
   type ThreadMessage,
 } from '@mi/contracts';
 import { formatMetricValue } from '@/lib/format';
+import { isDirectSource, sourceHref } from '@/lib/sourceHref';
 import { splitFollowUps } from '@/features/deepdive/followUps';
 
 export interface ExportCompany {
@@ -141,7 +143,7 @@ export function tierLabel(tier: number | null): string | null {
 
 export interface ReportCompany extends ExportCompany {
   rows: Array<MetricRow & { footnotes: number[] }>;
-  footnotes: Array<{ n: number; title: string; url: string }>;
+  footnotes: Array<{ n: number; title: string; url: string; direct: boolean }>;
   unknownCount: number;
 }
 
@@ -154,12 +156,14 @@ export interface ReportModel {
   unknownCount: number;
 }
 
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '');
-  } catch {
-    return url;
-  }
+/**
+ * How a source appears in an export: the publisher by name and a link that
+ * still works. Grounding citations are vertexaisearch.cloud.google.com
+ * redirects that expire; those become a search for the story (`direct`
+ * false), and print layouts show the link text only for real publisher URLs.
+ */
+export function exportSource(c: { url: string; title?: string | null }): { title: string; url: string; direct: boolean } {
+  return { title: publisherOf(c.url, c.title), url: sourceHref(c.url, c.title), direct: isDirectSource(c.url) };
 }
 
 /** Footnotes restart per company so each section is self-contained on its page. */
@@ -180,7 +184,7 @@ export function buildReportModel(args: {
         if (!n) {
           n = footnotes.length + 1;
           byUrl.set(s.url, n);
-          footnotes.push({ n, title: s.title || hostOf(s.url), url: s.url });
+          footnotes.push({ n, ...exportSource(s) });
         }
         return n;
       });
@@ -220,7 +224,7 @@ export function metricsToCsv(market: string | null, companies: readonly ExportCo
   const lines: string[] = [CSV_HEADER.join(',')];
   for (const co of companies) {
     for (const r of metricRowsFor(co)) {
-      const [first, ...rest] = r.sources;
+      const [first, ...rest] = r.sources.map(exportSource);
       lines.push(
         [
           market, co.name, r.label, r.value, r.valueText, r.confidence,
@@ -254,7 +258,7 @@ export function transcriptToMarkdown(args: {
       out.push('**Stratemark:**', '', splitFollowUps(m.text).body, '');
       const cites = usableCitations(m.citations ?? []);
       if (cites.length) {
-        out.push('Sources:', ...cites.map((c, i) => `${i + 1}. [${c.title || hostOf(c.url)}](${c.url})`), '');
+        out.push('Sources:', ...cites.map(exportSource).map((s, i) => `${i + 1}. [${s.title}](${s.url})`), '');
       }
     }
   }
