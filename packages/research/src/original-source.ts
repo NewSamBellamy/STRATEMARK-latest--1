@@ -187,6 +187,39 @@ export function selectOriginalSourceAttempts(attempts: readonly OriginalSourceAt
   }
   return structuredClone(selected);
 }
+
+/** Attempts kept per company and metric type, beyond those still cited. */
+export const ORIGINAL_ATTEMPTS_PER_SCOPE = 10;
+
+function receiptFingerprint(attempt: OriginalSourceAttempt): string {
+  return attempt.receipts.map((r) => `${r.status}|${r.finalUrl ?? r.requestedUrl}|${r.contentHash ?? ''}`).sort().join('\n');
+}
+
+/**
+ * The retained attempts after saving `incoming`. Structured lanes and hunts
+ * re-read the same pages on every pass; an attempt whose receipts match an
+ * older one for the same scope (same pages, same content hashes, same outcome)
+ * replaces it, so a re-read refreshes the retrieval date instead of growing the
+ * workspace. Beyond ORIGINAL_ATTEMPTS_PER_SCOPE, the oldest attempts go,
+ * except any that `cited` says a current figure still points at.
+ */
+export function retainOriginalAttempt(attempts: readonly OriginalSourceAttempt[], incoming: OriginalSourceAttempt,
+  cited: (attempt: OriginalSourceAttempt) => boolean): OriginalSourceAttempt[] {
+  const sameScope = (row: OriginalSourceAttempt) => row.companyId === incoming.companyId && row.metricType === incoming.metricType;
+  const fingerprint = receiptFingerprint(incoming);
+  const kept = attempts.filter((row) => !(sameScope(row) && receiptFingerprint(row) === fingerprint));
+  const scoped = kept.filter(sameScope).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+  let excess = scoped.length + 1 - ORIGINAL_ATTEMPTS_PER_SCOPE;
+  const dropped = new Set<OriginalSourceAttempt>();
+  for (const row of scoped) {
+    if (excess <= 0) break;
+    if (cited(row)) continue;
+    dropped.add(row);
+    excess -= 1;
+  }
+  return [...kept.filter((row) => !dropped.has(row)), incoming];
+}
+
 export interface OriginalSourceServices {
   /** Optional transport capability. Absent means the adapter applies its own checks at read time. */
   supports?(url: string): boolean;

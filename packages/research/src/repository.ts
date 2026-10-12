@@ -111,7 +111,7 @@ import type { LlmClient, ProviderGrounding, ResearchCoverage, RunResearchOptions
 import type { ResearchNoteEntry } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { searchEvidenceCorpus } from './retrieval';
-import { coalesceOriginalSources, isOriginalSourceAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
+import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueObservation, secRevenueVerification } from './sec-revenue';
 import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
 import { companyNameKey, marketCapEstimate, secSharesConceptUrl, secTickerMapUrl, yahooChartUrl } from './market-quote';
@@ -477,7 +477,16 @@ export class GeminiRepository implements MarketIntelRepository {
           if (!isOriginalSourceAttempt(retained) || JSON.stringify(retained).length > 400000) throw new Error('Invalid original-source attempt.');
           const previous = (this.snap.originalSourceAttempts ?? []).find(row => row.id === retained.id);
           if (previous && JSON.stringify(previous) !== JSON.stringify(retained)) throw new Error('Original-source attempt cannot be overwritten.');
-          if (!previous) this.snap.originalSourceAttempts = [...(this.snap.originalSourceAttempts ?? []), retained];
+          if (!previous) {
+            // Pages a figure still quotes or cites (the market-cap computation
+            // cites its originals directly) are never pruned.
+            const cited = new Set([
+              ...originalSupportReferences(this.snap.metrics, retained.companyId).map((ref) => ref.sourceUrl),
+              ...this.snap.metrics.filter((m) => m.companyId === retained.companyId).flatMap((m) => m.citations.map((c) => c.url)),
+            ]);
+            this.snap.originalSourceAttempts = retainOriginalAttempt(this.snap.originalSourceAttempts ?? [], retained, (row) =>
+              row.receipts.some((r) => cited.has(r.requestedUrl) || (r.finalUrl !== undefined && cited.has(r.finalUrl))));
+          }
           await this.persist();
         },
         list: async input => this.listLocalOriginals(input),

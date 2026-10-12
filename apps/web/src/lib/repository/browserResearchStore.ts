@@ -27,8 +27,16 @@ function openDatabase(): Promise<IDBDatabase> {
 
 export function parseResearchSnapshot(json: string): RepoSnapshot {
   try {
-    const snapshot = JSON.parse(json) as RepoSnapshot;
-    if (!snapshot || !Array.isArray(snapshot.markets) || !Array.isArray(snapshot.decks) ||
+    return validResearchSnapshot(JSON.parse(json) as RepoSnapshot);
+  } catch (cause) {
+    throw new Error('Your saved research is unreadable. Export or recover it before continuing; nothing has been overwritten.', { cause });
+  }
+}
+
+/** Shape checks only. Writes validate the object they serialize: re-parsing a
+ * multi-megabyte JSON string they just produced cost a full parse per save. */
+function validResearchSnapshot(snapshot: RepoSnapshot): RepoSnapshot {
+  if (!snapshot || !Array.isArray(snapshot.markets) || !Array.isArray(snapshot.decks) ||
       !Array.isArray(snapshot.companies) || !Array.isArray(snapshot.cards) || !Array.isArray(snapshot.metrics)) {
       throw new Error('Invalid research workspace');
     }
@@ -43,10 +51,7 @@ export function parseResearchSnapshot(json: string): RepoSnapshot {
     }
     if (snapshot.originalSourceAttempts?.some(row => !isOriginalSourceAttempt(row)) ||
       new Set(snapshot.originalSourceAttempts?.map(row => row.id)).size !== (snapshot.originalSourceAttempts?.length ?? 0)) throw new Error('Invalid original-source attempts');
-    return snapshot;
-  } catch (cause) {
-    throw new Error('Your saved research is unreadable. Export or recover it before continuing; nothing has been overwritten.', { cause });
-  }
+  return snapshot;
 }
 
 async function records(): Promise<Record<string, RecordValue | undefined>> {
@@ -81,9 +86,11 @@ export async function openBrowserResearchStore(): Promise<ResearchStore> {
       // Capture now, before queued writes or caller mutations can change this revision.
       const json = JSON.stringify(snapshot);
       const version = snapshot.schemaVersion ?? 1;
+      let invalid: unknown;
+      try { validResearchSnapshot(snapshot); } catch (cause) { invalid = cause; }
       const operation = queue.then(async () => {
         if (future || version > REPO_SCHEMA_VERSION) throw new Error('This research uses a newer version of Stratemark. Update before saving.');
-        parseResearchSnapshot(json);
+        if (invalid) throw new Error('Your saved research is unreadable. Export or recover it before continuing; nothing has been overwritten.', { cause: invalid });
         const db = await openDatabase();
         await new Promise<void>((resolve, reject) => {
           const tx = db.transaction('snapshots', 'readwrite');
