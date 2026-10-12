@@ -5,7 +5,6 @@
  * built from the already-researched point metrics (no fabricated time series);
  * Live Landing is computed locally.
  */
-import { z } from 'zod';
 import {
   currentMetricRevision,
   comparableMetricBasis,
@@ -32,6 +31,8 @@ import { projectCompanyFacts } from './company-facts';
 import { secRevenueSeries } from './sec-revenue';
 import { researchCompanyProducts, type ProductEvidenceSelections } from './company-products';
 import { researchCompanyTeamOrg, type TeamOrgSelections } from './company-team';
+import { researchLiveIntel, type PageReader } from './live-intel';
+import type { WebSearchFn } from './web-search';
 
 export interface TabResearchArgs {
   company: Company;
@@ -43,33 +44,15 @@ export interface TabResearchArgs {
   originalAttempts?: OriginalSourceAttempt[];
   refreshOriginals?: boolean;
   overviewSeed?: OverviewSeed;
+  /** Free news feed (real article URLs and dates). Live Intel only. */
+  newsSearch?: WebSearchFn;
+  /** Reads a public page's raw HTML (follows redirects). Live Intel only. */
+  readPage?: PageReader;
 }
 
 const ctx = (a: TabResearchArgs): string =>
   `${a.company.name}${a.company.websiteUrl ? ` (${a.company.websiteUrl})` : ''}, a company in the market "${a.marketName}".\n${companySourceTargets(a.company.websiteUrl)}`;
 
-// Loose intermediate for live intel (server sets timestamps/stale).
-// Tolerant to the model returning the item list bare instead of wrapped in
-// { items: [...] } — the exact "Expected object, received array" crash class
-// that took down Team & Org (2026-08-25 AM) and then Live Intel (same day PM).
-const liveIntelItemsSchema = z.preprocess(
-  (input) => (Array.isArray(input) ? { items: input } : input),
-  z.object({
-    items: z
-      .array(
-        z.object({
-          source: z.enum(['news', 'x', 'reddit']).default('news'),
-          title: z.string(),
-          url: z.string().default(''),
-          summary: z.string().default(''),
-          detail: z.string().nullable().default(null),
-          publishedDate: z.string().nullable().default(null),
-          sentiment: z.enum(['positive', 'neutral', 'negative']).default('neutral'),
-        }),
-      )
-      .default([]),
-  }),
-);
 
 function metricsFromStored(metrics: CompanyMetric[], companyId: string, officialWebsite?: string | null,
   secRevenueSeriesOverride?: Array<{ period: string; value: number; asOf: string }>): MetricsContent {
@@ -185,6 +168,11 @@ export async function researchDashboardWithSources<T extends DashboardTab>(tab: 
     const result = await researchCompanyProducts(args);
     return { ...result, content: result.content as DashboardContentMap[T] };
   }
+  if (tab === 'live_intel') {
+    const result = await researchLiveIntel({ company: args.company, context: ctx(args), client: args.client, signal: args.signal,
+      newsSearch: args.newsSearch, readPage: args.readPage });
+    return { content: result.content as DashboardContentMap[T], citations: result.citations };
+  }
   if (tab === 'team_org') {
     const result = await researchCompanyTeamOrg({ company: args.company, client: args.client, signal: args.signal,
       originalSources: args.originalSources, originalAttempts: args.originalAttempts, refreshOriginals: args.refreshOriginals });
@@ -202,33 +190,6 @@ export async function researchDashboardWithSources<T extends DashboardTab>(tab: 
     },
   };
   const content = await researchDashboardTab(tab, { ...args, client });
-  if (tab === 'live_intel') {
-    // A tab-level source list is not enough: each clickable story must point
-    // to one of the URLs actually returned by grounding. Otherwise structured
-    // model output can invent a convincing but unsupported article link.
-    const canonicalUrl = (raw: string) => {
-      try {
-        const url = new URL(raw);
-        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
-        url.hash = '';
-        return url.href;
-      } catch { return null; }
-    };
-    const citationByUrl = new Map(citations.flatMap(citation => {
-      const key = canonicalUrl(citation.url);
-      return key ? [[key, citation] as const] : [];
-    }));
-    const seen = new Set<string>();
-    const liveIntel = content as DashboardContentMap['live_intel'];
-    const items = liveIntel.items.flatMap(item => {
-      const key = canonicalUrl(item.url);
-      const citation = key ? citationByUrl.get(key) : undefined;
-      if (!key || !citation || seen.has(key)) return [];
-      seen.add(key);
-      return [{ ...item, url: citation.url }];
-    });
-    return { content: { ...liveIntel, items } as DashboardContentMap[T], citations };
-  }
   return { content, citations };
 }
 
@@ -266,32 +227,8 @@ export async function researchDashboardTab<T extends DashboardTab>(
     }
 
     case 'live_intel': {
-      const g = await client.ground(
-        `Find the most recent news, X/Twitter, and Reddit discussion about ${ctx(args)} (last few weeks). Surface 12–18 DISTINCT items — separate stories, threads, and announcements, not variations of one story — mixing all three source types where they exist. For each, note: the source type, headline, URL, the story's PUBLISH DATE as reported (day-level when available), a one-line summary, sentiment, and 2–4 sentences of reported detail about the story — include a short direct quote when the coverage carries one. If fewer genuinely exist, return only what is real; never pad.`,
-        system,
-      );
-      const loose = await client.structure(
-        `Convert to JSON { "items": [ { "source": "news"|"x"|"reddit", "title", "url", "summary" (one line), "detail": string|null (2-4 reported sentences, quote included when the notes carry one; null when the notes say nothing beyond the headline), "publishedDate": "YYYY-MM-DD"|null (the story's reported publish date; null when the notes don't state it — NEVER guess), "sentiment": "positive"|"neutral"|"negative" } ] }.\n\nNOTES:\n${g.text}`,
-        liveIntelItemsSchema,
-        structSys,
-      );
-      const nowIso = new Date().toISOString();
-      return {
-        items: loose.items.map((it, i) => ({
-          id: `${args.company.id}-intel-${i}`,
-          source: it.source,
-          title: it.title,
-          url: it.url,
-          summary: it.summary,
-          detail: it.detail,
-          publishedDate: it.publishedDate,
-          sentiment: it.sentiment,
-          publishedAt: nowIso,
-          stale: false,
-        })),
-        lastRefreshedAt: nowIso,
-        cadence: 'weekly',
-      } as DashboardContentMap[T];
+      return (await researchLiveIntel({ company: args.company, context: ctx(args), client, signal,
+        newsSearch: args.newsSearch, readPage: args.readPage })).content as DashboardContentMap[T];
     }
 
     case 'team_org': {

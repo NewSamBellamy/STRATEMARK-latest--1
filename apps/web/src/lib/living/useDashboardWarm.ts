@@ -18,7 +18,10 @@ export function useDashboardHydrating(companyId: string | null | undefined): boo
   return !paused && fetching > 0;
 }
 
-/** One bounded sequential warm pass, sharing the deck's durable scheduling switch. */
+/** What a reader looks at first: the scoop and the figures, then people and story. */
+const WARM_ORDER: DashboardTab[] = ['overview', 'live_intel', 'metrics', 'history', 'team_org', 'products_roadmap', 'mission_governance', 'live_landing'];
+
+/** One bounded warm pass, sharing the deck's durable scheduling switch. */
 export function useDashboardWarm(companyId: string | undefined, activeTab: DashboardTab, companyName?: string) {
   const repo = useRepository();
   const qc = useQueryClient();
@@ -36,9 +39,13 @@ export function useDashboardWarm(companyId: string | undefined, activeTab: Dashb
     void (async () => {
       // 'research' reads local evidence only — warming it would POST a doomed request.
       const pending = new Set<DashboardTab>(DASHBOARD_TABS.filter((t) => t !== 'research'));
+      // Three desks at once: the tab on screen first, then the rest. The model
+      // client paces calls to the key's rate, so this overlaps waiting on
+      // search with reading results instead of queueing tab after tab.
+      const worker = async () => {
       while (pending.size > 0 && allowed()) {
         const next = pending.has(latest.current.activeTab) ? latest.current.activeTab
-          : DASHBOARD_TABS.find(tab => pending.has(tab))!;
+          : WARM_ORDER.find(tab => pending.has(tab))!;
         pending.delete(next);
         if (qc.getQueryData(qk.dashboard(companyId, next)) != null) continue;
         try {
@@ -58,6 +65,8 @@ export function useDashboardWarm(companyId: string | undefined, activeTab: Dashb
           if (allowed()) setFailed(previous => [...new Set([...previous, next])]);
         }
       }
+      };
+      await Promise.all([worker(), worker(), worker()]);
     })();
     return () => { cancelled = true; };
   }, [companyId, paused, available, qc, repo]);

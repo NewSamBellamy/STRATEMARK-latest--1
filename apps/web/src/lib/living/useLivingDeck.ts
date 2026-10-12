@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { isLowPower } from '@/lib/usage';
+import { yieldsToFocus } from './researchFocus';
 import {
   METRIC_TYPE_LABELS,
   PROFILE_CORE_SLOTS,
@@ -275,7 +276,14 @@ export function useLivingDeck(
     }
     if (done.has(companyId)) return;
     done.add(companyId);
-    void repo.fillCompanyAssets!(companyId, readAssetSource).catch(() => { /* favicon fallback stays */ });
+    // One delayed retry after a failure (offline blip, slow site) instead of
+    // never trying again this session; a second failure keeps the fallback.
+    const attempt = (retry: boolean): void => {
+      void repo.fillCompanyAssets!(companyId, readAssetSource).catch(() => {
+        if (retry) setTimeout(() => attempt(false), 30_000);
+      });
+    };
+    attempt(true);
   };
 
   useEffect(() => {
@@ -521,7 +529,7 @@ export function useLivingDeck(
           for (const c of current) {
             const companyId = c.company!.id;
             const key = `${companyId}:${tab}`;
-            if (prefetched.has(key)) continue;
+            if (prefetched.has(key) || yieldsToFocus(companyId)) continue;
             if (qc.getQueryData(qk.dashboard(companyId, tab)) !== undefined) {
               prefetched.add(key);
               continue;

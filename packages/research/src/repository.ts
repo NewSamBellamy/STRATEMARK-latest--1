@@ -120,6 +120,8 @@ import { getSearxngLane, type DiscoveryNotes } from './searxng';
 import { huntSearchQueries, webSearchLane, type WebSearchFn } from './web-search';
 import { quotedEstimateNote, quotedOriginalEstimate } from './quoted-estimate';
 import { resolveCompanyBrand, type CompanyLogo } from './assets';
+import { checkHomepageName, discoverOfficialDomain } from './brand/domain';
+import { faviconUrl, knownCompanyDomain } from './logos';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
  * persists per card and every provider call is deadline-bounded, so a job
@@ -129,7 +131,9 @@ import { resolveCompanyBrand, type CompanyLogo } from './assets';
 const JOB_STALL_MS = 8 * 60_000;
 /** The hydration-time logo is a gstatic favicon guess, not company art. The
  * asset lane (and only the asset lane, or the user) replaces it. */
-const GUESSED_LOGO_RE = /^https:\/\/t2\.gstatic\.com\/faviconV2/;
+const GUESSED_LOGO_RE = /^https:\/\/t[0-3]\.gstatic\.com\/faviconV2|^https:\/\/www\.google\.com\/s2\/favicons/;
+/** The generic example.com globe stub logo — a placeholder, never company art. */
+const PLACEHOLDER_LOGO_RE = /[?&]url=https?:\/\/example\.com|[?&]domain=example\.com/;
 /** Favicon-sized store thumbnails (e.g. Shopify ?height=32) are not brand logos. */
 const TINY_LOGO_RE = /[?&](?:height|width)=(?:1\d|[2-5]\d|6[0-3])(?:&|$)/;
 import { readCompanyOriginals } from './core-source-coverage';
@@ -2093,6 +2097,7 @@ export class GeminiRepository implements MarketIntelRepository {
         client: boundedClient,
         signal: controller.signal,
         refreshOriginals: Boolean(force),
+        ...(tab === 'live_intel' ? { newsSearch: this.newsSearch?.() ?? undefined, readPage: this.assetSourceReader } : {}),
         ...(tab === 'overview' ? { originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20,
           support: originalSupportReferences(this.snap.metrics, companyId) }) } : {}),
         ...(['products_roadmap', 'team_org'].includes(tab) ? { originalSources: this.originalSources,
@@ -3441,10 +3446,10 @@ export class GeminiRepository implements MarketIntelRepository {
     read: (url: string) => Promise<OriginalSourceReceipt>,
   ): Promise<{ logo: CompanyLogo | null }> {
     const company = this.snap.companies.find((c) => c.id === companyId);
-    if (!company?.websiteUrl) return { logo: null };
-    const guessed = !company.logoUrl || GUESSED_LOGO_RE.test(company.logoUrl) || TINY_LOGO_RE.test(company.logoUrl);
+    if (!company) return { logo: null };
+    let guessed = !company.logoUrl || GUESSED_LOGO_RE.test(company.logoUrl) || TINY_LOGO_RE.test(company.logoUrl)
+      || PLACEHOLDER_LOGO_RE.test(company.logoUrl);
     const needsColors = !company.brandTheme || company.brandTheme.source === 'default';
-    if (!guessed && !needsColors) return { logo: null };
     // One read per URL per call: retention reuses the exact receipt the
     // resolution ladder already fetched.
     const readMemo = new Map<string, Promise<OriginalSourceReceipt>>();
@@ -3457,8 +3462,46 @@ export class GeminiRepository implements MarketIntelRepository {
       }
       return entry;
     };
+    // Domain repair: no website, or a homepage that never names the company
+    // (a wrong-domain guess). Persisted only when the discovered homepage
+    // verifiably declares the company's name.
+    let repaired = false;
+    if (guessed || needsColors) {
+      let wrongHost: string | null = null;
+      if (company.websiteUrl) {
+        const check = await checkHomepageName(company.websiteUrl, company.name, memoRead).catch(() => 'unreadable' as const);
+        if (check === 'mismatch') {
+          try {
+            const host = new URL(company.websiteUrl).hostname;
+            // A reviewed alias domain is never second-guessed by page text.
+            if (knownCompanyDomain(company.name) !== host.replace(/^www\./, '')) wrongHost = host;
+          } catch { wrongHost = null; }
+        }
+      }
+      if (!company.websiteUrl || wrongHost) {
+        const found = await discoverOfficialDomain(company.name, memoRead, { exclude: wrongHost ? [wrongHost] : [] }).catch(() => null);
+        if (found) {
+          company.websiteUrl = found.url;
+          repaired = true;
+          guessed = true; // any stored logo derived from the old domain is suspect
+        }
+      }
+    }
+    if (!company.websiteUrl) return { logo: null };
+    if (!guessed && !needsColors) return { logo: null };
     const { logo: found, colors } = await resolveCompanyBrand(company.websiteUrl, memoRead, { name: company.name, skipWikidata: !guessed });
-    const logo = guessed ? found : null;
+    let logo = guessed ? found : null;
+    if (guessed && !logo) {
+      // Nothing declared on the page: the Google favicon service WITH
+      // fallback_opts returns the real 128px+ icon (404s when none exists) —
+      // never the 16px placeholder the old stored URL produced.
+      let host: string | null = null;
+      try { host = new URL(company.websiteUrl).hostname.replace(/^www\./, ''); } catch { /* none */ }
+      const fav = faviconUrl(host);
+      if (fav && fav !== company.logoUrl) {
+        logo = { kind: 'logo', url: fav, sourceUrl: company.websiteUrl, retrievedAt: new Date().toISOString(), via: 'favicon-service' };
+      }
+    }
     if (colors) {
       // Real colours only; text/background/font keep their existing values.
       const prev = company.brandTheme;
@@ -3468,7 +3511,7 @@ export class GeminiRepository implements MarketIntelRepository {
         fontFamily: prev?.fontFamily ?? null, source: 'scraped', signal: colors.signal,
       };
     }
-    if (!logo && !colors) return { logo: null };
+    if (!logo && !colors && !repaired) return { logo: null };
     if (logo) company.logoUrl = logo.url;
     if (logo && this.originalSources) {
       try {

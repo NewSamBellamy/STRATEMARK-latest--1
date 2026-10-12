@@ -1,3 +1,4 @@
+import { useFocusCompany } from '@/lib/living/researchFocus';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQueryClient, useIsFetching } from '@tanstack/react-query';
@@ -323,6 +324,7 @@ export default function DashboardPage() {
   const hasKey = useApiKey((s) => s.hasKey);
   const activeTab = tab as DashboardTab;
   const rerunTab = useRerunDashboardTab(companyId, activeTab);
+  useFocusCompany(companyId);
   const prefetchFailed = useDashboardWarm(companyId, activeTab, company.data?.name);
 
   // Anchor the floating presence's "Chat" to THIS company's research context.

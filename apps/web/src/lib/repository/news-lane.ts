@@ -24,7 +24,7 @@ async function relayNews(query: string): Promise<WebSearchResult[]> {
     if (!response.ok) return [];
     const body = await response.json() as { results?: unknown };
     return Array.isArray(body.results)
-      ? (body.results as WebSearchResult[]).filter((r) => typeof r?.url === 'string' && r.url.startsWith('https://')).slice(0, 8)
+      ? (body.results as WebSearchResult[]).filter((r) => typeof r?.url === 'string' && r.url.startsWith('https://')).slice(0, 12)
       : [];
   } catch {
     return [];

@@ -13,6 +13,8 @@
 import { useEffect, useState } from 'react';
 import type { OrgNode } from '@mi/contracts';
 import { cn } from '@/lib/cn';
+import { fetchWikidataHeadshot } from '@/lib/media/wikidataHeadshot';
+import { loadPersisted, makeLimiter, savePersisted } from '@/lib/media/headshotCache';
 
 interface Headshot {
   thumb: string;
@@ -20,6 +22,7 @@ interface Headshot {
 }
 
 const headshotCache = new Map<string, Headshot | null>();
+const limit = makeLimiter(3);
 
 interface WikiSummary {
   thumbnail?: { source?: string };
@@ -72,12 +75,23 @@ function verifiedShot(
  * is re-fetched and re-verified. Both attempts pass the same verification
  * gate; only a confirmed match ever renders. Results (including misses) cache.
  */
-async function fetchWikiHeadshot(
-  personName: string,
-  companyName: string,
-): Promise<Headshot | null> {
+function fetchWikiHeadshot(personName: string, companyName: string): Promise<Headshot | null> {
   const key = `${personName}::${companyName}`;
-  if (headshotCache.has(key)) return headshotCache.get(key) ?? null;
+  if (headshotCache.has(key)) return Promise.resolve(headshotCache.get(key) ?? null);
+  const persisted = loadPersisted<Headshot>(key);
+  if (persisted.hit) {
+    headshotCache.set(key, persisted.value);
+    return Promise.resolve(persisted.value);
+  }
+  return limit(async () => {
+    const shot = await resolveHeadshot(personName, companyName);
+    headshotCache.set(key, shot);
+    savePersisted(key, shot);
+    return shot;
+  });
+}
+
+async function resolveHeadshot(personName: string, companyName: string): Promise<Headshot | null> {
 
   // Attempt 1: the article usually lives at the person's exact name.
   const direct = verifiedShot(
@@ -86,10 +100,7 @@ async function fetchWikiHeadshot(
     personName,
     companyName,
   );
-  if (direct) {
-    headshotCache.set(key, direct);
-    return direct;
-  }
+  if (direct) return direct;
 
   // Attempt 2: search Wikipedia for the person IN their company context —
   // finds "Name (executive)"-style titles and articles the direct miss hides.
@@ -108,18 +119,17 @@ async function fetchWikiHeadshot(
         const title = hit.title?.trim();
         if (!title) continue;
         const shot = verifiedShot(await wikiSummary(title), title, personName, companyName);
-        if (shot) {
-          headshotCache.set(key, shot);
-          return shot;
-        }
+        if (shot) return shot;
       }
     }
   } catch {
     // fall through to the honest miss
   }
 
-  headshotCache.set(key, null);
-  return null;
+  // Attempt 3: Wikidata — a human tied to the company by employer/position
+  // claims, with a Commons portrait (P18). Namesakes elsewhere are rejected.
+  const wd = await fetchWikidataHeadshot(personName, companyName);
+  return wd ? { thumb: wd.thumb, sourceUrl: wd.sourceUrl } : null;
 }
 
 /** Shared hook: resolve the verified headshot for a person at a company. */
@@ -144,6 +154,10 @@ const GROUP_RING: Record<OrgNode['group'], string> = {
   design: 'ring-pink-400/60',
   other: 'ring-slate-300/60',
 };
+
+function photoCredit(shot: Headshot): string {
+  return /wikipedia.org/.test(shot.sourceUrl) ? 'Photo: Wikipedia' : 'Photo: Wikimedia Commons';
+}
 
 function initialsOf(name: string): string {
   return name
@@ -180,7 +194,13 @@ export function WikiAvatar({
       )}
     >
       {shot ? (
-        <img src={shot.thumb} alt={name} className="h-full w-full object-cover" loading="lazy" />
+        <img
+          src={shot.thumb}
+          alt={name}
+          title={photoCredit(shot)}
+          className="h-full w-full object-cover"
+          loading="lazy"
+        />
       ) : (
         <span
           className={cn(
@@ -222,6 +242,7 @@ function LeaderCard({
           <img
             src={shot.thumb}
             alt={person.name}
+            title={photoCredit(shot)}
             className="h-full w-full object-cover"
             loading="lazy"
           />

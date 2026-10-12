@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useCompany, useDashboardTab } from '@/hooks/data';
 import { siteUrl } from '@/lib/siteUrl';
+import { useRealCover } from '@/lib/media/realCover';
+import { FundingChart } from './FundingChart';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { InsightReader, type InsightTone } from '@/components/reader/InsightReader';
-import { AiCover } from '@/components/media/AiCover';
 import { WikiAvatar } from './LeaderGrid';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { UnknownInline } from '@/features/card/UnknownValue';
@@ -38,6 +39,30 @@ function ProseBlock({ label, text, missing }: { label: string; text: string; mis
         <div className="markdown mt-1.5 text-sm leading-relaxed text-content/90"><ResearchMarkdown text={text} /></div>
       ) : (
         <p className="mt-1.5 text-sm text-faint">{missing}</p>
+      )}
+    </div>
+  );
+}
+
+/** The image the company's own site publishes (og:image), credited. No image → nothing; never generated art. */
+function IdentityCover({ url, name }: { url: string | null; name: string }) {
+  const real = useRealCover(url);
+  const [broken, setBroken] = useState(false);
+  if (real.status !== 'ready' || !real.src || broken) return null;
+  return (
+    <div className="relative h-[96px] overflow-hidden rounded-xl border border-border bg-surface-2">
+      <img
+        src={real.src}
+        alt={`${name} — image published by the company's site`}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setBroken(true)}
+        className="h-full w-full object-cover"
+      />
+      {real.publisher && (
+        <span className="absolute bottom-0.5 right-1.5 max-w-[90%] truncate text-[9px] text-white/85 [text-shadow:0_1px_2px_rgba(0,0,0,.6)]">
+          Image: {real.publisher}
+        </span>
       )}
     </div>
   );
@@ -116,18 +141,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                       <p className="mt-3 text-sm text-muted">No board members surfaced yet.</p>
                     )}
                   </div>
-                  {/* The identity: the image the company's own site publishes
-                      (real, credited); generated art only as a BYOK fallback. */}
-                  <div className="h-[96px] overflow-hidden rounded-xl border border-border">
-                    <AiCover
-                      cacheKey={`mission:${companyId}`}
-                      title={`${name} — organizational identity`}
-                      context={`Abstract editorial illustration of this organization's identity and governance structure. Mission: ${c.mission?.slice(0, 200) ?? ''} Governance: ${c.governanceStructure?.slice(0, 200) ?? ''} Depict the structure and ethos conceptually — clean geometric diagram-like abstraction, unique to this company.`}
-                      url={siteUrl(companyQ?.websiteUrl) ?? ''}
-                      source="news"
-                      compact
-                    />
-                  </div>
+                  <IdentityCover url={siteUrl(companyQ?.websiteUrl)} name={name} />
                 </div>
               </div>
             </section>
@@ -145,6 +159,8 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                 </EmptyNote>
               ) : (
                 <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+                  <div className="space-y-4">
+                  <FundingChart rounds={fundingRounds} />
                   <div className="panel overflow-hidden">
                     <div className="border-b border-border bg-surface-2/60 px-4 py-2">
                       <FieldLabel>Rounds · {fundingRounds.length}</FieldLabel>
@@ -184,6 +200,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                     ) : (
                       <p className="px-4 py-4 text-sm text-muted">No reported rounds surfaced yet.</p>
                     )}
+                  </div>
                   </div>
 
                   <div className="panel p-4">

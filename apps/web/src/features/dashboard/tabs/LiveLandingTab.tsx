@@ -13,7 +13,9 @@ import {
   pageShotUrlAlt,
 } from '@/lib/screenshot';
 
-function SitePreview({ url, fallbackShot }: { url: string; fallbackShot: string | null }) {
+/** A live capture of the site. `quiet` renders nothing instead of the error
+ * panel when both capture services are refused (for small inline previews). */
+export function SitePreview({ url, fallbackShot, quiet = false, onFail }: { url: string; fallbackShot: string | null; quiet?: boolean; onFail?: () => void }) {
   const [attempt, setAttempt] = useState(0);
   // After mShots exhausts its attempts, ONE pass through the independent
   // second provider (thum.io) — the permanent "works here, not there" fix.
@@ -32,6 +34,7 @@ function SitePreview({ url, fallbackShot }: { url: string; fallbackShot: string 
   const scheduleRetry = () => {
     if (provider === 'alt') {
       setFailed(true);
+      onFail?.();
       return;
     }
     if (attempt >= MAX_ATTEMPTS) {
@@ -57,6 +60,7 @@ function SitePreview({ url, fallbackShot }: { url: string; fallbackShot: string 
       />
     );
   }
+  if (failed && quiet) return null;
   if (failed) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center">

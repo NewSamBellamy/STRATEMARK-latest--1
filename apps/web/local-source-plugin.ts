@@ -22,7 +22,7 @@ interface JsonRoute {
   handle(body: unknown, header: Header): Promise<JsonReply>;
 }
 
-const MAX_ACTIVE = 6;
+const MAX_ACTIVE = 12;
 
 async function readBody(req: IncomingMessage, maxBody: number): Promise<string | null> {
   let body = '';

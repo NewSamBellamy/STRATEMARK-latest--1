@@ -53,6 +53,8 @@ export function isPlausibleSearchKey(key: unknown): key is string {
 export interface WebSearchResult extends SearxngResult {
   /** Publication date when the engine reports one (free text, never trusted as an as-of). */
   published?: string;
+  /** The publication's name when the engine reports it ("Reuters"). */
+  publisher?: string;
 }
 
 export interface SearchRequest {

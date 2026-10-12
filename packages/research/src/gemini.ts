@@ -57,6 +57,9 @@ function isLineFailure(error: unknown): boolean {
 // error/body: it can contain credentials, prompts or private research content.
 class SafeGeminiError extends Error {}
 
+export const QUOTA_EXHAUSTED_MESSAGE = 'Your Gemini key has run out of quota. Add billing or credits at aistudio.google.com, or wait for the daily limit to reset. Research resumes on its own.';
+const QUOTA_COOLDOWN_MS = 5 * 60_000;
+
 /** One deadline for pacing, requests, body reads and all retries/JSON repairs. */
 async function withDeadline<T>(work: (signal: AbortSignal) => Promise<T>, external?: AbortSignal,
   deadlineMs: number = CALL_DEADLINE_MS): Promise<T> {
@@ -297,6 +300,11 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
   const groundedRpm = config.groundedRpm ?? DEFAULT_GROUNDED_RPM;
   const structureRpm = config.structureRpm ?? DEFAULT_STRUCTURE_RPM;
   const limiters = new Map<string, ReturnType<typeof createRateLimiter> | null>();
+  // An exhausted quota (billing or daily cap) is not a rate limit: retrying,
+  // or trying another model on the same key, only burns requests. Fail fast
+  // with a message the user can act on, and stay quiet for a few minutes.
+  let quotaBlockedUntil = 0;
+  const quotaError = () => Object.assign(new SafeGeminiError(QUOTA_EXHAUSTED_MESSAGE), { status: 402 });
   const limiterFor = (model: string) => {
     if (limiters.has(model)) return limiters.get(model)!;
     const rpms = [
@@ -326,6 +334,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
     const data = await withRetry(
       async () => {
         throwIfAborted(signal);
+        if (Date.now() < quotaBlockedUntil) throw quotaError();
         attempts += 1;
         // Every dispatched attempt — retries included — spends a slot, so a
         // 429 storm cannot silently exceed the key's real per-minute cap.
@@ -381,6 +390,10 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           // with a fixed message (the provider body is still never echoed).
           if ([400, 401, 403].includes(res.status) && /API_KEY_INVALID|API key not valid|API key expired|API_KEY_SERVICE_BLOCKED/i.test(body ?? '')) {
             throw Object.assign(new SafeGeminiError('Your Gemini API key was rejected. Check or replace it in Settings.'), { status: res.status });
+          }
+          if (res.status === 429 && /exceeded your current quota|check your plan and billing/i.test(body ?? '')) {
+            quotaBlockedUntil = Date.now() + QUOTA_COOLDOWN_MS;
+            throw quotaError();
           }
           const err = new Error(
             `Gemini ${res.status}: request failed.`,

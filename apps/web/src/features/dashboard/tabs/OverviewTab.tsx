@@ -20,14 +20,18 @@ import {
 import { KpiTileSkeleton, Section, useTabHref } from '../dashboardKit';
 import { usePeers } from '../usePeers';
 import { useCachedDashboardTab } from '../useCachedTab';
+import { ArticleReader, TopStories } from './LiveIntelTab';
+import { SitePreview } from './LiveLandingTab';
+import { VideoStrip } from '@/components/media/StoryMedia';
 
 /**
  * Overview: the company in one screen, nothing repeated.
  *
  *   1. Key figures: the card's own four, each with its source and date
- *   2. Summary: who they are, what they do, where they stand, who buys
- *   3. Latest: recent news and dated milestones
- *   4. The full research brief, folded away
+ *   2. What's happening: the newest stories with their own pictures
+ *   3. Summary beside a live capture of their website
+ *   4. Their own videos, then dated milestones
+ *   5. The full research brief, folded away
  *
  * Peer comparison lives on Metrics (one place), and sources live with the
  * figure or sentence they back, not in a box at the bottom.
@@ -159,61 +163,92 @@ function FaceTile({ item, ranking, href }: { item: FaceItem; ranking: PeerRankin
   );
 }
 
-// ---- Latest ----------------------------------------------------------------
+// ---- What's happening ----------------------------------------------------
 
-const SENTIMENT_DOT = { positive: '#16A34A', neutral: '#9A9AA1', negative: '#DC2626' } as const;
-
-/** Recent news beside dated milestones, from tabs that are already researched. */
-function Latest({ companyId }: { companyId: string }) {
+/** The scoop: today's stories with their pictures. Starts the news search if
+ * this company has none yet (the same pass the Live Intel tab would run). */
+function Happening({ companyId, companyName }: { companyId: string; companyName: string }) {
   const href = useTabHref(companyId);
-  const intel = useCachedDashboardTab(companyId, 'live_intel').data;
-  const history = useCachedDashboardTab(companyId, 'history').data;
-  const items = [...(intel?.content.items ?? [])]
+  const intel = useDashboardTab(companyId, 'live_intel');
+  const [openId, setOpenId] = useState<string | null>(null);
+  const items = useMemo(() => [...(intel.data?.content.items ?? [])]
     .filter((i) => !i.stale)
-    .sort((a, b) => (b.publishedDate ?? b.publishedAt).localeCompare(a.publishedDate ?? a.publishedAt))
-    .slice(0, 3);
-  const timeline = (history?.content.timeline ?? []).slice(-4).reverse();
+    .sort((a, b) => (b.publishedDate ?? '').localeCompare(a.publishedDate ?? '')), [intel.data]);
+  const open = openId ? items.find((i) => i.id === openId) ?? null : null;
   return (
     <Section
-      title="Latest"
-      action={<Link to={href('live_intel')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All news <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
+      title="What's happening"
+      action={items.length > 4 ? <Link to={href('live_intel')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All {items.length} stories <ArrowRight className="h-3 w-3" aria-hidden /></Link> : undefined}
     >
-      <div className={cn('grid gap-4', timeline.length > 0 && 'md:grid-cols-2')}>
-        <div className="panel divide-y divide-border">
-          {items.length > 0 ? items.map((item) => (
-            <a key={item.id} href={item.url} target="_blank" rel="noopener noreferrer"
-              className="group block px-4 py-3 transition-colors hover:bg-surface-2/60">
-              <p className="line-clamp-2 text-[13.5px] font-medium leading-snug text-content group-hover:text-primary-ink">{item.title}</p>
-              <p className="mt-1 flex items-center gap-1.5 text-[11px] text-faint">
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: SENTIMENT_DOT[item.sentiment] }} aria-hidden />
-                {item.source === 'news' ? 'News' : item.source === 'x' ? 'X' : 'Reddit'}
-                <span aria-hidden>·</span>
-                {item.publishedDate ?? item.publishedAt.slice(0, 10)}
-              </p>
-            </a>
-          )) : (
-            <p className="px-4 py-4 text-[13px] leading-snug text-muted">
-              No news gathered yet. <Link to={href('live_intel')} className="text-primary-ink hover:underline">Check the news</Link>
-            </p>
-          )}
+      {intel.isPending ? (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]" aria-label="Finding the latest stories">
+          <div className="panel aspect-[16/10] animate-pulse bg-surface-2" />
+          <div className="grid gap-3">{[0, 1, 2].map((i) => <div key={i} className="panel h-[104px] animate-pulse bg-surface-2" />)}</div>
         </div>
-        {timeline.length > 0 && (
-          <ol className="panel space-y-2.5 px-4 py-3.5">
-            {timeline.map((e, i) => (
-              <li key={i} className="grid grid-cols-[96px_minmax(0,1fr)] gap-3 text-[13px] leading-snug">
-                <span className="tabular-nums text-faint">{e.date}</span>
-                <span className="text-content">{e.title}</span>
-              </li>
-            ))}
-            <li>
-              <Link to={href('history')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">
-                Full history <ArrowRight className="h-3 w-3" aria-hidden />
-              </Link>
-            </li>
-          </ol>
-        )}
-      </div>
+      ) : items.length > 0 ? (
+        <TopStories items={items} onOpen={setOpenId} />
+      ) : (
+        <p className="panel px-4 py-4 text-[13px] leading-snug text-muted">
+          No recent coverage found. <Link to={href('live_intel')} className="text-primary-ink hover:underline">Search again</Link>
+        </p>
+      )}
+      {open && <ArticleReader item={open} companyId={companyId} companyName={companyName} onClose={() => setOpenId(null)} />}
     </Section>
+  );
+}
+
+/** The company's own latest videos, when its site links a YouTube channel. */
+function Watch({ companyId }: { companyId: string }) {
+  const videos = useCachedDashboardTab(companyId, 'live_intel').data?.content.videos ?? [];
+  if (!videos.length) return null;
+  return (
+    <Section title="Watch">
+      <VideoStrip videos={videos} />
+    </Section>
+  );
+}
+
+/** Dated milestones, from the History tab when it has been researched. */
+function Milestones({ companyId }: { companyId: string }) {
+  const href = useTabHref(companyId);
+  const history = useCachedDashboardTab(companyId, 'history').data;
+  const timeline = (history?.content.timeline ?? []).slice(-5).reverse();
+  if (!timeline.length) return null;
+  return (
+    <Section
+      title="Milestones"
+      action={<Link to={href('history')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">Full history <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
+    >
+      <ol className="panel relative space-y-3 px-5 py-4">
+        {timeline.map((e, i) => (
+          <li key={i} className="grid grid-cols-[96px_minmax(0,1fr)] gap-3 text-[13.5px] leading-snug">
+            <span className="tabular-nums text-faint">{e.date}</span>
+            <span className="text-content">{e.title}</span>
+          </li>
+        ))}
+      </ol>
+    </Section>
+  );
+}
+
+/** A live capture of the company's own site, beside the summary. Hidden when
+ * capture services are refused. */
+function SiteGlance({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  let host = url;
+  try { host = new URL(url).hostname.replace(/^www\./, ''); } catch { /* keep raw */ }
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" className="panel group block self-start overflow-hidden" title={`Open ${host}`}>
+      <div className="flex items-center gap-1.5 border-b border-border bg-surface-muted px-3 py-1.5">
+        <span className="h-2 w-2 rounded-full bg-border" /><span className="h-2 w-2 rounded-full bg-border" /><span className="h-2 w-2 rounded-full bg-border" />
+        <span className="ml-2 truncate text-[11px] text-faint">{host}</span>
+        <ExternalLink className="ml-auto h-3 w-3 text-faint group-hover:text-primary-ink" aria-hidden />
+      </div>
+      <div className="aspect-[16/10] overflow-hidden bg-surface-2">
+        <SitePreview url={url} fallbackShot={null} quiet onFail={() => setFailed(true)} />
+      </div>
+    </a>
   );
 }
 
@@ -231,6 +266,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
   // link): the same four strongest sourced figures, from live metrics so a
   // fresh correction shows at once.
   const companyQ = useCompany(companyId);
+  const site = companyQ.data?.websiteUrl && /^https?:\/\//.test(companyQ.data.websiteUrl) ? companyQ.data.websiteUrl : null;
   const face = useMemo(
     () => (companyQ.data ? companyFace(companyQ.data, metrics) : null),
     [companyQ.data, metrics],
@@ -271,6 +307,8 @@ export function OverviewTab({ companyId }: { companyId: string }) {
         )}
       </Section>
 
+      <Happening companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} />
+
       {query.isPending ? (
         <HydratingPanel label="Overview" variant="compact" />
       ) : query.isError ? (
@@ -293,6 +331,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
         </Section>
       ) : takeaways.length > 0 && (
         <Section title="Summary">
+          <div className={cn('grid gap-4', site && 'lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]')}>
           <dl className="panel divide-y divide-border">
             {takeaways.slice(0, 4).map((t) => (
               <div key={t.section} className="grid gap-x-6 gap-y-1 px-5 py-4 sm:grid-cols-[132px_minmax(0,1fr)]">
@@ -304,10 +343,13 @@ export function OverviewTab({ companyId }: { companyId: string }) {
               </div>
             ))}
           </dl>
+          {site && <SiteGlance url={site} />}
+          </div>
         </Section>
       )}
 
-      <Latest companyId={companyId} />
+      <Watch companyId={companyId} />
+      <Milestones companyId={companyId} />
 
       {structured && active && (
         <details className="panel group overflow-hidden">

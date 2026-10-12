@@ -358,11 +358,25 @@ export const liveIntelItemSchema = z.object({
   sentiment: z.enum(['positive', 'neutral', 'negative']),
   publishedAt: isoTimestamp,
   stale: z.boolean(),
+  // The publication's own name ("Reuters"), as the news feed or page reports it.
+  publisher: z.string().max(120).nullable().optional().catch(null),
+  // The article's own link-preview picture (og:image), when research read it.
+  imageUrl: z.string().max(2048).nullable().optional().catch(null),
+});
+/** A video from the company's OWN YouTube channel, linked from its homepage. */
+export const companyVideoSchema = z.object({
+  id: z.string().regex(/^[\w-]{11}$/),
+  title: z.string().max(300),
+  /** As YouTube shows it ("2 weeks ago"); never converted into a fake date. */
+  age: z.string().max(60).nullable().catch(null),
+  views: z.string().max(40).nullable().catch(null),
+  channelUrl: z.string().max(300),
 });
 export const liveIntelContentSchema = z.object({
   items: rows(liveIntelItemSchema),
   lastRefreshedAt: isoTimestamp.nullable().catch(null),
   cadence: refreshCadenceSchema.catch('weekly'),
+  videos: rows(companyVideoSchema).optional(),
 });
 
 export const orgNodeSchema = z.object({
@@ -479,9 +493,10 @@ export const productSchema = z.object({
   /** Official product page URL when sources name one — powers the live product
    * capture in the UI. Additive; null when not reported. */
   url: prose().nullable().catch(null),
-  // No neutral value exists here, so an unreadable status drops the row rather
-  // than asserting a lifecycle stage we did not find.
-  status: z.enum(['live', 'beta', 'sunset']),
+  // null = the product is sourced but no source states its lifecycle: render no
+  // badge. An unreadable (non-null, non-enum) status still drops the row rather
+  // than asserting a lifecycle stage we did not find. Additive widening.
+  status: z.enum(['live', 'beta', 'sunset']).nullable(),
 });
 export const roadmapItemSchema = z.object({
   title: z.string(),

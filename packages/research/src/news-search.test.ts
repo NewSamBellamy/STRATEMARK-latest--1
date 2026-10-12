@@ -14,7 +14,7 @@ describe('parseBingNewsRss', () => {
       snippet: 'Ramp raised $750 million.', published: '2026-06-04' }]);
   });
 
-  it('decodes entities and CDATA, drops markup, non-https and duplicates, and caps at eight', () => {
+  it('decodes entities and CDATA, drops markup, non-https and duplicates, and caps at twelve', () => {
     const items = [
       item('<![CDATA[Ramp &amp; partners]]>', 'https://a.com/x', 'bad date', '<b>Bold</b> &quot;quote&quot;'),
       item('dup', 'https://a.com/x', 'Thu, 04 Jun 2026 15:08:00 GMT'),
@@ -22,7 +22,7 @@ describe('parseBingNewsRss', () => {
       ...Array.from({ length: 12 }, (_, i) => item(`n${i}`, `https://n${i}.com/`, 'Thu, 04 Jun 2026 15:08:00 GMT')),
     ].join('');
     const rows = parseBingNewsRss(`<rss>${items}</rss>`);
-    expect(rows).toHaveLength(8);
+    expect(rows).toHaveLength(12);
     expect(rows[0]).toEqual({ url: 'https://a.com/x', title: 'Ramp & partners', snippet: 'Bold "quote"' });
     expect(rows.some((r) => r.url.startsWith('http:'))).toBe(false);
   });

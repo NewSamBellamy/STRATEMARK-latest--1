@@ -388,3 +388,16 @@ describe('ungrounded answer escalation', () => {
     expect(client.metrics?.()).toMatchObject({ ungroundedRetries: 1 });
   });
 });
+
+it('stops spending on an exhausted quota: one request, a fixable message, then no network', async () => {
+  const body = JSON.stringify({ error: { code: 429, status: 'RESOURCE_EXHAUSTED',
+    message: 'You exceeded your current quota, please check your plan and billing details.' } });
+  const fetchImpl = vi.fn(async () => new Response(body, { status: 429 }));
+  const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl, groundedRpm: 0, structureRpm: 0 });
+  const first = await client.ground('prompt').catch(e => e);
+  expect(first).toMatchObject({ status: 402, message: expect.stringMatching(/run out of quota/) });
+  expect(fetchImpl).toHaveBeenCalledTimes(1); // no retries, no other model lines
+  const second = await client.structure('prompt', z.object({ a: z.string() })).catch(e => e);
+  expect(second).toMatchObject({ status: 402 });
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
+});

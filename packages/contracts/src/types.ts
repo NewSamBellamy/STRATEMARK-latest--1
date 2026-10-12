@@ -10,6 +10,7 @@ import type {
   companySchema,
   deckSchema,
   historyContentSchema,
+  companyVideoSchema,
   liveIntelContentSchema,
   liveIntelItemSchema,
   liveLandingContentSchema,
@@ -48,6 +49,7 @@ export type ViceClaim = z.infer<typeof viceClaimSchema>;
 export type OverviewContent = z.infer<typeof overviewContentSchema>;
 export type LiveIntelItem = z.infer<typeof liveIntelItemSchema>;
 export type LiveIntelContent = z.infer<typeof liveIntelContentSchema>;
+export type CompanyVideo = z.infer<typeof companyVideoSchema>;
 export type OrgNode = z.infer<typeof orgNodeSchema>;
 export type TeamOrgContent = z.infer<typeof teamOrgContentSchema>;
 export type LiveLandingContent = z.infer<typeof liveLandingContentSchema>;

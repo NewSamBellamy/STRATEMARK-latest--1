@@ -30,15 +30,17 @@ describe('dashboard background warming follows shared pause', () => {
   });
   it.each(['resolve', 'reject'] as const)('does not advance the warm queue after pausing in flight (%s)', async outcome => {
     const { wrapper, getDashboardTab } = setup();
-    let finish!: () => void;
-    getDashboardTab.mockImplementationOnce(() => new Promise((resolve, reject) => {
-      finish = () => outcome === 'resolve' ? resolve(null) : reject(new Error('source failed'));
+    const finishers: Array<() => void> = [];
+    getDashboardTab.mockImplementation(() => new Promise((resolve, reject) => {
+      finishers.push(() => outcome === 'resolve' ? resolve(null) : reject(new Error('source failed')));
     }));
     renderHook(() => useDashboardWarm('company', 'overview', 'Example'), { wrapper });
-    await waitFor(() => expect(getDashboardTab).toHaveBeenCalledTimes(1));
-    await act(async () => { useResearchControl.getState().setPaused(true); finish(); });
-    expect(getDashboardTab).toHaveBeenCalledTimes(1);
+    // Three desks run at once; the tab on screen is first.
+    await waitFor(() => expect(getDashboardTab).toHaveBeenCalledTimes(3));
+    expect(getDashboardTab.mock.calls[0]![1]).toBe('overview');
+    await act(async () => { useResearchControl.getState().setPaused(true); finishers.forEach((f) => f()); });
+    expect(getDashboardTab).toHaveBeenCalledTimes(3);
     act(() => useResearchControl.getState().setPaused(false));
-    await waitFor(() => expect(getDashboardTab.mock.calls.length).toBeGreaterThan(1));
+    await waitFor(() => expect(getDashboardTab.mock.calls.length).toBeGreaterThan(3));
   });
 });

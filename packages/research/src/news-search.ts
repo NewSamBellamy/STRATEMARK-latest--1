@@ -13,7 +13,7 @@
  */
 import type { WebSearchResult } from './web-search';
 
-const MAX_RESULTS = 8;
+const MAX_RESULTS = 12;
 
 export function bingNewsRssUrl(query: string): string {
   return `https://www.bing.com/news/search?q=${encodeURIComponent(query.slice(0, 300))}&format=rss&setlang=en-US`;
@@ -54,8 +54,9 @@ export function parseBingNewsRss(xml: string): WebSearchResult[] {
     seen.add(url.href);
     const published = tag(item, 'pubDate');
     const date = Number.isFinite(Date.parse(published)) ? new Date(published).toISOString().slice(0, 10) : '';
+    const publisher = tag(item, 'News:Source').replace(/\s+on MSN$/i, '').slice(0, 120);
     out.push({ url: url.href, title: tag(item, 'title').slice(0, 200) || url.hostname,
-      snippet: tag(item, 'description').slice(0, 600), ...(date ? { published: date } : {}) });
+      snippet: tag(item, 'description').slice(0, 600), ...(date ? { published: date } : {}), ...(publisher ? { publisher } : {}) });
     if (out.length >= MAX_RESULTS) break;
   }
   return out;
