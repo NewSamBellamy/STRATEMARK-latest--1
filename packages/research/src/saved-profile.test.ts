@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import type { CompanyMetric } from '@mi/contracts';
 import { savedCompanyProfile } from './saved-profile';
+import { CONFLICTING_OBSERVATIONS_NOTE } from './company-facts';
 import type { ResearchEvidence } from './research-evidence';
 import { GeminiRepository, migrateSnapshot } from './repository';
 import type { LlmClient } from './types';
@@ -14,6 +15,10 @@ it('recovers an unambiguous saved measurement without model or source calls', ()
 it('never replaces a saved observation or human confirmation', () => {
   const row = { id: 'm', companyId: 'c', metricType: 'employees', value: 20, confidence: 'user_verified' } as CompanyMetric;
   expect(savedCompanyProfile(company, [row], [evidence]).metrics).toEqual([row]);
+});
+it('keeps a slot withheld for conflicting sources unknown instead of picking a side', () => {
+  const conflict = { id: 'm', companyId: 'c', metricType: 'employees', value: null, confidence: 'unknown', methodNote: CONFLICTING_OBSERVATIONS_NOTE } as CompanyMetric;
+  expect(savedCompanyProfile(company, [conflict], [evidence]).metrics).toEqual([conflict]);
 });
 it('does not use another company, topic or older profile', () => {
   for (const change of [{ companyId: 'other' }, { companyName: 'Other' }, { topic: 'chat' }])

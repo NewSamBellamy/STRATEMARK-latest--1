@@ -51,8 +51,12 @@ const SCALE: Record<string, number> = { trillion: 1e12, billion: 1e9, million: 1
 
 function amountsIn(text: string): number[] {
   return [...text.matchAll(/(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|thousand|tn|bn|mn|[bmk])?\b/gi)]
+    // A bare year ("in 2025") is a date, not a headcount of 2,025.
+    .filter((m) => m[2] || !/^(?:19|20)\d{2}$/.test(m[1]!))
     .map((m) => Number(m[1]!.replaceAll(',', '')) * (SCALE[m[2]?.toLowerCase() ?? ''] ?? 1));
 }
+
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * The names a page may use for the company: "Anthropic, PBC" -> anthropic;
@@ -78,8 +82,9 @@ const GENERIC_LEAD = /^(?:safe|global|general|united|first|national|internationa
  * allowing for display rounding ("$4.6 billion" for 4,620,000,000).
  */
 export function figureOnPage(companyName: string, values: readonly number[], text: string): boolean {
-  const lower = text.toLowerCase();
-  if (!brandTokens(companyName).some((token) => lower.includes(token))) return false;
+  // Whole words only: the alias "ssi" must not match "classic".
+  if (!brandTokens(companyName).some((token) =>
+    new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(token)}(?![\\p{L}\\p{N}])`, 'iu').test(text))) return false;
   const found = amountsIn(text);
   return values.length > 0 && values.every((value) =>
     found.some((amount) => Math.abs(amount - value) <= Math.max(1, Math.abs(value)) * 0.01));

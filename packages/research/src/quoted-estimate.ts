@@ -43,6 +43,10 @@ const WORDING: Partial<Record<MetricType, RegExp>> = {
 
 const HEDGE = /~|\b(?:roughly|about|approximately|around|nearly|almost|over|more than|less than|at least|up to|some|reportedly|reported(?:ly)? to|people familiar|familiar with the matter|sources? (?:said|say)|according to (?:people|sources)|in talks|seeking|considering|could|may|might|would|expects?|expected|plans? to|planning to|aims? to|targets? (?:a|an|of)|targeting|projected|projections?|forecasts?|estimated?|rumou?red|potential(?:ly)?|valuation of up to)\b/i;
 
+/** Event figures dated by the event; a later article restating them does not re-date them. */
+const EVENT_TYPES: readonly MetricType[] = ['valuation', 'last_round', 'funding_total'];
+const RESTATED = /\b(?:previously|last valued|had been valued|prior valuation|earlier valuation|last year|a year ago|earlier this year)\b/i;
+
 function dateForms(asOf: string): string[] {
   const date = new Date(`${asOf}T00:00:00.000Z`);
   const fmt = (locale: string, month: 'long' | 'short') =>
@@ -105,6 +109,10 @@ export function quoteHolds(input: { companyName: string; metricType: MetricType;
 
   const quote = normalize(input.quote);
   if (quote.length < 15 || quote.length > 600 || HEDGE.test(quote) || !wording.test(quote)) return false;
+  // The date here is usually the article's dateline. An article restating an
+  // older round ("which was valued at $61.5 billion in 2024") is not dated by it.
+  if (EVENT_TYPES.includes(input.metricType) && (RESTATED.test(quote) ||
+    [...quote.matchAll(/(?<!(?:since|founded in|established in)\s)\b((?:19|20)\d{2})\b/gi)].some((m) => Number(m[1]) < asOf.getUTCFullYear()))) return false;
 
   // The company exactly as written (case-sensitive): "Ramp", not "ramp up".
   const brand = brandOf(input.companyName);

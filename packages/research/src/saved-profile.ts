@@ -2,6 +2,7 @@ import type { Company, CompanyMetric } from '@mi/contracts';
 import { enrichmentOutSchema } from './schemas';
 import { providerCompanySummary, reportedCompanyMetrics } from './reported-metrics';
 import type { ResearchEvidence } from './research-evidence';
+import { CONFLICTING_OBSERVATIONS_NOTE } from './company-facts';
 
 /** The single eligibility rule for offline recovery: the latest retained
  * company_profile for exactly this subject and name — newest wins even when
@@ -32,8 +33,10 @@ export function savedCompanyProfile(company: Company, metrics: readonly CompanyM
     enrichment: enrichmentOutSchema.parse({ metrics: {} }), text: profile.text, grounding: profile.grounding, capturedAt: profile.capturedAt,
     identity: otherCompanies ? { answerText: profile.grounding?.answerText, otherCompanies } : undefined });
   const current = metrics.filter(row => row.companyId === company.id);
+  // A slot withheld because sources disagree is not missing: filling it from the
+  // saved profile would show one side of the conflict as fact.
   const missing = recovered.filter(row => row.value !== null && !current.some(existing => existing.metricType === row.metricType &&
-    (existing.value !== null || existing.confidence === 'user_verified')));
+    (existing.value !== null || existing.confidence === 'user_verified' || existing.methodNote === CONFLICTING_OBSERVATIONS_NOTE)));
   const summary = providerCompanySummary(company.name, company.websiteUrl, profile.text, profile.grounding);
   return { company: summary && (!company.oneLiner || company.oneLiner.startsWith('No source-backed company snapshot')) ? { ...company, oneLiner: summary.summary } : company,
     metrics: [...current.filter(row => !missing.some(repair => repair.metricType === row.metricType)), ...missing] };

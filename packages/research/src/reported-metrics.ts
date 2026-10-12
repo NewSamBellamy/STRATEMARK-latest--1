@@ -286,6 +286,26 @@ function hasDate(text: string, date: string): boolean {
   return text.includes(date) || new RegExp(`\\b(?:${month} ${day}(?:st|nd|rd|th)?[,]? ${year}|${day} ${month} ${year})\\b`, 'i').test(text);
 }
 
+/** Event figures whose date is the event's date: a round or valuation "as of"
+ * a later date than the event happened is a stale figure dressed as current. */
+const EVENT_DATED: readonly string[] = ['valuation', 'last_round', 'funding_total'];
+
+/**
+ * The clause carrying the figure names an earlier year than its "as of" date
+ * ("raised $2 billion in 2022", as of 2025-12-31). Grounded answers must date
+ * every figure, so when the source gives no date the model supplies one; the
+ * year written beside the figure is the evidence, the "as of" is not. A year
+ * that only anchors a span ("since 2019", "founded in 2015") is not the event.
+ */
+function staleEventYear(sentence: string, value: number, unit: ReportedMetricSupport['unit'], definition: string, asOf: string): boolean {
+  const asOfYear = Number(asOf.slice(0, 4));
+  const clauses = sentence.split(/;|,\s+(?:with|while|but|up from|compared|after|following|and)\b/i);
+  const carrying = clauses.filter((clause) => hasNumber(clause, value, unit, definition));
+  const older = (clause: string) => [...clause.matchAll(/(?<!(?:since|founded in|established in|from)\s)\b((?:19|20)\d{2})\b/gi)]
+    .some((match) => Number(match[1]) < asOfYear);
+  return (carrying.length ? carrying : [sentence]).every(older);
+}
+
 function hasNumber(text: string, value: number, unit: ReportedMetricSupport['unit'], definition: string, bindBasis = true): boolean {
   const native = isConvertibleCurrency(unit);
   if (unit === 'USD' && /\b(?:CAD|AUD|HKD|SGD|NZD|Canadian dollars?|Australian dollars?)\b|(?:C|A|HK|S|NZ)\$/i.test(text)) return false;
@@ -510,6 +530,7 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
     (!proof.asOf || hasDate(sentence, proof.asOf) || inherits.has(sentence) ||
       sentences(proof.support.text).some(context => /^(?:reporting date|as of|for (?:the )?year ended)\b/i.test(plain(context)) && hasDate(context, proof.asOf!))) &&
     (!proof.periodStart || hasDate(proof.support.text, proof.periodStart)) &&
+    (!proof.asOf || !EVENT_DATED.includes(definition) || !staleEventYear(sentence, proof.value, proof.unit, definition, proof.asOf)) &&
     // A sentence naming a partner/customer is not an attributed company figure.
     !/\b(?:partners? with|invested in|customer of|competitor|(?:said|stated|reported|announced) that|its subsidiary|its division)\b/i.test(sentence) &&
     (!proof.asOf || !/\b(?:article published|page published|retrieved|accessed|updated on)\b/i.test(sentence)) &&
@@ -570,6 +591,9 @@ export function reportedStoredCitations(companyName: string, website: string | n
   if (!lenient.length) return [];
   const proof = reportedMetricSupportSchema.parse(metric.reportedSupport);
   const definition = proof.definition ?? metric.metricType;
+  // Rows stored before the stale-year gate existed are re-judged on read.
+  if (proof.asOf && EVENT_DATED.includes(definition) &&
+    staleEventYear(plain(proof.support.text), proof.value, proof.unit, definition, proof.asOf)) return [];
   // Anonymous means a label-led list item or a fragment that does not open with
   // a capitalised subject; a sentence opening with another name ("Zenith is sold
   // in 60 countries") is someone else's claim and never rides this path.

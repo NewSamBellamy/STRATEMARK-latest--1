@@ -24,6 +24,9 @@ describe('figureOnPage', () => {
     expect(figureOnPage('Anthropic', [965e9], 'Anthropic is valued at $61.5 billion.')).toBe(false);
     expect(figureOnPage('Acme', [51, 100], 'Acme has 51-100 employees.')).toBe(true);
     expect(figureOnPage('Acme', [51, 100], 'Acme has 51 employees.')).toBe(false);
+    expect(figureOnPage('Acme', [2025], 'Acme was founded in 2025.')).toBe(false);
+    expect(figureOnPage('Acme', [2025], 'Acme has 2,025 employees.')).toBe(true);
+    expect(figureOnPage('Safe Superintelligence (SSI)', [32e9], 'A classic $32 billion deal.')).toBe(false);
   });
 
   it('recognises the names pages use for a company', () => {

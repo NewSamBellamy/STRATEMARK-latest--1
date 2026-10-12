@@ -714,6 +714,25 @@ describe('market-share recovery (sourced, whole-company)', () => {
   });
 });
 
+describe('an event figure is never dated later than its own year', () => {
+  const stale = '**Valuation**\nOpenAI was valued at $157 billion in its 2024 funding round, as of December 31, 2025';
+  const fresh = '**Valuation**\nOpenAI was valued at $852 billion as of March 31, 2026, up from $157 billion in 2024';
+  it('refuses a 2024 valuation stamped with a later as-of date', async () => {
+    const fixture = openAiFixture({}, [stale]);
+    fixture.client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: {
+      valuation: fixture.claim(157_000_000_000, 'valuation', stale, '2025-12-31'),
+    } })) as LlmClient['structure'];
+    expect((await fixture.hydrate()).metrics.find(row => row.metricType === 'valuation')!.value).toBeNull();
+  });
+  it('keeps a current valuation whose comparison clause names an older year', async () => {
+    const fixture = openAiFixture({}, [fresh]);
+    fixture.client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: {
+      valuation: fixture.claim(852_000_000_000, 'valuation', fresh, '2026-03-31'),
+    } })) as LlmClient['structure'];
+    expect((await fixture.hydrate()).metrics.find(row => row.metricType === 'valuation')).toMatchObject({ value: 852_000_000_000, confidence: 'estimated' });
+  });
+});
+
 describe('talks are labelled, never a closed round', () => {
   it('classifies talk-only valuation wording and refuses mixed completed-round sentences', () => {
     expect(isTalkOnlyValuation('Ramp eyes a $60 billion valuation in its next round.')).toBe(true);

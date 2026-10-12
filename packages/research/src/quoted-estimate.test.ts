@@ -46,6 +46,13 @@ describe('quotedOriginalEstimate', () => {
     }
   });
 
+  it('does not let a later article re-date an older round it restates', () => {
+    for (const quote of [
+      'Ramp, which was valued at $44 billion in 2025, announced a new product today.',
+      'Ramp was previously valued at $44 billion.',
+    ]) expect(quotedOriginalEstimate(withQuote(quote))).toEqual([]);
+  });
+
   it('requires the quote verbatim on the fetched page, the company as written, and the currency', () => {
     expect(quotedOriginalEstimate({ ...base, originals: [page('NEW YORK, June 4, 2026 -- something else entirely.')] })).toEqual([]);
     expect(quotedOriginalEstimate({ ...base, originals: [{ ...page(dateline), status: 'blocked' }] })).toEqual([]);

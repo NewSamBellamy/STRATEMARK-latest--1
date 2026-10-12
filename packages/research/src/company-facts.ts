@@ -33,6 +33,10 @@ export function projectCompanyCardFacts(card: CardWithCompany, attempts: unknown
     ? projectCompanyFacts(card.company, card.metrics, attempts) : [] };
 }
 
+/** Method note on a fact withheld because current observations disagree. Later
+ * passes (saved-profile repair) must keep it unknown, never pick a side. */
+export const CONFLICTING_OBSERVATIONS_NOTE = 'Conflicting current observations; confirm before displaying a fact.';
+
 /** For callers that have already scoped original receipts to this company. */
 export function projectCompanyFactsFromOriginals(company: Company, observations: readonly CompanyMetric[], originals: readonly OriginalSourceReceipt[]): CompanyMetric[] {
   const valid = observations.flatMap(row => {
@@ -87,7 +91,7 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
         : metric.methodNote }];
     return [{ ...structuredClone(metric), value: null, confidence: 'unknown' as const, citations: [], source: null,
       passageSupport: null, reportedSupport: null, lastVerifiedAt: null,
-      methodNote: current.ambiguous ? 'Conflicting current observations; confirm before displaying a fact.'
+      methodNote: current.ambiguous ? CONFLICTING_OBSERVATIONS_NOTE
         : type === 'market_share' ? 'No accepted market definition, denominator and reporting-period evidence. Raw observations remain saved.'
           : `${assessment?.reason ?? 'No accepted original-backed current fact.'} Raw observations remain saved for inspection and correction.` }];
   });
