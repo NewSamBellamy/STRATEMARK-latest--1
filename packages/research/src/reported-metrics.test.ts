@@ -716,9 +716,9 @@ describe('market-share recovery (sourced, whole-company)', () => {
 
 describe('talks are labelled, never a closed round', () => {
   it('classifies talk-only valuation wording and refuses mixed completed-round sentences', () => {
-    expect(isTalkOnlyValuation('Ramp eyes a  billion valuation in its next round.')).toBe(true);
-    expect(isTalkOnlyValuation('The company is reportedly in talks at a  billion valuation.')).toBe(true);
-    expect(isTalkOnlyValuation('Ramp announced a \ million round valuing the company at \ billion.')).toBe(false);
-    expect(isTalkOnlyValuation('Ramp closed its round at \ billion, and is now in discussions for a \ billion valuation.')).toBe(false);
+    expect(isTalkOnlyValuation('Ramp eyes a $60 billion valuation in its next round.')).toBe(true);
+    expect(isTalkOnlyValuation('The company is reportedly in talks at a $60 billion valuation.')).toBe(true);
+    expect(isTalkOnlyValuation('Ramp announced a $750 million round valuing the company at $44 billion.')).toBe(false);
+    expect(isTalkOnlyValuation('Ramp closed its round at $44 billion, and is now in discussions for a $60 billion valuation.')).toBe(false);
   });
 });
