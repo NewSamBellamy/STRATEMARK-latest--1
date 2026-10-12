@@ -698,13 +698,14 @@ export default function NewDeckPage() {
                 className="grid h-8 w-8 place-items-center rounded-full text-faint transition-colors hover:bg-surface hover:text-muted"
                 aria-label="Show different suggestions"
                 title="Refresh suggestions"
+                aria-label="Refresh suggestions"
               >
                 <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.7} />
               </button>
             </div>
             {isHostedBeta() && (
               <p className="mt-6 text-[12px] text-faint">
-                Free beta: we cover the AI costs. Your research stays in this browser.{' '}
+                Free beta: we cover the AI costs. Your decks stay in this browser. AI requests pass through our server to Google and are not stored.{' '}
                 <Link to="/beta" className="text-muted underline hover:text-content">About this beta</Link>
               </p>
             )}
