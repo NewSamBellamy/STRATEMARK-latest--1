@@ -146,8 +146,33 @@ function resolveHeader(bandHex: string): { band: string; ink: '#FFFFFF' | '#1418
  * @param theme   researched BrandTheme (may be null / partially trustworthy)
  * @param extracted dominant color pulled from the real logo at runtime (most trusted)
  */
+/** True for black, white and greys: colors that carry no brand hue on their own. */
+function isNeutral(hex: string): boolean {
+  const rgb = hexToRgb(hex);
+  // Chroma, not HSL saturation: near-white (#faf9f5) has high HSL saturation
+  // but almost no hue, so it must count as neutral.
+  return !rgb || (Math.max(rgb.r, rgb.g, rgb.b) - Math.min(rgb.r, rgb.g, rgb.b)) < 26;
+}
+
+/**
+ * The hue that identifies a brand. Many sites declare a black or off-white
+ * theme colour (OpenAI's primary is #000000, Anthropic's #faf9f5) while the
+ * accent carries the real brand colour (#10A37F, #d97757). A neutral primary
+ * must not turn the card into an unbranded grey frame, so the first chromatic
+ * accent/secondary takes its place. Logo-extracted colour still wins outright.
+ */
+export function brandHueSource(theme: BrandTheme | null, extracted: string | null): string | null {
+  if (extracted) return extracted;
+  const primary = theme?.primary ?? null;
+  if (primary && hexToRgb(primary) && !isNeutral(primary)) return primary;
+  for (const candidate of [theme?.accent, theme?.secondary]) {
+    if (candidate && hexToRgb(candidate) && !isNeutral(candidate)) return candidate;
+  }
+  return primary;
+}
+
 export function deriveTriad(theme: BrandTheme | null, extracted: string | null): BrandTriad {
-  const base = extracted ?? theme?.primary ?? null;
+  const base = brandHueSource(theme, extracted);
   if (!base || !hexToRgb(base)) return FALLBACK;
 
   const { band: primary, ink: headerInk } = resolveHeader(clampForChrome(base));
