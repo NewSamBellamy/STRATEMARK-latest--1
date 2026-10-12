@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { companyMetricSchema, comparableMetricBasis, metricDefinitionLabel, metricObservationIdentity, reportedMetricSupportSchema } from '@mi/contracts';
-import { providerCompanySummary, reportedCompanyMetrics, reportedMetricCitations, sentenceAround } from './reported-metrics';
+import { providerCompanySummary, reportedCompanyMetrics, reportedMetricCitations, sentenceAround , isTalkOnlyValuation } from './reported-metrics';
 import { EQUINIX_ANSWER_TEXT, EQUINIX_SUPPORTS } from './equinix-live-fixture';
 import { enrichmentOutSchema } from './schemas';
 import { METRIC_MEASUREMENT_INSTRUCTIONS } from './prompts';
@@ -711,5 +711,14 @@ describe('market-share recovery (sourced, whole-company)', () => {
       identity: { answerText: rivalAnswer, otherCompanies: ['Sungrow Power Supply Co., Ltd.', 'Tesla, Inc. (Tesla Energy)'] },
     });
     expect(rows.find(row => row.metricType === 'market_share')?.value ?? null).toBeNull();
+  });
+});
+
+describe('talks are labelled, never a closed round', () => {
+  it('classifies talk-only valuation wording and refuses mixed completed-round sentences', () => {
+    expect(isTalkOnlyValuation('Ramp eyes a  billion valuation in its next round.')).toBe(true);
+    expect(isTalkOnlyValuation('The company is reportedly in talks at a  billion valuation.')).toBe(true);
+    expect(isTalkOnlyValuation('Ramp announced a \ million round valuing the company at \ billion.')).toBe(false);
+    expect(isTalkOnlyValuation('Ramp closed its round at \ billion, and is now in discussions for a \ billion valuation.')).toBe(false);
   });
 });

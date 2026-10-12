@@ -259,6 +259,16 @@ const CARD_FACT_SPECULATIVE = /\b(?:not|estimated?|projects?|projected|forecasts
 const CONTINUATION = /^(?:This|The)\s+(?:post-money\s+|pre-money\s+)?valuation\s+(?:was|is)\s+\w+\s+(?:during|in|at|with)\s+its\b/i;
 const ANNUAL_PERIOD = /\b(?:(?:fiscal )?year ended|for (?:the )?(?:fiscal |full )?year|FY\s?\d{2,4})\b/i;
 const speculativeValuation = /\b(?:preliminary|discussions|talks|seeking|targeting|proposed|potential|considering|negotiating)\b/i;
+// Wider talk/rumour wording, used to LABEL a talk-only valuation as estimated
+// with its source (never as a closed round). A sentence that also describes a
+// completed round is mixed and stays skipped: a talks number must never be
+// attached to a closed round.
+const talkWording = /\b(?:preliminary|discussions?|talks|seeking|targeting|proposed|potential|considering|negotiating|eyes|eyeing|weighing|nearing|reportedly|exploring|in negotiations|people familiar)\b/i;
+const completedRound = /\b(?:closed|completed|post-money|pre-money|valuing the company at|raised \$)/i;
+/** True when a valuation sentence describes only talks/proposals, not a closed round. */
+export function isTalkOnlyValuation(text: string): boolean {
+  return talkWording.test(text) && !completedRound.test(text);
+}
 
 // A count immediately followed by a locative phrase belongs to that region or
 // subset ("13,716 employees globally, with 5,917 based in the Americas") —
@@ -353,7 +363,7 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
     if (type === 'employees' && /\b(?:including|includes|include|with)\b[^.!?\n]{0,100}\b(?:contractors?|contract workers?|contingent workers?)\b/i.test(text)) continue;
     // A mixed completed/speculative paragraph needs an explicit claim selector;
     // omission recovery must not guess which financing context is current.
-    if (type === 'valuation' && speculativeValuation.test(text)) continue;
+    if (type === 'valuation' && speculativeValuation.test(text) && !isTalkOnlyValuation(text)) continue;
     const dates = businessDates(text);
     if (dates.length > 1) continue;
     // Annual revenue and ARR share a slot, but remain distinct candidates.
@@ -636,7 +646,9 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
         ? ` ${describeCurrencyConversion(proposal.value, proof.data.unit, proposal.value * usdPerUnit(proof.data.unit)!)}` : '';
       return { ...proposed, value: MONEY_METRIC_TYPES.includes(type) && isConvertibleCurrency(proof.data.unit)
         ? proposal.value * usdPerUnit(proof.data.unit)! : proposal.value, confidence: 'estimated', citations, source: citations[0]!.url,
-        methodNote: `Source reported ${proof.data.definition ?? type} (${proof.data.asOf ? `as of ${proof.data.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original.${CARD_FACT_TYPES.includes(type) ? ` Source statement: ${JSON.stringify(proof.data.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}` : ''}`+conversion };
+        methodNote: (type === 'valuation' && isTalkOnlyValuation(proof.data.support.text)
+          ? `Reported talks or a proposal at this valuation, not a closed round (${proof.data.asOf ? `as of ${proof.data.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original. Source statement: ${JSON.stringify(proof.data.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}`
+          : `Source reported ${proof.data.definition ?? type} (${proof.data.asOf ? `as of ${proof.data.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original.${CARD_FACT_TYPES.includes(type) ? ` Source statement: ${JSON.stringify(proof.data.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}` : ''}`) + conversion };
     }
     return row;
   });
