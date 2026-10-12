@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { renderCompanyTeamOrg, researchCompanyTeamOrg, teamOrgSupportReferences } from './company-team';
+import { renderCompanyTeamOrg, researchCompanyTeamOrg, roleSupported, teamOrgSupportReferences } from './company-team';
 import { GeminiRepository, migrateSnapshot, type ResearchStore } from './repository';
 import { extractProviderGrounding } from './grounding-support';
 
@@ -139,5 +139,79 @@ describe('source-backed company team records', () => {
     const many = { nodes: Array.from({ length: 30 }, (_, i) => ({ ...selections.nodes[0]!, id: `person-${i}`,
       name: `Person ${i}`, sourceUrl: `https://acme.com/team/${i}`, quote: `Person ${i} has a Chief Executive Officer title at Acme.` })) };
     expect(teamOrgSupportReferences(many)).toHaveLength(12);
+  });
+});
+
+describe('legal-name companies and title synonyms: real people survive, invented ones do not', () => {
+  const heineken = { ...company, name: 'Heineken N.V. / Heineken 0.0', websiteUrl: 'https://www.theheinekencompany.com' };
+  const anthropic = { ...company, name: 'Anthropic, PBC', websiteUrl: 'https://www.anthropic.com' };
+  const reportUrl = 'https://www.reuters.com/business/heineken-ceo';
+  function reported(target: typeof company, segments: string[], rows: unknown[]) {
+    const answer = segments.join(' ');
+    const grounding = extractProviderGrounding(answer, { groundingChunks: [{ web: { uri: reportUrl, title: 'reuters.com' } }],
+      groundingSupports: segments.map(text => ({ segment: { text, startIndex: answer.indexOf(text), endIndex: answer.indexOf(text) + text.length }, groundingChunkIndices: [0] })) });
+    return renderCompanyTeamOrg(target, [], { nodes: [], reportedNodes: rows, reportedGrounding: grounding });
+  }
+
+  it('accepts Google-supported Heineken executives when sentences say "Heineken" and "CEO"', () => {
+    const s0 = "Dolf van den Brink is Heineken's Chief Executive Officer and Chairman of the Executive Board.";
+    const s1 = 'Harold van den Broek currently serves as Chief Financial Officer of Heineken.';
+    const result = reported(heineken, [s0, s1], [
+      { id: 'dolf', name: 'Dolf van den Brink', role: 'CEO', group: 'exec', supportIndex: 0, quote: s0 },
+      { id: 'harold', name: 'Harold van den Broek', role: 'CFO', group: 'exec', supportIndex: 1, quote: s1 },
+    ]);
+    expect(result.content.nodes.map(node => [node.name, node.role])).toEqual([['Dolf van den Brink', 'CEO'], ['Harold van den Broek', 'CFO']]);
+    expect(result.content.nodes[0]!.bio).toContain(`Google Search reports (original page not retrieved): “${s0}”`);
+    expect(result.citations).toEqual(expect.arrayContaining([expect.objectContaining({ url: reportUrl })]));
+  });
+
+  it.each([
+    ['a different title', 'Dolf van den Brink is the Chief Executive Officer of Heineken.', 'Dolf van den Brink', 'Chief Financial Officer'],
+    ['president from vice president', 'Jan Smit is the Vice President of Sales at Heineken.', 'Jan Smit', 'President'],
+    ['a person not named in the quote', 'The Chief Executive Officer of Heineken is based in Amsterdam.', 'Dolf van den Brink', 'CEO'],
+    ['a former role', 'Jean-François van Boxmeer is the former CEO of Heineken.', 'Jean-François van Boxmeer', 'CEO'],
+    ['a different company', 'Debra Crew is the CEO of Diageo.', 'Debra Crew', 'CEO'],
+  ])('rejects %s', (_case, sentence, name, role) => {
+    expect(reported(heineken, [sentence], [{ id: 'p', name, role, group: 'exec', supportIndex: 0, quote: sentence }]).content.nodes).toEqual([]);
+  });
+
+  it('never borrows a parenthetical parent company: Diageo executives are not Seedlip team members', () => {
+    const seedlip = { ...company, name: 'Seedlip (Diageo plc)', websiteUrl: 'https://seedlipdrinks.com' };
+    const s0 = 'Debra Crew is the CEO of Diageo.';
+    expect(reported(seedlip, [s0], [{ id: 'debra', name: 'Debra Crew', role: 'CEO', group: 'exec', supportIndex: 0, quote: s0 }]).content.nodes).toEqual([]);
+  });
+
+  it('accepts an off-domain original that names "Anthropic" (not "Anthropic, PBC") with a synonym title', () => {
+    const page = 'https://en.wikipedia.org/wiki/Anthropic';
+    const quote = 'Dario Amodei is the co-founder and CEO of Anthropic, an AI safety company.';
+    const original = { ...source, requestedUrl: page, finalUrl: page, text: `Anthropic is an AI company. ${quote}` };
+    const result = renderCompanyTeamOrg(anthropic, [original], { nodes: [{ id: 'dario', name: 'Dario Amodei', role: 'Co-founder & Chief Executive Officer',
+      group: 'exec', parentName: null, bio: '', tenure: null, priorCompany: null, notableProject: null, sourceUrl: page, quote }] });
+    expect(result.content.nodes).toEqual([expect.objectContaining({ name: 'Dario Amodei', sourceUrl: page, supportingQuote: quote })]);
+  });
+
+  it('still rejects an off-domain original that never names the company', () => {
+    const page = 'https://example.org/ai-leaders';
+    const quote = 'Dario Amodei is the co-founder and CEO of a leading AI safety company.';
+    const original = { ...source, requestedUrl: page, finalUrl: page, text: quote };
+    expect(renderCompanyTeamOrg(anthropic, [original], { nodes: [{ id: 'dario', name: 'Dario Amodei', role: 'CEO', group: 'exec', parentName: null,
+      bio: '', tenure: null, priorCompany: null, notableProject: null, sourceUrl: page, quote }] }).content.nodes).toEqual([]);
+  });
+
+  it('roleSupported: synonym-aware, whole-title, never a different office', () => {
+    expect(roleSupported('Avery is the Chief Executive Officer of Acme.', 'CEO')).toBe(true);
+    expect(roleSupported('Avery, CEO and co-founder of Acme.', 'Co-founder and Chief Executive Officer')).toBe(true);
+    expect(roleSupported('Avery is a co-founder of Acme.', 'Founder')).toBe(true);
+    expect(roleSupported('Avery is the Chairwoman of the Board.', 'Chair')).toBe(true);
+    expect(roleSupported('Avery is the Chief Executive Officer of Acme.', 'CFO')).toBe(false);
+    expect(roleSupported('Avery is the Senior Vice President of Product.', 'Vice President of Product')).toBe(false);
+    expect(roleSupported('Avery is Vice President of Sales.', 'President')).toBe(false);
+    expect(roleSupported('Avery leads research at Acme.', 'Head of Research')).toBe(false);
+  });
+
+  it('does not let an extra candidate fail the whole extraction', () => {
+    const many = Array.from({ length: 100 }, (_, i) => ({ id: `p${i}`, name: `Person ${i}`, role: 'CEO', group: 'exec', supportIndex: 0, quote: 'x'.repeat(30) }));
+    expect(() => renderCompanyTeamOrg(heineken, [], { nodes: [], reportedNodes: many })).not.toThrow();
+    expect(renderCompanyTeamOrg(company, [source], { ...selections, reportedNodes: many }).content.nodes).toHaveLength(2);
   });
 });

@@ -15,7 +15,10 @@ import { parseOverviewSections } from '../dashboardModel';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { Paragraph } from './OverviewTab';
 
-const STATUS_STYLE: Record<Product['status'], string> = {
+/** A product's lifecycle when a source states it; null renders no badge. */
+type ProductStatus = NonNullable<Product['status']>;
+
+const STATUS_STYLE: Record<ProductStatus, string> = {
   live: 'border-emerald-300 text-emerald-700 bg-emerald-50',
   beta: 'border-amber-300 text-amber-700 bg-amber-50',
   sunset: 'border-slate-300 text-slate-600 bg-slate-100',
@@ -56,7 +59,7 @@ function ProductReader({
         if (!o) onClose();
       }}
       title={product.name}
-      description={`${companyName} · ${product.status}`}
+      description={product.status ? `${companyName} · ${product.status}` : companyName}
     >
       <div className="space-y-4">
         {/* The card art: a generated illustration of the product experience,
@@ -100,7 +103,7 @@ function ProductReader({
   );
 }
 
-const STATUS_LABEL: Record<Product['status'], string> = {
+const STATUS_LABEL: Record<ProductStatus, string> = {
   live: 'Live',
   beta: 'Beta',
   sunset: 'Sunset',
@@ -156,14 +159,14 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
   const name = useCompany(companyId).data?.name ?? 'this company';
   const [openProduct, setOpenProduct] = useState<Product | null>(null);
   const [openRoadmap, setOpenRoadmap] = useState<RoadmapItem | null>(null);
-  const [status, setStatus] = useState<Product['status'] | 'all'>('all');
+  const [status, setStatus] = useState<ProductStatus | 'all'>('all');
   const [search, setSearch] = useState('');
   return (
     <QueryBoundary query={query} loading={<HydratingPanel label="Products & Roadmap" />}>
       {(result) => {
         const c = result.content;
-        const statusCounts = c.products.reduce<Partial<Record<Product['status'], number>>>((acc, p) => {
-          acc[p.status] = (acc[p.status] ?? 0) + 1;
+        const statusCounts = c.products.reduce<Partial<Record<ProductStatus, number>>>((acc, p) => {
+          if (p.status) acc[p.status] = (acc[p.status] ?? 0) + 1;
           return acc;
         }, {});
         const products = c.products.filter(
@@ -264,9 +267,11 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                             <div className="flex flex-1 flex-col p-4">
                               <div className="flex items-start justify-between gap-2">
                                 <h4 className="font-medium text-content">{p.name}</h4>
-                                <span className={cn('chip shrink-0 py-0.5 text-[11px]', STATUS_STYLE[p.status])}>
-                                  {STATUS_LABEL[p.status]}
-                                </span>
+                                {p.status && (
+                                  <span className={cn('chip shrink-0 py-0.5 text-[11px]', STATUS_STYLE[p.status])}>
+                                    {STATUS_LABEL[p.status]}
+                                  </span>
+                                )}
                               </div>
                               {p.description ? (
                                 <p className="mt-1.5 line-clamp-3 text-sm text-muted">{p.description}</p>

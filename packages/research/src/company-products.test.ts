@@ -36,7 +36,14 @@ describe('original-backed company product dossier', () => {
     expect(result.citations).toEqual([expect.objectContaining({ url })]);
     expect(sources.retrieve).toHaveBeenCalledTimes(1);
   });
-  it.each(['invented-quote', 'wrong-url', 'wrong-company', 'no-lifecycle', 'negative-lifecycle'])(
+  it('lists an official product without a stated lifecycle with a null status (no badge), never live', async () => {
+    const { run, structure, sources } = setup();
+    const text = 'Atlas helps researchers organize company data.';
+    sources.retrieve.mockResolvedValue({ ...receipt, text });
+    structure.mockResolvedValue({ products: [{ ...selections.products[0]!, quote: text }], roadmap: [] });
+    expect((await run()).content.products).toEqual([expect.objectContaining({ name: 'Atlas', status: null, url, description: expect.stringContaining(text) })]);
+  });
+  it.each(['invented-quote', 'wrong-url', 'wrong-company', 'negative-lifecycle'])(
     'rejects %s product proposals rather than defaulting to live', async fault => {
       const { run, structure, sources } = setup();
       const row = { ...selections.products[0]! };
@@ -133,13 +140,15 @@ describe('original-backed company product dossier', () => {
     expect(snapshot.dashboards.cmp!.products_roadmap!.content).toHaveProperty('products.0.name', 'Fake');
     expect(ground).not.toHaveBeenCalled();
   });
-  it.each(['different-product', 'negated-sunset'])( 'does not publish %s lifecycle evidence', async fault => {
+  it.each(['different-product', 'negated-sunset'])( 'does not publish %s lifecycle evidence as a badge', async fault => {
     const { run, sources, structure } = setup();
     const text = fault === 'different-product' ? 'Atlas is a research tool. Nova is now available to independent analysts.'
       : 'Atlas is not discontinued and remains a research tool for independent analysts.';
     sources.retrieve.mockResolvedValue({ ...receipt, text });
     structure.mockResolvedValue({ products: [{ name: 'Atlas', status: fault === 'different-product' ? 'live' : 'sunset', sourceUrl: url, quote: text }], roadmap: [] });
-    expect((await run()).content.products).toEqual([]);
+    // The official page does name Atlas, so it is listed; the claimed lifecycle
+    // belongs to another product / is negated, so it gets no badge.
+    expect((await run()).content.products).toEqual([expect.objectContaining({ name: 'Atlas', status: null })]);
   });
   it.each([
     ['future-availability', 'Atlas is available next year for independent analysts.'],
@@ -178,12 +187,12 @@ describe('original-backed company product dossier', () => {
     expect(sources.retrieve).toHaveBeenCalledTimes(1);
     expect(sources.retrieve.mock.calls[0]![0]).toBe(url);
   });
-  it('does not pay for extraction when no official company domain is resolved', async () => {
+  it('without an official domain reads no originals and pays for no extraction when search has no supports', async () => {
     const { client, ground, sources, structure } = setup();
     const result = await researchDashboardWithSources('products_roadmap', { company: { ...company, websiteUrl: null }, marketName: 'Research',
       storedMetrics: [], client, originalSources: sources });
     expect(result.content).toEqual({ products: [], roadmap: [] });
-    expect(ground).not.toHaveBeenCalled(); expect(structure).not.toHaveBeenCalled(); expect(sources.retrieve).not.toHaveBeenCalled();
+    expect(ground).toHaveBeenCalledTimes(1); expect(structure).not.toHaveBeenCalled(); expect(sources.retrieve).not.toHaveBeenCalled();
   });
   it('uses provider search for a reported fallback when the active reader cannot read the official domain', async () => {
     const { run, ground, sources, structure } = setup();
@@ -206,5 +215,110 @@ describe('original-backed company product dossier', () => {
     sources.retrieve.mockResolvedValue({ ...receipt, text });
     structure.mockResolvedValue({ products: [{ name: 'Atlas', status, sourceUrl: url, quote: text }], roadmap: [] });
     expect((await run()).content.products).toEqual([expect.objectContaining({ name: 'Atlas', status, description: expect.stringContaining(text) })]);
+  });
+});
+
+/** Real-shape Google grounding: one answer, several support segments, citations
+ * built from the same chunks (as gemini.ts does). */
+function realGrounding(segments: string[], chunks: Array<{ uri: string; title: string }>) {
+  const answer = segments.join(' ');
+  const grounding = extractProviderGrounding(answer, { groundingChunks: chunks.map(web => ({ web })),
+    groundingSupports: segments.map((text, i) => ({ segment: { text, startIndex: answer.indexOf(text), endIndex: answer.indexOf(text) + text.length },
+      groundingChunkIndices: [i % chunks.length] })) });
+  return { text: answer, citations: chunks.map(c => ({ title: c.title, url: c.uri })), queries: [], grounding };
+}
+
+describe('legal-name companies: sourced products survive, unsupported ones do not', () => {
+  beforeEach(() => vi.useFakeTimers().setSystemTime(new Date('2026-10-06T00:00:00.000Z')));
+  afterEach(() => vi.useRealTimers());
+  const chunks = [{ uri: 'https://www.reuters.com/technology/anthropic-claude', title: 'reuters.com' }, { uri: 'https://techcrunch.com/anthropic-claude-code', title: 'techcrunch.com' }];
+  const anthropic = { ...company, name: 'Anthropic, PBC', websiteUrl: 'https://www.anthropic.com' };
+
+  async function runFor(target: Omit<typeof company, 'websiteUrl'> & { websiteUrl: string | null }, segments: string[], proposals: unknown[], webChunks = chunks) {
+    const ground = vi.fn().mockResolvedValue(realGrounding(segments, webChunks));
+    const structure = vi.fn().mockResolvedValue({ products: [], roadmap: [], reportedProducts: proposals, reportedRoadmap: [] });
+    const sources = { supports: () => true, list: vi.fn().mockResolvedValue([]), retrieve: vi.fn().mockResolvedValue({ requestedUrl: 'x', status: 'blocked', retrievedAt: time }), save: vi.fn().mockResolvedValue(undefined) };
+    const result = await researchDashboardWithSources('products_roadmap', { company: target, marketName: 'AI', storedMetrics: [], client: { ground, structure } as unknown as LlmClient, originalSources: sources });
+    return { result, structure };
+  }
+
+  it('lists products for "Anthropic, PBC" from Google supports that say "Anthropic", with no badge unless stated', async () => {
+    const s0 = "Anthropic's flagship product is Claude, a family of large language models.";
+    const s1 = 'Anthropic offers Claude Code, an agentic coding tool for developers.';
+    const s2 = 'Claude Opus 4.1 is now available, Anthropic said in its release notes.';
+    const { result, structure } = await runFor(anthropic, [s0, s1, s2], [
+      { name: 'Claude', status: 'live', supportIndex: 0, quote: s0 },
+      { name: 'Claude Code', status: null, supportIndex: 1, quote: s1 },
+      { name: 'Claude Opus 4.1', status: 'live', supportIndex: 2, quote: s2 },
+    ]);
+    expect(result.content.products).toEqual([
+      expect.objectContaining({ name: 'Claude', status: null, url: null, description: expect.stringContaining(`Google Search reports (original page not retrieved): “${s0}”`) }),
+      expect.objectContaining({ name: 'Claude Code', status: null }),
+      expect.objectContaining({ name: 'Claude Opus 4.1', status: 'live' }),
+    ]);
+    // Every kept row keeps a real grounding URL.
+    expect(result.citations.map(c => c.url)).toEqual(expect.arrayContaining(chunks.map(c => c.uri)));
+    expect(structure.mock.calls[0]![0]).toContain('"anthropic"');
+  });
+
+  it('lists SpaceX products without a resolved official domain', async () => {
+    const spacex = { ...company, name: 'SpaceX (Space Exploration Technologies Corp.)', websiteUrl: null };
+    const wiki = [{ uri: 'https://en.wikipedia.org/wiki/Starlink', title: 'wikipedia.org' }];
+    const s0 = "SpaceX's Starlink provides satellite internet access in more than 100 countries.";
+    const { result } = await runFor(spacex, [s0], [{ name: 'Starlink', status: 'live', supportIndex: 0, quote: s0 }], wiki);
+    expect(result.content.products).toEqual([expect.objectContaining({ name: 'Starlink', status: null, url: null })]);
+    expect(result.citations).toEqual([expect.objectContaining({ url: wiki[0]!.uri })]);
+  });
+
+  it.each([
+    ['competitor product', 'Anthropic competes with OpenAI, whose ChatGPT leads the consumer market.', 'ChatGPT'],
+    ['sentence without the company', 'ChatGPT is a popular chatbot built on large language models.', 'ChatGPT'],
+    ['investor product', 'Anthropic is backed by Amazon, which offers AWS Bedrock.', 'AWS Bedrock'],
+    ['planned product', 'Anthropic plans to launch Claude 6 next year for enterprise users.', 'Claude 6'],
+    ['negated availability', 'Anthropic has built Claude Max but it is not available in the EU.', 'Claude Max'],
+    ['mention without ownership', 'Anthropic was mentioned alongside Gemini Ultra in the report.', 'Gemini Ultra'],
+  ])('rejects a %s', async (_case, sentence, name) => {
+    const { result } = await runFor(anthropic, [sentence], [{ name, status: 'live', supportIndex: 0, quote: sentence }]);
+    expect(result.content.products).toEqual([]);
+  });
+
+  it('never borrows a parenthetical parent company: Diageo products are not Seedlip products', async () => {
+    const seedlip = { ...company, name: 'Seedlip (Diageo plc)', websiteUrl: 'https://seedlipdrinks.com' };
+    const s0 = 'Diageo sells Guinness, its best-known stout brand.';
+    const s1 = "Seedlip's Spice 94 is a distilled non-alcoholic spirit.";
+    const { result } = await runFor(seedlip, [s0, s1], [
+      { name: 'Guinness', status: null, supportIndex: 0, quote: s0 },
+      { name: 'Spice 94', status: null, supportIndex: 1, quote: s1 },
+    ]);
+    expect(result.content.products.map(p => p.name)).toEqual(['Spice 94']);
+  });
+
+  it('rejects quotes that are not in the support, or point at an unknown support', async () => {
+    const s0 = "Anthropic's flagship product is Claude, a family of large language models.";
+    const { result } = await runFor(anthropic, [s0], [
+      { name: 'Claude', status: null, supportIndex: 0, quote: "Anthropic's flagship product is Claude, used by 900 million people." },
+      { name: 'Claude', status: null, supportIndex: 7, quote: s0 },
+    ]);
+    expect(result.content.products).toEqual([]);
+  });
+
+  it('truncates an over-long candidate list instead of failing the whole extraction', async () => {
+    const segments = Array.from({ length: 20 }, (_, i) => `Anthropic offers Model${i}, a language model for developers.`);
+    const { result } = await runFor(anthropic, segments, segments.map((quote, i) => ({ name: `Model${i}`, status: null, supportIndex: i, quote })));
+    expect(result.content.products).toHaveLength(16);
+  });
+
+  it('keeps an official-page product that is not a rival or integration, and drops an integration partner', async () => {
+    const page = 'https://www.anthropic.com/claude';
+    const text = 'Claude is a next generation AI assistant for your tasks. Claude works with Slack so teams can ask questions in channels.';
+    const original = { requestedUrl: page, finalUrl: page, status: 'retrieved' as const, httpStatus: 200, contentHash: 'b'.repeat(64), text, retrievedAt: time };
+    const ground = vi.fn().mockResolvedValue({ text: 'Leads', citations: [{ title: 'Claude', url: page }], queries: [] });
+    const structure = vi.fn().mockResolvedValue({ products: [
+      { name: 'Claude', status: 'live', sourceUrl: page, quote: 'Claude is a next generation AI assistant for your tasks.' },
+      { name: 'Slack', status: 'live', sourceUrl: page, quote: 'Claude works with Slack so teams can ask questions in channels.' },
+    ], roadmap: [] });
+    const sources = { supports: () => true, list: vi.fn().mockResolvedValue([]), retrieve: vi.fn().mockResolvedValue(original), save: vi.fn().mockResolvedValue(undefined) };
+    const result = await researchDashboardWithSources('products_roadmap', { company: anthropic, marketName: 'AI', storedMetrics: [], client: { ground, structure } as unknown as LlmClient, originalSources: sources });
+    expect(result.content.products).toEqual([expect.objectContaining({ name: 'Claude', status: null, url: page, description: expect.stringContaining('Company-reported') })]);
   });
 });
