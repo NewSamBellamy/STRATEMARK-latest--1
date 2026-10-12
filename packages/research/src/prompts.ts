@@ -140,6 +140,10 @@ export function structureDiscoveryPrompt(
   ].join('\n');
 }
 
+/** A figure's date is the source's, never one the model supplies: an invented
+ * "as of" turned a 2022 round into a current one on the card. */
+const FIGURE_DATE_RULE = 'The date is the date the source gives for that figure (when the round closed, when the count was reported). If the source gives no date, write "undated": never use today\'s date, the search date or a year-end as a stand-in, and never restate an older round as current.';
+
 /** The face of a card carries four figures. Small private brands rarely publish
  * ARR or a valuation, so ask for every figure a source may honestly state. A
  * figure no source states is "not disclosed" — never an estimate of our own. */
@@ -151,6 +155,7 @@ export const CARD_FACTS_REQUEST = [
   '- number of countries it is sold in, and retail doors / stockists / stores.',
   'Write "not disclosed" for any figure no source states; make no estimates of your own and never derive one figure from another.',
   'State each figure in one sentence that names the company, the exact figure (name the currency, e.g. USD) and the date, e.g. "Acme has raised a total of USD 53 million as of March 3, 2026." or "Acme raised USD 5 million in a Series A round on March 3, 2026." or "Acme is sold in 60 countries as of March 3, 2026." Annual revenue must say which fiscal year ended on which date.',
+  FIGURE_DATE_RULE,
 ].join('\n');
 
 /** Hunt-side card-figure request for exactly the card-fact types still missing.
@@ -171,6 +176,7 @@ export function cardFactsHuntRequest(companyName: string, types: readonly Metric
     ...lines,
     'Write "not disclosed" for any figure no source states; make no estimates of your own and never derive one figure from another.',
     `State each figure in ONE sentence that names the company, gives the exact figure with its currency (e.g. USD or GBP) and carries the date, e.g. "${companyName} has raised a total of USD 53 million as of March 3, 2026." or "${companyName} raised USD 5 million in a Series A round on March 3, 2026." or "${companyName} is sold in 60 countries as of March 3, 2026." Put the figure in its own currency first; do not add conversions, ranges or "approximately".`,
+    FIGURE_DATE_RULE,
   ];
 }
 
