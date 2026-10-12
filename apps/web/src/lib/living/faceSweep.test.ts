@@ -58,7 +58,7 @@ describe('face sweep selection', () => {
 });
 
 describe('face sweep run', () => {
-  it('asks the hunt for face slots only, once per target, with concurrency 4 and no repeat budget', async () => {
+  it('asks the hunt for face slots only, once per target, with concurrency 6 and no repeat budget', async () => {
     const cards = Array.from({ length: 10 }, (_, i) => deckCard(i + 10, []));
     cards.push(full(99));
     let active = 0, peak = 0;
@@ -66,18 +66,39 @@ describe('face sweep run', () => {
       active += 1; peak = Math.max(peak, active);
       await new Promise((r) => setTimeout(r, 5));
       active -= 1;
-      return { filledTypes: ['employees' as const], metrics: [], retieredCardIds: [] };
+      // The pass fills the face, so no escalated retry follows.
+      return { filledTypes: ['employees' as const], metrics: full(1).metrics, retieredCardIds: [] };
     });
     const recoverSavedCompanyMetrics = vi.fn(async () => ({ filledTypes: [], metrics: [], retieredCardIds: [] }));
     const done: string[] = [];
     const result = await runFaceSweep(cards, { repo: { huntCompanyMetrics, recoverSavedCompanyMetrics }, onCompany: (t) => { done.push(t.companyId); } });
-    expect(FACE_SWEEP_CONCURRENCY).toBe(4);
-    expect(peak).toBe(4);
+    expect(FACE_SWEEP_CONCURRENCY).toBe(6);
+    expect(peak).toBe(6);
     expect(huntCompanyMetrics).toHaveBeenCalledTimes(10);
     for (const call of huntCompanyMetrics.mock.calls) expect(call[1]).toEqual({ faceSlotsOnly: true });
     expect(huntCompanyMetrics.mock.calls.map((c) => c[0])).not.toContain('cmp_sweep_99');
     expect(new Set(done).size).toBe(10);
     expect(result).toEqual({ targeted: 10, filledCompanies: 10, filledTypes: 10, failed: 0 });
+  });
+
+  it('retries an empty first pass once with an escalated search, and only then', async () => {
+    const cards = [deckCard(1, []), deckCard(2, [])];
+    const huntCompanyMetrics = vi.fn(async (id: string, options?: { escalation?: number }) =>
+      ({ filledTypes: id === 'cmp_sweep_1' && options?.escalation === 1 ? ['users' as const] : [], metrics: [], retieredCardIds: [] }));
+    const result = await runFaceSweep(cards, { repo: { huntCompanyMetrics }, concurrency: 1 });
+    expect(huntCompanyMetrics.mock.calls.map((c) => [c[0], c[1]])).toEqual([
+      ['cmp_sweep_1', { faceSlotsOnly: true }], ['cmp_sweep_1', { faceSlotsOnly: true, escalation: 1 }],
+      ['cmp_sweep_2', { faceSlotsOnly: true }], ['cmp_sweep_2', { faceSlotsOnly: true, escalation: 1 }],
+    ]);
+    expect(result).toEqual({ targeted: 2, filledCompanies: 1, filledTypes: 1, failed: 0 });
+  });
+
+  it('escalates when a pass fills something but the face is still short', async () => {
+    const huntCompanyMetrics = vi.fn(async (_id: string, options?: { escalation?: number }) => ({
+      filledTypes: [options?.escalation ? 'users' as const : 'employees' as const],
+      metrics: deckCard(1, [human('x', 'employees', 40)]).metrics, retieredCardIds: [] }));
+    await runFaceSweep([deckCard(1, [])], { repo: { huntCompanyMetrics }, concurrency: 1 });
+    expect(huntCompanyMetrics.mock.calls.map((c) => c[1])).toEqual([{ faceSlotsOnly: true }, { faceSlotsOnly: true, escalation: 1 }]);
   });
 
   it('a failing company is counted and skipped; stop signal halts new work', async () => {

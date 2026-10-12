@@ -181,7 +181,7 @@ export interface LivingDeckState {
   resume: () => void;
   /**
    * "Fill card faces": one targeted grounded pass over every company card with
-   * an empty face slot, concurrency 4, outside the per-session hunt cap and
+   * an empty face slot, concurrency 6, outside the per-session hunt cap and
    * cooldown. Safe to call repeatedly; a call during a running sweep joins it.
    */
   fillCardFaces: () => Promise<FaceSweepResult>;

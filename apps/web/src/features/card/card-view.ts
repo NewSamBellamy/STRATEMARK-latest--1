@@ -211,13 +211,39 @@ function strongestFaceMetrics(metrics: readonly MetricView[], profile: readonly 
   chosen.sort((a, b) => rank(a.type) - rank(b.type));
   const face: ProfileSlot[] = chosen.map(({ strength: _s, type: _t, ...slot }) => slot);
   // Fewer than four sourced figures: name what is still missing, most useful first.
-  for (const slot of profile) {
+  // A slot is skipped when a figure it accepts is already on the face (a
+  // "Total raised" figure never sits beside a "Total raised: Not found yet").
+  const shownTypes = new Set(chosen.map((c) => c.type));
+  const shownLabels = new Set(face.map((f) => f.label));
+  const slotTypes = PROFILE_CORE_SLOTS[marketProfile];
+  for (const [index, slot] of profile.entries()) {
     if (face.length >= CARD_FACE_SIZE) break;
-    if (face.some((f) => f.key === slot.key)) continue;
-    face.push({ key: slot.key, label: slot.label, display: 'Not found yet', confidence: 'Unknown', citations: [], metric: undefined,
-      note: 'No source-backed figure has been found for this yet. It is never estimated without a source.' });
+    if (face.some((f) => f.key === slot.key) || shownLabels.has(slot.label)) continue;
+    if ((slotTypes[index] ?? []).some((type) => shownTypes.has(type))) continue;
+    shownLabels.add(slot.label);
+    face.push(notFoundYet(slot.key, slot.label));
+  }
+  // Still short (a slot's figure is already shown under another name): name
+  // the next most useful figure the face does not have, so a card always
+  // reads as four places.
+  for (const [type, label] of FACE_FALLBACK_SLOTS) {
+    if (face.length >= CARD_FACE_SIZE) break;
+    if (shownLabels.has(label) || [...shownTypes].some((t) => faceFamilyOf(t) === faceFamilyOf(type))) continue;
+    if (face.some((f) => f.key === (FACE_KEY[type] ?? type))) continue;
+    shownLabels.add(label);
+    face.push(notFoundYet(FACE_KEY[type] ?? type, label));
   }
   return face;
+}
+
+const FACE_FALLBACK_SLOTS: ReadonlyArray<readonly [MetricType, string]> = [
+  ['arr', 'Revenue / ARR'], ['valuation', 'Valuation'], ['employees', 'Employees'],
+  ['funding_total', 'Total raised'], ['users', 'Users / customers'], ['last_round', 'Last round'],
+];
+
+function notFoundYet(key: string, label: string): ProfileSlot {
+  return { key, label, display: 'Not found yet', confidence: 'Unknown', citations: [], metric: undefined,
+    note: 'No source-backed figure has been found for this yet. It is never estimated without a source.' };
 }
 
 /** A single read-only boundary for deck and inspection. Never updates stored research. */

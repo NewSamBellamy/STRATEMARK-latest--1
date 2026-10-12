@@ -21,6 +21,8 @@ import { buildCardView } from '@/features/card/card-view';
 
 export interface FaceSweepTarget {
   companyId: string;
+  /** The deck card, so the face can be re-read after a pass. */
+  card?: CardWithCompany;
   companyName: string;
   /** Families the face still lacks a sourced figure for (employees / revenue / reach / company_value / aum). */
   missingSlots: string[];
@@ -50,7 +52,7 @@ export function selectFaceSweepTargets(cards: readonly CardWithCompany[]): FaceS
     if (!card.company || seen.has(card.company.id)) continue;
     seen.add(card.company.id);
     const missingSlots = missingFaceSlots(card);
-    if (missingSlots.length > 0) targets.push({ companyId: card.company.id, companyName: card.company.name, missingSlots });
+    if (missingSlots.length > 0) targets.push({ companyId: card.company.id, companyName: card.company.name, missingSlots, card });
   }
   return targets.sort((a, b) => b.missingSlots.length - a.missingSlots.length);
 }
@@ -63,11 +65,12 @@ export interface FaceSweepDeps {
   shouldStop?(): boolean;
 }
 
-export const FACE_SWEEP_CONCURRENCY = 4;
+export const FACE_SWEEP_CONCURRENCY = 6;
 
 /**
  * Run the sweep over `cards`. Free recovery from saved evidence goes first per
- * company (no provider spend), then one `faceSlotsOnly` grounded hunt. A
+ * company (no provider spend), then one `faceSlotsOnly` grounded hunt (and
+ * one escalated retry when that finds nothing). A
  * thrown company is counted and skipped; it never aborts the sweep.
  */
 export async function runFaceSweep(cards: readonly CardWithCompany[], deps: FaceSweepDeps): Promise<FaceSweepResult> {
@@ -84,8 +87,17 @@ export async function runFaceSweep(cards: readonly CardWithCompany[], deps: Face
         try { filled += (await deps.repo.recoverSavedCompanyMetrics(target.companyId)).filledTypes.length; } catch { /* the hunt still runs */ }
       }
       if (deps.repo.huntCompanyMetrics) {
-        try { filled += (await deps.repo.huntCompanyMetrics(target.companyId, { faceSlotsOnly: true })).filledTypes.length; }
-        catch { failed = true; }
+        try {
+          const first = await deps.repo.huntCompanyMetrics(target.companyId, { faceSlotsOnly: true });
+          filled += first.filledTypes.length;
+          // A face still short after the first pass gets one escalated pass
+          // (filings, trade press, funding news) before it settles on "Not found yet".
+          const stillMissing = first.filledTypes.length === 0 || !target.card ||
+            missingFaceSlots({ ...target.card, metrics: first.metrics }).length > 0;
+          if (stillMissing && !deps.shouldStop?.()) {
+            filled += (await deps.repo.huntCompanyMetrics(target.companyId, { faceSlotsOnly: true, escalation: 1 })).filledTypes.length;
+          }
+        } catch { failed = true; }
       }
       if (failed) result.failed += 1;
       if (filled > 0) { result.filledCompanies += 1; result.filledTypes += filled; }
