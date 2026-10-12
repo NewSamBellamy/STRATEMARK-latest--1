@@ -32,7 +32,7 @@ describe('OverviewTab executive summary', () => {
       passageSupport: null, reportedSupport: null, capturedAt: '2026-05-04T00:00:00Z' }]);
     const tile = await screen.findByRole('article', { name: 'Employees: 250' });
     expect(within(tile).getByRole('link', { name: /SEC filing/ })).toHaveAttribute('href', 'https://sec.gov/x');
-    const takeaways = await screen.findByRole('region', { name: 'What matters' });
+    const takeaways = await screen.findByRole('region', { name: 'Summary' });
     expect(within(takeaways).getByRole('link', { name: 'Reuters' })).toHaveAttribute('href', 'https://reuters.com/a');
     await user.click(screen.getByRole('tab', { name: 'Where they stand' }));
     expect(screen.getByRole('tabpanel', { name: 'Where they stand' })).toHaveTextContent('leading share');
@@ -40,13 +40,12 @@ describe('OverviewTab executive summary', () => {
   it('never shows an unsourced estimate as a figure, matching the card face', async () => {
     render([{ ...seed, metricType: 'employees', value: 250, confidence: 'estimated', source: null, citations: [],
       passageSupport: null, reportedSupport: null }]);
-    expect(await screen.findByRole('region', { name: 'What matters' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Summary' })).toBeInTheDocument();
     expect(screen.queryByText('250')).not.toBeInTheDocument();
   });
-  it('renders an intentional empty state for a company with no figures and no peers', async () => {
+  it('renders an intentional empty state for a company with no figures or research', async () => {
     render([], null);
     expect((await screen.findAllByText('Not found yet')).length).toBe(4);
-    expect(screen.getByText('Open this company from its deck to compare')).toBeInTheDocument();
     expect(screen.getByText('Not researched yet')).toBeInTheDocument();
     expect(screen.queryByText('0')).not.toBeInTheDocument();
   });

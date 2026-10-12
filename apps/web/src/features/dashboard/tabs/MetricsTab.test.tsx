@@ -35,11 +35,11 @@ describe('dashboard metric evidence projection', () => {
     expect(screen.getByLabelText('Confidence: Unknown. Original source could not be read. Try an accessible original publisher.')).toBeInTheDocument();
     expect(screen.queryByText('123')).not.toBeInTheDocument();
   });
-  it('keeps headline figures in a dedicated region separate from research actions', async () => {
+  it('lists found figures once, in the table, with no repeated headline strip', async () => {
     show({ confidence: 'estimated' });
-    const band = await screen.findByRole('region', { name: 'Company headline metrics' });
-    expect(within(band).getByText('Employees')).toBeInTheDocument();
-    expect(within(band).queryByRole('button')).not.toBeInTheDocument();
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText('Employees')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Company headline metrics' })).not.toBeInTheDocument();
   });
   it('does not label unsupported legacy figures as verified when cards reject them', async () => {
     const metric = show({ source: 'https://reuters.com.attacker.test/figure',
@@ -66,7 +66,7 @@ describe('dashboard metric evidence projection', () => {
     expect(screen.getAllByText('Unknown').length).toBeGreaterThan(1);
     expect(screen.queryByText('0')).not.toBeInTheDocument();
   });
-  it('filters the table by metric family and selects a row for detail', async () => {
+  it('keeps missing figures out of the table and opens what would fill one when selected', async () => {
     const { user } = (() => {
       const metrics = [
         { ...seed, id: 'm1', metricType: 'employees' as const, value: 120, confidence: 'estimated' as const, source: null, citations: [] },
@@ -80,14 +80,15 @@ describe('dashboard metric evidence projection', () => {
     })();
     const table = await screen.findByRole('table');
     expect(within(table).getByText('Employees')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /Financials/ }));
-    expect(within(table).queryByText('Employees')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /Value & funding/ }));
+    expect(within(table).queryByText('Unknown')).not.toBeInTheDocument();
     await user.click(within(table).getByText('Valuation'));
     expect(screen.getByRole('complementary', { name: 'Valuation detail' })).toBeInTheDocument();
     expect(screen.getByText(/Open this company from its deck to compare/)).toBeInTheDocument();
+    const gap = screen.getByText('Not found yet:').parentElement!;
+    await user.click(within(gap).getAllByRole('button')[0]!);
+    expect(screen.getAllByText(/What would fill this/).length).toBeGreaterThan(0);
   });
-  it('sorts by value when a header is clicked, keeping unknowns last', async () => {
+  it('sorts found figures by value when a header is clicked', async () => {
     const metrics = [
       { ...seed, id: 'm1', metricType: 'employees' as const, value: 120, confidence: 'estimated' as const, source: null, citations: [] },
       { ...seed, id: 'm2', metricType: 'valuation' as const, value: 5e9, confidence: 'estimated' as const, source: null, citations: [] },
@@ -102,6 +103,6 @@ describe('dashboard metric evidence projection', () => {
     const rows = within(table).getAllByRole('row').slice(1).map((r) => r.textContent ?? '');
     expect(rows[0]).toMatch(/Valuation/);
     expect(rows[1]).toMatch(/Employees/);
-    expect(rows[2]).toMatch(/Unknown/);
+    expect(rows).toHaveLength(2);
   });
 });

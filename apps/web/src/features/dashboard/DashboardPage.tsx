@@ -27,8 +27,6 @@ import { MetricsTab } from './tabs/MetricsTab';
 import { MissionGovernanceTab } from './tabs/MissionGovernanceTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { ProductsRoadmapTab } from './tabs/ProductsRoadmapTab';
-import { DashboardSources } from './DashboardSources';
-import { SavedResearchNotes } from './SavedResearchNotes';
 import NotFoundPage from '@/features/NotFoundPage';
 
 /**
@@ -152,9 +150,9 @@ function TabView({ tab, companyId }: { tab: DashboardTab; companyId: string }) {
 const VISIBLE_TAB_COUNT = 5;
 
 /**
- * Tab order shown in the nav. 'research' (the raw Research & Sources dump) is
- * no longer a tab — every figure already carries its own source drill-in. The
- * route still resolves so old deep links keep working.
+ * Tab order shown in the nav. Every figure and sentence carries its own source
+ * link; the full source list and saved research live in one place at the end
+ * (Research & Sources), not in a box under every tab.
  */
 const NAV_TABS: DashboardTab[] = [
   'overview',
@@ -165,6 +163,7 @@ const NAV_TABS: DashboardTab[] = [
   'live_intel',
   'mission_governance',
   'live_landing',
+  'research',
 ];
 
 /**
@@ -441,8 +440,6 @@ export default function DashboardPage() {
             >
               <TabView tab={activeTab} companyId={companyId} />
             </ContextRerun>
-            <DashboardSources companyId={companyId} tab={activeTab} />
-            <SavedResearchNotes companyId={companyId} />
           </>
         )}
       </QueryBoundary>

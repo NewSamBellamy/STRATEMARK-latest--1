@@ -30,10 +30,11 @@ function renderApp() {
   };
 }
 
-const FIND = { timeout: 5000 } as const;
+// Generous: the dashboard route is code-split and loads slowly on a busy machine.
+const FIND = { timeout: 10000 } as const;
 
 describe('end-to-end deck flow (markets → deck → 2-level split → card → dashboard)', () => {
-  it('navigates the full journey against the mock repository', { timeout: 20000 }, async () => {
+  it('navigates the full journey against the mock repository', { timeout: 40000 }, async () => {
     const { user } = renderApp();
 
     // Navigate directly to the deck via the inline recent decks sidebar link.

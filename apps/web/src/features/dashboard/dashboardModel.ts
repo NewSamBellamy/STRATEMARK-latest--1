@@ -253,6 +253,8 @@ function leadSentences(text: string, maxChars: number): string {
  * Key takeaways: the lead statement of each researched section, carrying that
  * paragraph's own source chips. Only text the research already produced.
  */
+const NON_ANSWER = /^[^.]{0,60}\b(?:unavailable|not available|not retained|no source[- ]attributed|could not be (?:found|confirmed))\b/i;
+
 export function extractTakeaways(sections: readonly OverviewSection[], max = 5): Takeaway[] {
   const out: Takeaway[] = [];
   for (const section of sections) {
@@ -262,6 +264,9 @@ export function extractTakeaways(sections: readonly OverviewSection[], max = 5):
       if (!text || text.startsWith('#')) continue;
       // A list of figures (mostly "Unknown") is data, not a takeaway.
       if ((text.match(/\bUnknown\b/g) ?? []).length >= 2) continue;
+      // "Background unavailable: no source-attributed background was retained"
+      // is a research status, not a takeaway; the section is skipped.
+      if (NON_ANSWER.test(text)) continue;
       const lead = leadSentences(text, 220);
       if (lead.length < 20 || /^[^A-Za-z"“(]/.test(lead)) continue;
       out.push({ section: section.title, text: lead, links });

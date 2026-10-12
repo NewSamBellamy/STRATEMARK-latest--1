@@ -147,3 +147,13 @@ describe('barPercent', () => {
     expect(barPercent(5, 0)).toBe(0);
   });
 });
+
+describe('extractTakeaways non-answers', () => {
+  it('skips a research-status line instead of showing it as a takeaway', () => {
+    const sections = [
+      { title: 'Source-reported background', body: 'Background unavailable: no source-attributed background was retained.' },
+      { title: 'Products and services', body: 'Acme sells industrial widgets to factories across Europe.' },
+    ];
+    expect(extractTakeaways(sections).map((t) => t.section)).toEqual(['Products and services']);
+  });
+});
