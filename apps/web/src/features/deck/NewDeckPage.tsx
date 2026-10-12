@@ -698,7 +698,6 @@ export default function NewDeckPage() {
                 className="grid h-8 w-8 place-items-center rounded-full text-faint transition-colors hover:bg-surface hover:text-muted"
                 aria-label="Show different suggestions"
                 title="Refresh suggestions"
-                aria-label="Refresh suggestions"
               >
                 <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.7} />
               </button>
