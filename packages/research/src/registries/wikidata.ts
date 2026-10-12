@@ -227,7 +227,9 @@ function buildResult(
   }
 
   const enrichment: IdentityEnrichment = { wikidataQid: qid };
-  const logo = stringClaims(entity, 'P154')[0];
+  // P154 logo image, else P8972 small logo, else P2910 icon (SVG preferred).
+  const logoFiles = ['P154', 'P8972', 'P2910'].map((prop) => stringClaims(entity, prop)).find((f) => f.length > 0) ?? [];
+  const logo = logoFiles.find((f) => /\.svg$/i.test(f)) ?? logoFiles[0];
   if (logo) enrichment.logoUrl = commonsUrl(logo);
   const lei = stringClaims(entity, 'P1278')[0];
   if (lei) enrichment.lei = lei;

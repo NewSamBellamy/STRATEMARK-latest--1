@@ -39,7 +39,6 @@ function domainOf(website: string | null | undefined): string | null {
  * Below MIN_USABLE_PX it isn't brand art at all — it's a tab icon — and the
  * designed lettermark plate beats an upscaled smear.
  */
-const GOOD_ENOUGH_PX = 256;
 const MIN_USABLE_PX = 24;
 /** Below this the mark can't fill the window without visible blur. */
 /** Hard ceiling on upscaling — past ~2x, raster marks turn to mush. */
@@ -81,6 +80,13 @@ interface Candidate {
 /** Honest 24px+ marks remain useful when capped at 2×; smaller tab icons do not. */
 export function isHeroLogoUsable(candidate: Pick<Candidate, 'width' | 'height' | 'vector'>): boolean {
   return candidate.vector || Math.min(candidate.width, candidate.height) >= MIN_USABLE_PX;
+}
+
+/** Vector beats raster; otherwise the larger short side wins. */
+export function isBetterLogo(next: Candidate, current: Candidate): boolean {
+  if (current.vector !== next.vector) return next.vector;
+  if (next.vector) return false;
+  return Math.min(next.width, next.height) > Math.min(current.width, current.height);
 }
 
 const isSvg = (src: string): boolean => /\.svg(\?|$)|image\/svg/i.test(src);
@@ -156,19 +162,23 @@ export function Logo({
     // Pre-resolved art wins: it was chosen at research time from a trusted
     // source and is usually vector, so there's nothing better to look for.
     const preferredLogo = knownCompanyLogoUrl(name) ?? logoUrl;
-    const preferred = preferredLogo ? [preferredLogo + (bust ? (preferredLogo.includes('?') ? `&${bust}` : `?${bust}`) : '')] : [];
+    const preferred = preferredLogo ? [preferredLogo + (bust && !preferredLogo.startsWith('data:') ? (preferredLogo.includes('?') ? `&${bust}` : `?${bust}`) : '')] : [];
     // A reviewed alias beats a model-researched URL. The latter may point at a
     // product, regional site, or similarly named company and return the wrong mark.
     const domain = knownCompanyDomain(name) ?? domainOf(website);
     if (!domain) return preferred;
-    // NOTE: icon.horse and DuckDuckGo are deliberately absent (both serve their
-    // own grey placeholder image — DuckDuckGo even with a 404 status, which an
-    // <img> still renders) and gstatic runs WITHOUT fallback_opts (so it 404s
-    // instead of serving a default globe). Sources must fail honestly — a
-    // generic placeholder poisons both the hero and the brand-color extraction.
+    // NOTE: icon.horse is deliberately absent (it serves its own grey
+    // placeholder). Every source here is probed IN PARALLEL and the largest
+    // honest hit wins, so the chain can be wide without being slow. gstatic
+    // MUST carry fallback_opts: without it the service returns a 200 16x16
+    // placeholder for icons it only holds at a larger size. DuckDuckGo's
+    // ip3 icons are real marks (its placeholder case 404s), but small ones
+    // lose the size race; the <24px floor still rejects tab icons.
     return [
       ...preferred,
-      `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&url=https://${domain}&size=256${q('&')}`,
+      `https://${domain}/apple-touch-icon.png${q('?')}`,
+      `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=256${q('&')}`,
+      `https://icons.duckduckgo.com/ip3/${domain}.ico${q('?')}`,
       `https://unavatar.io/${domain}?fallback=false${q('&')}`,
     ];
   }, [website, retryNonce, logoUrl, name]);
@@ -187,19 +197,23 @@ export function Logo({
     }
     let cancelled = false;
     void (async () => {
-      let winner: Candidate | null = null;
-      for (const src of sources) {
-        const hit = await probe(src);
-        if (cancelled) return;
-        if (hit && (!winner || hit.vector || Math.min(hit.width, hit.height) > Math.min(winner.width, winner.height))) {
-          winner = hit;
-          setBest(winner);
-          // Vector wins outright; raster only if it's already sharp enough.
-          if (hit.vector || Math.min(hit.width, hit.height) >= GOOD_ENOUGH_PX) break;
-        }
-      }
+      // Probe every source at once; surface the best hit as results land so
+      // a fast small icon can show while a slower large one is still loading.
+      const result: { winner: Candidate | null } = { winner: null };
+      await Promise.all(
+        sources.map(async (src) => {
+          const hit = await probe(src);
+          if (cancelled || !hit) return;
+          if (!result.winner || isBetterLogo(hit, result.winner)) {
+            result.winner = hit;
+            setBest(hit);
+          }
+        }),
+      );
+      if (cancelled) return;
       if (!cancelled) {
         setSettled(true);
+        const winner = result.winner;
         onAvailabilityChange?.(Boolean(winner && (bare ? isHeroLogoUsable(winner) : winner.vector || winner.width >= MIN_USABLE_PX)));
       }
     })();

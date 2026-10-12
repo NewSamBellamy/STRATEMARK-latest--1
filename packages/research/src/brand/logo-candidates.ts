@@ -15,7 +15,7 @@ import { registrableDomain } from '../registries/shared';
 import { extractOrganizationJsonLd } from '../registries/jsonld';
 
 export type LogoVia =
-  | 'json-ld' | 'header-logo' | 'wikidata' | 'apple-touch-icon' | 'og:logo' | 'og:image-logo' | 'favicon';
+  | 'json-ld' | 'header-logo' | 'wikidata' | 'apple-touch-icon' | 'og:logo' | 'og:image-logo' | 'favicon' | 'inline-svg';
 
 export interface LogoCandidate {
   url: string;
@@ -254,4 +254,45 @@ export function inlineHeaderSvgs(html: string, pageUrl: URL): string[] {
     }
   }
   return out;
+}
+
+const MAX_INLINE_SVG_BYTES = 30_000;
+
+/** Make a header <svg> safe and self-contained, or null when it cannot be. */
+export function sanitizeInlineSvg(svg: string): string | null {
+  if (/<use\b/i.test(svg) || /<image\b/i.test(svg)) return null; // external/sprite references
+  let out = svg
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<foreignObject\b[\s\S]*?<\/foreignObject>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/\s(?:xlink:)?href\s*=\s*(?:"[^"]*"|'[^']*')/gi, '')
+    .replace(/url\(\s*['"]?(?!#)[^)]*\)/gi, 'none')
+    .replace(/currentColor/gi, '#111111');
+  const open = /<svg\b[^>]*>/i.exec(out)?.[0];
+  if (!open) return null;
+  // Needs an intrinsic box to render as an <img>.
+  if (!/\bviewBox\s*=/i.test(open) && !(/\bwidth\s*=/i.test(open) && /\bheight\s*=/i.test(open))) return null;
+  if (!/\bxmlns\s*=/i.test(open)) out = out.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+  out = out.replace(/\s+/g, ' ').trim();
+  return new TextEncoder().encode(out).length <= MAX_INLINE_SVG_BYTES ? out : null;
+}
+
+/**
+ * The site's own inline header logo as a self-contained data URI. Only an
+ * <svg> inside header/nav/home-link whose aria-label/title/class/id names the
+ * company or "logo" qualifies; third-party marks are already filtered.
+ */
+export function inlineLogoSvg(html: string, pageUrl: URL, name?: string): { svg: string; dataUri: string } | null {
+  const wanted = (name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const token = brandToken(pageUrl);
+  for (const raw of inlineHeaderSvgs(html, pageUrl)) {
+    const open = /<svg\b[^>]*>/i.exec(raw)![0];
+    const hay = `${open} ${/<title[^>]*>([^<]*)<\/title>/i.exec(raw)?.[1] ?? ''}`.toLowerCase();
+    const flat = hay.replace(/[^a-z0-9]+/g, '');
+    const named = /logo/.test(hay) || (wanted.length >= 3 && flat.includes(wanted)) || (!!token && flat.includes(token));
+    if (!named) continue;
+    const svg = sanitizeInlineSvg(raw);
+    if (svg) return { svg, dataUri: `data:image/svg+xml,${encodeURIComponent(svg)}` };
+  }
+  return null;
 }

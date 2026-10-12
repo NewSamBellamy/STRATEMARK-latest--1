@@ -15,7 +15,7 @@ import { pickRoles } from './color';
 import {
   htmlSignals, rasterLogoPalette, svgLogoPalette, type ColorSignal, type SignalPalette,
 } from './colors';
-import { collectLogoCandidates, inlineHeaderSvgs, tagAttr, type LogoCandidate, type LogoVia } from './logo-candidates';
+import { collectLogoCandidates, inlineHeaderSvgs, inlineLogoSvg, tagAttr, type LogoCandidate, type LogoVia } from './logo-candidates';
 
 export type { LogoVia } from './logo-candidates';
 
@@ -104,6 +104,13 @@ export async function resolveBrand(websiteUrl: string, opts: BrandOptions): Prom
       if (url) chosen = { url, via: 'wikidata' };
     }
   }
+  // The site's own inline header <svg> (sharp at any size) beats apple-touch /
+  // favicon rungs; og:image is never a logo unless its filename says so.
+  let inlineSvg: { svg: string; dataUri: string } | null = null;
+  if (!chosen && html) {
+    inlineSvg = inlineLogoSvg(html, pageUrl, opts.name);
+    if (inlineSvg) chosen = { url: inlineSvg.dataUri, via: 'inline-svg' };
+  }
   if (!chosen) {
     const late = candidates.find((c) => c.rank >= 4);
     if (late) chosen = late;
@@ -112,7 +119,9 @@ export async function resolveBrand(websiteUrl: string, opts: BrandOptions): Prom
   const signals: SignalPalette[] = html ? htmlSignals(html, inlineHeaderSvgs(html, pageUrl)) : [];
   if (chosen) {
     let sig: SignalPalette | null = null;
-    if (/\.svg(?:[?#]|$)/i.test(chosen.url)) {
+    if (inlineSvg && chosen.url === inlineSvg.dataUri) {
+      sig = svgLogoPalette(inlineSvg.svg);
+    } else if (/\.svg(?:[?#]|$)/i.test(chosen.url)) {
       const receipt = await opts.read(chosen.url).catch(() => null);
       let text = receipt?.status === 'retrieved' && receipt.text && /<svg\b/i.test(receipt.text) ? receipt.text : null;
       if (!text) {

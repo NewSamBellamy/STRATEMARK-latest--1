@@ -808,10 +808,9 @@ function buildStubCard(candidate: CompanyCandidate, deck: Deck): CardWithCompany
   const companyId = uid('cmp', slug);
   const domain = candidate.domain ? rootDomain(candidate.domain) ?? candidate.domain : null;
   const website = candidate.domain ? `https://${candidate.domain}` : null;
-  const logoUrl =
-    faviconUrl(domain) ??
-    faviconUrl('example.com') ??
-    'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://example.com&size=128';
+  // Never store a placeholder: a company with no known domain gets null (the
+  // card draws its monogram) rather than a generic example.com globe.
+  const logoUrl = faviconUrl(domain);
   const company: Company = {
     id: companyId,
     name: candidate.name,

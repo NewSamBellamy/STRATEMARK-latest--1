@@ -19,3 +19,14 @@ describe('hero logo quality floor', () => {
     expect(isHeroLogoUsable({ width: 1, height: 1, vector: true })).toBe(true);
   });
 });
+
+describe('logo candidate ranking', () => {
+  it('prefers vector, then the larger raster', async () => {
+    const { isBetterLogo } = await import('./Logo');
+    const raster = (n: number) => ({ src: 'a', width: n, height: n, vector: false });
+    expect(isBetterLogo(raster(180), raster(16))).toBe(true);
+    expect(isBetterLogo(raster(16), raster(180))).toBe(false);
+    expect(isBetterLogo({ ...raster(1), vector: true }, raster(512))).toBe(true);
+    expect(isBetterLogo(raster(512), { ...raster(1), vector: true })).toBe(false);
+  });
+});

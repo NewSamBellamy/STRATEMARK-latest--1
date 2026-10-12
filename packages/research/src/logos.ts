@@ -181,13 +181,16 @@ async function fromWikidata(
 }
 
 /**
- * Google's favicon service at a usable size. Deliberately WITHOUT
- * `fallback_opts`, so a domain with no icon 404s honestly instead of returning
- * a generic globe that would poison both the card and colour extraction.
+ * Google's favicon service at a usable size. `fallback_opts=TYPE,SIZE,URL` is
+ * REQUIRED: without it the service answers HTTP 200 with a 16x16 placeholder
+ * for icons it only has at the larger size (measured live: openai.com, x.ai,
+ * deepseek.com, cerebras.ai all 128px with it, 16px without). A domain with no
+ * icon at all still 404s honestly, so an <img> errors instead of rendering a
+ * generic globe.
  */
 export function faviconUrl(domain: string | null, size = 256): string | null {
   if (!domain) return null;
-  return `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&url=https://${domain}&size=${size}`;
+  return `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=${size}`;
 }
 
 /**

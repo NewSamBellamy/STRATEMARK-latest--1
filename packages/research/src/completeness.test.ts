@@ -357,7 +357,29 @@ describe('fillCompanyAssets', () => {
 
     const { logo } = await repo.fillCompanyAssets('cmp_1', read);
 
-    expect(logo).toBeNull();
-    expect(store.read()?.companies[0]!.logoUrl).toBeNull();
+    // Nothing on the page: the favicon service WITH fallback_opts is stored
+    // (it 404s when no icon exists, so the card still falls to its monogram).
+    expect(logo?.url).toContain('fallback_opts=TYPE,SIZE,URL');
+    expect(store.read()?.companies[0]!.logoUrl).toContain('fallback_opts=TYPE,SIZE,URL');
+  });
+
+  it('treats a stored gstatic URL without fallback_opts as guessed and repairs a missing website', async () => {
+    const snap = snapshot([]);
+    snap.companies[0]!.name = 'ModelBest';
+    snap.companies[0]!.websiteUrl = null;
+    snap.companies[0]!.logoUrl =
+      'https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&url=https://example.com&size=256';
+    const store = memoryStore(snap);
+    vi.stubGlobal('fetch', async (u: string) =>
+      new Response(JSON.stringify(String(u).includes('duckduckgo')
+        ? { Heading: 'ModelBest', Results: [{ FirstURL: 'https://modelbest.cn' }] } : {}), { status: 200 }));
+    const read = vi.fn(async (url: string) => rawReceipt(url,
+      '<html><head><title>ModelBest</title><link rel="icon" href="/logo.svg" type="image/svg+xml"></head></html>'));
+    const repo = new GeminiRepository({ apiKey: 'k', store, client: assetClient });
+    try {
+      const { logo } = await repo.fillCompanyAssets('cmp_1', read);
+      expect(logo?.url).toBe('https://modelbest.cn/logo.svg');
+    } finally { vi.unstubAllGlobals(); }
+    expect(store.read()?.companies[0]!.websiteUrl).toBe('https://modelbest.cn');
   });
 });
