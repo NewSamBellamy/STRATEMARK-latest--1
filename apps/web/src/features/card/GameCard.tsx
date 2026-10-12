@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Bookmark, Share2, ArrowUpRight, RefreshCw, LoaderCircle, Droplets } from 'lucide-react';
 import type { CardWithCompany } from '@mi/contracts';
 import { knownCompanyDomain, resolveLogo, rootDomain } from '@mi/research';
@@ -20,7 +20,9 @@ export interface GameCardProps {
 }
 
 export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, className }: GameCardProps) {
-  const view = buildCardView(data);
+  // The view re-runs every slot's citation gates; recompute only when the card
+  // data itself changes, not on every grid re-render.
+  const view = useMemo(() => buildCardView(data), [data]);
   // A pending entity card during an active run is being researched RIGHT NOW:
   // say so on the face so the deck visibly fills as the agents work.
   const researching = (deckStatus === 'running' || deckStatus === 'partial' || deckStatus === 'refreshing') &&
