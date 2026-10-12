@@ -32,6 +32,7 @@ import {
   usableCitations,
   teamOrgContentSchema,
   type Card,
+  type CardType,
   type CardFilter,
   type CardWithCompany,
   type Citation,
@@ -82,6 +83,7 @@ import {
 import { createGeminiClient, type GeminiClientConfig } from './gemini';
 import { mergeTeamOrgNodes, researchDashboardWithSources } from './dashboard';
 import {
+  buildStubs,
   discoverDeckStubs,
   reviewTiersBatch,
   runDeckResearch,
@@ -89,14 +91,14 @@ import {
   type ResearchResult,
 } from './pipeline';
 import type { CompanyCandidate, MarketPlan } from './types';
-import { hydrateCompanyCard, hydrateCompanyCardsBatch, type HydrateCompanyCardResult } from './company-agent';
+import { hydrateCompanyCard, hydrateCompanyCardsBatch, type HydrateCompanyCardInput, type HydrateCompanyCardResult } from './company-agent';
 import { latestSavedCompanyProfile } from './saved-profile';
 import { CARD_FACT_TYPES as CARD_FACT_HUNT_TYPES, reportedCompanyMetrics, reportedEmployeeBandRow, reportedMetricCitations } from './reported-metrics';
 import { businessDates } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
 import { mapWithConcurrency, rootDomain, throwIfAborted, websiteUrlOf } from './util';
-import { expandDeckWithDeltaAgent } from './delta-agent';
+import { IncrementalDeltaAgent } from './delta-agent';
 import {
   shouldDistillThread,
   distillThreadMemory,
@@ -400,6 +402,9 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly webSearch?: () => WebSearchFn | null;
   private readonly newsSearch?: () => WebSearchFn | null;
   private readonly jobControllers = new Map<string, AbortController>();
+  /** Companies a running hunt has placed but not yet researched: kept out of
+   * the grid so an empty placeholder never reads as a finished card. */
+  private readonly pendingHuntCompanies = new Set<string>();
   private readonly activeBackgroundJobs = new Map<string, Promise<void>>();
   /** Detached post-reveal discovery tails (reveal-at-first-card). */
   private readonly detachedDiscovery = new Map<string, Promise<void>>();
@@ -1806,12 +1811,19 @@ export class GeminiRepository implements MarketIntelRepository {
     // Discovery placeholders stay in the durable catalog, not the finished
     // research grid. Publish each completed company immediately without waiting
     // for unrelated companies or pretending an empty stub is a finished card.
+    // Only the creation run's own catalog waits for completion; a company a
+    // later hunt added was never in that catalog and must not be hidden by it.
     const job = [...this.snap.researchJobs].reverse().find(row => row.deck?.id === deckId);
+    const catalog = job?.catalogNames.length ? new Set(job.catalogNames.map(companyKey)) : null;
     const completed = job ? new Set(job.completedEntityNames.map(companyKey)) : null;
     const result = this.snap.cards
       .filter((c) => c.deckId === deckId)
-      .filter(c => !job?.catalogNames.length || !isEntityCardType(c.cardType) ||
-        completed?.has(companyKey(this.snap.companies.find(company => company.id === c.companyId)?.name ?? '')))
+      .filter((c) => !(c.companyId && this.pendingHuntCompanies.has(c.companyId)))
+      .filter(c => {
+        if (!catalog || !isEntityCardType(c.cardType)) return true;
+        const key = companyKey(this.snap.companies.find(company => company.id === c.companyId)?.name ?? '');
+        return !catalog.has(key) || Boolean(completed?.has(key));
+      })
       .filter((c) => !this.isRemovedFromDeck(c))
       .filter((c) => (filter?.cardType ? c.cardType === filter.cardType : true))
       .filter((c) => (filter?.tier ? c.tier === filter.tier : true))
@@ -4243,49 +4255,189 @@ ${references}`
       .filter((m) => m.metricType === 'users' && comparableMetricBasis(m) && m.confidence !== 'unknown' && m.value !== null)
       .map((m) => m.value as number);
 
-    const cards = await expandDeckWithDeltaAgent({
-      originalSources: this.originalSources,
-      client: this.client,
-      marketName: market.name,
-      vertical: market.scopeDefinition.vertical,
-      geography: market.scopeDefinition.geography,
-      focus,
-      existingCompanies,
-      deckId: deck.id,
-      deckUserValues,
-      target: 3,
-      signal: handlers?.signal,
-      onEvent: (evt) => {
-        if (evt.type === 'status') handlers?.onProgress?.({ message: evt.message, kind: 'step' });
-      },
+    const signal = handlers?.signal;
+    const progress = (message: string) => handlers?.onProgress?.({ message, kind: 'step' });
+    const notify = (addedCardIds: string[], updatedCardIds: string[], companyIds?: string[]) => this.emit({
+      marketId, deckId: deck.id, refreshedAt: new Date().toISOString(), addedCardIds, updatedCardIds, prunedCardIds: [],
+      ...(companyIds ? { companyIds } : {}),
     });
 
-    // For card-type focus, retag the found companies to that type.
-    for (const cwc of cards) {
-      if (focus.cardType && focus.cardType !== 'company') {
-        cwc.card.cardType = focus.cardType;
-        cwc.card.tier = null;
-        cwc.card.tierReason = null;
-      }
-      if (cwc.company && !this.snap.companies.some((c) => c.id === cwc.company!.id)) {
-        this.snap.companies.push(cwc.company);
-        this.snap.metrics.push(...cwc.metrics);
-        this.snap.companyMarket[cwc.company.id] = market.name;
-      }
-      this.snap.cards.push(cwc.card);
+    // 1. Discovery: one grounded search + one structuring call, diffed
+    //    against the deck so nothing already here is researched again.
+    const agent = new IncrementalDeltaAgent(this.client, {
+      marketName: market.name, vertical: market.scopeDefinition.vertical,
+      geography: market.scopeDefinition.geography, deckId: deck.id, deckUserValues,
+    });
+    const found = await agent.discoverDelta({
+      focus, target: 4, signal,
+      exclude: existingCompanies.map((c) => ({ name: c.name, domain: c.websiteUrl })),
+      onEvent: (evt) => { if (evt.type === 'status') progress(evt.message); },
+    });
+    throwIfAborted(signal);
+    if (found.candidates.length === 0) return { added: 0 };
+
+    // 2. The new companies land in the deck NOW, as placeholder cards with
+    //    their own ids, while their research runs. Waiting for every company
+    //    to finish before showing any of them made a hunt look broken.
+    const stubs = buildStubs(found.candidates, deck);
+    const retag = focus.cardType && focus.cardType !== 'company' ? focus.cardType : null;
+    for (const stub of stubs) {
+      if (retag) stub.card.cardType = retag;
+      stub.card.tier = null;
+      stub.card.tierReason = null;
+      if (!stub.company) continue;
+      this.snap.companies.push(stub.company);
+      this.snap.companyMarket[stub.company.id] = market.name;
+      this.snap.cards.push(stub.card);
+      this.pendingHuntCompanies.add(stub.company.id);
     }
-    await this.persist();
-    if (cards.length > 0) {
-      this.emit({
-        marketId,
-        deckId: deck.id,
-        refreshedAt: new Date().toISOString(),
-        addedCardIds: cards.map((c) => c.card.id),
-        updatedCardIds: [],
-        prunedCardIds: [],
+    const stubCardIds = new Set(stubs.map((s) => s.card.id));
+    const stubCompanyIds = new Set(stubs.map((s) => s.company?.id).filter((id): id is string => Boolean(id)));
+    const removeStubs = (ids: { cards: Set<string>; companies: Set<string> }) => {
+      this.snap.cards = this.snap.cards.filter((c) => !ids.cards.has(c.id) && !(c.companyId && ids.companies.has(c.companyId)));
+      this.snap.companies = this.snap.companies.filter((c) => !ids.companies.has(c.id));
+      this.snap.metrics = this.snap.metrics.filter((m) => !ids.companies.has(m.companyId));
+      if (this.snap.researchEvidence) {
+        this.snap.researchEvidence = this.snap.researchEvidence.filter((row) => !(row.companyId && ids.companies.has(row.companyId)));
+      }
+      for (const id of ids.companies) { delete this.snap.companyMarket[id]; delete this.snap.dashboards[id]; }
+    };
+    try {
+      await this.persist();
+    } catch (error) {
+      removeStubs({ cards: stubCardIds, companies: stubCompanyIds });
+      for (const id of stubCompanyIds) this.pendingHuntCompanies.delete(id);
+      throw error;
+    }
+    progress(`Found ${stubs.map((s) => s.company?.name).filter(Boolean).join(', ')} — researching`);
+
+    // 3. Free lanes start immediately (filed figures, quotes, real logos):
+    //    zero provider calls, and they often land a face figure first.
+    const lanes = new Map(stubs.filter((s) => s.company).map((s) => [s.company!.id, (async () => {
+      const company = s.company!;
+      await Promise.all([
+        this.fillFromStructuredSources(company, ['market_cap', 'aum', 'employees']).catch(() => []),
+        this.assetSourceReader ? this.fillCompanyAssets(company.id, this.assetSourceReader).catch(() => undefined) : undefined,
+      ]);
+    })()]));
+
+    // 4. One grounded pass researches the whole batch together (the long
+    //    call), instead of one full pass per company in a row.
+    const roster = [...existingCompanies.map((c) => c.name), ...found.candidates.map((c) => c.name)];
+    const shared: Omit<HydrateCompanyCardInput, 'candidate'> = {
+      client: this.client, plan: found.plan, originalSources: this.originalSources,
+      recoverMissingMetrics: true, deckId: deck.id, deckUserValues, signal,
+    };
+    let batch = new Map<string, HydrateCompanyCardResult>();
+    try {
+      batch = await hydrateCompanyCardsBatch({
+        ...shared,
+        batch: stubs.map((s, i) => ({ candidate: found.candidates[i]!, companyId: s.company?.id })),
+        otherCompanies: roster,
       });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      // The batch answer failed as a whole; each company retries alone below.
     }
-    return { added: cards.length };
+
+    let finished = 0;
+    let firstFailure: unknown = null;
+    await Promise.all(stubs.map(async (stub, i) => {
+      const candidate = found.candidates[i]!;
+      const company = stub.company;
+      if (!company) return;
+      let hydrated = batch.get(candidate.name);
+      if (!hydrated) {
+        try {
+          hydrated = await hydrateCompanyCard({ ...shared, candidate, companyId: company.id,
+            otherCompanies: roster.filter((name) => name !== candidate.name) });
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          firstFailure ??= error;
+          // Shown with whatever the free lanes filled; the living deck keeps hunting it.
+          this.pendingHuntCompanies.delete(company.id);
+          notify([stub.card.id], [], [company.id]);
+          progress(`Could not research ${candidate.name} yet — its card shows what the free lanes found.`);
+          return;
+        }
+      }
+      const changed = this.applyExpandHydration(stub, hydrated, market.name, retag);
+      this.pendingHuntCompanies.delete(company.id);
+      await this.persist();
+      // First time the grid can list this card: announce it as added.
+      notify([stub.card.id, ...changed.added], [], [company.id]);
+      finished += 1;
+      progress(`Researched ${candidate.name} (${finished}/${stubs.length})`);
+
+      // 5. Card face: anything still missing gets one targeted hunt right
+      //    away, so a new card does not sit at "3 of 4 figures sourced".
+      //    It runs detached: the hunt is done once its cards are researched,
+      //    so a queued hunt can start while these faces keep filling.
+      if (!isEntityCardType(stub.card.cardType)) return;
+      void (async () => {
+        await lanes.get(company.id);
+        if (signal?.aborted) return;
+        try { await this.recoverSavedCompanyMetrics(company.id); } catch { /* the hunt still runs */ }
+        // Two passes at most: the plain one, then an escalated one (filings,
+        // trade press, funding news). The second asks only for what is still
+        // missing and costs nothing when the face is already full.
+        for (const escalation of [0, 1]) {
+          if (signal?.aborted) return;
+          try {
+            const hunt = await this.huntCompanyMetrics(company.id, { faceSlotsOnly: true, escalation });
+            if (hunt.filledTypes.length > 0) notify([], [stub.card.id], [company.id]);
+          } catch { /* the face stays honestly "Not found yet" */ }
+        }
+      })();
+    }));
+    // Nothing could be researched (storage or provider failure): take the
+    // placeholders back out and say the hunt failed, rather than leaving a
+    // row of empty cards behind.
+    if (finished === 0 && firstFailure) {
+      await Promise.all(lanes.values());
+      removeStubs({ cards: stubCardIds, companies: stubCompanyIds });
+      for (const id of stubCompanyIds) this.pendingHuntCompanies.delete(id);
+      try { await this.persist(); } catch { /* the error below is the one to report */ }
+      this.emit({ marketId, deckId: deck.id, refreshedAt: new Date().toISOString(), addedCardIds: [], updatedCardIds: [],
+        prunedCardIds: [...stubCardIds] });
+      throw firstFailure;
+    }
+    return { added: stubs.length };
+  }
+
+  /** Fold one hydrated company into the placeholder card a hunt already showed.
+   * Real art the asset lane resolved meanwhile is kept over hydration guesses. */
+  private applyExpandHydration(stub: CardWithCompany, hydrated: HydrateCompanyCardResult, marketName: string,
+    retag: CardType | null): { added: string[]; updated: string[] } {
+    const companyId = stub.company!.id;
+    const idx = this.snap.companies.findIndex((c) => c.id === companyId);
+    const prior = idx >= 0 ? this.snap.companies[idx]! : null;
+    const company = { ...hydrated.company, id: companyId };
+    if (prior?.logoUrl && !GUESSED_LOGO_RE.test(prior.logoUrl)) company.logoUrl = prior.logoUrl;
+    if (prior?.brandTheme?.source === 'scraped' && company.brandTheme?.source !== 'scraped') company.brandTheme = prior.brandTheme;
+    if (idx >= 0) this.snap.companies[idx] = company; else this.snap.companies.push(company);
+    this.snap.companyMarket[companyId] = marketName;
+
+    const existing = this.snap.metrics.filter((m) => m.companyId === companyId);
+    this.snap.metrics = [
+      ...this.snap.metrics.filter((m) => m.companyId !== companyId),
+      ...reconcileMetrics(existing, hydrated.metrics.map((m) => ({ ...m, companyId })), company.websiteUrl),
+    ];
+
+    const cardIdx = this.snap.cards.findIndex((c) => c.id === stub.card.id);
+    const card: Card = { ...hydrated.primaryCard.card, id: stub.card.id, deckId: stub.card.deckId, companyId,
+      cardType: retag ?? hydrated.primaryCard.card.cardType, tier: null, tierReason: null };
+    if (cardIdx >= 0) this.snap.cards[cardIdx] = card; else this.snap.cards.push(card);
+
+    const added: string[] = [];
+    for (const facet of hydrated.cards.slice(1)) {
+      if (this.snap.cards.some((c) => c.deckId === stub.card.deckId && c.companyId === companyId && c.cardType === facet.card.cardType)) continue;
+      this.snap.cards.push({ ...facet.card, companyId });
+      added.push(facet.card.id);
+      if (facet.viceClaims.length > 0) this.snap.viceClaims.push(...facet.viceClaims);
+    }
+    this.snap.dashboards[companyId] = {};
+    return { added, updated: [card.id] };
   }
 
   async overrideMetric(input: OverrideMetricInput): Promise<CompanyMetric> {

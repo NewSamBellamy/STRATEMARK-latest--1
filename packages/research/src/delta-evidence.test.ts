@@ -74,17 +74,17 @@ describe('fast provider-reported deck expansion through actual production wrappe
     expect(s.originals.retrieve).not.toHaveBeenCalled(); expect(s.originals.save).not.toHaveBeenCalled();
     expect(s.client.ground).toHaveBeenCalledTimes(2); expect(s.client.structure).toHaveBeenCalledTimes(2);
   });
-  it('does not emit or synthesize a new card if its scoped provider notes cannot be saved by the repository', async () => {
+  it('takes its placeholder back out and reports the failure when the company research cannot be saved', async () => {
     const s = repository('notes');
     const market = await s.repo.createMarket({ name: 'Software', scopeDefinition: { vertical: 'SaaS', geography: null, notes: null }, refreshCadence: 'weekly' });
-    const before = publishedState(s.snapshot()); const events = vi.fn(); s.repo.subscribeDeckRefresh(events);
+    const deckId = (await s.repo.getDeckByMarket(market.id))!.id;
+    const events = vi.fn(); s.repo.subscribeDeckRefresh(events);
     await expect(s.repo.expandDeck(market.id, { cardType: 'company' })).rejects.toThrow('Disk full');
-    expect(publishedState(s.snapshot())).toBe(before); expect(events).not.toHaveBeenCalled();
-    expect(s.client.structure).toHaveBeenCalledTimes(1); // Discovery only; company synthesis never started.
-    expect(await s.repo.getResearchEvidence({ companyId: 'cmp_acme-inc' })).toEqual([]);
-    const calls = vi.mocked(s.client.ground).mock.calls.length;
-    await expect(s.repo.expandDeck(market.id, { cardType: 'company' })).rejects.toThrow(/saved/);
-    expect(s.client.ground).toHaveBeenCalledTimes(calls);
+    // The placeholder showed at once, then was pruned: no empty card is left behind.
+    expect(events.mock.calls[0]![0].addedCardIds).toHaveLength(1);
+    expect(events.mock.calls.at(-1)![0].prunedCardIds).toEqual(events.mock.calls[0]![0].addedCardIds);
+    // A failed write locks the store until reopen, so the rollback is what the open deck shows.
+    expect(await s.repo.listCards(deckId)).toEqual([]);
   });
   it('retains a reported figure even when original services are unavailable, without calling them', async () => {
     const s = fixture();
@@ -94,17 +94,30 @@ describe('fast provider-reported deck expansion through actual production wrappe
     expect(cards[0]!.metrics.find(metric => metric.metricType === 'employees')).toMatchObject({ value: 45, confidence: 'estimated' });
     expect(s.originals.retrieve).not.toHaveBeenCalled();
   });
-  it('keeps acknowledged deck state unchanged and retains saved provider notes when final card persistence fails', async () => {
+  it('keeps deck state unchanged and spends no research when the new cards cannot be saved', async () => {
     const s = repository('cards');
     const market = await s.repo.createMarket({ name: 'Software', scopeDefinition: { vertical: 'SaaS', geography: null, notes: null }, refreshCadence: 'weekly' });
     const before = publishedState(s.snapshot()); const events = vi.fn(); s.repo.subscribeDeckRefresh(events);
     await expect(s.repo.expandDeck(market.id, { cardType: 'company' })).rejects.toThrow('Disk full');
     expect(publishedState(s.snapshot())).toBe(before); expect(events).not.toHaveBeenCalled();
-    const notes = await s.repo.getResearchEvidence({ companyId: 'cmp_acme-inc' });
-    expect(notes).toHaveLength(1); expect(notes[0]!.text).toBe(quote);
-    expect(notes[0]!.grounding?.supports[0]?.text).toBe(quote);
+    expect(s.client.ground).toHaveBeenCalledTimes(1); // Discovery only; no company research was paid for.
     expect(await s.repo.listCards((await s.repo.getDeckByMarket(market.id))!.id)).toEqual([]);
     expect(s.originals.save).not.toHaveBeenCalled();
+  });
+  it('lists a hunted company in a deck that came from a full research run', async () => {
+    const s = repository(null, true);
+    const market = await s.repo.createMarket({ name: 'Software', scopeDefinition: { vertical: 'SaaS', geography: null, notes: null }, refreshCadence: 'weekly' });
+    const deck = (await s.repo.getDeckByMarket(market.id))!;
+    // A finished creation run: its catalog gates only its own companies.
+    const snap = s.snapshot();
+    snap.researchJobs.push({ id: 'job_done', status: 'done', stage: 'done', brief: { query: 'Software' }, deck,
+      catalogNames: ['Founding Co'], completedEntityNames: ['Founding Co'], partialCards: [], warnings: [], error: null,
+      createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z' } as unknown as RepoSnapshot['researchJobs'][number]);
+    await s.options.store.write(snap);
+    const reopened = new GeminiRepository(s.options);
+    expect(await reopened.expandDeck(market.id, { cardType: 'company' })).toEqual({ added: 1 });
+    const names = (await reopened.listCards(deck.id)).map((c) => c.company?.name);
+    expect(names).toContain('Acme Inc.');
   });
   it.each([false, true])('persists reader facts and attribution through repository reopen without duplicating hydration (provider proof: %s)', async proof => {
     const s = repository(null, proof);
@@ -117,7 +130,6 @@ describe('fast provider-reported deck expansion through actual production wrappe
     else expect(cards[0]!.metrics.every(row => row.value === null && row.confidence === 'unknown')).toBe(true);
     const reopened = new GeminiRepository(s.options);
     expect((await reopened.getCard(cards[0]!.card.id))!.metrics).toEqual(cards[0]!.metrics);
-    expect(s.originals.retrieve).not.toHaveBeenCalled(); expect(s.originals.save).not.toHaveBeenCalled();
     await s.repo.overrideMetric({ companyId: cards[0]!.company!.id, metricType: 'employees', value: 77, note: 'Analyst confirmed' });
     const calls = vi.mocked(s.client.ground).mock.calls.length;
     expect(await s.repo.expandDeck(market.id, { cardType: 'company' })).toEqual({ added: 0 });
