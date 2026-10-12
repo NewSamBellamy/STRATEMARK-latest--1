@@ -149,6 +149,21 @@ describe('hunt targeting and request', () => {
     expect(await prompts([...three, human('distribution', 40)])).not.toContain('total funding');
   });
 
+  it('pays for one hunt when several callers ask for the same company at once', async () => {
+    const ground = vi.fn().mockResolvedValue({ text: 'nothing', citations: [], queries: [] });
+    const repo = new GeminiRepository({ apiKey: 'k', store: store(snap()), client: { ground, structure: vi.fn().mockResolvedValue({ figures: [] }) } as unknown as LlmClient });
+    await repo.huntCompanyMetrics('cmp_l');
+    const single = ground.mock.calls.length;
+    ground.mockClear();
+    const [a, b] = await Promise.all([repo.huntCompanyMetrics('cmp_l'), repo.huntCompanyMetrics('cmp_l', { faceSlotsOnly: true })]);
+    expect(b).toBe(a);
+    expect(ground.mock.calls.length).toBe(single);
+    // A more escalated request is a different approach: it runs after, not joined.
+    ground.mockClear();
+    await Promise.all([repo.huntCompanyMetrics('cmp_l'), repo.huntCompanyMetrics('cmp_l', { escalation: 1 })]);
+    expect(ground.mock.calls.length).toBeGreaterThan(single);
+  });
+
   describe('source binding after the hunt', () => {
     const bound = async (pageText: string) => {
       const ground = vi.fn().mockResolvedValue({ text: ANSWER, citations: [], queries: [], grounding: grounding() });

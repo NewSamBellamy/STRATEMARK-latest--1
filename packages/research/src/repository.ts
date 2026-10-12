@@ -391,6 +391,16 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   newsSearch?: () => WebSearchFn | null;
 }
 
+/** Earlier overviews kept for comparison; each refresh appends one. */
+const OVERVIEW_HISTORY_LIMIT = 5;
+
+/** A running hunt already does what this request asks: at least as wide (a full
+ * hunt covers a face-slot sweep) and at least as escalated (a higher escalation
+ * asks for a different approach, so it must run on its own). */
+function huntCovers(running: HuntMetricsOptions | undefined, wanted: HuntMetricsOptions | undefined): boolean {
+  return (!running?.faceSlotsOnly || Boolean(wanted?.faceSlotsOnly)) && (running?.escalation ?? 0) >= (wanted?.escalation ?? 0);
+}
+
 export class GeminiRepository implements MarketIntelRepository {
   private snap: RepoSnapshot;
   private lastMigration: MigrationOutcome | null = null;
@@ -411,6 +421,16 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly jobControllers = new Map<string, AbortController>();
   /** In-flight source-binding passes, one per company. */
   private readonly sourceBindings = new Map<string, Promise<number>>();
+  private readonly hunts = new Map<string, { options?: HuntMetricsOptions; result: Promise<HuntMetricsResult> }>();
+  /** Bumped on every dashboard invalidation, so a tab pass that started on older
+   * figures never caches its answer as current. */
+  private readonly dashboardEpochs = new Map<string, number>();
+
+  /** The company's figures changed: every cached dashboard tab is stale. */
+  private invalidateDashboard(companyId: string): void {
+    this.snap.dashboards[companyId] = {};
+    this.dashboardEpochs.set(companyId, (this.dashboardEpochs.get(companyId) ?? 0) + 1);
+  }
   /** Companies a running hunt has placed but not yet researched: kept out of
    * the grid so an empty placeholder never reads as a finished card. */
   private readonly pendingHuntCompanies = new Set<string>();
@@ -660,7 +680,7 @@ export class GeminiRepository implements MarketIntelRepository {
     // Dashboard tabs are cached projections. Invalidate every affected company
     // so a newly detected contradiction cannot leave one tab on stale evidence
     // while the card and Metrics tab show a different canonical value.
-    for (const companyId of companyById.keys()) this.snap.dashboards[companyId] = {};
+    for (const companyId of companyById.keys()) this.invalidateDashboard(companyId);
     await this.persist();
   }
 
@@ -1159,7 +1179,7 @@ export class GeminiRepository implements MarketIntelRepository {
         }
 
         // Invalidate dashboard caches for company
-        this.snap.dashboards[hydrated.company.id] = {};
+        this.invalidateDashboard(hydrated.company.id);
 
         await this.persist();
 
@@ -1788,7 +1808,7 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     // Cached tab research also re-runs on next open so prose catches up.
     for (const companyId of deckCompanyIds) {
-      this.snap.dashboards[companyId] = {};
+      this.invalidateDashboard(companyId);
     }
 
     // 2. One targeted hunt for new entrants since the deck was built.
@@ -1994,7 +2014,7 @@ export class GeminiRepository implements MarketIntelRepository {
         }
       });
       this.snap.sourceChecks = { ...(this.snap.sourceChecks ?? {}), ...Object.fromEntries(results) };
-      this.snap.dashboards[companyId] = {};
+      this.invalidateDashboard(companyId);
       await this.persist();
       const card = this.snap.cards.find((c) => c.companyId === companyId && c.cardType === 'company');
       const deck = card ? this.snap.decks.find((d) => d.id === card.deckId) : undefined;
@@ -2136,6 +2156,7 @@ export class GeminiRepository implements MarketIntelRepository {
         return result;
       },
     };
+    const epoch = this.dashboardEpochs.get(companyId) ?? 0;
     const work = (async (): Promise<DashboardTabResult<T> | null> => {
       const { content, citations, sourceDiagnostics, overviewNarrative, productSelections, teamOrgSelections } = await researchDashboardWithSources(tab, {
         company,
@@ -2154,9 +2175,13 @@ export class GeminiRepository implements MarketIntelRepository {
       });
       throwIfAborted(controller.signal);
       const lastRefreshedAt = new Date().toISOString();
+      const result = { companyId, tab, content, citations, ...(sourceDiagnostics ? { sourceDiagnostics } : {}), lastRefreshedAt };
+      // The figures changed while this pass ran: answer the caller, cache nothing.
+      if ((this.dashboardEpochs.get(companyId) ?? 0) !== epoch) return result;
       const previous = this.snap.dashboards[companyId]?.overview;
       const history = previous ? [...(previous.overviewHistory ?? []),
-        Object.fromEntries(Object.entries(previous).filter(([key]) => key !== 'overviewHistory')) as Omit<CachedTab, 'overviewHistory'>] : [];
+        Object.fromEntries(Object.entries(previous).filter(([key]) => key !== 'overviewHistory')) as Omit<CachedTab, 'overviewHistory'>]
+        .slice(-OVERVIEW_HISTORY_LIMIT) : [];
       this.snap.dashboards[companyId] = {
         ...this.snap.dashboards[companyId],
         [tab]: { content, citations, lastRefreshedAt,
@@ -2166,7 +2191,7 @@ export class GeminiRepository implements MarketIntelRepository {
           ...(tab === 'team_org' ? { teamOrgSelections } : {}) },
       };
       await this.persist();
-      return { companyId, tab, content, citations, ...(sourceDiagnostics ? { sourceDiagnostics } : {}), lastRefreshedAt };
+      return result;
     })();
     const run = Promise.race([work, deadline]);
     this.tabResearchInFlight.set(flightKey, run);
@@ -2287,7 +2312,7 @@ export class GeminiRepository implements MarketIntelRepository {
         }, hintCited, nowIso);
         const { changed, verdict } = verification;
         Object.assign(metric, verification.metric);
-        if (changed) this.snap.dashboards[input.companyId] = {};
+        if (changed) this.invalidateDashboard(input.companyId);
         const retieredCardIds = changed
           ? this.retierCompany(input.companyId, `Re-tiered after a fact-check correction of ${label}.`)
           : [];
@@ -2407,7 +2432,7 @@ export class GeminiRepository implements MarketIntelRepository {
     Object.assign(metric, verification.metric);
     metric.passageSupport = verdict !== 'unverified' && passageCitations.length && this.originalSources ? out.passageSupport : null;
     // Researched tabs quoting a changed/downgraded fact re-research on next open.
-    if (changed) this.snap.dashboards[input.companyId] = {};
+    if (changed) this.invalidateDashboard(input.companyId);
 
     const retieredCardIds = changed
       ? this.retierCompany(input.companyId, `Re-tiered after live verification of ${label}.`)
@@ -2511,7 +2536,7 @@ export class GeminiRepository implements MarketIntelRepository {
           rationale: 'No readable original source was available; the stored figure was not changed.' };
       });
       const changedTypes = results.filter(r => r.changed).map(r => r.metricType);
-      if (changedTypes.length) this.snap.dashboards[companyId] = {};
+      if (changedTypes.length) this.invalidateDashboard(companyId);
       await this.persist();
       return { examined, changedTypes, retieredCardIds: [], results, citations: g.citations };
     }
@@ -2581,7 +2606,7 @@ export class GeminiRepository implements MarketIntelRepository {
       results.push({ metricType: target.metricType, verdict: verification.verdict, changed: verification.changed,
         confidence: metric.confidence, value: metric.value, rationale: row.rationale });
     }
-    if (changedTypes.length) this.snap.dashboards[companyId] = {};
+    if (changedTypes.length) this.invalidateDashboard(companyId);
     const retieredCardIds = changedTypes.length
       ? this.retierCompany(companyId, `Re-tiered after batch verification of ${changedTypes.length} figure${changedTypes.length === 1 ? '' : 's'}.`)
       : [];
@@ -2719,7 +2744,7 @@ export class GeminiRepository implements MarketIntelRepository {
     }
 
     if (filled.length > 0) {
-      this.snap.dashboards[company.id] = {};
+      this.invalidateDashboard(company.id);
       await this.persist();
       this.retierCompany(company.id, 'Re-tiered after a structured-lane fill.');
     }
@@ -2866,7 +2891,7 @@ export class GeminiRepository implements MarketIntelRepository {
       filledTypes += 1;
     }
     if (filledTypes > 0) {
-      for (const companyId of touched) this.snap.dashboards[companyId] = {};
+      for (const companyId of touched) this.invalidateDashboard(companyId);
       await this.persist();
       for (const companyId of touched) {
         this.retierCompany(companyId, 'Re-tiered after a market-batch estimated fill.');
@@ -2875,10 +2900,27 @@ export class GeminiRepository implements MarketIntelRepository {
     return { filledCompanies: touched.size, filledTypes, rejected };
   }
 
+  /**
+   * One hunt per company at a time. Creation, the face sweep, the living
+   * runtime and the user's button can all ask at once; two concurrent hunts pay
+   * for the same searches and the revision check then discards the slower one.
+   * A request the running hunt already covers joins it; any other waits for it
+   * and then runs against the figures it left.
+   */
   async huntCompanyMetrics(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
-    const result = await this.huntCompanyMetricsOnce(companyId, options);
-    // Newly written reported figures get their cited pages checked in the background.
-    void this.bindReportedSources(companyId);
+    for (let running = this.hunts.get(companyId); running; running = this.hunts.get(companyId)) {
+      if (huntCovers(running.options, options)) return running.result;
+      await running.result.catch(() => undefined);
+    }
+    const result = (async () => {
+      const outcome = await this.huntCompanyMetricsOnce(companyId, options);
+      // Newly written reported figures get their cited pages checked in the background.
+      void this.bindReportedSources(companyId);
+      return outcome;
+    })().finally(() => {
+      if (this.hunts.get(companyId)?.result === result) this.hunts.delete(companyId);
+    });
+    this.hunts.set(companyId, { options, result });
     return result;
   }
 
@@ -3175,7 +3217,7 @@ export class GeminiRepository implements MarketIntelRepository {
         : [];
     if (filledTypes.length > 0) {
       // Researched tabs quoting the old gaps re-research on next open.
-      this.snap.dashboards[companyId] = {};
+      this.invalidateDashboard(companyId);
       await this.persist();
       const card = this.snap.cards.find(
         (c) => c.companyId === companyId && c.cardType === 'company',
@@ -3264,7 +3306,7 @@ export class GeminiRepository implements MarketIntelRepository {
   private async finalizeHuntFill(companyId: string, filled: MetricType[]): Promise<string[]> {
     if (filled.length === 0) return [];
     const retieredCardIds = this.retierCompany(companyId, 'Re-tiered after a metrics hunt filled reported estimates.');
-    this.snap.dashboards[companyId] = {};
+    this.invalidateDashboard(companyId);
     await this.persist();
     const card = this.snap.cards.find((c) => c.companyId === companyId && c.cardType === 'company');
     const deck = card ? this.snap.decks.find((d) => d.id === card.deckId) : undefined;
@@ -3388,7 +3430,7 @@ export class GeminiRepository implements MarketIntelRepository {
         : [];
     if (filledTypes.length > 0) {
       // Dashboards quoting the old gaps re-research on next open.
-      this.snap.dashboards[companyId] = {};
+      this.invalidateDashboard(companyId);
       await this.persist();
       const card = this.snap.cards.find(
         (c) => c.companyId === companyId && c.cardType === 'company',
@@ -4533,7 +4575,7 @@ ${references}`
       added.push(facet.card.id);
       if (facet.viceClaims.length > 0) this.snap.viceClaims.push(...facet.viceClaims);
     }
-    this.snap.dashboards[companyId] = {};
+    this.invalidateDashboard(companyId);
     return { added, updated: [card.id] };
   }
 
@@ -4562,7 +4604,7 @@ ${references}`
     metric.citations = [];
     metric.methodNote = input.note ?? 'Manually corrected by user';
     metric.capturedAt = new Date().toISOString();
-    this.snap.dashboards[input.companyId] = {};
+    this.invalidateDashboard(input.companyId);
     this.snap.opportunity = Object.fromEntries(
       Object.entries(this.snap.opportunity).filter(([marketId]) => {
         const companyMarket = this.snap.companyMarket[input.companyId];

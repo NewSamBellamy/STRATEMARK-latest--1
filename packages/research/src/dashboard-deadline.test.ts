@@ -42,6 +42,18 @@ it.each(['ground', 'structure'] as const)('aborts a hung %s after 90s and frees 
   expect(vi.getTimerCount()).toBe(0);
 });
 
+it('answers but does not cache a tab whose figures changed while it was researched', async () => {
+  const s = setup(); let finish!: (value: unknown) => void;
+  s.ground.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  s.structure.mockResolvedValue({ founderStory: 'Story written on older figures', timeline: [], quotes: [] });
+  const pending = s.repository.getDashboardTab('cmp', 'history');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await s.repository.overrideMetric({ companyId: 'cmp', metricType: 'employees', value: 120, note: 'analyst count' });
+  finish({ text: 'Example history', citations: [], queries: [] });
+  expect((await pending)?.content.founderStory).toContain('older figures');
+  expect(s.store.read()!.dashboards.cmp?.history).toBeUndefined();
+});
+
 it('does not let a late provider overwrite newer successful dashboard research', async () => {
   vi.useFakeTimers();
   const s = setup(); let finish!: (value: unknown) => void;
