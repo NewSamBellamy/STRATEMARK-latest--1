@@ -149,6 +149,34 @@ describe('hunt targeting and request', () => {
     expect(await prompts([...three, human('distribution', 40)])).not.toContain('total funding');
   });
 
+  describe('source binding after the hunt', () => {
+    const bound = async (pageText: string) => {
+      const ground = vi.fn().mockResolvedValue({ text: ANSWER, citations: [], queries: [], grounding: grounding() });
+      const structure = vi.fn().mockResolvedValue({ figures: [] });
+      // The grounded answer cites SOURCE but the hunt itself reads no original
+      // (no grounded citations), so the reported lane fills; the background
+      // binder then reads the cited page.
+      const read = vi.fn(async (url: string) => url === SOURCE
+        ? { requestedUrl: url, finalUrl: 'https://www.just-drinks.com/news/lyres-series-a', status: 'retrieved' as const, httpStatus: 200,
+          text: pageText, contentHash: 'c'.repeat(64), retrievedAt: new Date().toISOString() }
+        : { requestedUrl: url, status: 'unavailable' as const, retrievedAt: new Date().toISOString(), reason: 'x' });
+      const repo = new GeminiRepository({ apiKey: 'k', store: store(snap()), client: { ground, structure } as unknown as LlmClient, originalSourceReader: read });
+      await repo.huntCompanyMetrics('cmp_l');
+      await repo.waitForBackgroundJobs();
+      expect(read.mock.calls.some(([url]) => url === SOURCE)).toBe(true);
+      return (await repo.getCompanyFacts('cmp_l')).find((m) => m.metricType === 'valuation');
+    };
+
+    it('links the reported figure to the real article that states it', async () => {
+      const valuation = await bound("Lyre's raised £20 million in a round that valued it at £270 million.");
+      expect(valuation).toMatchObject({ confidence: 'estimated', source: 'https://www.just-drinks.com/news/lyres-series-a' });
+    });
+
+    it('hides the figure when the article it cites does not state it', async () => {
+      expect((await bound("Lyre's launched a new gin alternative this spring."))?.value ?? null).toBeNull();
+    });
+  });
+
   it('the live hunt asks for the card figures and fills valuation and last_round, nothing else', async () => {
     const ground = vi.fn().mockResolvedValue({ text: ANSWER, citations: [], queries: [], grounding: grounding() });
     const structure = vi.fn().mockResolvedValue({ figures: [] });

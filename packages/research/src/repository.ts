@@ -119,6 +119,7 @@ import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane, type DiscoveryNotes } from './searxng';
 import { huntSearchQueries, webSearchLane, type WebSearchFn } from './web-search';
 import { quotedEstimateNote, quotedOriginalEstimate } from './quoted-estimate';
+import { applySourceChecks, checkFromReceipt, uncheckedSources, type SourceChecks } from './source-binding';
 import { resolveCompanyBrand, type CompanyLogo } from './assets';
 import { checkHomepageName, discoverOfficialDomain } from './brand/domain';
 import { faviconUrl, knownCompanyDomain } from './logos';
@@ -198,6 +199,8 @@ export interface RepoSnapshot {
   originalSourceAttempts?: OriginalSourceAttempt[];
   /** Companies the user took out of a deck; they never come back into that deck. */
   removedFromDeck?: Array<{ deckId: string; companyKey: string; at: string }>;
+  /** Per figure and cited source: the real page it led to and whether it states the figure (source-binding.ts). */
+  sourceChecks?: SourceChecks;
 }
 
 export interface ResearchStore {
@@ -406,6 +409,8 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly webSearch?: () => WebSearchFn | null;
   private readonly newsSearch?: () => WebSearchFn | null;
   private readonly jobControllers = new Map<string, AbortController>();
+  /** In-flight source-binding passes, one per company. */
+  private readonly sourceBindings = new Map<string, Promise<number>>();
   /** Companies a running hunt has placed but not yet researched: kept out of
    * the grid so an empty placeholder never reads as a finished card. */
   private readonly pendingHuntCompanies = new Set<string>();
@@ -834,6 +839,7 @@ export class GeminiRepository implements MarketIntelRepository {
     } else {
       await Promise.all(Array.from(this.activeBackgroundJobs.values()));
     }
+    await Promise.all(Array.from(this.sourceBindings.values()));
   }
 
   async createResearchedDeck(
@@ -1104,6 +1110,8 @@ export class GeminiRepository implements MarketIntelRepository {
         if (!job.completedEntityNames.includes(hydrated.company.name)) {
           job.completedEntityNames.push(hydrated.company.name);
         }
+        // Check the pages this company's reported figures cite, in the background.
+        void this.bindReportedSources(hydrated.company.id);
         const pIdx = job.partialCards.findIndex(
           (p) => p.company?.name.toLowerCase() === hydrated.company.name.toLowerCase(),
         );
@@ -1958,7 +1966,46 @@ export class GeminiRepository implements MarketIntelRepository {
       .filter((row) => row.id !== companyId && this.snap.companyMarket[row.id] === marketId)
       .map((row) => row.name);
     const repaired = savedCompanyProfile(company, current, this.snap.researchEvidence ?? [], otherCompanies);
-    return repaired.metrics;
+    // A reported figure links to the page that states it, or is not shown.
+    return applySourceChecks(companyId, repaired.metrics, this.snap.sourceChecks);
+  }
+
+  /**
+   * Read the pages this company's reported figures cite and record whether
+   * each states its figure (see source-binding.ts). Background work: bounded
+   * reads, one pass per company at a time, never throws, and refreshes the deck
+   * when anything changed. Returns the number of pages checked.
+   */
+  async bindReportedSources(companyId: string, limit = 6): Promise<number> {
+    const running = this.sourceBindings.get(companyId);
+    if (running) return running;
+    const pass = (async () => {
+      const sources = this.originalSources;
+      const company = this.snap.companies.find((row) => row.id === companyId);
+      if (!sources || !company) return 0;
+      const todo = uncheckedSources(companyId, await this.getCompanyFacts(companyId), this.snap.sourceChecks, limit);
+      if (!todo.length) return 0;
+      const results = await mapWithConcurrency(todo, 3, async (item) => {
+        try {
+          const receipt = await sources.retrieve(item.url, { companyId, companyName: company.name, metricType: item.metricType });
+          return [item.key, checkFromReceipt(company.name, item.values, receipt)] as const;
+        } catch {
+          return [item.key, { finalUrl: null, found: false, read: false, checkedAt: new Date().toISOString() }] as const;
+        }
+      });
+      this.snap.sourceChecks = { ...(this.snap.sourceChecks ?? {}), ...Object.fromEntries(results) };
+      this.snap.dashboards[companyId] = {};
+      await this.persist();
+      const card = this.snap.cards.find((c) => c.companyId === companyId && c.cardType === 'company');
+      const deck = card ? this.snap.decks.find((d) => d.id === card.deckId) : undefined;
+      if (deck && card) {
+        this.emit({ marketId: deck.marketId, deckId: deck.id, refreshedAt: new Date().toISOString(), addedCardIds: [],
+          updatedCardIds: [card.id], prunedCardIds: [], companyIds: [companyId] });
+      }
+      return results.length;
+    })().catch(() => 0).finally(() => this.sourceBindings.delete(companyId));
+    this.sourceBindings.set(companyId, pass);
+    return pass;
   }
   getViceClaims(cardId: string): Promise<ViceClaim[]> {
     return Promise.resolve(this.snap.viceClaims.filter((v) => v.cardId === cardId));
@@ -2829,6 +2876,13 @@ export class GeminiRepository implements MarketIntelRepository {
   }
 
   async huntCompanyMetrics(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
+    const result = await this.huntCompanyMetricsOnce(companyId, options);
+    // Newly written reported figures get their cited pages checked in the background.
+    void this.bindReportedSources(companyId);
+    return result;
+  }
+
+  private async huntCompanyMetricsOnce(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company) throw new Error(`Company not found: ${companyId}`);
     const mine = () => this.snap.metrics.filter((m) => m.companyId === companyId);
