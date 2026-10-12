@@ -48,6 +48,9 @@ const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models';
 const UA = 'Stratemark-Research/1.0 (+https://getstratemark.com)';
 const MAX_JSON_BODY = 2 * 1024 * 1024;
 const MAX_PAGE_BYTES = 12 * 1024 * 1024;
+/** Longest a grounded Gemini call may run; the browser's own attempts are shorter. */
+const UPSTREAM_TIMEOUT_MS = 120_000;
+const DNS_TIMEOUT_MS = 5_000;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
 function cors(origin: string | null): Record<string, string> {
@@ -71,6 +74,7 @@ function json(body: unknown, status: number, origin: string | null, extra: Recor
 async function resolvePublic(host: string): Promise<string[]> {
   const res = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=A`, {
     headers: { Accept: 'application/dns-json' },
+    signal: AbortSignal.timeout(DNS_TIMEOUT_MS),
   });
   if (!res.ok) return [];
   const data = await res.json() as { Answer?: Array<{ type: number; data: string }> };
@@ -177,12 +181,17 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
   }
 
   let actual = 0;
+  let answered = false;
   try {
+    // Bounded, and abandoned when the browser gives up: a client that timed
+    // out and retried must not leave this call running against the budget.
     const upstream = await fetch(`${GEMINI}/${model}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body,
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)]),
     });
+    answered = true;
     // Pass Google's body and status through; never its headers (no key echo).
     // Buffered, not streamed: a streamed error body arrived empty at the browser.
     const text = await upstream.text();
@@ -206,7 +215,11 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
       headers: { 'Content-Type': upstream.headers.get('content-type') ?? 'application/json', 'Cache-Control': 'no-store', ...cors(origin) },
     });
   } catch (cause) {
-    actual = 0; // the request never reached Google, so it was not billed
+    // Google answered, or was cut off mid-generation (timeout, client gone):
+    // it may have billed, so hold the worst case. Only a call that failed
+    // before reaching Google is free.
+    const aborted = cause instanceof Error && (cause.name === 'AbortError' || cause.name === 'TimeoutError');
+    actual = answered || aborted ? held : 0;
     throw cause;
   } finally {
     await counter.settle(day, ip, held, actual);
