@@ -24,6 +24,13 @@ export function secRevenueConceptUrl(cik: string): string {
   return `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik.replace(/\D/g, '').padStart(10, '0')}/us-gaap/${concept}.json`;
 }
 
+/** Of one issuer's revenue observations (one per concept), the latest annual
+ * period, and within it the largest figure: total revenue, never a sub-line. */
+export function totalSecRevenue<T extends { value: number; passageSupport: { asOf: string } }>(observations: ReadonlyArray<T | null>): T | null {
+  return observations.filter((o): o is T => o !== null)
+    .sort((a, b) => b.passageSupport.asOf.localeCompare(a.passageSupport.asOf) || b.value - a.value)[0] ?? null;
+}
+
 /** A direct HTML filing that can carry disclosures outside XBRL concepts. */
 export function secFilingCik(raw: string): string | null {
   try {

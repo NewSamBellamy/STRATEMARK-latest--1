@@ -115,7 +115,7 @@ import type { ResearchNoteEntry } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { searchEvidenceCorpus } from './retrieval';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
-import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueObservation, secRevenueVerification } from './sec-revenue';
+import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
 import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
 import { companyNameKey, marketCapEstimate, secSharesConceptUrl, secTickerMapUrl, yahooChartUrl } from './market-quote';
 import { computeCompanyCompleteness } from './completeness';
@@ -2932,9 +2932,14 @@ export class GeminiRepository implements MarketIntelRepository {
       try {
         const { match } = await listedMatch();
         if (match) {
-          const receipt = await retrieveSteady(secRevenueConceptUrl(match.cik), 'metrics_hunt');
-          const originals = receipt.status === 'retrieved' && receipt.text ? [receipt] : [];
-          const observed = originals.length ? secRevenueObservation(company.name, originals) : null;
+          // Both concepts: a bank, insurer or stablecoin issuer files only a
+          // sliver under the ASC 606 concept (Circle: $110M) and its total
+          // under Revenues ($2.7B). The card shows the issuer's total.
+          const concept = secRevenueConceptUrl(match.cik);
+          const receipts = (await Promise.all([concept, secRevenueFallbackUrl(concept)!].map((url) => retrieveSteady(url, 'metrics_hunt'))))
+            .filter((r) => r.status === 'retrieved' && r.text);
+          const observed = totalSecRevenue(receipts.map((r) => secRevenueObservation(company.name, [r])));
+          const originals = observed ? receipts.filter((r) => r.finalUrl === observed.passageSupport.sourceUrl) : [];
           if (observed) {
             await retain('metrics_hunt', originals);
             const current = currentMetricRevision(rowsFor('arr'), company.id, 'arr');

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { hydrateCompanyCard, verifyCompanyCardOriginals } from './company-agent';
 import { projectCompanyFactsFromOriginals } from './company-facts';
 import type { LlmClient, MarketPlan } from './types';
-import { retainedSecConcept, secConceptIsStale, secFilingHeadcountObservation, secQuarterlyRevenueSeries, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueSeries, secRevenueVerification, secRevenueSourceUrl } from './sec-revenue';
+import { retainedSecConcept, secConceptIsStale, secFilingHeadcountObservation, secQuarterlyRevenueSeries, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, totalSecRevenue, secRevenueSeries, secRevenueVerification, secRevenueSourceUrl } from './sec-revenue';
 import { acceptedMetricPassage } from './metric-support';
 import { selectOriginalSourceCitations, type OriginalSourceReceipt } from './original-source';
 
@@ -132,6 +132,12 @@ describe('regulator-reported annual revenue', () => {
     expect(secRevenueObservation('Microsoft', [source], now)?.value).toBe(latest.val);
     expect(acceptedMetricPassage({ companyName: 'Microsoft', metricType: 'arr', value: latest.val,
       support: secRevenueObservation('Microsoft', [source], now)!.passageSupport, originals: [source], nowMs: now })).not.toEqual([]);
+  });
+  it('takes the total (Revenues) over a sub-line (ASC 606) for the same year, and the latest year first', () => {
+    const at = (asOf: string, value: number) => ({ value, passageSupport: { asOf } });
+    expect(totalSecRevenue([at('2025-12-31', 109_820_000), at('2025-12-31', 2_746_642_000)])?.value).toBe(2_746_642_000);
+    expect(totalSecRevenue([at('2024-12-31', 9e9), at('2025-12-31', 2e9), null])?.value).toBe(2e9);
+    expect(totalSecRevenue([null, null])).toBeNull();
   });
   it('builds the issuer revenue concept straight from a ticker-map CIK', () => {
     expect(secRevenueConceptUrl('789019')).toBe(url);
