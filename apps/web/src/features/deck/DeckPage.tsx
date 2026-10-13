@@ -176,6 +176,41 @@ export default function DeckPage() {
     setParams(p);
   };
 
+  // A missing deck is a dead end, not a deck: none of the deck chrome (title,
+  // live actions, demo/progress banners) may imply there is research here.
+  if (deckMissing) {
+    return (
+      <div className="w-full max-w-[1600px] px-2 sm:px-4">
+        <div className="panel mx-auto max-w-xl p-8 text-center">
+          <Layers className="mx-auto h-8 w-8 text-muted" />
+          <h2 className="mt-3 font-display text-xl font-semibold text-content">
+            This deck's research isn't here
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            {market.data
+              ? 'The market exists but its researched deck is missing — it may predate a storage recovery. Re-run the research, or check Settings → Data safety for a restorable backup.'
+              : 'This link points at a deck that no longer exists in your library.'}
+          </p>
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            {market.data && marketId && (
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={refreshDeck.isPending}
+                onClick={() => refreshDeck.mutate(marketId)}
+              >
+                <RefreshCw className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
+                {refreshDeck.isPending ? 'Researching…' : 'Re-run research'}
+              </button>
+            )}
+            <SettingsLink className="btn-ghost">Data safety</SettingsLink>
+            <Link to="/history" className="btn-ghost">All decks</Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full max-w-[1600px] px-2 sm:px-4">
       {/* ── Header — tight, structured, clear hierarchy ── */}
@@ -310,36 +345,7 @@ export default function DeckPage() {
         <AgentActivityFeed living={living} />
       </div>
 
-      {deckMissing && (
-        <div className="panel mx-auto max-w-xl p-8 text-center">
-          <Layers className="mx-auto h-8 w-8 text-muted" />
-          <h2 className="mt-3 font-display text-xl font-semibold text-content">
-            This deck's research isn't here
-          </h2>
-          <p className="mt-2 text-sm leading-relaxed text-muted">
-            {market.data
-              ? 'The market exists but its researched deck is missing — it may predate a storage recovery. Re-run the research, or check Settings → Data safety for a restorable backup.'
-              : 'This link points at a deck that no longer exists in your library.'}
-          </p>
-          <div className="mt-5 flex flex-wrap justify-center gap-2">
-            {market.data && marketId && (
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={refreshDeck.isPending}
-                onClick={() => refreshDeck.mutate(marketId)}
-              >
-                <RefreshCw className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
-                {refreshDeck.isPending ? 'Researching…' : 'Re-run research'}
-              </button>
-            )}
-            <SettingsLink className="btn-ghost">Data safety</SettingsLink>
-            <Link to="/history" className="btn-ghost">All decks</Link>
-          </div>
-        </div>
-      )}
-
-      {!deckMissing && all.length > 0 && (isRunning || isPartial) && (
+      {all.length > 0 && (isRunning || isPartial) && (
         <div role="status" className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-sm text-muted">
           {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertCircle className="h-4 w-4" />}
           <span>{isRunning
@@ -348,8 +354,7 @@ export default function DeckPage() {
         </div>
       )}
 
-      {!deckMissing && (
-        (isRunning || isPartial) && all.length === 0 ? (
+      {(isRunning || isPartial) && all.length === 0 ? (
           <div className={cn(
             'panel mx-auto my-6 max-w-xl p-8 text-center',
             isPartial ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50' : 'glow-border',
@@ -582,8 +587,7 @@ export default function DeckPage() {
           );
         }}
           </QueryBoundary>
-        )
-      )}
+        )}
 
       {/* Compare mode action bar */}
       {compare && actionPolicy.compare && (
