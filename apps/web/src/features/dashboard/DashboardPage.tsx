@@ -1,7 +1,8 @@
 import { useFocusCompany } from '@/lib/living/researchFocus';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useQueryClient, useIsFetching } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useIsFetching } from '@tanstack/react-query';
+import { lookupFoundedYear } from '@/lib/media/wikidataFounded';
 import { ArrowLeft, CalendarDays, ChevronDown, FileText, Globe, MapPin, Search } from 'lucide-react';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
@@ -75,7 +76,7 @@ function restatesHq(line: string, hq: string | null | undefined): boolean {
 }
 
 /** One quiet row of facts under the company name; each only if it exists. */
-function KeyFacts({ hq, website, founded, filingsUrl }: { hq: string | null; website: string | null; founded: number | null; filingsUrl: string | null }) {
+function KeyFacts({ hq, website, founded, filingsUrl }: { hq: string | null; website: string | null; founded: { year: number; from: string } | null; filingsUrl: string | null }) {
   if (!hq && !website && !founded && !filingsUrl) return null;
   return (
     <ul className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted" aria-label="Key facts">
@@ -83,7 +84,7 @@ function KeyFacts({ hq, website, founded, filingsUrl }: { hq: string | null; web
         <li className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 text-faint" aria-hidden />{hq}</li>
       )}
       {founded && (
-        <li className="inline-flex items-center gap-1.5" title="From the dated history on the History tab"><CalendarDays className="h-3.5 w-3.5 text-faint" aria-hidden />Founded {founded}</li>
+        <li className="inline-flex items-center gap-1.5" title={`From ${founded.from}`}><CalendarDays className="h-3.5 w-3.5 text-faint" aria-hidden />Founded {founded.year}</li>
       )}
       {filingsUrl && (
         <li>
@@ -327,7 +328,15 @@ export default function DashboardPage() {
   const company = useCompany(companyId);
   const metrics = useCompanyMetrics(companyId);
   // Only once the History tab has been researched: never starts research of its own.
-  const founded = foundedYear(useCachedDashboardTab(companyId ?? '', 'history').data?.content.timeline);
+  const historyFounded = foundedYear(useCachedDashboardTab(companyId ?? '', 'history').data?.content.timeline);
+  // The company's own Wikidata item (matched by its website) outranks a milestone's wording.
+  const registryFounded = useQuery({
+    queryKey: ['founded-year', company.data?.name, company.data?.websiteUrl],
+    queryFn: () => lookupFoundedYear(company.data!.name, company.data!.websiteUrl),
+    enabled: Boolean(company.data?.name && company.data?.websiteUrl),
+    staleTime: Infinity,
+  }).data;
+  const founded = registryFounded ? { year: registryFounded.year, from: 'Wikidata' } : historyFounded ? { year: historyFounded, from: 'the History tab' } : null;
   // The fallback oneLiner reads as a contradiction when the metrics grid below
   // it shows figures. With provider-reported figures on file, say what state
   // the snapshot is actually in instead of claiming nothing exists.
