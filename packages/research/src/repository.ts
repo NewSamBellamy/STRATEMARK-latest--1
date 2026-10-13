@@ -124,7 +124,7 @@ import { huntSearchQueries, webSearchLane, type WebSearchFn } from './web-search
 import { quotedEstimateNote, quotedOriginalEstimate } from './quoted-estimate';
 import { alternateSources, applySourceChecks, checkFromReceipt, uncheckedSources, type SourceChecks } from './source-binding';
 import { resolveCompanyBrand, type CompanyLogo } from './assets';
-import { checkHomepageName, discoverOfficialDomain } from './brand/domain';
+import { checkHomepageName, discoverOfficialDomain, homepageOnTopic, marketTerms } from './brand/domain';
 import { faviconUrl, knownCompanyDomain } from './logos';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
@@ -3835,6 +3835,25 @@ export class GeminiRepository implements MarketIntelRepository {
           company.websiteUrl = found.url;
           repaired = true;
           guessed = true; // any stored logo derived from the old domain is suspect
+        }
+      } else if (company.websiteUrl && !repaired) {
+        // A namesake: the page names the company but never mentions what the
+        // deck is about (flyability.org.uk is a hang-gliding charity, not the
+        // drone maker). Switch only to a domain that names the company AND is
+        // on topic, so a correct site that just words things differently stays.
+        const terms = marketTerms(this.snap.companyMarket[company.id]);
+        const current = terms.length ? await memoRead(company.websiteUrl).catch(() => null) : null;
+        if (current?.status === 'retrieved' && current.text && !homepageOnTopic(current.text, terms) &&
+          knownCompanyDomain(company.name) === null) {
+          let host: string | null = null;
+          try { host = new URL(company.websiteUrl).hostname; } catch { host = null; }
+          const found = host ? await discoverOfficialDomain(company.name, memoRead, { exclude: [host] }).catch(() => null) : null;
+          const page = found ? await memoRead(found.url).catch(() => null) : null;
+          if (found && page?.status === 'retrieved' && page.text && homepageOnTopic(page.text, terms)) {
+            company.websiteUrl = found.url;
+            repaired = true;
+            guessed = true;
+          }
         }
       }
     }

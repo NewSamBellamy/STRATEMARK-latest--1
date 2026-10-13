@@ -180,3 +180,22 @@ export async function discoverOfficialDomain(
   }
   return null;
 }
+
+const GENERIC_MARKET_WORDS = new Set(['market', 'markets', 'industry', 'sector', 'commercial', 'global', 'enterprise',
+  'platform', 'platforms', 'solution', 'solutions', 'services', 'service', 'software', 'tools', 'companies', 'company',
+  'providers', 'provider', 'startups', 'and', 'the', 'for', 'with', 'based', 'other', 'new', 'emerging', 'next', 'generation']);
+
+/** The deck's subject words ("Commercial Drone Market" → drone): what a
+ * namesake's homepage (a charity, a band, a shop) will not talk about. */
+export function marketTerms(marketName: string | null | undefined): string[] {
+  return [...new Set((marketName ?? '').toLowerCase().split(/[^a-z0-9]+/)
+    .filter((word) => word.length >= 3 && !GENERIC_MARKET_WORDS.has(word))
+    .map((word) => word.replace(/(?:ies)$/, 'y').replace(/(?<!s)s$/, '')))];
+}
+
+/** Whether the page's readable text mentions any of the deck's subject words. */
+export function homepageOnTopic(html: string, terms: readonly string[]): boolean {
+  if (terms.length === 0) return true;
+  const text = html.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').toLowerCase();
+  return terms.some((term) => new RegExp(`\\b${term.replace(/[^a-z0-9]/g, '')}`).test(text));
+}
