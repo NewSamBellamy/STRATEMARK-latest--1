@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPlaceholderCompany, namedInNotes } from './pipeline';
+import { discoverySearchHints, isPlaceholderCompany, namedInNotes } from './pipeline';
 import { companyNameKey, parseTickerMatches } from './market-quote';
 
 describe('discovery never turns padding into companies', () => {
@@ -34,5 +34,22 @@ describe('ticker identity strips legal words from the end only', () => {
     expect(companyNameKey('Company Ten')).toBe('COMPANY TEN');
     const map = JSON.stringify({ 0: { cik_str: 2030954, ticker: 'XHLD', title: 'TEN Holdings, Inc.' } });
     expect(parseTickerMatches(map, 'Company Ten')).toEqual([]);
+  });
+});
+
+describe('discovery search hints', () => {
+  const plan = { marketName: 'Cybersecurity Market', vertical: 'Cybersecurity', geography: 'Global', notes: null, searchThemes: [] };
+  it('starts from the category leaders', () => {
+    expect(discoverySearchHints(plan, 'all', [])).toEqual(['top Cybersecurity companies', 'Cybersecurity Market key players', 'leading Cybersecurity startups']);
+  });
+  it('gives every later pass its own queries, so a pass can find someone new', () => {
+    const first = discoverySearchHints(plan, 'all', []);
+    const passes = [discoverySearchHints(plan, 'company', [], undefined, 5), discoverySearchHints(plan, 'infrastructure', [], undefined, 5),
+      discoverySearchHints(plan, 'all', [], 'email security', 5)];
+    for (const hints of passes) expect(hints.some((h) => first.includes(h))).toBe(false);
+    expect(passes[2]![0]).toBe('email security companies');
+  });
+  it('searches the requested names for an exact-scope deck', () => {
+    expect(discoverySearchHints(plan, 'all', ['CrowdStrike'])).toEqual(['CrowdStrike company']);
   });
 });

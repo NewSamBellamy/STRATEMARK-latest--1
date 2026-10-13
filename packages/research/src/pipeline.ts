@@ -206,7 +206,7 @@ async function discover(
     {
       system: GROUNDED_SYSTEM,
       signal,
-      searchHints: discoverySearchHints(plan, focus, exactCompanyNames),
+      searchHints: discoverySearchHints(plan, focus, exactCompanyNames, searchAngle, excludeNames.length),
     },
   );
   const structureOptions = { system: STRUCTURE_SYSTEM, signal };
@@ -302,13 +302,22 @@ async function discover(
 
 /** Plain queries a search-only fallback always runs for discovery: the
  * category's own leaders, so one drifting query cannot define the deck. */
-export function discoverySearchHints(plan: MarketPlan, focus: DiscoveryFocus, exactCompanyNames: readonly string[]): string[] {
+export function discoverySearchHints(plan: MarketPlan, focus: DiscoveryFocus, exactCompanyNames: readonly string[],
+  searchAngle?: string, alreadyKnown = 0): string[] {
   if (exactCompanyNames.length) return exactCompanyNames.slice(0, 3).map((name) => `${name} company`);
   const where = plan.geography && !/^global$/i.test(plan.geography.trim()) ? ` ${plan.geography}` : '';
-  const role = focus === 'infrastructure' ? 'infrastructure providers' : focus === 'distribution' ? 'distributors and channel partners'
-    : 'companies';
+  // Every pass searches its own angle: the same three queries again would
+  // return the same pages and find nobody new.
+  if (searchAngle) return [`${searchAngle} companies${where}`, `${plan.vertical} ${searchAngle} startups`];
+  if (focus === 'infrastructure') return [`${plan.vertical} infrastructure technology providers${where}`, `${plan.vertical} platform vendors suppliers`];
+  if (focus === 'distribution') return [`${plan.vertical} distributors resellers channel partners${where}`, `${plan.vertical} marketplaces distribution`];
+  if (focus === 'vice') return [`${plan.vertical} company lawsuit fine controversy`];
+  if (focus === 'culture') return [`${plan.vertical} company culture employees best places to work`];
+  if (focus === 'company' || alreadyKnown > 0) {
+    return [`${plan.vertical} companies list${where}`, `${plan.vertical} competitors alternatives`, `fastest growing ${plan.vertical} startups funding`];
+  }
   return [
-    `top ${plan.vertical} ${role}${where}`,
+    `top ${plan.vertical} companies${where}`,
     `${plan.marketName} key players`,
     `leading ${plan.vertical} startups${where}`,
   ];
