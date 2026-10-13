@@ -140,7 +140,7 @@ export function withSearchFallback(client: LlmClient, searches: () => WebSearchF
           for (const list of perQuery) if (list[rank]) merged.push(list[rank]!);
         }
         const seen = new Set<string>();
-        let results = merged.filter((r) => r.url && !seen.has(r.url) && seen.add(r.url))
+        const results = merged.filter((r) => r.url && !seen.has(r.url) && seen.add(r.url))
           .slice(0, hints.length ? MAX_RESULTS_WITH_HINTS : MAX_RESULTS);
         if (results.length === 0) throw error;
         const excerpts = readPage
