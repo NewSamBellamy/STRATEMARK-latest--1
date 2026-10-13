@@ -71,3 +71,19 @@ describe('quoteGrounding', () => {
     expect(quoteGrounding('answer', [{ source: 1, quote: 'Invented sentence that is not on the page.' }], results, [])).toEqual({ text: 'answer' });
   });
 });
+
+describe('search hints', () => {
+  it('always runs the hint queries beside its own and interleaves their results', async () => {
+    const structure = vi.fn().mockResolvedValueOnce({ query: 'IT asset disposition data destruction' })
+      .mockResolvedValueOnce({ text: 'answer' });
+    const client = { ground: vi.fn().mockRejectedValue(spent()), structure } as unknown as LlmClient;
+    const search = vi.fn(async (q: string) => q.startsWith('top')
+      ? [{ url: 'https://a.com/leaders', title: 'Top cybersecurity companies', snippet: 'CrowdStrike, Palo Alto Networks' }]
+      : [{ url: 'https://b.com/itad', title: 'ITAD vendors', snippet: 'Iron Mountain' }]);
+    const out = await withSearchFallback(client, () => [search]).ground('Find companies',
+      { searchHints: ['top cybersecurity companies'] });
+    expect(search).toHaveBeenCalledWith('top cybersecurity companies');
+    expect(out.queries).toEqual(['top cybersecurity companies', 'IT asset disposition data destruction']);
+    expect(out.citations.map((c) => c.url)).toEqual(['https://a.com/leaders', 'https://b.com/itad']);
+  });
+});

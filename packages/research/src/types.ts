@@ -197,6 +197,9 @@ export interface LlmClient {
       onText?: (textSoFar: string) => void;
       /** Pacing lane; see CallPriority. Bulk work never sets it. */
       priority?: CallPriority;
+      /** Plain web-search queries the search fallback always runs alongside its
+       * own, so one off-target query cannot steer the whole answer. */
+      searchHints?: string[];
     },
   ): Promise<{ text: string; citations: Citation[]; queries: string[]; grounding?: ProviderGrounding }>;
 

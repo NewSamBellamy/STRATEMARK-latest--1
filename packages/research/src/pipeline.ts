@@ -206,6 +206,7 @@ async function discover(
     {
       system: GROUNDED_SYSTEM,
       signal,
+      searchHints: discoverySearchHints(plan, focus, exactCompanyNames),
     },
   );
   const structureOptions = { system: STRUCTURE_SYSTEM, signal };
@@ -297,6 +298,20 @@ async function discover(
     });
   }
   return { candidates, rejected };
+}
+
+/** Plain queries a search-only fallback always runs for discovery: the
+ * category's own leaders, so one drifting query cannot define the deck. */
+export function discoverySearchHints(plan: MarketPlan, focus: DiscoveryFocus, exactCompanyNames: readonly string[]): string[] {
+  if (exactCompanyNames.length) return exactCompanyNames.slice(0, 3).map((name) => `${name} company`);
+  const where = plan.geography && !/^global$/i.test(plan.geography.trim()) ? ` ${plan.geography}` : '';
+  const role = focus === 'infrastructure' ? 'infrastructure providers' : focus === 'distribution' ? 'distributors and channel partners'
+    : 'companies';
+  return [
+    `top ${plan.vertical} ${role}${where}`,
+    `${plan.marketName} key players`,
+    `leading ${plan.vertical} startups${where}`,
+  ];
 }
 
 /** A row the model made up to fill a count, not a business it found. */

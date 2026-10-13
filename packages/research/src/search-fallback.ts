@@ -15,6 +15,7 @@ import type { OriginalSourceReceipt } from './original-source';
 import type { ProviderGrounding } from './types';
 
 const MAX_RESULTS = 8;
+const MAX_RESULTS_WITH_HINTS = 12;
 /** Snippets rarely name the players ("market size $47B…"); reading the top
  * pages gives the model what grounding would have. */
 const PAGES_TO_READ = 3;
@@ -121,14 +122,26 @@ export function withSearchFallback(client: LlmClient, searches: () => WebSearchF
           `Write one web search query (at most 12 words) that would find published sources answering this research request. Return JSON {"query": "..."}.\n\nRequest:\n${prompt.slice(0, 4000)}`,
           querySchema, { signal: opts?.signal, priority: opts?.priority },
         ).then((r) => r.query.trim()).catch(() => fallbackQuery);
-        if (!query) throw error;
-        let results: WebSearchResult[] = [];
-        for (const search of lanes) {
-          results = await search(query).catch(() => []);
-          if (results.length > 0) break;
+        const hints = (opts?.searchHints ?? []).map((h) => h.trim()).filter(Boolean).slice(0, 3);
+        const queries = [...new Set([...hints, query].filter(Boolean))];
+        if (queries.length === 0) throw error;
+        const runQuery = async (q: string): Promise<WebSearchResult[]> => {
+          for (const search of lanes) {
+            const found = await search(q).catch(() => []);
+            if (found.length > 0) return found;
+          }
+          return [];
+        };
+        const perQuery = await Promise.all(queries.map(runQuery));
+        // Round-robin across queries so every angle is represented in the
+        // results the model is allowed to answer from.
+        const merged: WebSearchResult[] = [];
+        for (let rank = 0; perQuery.some((list) => rank < list.length); rank += 1) {
+          for (const list of perQuery) if (list[rank]) merged.push(list[rank]!);
         }
         const seen = new Set<string>();
-        results = results.filter((r) => r.url && !seen.has(r.url) && seen.add(r.url)).slice(0, MAX_RESULTS);
+        let results = merged.filter((r) => r.url && !seen.has(r.url) && seen.add(r.url))
+          .slice(0, hints.length ? MAX_RESULTS_WITH_HINTS : MAX_RESULTS);
         if (results.length === 0) throw error;
         const excerpts = readPage
           ? await Promise.all(results.map((r, i) => i < PAGES_TO_READ ? readExcerpt(readPage, r.url) : Promise.resolve(null)))
@@ -145,7 +158,7 @@ export function withSearchFallback(client: LlmClient, searches: () => WebSearchF
         return {
           text,
           citations: results.map((r) => ({ title: r.title || r.url, url: r.url })),
-          queries: [query],
+          queries,
           ...(grounding ? { grounding } : {}),
         };
       }
