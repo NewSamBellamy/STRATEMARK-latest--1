@@ -1,8 +1,9 @@
-import { lazy, useEffect } from 'react';
+import { useEffect } from 'react';
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { RequireAuth } from '@/lib/auth/RequireAuth';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
+import { lazyRoute } from '@/lib/lazyRoute';
 
 /** #/settings and #/settings/:tab open the Settings modal (on that tab) over home. */
 function SettingsRoute() {
@@ -13,19 +14,19 @@ function SettingsRoute() {
 }
 
 // Route-level code splitting (Phase 7 perf).
-const MarketsListPage = lazy(() => import('@/features/markets/MarketsListPage'));
-const NewDeckPage = lazy(() => import('@/features/deck/NewDeckPage'));
-const MarketSettingsPage = lazy(() => import('@/features/markets/MarketSettingsPage'));
-const DeckPage = lazy(() => import('@/features/deck/DeckPage'));
-const OpportunityPage = lazy(() => import('@/features/deck/OpportunityPage'));
-const BriefingPage = lazy(() => import('@/features/briefing/BriefingPage'));
-const DashboardPage = lazy(() => import('@/features/dashboard/DashboardPage'));
-const ReportsListPage = lazy(() => import('@/features/reports/ReportsListPage'));
-const ReportViewerPage = lazy(() => import('@/features/reports/ReportViewerPage'));
-const SavedCardsPage = lazy(() => import('@/features/saved/SavedCardsPage'));
-const SharePage = lazy(() => import('@/features/share/SharePage'));
-const NotFoundPage = lazy(() => import('@/features/NotFoundPage'));
-const BetaPage = lazy(() => import('@/features/beta/BetaPage'));
+const MarketsListPage = lazyRoute(() => import('@/features/markets/MarketsListPage'));
+const NewDeckPage = lazyRoute(() => import('@/features/deck/NewDeckPage'));
+const MarketSettingsPage = lazyRoute(() => import('@/features/markets/MarketSettingsPage'));
+const DeckPage = lazyRoute(() => import('@/features/deck/DeckPage'));
+const OpportunityPage = lazyRoute(() => import('@/features/deck/OpportunityPage'));
+const BriefingPage = lazyRoute(() => import('@/features/briefing/BriefingPage'));
+const DashboardPage = lazyRoute(() => import('@/features/dashboard/DashboardPage'));
+const ReportsListPage = lazyRoute(() => import('@/features/reports/ReportsListPage'));
+const ReportViewerPage = lazyRoute(() => import('@/features/reports/ReportViewerPage'));
+const SavedCardsPage = lazyRoute(() => import('@/features/saved/SavedCardsPage'));
+const SharePage = lazyRoute(() => import('@/features/share/SharePage'));
+const NotFoundPage = lazyRoute(() => import('@/features/NotFoundPage'));
+const BetaPage = lazyRoute(() => import('@/features/beta/BetaPage'));
 
 /** Shared route tree, used by both the app (HashRouter) and tests (MemoryRouter). */
 export function AppRoutes() {
