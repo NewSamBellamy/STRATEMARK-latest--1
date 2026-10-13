@@ -24,6 +24,7 @@ import { useCachedDashboardTab } from '../useCachedTab';
 import { ArticleReader, TopStories } from './LiveIntelTab';
 import { SitePreview } from './LiveLandingTab';
 import { VideoStrip } from '@/components/media/StoryMedia';
+import { MarketPeers, OverviewSnapshot } from './OverviewSnapshot';
 
 /**
  * Overview: the company in one screen, nothing repeated.
@@ -349,6 +350,8 @@ export function OverviewTab({ companyId }: { companyId: string }) {
         </Section>
       )}
 
+      <OverviewSnapshot companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} />
+      <MarketPeers companyId={companyId} />
       <Watch companyId={companyId} />
       <Milestones companyId={companyId} />
 

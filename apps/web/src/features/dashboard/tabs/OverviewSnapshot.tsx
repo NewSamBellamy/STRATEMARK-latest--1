@@ -1,0 +1,160 @@
+import { useMemo } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ArrowRight } from 'lucide-react';
+import { useCachedDashboardTab } from '../useCachedTab';
+import { Section, useTabHref } from '../dashboardKit';
+import { fundingSnapshot, leadershipSnapshot, newsMood, formatUsdCompact } from '../snapshot';
+import { UnknownInline } from '@/features/card/UnknownValue';
+import { Logo } from '@/features/card/Logo';
+import { WikiAvatar } from './LeaderGrid';
+import { usePeers } from '../usePeers';
+
+/**
+ * The people, the money and the mood around a company, taken from the Team,
+ * Governance and Live Intel tabs once they have been researched. This never
+ * starts research of its own: a panel appears when its tab has content, and
+ * until then a single line says where the rest lives.
+ */
+
+function PanelHead({ title, to, label }: { title: string; to: string; label: string }) {
+  return (
+    <div className="mb-2.5 flex items-baseline justify-between gap-2">
+      <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">{title}</h3>
+      <Link to={to} className="inline-flex shrink-0 items-center gap-1 text-[11.5px] text-primary-ink hover:underline">
+        {label} <ArrowRight className="h-3 w-3" aria-hidden />
+      </Link>
+    </div>
+  );
+}
+
+export function OverviewSnapshot({ companyId, companyName }: { companyId: string; companyName: string }) {
+  const href = useTabHref(companyId);
+  const team = useCachedDashboardTab(companyId, 'team_org').data;
+  const governance = useCachedDashboardTab(companyId, 'mission_governance').data;
+  const intel = useCachedDashboardTab(companyId, 'live_intel').data;
+
+  const leaders = useMemo(() => leadershipSnapshot(team?.content.nodes ?? []), [team]);
+  const funding = useMemo(
+    () => fundingSnapshot(governance?.content.fundingRounds ?? [], governance?.content.investors ?? []),
+    [governance],
+  );
+  const mood = useMemo(() => newsMood(intel?.content.items ?? []), [intel]);
+  const positive = governance?.content.positives?.[0];
+  const concern = governance?.content.negatives?.[0];
+  const hasSignals = mood.total > 0 || Boolean(positive || concern);
+
+  if (leaders.length === 0 && !funding && !hasSignals) {
+    return (
+      <Section title="Leadership, funding & signals">
+        <p className="panel px-4 py-3.5 text-[12.5px] leading-snug text-muted">
+          Who runs {companyName}, who funded it and what is being said about it show up here once those tabs are
+          researched:{' '}
+          <Link to={href('team_org')} className="text-primary-ink hover:underline">Team &amp; org</Link>{' · '}
+          <Link to={href('mission_governance')} className="text-primary-ink hover:underline">Mission &amp; governance</Link>.
+        </p>
+      </Section>
+    );
+  }
+
+  return (
+    <Section title="Leadership, funding & signals">
+      <div className="grid gap-3 md:grid-cols-3">
+        {leaders.length > 0 && (
+          <div className="panel min-w-0 p-4">
+            <PanelHead title="Leadership" to={href('team_org')} label="Team & org" />
+            <ul className="space-y-2.5">
+              {leaders.map((person) => (
+                <li key={person.id} className="flex min-w-0 items-center gap-2.5">
+                  <WikiAvatar name={person.name} companyName={companyName} size="sm" />
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-medium text-content">{person.name}</p>
+                    <p className="truncate text-[11.5px] text-muted">{person.role}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {funding && (
+          <div className="panel min-w-0 p-4">
+            <PanelHead title="Funding" to={href('mission_governance')} label="All rounds" />
+            <p className="font-display text-[22px] font-semibold leading-none tabular-nums text-content">
+              {funding.latest.amountUsd != null ? formatUsdCompact(funding.latest.amountUsd) : <UnknownInline />}
+            </p>
+            <p className="mt-1.5 text-[12.5px] text-content">
+              {funding.latest.round}
+              <span className="text-muted"> · {funding.latest.date?.trim() || 'date not reported'}</span>
+            </p>
+            {funding.leads.length > 0 && (
+              <p className="mt-2 line-clamp-2 text-[11.5px] leading-snug text-muted">
+                {funding.latest.leadInvestors.length > 0 ? 'Led by ' : 'Backers: '}
+                {(funding.latest.leadInvestors.length > 0 ? funding.latest.leadInvestors : funding.leads).slice(0, 4).join(', ')}
+              </p>
+            )}
+            <p className="mt-2 text-[11px] text-faint">
+              Latest of {funding.roundCount} reported {funding.roundCount === 1 ? 'round' : 'rounds'}
+            </p>
+          </div>
+        )}
+
+        {hasSignals && (
+          <div className="panel min-w-0 p-4">
+            <PanelHead title="Signals" to={href(mood.total > 0 ? 'live_intel' : 'mission_governance')} label={mood.total > 0 ? 'Live intel' : 'Governance'} />
+            {mood.total > 0 && (
+              <div>
+                <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-2" role="img"
+                  aria-label={`${mood.positive} positive, ${mood.neutral} neutral, ${mood.negative} negative of ${mood.total} recent stories`}>
+                  <span className="bg-positive" style={{ width: `${(mood.positive / mood.total) * 100}%` }} />
+                  <span className="bg-border" style={{ width: `${(mood.neutral / mood.total) * 100}%` }} />
+                  <span className="bg-negative" style={{ width: `${(mood.negative / mood.total) * 100}%` }} />
+                </div>
+                <p className="mt-1.5 text-[11.5px] tabular-nums text-muted">
+                  {mood.total} recent {mood.total === 1 ? 'story' : 'stories'}: {mood.positive} positive · {mood.neutral} neutral · {mood.negative} negative
+                </p>
+              </div>
+            )}
+            {positive && (
+              <p className="mt-2.5 line-clamp-2 text-[12px] leading-snug text-content">
+                <span className="mr-1 text-positive" aria-hidden>+</span>{positive}
+              </p>
+            )}
+            {concern && (
+              <p className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-content">
+                <span className="mr-1 text-negative" aria-hidden>−</span>{concern}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+/** The other companies in the deck this dashboard was opened from: one click to compare notes. */
+export function MarketPeers({ companyId }: { companyId: string }) {
+  const [params] = useSearchParams();
+  const peers = usePeers();
+  const others = peers.peers.filter((peer) => peer.companyId !== companyId);
+  if (peers.status !== 'ready' || others.length === 0) return null;
+  const to = (peerId: string) => {
+    const next = new URLSearchParams(params);
+    next.delete('metric');
+    return `/company/${peerId}/dashboard/overview?${next.toString()}`;
+  };
+  return (
+    <Section title="In this market" hint="The rest of this deck. Open one to see its dashboard.">
+      <ul className="flex flex-wrap gap-2">
+        {others.slice(0, 12).map((peer) => (
+          <li key={peer.companyId}>
+            <Link to={to(peer.companyId)} className="chip inline-flex items-center gap-2 border-border text-muted hover:border-primary/50 hover:text-content">
+              <Logo name={peer.name} website={peer.websiteUrl} logoUrl={peer.logoUrl} bare className="h-4 w-4" />
+              <span className="max-w-[160px] truncate">{peer.name}</span>
+            </Link>
+          </li>
+        ))}
+        {others.length > 12 && <li className="self-center text-[11.5px] text-faint">+{others.length - 12} more</li>}
+      </ul>
+    </Section>
+  );
+}

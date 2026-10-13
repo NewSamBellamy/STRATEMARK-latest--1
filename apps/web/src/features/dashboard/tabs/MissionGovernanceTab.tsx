@@ -4,6 +4,7 @@ import { useCompany, useDashboardTab } from '@/hooks/data';
 import { siteUrl } from '@/lib/siteUrl';
 import { useRealCover } from '@/lib/media/realCover';
 import { FundingChart } from './FundingChart';
+import { formatUsdCompact, roundsNewestFirst } from '../snapshot';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
@@ -21,13 +22,6 @@ const INVESTOR_KIND_LABEL: Record<string, string> = {
   debt: 'Debt',
   other: 'Investor',
 };
-
-function fmtUsd(value: number): string {
-  if (value >= 1e12) return `$${(value / 1e12).toFixed(1)}T`;
-  if (value >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
-  if (value >= 1e6) return `$${(value / 1e6).toFixed(0)}M`;
-  return `$${Math.round(value).toLocaleString()}`;
-}
 
 /** A labelled prose block; a missing one says what is missing, never goes blank. */
 function ProseBlock({ label, text, missing }: { label: string; text: string; missing: string }) {
@@ -83,7 +77,8 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
         // must render as an honest empty, never crash the tab (taste-test found
         // 'Cannot read properties of undefined (reading length)' here).
         const board = c.board ?? [];
-        const fundingRounds = c.fundingRounds ?? [];
+        // Newest round first, the way every funding profile reads.
+        const fundingRounds = roundsNewestFirst(c.fundingRounds ?? []);
         const investors = c.investors ?? [];
         const positives = c.positives ?? [];
         const negatives = c.negatives ?? [];
@@ -186,7 +181,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                                   </td>
                                   <td className="px-2 py-2.5 font-medium text-content">{r.round}</td>
                                   <td className="whitespace-nowrap px-2 py-2.5 text-right tabular-nums text-content">
-                                    {r.amountUsd != null ? fmtUsd(r.amountUsd) : <UnknownInline />}
+                                    {r.amountUsd != null ? formatUsdCompact(r.amountUsd) : <UnknownInline />}
                                   </td>
                                   <td className="px-4 py-2.5 text-muted">
                                     {leads.length > 0 ? leads.join(', ') : <span className="text-faint">Not reported</span>}
