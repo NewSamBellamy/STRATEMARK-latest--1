@@ -26,7 +26,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import type { GenerateContentResponse } from '@google/genai';
 import type { Citation, LlmClient } from './types';
 import { extractProviderGrounding } from './grounding-support';
-import { createRateLimiter, extractJson, withRetry, type RetryableError } from './util';
+import { createRateLimiter, extractJson, withRetry, type CallPriority, type RetryableError } from './util';
 import type { CallMetrics, CallMetricsAggregate } from './types';
 import {
   DEFAULT_GROUNDED_MODEL,
@@ -249,6 +249,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     cfg: Record<string, unknown>,
     signal: AbortSignal | undefined,
     kind: 'ground' | 'structure' | 'judge',
+    priority?: CallPriority,
   ): Promise<GenerateContentResponse> {
     const limiter = limiterFor(model);
     const callStartedAt = Date.now();
@@ -260,7 +261,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
         // Retries re-dispatch too: pace every attempt, not just the first.
         const acquireStartedAt = Date.now();
         attempts += 1;
-        await limiter?.acquire(signal);
+        await limiter?.acquire(signal, priority);
         queuedMs += Date.now() - acquireStartedAt;
         const timeoutSignal = AbortSignal.timeout(60_000);
         const reqSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
@@ -336,7 +337,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
       };
       if (opts?.system) cfg.systemInstruction = opts.system;
       const route = groundRoute(prompt, opts?.researchContext?.topic);
-      const res = await call(route.model, prompt, cfg, opts?.signal, route.kind);
+      const res = await call(route.model, prompt, cfg, opts?.signal, route.kind, opts?.priority);
       if (res.promptFeedback?.blockReason) {
         throw new Error(`Gemini blocked the request: ${res.promptFeedback.blockReason}`);
       }
@@ -351,7 +352,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     async structure<T>(
       prompt: string,
       schema: ZodType<T, ZodTypeDef, unknown>,
-      opts?: { system?: string; signal?: AbortSignal },
+      opts?: { system?: string; signal?: AbortSignal; priority?: CallPriority },
     ): Promise<T> {
       const cfg: Record<string, unknown> = {
         responseMimeType: 'application/json',
@@ -363,7 +364,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
       let lastError: unknown;
       // One reparse retry, matching gemini.ts: JSON mode is reliable, not infallible.
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const res = await call(route.model, prompt, cfg, opts?.signal, route.kind);
+        const res = await call(route.model, prompt, cfg, opts?.signal, route.kind, opts?.priority);
         try {
           return schema.parse(extractJson((res.text ?? '').trim()));
         } catch (err) {

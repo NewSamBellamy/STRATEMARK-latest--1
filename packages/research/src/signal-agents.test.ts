@@ -520,6 +520,16 @@ describe('Signal Agents Deep Module', () => {
   });
 
   describe('researchMarketSignals (Unified Orchestration)', () => {
+    it('asks for its few calls ahead of the deck\'s queued bulk work', async () => {
+      const client = createMockLlmClient({});
+      const ground = vi.spyOn(client, 'ground');
+      const structure = vi.spyOn(client, 'structure');
+      await researchMarketSignals(client, samplePlan, 'dck_macro_priority', { minBarriers: 1, minInsights: 1 });
+      expect(ground).toHaveBeenCalled();
+      expect(ground.mock.calls.every(([, opts]) => opts?.priority === 'urgent')).toBe(true);
+      expect(structure.mock.calls.every(([, , opts]) => opts?.priority === 'urgent')).toBe(true);
+    });
+
     it('orchestrates joint macro research pass producing barrier and insight cards', async () => {
       const client = createMockLlmClient({});
       const cards = await researchMarketSignals(client, samplePlan, 'dck_macro_1', {

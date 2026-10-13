@@ -10,7 +10,7 @@
 import type { ZodType, ZodTypeDef } from 'zod';
 import type { CallMetrics, CallMetricsAggregate, Citation, LlmClient } from './types';
 export type { CallMetrics, CallMetricsAggregate };
-import { AbortError, throwIfAborted, createRateLimiter, extractJson, withRetry, type RetryableError } from './util';
+import { AbortError, throwIfAborted, createRateLimiter, extractJson, withRetry, type CallPriority, type RetryableError } from './util';
 import { extractProviderGrounding } from './grounding-support';
 import { batchVerifyOutSchema, redTeamOutSchema, verifyMetricOutSchema } from './schemas';
 
@@ -324,6 +324,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
     kind: 'ground' | 'structure' | 'judge' = 'ground',
     budget?: { retryBudgetMs?: number; attemptTimeoutMs?: number },
     onText?: (textSoFar: string) => void,
+    priority?: CallPriority,
   ): Promise<GeminiResponse> {
     const limiter = limiterFor(model);
     const stream = Boolean(onText && config.streaming);
@@ -339,7 +340,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         // Every dispatched attempt — retries included — spends a slot, so a
         // 429 storm cannot silently exceed the key's real per-minute cap.
         const acquireStartedAt = Date.now();
-        await limiter?.acquire(signal);
+        await limiter?.acquire(signal, priority);
         queuedMs += Date.now() - acquireStartedAt;
         config.onCall?.({ model, kind });
         // A hung fetch never rejects on its own. The attempt signal cancels a
@@ -491,7 +492,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
             const data = await call(model, body, signal, route.kind, {
               retryBudgetMs: isPrimary ? Math.min(cap, primaryBudget) : cap,
               attemptTimeoutMs: Math.min(cap, isPrimary ? primaryAttemptTimeout : cap),
-            }, opts?.onText);
+            }, opts?.onText, opts?.priority);
             if (isPrimary) primarySickUntil = 0;
             else if (!ungroundedAnswer) { primarySickUntil = Date.now() + SICK_PRIMARY_COOLDOWN_MS; aggregate.fallbacks += 1; }
             const answer = parse(data);
@@ -514,7 +515,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
       }, opts?.signal, config.groundDeadlineMs ?? GROUND_DEADLINE_MS);
     },
 
-    async structure<T>(prompt: string, schema: ZodType<T, ZodTypeDef, unknown>, opts?: { system?: string; signal?: AbortSignal }): Promise<T> {
+    async structure<T>(prompt: string, schema: ZodType<T, ZodTypeDef, unknown>, opts?: { system?: string; signal?: AbortSignal; priority?: CallPriority }): Promise<T> {
       return withDeadline(async signal => {
         // No `responseSchema` here, deliberately (issue #48). The SDK client
         // (`genai.ts`) sends one, because it can derive it without cost. Doing the
@@ -534,7 +535,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         const route = structureRoute(schema);
         // One reparse retry: JSON-mode is reliable but not infallible.
         for (let attempt = 0; attempt < 2; attempt += 1) {
-          const data = await call(route.model, body, signal, route.kind);
+          const data = await call(route.model, body, signal, route.kind, undefined, undefined, opts?.priority);
           try {
             return schema.parse(extractJson(extractText(data)));
           } catch (err) {

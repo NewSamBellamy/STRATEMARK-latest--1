@@ -921,9 +921,12 @@ export async function researchMarketSignals(
       .filter(Boolean)
       .join('\n');
 
+    // A few calls the deck waits on: they go ahead of the bulk company work
+    // queued at the free-tier pace, or the signal tabs sit empty for minutes.
     const grounded = await client.ground(prompt, {
       system: GROUNDED_SYSTEM,
       signal: options.signal,
+      priority: 'urgent',
     });
 
     const structurePrompt = [
@@ -946,6 +949,7 @@ export async function researchMarketSignals(
     const out = await client.structure(structurePrompt, marketCardsOutSchema, {
       system: STRUCTURE_SYSTEM,
       signal: options.signal,
+      priority: 'urgent',
     });
 
     return { out, citations: grounded.citations };

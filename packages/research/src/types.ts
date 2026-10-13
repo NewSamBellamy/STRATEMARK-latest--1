@@ -5,6 +5,7 @@
  */
 import type { ZodType, ZodTypeDef } from 'zod';
 import type { OriginalSourceServices } from './original-source';
+import type { CallPriority } from './util';
 import type {
   CardType,
   CardWithCompany,
@@ -193,6 +194,8 @@ export interface LlmClient {
       system?: string; signal?: AbortSignal; researchContext?: { companyId?: string; companyName?: string; topic: string };
       /** Live draft while the answer streams (clients that can stream); the returned text is authoritative. */
       onText?: (textSoFar: string) => void;
+      /** Pacing lane; see CallPriority. Bulk work never sets it. */
+      priority?: CallPriority;
     },
   ): Promise<{ text: string; citations: Citation[]; queries: string[]; grounding?: ProviderGrounding }>;
 
@@ -206,7 +209,7 @@ export interface LlmClient {
     // Input param widened to `unknown` so T binds to the schema's OUTPUT type
     // (post-defaults), not its input type.
     schema: ZodType<T, ZodTypeDef, unknown>,
-    opts?: { system?: string; signal?: AbortSignal },
+    opts?: { system?: string; signal?: AbortSignal; priority?: CallPriority },
   ): Promise<T>;
 }
 
