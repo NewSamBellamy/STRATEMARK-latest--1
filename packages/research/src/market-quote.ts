@@ -224,6 +224,10 @@ export function marketCapEstimate(
   if (!cik) return null;
   const shares = parseSharesOutstanding(sharesUrl.text, cik);
   if (!shares || shares.value <= 0) return null;
+  // Multi-class issuers (Visa, Mastercard) stopped tagging this cover-page
+  // concept years ago; today's price times a 2010 share count is a wrong
+  // figure, not an estimate. Only a count from the last ~13 months is used.
+  if (!Number.isFinite(Date.parse(shares.asOf)) || nowMs - Date.parse(shares.asOf) > 400 * 86_400_000) return null;
 
   // The estimate takes the quote's market date as its as-of (the price drives
   // the figure's freshness) and names both sources with their own dates.

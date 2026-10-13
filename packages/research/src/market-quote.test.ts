@@ -106,6 +106,13 @@ describe('marketCapEstimate', () => {
     expect(estimate.citations).toHaveLength(2);
   });
 
+  it('refuses a share count years older than the price (Visa last tagged its count in 2010)', () => {
+    const stale = SHARES_JSON.replace(/"end":"2025-09-27"/, '"end":"2010-01-27"').replace(/"end":"2025-06-28"/, '"end":"2009-11-13"');
+    const now = Date.parse('2026-10-13T00:00:00.000Z');
+    expect(marketCapEstimate('Apple Inc', [receipts[0]!, receipt(secSharesConceptUrl('320193'), stale)], 'Apple Inc.', now)).toBeNull();
+    expect(marketCapEstimate('Apple Inc', receipts, 'Apple Inc.', now)).not.toBeNull();
+  });
+
   it('refuses identity mismatches, missing receipts, and non-USD prices', () => {
     expect(marketCapEstimate('Andreessen Horowitz', receipts, null)).toBeNull();
     expect(marketCapEstimate('Apple Inc', [receipts[0]!], 'Apple Inc.')).toBeNull();
