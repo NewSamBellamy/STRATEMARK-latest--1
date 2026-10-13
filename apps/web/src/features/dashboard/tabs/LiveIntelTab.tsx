@@ -20,6 +20,7 @@ import { formatRelative } from '@/lib/format';
 import { faviconUrl } from '@/lib/screenshot';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
+import { SecFilings } from './SecFilings';
 import { matchesQuery, RECENCY_LABEL, recencyBucket } from './tabHelpers';
 
 /**
@@ -306,7 +307,8 @@ export function TopStories({ items, onOpen }: { items: LiveIntelItem[]; onOpen: 
 
 export function LiveIntelTab({ companyId }: { companyId: string }) {
   const query = useDashboardTab(companyId, 'live_intel');
-  const companyName = useCompany(companyId).data?.name ?? 'this company';
+  const companyNameRaw = useCompany(companyId).data?.name;
+  const companyName = companyNameRaw ?? 'this company';
   const rerun = useRerunDashboardTab(companyId, 'live_intel');
   const [openId, setOpenId] = useState<string | null>(null);
   const [source, setSource] = useState<LiveIntelItem['source'] | 'all'>('all');
@@ -387,6 +389,7 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
                   <VideoStrip videos={result.content.videos!} />
                 </section>
               )}
+              <SecFilings companyName={companyNameRaw} />
             </div>
             <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted">All coverage</h4>
             <div className="mb-3 flex flex-wrap items-center gap-2">

@@ -12,6 +12,7 @@ export * from './sec-revenue';
 export * from './sec-adv';
 export * from './market-quote';
 export * from './sec-ownership';
+export * from './sec-filings';
 export * from './searxng';
 export * from './web-search';
 export { originalSupportReferences, selectOriginalSourceAttempts, validatedOriginalSupport, normalizeSourceText } from './original-source';

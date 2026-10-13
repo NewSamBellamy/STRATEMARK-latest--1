@@ -24,6 +24,7 @@
  */
 import { z } from 'zod';
 import { companyNameKey, secTickerMapUrl } from './market-quote';
+import { companyFilingRowSchema, describeCompanyFiling, MAX_COMPANY_FILINGS, selectCompanyFilings, type CompanyFiling, type CompanyFilingRow } from './sec-filings';
 import type { OriginalSourceReceipt } from './original-source';
 
 export const SCHEDULE_13_FORMS = ['SCHEDULE 13G', 'SCHEDULE 13G/A', 'SCHEDULE 13D', 'SCHEDULE 13D/A'] as const;
@@ -84,6 +85,8 @@ export interface ScheduleFilingIndex {
   cik: string;
   name: string;
   filings: ScheduleFilingRow[];
+  /** The company's own recent disclosure filings (sec-filings.ts). */
+  companyFilings: CompanyFilingRow[];
 }
 
 const submissionsSchema = z.object({
@@ -116,7 +119,8 @@ export function selectScheduleFilingIndex(submissionsJson: string): string {
     filings.push({ form: form as Schedule13Form, filingDate, accession, primaryDocument });
   }
   filings.sort((a, b) => b.filingDate.localeCompare(a.filingDate) || b.accession.localeCompare(a.accession));
-  return JSON.stringify({ cik: padCik(String(doc.cik)), name: doc.name.slice(0, MAX_NAME), filings: filings.slice(0, MAX_SCHEDULE_FILINGS) });
+  return JSON.stringify({ cik: padCik(String(doc.cik)), name: doc.name.slice(0, MAX_NAME), filings: filings.slice(0, MAX_SCHEDULE_FILINGS),
+    companyFilings: selectCompanyFilings(recent) });
 }
 
 const indexSchema = z.object({
@@ -128,6 +132,8 @@ const indexSchema = z.object({
     accession: z.string().regex(accessionPattern),
     primaryDocument: z.string().regex(/^(?:[\w.-]{1,60}\/)?primary_doc\.xml$/),
   })).max(MAX_SCHEDULE_FILINGS),
+  // Absent from slices retained before the filings feed existed.
+  companyFilings: z.array(companyFilingRowSchema).max(MAX_COMPANY_FILINGS).default([]),
 });
 
 export function parseScheduleFilingIndex(text: string): ScheduleFilingIndex | null {
@@ -317,6 +323,35 @@ export function selectMajorShareholders(
   return rows.sort((a, b) => (b.percentOfClass ?? -1) - (a.percentOfClass ?? -1));
 }
 
+const receiptText = (receipt: OriginalSourceReceipt) => receipt.status === 'retrieved' && receipt.text ? receipt.text : null;
+
+/** The company's one CIK through the official ticker map, and its submissions
+ * slice. Null when the name matches no registrant or several. */
+export async function resolveSecSubmissions(
+  companyName: string,
+  read: (url: string) => Promise<OriginalSourceReceipt>,
+): Promise<{ cik: string; index: ScheduleFilingIndex } | null> {
+  const mapText = receiptText(await read(`${secTickerMapUrl()}?lookup=${encodeURIComponent(companyName)}`));
+  if (!mapText) return null;
+  let matches: Array<{ cik?: unknown }> = [];
+  try { matches = (JSON.parse(mapText) as { matches?: Array<{ cik?: unknown }> }).matches ?? []; } catch { return null; }
+  const ciks = [...new Set(matches.map((m) => String(m.cik ?? '')).filter((c) => /^\d{1,10}$/.test(c)))];
+  if (ciks.length !== 1) return null;
+  const cik = padCik(ciks[0]!);
+  const indexText = receiptText(await read(secSubmissionsUrl(cik)));
+  const index = indexText ? parseScheduleFilingIndex(indexText) : null;
+  return index && index.cik === cik ? { cik, index } : null;
+}
+
+/** The company's own recent SEC filings, newest first; null when it is not a single resolvable registrant. */
+export async function findCompanyFilings(
+  companyName: string,
+  read: (url: string) => Promise<OriginalSourceReceipt>,
+): Promise<{ cik: string; filings: CompanyFiling[] } | null> {
+  const resolved = await resolveSecSubmissions(companyName, read);
+  return resolved ? { cik: resolved.cik, filings: resolved.index.companyFilings.map((row) => describeCompanyFiling(resolved.cik, row)) } : null;
+}
+
 /** Schedules read per company: the newest ones, which hold every current
  * holder's latest filing. Bounded so one lookup stays a handful of SEC reads. */
 export const MAX_SCHEDULE_READS = 10;
@@ -332,24 +367,16 @@ export async function findMajorShareholders(
   companyName: string,
   read: (url: string) => Promise<OriginalSourceReceipt>,
 ): Promise<{ cik: string; holders: MajorShareholder[] } | null> {
-  const text = (receipt: OriginalSourceReceipt) => receipt.status === 'retrieved' && receipt.text ? receipt.text : null;
-  const mapText = text(await read(`${secTickerMapUrl()}?lookup=${encodeURIComponent(companyName)}`));
-  if (!mapText) return null;
-  let matches: Array<{ cik?: unknown }> = [];
-  try { matches = (JSON.parse(mapText) as { matches?: Array<{ cik?: unknown }> }).matches ?? []; } catch { return null; }
-  const ciks = [...new Set(matches.map((m) => String(m.cik ?? '')).filter((c) => /^\d{1,10}$/.test(c)))];
-  if (ciks.length !== 1) return null;
-  const cik = padCik(ciks[0]!);
-  const indexText = text(await read(secSubmissionsUrl(cik)));
-  const index = indexText ? parseScheduleFilingIndex(indexText) : null;
-  if (!index || index.cik !== cik) return null;
+  const resolved = await resolveSecSubmissions(companyName, read);
+  if (!resolved) return null;
+  const { cik, index } = resolved;
   const filings = index.filings.slice(0, MAX_SCHEDULE_READS);
   const entries: Array<{ filing: ScheduleFilingRow; document: ScheduleOwnershipDocument | null }> = [];
   // Two at a time: a courtesy to EDGAR's fair-access limit.
   for (let i = 0; i < filings.length; i += 2) {
     const batch = filings.slice(i, i + 2);
     const docs = await Promise.all(batch.map(async (filing) => {
-      const docText = text(await read(scheduleDocumentUrl(cik, filing.accession)));
+      const docText = receiptText(await read(scheduleDocumentUrl(cik, filing.accession)));
       return docText ? parseScheduleOwnershipDocument(docText) : null;
     }));
     // A schedule that could not be read might be a holder's exit; showing an

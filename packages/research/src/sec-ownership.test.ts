@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import type { OriginalSourceReceipt } from './original-source';
 import { retrieveOriginalSource, type SourceTransport } from './original-source.node';
 import {
+  findCompanyFilings,
   findMajorShareholders,
   isScheduleDocumentUrl,
   parsePercentOfClass,
@@ -237,6 +238,14 @@ describe('reader + lane end to end (recorded EDGAR responses)', () => {
     const result = await findMajorShareholders('NVIDIA Corp', read);
     expect(result?.cik).toBe('0001045810');
     expect(result?.holders.map((h) => [h.holder, h.percentOfClass])).toEqual([['Vanguard Capital Management', 7.31]]);
+  });
+
+  it('lists the company\'s own filings from the same feed, without the insider and holder forms', async () => {
+    const read = (url: string) => retrieveOriginalSource(url, NVIDIA_SEC);
+    const result = await findCompanyFilings('NVIDIA Corp', read);
+    expect(result?.filings).toEqual([{ form: '10-Q', filingDate: '2026-02-01', reportDate: null, title: 'Quarterly report', events: [],
+      url: 'https://www.sec.gov/Archives/edgar/data/1045810/000104581026000100/nvda-20260426.htm' }]);
+    expect(await findCompanyFilings('Andreessen Horowitz', read)).toBeNull();
   });
 
   it('no answer for an unknown company or when any schedule read fails (no partial lists)', async () => {
