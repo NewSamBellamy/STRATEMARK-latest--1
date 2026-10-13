@@ -85,8 +85,26 @@ describe('pickKpis / missingCoreTypes', () => {
 describe('formatAsOf', () => {
   it('prefers the source as-of date, then verification, then capture', () => {
     expect(formatAsOf(metric('a', 'employees', 1, { passageSupport: { sourceUrl: 'u', quote: 'q', asOf: '2026-06-30', basis: 'employees', unit: 'count' } as CompanyMetric['passageSupport'] }))).toBe('As of 2026-06-30');
-    expect(formatAsOf(metric('a', 'employees', 1, { lastVerifiedAt: '2026-07-01T10:00:00Z' }))).toBe('Checked 2026-07-01');
-    expect(formatAsOf(metric('a', 'employees', 1, { lastVerifiedAt: null, capturedAt: '2026-05-02T00:00:00Z' }))).toBe('Captured 2026-05-02');
+    // Timestamps are built from local times so the expectation holds in any timezone.
+    expect(formatAsOf(metric('a', 'employees', 1, { lastVerifiedAt: new Date(2026, 6, 1, 10).toISOString() }))).toBe('Checked 2026-07-01');
+    expect(formatAsOf(metric('a', 'employees', 1, { lastVerifiedAt: null, capturedAt: new Date(2026, 4, 2).toISOString() }))).toBe('Captured 2026-05-02');
+  });
+
+  it('dates a capture timestamp in the local calendar, not UTC', () => {
+    // 11:30pm local on Oct 12 is Oct 13 in UTC anywhere west of Greenwich,
+    // and the reader's "Recorded Oct 12" must agree with the dashboard.
+    const lateEvening = new Date(2026, 9, 12, 23, 30).toISOString();
+    expect(formatAsOf(metric('a', 'employees', 1, { lastVerifiedAt: null, capturedAt: lateEvening }))).toBe('Captured 2026-10-12');
+    const earlyMorning = new Date(2026, 9, 12, 0, 30).toISOString();
+    expect(formatAsOf(metric('a', 'employees', 1, { lastVerifiedAt: earlyMorning }))).toBe('Checked 2026-10-12');
+  });
+
+  it('never shifts a source-stated calendar date by timezone', () => {
+    const asOf = (date: string) => formatAsOf(metric('a', 'employees', 1, {
+      passageSupport: { sourceUrl: 'u', quote: 'q', asOf: date, basis: 'employees', unit: 'count' } as CompanyMetric['passageSupport'],
+    }));
+    expect(asOf('2026-01-01')).toBe('As of 2026-01-01');
+    expect(asOf('2025-12-31')).toBe('As of 2025-12-31');
   });
 });
 

@@ -77,11 +77,24 @@ export function metricAsOf(m: CompanyMetric): { iso: string | null; kind: 'as_of
   return { iso: m.capturedAt ?? null, kind: 'captured' };
 }
 
+/**
+ * YYYY-MM-DD for a stored date. A timestamp (capture/verification time) is an
+ * instant, so it reads in the viewer's local calendar — slicing its UTC form
+ * says "tomorrow" every local evening west of Greenwich. A plain calendar date
+ * (a source's stated as-of) has no instant and is never timezone-shifted.
+ */
+function localDay(iso: string): string {
+  if (!/T\d{2}:\d{2}/.test(iso)) return iso.length >= 10 ? iso.slice(0, 10) : iso;
+  const at = new Date(iso);
+  if (!Number.isFinite(at.getTime())) return iso.slice(0, 10);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+}
+
 export function formatAsOf(m: CompanyMetric): string | null {
   const { iso, kind } = metricAsOf(m);
   if (!iso) return null;
-  const date = iso.length >= 10 ? iso.slice(0, 10) : iso;
-  return `${kind === 'as_of' ? 'As of' : kind === 'verified' ? 'Checked' : 'Captured'} ${date}`;
+  return `${kind === 'as_of' ? 'As of' : kind === 'verified' ? 'Checked' : 'Captured'} ${localDay(iso)}`;
 }
 
 /**
