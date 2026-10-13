@@ -473,7 +473,9 @@ export const quoteSchema = z.object({
    * fields that do not match the response's real citations. */
   date: prose().optional(),
   sourceTitle: prose().optional(),
-  sourceUrl: z.string().url().optional(),
+  // A quote the notes carry but no link for arrives as "" or prose: that is
+  // a quote without provenance, not a malformed row to discard.
+  sourceUrl: z.string().url().optional().catch(undefined),
 });
 export const historyContentSchema = z.object({
   founderStory: prose(),

@@ -99,4 +99,17 @@ describe('dashboard content schemas degrade instead of collapsing', () => {
       investors: [],
     });
   });
+
+  it('keeps a quotation whose source link is blank or malformed, without provenance', () => {
+    const out = historyContentSchema.parse({
+      quotes: [
+        { text: 'Google is broken.', attribution: 'A. Founder', date: 'June 2025', sourceTitle: 'A podcast', sourceUrl: '' },
+        { text: 'We build answers.', attribution: 'A. Founder', sourceUrl: 'not a url' },
+        { text: 'Cited.', attribution: 'A. Founder', sourceUrl: 'https://example.com/interview' },
+      ],
+    });
+    expect(out.quotes.map((q) => [q.text, q.sourceUrl])).toEqual([
+      ['Google is broken.', undefined], ['We build answers.', undefined], ['Cited.', 'https://example.com/interview'],
+    ]);
+  });
 });
