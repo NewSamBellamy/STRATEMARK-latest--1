@@ -4,7 +4,10 @@ import type { OriginalSourceReceipt } from './original-source';
 
 export const MAX_SEC_CONCEPT_TEXT = 32000;
 const concept = 'RevenueFromContractWithCustomerExcludingAssessedTax';
-const path = new RegExp(`^/api/xbrl/companyconcept/CIK(\\d{10})/us-gaap/${concept}\\.json$`);
+// Issuers that report total revenue outside the ASC 606 concept (banks), or moved
+// back to it (NVIDIA after FY2022, Alphabet after Q1 2025), file it as Revenues.
+const fallbackConcept = 'Revenues';
+const path = new RegExp(`^/api/xbrl/companyconcept/CIK(\\d{10})/us-gaap/(?:${concept}|${fallbackConcept})\\.json$`);
 const filingPath = /^\/(?:Archives\/)?edgar\/data\/(\d{1,10})\/.+$/;
 export function secRevenueCik(raw: string): string | null {
   try {
@@ -38,13 +41,43 @@ export function secRevenueSourceUrl(raw: string): string | null {
   } catch { return null; }
 }
 
+/** The Revenues concept for the same issuer, when this is the ASC 606 concept URL. */
+export function secRevenueFallbackUrl(raw: string): string | null {
+  return secRevenueCik(raw) && raw.endsWith(`/${concept}.json`) ? raw.replace(`/${concept}.json`, `/${fallbackConcept}.json`) : null;
+}
+
+/** Whether a concept document holds no annual or quarterly fact ending in the last ~15 months. */
+export function secConceptIsStale(body: string, nowMs = Date.now()): boolean {
+  try {
+    const records = (JSON.parse(body) as { units?: { USD?: Array<{ end?: unknown }> } }).units?.USD ?? [];
+    return !records.some(record => typeof record.end === 'string' && nowMs - Date.parse(record.end) <= 460 * 86400000);
+  } catch { return true; }
+}
+
+/**
+ * The concept document as retained: whole when it fits, else only the facts
+ * ending in the last 11 years (the series reads ten), re-serialized so every
+ * kept record is still quoted byte for byte from the retained text. Null when
+ * even that does not fit.
+ */
+export function retainedSecConcept(body: string, nowMs = Date.now()): string | null {
+  if (body.length <= MAX_SEC_CONCEPT_TEXT) return body;
+  try {
+    const doc = JSON.parse(body) as { units?: { USD?: Array<{ end?: unknown }> } };
+    if (!Array.isArray(doc.units?.USD)) return null;
+    doc.units.USD = doc.units.USD.filter(record => typeof record.end === 'string' && nowMs - Date.parse(record.end) <= 11 * 366 * 86400000);
+    const text = JSON.stringify(doc);
+    return text.length <= MAX_SEC_CONCEPT_TEXT ? text : null;
+  } catch { return null; }
+}
+
 const recordSchema = z.object({
   start: z.string(), end: z.string(), val: z.number().nonnegative().safe(),
   accn: z.string().regex(/^\d{10}-\d{2}-\d{6}$/), form: z.enum(['10-K', '10-K/A']),
   filed: z.string(), fy: z.number().int().optional(), fp: z.literal('FY'), frame: z.string().max(20).optional(),
 }).strict();
 const documentSchema = z.object({ cik: z.number().int().positive(), entityName: z.string().min(1).max(256),
-  taxonomy: z.literal('us-gaap'), tag: z.literal(concept), units: z.object({ USD: z.array(z.unknown()).max(2000) }) });
+  taxonomy: z.literal('us-gaap'), tag: z.enum([concept, fallbackConcept]), units: z.object({ USD: z.array(z.unknown()).max(2000) }) });
 const name = (value: string) => value.normalize('NFKC').replace(/[.,]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 const calendarDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
   Number.isFinite(Date.parse(value)) && new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
@@ -138,6 +171,31 @@ export function secFilingHeadcountObservation(companyName: string, originals: re
  */
 export function secRevenueSeries(companyName: string, originals: readonly OriginalSourceReceipt[], nowMs = Date.now()):
   Array<{ period: string; value: number; asOf: string }> | null {
+  // History window: a decade of annual periods is the chart's honest span.
+  return reportedPeriodSeries(companyName, originals, nowMs, recordSchema, [364, 365, 366, 371], 10 * 366);
+}
+
+// A 10-Q's own quarter, or a 10-K that states a three-month period outright.
+const quarterRecordSchema = recordSchema.extend({
+  form: z.enum(['10-Q', '10-Q/A', '10-K', '10-K/A']), fp: z.enum(['Q1', 'Q2', 'Q3', 'Q4', 'FY']),
+}).strict();
+// Calendar quarters and 13- or 14-week fiscal quarters (52/53-week years).
+const QUARTER_DAYS = Array.from({ length: 15 }, (_, i) => 84 + i);
+
+/**
+ * Three-month revenue periods exactly as filed, for the last three years.
+ * A fourth quarter is usually reported only inside the annual total; it is
+ * then absent here, never derived as annual minus nine months.
+ */
+export function secQuarterlyRevenueSeries(companyName: string, originals: readonly OriginalSourceReceipt[], nowMs = Date.now()):
+  Array<{ period: string; value: number; asOf: string }> | null {
+  return reportedPeriodSeries(companyName, originals, nowMs, quarterRecordSchema, QUARTER_DAYS, 3 * 366);
+}
+
+/** Entity-matched, quoted, calendar-bounded facts of one period length; each period keeps its latest filed revision. */
+function reportedPeriodSeries(companyName: string, originals: readonly OriginalSourceReceipt[], nowMs: number,
+  schema: z.ZodType<{ start: string; end: string; val: number; filed: string }, z.ZodTypeDef, unknown>, periodDays: readonly number[], windowDays: number):
+  Array<{ period: string; value: number; asOf: string }> | null {
   if (!Number.isFinite(nowMs) || !name(companyName)) return null;
   const byPeriod = new Map<string, { period: string; value: number; asOf: string; filed: string }>();
   for (const source of originals) {
@@ -154,14 +212,13 @@ export function secRevenueSeries(companyName: string, originals: readonly Origin
       try { fragments.set(JSON.stringify(JSON.parse(match[0])), match[0]); } catch { /* Not a flat fact record. */ }
     }
     for (const raw of doc.units.USD) {
-      const parsed = recordSchema.safeParse(raw);
+      const parsed = schema.safeParse(raw);
       if (!parsed.success) continue;
       const fact = parsed.data;
       if (![fact.start, fact.end, fact.filed].every(calendarDate) || fact.filed < fact.end ||
         fact.filed > source.retrievedAt.slice(0, 10) || fact.filed > new Date(nowMs).toISOString().slice(0, 10) ||
-        // History window: a decade of annual periods is the chart's honest span.
-        nowMs - Date.parse(fact.end) > 10 * 366 * 86400000 ||
-        ![364, 365, 366, 371].includes((Date.parse(fact.end) - Date.parse(fact.start)) / 86400000 + 1)) continue;
+        nowMs - Date.parse(fact.end) > windowDays * 86400000 ||
+        !periodDays.includes((Date.parse(fact.end) - Date.parse(fact.start)) / 86400000 + 1)) continue;
       const quote = fragments.get(JSON.stringify(raw));
       if (!quote || quote.length > 600) continue;
       const existing = byPeriod.get(fact.end);
@@ -171,11 +228,10 @@ export function secRevenueSeries(companyName: string, originals: readonly Origin
     }
   }
   if (byPeriod.size < 2) return null;
-  const series = [...byPeriod.values()]
+  // A series is only honest if every point came from the same issuer identity.
+  return [...byPeriod.values()]
     .sort((a, b) => a.period.localeCompare(b.period))
     .map(({ period, value, asOf }) => ({ period, value, asOf }));
-  // A series is only honest if every point came from the same issuer identity.
-  return series;
 }
 
 /** Keep large financial originals on disk, not in every model context. This

@@ -13,6 +13,7 @@ import { WikiAvatar } from './LeaderGrid';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { UnknownInline } from '@/features/card/UnknownValue';
 import { EmptyNote, FieldLabel, FilterChip, SectionHeader } from './TabKit';
+import { MajorShareholders } from './MajorShareholders';
 
 const INVESTOR_KIND_LABEL: Record<string, string> = {
   vc: 'Venture',
@@ -238,6 +239,9 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                 </div>
               )}
             </section>
+
+            {/* Listed companies: 5%+ holders from their own SEC filings (absent otherwise). */}
+            <MajorShareholders companyName={companyQ?.name} />
 
             {/* Balanced view of positive and negative actions (spec §8).
                 Every signal opens as its own readable card — click to expand. */}

@@ -28,7 +28,7 @@ import { companySourceTargets } from './source-policy';
 import { originalSupportReferences, type OriginalSourceAttempt, type OriginalSourceServices } from './original-source';
 import { researchCompanyOverview, type OverviewNarrative, type OverviewSeed } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
-import { secRevenueSeries } from './sec-revenue';
+import { secQuarterlyRevenueSeries, secRevenueSeries } from './sec-revenue';
 import { attachQuoteSources, groundGovernanceInNotes, groundHistoryInNotes } from './notes-gate';
 import { researchCompanyProducts, type ProductEvidenceSelections } from './company-products';
 import { researchCompanyTeamOrg, type TeamOrgSelections } from './company-team';
@@ -56,7 +56,8 @@ const ctx = (a: TabResearchArgs): string =>
 
 
 function metricsFromStored(metrics: CompanyMetric[], companyId: string, officialWebsite?: string | null,
-  secRevenueSeriesOverride?: Array<{ period: string; value: number; asOf: string }>): MetricsContent {
+  secRevenueSeriesOverride?: Array<{ period: string; value: number; asOf: string }>,
+  secQuarterlySeries: Array<{ period: string; value: number }> = []): MetricsContent {
   const val = (t: MetricType) => {
     const revision = currentMetricRevision(metrics, companyId, t);
     if (!revision || revision.ambiguous) return null;
@@ -74,6 +75,7 @@ function metricsFromStored(metrics: CompanyMetric[], companyId: string, official
   const revenue = secRevenueSeriesOverride ?? (arr != null ? [{ period: 'Current', value: arr }] : []);
   return {
     revenue,
+    revenueQuarterly: secQuarterlySeries.map(({ period, value }) => ({ period, value })),
     users: users != null ? [{ period: 'Current', value: users }] : [],
     churn: [],
     nps: [],
@@ -219,8 +221,10 @@ export async function researchDashboardTab<T extends DashboardTab>(
       // A multi-year revenue series from the SAME retained SEC receipts the
       // verification uses - real history, never invented. Without one, the
       // content stays the honest single current point (no chart renders).
-      const secSeries = secRevenueSeries(args.company.name, (attempts ?? []).flatMap((attempt) => attempt.receipts));
-      return metricsFromStored(facts, args.company.id, args.company.websiteUrl, secSeries ?? undefined) as DashboardContentMap[T];
+      const receipts = (attempts ?? []).flatMap((attempt) => attempt.receipts);
+      const secSeries = secRevenueSeries(args.company.name, receipts);
+      return metricsFromStored(facts, args.company.id, args.company.websiteUrl, secSeries ?? undefined,
+        secQuarterlyRevenueSeries(args.company.name, receipts) ?? []) as DashboardContentMap[T];
     }
 
     case 'overview': {

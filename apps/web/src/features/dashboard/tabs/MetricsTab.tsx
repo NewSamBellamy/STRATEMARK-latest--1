@@ -664,7 +664,9 @@ export function MetricsTab({ companyId }: { companyId: string }) {
         const series = seriesQ.data?.content;
         const knownCount = sorted.length;
         const unlinkedCount = sorted.filter((r) => r.metric.confidence !== 'user_verified' && !linkedCitation(r.metric)).length;
-        const hasSeries = !!series && (series.revenue.length > 1 || series.users.length > 1 || series.churn.length > 1 || series.capTable.length > 0);
+        // Older stored content predates the quarterly field.
+        const quarterly = series?.revenueQuarterly ?? [];
+        const hasSeries = !!series && (series.revenue.length > 1 || quarterly.length > 1 || series.users.length > 1 || series.churn.length > 1 || series.capTable.length > 0);
         const onSort = (k: SortKey) =>
           setSort((s) => (s.key === k ? { key: k, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: k === 'value' || k === 'asof' ? 'desc' : 'asc' }));
         return (
@@ -753,6 +755,17 @@ export function MetricsTab({ companyId }: { companyId: string }) {
                       : view === 'area'
                         ? <TrendArea data={series.revenue} color={METRIC_COLORS.arr} width={w} fmt={(v) => formatMetricValue('arr', v)} />
                         : <TrendBar data={series.revenue} color={METRIC_COLORS.arr} width={w} fmt={(v) => formatMetricValue('arr', v)} />}
+                  />
+                )}
+                {quarterly.length > 1 && (
+                  <ChartPanel
+                    title="Quarterly revenue"
+                    sub={`${quarterly[0]!.period} → ${quarterly[quarterly.length - 1]!.period} · three-month periods as filed with the SEC; a quarter reported only inside an annual total is not shown`}
+                    right={<Delta data={quarterly} fmt={(v) => formatMetricValue('arr', v)} />}
+                    views={{ options: [{ key: 'bar', label: 'Bar' }, { key: 'line', label: 'Line' }], default: 'bar' }}
+                    render={(w, view) => view === 'line'
+                      ? <TrendLine data={quarterly} color={METRIC_COLORS.arr} width={w} fmt={(v) => formatMetricValue('arr', v)} />
+                      : <TrendBar data={quarterly} color={METRIC_COLORS.arr} width={w} fmt={(v) => formatMetricValue('arr', v)} />}
                   />
                 )}
                 {series.users.length > 1 && (

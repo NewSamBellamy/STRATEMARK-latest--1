@@ -5,7 +5,7 @@ import { request } from 'node:https';
 import { BlockList, isIP } from 'node:net';
 import { setTimeout as wait } from 'node:timers/promises';
 import { selectSourceExcerpt } from './source-excerpt';
-import { MAX_SEC_CONCEPT_TEXT, secFilingCik, secRevenueCik } from './sec-revenue';
+import { MAX_SEC_CONCEPT_TEXT, retainedSecConcept, secConceptIsStale, secFilingCik, secRevenueCik, secRevenueFallbackUrl } from './sec-revenue';
 
 // Annual filings routinely exceed 256 KB (Microsoft's 2025 HTML is ~601 KB).
 // Keep whole-document hashing bounded; retained excerpts remain only 4,000 chars.
@@ -39,6 +39,7 @@ export type { OriginalSourceReceipt } from './original-source';
 import type { OriginalSourceReceipt, OriginalSourceScope } from './original-source';
 import { secAdvCrd, selectSecAdvRetainedText } from './sec-adv';
 import { selectTickerMapSlice } from './market-quote';
+import { isScheduleDocumentUrl, parseScheduleOwnershipXml, secSubmissionsCik, selectScheduleFilingIndex } from './sec-ownership';
 import { getCrawl4aiLane } from './crawl4ai';
 
 /** Whole-document fetch memoization (WS4): the bytes for a URL are immutable
@@ -266,6 +267,8 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
         target = new URL(response.headers.location, url).href;
         continue;
       }
+      // An issuer that never used the ASC 606 revenue concept files total revenue as Revenues.
+      if (response.status === 404 && secRevenueFallbackUrl(url.href) && hop < 3) { target = secRevenueFallbackUrl(url.href)!; continue; }
       if (response.status !== 200) return { ...receipt, reason: 'Source did not return a readable public page' };
       const type = (response.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
       const byteLimit = secFilingCik(url.href) || /company_tickers\.json$/.test(url.pathname) ? MAX_SEC_FILING_BYTES
@@ -293,6 +296,23 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
         return { ...receipt, status: 'retrieved', text: slice, truncated: false,
           contentHash: createHash('sha256').update(response.body).digest('hex') };
       }
+      // Beneficial-ownership lane (sec-ownership.ts): the submissions feed keeps
+      // only its structured 13D/G rows, a schedule only its cover-page facts.
+      // Both are deterministic slices hashed against the whole document.
+      if (secSubmissionsCik(url.href)) {
+        if (type !== 'application/json') return { ...receipt, reason: 'SEC submissions feed did not return JSON' };
+        const slice = selectScheduleFilingIndex(response.body.toString('utf8'));
+        if (!slice) return { ...receipt, reason: 'SEC submissions feed was not parsable' };
+        return { ...receipt, status: 'retrieved', text: slice, truncated: false,
+          contentHash: createHash('sha256').update(response.body).digest('hex') };
+      }
+      if (isScheduleDocumentUrl(url.href)) {
+        if (type !== 'text/xml' && type !== 'application/xml') return { ...receipt, reason: 'SEC schedule did not return XML' };
+        const schedule = parseScheduleOwnershipXml(response.body.toString('utf8'));
+        if (!schedule) return { ...receipt, reason: 'Not a structured Schedule 13D/13G filing' };
+        return { ...receipt, status: 'retrieved', text: JSON.stringify(schedule), truncated: false,
+          contentHash: createHash('sha256').update(response.body).digest('hex') };
+      }
       // JSON APIs are evidence lanes too (IAPD search, XBRL shares, Yahoo
       // chart): accepted bounded and parse-validated below, like any page.
       const jsonSource = type === 'application/json';
@@ -307,9 +327,12 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
         return { ...receipt, status: 'blocked', reason: 'Source prohibits retained extracts' };
       }
       if (secConceptJson) {
-        if (body.length > MAX_SEC_CONCEPT_TEXT) return { ...receipt, reason: 'SEC concept exceeds the retained document limit' };
         try { JSON.parse(body); } catch { return { ...receipt, reason: 'SEC source did not return valid JSON' }; }
-        return { ...receipt, status: 'retrieved', format: 'sec-companyconcept', text: body, truncated: false,
+        // An issuer can stop tagging the ASC 606 concept and report Revenues instead.
+        if (secRevenueFallbackUrl(url.href) && secConceptIsStale(body) && hop < 3) { target = secRevenueFallbackUrl(url.href)!; continue; }
+        const text = retainedSecConcept(body);
+        if (!text) return { ...receipt, reason: 'SEC concept exceeds the retained document limit' };
+        return { ...receipt, status: 'retrieved', format: 'sec-companyconcept', text, truncated: false,
           contentHash: createHash('sha256').update(response.body).digest('hex') };
       }
       if (jsonSource) {

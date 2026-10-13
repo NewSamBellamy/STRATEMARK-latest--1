@@ -424,6 +424,8 @@ export const timePointSchema = z.object({ period: z.string(), value: z.number() 
 export const capTableSliceSchema = z.object({ holder: z.string(), pct: z.number() });
 export const metricsContentSchema = z.object({
   revenue: rows(timePointSchema),
+  /** Three-month revenue periods exactly as filed (SEC 10-Q); empty when none are on file. */
+  revenueQuarterly: rows(timePointSchema),
   users: rows(timePointSchema),
   churn: rows(timePointSchema),
   nps: rows(timePointSchema),
@@ -507,9 +509,20 @@ export const roadmapItemSchema = z.object({
   /** Announced/reported date when sources give one (e.g. "2026 H2"); additive. */
   date: prose().nullable().catch(null),
 });
+/** A named customer, supplier or partner, only as an exact reported sentence states it. */
+export const businessRelationshipSchema = z.object({
+  name: z.string(),
+  kind: z.enum(['customer', 'supplier', 'partner']),
+  /** The exact sentence that names both companies and the relationship. */
+  quote: z.string(),
+  sourceUrl: prose().nullable().catch(null),
+  sourceTitle: prose().nullable().catch(null),
+});
 export const productsRoadmapContentSchema = z.object({
   products: rows(productSchema),
   roadmap: rows(roadmapItemSchema),
+  /** Additive: absent when nothing is reported, and on content stored before it existed. */
+  relationships: rows(businessRelationshipSchema).optional(),
 });
 
 /** Tab → content schema. Used to validate `dashboard_data.content_json` per tab. */

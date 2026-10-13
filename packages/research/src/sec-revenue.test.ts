@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { hydrateCompanyCard, verifyCompanyCardOriginals } from './company-agent';
 import { projectCompanyFactsFromOriginals } from './company-facts';
 import type { LlmClient, MarketPlan } from './types';
-import { secFilingHeadcountObservation, secRevenueObservation, secRevenueSeries, secRevenueVerification, secRevenueSourceUrl } from './sec-revenue';
+import { retainedSecConcept, secConceptIsStale, secFilingHeadcountObservation, secQuarterlyRevenueSeries, secRevenueFallbackUrl, secRevenueObservation, secRevenueSeries, secRevenueVerification, secRevenueSourceUrl } from './sec-revenue';
 import { acceptedMetricPassage } from './metric-support';
 import { selectOriginalSourceCitations, type OriginalSourceReceipt } from './original-source';
 
@@ -180,5 +180,58 @@ describe('secRevenueSeries - multi-year history from the same retained receipts'
       tag: 'RevenueFromContractWithCustomerExcludingAssessedTax', units: { USD: [latest] } };
     expect(secRevenueSeries('Microsoft Corporation', [{ ...source, text: JSON.stringify(single) }], now)).toBeNull();
     expect(secRevenueSeries('Wrong Company Inc', [threeYearSource], now)).toBeNull();
+  });
+});
+
+describe('Revenues fallback and bounded retention', () => {
+  const fallback = url.replace('RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues');
+
+  it('falls back from the ASC 606 concept to Revenues for the same issuer, and never further', () => {
+    expect(secRevenueFallbackUrl(url)).toBe(fallback);
+    expect(secRevenueFallbackUrl(fallback)).toBeNull();
+    expect(secRevenueFallbackUrl('https://data.sec.gov/api/xbrl/companyconcept/CIK0000789019/us-gaap/NetIncomeLoss.json')).toBeNull();
+  });
+
+  it('calls a concept stale when nothing ends in the last ~15 months', () => {
+    expect(secConceptIsStale(JSON.stringify(payload), now)).toBe(false);
+    expect(secConceptIsStale(JSON.stringify({ ...payload, units: { USD: [{ ...latest, end: '2022-01-30' }] } }), now)).toBe(true);
+    expect(secConceptIsStale('not json', now)).toBe(true);
+  });
+
+  it('keeps a document whole when it fits, else only the last 11 years, with each kept record still quotable', () => {
+    expect(retainedSecConcept(JSON.stringify(payload), now)).toBe(JSON.stringify(payload));
+    const ancient = Array.from({ length: 400 }, (_, i) => ({ ...latest, start: '2001-01-01', end: '2001-12-31', val: i }));
+    const big = JSON.stringify({ ...payload, tag: 'Revenues', units: { USD: [...ancient, latest, repeated] } });
+    const kept = retainedSecConcept(big, now)!;
+    expect(kept.length).toBeLessThan(big.length);
+    const receipt = { ...source, finalUrl: fallback, text: kept };
+    expect(secRevenueSeries('Microsoft Corporation', [receipt], now)!.map((point) => point.value)).toEqual([281724000000, 331839000000]);
+    expect(retainedSecConcept(JSON.stringify({ ...payload, description: 'x'.repeat(40000) }), now)).toBeNull();
+  });
+});
+
+describe('secQuarterlyRevenueSeries - three-month periods exactly as filed', () => {
+  const quarter = (start: string, end: string, val: number, filed: string, fp = 'Q1') =>
+    ({ start, end, val, accn: '0000950170-26-000001', fy: 2026, fp, form: '10-Q', filed });
+  const q1 = quarter('2025-07-01', '2025-09-30', 77673000000, '2025-10-29');
+  const q2 = quarter('2025-10-01', '2025-12-31', 81273000000, '2026-01-28', 'Q2');
+  const sixMonths = quarter('2025-07-01', '2025-12-31', 158946000000, '2026-01-28', 'Q2');
+  const q2Restated = { ...q2, val: 81300000000, filed: '2026-04-29', fp: 'Q3' };
+  const textOf = (units: unknown[]) => JSON.stringify({ cik: 789019, entityName: 'MICROSOFT CORPORATION', taxonomy: 'us-gaap',
+    tag: 'RevenueFromContractWithCustomerExcludingAssessedTax', units: { USD: units } });
+
+  it('keeps only three-month periods, takes each period\'s latest filing, and ignores annual and year-to-date totals', () => {
+    const series = secQuarterlyRevenueSeries('Microsoft Corporation', [{ ...source, text: textOf([latest, q1, q2, sixMonths, q2Restated]) }], now);
+    expect(series!.map((point) => [point.period, point.value])).toEqual([['2025-09-30', 77673000000], ['2025-12-31', 81300000000]]);
+  });
+
+  it('never derives a missing quarter and needs two reported quarters for a series', () => {
+    expect(secQuarterlyRevenueSeries('Microsoft Corporation', [{ ...source, text: textOf([latest, repeated, q1, sixMonths]) }], now)).toBeNull();
+    expect(secQuarterlyRevenueSeries('Wrong Company Inc', [{ ...source, text: textOf([q1, q2]) }], now)).toBeNull();
+  });
+
+  it('leaves the annual series untouched by quarterly records', () => {
+    expect(secRevenueSeries('Microsoft Corporation', [{ ...source, text: textOf([latest, repeated, q1, q2]) }], now)!
+      .map((point) => point.period)).toEqual(['2025-06-30', '2026-06-30']);
   });
 });

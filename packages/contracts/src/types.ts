@@ -2,6 +2,7 @@
 import type { z } from 'zod';
 import type {
   boardMemberSchema,
+  businessRelationshipSchema,
   brandThemeSchema,
   capTableSliceSchema,
   cardSchema,
@@ -63,6 +64,7 @@ export type Quote = z.infer<typeof quoteSchema>;
 export type HistoryContent = z.infer<typeof historyContentSchema>;
 export type Product = z.infer<typeof productSchema>;
 export type RoadmapItem = z.infer<typeof roadmapItemSchema>;
+export type BusinessRelationship = z.infer<typeof businessRelationshipSchema>;
 export type ProductsRoadmapContent = z.infer<typeof productsRoadmapContentSchema>;
 
 /** Strongly-typed map from tab id → its content payload type. */

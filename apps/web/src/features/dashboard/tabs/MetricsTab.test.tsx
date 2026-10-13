@@ -110,6 +110,21 @@ describe('dashboard metric evidence projection', () => {
     expect(links.some((href) => href.startsWith('https://www.google.com/search?q='))).toBe(true);
     expect(links.some((href) => href.includes('vertexaisearch'))).toBe(false);
   });
+  it.each([
+    { quarters: [{ period: '2025-09-30', value: 7.7e10 }, { period: '2025-12-31', value: 8.1e10 }], shown: true },
+    { quarters: [{ period: '2025-12-31', value: 8.1e10 }], shown: false },
+    { quarters: undefined, shown: false },
+  ])('charts quarterly revenue only from two or more filed quarters (%#)', async ({ quarters, shown }) => {
+    const content = { revenue: [], users: [], churn: [], nps: [], capTable: [], ...(quarters ? { revenueQuarterly: quarters } : {}) };
+    const repository = Object.assign(makeRepo(), {
+      getCompanyMetrics: vi.fn().mockResolvedValue([{ ...seed, metricType: 'employees', value: 120, confidence: 'estimated', source: null, citations: [] }]),
+      getDashboardTab: vi.fn().mockResolvedValue({ companyId: seed.companyId, tab: 'metrics', content, citations: [] }),
+    });
+    renderWithProviders(<MetricsTab companyId={seed.companyId} />, { repository });
+    await screen.findByRole('table');
+    if (shown) expect(await screen.findByText('Quarterly revenue')).toBeInTheDocument();
+    else expect(screen.queryByText('Quarterly revenue')).not.toBeInTheDocument();
+  });
   it('sorts found figures by value when a header is clicked', async () => {
     const metrics = [
       { ...seed, id: 'm1', metricType: 'employees' as const, value: 120, confidence: 'estimated' as const, source: null, citations: [] },
