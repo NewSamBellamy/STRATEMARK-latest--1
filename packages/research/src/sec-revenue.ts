@@ -31,6 +31,32 @@ export function totalSecRevenue<T extends { value: number; passageSupport: { asO
     .sort((a, b) => b.passageSupport.asOf.localeCompare(a.passageSupport.asOf) || b.value - a.value)[0] ?? null;
 }
 
+/**
+ * Revalidation of a STORED SEC-concept revenue row against
+ * {@link totalSecRevenue}: was it taken from a sub-line concept? Each retained
+ * concept receipt for the same issuer is re-read as of its own retrieval time
+ * (deterministic, no clock). True when the OTHER concept states a larger
+ * figure for the same annual period (Circle: $110M ASC 606 vs $2.75B
+ * Revenues); false when it states one that is not larger; null when the
+ * retained evidence cannot decide — typically because rows stored before the
+ * gate retained only the concept they used.
+ */
+export function storedSecRevenueIsSubLine(companyName: string,
+  metric: Pick<CompanyMetric, 'metricType' | 'value' | 'passageSupport'>,
+  originals: readonly OriginalSourceReceipt[]): boolean | null {
+  const proof = metric.passageSupport;
+  if (metric.metricType !== 'arr' || metric.value == null || proof?.format !== 'sec-companyconcept' ||
+    proof.definition !== 'annual_revenue') return null;
+  const cik = secRevenueCik(proof.sourceUrl);
+  if (!cik) return null;
+  const others = originals.filter((r) => r.finalUrl && r.finalUrl !== proof.sourceUrl && secRevenueCik(r.finalUrl) === cik)
+    .map((r) => secRevenueObservation(companyName, [r], Date.parse(r.retrievedAt)))
+    .filter((o): o is NonNullable<typeof o> => o !== null && o.passageSupport.asOf === proof.asOf &&
+      o.passageSupport.periodStart === proof.periodStart);
+  if (!others.length) return null;
+  return totalSecRevenue(others)!.value > metric.value;
+}
+
 /** A direct HTML filing that can carry disclosures outside XBRL concepts. */
 export function secFilingCik(raw: string): string | null {
   try {
