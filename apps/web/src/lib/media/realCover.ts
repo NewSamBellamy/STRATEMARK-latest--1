@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react';
 import { previewFromHtml } from '@mi/research/page-preview';
 import { hasHostedApi, hostedUrl } from '@/lib/hostedApi';
+import { LruCache, fetchWithTimeout } from '@/lib/media/lookupCache';
 import { hasLocalSourceBridge, readAssetSource } from '@/lib/repository/local-source-reader';
 
 export interface RealCover {
@@ -23,7 +24,22 @@ export interface RealCover {
 
 export type RealCoverState = { status: 'loading' } | { status: 'none' } | ({ status: 'ready' } & RealCover);
 
-const cache = new Map<string, Promise<RealCover | null>>();
+/**
+ * Settled answers ("this page's image", "this page publishes none") are kept
+ * until evicted; a lookup that failed — network error, timeout, unreadable
+ * page — answers null now and is retried after FAILURE_RETRY_MS.
+ */
+interface CacheEntry {
+  promise: Promise<RealCover | null>;
+  retryAt: number;
+}
+
+const CACHE_MAX = 500;
+const FAILURE_RETRY_MS = 60_000;
+const cache = new LruCache<string, CacheEntry>(CACHE_MAX);
+
+/** The page could not be read, as distinct from a page with no image. */
+class LookupFailed extends Error {}
 
 const hostOf = (u: string): string | null => {
   try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return null; }
@@ -31,15 +47,15 @@ const hostOf = (u: string): string | null => {
 
 async function resolve(pageUrl: string): Promise<RealCover | null> {
   if (hasHostedApi()) {
-    const res = await fetch(hostedUrl(`preview?url=${encodeURIComponent(pageUrl)}`), { credentials: 'omit' });
-    if (!res.ok) return null;
+    const res = await fetchWithTimeout(hostedUrl(`preview?url=${encodeURIComponent(pageUrl)}`), { credentials: 'omit' });
+    if (!res.ok) throw new LookupFailed(`preview ${res.status}`);
     const p = await res.json() as { image: string | null; site: string | null };
     if (!p.image) return null;
     return { src: hostedUrl(`image?url=${encodeURIComponent(p.image)}`), publisher: p.site ?? hostOf(p.image) };
   }
   if (hasLocalSourceBridge()) {
     const receipt = await readAssetSource(pageUrl);
-    if (receipt.status !== 'retrieved' || !receipt.text) return null;
+    if (receipt.status !== 'retrieved' || !receipt.text) throw new LookupFailed(receipt.status);
     const finalUrl = receipt.finalUrl ?? pageUrl;
     const p = previewFromHtml(receipt.text, finalUrl);
     return p.image ? { src: p.image, publisher: p.site ?? hostOf(finalUrl) } : null;
@@ -48,12 +64,20 @@ async function resolve(pageUrl: string): Promise<RealCover | null> {
 }
 
 export function getRealCover(pageUrl: string): Promise<RealCover | null> {
-  let hit = cache.get(pageUrl);
-  if (!hit) {
-    hit = resolve(pageUrl).catch(() => null);
-    cache.set(pageUrl, hit);
-  }
-  return hit;
+  const hit = cache.get(pageUrl);
+  if (hit && Date.now() < hit.retryAt) return hit.promise;
+  const entry: CacheEntry = { promise: Promise.resolve(null), retryAt: Number.POSITIVE_INFINITY };
+  entry.promise = resolve(pageUrl).catch(() => {
+    entry.retryAt = Date.now() + FAILURE_RETRY_MS;
+    return null;
+  });
+  cache.set(pageUrl, entry);
+  return entry.promise;
+}
+
+/** Test seam: forget every cached lookup. */
+export function clearRealCoverCache(): void {
+  cache.clear();
 }
 
 /** Only real web pages can have a preview image. */

@@ -15,14 +15,35 @@ import type { OrgNode } from '@mi/contracts';
 import { cn } from '@/lib/cn';
 import { fetchWikidataHeadshot } from '@/lib/media/wikidataHeadshot';
 import { loadPersisted, makeLimiter, savePersisted } from '@/lib/media/headshotCache';
+import { LruCache, fetchWithTimeout } from '@/lib/media/lookupCache';
 
 interface Headshot {
   thumb: string;
   sourceUrl: string;
 }
 
-const headshotCache = new Map<string, Headshot | null>();
+const headshotCache = new LruCache<string, Headshot | null>(500);
 const limit = makeLimiter(3);
+
+/**
+ * The fetch for one headshot resolution: every request is time-bounded, and a
+ * request that fails (network, timeout, 429/5xx) marks the resolution
+ * incomplete, so its miss is never remembered as "this person has no photo".
+ */
+function trackedFetch(): { f: typeof fetch; failed: () => boolean } {
+  let failed = false;
+  const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    try {
+      const res = await fetchWithTimeout(input, init);
+      if (res.status === 429 || res.status >= 500) failed = true;
+      return res;
+    } catch (err) {
+      failed = true;
+      throw err;
+    }
+  }) as typeof fetch;
+  return { f, failed: () => failed };
+}
 
 interface WikiSummary {
   thumbnail?: { source?: string };
@@ -32,9 +53,9 @@ interface WikiSummary {
 }
 
 /** Fetch a Wikipedia article summary by exact title; null on any failure. */
-async function wikiSummary(title: string): Promise<WikiSummary | null> {
+async function wikiSummary(f: typeof fetch, title: string): Promise<WikiSummary | null> {
   try {
-    const res = await fetch(
+    const res = await f(
       `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`,
       { headers: { accept: 'application/json' } },
     );
@@ -73,7 +94,8 @@ function verifiedShot(
  * misses — wrong title, disambiguation page, no company mention — a Wikipedia
  * search for "{name} {company}" finds the real article title and the summary
  * is re-fetched and re-verified. Both attempts pass the same verification
- * gate; only a confirmed match ever renders. Results (including misses) cache.
+ * gate; only a confirmed match ever renders. Results (including misses) cache,
+ * except a miss from a lookup that failed part-way — that one is retried.
  */
 function fetchWikiHeadshot(personName: string, companyName: string): Promise<Headshot | null> {
   const key = `${personName}::${companyName}`;
@@ -84,18 +106,21 @@ function fetchWikiHeadshot(personName: string, companyName: string): Promise<Hea
     return Promise.resolve(persisted.value);
   }
   return limit(async () => {
-    const shot = await resolveHeadshot(personName, companyName);
-    headshotCache.set(key, shot);
-    savePersisted(key, shot);
+    const { f, failed } = trackedFetch();
+    const shot = await resolveHeadshot(f, personName, companyName);
+    if (shot || !failed()) {
+      headshotCache.set(key, shot);
+      savePersisted(key, shot);
+    }
     return shot;
   });
 }
 
-async function resolveHeadshot(personName: string, companyName: string): Promise<Headshot | null> {
+async function resolveHeadshot(f: typeof fetch, personName: string, companyName: string): Promise<Headshot | null> {
 
   // Attempt 1: the article usually lives at the person's exact name.
   const direct = verifiedShot(
-    await wikiSummary(personName),
+    await wikiSummary(f, personName),
     personName,
     personName,
     companyName,
@@ -105,7 +130,7 @@ async function resolveHeadshot(personName: string, companyName: string): Promise
   // Attempt 2: search Wikipedia for the person IN their company context —
   // finds "Name (executive)"-style titles and articles the direct miss hides.
   try {
-    const res = await fetch(
+    const res = await f(
       `https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=3&format=json&origin=*&srsearch=${encodeURIComponent(
         `${personName} ${companyName}`,
       )}`,
@@ -118,7 +143,7 @@ async function resolveHeadshot(personName: string, companyName: string): Promise
       for (const hit of data.query?.search ?? []) {
         const title = hit.title?.trim();
         if (!title) continue;
-        const shot = verifiedShot(await wikiSummary(title), title, personName, companyName);
+        const shot = verifiedShot(await wikiSummary(f, title), title, personName, companyName);
         if (shot) return shot;
       }
     }
@@ -128,7 +153,7 @@ async function resolveHeadshot(personName: string, companyName: string): Promise
 
   // Attempt 3: Wikidata — a human tied to the company by employer/position
   // claims, with a Commons portrait (P18). Namesakes elsewhere are rejected.
-  const wd = await fetchWikidataHeadshot(personName, companyName);
+  const wd = await fetchWikidataHeadshot(personName, companyName, [], f);
   return wd ? { thumb: wd.thumb, sourceUrl: wd.sourceUrl } : null;
 }
 

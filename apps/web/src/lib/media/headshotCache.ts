@@ -1,6 +1,7 @@
 /** Persistent headshot cache (memory + localStorage, both guarded) and a small concurrency gate. */
 const LS_KEY = 'sm.headshots.v1';
 const TTL_MS = 14 * 86_400_000;
+const MAX_ENTRIES = 500;
 
 interface Entry<T> { v: T | null; t: number }
 
@@ -18,8 +19,14 @@ export function savePersisted<T>(key: string, value: T | null): void {
   try {
     const raw = localStorage.getItem(LS_KEY);
     const all = raw ? (JSON.parse(raw) as Record<string, Entry<T>>) : {};
-    all[key] = { v: value, t: Date.now() };
-    localStorage.setItem(LS_KEY, JSON.stringify(all));
+    const now = Date.now();
+    all[key] = { v: value, t: now };
+    // Expired entries are never read again; past the cap the oldest go first.
+    const kept = Object.entries(all)
+      .filter(([, e]) => now - e.t < TTL_MS)
+      .sort(([, a], [, b]) => b.t - a.t)
+      .slice(0, MAX_ENTRIES);
+    localStorage.setItem(LS_KEY, JSON.stringify(Object.fromEntries(kept)));
   } catch { /* quota / private mode */ }
 }
 
