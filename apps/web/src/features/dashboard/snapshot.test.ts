@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CompanyMetric, OrgNode } from '@mi/contracts';
-import { foundedYear, fundingSnapshot, leadershipSnapshot, newsMood, peerTable, reportedDateMs, roundsNewestFirst } from './snapshot';
+import { foundedYear, fundingSnapshot, reportsToSec, secFilingsUrl, leadershipSnapshot, newsMood, peerTable, reportedDateMs, roundsNewestFirst } from './snapshot';
 
 const round = (name: string, date: string | null, leads: string[] = [], amountUsd: number | null = null) =>
   ({ round: name, date, leadInvestors: leads, amountUsd });
@@ -99,5 +99,18 @@ describe('founded year', () => {
     expect(foundedYear([ev('2022', 'Launches Atlas model'), ev('2023', 'Series A')])).toBeNull();
     expect(foundedYear([ev('Early days', 'Founded in a garage')])).toBeNull();
     expect(foundedYear(undefined)).toBeNull();
+  });
+});
+
+describe('SEC filings link', () => {
+  const m = (patch: Partial<CompanyMetric>) => ({ id: 'x', companyId: 'c', metricType: 'employees', value: 1, confidence: 'estimated', source: null, citations: [], methodNote: null, capturedAt: '', ...patch }) as CompanyMetric;
+  it('appears only when the research shows a filing-backed figure or a listing', () => {
+    expect(reportsToSec([m({ passageSupport: { format: 'sec-filing' } as CompanyMetric['passageSupport'] })])).toBe(true);
+    expect(reportsToSec([m({ metricType: 'market_cap', value: 3e12 })])).toBe(true);
+    expect(reportsToSec([m({ metricType: 'valuation', value: 9e9 })])).toBe(false);
+    expect(reportsToSec([m({ metricType: 'market_cap', value: null, confidence: 'unknown' })])).toBe(false);
+  });
+  it('points at EDGAR with the company name encoded', () => {
+    expect(secFilingsUrl('Apple Inc.')).toBe('https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=Apple%20Inc.&type=&dateb=&owner=include&count=40');
   });
 });

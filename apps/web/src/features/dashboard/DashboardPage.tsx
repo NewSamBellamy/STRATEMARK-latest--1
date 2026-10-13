@@ -20,7 +20,7 @@ import { Logo } from '@/features/card/Logo';
 import { ExportMenu } from '@/features/export/ExportMenu';
 import { DigDeeper, useDeepDive } from '@/features/deepdive/DeepDive';
 import { TabFreshness } from './TabFreshness';
-import { foundedYear } from './snapshot';
+import { foundedYear, reportsToSec, secFilingsUrl } from './snapshot';
 import { useCachedDashboardTab } from './useCachedTab';
 import { OverviewTab } from './tabs/OverviewTab';
 import { ResearchTab } from './tabs/ResearchTab';
@@ -75,8 +75,8 @@ function restatesHq(line: string, hq: string | null | undefined): boolean {
 }
 
 /** One quiet row of facts under the company name; each only if it exists. */
-function KeyFacts({ hq, website, founded }: { hq: string | null; website: string | null; founded: number | null }) {
-  if (!hq && !website && !founded) return null;
+function KeyFacts({ hq, website, founded, filingsUrl }: { hq: string | null; website: string | null; founded: number | null; filingsUrl: string | null }) {
+  if (!hq && !website && !founded && !filingsUrl) return null;
   return (
     <ul className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted" aria-label="Key facts">
       {hq && (
@@ -84,6 +84,13 @@ function KeyFacts({ hq, website, founded }: { hq: string | null; website: string
       )}
       {founded && (
         <li className="inline-flex items-center gap-1.5" title="From the dated history on the History tab"><CalendarDays className="h-3.5 w-3.5 text-faint" aria-hidden />Founded {founded}</li>
+      )}
+      {filingsUrl && (
+        <li>
+          <a href={filingsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:text-primary-ink hover:underline" title="Filings, ownership forms and statements on SEC EDGAR">
+            <FileText className="h-3.5 w-3.5 text-faint" aria-hidden />SEC filings
+          </a>
+        </li>
       )}
       {website && (
         <li>
@@ -391,6 +398,7 @@ export default function DashboardPage() {
                   hq={c.hqLocation}
                   website={c.websiteUrl}
                   founded={founded}
+                  filingsUrl={reportsToSec(metrics.data ?? []) ? secFilingsUrl(c.name) : null}
                 />
               </div>
               <ExportMenu

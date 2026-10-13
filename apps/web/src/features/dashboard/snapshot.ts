@@ -144,3 +144,19 @@ export function foundedYear(timeline: HistoryContent['timeline'] | undefined): n
     .map((ms) => new Date(ms).getUTCFullYear());
   return years.length > 0 ? Math.min(...years) : null;
 }
+
+/**
+ * Whether the research shows this company reports to the SEC: a figure backed
+ * by a filing, or a market cap (which needs a listing). Never inferred from
+ * the name or from being large.
+ */
+export function reportsToSec(metrics: readonly CompanyMetric[]): boolean {
+  return metrics.some((metric) => metric.value !== null && (
+    metric.passageSupport?.format?.startsWith('sec-') === true ||
+    (metric.metricType === 'market_cap' && metric.confidence !== 'unknown')));
+}
+
+/** EDGAR's own company search: filings, ownership forms and statements, from the source. */
+export function secFilingsUrl(companyName: string): string {
+  return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=${encodeURIComponent(companyName)}&type=&dateb=&owner=include&count=40`;
+}
