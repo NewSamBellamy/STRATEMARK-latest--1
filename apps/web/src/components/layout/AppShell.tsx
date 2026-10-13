@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { OPEN_SOURCE_LAUNCH, isHostedBeta } from '@/lib/beta';
 import { Menu, X } from 'lucide-react';
@@ -75,6 +75,25 @@ export function AppShell() {
     setMobileMenuOpen(false);
   }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keyboard reach for the phone drawer: opening it moves focus inside, and
+  // Escape closes it and hands focus back to the menu button.
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    drawerRef.current?.querySelector<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      // A dialog layered over the drawer handles its own Escape first.
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      setMobileMenuOpen(false);
+      menuButtonRef.current?.focus();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [mobileMenuOpen]);
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-bg">
       {/* Desktop sidebar — hidden on mobile */}
@@ -86,7 +105,7 @@ export function AppShell() {
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/30" onClick={() => setMobileMenuOpen(false)} />
-          <div className="absolute left-0 top-0 h-full w-64">
+          <div ref={drawerRef} className="absolute left-0 top-0 h-full w-64">
             <Sidebar />
           </div>
         </div>
@@ -101,10 +120,12 @@ export function AppShell() {
         {/* Top bar with mobile menu button */}
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-surface px-4 md:justify-end md:px-5">
           <button
+            ref={menuButtonRef}
             type="button"
             className="grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-content md:hidden"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle menu"
+            aria-expanded={mobileMenuOpen}
           >
             {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
