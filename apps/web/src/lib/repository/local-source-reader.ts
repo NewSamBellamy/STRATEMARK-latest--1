@@ -30,6 +30,48 @@ export function supportsPreviewSource(raw: string): boolean {
   } catch { return false; }
 }
 
+/**
+ * The relay (dev bridge or Worker) caps concurrent reads and answers 429 when
+ * busy. A deck build issues far more reads at once than that cap, so reads
+ * queue here instead of bouncing, and a busy answer waits and retries. A read
+ * that still fails says WHY (busy, timed out) so callers can tell a transient
+ * failure from a page that is simply not there.
+ */
+const MAX_RELAY_READS = 8;
+let relayActive = 0;
+const relayWaiting: Array<() => void> = [];
+
+async function relaySlot<T>(work: () => Promise<T>): Promise<T> {
+  if (relayActive >= MAX_RELAY_READS) await new Promise<void>((resolve) => relayWaiting.push(resolve));
+  relayActive += 1;
+  try { return await work(); } finally {
+    relayActive -= 1;
+    relayWaiting.shift()?.();
+  }
+}
+
+type RelayAnswer = { response: Response } | { httpStatus?: number; reason: string };
+
+async function relayPost(endpoint: { url: string; headers: Record<string, string> }, body: unknown, timeoutMs: number): Promise<RelayAnswer> {
+  for (let attempt = 0; ; attempt += 1) {
+    const answer = await relaySlot(async (): Promise<RelayAnswer> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetch(endpoint.url, {
+          method: 'POST', credentials: 'omit', redirect: 'error', cache: 'no-store',
+          headers: endpoint.headers, body: JSON.stringify(body), signal: controller.signal,
+        });
+        return response.ok ? { response } : { httpStatus: response.status, reason: `Source reader answered ${response.status}.` };
+      } catch {
+        return { reason: controller.signal.aborted ? `Source read timed out after ${timeoutMs / 1000}s.` : 'Source reader network error.' };
+      } finally { clearTimeout(timer); }
+    });
+    if ('response' in answer || answer.httpStatus !== 429 || attempt >= 3) return answer;
+    await new Promise((resolve) => setTimeout(resolve, 400 * 2 ** attempt + Math.random() * 200));
+  }
+}
+
 /** Server-side read (dev bridge or hosted Worker); both apply the desktop DNS/SSRF policy. */
 export async function readPreviewSource(url: string, scope?: OriginalSourceScope): Promise<OriginalSourceReceipt> {
   const endpoint = relayEndpoint('source');
@@ -38,23 +80,16 @@ export async function readPreviewSource(url: string, scope?: OriginalSourceScope
     requestedUrl: url.slice(0, 2048), status: 'unavailable', retrievedAt: new Date().toISOString(),
     reason: 'Source reader unavailable. No source-backed facts were accepted.',
   };
-  const controller = new AbortController();
   // The official Form ADV PDF download + bounded text extraction takes tens of
   // seconds; plain page reads stay on a snappy budget.
-  const timeoutMs = secAdvCrd(url) ? 90_000 : 12_000;
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const answer = await relayPost(endpoint, { url, scope }, secAdvCrd(url) ? 90_000 : 12_000);
+  if (!('response' in answer)) return { ...fallback, reason: answer.reason, ...(answer.httpStatus ? { httpStatus: answer.httpStatus } : {}) };
   try {
-    const response = await fetch(endpoint.url, {
-      method: 'POST', credentials: 'omit', redirect: 'error', cache: 'no-store',
-      headers: endpoint.headers, body: JSON.stringify({ url, scope }), signal: controller.signal,
-    });
-    if (!response.ok) return fallback;
-    const receipt = await response.json() as OriginalSourceReceipt;
+    const receipt = await answer.response.json() as OriginalSourceReceipt;
     if (receipt.requestedUrl !== url || !['retrieved', 'blocked', 'unavailable'].includes(receipt.status) ||
       (receipt.status === 'retrieved' && (!receipt.text || !receipt.contentHash))) return fallback;
     return receipt;
   } catch { return fallback; }
-  finally { clearTimeout(timer); }
 }
 
 /**
@@ -74,17 +109,11 @@ export async function readAssetSource(url: string): Promise<OriginalSourceReceip
     requestedUrl: url.slice(0, 2048), status: 'unavailable', retrievedAt: new Date().toISOString(),
     reason: 'Asset source reader unavailable.',
   };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
+  const answer = await relayPost(endpoint, { url }, 15_000);
+  if (!('response' in answer)) return { ...fallback, reason: answer.reason, ...(answer.httpStatus ? { httpStatus: answer.httpStatus } : {}) };
   try {
-    const response = await fetch(endpoint.url, {
-      method: 'POST', credentials: 'omit', redirect: 'error', cache: 'no-store',
-      headers: endpoint.headers, body: JSON.stringify({ url }), signal: controller.signal,
-    });
-    if (!response.ok) return fallback;
-    const receipt = await response.json() as OriginalSourceReceipt;
+    const receipt = await answer.response.json() as OriginalSourceReceipt;
     if (receipt.requestedUrl !== url.slice(0, 2048) || !['retrieved', 'unavailable'].includes(receipt.status)) return fallback;
     return receipt;
   } catch { return fallback; }
-  finally { clearTimeout(timer); }
 }
