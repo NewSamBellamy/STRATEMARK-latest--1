@@ -11,6 +11,8 @@ export interface OrganizationJsonLd {
   sameAs: string[];
   foundingDate: string | null;
   addressCountry: string | null;
+  addressLocality: string | null;
+  addressRegion: string | null;
   /** QID extracted from a sameAs wikidata link, if any. */
   wikidataQid: string | null;
 }
@@ -88,7 +90,9 @@ export function extractOrganizationJsonLd(html: string): OrganizationJsonLd | nu
     logo: strOf(org.logo),
     sameAs,
     foundingDate: strOf(org.foundingDate),
-    addressCountry: addr ? strOf(addr.addressCountry) : null,
+    addressCountry: addr ? strOf(addr.addressCountry) ?? strOf(asRecord(addr.addressCountry)?.name) : null,
+    addressLocality: addr ? strOf(addr.addressLocality) : null,
+    addressRegion: addr ? strOf(addr.addressRegion) : null,
     wikidataQid,
   };
 }

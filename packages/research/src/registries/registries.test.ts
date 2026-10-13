@@ -164,7 +164,7 @@ describe('jsonld', () => {
     expect(extractOrganizationJsonLd(html)).toEqual({
       name: 'Skydio', url: 'https://skydio.com', logo: 'https://skydio.com/l.png',
       sameAs: ['https://www.linkedin.com/company/skydio', 'https://www.wikidata.org/wiki/Q42'],
-      foundingDate: '2014', addressCountry: 'US', wikidataQid: 'Q42',
+      foundingDate: '2014', addressCountry: 'US', addressLocality: null, addressRegion: null, wikidataQid: 'Q42',
     });
   });
   it('tolerates arrays, malformed blocks and no org', () => {

@@ -125,6 +125,8 @@ import { quotedEstimateNote, quotedOriginalEstimate } from './quoted-estimate';
 import { alternateSources, applySourceChecks, checkFromReceipt, uncheckedSources, type SourceChecks } from './source-binding';
 import { resolveCompanyBrand, type CompanyLogo } from './assets';
 import { checkHomepageName, discoverOfficialDomain, homepageOnTopic, marketTerms } from './brand/domain';
+import { homepageHeadquarters, wikidataHeadquarters, type Headquarters } from './brand/headquarters';
+import { extractOrganizationJsonLd } from './registries/jsonld';
 import { faviconUrl, knownCompanyDomain } from './logos';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
@@ -1267,7 +1269,7 @@ export class GeminiRepository implements MarketIntelRepository {
           this.snap.cards.push(hydrated.primaryCard.card);
           addedCardIds.push(hydrated.primaryCard.card.id);
         }
-        this.applyHomepageSummary(hydrated.company);
+        this.applySourcedProfile(hydrated.company);
 
         // Add facet cards (vice / culture) if present
         for (const facetCwc of hydrated.cards.slice(1)) {
@@ -3763,15 +3765,11 @@ export class GeminiRepository implements MarketIntelRepository {
     return { reports, researched, stillMissing };
   }
 
-  /** Asset lane v1: resolve the company's real logo from its own site and
-   * store it ONLY over a guessed favicon — curated/Wikidata art stays. The
-   * homepage receipt lands in the retained ledger so the mark's provenance is
-   * auditable like every other claim. The read fn must return RAW HTML
-   * (readAssetSource on the web transport); resolution is honest-null when
-   * the site yields nothing. */
-  /** Homepage-sourced descriptions, kept so a later hydration that found no
-   * literal summary of its own never puts the placeholder back. */
+  /** Facts the asset lane sourced from the company's own homepage or its
+   * Wikidata item, kept so a later hydration that found none of its own never
+   * puts the placeholder (or a blank location) back. */
   private readonly homepageSummaries = new Map<string, { summary: string; citations: Citation[] } | null>();
+  private readonly sourcedHeadquarters = new Map<string, Headquarters | null>();
 
   /** No literal, cited description yet: the placeholder, or a forming card
    * still showing its discovery descriptor (model copy with no citation). */
@@ -3780,7 +3778,9 @@ export class GeminiRepository implements MarketIntelRepository {
       card.companyId === company.id && isEntityCardType(card.cardType) && !card.citations?.length);
   }
 
-  private applyHomepageSummary(company: Company): void {
+  private applySourcedProfile(company: Company): void {
+    const hq = this.sourcedHeadquarters.get(company.id);
+    if (hq && !company.hqLocation?.trim()) company.hqLocation = hq.location;
     const found = this.homepageSummaries.get(company.id);
     if (!found || !isPendingCompanySummary(company.oneLiner)) return;
     company.oneLiner = found.summary;
@@ -3792,6 +3792,12 @@ export class GeminiRepository implements MarketIntelRepository {
     }
   }
 
+  /** Asset lane v1: resolve the company's real logo from its own site and
+   * store it ONLY over a guessed favicon — curated/Wikidata art stays. The
+   * homepage receipt lands in the retained ledger so the mark's provenance is
+   * auditable like every other claim. The read fn must return RAW HTML
+   * (readAssetSource on the web transport); resolution is honest-null when
+   * the site yields nothing. */
   async fillCompanyAssets(
     companyId: string,
     read: (url: string) => Promise<OriginalSourceReceipt>,
@@ -3881,7 +3887,24 @@ export class GeminiRepository implements MarketIntelRepository {
       } catch { /* the card keeps its honest placeholder */ }
       this.homepageSummaries.set(company.id, found);
       if (found && isPendingCompanySummary(company.oneLiner)) {
-        this.applyHomepageSummary(company);
+        this.applySourcedProfile(company);
+        await this.persist();
+      }
+    }
+    // Headquarters from the homepage's own Organization address, else the
+    // Wikidata item whose official website is this domain. Fills only a blank
+    // location; a model's guess is never needed for "where is it".
+    if (!company.hqLocation?.trim() && !this.sourcedHeadquarters.has(company.id)) {
+      let hq: Headquarters | null = null;
+      try {
+        const homepage = await memoRead(company.websiteUrl);
+        hq = homepage.status === 'retrieved' && homepage.text ? homepageHeadquarters(homepage.text, homepage.finalUrl ?? company.websiteUrl) : null;
+        hq ??= await wikidataHeadquarters({ name: company.name, websiteUrl: company.websiteUrl,
+          qid: homepage.status === 'retrieved' && homepage.text ? extractOrganizationJsonLd(homepage.text)?.wikidataQid ?? null : null });
+      } catch { hq = null; }
+      this.sourcedHeadquarters.set(company.id, hq);
+      if (hq) {
+        this.applySourcedProfile(company);
         await this.persist();
       }
     }
@@ -4876,7 +4899,7 @@ ${references}`
     const card: Card = { ...hydrated.primaryCard.card, id: stub.card.id, deckId: stub.card.deckId, companyId,
       cardType: retag ?? hydrated.primaryCard.card.cardType, tier: null, tierReason: null };
     if (cardIdx >= 0) this.snap.cards[cardIdx] = card; else this.snap.cards.push(card);
-    this.applyHomepageSummary(company);
+    this.applySourcedProfile(company);
 
     const added: string[] = [];
     for (const facet of hydrated.cards.slice(1)) {
