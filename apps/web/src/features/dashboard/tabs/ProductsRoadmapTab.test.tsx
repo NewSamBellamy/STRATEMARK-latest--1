@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { Product } from '@mi/contracts';
+import type { BusinessRelationship, Product } from '@mi/contracts';
 import { ProductsRoadmapTab } from './ProductsRoadmapTab';
 
-const state = vi.hoisted(() => ({ products: [] as Product[], cached: {} as Record<string, unknown> }));
+const state = vi.hoisted(() => ({ products: [] as Product[], relationships: undefined as BusinessRelationship[] | undefined, cached: {} as Record<string, unknown> }));
 vi.mock('@/hooks/data', () => ({ useCompany: () => ({ data: { name: 'Acme' } }), useDashboardTab: () => ({
-  isPending: false, isError: false, data: { content: { products: state.products, roadmap: [] } },
+  isPending: false, isError: false, data: { content: { products: state.products, roadmap: [], relationships: state.relationships } },
 }) }));
 vi.mock('../useCachedTab', () => ({ useCachedDashboardTab: (_id: string, tab: string) => ({ data: state.cached[tab] }) }));
 vi.mock('@/components/media/AiCover', () => ({ AiCover: () => null }));
 vi.mock('@/features/deepdive/DeepDive', () => ({ DigDeeper: () => null, DigDeeperMenu: () => null }));
-beforeEach(() => { state.products = []; state.cached = {}; });
+beforeEach(() => { state.products = []; state.relationships = undefined; state.cached = {}; });
 
 describe('product evidence wording in the existing view', () => {
   it('does not promise a revenue ranking or silently treat empty research as complete', () => {
@@ -38,5 +38,17 @@ describe('product evidence wording in the existing view', () => {
     expect(screen.getByText(/not a revenue ranking/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Atlas/ }));
     expect(await screen.findByRole('link', { name: 'Open official source' })).toHaveAttribute('href', 'https://acme.com/blog/atlas');
+  });
+  it('lists named relationships by kind with their reported sentence and source, and shows nothing when none are reported', () => {
+    const { unmount } = render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.queryByRole('region', { name: 'Customers, suppliers and partners' })).not.toBeInTheDocument();
+    unmount();
+    state.relationships = [{ name: 'Globex', kind: 'customer', quote: 'Globex is a customer of Acme.', sourceUrl: 'https://reuters.com/acme', sourceTitle: 'Reuters' }];
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.getByRole('region', { name: 'Customers, suppliers and partners' })).toBeInTheDocument();
+    expect(screen.getByText('Globex')).toBeInTheDocument();
+    expect(screen.getByText('“Globex is a customer of Acme.”')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Reuters' })).toHaveAttribute('href', 'https://reuters.com/acme');
+    expect(screen.getAllByText('None reported.')).toHaveLength(2);
   });
 });

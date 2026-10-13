@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ExternalLink } from 'lucide-react';
-import type { Product, RoadmapItem } from '@mi/contracts';
+import type { BusinessRelationship, Product, RoadmapItem } from '@mi/contracts';
 import { useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
@@ -37,6 +37,12 @@ const HORIZONS: {
   { key: 'now', label: 'Now', accent: 'text-content border-border bg-surface-2/60', dot: 'bg-emerald-500' },
   { key: 'next', label: 'Next', accent: 'text-content border-border bg-surface-2/60', dot: 'bg-amber-500' },
   { key: 'later', label: 'Later', accent: 'text-muted border-border bg-surface-2/60', dot: 'bg-slate-400' },
+];
+
+const RELATIONSHIP_KINDS: { key: BusinessRelationship['kind']; label: string; dot: string }[] = [
+  { key: 'customer', label: 'Customers', dot: 'bg-emerald-500' },
+  { key: 'supplier', label: 'Suppliers', dot: 'bg-amber-500' },
+  { key: 'partner', label: 'Partners', dot: 'bg-slate-400' },
 ];
 
 /** The product, opened like a newsletter feature: capture, paragraph, link. */
@@ -165,6 +171,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
     <QueryBoundary query={query} loading={<HydratingPanel label="Products & Roadmap" />}>
       {(result) => {
         const c = result.content;
+        const relationships = c.relationships ?? [];
         const statusCounts = c.products.reduce<Partial<Record<ProductStatus, number>>>((acc, p) => {
           if (p.status) acc[p.status] = (acc[p.status] ?? 0) + 1;
           return acc;
@@ -370,6 +377,54 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                 </div>
               )}
             </section>
+
+            {relationships.length > 0 && (
+              <section aria-label="Customers, suppliers and partners">
+                <SectionHeader
+                  title="Customers, suppliers & partners"
+                  count={relationships.length}
+                  description="Named only where a reported sentence states the relationship; each links to where it was reported."
+                />
+                <div className="grid gap-3 md:grid-cols-3">
+                  {RELATIONSHIP_KINDS.map(({ key, label, dot }) => {
+                    const items = relationships.filter((r) => r.kind === key);
+                    return (
+                      <div key={key} className="panel overflow-hidden p-0">
+                        <div className="flex items-center gap-2 border-b border-border bg-surface-2/60 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-content">
+                          <span className={cn('h-2 w-2 rounded-full', dot)} />
+                          {label}
+                          <span className="ml-1.5 font-normal normal-case tabular-nums text-muted">{items.length}</span>
+                        </div>
+                        <ul className="space-y-3 px-4 py-3">
+                          {items.map((r) => (
+                            <li key={r.name}>
+                              <div className="flex items-baseline justify-between gap-2">
+                                <span className="text-sm font-medium text-content">{r.name}</span>
+                                {r.sourceUrl && /^https?:\/\//.test(r.sourceUrl) && (
+                                  <a
+                                    href={r.sourceUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex shrink-0 items-center gap-1 text-[11px] text-primary-ink hover:underline"
+                                  >
+                                    <ExternalLink className="h-3 w-3" />
+                                    {r.sourceTitle || hostOf(r.sourceUrl) || 'Source'}
+                                  </a>
+                                )}
+                              </div>
+                              <div className="line-clamp-2 text-xs text-muted" title={r.quote}>“{r.quote}”</div>
+                            </li>
+                          ))}
+                          {items.length === 0 && (
+                            <li className="py-1 text-xs text-faint">None reported.</li>
+                          )}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
             {openProduct && (
               <ProductReader

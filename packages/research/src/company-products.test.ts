@@ -80,6 +80,34 @@ describe('original-backed company product dossier', () => {
       revenueNote: '', description: expect.stringContaining('Google Search reports') })]);
     expect(result.citations).toEqual([expect.objectContaining({ url: reportUrl, title: expect.stringContaining('Atlas') })]);
   });
+  it('shows a named customer, supplier or partner only when its exact sentence states a current relationship', async () => {
+    const reportUrl = 'https://reuters.com/acme-customers';
+    const report = 'Globex is a customer of Acme. Initech manufactures chips for Acme. Acme formerly partnered with Hooli. Acme competes with Umbrella.';
+    const sentences = report.split(/(?<=\.) /);
+    let at = 0;
+    const grounding = extractProviderGrounding(report, { groundingChunks: [{ web: { uri: reportUrl, title: 'Acme customers' } }],
+      groundingSupports: sentences.map((text) => { const startIndex = report.indexOf(text, at); at = startIndex + text.length;
+        return { segment: { text, startIndex, endIndex: startIndex + text.length }, groundingChunkIndices: [0] }; }) });
+    const { run, sources, ground, structure } = setup();
+    ground.mockResolvedValue({ text: report, citations: [{ url: reportUrl, title: 'Acme customers' }], queries: [], grounding });
+    structure.mockResolvedValue({ products: [], roadmap: [], reportedProducts: [], reportedRoadmap: [], reportedRelationships: [
+      { name: 'Globex', kind: 'customer', supportIndex: 0, quote: sentences[0] },
+      { name: 'Initech', kind: 'supplier', supportIndex: 1, quote: sentences[1] },
+      { name: 'Hooli', kind: 'partner', supportIndex: 2, quote: sentences[2] }, // former: dropped
+      { name: 'Umbrella', kind: 'customer', supportIndex: 3, quote: sentences[3] }, // a rival, not a customer: dropped
+      { name: 'Globex', kind: 'customer', supportIndex: 1, quote: sentences[1] }, // sentence does not name Globex: dropped
+      { name: 'Acme', kind: 'partner', supportIndex: 0, quote: sentences[0] }, // the company itself: dropped
+    ] });
+    sources.retrieve.mockResolvedValue({ requestedUrl: url, status: 'blocked', retrievedAt: time } as never);
+
+    const result = await run();
+
+    expect(result.content.relationships).toEqual([
+      { name: 'Globex', kind: 'customer', quote: sentences[0], sourceUrl: reportUrl, sourceTitle: 'Acme customers' },
+      { name: 'Initech', kind: 'supplier', quote: sentences[1], sourceUrl: reportUrl, sourceTitle: 'Acme customers' },
+    ]);
+    expect(result.productSelections!.reportedRelationships).toHaveLength(2);
+  });
   it('combines irrelevant readable originals and Google-supported products in one extraction call', async () => {
     const reportUrl = 'https://reuters.com/acme-atlas-launch';
     const report = "Acme's Atlas is now available to all research teams.";
