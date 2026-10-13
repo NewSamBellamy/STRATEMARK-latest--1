@@ -1,3 +1,4 @@
+import { sourceHref } from '@/lib/sourceHref';
 import { useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -183,7 +184,7 @@ export default function OpportunityPage() {
                     {o.citations.slice(0, 8).map((c, i) => (
                       <a
                         key={i}
-                        href={c.url}
+                        href={sourceHref(c.url, c.title)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-xs text-primary-ink hover:underline"

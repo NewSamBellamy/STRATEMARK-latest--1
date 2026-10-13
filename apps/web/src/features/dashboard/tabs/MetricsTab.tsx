@@ -1,3 +1,4 @@
+import { sourceHref } from '@/lib/sourceHref';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronsUpDown, ChevronUp, ExternalLink, Loader2, Pencil, Radar } from 'lucide-react';
@@ -194,7 +195,7 @@ function SourceDrill({ metric }: { metric: CompanyMetric }) {
         <ul className="space-y-1">
           {cites.map((c) => (
             <li key={c.url}>
-              <a href={c.url} target="_blank" rel="noopener noreferrer"
+              <a href={sourceHref(c.url, c.title)} target="_blank" rel="noopener noreferrer"
                 className="group inline-flex max-w-full items-center gap-1.5 text-[12.5px] text-primary-ink hover:underline">
                 <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
                 <span className="truncate">{publisherOf(c.url, c.title)}</span>
@@ -453,7 +454,7 @@ function MetricTable({
                     <span title={UNKNOWN_REASON}><UnknownInline /></span>
                   )}
                   {cite && known && (
-                    <a href={cite.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                    <a href={sourceHref(cite.url, cite.title)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
                       className="mt-0.5 block max-w-[160px] truncate text-[11px] text-primary-ink hover:underline sm:hidden">
                       {publisherOf(cite.url, cite.title)} ↗
                     </a>
@@ -462,7 +463,7 @@ function MetricTable({
                 <td className="hidden max-w-[180px] px-3 py-3 sm:table-cell">
                   {cite && known ? (
                     <a
-                      href={cite.url}
+                      href={sourceHref(cite.url, cite.title)}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}

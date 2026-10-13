@@ -9,6 +9,7 @@
  * Grounding contract (non-negotiable): answers come from the deck's stored
  * research plus a fresh Google Search — never from model memory.
  */
+import { sourceHref } from '@/lib/sourceHref';
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -209,7 +210,7 @@ function SourceChips({ citations }: { citations: Citation[] }) {
       {citations.slice(0, 6).map((c, i) => (
         <a
           key={i}
-          href={c.url}
+          href={sourceHref(c.url, c.title)}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-0.5 text-[10.5px] text-muted hover:border-primary/50 hover:text-primary-ink"

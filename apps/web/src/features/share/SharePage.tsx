@@ -5,6 +5,7 @@
  * confidence badges, and sources — with the AI layer (fact-check, dig-deeper,
  * live desks, dashboards) removed. No account, no backend, no setup.
  */
+import { sourceHref } from '@/lib/sourceHref';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -158,7 +159,7 @@ function SharedReader({
             {card.citations.map((c, i) => (
               <a
                 key={i}
-                href={c.url}
+                href={sourceHref(c.url, c.title)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"

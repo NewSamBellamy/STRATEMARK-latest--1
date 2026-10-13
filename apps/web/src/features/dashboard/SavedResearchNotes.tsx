@@ -1,3 +1,4 @@
+import { sourceHref } from '@/lib/sourceHref';
 import { useState } from 'react';
 import { usableCitations } from '@mi/contracts';
 import type { ResearchEvidence } from '@mi/research';
@@ -24,11 +25,11 @@ export function SavedResearchNotes({ companyId }: { companyId: string }) {
         <p>Source-attributed passages — not independently verified.</p>
         {note.grounding.supports.slice(0, 20).map(support => <div key={support.supportIndex} className="space-y-2 border-l border-border pl-3">
           <div className="markdown break-words text-sm leading-relaxed"><ResearchMarkdown text={support.text} /></div>
-          <ul className="space-y-1">{usableCitations(support.sources).map(source => <li key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer" className="text-primary-ink hover:underline">{source.title}</a></li>)}</ul>
+          <ul className="space-y-1">{usableCitations(support.sources).map(source => <li key={source.url}><a href={sourceHref(source.url, source.title)} target="_blank" rel="noopener noreferrer" className="text-primary-ink hover:underline">{source.title}</a></li>)}</ul>
         </div>)}
         <details><summary className="cursor-pointer">Full search notes</summary><div className="markdown mt-3 break-words text-sm leading-relaxed"><ResearchMarkdown text={note.text} /></div></details>
       </> : <div className="markdown break-words text-sm leading-relaxed"><ResearchMarkdown text={note.text} /></div>}
-      <ul className="space-y-1">{usableCitations(note.citations).slice(0, 20).map(citation => <li key={citation.url}><a href={citation.url} target="_blank" rel="noopener noreferrer" className="text-primary-ink hover:underline">{citation.title}</a></li>)}</ul>
+      <ul className="space-y-1">{usableCitations(note.citations).slice(0, 20).map(citation => <li key={citation.url}><a href={sourceHref(citation.url, citation.title)} target="_blank" rel="noopener noreferrer" className="text-primary-ink hover:underline">{citation.title}</a></li>)}</ul>
     </section>)}
   </details>;
 }

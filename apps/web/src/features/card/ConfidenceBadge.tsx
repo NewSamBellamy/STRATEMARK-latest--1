@@ -1,3 +1,4 @@
+import { sourceHref } from '@/lib/sourceHref';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BadgeCheck, CircleHelp, ExternalLink, Info, Sigma, UserCheck, X } from 'lucide-react';
@@ -145,7 +146,7 @@ export function ConfidenceBadge({
                   {citations.map((c, i) => (
                     <li key={i}>
                       <a
-                        href={c.url}
+                        href={sourceHref(c.url, c.title)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-start gap-1.5 rounded-md px-1.5 py-1 text-xs text-primary-ink hover:bg-surface-2"

@@ -102,6 +102,14 @@ describe('dashboard metric evidence projection', () => {
       citations: [{ title: 'Filing', url: 'https://sec.gov/Archives/report', credibility: 'primary' }] });
     expect(await screen.findByText(/each with its source/)).toBeInTheDocument();
   });
+  it('never links an expiring grounding redirect directly', async () => {
+    const redirect = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQabc';
+    show({ confidence: 'estimated', source: redirect, citations: [{ title: 'reuters.com', url: redirect }] });
+    await screen.findByRole('table');
+    const links = screen.getAllByRole('link').map((a) => a.getAttribute('href') ?? '');
+    expect(links.some((href) => href.startsWith('https://www.google.com/search?q='))).toBe(true);
+    expect(links.some((href) => href.includes('vertexaisearch'))).toBe(false);
+  });
   it('sorts found figures by value when a header is clicked', async () => {
     const metrics = [
       { ...seed, id: 'm1', metricType: 'employees' as const, value: 120, confidence: 'estimated' as const, source: null, citations: [] },

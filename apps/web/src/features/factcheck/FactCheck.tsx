@@ -1,4 +1,5 @@
 /** Stored metrics use one protected verification/write-back; narratives remain read-only checks. */
+import { sourceHref } from '@/lib/sourceHref';
 import { useState } from 'react';
 import { CheckCheck, ExternalLink, Loader2, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import type { FactCheckResult, FactCheckVerdict, MetricType, VerifyMetricResult } from '@mi/contracts';
@@ -90,7 +91,7 @@ function FactCheckInner({ claim, companyName, context, companyId, metricType, cl
           </ul>
         </details>)}
       {result.citations.length > 0 && <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
-        {result.citations.slice(0, 4).map((citation, index) => <a key={index} href={citation.url}
+        {result.citations.slice(0, 4).map((citation, index) => <a key={index} href={sourceHref(citation.url, citation.title)}
           target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"
           onClick={event => event.stopPropagation()}><ExternalLink className="h-3 w-3" />{citation.title || 'source'}</a>)}
       </div>}

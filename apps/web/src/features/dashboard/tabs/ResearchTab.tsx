@@ -145,7 +145,7 @@ function SourcesView({ evidence, query }: { evidence: ResearchEvidence[]; query:
           <ul className="mt-2 space-y-1.5">
             {g.items.map((s) => (
               <li key={s.url} className="flex flex-wrap items-baseline gap-x-2">
-                <a href={s.url} target="_blank" rel="noopener noreferrer" className="break-words text-sm text-primary-ink hover:underline">
+                <a href={sourceHref(s.url, s.title)} target="_blank" rel="noopener noreferrer" className="break-words text-sm text-primary-ink hover:underline">
                   {s.title}
                 </a>
                 <span className="text-[11px] text-faint">{[...s.topics].join(' · ')}</span>

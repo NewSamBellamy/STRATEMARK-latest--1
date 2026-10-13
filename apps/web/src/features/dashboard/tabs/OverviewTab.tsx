@@ -1,3 +1,4 @@
+import { sourceHref } from '@/lib/sourceHref';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ExternalLink, SearchX } from 'lucide-react';
@@ -58,7 +59,7 @@ function SourceChips({ links }: { links: Array<{ title: string; url: string }> }
       {unique.slice(0, 4).map((link, i) => (
         <span key={link.url} className="inline-flex items-center gap-2">
           {i > 0 && <span aria-hidden>·</span>}
-          <a href={link.url} target="_blank" rel="noopener noreferrer" className="hover:text-primary-ink hover:underline">
+          <a href={sourceHref(link.url, link.title)} target="_blank" rel="noopener noreferrer" className="hover:text-primary-ink hover:underline">
             {publisherOf(link.url, link.title)}
           </a>
         </span>
@@ -145,7 +146,7 @@ function FaceTile({ item, ranking, href }: { item: FaceItem; ranking: PeerRankin
       <p className="mt-1.5 font-display text-[26px] font-semibold leading-none tabular-nums text-content">{item.display}</p>
       <p className="mt-2.5 truncate text-[11.5px] text-muted" title={faceFigureStatus(item)}>
         {citation ? (
-          <a href={citation.url} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-full items-center gap-1 text-primary-ink hover:underline">
+          <a href={sourceHref(citation.url, citation.title)} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-full items-center gap-1 text-primary-ink hover:underline">
             <span className="truncate">{publisherOf(citation.url, citation.title)}</span>
             <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
           </a>
