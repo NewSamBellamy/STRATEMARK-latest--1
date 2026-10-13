@@ -11,7 +11,7 @@ import { isDirectSource, sourceHref } from '@/lib/sourceHref';
 import { faviconUrl } from '@/lib/screenshot';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
-import { groupByHost, matchesQuery } from './tabHelpers';
+import { SOURCE_STRENGTH_LABEL, groupByHost, matchesQuery, sourceStrength, strengthMix, type SourceStrength } from './tabHelpers';
 
 /** Human-readable topic names — provider topics are machine words. */
 const TOPIC_LABELS: Record<string, string> = {
@@ -109,22 +109,25 @@ function EvidenceCard({ evidence }: { evidence: ResearchEvidence }) {
   );
 }
 
-/** Every distinct source across the retained evidence, grouped by publisher. */
+/** Every distinct source across the retained evidence, grouped by publisher and weighed by strength. */
 function SourcesView({ evidence, query }: { evidence: ResearchEvidence[]; query: string }) {
-  const groups = useMemo(() => {
-    const seen = new Map<string, { url: string; title: string; topics: Set<string> }>();
+  const [strength, setStrength] = useState<SourceStrength | 'all'>('all');
+  const sources = useMemo(() => {
+    const seen = new Map<string, { url: string; title: string; topics: Set<string>; strength: SourceStrength }>();
     for (const e of evidence) {
       for (const c of usableCitations(e.citations)) {
-        const row = seen.get(c.url) ?? { url: c.url, title: publisherOf(c.url, c.title), topics: new Set<string>() };
+        const row = seen.get(c.url) ?? { url: c.url, title: publisherOf(c.url, c.title), topics: new Set<string>(), strength: sourceStrength(c.credibility) };
         row.topics.add(topicLabel(e.topic));
         seen.set(c.url, row);
       }
     }
-    return groupByHost([...seen.values()]).filter((g) =>
-      matchesQuery(`${g.host} ${g.items.map((i) => i.title).join(' ')}`, query),
-    );
-  }, [evidence, query]);
-  if (groups.length === 0) {
+    return [...seen.values()];
+  }, [evidence]);
+  const mix = useMemo(() => strengthMix(sources), [sources]);
+  const groups = useMemo(() => groupByHost(sources.filter((s) => strength === 'all' || s.strength === strength)).filter((g) =>
+    matchesQuery(`${g.host} ${g.items.map((i) => i.title).join(' ')}`, query),
+  ), [sources, strength, query]);
+  if (sources.length === 0 || groups.length === 0) {
     return (
       <EmptyNote compact title={query.trim() ? 'No sources match' : 'No sources retained yet'}>
         {query.trim()
@@ -135,6 +138,16 @@ function SourcesView({ evidence, query }: { evidence: ResearchEvidence[]; query:
   }
   return (
     <div className="space-y-3">
+      {mix.length > 1 && (
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter sources by strength">
+          <FilterChip active={strength === 'all'} onClick={() => setStrength('all')} count={sources.length}>All</FilterChip>
+          {mix.map((m) => (
+            <FilterChip key={m.strength} active={strength === m.strength} onClick={() => setStrength(m.strength)} count={m.count}>
+              {SOURCE_STRENGTH_LABEL[m.strength]}
+            </FilterChip>
+          ))}
+        </div>
+      )}
       {groups.map((g) => (
         <section key={g.host} className="panel p-4" aria-label={g.host}>
           <h4 className="flex items-center gap-2 text-sm font-medium text-content">
@@ -148,7 +161,7 @@ function SourcesView({ evidence, query }: { evidence: ResearchEvidence[]; query:
                 <a href={sourceHref(s.url, s.title)} target="_blank" rel="noopener noreferrer" className="break-words text-sm text-primary-ink hover:underline">
                   {s.title}
                 </a>
-                <span className="text-[11px] text-faint">{[...s.topics].join(' · ')}</span>
+                <span className="text-[11px] text-faint">{[SOURCE_STRENGTH_LABEL[s.strength], ...s.topics].join(' · ')}</span>
               </li>
             ))}
           </ul>
@@ -157,7 +170,6 @@ function SourcesView({ evidence, query }: { evidence: ResearchEvidence[]; query:
     </div>
   );
 }
-
 /** The deck's research knowledge base: every retained note, grounded search
  * pass and source in one place — and the user can grow it. */
 export function ResearchTab({ companyId }: { companyId: string }) {

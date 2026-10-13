@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { OrgNode } from '@mi/contracts';
 import {
   buildOrgTree, classifyEvent, countByGroup, filterOrgTree, groupByHost, groupByYear,
-  hostOf, matchesQuery, orgInitials, parseEventYear, recencyBucket,
+  hostOf, matchesQuery, orgInitials, parseEventYear, recencyBucket, sourceStrength, strengthMix,
   type OrgTreeNode,
 } from './tabHelpers';
 
@@ -86,5 +86,23 @@ describe('source and recency helpers', () => {
     expect(matchesQuery('Series C led by Acme', 'series acme')).toBe(true);
     expect(matchesQuery('Series C', 'acme')).toBe(false);
     expect(matchesQuery('anything', '')).toBe(true);
+  });
+});
+
+describe('source strength', () => {
+  it('reads strength from the class a citation carries and never guesses', () => {
+    expect(sourceStrength('primary')).toBe('primary');
+    expect(sourceStrength('reputable_secondary')).toBe('press');
+    expect(sourceStrength('industry')).toBe('industry');
+    expect(sourceStrength('user_generated')).toBe('community');
+    expect(sourceStrength('unknown')).toBe('unrated');
+    expect(sourceStrength(undefined)).toBe('unrated');
+  });
+
+  it('counts only the classes present, strongest first', () => {
+    const items = ['press', 'primary', 'press', 'unrated'] as const;
+    expect(strengthMix(items.map((strength) => ({ strength })))).toEqual([
+      { strength: 'primary', count: 1 }, { strength: 'press', count: 2 }, { strength: 'unrated', count: 1 },
+    ]);
   });
 });

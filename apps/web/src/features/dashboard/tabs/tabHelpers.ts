@@ -199,3 +199,36 @@ export function matchesQuery(haystack: string, query: string): boolean {
   const h = haystack.toLowerCase();
   return terms.every((t) => h.includes(t));
 }
+
+// -- Source strength ----------------------------------------------------------
+export type SourceStrength = 'primary' | 'press' | 'industry' | 'community' | 'unrated';
+
+export const SOURCE_STRENGTH_LABEL: Record<SourceStrength, string> = {
+  primary: 'Company & filings',
+  press: 'Independent press',
+  industry: 'Industry sites',
+  community: 'Community',
+  unrated: 'Unrated',
+};
+
+/** Strongest first: the order a reader should weigh sources in. */
+export const SOURCE_STRENGTH_ORDER: SourceStrength[] = ['primary', 'press', 'industry', 'community', 'unrated'];
+
+const STRENGTH_OF: Record<string, SourceStrength> = {
+  primary: 'primary',
+  reputable_secondary: 'press',
+  industry: 'industry',
+  user_generated: 'community',
+};
+
+/** How strong a source is by the class the citation already carries; never guessed. */
+export function sourceStrength(credibility: string | undefined): SourceStrength {
+  return (credibility && STRENGTH_OF[credibility]) || 'unrated';
+}
+
+/** Sources per strength class, only the classes that occur, strongest first. */
+export function strengthMix(items: ReadonlyArray<{ strength: SourceStrength }>): Array<{ strength: SourceStrength; count: number }> {
+  const counts = new Map<SourceStrength, number>();
+  for (const item of items) counts.set(item.strength, (counts.get(item.strength) ?? 0) + 1);
+  return SOURCE_STRENGTH_ORDER.filter((strength) => counts.has(strength)).map((strength) => ({ strength, count: counts.get(strength)! }));
+}
