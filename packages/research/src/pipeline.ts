@@ -239,8 +239,17 @@ async function discover(
   const seen = new Set(excludeNames.flatMap((name) => identityKeys(name, null)));
   const candidates: CompanyCandidate[] = [];
   const rejected: string[] = [];
+  // Structured output under a minimum-count schema pads a short list with
+  // invented rows ("Company Two … Placeholder company to satisfy minimum
+  // count"). When the notes name any of the returned companies, a company
+  // they never mention was invented; a placeholder row never survives.
+  const notesNameSome = (out.companies ?? []).some((c) => namedInNotes(c.name.trim(), grounded.text));
   for (const c of out.companies ?? []) {
     const name = c.name.trim();
+    if (isPlaceholderCompany(name, c.descriptor) || (notesNameSome && !namedInNotes(name, grounded.text))) {
+      rejected.push(name);
+      continue;
+    }
     if (
       exactCompanyNames.length > 0 &&
       !exactCompanyNames.some((requested) => {
@@ -288,6 +297,24 @@ async function discover(
     });
   }
   return { candidates, rejected };
+}
+
+/** A row the model made up to fill a count, not a business it found. */
+export function isPlaceholderCompany(name: string, descriptor?: string | null): boolean {
+  return /^(?:company|placeholder|entity|startup|firm|vendor|player|competitor|example|sample)\s*(?:[a-z]|\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)?$/i.test(name.trim()) ||
+    /\b(?:placeholder|to satisfy|minimum count|fictional|hypothetical|dummy entry|example company)\b/i.test(descriptor ?? '');
+}
+
+/** Whether a discovered name literally appears in the notes it was structured
+ * from (a trailing legal or category word may be absent in the notes). */
+export function namedInNotes(name: string, notes: string): boolean {
+  const flat = (value: string) => value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const text = ` ${flat(notes)} `;
+  const full = flat(name);
+  if (!full) return false;
+  if (text.includes(` ${full} `)) return true;
+  const core = full.replace(/(?:\s(?:inc|corp|corporation|co|ltd|llc|plc|gmbh|ag|sa|limited|company|holdings|group|technologies|technology|labs?|robotics|systems|ai))+$/, '').trim();
+  return core.length >= 3 && core !== full && text.includes(` ${core} `);
 }
 
 function mergeCandidates(

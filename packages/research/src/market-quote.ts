@@ -83,16 +83,21 @@ const tickerMapSchema = z.record(z.object({
   title: z.string().min(1),
 }));
 
-/** Company-name key for ticker matching: legal suffixes stripped, same idea
- * as the ADV matcher — compare only what both sides state. */
+/** Company-name key for ticker matching: TRAILING legal suffixes stripped,
+ * same idea as the ADV matcher — compare only what both sides state. Only the
+ * tail: "Company Ten" must never shrink to "TEN" and become TEN Holdings. */
 export function companyNameKey(raw: string): string {
-  return raw
+  const words = raw
     .toUpperCase()
     .normalize('NFKC')
     .replace(/[^A-Z0-9]+/g, ' ')
-    .replace(/\b(?:LLC|LLP|LP|INC|CORP(?:O?RATION)?|LTD|PLC|COMPANY|LIMITED|HOLDINGS|GROUP)\b/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+  while (words.length > 1 && /^(?:LLC|LLP|LP|INC|CORP|CORPORATION|CORPRATION|CO|LTD|PLC|COMPANY|LIMITED|HOLDINGS|GROUP|THE)$/.test(words[words.length - 1]!)) {
+    words.pop();
+  }
+  return words.join(' ');
 }
 
 export interface TickerMatch {
