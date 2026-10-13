@@ -132,7 +132,7 @@ describe('actual cloud dashboard source transport and authorization', () => {
     const { post, structure } = await setup();
     const response = await post();
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ content: { markdown: 'Software company', quotes: [] }, citations: [expect.objectContaining({ url: 'https://example.com/report' })] });
+    expect(await response.json()).toEqual({ content: { markdown: 'Software company', timeline: [], quotes: [] }, citations: [expect.objectContaining({ url: 'https://example.com/report' })] });
     expect(structure.mock.calls[0]![0]).toContain('https://example.com/report');
   });
   it.each(['products_roadmap', 'team_org'] as const)('returns actual Google-supported %s reports when original reads are blocked, never original-verified rows', async tab => {
