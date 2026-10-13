@@ -9,7 +9,7 @@
  * added or corrected here: this can only withhold.
  */
 import type { HistoryContent, MissionGovernanceContent } from '@mi/contracts';
-import { amountsIn } from './source-binding';
+import { amountMatches, sameAmount } from './amounts';
 
 const GENERIC = /^(?:capital|ventures?|partners?|fund|funds|group|holdings?|investments?|management|asset|global|the|and|of|inc|llc|ltd|corp|corporation|company|technologies|technology|labs?|ai)$/i;
 const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -29,8 +29,8 @@ function named(notes: string, name: string, kind: 'organisation' | 'person'): bo
 }
 
 export function groundGovernanceInNotes(content: MissionGovernanceContent, notes: string): MissionGovernanceContent {
-  const amounts = amountsIn(notes);
-  const amountStated = (value: number) => amounts.some((amount) => Math.abs(amount - value) <= Math.max(1, value) * 0.01);
+  const amounts = amountMatches(notes);
+  const amountStated = (value: number) => amounts.some((m) => sameAmount(m.value, value));
   const seen = new Set<string>();
   const fundingRounds = (content.fundingRounds ?? []).flatMap((round) => {
     const label = round.round.trim();

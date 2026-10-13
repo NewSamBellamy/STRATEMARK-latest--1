@@ -86,6 +86,8 @@ export interface OriginalSourceScope {
   companyId: string;
   companyName: string;
   metricType?: string;
+  /** The figure(s) being checked: the excerpt then favours the passage that states them. */
+  values?: readonly number[];
   /** Explicit user refresh bypasses completed reuse, not an active read. */
   forceRefresh?: boolean;
 }
@@ -234,7 +236,7 @@ export function coalesceOriginalSources(read: (url: string, scope?: OriginalSour
   const pending = new Map<string, Promise<OriginalSourceReceipt>>();
   return async (url, scope) => {
     scope = scope ? { ...scope } : undefined;
-    const key = JSON.stringify([url, scope?.companyId ?? null, scope?.companyName ?? null, scope?.metricType ?? null]);
+    const key = JSON.stringify([url, scope?.companyId ?? null, scope?.companyName ?? null, scope?.metricType ?? null, scope?.values ?? null]);
     const hit = cache.get(key);
     if (hit && hit.expires > now() && !scope?.forceRefresh) return { ...hit.receipt };
     cache.delete(key);

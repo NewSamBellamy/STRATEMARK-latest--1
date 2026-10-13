@@ -119,3 +119,26 @@ describe('bounded contiguous source excerpt', () => {
     expect(text.endsWith(selectSourceExcerpt(text))).toBe(true);
   });
 });
+
+describe('an excerpt for checking one figure', () => {
+  const filler = (n: number) => 'Quarterly commentary about the wider market and unrelated vendors. '.repeat(n);
+  const page = `${filler(120)}OpenAI valuation history: valued at $157 billion in 2024. ${filler(120)}In March 2026 OpenAI closed a round at a post-money valuation of $852 billion. ${filler(120)}`;
+
+  it('is the passage that states the figure, wherever it sits on a long page', () => {
+    const excerpt = selectSourceExcerpt(page, { companyName: 'OpenAI', metricType: 'valuation', values: [852e9] });
+    expect(excerpt).toHaveLength(4000);
+    expect(excerpt).toContain('post-money valuation of $852 billion');
+  });
+
+  it('prefers the occurrence beside the company over an earlier one beside a rival', () => {
+    const rival = `${filler(120)}Zeta Corp is valued at $852 billion by analysts. ${filler(150)}OpenAI closed at a $852 billion valuation. ${filler(60)}`;
+    expect(selectSourceExcerpt(rival, { companyName: 'OpenAI', metricType: 'valuation', values: [852e9] })).toContain('OpenAI closed at a $852 billion valuation');
+  });
+
+  it('falls back to the usual passage when the page never states the figure, and treats a bad value list as data', () => {
+    const usual = selectSourceExcerpt(page, { companyName: 'OpenAI', metricType: 'valuation' });
+    expect(selectSourceExcerpt(page, { companyName: 'OpenAI', metricType: 'valuation', values: [1.5e12] })).toBe(usual);
+    expect(selectSourceExcerpt(page, { companyName: 'OpenAI', metricType: 'valuation', values: 'x' as unknown as number[] })).toBe(usual);
+    expect(selectSourceExcerpt(page, { companyName: 'OpenAI', metricType: 'valuation', values: [Number.NaN, -1] })).toBe(usual);
+  });
+});

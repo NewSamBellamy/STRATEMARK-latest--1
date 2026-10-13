@@ -1,7 +1,7 @@
 /** Source binding: a reported figure links to the page that states it, or is not shown. */
 import { describe, expect, it } from 'vitest';
 import type { CompanyMetric } from '@mi/contracts';
-import { applySourceChecks, brandTokens, checkFromReceipt, figureOnPage, sourceCheckKey, uncheckedSources, UNREAD_RETRY_MS } from './source-binding';
+import { alternateSources, applySourceChecks, brandTokens, checkFromReceipt, figureOnPage, sourceCheckKey, uncheckedSources, ALTERNATES_PER_FIGURE, UNREAD_RETRY_MS } from './source-binding';
 import type { OriginalSourceReceipt } from './original-source';
 
 const REDIRECT = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc';
@@ -72,5 +72,45 @@ describe('applySourceChecks', () => {
     expect(uncheckedSources('c', [reported(965e9)], recent, 6, now)).toEqual([]);
     const stale = { [key]: { ...recent[key]!, checkedAt: new Date(now - UNREAD_RETRY_MS - 1).toISOString() } };
     expect(uncheckedSources('c', [reported(965e9)], stale, 6, now)).toHaveLength(1);
+  });
+});
+
+describe('a page the figure was not attributed to', () => {
+  const OTHER = 'https://explodingtopics.com/blog/openai-valuation';
+  const key = sourceCheckKey('c', 'valuation', [852e9], REDIRECT);
+  const altKey = sourceCheckKey('c', 'valuation', [852e9], 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/other');
+  const row = () => reported(852e9, { reportedSupport: { ...reported(852e9).reportedSupport!, companyName: 'OpenAI' } });
+  const wrongPage = { [key]: checkFromReceipt('OpenAI', [852e9], receipt('OpenAI was founded in 2015 in San Francisco.', 'https://en.wikipedia.org/wiki/OpenAI')) };
+
+  it('must name the company and the measurement beside the amount', () => {
+    expect(figureOnPage('OpenAI', [852e9], 'In March, OpenAI closed a round at a post-money valuation of $852 billion.', 'valuation')).toBe(true);
+    // The company is on the page and so is the amount, but they are about different things.
+    expect(figureOnPage('OpenAI', [852e9], `OpenAI makes models. ${'Filler text. '.repeat(60)} Rival Zeta is valued at $852 billion.`, 'valuation')).toBe(false);
+    expect(figureOnPage('OpenAI', [852e9], 'OpenAI hired 852 billion tokens a day of employees.', 'valuation')).toBe(false);
+    // Without the strict bar the looser rule still applies to the page the figure cited.
+    expect(figureOnPage('OpenAI', [852e9], `OpenAI makes models. ${'Filler text. '.repeat(60)} Rival Zeta is valued at $852 billion.`)).toBe(true);
+  });
+
+  it('is tried once the cited page was read without the figure, from the same research', () => {
+    const pool = [{ url: REDIRECT, title: 'wikipedia.org' }, { url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/other', title: 'explodingtopics.com' }];
+    expect(alternateSources('c', [row()], wrongPage, pool, 6)).toEqual([expect.objectContaining({ key: altKey, metricType: 'valuation', values: [852e9] })]);
+    // Nothing to try while the cited page is unread, after one states it, or when the budget is spent.
+    expect(alternateSources('c', [row()], {}, pool, 6)).toEqual([]);
+    expect(alternateSources('c', [row()], { ...wrongPage, [altKey]: { finalUrl: OTHER, found: true, read: true, checkedAt: '' } }, pool, 6)).toEqual([]);
+    expect(alternateSources('c', [row()], wrongPage, pool, 0)).toEqual([]);
+  });
+
+  it('stops after a bounded number of pages for one figure', () => {
+    const pool = Array.from({ length: 20 }, (_, i) => ({ url: `https://news.example/${i}`, title: 'news.example' }));
+    expect(alternateSources('c', [row()], wrongPage, pool, 50)).toHaveLength(ALTERNATES_PER_FIGURE);
+  });
+
+  it('moves the figure to the page that does state it, and hides it only when none does', () => {
+    const states = checkFromReceipt('OpenAI', [852e9], receipt('OpenAI closed a round at a post-money valuation of $852 billion.', OTHER), undefined, 'valuation');
+    const [moved] = applySourceChecks('c', [row()], { ...wrongPage, [altKey]: states });
+    expect(moved).toMatchObject({ value: 852e9, confidence: 'estimated', source: OTHER });
+    expect(moved!.citations).toEqual([{ url: OTHER, title: 'explodingtopics.com' }]);
+    const silent = checkFromReceipt('OpenAI', [852e9], receipt('OpenAI ships models.', OTHER), undefined, 'valuation');
+    expect(applySourceChecks('c', [row()], { ...wrongPage, [altKey]: silent })[0]).toMatchObject({ value: null, confidence: 'unknown' });
   });
 });

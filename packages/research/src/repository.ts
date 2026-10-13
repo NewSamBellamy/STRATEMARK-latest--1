@@ -119,7 +119,7 @@ import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane, type DiscoveryNotes } from './searxng';
 import { huntSearchQueries, webSearchLane, type WebSearchFn } from './web-search';
 import { quotedEstimateNote, quotedOriginalEstimate } from './quoted-estimate';
-import { applySourceChecks, checkFromReceipt, uncheckedSources, type SourceChecks } from './source-binding';
+import { alternateSources, applySourceChecks, checkFromReceipt, uncheckedSources, type SourceChecks } from './source-binding';
 import { resolveCompanyBrand, type CompanyLogo } from './assets';
 import { checkHomepageName, discoverOfficialDomain } from './brand/domain';
 import { faviconUrl, knownCompanyDomain } from './logos';
@@ -2123,6 +2123,12 @@ export class GeminiRepository implements MarketIntelRepository {
     return Promise.resolve(structuredClone(this.snap.metrics.filter((m) => m.companyId === companyId)));
   }
   async getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
+    // A reported figure links to the page that states it, or is not shown.
+    return applySourceChecks(companyId, await this.projectedFacts(companyId), this.snap.sourceChecks);
+  }
+
+  /** The facts as the evidence supports them, before source binding hides or relinks any. */
+  private async projectedFacts(companyId: string): Promise<CompanyMetric[]> {
     await this.ready();
     const company = this.snap.companies.find(row => row.id === companyId);
     if (!company) return [];
@@ -2134,9 +2140,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const otherCompanies = marketId === undefined ? undefined : this.snap.companies
       .filter((row) => row.id !== companyId && this.snap.companyMarket[row.id] === marketId)
       .map((row) => row.name);
-    const repaired = savedCompanyProfile(company, current, this.snap.researchEvidence ?? [], otherCompanies);
-    // A reported figure links to the page that states it, or is not shown.
-    return applySourceChecks(companyId, repaired.metrics, this.snap.sourceChecks);
+    return savedCompanyProfile(company, current, this.snap.researchEvidence ?? [], otherCompanies).metrics;
   }
 
   /**
@@ -2145,6 +2149,13 @@ export class GeminiRepository implements MarketIntelRepository {
    * reads, one pass per company at a time, never throws, and refreshes the deck
    * when anything changed. Returns the number of pages checked.
    */
+  /** Every page this company's retained research returned, newest research first. */
+  private evidencePages(companyId: string): Citation[] {
+    const rows = (this.snap.researchEvidence ?? []).filter((row) => row.companyId === companyId)
+      .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
+    return usableCitations(rows.flatMap((row) => row.citations ?? []));
+  }
+
   async bindReportedSources(companyId: string, limit = 6): Promise<number> {
     const running = this.sourceBindings.get(companyId);
     if (running) return running;
@@ -2152,12 +2163,19 @@ export class GeminiRepository implements MarketIntelRepository {
       const sources = this.originalSources;
       const company = this.snap.companies.find((row) => row.id === companyId);
       if (!sources || !company) return 0;
-      const todo = uncheckedSources(companyId, await this.getCompanyFacts(companyId), this.snap.sourceChecks, limit);
+      const facts = await this.projectedFacts(companyId);
+      const cited = uncheckedSources(companyId, facts, this.snap.sourceChecks, limit).map((item) => ({ ...item, strict: false }));
+      // Figures whose own citation did not state them look to the other pages
+      // the same research returned, on a stricter bar (see alternateSources).
+      const alternates = alternateSources(companyId, facts, this.snap.sourceChecks, this.evidencePages(companyId), limit - cited.length)
+        .map((item) => ({ ...item, strict: true }));
+      const todo = [...cited, ...alternates];
       if (!todo.length) return 0;
       const results = await mapWithConcurrency(todo, 3, async (item) => {
         try {
-          const receipt = await sources.retrieve(item.url, { companyId, companyName: company.name, metricType: item.metricType });
-          return [item.key, checkFromReceipt(company.name, item.values, receipt)] as const;
+          // The values make the excerpt the passage that carries the figure, not the page's densest cue cluster.
+          const receipt = await sources.retrieve(item.url, { companyId, companyName: company.name, metricType: item.metricType, values: item.values });
+          return [item.key, checkFromReceipt(company.name, item.values, receipt, undefined, item.strict ? item.metricType : undefined)] as const;
         } catch {
           return [item.key, { finalUrl: null, found: false, read: false, checkedAt: new Date().toISOString() }] as const;
         }

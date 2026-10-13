@@ -1,7 +1,24 @@
+import { amountMatches, sameAmount } from './amounts';
+
 /** One unchanged contiguous slice: retrieval relevance is not claim verification. */
-export function selectSourceExcerpt(text: string, scope?: { companyName: string; metricType?: string }): string {
+export function selectSourceExcerpt(text: string, scope?: { companyName: string; metricType?: string; values?: readonly number[] }): string {
   const limit = 4000;
   if (text.length <= limit) return text;
+  // A reader checking one figure wants the passage that carries it, not the
+  // page's densest cluster of cue words. The values arrive over the relay, so
+  // they are validated as data.
+  const values = scope?.values;
+  const wanted = Array.isArray(values) ? values.filter((v) => typeof v === 'number' && Number.isFinite(v) && v > 0).slice(0, 4) : [];
+  if (wanted.length > 0) {
+    const name = scope?.companyName?.trim().toLowerCase() ?? '';
+    const hits = amountMatches(text).filter((m) => wanted.some((v) => sameAmount(m.value, v)));
+    const near = (index: number) => name.length > 0 && text.slice(Math.max(0, index - 1200), index + 1200).toLowerCase().includes(name);
+    const hit = hits.find((m) => near(m.index)) ?? hits[0];
+    if (hit) {
+      const start = Math.min(Math.max(0, hit.index - 1500), text.length - limit);
+      return text.slice(start, start + limit);
+    }
+  }
   if (scope?.metricType === 'employees') {
     // A numbered workforce statement outranks incidental dates beside benefits
     // menus. This only selects unchanged text; the separate claim/issuer gate
