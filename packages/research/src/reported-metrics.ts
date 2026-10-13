@@ -1,3 +1,4 @@
+import { isAttributedGrounding } from './grounding-support';
 import { MONEY_METRIC_TYPES, reportedBandSchema, reportedMetricSupportSchema, usableCitations, validMetricVerificationValue,
   type Citation, type CompanyMetric, type MetricType, type ReportedMetricSupport } from '@mi/contracts';
 import type { ProviderGrounding } from './types';
@@ -242,7 +243,7 @@ const basisPatterns: Record<string, RegExp> = {
   // word beside the number, in a sentence naming the company with a date.
   // Revenue excludes "annual revenue"/"recurring revenue" (owned by arr).
   revenue: /\b(?:(?<!annual )(?<!recurring )revenues?|sales|turnover)\b/i,
-  funding_total: /\b(?:total funding|funding to date|raised to date|total (?:capital )?raised|(?:has|have) raised|raised a total of)\b/i,
+  funding_total: /\b(?:total funding|funding to date|raised to date|total (?:capital )?raised|(?:has|have) raised(?!(?:[^.]|\.(?=\d))*\b(?:Series [A-Z]\d?|(?:pre-)?seed|bridge|(?:funding|financing|investment) round|round)\b)|raised a total of)\b/i,
   last_round: /\b(?:Series [A-Z]\d?|(?:pre-)?seed|(?:funding|investment|financing|bridge) round|round of (?:funding|financing))\b/i,
   distribution: /\b(?:countries|markets|retailers|stores|doors|stockists|retail locations|points of sale)\b/i,
   users: /\busers\b/i, active_users: /\bactive users\b/i,
@@ -624,10 +625,10 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
   enrichment: EnrichmentOut; text: string; grounding?: ProviderGrounding; capturedAt: string; includeUnknowns?: boolean;
   identity?: ReportedIdentityContext }): CompanyMetric[] {
   const identity: ReportedIdentityContext = {
-    answerText: input.identity?.answerText ?? (input.grounding?.provider === 'google-search' ? input.grounding.answerText : undefined),
+    answerText: input.identity?.answerText ?? (isAttributedGrounding(input.grounding) ? input.grounding.answerText : undefined),
     otherCompanies: input.identity?.otherCompanies,
   };
-  const trusted = input.grounding?.provider === 'google-search' && input.grounding.answerText.trim() === input.text.trim()
+  const trusted = isAttributedGrounding(input.grounding) && input.grounding.answerText.trim() === input.text.trim()
     ? input.grounding : undefined;
   const types = new Set<MetricType>(Object.keys(input.enrichment.metrics) as MetricType[]);
   // market_cap belongs with valuation in the always-audited set: it is a core
@@ -691,7 +692,7 @@ const LOCATION_ONLY = /\b(?:is headquartered|headquartered in|is based in|offici
 const ABOUT_FIGURES = /\b(?:market cap(?:italization)?|valuation|not (?:publicly )?disclosed|no public(?:ly)?|publicly traded|ticker|stock symbol)\b/i;
 
 export function providerCompanySummary(companyName: string, website: string | null, text: string, grounding?: ProviderGrounding) {
-  if (grounding?.provider !== 'google-search' || grounding.answerText.trim() !== text.trim()) return null;
+  if (!isAttributedGrounding(grounding) || grounding.answerText.trim() !== text.trim()) return null;
   let fallback: { summary: string; citations: Citation[] } | null = null;
   for (const support of grounding.supports) {
     if (!grounding.answerText.includes(support.text)) continue;
@@ -770,7 +771,7 @@ export function reportedBandCitations(companyName: string, website: string | nul
 export function reportedEmployeeBandRow(input: { companyId: string; companyName: string; website: string | null;
   text: string; grounding?: ProviderGrounding; capturedAt: string; identity?: ReportedIdentityContext }): CompanyMetric | null {
   const grounding = input.grounding;
-  if (grounding?.provider !== 'google-search' || grounding.answerText.trim() !== input.text.trim()) return null;
+  if (!isAttributedGrounding(grounding) || grounding.answerText.trim() !== input.text.trim()) return null;
   const rivals = rivalMatcher(input.companyName, input.identity?.otherCompanies);
   const bands: Array<{ low: number; high: number; support: ProviderGrounding['supports'][number]; sentence: string }> = [];
   for (const support of grounding.supports) {
@@ -785,7 +786,7 @@ export function reportedEmployeeBandRow(input: { companyId: string; companyName:
   if (!bands.length || new Set(bands.map(b => `${b.low}-${b.high}`)).size !== 1) return null;
   const pick = bands[0]!;
   const asOf = businessDates(pick.sentence)[0] ?? null;
-  const parsed = reportedBandSchema.safeParse({ provider: 'google-search', companyName: input.companyName, basis: 'employees',
+  const parsed = reportedBandSchema.safeParse({ provider: grounding.provider, companyName: input.companyName, basis: 'employees',
     low: pick.low, high: pick.high, unit: 'count', asOf, support: structuredClone(pick.support) });
   if (!parsed.success) return null;
   const citations = reportedBandCitations(input.companyName, input.website,

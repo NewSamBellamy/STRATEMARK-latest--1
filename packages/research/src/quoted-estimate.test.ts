@@ -81,3 +81,16 @@ describe('quotedOriginalEstimate', () => {
     expect(note).toContain('not independently verified');
   });
 });
+
+describe('funding_total wording', () => {
+  const base = { companyName: 'Skydio', metricType: 'funding_total' as const, value: 110_000_000, asOf: '2026-04-23', unit: 'USD', nowMs: Date.parse('2026-10-13') };
+  it('a single named round is never a total raised', async () => {
+    const { quoteHolds } = await import('./quoted-estimate');
+    expect(quoteHolds({ ...base, quote: 'Skydio has raised $110 million in Series F financing, led by existing investors.' })).toBe(false);
+    expect(quoteHolds({ ...base, value: 1_500_000_000, quote: 'Skydio has raised $1.5 billion in a Series F round led by investors.' })).toBe(false);
+  });
+  it('cumulative wording still counts', async () => {
+    const { quoteHolds } = await import('./quoted-estimate');
+    expect(quoteHolds({ ...base, value: 740_000_000, quote: 'Skydio has raised $740 million to date from investors.' })).toBe(true);
+  });
+});

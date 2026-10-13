@@ -41,7 +41,7 @@ const basis: Record<MetricType, RegExp> = {
   // basis owns those), so one quote can never satisfy two basis patterns.
   revenue: /\b(?:(?<!annual )(?<!recurring )revenues?|sales|turnover)\b/i,
   // Cumulative wording only: a single round is last_round, never a total.
-  funding_total: /\b(?:total funding|funding to date|raised to date|total (?:capital )?raised|(?:has|have) raised|raised a total of)\b/i,
+  funding_total: /\b(?:total funding|funding to date|raised to date|total (?:capital )?raised|(?:has|have) raised(?!(?:[^.]|\.(?=\d))*\b(?:Series [A-Z]\d?|(?:pre-)?seed|bridge|(?:funding|financing|investment) round|round)\b)|raised a total of)\b/i,
   last_round: /\b(?:Series [A-Z]\d?|(?:pre-)?seed|(?:funding|investment|financing|bridge) round|round of (?:funding|financing))\b/i,
   distribution: /\b(?:countries|markets|retailers|stores|doors|stockists|retail locations|points of sale)\b/i,
 };

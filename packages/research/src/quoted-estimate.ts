@@ -33,7 +33,7 @@ const WORDING: Partial<Record<MetricType, RegExp>> = {
   valuation: /\b(?:valuation|valued at|valuing (?:the company|the business|it) at)\b/i,
   arr: /\b(?:ARR|annual recurring revenue|annuali[sz]ed revenue|annual revenue)\b/i,
   revenue: /\b(?:revenues?|sales|turnover)\b/i,
-  funding_total: /\b(?:total funding|funding to date|raised to date|in total|total (?:equity |capital )?(?:financing|funding|raised)|has raised|have raised|raised a total of)\b/i,
+  funding_total: /\b(?:total funding|funding to date|raised to date|in total|total (?:equity |capital )?(?:financing|funding|raised)|(?:has|have) raised(?!(?:[^.]|\.(?=\d))*\b(?:Series [A-Z]\d?|(?:pre-)?seed|bridge|(?:funding|financing|investment) round|round)\b)|raised a total of)\b/i,
   last_round: /\b(?:Series [A-Z]\d?|(?:pre-)?seed|(?:funding|investment|financing|equity) round|round of (?:funding|financing))\b/i,
   employees: /\b(?:employees|headcount|employs|staff of|workforce of)\b/i,
   users: /\b(?:users|customers)\b/i,
