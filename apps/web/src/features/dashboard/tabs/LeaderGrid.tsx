@@ -23,6 +23,7 @@ interface Headshot {
 }
 
 const headshotCache = new LruCache<string, Headshot | null>(500);
+const inflightHeadshots = new Map<string, Promise<Headshot | null>>();
 const limit = makeLimiter(3);
 
 /**
@@ -52,15 +53,27 @@ interface WikiSummary {
   content_urls?: { desktop?: { page?: string } };
 }
 
+/**
+ * Article summaries by title, for the session. A 404 is a fact about the title
+ * ("no such article") and is remembered, so the same missing name isn't asked
+ * for again by every avatar and retry; a network/429/5xx failure is not, and
+ * is retried next time.
+ */
+const summaryCache = new LruCache<string, WikiSummary | null>(500);
+
 /** Fetch a Wikipedia article summary by exact title; null on any failure. */
 async function wikiSummary(f: typeof fetch, title: string): Promise<WikiSummary | null> {
+  if (summaryCache.has(title)) return summaryCache.get(title) ?? null;
   try {
     const res = await f(
       `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`,
       { headers: { accept: 'application/json' } },
     );
+    if (res.status === 404) summaryCache.set(title, null);
     if (!res.ok) return null;
-    return (await res.json()) as WikiSummary;
+    const summary = (await res.json()) as WikiSummary;
+    summaryCache.set(title, summary);
+    return summary;
   } catch {
     return null;
   }
@@ -105,7 +118,11 @@ function fetchWikiHeadshot(personName: string, companyName: string): Promise<Hea
     headshotCache.set(key, persisted.value);
     return Promise.resolve(persisted.value);
   }
-  return limit(async () => {
+  // One person usually appears several times on a tab (leadership grid, org
+  // chart, board list) and every avatar mounts at once — share the lookup.
+  const pending = inflightHeadshots.get(key);
+  if (pending) return pending;
+  const lookup = limit(async () => {
     const { f, failed } = trackedFetch();
     const shot = await resolveHeadshot(f, personName, companyName);
     if (shot || !failed()) {
@@ -113,7 +130,9 @@ function fetchWikiHeadshot(personName: string, companyName: string): Promise<Hea
       savePersisted(key, shot);
     }
     return shot;
-  });
+  }).finally(() => inflightHeadshots.delete(key));
+  inflightHeadshots.set(key, lookup);
+  return lookup;
 }
 
 async function resolveHeadshot(f: typeof fetch, personName: string, companyName: string): Promise<Headshot | null> {
