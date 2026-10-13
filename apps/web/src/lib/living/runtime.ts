@@ -187,6 +187,7 @@ export class LivingDeckRuntime {
   private statusValue: LivingStatus = 'stopped';
   /** In-flight guard: never overlap actions. */
   private acting = false;
+  private deferNoticeShown = false;
 
   constructor(deps: LivingDeckDeps) {
     const ticker = throttleProofTicker();
@@ -322,8 +323,10 @@ export class LivingDeckRuntime {
         // Pause/stop may occur while the readiness read is in flight.
         if (!['running', 'resting'].includes(this.statusValue)) return;
         if (!ready) {
-          if (this.statusValue !== 'resting') {
-            this.statusValue = 'resting';
+          // The first pass is live research, so the deck stays "running"
+          // while it finishes; say once what the gap-filler is waiting on.
+          if (!this.deferNoticeShown) {
+            this.deferNoticeShown = true;
             this.emit('resting', null, 'Finishing the first research pass — gap-filling starts right after.');
           }
           this.schedule(this.deps.deferIntervalMs);

@@ -274,6 +274,15 @@ describe('LivingDeckRuntime', () => {
     expect(runtime.status).toBe('resting');
   });
 
+  it('stays running while the first research pass finishes, saying so once', async () => {
+    const { runtime, events, runNext } = harness({ canAct: async () => false });
+    runtime.start(1);
+    await runNext();
+    await runNext();
+    expect(runtime.status).toBe('running');
+    expect(events.filter((e) => e.message.startsWith('Finishing the first research pass'))).toHaveLength(1);
+  });
+
   it('surfaces fresh audit findings in the feed', async () => {
     const { runtime, events, runNext } = harness({
       plan: () => ({
