@@ -426,6 +426,16 @@ export class GeminiRepository implements MarketIntelRepository {
    * figures never caches its answer as current. */
   private readonly dashboardEpochs = new Map<string, number>();
 
+  /** Comparable user counts of the companies on this deck: the population a
+   * card's users figure is ranked against when tiering. */
+  private deckUserValues(deckId: string): number[] {
+    const companies = new Set(this.snap.cards.filter((c) => c.deckId === deckId && c.companyId).map((c) => c.companyId!));
+    return this.snap.metrics
+      .filter((m) => companies.has(m.companyId) && m.metricType === 'users' && comparableMetricBasis(m) &&
+        m.confidence !== 'unknown' && m.value !== null)
+      .map((m) => m.value as number);
+  }
+
   /** The company's figures changed: every cached dashboard tab is stale. */
   private invalidateDashboard(companyId: string): void {
     this.snap.dashboards[companyId] = {};
@@ -663,24 +673,16 @@ export class GeminiRepository implements MarketIntelRepository {
       mergedCompanyMetrics.push(...reconcileMetrics(existingForCo, incomingForCo, companyById.get(companyId)?.websiteUrl));
     }
     this.snap.metrics = [...otherMetrics, ...mergedCompanyMetrics];
-    const deckUserValues = this.snap.metrics
-      .filter(
-        (metric) =>
-          metric.metricType === 'users' && comparableMetricBasis(metric) && metric.confidence !== 'unknown' && metric.value !== null,
-      )
-      .map((metric) => metric.value as number);
     for (const companyId of companyById.keys()) {
       if (!existingCompanyIds.has(companyId)) continue;
       const canonicalMetrics = this.snap.metrics.filter((metric) => metric.companyId === companyId);
-      const canonicalTier = computeCms(buildCmsInput(canonicalMetrics), {
-        deckUserValues,
-      }).finalTier;
       for (const card of this.snap.cards) {
-        if (
-          card.companyId === companyId &&
-          card.cardType === 'company' &&
-          card.tier !== canonicalTier
-        ) {
+        if (card.companyId !== companyId || card.cardType !== 'company') continue;
+        // Tiers rank users within the card's own deck, not across every deck.
+        const canonicalTier = computeCms(buildCmsInput(canonicalMetrics), {
+          deckUserValues: this.deckUserValues(card.deckId),
+        }).finalTier;
+        if (card.tier !== canonicalTier) {
           card.tier = canonicalTier;
           card.tierReason = 'Re-tiered after canonical metric reconciliation.';
         }
@@ -1618,9 +1620,7 @@ export class GeminiRepository implements MarketIntelRepository {
         const deckCards = this.snap.cards.filter(
           (c) => c.deckId === stubsResult.deck.id && c.companyId && c.cardType === 'company',
         );
-        const deckUserValues = this.snap.metrics
-          .filter((m) => m.metricType === 'users' && comparableMetricBasis(m) && m.confidence !== 'unknown' && m.value !== null)
-          .map((m) => m.value as number);
+        const deckUserValues = this.deckUserValues(stubsResult.deck.id);
 
         const baseTiers = new Map<string, MaturityTier>();
         const reviewRows: { name: string; baseTier: MaturityTier; evidence: string }[] = [];
@@ -3640,12 +3640,9 @@ export class GeminiRepository implements MarketIntelRepository {
       (c) => c.companyId === companyId && c.cardType === 'company',
     );
     const updatedIds: string[] = [];
+    const metrics = this.snap.metrics.filter((m) => m.companyId === companyId);
     for (const card of companyCards) {
-      const deckUserValues = this.snap.metrics
-        .filter((m) => m.metricType === 'users' && comparableMetricBasis(m) && m.confidence !== 'unknown' && m.value !== null)
-        .map((m) => m.value as number);
-      const metrics = this.snap.metrics.filter((m) => m.companyId === companyId);
-      const result = computeCms(buildCmsInput(metrics), { deckUserValues });
+      const result = computeCms(buildCmsInput(metrics), { deckUserValues: this.deckUserValues(card.deckId) });
       if (result.finalTier !== card.tier) {
         card.tier = result.finalTier;
         card.tierReason = reason;
@@ -4399,9 +4396,7 @@ ${references}`
       .map((c) => this.snap.companies.find((x) => x.id === c.companyId))
       .filter((c): c is Company => Boolean(c));
 
-    const deckUserValues = this.snap.metrics
-      .filter((m) => m.metricType === 'users' && comparableMetricBasis(m) && m.confidence !== 'unknown' && m.value !== null)
-      .map((m) => m.value as number);
+    const deckUserValues = this.deckUserValues(deck.id);
 
     const signal = handlers?.signal;
     const progress = (message: string) => handlers?.onProgress?.({ message, kind: 'step' });
