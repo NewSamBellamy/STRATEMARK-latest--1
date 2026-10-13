@@ -19,6 +19,7 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { Logo } from '@/features/card/Logo';
 import { ExportMenu } from '@/features/export/ExportMenu';
 import { DigDeeper, useDeepDive } from '@/features/deepdive/DeepDive';
+import { TabFreshness } from './TabFreshness';
 import { OverviewTab } from './tabs/OverviewTab';
 import { ResearchTab } from './tabs/ResearchTab';
 import { LiveIntelTab } from './tabs/LiveIntelTab';
@@ -440,6 +441,8 @@ export default function DashboardPage() {
               running={rerunTab.isPending}
               disabled={!hasKey}
             >
+              <TabFreshness companyId={companyId} tab={activeTab} onRefresh={() => rerunTab.mutate()}
+                refreshing={rerunTab.isPending} disabled={!hasKey} />
               <TabView tab={activeTab} companyId={companyId} />
             </ContextRerun>
           </>
