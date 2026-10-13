@@ -21,6 +21,11 @@ describe('homepageCompanySummary', () => {
     expect(out?.summary).toBe('Brinc builds rugged drones for police and fire departments.');
   });
 
+  it('never uses a shop-window line, even when it is the only copy (Kin Euphorics)', () => {
+    const html = '<meta name="description" content="Discover Kin Euphorics sparkling cans, made-to-mix bottles, and drink sets for mornings, social plans, golden hours, and after dark.">';
+    expect(homepageCompanySummary({ companyName: 'Kin Euphorics', websiteUrl: 'https://brinc.com', homepage: page(html) })).toBeNull();
+  });
+
   it('never uses testimonials, negations or cookie text from the body', () => {
     const html = '<p>Brinc does not provide drone pilot services to anyone.</p><p>Our team loves working with Brinc every single day.</p><p>We use cookies to provide you with a better browsing experience.</p>';
     expect(homepageCompanySummary({ companyName: 'Brinc', websiteUrl: 'https://brinc.com', homepage: page(html) })).toBeNull();
