@@ -379,7 +379,10 @@ function Library({ markets, researching }: { markets: Market[]; researching: str
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<DeckSort>('recent');
   const rows = useDeckRows(markets);
-  const shown = useMemo(() => sortDecks(filterDecks(rows, query), sort), [rows, query, sort]);
+  // A delete can wait on research still running for the deck: take the tile away
+  // at once and bring it back only if the delete fails.
+  const [removing, setRemoving] = useState<ReadonlySet<string>>(new Set());
+  const shown = useMemo(() => sortDecks(filterDecks(rows, query), sort).filter((row) => !removing.has(row.market.id)), [rows, query, sort, removing]);
 
   return (
     <>
@@ -396,7 +399,11 @@ function Library({ markets, researching }: { markets: Market[]; researching: str
               onOpen={() => navigate(`/markets/${row.market.id}/deck`)}
               onDelete={() => {
                 if (confirm(`Delete "${row.market.name}"? This removes the deck and its cards.`)) {
-                  deleteDeck.mutate(row.market.id);
+                  const id = row.market.id;
+                  setRemoving((current) => new Set(current).add(id));
+                  deleteDeck.mutate(id, {
+                    onSettled: () => setRemoving((current) => { const next = new Set(current); next.delete(id); return next; }),
+                  });
                 }
               }}
             />

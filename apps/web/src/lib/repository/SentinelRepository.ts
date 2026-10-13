@@ -344,6 +344,10 @@ export class SentinelRepository implements MarketIntelRepository {
       }
     }
 
+    // A local deck lives only in the local repository: delete it there first,
+    // whatever the cloud call does (it throws when there is no cloud, which
+    // used to skip this and leave the deck in place).
+    const local = isCloud ? undefined : await (await this.fallback()).deleteDeck?.(deckId);
     const cache = readCloudCache();
     try {
       const res = await deleteCloudDeck(deckId);
@@ -352,10 +356,7 @@ export class SentinelRepository implements MarketIntelRepository {
         if (matchedMarketId) cache.delete(matchedMarketId);
         writeCloudCache(cache);
       }
-      if (!isCloud) {
-        await (await this.fallback()).deleteDeck?.(deckId);
-      }
-      return res;
+      return local ?? res;
     } catch {
       const entry = cache.get(deckId) || (matchedMarketId ? cache.get(matchedMarketId) : undefined);
       if (entry) {
@@ -364,7 +365,7 @@ export class SentinelRepository implements MarketIntelRepository {
         if (matchedMarketId) cache.set(matchedMarketId, entry);
         writeCloudCache(cache);
       }
-      return true;
+      return local ?? true;
     }
   }
 
