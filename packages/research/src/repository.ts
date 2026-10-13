@@ -83,6 +83,7 @@ import {
 } from '@mi/contracts';
 import { createGeminiClient, type GeminiClientConfig } from './gemini';
 import { withSearchFallback } from './search-fallback';
+import { homepageCompanySummary, isPendingCompanySummary } from './company-summary';
 import { mergeTeamOrgNodes, researchDashboardWithSources } from './dashboard';
 import {
   buildStubs,
@@ -1266,6 +1267,7 @@ export class GeminiRepository implements MarketIntelRepository {
           this.snap.cards.push(hydrated.primaryCard.card);
           addedCardIds.push(hydrated.primaryCard.card.id);
         }
+        this.applyHomepageSummary(hydrated.company);
 
         // Add facet cards (vice / culture) if present
         for (const facetCwc of hydrated.cards.slice(1)) {
@@ -3767,6 +3769,29 @@ export class GeminiRepository implements MarketIntelRepository {
    * auditable like every other claim. The read fn must return RAW HTML
    * (readAssetSource on the web transport); resolution is honest-null when
    * the site yields nothing. */
+  /** Homepage-sourced descriptions, kept so a later hydration that found no
+   * literal summary of its own never puts the placeholder back. */
+  private readonly homepageSummaries = new Map<string, { summary: string; citations: Citation[] } | null>();
+
+  /** No literal, cited description yet: the placeholder, or a forming card
+   * still showing its discovery descriptor (model copy with no citation). */
+  private lacksSourcedSummary(company: Company): boolean {
+    return isPendingCompanySummary(company.oneLiner) || this.snap.cards.some((card) =>
+      card.companyId === company.id && isEntityCardType(card.cardType) && !card.citations?.length);
+  }
+
+  private applyHomepageSummary(company: Company): void {
+    const found = this.homepageSummaries.get(company.id);
+    if (!found || !isPendingCompanySummary(company.oneLiner)) return;
+    company.oneLiner = found.summary;
+    for (const card of this.snap.cards) {
+      if (card.companyId === company.id && isEntityCardType(card.cardType) && isPendingCompanySummary(card.summary)) {
+        card.summary = found.summary;
+        card.citations = found.citations;
+      }
+    }
+  }
+
   async fillCompanyAssets(
     companyId: string,
     read: (url: string) => Promise<OriginalSourceReceipt>,
@@ -3814,6 +3839,33 @@ export class GeminiRepository implements MarketIntelRepository {
       }
     }
     if (!company.websiteUrl) return { logo: null };
+    // A card with no sourced description reads its company's own homepage
+    // (already fetched for the logo): the meta description or a sentence
+    // naming the company, through the same literal-sentence gate. Read once
+    // per company even while a stub still shows its unsourced discovery
+    // descriptor: the hydration that replaces it may find no summary at all.
+    if (!this.homepageSummaries.has(company.id) && this.lacksSourcedSummary(company)) {
+      let found: { summary: string; citations: Citation[] } | null = null;
+      try {
+        const read = await memoRead(company.websiteUrl);
+        // The asset reader returns the page without a digest; the ledger's
+        // receipt carries the SHA-256 of exactly the bytes the sentence came from.
+        const homepage = read.status === 'retrieved' && read.text && !read.contentHash
+          ? { ...read, contentHash: [...new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(read.text)))]
+            .map((b) => b.toString(16).padStart(2, '0')).join('') }
+          : read;
+        found = homepageCompanySummary({ companyName: company.name, websiteUrl: company.websiteUrl, homepage });
+        if (found && this.originalSources) {
+          await this.originalSources.save({ id: `src_asset_${globalThis.crypto.randomUUID()}`, companyId,
+            metricType: 'company_profile', capturedAt: new Date().toISOString(), receipts: [homepage] });
+        }
+      } catch { /* the card keeps its honest placeholder */ }
+      this.homepageSummaries.set(company.id, found);
+      if (found && isPendingCompanySummary(company.oneLiner)) {
+        this.applyHomepageSummary(company);
+        await this.persist();
+      }
+    }
     if (!guessed && !needsColors) return { logo: null };
     const { logo: found, colors } = await resolveCompanyBrand(company.websiteUrl, memoRead, { name: company.name, skipWikidata: !guessed });
     let logo = guessed ? found : null;
@@ -4805,6 +4857,7 @@ ${references}`
     const card: Card = { ...hydrated.primaryCard.card, id: stub.card.id, deckId: stub.card.deckId, companyId,
       cardType: retag ?? hydrated.primaryCard.card.cardType, tier: null, tierReason: null };
     if (cardIdx >= 0) this.snap.cards[cardIdx] = card; else this.snap.cards.push(card);
+    this.applyHomepageSummary(company);
 
     const added: string[] = [];
     for (const facet of hydrated.cards.slice(1)) {

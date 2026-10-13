@@ -1,6 +1,7 @@
 import { usableCitations, type Citation } from '@mi/contracts';
 import type { OriginalSourceReceipt } from './original-source';
 import { normalizeSourceText } from './original-source';
+import { pageText } from './search-fallback';
 
 export const UNSUPPORTED_COMPANY_SUMMARY = 'No source-backed company snapshot is ready yet.';
 
@@ -25,6 +26,7 @@ function eligibleSentences(text: string, companyName: string): string[] {
       /^[\p{Lu}“‘"'(]/u.test(sentence) &&
       !/[\p{N}$€£¥%]/u.test(sentence) &&
       !/\b(?:leading|world['’]s|best|largest|first|only|most|number one|#1|valued|valuation|revenue|ARR|funding|market share|users|customers|employees)\b/i.test(sentence) &&
+      !/\b(?:cookies?|privacy|javascript|browser|sign (?:in|up)|log ?in|subscribe|newsletter|copyright|all rights reserved)\b/i.test(sentence) &&
       (sentence.toLocaleLowerCase().includes(normalizedName) ||
         /\b(?:builds?|develops?|creates?|provides?|offers?|research(?:es)?|designs?|operates?|serves?|platform|software|company|laborator|models?)\b/i.test(sentence)));
 }
@@ -62,4 +64,46 @@ export function sourceBackedCompanySummary(input: {
     if (citation) return { summary: sentence, citations: [citation] };
   }
   return null;
+}
+
+export const isPendingCompanySummary = (summary?: string | null): boolean =>
+  !summary?.trim() || summary.startsWith(UNSUPPORTED_COMPANY_SUMMARY);
+
+/**
+ * The company's own homepage describing itself: its meta / social description
+ * and any body sentence that names it. Never navigation, cookie or legal
+ * boilerplate, and the same literal-sentence gate as every other summary.
+ */
+export function homepageCompanySummary(input: {
+  companyName: string;
+  websiteUrl?: string | null;
+  homepage: OriginalSourceReceipt;
+}): { summary: string; citations: Citation[] } | null {
+  const html = input.homepage.status === 'retrieved' ? input.homepage.text ?? '' : '';
+  if (!html) return null;
+  const described = [...html.matchAll(/<meta\b[^>]*>/gi)].map(tag => tag[0])
+    .filter(tag => /\b(?:name|property)\s*=\s*["'](?:description|og:description|twitter:description)["']/i.test(tag))
+    .map(tag => /\bcontent\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag))
+    .map(match => pageText(match?.[1] ?? match?.[2] ?? ''));
+  const name = normalizeSourceText(input.companyName).toLocaleLowerCase();
+  // "<Company> is/builds/makes …" plainly says what it does. Any other body
+  // sentence (testimonials, alt text, "X does not …", awards) is not a summary.
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const selfDescribing = new RegExp(`^${escaped}(?:['’]s)?\\s(?:is|are|builds?|develops?|designs?|makes?|manufactures?|provides?|offers?|creates?|delivers?|operates?|helps?|specializ(?:es|ing)|enables?|powers?)\\b`, 'i');
+  const named = (pageText(html).match(/[^.!?]+[.!?]/g) ?? []).map(normalizeSourceText)
+    .filter(sentence => selfDescribing.test(sentence) && !/\bnot\b|n['’]t\b/i.test(sentence));
+  const text = [...described, ...named].map(line => line.trim()).filter(Boolean)
+    .map(line => (/[.!?]$/.test(line) ? line : `${line}.`)).join(' ');
+  if (!text) return null;
+  // Best first: a self-describing sentence; the page's own description next;
+  // an imperative tagline ("Accelerate …") last.
+  const score = (sentence: string) =>
+    (selfDescribing.test(sentence) ? 4 : 0) + (sentence.toLocaleLowerCase().includes(name) ? 1 : 0) -
+    (/^(?:experience|revolutioni[sz]e|accelerate|discover|explore|learn|get|meet|build|transform|unlock|empower|join|see|find|shop|welcome|take)\b/i.test(sentence) ? 3 : 0);
+  const ranked = (text.match(/[^.!?]+[.!?]/g) ?? []).map(normalizeSourceText)
+    .map((sentence, index) => ({ sentence, index, score: score(sentence) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index).map(row => row.sentence);
+  const { format: _format, ...homepage } = input.homepage;
+  return sourceBackedCompanySummary({ companyName: input.companyName, websiteUrl: input.websiteUrl,
+    proposedSummaries: ranked, originals: [{ ...homepage, text }] });
 }

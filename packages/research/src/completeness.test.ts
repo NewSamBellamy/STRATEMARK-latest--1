@@ -383,3 +383,36 @@ describe('fillCompanyAssets', () => {
     expect(store.read()?.companies[0]!.websiteUrl).toBe('https://modelbest.cn');
   });
 });
+
+describe('fillCompanyAssets — homepage description', () => {
+  const home = '<head><meta name="description" content="OpenAI is an AI research and deployment company building safe general-purpose systems."></head>';
+  const withPlaceholderCard = () => {
+    const snap = snapshot([]);
+    snap.companies[0]!.logoUrl = 'https://commons.wikimedia.org/wiki/Special:FilePath/OpenAI_Logo.svg';
+    snap.companies[0]!.brandTheme = { primary: '#111111', secondary: '#222222', accent: '#333333', text: '#000000', background: '#ffffff', fontFamily: null, source: 'scraped' };
+    snap.companies[0]!.oneLiner = 'No source-backed company snapshot is ready yet.';
+    snap.cards = [{ id: 'card_1', deckId: 'deck_1', companyId: 'cmp_1', cardType: 'company', title: 'OpenAI',
+      summary: 'No source-backed company snapshot is ready yet.', citations: [], tier: null } as unknown as RepoSnapshot['cards'][number]];
+    return snap;
+  };
+
+  it('replaces the placeholder with the homepage\'s own literal description, cited, on company and card', async () => {
+    const store = memoryStore(withPlaceholderCard());
+    const repo = new GeminiRepository({ apiKey: 'k', store, client: assetClient });
+    await repo.fillCompanyAssets('cmp_1', vi.fn(async (url: string) => rawReceipt(url, home)));
+    const saved = store.read()!;
+    expect(saved.companies[0]!.oneLiner).toBe('OpenAI is an AI research and deployment company building safe general-purpose systems.');
+    expect(saved.cards[0]!.summary).toBe(saved.companies[0]!.oneLiner);
+    expect(saved.cards[0]!.citations?.[0]?.url).toBe('https://openai.com');
+  });
+
+  it('keeps the honest placeholder when the homepage says nothing quotable, and reads it only once', async () => {
+    const store = memoryStore(withPlaceholderCard());
+    const repo = new GeminiRepository({ apiKey: 'k', store, client: assetClient });
+    const read = vi.fn(async (url: string) => rawReceipt(url, '<title>OpenAI</title><p>Log in</p>'));
+    await repo.fillCompanyAssets('cmp_1', read);
+    await repo.fillCompanyAssets('cmp_1', read);
+    expect(store.read()!.companies[0]!.oneLiner).toBe('No source-backed company snapshot is ready yet.');
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+});
