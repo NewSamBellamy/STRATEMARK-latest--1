@@ -12,6 +12,8 @@ import {
   parseTickerMatches,
   secSharesConceptUrl,
   selectTickerMapSlice,
+  shareCountTooOld,
+  storedMarketCapDates,
   yahooChartUrl,
 } from './market-quote';
 
@@ -119,5 +121,26 @@ describe('marketCapEstimate', () => {
     const eur = CHART_JSON.replace('"currency":"USD"', '"currency":"EUR"');
     expect(marketCapEstimate('Apple Inc', [receipt(yahooChartUrl('AAPL'), eur), receipts[1]!], 'Apple Inc.')).toBeNull();
     expect(marketCapEstimate('Apple Inc', receipts.map((r) => ({ ...r, status: 'blocked' as const })), 'Apple Inc.')).toBeNull();
+  });
+});
+
+describe('storedMarketCapDates (load-time revalidation reads back what the lane writes)', () => {
+  it('round-trips the price and share-count dates from the method note and from the citation titles', () => {
+    const now = Date.parse('2026-10-13T00:00:00.000Z');
+    const estimate = marketCapEstimate('Apple Inc', [
+      receipt(yahooChartUrl('AAPL'), CHART_JSON),
+      receipt(secSharesConceptUrl('320193'), SHARES_JSON),
+    ], 'Apple Inc.', now)!;
+    const expected = { priceAsOf: estimate.priceAsOf, sharesAsOf: '2025-09-27' };
+    expect(storedMarketCapDates({ methodNote: estimate.methodNote, citations: [] })).toEqual(expected);
+    expect(storedMarketCapDates({ methodNote: null, citations: estimate.citations })).toEqual(expected);
+    expect(storedMarketCapDates({ methodNote: 'Source reported market_cap (as of 2026-10-01).', citations: [] })).toBeNull();
+  });
+
+  it('applies the same 400-day window the lane applies', () => {
+    const price = Date.parse('2026-10-01');
+    expect(shareCountTooOld('2010-10-20', price)).toBe(true);
+    expect(shareCountTooOld('2025-09-27', price)).toBe(false);
+    expect(shareCountTooOld('not a date', price)).toBe(true);
   });
 });
