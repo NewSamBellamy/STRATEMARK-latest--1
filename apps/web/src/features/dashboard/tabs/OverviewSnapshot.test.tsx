@@ -33,6 +33,11 @@ function Filled({ tabs, companyId }: { tabs: DashboardTab[]; companyId: string }
   return <OverviewSnapshot companyId={companyId} companyName="Acme" />;
 }
 
+function Filling({ companyId }: { companyId: string }) {
+  useDashboardTab(companyId, 'team_org');
+  return <OverviewSnapshot companyId={companyId} companyName="Acme" />;
+}
+
 function show(tabs: DashboardTab[]) {
   const repository = Object.assign(makeRepo(), {
     getDashboardTab: vi.fn(async (companyId: string, tab: DashboardTab) => (content[tab]
@@ -60,6 +65,13 @@ describe('overview: leadership, funding and signals', () => {
     expect(await screen.findByText('Sam Ceo')).toBeInTheDocument();
     expect(screen.queryByText('Funding')).not.toBeInTheDocument();
     expect(screen.queryByText('Signals')).not.toBeInTheDocument();
+  });
+
+  it('says it is gathering while the dashboard researches its tabs in the background', async () => {
+    const repository = Object.assign(makeRepo(), { getDashboardTab: vi.fn(() => new Promise(() => {})) });
+    renderWithProviders(<Filling companyId="cmp_1" />, { repository });
+    expect(await screen.findByText(/Gathering who runs Acme/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Team & org' })).not.toBeInTheDocument();
   });
 
   it('points at the tabs that fill it when nothing is researched yet', () => {

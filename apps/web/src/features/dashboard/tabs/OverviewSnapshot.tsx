@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useIsFetching } from '@tanstack/react-query';
 import { ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useCachedDashboardTab } from '../useCachedTab';
@@ -33,6 +34,8 @@ function PanelHead({ title, to, label }: { title: string; to: string; label: str
 
 export function OverviewSnapshot({ companyId, companyName }: { companyId: string; companyName: string }) {
   const href = useTabHref(companyId);
+  // The dashboard warms its tabs in the background: say so while that is happening.
+  const gathering = useIsFetching({ queryKey: ['dashboard', companyId] }) > 0;
   const team = useCachedDashboardTab(companyId, 'team_org').data;
   const governance = useCachedDashboardTab(companyId, 'mission_governance').data;
   const intel = useCachedDashboardTab(companyId, 'live_intel').data;
@@ -52,10 +55,14 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
     return (
       <Section title="Leadership, funding & signals">
         <p className="panel px-4 py-3.5 text-[12.5px] leading-snug text-muted">
-          Who runs {companyName}, who funded it and what is being said about it show up here once those tabs are
-          researched:{' '}
-          <Link to={href('team_org')} className="text-primary-ink hover:underline">Team &amp; org</Link>{' · '}
-          <Link to={href('mission_governance')} className="text-primary-ink hover:underline">Mission &amp; governance</Link>.
+          {gathering
+            ? `Gathering who runs ${companyName}, who funded it and what is being said about it from live sources. This fills in as each finishes.`
+            : <>
+              Who runs {companyName}, who funded it and what is being said about it show up here once those tabs are
+              researched:{' '}
+              <Link to={href('team_org')} className="text-primary-ink hover:underline">Team &amp; org</Link>{' · '}
+              <Link to={href('mission_governance')} className="text-primary-ink hover:underline">Mission &amp; governance</Link>.
+            </>}
         </p>
       </Section>
     );
