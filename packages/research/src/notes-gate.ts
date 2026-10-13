@@ -88,3 +88,24 @@ export function groundHistoryInNotes(content: HistoryContent, notes: string): Hi
     quotes: (content.quotes ?? []).filter((quote) => quotedInNotes(quote.text, flatNotes)),
   };
 }
+
+const hostLabel = (url: string): string => {
+  try { return new URL(url).hostname.replace(/^www\./, '').split('.').slice(-2, -1)[0] ?? ''; } catch { return ''; }
+};
+
+/**
+ * A quote the notes attribute to a publication ("Forbes", "CNBC Interview")
+ * but give no link for takes the link of the one search citation from that
+ * publisher. Zero or several candidates leave it unlinked: no guessing.
+ */
+export function attachQuoteSources<Q extends { sourceUrl?: string; sourceTitle?: string }>(quotes: readonly Q[], catalog: ReadonlyArray<{ url: string; title: string }>): Q[] {
+  return quotes.map((quote) => {
+    const title = quote.sourceTitle?.toLowerCase();
+    if (quote.sourceUrl || !title) return quote;
+    const matches = catalog.filter((c) => {
+      const label = hostLabel(c.url);
+      return label.length >= 4 && wholeWord(title, label);
+    });
+    return matches.length === 1 ? { ...quote, sourceUrl: matches[0]!.url } : quote;
+  });
+}

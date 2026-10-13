@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HistoryContent, MissionGovernanceContent } from '@mi/contracts';
-import { groundGovernanceInNotes, groundHistoryInNotes } from './notes-gate';
+import { attachQuoteSources, groundGovernanceInNotes, groundHistoryInNotes } from './notes-gate';
 
 const NOTES = [
   'Acme raised a $20 million Series A in March 2022 led by Sequoia Capital.',
@@ -88,5 +88,19 @@ describe('history stays inside what the research stated', () => {
       'We built Atlas because nothing else was fast enough',
       '“We built Atlas … for the people who use it every day.”',
     ]);
+  });
+});
+
+describe('quote links', () => {
+  const catalog = [{ url: 'https://www.cnbc.com/2026/interview', title: 'cnbc.com' }, { url: 'https://www.forbes.com/a', title: 'forbes.com' }, { url: 'https://www.forbes.com/b', title: 'forbes.com' }];
+  const quote = (sourceTitle?: string, sourceUrl?: string) => ({ text: 't', attribution: 'a', sourceTitle, sourceUrl });
+  it('links a quote to the one search citation from the publication it names', () => {
+    expect(attachQuoteSources([quote('CNBC Interview')], catalog)[0]!.sourceUrl).toBe('https://www.cnbc.com/2026/interview');
+  });
+  it('never guesses: several candidates, none, or a link already given leave it as it is', () => {
+    expect(attachQuoteSources([quote('Forbes')], catalog)[0]!.sourceUrl).toBeUndefined();
+    expect(attachQuoteSources([quote('A podcast')], catalog)[0]!.sourceUrl).toBeUndefined();
+    expect(attachQuoteSources([quote(undefined)], catalog)[0]!.sourceUrl).toBeUndefined();
+    expect(attachQuoteSources([quote('CNBC', 'https://x.test/q')], catalog)[0]!.sourceUrl).toBe('https://x.test/q');
   });
 });

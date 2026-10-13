@@ -29,7 +29,7 @@ import { originalSupportReferences, type OriginalSourceAttempt, type OriginalSou
 import { researchCompanyOverview, type OverviewNarrative, type OverviewSeed } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
 import { secRevenueSeries } from './sec-revenue';
-import { groundGovernanceInNotes, groundHistoryInNotes } from './notes-gate';
+import { attachQuoteSources, groundGovernanceInNotes, groundHistoryInNotes } from './notes-gate';
 import { researchCompanyProducts, type ProductEvidenceSelections } from './company-products';
 import { researchCompanyTeamOrg, type TeamOrgSelections } from './company-team';
 import { researchLiveIntel, type PageReader } from './live-intel';
@@ -298,7 +298,7 @@ export async function researchDashboardTab<T extends DashboardTab>(
         // a model-guessed URL must never render as provenance.
         const catalog = usableCitations(g.citations);
         const byUrl = new Map(catalog.map((c) => [c.url.replace(/\/$/, ''), c]));
-        const quotes = (content.quotes ?? []).map((q) => {
+        const quotes = attachQuoteSources(content.quotes ?? [], catalog).map((q) => {
           if (!q.sourceUrl) return q;
           const match = byUrl.get(q.sourceUrl.replace(/\/$/, ''));
           if (!match) return { text: q.text, attribution: q.attribution, ...(q.date ? { date: q.date } : {}) };
