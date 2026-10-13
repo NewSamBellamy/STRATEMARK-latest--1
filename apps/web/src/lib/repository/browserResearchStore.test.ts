@@ -133,6 +133,65 @@ describe('acknowledged browser research storage', () => {
     expect((await openBrowserResearchStore()).read()).toEqual(first);
   });
 
+  it('coalesces a burst of writes into one transaction and acknowledges every caller', async () => {
+    const store = await openBrowserResearchStore();
+    const base = data();
+    await store.write(base);
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put');
+    const steps = [1, 2, 3].map((n) => ({ ...data(), reports: [{ id: `step-${n}` }] }) as ReturnType<typeof data>);
+    await Promise.all(steps.map((s) => store.write(s)));
+    // One transaction: the previous revision to backup, the newest to current.
+    expect(put).toHaveBeenCalledTimes(2);
+    put.mockRestore();
+    expect(store.read()).toEqual(steps[2]);
+    const saved = await readBrowserResearchData();
+    expect(JSON.parse(saved.current!)).toEqual(steps[2]);
+    expect(JSON.parse(saved.backup!)).toEqual(base);
+  });
+
+  it('queues writes made during an in-flight commit behind it, newest payload wins', async () => {
+    const store = await openBrowserResearchStore();
+    const first = { ...data(), reports: [{ id: 'first' }] } as ReturnType<typeof data>;
+    const inFlight = store.write(first);
+    await Promise.resolve(); // the first write has started committing
+    const second = { ...data(), reports: [{ id: 'second' }] } as ReturnType<typeof data>;
+    const third = { ...data(), reports: [{ id: 'third' }] } as ReturnType<typeof data>;
+    const later = [store.write(second), store.write(third)];
+    second.reports.push({ id: 'mutated-after-write' } as typeof second.reports[number]);
+    await inFlight;
+    await Promise.all(later);
+    const saved = await readBrowserResearchData();
+    expect(JSON.parse(saved.backup!)).toEqual(first);
+    expect(JSON.parse(saved.current!)).toEqual(third);
+  });
+
+  it('rejects every coalesced caller when their shared transaction fails, keeping the last commit', async () => {
+    const store = await openBrowserResearchStore();
+    const kept = { ...data(), reports: [{ id: 'kept' }] } as ReturnType<typeof data>;
+    await store.write(kept);
+    const put = IDBObjectStore.prototype.put;
+    const spy = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value, key) {
+      const request = put.call(this, value, key);
+      this.transaction.abort();
+      return request;
+    });
+    const results = await Promise.allSettled([store.write(data()), store.write(data())]);
+    spy.mockRestore();
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+    expect(store.read()).toEqual(kept);
+    expect((await openBrowserResearchStore()).read()).toEqual(kept);
+  });
+
+  it('never folds a valid write into a refused one', async () => {
+    const store = await openBrowserResearchStore();
+    const valid = { ...data(), reports: [{ id: 'valid' }] } as ReturnType<typeof data>;
+    const ok = store.write(valid);
+    const refused = store.write({ ...data(), schemaVersion: 999 });
+    await expect(refused).rejects.toThrow(/newer version/i);
+    await ok;
+    expect((await openBrowserResearchStore()).read()).toEqual(valid);
+  });
+
   it('imports large research atomically, retaining the prior workspace as backup', async () => {
     const store = await openBrowserResearchStore();
     await store.write(data());

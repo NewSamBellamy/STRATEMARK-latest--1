@@ -80,6 +80,37 @@ export async function openBrowserResearchStore(): Promise<ResearchStore> {
   const initial = committed ? parseResearchSnapshot(committed) : null;
   const future = (initial?.schemaVersion ?? 1) > REPO_SCHEMA_VERSION;
   let queue = Promise.resolve();
+  // The newest valid write that has not started committing. A mutation burst
+  // (one save per agent step) otherwise queues a full multi-megabyte
+  // transaction per step; a later write instead replaces this payload and
+  // shares its acknowledgement, so each caller still resolves only once a
+  // revision containing its snapshot is durable, and rejects if that fails.
+  let pending: { json: string; done: Promise<void> } | null = null;
+
+  async function commit(json: string): Promise<void> {
+    const db = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('snapshots', 'readwrite');
+      const store = tx.objectStore('snapshots');
+      const current = store.get(CURRENT);
+      let failure: Error | undefined;
+      current.onsuccess = () => {
+        const previous = current.result as RecordValue | undefined;
+        if ((previous?.revision ?? 0) !== revision) {
+          failure = new Error('Research was updated in another window. Reload before making changes.');
+          tx.abort();
+          return;
+        }
+        // Backup and current are one transaction: neither can be partially replaced.
+        if (previous) store.put(previous, BACKUP);
+        else if (committed) store.put({ json: committed, revision: 0, at: Date.now() }, BACKUP);
+        store.put({ json, revision: revision + 1, at: Date.now() }, CURRENT);
+      };
+      tx.oncomplete = () => { revision += 1; committed = json; db.close(); resolve(); };
+      tx.onabort = () => { db.close(); reject(failure ?? new Error('Research was not saved. Storage may be full or unavailable; previous saved research is intact.', { cause: tx.error })); };
+    });
+  }
+
   return {
     read: () => committed ? parseResearchSnapshot(committed) : null,
     write(snapshot) {
@@ -88,33 +119,31 @@ export async function openBrowserResearchStore(): Promise<ResearchStore> {
       const version = snapshot.schemaVersion ?? 1;
       let invalid: unknown;
       try { validResearchSnapshot(snapshot); } catch (cause) { invalid = cause; }
-      const operation = queue.then(async () => {
-        if (future || version > REPO_SCHEMA_VERSION) throw new Error('This research uses a newer version of Stratemark. Update before saving.');
-        if (invalid) throw new Error('Your saved research is unreadable. Export or recover it before continuing; nothing has been overwritten.', { cause: invalid });
-        const db = await openDatabase();
-        await new Promise<void>((resolve, reject) => {
-          const tx = db.transaction('snapshots', 'readwrite');
-          const store = tx.objectStore('snapshots');
-          const current = store.get(CURRENT);
-          let failure: Error | undefined;
-          current.onsuccess = () => {
-            const previous = current.result as RecordValue | undefined;
-            if ((previous?.revision ?? 0) !== revision) {
-              failure = new Error('Research was updated in another window. Reload before making changes.');
-              tx.abort();
-              return;
-            }
-            // Backup and current are one transaction: neither can be partially replaced.
-            if (previous) store.put(previous, BACKUP);
-            else if (committed) store.put({ json: committed, revision: 0, at: Date.now() }, BACKUP);
-            store.put({ json, revision: revision + 1, at: Date.now() }, CURRENT);
-          };
-          tx.oncomplete = () => { revision += 1; committed = json; db.close(); resolve(); };
-          tx.onabort = () => { db.close(); reject(failure ?? new Error('Research was not saved. Storage may be full or unavailable; previous saved research is intact.', { cause: tx.error })); };
-        });
+      const refusal = future || version > REPO_SCHEMA_VERSION
+        ? new Error('This research uses a newer version of Stratemark. Update before saving.')
+        : invalid !== undefined
+          ? new Error('Your saved research is unreadable. Export or recover it before continuing; nothing has been overwritten.', { cause: invalid })
+          : null;
+      if (refusal) {
+        // A refused write keeps its own place in the queue and never merges with a valid one.
+        const refused = queue.then(() => { throw refusal; });
+        pending = null;
+        queue = refused.catch(() => {});
+        return refused;
+      }
+      if (pending) {
+        pending.json = json;
+        return pending.done;
+      }
+      const batch = { json, done: Promise.resolve() };
+      batch.done = queue.then(() => {
+        // From here on this payload is final; newer writes queue behind it.
+        if (pending === batch) pending = null;
+        return commit(batch.json);
       });
-      queue = operation.catch(() => {});
-      return operation;
+      pending = batch;
+      queue = batch.done.catch(() => {});
+      return batch.done;
     },
   };
 }
