@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { metricVerificationDiffers, usableCitations, type CompanyMetric } from '@mi/contracts';
 import type { OriginalSourceReceipt } from './original-source';
+import { companyNameKey } from './market-quote';
 
 export const MAX_SEC_CONCEPT_TEXT = 32000;
 const concept = 'RevenueFromContractWithCustomerExcludingAssessedTax';
@@ -15,6 +16,12 @@ export function secRevenueCik(raw: string): string | null {
     return url.protocol === 'https:' && url.hostname === 'data.sec.gov' && !url.username && !url.password &&
       !url.port && !url.search && !url.hash ? path.exec(url.pathname)?.[1] ?? null : null;
   } catch { return null; }
+}
+
+/** The issuer's annual-revenue concept, straight from a CIK the ticker map
+ * resolved: a listed company's revenue never waits on a search citing it. */
+export function secRevenueConceptUrl(cik: string): string {
+  return `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik.replace(/\D/g, '').padStart(10, '0')}/us-gaap/${concept}.json`;
 }
 
 /** A direct HTML filing that can carry disclosures outside XBRL concepts. */
@@ -78,7 +85,10 @@ const recordSchema = z.object({
 }).strict();
 const documentSchema = z.object({ cik: z.number().int().positive(), entityName: z.string().min(1).max(256),
   taxonomy: z.literal('us-gaap'), tag: z.enum([concept, fallbackConcept]), units: z.object({ USD: z.array(z.unknown()).max(2000) }) });
-const name = (value: string) => value.normalize('NFKC').replace(/[.,]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+// SEC files the legal name ("AEROVIRONMENT, INC."); the deck stores the brand
+// ("AeroVironment"). Compare with legal suffixes stripped, exactly as the ticker
+// lookup that found the CIK does; the CIK match still pins the issuer.
+const name = companyNameKey;
 const calendarDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
   Number.isFinite(Date.parse(value)) && new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
 

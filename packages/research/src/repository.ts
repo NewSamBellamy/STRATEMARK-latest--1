@@ -99,7 +99,7 @@ import { CARD_FACT_TYPES as CARD_FACT_HUNT_TYPES, reportedCompanyMetrics, report
 import { businessDates } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
-import { mapWithConcurrency, rootDomain, throwIfAborted, websiteUrlOf } from './util';
+import { mapWithConcurrency, rootDomain, sleep, throwIfAborted, websiteUrlOf } from './util';
 import { IncrementalDeltaAgent } from './delta-agent';
 import {
   shouldDistillThread,
@@ -114,7 +114,7 @@ import type { ResearchNoteEntry } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { searchEvidenceCorpus } from './retrieval';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
-import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueObservation, secRevenueVerification } from './sec-revenue';
+import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueObservation, secRevenueVerification } from './sec-revenue';
 import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
 import { companyNameKey, marketCapEstimate, secSharesConceptUrl, secTickerMapUrl, yahooChartUrl } from './market-quote';
 import { computeCompanyCompleteness } from './completeness';
@@ -1122,7 +1122,7 @@ export class GeminiRepository implements MarketIntelRepository {
       // slow SEC ADV read never delays a logo.
       const structured = (async () => {
         try {
-          await this.fillFromStructuredSources(company, ['market_cap', 'aum', 'employees']);
+          await this.fillFromStructuredSources(company, ['market_cap', 'arr', 'aum', 'employees']);
         } catch { /* the hunt ladder remains the fallback, not a failure */ }
       })();
       const assets = (async () => {
@@ -2882,18 +2882,69 @@ export class GeminiRepository implements MarketIntelRepository {
       } catch { /* the hunt ladder is the fallback, not a failure */ }
     }
 
+    // SEC throttles bursts (a whole deck's companies read at once), so one
+    // unreadable answer gets a single polite retry before the lane gives up.
+    const retrieveSteady = async (url: string, metricType: string): Promise<OriginalSourceReceipt> => {
+      const first = await sources.retrieve(url, { ...scope, metricType });
+      if (first.status === 'retrieved' && first.text) return first;
+      await sleep(1500);
+      return sources.retrieve(url, { ...scope, metricType });
+    };
+    // One ticker-map read serves every listed-company lane below.
+    let tickerLookup: Promise<{ receipt: OriginalSourceReceipt; match: { cik: string; ticker: string; title: string } | null }> | null = null;
+    const listedMatch = () => tickerLookup ??= retrieveSteady(`${secTickerMapUrl()}?lookup=${encodeURIComponent(company.name)}`, 'market_cap')
+      .then((receipt) => {
+        const parsed = receipt.status === 'retrieved' && receipt.text
+          ? JSON.parse(receipt.text) as { matches?: Array<{ cik: string; ticker: string; title: string }> }
+          : null;
+        return { receipt, match: parsed?.matches?.length === 1 ? parsed.matches[0]! : null };
+      });
+
+    // A listed company's annual revenue is its filed XBRL fact: one read of
+    // the official concept, the same deterministic observation (and the same
+    // gates) a cited SEC original gets in the hunt.
+    if (missing.includes('arr')) {
+      try {
+        const { match } = await listedMatch();
+        if (match) {
+          const receipt = await retrieveSteady(secRevenueConceptUrl(match.cik), 'metrics_hunt');
+          const originals = receipt.status === 'retrieved' && receipt.text ? [receipt] : [];
+          const observed = originals.length ? secRevenueObservation(company.name, originals) : null;
+          if (observed) {
+            await retain('metrics_hunt', originals);
+            const current = currentMetricRevision(rowsFor('arr'), company.id, 'arr');
+            const metric = current?.metric;
+            if (!current?.ambiguous && metric?.confidence !== 'user_verified' && metric?.confidence !== 'verified') {
+              const row = metric ?? {
+                id: `met_struct_${Date.now().toString(36)}_arr`,
+                companyId: company.id, metricType: 'arr' as const, value: null,
+                confidence: 'unknown' as const, source: null, citations: [] as Citation[], methodNote: null,
+                capturedAt: nowIso,
+              };
+              if (!metric) this.snap.metrics.push(row);
+              row.value = observed.value;
+              row.confidence = 'verified';
+              row.passageSupport = observed.passageSupport;
+              row.reportedSupport = null;
+              row.citations = observed.citations;
+              row.source = observed.citations[0]?.url ?? null;
+              row.methodNote = `Annual revenue reported in SEC XBRL for ${observed.passageSupport.periodStart} to ${observed.passageSupport.asOf}; not ARR or an independent audit.`;
+              row.capturedAt = nowIso;
+              Object.assign(row, markVerified(row, nowIso));
+              filled.push('arr');
+            }
+          }
+        }
+      } catch { /* the hunt ladder is the fallback, not a failure */ }
+    }
+
     if (missing.includes('market_cap')) {
       try {
-        const mapReceipt = await sources.retrieve(`${secTickerMapUrl()}?lookup=${encodeURIComponent(company.name)}`,
-          { ...scope, metricType: 'market_cap' });
-        const parsed = mapReceipt.status === 'retrieved' && mapReceipt.text
-          ? JSON.parse(mapReceipt.text) as { matches?: Array<{ cik: string; ticker: string; title: string }> }
-          : null;
-        const match = parsed?.matches?.length === 1 ? parsed.matches[0] : null;
+        const { receipt: mapReceipt, match } = await listedMatch();
         if (match) {
           const [chartReceipt, sharesReceipt] = await Promise.all([
-            sources.retrieve(yahooChartUrl(match.ticker), { ...scope, metricType: 'market_cap' }),
-            sources.retrieve(secSharesConceptUrl(match.cik), { ...scope, metricType: 'market_cap' }),
+            retrieveSteady(yahooChartUrl(match.ticker), 'market_cap'),
+            retrieveSteady(secSharesConceptUrl(match.cik), 'market_cap'),
           ]);
           await retain('market_cap', [mapReceipt, chartReceipt, sharesReceipt].filter((r) => r.status === 'retrieved' && r.text));
           const estimate = marketCapEstimate(company.name, [chartReceipt, sharesReceipt], match.title);
@@ -4629,7 +4680,7 @@ ${references}`
     const lanes = new Map(stubs.filter((s) => s.company).map((s) => [s.company!.id, (async () => {
       const company = s.company!;
       await Promise.all([
-        this.fillFromStructuredSources(company, ['market_cap', 'aum', 'employees']).catch(() => []),
+        this.fillFromStructuredSources(company, ['market_cap', 'arr', 'aum', 'employees']).catch(() => []),
         this.assetSourceReader ? this.fillCompanyAssets(company.id, this.assetSourceReader).catch(() => undefined) : undefined,
       ]);
     })()]));

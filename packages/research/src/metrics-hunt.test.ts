@@ -148,7 +148,8 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
     const repo = new GeminiRepository({ apiKey: 'k', store, client: { ground, structure }, originalSourceReader: reader });
     expect((await repo.huntCompanyMetrics('cmp_1')).filledTypes).toEqual(['arr']);
     expect(reader.mock.calls.map(call => call[0])).toContain(conceptUrl);
-    expect(reader.mock.calls.length).toBeLessThanOrEqual(4);
+    // +1: the structured lane retries the unreadable ticker map once (SEC throttles bursts).
+    expect(reader.mock.calls.length).toBeLessThanOrEqual(5);
     const reopened = new GeminiRepository({ apiKey: 'k', store, client: { ground, structure }, originalSourceReader: reader });
     expect((await reopened.getCompanyFacts('cmp_1')).find(row => row.metricType === 'arr')).toMatchObject({
       value: 331839000000, confidence: 'verified', passageSupport: { definition: 'annual_revenue' },
@@ -243,8 +244,9 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
     const result = await repo.huntCompanyMetrics('cmp_1');
     expect(result.filledTypes).toEqual([]);
     expect(structure).not.toHaveBeenCalled();
-    // +1: the structured-first quote lane's ticker-map probe, unavailable here.
-    expect(read).toHaveBeenCalledTimes(2);
+    // +2: the structured-first quote lane's ticker-map probe, unavailable here,
+    // and its one polite retry.
+    expect(read).toHaveBeenCalledTimes(3);
     expect(result.metrics.find(m => m.metricType === 'employees')?.value).toBeNull();
     const reopened = new GeminiRepository({ apiKey: 'k', store, client: { ground, structure } as unknown as LlmClient });
     expect((await reopened.getOriginalSourceEvidence({ companyId: 'cmp_1' }))[0]?.receipts[0]?.reason)

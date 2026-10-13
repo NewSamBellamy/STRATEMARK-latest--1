@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { hydrateCompanyCard, verifyCompanyCardOriginals } from './company-agent';
 import { projectCompanyFactsFromOriginals } from './company-facts';
 import type { LlmClient, MarketPlan } from './types';
-import { retainedSecConcept, secConceptIsStale, secFilingHeadcountObservation, secQuarterlyRevenueSeries, secRevenueFallbackUrl, secRevenueObservation, secRevenueSeries, secRevenueVerification, secRevenueSourceUrl } from './sec-revenue';
+import { retainedSecConcept, secConceptIsStale, secFilingHeadcountObservation, secQuarterlyRevenueSeries, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueSeries, secRevenueVerification, secRevenueSourceUrl } from './sec-revenue';
 import { acceptedMetricPassage } from './metric-support';
 import { selectOriginalSourceCitations, type OriginalSourceReceipt } from './original-source';
 
@@ -127,6 +127,14 @@ describe('regulator-reported annual revenue', () => {
       support: observed.passageSupport, originals: [source], nowMs: now })).toEqual(observed.citations);
     expect(acceptedMetricPassage({ companyName: 'Microsoft Corporation', metricType: 'arr', value: observed.value,
       support: { ...observed.passageSupport, definition: 'arr' }, originals: [source], nowMs: now })).toEqual([]);
+  });
+  it('matches the brand a deck stores to the legal name SEC files ("Microsoft" is MICROSOFT CORPORATION)', () => {
+    expect(secRevenueObservation('Microsoft', [source], now)?.value).toBe(latest.val);
+    expect(acceptedMetricPassage({ companyName: 'Microsoft', metricType: 'arr', value: latest.val,
+      support: secRevenueObservation('Microsoft', [source], now)!.passageSupport, originals: [source], nowMs: now })).not.toEqual([]);
+  });
+  it('builds the issuer revenue concept straight from a ticker-map CIK', () => {
+    expect(secRevenueConceptUrl('789019')).toBe(url);
   });
   it.each(['Microsoft Gaming', 'Micro', 'Other Corporation'])('does not assign a parent/other issuer to %s', company => {
     expect(secRevenueObservation(company, [source], now)).toBeNull();
