@@ -153,9 +153,14 @@ export const metricPassageSupportSchema = z.object({
   format: z.enum(['sec-companyconcept', 'sec-filing', 'sec-adv']).optional(),
 });
 
+/** Who attributed a passage to its sources: Google Search grounding, or a
+ * 'page-quote' — a sentence verified verbatim on the cited page's own text
+ * (the search-key fallback when grounding quota is spent). */
+export const groundingProviderSchema = z.enum(['google-search', 'page-quote']);
+
 /** Provider-attributed reported claim, explicitly NOT original verification. */
 export const reportedMetricSupportSchema = z.object({
-  provider: z.literal('google-search'), companyName: z.string().min(1),
+  provider: groundingProviderSchema, companyName: z.string().min(1),
   basis: metricTypeSchema, value: z.number().finite().nonnegative(),
   unit: metricPassageSupportSchema.shape.unit,
   asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
@@ -176,7 +181,7 @@ export const reportedMetricSupportSchema = z.object({
  * Additive: older snapshots without it parse unchanged.
  */
 export const reportedBandSchema = z.object({
-  provider: z.literal('google-search'), companyName: z.string().min(1),
+  provider: groundingProviderSchema, companyName: z.string().min(1),
   basis: z.literal('employees'),
   low: z.number().int().positive(), high: z.number().int().positive(),
   unit: z.literal('count'),

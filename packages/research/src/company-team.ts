@@ -16,7 +16,7 @@ const rowSchema = z.object({
 const providerSupportSchema = z.object({ supportIndex: z.number().int().nonnegative(), text: z.string().min(1),
   sources: z.array(z.object({ chunkIndex: z.number().int().nonnegative(), url: z.string().max(2048), title: z.string() })).min(1),
   startIndex: z.number().int().nonnegative().optional(), endIndex: z.number().int().nonnegative().optional(), partIndex: z.number().int().nonnegative().optional() });
-const providerGroundingSchema = z.object({ provider: z.literal('google-search'), answerText: z.string(), supports: z.array(providerSupportSchema) });
+const providerGroundingSchema = z.object({ provider: z.enum(['google-search', 'page-quote']), answerText: z.string(), supports: z.array(providerSupportSchema) });
 const reportedRowSchema = z.object({ id: z.string().min(1).max(120), name: z.string().min(2).max(160), role: z.string().min(2).max(160),
   group: z.enum(['exec', 'ai', 'product', 'design', 'other']).catch('other'), supportIndex: z.number().int().nonnegative(), quote: z.string().min(20).max(600) });
 // Over-long candidate lists are truncated, never rejected: `.max(n)` would make

@@ -389,15 +389,28 @@ describe('ungrounded answer escalation', () => {
   });
 });
 
-it('stops spending on an exhausted quota: one request, a fixable message, then no network', async () => {
+it('stops spending on an exhausted quota: one request per line, a fixable message, then no network', async () => {
   const body = JSON.stringify({ error: { code: 429, status: 'RESOURCE_EXHAUSTED',
     message: 'You exceeded your current quota, please check your plan and billing details.' } });
   const fetchImpl = vi.fn(async () => new Response(body, { status: 429 }));
   const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl, groundedRpm: 0, structureRpm: 0 });
   const first = await client.ground('prompt').catch(e => e);
   expect(first).toMatchObject({ status: 402, message: expect.stringMatching(/run out of quota/) });
-  expect(fetchImpl).toHaveBeenCalledTimes(1); // no retries, no other model lines
-  const second = await client.structure('prompt', z.object({ a: z.string() })).catch(e => e);
-  expect(second).toMatchObject({ status: 402 });
-  expect(fetchImpl).toHaveBeenCalledTimes(1);
+  const groundCalls = fetchImpl.mock.calls.length;
+  expect(groundCalls).toBe(3); // each ladder line asked once, no retries
+  await client.ground('prompt').catch(e => e);
+  expect(fetchImpl).toHaveBeenCalledTimes(groundCalls); // every line is cooling down
+});
+
+it('a spent grounded quota on one model falls through to the next line', async () => {
+  const spent = JSON.stringify({ error: { code: 429, message: 'You exceeded your current quota, please check your plan and billing details.' } });
+  const ok = JSON.stringify({ candidates: [{ content: { parts: [{ text: 'answer' }] }, groundingMetadata: { groundingChunks: [{ web: { uri: 'https://a.com', title: 'a' } }] } }] });
+  const fetchImpl = vi.fn(async (url: string) => /lite/.test(url)
+    ? new Response(spent, { status: 429 }) : new Response(ok, { status: 200 }));
+  const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl: fetchImpl as unknown as typeof fetch, groundedRpm: 0, structureRpm: 0 });
+  expect((await client.ground('prompt')).text).toBe('answer');
+  // A structure call whose model is spent moves to a spare line too.
+  fetchImpl.mockClear();
+  await client.structure('prompt', z.object({ a: z.string() })).catch(() => null);
+  expect(fetchImpl.mock.calls.map(([url]) => /flash-latest/.test(url) && !/lite/.test(url))).toContain(true);
 });

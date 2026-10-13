@@ -5,6 +5,11 @@ const object = (value: unknown): Record<string, unknown> | undefined =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 const index = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
+/** Attribution a gate may rely on: Google grounding, or verified page quotes. */
+export function isAttributedGrounding(grounding: ProviderGrounding | undefined): grounding is ProviderGrounding {
+  return grounding?.provider === 'google-search' || grounding?.provider === 'page-quote';
+}
+
 /** Keep provider attribution intact. It must never be labelled an original quotation. */
 export function extractProviderGrounding(answerText: string, metadata: unknown): ProviderGrounding | undefined {
   const raw = object(metadata);

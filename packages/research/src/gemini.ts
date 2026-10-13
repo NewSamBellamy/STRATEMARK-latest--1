@@ -49,7 +49,9 @@ const MIN_GROUND_ATTEMPT_BUDGET_MS = 8_000;
  * network-down are NOT line failures — another line cannot help those. */
 function isLineFailure(error: unknown): boolean {
   const status = (error as RetryableError | null)?.status;
-  if (typeof status === 'number' && (status === 429 || status >= 500)) return true;
+  // 402 = this line's quota is spent. Quotas are per model (and grounded
+  // search has its own), so another line on the same key may still answer.
+  if (typeof status === 'number' && (status === 402 || status === 429 || status >= 500)) return true;
   return error instanceof Error && error.name === 'TimeoutError';
 }
 
@@ -300,10 +302,13 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
   const groundedRpm = config.groundedRpm ?? DEFAULT_GROUNDED_RPM;
   const structureRpm = config.structureRpm ?? DEFAULT_STRUCTURE_RPM;
   const limiters = new Map<string, ReturnType<typeof createRateLimiter> | null>();
-  // An exhausted quota (billing or daily cap) is not a rate limit: retrying,
-  // or trying another model on the same key, only burns requests. Fail fast
-  // with a message the user can act on, and stay quiet for a few minutes.
-  let quotaBlockedUntil = 0;
+  // An exhausted quota (billing or daily cap) is not a rate limit: retrying
+  // the same model only burns requests. Google counts quota per model, and
+  // grounded search separately from plain calls (seen 2026-10-13: lite's
+  // grounded quota spent while flash grounded and lite plain still answered),
+  // so block just that model+mode for a few minutes and let the caller try
+  // another line. The user sees the message only when every line is spent.
+  const quotaBlockedUntil = new Map<string, number>();
   const quotaError = () => Object.assign(new SafeGeminiError(QUOTA_EXHAUSTED_MESSAGE), { status: 402 });
   const limiterFor = (model: string) => {
     if (limiters.has(model)) return limiters.get(model)!;
@@ -327,6 +332,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
     priority?: CallPriority,
   ): Promise<GeminiResponse> {
     const limiter = limiterFor(model);
+    const quotaKey = `${model}|${body.tools ? 'grounded' : 'plain'}`;
     const stream = Boolean(onText && config.streaming);
     const callStartedAt = Date.now();
     let attempts = 0;
@@ -335,7 +341,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
     const data = await withRetry(
       async () => {
         throwIfAborted(signal);
-        if (Date.now() < quotaBlockedUntil) throw quotaError();
+        if (Date.now() < (quotaBlockedUntil.get(quotaKey) ?? 0)) throw quotaError();
         attempts += 1;
         // Every dispatched attempt — retries included — spends a slot, so a
         // 429 storm cannot silently exceed the key's real per-minute cap.
@@ -393,7 +399,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
             throw Object.assign(new SafeGeminiError('Your Gemini API key was rejected. Check or replace it in Settings.'), { status: res.status });
           }
           if (res.status === 429 && /exceeded your current quota|check your plan and billing/i.test(body ?? '')) {
-            quotaBlockedUntil = Date.now() + QUOTA_COOLDOWN_MS;
+            quotaBlockedUntil.set(quotaKey, Date.now() + QUOTA_COOLDOWN_MS);
             throw quotaError();
           }
           const err = new Error(
@@ -533,9 +539,19 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         };
         if (opts?.system) body.systemInstruction = { parts: [{ text: opts.system }] };
         const route = structureRoute(schema);
+        let model = route.model;
         // One reparse retry: JSON-mode is reliable but not infallible.
         for (let attempt = 0; attempt < 2; attempt += 1) {
-          const data = await call(route.model, body, signal, route.kind, undefined, undefined, opts?.priority);
+          let data: GeminiResponse;
+          try {
+            data = await call(model, body, signal, route.kind, undefined, undefined, opts?.priority);
+          } catch (err) {
+            // This model's quota is spent; one other line may still have some.
+            const spare = GROUND_FALLBACK_MODELS.find((m) => m !== model);
+            if ((err as RetryableError | null)?.status !== 402 || !spare || model !== route.model) throw err;
+            model = spare;
+            data = await call(model, body, signal, route.kind, undefined, undefined, opts?.priority);
+          }
           try {
             return schema.parse(extractJson(extractText(data)));
           } catch (err) {

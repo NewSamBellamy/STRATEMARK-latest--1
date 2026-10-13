@@ -14,7 +14,7 @@ const proposedStatus = z.enum(['live', 'beta', 'sunset']).nullable().catch(null)
 const productSelectionSchema = referenceSchema.extend({ name: z.string().min(2).max(120), status: proposedStatus });
 const roadmapSelectionSchema = referenceSchema.extend({ title: z.string().min(2).max(120), date: z.string().nullable().default(null) });
 // Malformed individual proposals are dropped, not converted to factual defaults.
-const providerGroundingSchema = z.object({ provider: z.literal('google-search'), answerText: z.string(), supports: z.array(z.object({
+const providerGroundingSchema = z.object({ provider: z.enum(['google-search', 'page-quote']), answerText: z.string(), supports: z.array(z.object({
   supportIndex: z.number().int().nonnegative(), text: z.string().min(1),
   sources: z.array(z.object({ chunkIndex: z.number().int().nonnegative(), url: z.string().max(2048), title: z.string() })).min(1),
   startIndex: z.number().int().nonnegative().optional(), endIndex: z.number().int().nonnegative().optional(), partIndex: z.number().int().nonnegative().optional(),

@@ -1,3 +1,4 @@
+import { isAttributedGrounding } from './grounding-support';
 import { z } from 'zod';
 import { classifySource, usableCitations, metricDefinitionLabel, type Citation, type DashboardSourceDiagnostics, type MetricType } from '@mi/contracts';
 import { originalSupportReferences, type OriginalSourceReceipt } from './original-source';
@@ -104,11 +105,11 @@ const paragraphSchema = z.object({
 });
 const narrativeSchema = z.object({
   companyId: z.string(),
-  basis: z.enum(['google-search', 'saved-card']),
+  basis: z.enum(['google-search', 'page-quote', 'saved-card']),
   answerText: z.string(),
   citations: z.array(z.object({ title: z.string(), url: z.string() })),
   grounding: z.object({
-    provider: z.literal('google-search'), answerText: z.string(),
+    provider: z.enum(['google-search', 'page-quote']), answerText: z.string(),
     supports: z.array(z.object({
       supportIndex: z.number().int().nonnegative(), text: z.string(),
       sources: z.array(z.object({ chunkIndex: z.number().int().nonnegative(), url: z.string(), title: z.string() })),
@@ -164,7 +165,7 @@ function supportDisplayText(text: string) {
 
 function literalSupportedNarrative(args: TabResearchArgs, grounded: Awaited<ReturnType<TabResearchArgs['client']['ground']>>, citations: Citation[]): OverviewNarrative | undefined {
   const grounding = grounded.grounding;
-  if (!grounding || grounding.provider !== 'google-search' || grounding.answerText !== grounded.text || !Array.isArray(grounding.supports)) return;
+  if (!isAttributedGrounding(grounding) || grounding.answerText !== grounded.text || !Array.isArray(grounding.supports)) return;
   const citationByUrl = new Map(usableCitations(citations).map(citation => [citation.url, citation]));
   const officialHost = hostname(args.company.websiteUrl);
   const companyName = normalize(args.company.name).toLocaleLowerCase();
@@ -192,7 +193,7 @@ function literalSupportedNarrative(args: TabResearchArgs, grounded: Awaited<Retu
     }
     if (paragraphs.length >= 12) break;
   }
-  return paragraphs.length ? { companyId: args.company.id, basis: 'google-search', answerText: grounded.text,
+  return paragraphs.length ? { companyId: args.company.id, basis: grounding.provider, answerText: grounded.text,
     citations: usableCitations(citations), grounding, paragraphs } : undefined;
 }
 
@@ -284,7 +285,7 @@ export async function researchCompanyOverview(args: TabResearchArgs) {
   }
   throwIfAborted(args.signal);
   const grounding: ProviderGrounding | undefined = grounded.grounding;
-  const narrative: OverviewNarrative = { companyId: args.company.id, basis: 'google-search',
+  const narrative: OverviewNarrative = { companyId: args.company.id, basis: grounding?.provider ?? 'google-search',
     answerText: grounded.text, citations, ...(grounding ? { grounding } : {}), paragraphs: proposed.paragraphs };
   if (acceptedNarrativeParagraphs(narrative).length) return renderSourceReportedOverview(args, originals, narrative);
   const fallback = literalSupportedNarrative(args, grounded, citations);

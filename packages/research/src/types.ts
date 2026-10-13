@@ -166,7 +166,8 @@ export interface RunResearchOptions extends GeminiConfig {
 /** The abstraction the pipeline steps talk to (implemented by the Gemini client). */
 export interface ProviderGrounding {
   /** Provider attribution on generated answer text, NOT original-page evidence. */
-  provider: 'google-search';
+  /** 'page-quote': each support is a sentence verified verbatim in its source page's text. */
+  provider: 'google-search' | 'page-quote';
   answerText: string;
   supports: Array<{
     supportIndex: number;

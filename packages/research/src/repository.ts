@@ -6,6 +6,7 @@
  * satisfies the same interface as MockRepository, the app swaps to it simply by
  * having an API key present — no UI changes.
  */
+import { isAttributedGrounding } from './grounding-support';
 import {
   METRIC_TYPES,
   METRIC_TYPE_LABELS,
@@ -81,6 +82,7 @@ import {
   type ViceClaim,
 } from '@mi/contracts';
 import { createGeminiClient, type GeminiClientConfig } from './gemini';
+import { withSearchFallback } from './search-fallback';
 import { mergeTeamOrgNodes, researchDashboardWithSources } from './dashboard';
 import {
   buildStubs,
@@ -515,7 +517,12 @@ export class GeminiRepository implements MarketIntelRepository {
       // Expose the underlying client's pacing counters (audit fix 4).
       metrics: () => provider.metrics?.() ?? { calls: 0, retries: 0, rateLimitedMs: 0, fallbacks: 0 },
     };
-    this.client = recordResearchEvidence(guardedProvider, async (evidence) => {
+    // A spent Google-Search quota falls back to the user's search key, then
+    // the free news lane, rather than stopping every deck cold.
+    const searchBacked = withSearchFallback(guardedProvider, () =>
+      [this.webSearch?.() ?? null, this.newsSearch?.() ?? null].filter((lane): lane is WebSearchFn => lane !== null),
+      options.assetSourceReader);
+    this.client = recordResearchEvidence(searchBacked, async (evidence) => {
       this.snap.researchEvidence = [...(this.snap.researchEvidence ?? []), evidence];
       await this.persist();
     });
@@ -3026,7 +3033,7 @@ export class GeminiRepository implements MarketIntelRepository {
       let reportedSupport: CompanyMetric['reportedSupport'] = null;
       for (const candidate of g.grounding?.supports ?? []) {
         if (!candidate.sources.length) continue;
-        const proof = reportedMetricSupportSchema.safeParse({ provider: 'google-search', companyName: target.company.name,
+        const proof = reportedMetricSupportSchema.safeParse({ provider: g.grounding?.provider ?? 'google-search', companyName: target.company.name,
           basis: estimate.metricType, value: estimate.value, unit, asOf, definition: estimate.metricType,
           support: { supportIndex: candidate.supportIndex, text: candidate.text.slice(0, 12000), startIndex: candidate.startIndex,
             endIndex: candidate.endIndex, partIndex: candidate.partIndex,
@@ -3418,7 +3425,7 @@ export class GeminiRepository implements MarketIntelRepository {
     company: Company, slots: MetricType[], g: { text: string; grounding?: ProviderGrounding },
     revisions: Map<MetricType, string>,
   ): Promise<MetricType[]> {
-    if (slots.length === 0 || g.grounding?.provider !== 'google-search' || g.grounding.supports.length === 0) return [];
+    if (slots.length === 0 || !isAttributedGrounding(g.grounding) || g.grounding.supports.length === 0) return [];
     const marketId = this.snap.companyMarket[company.id];
     const otherCompanies = marketId === undefined ? [] : this.snap.companies
       .filter((c) => c.id !== company.id && this.snap.companyMarket[c.id] === marketId).map((c) => c.name);
@@ -3505,7 +3512,7 @@ export class GeminiRepository implements MarketIntelRepository {
     // Newest-wins selection may land on an ungrounded record; recovery needs
     // literal provider attribution, so such a record blocks rather than
     // falling back behind it.
-    if (!evidence || evidence.grounding?.provider !== 'google-search' || evidence.grounding.supports.length === 0) {
+    if (!evidence || !isAttributedGrounding(evidence.grounding) || evidence.grounding.supports.length === 0) {
       return { filledTypes: [], metrics: mine(), retieredCardIds: [] };
     }
     // Roster stays market-scoped; a company without a market mapping gets an
