@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, ExternalLink, Printer, Share2 } from 'lucide-react';
 import { publisherOf, type CardWithCompany } from '@mi/contracts';
@@ -15,6 +15,7 @@ import { SaveCardButton } from './GameCard';
 import { ViceDisclaimer } from './CardDisclaimer';
 import { buildCardView, faceFigureStatus, sourceUrl } from './card-view';
 import { printScoped } from '@/lib/print';
+import { sourceHref } from '@/lib/sourceHref';
 
 type Props = {
   data: CardWithCompany | null; open: boolean; onOpenChange: (open: boolean) => void;
@@ -59,6 +60,19 @@ export function CardReader({ data, open, returnFocusTo, ...props }: Props) {
   return <CardReaderBody key={data.card.id} data={data} open={open} onRestoreFocus={restoreFocus} {...props} />;
 }
 
+/** Left/Right browse the deck from the keyboard, but never while someone is typing or using a control that owns the arrows. */
+function browseWithArrows(onPrevious?: () => void, onNext?: () => void) {
+  return (event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest('input, textarea, select, [contenteditable="true"], [role="tablist"], [role="slider"], [role="radiogroup"]')) return;
+    const go = event.key === 'ArrowLeft' ? onPrevious : event.key === 'ArrowRight' ? onNext : undefined;
+    if (!go) return;
+    event.preventDefault();
+    go();
+  };
+}
+
 function CardReaderBody({ data, open, onOpenChange, marketId,
   deckView, position, total, onPrevious, onNext, onRestoreFocus }: Omit<Props, 'data' | 'returnFocusTo'> & {
   data: CardWithCompany; onRestoreFocus: (event: Event, cardId: string) => void;
@@ -97,7 +111,8 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent size="2xl" className={fullFinding ? 'card-inspector card-inspector--report' : 'card-inspector'}
-      onCloseAutoFocus={(event) => onRestoreFocus(event, card.id)}>
+      onCloseAutoFocus={(event) => onRestoreFocus(event, card.id)}
+      onKeyDown={browseWithArrows(onPrevious, onNext)}>
       <DialogTitle className="sr-only">Inspect {view.title} card</DialogTitle>
       <DialogDescription className="sr-only">
         A concise research summary with sourced figures. Open the full dashboard for deeper evidence and analysis.
@@ -125,7 +140,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
               </a>}
               {summarySources.length > 0 ? <div className="card-inspector__summary-sources">
                 <span>Related sources</span>
-                {summarySources.map((citation) => <a key={citation.url} href={citation.url}
+                {summarySources.map((citation) => <a key={citation.url} href={sourceHref(citation.url, citation.title)}
                   target="_blank" rel="noopener noreferrer">
                   {publisherOf(citation.url, citation.title)} <ExternalLink size={10} aria-hidden="true" />
                 </a>)}
@@ -153,7 +168,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                   <strong className="card-inspector__fact-value">{item.display}</strong>
                   <div className="card-inspector__fact-meta">
                     <span>{status}</span>
-                    {citation && <a href={citation.url} target="_blank" rel="noopener noreferrer"
+                    {citation && <a href={sourceHref(citation.url, citation.title)} target="_blank" rel="noopener noreferrer"
                       aria-label={`Source for ${item.label}: ${publisherOf(citation.url, citation.title)}`}>
                       <span>{publisherOf(citation.url, citation.title)}</span><ExternalLink size={10} aria-hidden="true" />
                     </a>}
@@ -188,7 +203,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                 {previewPoints.slice(0, 2).map((point, i) => <li key={i}><p>{point}</p></li>)}
               </ul>}
               {view.citations.length > 0 ? <div className="card-inspector__source-list">
-                {view.citations.slice(0, 3).map((citation) => <a key={citation.url} href={citation.url}
+                {view.citations.slice(0, 3).map((citation) => <a key={citation.url} href={sourceHref(citation.url, citation.title)}
                   target="_blank" rel="noopener noreferrer">
                   <ExternalLink size={10} aria-hidden="true" />{publisherOf(citation.url, citation.title)}
                 </a>)}
@@ -227,7 +242,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                 Source receipts · {view.sourceCount}
               </p>
               {view.citations.length > 0 ? <div className="card-inspector__source-list mt-2">
-                {view.citations.map((citation) => <a key={citation.url} href={citation.url}
+                {view.citations.map((citation) => <a key={citation.url} href={sourceHref(citation.url, citation.title)}
                   target="_blank" rel="noopener noreferrer">
                   <ExternalLink size={10} aria-hidden="true" />{publisherOf(citation.url, citation.title)}
                 </a>)}

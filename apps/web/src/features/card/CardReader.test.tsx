@@ -25,6 +25,17 @@ describe('CardReader', () => {
     await user.click(link);
     expect(onOpenChange).not.toHaveBeenCalled();
   });
+  it('browses to the previous and next card with the arrow keys', async () => {
+    const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
+    const [onPrevious, onNext] = [vi.fn(), vi.fn()];
+    const { user } = renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} onPrevious={onPrevious} onNext={onNext} />);
+    await user.keyboard('{ArrowRight}');
+    expect(onNext).toHaveBeenCalledTimes(1);
+    await user.keyboard('{ArrowLeft}');
+    expect(onPrevious).toHaveBeenCalledTimes(1);
+    await user.keyboard('{Shift>}{ArrowRight}{/Shift}');
+    expect(onNext).toHaveBeenCalledTimes(1);
+  });
   it('shows one concise overview, the four core figures, and a clear dashboard action', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);

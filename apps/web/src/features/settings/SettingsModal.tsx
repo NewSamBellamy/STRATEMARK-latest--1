@@ -639,6 +639,7 @@ function UsageBillingPanel() {
         <button
           type="button"
           role="switch"
+          aria-label="Generated imagery"
           aria-checked={controls.imagesEnabled}
           onClick={() => setCostControls({ imagesEnabled: !controls.imagesEnabled })}
           className={
