@@ -34,7 +34,7 @@ export function TabFreshness({ companyId, tab, onRefresh, refreshing, disabled, 
       </span>
       <button
         type="button"
-        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-primary-ink hover:bg-surface-2 disabled:opacity-50"
+        className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-primary-ink hover:bg-surface-2 disabled:opacity-50"
         disabled={disabled || refreshing}
         title={disabled ? 'Add an API key to refresh research.' : 'Run a fresh grounded research pass for this tab.'}
         onClick={onRefresh}
