@@ -142,7 +142,7 @@ import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } f
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
 import { buildChatPrompt, formatCompanyBlock, formatDeckRankings } from './chat-context';
-import { savedCompanyProfile } from './saved-profile';
+import { savedCompanyProfile, savedCompanySummary } from './saved-profile';
 import { companySourceTargets } from './source-policy';
 import { renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
 import { renderCompanyTeamOrg, teamOrgOriginalAttempts, teamOrgSupportReferences, type TeamOrgSelections } from './company-team';
@@ -1939,7 +1939,7 @@ export class GeminiRepository implements MarketIntelRepository {
       : [];
     const viceClaims =
       card.cardType === 'vice' ? this.snap.viceClaims.filter((v) => v.cardId === card.id) : [];
-    return { card, company: company ? savedCompanyProfile(company, metrics, this.snap.researchEvidence ?? []).company : null, metrics, viceClaims };
+    return { card, company: company ? savedCompanySummary(company, this.snap.researchEvidence ?? []) : null, metrics, viceClaims };
   }
 
   private async cardsWithFacts(cards: CardWithCompany[]): Promise<CardWithCompany[]> {
@@ -1977,7 +1977,7 @@ export class GeminiRepository implements MarketIntelRepository {
 
   getCompany(companyId: string): Promise<Company | null> {
     const company = this.snap.companies.find((c) => c.id === companyId);
-    return Promise.resolve(company ? savedCompanyProfile(company, this.snap.metrics, this.snap.researchEvidence ?? []).company : null);
+    return Promise.resolve(company ? savedCompanySummary(company, this.snap.researchEvidence ?? []) : null);
   }
   getCompanyMetrics(companyId: string): Promise<CompanyMetric[]> {
     return Promise.resolve(structuredClone(this.snap.metrics.filter((m) => m.companyId === companyId)));

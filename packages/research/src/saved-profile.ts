@@ -37,7 +37,19 @@ export function savedCompanyProfile(company: Company, metrics: readonly CompanyM
   // saved profile would show one side of the conflict as fact.
   const missing = recovered.filter(row => row.value !== null && !current.some(existing => existing.metricType === row.metricType &&
     (existing.value !== null || existing.confidence === 'user_verified' || existing.methodNote === CONFLICTING_OBSERVATIONS_NOTE)));
-  const summary = providerCompanySummary(company.name, company.websiteUrl, profile.text, profile.grounding);
-  return { company: summary && (!company.oneLiner || company.oneLiner.startsWith('No source-backed company snapshot')) ? { ...company, oneLiner: summary.summary } : company,
+  return { company: withProfileSummary(company, profile),
     metrics: [...current.filter(row => !missing.some(repair => repair.metricType === row.metricType)), ...missing] };
+}
+
+/** The company as its latest saved profile describes it, without re-running
+ * metric recovery: for callers that show the company, not its figures. */
+export function savedCompanySummary(company: Company, evidence: readonly ResearchEvidence[]): Company {
+  const profile = latestSavedCompanyProfile(company, evidence);
+  return profile ? withProfileSummary(company, profile) : company;
+}
+
+/** A source-backed one-liner replaces only a missing or placeholder one. */
+function withProfileSummary(company: Company, profile: ResearchEvidence): Company {
+  const summary = providerCompanySummary(company.name, company.websiteUrl, profile.text, profile.grounding);
+  return summary && (!company.oneLiner || company.oneLiner.startsWith('No source-backed company snapshot')) ? { ...company, oneLiner: summary.summary } : company;
 }
