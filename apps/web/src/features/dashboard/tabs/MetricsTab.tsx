@@ -373,6 +373,11 @@ function MetricDetail({
 
 // ---- Sortable table --------------------------------------------------------
 
+/** The clickable source a row links to, if it has one. */
+function linkedCitation(metric: CompanyMetric) {
+  return metric.citations.find((c) => /^https?:\/\//i.test(c.url));
+}
+
 interface Row { metric: CompanyMetric; ranking: PeerRanking; rank: number | null }
 
 function SortHeader({
@@ -417,9 +422,10 @@ function MetricTable({
           {rows.map(({ metric, ranking, rank }) => {
             const known = isKnown(metric);
             const isSel = selected === metric.metricType;
-            const cite = metric.citations.find((c) => /^https?:\/\//i.test(c.url));
+            const cite = linkedCitation(metric);
+            // "Reported" only when a source is linked; an estimate without one says so.
             const trust = metric.confidence === 'user_verified' ? 'Human checked'
-              : metric.confidence === 'verified' ? 'Verified' : 'Reported';
+              : metric.confidence === 'verified' ? 'Verified' : cite ? 'Reported' : 'Estimated';
             return (
               <tr
                 key={metric.id}
@@ -656,6 +662,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
           missing.find((r) => !r.metric.id.startsWith('gap-')) ?? missing[0];
         const series = seriesQ.data?.content;
         const knownCount = sorted.length;
+        const unlinkedCount = sorted.filter((r) => r.metric.confidence !== 'user_verified' && !linkedCitation(r.metric)).length;
         const hasSeries = !!series && (series.revenue.length > 1 || series.users.length > 1 || series.churn.length > 1 || series.capTable.length > 0);
         const onSort = (k: SortKey) =>
           setSort((s) => (s.key === k ? { key: k, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: k === 'value' || k === 'asof' ? 'desc' : 'asc' }));
@@ -664,7 +671,8 @@ export function MetricsTab({ companyId }: { companyId: string }) {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-[13px] text-muted">
                 {knownCount > 0 ? <>
-                  <span className="font-semibold text-content">{knownCount}</span> of {rows.length} figures found, each with its source.
+                  <span className="font-semibold text-content">{knownCount}</span> of {rows.length} figures found
+                  {unlinkedCount === 0 ? ', each with its source.' : `; ${unlinkedCount} without a source link yet.`}
                   {' '}Select one for detail and how it compares in this deck.
                 </> : 'No sourced figures found yet. Nothing here is estimated to fill a gap.'}
               </p>

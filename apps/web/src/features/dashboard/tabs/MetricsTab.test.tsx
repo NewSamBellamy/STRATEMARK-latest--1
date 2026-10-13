@@ -88,6 +88,20 @@ describe('dashboard metric evidence projection', () => {
     await user.click(within(gap).getAllByRole('button')[0]!);
     expect(screen.getAllByText(/What would fill this/).length).toBeGreaterThan(0);
   });
+  it('never claims a source for a figure that has no link', async () => {
+    show({ confidence: 'estimated' });
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText('No link recorded')).toBeInTheDocument();
+    expect(within(table).getByText('Estimated')).toBeInTheDocument();
+    expect(within(table).queryByText('Reported')).not.toBeInTheDocument();
+    expect(screen.queryByText(/each with its source/)).not.toBeInTheDocument();
+    expect(screen.getByText(/1 without a source link yet/)).toBeInTheDocument();
+  });
+  it('says every found figure has its source only when each one links to it', async () => {
+    show({ confidence: 'estimated', source: 'https://sec.gov/Archives/report',
+      citations: [{ title: 'Filing', url: 'https://sec.gov/Archives/report', credibility: 'primary' }] });
+    expect(await screen.findByText(/each with its source/)).toBeInTheDocument();
+  });
   it('sorts found figures by value when a header is clicked', async () => {
     const metrics = [
       { ...seed, id: 'm1', metricType: 'employees' as const, value: 120, confidence: 'estimated' as const, source: null, citations: [] },
