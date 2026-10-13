@@ -5,7 +5,8 @@ import { ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { Section, useTabHref } from '../dashboardKit';
-import { fundingSnapshot, leadershipSnapshot, newsMood, formatUsdCompact } from '../snapshot';
+import { fundingSnapshot, leadershipSnapshot, newsMood, formatUsdCompact, peerTable } from '../snapshot';
+import { formatMetricValue } from '@/lib/format';
 import { UnknownInline } from '@/features/card/UnknownValue';
 import { Logo } from '@/features/card/Logo';
 import { WikiAvatar } from './LeaderGrid';
@@ -143,10 +144,20 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
   );
 }
 
-/** The other companies in the deck this dashboard was opened from: one click to compare notes. */
+const PEER_COLUMNS = [['valuation', 'Valuation'], ['arr', 'Revenue / ARR'], ['employees', 'Employees']] as const;
+
+/**
+ * The deck this dashboard was opened from, side by side on a few headline
+ * figures (known ones only; estimates are marked), or, when too little is
+ * known to compare, just the other companies, one click away.
+ */
 export function MarketPeers({ companyId }: { companyId: string }) {
   const [params] = useSearchParams();
   const peers = usePeers();
+  const table = useMemo(
+    () => peerTable(companyId, peers.peers, PEER_COLUMNS.map(([type]) => type)),
+    [companyId, peers.peers],
+  );
   const others = peers.peers.filter((peer) => peer.companyId !== companyId);
   if (peers.status !== 'ready' || others.length === 0) return null;
   const to = (peerId: string) => {
@@ -154,6 +165,42 @@ export function MarketPeers({ companyId }: { companyId: string }) {
     next.delete('metric');
     return `/company/${peerId}/dashboard/overview?${next.toString()}`;
   };
+  if (table) {
+    return (
+      <Section title="How they compare" hint="This deck on three headline figures. A dash means no sourced figure yet, never zero.">
+        <div className="panel overflow-x-auto">
+          <table className="w-full min-w-[420px] border-collapse text-[13px]">
+            <caption className="sr-only">Companies in this deck compared on valuation, revenue and employees</caption>
+            <thead>
+              <tr className="border-b border-border bg-surface-2/50 text-left text-[10.5px] uppercase tracking-[0.1em] text-muted">
+                <th scope="col" className="px-3 py-2 font-semibold">Company</th>
+                {PEER_COLUMNS.map(([type, label]) => <th key={type} scope="col" className="px-3 py-2 text-right font-semibold">{label}</th>)}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {table.slice(0, 12).map((row) => (
+                <tr key={row.companyId} className={cn(row.isSelf && 'bg-primary/5')} aria-current={row.isSelf ? 'true' : undefined}>
+                  <th scope="row" className="px-3 py-2 text-left font-medium text-content">
+                    {row.isSelf
+                      ? <span className="inline-flex items-center gap-2"><Logo name={row.name} website={row.websiteUrl} logoUrl={row.logoUrl} bare className="h-4 w-4" />{row.name} <span className="text-[11px] font-normal text-faint">(this company)</span></span>
+                      : <Link to={to(row.companyId)} className="inline-flex items-center gap-2 hover:text-primary-ink hover:underline"><Logo name={row.name} website={row.websiteUrl} logoUrl={row.logoUrl} bare className="h-4 w-4" />{row.name}</Link>}
+                  </th>
+                  {row.cells.map((cell, i) => (
+                    <td key={PEER_COLUMNS[i]![0]} className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                      {cell
+                        ? <>{formatMetricValue(PEER_COLUMNS[i]![0], cell.value)}{cell.confidence === 'estimated' && <span className="ml-1 text-[10px] text-faint">est.</span>}</>
+                        : <span className="text-faint" aria-label="not found yet">—</span>}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {table.length > 12 && <p className="mt-1.5 text-[11.5px] text-faint">Showing 12 of {table.length}. All figures and peers are on the Metrics tab.</p>}
+      </Section>
+    );
+  }
   return (
     <Section title="In this market" hint="The rest of this deck. Open one to see its dashboard.">
       <ul className="flex flex-wrap gap-2">

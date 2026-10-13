@@ -3,7 +3,8 @@
  * strip. Everything here reads what the Team, Governance and Live Intel tabs
  * already retained: nothing is summed, ranked by guesswork or filled in.
  */
-import type { LiveIntelItem, MissionGovernanceContent, OrgNode } from '@mi/contracts';
+import type { CompanyMetric, LiveIntelItem, MetricType, MissionGovernanceContent, OrgNode } from '@mi/contracts';
+import { comparableKnown, type PeerEntry } from './dashboardModel';
 
 type Round = NonNullable<MissionGovernanceContent['fundingRounds']>[number];
 type Investor = NonNullable<MissionGovernanceContent['investors']>[number];
@@ -104,4 +105,26 @@ export function newsMood(items: readonly Pick<LiveIntelItem, 'sentiment' | 'stal
     mood.total += 1;
   }
   return mood;
+}
+
+export interface PeerCell { value: number; confidence: CompanyMetric['confidence'] }
+export interface PeerRow { companyId: string; name: string; logoUrl?: string | null; websiteUrl?: string | null; isSelf: boolean; cells: Array<PeerCell | null> }
+
+/**
+ * The deck laid side by side on a few headline figures. Only known, same-basis
+ * figures appear (an unknown is a dash, never a zero); biggest first on the
+ * first column that has a value. Null when fewer than two companies have
+ * anything to compare.
+ */
+export function peerTable(selfId: string, entries: readonly PeerEntry[], types: readonly MetricType[]): PeerRow[] | null {
+  const rows = entries.map((entry): PeerRow => ({
+    companyId: entry.companyId, name: entry.name, logoUrl: entry.logoUrl, websiteUrl: entry.websiteUrl, isSelf: entry.companyId === selfId,
+    cells: types.map((type) => {
+      const metric = comparableKnown(entry, type);
+      return metric ? { value: metric.value as number, confidence: metric.confidence } : null;
+    }),
+  }));
+  if (rows.filter((row) => row.cells.some(Boolean)).length < 2) return null;
+  const lead = types.findIndex((_, i) => rows.some((row) => row.cells[i]));
+  return rows.sort((a, b) => (b.cells[lead]?.value ?? -1) - (a.cells[lead]?.value ?? -1) || a.name.localeCompare(b.name));
 }

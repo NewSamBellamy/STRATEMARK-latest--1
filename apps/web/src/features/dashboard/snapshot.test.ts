@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { OrgNode } from '@mi/contracts';
-import { fundingSnapshot, leadershipSnapshot, newsMood, reportedDateMs, roundsNewestFirst } from './snapshot';
+import type { CompanyMetric, OrgNode } from '@mi/contracts';
+import { fundingSnapshot, leadershipSnapshot, newsMood, peerTable, reportedDateMs, roundsNewestFirst } from './snapshot';
 
 const round = (name: string, date: string | null, leads: string[] = [], amountUsd: number | null = null) =>
   ({ round: name, date, leadInvestors: leads, amountUsd });
@@ -66,5 +66,26 @@ describe('news mood', () => {
       { sentiment: 'positive', stale: false }, { sentiment: 'negative', stale: false },
       { sentiment: 'positive', stale: false }, { sentiment: 'neutral', stale: true },
     ])).toEqual({ positive: 2, neutral: 0, negative: 1, total: 3 });
+  });
+});
+
+describe('peer table', () => {
+  const metric = (companyId: string, metricType: CompanyMetric['metricType'], value: number | null, confidence: CompanyMetric['confidence'] = 'estimated') =>
+    ({ id: `${companyId}-${metricType}`, companyId, metricType, value, confidence, source: null, citations: [], methodNote: null, capturedAt: '' }) as CompanyMetric;
+  const entry = (companyId: string, name: string, metrics: CompanyMetric[]) => ({ companyId, name, metrics });
+
+  it('puts the biggest first, shows only known figures and never a zero for an unknown', () => {
+    const rows = peerTable('b', [
+      entry('a', 'Alpha', [metric('a', 'valuation', 5e9), metric('a', 'employees', 1200)]),
+      entry('b', 'Beta', [metric('b', 'valuation', 20e9), metric('b', 'arr', null, 'unknown')]),
+      entry('c', 'Gamma', [metric('c', 'arr', 3e9)]),
+    ], ['valuation', 'arr', 'employees'])!;
+    expect(rows.map((r) => r.name)).toEqual(['Beta', 'Alpha', 'Gamma']);
+    expect(rows[0]).toMatchObject({ isSelf: true, cells: [{ value: 20e9 }, null, null] });
+    expect(rows[1]!.cells).toEqual([{ value: 5e9, confidence: 'estimated' }, null, { value: 1200, confidence: 'estimated' }]);
+  });
+
+  it('is absent when fewer than two companies have anything to compare', () => {
+    expect(peerTable('a', [entry('a', 'Alpha', [metric('a', 'valuation', 5e9)]), entry('b', 'Beta', [])], ['valuation'])).toBeNull();
   });
 });

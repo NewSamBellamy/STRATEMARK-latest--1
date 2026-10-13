@@ -151,7 +151,7 @@ export interface PeerRanking {
   includesEstimates: boolean;
 }
 
-function comparableKnown(entry: PeerEntry, type: MetricType): CompanyMetric | undefined {
+export function comparableKnown(entry: PeerEntry, type: MetricType): CompanyMetric | undefined {
   const m = entry.metrics.find((x) => x.metricType === type);
   return m && isKnown(m) && comparableMetricBasis(m) ? m : undefined;
 }
