@@ -2,7 +2,7 @@ import { useFocusCompany } from '@/lib/living/researchFocus';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQueryClient, useIsFetching } from '@tanstack/react-query';
-import { ArrowLeft, ChevronDown, FileText, Globe, MapPin, Search } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronDown, FileText, Globe, MapPin, Search } from 'lucide-react';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 import { useCompany, useCompanyMetrics, useReports, useRerunDashboardTab } from '@/hooks/data';
@@ -20,6 +20,8 @@ import { Logo } from '@/features/card/Logo';
 import { ExportMenu } from '@/features/export/ExportMenu';
 import { DigDeeper, useDeepDive } from '@/features/deepdive/DeepDive';
 import { TabFreshness } from './TabFreshness';
+import { foundedYear } from './snapshot';
+import { useCachedDashboardTab } from './useCachedTab';
 import { OverviewTab } from './tabs/OverviewTab';
 import { ResearchTab } from './tabs/ResearchTab';
 import { LiveIntelTab } from './tabs/LiveIntelTab';
@@ -73,12 +75,15 @@ function restatesHq(line: string, hq: string | null | undefined): boolean {
 }
 
 /** One quiet row of facts under the company name; each only if it exists. */
-function KeyFacts({ hq, website }: { hq: string | null; website: string | null }) {
-  if (!hq && !website) return null;
+function KeyFacts({ hq, website, founded }: { hq: string | null; website: string | null; founded: number | null }) {
+  if (!hq && !website && !founded) return null;
   return (
     <ul className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted" aria-label="Key facts">
       {hq && (
         <li className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 text-faint" aria-hidden />{hq}</li>
+      )}
+      {founded && (
+        <li className="inline-flex items-center gap-1.5" title="From the dated history on the History tab"><CalendarDays className="h-3.5 w-3.5 text-faint" aria-hidden />Founded {founded}</li>
       )}
       {website && (
         <li>
@@ -314,6 +319,8 @@ export default function DashboardPage() {
   };
   const company = useCompany(companyId);
   const metrics = useCompanyMetrics(companyId);
+  // Only once the History tab has been researched: never starts research of its own.
+  const founded = foundedYear(useCachedDashboardTab(companyId ?? '', 'history').data?.content.timeline);
   // The fallback oneLiner reads as a contradiction when the metrics grid below
   // it shows figures. With provider-reported figures on file, say what state
   // the snapshot is actually in instead of claiming nothing exists.
@@ -383,6 +390,7 @@ export default function DashboardPage() {
                 <KeyFacts
                   hq={c.hqLocation}
                   website={c.websiteUrl}
+                  founded={founded}
                 />
               </div>
               <ExportMenu

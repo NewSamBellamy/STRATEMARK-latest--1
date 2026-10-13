@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CompanyMetric, OrgNode } from '@mi/contracts';
-import { fundingSnapshot, leadershipSnapshot, newsMood, peerTable, reportedDateMs, roundsNewestFirst } from './snapshot';
+import { foundedYear, fundingSnapshot, leadershipSnapshot, newsMood, peerTable, reportedDateMs, roundsNewestFirst } from './snapshot';
 
 const round = (name: string, date: string | null, leads: string[] = [], amountUsd: number | null = null) =>
   ({ round: name, date, leadInvestors: leads, amountUsd });
@@ -87,5 +87,17 @@ describe('peer table', () => {
 
   it('is absent when fewer than two companies have anything to compare', () => {
     expect(peerTable('a', [entry('a', 'Alpha', [metric('a', 'valuation', 5e9)]), entry('b', 'Beta', [])], ['valuation'])).toBeNull();
+  });
+});
+
+describe('founded year', () => {
+  const ev = (date: string, title: string, detail = '') => ({ date, title, detail });
+  it('is the earliest milestone that describes a founding', () => {
+    expect(foundedYear([ev('2022', 'Launches Atlas model'), ev('2019 Jun', 'Company founded in Berlin'), ev('2021', 'Incorporated as a PBC')])).toBe(2019);
+  });
+  it('is absent when no milestone says the company began, and never read from a product launch', () => {
+    expect(foundedYear([ev('2022', 'Launches Atlas model'), ev('2023', 'Series A')])).toBeNull();
+    expect(foundedYear([ev('Early days', 'Founded in a garage')])).toBeNull();
+    expect(foundedYear(undefined)).toBeNull();
   });
 });

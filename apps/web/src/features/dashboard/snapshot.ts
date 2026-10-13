@@ -3,7 +3,7 @@
  * strip. Everything here reads what the Team, Governance and Live Intel tabs
  * already retained: nothing is summed, ranked by guesswork or filled in.
  */
-import type { CompanyMetric, LiveIntelItem, MetricType, MissionGovernanceContent, OrgNode } from '@mi/contracts';
+import type { CompanyMetric, HistoryContent, LiveIntelItem, MetricType, MissionGovernanceContent, OrgNode } from '@mi/contracts';
 import { comparableKnown, type PeerEntry } from './dashboardModel';
 
 type Round = NonNullable<MissionGovernanceContent['fundingRounds']>[number];
@@ -127,4 +127,20 @@ export function peerTable(selfId: string, entries: readonly PeerEntry[], types: 
   if (rows.filter((row) => row.cells.some(Boolean)).length < 2) return null;
   const lead = types.findIndex((_, i) => rows.some((row) => row.cells[i]));
   return rows.sort((a, b) => (b.cells[lead]?.value ?? -1) - (a.cells[lead]?.value ?? -1) || a.name.localeCompare(b.name));
+}
+
+const FOUNDING = /\b(?:founded|co-?founded|incorporated|established|launched (?:as|the company)|was (?:started|formed|created)|started operations)\b/i;
+
+/**
+ * The year the history says the company began: the earliest dated milestone
+ * whose own words describe a founding. Null when none does (a first product
+ * launch is not a founding), so the header shows nothing rather than a guess.
+ */
+export function foundedYear(timeline: HistoryContent['timeline'] | undefined): number | null {
+  const years = (timeline ?? [])
+    .filter((event) => FOUNDING.test(`${event.title} ${event.detail ?? ''}`))
+    .map((event) => reportedDateMs(event.date))
+    .filter((ms): ms is number => ms !== null)
+    .map((ms) => new Date(ms).getUTCFullYear());
+  return years.length > 0 ? Math.min(...years) : null;
 }
