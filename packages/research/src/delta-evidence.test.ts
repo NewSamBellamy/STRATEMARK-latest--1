@@ -86,6 +86,23 @@ describe('fast provider-reported deck expansion through actual production wrappe
     // A failed write locks the store until reopen, so the rollback is what the open deck shows.
     expect(await s.repo.listCards(deckId)).toEqual([]);
   });
+  it('takes an unresearched placeholder back out when the hunt is cancelled, so it never reopens empty', async () => {
+    const s = repository();
+    const market = await s.repo.createMarket({ name: 'Software', scopeDefinition: { vertical: 'SaaS', geography: null, notes: null }, refreshCadence: 'weekly' });
+    const deckId = (await s.repo.getDeckByMarket(market.id))!.id;
+    const controller = new AbortController();
+    const discover = vi.mocked(s.client.ground).getMockImplementation()!;
+    // Discovery answers; the company research is cancelled while it runs.
+    vi.mocked(s.client.ground).mockImplementationOnce(discover).mockImplementation(async () => {
+      controller.abort();
+      throw new DOMException('Aborted', 'AbortError');
+    });
+    const events = vi.fn(); s.repo.subscribeDeckRefresh(events);
+    await expect(s.repo.expandDeck(market.id, { cardType: 'company' }, { signal: controller.signal })).rejects.toThrow();
+    expect(events.mock.calls.at(-1)![0].prunedCardIds).toHaveLength(1);
+    expect(s.snapshot().cards).toEqual([]);
+    expect(await new GeminiRepository(s.options).listCards(deckId)).toEqual([]);
+  });
   it('retains a reported figure even when original services are unavailable, without calling them', async () => {
     const s = fixture();
     s.originals.retrieve = vi.fn(async requestedUrl => ({ requestedUrl, status: 'unavailable' as const,

@@ -4478,17 +4478,21 @@ ${references}`
         batch: stubs.map((s, i) => ({ candidate: found.candidates[i]!, companyId: s.company?.id })),
         otherCompanies: roster,
       });
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      // The batch answer failed as a whole; each company retries alone below.
+    } catch {
+      // The batch answer failed as a whole; each company retries alone below
+      // (or, when cancelled, its placeholders come back out below).
     }
 
     let finished = 0;
     let firstFailure: unknown = null;
-    await Promise.all(stubs.map(async (stub, i) => {
+    const researched = new Set<string>();
+    // Settle every company before deciding anything: a rejection that ended
+    // the wait early left the others still writing behind a failed hunt.
+    const outcomes = await Promise.allSettled(stubs.map(async (stub, i) => {
       const candidate = found.candidates[i]!;
       const company = stub.company;
       if (!company) return;
+      throwIfAborted(signal);
       let hydrated = batch.get(candidate.name);
       if (!hydrated) {
         try {
@@ -4506,6 +4510,7 @@ ${references}`
       }
       const changed = this.applyExpandHydration(stub, hydrated, market.name, retag);
       this.pendingHuntCompanies.delete(company.id);
+      researched.add(company.id);
       await this.persist();
       // First time the grid can list this card: announce it as added.
       notify([stub.card.id, ...changed.added], [], [company.id]);
@@ -4533,18 +4538,26 @@ ${references}`
         }
       })();
     }));
-    // Nothing could be researched (storage or provider failure): take the
-    // placeholders back out and say the hunt failed, rather than leaving a
-    // row of empty cards behind.
-    if (finished === 0 && firstFailure) {
-      await Promise.all(lanes.values());
-      removeStubs({ cards: stubCardIds, companies: stubCompanyIds });
-      for (const id of stubCompanyIds) this.pendingHuntCompanies.delete(id);
+    for (const outcome of outcomes) if (outcome.status === 'rejected') firstFailure ??= outcome.reason;
+    // A cancelled hunt keeps the companies it finished; the placeholders it
+    // never researched were saved hidden and would reopen as empty cards.
+    // Nothing researched at all (storage or provider failure) takes every
+    // placeholder back out and says the hunt failed.
+    const unfinished = signal?.aborted
+      ? stubs.filter((s) => s.company && !researched.has(s.company.id))
+      : finished === 0 && firstFailure ? stubs : [];
+    if (unfinished.length > 0) {
+      await Promise.allSettled(lanes.values());
+      const cards = new Set(unfinished.map((s) => s.card.id));
+      const companies = new Set(unfinished.map((s) => s.company?.id).filter((id): id is string => Boolean(id)));
+      removeStubs({ cards, companies });
+      for (const id of companies) this.pendingHuntCompanies.delete(id);
       try { await this.persist(); } catch { /* the error below is the one to report */ }
       this.emit({ marketId, deckId: deck.id, refreshedAt: new Date().toISOString(), addedCardIds: [], updatedCardIds: [],
-        prunedCardIds: [...stubCardIds] });
-      throw firstFailure;
+        prunedCardIds: [...cards] });
     }
+    throwIfAborted(signal);
+    if (finished === 0 && firstFailure) throw firstFailure;
     return { added: stubs.length };
   }
 
