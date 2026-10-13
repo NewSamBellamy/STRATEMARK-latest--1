@@ -28,8 +28,9 @@ export function TabFreshness({ companyId, tab, onRefresh, refreshing, disabled, 
   const old = Number.isFinite(age) && age > MONTH_MS;
   return (
     <div className="mb-3 flex items-center justify-end gap-2 text-[11.5px] text-faint">
-      <span className={cn(old && 'text-negative')} title={new Date(refreshedAt).toLocaleString()}>
-        Researched {formatRelative(refreshedAt, now)}{old ? ' · over a month old' : ''}
+      <span title={new Date(refreshedAt).toLocaleString()}>
+        Researched {formatRelative(refreshedAt, now)}
+        {old && <span className="text-negative"> · over a month old</span>}
       </span>
       <button
         type="button"

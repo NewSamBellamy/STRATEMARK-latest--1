@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
+import { cn } from '@/lib/cn';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { Section, useTabHref } from '../dashboardKit';
 import { fundingSnapshot, leadershipSnapshot, newsMood, formatUsdCompact } from '../snapshot';
@@ -15,6 +16,9 @@ import { usePeers } from '../usePeers';
  * starts research of its own: a panel appears when its tab has content, and
  * until then a single line says where the rest lives.
  */
+
+// One column per panel, so two panels fill the row instead of leaving a gap.
+const COLUMNS: Record<number, string> = { 1: 'md:grid-cols-1', 2: 'md:grid-cols-2', 3: 'md:grid-cols-3' };
 
 function PanelHead({ title, to, label }: { title: string; to: string; label: string }) {
   return (
@@ -42,6 +46,7 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
   const positive = governance?.content.positives?.[0];
   const concern = governance?.content.negatives?.[0];
   const hasSignals = mood.total > 0 || Boolean(positive || concern);
+  const panels = [leaders.length > 0, Boolean(funding), hasSignals].filter(Boolean).length;
 
   if (leaders.length === 0 && !funding && !hasSignals) {
     return (
@@ -58,7 +63,7 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
 
   return (
     <Section title="Leadership, funding & signals">
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className={cn('grid gap-3', COLUMNS[panels])}>
         {leaders.length > 0 && (
           <div className="panel min-w-0 p-4">
             <PanelHead title="Leadership" to={href('team_org')} label="Team & org" />
