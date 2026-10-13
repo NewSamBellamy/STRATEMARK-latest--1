@@ -798,6 +798,146 @@ export class GeminiRepository implements MarketIntelRepository {
     return job;
   }
 
+  /** Delete a deck by its own id or by its market's id (the decks list passes
+   * the market id). Same contract as deleteMarket. */
+  deleteDeck(id: string): Promise<boolean> {
+    const deck = this.snap.decks.find((d) => d.id === id);
+    return this.deleteMarket(deck ? deck.marketId : id);
+  }
+
+  /**
+   * Delete a market, its deck(s) and everything that only exists because of
+   * them. Research still running for the deck is aborted and allowed to settle
+   * first, so nothing writes the deck back afterwards. Companies another deck
+   * still shows are kept intact; companies left on no deck are removed with
+   * their figures, dashboards, source checks, evidence and original receipts.
+   * A failed save leaves the previous state in place. Unknown id → false.
+   */
+  async deleteMarket(marketId: string): Promise<boolean> {
+    const deckIdsFor = (snap: RepoSnapshot) =>
+      new Set(snap.decks.filter((d) => d.marketId === marketId).map((d) => d.id));
+    const exists = (snap: RepoSnapshot, deckIds: Set<string>) =>
+      deckIds.size > 0 || snap.markets.some((m) => m.id === marketId);
+    const jobsFor = (snap: RepoSnapshot, deckIds: Set<string>) => snap.researchJobs.filter((job) =>
+      job.market?.id === marketId || (job.deck ? deckIds.has(job.deck.id) : false) ||
+      (job.partialCards ?? []).some((entry) => deckIds.has(entry.card.deckId)));
+    if (!exists(this.snap, deckIdsFor(this.snap))) return false;
+    await this.ready();
+
+    // Stop research that could write this deck back, then let it settle. The
+    // wait is bounded: an aborted job's last act is a status write, and a hung
+    // provider call must not hold the delete forever.
+    const initialDeckIds = deckIdsFor(this.snap);
+    const jobIds = new Set(jobsFor(this.snap, initialDeckIds).map((job) => job.id));
+    for (const id of jobIds) this.jobControllers.get(id)?.abort();
+    const deckCompanyIds = new Set(this.snap.cards
+      .filter((card) => initialDeckIds.has(card.deckId) && card.companyId)
+      .map((card) => card.companyId!));
+    const inFlight: Array<Promise<unknown> | undefined> = [
+      ...[...jobIds].flatMap((id) => [this.detachedDiscovery.get(id), this.activeBackgroundJobs.get(id)]),
+      ...[...deckCompanyIds].flatMap((id) => [this.hunts.get(id)?.result, this.sourceBindings.get(id)]),
+    ];
+    const pending = inFlight.filter((p): p is Promise<unknown> => p !== undefined).map((p) => p.catch(() => undefined));
+    if (pending.length > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        Promise.all(pending),
+        new Promise<void>((resolve) => { timer = setTimeout(resolve, 15_000); }),
+      ]);
+      if (timer !== undefined) clearTimeout(timer);
+    }
+
+    // Recompute against the settled snapshot: the aborted job may have saved.
+    const prev = this.snap;
+    const deckIds = deckIdsFor(prev);
+    if (!exists(prev, deckIds)) return false;
+    const marketName = prev.markets.find((m) => m.id === marketId)?.name;
+    const allJobIds = new Set([...jobIds, ...jobsFor(prev, deckIds).map((job) => job.id)]);
+    const removedCards = prev.cards.filter((card) => deckIds.has(card.deckId));
+    const removedCardIds = new Set(removedCards.map((card) => card.id));
+    const keptCards = prev.cards.filter((card) => !deckIds.has(card.deckId));
+    const stillUsed = new Set(keptCards.flatMap((card) => (card.companyId ? [card.companyId] : [])));
+    const orphaned = new Set(removedCards.flatMap((card) =>
+      card.companyId && !stillUsed.has(card.companyId) ? [card.companyId] : []));
+    const removedReportIds = new Set(prev.reports.filter((report) =>
+      (report.kind === 'deck' && (deckIds.has(report.subjectId) || report.subjectId === marketId)) ||
+      (report.kind === 'company' && orphaned.has(report.subjectId))).map((report) => report.id));
+
+    const companyMarket = { ...prev.companyMarket };
+    const dashboards = { ...prev.dashboards };
+    for (const companyId of orphaned) {
+      delete companyMarket[companyId];
+      delete dashboards[companyId];
+    }
+    // A kept company labelled with the deleted market takes the label of a
+    // deck it still sits on.
+    for (const companyId of deckCompanyIds) {
+      if (orphaned.has(companyId) || marketName === undefined || companyMarket[companyId] !== marketName) continue;
+      const card = keptCards.find((c) => c.companyId === companyId);
+      const otherMarketId = card ? prev.decks.find((d) => d.id === card.deckId)?.marketId : undefined;
+      const otherName = otherMarketId ? prev.markets.find((m) => m.id === otherMarketId)?.name : undefined;
+      if (otherName) companyMarket[companyId] = otherName;
+    }
+    const opportunity = { ...prev.opportunity };
+    delete opportunity[marketId];
+    const sourceChecks = prev.sourceChecks
+      ? Object.fromEntries(Object.entries(prev.sourceChecks).filter(([key]) => !orphaned.has(key.split('|')[0] ?? '')))
+      : prev.sourceChecks;
+
+    const next: RepoSnapshot = {
+      ...prev,
+      markets: prev.markets.filter((m) => m.id !== marketId),
+      decks: prev.decks.filter((d) => !deckIds.has(d.id)),
+      cards: keptCards,
+      viceClaims: prev.viceClaims.filter((claim) => !removedCardIds.has(claim.cardId)),
+      savedCards: prev.savedCards.filter((saved) => !removedCardIds.has(saved.cardId)),
+      researchJobs: prev.researchJobs.filter((job) => !allJobIds.has(job.id)),
+      briefings: prev.briefings.filter((b) => b.marketId !== marketId && !deckIds.has(b.deckId)),
+      opportunity,
+      removedFromDeck: prev.removedFromDeck?.filter((row) => !deckIds.has(row.deckId)),
+      reports: prev.reports.filter((report) => !removedReportIds.has(report.id)),
+      threads: prev.threads.filter((thread) =>
+        !(thread.scope.deckId !== null && deckIds.has(thread.scope.deckId)) &&
+        !(thread.scope.companyId && orphaned.has(thread.scope.companyId)) &&
+        !(thread.reportId !== null && removedReportIds.has(thread.reportId))),
+      companyMarket,
+      companies: prev.companies.filter((company) => !orphaned.has(company.id)),
+      metrics: prev.metrics.filter((metric) => !orphaned.has(metric.companyId)),
+      dashboards,
+      sourceChecks,
+      researchEvidence: prev.researchEvidence?.filter((row) => !(row.companyId && orphaned.has(row.companyId))),
+      originalSourceAttempts: prev.originalSourceAttempts?.filter((row) => !orphaned.has(row.companyId)),
+    };
+    if (prev.removedFromDeck === undefined) delete next.removedFromDeck;
+    this.snap = next;
+    try {
+      await this.persist();
+    } catch (error) {
+      // persist() reloads the acknowledged store; if even that read failed,
+      // put the pre-delete state back rather than show a delete that never saved.
+      if (this.snap === next) this.snap = prev;
+      throw error;
+    }
+
+    for (const id of allJobIds) {
+      const watchdog = this.jobWatchdogs.get(id);
+      if (watchdog) clearInterval(watchdog);
+      this.jobWatchdogs.delete(id);
+      this.jobControllers.delete(id);
+    }
+    for (const companyId of orphaned) {
+      this.dashboardEpochs.delete(companyId);
+      this.pendingHuntCompanies.delete(companyId);
+    }
+    const refreshedAt = new Date().toISOString();
+    for (const deckId of deckIds) {
+      this.emit({ marketId, deckId, refreshedAt, addedCardIds: [], updatedCardIds: [],
+        prunedCardIds: removedCards.filter((card) => card.deckId === deckId).map((card) => card.id),
+        companyIds: [...orphaned] });
+    }
+    return true;
+  }
+
   async resumeResearchJob(id: string): Promise<ResearchJob | null> {
     const job = this.snap.researchJobs.find((candidate) => candidate.id === id);
     if (!job) return null;

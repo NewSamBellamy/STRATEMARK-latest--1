@@ -220,6 +220,10 @@ export function useCreateMarket() {
   });
 }
 
+/** Delete a deck. Callers pass the market id (the decks list row id); every
+ * repository's deleteDeck accepts a market id as well as a deck id, and local
+ * mode removes the deck's cards, saved cards, jobs and orphaned companies, so
+ * those views refresh too. */
 export function useDeleteDeck() {
   const repo = useRepository();
   const qc = useQueryClient();
@@ -233,9 +237,15 @@ export function useDeleteDeck() {
       }
       return false;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: qk.markets });
-    },
+    onSuccess: (_deleted, id) => Promise.all([
+      qc.invalidateQueries({ queryKey: qk.markets }),
+      qc.invalidateQueries({ queryKey: qk.market(id) }),
+      qc.invalidateQueries({ queryKey: qk.deck(id) }),
+      qc.invalidateQueries({ queryKey: ['cards'] }),
+      qc.invalidateQueries({ queryKey: qk.savedCards }),
+      qc.invalidateQueries({ queryKey: ['research-jobs'] }),
+      qc.invalidateQueries({ queryKey: ['reports'] }),
+    ]),
   });
 }
 
