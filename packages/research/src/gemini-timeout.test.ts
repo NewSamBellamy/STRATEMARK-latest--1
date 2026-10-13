@@ -414,3 +414,22 @@ it('a spent grounded quota on one model falls through to the next line', async (
   await client.structure('prompt', z.object({ a: z.string() })).catch(() => null);
   expect(fetchImpl.mock.calls.map(([url]) => /flash-latest/.test(url) && !/lite/.test(url))).toContain(true);
 });
+
+it('a per-minute cap waits its retryDelay and retries; it never blocks the line like a spent daily quota', async () => {
+  vi.useFakeTimers();
+  try {
+    const perMinute = JSON.stringify({ error: { code: 429, status: 'RESOURCE_EXHAUSTED',
+      message: 'You exceeded your current quota, please check your plan and billing details.',
+      details: [{ violations: [{ quotaId: 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier' }] }, { retryDelay: '7s' }] } });
+    const ok = JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"a":"x"}' }] } }] });
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(perMinute, { status: 429 }))
+      .mockResolvedValue(new Response(ok, { status: 200 }));
+    const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl: fetchImpl as unknown as typeof fetch, groundedRpm: 0, structureRpm: 0 });
+    const settled = client.structure('prompt', z.object({ a: z.string() }));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await settled).toEqual({ a: 'x' });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(String(fetchImpl.mock.calls[0]![0])).toBe(String(fetchImpl.mock.calls[1]![0])); // same line, not blocked
+  } finally { vi.useRealTimers(); }
+});

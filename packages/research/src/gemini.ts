@@ -398,7 +398,11 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           if ([400, 401, 403].includes(res.status) && /API_KEY_INVALID|API key not valid|API key expired|API_KEY_SERVICE_BLOCKED/i.test(body ?? '')) {
             throw Object.assign(new SafeGeminiError('Your Gemini API key was rejected. Check or replace it in Settings.'), { status: res.status });
           }
-          if (res.status === 429 && /exceeded your current quota|check your plan and billing/i.test(body ?? '')) {
+          // A per-minute cap says "exceeded your current quota" too, with a
+          // retryDelay of seconds. Only a spent daily quota blocks the line;
+          // a per-minute one is an ordinary 429 that waits and retries.
+          const perMinuteOnly = res.status === 429 && /PerMinute/i.test(body ?? '') && !/PerDay/i.test(body ?? '');
+          if (res.status === 429 && !perMinuteOnly && /exceeded your current quota|check your plan and billing/i.test(body ?? '')) {
             quotaBlockedUntil.set(quotaKey, Date.now() + QUOTA_COOLDOWN_MS);
             throw quotaError();
           }
@@ -407,7 +411,9 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           ) as RetryableError & { retryAfterMs?: number };
           err.status = res.status;
           const retryAfter = res.headers.get('retry-after');
+          const retryDelay = perMinuteOnly ? /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(body ?? '')?.[1] : undefined;
           if (retryAfter) err.retryAfterMs = Number(retryAfter) * 1000;
+          else if (retryDelay) err.retryAfterMs = Math.min(60_000, Math.ceil(Number(retryDelay) * 1000));
           throw err;
         }
         const parsed = stream ? await readGeminiSse(res, onText!, signal) : await res.json() as GeminiResponse;
