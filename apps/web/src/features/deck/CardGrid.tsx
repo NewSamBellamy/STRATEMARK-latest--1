@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import type { CardWithCompany } from '@mi/contracts';
@@ -61,36 +61,32 @@ export function CardGrid({
   const marketName = useMarket(marketId).data?.name ?? null;
   const repo = useRepository();
   const [shareTarget, setShareTarget] = useState<CardWithCompany | null>(null);
+  // The click handler reads the URL and mode, which change often; route it
+  // through a ref so every card keeps the same callback and memoized cards
+  // skip re-rendering when only another card (or the open reader) changed.
+  const openHandler = useRef<(cardId: string) => void>(() => {});
+  useLayoutEffect(() => {
+    openHandler.current = (cardId) => (selectable ? onToggle?.(cardId) : setActiveId(cardId));
+  });
+  const openCard = useCallback((cardId: string) => openHandler.current(cardId), []);
   return (
     <>
       <div
         className="card-grid"
         data-testid="card-grid"
       >
-        {cards.map((c) => {
-          const isSelected = selectable && (selected?.has(c.card.id) ?? false);
-          return (
-            <div key={c.card.id} className={cn('relative', selectable && 'cursor-pointer')}>
-              <GameCard
-                data={c}
-                deckUserValues={deckUserValues}
-                deckStatus={deckStatus}
-                onOpen={() => (selectable ? onToggle?.(c.card.id) : setActiveId(c.card.id))}
-                onShare={() => setShareTarget(c)}
-                className={cn(
-                  selectable && 'transition-opacity',
-                  selectable && !isSelected && 'opacity-80 hover:opacity-100',
-                  isSelected && 'ring-2 ring-primary ring-offset-2 ring-offset-app',
-                )}
-              />
-              {isSelected && (
-                <span className="pointer-events-none absolute -right-2 -top-2 z-10 grid h-6 w-6 place-items-center rounded-full bg-primary text-white shadow">
-                  <Check className="h-3.5 w-3.5" />
-                </span>
-              )}
-            </div>
-          );
-        })}
+        {cards.map((c) => (
+          <CardGridItem
+            key={c.card.id}
+            data={c}
+            deckUserValues={deckUserValues}
+            deckStatus={deckStatus}
+            selectable={selectable}
+            isSelected={selectable && (selected?.has(c.card.id) ?? false)}
+            onOpenCard={openCard}
+            onShareCard={setShareTarget}
+          />
+        ))}
       </div>
       {/* One share dialog for the whole grid — fact-checks the card first. */}
       <ShareDialog
@@ -122,3 +118,47 @@ export function CardGrid({
     </>
   );
 }
+
+/** One grid slot. Memoized: re-renders only when its own card or selection changes. */
+const CardGridItem = memo(function CardGridItem({
+  data,
+  deckUserValues,
+  deckStatus,
+  selectable,
+  isSelected,
+  onOpenCard,
+  onShareCard,
+}: {
+  data: CardWithCompany;
+  deckUserValues: number[];
+  deckStatus?: 'running' | 'refreshing' | 'partial' | 'failed' | 'ready' | 'ready_stale';
+  selectable: boolean;
+  isSelected: boolean;
+  onOpenCard: (cardId: string) => void;
+  onShareCard: (card: CardWithCompany) => void;
+}) {
+  const cardId = data.card.id;
+  const onOpen = useCallback(() => onOpenCard(cardId), [onOpenCard, cardId]);
+  const onShare = useCallback(() => onShareCard(data), [onShareCard, data]);
+  return (
+    <div className={cn('relative', selectable && 'cursor-pointer')}>
+      <GameCard
+        data={data}
+        deckUserValues={deckUserValues}
+        deckStatus={deckStatus}
+        onOpen={onOpen}
+        onShare={onShare}
+        className={cn(
+          selectable && 'transition-opacity',
+          selectable && !isSelected && 'opacity-80 hover:opacity-100',
+          isSelected && 'ring-2 ring-primary ring-offset-2 ring-offset-app',
+        )}
+      />
+      {isSelected && (
+        <span className="pointer-events-none absolute -right-2 -top-2 z-10 grid h-6 w-6 place-items-center rounded-full bg-primary text-white shadow">
+          <Check className="h-3.5 w-3.5" />
+        </span>
+      )}
+    </div>
+  );
+});
