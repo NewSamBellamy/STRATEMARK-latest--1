@@ -49,7 +49,7 @@ export function reportedCitedSources(metric: CompanyMetric): { values: number[];
 
 const SCALE: Record<string, number> = { trillion: 1e12, billion: 1e9, million: 1e6, thousand: 1e3, tn: 1e12, bn: 1e9, b: 1e9, mn: 1e6, m: 1e6, k: 1e3 };
 
-function amountsIn(text: string): number[] {
+export function amountsIn(text: string): number[] {
   return [...text.matchAll(/(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|thousand|tn|bn|mn|[bmk])?\b/gi)]
     // A bare year ("in 2025") is a date, not a headcount of 2,025.
     .filter((m) => m[2] || !/^(?:19|20)\d{2}$/.test(m[1]!))

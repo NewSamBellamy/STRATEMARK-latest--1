@@ -29,6 +29,7 @@ import { originalSupportReferences, type OriginalSourceAttempt, type OriginalSou
 import { researchCompanyOverview, type OverviewNarrative, type OverviewSeed } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
 import { secRevenueSeries } from './sec-revenue';
+import { groundGovernanceInNotes } from './governance-gate';
 import { researchCompanyProducts, type ProductEvidenceSelections } from './company-products';
 import { researchCompanyTeamOrg, type TeamOrgSelections } from './company-team';
 import { researchLiveIntel, type PageReader } from './live-intel';
@@ -251,11 +252,12 @@ export async function researchDashboardTab<T extends DashboardTab>(
       let notes = g.text;
       const structurePrompt = (n: string) =>
         `Convert to a single JSON OBJECT { "mission", "ethos", "governanceStructure", "board": [ { "name", "affiliation" (the person's primary role/affiliation from the notes — "" ONLY when the notes truly say nothing) } ], "positives": string[], "negatives": string[], "fundingRounds": [ { "round", "amountUsd": number|null (USD; null when undisclosed), "date": string|null (e.g. "2026 Mar"), "leadInvestors": string[] } ] in reverse-chronological order, "investors": [ { "name", "kind": "vc"|"corporate"|"sovereign"|"angel"|"debt"|"other", "note" (one reported line: stake, board seat, or round led — "" when nothing reported) } ] }. Only include facts supported by the notes; never invent amounts.\n\nNOTES:\n${n}`;
-      const firstPass = await client.structure(
+      // The structuring call is not grounded: whatever the notes do not state is withheld.
+      const firstPass = groundGovernanceInNotes(await client.structure(
         structurePrompt(notes),
         missionGovernanceContentSchema,
         structSys,
-      );
+      ), notes);
       const blankAffiliations = firstPass.board.filter((b) => !b.affiliation?.trim()).length;
       const thin =
         firstPass.fundingRounds.length === 0 ||
@@ -266,11 +268,11 @@ export async function researchDashboardTab<T extends DashboardTab>(
         system,
       );
       notes = `${notes}\n\nADDITIONAL GOVERNANCE & FUNDING NOTES:\n${gapFill.text}`;
-      const secondPass = await client.structure(
+      const secondPass = groundGovernanceInNotes(await client.structure(
         structurePrompt(notes),
         missionGovernanceContentSchema,
         structSys,
-      );
+      ), notes);
       return secondPass as DashboardContentMap[T];
     }
 

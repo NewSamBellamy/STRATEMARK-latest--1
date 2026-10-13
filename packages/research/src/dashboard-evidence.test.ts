@@ -9,7 +9,7 @@ function setup() {
   let saved = migrateSnapshot(null).snapshot;
   saved.companies.push({ id: 'cmp', name: 'Example', oneLiner: 'Example company', websiteUrl: 'https://example.com', logoUrl: null, hqLocation: null, brandTheme: null });
   const store: ResearchStore = { read: () => structuredClone(saved), write: async snapshot => { saved = structuredClone(snapshot); } };
-  const ground = vi.fn().mockResolvedValue({ text: 'Example sells research software.', citations: [
+  const ground = vi.fn().mockResolvedValue({ text: 'Example sells research software. Example raised a Seed round.', citations: [
     { title: 'Annual report', url }, { title: 'Duplicate', url }, { title: 'Bad', url: 'javascript:alert(1)' },
   ], queries: [] });
   const structure = vi.fn().mockResolvedValue({ markdown: 'Example sells research software.',
