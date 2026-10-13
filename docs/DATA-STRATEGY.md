@@ -80,3 +80,28 @@ Biggest levers, in order:
 3. Run the free lanes (EDGAR, Wikidata, registries, quote lane) before any grounded pass.
 4. Make the second face-hunt pass and batch verification conditional on a gap still existing.
 5. Keep the per-day cap in the Worker (`DAILY_BUDGET_USD`, now 100; per visitor 20).
+
+## TradingView and Bloomberg: what their company pages hold, and our gaps
+
+Second pass, from vendor help pages and library guides (still no hands-on accounts). What
+could not be confirmed is marked; do not treat unconfirmed names as fact.
+
+| Their section | What it holds | Our equivalent today | Gap and cheapest fix |
+|---|---|---|---|
+| TradingView Overview / Statistics | Key ratios, price, market cap, headline stats | Card face and Overview key figures | Fine for private companies; for listed ones add a quote lane stat strip (already have the quote lane) |
+| TradingView Financials | Statements, quarterly or annual toggle, expandable line items, revenue breakdown | Metrics tab, SEC annual revenue series | Add quarterly points and a segment revenue split from EDGAR XBRL (free) |
+| TradingView Earnings / Dividends | Reported vs estimated, dates | none | Earnings dates and surprises from EDGAR 8-Ks; skip estimates (paid) |
+| TradingView Technicals / Seasonals | Chart signals | none | Out of scope: we are a research product, not a trading one |
+| Bloomberg DES | Business description, snapshot of fundamentals, management, price chart, estimates | Overview, Team | Match already; add the founded year (done) and legal entity from registries |
+| Bloomberg ownership (HDS / OWN; the exact code varies by guide) | Who owns the stock, institutional share | Governance investors | Free for listed companies from 13F and 13D/G; for private, only what is reported |
+| Bloomberg CF | Company filings | none | A Filings link to EDGAR for listed companies (cheap, high value) |
+| Bloomberg peers and supply chain (relative-value and supply-chain functions; names unconfirmed) | Comparable companies, suppliers and customers | "How they compare" table (deck peers) | Add reported customers and suppliers as a labelled list |
+
+Ranked next steps by value for effort: (1) EDGAR filings link and ownership for listed
+companies, (2) legal-entity and incorporation date from registries to confirm the founded
+year, (3) quarterly revenue and segment split, (4) reported customers and suppliers.
+Sources: [TradingView financials tab](https://www.tradingview.com/blog/en/new-and-improved-financials-tab-36524/),
+[TradingView features](https://www.tradingview.com/features/),
+[Bloomberg guide (NYPL)](https://libguides.nypl.org/BloombergTerminal/publiccompanies),
+[Bloomberg guide (Columbia)](https://guides.library.columbia.edu/bloomberg/basic),
+[Babson Bloomberg equity valuation guide](https://www.babson.edu/media/babson/assets/cutler-center/Equity-Valuation-using-Bloomberg.pdf).
