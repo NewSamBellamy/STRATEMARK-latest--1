@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { buildDataset } from '@mi/mocks';
 import { renderWithProviders } from '@/test/test-utils';
 import { CardReader } from './CardReader';
@@ -168,5 +169,42 @@ describe('CardReader', () => {
     expect(screen.getByRole('link', { name: /open full company dashboard/i })).toHaveAttribute(
       'href', `/company/${cwc.company!.id}/dashboard/overview?deck=market-test&card=${cwc.card.id}`,
     );
+  });
+
+  describe('focus on close', () => {
+    const first = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
+    const second = hydrate((c) => c.cardType === 'culture');
+
+    /** Mirrors the deck grid: the reader is driven by state, not a Radix trigger. */
+    function Harness({ withReturnTarget = false }: { withReturnTarget?: boolean }) {
+      const [active, setActive] = useState<typeof first | null>(null);
+      return <>
+        <button type="button" data-testid="first-card" onClick={() => setActive(first)}>first card</button>
+        <button type="button" data-testid="second-card" onClick={() => setActive(second)}>second card</button>
+        <CardReader data={active} open={active !== null} onOpenChange={(o) => { if (!o) setActive(null); }}
+          onNext={active === first ? () => setActive(second) : undefined}
+          returnFocusTo={withReturnTarget
+            ? (cardId) => screen.getByTestId(cardId === second.card.id ? 'second-card' : 'first-card')
+            : undefined} />
+      </>;
+    }
+
+    it('returns focus to the card that opened the reader when Escape closes it', async () => {
+      const { user } = renderWithProviders(<Harness />);
+      await user.click(screen.getByTestId('first-card'));
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.getByTestId('first-card')).toHaveFocus());
+    });
+
+    it('returns focus to the card last shown after Next browsing, via the Close button', async () => {
+      const { user } = renderWithProviders(<Harness withReturnTarget />);
+      await user.click(screen.getByTestId('first-card'));
+      await user.click(screen.getByRole('button', { name: 'Next card' }));
+      // Browsing keeps focus inside the reader rather than behind it.
+      await waitFor(() => expect(screen.getByRole('dialog')).toContainElement(document.activeElement as HTMLElement));
+      await user.click(screen.getByRole('button', { name: 'Close' }));
+      await waitFor(() => expect(screen.getByTestId('second-card')).toHaveFocus());
+    });
   });
 });

@@ -69,9 +69,17 @@ export function CardGrid({
     openHandler.current = (cardId) => (selectable ? onToggle?.(cardId) : setActiveId(cardId));
   });
   const openCard = useCallback((cardId: string) => openHandler.current(cardId), []);
+  // Closing the reader hands focus back to the card it ended on (which may
+  // differ from the one that opened it after Prev/Next browsing).
+  const gridRef = useRef<HTMLDivElement>(null);
+  const cardControl = useCallback((cardId: string) => [...(gridRef.current
+    ?.querySelectorAll<HTMLElement>('[data-card-id]') ?? [])]
+    .find((slot) => slot.dataset.cardId === cardId)
+    ?.querySelector<HTMLElement>('.card-sleeve__open') ?? null, []);
   return (
     <>
       <div
+        ref={gridRef}
         className="card-grid"
         data-testid="card-grid"
       >
@@ -109,6 +117,7 @@ export function CardGrid({
           if (!o) setActiveId(null);
         }}
         marketId={marketId}
+        returnFocusTo={cardControl}
         deckView={deckView.toString()}
         position={activeIndex >= 0 ? activeIndex + 1 : undefined}
         total={cards.length}
@@ -141,7 +150,7 @@ const CardGridItem = memo(function CardGridItem({
   const onOpen = useCallback(() => onOpenCard(cardId), [onOpenCard, cardId]);
   const onShare = useCallback(() => onShareCard(data), [onShareCard, data]);
   return (
-    <div className={cn('relative', selectable && 'cursor-pointer')}>
+    <div className={cn('relative', selectable && 'cursor-pointer')} data-card-id={cardId}>
       <GameCard
         data={data}
         deckUserValues={deckUserValues}

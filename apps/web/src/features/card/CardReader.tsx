@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, ExternalLink, Printer, Share2 } from 'lucide-react';
 import { publisherOf, type CardWithCompany } from '@mi/contracts';
@@ -21,6 +21,8 @@ type Props = {
   marketId?: string; position?: number; total?: number;
   deckView?: string;
   onPrevious?: () => void; onNext?: () => void;
+  /** The control that should regain focus when the reader closes on this card. */
+  returnFocusTo?: (cardId: string) => HTMLElement | null;
 };
 
 const capturedDate = new Intl.DateTimeFormat('en-US', {
@@ -28,13 +30,39 @@ const capturedDate = new Intl.DateTimeFormat('en-US', {
 });
 const pendingCompanySnapshot = 'No source-backed company snapshot is ready yet.';
 
-export function CardReader({ data, open, ...props }: Props) {
+export function CardReader({ data, open, returnFocusTo, ...props }: Props) {
+  // The reader is opened by URL state rather than a Radix trigger, so Radix
+  // has nothing to hand focus back to and drops it on <body>. Remember what
+  // was focused at open and restore it — or the caller's element for the card
+  // last shown, so Prev/Next browsing returns to the card the reader ended on.
+  const showing = open && data !== null;
+  const showingRef = useRef(showing);
+  const openerRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (showing && !showingRef.current) {
+      openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+    showingRef.current = showing;
+  }, [showing]);
+  const restoreFocus = useCallback((event: Event, cardId: string) => {
+    // Radix's own fallback is its (absent) trigger; take over either way.
+    event.preventDefault();
+    // Prev/Next remounts the reader for the new card: focus stays inside it.
+    if (showingRef.current) return;
+    // Only recover LOST focus — never steal it from whatever took over on
+    // close (a chat panel, a route the reader linked to).
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const target = returnFocusTo?.(cardId) ?? openerRef.current;
+    if (target?.isConnected) target.focus();
+  }, [returnFocusTo]);
   if (!data) return null;
-  return <CardReaderBody key={data.card.id} data={data} open={open} {...props} />;
+  return <CardReaderBody key={data.card.id} data={data} open={open} onRestoreFocus={restoreFocus} {...props} />;
 }
 
 function CardReaderBody({ data, open, onOpenChange, marketId,
-  deckView, position, total, onPrevious, onNext }: Omit<Props, 'data'> & { data: CardWithCompany }) {
+  deckView, position, total, onPrevious, onNext, onRestoreFocus }: Omit<Props, 'data' | 'returnFocusTo'> & {
+  data: CardWithCompany; onRestoreFocus: (event: Event, cardId: string) => void;
+}) {
   const { card, company, viceClaims } = data;
   const view = buildCardView(data);
   const marketName = useMarket(marketId).data?.name ?? null;
@@ -68,7 +96,8 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
   ].filter(Boolean).join('\n\n');
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent size="2xl" className={fullFinding ? 'card-inspector card-inspector--report' : 'card-inspector'}>
+    <DialogContent size="2xl" className={fullFinding ? 'card-inspector card-inspector--report' : 'card-inspector'}
+      onCloseAutoFocus={(event) => onRestoreFocus(event, card.id)}>
       <DialogTitle className="sr-only">Inspect {view.title} card</DialogTitle>
       <DialogDescription className="sr-only">
         A concise research summary with sourced figures. Open the full dashboard for deeper evidence and analysis.
