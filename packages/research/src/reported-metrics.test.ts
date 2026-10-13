@@ -235,6 +235,17 @@ describe('provider-supported fast company hydration', () => {
     expect((await hydrate(client)).metrics.find(row => row.metricType === 'users')!.value).toBeNull();
   });
   it.each([
+    ['Acme reported 1 million business users as of September 30, 2026.', null],
+    ['Acme reported 1 million paying users as of September 30, 2026.', null],
+    ['Acme reported 1 million users as of September 30, 2026.', 1_000_000],
+  ])('does not show a segment of users as the company\'s users: %s', async (text, expected) => {
+    const { client } = fixture(text);
+    client.structure = vi.fn(async (_prompt, schema) => schema.parse({ metrics: { users: { value: 1_000_000, confidence: 'estimated', reportedClaim: {
+      sourceUrl: url, quote: text, asOf: '2026-09-30', basis: 'users', unit: 'count', definition: 'users',
+    } } } })) as LlmClient['structure'];
+    expect((await hydrate(client)).metrics.find(row => row.metricType === 'users')!.value).toBe(expected);
+  });
+  it.each([
     'Otherco reported annual revenue of $40 million as of September 30, 2026.',
     'Acme reported annual revenue of CAD $40 million as of September 30, 2026.',
     'Acme reported annual revenue of $40 million and annual revenue of $50 million as of September 30, 2026.',

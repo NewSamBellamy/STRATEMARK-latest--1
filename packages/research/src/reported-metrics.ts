@@ -306,6 +306,9 @@ function staleEventYear(sentence: string, value: number, unit: ReportedMetricSup
   return (carrying.length ? carrying : [sentence]).every(older);
 }
 
+/** A product or customer segment named right before "users". */
+const USER_SEGMENT_BEFORE = /\b(?:business|enterprise|corporate|commercial|developer|api|education|edu|government|team|teams|pro|plus|premium|paid|paying|beta|student|seat)\s+$/i;
+
 function hasNumber(text: string, value: number, unit: ReportedMetricSupport['unit'], definition: string, bindBasis = true): boolean {
   const native = isConvertibleCurrency(unit);
   if (unit === 'USD' && /\b(?:CAD|AUD|HKD|SGD|NZD|Canadian dollars?|Australian dollars?)\b|(?:C|A|HK|S|NZ)\$/i.test(text)) return false;
@@ -338,7 +341,7 @@ function hasNumber(text: string, value: number, unit: ReportedMetricSupport['uni
         const left = mention.index!, right = left + mention[0].length;
         const distance = right < start ? start - right : left > end ? left - end : 0;
         const bridge = right < start ? text.slice(right, start) : left > end ? text.slice(end, left) : '';
-        return { basis, distance, bridge };
+        return { basis, distance, bridge, before: text.slice(Math.max(0, left - 24), left) };
       }));
     const nearest = Math.min(...mentions.map(mention => mention.distance));
     if (!mentions.some(mention => mention.basis === definition && mention.distance === nearest && nearest <= 30 &&
@@ -346,7 +349,9 @@ function hasNumber(text: string, value: number, unit: ReportedMetricSupport['uni
       // number ("December 31, 2025 (comprising 5,917 employees…)" must not
       // date-anchor 31 or 2025 as employee counts), not to this candidate.
       !/\d/.test(mention.bridge) &&
-      !/\b(?:and|as of|year|ended|date|versus|compared)\b|[;.!?]/i.test(mention.bridge))) continue;
+      !/\b(?:and|as of|year|ended|date|versus|compared)\b|[;.!?]/i.test(mention.bridge) &&
+      // "1 million business users" counts one segment, not the company's users.
+      !(definition === 'users' && USER_SEGMENT_BEFORE.test(mention.before)))) continue;
     return true;
   }
   return false;
