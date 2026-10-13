@@ -137,6 +137,7 @@ import { faviconUrl, knownCompanyDomain } from './logos';
 const JOB_STALL_MS = 8 * 60_000;
 /** The hydration-time logo is a gstatic favicon guess, not company art. The
  * asset lane (and only the asset lane, or the user) replaces it. */
+const SEC_READ_GAP_MS = 150;
 const GUESSED_LOGO_RE = /^https:\/\/t[0-3]\.gstatic\.com\/faviconV2|^https:\/\/www\.google\.com\/s2\/favicons/;
 /** The generic example.com globe stub logo — a placeholder, never company art. */
 const PLACEHOLDER_LOGO_RE = /[?&]url=https?:\/\/example\.com|[?&]domain=example\.com/;
@@ -1224,6 +1225,10 @@ export class GeminiRepository implements MarketIntelRepository {
           if (prior.brandTheme?.source === 'scraped' && hydrated.company.brandTheme?.source !== 'scraped') {
             hydrated.company.brandTheme = prior.brandTheme;
           }
+          // A hydration pass that found no website or location must not blank
+          // the ones discovery or the asset lane already established.
+          hydrated.company.websiteUrl ??= prior.websiteUrl;
+          if (!hydrated.company.hqLocation?.trim()) hydrated.company.hqLocation = prior.hqLocation;
           this.snap.companies[coIdx] = hydrated.company;
         } else {
           this.snap.companies.push(hydrated.company);
@@ -2888,11 +2893,27 @@ export class GeminiRepository implements MarketIntelRepository {
 
     // SEC throttles bursts (a whole deck's companies read at once), so one
     // unreadable answer gets a single polite retry before the lane gives up.
+    // SEC reads from every company of a deck share one paced queue (SEC
+    // asks for no more than ten requests a second, and refuses bursts).
     const retrieveSteady = async (url: string, metricType: string): Promise<OriginalSourceReceipt> => {
-      const first = await sources.retrieve(url, { ...scope, metricType });
-      if (first.status === 'retrieved' && first.text) return first;
-      await sleep(1500);
-      return sources.retrieve(url, { ...scope, metricType });
+      const sec = /^https:\/\/(?:www\.|data\.)?sec\.gov\//.test(url);
+      const once = (): Promise<OriginalSourceReceipt> => {
+        if (!sec) return sources.retrieve(url, { ...scope, metricType });
+        const turn = this.secQueue.then(() => sources.retrieve(url, { ...scope, metricType }));
+        this.secQueue = turn.then(() => sleep(SEC_READ_GAP_MS), () => sleep(SEC_READ_GAP_MS));
+        return turn;
+      };
+      // Only a throttled, failing or timed-out read is worth another turn; a
+      // page that is simply not there stays an honest unavailable.
+      const transient = (r: OriginalSourceReceipt) => [403, 429, 500, 502, 503, 504].includes(r.httpStatus ?? 0) ||
+        /exceeded|abandoned|timed? ?out|ECONNRESET|socket|fetch failed|network/i.test(r.reason ?? '');
+      let receipt = await once();
+      for (const wait of [1500, 4000]) {
+        if ((receipt.status === 'retrieved' && receipt.text) || !transient(receipt)) return receipt;
+        await sleep(wait);
+        receipt = await once();
+      }
+      return receipt;
     };
     // One ticker-map read serves every listed-company lane below.
     let tickerLookup: Promise<{ receipt: OriginalSourceReceipt; match: { cik: string; ticker: string; title: string } | null }> | null = null;
@@ -3764,6 +3785,9 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     return { reports, researched, stillMissing };
   }
+
+  /** Serialises the structured lanes' SEC reads across a deck's companies. */
+  private secQueue: Promise<void> = Promise.resolve();
 
   /** Facts the asset lane sourced from the company's own homepage or its
    * Wikidata item, kept so a later hydration that found none of its own never
@@ -4886,6 +4910,10 @@ ${references}`
     const company = { ...hydrated.company, id: companyId };
     if (prior?.logoUrl && !GUESSED_LOGO_RE.test(prior.logoUrl)) company.logoUrl = prior.logoUrl;
     if (prior?.brandTheme?.source === 'scraped' && company.brandTheme?.source !== 'scraped') company.brandTheme = prior.brandTheme;
+    if (prior) {
+      company.websiteUrl ??= prior.websiteUrl;
+      if (!company.hqLocation?.trim()) company.hqLocation = prior.hqLocation;
+    }
     if (idx >= 0) this.snap.companies[idx] = company; else this.snap.companies.push(company);
     this.snap.companyMarket[companyId] = marketName;
 
