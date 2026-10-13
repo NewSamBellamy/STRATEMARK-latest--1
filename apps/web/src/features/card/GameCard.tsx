@@ -55,7 +55,7 @@ export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, class
   return <div className={cn('card-sleeve', className)}>
     {researching && (
       <span data-testid="card-researching"
-        className="absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-app/90 px-2.5 py-1 text-[10px] font-semibold text-primary-ink shadow-sm"
+        className="absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-app/90 px-2.5 py-1 text-[10px] font-semibold text-primary-ink shadow-sm"
         title="A research agent is on this card right now — figures will appear as they are verified.">
         <LoaderCircle className="h-3 w-3 animate-spin" />
         Agent researching
@@ -63,7 +63,7 @@ export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, class
     )}
     {!researching && hydrating && (
       <span data-testid="card-hydrating"
-        className="absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-sky-300/60 bg-app/90 px-2.5 py-1 text-[10px] font-semibold text-sky-700 shadow-sm dark:text-sky-300"
+        className="absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-sky-300/60 bg-app/90 px-2.5 py-1 text-[10px] font-semibold text-sky-700 shadow-sm dark:text-sky-300"
         title="This desk's dashboards are filling in from live sources — open the card and watch it cascade.">
         <Droplets className="h-3 w-3 animate-pulse" />
         Preparing company page
