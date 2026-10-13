@@ -56,22 +56,37 @@ function brandColor(row: DeckRow): string {
   return primary && HEX.test(primary) ? primary : fallbackColor(row.market.id);
 }
 
+interface LibraryEntry {
+  deck: (Deck & { status?: string }) | null;
+  cards: CardWithCompany[];
+}
+
+/**
+ * Just the data of each library query. A stable `combine` lets TanStack
+ * structurally share the result, so the array keeps its identity until some
+ * deck's data actually changes (not on every fetch-status flip).
+ */
+const libraryData = (results: Array<{ data?: LibraryEntry }>) => results.map((r) => r.data);
+
 /** Loads every deck's status and cards once, so sorting by size/recency is real. */
-function useDeckRows(markets: Market[]): DeckRow[] {
+export function useDeckRows(markets: Market[]): DeckRow[] {
   const repo = useRepository();
-  const results = useQueries({
+  const entries = useQueries({
     queries: markets.map((m) => ({
       queryKey: ['library', m.id],
       staleTime: 30_000,
-      queryFn: async () => {
+      queryFn: async (): Promise<LibraryEntry> => {
         const deck = (await repo.getDeckByMarket(m.id)) as (Deck & { status?: string }) | null;
         const cards = deck ? await repo.listCards(deck.id) : [];
         return { deck, cards: cards.map(projectCard) };
       },
     })),
+    combine: libraryData,
   });
-  return markets.map((market, i) => {
-    const data = results[i]?.data;
+  // Coverage and lead-card picks walk every card: rebuild only when a market
+  // or its deck data changed, and hand sorting/filtering a stable array.
+  return useMemo(() => markets.map((market, i) => {
+    const data = entries[i];
     const cards = data?.cards ?? null;
     return {
       market,
@@ -81,7 +96,7 @@ function useDeckRows(markets: Market[]): DeckRow[] {
       coverage: cards && cards.length > 0 ? computeCoverage(cards) : null,
       lead: cards ? pickLeadCard(cards) : null,
     };
-  });
+  }), [markets, entries]);
 }
 
 /** Fanned stack: two backs behind the face card. Motion is disabled under reduced-motion. */
