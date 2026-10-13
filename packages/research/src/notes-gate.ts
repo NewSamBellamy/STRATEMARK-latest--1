@@ -1,5 +1,5 @@
 /**
- * Governance & funding must be stated by the research it came from.
+ * Structured dashboard content must be stated by the research it came from.
  *
  * The structuring call is not grounded, so it can pad a funding history or an
  * investor list from memory. Every amount, date and name it returns is checked
@@ -8,7 +8,7 @@
  * round survives only if the notes mention its name or its amount. Nothing is
  * added or corrected here: this can only withhold.
  */
-import type { MissionGovernanceContent } from '@mi/contracts';
+import type { HistoryContent, MissionGovernanceContent } from '@mi/contracts';
 import { amountsIn } from './source-binding';
 
 const GENERIC = /^(?:capital|ventures?|partners?|fund|funds|group|holdings?|investments?|management|asset|global|the|and|of|inc|llc|ltd|corp|corporation|company|technologies|technology|labs?|ai)$/i;
@@ -54,5 +54,37 @@ export function groundGovernanceInNotes(content: MissionGovernanceContent, notes
     fundingRounds,
     investors: (content.investors ?? []).filter((investor) => named(notes, investor.name, 'organisation')),
     board: (content.board ?? []).filter((member) => named(notes, member.name, 'person')),
+  };
+}
+
+/** Letters and digits only, lower-cased: quotes survive whitespace, smart quotes and dashes. */
+const flatten = (text: string) => text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+/** A quotation is verbatim or it is not shown; "..." joins fragments, each of which must be in the notes. */
+function quotedInNotes(quote: string, flatNotes: string): boolean {
+  const parts = quote.split(/…|\.{3}/).map(flatten).filter((part) => part.length > 0);
+  return parts.length > 0 && parts.every((part) => flatNotes.includes(part));
+}
+
+/** Half of a title's distinctive words (four letters or more) must appear in the notes. */
+function titleInNotes(title: string, flatNotes: string): boolean {
+  const words = flatten(title).split(' ').filter((word) => word.length >= 4 && !GENERIC.test(word));
+  if (words.length === 0) return true;
+  return words.filter((word) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(word)}`, 'u').test(flatNotes)).length >= Math.ceil(words.length / 2);
+}
+
+/**
+ * History: a milestone needs its year and the substance of its title in the
+ * notes, and a quotation must be verbatim from them. Withholds only.
+ */
+export function groundHistoryInNotes(content: HistoryContent, notes: string): HistoryContent {
+  const flatNotes = flatten(notes);
+  return {
+    ...content,
+    timeline: (content.timeline ?? []).filter((event) => {
+      const year = /\b((?:19|20)\d{2})\b/.exec(event.date ?? '')?.[1];
+      return year !== undefined && notes.includes(year) && titleInNotes(event.title, flatNotes);
+    }),
+    quotes: (content.quotes ?? []).filter((quote) => quotedInNotes(quote.text, flatNotes)),
   };
 }

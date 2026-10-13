@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { MissionGovernanceContent } from '@mi/contracts';
-import { groundGovernanceInNotes } from './governance-gate';
+import type { HistoryContent, MissionGovernanceContent } from '@mi/contracts';
+import { groundGovernanceInNotes, groundHistoryInNotes } from './notes-gate';
 
 const NOTES = [
   'Acme raised a $20 million Series A in March 2022 led by Sequoia Capital.',
@@ -55,5 +55,38 @@ describe('governance and funding stay inside what the research stated', () => {
       { name: 'Bob Taylor', affiliation: 'Director' },
     ] }), NOTES);
     expect(out.board.map((b) => b.name)).toEqual(['Bret Taylor', 'Dana Lee']);
+  });
+});
+
+const STORY = [
+  'Acme was founded in 2019 by Dana Lee in a Berlin apartment.',
+  'In March 2023 Acme launched its first public model, Atlas.',
+  'CEO Dana Lee told Reuters: "We built Atlas because nothing else was fast enough for the people who use it every day."',
+].join('\n');
+const history = (patch: Partial<HistoryContent>): HistoryContent => ({ founderStory: 'story', timeline: [], quotes: [], ...patch });
+
+describe('history stays inside what the research stated', () => {
+  it('keeps a milestone whose year and substance the notes carry, and drops an invented one', () => {
+    const out = groundHistoryInNotes(history({ timeline: [
+      { date: '2019', title: 'Founded in Berlin', detail: '' },
+      { date: '2023 Mar', title: 'Launches Atlas model', detail: '' },
+      { date: '2021', title: 'Acquires a robotics startup', detail: '' },
+      { date: '2023 Jun', title: 'Opens Singapore office', detail: '' },
+      { date: 'Early days', title: 'Founded in Berlin', detail: '' },
+    ] }), STORY);
+    expect(out.timeline.map((e) => e.title)).toEqual(['Founded in Berlin', 'Launches Atlas model']);
+  });
+
+  it('shows a quotation only when it is verbatim from the notes, across ellipses and punctuation', () => {
+    const out = groundHistoryInNotes(history({ quotes: [
+      { text: 'We built Atlas because nothing else was fast enough', attribution: 'Dana Lee' },
+      { text: '“We built Atlas … for the people who use it every day.”', attribution: 'Dana Lee' },
+      { text: 'We will never stop shipping', attribution: 'Dana Lee' },
+      { text: 'We built Atlas because speed matters most', attribution: 'Dana Lee' },
+    ] }), STORY);
+    expect(out.quotes.map((q) => q.text)).toEqual([
+      'We built Atlas because nothing else was fast enough',
+      '“We built Atlas … for the people who use it every day.”',
+    ]);
   });
 });

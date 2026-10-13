@@ -29,7 +29,7 @@ import { originalSupportReferences, type OriginalSourceAttempt, type OriginalSou
 import { researchCompanyOverview, type OverviewNarrative, type OverviewSeed } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
 import { secRevenueSeries } from './sec-revenue';
-import { groundGovernanceInNotes } from './governance-gate';
+import { groundGovernanceInNotes, groundHistoryInNotes } from './notes-gate';
 import { researchCompanyProducts, type ProductEvidenceSelections } from './company-products';
 import { researchCompanyTeamOrg, type TeamOrgSelections } from './company-team';
 import { researchLiveIntel, type PageReader } from './live-intel';
@@ -290,7 +290,9 @@ export async function researchDashboardTab<T extends DashboardTab>(
         historyContentSchema,
         structSys,
       )
-      .then((content) => {
+      .then((raw) => {
+        // Milestones and quotations the notes do not state are withheld.
+        const content = groundHistoryInNotes(raw, g.text);
         // Quote provenance gate (red team #18): a source field survives only
         // when it matches a citation the grounded search actually returned —
         // a model-guessed URL must never render as provenance.
