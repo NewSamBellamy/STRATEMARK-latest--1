@@ -539,6 +539,11 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
     (!proof.asOf || !EVENT_DATED.includes(definition) || !staleEventYear(sentence, proof.value, proof.unit, definition, proof.asOf)) &&
     // A sentence naming a partner/customer is not an attributed company figure.
     !/\b(?:partners? with|invested in|customer of|competitor|(?:said|stated|reported|announced) that|its subsidiary|its division)\b/i.test(sentence) &&
+    // A parent's figure is not the subsidiary's ("Microsoft, the parent company
+    // of GitHub, … market cap of $3.83 trillion"), and a price paid to buy the
+    // company is not its valuation.
+    !/\b(?:parent(?: company)? of|owned by|which owns|a (?:unit|subsidiary|division) of|acquired by)\b/i.test(sentence) &&
+    (definition !== 'valuation' || !/\b(?:acquisition|acquired|acquire|bought|purchase(?:d)? (?:price|for))\b/i.test(sentence)) &&
     (!proof.asOf || !/\b(?:article published|page published|retrieved|accessed|updated on)\b/i.test(sentence)) &&
     (definition !== 'users' || !/\b(?:active|monthly|daily|weekly|customers|registered|downloads|followers)\b/i.test(sentence)))) return [];
   return citations;

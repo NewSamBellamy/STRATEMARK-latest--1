@@ -281,12 +281,13 @@ describe('provider-supported fast company hydration', () => {
     expect(result.primaryCard.metrics).toEqual(result.metrics); expect(result.memory.card.metrics).toEqual(result.metrics);
     expect(result.metrics.find(row => row.metricType === 'employees')!.value).toBeNull();
   });
-  it.each(['citation-only', 'forged-model', 'wrong-value', 'wrong-company', 'wrong-basis', 'wrong-date', 'invalid-url', 'detached-answer', 'partner-figure'])(
+  it.each(['citation-only', 'forged-model', 'wrong-value', 'wrong-company', 'wrong-basis', 'wrong-date', 'invalid-url', 'detached-answer', 'partner-figure', 'parent-figure'])(
     'withholds a %s numeric proposal', async fault => {
       const text = fault === 'wrong-company' ? report.replaceAll('Acme', 'Otherco')
         : fault === 'wrong-basis' ? report.replace('annual revenue', 'valuation')
           : fault === 'wrong-date' ? report.replace('September 30, 2026', 'September 30, 2025')
-            : fault === 'partner-figure' ? 'Acme partners with Otherco. Otherco reported annual revenue of $40 million for the year ended September 30, 2026.' : report;
+            : fault === 'partner-figure' ? 'Acme partners with Otherco. Otherco reported annual revenue of $40 million for the year ended September 30, 2026.'
+              : fault === 'parent-figure' ? report.replace('Acme reported', 'Otherco, the parent company of Acme, reported') : report;
       const { client } = fixture(text, fault === 'wrong-value' ? 90_000_000 : 40_000_000);
       const ground = await client.ground('fixture');
       if (fault === 'citation-only' || fault === 'forged-model') delete ground.grounding;
