@@ -2759,9 +2759,13 @@ export class GeminiRepository implements MarketIntelRepository {
       // quote and unit keep the native figure for the dig-deeper view.
       const verifiedValue = normalizeMetricToUsd(metric.metricType, row.currentValue, row.passageSupport?.unit);
       const conversion = currencyConversionNote(row.currentValue, row.passageSupport?.unit);
-      const passageCitations = this.originalSources && row.passageSupport
+      // With originals in play a figure moves only on an accepted original passage,
+      // as in the single-figure check: search citations alone are not proof, and a
+      // "verified" row without a passage is rejected by the facts projection, which
+      // used to wipe a displayable estimate from the card.
+      const passageCitations = this.originalSources
         ? acceptedMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl,
-          metricType: target.metricType, value: row.currentValue, support: row.passageSupport, originals })
+          metricType: target.metricType, value: row.currentValue, support: row.passageSupport ?? null, originals })
         : g.citations;
       const observed = this.originalSources && row.passageSupport && passageCitations.length
         ? { ...row, currentValue: verifiedValue, methodNote: `Original reported ${target.metricType} as of ${row.passageSupport.asOf}. ${conversion} ${row.methodNote ?? ''}`.trim() }
@@ -2769,6 +2773,7 @@ export class GeminiRepository implements MarketIntelRepository {
       const verification = applyMetricVerification(metric, observed, passageCitations, nowIso,
         this.originalSources ? company.websiteUrl : undefined);
       Object.assign(metric, verification.metric);
+      if (verification.verdict !== 'unverified' && passageCitations.length && this.originalSources) metric.passageSupport = row.passageSupport;
       if (verification.changed) changedTypes.push(target.metricType);
       results.push({ metricType: target.metricType, verdict: verification.verdict, changed: verification.changed,
         confidence: metric.confidence, value: metric.value, rationale: row.rationale });
