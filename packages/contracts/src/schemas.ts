@@ -126,12 +126,14 @@ export const citationSchema = z.object({
  * The year a company was founded, stored once with where it came from so the
  * header is stable and the completeness scoreboard can measure it. Never a
  * guess: 'wikidata' is the company's own item (matched by its official
- * website), 'history' is a founding milestone from the researched History tab.
+ * website), 'website' is the company's own page (schema.org foundingDate or
+ * a "founded in YYYY" sentence), 'history' is a founding milestone from the
+ * researched History tab.
  * At least one citation is required. Additive and optional on Company.
  */
 export const companyFoundedSchema = z.object({
   year: z.number().int().min(1600).max(2100),
-  source: z.enum(['wikidata', 'history']),
+  source: z.enum(['wikidata', 'history', 'website']),
   citations: z.array(citationSchema).min(1),
   /** The founding statement the year was read from (history), when there is one. */
   evidence: z.string().max(400).optional(),

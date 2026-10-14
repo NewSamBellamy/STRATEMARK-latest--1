@@ -126,9 +126,9 @@ describe('dashboard warm-up in the repository', () => {
     await repo.fillFoundedYear('acme');
     expect(saved().companies.find((company) => company.id === 'acme')!.founded).toMatchObject({
       year: 2013, source: 'wikidata', citations: [{ url: 'https://www.wikidata.org/wiki/Q42' }] });
-    // Asked once per company per session.
+    // Asked once per company per session: name search, brand-word search, entity fetch.
     await repo.fillFoundedYear('acme');
-    expect(wikidataJson).toHaveBeenCalledTimes(2);
+    expect(wikidataJson).toHaveBeenCalledTimes(3);
     // The scoreboard reads the stored year.
     const acme = buildCompletenessReport(saved()).decks[0]!.companies.find((company) => company.companyId === 'acme')!;
     expect(slot(acme, 'identity.founded').value).toBe('2013 (Wikidata)');
