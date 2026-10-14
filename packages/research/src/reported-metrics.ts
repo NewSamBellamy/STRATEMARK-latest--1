@@ -4,6 +4,7 @@ import { MONEY_METRIC_TYPES, reportedBandSchema, reportedMetricSupportSchema, us
 import type { ProviderGrounding } from './types';
 import type { EnrichmentOut } from './schemas';
 import { describeCurrencyConversion, isConvertibleCurrency, usdPerUnit } from './fx';
+import { summaryIsUnfit } from './company-summary';
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const sentences = (text: string) => text.split(/(?<=[.!?])\s+(?=[A-Z])/);
@@ -866,7 +867,7 @@ export function providerCompanySummary(companyName: string, website: string | nu
     const candidates = sentenceAround(support.text, grounding.answerText, support.startIndex).split(/\n+/)
       .filter(line => !/^\s*#{1,6}\s/.test(line)).flatMap(sentences).map(plain);
     const eligible = candidates.filter(sentence => entity(sentence, companyName) && sentence.length >= 30 && sentence.length <= 500 &&
-      !ABOUT_FIGURES.test(sentence) &&
+      !ABOUT_FIGURES.test(sentence) && !summaryIsUnfit(sentence) &&
       !(/\d/.test(sentence) && /\b(?:valuation|valued at|funding round|market cap(?:italization)?|annual revenue|ARR|headcount|employees)\b|[$€£]/i.test(sentence)) &&
       // The verb gate keeps label/boilerplate lines out; it must describe what
       // companies actually SAY about themselves. "NuScale designs and

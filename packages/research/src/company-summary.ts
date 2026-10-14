@@ -19,6 +19,18 @@ function officialHost(sourceUrl: string, websiteUrl?: string | null): boolean {
 const SALES_LINE = /^(?:experience|revolutioni[sz]e|accelerate|discover|explore|learn|get|meet|build|transform|unlock|empower|join|see|find|shop|buy|order|try|enjoy|sip|elevate|fuel|boost|upgrade|introducing|say hello|welcome|take|browse|save|subscribe|feel)\b/i;
 const CONTEXT_BOUND = /\b(?:this|these|those|such)\s+(?:environment|market|moment|landscape|challenge|challenges|era|world|need|needs|space|problem|problems|opportunity|time|times|reason|way)\b/i;
 
+/**
+ * A stored or proposed company summary that cannot stand as the company's
+ * description: a sales line ("Discover Alter Domus, offering expert
+ * services…"), a sentence leaning on the page it was lifted from ("…is
+ * purpose-built for this environment"), or broken extraction (a space before
+ * punctuation). Judged sentence by sentence; one unfit sentence is enough.
+ */
+export function summaryIsUnfit(summary: string): boolean {
+  return (summary.match(/[^.!?]+[.!?]*/g) ?? []).map(sentence => sentence.trim()).filter(Boolean).some(sentence =>
+    SALES_LINE.test(sentence) || CONTEXT_BOUND.test(sentence)) || /\s[.,;:!?]/.test(summary);
+}
+
 function eligibleSentences(text: string, companyName: string): string[] {
   const normalizedName = normalizeSourceText(companyName).toLocaleLowerCase();
   const protectedText = text.replace(/\b(Inc|Ltd|Corp|Co|U\.S|e\.g|i\.e)\.(?=\s)/gi, '$1<PERIOD>');
@@ -32,7 +44,7 @@ function eligibleSentences(text: string, companyName: string): string[] {
       !/\b(?:cookies?|privacy|javascript|browser|sign (?:in|up)|log ?in|subscribe|newsletter|copyright|all rights reserved)\b/i.test(sentence) &&
       // A sales line sells; a sentence leaning on its page ("purpose-built for
       // this environment") says nothing once lifted out of it.
-      !SALES_LINE.test(sentence) && !CONTEXT_BOUND.test(sentence) && !/\s[.,;:!?]/.test(sentence) &&
+      !summaryIsUnfit(sentence) &&
       (sentence.toLocaleLowerCase().includes(normalizedName) ||
         /\b(?:builds?|develops?|creates?|provides?|offers?|research(?:es)?|designs?|operates?|serves?|platform|software|company|laborator|models?)\b/i.test(sentence)));
 }

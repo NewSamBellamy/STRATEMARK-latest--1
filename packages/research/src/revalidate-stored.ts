@@ -15,7 +15,8 @@
  * add the check here) whenever a new write gate should also reach stored rows.
  * Human-verified figures are never touched.
  */
-import { classifyMarketProfile, type CompanyMetric, type MetricType } from '@mi/contracts';
+import { classifyMarketProfile, isEntityCardType, type CardType, type Citation, type CompanyMetric, type MetricType } from '@mi/contracts';
+import { isPendingCompanySummary, summaryIsUnfit, UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
 import type { OriginalSourceAttempt, OriginalSourceReceipt } from './original-source';
 import type { ResearchEvidence } from './research-evidence';
 import { reportedBandNote, reportedRowNote, reportedStoredCitations, storedDefinition, storedReportedFigureMisattributed,
@@ -31,7 +32,9 @@ import { storedSecRevenueIsSubLine } from './sec-revenue';
  * v2: undated estimates re-dated from their own stored support (a literal
  *     business date, else the end of the one period it states) or marked
  *     explicitly undated; a financial firm's "ARR" relabelled annual revenue
- *     (or withdrawn when the stored support does not state revenue).
+ *     (or withdrawn when the stored support does not state revenue);
+ *     stored company summaries that are sales lines, page-bound or broken
+ *     extraction reset to the pending placeholder (company + entity cards).
  */
 export const METRIC_GATE_VERSION = 2;
 
@@ -65,6 +68,8 @@ export interface RevalidationOutcome {
   reset: RevalidatedMetric[];
   /** Kept figures whose date or definition was corrected. */
   relabelled: RelabelledMetric[];
+  /** Companies whose stored summary was reset to the pending placeholder. */
+  resetSummaries: Array<{ companyId: string; previous: string }>;
   /** SEC revenue rows whose retained evidence could not decide the sub-line question. */
   undecided: string[];
 }
@@ -72,7 +77,8 @@ export interface RevalidationOutcome {
 /** The snapshot fields this pass reads and writes. */
 export interface RevalidatableSnapshot {
   metricGateVersion?: number;
-  companies: ReadonlyArray<{ id: string; name: string; websiteUrl?: string | null; oneLiner?: string }>;
+  companies: Array<{ id: string; name: string; websiteUrl?: string | null; oneLiner?: string }>;
+  cards?: Array<{ companyId: string | null; cardType: CardType; summary: string | null; citations?: Citation[] }>;
   metrics: CompanyMetric[];
   dashboards: Record<string, unknown>;
   researchEvidence?: readonly ResearchEvidence[];
@@ -148,7 +154,7 @@ function failedGate(metric: CompanyMetric, companyName: string | undefined,
  */
 export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): RevalidationOutcome {
   const fromVersion = typeof snapshot.metricGateVersion === 'number' ? snapshot.metricGateVersion : 0;
-  if (fromVersion >= METRIC_GATE_VERSION) return { fromVersion, ran: false, reset: [], relabelled: [], undecided: [] };
+  if (fromVersion >= METRIC_GATE_VERSION) return { fromVersion, ran: false, reset: [], relabelled: [], resetSummaries: [], undecided: [] };
 
   const names = new Map(snapshot.companies.map((c) => [c.id, c.name]));
   const companies = new Map(snapshot.companies.map((c) => [c.id, c]));
@@ -188,9 +194,29 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
     return { ...metric, value: null, confidence: 'unknown', source: null, citations: [], methodNote: NOTES[gate],
       passageSupport: null, reportedSupport: null, quotedSupport: null, lastVerifiedAt: null };
   });
-  // A cached dashboard may restate a withdrawn figure in its prose.
-  const touched = new Set([...reset, ...relabelled].map((r) => r.companyId));
+  // Summaries are model-free copy from a source page; no human edits them, so
+  // an unfit one goes back to the pending placeholder the asset and hydration
+  // lanes refill. The entity cards mirror it (with its citation).
+  const resetSummaries: RevalidationOutcome['resetSummaries'] = [];
+  const summaries = new Map<string, string>();
+  snapshot.companies = snapshot.companies.map((company) => {
+    const previous = company.oneLiner;
+    if (!previous || isPendingCompanySummary(previous) || !summaryIsUnfit(previous)) return company;
+    resetSummaries.push({ companyId: company.id, previous });
+    summaries.set(company.id, previous);
+    return { ...company, oneLiner: UNSUPPORTED_COMPANY_SUMMARY };
+  });
+  if (snapshot.cards && summaries.size) {
+    snapshot.cards = snapshot.cards.map((card) => {
+      const previous = card.companyId ? summaries.get(card.companyId) : undefined;
+      if (previous === undefined || !isEntityCardType(card.cardType) || !card.summary ||
+        (card.summary !== previous && !summaryIsUnfit(card.summary))) return card;
+      return { ...card, summary: UNSUPPORTED_COMPANY_SUMMARY, citations: [] };
+    });
+  }
+  // A cached dashboard may restate a withdrawn figure (or summary) in its prose.
+  const touched = new Set([...reset, ...relabelled, ...resetSummaries].map((r) => r.companyId));
   if (touched.size) snapshot.dashboards = { ...snapshot.dashboards, ...Object.fromEntries([...touched].map((id) => [id, {}])) };
   snapshot.metricGateVersion = METRIC_GATE_VERSION;
-  return { fromVersion, ran: true, reset, relabelled, undecided };
+  return { fromVersion, ran: true, reset, relabelled, resetSummaries, undecided };
 }
