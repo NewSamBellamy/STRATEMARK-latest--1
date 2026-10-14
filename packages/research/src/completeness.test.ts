@@ -320,6 +320,7 @@ describe('fillCompanyAssets', () => {
     const snap = snapshot([]);
     snap.companies[0]!.logoUrl = 'https://commons.wikimedia.org/wiki/Special:FilePath/OpenAI_Logo.svg';
     snap.companies[0]!.brandTheme = { primary: '#111111', secondary: '#222222', accent: '#333333', text: '#000000', background: '#ffffff', fontFamily: null, source: 'scraped' };
+    snap.companies[0]!.founded = { year: 2015, source: 'wikidata', capturedAt: '2026-01-01', citations: [{ title: 'Wikidata Q1', url: 'https://www.wikidata.org/wiki/Q1' }] };
     const read = vi.fn(async (url: string) => rawReceipt(url, '<html></html>'));
     const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(snap), client: assetClient });
 
@@ -413,6 +414,48 @@ describe('fillCompanyAssets — homepage description', () => {
     await repo.fillCompanyAssets('cmp_1', read);
     await repo.fillCompanyAssets('cmp_1', read);
     expect(store.read()!.companies[0]!.oneLiner).toBe('No source-backed company snapshot is ready yet.');
-    expect(read).toHaveBeenCalledTimes(1);
+    // The homepage once, plus the one /about page the founded-year lane tries; a second call adds nothing.
+    expect(read.mock.calls.map(([url]) => url)).toEqual(['https://openai.com', 'https://openai.com/about']);
+  });
+});
+
+describe('fillCompanyAssets founded-year ladder', () => {
+  const dated = (snap: ReturnType<typeof snapshot>) => {
+    snap.companies[0]!.logoUrl = 'https://commons.wikimedia.org/wiki/Special:FilePath/OpenAI_Logo.svg';
+    snap.companies[0]!.founded = null;
+    return snap;
+  };
+
+  it('stores a homepage JSON-LD foundingDate with its citation and records the attempt', async () => {
+    const store = memoryStore(dated(snapshot([])));
+    const html = '<script type="application/ld+json">{"@type":"Organization","name":"OpenAI","foundingDate":"2015-12-11"}</script>';
+    const repo = new GeminiRepository({ apiKey: 'k', store, client: assetClient });
+    await repo.fillCompanyAssets('cmp_1', vi.fn(async (url: string) => rawReceipt(url, html)));
+    expect(store.read()?.companies[0]!.founded).toMatchObject({
+      year: 2015, source: 'website', evidence: 'foundingDate: 2015-12-11',
+      citations: [{ url: 'https://openai.com', credibility: 'primary' }],
+    });
+  });
+
+  it('falls back to the /about page, and stores nothing when no page states a founding', async () => {
+    const store = memoryStore(dated(snapshot([])));
+    const repo = new GeminiRepository({ apiKey: 'k', store, client: assetClient });
+    const read = vi.fn(async (url: string) => rawReceipt(url, url.endsWith('/about') ? '<p>We were founded in 2015.</p>' : '<html></html>'));
+    await repo.fillCompanyAssets('cmp_1', read);
+    expect(store.read()?.companies[0]!.founded).toMatchObject({ year: 2015, source: 'website', citations: [{ url: 'https://openai.com/about' }] });
+
+    const empty = memoryStore(dated(snapshot([])));
+    const repo2 = new GeminiRepository({ apiKey: 'k', store: empty, client: assetClient });
+    await repo2.fillCompanyAssets('cmp_1', vi.fn(async (url: string) => rawReceipt(url, '<p>Nothing dated here.</p>')));
+    expect(empty.read()?.companies[0]!.founded ?? null).toBeNull();
+  });
+
+  it('replaces a History-tab year but never a Wikidata one', async () => {
+    const snap = dated(snapshot([]));
+    snap.companies[0]!.founded = { year: 2016, source: 'history', capturedAt: '2026-01-01', citations: [{ title: 't', url: 'https://example.com/h' }] };
+    const store = memoryStore(snap);
+    const repo = new GeminiRepository({ apiKey: 'k', store, client: assetClient });
+    await repo.fillCompanyAssets('cmp_1', vi.fn(async (url: string) => rawReceipt(url, '<p>Founded in 2015</p>')));
+    expect(store.read()?.companies[0]!.founded?.source).toBe('website');
   });
 });

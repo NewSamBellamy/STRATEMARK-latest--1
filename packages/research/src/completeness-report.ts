@@ -221,7 +221,7 @@ const topicIs = (targeted: readonly string[], broad: readonly string[] = []) => 
 const IDENTITY_SLOTS: SlotDef[] = [
   { key: 'identity.website', group: 'identity', label: 'Website', relevance: topicIs(['company_profile'], ['overview']) },
   { key: 'identity.hq', group: 'identity', label: 'HQ', relevance: topicIs(['company_profile'], ['overview']) },
-  { key: 'identity.founded', group: 'identity', label: 'Founded', relevance: topicIs(['history'], ['company_profile', 'overview']), tab: 'history' },
+  { key: 'identity.founded', group: 'identity', label: 'Founded', relevance: topicIs(['history', 'company_profile'], ['overview']), tab: 'history' },
   { key: 'description', group: 'description', label: 'Description', relevance: topicIs(['company_profile'], ['overview']), tab: 'overview' },
 ];
 
@@ -382,7 +382,7 @@ function scoreCompany(company: Company, cardTypes: CardType[], snap: Required<Pi
   // A stored founded year (with its citation) outranks re-deriving one from the tab.
   const stored = company.founded && Number.isInteger(company.founded.year) && (company.founded.citations?.length ?? 0) > 0 ? company.founded : null;
   const founded = stored?.year ?? foundedYearOf(timeline);
-  const foundedFrom = stored ? (stored.source === 'wikidata' ? 'Wikidata' : 'history tab') : 'history tab';
+  const foundedFrom = stored ? (stored.source === 'wikidata' ? 'Wikidata' : stored.source === 'website' ? 'company website' : 'history tab') : 'history tab';
   const teamCount = arrayAt(content('team_org'), 'nodes').length;
   const productCount = arrayAt(content('products_roadmap'), 'products').length;
   const newsCount = arrayAt(content('live_intel'), 'items').length;

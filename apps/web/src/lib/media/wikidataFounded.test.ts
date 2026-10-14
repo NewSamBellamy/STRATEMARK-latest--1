@@ -46,7 +46,8 @@ describe('founded year from Wikidata', () => {
     const name = company();
     await lookupFoundedYear(name, 'https://acme.ai');
     await lookupFoundedYear(name, 'https://acme.ai');
-    expect(fetch).toHaveBeenCalledTimes(2);
+    // Name search, brand-word search, entity fetch: once, not per call.
+    expect(fetch).toHaveBeenCalledTimes(3);
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
     expect(await lookupFoundedYear(company(), 'https://acme.ai')).toBeNull();
     expect(await lookupFoundedYear(company(), null)).toBeNull();

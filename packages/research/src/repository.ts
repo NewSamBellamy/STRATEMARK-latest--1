@@ -39,6 +39,7 @@ import {
   type CardWithCompany,
   type Citation,
   type Company,
+  type CompanyFounded,
   type CompanyCompleteness,
   type CompanyMetric,
   type CreateMarketInput,
@@ -137,7 +138,7 @@ import { extractOrganizationJsonLd } from './registries/jsonld';
 import { faviconUrl, knownCompanyDomain } from './logos';
 import { METRIC_GATE_VERSION, revalidateStoredMetrics, type RevalidationOutcome } from './revalidate-stored';
 import { DashboardWarmup, type CachedTabState, type WarmAttempts, type WarmPriority, type WarmTab } from './dashboard-warmup';
-import { foundedFromHistory, foundedFromWikidata, wikidataFoundedYear, type JsonFetcher } from './founded-year';
+import { foundedFromHistory, foundedFromWebsite, foundedFromWikidata, wikidataFoundedYear, type JsonFetcher } from './founded-year';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
  * persists per card and every provider call is deadline-bounded, so a job
@@ -479,6 +480,8 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly warmBackfill: boolean = false;
   /** Founded-year lookups in flight or done this session (Wikidata is asked once per company). */
   private readonly foundedLookups = new Map<string, Promise<void>>();
+  /** Companies whose own pages the founded-year lane has already read this session. */
+  private readonly foundedPagesRead = new Set<string>();
   private readonly ownershipFetch?: typeof fetch;
   private readonly jobControllers = new Map<string, AbortController>();
   /** In-flight source-binding passes, one per company. */
@@ -2426,6 +2429,46 @@ export class GeminiRepository implements MarketIntelRepository {
     await this.persist();
   }
 
+  /** Rungs 1b and 3 of the founded-year ladder (see fillFoundedYear). */
+  private async fillFoundedFromOwnPages(company: Company, read: (url: string) => Promise<OriginalSourceReceipt>): Promise<void> {
+    const websiteUrl = company.websiteUrl;
+    if (!websiteUrl) return;
+    const receipts: OriginalSourceReceipt[] = [];
+    const homepage = await read(websiteUrl);
+    receipts.push(homepage);
+    const html = homepage.status === 'retrieved' && homepage.text ? homepage.text : null;
+    let founded: CompanyFounded | null = null;
+    // The site's own sameAs link names the Wikidata item without a name search.
+    const qid = html ? extractOrganizationJsonLd(html)?.wikidataQid ?? null : null;
+    if (qid && this.wikidataJson) {
+      const found = await wikidataFoundedYear(company.name, websiteUrl, this.wikidataJson, { qid }).catch(() => null);
+      if (found) founded = foundedFromWikidata(found);
+    }
+    founded ??= foundedFromWebsite(html, homepage.finalUrl ?? websiteUrl);
+    if (!founded) {
+      let about: string | null = null;
+      try { about = new URL('/about', homepage.finalUrl ?? websiteUrl).toString(); } catch { /* none */ }
+      if (about && html) {
+        const page = await read(about).catch(() => null);
+        if (page) {
+          receipts.push(page);
+          if (page.status === 'retrieved' && page.text) founded = foundedFromWebsite(page.text, page.finalUrl ?? about);
+        }
+      }
+    }
+    // The attempt is on the ledger either way, so the scoreboard sees it was aimed at the slot.
+    if (this.originalSources) {
+      await this.originalSources.save({ id: `src_founded_${globalThis.crypto.randomUUID()}`, companyId: company.id,
+        metricType: 'company_profile', capturedAt: new Date().toISOString(), receipts }).catch(() => undefined);
+    }
+    const target = this.snap.companies.find((c) => c.id === company.id);
+    if (!founded || !target || target.websiteUrl !== websiteUrl) return;
+    if (target.founded?.source === 'wikidata' || target.founded?.source === 'website') return;
+    if (target.founded && founded.source !== 'wikidata' && founded.source !== 'website') return;
+    target.founded = founded;
+    await this.persist();
+  }
+
   // Dashboard (lazy, cached) -----------------------------------------------
   /**
    * In-flight tab research, keyed `companyId:tab`. A user click and the warm-up
@@ -4275,6 +4318,15 @@ export class GeminiRepository implements MarketIntelRepository {
         this.applySourcedProfile(company);
         await this.persist();
       }
+    }
+    // Founded year from the company's own pages, reusing the homepage receipt
+    // already read above: the Wikidata item the site links itself to, else
+    // schema.org foundingDate / an explicit "founded in YYYY" sentence on the
+    // homepage, else its /about page. Cited and never estimated; a Wikidata
+    // year outranks the site, the site outranks the History tab's wording.
+    if (company.founded?.source !== 'wikidata' && company.founded?.source !== 'website' && !this.foundedPagesRead.has(company.id)) {
+      this.foundedPagesRead.add(company.id);
+      try { await this.fillFoundedFromOwnPages(company, memoRead); } catch { /* the slot stays honestly empty */ }
     }
     if (!guessed && !needsColors) return { logo: null };
     const { logo: found, colors } = await resolveCompanyBrand(company.websiteUrl, memoRead, { name: company.name, skipWikidata: !guessed });

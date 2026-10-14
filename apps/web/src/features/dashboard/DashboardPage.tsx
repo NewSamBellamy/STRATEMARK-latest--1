@@ -341,7 +341,7 @@ export default function DashboardPage() {
   }).data;
   const founded = stored?.source === 'wikidata' ? { year: stored.year, from: 'Wikidata' }
     : registryFounded ? { year: registryFounded.year, from: 'Wikidata' }
-      : stored ? { year: stored.year, from: 'the History tab' }
+      : stored ? { year: stored.year, from: stored.source === 'website' ? 'the company website' : 'the History tab' }
         : historyFounded ? { year: historyFounded, from: 'the History tab' } : null;
   // The fallback oneLiner reads as a contradiction when the metrics grid below
   // it shows figures. With provider-reported figures on file, say what state
