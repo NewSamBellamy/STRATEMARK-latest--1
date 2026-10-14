@@ -180,6 +180,24 @@ export function cardFactsHuntRequest(companyName: string, types: readonly Metric
   ];
 }
 
+/**
+ * Hunt-side request for the "Users / Distribution" slot. The slot means a
+ * different thing per kind of company, and a search that asks only for "users"
+ * finds nothing for a retail brand or a hardware maker, so the request names
+ * every honest form of the figure and asks the source's own noun back. Always
+ * a count the source states, never one derived from another.
+ */
+export function reachHuntRequest(companyName: string, types: readonly MetricType[]): string[] {
+  if (!types.includes('users') && !types.includes('distribution')) return [];
+  return [
+    `REACH of ${companyName} — report whichever of these a source actually states, using the source's own noun:`,
+    '- software, platforms, payments, services: customers, users, merchants, clients or members served (active users only if the source says "active")',
+    '- consumer and retail brands: stores, stockists, retail doors or retailers that carry it, or countries it is sold in',
+    '- hardware: units shipped or sold, or devices, vehicles or systems deployed in the field',
+    `State each in ONE sentence that names the company, the exact count, the noun the source uses and the date, e.g. "${companyName} serves 12,000 customers as of March 3, 2026." or "${companyName} is stocked in 4,500 stores as of March 3, 2026." Never convert one noun into another (customers are not users, stores are not countries). "Not disclosed" if no source states one.`,
+  ];
+}
+
 export function enrichPrompt(candidate: CompanyCandidate, plan: MarketPlan): string {
   return [
     `Research the company "${candidate.name}"${candidate.domain ? ` (${candidate.domain})` : ''} in the context of the market: ${plan.marketName}.`,

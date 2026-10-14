@@ -317,7 +317,8 @@ describe('fillCompanyAssets', () => {
   });
 
   it('never touches curated or Wikidata art', async () => {
-    const snap = snapshot([]);
+    // Reach slots are closed (human figures) so the asset lane has no reason to read the site at all.
+    const snap = snapshot([humanFact('cmp_1', 'users', 1000), humanFact('cmp_1', 'distribution', 20)]);
     snap.companies[0]!.logoUrl = 'https://commons.wikimedia.org/wiki/Special:FilePath/OpenAI_Logo.svg';
     snap.companies[0]!.brandTheme = { primary: '#111111', secondary: '#222222', accent: '#333333', text: '#000000', background: '#ffffff', fontFamily: null, source: 'scraped' };
     const read = vi.fn(async (url: string) => rawReceipt(url, '<html></html>'));

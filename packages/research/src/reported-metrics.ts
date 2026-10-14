@@ -233,6 +233,13 @@ const rivalMatcher = (companyName: string, others?: readonly string[]): RegExp |
 function host(url: string | null): string | null {
   try { return url ? new URL(url).hostname.replace(/^www\./, '') : null; } catch { return null; }
 }
+/** Reach footprint: places it is sold, plus units out in the field for hardware. */
+export const DISTRIBUTION_BASIS = /\b(?:countries|markets|retailers|stores|doors|stockists|retail locations|points of sale|retail partners|dealers|locations|restaurants|shops|pharmacies|supermarkets|cities|(?:units|devices|vehicles|systems|robots|installations)\s+(?:shipped|sold|delivered|deployed|installed))\b/i;
+/** The customer population goes by many nouns on a company's own site
+ * ("trusted by 4,000 companies", "serving 100,000 merchants"). */
+/** People who use the product, in the nouns a company's own site uses for them. */
+export const USER_BASIS = /\b(?:users|people|professionals|players|students|riders|drivers|patients|shoppers)\b/i;
+export const CUSTOMER_BASIS = /\b(?:customers|clients|merchants|businesses|companies|organi[sz]ations|brands|teams|developers|members|subscribers|sellers|creators|households)\b/i;
 const basisPatterns: Record<string, RegExp> = {
   arr: /\b(?:ARR|annual recurring revenue)\b/i,
   // Corporate prose usually says "total consolidated annual revenues" — the
@@ -246,10 +253,10 @@ const basisPatterns: Record<string, RegExp> = {
   revenue: /\b(?:(?<!annual )(?<!recurring )revenues?|sales|turnover)\b/i,
   funding_total: /\b(?:total funding|funding to date|raised to date|total (?:capital )?raised|(?:has|have) raised(?!(?:[^.]|\.(?=\d))*\b(?:Series [A-Z]\d?|(?:pre-)?seed|bridge|(?:funding|financing|investment) round|round)\b)|raised a total of)\b/i,
   last_round: /\b(?:Series [A-Z]\d?|(?:pre-)?seed|(?:funding|investment|financing|bridge) round|round of (?:funding|financing))\b/i,
-  distribution: /\b(?:countries|markets|retailers|stores|doors|stockists|retail locations|points of sale)\b/i,
-  users: /\busers\b/i, active_users: /\bactive users\b/i,
+  distribution: DISTRIBUTION_BASIS,
+  users: USER_BASIS, active_users: /\bactive users\b/i,
   monthly_active_users: /\bmonthly active users\b/i, daily_active_users: /\bdaily active users\b/i,
-  customers: /\bcustomers\b/i, paying_customers: /\bpaying customers\b/i,
+  customers: CUSTOMER_BASIS, paying_customers: /\bpaying customers\b/i,
   valuation: /\bvaluation|valued at\b/i, market_cap: /\bmarket cap(?:italization)?\b/i,
   market_share: /\bmarket share\b/i,
   aum: /\b(?:AUM|assets under management)\b/i,
@@ -320,6 +327,24 @@ const DISTRIBUTION_NOT_SALES = /\b(?:team members?|employees|staff|workforce|tea
 
 /** A product or customer segment named right before "users". */
 const USER_SEGMENT_BEFORE = /\b(?:business|enterprise|corporate|commercial|developer|api|education|edu|government|team|teams|pro|plus|premium|paid|paying|beta|student|seat)\s+$/i;
+
+/** A claim a company makes about itself on its own site: a page-quote support
+ * whose every source is on the company's official host. The site IS the
+ * issuer's own statement, so the sentence needs no company name ("Trusted by
+ * 10,000+ customers") — identity is the host, never a guess. */
+export function ownSiteSupport(proof: ReportedMetricSupport, website: string | null): boolean {
+  const expected = host(website);
+  return !!expected && proof.provider === 'page-quote' && proof.support.sources.length > 0 &&
+    proof.support.sources.every(source => { const actual = host(source.url); return actual === expected || !!actual?.endsWith(`.${expected}`); });
+}
+/** Forward-looking or imprecise wording never states a current footprint. */
+const OWN_SITE_SPECULATIVE = /\b(?:will|plans?\s+to|aims?\s+to|aiming|goal|target(?:s|ing)?|expects?|expected|projected|forecasts?|soon|could|may|might|approximately|about|around|nearly|almost|roughly|up to|by\s+20\d\d|not)\b|~/i;
+/** A figure written as a floor ("10,000+", "over 50 million", "more than 200") is
+ * a lower bound, never an exact count: the value is stored as written and the
+ * row's note says so. */
+export function isLowerBound(text: string): boolean {
+  return /\d\s*(?:trillion|billion|million|thousand|[kmbt])?\s*\+|\b(?:over|more than|at least|exceeding|upwards of)\s+(?:US\$|\$)?\d/i.test(text);
+}
 
 function hasNumber(text: string, value: number, unit: ReportedMetricSupport['unit'], definition: string, bindBasis = true): boolean {
   const native = isConvertibleCurrency(unit);
@@ -563,7 +588,9 @@ export function reportedMetricCitations(companyName: string, website: string | n
   // worth citing. A users claim with no reporting date ('1B active users',
   // full stop) is the unverifiable mega-figure the red team flagged: it
   // stays unknown rather than rendering with authority it never earned.
-  if (type === 'users' && !proof.asOf) return [];
+  // The one exception is a company's own site stating its own reach, labelled
+  // undated on the row (ownSiteSupport).
+  if (type === 'users' && !proof.asOf && !ownSiteSupport(proof, website)) return [];
 if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its .{0,30}suite|active base of .{0,30}devices)\b/i.test(proof.support.text)) return [];
   // A market cap is a listed share price times shares: undated it reads as
   // today's figure, and a private round ("Market Cap: $565M (post-money
@@ -617,6 +644,7 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
   // as before) and, for an inline bullet label beside the figure, with the label
   // kept as the claim's own basis word. A conversion clause that follows a
   // native-currency figure is not a claim and its "~" is not an estimate.
+  const ownSite = ownSiteSupport(proof, website), reach = type === 'users' || type === 'distribution';
   const raw = sentences(sentenceAround(proof.support.text, identity?.answerText, proof.support.startIndex));
   const inherits = new Set<string>();
   const admitted: string[] = [];
@@ -627,7 +655,9 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
     const bareOk = !!entity(bare, companyName) ||
       (official && /^(?:annual revenue|ARR|annual recurring revenue|headcount|employees|users|customers|valuation|market cap)\b/i.test(bare)) ||
       (answerAnchored && anonymousClaimLabel.test(bare) && !rivals!.test(bare)) ||
-      (namedBeforeBasis?.(bare) ?? false);
+      (namedBeforeBasis?.(bare) ?? false) ||
+      // The company's own page speaking about itself (see ownSiteSupport).
+      (ownSite && reach && !(rivals?.test(bare) ?? false));
     const keptOk = kept !== bare && (!!entity(plain(sentenceRaw), companyName) ||
       (answerAnchored && anonymousClaimLabel.test(kept) && !rivals!.test(kept)));
     if (bareOk) admitted.push(bare);
@@ -661,7 +691,8 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
     !figureBelongsToParentOrDeal(sentence, definition) &&
     (!proof.asOf || !/\b(?:article published|page published|retrieved|accessed|updated on)\b/i.test(sentence)) &&
     (definition !== 'distribution' || !DISTRIBUTION_NOT_SALES.test(sentence)) &&
-    (definition !== 'users' || !/\b(?:active|monthly|daily|weekly|customers|registered|downloads|followers)\b/i.test(sentence)))) return [];
+    (!(ownSite && reach) || !OWN_SITE_SPECULATIVE.test(sentence)) &&
+    (definition !== 'users' || !/\b(?:active|monthly|daily|weekly|customers|registered|downloads|followers|employees?|employs?|employed|headcount|staff|workforce)\b/i.test(sentence)))) return [];
   return citations;
 }
 
@@ -688,7 +719,7 @@ export function reportedSupportCitations(companyName: string, website: string | 
   // worth citing. A users claim with no reporting date ('1B active users',
   // full stop) is the unverifiable mega-figure the red team flagged: it
   // stays unknown rather than rendering with authority it never earned.
-  if (type === 'users' && !proof.asOf) return [];
+  if (type === 'users' && !proof.asOf && !ownSiteSupport(proof, website)) return [];
 if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its .{0,30}suite|active base of .{0,30}devices)\b/i.test(proof.support.text)) return [];
   if (CARD_FACT_TYPES.includes(type) && type !== 'distribution' && !proof.asOf) return [];
   if (type === 'distribution' && DISTRIBUTION_NOT_SALES.test(proof.support.text)) return [];
@@ -696,7 +727,7 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
   // company and states the number, since nothing else anchors it in time.
   if (type === 'distribution' && !proof.asOf && !sentences(proof.support.text).some(raw => {
     const bare = stripCurrencyConversion(plain(raw));
-    return mentionsCompany(bare, companyName) && !CARD_FACT_SPECULATIVE.test(bare) &&
+    return (mentionsCompany(bare, companyName) || ownSiteSupport(proof, website)) && !CARD_FACT_SPECULATIVE.test(bare) &&
       hasNumber(bare, proof.value, proof.unit, definition);
   })) return [];
   return usableCitations(metric.citations, website ?? undefined);
@@ -736,7 +767,7 @@ export function reportedStoredCitations(companyName: string, website: string | n
     // The named path also needs the stored as-of date in the same sentence, so
     // an undated sentence never borrows a date from elsewhere.
     const named = mentionsCompany(bare, companyName) && (!proof.asOf || hasDate(bare, proof.asOf));
-    const anonymous = kept !== bare || /^[^\p{Lu}]/u.test(bare) || CONTINUATION.test(bare) || named;
+    const anonymous = kept !== bare || /^[^\p{Lu}]/u.test(bare) || CONTINUATION.test(bare) || named || ownSiteSupport(proof, website);
     return anonymous && hasNumber(stripCurrencyConversion(neutralizeNumericAliases(kept, companyName)), proof.value, proof.unit, definition, false);
   });
   return appears ? lenient : [];
@@ -766,6 +797,12 @@ export function reportedRowNote(type: MetricType, proof: ReportedMetricSupport):
   const rate = isConvertibleCurrency(proof.unit) ? usdPerUnit(proof.unit) : null;
   const conversion = MONEY_METRIC_TYPES.includes(type) && rate != null
     ? ` ${describeCurrencyConversion(proof.value, proof.unit, proof.value * rate)}` : '';
+  // A company's own site stating its reach: say so, say which population its
+  // wording names, and say when the figure is a floor ("10,000+", "over 50").
+  if ((type === 'users' || type === 'distribution') && proof.provider === 'page-quote') {
+    const floor = isLowerBound(proof.support.text) ? ' Stated as a lower bound ("+", "over" or "more than"): at least this many, not an exact count.' : '';
+    return `Company's own site states its ${(proof.definition ?? type).replace(/_/g, ' ')} (${dated}); quoted from the page, not verified against an independent source.${floor} Source statement: ${statement}`;
+  }
   return (type === 'valuation' && isTalkOnlyValuation(proof.support.text)
     ? `Reported talks or a proposal at this valuation, not a closed round (${dated}); provider-grounded, not verified against an original. Source statement: ${statement}`
     : `Source reported ${proof.definition ?? type} (${dated}); provider-grounded, not verified against an original.${CARD_FACT_TYPES.includes(type) ? ` Source statement: ${statement}` : ''}`) + conversion;

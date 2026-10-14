@@ -140,7 +140,7 @@ describe('huntSearchQueries', () => {
     expect(huntSearchQueries('Acme "Capital"', ['employees'], { escalation: 1, financialFirm: true, year: 2026 })).toEqual([
       { query: '"Acme Capital" annual report filing disclosure', news: false },
       { query: '"Acme Capital" assets under management Form ADV', news: false },
-      { query: '"Acme Capital" employees customers company says', news: true },
+      { query: '"Acme Capital" employees customers stores countries company says', news: true },
     ]);
   });
 });

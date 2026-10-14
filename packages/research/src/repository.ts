@@ -97,6 +97,7 @@ import {
 import type { CompanyCandidate, MarketPlan } from './types';
 import { hydrateCompanyCard, hydrateCompanyCardsBatch, type HydrateCompanyCardInput, type HydrateCompanyCardResult } from './company-agent';
 import { latestSavedCompanyProfile } from './saved-profile';
+import { isReachPage, ownSiteLeadUrls, ownSiteReachRows, pageTextBlocks, siteReachClaims, type SitePage } from './site-reach';
 import { CARD_FACT_TYPES as CARD_FACT_HUNT_TYPES, reportedCompanyMetrics, reportedEmployeeBandRow, reportedMetricCitations } from './reported-metrics';
 import { businessDates, reportedAsOfNote, statedPeriodDate, storedDefinition } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
@@ -108,7 +109,7 @@ import {
   distillThreadMemory,
   buildPromptContext,
 } from './semantic-memory';
-import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest } from './prompts';
+import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest, reachHuntRequest } from './prompts';
 import type { ResearchPassage } from '@mi/contracts';
 import type { Ownership } from '@mi/contracts';
 import { findOwnership, metricOwnershipEvidence, preferOwnership, receiptOwnershipEvidence } from './ownership';
@@ -3308,6 +3309,16 @@ export class GeminiRepository implements MarketIntelRepository {
       } catch { /* the hunt ladder is the fallback, not a failure */ }
     }
 
+    // Users / Distribution from the company's own pages (retained receipts
+    // first, then its homepage and about pages): zero provider calls, and the
+    // one lane that targets this slot for every profile.
+    if (missing.some((t) => t === 'users' || t === 'distribution')) {
+      try {
+        filled.push(...await this.fillOwnSiteReach(company, missing,
+          (url) => sources.retrieve(url, { ...scope, metricType: 'users' })));
+      } catch { /* the hunt ladder is the fallback, not a failure */ }
+    }
+
     if (profiled && filled.length === 0) await this.persist();
     if (filled.length > 0) {
       this.invalidateDashboard(company.id);
@@ -3315,6 +3326,110 @@ export class GeminiRepository implements MarketIntelRepository {
       this.retierCompany(company.id, 'Re-tiered after a structured-lane fill.');
     }
     return filled;
+  }
+
+  /**
+   * "Users / Distribution" from the company's own site (see site-reach.ts).
+   * Pages come from receipts the pipeline already retained for the official
+   * host; only when those state nothing does it read the homepage and up to
+   * two of its own about / customers pages. A figure the pages state plainly
+   * lands as ESTIMATED with the page as its citation; an open slot only, never
+   * over a value, a verified row or a human edit. Every attempt that read a page
+   * is retained under the slot's own topic, so a company whose site states
+   * nothing reads as "tried, nothing found", not "never targeted".
+   */
+  private async fillOwnSiteReach(company: Company, missing: readonly MetricType[],
+    read: (url: string) => Promise<OriginalSourceReceipt>): Promise<MetricType[]> {
+    const website = company.websiteUrl;
+    if (!website) return [];
+    const wanted = (['users', 'distribution'] as const).filter((type) => missing.includes(type) && this.reachSlotOpen(company.id, type));
+    if (!wanted.length) return [];
+    let officialHost: string;
+    try { officialHost = new URL(website).hostname.replace(/^www\./, ''); } catch { return []; }
+    const onOfficialHost = (url: string | undefined) => {
+      try { const h = new URL(url ?? '').hostname.replace(/^www\./, ''); return h === officialHost || h.endsWith(`.${officialHost}`); } catch { return false; }
+    };
+    const pageOf = (receipt: OriginalSourceReceipt): SitePage | null => {
+      const url = receipt.finalUrl ?? receipt.requestedUrl;
+      return receipt.status === 'retrieved' && receipt.text && onOfficialHost(url) && isReachPage(url) ? { url, text: receipt.text } : null;
+    };
+    const pages: SitePage[] = (this.snap.originalSourceAttempts ?? [])
+      .filter((row) => isOriginalSourceAttempt(row) && row.companyId === company.id)
+      .flatMap((row) => row.receipts.map(pageOf).filter((page): page is SitePage => page !== null));
+    const nowIso = new Date().toISOString();
+    const rowsFor = () => ownSiteReachRows({ companyId: company.id, companyName: company.name, website, pages, types: wanted,
+      capturedAt: nowIso, otherCompanies: this.rosterRivals(company.id) });
+    let rows = rowsFor();
+    const fetched: OriginalSourceReceipt[] = [];
+    if (rows.length < wanted.length) {
+      const read1 = async (url: string): Promise<SitePage | null> => {
+        const receipt = await read(url).catch(() => null);
+        if (!receipt) return null;
+        fetched.push(receipt);
+        return pageOf(receipt);
+      };
+      const home = await read1(website);
+      if (home) {
+        pages.push(home);
+        for (const lead of ownSiteLeadUrls(home)) {
+          const page = await read1(lead);
+          if (page) pages.push(page);
+        }
+        rows = rowsFor();
+      }
+    }
+    if (this.originalSources && fetched.length) {
+      const retained = await Promise.all(fetched.map((receipt) => this.reachReceipt(receipt)));
+      for (let i = 0; i < retained.length; i += 2) {
+        await this.originalSources.save({ id: `src_reach_${globalThis.crypto.randomUUID()}`, companyId: company.id,
+          metricType: 'users', capturedAt: nowIso, receipts: retained.slice(i, i + 2) }).catch(() => undefined);
+      }
+    }
+    return this.applyReachRows(company.id, rows, nowIso);
+  }
+
+  /** A page read for the reach lane, in a form the ledger keeps: the raw HTML an
+   * asset reader returns is neither hashed nor within the ledger's text bound,
+   * so it is retained as the page's visible text (statements first), flagged
+   * truncated, with the digest of exactly that text. Anything already
+   * retainable is kept as read. */
+  private async reachReceipt(receipt: OriginalSourceReceipt): Promise<OriginalSourceReceipt> {
+    if (receipt.status !== 'retrieved' || !receipt.text || (receipt.contentHash && receipt.text.length <= 4000)) return receipt;
+    const url = receipt.finalUrl ?? receipt.requestedUrl;
+    const statements = siteReachClaims([{ url, text: receipt.text }]).map((claim) => claim.quote);
+    const visible = [...new Set([...statements, ...pageTextBlocks(receipt.text)])].join(String.fromCharCode(10)).slice(0, 4000);
+    const contentHash = [...new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(visible)))]
+      .map((b) => b.toString(16).padStart(2, '0')).join('');
+    const { format: _format, ...rest } = receipt;
+    return { ...rest, finalUrl: url, httpStatus: receipt.httpStatus ?? 200, text: visible, truncated: true, contentHash };
+  }
+
+  private reachSlotOpen(companyId: string, type: MetricType): boolean {
+    const revision = currentMetricRevision(this.snap.metrics.filter((m) => m.companyId === companyId), companyId, type);
+    if (revision?.ambiguous) return false;
+    const m = revision?.metric;
+    return !m || (m.value == null && m.confidence !== 'user_verified' && m.confidence !== 'verified');
+  }
+
+  private rosterRivals(companyId: string): string[] {
+    const marketId = this.snap.companyMarket[companyId];
+    return marketId === undefined ? [] : this.snap.companies
+      .filter((c) => c.id !== companyId && this.snap.companyMarket[c.id] === marketId).map((c) => c.name);
+  }
+
+  /** Write gated own-site rows into open slots only. Returns the types written. */
+  private applyReachRows(companyId: string, rows: readonly CompanyMetric[], nowIso: string): MetricType[] {
+    const written: MetricType[] = [];
+    for (const row of rows) {
+      if (row.value == null || !this.reachSlotOpen(companyId, row.metricType)) continue;
+      const current = currentMetricRevision(this.snap.metrics.filter((m) => m.companyId === companyId), companyId, row.metricType)?.metric;
+      const fields = { value: row.value, confidence: 'estimated' as const, source: row.source, citations: row.citations,
+        passageSupport: null, reportedSupport: row.reportedSupport, quotedSupport: null, methodNote: row.methodNote, capturedAt: nowIso };
+      if (current) Object.assign(current, fields);
+      else this.snap.metrics.push({ ...row, id: `met_site_${Date.now().toString(36)}_${row.metricType}`, ...fields });
+      written.push(row.metricType);
+    }
+    return written;
   }
 
   /** Cross-run company evidence reuse (WS6): a company already researched in
@@ -3618,6 +3733,7 @@ export class GeminiRepository implements MarketIntelRepository {
         wanted,
         companySourceTargets(company.websiteUrl),
         ...cardFactsHuntRequest(company.name, softTypes, { faceSweep: input.faceSweep }),
+        ...reachHuntRequest(company.name, softTypes),
         ...(softTypes.includes('arr') ? ['Find the latest whole-company fiscal annual revenue OR explicitly reported ARR. Keep them distinct. Find the actual dated annual report, earnings disclosure or company-specific regulatory filing, not an investor homepage or regulator search page. Include the direct filing URL actually discovered; do not guess identifiers.'] : []),
         ...(softTypes.includes('aum') ? ['This is a financial-services firm: find its assets under management (AUM) — the total capital it manages for clients, not the firm\'s own revenue or valuation. Prefer the firm\'s own disclosures (Form ADV filings, firm publications, investor pages) or reputable financial coverage, and name the as-of date.'] : []),
         ...(escalation > 0 ? [`ESCALATION PASS ${escalation}: earlier general searches for these figures came back empty. Vary the approach rather than repeating the same query shape: regulatory filings and exchange disclosures, investor presentations and earnings materials, trade-association market reports, sector trade press, funding announcements, or the company's own data book. For private companies look for the most recent credible estimate and name who published it. If a figure is still not reliably reported, say so plainly.`] : []),
@@ -4138,6 +4254,8 @@ export class GeminiRepository implements MarketIntelRepository {
    * puts the placeholder (or a blank location) back. */
   private readonly homepageSummaries = new Map<string, { summary: string; citations: Citation[] } | null>();
   private readonly sourcedHeadquarters = new Map<string, Headquarters | null>();
+  /** Companies whose own pages the asset lane has already read for users / distribution. */
+  private readonly reachRead = new Set<string>();
 
   /** No literal, cited description yet: the placeholder, or a forming card
    * still showing its discovery descriptor (model copy with no citation). */
@@ -4275,6 +4393,18 @@ export class GeminiRepository implements MarketIntelRepository {
         this.applySourcedProfile(company);
         await this.persist();
       }
+    }
+    // Users / Distribution from the homepage (and about pages) already being read.
+    if (!this.reachRead.has(company.id) && (this.reachSlotOpen(company.id, 'users') || this.reachSlotOpen(company.id, 'distribution'))) {
+      this.reachRead.add(company.id);
+      try {
+        const filled = await this.fillOwnSiteReach(company, ['users', 'distribution'], memoRead);
+        if (filled.length) {
+          this.invalidateDashboard(company.id);
+          this.retierCompany(company.id, 'Re-tiered after an own-site reach fill.');
+          await this.persist();
+        }
+      } catch { /* the slot stays honestly unknown */ }
     }
     if (!guessed && !needsColors) return { logo: null };
     const { logo: found, colors } = await resolveCompanyBrand(company.websiteUrl, memoRead, { name: company.name, skipWikidata: !guessed });
