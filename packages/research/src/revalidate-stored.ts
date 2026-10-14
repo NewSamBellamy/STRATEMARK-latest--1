@@ -17,7 +17,7 @@
  */
 import { classifyMarketProfile, isEntityCardType, ownershipWithholdsValuation, type CardType, type Citation, type CompanyMetric,
   type MetricType, type Ownership } from '@mi/contracts';
-import { canonicalHqLocation } from './brand/hq-format';
+import { canonicalHqLocation, hqGroundedInEvidence } from './brand/hq-format';
 import { isPendingCompanySummary, summaryIsUnfit, UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
 import type { OriginalSourceAttempt, OriginalSourceReceipt } from './original-source';
 import type { ResearchEvidence } from './research-evidence';
@@ -47,8 +47,13 @@ import { storedSecRevenueIsSubLine } from './sec-revenue';
  * v4: an acquired company's UNDATED valuation is withheld too (ownership rule,
  *     same acquired_deal_valuation gate); undated estimates are re-dated from
  *     their own stored support first, so a dated pre-deal round still stands.
+ * v5: stored headquarters must be derivable from the company's own retained
+ *     research text: a "City, State" whose state does not stand beside that
+ *     city there is cut back to what the text literally says (city + the state
+ *     it names, else the bare city). Text that never names the city decides
+ *     nothing. All v1-v4 checks still run.
  */
-export const METRIC_GATE_VERSION = 4;
+export const METRIC_GATE_VERSION = 5;
 
 export type RevalidationGate = 'parent_or_acquisition' | 'stale_share_count' | 'sec_revenue_sub_line'
   | 'acquired_deal_valuation' | 'non_subscription_arr';
@@ -227,7 +232,11 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
   const normalizedHq: RevalidationOutcome['normalizedHq'] = [];
   snapshot.companies = snapshot.companies.map((company) => {
     let next = company;
-    const hq = company.hqLocation?.trim() ? canonicalHqLocation(company.hqLocation) : null;
+    let hq = company.hqLocation?.trim() ? canonicalHqLocation(company.hqLocation) : null;
+    if (hq) {
+      const evidence = (snapshot.researchEvidence ?? []).filter((item) => item.companyId === company.id).map((item) => item.text).join(' ');
+      hq = hqGroundedInEvidence(hq, evidence);
+    }
     if (hq && hq !== company.hqLocation) {
       normalizedHq.push({ companyId: company.id, previous: company.hqLocation!, hqLocation: hq });
       next = { ...next, hqLocation: hq };
