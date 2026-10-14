@@ -55,6 +55,19 @@ describe('structured-lane reader regressions (live-verified)', () => {
     expect(receipt.text?.length ?? 0).toBeLessThan(full.length);
   });
 
+  it('slices the ticker map by exact symbols, and refuses a read with neither key', async () => {
+    const full = JSON.stringify({
+      0: { cik_str: 51143, ticker: 'IBM', title: 'INTERNATIONAL BUSINESS MACHINES CORP' },
+      1: { cik_str: 320193, ticker: 'AAPL', title: 'Apple Inc.' },
+    });
+    const serve = transportFor(() => ({ status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from(full) }));
+    const receipt = await retrieveOriginalSource('https://www.sec.gov/files/company_tickers.json?tickers=IBM', serve);
+    expect(receipt.status).toBe('retrieved');
+    expect(JSON.parse(receipt.text!).matches).toEqual([{ cik: '51143', ticker: 'IBM', title: 'INTERNATIONAL BUSINESS MACHINES CORP' }]);
+    const bare = await retrieveOriginalSource('https://www.sec.gov/files/company_tickers.json?tickers=not%20a%20symbol', serve);
+    expect(bare.status).toBe('unavailable');
+  });
+
   it('accepts the ADV report served as application/octet-stream', async () => {
     const receipt = await retrieveOriginalSource(
       'https://reports.adviserinfo.sec.gov/reports/ADV/160489/PDF/160489.pdf',

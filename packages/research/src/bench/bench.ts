@@ -24,7 +24,7 @@ import { join } from 'node:path';
 import type { ZodType, ZodTypeDef } from 'zod';
 import { classifyMarketProfile, profileMetricTypes, PROFILE_CORE_SLOTS } from '@mi/contracts';
 import { selectSecAdvRetainedText } from '../sec-adv';
-import { selectTickerMapSlice } from '../market-quote';
+import { selectTickerMapSlice, selectTickerRowsSlice, tickerLookupSymbols } from '../market-quote';
 import type { ResearchProgress } from '@mi/contracts';
 import { GeminiRepository, type RepoSnapshot, type ResearchStore } from '../repository';
 import type { CallMetricsAggregate, LlmClient } from '../types';
@@ -184,7 +184,9 @@ export function makeMockReader(claims: Map<string, { company: string; text: stri
     if (url.startsWith('https://www.sec.gov/files/company_tickers.json')) {
       const lookup = /lookup=([^&]+)/.exec(url)?.[1] ? decodeURIComponent(/lookup=([^&]+)/.exec(url)![1]!) : '';
       const mapJson = JSON.stringify(Object.fromEntries(specs.map((c, i) => [String(i), { cik_str: Number(crdOf(c)) % 10_000_000, ticker: tickerOf(c), title: c.name }])));
-      return serve(lookup ? selectTickerMapSlice(mapJson, lookup) : mapJson.slice(0, 3000));
+      const symbols = tickerLookupSymbols(new URL(url).searchParams.get('tickers'));
+      return serve(lookup ? selectTickerMapSlice(mapJson, lookup)
+        : symbols.length ? selectTickerRowsSlice(mapJson, symbols) : mapJson.slice(0, 3000));
     }
     if (/^https:\/\/query1\.finance\.yahoo\.com\/v1\/finance\/search\?/.test(url)) {
       const query = decodeURIComponent(/q=([^&]+)/.exec(url)?.[1] ?? '');

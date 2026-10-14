@@ -38,7 +38,7 @@ export interface SourceTransport {
 export type { OriginalSourceReceipt } from './original-source';
 import type { OriginalSourceReceipt, OriginalSourceScope } from './original-source';
 import { secAdvCrd, selectSecAdvRetainedText } from './sec-adv';
-import { selectTickerMapSlice } from './market-quote';
+import { selectTickerMapSlice, selectTickerRowsSlice, tickerLookupSymbols } from './market-quote';
 import { isScheduleDocumentUrl, parseScheduleOwnershipXml, secSubmissionsCik, selectScheduleFilingIndex } from './sec-ownership';
 import { getCrawl4aiLane } from './crawl4ai';
 
@@ -291,8 +291,10 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
       // lookup names, hashed against the full document.
       if (/^https:\/\/www\.sec\.gov\/files\/company_tickers\.json(\?|$)/.test(url.href)) {
         const lookup = url.searchParams.get('lookup') ?? '';
-        if (!lookup) return { ...receipt, reason: 'Ticker-map reads require a lookup name' };
-        const slice = selectTickerMapSlice(response.body.toString('utf8'), lookup);
+        const symbols = tickerLookupSymbols(url.searchParams.get('tickers'));
+        if (!lookup && !symbols.length) return { ...receipt, reason: 'Ticker-map reads require a lookup name or exact tickers' };
+        const slice = lookup ? selectTickerMapSlice(response.body.toString('utf8'), lookup)
+          : selectTickerRowsSlice(response.body.toString('utf8'), symbols);
         return { ...receipt, status: 'retrieved', text: slice, truncated: false,
           contentHash: createHash('sha256').update(response.body).digest('hex') };
       }

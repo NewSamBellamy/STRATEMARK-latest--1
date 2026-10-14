@@ -132,6 +132,46 @@ export function selectTickerMapSlice(fullJson: string, lookupName: string): stri
   return JSON.stringify({ lookupName, matches });
 }
 
+/** At most this many symbols per by-ticker slice (one search's listed hits). */
+export const MAX_TICKER_LOOKUPS = 6;
+const tickerSymbol = /^[A-Z][A-Z0-9.-]{0,9}$/;
+
+/** The symbols of a by-ticker slice URL's `tickers` param, normalized; empty when malformed. */
+export function tickerLookupSymbols(raw: string | null): string[] {
+  const symbols = [...new Set((raw ?? '').toUpperCase().split(',').map((s) => s.trim()).filter(Boolean))];
+  return symbols.length > 0 && symbols.length <= MAX_TICKER_LOOKUPS && symbols.every((s) => tickerSymbol.test(s)) ? symbols : [];
+}
+
+/** Ticker-map read keyed by exact symbols instead of a name: the slice holds
+ * only rows whose ticker is one of them. Symbol equality, never a name guess. */
+export function secTickerSliceUrl(symbols: readonly string[]): string {
+  return `${secTickerMapUrl()}?tickers=${encodeURIComponent(symbols.join(','))}`;
+}
+
+/** Reader-side counterpart of `secTickerSliceUrl`. */
+export function selectTickerRowsSlice(fullJson: string, symbols: readonly string[]): string {
+  const wanted = new Set(symbols);
+  let map: z.infer<typeof tickerMapSchema>;
+  try {
+    map = tickerMapSchema.parse(JSON.parse(fullJson));
+  } catch {
+    return JSON.stringify({ tickers: [...wanted], matches: [] });
+  }
+  const matches: TickerMatch[] = [];
+  for (const row of Object.values(map)) {
+    if (wanted.has(row.ticker.toUpperCase())) matches.push({ cik: String(row.cik_str), ticker: row.ticker, title: row.title });
+  }
+  return JSON.stringify({ tickers: [...wanted], matches: matches.slice(0, 2 * MAX_TICKER_LOOKUPS) });
+}
+
+/** The single issuer a ticker-map slice names. Several rows of ONE CIK are its
+ * share classes (Alphabet: GOOGL, GOOG) and resolve to it, first row's ticker
+ * (the map lists the primary class first); rows of two CIKs are ambiguous. */
+export function singleIssuer(matches: ReadonlyArray<{ cik: string; ticker: string; title: string }>): TickerMatch | null {
+  const ciks = new Set(matches.map((m) => String(m.cik)));
+  return ciks.size === 1 ? { cik: String(matches[0]!.cik), ticker: matches[0]!.ticker, title: matches[0]!.title } : null;
+}
+
 const sharesConceptSchema = z.object({
   cik: z.number().int().positive(),
   entityName: z.string().min(1),
