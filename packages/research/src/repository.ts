@@ -150,9 +150,9 @@ const TINY_LOGO_RE = /[?&](?:height|width)=(?:1\d|[2-5]\d|6[0-3])(?:&|$)/;
 import { readCompanyOriginals } from './core-source-coverage';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
-import { projectCompanyFacts } from './company-facts';
 import { buildChatPrompt, formatCompanyBlock, formatDeckRankings } from './chat-context';
-import { savedCompanyProfile, savedCompanySummary } from './saved-profile';
+import { savedCompanySummary } from './saved-profile';
+import { projectedCompanyFacts } from './displayed-facts';
 import { companySourceTargets } from './source-policy';
 import { renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
 import { renderCompanyTeamOrg, teamOrgOriginalAttempts, teamOrgSupportReferences, type TeamOrgSelections } from './company-team';
@@ -2171,14 +2171,14 @@ export class GeminiRepository implements MarketIntelRepository {
     const company = this.snap.companies.find(row => row.id === companyId);
     if (!company) return [];
     const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20, support: originalSupportReferences(this.snap.metrics, companyId) });
-    const current = projectCompanyFacts(company, this.snap.metrics, attempts);
     // The repair pass re-projects the retained profile evidence with the same
     // roster guard hydration used: market-scoped rivals, never the whole snap.
     const marketId = this.snap.companyMarket[companyId];
     const otherCompanies = marketId === undefined ? undefined : this.snap.companies
       .filter((row) => row.id !== companyId && this.snap.companyMarket[row.id] === marketId)
       .map((row) => row.name);
-    return savedCompanyProfile(company, current, this.snap.researchEvidence ?? [], otherCompanies).metrics;
+    // One composition shared with the completeness report (displayed-facts.ts).
+    return projectedCompanyFacts({ company, metrics: this.snap.metrics, attempts, evidence: this.snap.researchEvidence ?? [], otherCompanies });
   }
 
   /**
