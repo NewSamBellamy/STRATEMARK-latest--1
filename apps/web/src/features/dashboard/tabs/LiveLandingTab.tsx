@@ -28,7 +28,8 @@ export function SitePreview({ url, fallbackShot, quiet = false, onFail }: { url:
     () => () => {
       if (timer.current) clearTimeout(timer.current);
     },
-    [],
+    // Also on url change: a retry queued for the old url must not bump the new one.
+    [url],
   );
 
   const scheduleRetry = () => {
@@ -41,10 +42,12 @@ export function SitePreview({ url, fallbackShot, quiet = false, onFail }: { url:
       setProvider('alt');
       return;
     }
+    if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setAttempt((a) => a + 1), RETRY_MS);
   };
 
   const retryAll = () => {
+    if (timer.current) clearTimeout(timer.current);
     setFailed(false);
     setSettled(false);
     setProvider('primary');

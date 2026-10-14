@@ -163,6 +163,13 @@ export function ShareDialog({
   const [shortening, setShortening] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const runId = useRef(0);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
 
   const prepare = useCallback(async () => {
     const id = ++runId.current;
@@ -225,7 +232,8 @@ export function ShareDialog({
     if (!bestLink) return;
     const ok = await copyText(bestLink, inputRef.current);
     setCopied(ok ? 'ok' : 'fail');
-    setTimeout(() => setCopied('idle'), 2500);
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied('idle'), 2500);
   };
 
   const nav = navigator as Navigator & {
