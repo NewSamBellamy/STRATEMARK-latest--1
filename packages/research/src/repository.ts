@@ -117,7 +117,10 @@ import { searchEvidenceCorpus } from './retrieval';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
 import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
-import { companyNameKey, marketCapEstimate, secSharesConceptUrl, secTickerMapUrl, yahooChartUrl } from './market-quote';
+import { companyNameKey, marketCapEstimate, secSharesConceptUrl, yahooChartUrl } from './market-quote';
+import { readRegistrantProfile, resolveListedIdentity, type ListedIdentityResult } from './sec-identity';
+import { secHeadquartersPlace } from './sec-profile';
+import { secSubmissionsUrl } from './sec-ownership';
 import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane, type DiscoveryNotes } from './searxng';
 import { huntSearchQueries, webSearchLane, type WebSearchFn } from './web-search';
@@ -2916,21 +2919,26 @@ export class GeminiRepository implements MarketIntelRepository {
       return receipt;
     };
     // One ticker-map read serves every listed-company lane below.
-    let tickerLookup: Promise<{ receipt: OriginalSourceReceipt; match: { cik: string; ticker: string; title: string } | null }> | null = null;
-    const listedMatch = () => tickerLookup ??= retrieveSteady(`${secTickerMapUrl()}?lookup=${encodeURIComponent(company.name)}`, 'market_cap')
-      .then((receipt) => {
-        const parsed = receipt.status === 'retrieved' && receipt.text
-          ? JSON.parse(receipt.text) as { matches?: Array<{ cik: string; ticker: string; title: string }> }
-          : null;
-        return { receipt, match: parsed?.matches?.length === 1 ? parsed.matches[0]! : null };
-      });
+    // The exact registrant-name match first; a company whose everyday name is
+    // not its SEC title ("IBM") resolves only when the market listing, the name
+    // and its own domain agree (sec-identity.ts). A wrong issuer is worse than none.
+    let tickerLookup: Promise<ListedIdentityResult> | null = null;
+    const listedMatch = () => tickerLookup ??= resolveListedIdentity(company, (url) => retrieveSteady(url, 'market_cap'));
+    // The identity evidence lands in the ledger once, with the first figure it backs.
+    let identityRetained = false;
+    const retainIdentity = async (result: ListedIdentityResult): Promise<void> => {
+      if (identityRetained) return;
+      identityRetained = true;
+      await retain('market_cap', result.receipts.filter((r) => r.status === 'retrieved' && r.text));
+    };
 
     // A listed company's annual revenue is its filed XBRL fact: one read of
     // the official concept, the same deterministic observation (and the same
     // gates) a cited SEC original gets in the hunt.
     if (missing.includes('arr')) {
       try {
-        const { match } = await listedMatch();
+        const listed = await listedMatch();
+        const match = listed.identity;
         if (match) {
           // Both concepts: a bank, insurer or stablecoin issuer files only a
           // sliver under the ASC 606 concept (Circle: $110M) and its total
@@ -2938,9 +2946,10 @@ export class GeminiRepository implements MarketIntelRepository {
           const concept = secRevenueConceptUrl(match.cik);
           const receipts = (await Promise.all([concept, secRevenueFallbackUrl(concept)!].map((url) => retrieveSteady(url, 'metrics_hunt'))))
             .filter((r) => r.status === 'retrieved' && r.text);
-          const observed = totalSecRevenue(receipts.map((r) => secRevenueObservation(company.name, [r])));
+          const observed = totalSecRevenue(receipts.map((r) => secRevenueObservation(match.issuerName, [r])));
           const originals = observed ? receipts.filter((r) => r.finalUrl === observed.passageSupport.sourceUrl) : [];
           if (observed) {
+            if (match.via === 'alias') await retainIdentity(listed);
             await retain('metrics_hunt', originals);
             const current = currentMetricRevision(rowsFor('arr'), company.id, 'arr');
             const metric = current?.metric;
@@ -2970,14 +2979,16 @@ export class GeminiRepository implements MarketIntelRepository {
 
     if (missing.includes('market_cap')) {
       try {
-        const { receipt: mapReceipt, match } = await listedMatch();
+        const listed = await listedMatch();
+        const match = listed.identity;
         if (match) {
           const [chartReceipt, sharesReceipt] = await Promise.all([
             retrieveSteady(yahooChartUrl(match.ticker), 'market_cap'),
             retrieveSteady(secSharesConceptUrl(match.cik), 'market_cap'),
           ]);
-          await retain('market_cap', [mapReceipt, chartReceipt, sharesReceipt].filter((r) => r.status === 'retrieved' && r.text));
-          const estimate = marketCapEstimate(company.name, [chartReceipt, sharesReceipt], match.title);
+          await retainIdentity(listed);
+          await retain('market_cap', [chartReceipt, sharesReceipt].filter((r) => r.status === 'retrieved' && r.text));
+          const estimate = marketCapEstimate(match.issuerName, [chartReceipt, sharesReceipt], match.title);
           if (estimate) {
             const current = currentMetricRevision(rowsFor('market_cap'), company.id, 'market_cap');
             const existing = current?.metric;
@@ -3003,6 +3014,30 @@ export class GeminiRepository implements MarketIntelRepository {
       } catch { /* the hunt ladder is the fallback, not a failure */ }
     }
 
+    // A listed company's headquarters is the business address it files with
+    // the SEC — read only for an identity the lanes above already established,
+    // and only into a blank location (sourcedHeadquarters, as the asset lane).
+    let profiled = false;
+    if (tickerLookup && !company.hqLocation?.trim() && !this.sourcedHeadquarters.get(company.id)) {
+      try {
+        const listed = await listedMatch();
+        if (listed.identity) {
+          const { profile, receipt } = listed.profile
+            ? { profile: listed.profile, receipt: null }
+            : await readRegistrantProfile(listed.identity.cik, (url) => retrieveSteady(url, 'market_cap'));
+          const location = secHeadquartersPlace(profile);
+          if (location && !company.hqLocation?.trim()) {
+            await retainIdentity(listed);
+            if (receipt?.status === 'retrieved' && receipt.text) await retain('market_cap', [receipt]);
+            this.sourcedHeadquarters.set(company.id, { location, sourceUrl: secSubmissionsUrl(listed.identity.cik), via: 'sec-submissions' });
+            this.applySourcedProfile(company);
+            profiled = true;
+          }
+        }
+      } catch { /* the location stays blank rather than guessed */ }
+    }
+
+    if (profiled && filled.length === 0) await this.persist();
     if (filled.length > 0) {
       this.invalidateDashboard(company.id);
       await this.persist();

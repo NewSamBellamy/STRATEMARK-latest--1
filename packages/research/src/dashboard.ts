@@ -28,7 +28,8 @@ import { companySourceTargets } from './source-policy';
 import { originalSupportReferences, type OriginalSourceAttempt, type OriginalSourceServices } from './original-source';
 import { researchCompanyOverview, type OverviewNarrative, type OverviewSeed } from './company-overview';
 import { projectCompanyFacts } from './company-facts';
-import { secQuarterlyRevenueSeries, secRevenueSeries } from './sec-revenue';
+import { secQuarterlyRevenueSeries, secRevenueCik, secRevenueSeries } from './sec-revenue';
+import { secIssuerName } from './sec-identity';
 import { attachQuoteSources, groundGovernanceInNotes, groundHistoryInNotes } from './notes-gate';
 import { researchCompanyProducts, type ProductEvidenceSelections } from './company-products';
 import { researchCompanyTeamOrg, type TeamOrgSelections } from './company-team';
@@ -222,9 +223,13 @@ export async function researchDashboardTab<T extends DashboardTab>(
       // verification uses - real history, never invented. Without one, the
       // content stays the honest single current point (no chart renders).
       const receipts = (attempts ?? []).flatMap((attempt) => attempt.receipts);
-      const secSeries = secRevenueSeries(args.company.name, receipts);
+      // A listed company known by a name other than its registrant title reads
+      // its series under the title only when the retained identity establishes it.
+      const secArr = facts.find((m) => m.metricType === 'arr' && m.passageSupport?.format === 'sec-companyconcept');
+      const issuer = secIssuerName(args.company, receipts, secRevenueCik(secArr?.passageSupport?.sourceUrl ?? ''));
+      const secSeries = secRevenueSeries(issuer, receipts);
       return metricsFromStored(facts, args.company.id, args.company.websiteUrl, secSeries ?? undefined,
-        secQuarterlyRevenueSeries(args.company.name, receipts) ?? []) as DashboardContentMap[T];
+        secQuarterlyRevenueSeries(issuer, receipts) ?? []) as DashboardContentMap[T];
     }
 
     case 'overview': {
