@@ -187,6 +187,35 @@ function quoteIdentity(meta: QuoteMeta, companyName: string, tickerTitle: string
   return candidates.some((n) => companyNameKey(n) === wanted);
 }
 
+/** Oldest share count (days before the reference date) a market cap may use. */
+export const SHARE_COUNT_MAX_AGE_DAYS = 400;
+
+/** Multi-class issuers (Visa, Mastercard) stopped tagging the cover-page
+ * shares concept years ago; a price times a 2010 share count is a wrong
+ * figure, not an estimate. Unparseable dates count as too old. */
+export function shareCountTooOld(sharesAsOf: string, referenceMs: number): boolean {
+  const at = Date.parse(sharesAsOf);
+  return !Number.isFinite(at) || !Number.isFinite(referenceMs) || referenceMs - at > SHARE_COUNT_MAX_AGE_DAYS * 86_400_000;
+}
+
+const ISO_DAY = String.raw`(\d{4}-\d{2}-\d{2})`;
+const NOTE_DATES = new RegExp(String.raw`\(Yahoo Finance, ${ISO_DAY}\) × [\d,]+ shares outstanding \(SEC [^,()]+ cover, ${ISO_DAY}\)`);
+const QUOTE_TITLE = new RegExp(String.raw`^Yahoo Finance quote for \S+ \(${ISO_DAY}\)$`);
+const SHARES_TITLE = new RegExp(String.raw`^SEC XBRL shares outstanding \(${ISO_DAY}, [^)]+\)$`);
+
+/** The price and share-count dates of a STORED quote-lane estimate, read back
+ * from the method note or the citation titles {@link marketCapEstimate}
+ * writes. Null when the row is not a quote-lane computation. */
+export function storedMarketCapDates(metric: { methodNote?: string | null; citations?: ReadonlyArray<{ title: string }> }):
+  { priceAsOf: string; sharesAsOf: string } | null {
+  const note = NOTE_DATES.exec(metric.methodNote ?? '');
+  if (note) return { priceAsOf: note[1]!, sharesAsOf: note[2]! };
+  const titles = (metric.citations ?? []).map((c) => c.title);
+  const priceAsOf = titles.map((t) => QUOTE_TITLE.exec(t)?.[1]).find(Boolean);
+  const sharesAsOf = titles.map((t) => SHARES_TITLE.exec(t)?.[1]).find(Boolean);
+  return priceAsOf && sharesAsOf ? { priceAsOf, sharesAsOf } : null;
+}
+
 export interface MarketCapEstimate {
   value: number;
   currency: string;
@@ -224,10 +253,8 @@ export function marketCapEstimate(
   if (!cik) return null;
   const shares = parseSharesOutstanding(sharesUrl.text, cik);
   if (!shares || shares.value <= 0) return null;
-  // Multi-class issuers (Visa, Mastercard) stopped tagging this cover-page
-  // concept years ago; today's price times a 2010 share count is a wrong
-  // figure, not an estimate. Only a count from the last ~13 months is used.
-  if (!Number.isFinite(Date.parse(shares.asOf)) || nowMs - Date.parse(shares.asOf) > 400 * 86_400_000) return null;
+  // Only a count from the last ~13 months is used (see shareCountTooOld).
+  if (shareCountTooOld(shares.asOf, nowMs)) return null;
 
   // The estimate takes the quote's market date as its as-of (the price drives
   // the figure's freshness) and names both sources with their own dates.

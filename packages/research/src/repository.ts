@@ -128,6 +128,7 @@ import { checkHomepageName, discoverOfficialDomain, homepageOnTopic, marketTerms
 import { homepageHeadquarters, wikidataHeadquarters, type Headquarters } from './brand/headquarters';
 import { extractOrganizationJsonLd } from './registries/jsonld';
 import { faviconUrl, knownCompanyDomain } from './logos';
+import { METRIC_GATE_VERSION, revalidateStoredMetrics, type RevalidationOutcome } from './revalidate-stored';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
  * persists per card and every provider call is deadline-bounded, so a job
@@ -173,6 +174,11 @@ export interface RepoSnapshot {
    * existed; `migrateSnapshot` treats that as version 1.
    */
   schemaVersion?: number;
+  /**
+   * Integrity-gate version stored figures were last revalidated against
+   * (revalidate-stored.ts). Absent = never; the next load revalidates.
+   */
+  metricGateVersion?: number;
   markets: Market[];
   decks: Deck[];
   companies: Company[];
@@ -248,6 +254,8 @@ export interface MigrationOutcome {
   /** Version found on disk, or null when there was nothing to read. */
   fromVersion: number | null;
   applied: number[];
+  /** Load-time revalidation of stored figures against the current gates. */
+  revalidation?: RevalidationOutcome;
 }
 
 /**
@@ -258,7 +266,8 @@ export interface MigrationOutcome {
  * downgraded should get a clean read-only-ish experience, not silent data loss.
  */
 export function migrateSnapshot(raw: RepoSnapshot | null): MigrationOutcome {
-  if (!raw) return { snapshot: empty(), fromVersion: null, applied: [] };
+  // A first run has no stored figures: nothing predates the current gates.
+  if (!raw) return { snapshot: { ...empty(), metricGateVersion: METRIC_GATE_VERSION }, fromVersion: null, applied: [] };
 
   const found = typeof raw.schemaVersion === 'number' ? raw.schemaVersion : 1;
   const applied: number[] = [];
@@ -275,11 +284,15 @@ export function migrateSnapshot(raw: RepoSnapshot | null): MigrationOutcome {
     applied.push(version);
   }
 
-  const migrated = normalize(working as unknown as RepoSnapshot);
+  const migrated: RepoSnapshot = { ...normalize(working as unknown as RepoSnapshot), schemaVersion: REPO_SCHEMA_VERSION };
+  // Figures stored before a gate existed are re-judged once per gate version,
+  // on the evidence stored with them (never a fetch or a model call).
+  const revalidation = revalidateStoredMetrics(migrated);
   return {
-    snapshot: { ...migrated, schemaVersion: REPO_SCHEMA_VERSION },
+    snapshot: migrated,
     fromVersion: found,
     applied,
+    revalidation,
   };
 }
 
@@ -531,9 +544,15 @@ export class GeminiRepository implements MarketIntelRepository {
       await this.persist();
     });
     this.lastMigration = migration;
+    // Withdrawn figures change what the tier was computed from.
+    for (const companyId of new Set(migration.revalidation?.reset.map((r) => r.companyId) ?? [])) {
+      this.retierCompany(companyId, 'Re-tiered after stored figures failed a current integrity gate.');
+    }
     // Persist immediately after an upgrade so the migration is not re-run on
     // every launch, and so a later downgrade sees an honest version stamp.
-    if (migration.applied.length > 0) {
+    // A revalidation that withdrew figures is persisted the same way; one that
+    // changed nothing rides the next ordinary write (re-running it is free).
+    if (migration.applied.length > 0 || (migration.revalidation?.reset.length ?? 0) > 0) {
       this.startupWrite = Promise.resolve(this.store?.write(this.snap)).catch((error: unknown) => {
         this.startupError = error;
       });

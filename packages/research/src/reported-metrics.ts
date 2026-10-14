@@ -430,6 +430,46 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
   return new Set(finalists.map(row => `${row.value}:${row.selector.definition}`)).size === 1 ? finalists[0] : undefined;
 }
 
+const PARENT_ATTRIBUTION = /\b(?:parent(?: company)? of|owned by|which owns|a (?:unit|subsidiary|division) of|acquired by)\b/i;
+const ACQUISITION_PRICE = /\b(?:acquisition|acquired|acquire|bought|purchase(?:d)? (?:price|for))\b/i;
+
+/** A parent's figure is not the subsidiary's ("Microsoft, the parent company
+ * of GitHub, … market cap of $3.83 trillion"), and a price paid to buy the
+ * company is not its valuation. One predicate for the write gate and for the
+ * load-time revalidation of rows stored before this gate existed. */
+export function figureBelongsToParentOrDeal(sentence: string, definition: string): boolean {
+  return PARENT_ATTRIBUTION.test(sentence) || (definition === 'valuation' && ACQUISITION_PRICE.test(sentence));
+}
+
+/**
+ * Revalidation of a STORED reported row against {@link figureBelongsToParentOrDeal}.
+ * The sentences judged are the ones that carry the stored figure: the stored
+ * support text, and — because provider supports are often clause fragments
+ * ("has a market cap of $3.83 trillion") — that fragment expanded to its full
+ * sentence inside any retained answer text that contains it. True only when at
+ * least one carrying sentence was found and every one of them attributes the
+ * figure to a parent/owner or (for a valuation) an acquisition price; with no
+ * carrying sentence the evidence is insufficient and the row is left alone.
+ */
+export function storedReportedFigureMisattributed(
+  metric: Pick<CompanyMetric, 'metricType' | 'reportedSupport'>,
+  answerTexts: readonly string[] = [],
+): boolean {
+  const parsed = reportedMetricSupportSchema.safeParse(metric.reportedSupport);
+  if (!parsed.success) return false;
+  const proof = parsed.data;
+  const definition = proof.definition ?? metric.metricType;
+  // The fragment's own clause is part of its expansion; judging it separately
+  // would let the bare clause ("has a market cap of …") vouch for itself.
+  const expanded = answerTexts.filter((answer) => answer.includes(proof.support.text))
+    .map((answer) => sentenceAround(proof.support.text, answer, proof.support.startIndex));
+  const contexts = expanded.length ? expanded : [proof.support.text];
+  const carrying = contexts.flatMap((context) => context.split(/\n+/).flatMap(sentences))
+    .map((raw) => stripCurrencyConversion(plainKeepLabel(raw)))
+    .filter((sentence) => hasNumber(sentence, proof.value, proof.unit, definition, false));
+  return carrying.length > 0 && carrying.every((sentence) => figureBelongsToParentOrDeal(sentence, definition));
+}
+
 /** Shared publication/reopen check. This lane never grants verified confidence. */
 export function reportedMetricCitations(companyName: string, website: string | null,
   metric: Pick<CompanyMetric, 'metricType' | 'value' | 'reportedSupport'>, identity?: ReportedIdentityContext) {
@@ -539,11 +579,7 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
     (!proof.asOf || !EVENT_DATED.includes(definition) || !staleEventYear(sentence, proof.value, proof.unit, definition, proof.asOf)) &&
     // A sentence naming a partner/customer is not an attributed company figure.
     !/\b(?:partners? with|invested in|customer of|competitor|(?:said|stated|reported|announced) that|its subsidiary|its division)\b/i.test(sentence) &&
-    // A parent's figure is not the subsidiary's ("Microsoft, the parent company
-    // of GitHub, … market cap of $3.83 trillion"), and a price paid to buy the
-    // company is not its valuation.
-    !/\b(?:parent(?: company)? of|owned by|which owns|a (?:unit|subsidiary|division) of|acquired by)\b/i.test(sentence) &&
-    (definition !== 'valuation' || !/\b(?:acquisition|acquired|acquire|bought|purchase(?:d)? (?:price|for))\b/i.test(sentence)) &&
+    !figureBelongsToParentOrDeal(sentence, definition) &&
     (!proof.asOf || !/\b(?:article published|page published|retrieved|accessed|updated on)\b/i.test(sentence)) &&
     (definition !== 'users' || !/\b(?:active|monthly|daily|weekly|customers|registered|downloads|followers)\b/i.test(sentence)))) return [];
   return citations;
