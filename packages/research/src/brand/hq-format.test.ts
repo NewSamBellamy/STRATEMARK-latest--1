@@ -118,6 +118,19 @@ describe('one headquarters is never stitched from two places', () => {
   ])('%s -> %s', (raw, expected) => expect(canonicalHqLocation(raw)).toBe(expected));
 });
 
+describe('a hedged headquarters keeps the place the text fully states', () => {
+  it.each([
+    // Physical Intelligence: a misspelt bare alternative before the full address.
+    ['San Ratael / San Francisco, California, United States', 'San Francisco, California'],
+    ['Bay Area | Oakland, CA, USA', 'Oakland, California'],
+    // Both bare, or the first already qualified: the first still stands.
+    ['San Francisco / Bay Area', 'San Francisco'],
+    ['Miami, FL / Dallas, Texas', 'Miami, Florida'],
+    // A list ("and", ";") names two sites, not alternatives.
+    ['Austin and Dallas, Texas', 'Austin'],
+  ])('%s -> %s', (raw, expected) => expect(canonicalHqLocation(raw)).toBe(expected));
+});
+
 describe('hqGroundedInEvidence', () => {
   const evidence = 'Southern Glazer\'s is headquartered in Miami, Florida, with a large office in Dallas, Texas.';
   it('replaces a state the evidence does not put beside the city', () => {
