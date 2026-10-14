@@ -109,6 +109,8 @@ import {
 } from './semantic-memory';
 import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest } from './prompts';
 import type { ResearchPassage } from '@mi/contracts';
+import { enforceOwnershipProvenance, type Ownership } from '@mi/contracts';
+import { findOwnership, metricOwnershipEvidence, receiptOwnershipEvidence } from './ownership';
 import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { LlmClient, ProviderGrounding, ResearchCoverage, RunResearchOptions } from './types';
 import type { ResearchNoteEntry, ReportedMetricSupport } from '@mi/contracts';
@@ -116,11 +118,12 @@ import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvi
 import { searchEvidenceCorpus } from './retrieval';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
-import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
+import { secAdvFirmCandidates, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
 import { companyNameKey, marketCapEstimate, secSharesConceptUrl, yahooChartUrl } from './market-quote';
 import { readRegistrantProfile, resolveListedIdentity, type ListedIdentityResult } from './sec-identity';
 import { secHeadquartersPlace } from './sec-profile';
 import { secSubmissionsUrl } from './sec-ownership';
+import { findFormDLastRound } from './sec-form-d';
 import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane, type DiscoveryNotes } from './searxng';
 import { huntSearchQueries, webSearchLane, type WebSearchFn } from './web-search';
@@ -142,6 +145,8 @@ const JOB_STALL_MS = 8 * 60_000;
 /** The hydration-time logo is a gstatic favicon guess, not company art. The
  * asset lane (and only the asset lane, or the user) replaces it. */
 const SEC_READ_GAP_MS = 150;
+/** Concurrent IAPD (Form ADV) reads across a deck — see advRead. */
+const ADV_READ_SLOTS = 2;
 const GUESSED_LOGO_RE = /^https:\/\/t[0-3]\.gstatic\.com\/faviconV2|^https:\/\/www\.google\.com\/s2\/favicons/;
 /** The generic example.com globe stub logo — a placeholder, never company art. */
 const PLACEHOLDER_LOGO_RE = /[?&]url=https?:\/\/example\.com|[?&]domain=example\.com/;
@@ -411,6 +416,10 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   webSearch?: () => WebSearchFn | null;
   /** Free news lane (no key) adding dated news articles as hunt candidates. */
   newsSearch?: () => WebSearchFn | null;
+  /** JSON fetch for the CORS-open ownership registries (Wikidata, GLEIF).
+   * Without it the ownership lane runs on retained text and the reader only,
+   * and deck builds never start it on their own. */
+  ownershipFetch?: typeof fetch;
 }
 
 /** Earlier overviews kept for comparison; each refresh appends one. */
@@ -440,6 +449,7 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly hydrationFirstBatchMax?: number;
   private readonly webSearch?: () => WebSearchFn | null;
   private readonly newsSearch?: () => WebSearchFn | null;
+  private readonly ownershipFetch?: typeof fetch;
   private readonly jobControllers = new Map<string, AbortController>();
   /** In-flight source-binding passes, one per company. */
   private readonly sourceBindings = new Map<string, Promise<number>>();
@@ -490,6 +500,7 @@ export class GeminiRepository implements MarketIntelRepository {
     this.hydrationFirstBatchMax = options.hydrationFirstBatchMax;
     this.webSearch = options.webSearch;
     this.newsSearch = options.newsSearch;
+    this.ownershipFetch = options.ownershipFetch;
     // Migrate on load, not on demand. A snapshot written by an older build is
     // brought forward once, here, so nothing downstream has to reason about
     // which format it is looking at.
@@ -1148,7 +1159,7 @@ export class GeminiRepository implements MarketIntelRepository {
       // slow SEC ADV read never delays a logo.
       const structured = (async () => {
         try {
-          await this.fillFromStructuredSources(company, ['market_cap', 'arr', 'aum', 'employees']);
+          await this.fillFromStructuredSources(company, ['market_cap', 'arr', 'aum', 'employees', 'last_round']);
         } catch { /* the hunt ladder remains the fallback, not a failure */ }
       })();
       const assets = (async () => {
@@ -1157,7 +1168,12 @@ export class GeminiRepository implements MarketIntelRepository {
           await this.fillCompanyAssets(company.id, this.assetSourceReader);
         } catch { /* favicon fallback stands */ }
       })();
-      await Promise.all([structured, assets]);
+      // Ownership (acquired / pending) from registries, filings and news; only
+      // where the transport supplied the registry fetch.
+      const ownership = this.ownershipFetch
+        ? this.fillCompanyOwnership(company.id).catch(() => undefined)
+        : undefined;
+      await Promise.all([structured, assets, ownership]);
     };
     const pumpPrewarm = () => {
       while (prewarmActive < PREWARM_CONCURRENCY && prewarmQueue.length > 0) {
@@ -2875,14 +2891,26 @@ export class GeminiRepository implements MarketIntelRepository {
     const advTypes = profile === 'financial_firm' ? missing.filter((t) => t === 'aum' || t === 'employees') : [];
     if (advTypes.length > 0) {
       try {
-        const searchReceipt = await sources.retrieve(secAdvSearchUrl(company.name), scope);
-        const match = searchReceipt.status === 'retrieved' && searchReceipt.text ? secAdvFirmMatch(searchReceipt.text, company.name) : null;
-        if (match) {
-          const reportReceipt = await sources.retrieve(secAdvReportUrl(match.crd), { ...scope, metricType: 'sec-adv' });
-          const originals = [searchReceipt, reportReceipt].filter((r) => r.status === 'retrieved' && r.text);
-          await retain('sec-adv', originals);
+        const searchReceipt = await this.advRead(() => sources.retrieve(secAdvSearchUrl(company.name), scope));
+        // Every candidate adviser (≤3: the exact-name filer alone, or alias and
+        // brand-core hits) is read; the filed reports' identity decides, and
+        // a brand-core candidate is only worth reading when the company's own
+        // website can confirm it.
+        const candidates = searchReceipt.status === 'retrieved' && searchReceipt.text
+          ? secAdvFirmCandidates(searchReceipt.text, company.name).filter((c) => c.matchedBy === 'name' || company.websiteUrl)
+          : [];
+        if (candidates.length) {
+          const reports: OriginalSourceReceipt[] = [];
+          for (const candidate of candidates) {
+            const report = await this.advRead(() => sources.retrieve(secAdvReportUrl(candidate.crd), { ...scope, metricType: 'sec-adv' }));
+            if (report.status === 'retrieved' && report.text) reports.push(report);
+          }
+          // Each report is retained beside the search that selected it, so
+          // the facts projection re-derives identity from one ledger row.
+          for (const report of reports) await retain('sec-adv', [searchReceipt, report]);
+          const originals = [searchReceipt, ...reports];
           for (const type of advTypes) {
-            const observed = secAdvObservationFor(type, company.name, originals);
+            const observed = secAdvObservationFor(type, company.name, originals, Date.now(), company.websiteUrl);
             if (!observed) continue;
             const supported = acceptedMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl,
               metricType: type, value: observed.value, support: observed.passageSupport, originals });
@@ -3054,6 +3082,52 @@ export class GeminiRepository implements MarketIntelRepository {
           }
         }
       } catch { /* the location stays blank rather than guessed */ }
+    }
+
+    // A private company's latest round from its own SEC Form D notice: the
+    // amount sold in its latest Regulation D offering, exactly as filed. It
+    // only fills a GAP — any existing figure (a news-backed round names its
+    // stage; a human or verified row outranks it) stands — and it lands at
+    // estimated tier: the amount is filed, but "latest" is an inference
+    // (a later round without a Form D would not show). Never a valuation,
+    // never a stage name, never a funding total. A listed company is skipped.
+    const lastRoundGap = () => {
+      const current = currentMetricRevision(rowsFor('last_round'), company.id, 'last_round');
+      return !current || (!current.ambiguous && current.metric.value === null && current.metric.confidence === 'unknown');
+    };
+    if (missing.includes('last_round') && company.hqLocation?.trim() && lastRoundGap()) {
+      try {
+        const listed = await listedMatch();
+        // The ticker lookup was readable and named no listed issuer at all: a
+        // listed name whose alias proof failed is still not a private company.
+        const lookup = listed.receipts[0];
+        const tickerHits = lookup?.status === 'retrieved' && lookup.text
+          ? (JSON.parse(lookup.text) as { matches?: unknown[] }).matches?.length ?? 0 : null;
+        if (!listed.identity && tickerHits === 0) {
+          const observed = await findFormDLastRound(company, (url) => retrieveSteady(url, 'last_round'));
+          if (observed && lastRoundGap()) {
+            await retain('last_round', [observed.receipt]);
+            const current = currentMetricRevision(rowsFor('last_round'), company.id, 'last_round');
+            const row = current?.metric ?? {
+              id: `met_struct_${Date.now().toString(36)}_last_round`,
+              companyId: company.id, metricType: 'last_round' as const, value: null,
+              confidence: 'unknown' as const, source: null, citations: [] as Citation[], methodNote: null,
+              capturedAt: nowIso,
+            };
+            if (!current) this.snap.metrics.push(row);
+            row.value = observed.value;
+            row.confidence = 'estimated';
+            row.passageSupport = null;
+            row.reportedSupport = null;
+            row.quotedSupport = null;
+            row.citations = observed.citations;
+            row.source = observed.citations[0]?.url ?? null;
+            row.methodNote = observed.methodNote;
+            row.capturedAt = nowIso;
+            filled.push('last_round');
+          }
+        }
+      } catch { /* the hunt ladder is the fallback, not a failure */ }
     }
 
     if (profiled && filled.length === 0) await this.persist();
@@ -3858,6 +3932,29 @@ export class GeminiRepository implements MarketIntelRepository {
   /** Serialises the structured lanes' SEC reads across a deck's companies. */
   private secQueue: Promise<void> = Promise.resolve();
 
+  /** IAPD reads (Form ADV search + PDF reports) across a deck's companies run
+   * at most ADV_READ_SLOTS at a time. The node reader refuses SEC reads queued
+   * more than five seconds deep, so a whole deck of asset managers fired at
+   * once used to lose most of its ADV searches before a request was sent. */
+  private advActive = 0;
+  private readonly advWaiters: Array<() => void> = [];
+  private async advRead(read: () => Promise<OriginalSourceReceipt>): Promise<OriginalSourceReceipt> {
+    while (this.advActive >= ADV_READ_SLOTS) await new Promise<void>((resolve) => this.advWaiters.push(resolve));
+    this.advActive += 1;
+    try {
+      const first = await read();
+      // One polite retry for a throttled or refused read; a missing page stays missing.
+      const transient = [403, 429, 500, 502, 503, 504].includes(first.httpStatus ?? 0) ||
+        /busy|retrieval failed/i.test(first.reason ?? '');
+      if ((first.status === 'retrieved' && first.text) || !transient) return first;
+      await sleep(1500);
+      return await read();
+    } finally {
+      this.advActive -= 1;
+      this.advWaiters.shift()?.();
+    }
+  }
+
   /** Facts the asset lane sourced from the company's own homepage or its
    * Wikidata item, kept so a later hydration that found none of its own never
    * puts the placeholder (or a blank location) back. */
@@ -4040,6 +4137,47 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     await this.persist();
     return { logo };
+  }
+
+  /** Ownership lane: acquired / acquisition pending / registry parent, from
+   * Wikidata + GLEIF (CORS-open, direct), the acquirer's SEC 8-Ks and news
+   * pages (through the original-source reader), and deal sentences the stored
+   * metric evidence already carries — including a valuation the metric gate
+   * rejected as an acquisition price, which is how that price reaches
+   * `ownership.price`. Zero provider calls. A human-verified record is never
+   * replaced; a run that finds nothing keeps the previous record (absence of
+   * evidence is not evidence of independence). */
+  async fillCompanyOwnership(companyId: string): Promise<{ ownership: Ownership | null }> {
+    const company = this.snap.companies.find((c) => c.id === companyId);
+    if (!company) return { ownership: null };
+    const current = company.ownership ?? null;
+    if (current?.confidence === 'user_verified') return { ownership: current };
+    const sources = this.originalSources;
+    const read = sources
+      ? (url: string, scope?: OriginalSourceScope) => sources.retrieve(url, scope)
+      : this.assetSourceReader ? (url: string) => this.assetSourceReader!(url) : undefined;
+    const texts = [
+      ...metricOwnershipEvidence(this.snap.metrics.filter((m) => m.companyId === companyId)),
+      ...receiptOwnershipEvidence((this.snap.originalSourceAttempts ?? []).filter((a) => a.companyId === companyId).flatMap((a) => a.receipts)),
+    ];
+    const found = await findOwnership({ companyId, companyName: company.name, websiteUrl: company.websiteUrl ?? null, texts }, {
+      read,
+      newsSearch: this.newsSearch?.() ?? null,
+      fetchImpl: this.ownershipFetch,
+    });
+    // Pages that stated the deal are retained like every other claim's source.
+    if (sources && found.receipts.length) {
+      for (let i = 0; i < found.receipts.length; i += 2) {
+        await sources.save({ id: `src_own_${globalThis.crypto.randomUUID()}`, companyId, metricType: 'ownership',
+          capturedAt: new Date().toISOString(), receipts: found.receipts.slice(i, i + 2) }).catch(() => undefined);
+      }
+    }
+    const next = enforceOwnershipProvenance(found.ownership, true);
+    const live = this.snap.companies.find((c) => c.id === companyId);
+    if (!next || !live || live.ownership?.confidence === 'user_verified') return { ownership: live?.ownership ?? current };
+    live.ownership = next;
+    await this.persist();
+    return { ownership: next };
   }
 
   /** Recompute CMS tiers for a company's company-cards; returns moved card ids. */
@@ -4867,7 +5005,7 @@ ${references}`
     const lanes = new Map(stubs.filter((s) => s.company).map((s) => [s.company!.id, (async () => {
       const company = s.company!;
       await Promise.all([
-        this.fillFromStructuredSources(company, ['market_cap', 'arr', 'aum', 'employees']).catch(() => []),
+        this.fillFromStructuredSources(company, ['market_cap', 'arr', 'aum', 'employees', 'last_round']).catch(() => []),
         this.assetSourceReader ? this.fillCompanyAssets(company.id, this.assetSourceReader).catch(() => undefined) : undefined,
       ]);
     })()]));

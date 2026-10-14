@@ -223,6 +223,7 @@ export function useLivingDeck(
   const canBatchFill = researchAvailable && typeof repo.fillMissingMarketEstimates === 'function';
   const canReuseEvidence = researchAvailable && typeof repo.reuseCompanyEvidence === 'function';
   const canFillAssets = researchAvailable && typeof repo.fillCompanyAssets === 'function';
+  const canFillOwnership = researchAvailable && typeof repo.fillCompanyOwnership === 'function';
 
   const canSweep = researchAvailable && (canHunt || canRecoverFree);
   const sweepEventId = useRef(0);
@@ -284,6 +285,15 @@ export function useLivingDeck(
       });
     };
     attempt(true);
+    // Ownership (acquired / acquisition pending), same once-per-session budget.
+    // Only a newly found record refreshes the card and header surfaces.
+    if (canFillOwnership) {
+      void repo.fillCompanyOwnership!(companyId)
+        .then(({ ownership }) => ownership
+          ? Promise.all([invalidateMetricSurfaces(qc, companyId, true), qc.invalidateQueries({ queryKey: qk.company(companyId) })])
+          : undefined)
+        .catch(() => { /* no status is shown without evidence */ });
+    }
   };
 
   useEffect(() => {

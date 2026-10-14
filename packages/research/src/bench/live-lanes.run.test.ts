@@ -11,6 +11,7 @@ import { retrieveOriginalSource } from '../original-source.node';
 import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from '../sec-adv';
 import { marketCapEstimate, secTickerMapUrl, secSharesConceptUrl, yahooChartUrl } from '../market-quote';
 import { getSearxngLane } from '../searxng';
+import { findFormDLastRound } from '../sec-form-d';
 
 const live = process.env.LIVE_LANES === '1';
 
@@ -61,6 +62,16 @@ describe.skipIf(!live)('live structured lanes (WS7)', () => {
       `${estimate!.currency} (${estimate!.methodNote})`,
     );
   }, 120_000);
+
+  it('fills a private company Latest round from its own SEC Form D — zero provider calls', async () => {
+    const observed = await findFormDLastRound({ name: 'Databricks', hqLocation: 'San Francisco, California' }, (url) => retrieveOriginalSource(url));
+    expect(observed, 'no Form D observation for Databricks').not.toBeNull();
+    expect(observed!.value).toBeGreaterThan(0);
+    expect(observed!.citations[0]!.url).toMatch(/^https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/1587468\/\d{18}\/primary_doc\.xml$/);
+    // Only SPVs carry the Anysphere name on EDGAR: a wrong company is worse than none.
+    expect(await findFormDLastRound({ name: 'Anysphere', hqLocation: 'San Francisco, California' }, (url) => retrieveOriginalSource(url))).toBeNull();
+    console.log(`[Form D lane] Databricks: $${observed!.value.toLocaleString('en-US')} sold, ${observed!.form} filed ${observed!.filingDate} — ${observed!.documentUrl}`);
+  }, 180_000);
 
   it('reports the optional discovery lane honestly — absent SearXNG falls back gracefully', async () => {
     const lane = await getSearxngLane();

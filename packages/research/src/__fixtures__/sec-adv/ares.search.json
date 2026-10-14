@@ -1,0 +1,175 @@
+{
+ "hits": {
+  "total": 13,
+  "hits": [
+   {
+    "_source": {
+     "firm_source_id": "130074",
+     "firm_name": "ARES MANAGEMENT LLC",
+     "firm_other_names": [
+      "ACOF ASIA MANAGEMENT, L.P. (RELYING ADVISER)",
+      "INDICUS CREDIT GP LIMITED (RELYING ADVISER)",
+      "ASSF RIOPELLE MANAGEMENT, LLC (RELYING ADVISER)",
+      "ARES MANAGEMENT LLC"
+     ],
+     "firm_ia_full_sec_number": "801-63800",
+     "firm_ia_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "156751",
+     "firm_name": "ARES EIF MANAGEMENT, LLC",
+     "firm_other_names": [
+      "ARES EIF MANAGEMENT, LLC",
+      "ENERGY INVESTORS FUNDS",
+      "EIF MANAGEMENT, LLC"
+     ],
+     "firm_ia_full_sec_number": "801-73850",
+     "firm_ia_scope": "INACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "257788",
+     "firm_name": "ARES CLO MANAGEMENT LLC",
+     "firm_other_names": [
+      "ARES CLO MANAGEMENT LLC"
+     ],
+     "firm_ia_full_sec_number": "801-106751",
+     "firm_ia_scope": "INACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "284930",
+     "firm_name": "CION ARES MANAGEMENT, LLC",
+     "firm_other_names": [
+      "CION ARES MANAGEMENT, LLC"
+     ],
+     "firm_ia_full_sec_number": "801-108788",
+     "firm_ia_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "131619",
+     "firm_name": "ARES CAPITAL MANAGEMENT LLC",
+     "firm_other_names": [
+      "ARES PRIVATE ACCOUNT MANAGEMENT I, L.P. (RELYING ADVISER)",
+      "ARES CAPITAL MANAGEMENT LLC"
+     ],
+     "firm_ia_full_sec_number": "801-63168",
+     "firm_ia_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "157292",
+     "firm_name": "ARES CAPITAL MANAGEMENT II LLC",
+     "firm_other_names": [
+      "ARES CAPITAL MANAGEMENT II LLC"
+     ],
+     "firm_ia_full_sec_number": "801-72399",
+     "firm_ia_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "168076",
+     "firm_name": "ARES CAPITAL MANAGEMENT III LLC",
+     "firm_other_names": [
+      "ARES MSCF V (H) MANAGEMENT LLC (RELYING ADVISER)",
+      "ARES CAPITAL MANAGEMENT III LLC"
+     ],
+     "firm_ia_full_sec_number": "801-78341",
+     "firm_ia_scope": "INACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "164636",
+     "firm_name": "ARES SSG CAPITAL MANAGEMENT LIMITED",
+     "firm_other_names": [
+      "ARES SSG CAPITAL MANAGEMENT LIMITED",
+      "SSG CAPITAL MANAGEMENT LIMITED"
+     ],
+     "firm_ia_full_sec_number": "802-77853",
+     "firm_ia_scope": "INACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "166219",
+     "firm_name": "ARES MANAGEMENT CAPITAL MARKETS LLC",
+     "firm_other_names": [
+      "ARES INVESTOR SERVICES LLC",
+      "ARES MANAGEMENT CAPITAL MARKETS LLC"
+     ],
+     "firm_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "119546",
+     "firm_name": "ARES WEALTH MANAGEMENT SOLUTIONS, LLC",
+     "firm_other_names": [
+      "ARES WEALTH MANAGEMENT SOLUTIONS, LLC",
+      "REAL ESTATE INCOME SECURITIES, LLC",
+      "DIVIDEND CAPITAL SECURITIES, LLC",
+      "BLACK CREEK CAPITAL MARKETS, LLC"
+     ],
+     "firm_scope": "INACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "158341",
+     "firm_name": "ARES REAL ESTATE MANAGEMENT HOLDINGS, LLC",
+     "firm_other_names": [
+      "ADEM MANAGEMENT, LLC",
+      "VEF GROUP MANAGEMENT, LLC",
+      "CLAROS MANAGEMENT, L.P.",
+      "ARES US REAL ESTATE VIII MANAGEMENT, LLC",
+      "ARES US REAL ESTATE VII MANAGEMENT, LLC",
+      "ARES US REAL ESTATE OPPORTUNITY MANAGEMENT, L.P.",
+      "ARES REAL ESTATE MANAGEMENT HOLDINGS, LLC",
+      "ARES EUROPEAN REAL ESTATE MANAGEMENT IV, L.P."
+     ],
+     "firm_ia_full_sec_number": "801-73054",
+     "firm_ia_scope": "INACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "159050",
+     "firm_name": "ARES COMMERCIAL REAL ESTATE MANAGEMENT LLC",
+     "firm_other_names": [
+      "ARES COMMERCIAL REAL ESTATE MANAGER LLC (RELYING ADVISER)",
+      "ARES COMMERCIAL REAL ESTATE MANAGEMENT LLC"
+     ],
+     "firm_ia_full_sec_number": "801-72879",
+     "firm_ia_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "173288",
+     "firm_name": "PARTNERSHIP CAPITAL GROWTH INVESTORS MANAGEMENT, LLC",
+     "firm_other_names": [
+      "DB-SPV, LLC",
+      "TBL CAPITAL, LP",
+      "PCG-TAC-CV, LP",
+      "PCG-DESIGNER SPV, LLC",
+      "PCG-DESIGNER MANAGER, LLC",
+      "PCG-DESIGNER INC.",
+      "PCG-DESIGNER HOLDINGS, LLC",
+      "PCG-CALIFIA SPV, LLC"
+     ],
+     "firm_ia_full_sec_number": "801-80873",
+     "firm_ia_scope": "ACTIVE"
+    }
+   }
+  ]
+ }
+}

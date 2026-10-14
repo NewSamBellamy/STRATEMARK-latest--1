@@ -20,12 +20,22 @@ import type { MetricType } from './enums';
 export type MarketProfile = 'operating_company' | 'financial_firm';
 
 /** Firms whose scale metric is assets under management, not revenue per user. */
+// Credit managers describe themselves as lenders and credit investors, not as
+// "asset managers": a private-credit deck (Golub, HPS, Ares, Audax Private
+// Debt) used to classify mostly as operating companies — no AUM slot on the
+// card and no Form ADV lane — while Churchill and Antares, whose descriptors
+// happened to say "asset management"/"private credit", got both.
 const FINANCIAL_FIRM_PATTERN =
-  /\b(?:venture capital|venture firm|vc firm|private equity|asset management|asset manager|hedge fund|investment bank|investment banking|family office|wealth management|private credit|growth equity|fund manager|capital management|merchant bank)\b/i;
+  /\b(?:venture capital|venture firm|vc firm|private equity|asset management|asset managers?|hedge fund|investment bank|investment banking|family office|wealth management|private credit|growth equity|fund manager|capital management|merchant bank|private debt|direct lend(?:er|ers|ing)|middle[- ]market lend(?:er|ers|ing)|credit (?:manager|investment (?:firm|manager)|asset manager|fund manager)|alternative (?:asset|investment) (?:manager|management|firm)s?|investment (?:manager|management firm|firm)s?|business development compan(?:y|ies)|investment partners)\b/i;
 
 // "Platform for private equity" serves the industry; it is not itself the fund.
+// "Financing for private equity-backed companies" is a lender's business, not a
+// vendor's customer list.
 const SERVES_FINANCIAL_PATTERN =
-  /\b(?:for|serves?|serving|power(?:ed|ing)?|built)\s+(?:the\s+)?(?:venture capital|private equity|hedge funds?|asset manag\w+|investment bank\w+|family offices?|wealth manag\w+|financial (?:advisors?|institutions?|firms?))\b/i;
+  /\b(?:for|serves?|serving|power(?:ed|ing)?|built)\s+(?:the\s+)?(?:venture capital|private equity|hedge funds?|asset manag\w+|investment bank\w+|family offices?|wealth manag\w+|financial (?:advisors?|institutions?|firms?))\b(?![- ](?:backed|sponsor|owned))/i;
+
+// A manager's "direct lending platform" is its fund franchise, not a product.
+const LENDING_FRANCHISE_PATTERN = /\b(?:(?:direct )?lending|credit|financing|investment|investing)\s+platforms?\b/gi;
 
 export interface MarketProfileInput {
   name?: string | null;
@@ -40,7 +50,8 @@ const FINANCIAL_PRODUCT_PATTERN =
 export function classifyMarketProfile(company: MarketProfileInput | null | undefined): MarketProfile {
   const text = `${company?.name ?? ''} ${company?.oneLiner ?? ''}`;
   if (!FINANCIAL_FIRM_PATTERN.test(text)) return 'operating_company';
-  return SERVES_FINANCIAL_PATTERN.test(text) || FINANCIAL_PRODUCT_PATTERN.test(text) ? 'operating_company' : 'financial_firm';
+  return SERVES_FINANCIAL_PATTERN.test(text) || FINANCIAL_PRODUCT_PATTERN.test(text.replace(LENDING_FRANCHISE_PATTERN, ' '))
+    ? 'operating_company' : 'financial_firm';
 }
 
 /**
