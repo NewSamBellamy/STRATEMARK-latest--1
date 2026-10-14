@@ -20,18 +20,28 @@
  *   per-employee scale is 100x the other holder's. Undecidable duplicates stay
  *   (a parent and its product line can legitimately share Alphabet's figure).
  *
+ * - headcount_is_reach / headcount_too_large (v9): an unverified `employees`
+ *   row whose stored support frames the number as people the company serves
+ *   ("6 million employees use DailyPay"), or that exceeds any real employer
+ *   (> 2.5M), is not a headcount (headcount-reach.ts). It is withheld first and
+ *   never used as the denominator above: a reach figure as headcount would hide
+ *   exactly the cross-company figures this gate exists to catch.
+ *
  * Only 'estimated' rows are judged: verified rows carry an original citation
  * and only a human may touch user_verified. A withheld figure is null with
  * confidence unknown (Rule 9: never zero-filled, never imputed).
  */
 import type { CompanyMetric, MetricType } from '@mi/contracts';
 import { namesCompany, supportSectionOwner } from './reported-metrics';
+import { unverifiedHeadcountProblem, type HeadcountProblem } from './headcount-reach';
 
-export type ScaleGate = 'implausible_scale' | 'cross_company_figure';
+export type ScaleGate = 'implausible_scale' | 'cross_company_figure' | HeadcountProblem;
 
 export const SCALE_NOTES: Record<ScaleGate, string> = {
   implausible_scale: 'Withheld: this unverified figure is implausible for the company\'s own reported headcount (far beyond any real company\'s revenue or value per employee), the signature of another company\'s figure bound to this one. Unknown until re-researched.',
   cross_company_figure: 'Withheld: the same unverified figure is stored on another company in this deck, and the evidence attributes it to that company, not this one. Unknown until re-researched.',
+  headcount_is_reach: 'Withheld: the stored source counts people the company serves or reaches (employees of its clients using the product), not the company\'s own staff. Unknown until re-researched.',
+  headcount_too_large: 'Withheld: this unverified headcount exceeds any real employer (no company employs more than about 2.3 million people), so it is not the company\'s own staff. Unknown until re-researched.',
 };
 
 const REVENUE_TYPES: readonly MetricType[] = ['arr', 'revenue'];
@@ -66,11 +76,12 @@ export interface ScaleFinding {
   previousValue: number | null;
 }
 
-/** The largest headcount the company's own rows state (band high end counts). */
+/** The largest headcount the company's own rows state (band high end counts).
+ * A row that is not really a headcount (reach, impossible size) never counts. */
 function headcounts(metrics: readonly CompanyMetric[]): Map<string, number> {
   const out = new Map<string, number>();
   for (const row of metrics) {
-    if (row.metricType !== 'employees' || row.confidence === 'unknown') continue;
+    if (row.metricType !== 'employees' || row.confidence === 'unknown' || unverifiedHeadcountProblem(row)) continue;
     const count = row.value != null && row.value > 0 ? row.value : row.reportedBand?.high ?? null;
     if (count == null || !(count > 0)) continue;
     out.set(row.companyId, Math.max(out.get(row.companyId) ?? 0, count));
@@ -100,6 +111,10 @@ export function implausibleScaleFigures(input: ScaleGateInput): ScaleFinding[] {
     if (!found.has(row.id)) found.set(row.id, { metricId: row.id, companyId: row.companyId, metricType: row.metricType, gate, previousValue: row.value });
   };
 
+  for (const row of input.metrics) {
+    const headcount = unverifiedHeadcountProblem(row);
+    if (headcount) flag(row, headcount);
+  }
   for (const row of input.metrics) {
     if (judged(row) && implausibleForHeadcount(row.metricType, row.value!, staff.get(row.companyId))) flag(row, 'implausible_scale');
   }
