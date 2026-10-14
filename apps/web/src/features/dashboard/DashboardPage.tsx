@@ -4,7 +4,7 @@ import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-ro
 import { useQuery, useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { lookupFoundedYear } from '@/lib/media/wikidataFounded';
 import { ArrowLeft, CalendarDays, ChevronDown, FileText, Globe, MapPin, Search } from 'lucide-react';
-import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
+import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, ownershipLabel, type DashboardTab } from '@mi/contracts';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 import { useCompany, useCompanyMetrics, useReports, useRerunDashboardTab } from '@/hooks/data';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
@@ -402,6 +402,18 @@ export default function DashboardPage() {
               />
               <div className="min-w-[14rem] flex-1 basis-[60%]">
                 <h1 className="font-display text-2xl font-semibold text-content">{c.name}</h1>
+                {ownershipLabel(c.ownership) && (
+                  <a
+                    className="chip border-border bg-surface text-muted"
+                    href={c.ownership!.citations[0]?.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={c.ownership!.methodNote ?? undefined}
+                    data-testid="ownership-label"
+                  >
+                    {ownershipLabel(c.ownership)}
+                  </a>
+                )}
                 {headerSubtitle && !restatesHq(headerSubtitle, c.hqLocation) && <p className="text-sm text-muted">{headerSubtitle}</p>}
                 <KeyFacts
                   hq={c.hqLocation}

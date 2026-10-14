@@ -96,3 +96,21 @@ describe('CollectibleCard illustrated defaults', () => {
     expect(front.querySelector('.collectible__eyebrow')).toHaveTextContent('Culture');
   });
 });
+
+describe('CollectibleCard ownership status', () => {
+  const ownership = {
+    status: 'acquired' as const, acquirer: 'PepsiCo', announcedOn: '2025-03-17', closedOn: '2025-05-27', price: null,
+    citations: [{ url: 'https://www.pepsico.com/newsroom/press-releases/2025/poppi', title: 'PepsiCo' }], confidence: 'verified' as const,
+  };
+
+  it('adds the sourced ownership status to the eyebrow, beside the location', () => {
+    renderWithProviders(<CollectibleCard data={{ ...hydrated, company: { ...hydrated.company, hqLocation: 'Austin, TX', ownership } }} />);
+    expect(screen.getByTestId('collectible-card-front').querySelector('.collectible__eyebrow'))
+      .toHaveTextContent('Austin, TX · Acquired by PepsiCo · 2025');
+  });
+
+  it('shows nothing for an unsourced or independent status', () => {
+    renderWithProviders(<CollectibleCard data={{ ...hydrated, company: { ...hydrated.company, hqLocation: 'Austin, TX', ownership: { ...ownership, citations: [] } } }} />);
+    expect(screen.getByTestId('collectible-card-front').querySelector('.collectible__eyebrow')).toHaveTextContent(/^Austin, TX$/);
+  });
+});
