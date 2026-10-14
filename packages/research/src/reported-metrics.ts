@@ -192,6 +192,8 @@ const mentionsCompany = (text: string, name: string) => {
   const forms = [stripCorporateSuffix(name), name, ...entityAliases(name)].filter((f) => f.length > 0);
   return forms.some((alias) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(alias)}(?![\\p{L}\\p{N}])`, 'iu').test(text));
 };
+/** True when `text` names the company anywhere (legal, short or alias form). */
+export const namesCompany = (text: string, name: string): boolean => mentionsCompany(text, name);
 
 // A catalog section's claim sentence opens with its measurement label, after
 // markdown decoration ("### Headcount & Factual Proxy Anchors…"). Decoration is
@@ -232,6 +234,39 @@ const rivalMatcher = (companyName: string, others?: readonly string[]): RegExp |
 };
 function host(url: string | null): string | null {
   try { return url ? new URL(url).hostname.replace(/^www\./, '') : null; } catch { return null; }
+}
+
+const HEADING = /^[ \t]*#{1,6}[ \t]+(.+)$/gm;
+const headingTitle = (raw: string) => raw.replace(/[*_`]/g, '');
+
+/**
+ * Whose section of the answer a support lies in. A batched hydration answer
+ * covers N companies, one `### Name` section each; a single-company answer
+ * has at most one company heading (its own). The owner is the nearest
+ * markdown heading BEFORE the support that names the subject or a roster
+ * company: 'subject', 'rival', or 'none' when no company heading precedes it
+ * (callers then judge by the answer's header region, as before). A heading
+ * naming no deck company ("### Financials") is presentation and is skipped.
+ */
+export function supportSectionOwner(companyName: string, answerText: string, supportText: string,
+  startIndex: number | undefined, otherCompanies: readonly string[] | undefined): 'subject' | 'rival' | 'none' {
+  const rivals = rivalMatcher(companyName, otherCompanies);
+  const at = locateFragment(supportText, answerText, startIndex);
+  if (at < 0) return 'none';
+  let owner: 'subject' | 'rival' | 'none' = 'none';
+  for (const heading of answerText.slice(0, at).matchAll(HEADING)) {
+    const title = headingTitle(heading[1]!);
+    if (rivals?.test(title)) owner = 'rival';
+    else if (mentionsCompany(title, companyName)) owner = 'subject';
+  }
+  return owner;
+}
+
+/** True when some heading in the answer names a roster rival: the answer
+ * covers more than the subject, so its header region proves nothing. */
+function namesRivalHeading(companyName: string, answerText: string, otherCompanies: readonly string[] | undefined): boolean {
+  const rivals = rivalMatcher(companyName, otherCompanies);
+  return !!rivals && [...answerText.matchAll(HEADING)].some((h) => rivals.test(headingTitle(h[1]!)));
 }
 /** Reach footprint: places it is sold, plus units out in the field for hardware. */
 export const DISTRIBUTION_BASIS = /\b(?:countries|markets|retailers|stores|doors|stockists|retail locations|points of sale|retail partners|dealers|locations|restaurants|shops|pharmacies|supermarkets|cities|(?:units|devices|vehicles|systems|robots|installations)\s+(?:shipped|sold|delivered|deployed|installed))\b/i;
@@ -621,8 +656,19 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
   // company binds to the subject. Any other opening (typically a bare proper
   // noun the roster may not contain) fails closed.
   const rivals = rivalMatcher(companyName, identity?.otherCompanies);
-  const answerAnchored = !!identity?.answerText && !!rivals &&
-    mentionsCompany(identity.answerText.slice(0, 240), companyName);
+  // A batched answer ("### Mixmax, Inc." … "### Google LLC (BigQuery)") names
+  // several companies in its header region, so the header alone bound every
+  // anonymous section to each of them — Alphabet's $4.09T market cap landed on
+  // Mixmax. The anchor is the support's own company section; the header region
+  // decides only for an answer whose headings name no rival.
+  const answerAnchored = (() => {
+    if (!identity?.answerText || !rivals) return false;
+    const owner = supportSectionOwner(companyName, identity.answerText, proof.support.text, proof.support.startIndex,
+      identity.otherCompanies);
+    if (owner !== 'none') return owner === 'subject';
+    return !namesRivalHeading(companyName, identity.answerText, identity.otherCompanies) &&
+      mentionsCompany(identity.answerText.slice(0, 240), companyName);
+  })();
   // An expanded support can begin with a lead-in ("For the fiscal year ended
   // December 31, 2025, Equinix, Inc. generated …"), so the subject is present
   // but not sentence-initial. When a roster is known, a sentence that names
