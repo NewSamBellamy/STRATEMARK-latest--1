@@ -1,7 +1,7 @@
 import { MONEY_METRIC_TYPES, hasVerificationGradeCitation, usableCitations, validMetricVerificationValue, type Citation, type MetricType, type CompanyMetric } from '@mi/contracts';
 import type { OriginalSourceReceipt } from './original-source';
 import { secFilingHeadcountObservation, secRevenueObservation } from './sec-revenue';
-import { secAdvObservationFor } from './sec-adv';
+import { isSecAdvSearchUrl, secAdvObservationFor } from './sec-adv';
 import { currencyMentionPattern, describeCurrencyConversion, isConvertibleCurrency, usdPerUnit } from './fx';
 
 export type MetricPassageSupport = NonNullable<CompanyMetric['passageSupport']>;
@@ -77,9 +77,13 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
   if (proof?.format === 'sec-adv') {
     // The retained Form ADV PDF report IS the original: the claim must be the
     // deterministic re-derivation of the retained record, value for value.
+    // The other retained ADV reports and IAPD searches ride along: identity of
+    // an adviser registered under another name is re-derived from the search
+    // that selected it, and a second identified adviser means ambiguity.
     const observed = secAdvObservationFor(input.metricType, input.companyName,
-      input.originals.filter(source => source.finalUrl === proof.sourceUrl), input.nowMs);
-    return observed && input.value === observed.value &&
+      input.originals.filter(source => source.finalUrl === proof.sourceUrl || source.format === 'sec-adv' ||
+        isSecAdvSearchUrl(source.finalUrl ?? '')), input.nowMs ?? Date.now(), input.officialWebsite);
+    return observed && observed.passageSupport.sourceUrl === proof.sourceUrl && input.value === observed.value &&
       proof.basis === observed.passageSupport.basis && proof.unit === observed.passageSupport.unit &&
       proof.definition === observed.passageSupport.definition &&
       proof.asOf === observed.passageSupport.asOf && proof.quote === observed.passageSupport.quote
