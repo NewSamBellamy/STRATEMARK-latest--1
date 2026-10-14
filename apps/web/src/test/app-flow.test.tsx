@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -30,10 +30,23 @@ function renderApp() {
   };
 }
 
-// Generous: the dashboard route is code-split and loads slowly on a busy machine.
 const FIND = { timeout: 10000 } as const;
 
 describe('end-to-end deck flow (markets → deck → 2-level split → card → dashboard)', () => {
+  // The journey's routes are code-split. Under `pnpm check` every package's
+  // suite runs at once, and a cold transform of the dashboard chunk alone took
+  // longer than FIND's 10s, so the click landed but the route had not loaded
+  // when the assertion gave up (the run failed intermittently). Load the
+  // chunks up front, outside the journey's timing window: the test asserts
+  // navigation, not how fast Vite transforms a module on a busy machine.
+  beforeAll(async () => {
+    await Promise.all([
+      import('@/features/deck/NewDeckPage'),
+      import('@/features/deck/DeckPage'),
+      import('@/features/dashboard/DashboardPage'),
+    ]);
+  }, 120_000);
+
   it('navigates the full journey against the mock repository', { timeout: 40000 }, async () => {
     const { user } = renderApp();
 
