@@ -21,6 +21,7 @@ import {
   type MetricsContent,
   type Citation,
   type MetricType,
+  type Ownership,
 } from '@mi/contracts';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { LlmClient } from './types';
@@ -58,11 +59,11 @@ const ctx = (a: TabResearchArgs): string =>
 
 function metricsFromStored(metrics: CompanyMetric[], companyId: string, officialWebsite?: string | null,
   secRevenueSeriesOverride?: Array<{ period: string; value: number; asOf: string }>,
-  secQuarterlySeries: Array<{ period: string; value: number }> = []): MetricsContent {
+  secQuarterlySeries: Array<{ period: string; value: number }> = [], ownership?: Ownership | null): MetricsContent {
   const val = (t: MetricType) => {
     const revision = currentMetricRevision(metrics, companyId, t);
     if (!revision || revision.ambiguous) return null;
-    const metric = enforceMetricProvenance(revision.metric, officialWebsite);
+    const metric = enforceMetricProvenance(revision.metric, officialWebsite, ownership);
     // A chart has no estimate/confidence annotation. Only established, bounded
     // current points belong here; retain all raw observations in the vault.
       return comparableMetricBasis(metric) && (metric.confidence === 'verified' || metric.confidence === 'user_verified') &&
@@ -229,7 +230,7 @@ export async function researchDashboardTab<T extends DashboardTab>(
       const issuer = secIssuerName(args.company, receipts, secRevenueCik(secArr?.passageSupport?.sourceUrl ?? ''));
       const secSeries = secRevenueSeries(issuer, receipts);
       return metricsFromStored(facts, args.company.id, args.company.websiteUrl, secSeries ?? undefined,
-        secQuarterlyRevenueSeries(issuer, receipts) ?? []) as DashboardContentMap[T];
+        secQuarterlyRevenueSeries(issuer, receipts) ?? [], args.company.ownership) as DashboardContentMap[T];
     }
 
     case 'overview': {

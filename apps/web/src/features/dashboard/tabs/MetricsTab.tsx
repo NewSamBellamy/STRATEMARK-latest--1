@@ -637,7 +637,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
     >
       {(metrics) => {
         const seen = new Set<MetricType>();
-        const projected = buildMetricViews(metrics, company?.websiteUrl).map(({ metric }) => metric);
+        const projected = buildMetricViews(metrics, company?.websiteUrl, company?.ownership).map(({ metric }) => metric);
         const deduped = orderMetrics(projected).filter((m) => !seen.has(m.metricType) && !!seen.add(m.metricType));
         const financialFirm = company ? classifyMarketProfile(company) === 'financial_firm' : false;
         const real = pruneRedundantGaps(deduped, financialFirm);
