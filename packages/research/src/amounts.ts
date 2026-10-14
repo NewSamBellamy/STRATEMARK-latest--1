@@ -5,7 +5,8 @@ const SCALE: Record<string, number> = { trillion: 1e12, billion: 1e9, million: 1
 export interface AmountMatch { value: number; index: number }
 
 export function amountMatches(text: string): AmountMatch[] {
-  return [...text.matchAll(/(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|thousand|tn|bn|mn|[bmk])?\b/gi)]
+  // A digit glued to letters is part of a name ("AG1", "Q4"), never an amount.
+  return [...text.matchAll(/(?<![A-Za-z\d])(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|thousand|tn|bn|mn|[bmk])?\b/gi)]
     // A bare year ("in 2025") is a date, not a headcount of 2,025.
     .filter((m) => m[2] || !/^(?:19|20)\d{2}$/.test(m[1]!))
     .map((m) => ({ value: Number(m[1]!.replaceAll(',', '')) * (SCALE[m[2]?.toLowerCase() ?? ''] ?? 1), index: m.index! }));

@@ -307,6 +307,10 @@ function staleEventYear(sentence: string, value: number, unit: ReportedMetricSup
   return (carrying.length ? carrying : [sentence]).every(older);
 }
 
+/** Where staff live or offices sit is not where the product is sold ("AG1 team
+ * members are home to over 16 countries" is not distribution in 16 countries). */
+const DISTRIBUTION_NOT_SALES = /\b(?:team members?|employees|staff|workforce|teammates|nationalities|offices?|remote(?:ly)?|hires?|hiring|engineers)\b/i;
+
 /** A product or customer segment named right before "users". */
 const USER_SEGMENT_BEFORE = /\b(?:business|enterprise|corporate|commercial|developer|api|education|edu|government|team|teams|pro|plus|premium|paid|paying|beta|student|seat)\s+$/i;
 
@@ -316,7 +320,8 @@ function hasNumber(text: string, value: number, unit: ReportedMetricSupport['uni
   // Match reported figures, not other numerals such as dates or page counts.
   // "$65+ billion" separates the scale with an optional plus; without the
   // tolerant separator the figure would parse as 65 unscaled dollars.
-  const pattern = /(?:\b(USD|US dollars?)\s*|(US\$|\$)\s*)?(\d[\d,]*(?:\.\d+)?)\s*\+?\s*(trillion|billion|million|thousand|[kmbt]\b)?\s*(USD|US dollars?|%|percent|employees|users|customers)?/gi;
+  // A digit glued to letters is part of a name ("AG1", "Q4", "FY2024"), never a figure.
+  const pattern = /(?:\b(USD|US dollars?)\s*|(US\$|\$)\s*)?(?<![A-Za-z\d])(\d[\d,]*(?:\.\d+)?)\s*\+?\s*(trillion|billion|million|thousand|[kmbt]\b)?\s*(USD|US dollars?|%|percent|employees|users|customers)?/gi;
   for (const match of text.matchAll(pattern)) {
     const magnitude = match[4]?.toLowerCase();
     const multiplier = magnitude ? ({ trillion: 1e12, billion: 1e9, million: 1e6, thousand: 1e3, t: 1e12, b: 1e9, m: 1e6, k: 1e3 }[magnitude] ?? 1) : 1;
@@ -398,7 +403,7 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
       type === 'arr' ? ['arr', 'annual_revenue'] : [type];
     const definitions = candidates.filter(definition => basisPatterns[definition]?.test(text));
     const baseUnit = type === 'employees' || type === 'users' || type === 'distribution' ? 'count' : type === 'market_share' ? 'percent' : 'USD';
-    const pattern = /(?:\bUSD\s*|US\$|\$)?\s*(\d[\d,]*(?:\.\d+)?)\s*\+?\s*(trillion|billion|million|thousand|[kmbt]\b)?/gi;
+    const pattern = /(?:\bUSD\s*|US\$|\$)?\s*(?<![A-Za-z\d])(\d[\d,]*(?:\.\d+)?)\s*\+?\s*(trillion|billion|million|thousand|[kmbt]\b)?/gi;
     for (const match of text.matchAll(pattern)) {
       // Parenthetical breakdowns are not company-wide employee candidates.
       // Only omission recovery skips them; selected claims use the validator.
@@ -581,6 +586,7 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
     !/\b(?:partners? with|invested in|customer of|competitor|(?:said|stated|reported|announced) that|its subsidiary|its division)\b/i.test(sentence) &&
     !figureBelongsToParentOrDeal(sentence, definition) &&
     (!proof.asOf || !/\b(?:article published|page published|retrieved|accessed|updated on)\b/i.test(sentence)) &&
+    (definition !== 'distribution' || !DISTRIBUTION_NOT_SALES.test(sentence)) &&
     (definition !== 'users' || !/\b(?:active|monthly|daily|weekly|customers|registered|downloads|followers)\b/i.test(sentence)))) return [];
   return citations;
 }
@@ -611,6 +617,7 @@ export function reportedSupportCitations(companyName: string, website: string | 
   if (type === 'users' && !proof.asOf) return [];
 if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its .{0,30}suite|active base of .{0,30}devices)\b/i.test(proof.support.text)) return [];
   if (CARD_FACT_TYPES.includes(type) && type !== 'distribution' && !proof.asOf) return [];
+  if (type === 'distribution' && DISTRIBUTION_NOT_SALES.test(proof.support.text)) return [];
   // Undated distribution: only when the stored sentence itself names the
   // company and states the number, since nothing else anchors it in time.
   if (type === 'distribution' && !proof.asOf && !sentences(proof.support.text).some(raw => {
@@ -699,8 +706,13 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
       if (!trusted!.answerText.includes(support.text) || !selector.quote ||
         (!support.text.includes(selector.quote) && !expanded.includes(selector.quote)) ||
         !support.sources.some(source => source.url === selector.sourceUrl)) continue;
+      // A selector that omits its date while the quoted claim states exactly one
+      // literal business date ("… as of September 29, 2025") takes that date:
+      // it is the source's own wording, not an inference.
+      const statedDates = selector.asOf ? [] : businessDates(support.text);
+      const asOf = selector.asOf ?? (statedDates.length === 1 ? statedDates[0]! : selector.asOf);
       const proof = reportedMetricSupportSchema.safeParse({ provider: trusted!.provider, companyName: input.companyName,
-        basis: type, value: proposal.value, unit: selector.unit, asOf: selector.asOf,
+        basis: type, value: proposal.value, unit: selector.unit, asOf,
         definition: selector.definition,
         periodStart: selector.periodStart && hasDate(support.text, selector.periodStart) ? selector.periodStart : undefined,
         support: structuredClone(support) });

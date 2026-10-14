@@ -16,6 +16,9 @@ function officialHost(sourceUrl: string, websiteUrl?: string | null): boolean {
   } catch { return false; }
 }
 
+const SALES_LINE = /^(?:experience|revolutioni[sz]e|accelerate|discover|explore|learn|get|meet|build|transform|unlock|empower|join|see|find|shop|buy|order|try|enjoy|sip|elevate|fuel|boost|upgrade|introducing|say hello|welcome|take|browse|save|subscribe|feel)\b/i;
+const CONTEXT_BOUND = /\b(?:this|these|those|such)\s+(?:environment|market|moment|landscape|challenge|challenges|era|world|need|needs|space|problem|problems|opportunity|time|times|reason|way)\b/i;
+
 function eligibleSentences(text: string, companyName: string): string[] {
   const normalizedName = normalizeSourceText(companyName).toLocaleLowerCase();
   const protectedText = text.replace(/\b(Inc|Ltd|Corp|Co|U\.S|e\.g|i\.e)\.(?=\s)/gi, '$1<PERIOD>');
@@ -27,6 +30,9 @@ function eligibleSentences(text: string, companyName: string): string[] {
       !/[\p{N}$€£¥%]/u.test(sentence) &&
       !/\b(?:leading|world['’]s|best|largest|first|only|most|number one|#1|valued|valuation|revenue|ARR|funding|market share|users|customers|employees)\b/i.test(sentence) &&
       !/\b(?:cookies?|privacy|javascript|browser|sign (?:in|up)|log ?in|subscribe|newsletter|copyright|all rights reserved)\b/i.test(sentence) &&
+      // A sales line sells; a sentence leaning on its page ("purpose-built for
+      // this environment") says nothing once lifted out of it.
+      !SALES_LINE.test(sentence) && !CONTEXT_BOUND.test(sentence) && !/\s[.,;:!?]/.test(sentence) &&
       (sentence.toLocaleLowerCase().includes(normalizedName) ||
         /\b(?:builds?|develops?|creates?|provides?|offers?|research(?:es)?|designs?|operates?|serves?|platform|software|company|laborator|models?)\b/i.test(sentence)));
 }
@@ -94,16 +100,18 @@ export function homepageCompanySummary(input: {
     .filter(sentence => selfDescribing.test(sentence) && !/\bnot\b|n['’]t\b/i.test(sentence));
   const text = [...described, ...named].map(line => line.trim()).filter(Boolean)
     .map(line => (/[.!?]$/.test(line) ? line : `${line}.`)).join(' ');
-  if (!text) return null;
-  // Best first: a self-describing sentence; the page's own description next;
-  // an imperative tagline ("Accelerate …") last.
+  // A shop-window line ("Discover Kin Euphorics sparkling cans …", "Shop the
+  // collection") sells; it does not say what the company is. Never a summary,
+  // even when it is the only copy on the page.
+  const sentences = (text.match(/[^.!?]+[.!?]/g) ?? []).map(normalizeSourceText).filter(sentence => !SALES_LINE.test(sentence));
+  if (!sentences.length) return null;
+  // Best first: a self-describing sentence; then one naming the company.
   const score = (sentence: string) =>
-    (selfDescribing.test(sentence) ? 4 : 0) + (sentence.toLocaleLowerCase().includes(name) ? 1 : 0) -
-    (/^(?:experience|revolutioni[sz]e|accelerate|discover|explore|learn|get|meet|build|transform|unlock|empower|join|see|find|shop|welcome|take)\b/i.test(sentence) ? 3 : 0);
-  const ranked = (text.match(/[^.!?]+[.!?]/g) ?? []).map(normalizeSourceText)
+    (selfDescribing.test(sentence) ? 4 : 0) + (sentence.toLocaleLowerCase().includes(name) ? 1 : 0);
+  const ranked = sentences
     .map((sentence, index) => ({ sentence, index, score: score(sentence) }))
     .sort((a, b) => b.score - a.score || a.index - b.index).map(row => row.sentence);
   const { format: _format, ...homepage } = input.homepage;
   return sourceBackedCompanySummary({ companyName: input.companyName, websiteUrl: input.websiteUrl,
-    proposedSummaries: ranked, originals: [{ ...homepage, text }] });
+    proposedSummaries: ranked, originals: [{ ...homepage, text: sentences.join(' ') }] });
 }
