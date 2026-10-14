@@ -163,7 +163,7 @@ describe('v9 revalidation of a stored snapshot', () => {
   }
 
   it('withholds reach headcounts stored at v8 and leaves real/verified ones alone', () => {
-    expect(METRIC_GATE_VERSION).toBe(9);
+    expect(METRIC_GATE_VERSION).toBeGreaterThanOrEqual(9);
     const { snapshot: snap, revalidation } = migrateSnapshot(snapshot());
     expect(revalidation?.ran).toBe(true);
     expect(revalidation?.fromVersion).toBe(8);
@@ -181,6 +181,6 @@ describe('v9 revalidation of a stored snapshot', () => {
     expect(snap.metrics.find((row) => row.companyId === walmart.id)).toMatchObject({ value: 2.1e6, confidence: 'verified' });
     // The dashboard restating the withdrawn figure is invalidated.
     expect(snap.dashboards[dailypay.id]).toEqual({});
-    expect(snap.metricGateVersion).toBe(9);
+    expect(snap.metricGateVersion).toBe(METRIC_GATE_VERSION);
   });
 });

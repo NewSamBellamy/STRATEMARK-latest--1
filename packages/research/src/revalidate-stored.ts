@@ -16,7 +16,7 @@
  * Human-verified figures are never touched.
  */
 import { classifyMarketProfile, isEntityCardType, ownershipWithholdsValuation, type CardType, type Citation, type CompanyMetric,
-  type MetricType, type Ownership } from '@mi/contracts';
+  type MetricType, type Ownership, type CompanyFounded } from '@mi/contracts';
 import { hasPlaceholderName } from './placeholder-names';
 import { canonicalHqLocation, hqGroundedInEvidence } from './brand/hq-format';
 import { scrubOneLiner } from './oneliner-scrub';
@@ -29,6 +29,7 @@ import { reportedBandNote, reportedRowNote, reportedStoredCitations, storedDefin
 import { shareCountTooOld, storedMarketCapDates } from './market-quote';
 import { storedSecRevenueIsSubLine } from './sec-revenue';
 import { implausibleScaleFigures, SCALE_NOTES, type ScaleGate } from './scale-plausibility';
+import { storedWebsiteFoundedFails } from './founded-year';
 
 /**
  * v1: parent/subsidiary + acquisition-price attribution (reported lane),
@@ -79,8 +80,13 @@ import { implausibleScaleFigures, SCALE_NOTES, type ScaleGate } from './scale-pl
  *     before the v8 per-head checks, so a reach figure never serves as their
  *     denominator. Verified and user_verified rows are never touched. Runs
  *     alongside every v1-v8 check.
+ * v10: a stored founding year read from the company's own page is cleared
+ *     when the current rules would not read it again: the year the page was
+ *     read (a copyright footer or a template's default foundingDate) or a
+ *     copyright line with a legal name ("© ABM Industries Incorporated 2026").
+ *     The founded-year ladder fills it again. Runs alongside every v1-v9 check.
  */
-export const METRIC_GATE_VERSION = 9;
+export const METRIC_GATE_VERSION = 10;
 
 export type RevalidationGate = 'parent_or_acquisition' | 'stale_share_count' | 'sec_revenue_sub_line'
   | 'acquired_deal_valuation' | 'non_subscription_arr' | ScaleGate;
@@ -122,6 +128,8 @@ export interface RevalidationOutcome {
   scrubbedSummaries: Array<{ companyId: string; previous: string; next: string | null }>;
   /** Companies whose stored headquarters was rewritten to the canonical form. */
   normalizedHq: Array<{ companyId: string; previous: string; hqLocation: string }>;
+  /** Companies whose stored website founding year failed the v10 rules and was cleared. */
+  clearedFounded: Array<{ companyId: string; year: number }>;
   /** SEC revenue rows whose retained evidence could not decide the sub-line question. */
   undecided: string[];
 }
@@ -130,7 +138,7 @@ export interface RevalidationOutcome {
 export interface RevalidatableSnapshot {
   metricGateVersion?: number;
   companies: Array<{ id: string; name: string; websiteUrl?: string | null; oneLiner?: string; hqLocation?: string | null;
-    ownership?: Ownership | null }>;
+    ownership?: Ownership | null; founded?: CompanyFounded | null }>;
   viceClaims?: Array<{ cardId: string }>;
   companyMarket?: Record<string, string>;
   cards?: Array<{ id?: string; deckId?: string; companyId: string | null; cardType: CardType; summary: string | null; citations?: Citation[] }>;
@@ -222,7 +230,7 @@ function failedGate(metric: CompanyMetric, companyName: string | undefined,
  */
 export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): RevalidationOutcome {
   const fromVersion = typeof snapshot.metricGateVersion === 'number' ? snapshot.metricGateVersion : 0;
-  if (fromVersion >= METRIC_GATE_VERSION) return { fromVersion, ran: false, reset: [], relabelled: [], resetSummaries: [], scrubbedSummaries: [], normalizedHq: [], undecided: [] };
+  if (fromVersion >= METRIC_GATE_VERSION) return { fromVersion, ran: false, reset: [], relabelled: [], resetSummaries: [], scrubbedSummaries: [], normalizedHq: [], clearedFounded: [], undecided: [] };
 
   // Template rows were never businesses: drop them, and everything keyed to
   // them, before any figure gate looks at their evidence.
@@ -309,6 +317,7 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
   // Headquarters: same place, one display form ("City, Full State" in the US,
   // "City, Country" elsewhere). Input it cannot read is left as it is.
   const normalizedHq: RevalidationOutcome['normalizedHq'] = [];
+  const clearedFounded: RevalidationOutcome['clearedFounded'] = [];
   snapshot.companies = snapshot.companies.map((company) => {
     let next = company;
     let hq = company.hqLocation?.trim() ? canonicalHqLocation(company.hqLocation) : null;
@@ -319,6 +328,11 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
     if (hq && hq !== company.hqLocation) {
       normalizedHq.push({ companyId: company.id, previous: company.hqLocation!, hqLocation: hq });
       next = { ...next, hqLocation: hq };
+    }
+    // v10: a website founding year that is a copyright footer or this year.
+    if (storedWebsiteFoundedFails(company.founded)) {
+      clearedFounded.push({ companyId: company.id, year: company.founded!.year });
+      next = { ...next, founded: null };
     }
     const previous = company.oneLiner;
     if (previous && !isPendingCompanySummary(previous) && !summaryIsUnfit(previous) && !citedCompanies.has(company.id)) {
@@ -358,5 +372,5 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
   const touched = new Set([...reset, ...relabelled.filter((r) => r.change === 'annual_revenue')].map((r) => r.companyId));
   if (touched.size) snapshot.dashboards = { ...snapshot.dashboards, ...Object.fromEntries([...touched].map((id) => [id, {}])) };
   snapshot.metricGateVersion = METRIC_GATE_VERSION;
-  return { fromVersion, ran: true, droppedPlaceholders, reset, relabelled, resetSummaries, scrubbedSummaries, normalizedHq, undecided };
+  return { fromVersion, ran: true, droppedPlaceholders, reset, relabelled, resetSummaries, scrubbedSummaries, normalizedHq, clearedFounded, undecided };
 }
