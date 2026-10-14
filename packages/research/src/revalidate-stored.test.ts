@@ -161,6 +161,28 @@ describe('revalidateStoredMetrics', () => {
     expect(byId(migrateSnapshot(total).snapshot, circleRevenue.id)).toEqual(circleRevenue);
   });
 
+  it('v2: withdraws an acquired company deal-time valuation, never a pending deal round', () => {
+    const poppi = { id: 'co_poppi', name: 'Poppi' };
+    const anysphere = { id: 'co_anysphere', name: 'Anysphere' };
+    const cite = [{ url: 'https://www.cnbc.com/2025/03/17/pepsico-poppi.html', title: 'CNBC' }];
+    const poppiRow = reported(poppi, 'valuation', 2e9, 'Poppi was valued at USD 1.95 billion as of March 17, 2025', '2025-03-17');
+    const roundRow = reported(anysphere, 'valuation', 2.93e10, 'Anysphere was valued at $29.3 billion in its Series D round as of May 1, 2026.', '2026-05-01');
+    const base = snapshot();
+    const snap = snapshot({
+      companies: [...base.companies,
+        { ...poppi, websiteUrl: null, ownership: { status: 'acquired', acquirer: 'PepsiCo', announcedOn: '2025-03-17', closedOn: '2025-05',
+          price: null, citations: cite, confidence: 'estimated' } },
+        { ...anysphere, websiteUrl: null, ownership: { status: 'acquisition_pending', acquirer: 'SpaceX', announcedOn: '2026-06-10', closedOn: null,
+          price: { value: 6e10, currency: 'USD' }, citations: cite, confidence: 'estimated' } },
+      ] as unknown as RepoSnapshot['companies'],
+      metrics: [...base.metrics, poppiRow, roundRow],
+    });
+    const { snapshot: out, revalidation } = migrateSnapshot(snap);
+    expect(revalidation?.reset.find((r) => r.metricId === poppiRow.id)?.gate).toBe('acquired_deal_valuation');
+    expect(byId(out, poppiRow.id)).toMatchObject({ value: null, confidence: 'unknown', reportedSupport: null });
+    expect(byId(out, roundRow.id)).toEqual(roundRow);
+  });
+
   it('does not revalidate a snapshot from a newer build', () => {
     const future = snapshot({ schemaVersion: 99 });
     const outcome = migrateSnapshot(future);

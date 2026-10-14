@@ -16,6 +16,8 @@ import type { Citation, MetricConflict, SourceCredibility } from './repository';
 import type { CompanyMetric } from './types';
 import { metricObservationIdentity } from './metric-definition';
 import { ACQUISITION_PRICE_NOTE, isAcquisitionPriceValuation } from './acquisition-price';
+import { DEAL_TIME_VALUATION_NOTE, ownershipWithholdsValuation } from './ownership';
+import type { Ownership } from './types';
 
 /** Reason text stamped on a figure that lost its "verified" claim. */
 export const UNSOURCED_DOWNGRADE_NOTE =
@@ -288,7 +290,9 @@ const JUNK_DOWNGRADE_NOTE =
  * - `unknown` must not carry a value (an unknown with a number is a contradiction).
  * - `source` is kept in sync with the first citation.
  */
-export function enforceMetricProvenance(metric: CompanyMetric, officialWebsite?: string | null): CompanyMetric {
+export function enforceMetricProvenance(metric: CompanyMetric, officialWebsite?: string | null,
+  /** The company's stored ownership: an acquired company's deal-time valuation is withheld. */
+  ownership?: Ownership | null): CompanyMetric {
   const citations = usableCitations(metric.citations, officialWebsite);
   // Prose attribution survives for transparency but cannot earn verification.
   const proseSource = (metric.source ?? '').trim();
@@ -321,9 +325,14 @@ export function enforceMetricProvenance(metric: CompanyMetric, officialWebsite?:
   // valuation" was PepsiCo's purchase price). Process rule, applied on every
   // write and every read: the figure belongs to ownership.price instead.
   // A human's own figure is theirs to keep.
-  if (confidence !== 'user_verified' && isAcquisitionPriceValuation(metric)) {
-    confidence = 'unknown';
-    methodNote = ACQUISITION_PRICE_NOTE;
+  if (confidence !== 'user_verified') {
+    if (isAcquisitionPriceValuation(metric)) {
+      confidence = 'unknown';
+      methodNote = ACQUISITION_PRICE_NOTE;
+    } else if (ownershipWithholdsValuation(metric, ownership)) {
+      confidence = 'unknown';
+      methodNote = DEAL_TIME_VALUATION_NOTE;
+    }
   }
 
   // An "unknown" figure cannot carry a number.

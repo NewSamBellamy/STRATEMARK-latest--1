@@ -23,7 +23,7 @@
  * "reportedly", "could") is not a deal. A deal reported terminated is no deal.
  * No evidence is no status — never "independent" by absence.
  */
-import { acquisitionPriceSentence, enforceOwnershipProvenance, type Citation, type CompanyMetric, type Ownership } from '@mi/contracts';
+import { enforceOwnershipProvenance, type Citation, type CompanyMetric, type Ownership } from '@mi/contracts';
 import { companyAliases } from './company-aliases';
 import { findCompanyFilings } from './sec-ownership';
 import { nameTokens, registrableDomain, sameRegistrableDomain } from './registries/shared';
@@ -61,6 +61,9 @@ export interface AcquisitionStatement {
 
 const PRESS_WIRES = ['prnewswire.com', 'businesswire.com', 'globenewswire.com', 'newswire.ca', 'accesswire.com'];
 const HEDGE = /\b(?:in talks|talks (?:to|with|about)|in (?:advanced |early )?discussions|considering|consider(?:s|ed)? (?:a |an )?(?:sale|bid|offer)|explor(?:e|es|ed|ing)|weigh(?:s|ed|ing)?|reportedly|rumou?r(?:s|ed)?|speculat\w*|potential(?:ly)? (?:deal|acquisition|sale|buyer|takeover|merger|acquirer)|possible (?:deal|acquisition|sale|buyer|takeover|merger)|possibly|bid for|offer(?:ed|s)? to (?:buy|acquire)|approach(?:ed|es)?|interest in (?:buying|acquiring)|people familiar|sources (?:said|say)|according to (?:people|sources)|nearing a deal|close to a deal|would consider|if (?:the|a) deal|denied)\b|\?/i;
+const COMPLETION_WORDING = /\b(?:complet(?:ed|es|ing|ion)|closed|closes|closing of|finali[sz](?:ed|es)|consummat\w*|now (?:owned|part of)|cuts?|payout)\b/i;
+const RETROSPECTIVE = /\b(?:which|who|that) (?:had )?(?:agreed|announced|signed)|\bhad (?:agreed|announced)|\b(?:earlier this|last) (?:year|month|week|spring|summer|fall|autumn|winter)|\bin (?:January|February|March|April|May|June|July|August|September|October|November|December)\b(?!,? \d{4})|\bago\b/;
+
 /** Modal hedges, lower case only: "May 27, 2025" is a date, not a hedge. */
 const MODAL_HEDGE = /\b(?:may|might|could)\b/;
 const TERMINATED = /\b(?:terminat(?:ed|es|ing)|called off|abandon(?:ed|s|ing)|scrapp(?:ed|ing)|walk(?:ed|s) away|blocked|collapsed|fell through)\b[^.]{0,60}\b(?:acquisition|deal|merger|purchase|takeover|agreement)\b|\b(?:acquisition|deal|merger|purchase|takeover|agreement)\b[^.]{0,40}\b(?:was |has been |had been )?(?:terminated|called off|abandoned|scrapped|blocked|collapsed|fell through)\b/i;
@@ -183,15 +186,46 @@ const SCALE: Record<string, number> = { trillion: 1e12, billion: 1e9, million: 1
 const CURRENCY: Array<[RegExp, string]> = [[/^(?:US\$|\$|USD\s?)$/i, 'USD'], [/^(?:€|EUR\s?)$/i, 'EUR'], [/^(?:£|GBP\s?)$/i, 'GBP']];
 
 /** The deal price the sentence states: a currency amount the valuation rule reads as a price. */
+/** Words that bind a figure to the purchase itself, immediately before it. */
+const PRICE_LEAD = /(?:\b(?:for|valued at|valuing (?:it|the company|the deal|the brand|\w+) at|worth|priced at|purchase price of|(?:total |aggregate )?consideration of|price tag of|in a deal (?:valued at|worth)|at a price of)\s+(?:(?:approximately|about|roughly|nearly|around|some|an estimated|a reported|reportedly)\s+)?)$/i;
+/** Or immediately after it: "$1.95 billion deal", "$1.95bn acquisition of Poppi". */
+const PRICE_TAIL = /^\s*(?:-|–)?\s*(?:all-cash\s+|cash\s+|stock\s+)?(?:deal|acquisition|takeover|buyout|purchase|transaction|merger)\b/i;
+/** A figure next to any of these is something else: a payout, an adjustment, revenue, funding. */
+const NOT_THE_PRICE = /\b(?:payouts?|pay-?outs?|earn-?outs?|earnouts?|adjust\w*|cash[- ]back|tax|benefits?|revenues?|sales|raised|raising|funding|financing|round|cut|cuts|reduc\w*|lower\w*|refund\w*|settle\w*|bonus\w*|escrow|fees?|loans?|debt|milestones?|contingent|incentives?|retention|severance|investment|invested|valuation of the (?:startup|company) (?:in|at) its)\b/i;
+/** The words between a figure and the nearest clause break on each side. */
+function clauseAround(sentence: string, start: number, end: number): { before: string; after: string } {
+  const head = sentence.slice(Math.max(0, start - 80), start);
+  const cut = Math.max(head.lastIndexOf(','), head.lastIndexOf(';'), head.lastIndexOf('('), head.lastIndexOf(' from '), head.lastIndexOf(' to '));
+  const tail = sentence.slice(end, end + 80);
+  const stop = tail.search(/[,;.()]|\b(?:from|to|and|but|after|while)\b/);
+  return { before: cut >= 0 ? head.slice(cut + 1) : head, after: stop >= 0 ? tail.slice(0, stop) : tail };
+}
+
+/**
+ * The purchase price the sentence BINDS to the deal ("acquire Poppi for $1.95
+ * billion", "a deal valued at $60 billion", "purchase price of ...", "$1.95bn
+ * acquisition"). A payout, earn-out, adjustment, revenue or funding figure in
+ * the same sentence is never the price; when unsure, null.
+ */
 export function dealPriceInSentence(sentence: string): { value: number; currency: string } | null {
+  if (!/\b(?:acquir\w*|acquisition|bought|buy|buys|purchas\w*|takeover|buyout|merger|deal|sold)\b/i.test(sentence)) return null;
+  const found: Array<{ value: number; currency: string }> = [];
   for (const m of sentence.matchAll(/(US\$|\$|USD\s?|€|EUR\s?|£|GBP\s?)(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|bn|mn|b|m)?\b/gi)) {
     const currency = CURRENCY.find(([re]) => re.test(m[1]!))?.[1];
     const value = Number(m[2]!.replaceAll(',', '')) * (SCALE[m[3]?.toLowerCase() ?? ''] ?? 1);
     if (!currency || !Number.isFinite(value) || value < 1e5) continue;
-    // Literal reuse of the metric-gate rule: the figure must read as a price.
-    if (acquisitionPriceSentence(sentence, value) !== null) return { value, currency };
+    const start = m.index!, end = start + m[0].length;
+    const lead = sentence.slice(Math.max(0, start - 60), start);
+    const tail = sentence.slice(end, end + 40);
+    if (!PRICE_LEAD.test(lead) && !PRICE_TAIL.test(tail)) continue;
+    const { before, after } = clauseAround(sentence, start, end);
+    if (NOT_THE_PRICE.test(before) || NOT_THE_PRICE.test(after)) continue;
+    found.push({ value, currency });
   }
-  return null;
+  // Two different bound figures in one sentence: cannot tell which is the price.
+  const first = found[0];
+  if (!first || found.some((f) => f.currency !== first.currency || Math.abs(f.value - first.value) > first.value * 0.005)) return null;
+  return first;
 }
 
 function hostOf(url: string): string {
@@ -236,6 +270,10 @@ export function acquisitionStatements(companyName: string, source: OwnershipEvid
   const own = nameTokens(companyName).join(' ');
   const out: AcquisitionStatement[] = [];
   const publisher = source.publisher?.trim().toLowerCase().replace(/^www\./, '') || hostOf(source.url);
+  // A page's own date dates an announcement only when the page IS the
+  // announcement: never a completion/closing article recalling it, and never a
+  // sentence that refers back to it ("which agreed to buy it in March").
+  const announcementSource = !COMPLETION_WORDING.test(source.text);
   for (const sentence of sentencesOf(source.text)) {
     const hits = [...sentence.matchAll(new RegExp(brand.source, brand.flags))];
     if (!hits.length) continue;
@@ -277,7 +315,7 @@ export function acquisitionStatements(companyName: string, source: OwnershipEvid
     out.push({
       phase: found.phase,
       acquirer: found.acquirer,
-      date: dateInSentence(sentence) ?? source.date ?? null,
+      date: dateInSentence(sentence) ?? (found.phase !== 'announced' || (announcementSource && !RETROSPECTIVE.test(sentence)) ? source.date ?? null : null),
       price: found.phase === 'terminated' ? null : dealPriceInSentence(sentence),
       sentence,
       citation: { url: source.url, title: source.title || publisher },
@@ -498,7 +536,12 @@ export function decideOwnership(input: { statements: readonly AcquisitionStateme
     // A reported termination with no proof of closing: no deal stands.
     if (terminated && !closed) return null;
     const announced = group.filter((s) => s.phase === 'announced');
-    const priced = [...group].sort((a, b) => Number(b.primary) - Number(a.primary)).find((s) => s.price);
+    // A primary source's price stands; otherwise every stated price must agree, or none is shown.
+    const prices = group.filter((s) => s.price);
+    const primaryPrice = prices.find((s) => s.primary);
+    const agreed = prices.length && prices.every((s) => s.price!.currency === prices[0]!.price!.currency &&
+      Math.abs(s.price!.value - prices[0]!.price!.value) <= prices[0]!.price!.value * 0.005) ? prices[0] : undefined;
+    const priced = primaryPrice ?? agreed;
     const evidence = closed ? [...(primaryClose.length ? primaryClose : completed), ...announced] : group;
     const citations = [...evidence.map((s) => s.citation), ...(closed && gleifParent ? [gleifParent.citation] : []),
       ...(closed && !closedByPrimary && wikidataParent ? [wikidataParent.citation] : [])];

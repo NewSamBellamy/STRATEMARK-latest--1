@@ -8,7 +8,7 @@
  * header show — and an independent company shows nothing at all.
  */
 import { usableCitations } from './provenance';
-import type { Ownership } from './types';
+import type { CompanyMetric, Ownership } from './types';
 
 const HUMAN_ONLY_NOTE = 'Human-verification claim removed automatically: only a person can mark ownership user-verified.';
 
@@ -69,3 +69,56 @@ export function ownershipLabel(ownership: Ownership | null | undefined): string 
       return null;
   }
 }
+
+const DAY_MS = 86_400_000;
+/** A valuation this close before a takeover is the deal, not an independent round. */
+export const PRE_DEAL_WINDOW_DAYS = 90;
+
+/** Earliest instant a partial date ("2025", "2025-03", "2025-03-17") can mean. */
+function startOf(date: string | null | undefined): number | null {
+  const m = date ? /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?/.exec(date) : null;
+  if (!m) return null;
+  const t = Date.UTC(Number(m[1]), m[2] ? Number(m[2]) - 1 : 0, m[3] ? Number(m[3]) : 1);
+  return Number.isFinite(t) ? t : null;
+}
+
+function samePrice(a: number, b: number): boolean {
+  return a > 0 && b > 0 && Math.abs(a - b) <= Math.max(a, b) * 0.005;
+}
+
+/**
+ * Process rule for an ACQUIRED company (ownership lives on the company, so it
+ * applies wherever a company's figures are displayed or revalidated): its
+ * valuation figure is withheld when
+ *  (a) it equals the acquisition price (within 0.5%), or
+ *  (b) its evidence is dated on/after the deal's announcement (or close when no
+ *      announcement is evidenced) minus {@link PRE_DEAL_WINDOW_DAYS} — only
+ *      when the ownership record carries a usable citation.
+ * Never for a pending deal (a pre-deal round is legitimate history), never for
+ * a human-verified figure, and never without a sourced acquired status.
+ */
+export function ownershipWithholdsValuation(
+  metric: Pick<CompanyMetric, 'metricType' | 'value' | 'confidence' | 'passageSupport' | 'reportedSupport' | 'quotedSupport'>,
+  ownership: Ownership | null | undefined,
+): boolean {
+  if (metric.metricType !== 'valuation' || metric.value == null || metric.confidence === 'user_verified') return false;
+  const o = enforceOwnershipProvenance(ownership);
+  if (!o || o.status !== 'acquired') return false;
+  const price = o.price?.value;
+  if (price != null) {
+    const values = [metric.value, metric.quotedSupport?.value, metric.reportedSupport?.value]
+      .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+    if (values.some((v) => samePrice(v, price))) return true;
+  }
+  if (o.citations.length === 0) return false;
+  const anchor = startOf(o.announcedOn ?? o.closedOn);
+  if (anchor == null) return false;
+  const floor = anchor - PRE_DEAL_WINDOW_DAYS * DAY_MS;
+  const dates = [metric.quotedSupport?.asOf, metric.reportedSupport?.asOf, metric.passageSupport?.asOf]
+    .map((d) => startOf(d)).filter((t): t is number => t != null);
+  return dates.some((t) => t >= floor);
+}
+
+/** Reason stamped on a valuation withheld by {@link ownershipWithholdsValuation}. */
+export const DEAL_TIME_VALUATION_NOTE =
+  'Not shown as a valuation: the company was acquired, and this figure matches the acquisition price or dates from the deal itself (within 90 days before the announcement), so it is the deal, not an independent valuation.';

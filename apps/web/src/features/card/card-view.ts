@@ -2,7 +2,7 @@ import {
   CARD_TYPE_LABELS, CONFIDENCE_LABELS, TIER_LABELS, enforceMetricProvenance, currentMetricRevision,
   isSignalCardType, usableCitations, metricDefinitionLabel, classifyMarketProfile, PROFILE_CORE_SLOTS, MONEY_METRIC_TYPES,
   CARD_FACE_SIZE, faceFamilyOf,
-  type CardWithCompany, type Company, type CompanyMetric, type MetricType,
+  type CardWithCompany, type Company, type CompanyMetric, type MetricType, type Ownership,
 } from '@mi/contracts';
 import { quotedSupportHolds, reportedBandCitations, reportedSupportCitations } from '@mi/research';
 import type { OvrBreakdown } from './rating';
@@ -105,7 +105,7 @@ function profileLabel(key: string, metric: CompanyMetric | undefined): string {
 }
 
 /** Shared read-only evidence projection for cards, readers and quantitative dashboards. */
-export function buildMetricViews(input: readonly CompanyMetric[], officialWebsite?: string | null) {
+export function buildMetricViews(input: readonly CompanyMetric[], officialWebsite?: string | null, ownership?: Ownership | null) {
   const groups = new Map<string, CompanyMetric[]>();
   for (const metric of input) {
     const key = JSON.stringify([metric.companyId, metric.metricType]);
@@ -126,7 +126,7 @@ export function buildMetricViews(input: readonly CompanyMetric[], officialWebsit
       ...original.citations.filter((c) => sourceUrl(c.url)),
       ...(legacy ? [{ url: legacy, title: '' }] : []),
     ], officialWebsite);
-    let metric = enforceMetricProvenance({ ...original, citations }, officialWebsite);
+    let metric = enforceMetricProvenance({ ...original, citations }, officialWebsite, ownership);
     let note = metric.methodNote;
     if (metric.metricType === 'users' && metric.value === 0 && metric.confidence !== 'user_verified') {
       metric = { ...metric, value: null, confidence: 'unknown' };
@@ -261,7 +261,7 @@ export function faceFigureStatus(item: Pick<ProfileSlot, 'metric' | 'confidence'
 
 export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null = null) {
   const signal = isSignalCardType(data.card.cardType) || !data.company;
-  const metrics = buildMetricViews(signal ? [] : data.metrics, data.company?.websiteUrl);
+  const metrics = buildMetricViews(signal ? [] : data.metrics, data.company?.websiteUrl, data.company?.ownership);
   const knownCount = metrics.filter((m) => m.metric.value != null).length;
   const sourcedCount = metrics.filter((m) => m.metric.value != null && m.citations.length > 0).length;
   // The four front slots come from the market profile: an operating company
