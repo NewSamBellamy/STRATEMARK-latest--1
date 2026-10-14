@@ -44,6 +44,7 @@ import { isSecAdvSearchUrl, secAdvCrd, selectSecAdvRetainedText, selectSecAdvSea
 import { selectTickerMapSlice, selectTickerRowsSlice, tickerLookupSymbols } from './market-quote';
 import { isScheduleDocumentUrl, parseScheduleOwnershipXml, secSubmissionsCik, selectScheduleFilingIndex } from './sec-ownership';
 import { getCrawl4aiLane } from './crawl4ai';
+import { parseFormDXml } from './sec-form-d';
 
 /** Whole-document fetch memoization (WS4): the bytes for a URL are immutable
  * evidence — the same market report or filing read for five companies or three
@@ -313,9 +314,12 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
       }
       if (isScheduleDocumentUrl(url.href)) {
         if (type !== 'text/xml' && type !== 'application/xml') return { ...receipt, reason: 'SEC schedule did not return XML' };
-        const schedule = parseScheduleOwnershipXml(response.body.toString('utf8'));
-        if (!schedule) return { ...receipt, reason: 'Not a structured Schedule 13D/13G filing' };
-        return { ...receipt, status: 'retrieved', text: JSON.stringify(schedule), truncated: false,
+        const xml = response.body.toString('utf8');
+        // The same archive path serves a Regulation D notice (sec-form-d.ts):
+        // only its offering facts are kept, as compact JSON.
+        const structured = parseScheduleOwnershipXml(xml) ?? parseFormDXml(xml);
+        if (!structured) return { ...receipt, reason: 'Not a structured Schedule 13D/13G or Form D filing' };
+        return { ...receipt, status: 'retrieved', text: JSON.stringify(structured), truncated: false,
           contentHash: createHash('sha256').update(response.body).digest('hex') };
       }
       // IAPD firm search: a large manager's answer (every relying adviser of
