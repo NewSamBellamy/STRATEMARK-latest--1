@@ -15,6 +15,8 @@ import { SettingsModal } from '@/features/settings/SettingsModal';
 import { SettingsLink } from '@/components/SettingsLink';
 import { useHostedBudget } from '@/lib/hostedApi';
 import { useApiKey } from '@/lib/settings/apiKey';
+import { useSettingsModal } from '@/lib/settings/settingsModal';
+import { pageKey } from '@/lib/pageKey';
 
 const BETA_NOTICE_KEY = 'stratemark.betaNotice.v1';
 
@@ -69,10 +71,18 @@ export function AppShell() {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  const closeSettings = useSettingsModal((s) => s.close);
+  const lastPathname = useRef(location.pathname);
+
   // Close AI panel and mobile menu on route change.
   useEffect(() => {
     closePanel();
     setMobileMenuOpen(false);
+    // Settings is app-level, so leaving the page does not unmount it: close it
+    // here too. Not on the #/settings → home redirect that just opened it.
+    const from = lastPathname.current;
+    lastPathname.current = location.pathname;
+    if (from !== location.pathname && !from.startsWith('/settings')) closeSettings();
   }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard reach for the phone drawer: opening it moves focus inside, and
@@ -135,7 +145,9 @@ export function AppShell() {
         <BetaNotice />
         <HostedBudgetBanner />
         <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
-          <ErrorBoundary>
+          {/* Keyed per page: leaving a page unmounts it (and its overlays) at
+              once, and a crashed page does not stay crashed after navigating. */}
+          <ErrorBoundary key={pageKey(location.pathname)}>
             <Suspense fallback={<FullPageLoader />}>
               <Outlet />
             </Suspense>

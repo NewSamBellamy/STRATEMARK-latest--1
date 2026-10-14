@@ -178,17 +178,21 @@ async function resolveHeadshot(f: typeof fetch, personName: string, companyName:
 
 /** Shared hook: resolve the verified headshot for a person at a company. */
 function useWikiHeadshot(name: string, companyName: string): Headshot | null {
-  const [shot, setShot] = useState<Headshot | null>(null);
+  const key = `${name}::${companyName}`;
+  // The face is remembered WITH whose face it is: an avatar reused for another
+  // person (a list re-filtered, re-sorted or re-keyed) must never keep showing
+  // the previous person's photo while the new lookup runs.
+  const [shot, setShot] = useState<{ key: string; shot: Headshot | null } | null>(null);
   useEffect(() => {
     let live = true;
     void fetchWikiHeadshot(name, companyName).then((s) => {
-      if (live) setShot(s);
+      if (live) setShot({ key: `${name}::${companyName}`, shot: s });
     });
     return () => {
       live = false;
     };
   }, [name, companyName]);
-  return shot;
+  return shot?.key === key ? shot.shot : null;
 }
 
 const GROUP_RING: Record<OrgNode['group'], string> = {

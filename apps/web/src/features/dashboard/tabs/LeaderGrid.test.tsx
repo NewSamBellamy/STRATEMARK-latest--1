@@ -77,4 +77,29 @@ describe('WikiAvatar headshot lookups', () => {
     render(<WikiAvatar name="Sasha Ono" companyName="Acme" />);
     await waitFor(() => expect(summaryCalls(fetchMock, 'Sasha Ono')).toBe(2));
   });
+
+  it("never shows the previous person's photo when an avatar is reused for someone else", async () => {
+    const summary = (title: string) => json({
+      title, extract: `${title} is the chief executive of Acme.`,
+      thumbnail: { source: `https://img.example/${encodeURIComponent(title)}.jpg` },
+      content_urls: { desktop: { page: `https://en.wikipedia.org/wiki/${encodeURIComponent(title)}` } },
+    });
+    let releaseSecond: () => void = () => {};
+    const secondGate = new Promise<void>((r) => { releaseSecond = r; });
+    const fetchMock = vi.fn(async (url: RequestInfo | URL) => {
+      const u = String(url);
+      if (u.includes('/page/summary/Kit%20Marlow')) return summary('Kit Marlow');
+      if (u.includes('/page/summary/')) { await secondGate; return json({}, 404); }
+      return json({});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const view = render(<WikiAvatar name="Kit Marlow" companyName="Acme" />);
+    await waitFor(() => expect(view.getByRole('img')).toHaveAttribute('alt', 'Kit Marlow'));
+    view.rerender(<WikiAvatar name="Lee Ashford" companyName="Acme" />);
+    // Lee's lookup is still running: initials, not Kit's face under Lee's name.
+    expect(view.queryByRole('img')).not.toBeInTheDocument();
+    expect(view.getByText('LA')).toBeInTheDocument();
+    releaseSecond();
+  });
 });

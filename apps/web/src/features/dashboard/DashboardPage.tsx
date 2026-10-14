@@ -1,6 +1,6 @@
 import { useFocusCompany } from '@/lib/living/researchFocus';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { lookupFoundedYear } from '@/lib/media/wikidataFounded';
 import { ArrowLeft, CalendarDays, ChevronDown, FileText, Globe, MapPin, Search } from 'lucide-react';
@@ -361,7 +361,13 @@ export default function DashboardPage() {
     return () => setChatContext(null);
   }, [companyId, companyName, setChatContext]);
 
-  if (!companyId || !DASHBOARD_TABS.includes(activeTab)) return <NotFoundPage />;
+  if (!companyId) return <NotFoundPage />;
+  // An unknown tab slug (old link, typo) lands on this company's overview,
+  // keeping the deck context, instead of a full-page 404.
+  if (!DASHBOARD_TABS.includes(activeTab)) {
+    const qs = params.toString();
+    return <Navigate to={`/company/${companyId}/dashboard/overview${qs ? `?${qs}` : ''}`} replace />;
+  }
 
   return (
     <div className="mx-auto max-w-6xl">
