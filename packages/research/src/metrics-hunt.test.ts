@@ -116,8 +116,9 @@ it('keeps annual filing routing for missing workforce even when revenue is alrea
   expect(result.filledTypes).toEqual(['employees']);
   expect(read.mock.calls.map(([url]) => url)).toContain(index);
   // +1: the structured-first quote lane probes the SEC ticker map once for the
-  // missing market_cap before the provider hunt runs.
-  expect(read).toHaveBeenCalledTimes(5);
+  // missing market_cap before the provider hunt runs; +1: the own-site reach lane
+  // reads the company homepage for the open Users / Distribution slot.
+  expect(read).toHaveBeenCalledTimes(6);
   expect((await repo.getCompanyFacts('cmp_1')).find(m => m.metricType === 'employees'))
     .toMatchObject({ value: 223000, confidence: 'verified' });
 });
@@ -148,7 +149,8 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
     const repo = new GeminiRepository({ apiKey: 'k', store, client: { ground, structure }, originalSourceReader: reader });
     expect((await repo.huntCompanyMetrics('cmp_1')).filledTypes).toEqual(['arr']);
     expect(reader.mock.calls.map(call => call[0])).toContain(conceptUrl);
-    expect(reader.mock.calls.length).toBeLessThanOrEqual(4);
+    // 4 reads + the own-site reach lane's homepage read (unavailable here, nothing retained).
+    expect(reader.mock.calls.length).toBeLessThanOrEqual(5);
     const reopened = new GeminiRepository({ apiKey: 'k', store, client: { ground, structure }, originalSourceReader: reader });
     expect((await reopened.getCompanyFacts('cmp_1')).find(row => row.metricType === 'arr')).toMatchObject({
       value: 331839000000, confidence: 'verified', passageSupport: { definition: 'annual_revenue' },
@@ -244,8 +246,9 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
     expect(result.filledTypes).toEqual([]);
     expect(structure).not.toHaveBeenCalled();
     // +1: the structured-first quote lane's ticker-map probe, unavailable here
-    // (a missing page is not retried; only a throttled one is).
-    expect(read).toHaveBeenCalledTimes(2);
+    // (a missing page is not retried; only a throttled one is); +1: the own-site
+    // reach lane's homepage read for the open Users / Distribution slot.
+    expect(read).toHaveBeenCalledTimes(3);
     expect(result.metrics.find(m => m.metricType === 'employees')?.value).toBeNull();
     const reopened = new GeminiRepository({ apiKey: 'k', store, client: { ground, structure } as unknown as LlmClient });
     expect((await reopened.getOriginalSourceEvidence({ companyId: 'cmp_1' }))[0]?.receipts[0]?.reason)
@@ -258,7 +261,8 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
     const ground = vi.fn().mockResolvedValue({ text: 'Provider notes contain multiple proposed metrics.',
       citations: [{ title: 'Reuters', url }], queries: [] });
     const structure = vi.fn(async (_prompt, schema) => {
-      expect((store.read() as RepoSnapshot).originalSourceAttempts).toHaveLength(1);
+      // The hunt's own original read, plus the own-site reach lane's homepage read.
+      expect((store.read() as RepoSnapshot).originalSourceAttempts).toHaveLength(2);
       return schema.parse({ figures: [
         { metricType: 'employees', value: 3500, passageSupport: { sourceUrl: url, quote,
           asOf: '2026-10-01', basis: 'employees', unit: 'count' } },
@@ -277,8 +281,9 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
     expect(ground).toHaveBeenCalledTimes(1);
     expect(structure).toHaveBeenCalledTimes(1);
     // +1: the structured-first quote lane's ticker-map probe for the missing
-    // market_cap — it must not change which passages figures come from.
-    expect(reader).toHaveBeenCalledTimes(2);
+    // market_cap and +1 for the own-site reach lane's homepage read — neither may
+    // change which passages figures come from.
+    expect(reader).toHaveBeenCalledTimes(3);
     const reopened = new GeminiRepository({ apiKey: 'k', store, client });
     const metrics = await reopened.getCompanyMetrics('cmp_1');
     expect(metrics.find(m => m.metricType === 'employees')).toMatchObject({ value: 3500,

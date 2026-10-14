@@ -262,7 +262,7 @@ const QUERY_FAMILIES: ReadonlyArray<{ types: readonly string[]; terms: string; n
   { types: ['valuation', 'funding_total', 'last_round', 'market_cap'], terms: 'raises funding round valuation', news: true },
   { types: ['arr', 'revenue'], terms: 'revenue ARR million announced', news: true },
   { types: ['aum'], terms: 'assets under management billion', news: false },
-  { types: ['employees', 'users', 'distribution', 'market_share'], terms: 'employees customers company says', news: true },
+  { types: ['employees', 'users', 'distribution', 'market_share'], terms: 'employees customers stores countries company says', news: true },
 ];
 
 /** The passage gate's notion of "current": older reporting can't be accepted anyway. */
