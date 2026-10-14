@@ -20,6 +20,7 @@ import type {
   missionGovernanceContentSchema,
   orgNodeSchema,
   overviewContentSchema,
+  ownershipSchema,
   productSchema,
   productsRoadmapContentSchema,
   quoteSchema,
@@ -42,6 +43,8 @@ export type Market = z.infer<typeof marketSchema>;
 export type Deck = z.infer<typeof deckSchema>;
 export type BrandTheme = z.infer<typeof brandThemeSchema>;
 export type Company = z.infer<typeof companySchema>;
+export type Ownership = z.infer<typeof ownershipSchema>;
+export type OwnershipStatus = Ownership['status'];
 export type CompanyMetric = z.infer<typeof companyMetricSchema>;
 export type ReportedMetricSupport = z.infer<typeof reportedMetricSupportSchema>;
 export type Card = z.infer<typeof cardSchema>;
