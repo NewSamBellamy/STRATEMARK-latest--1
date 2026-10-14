@@ -139,8 +139,10 @@ export function foundedFromHistory(
 
 const MONTH = '(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)';
 /** "Founded in 2015", "founded in March 2015", "Founded: 2015", "established on June 3, 2015", "est. 2015". */
+// "Incorporated" counts only as a verb ("incorporated in 1985", "Incorporated:
+// 1985"): bare, it is a legal name ("© ABM Industries Incorporated 2026").
 const WEBSITE_FOUNDING = new RegExp(
-  `\\b(?:(?:co-?)?founded|established|incorporated)\\b(?:\\s+(?:in|on))?\\s*:?\\s*(?:${MONTH}\\.?\\s+(?:\\d{1,2}(?:st|nd|rd|th)?,?\\s+)?)?((?:1[6-9]|20)\\d{2})\\b|\\best\\.\\s*((?:1[6-9]|20)\\d{2})\\b`, 'gi');
+  `\\b(?:(?:(?:co-?)?founded|established)\\b(?:\\s+(?:in|on))?|incorporated(?:\\s+(?:in|on)\\b|\\s*:))\\s*:?\\s*(?:${MONTH}\\.?\\s+(?:\\d{1,2}(?:st|nd|rd|th)?,?\\s+)?)?((?:1[6-9]|20)\\d{2})\\b|\\best\\.\\s*((?:1[6-9]|20)\\d{2})\\b`, 'gi');
 /** Weaker: only a phrase about the company itself, never a product ("available since", "launched"). */
 const WEBSITE_SINCE = /\b(?:in business|serving [a-z ,]{3,40}|proudly serving[a-z ,]{0,40}|operating|family[- ]owned(?: and operated)?)\s+since\s+((?:1[6-9]|20)\d{2})\b/gi;
 
@@ -152,7 +154,13 @@ function pageText(html: string): string {
     .replace(/\s+/g, ' ').trim();
 }
 
-const plausible = (year: number, capturedAt: string): boolean => year >= MIN_YEAR && year <= new Date(capturedAt).getUTCFullYear();
+/**
+ * A company's own page never founds it in the year the page is read: that
+ * year is a copyright footer or a template's default `foundingDate`.
+ */
+const plausibleOnPage = (year: number, capturedAt: string): boolean => year >= MIN_YEAR && year < new Date(capturedAt).getUTCFullYear();
+/** A footer just before the year: "© 2026", "Copyright Acme Inc. 2026", "All rights reserved". */
+const COPYRIGHT_BEFORE = /(?:©|\bcopyright\b|all rights reserved)[^.]{0,60}$/i;
 
 /**
  * The founding year the company's OWN page states: schema.org Organization
@@ -170,18 +178,36 @@ export function foundedFromWebsite(html: string | null | undefined, pageUrl: str
 
   const declared = extractOrganizationJsonLd(html)?.foundingDate;
   const declaredYear = declared ? /^\s*((?:1[6-9]|20)\d{2})(?:\b|-)/.exec(declared)?.[1] : undefined;
-  if (declaredYear && plausible(Number(declaredYear), capturedAt)) return stamp(Number(declaredYear), `foundingDate: ${declared}`);
+  if (declaredYear && plausibleOnPage(Number(declaredYear), capturedAt)) return stamp(Number(declaredYear), `foundingDate: ${declared}`);
 
   const text = pageText(html);
   const around = (index: number, length: number) => text.slice(Math.max(0, index - 80), index + length + 80).trim();
+  const footer = (index: number) => COPYRIGHT_BEFORE.test(text.slice(Math.max(0, index - 60), index));
   const strong = [...text.matchAll(WEBSITE_FOUNDING)]
+    .filter((m) => !footer(m.index ?? 0))
     .map((m) => ({ year: Number(m[1] ?? m[2]), evidence: around(m.index ?? 0, m[0].length) }))
-    .filter((hit) => plausible(hit.year, capturedAt));
+    .filter((hit) => plausibleOnPage(hit.year, capturedAt));
   const years = new Set(strong.map((hit) => hit.year));
   if (years.size === 1) return stamp(strong[0]!.year, strong[0]!.evidence);
   if (years.size > 1) return null;
   const weak = [...text.matchAll(WEBSITE_SINCE)]
+    .filter((m) => !footer(m.index ?? 0))
     .map((m) => ({ year: Number(m[1]), evidence: around(m.index ?? 0, m[0].length) }))
-    .filter((hit) => plausible(hit.year, capturedAt));
+    .filter((hit) => plausibleOnPage(hit.year, capturedAt));
   return new Set(weak.map((hit) => hit.year)).size === 1 ? stamp(weak[0]!.year, weak[0]!.evidence) : null;
+}
+
+/**
+ * A stored website founding year the current rules would not read again: the
+ * year the page was read (a footer or template default), or one whose
+ * evidence carries no founding statement outside a copyright line ("© ABM
+ * Industries Incorporated 2026"). Wikidata and History years are not judged.
+ */
+export function storedWebsiteFoundedFails(founded: CompanyFounded | null | undefined): boolean {
+  if (!founded || founded.source !== 'website') return false;
+  if (!plausibleOnPage(founded.year, founded.capturedAt)) return true;
+  const evidence = founded.evidence ?? '';
+  if (/^foundingDate:/.test(evidence)) return false;
+  const statement = new RegExp(WEBSITE_FOUNDING.source, 'i').exec(evidence) ?? new RegExp(WEBSITE_SINCE.source, 'i').exec(evidence);
+  return !statement || COPYRIGHT_BEFORE.test(evidence.slice(Math.max(0, statement.index - 60), statement.index));
 }

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { foundedFromWebsite, wikidataFoundedYear, type JsonFetcher } from './founded-year';
+import { foundedFromWebsite, storedWebsiteFoundedFails, wikidataFoundedYear, type JsonFetcher } from './founded-year';
+import type { Company } from '@mi/contracts';
+import { METRIC_GATE_VERSION, revalidateStoredMetrics } from './revalidate-stored';
 
 const time = (year: number, precision = 9) => ({ time: `+${year}-01-01T00:00:00Z`, precision });
 const claim = (value: unknown, rank = 'normal') => ({ rank, mainsnak: { datavalue: { value } } });
@@ -102,5 +104,55 @@ describe('foundedFromWebsite', () => {
 
   it('ignores years inside scripts and styles', () => {
     expect(foundedFromWebsite(page('<script>var x = "founded in 2015";</script><p>Welcome</p>'), 'https://acme.com', NOW)).toBeNull();
+  });
+});
+
+describe('a copyright footer or the current year is never a founding', () => {
+  const at = '2026-10-14T16:27:23.773Z';
+  it('reads no founding from "© ABM Industries Incorporated 2026"', () => {
+    const html = page('<footer>Contact Us Find a Location Join Our Team All rights reserved. © ABM Industries Incorporated 2026 Close</footer>');
+    expect(foundedFromWebsite(html, 'https://www.abm.com/', at)).toBeNull();
+  });
+
+  it('ignores a foundingDate equal to the year the page is read (template default)', () => {
+    const ld = '<script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Imperial","foundingDate":"2026"}</script>';
+    expect(foundedFromWebsite(page('<p>Hello</p>', ld), 'https://www.imperialdade.com/', at)).toBeNull();
+  });
+
+  it('still reads a real founding beside a footer, and "incorporated in"', () => {
+    expect(foundedFromWebsite(page('<p>ABM was founded in 1909 in San Francisco.</p><footer>© ABM Industries Incorporated 2026</footer>'), 'https://www.abm.com/', at)?.year).toBe(1909);
+    expect(foundedFromWebsite(page('<p>The company was incorporated in 1985.</p>'), 'https://acme.com/', at)?.year).toBe(1985);
+  });
+
+  it('clears stored website years that fail, and leaves good or other-source years', () => {
+    const cite = [{ title: 'abm.com (company website)', url: 'https://www.abm.com/', credibility: 'primary' as const }];
+    const abm = { year: 2026, source: 'website' as const, citations: cite, capturedAt: at,
+      evidence: 'Join Our Team All rights reserved. © ABM Industries Incorporated 2026 Close Request Information' };
+    const dade = { year: 2026, source: 'website' as const, citations: cite, capturedAt: at, evidence: 'foundingDate: 2026' };
+    const footerOld = { ...abm, year: 2019, evidence: '© Acme Incorporated 2019. All rights reserved.' };
+    const good = { year: 1909, source: 'website' as const, citations: cite, capturedAt: at, evidence: 'ABM was founded in 1909 in San Francisco.' };
+    const ld = { ...dade, year: 2013, evidence: 'foundingDate: 2013-05-01' };
+    const wiki = { ...abm, source: 'wikidata' as const, year: 1909 };
+    expect([abm, dade, footerOld].map(storedWebsiteFoundedFails)).toEqual([true, true, true]);
+    expect([good, ld, wiki, null].map(storedWebsiteFoundedFails)).toEqual([false, false, false, false]);
+  });
+});
+
+describe('revalidateStoredMetrics — v10 website founding years', () => {
+  it('clears a stored copyright-footer year and keeps a real one', () => {
+    const cite = [{ title: 'abm.com (company website)', url: 'https://www.abm.com/', credibility: 'primary' as const }];
+    const at = '2026-10-14T16:27:23.773Z';
+    const co = (id: string, founded: unknown) =>
+      ({ id, name: id, oneLiner: '', logoUrl: null, hqLocation: null, websiteUrl: null, brandTheme: null, founded }) as Company;
+    const snap = {
+      metricGateVersion: METRIC_GATE_VERSION - 1, metrics: [], dashboards: {}, cards: [],
+      companies: [
+        co('abm', { year: 2026, source: 'website', citations: cite, capturedAt: at, evidence: 'All rights reserved. © ABM Industries Incorporated 2026 Close' }),
+        co('ok', { year: 1909, source: 'website', citations: cite, capturedAt: at, evidence: 'ABM was founded in 1909 in San Francisco.' }),
+      ],
+    };
+    const out = revalidateStoredMetrics(snap);
+    expect(out.clearedFounded).toEqual([{ companyId: 'abm', year: 2026 }]);
+    expect(snap.companies.map((c) => c.founded?.year ?? null)).toEqual([null, 1909]);
   });
 });
