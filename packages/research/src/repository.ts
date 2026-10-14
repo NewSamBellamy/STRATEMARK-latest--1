@@ -4193,10 +4193,12 @@ export class GeminiRepository implements MarketIntelRepository {
     const hq = this.sourcedHeadquarters.get(company.id);
     if (hq && !company.hqLocation?.trim()) company.hqLocation = hq.location;
     const found = this.homepageSummaries.get(company.id);
-    if (!found || !isPendingCompanySummary(company.oneLiner)) return;
+    // A literal homepage sentence beats the model's line: replace the
+    // placeholder, and any description no source backs (no entity card cites it).
+    if (!found || !this.lacksSourcedSummary(company)) return;
     company.oneLiner = found.summary;
     for (const card of this.snap.cards) {
-      if (card.companyId === company.id && isEntityCardType(card.cardType) && isPendingCompanySummary(card.summary)) {
+      if (card.companyId === company.id && isEntityCardType(card.cardType) && (isPendingCompanySummary(card.summary) || !card.citations?.length)) {
         card.summary = found.summary;
         card.citations = found.citations;
       }
@@ -4297,7 +4299,7 @@ export class GeminiRepository implements MarketIntelRepository {
         }
       } catch { /* the card keeps its honest placeholder */ }
       this.homepageSummaries.set(company.id, found);
-      if (found && isPendingCompanySummary(company.oneLiner)) {
+      if (found && this.lacksSourcedSummary(company)) {
         this.applySourcedProfile(company);
         await this.persist();
       }

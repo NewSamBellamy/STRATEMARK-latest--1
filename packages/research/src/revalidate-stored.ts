@@ -19,6 +19,7 @@ import { classifyMarketProfile, isEntityCardType, ownershipWithholdsValuation, t
   type MetricType, type Ownership } from '@mi/contracts';
 import { hasPlaceholderName } from './placeholder-names';
 import { canonicalHqLocation, hqGroundedInEvidence } from './brand/hq-format';
+import { scrubOneLiner } from './oneliner-scrub';
 import { isPendingCompanySummary, summaryIsUnfit, UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
 import type { OriginalSourceAttempt, OriginalSourceReceipt } from './original-source';
 import type { ResearchEvidence } from './research-evidence';
@@ -56,8 +57,14 @@ import { storedSecRevenueIsSubLine } from './sec-revenue';
  * v6: stored companies whose name is a template row ("Company Two", "Example
  *     Corp", "Competitor A") are dropped with their cards, figures and claims.
  *     All v1-v5 checks still run.
+ * v7: a stored company description that no source backs (no entity card cites
+ *     it) is a model's own line: unverifiable wording ("pioneering", "global
+ *     category leader") is scrubbed out, and one that boasts beyond repair or
+ *     only says where the company is goes back to the pending placeholder.
+ *     Cited (source-sentence) descriptions are never rewritten. Idempotent;
+ *     runs alongside every v1-v6 check.
  */
-export const METRIC_GATE_VERSION = 6;
+export const METRIC_GATE_VERSION = 7;
 
 export type RevalidationGate = 'parent_or_acquisition' | 'stale_share_count' | 'sec_revenue_sub_line'
   | 'acquired_deal_valuation' | 'non_subscription_arr';
@@ -94,6 +101,9 @@ export interface RevalidationOutcome {
   relabelled: RelabelledMetric[];
   /** Companies whose stored summary was reset to the pending placeholder. */
   resetSummaries: Array<{ companyId: string; previous: string }>;
+  /** Uncited model-written descriptions scrubbed of unverifiable wording
+   * (`next` null: nothing descriptive was left, so the placeholder was restored). */
+  scrubbedSummaries: Array<{ companyId: string; previous: string; next: string | null }>;
   /** Companies whose stored headquarters was rewritten to the canonical form. */
   normalizedHq: Array<{ companyId: string; previous: string; hqLocation: string }>;
   /** SEC revenue rows whose retained evidence could not decide the sub-line question. */
@@ -186,7 +196,7 @@ function failedGate(metric: CompanyMetric, companyName: string | undefined,
  */
 export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): RevalidationOutcome {
   const fromVersion = typeof snapshot.metricGateVersion === 'number' ? snapshot.metricGateVersion : 0;
-  if (fromVersion >= METRIC_GATE_VERSION) return { fromVersion, ran: false, reset: [], relabelled: [], resetSummaries: [], normalizedHq: [], undecided: [] };
+  if (fromVersion >= METRIC_GATE_VERSION) return { fromVersion, ran: false, reset: [], relabelled: [], resetSummaries: [], scrubbedSummaries: [], normalizedHq: [], undecided: [] };
 
   // Template rows were never businesses: drop them, and everything keyed to
   // them, before any figure gate looks at their evidence.
@@ -249,6 +259,10 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
   // lanes refill. The entity cards mirror it (with its citation).
   const resetSummaries: RevalidationOutcome['resetSummaries'] = [];
   const summaries = new Map<string, string>();
+  const scrubbedSummaries: RevalidationOutcome['scrubbedSummaries'] = [];
+  const scrubbed = new Map<string, { previous: string; next: string }>();
+  const citedCompanies = new Set((snapshot.cards ?? []).filter((card) => card.companyId && isEntityCardType(card.cardType) &&
+    card.citations?.length).map((card) => card.companyId!));
   // Headquarters: same place, one display form ("City, Full State" in the US,
   // "City, Country" elsewhere). Input it cannot read is left as it is.
   const normalizedHq: RevalidationOutcome['normalizedHq'] = [];
@@ -264,6 +278,15 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
       next = { ...next, hqLocation: hq };
     }
     const previous = company.oneLiner;
+    if (previous && !isPendingCompanySummary(previous) && !summaryIsUnfit(previous) && !citedCompanies.has(company.id)) {
+      const cleaned = scrubOneLiner(previous);
+      if (cleaned !== previous) {
+        const replacement = cleaned ?? UNSUPPORTED_COMPANY_SUMMARY;
+        scrubbedSummaries.push({ companyId: company.id, previous, next: cleaned });
+        scrubbed.set(company.id, { previous, next: replacement });
+        return { ...next, oneLiner: replacement };
+      }
+    }
     if (!previous || isPendingCompanySummary(previous) || !summaryIsUnfit(previous)) return next;
     resetSummaries.push({ companyId: company.id, previous });
     summaries.set(company.id, previous);
@@ -277,6 +300,14 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
       return { ...card, summary: UNSUPPORTED_COMPANY_SUMMARY, citations: [] };
     });
   }
+  if (snapshot.cards && scrubbed.size) {
+    snapshot.cards = snapshot.cards.map((card) => {
+      const change = card.companyId ? scrubbed.get(card.companyId) : undefined;
+      if (!change || !isEntityCardType(card.cardType) || card.citations?.length) return card;
+      const cleaned = card.summary === change.previous ? change.next : card.summary ? scrubOneLiner(card.summary) ?? UNSUPPORTED_COMPANY_SUMMARY : card.summary;
+      return cleaned === card.summary ? card : { ...card, summary: cleaned };
+    });
+  }
   // A cached dashboard may restate a withdrawn figure, or a revenue figure as
   // "ARR". Dashboards are model-written tabs that do not mirror the summary or
   // HQ fields, and regenerating one is a paid call: a date, summary or HQ
@@ -284,5 +315,5 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
   const touched = new Set([...reset, ...relabelled.filter((r) => r.change === 'annual_revenue')].map((r) => r.companyId));
   if (touched.size) snapshot.dashboards = { ...snapshot.dashboards, ...Object.fromEntries([...touched].map((id) => [id, {}])) };
   snapshot.metricGateVersion = METRIC_GATE_VERSION;
-  return { fromVersion, ran: true, droppedPlaceholders, reset, relabelled, resetSummaries, normalizedHq, undecided };
+  return { fromVersion, ran: true, droppedPlaceholders, reset, relabelled, resetSummaries, scrubbedSummaries, normalizedHq, undecided };
 }

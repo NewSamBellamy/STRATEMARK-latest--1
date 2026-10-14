@@ -10,6 +10,7 @@
  * search. Nothing factual comes from training data — only from grounded results,
  * and every figure is tagged verified / estimated / unknown with a citation.
  */
+import { scrubOneLiner } from './oneliner-scrub';
 import type { infer as ZodInfer } from 'zod';
 import {
   buildCmsInput,
@@ -867,7 +868,7 @@ function buildStubCard(candidate: CompanyCandidate, deck: Deck): CardWithCompany
   const company: Company = {
     id: companyId,
     name: candidate.name,
-    oneLiner: candidate.descriptor || '',
+    oneLiner: scrubOneLiner(candidate.descriptor) ?? '',
     logoUrl,
     hqLocation: null,
     websiteUrl: website,
@@ -935,7 +936,7 @@ function buildStubCard(candidate: CompanyCandidate, deck: Deck): CardWithCompany
     companyId: company.id,
     cardType: primaryRole,
     title: null,
-    summary: candidate.descriptor || null,
+    summary: scrubOneLiner(candidate.descriptor),
     tier: null,
     tierReason: null,
     citations: [],
