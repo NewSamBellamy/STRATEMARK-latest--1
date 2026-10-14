@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from 'react';
-import type { CardWithCompany } from '@mi/contracts';
+import { ownershipLabel, type CardWithCompany } from '@mi/contracts';
 import { deriveTriad } from '@/lib/brand';
 import { buildCardView, type CardView } from './card-view';
 import { Logo } from './Logo';
@@ -88,6 +88,7 @@ export function CollectibleCard({
         <div className="collectible__identity">
           <span className="collectible__eyebrow">
             {view.signal ? view.type : data.company?.hqLocation?.trim() || 'Location unknown'}
+            {!view.signal && ownershipLabel(data.company?.ownership) && <> · {ownershipLabel(data.company?.ownership)}</>}
           </span>
           <span className="collectible__name">{view.frontTitle}</span>
           {view.frontDescription && <p className="collectible__description">{view.frontDescription}</p>}

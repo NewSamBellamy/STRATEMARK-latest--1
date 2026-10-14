@@ -13,6 +13,8 @@ export * from './sec-adv';
 export * from './market-quote';
 export * from './sec-ownership';
 export * from './sec-filings';
+export * from './sec-form-d';
+export * from './ownership';
 export * from './searxng';
 export * from './web-search';
 export { originalSupportReferences, selectOriginalSourceAttempts, validatedOriginalSupport, normalizeSourceText } from './original-source';

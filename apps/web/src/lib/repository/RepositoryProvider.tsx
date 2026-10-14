@@ -76,6 +76,8 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       // the user's own search key when connected.
       newsSearch: currentNewsSearch,
       webSearch: currentWebSearch,
+      // Ownership registries (Wikidata, GLEIF) are CORS-open JSON APIs.
+      ownershipFetch: globalThis.fetch.bind(globalThis),
       targetCompanies,
       concurrency: 3,
       // Count every request locally so the user can see their free-tier headroom.
