@@ -105,7 +105,15 @@ export function canonicalHqLocation(raw: string | null | undefined, options: HqF
   if (raw == null) return null;
   // "Miami, FL / Dallas, Texas": two places in one string. Only the first is
   // the headquarters; joining its city to the last region invents a place.
-  const first = raw.split(/\s*[;|/]\s*|\s+(?:and|&|with|plus)\s+|\s*\(/i)[0] ?? raw;
+  let first = raw.split(/\s*[;|/]\s*|\s+(?:and|&|with|plus)\s+|\s*\(/i)[0] ?? raw;
+  // "San Ratael / San Francisco, California, United States": a slash or pipe
+  // offers alternatives, and the region and country written after the last
+  // one belong to it. A bare first alternative is the place the text did not
+  // state in full, so the first qualified alternative is kept instead.
+  if (!first.includes(',')) {
+    const alternatives = (raw.split(/\s*[;(]|\s+(?:and|&|with|plus)\s+/i)[0] ?? raw).split(/\s*[|/]\s*/);
+    first = alternatives.find((alt) => alt.includes(',')) ?? first;
+  }
   const parts = first.split(',')
     // A street line ("100 Main St") is never the place; a ZIP or postal code
     // beside a state ("CA 94105") is dropped from it.
