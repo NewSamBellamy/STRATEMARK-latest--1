@@ -82,7 +82,8 @@ describe('buildCompletenessReport', () => {
     expect(deck.totals).toEqual({ slots: 36, filled: 16, unknownAttempted: 7, unknownNeverAttempted: 13, fillPct: 44.4 });
     expect(report.totals).toEqual(deck.totals);
     const employees = report.bySlot.find((row) => row.key === 'metric.employees')!;
-    expect(employees).toMatchObject({ applicable: 3, filled: 2, unknownAttempted: 1, unknownNeverAttempted: 0, fillPct: 66.7 });
+    // Gamma's ledger row is Unknown (with a stray value): tried, but not a withheld finding.
+    expect(employees).toMatchObject({ applicable: 3, filled: 2, unknownAttempted: 1, unknownNeverAttempted: 0, withheld: 0, fillPct: 66.7 });
     expect(report.topGaps[0]).toMatchObject({ key: 'products', companiesAffected: 3, unknownNeverAttempted: 3, neverTargeted: 3 });
     const revenue = report.topGaps.find((gap) => gap.key === 'metric.arr|revenue|funding_total')!;
     expect(revenue).toMatchObject({ companiesAffected: 2, unknownAttempted: 2, withheld: 1, neverTargeted: 1 });

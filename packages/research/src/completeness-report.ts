@@ -396,7 +396,7 @@ function scoreCompany(company: Company, cardTypes: CardType[], snap: Required<Pi
           // A stored figure that the read path withholds is the most actionable gap:
           // research FOUND something, the gate refused it.
           const withheld = types.map((type) => currentMetricRevision(ctx.rows, company.id, type)?.metric)
-            .find((m) => m != null && m.value != null);
+            .find((m) => m != null && m.value != null && m.confidence !== 'unknown');
           const shownRow = withheld && facts.find((m) => m.metricType === withheld.metricType && m.methodNote);
           withheldValue = withheld != null;
           note = withheld ? `Stored ${formatFigure(withheld)} withheld: ${shownRow?.methodNote ?? 'not accepted by the facts projection.'}`
