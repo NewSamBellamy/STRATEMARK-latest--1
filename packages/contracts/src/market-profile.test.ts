@@ -11,6 +11,24 @@ describe('market profile classification', () => {
     expect(classifyMarketProfile({ name: 'Goldman Sachs', oneLiner: 'Investment banking and financial services.' })).toBe('financial_firm');
   });
 
+  it('classifies credit managers that call themselves lenders or credit investors', () => {
+    // Descriptor shapes from a live "US private credit asset managers" deck,
+    // where most managers fell to the operating-company card (no AUM slot).
+    expect(classifyMarketProfile({ name: 'Golub Capital', oneLiner: 'Direct lender providing financing for private equity-backed middle-market companies.' })).toBe('financial_firm');
+    expect(classifyMarketProfile({ name: 'Ares Management', oneLiner: 'Global alternative investment manager with a leading direct lending platform.' })).toBe('financial_firm');
+    expect(classifyMarketProfile({ name: 'HPS Investment Partners', oneLiner: 'Global credit investment firm.' })).toBe('financial_firm');
+    expect(classifyMarketProfile({ name: 'Audax Private Debt', oneLiner: 'Senior secured loans to middle-market companies.' })).toBe('financial_firm');
+    expect(classifyMarketProfile({ name: 'Blue Owl Capital', oneLiner: 'Alternative asset manager focused on direct lending and GP stakes.' })).toBe('financial_firm');
+    expect(classifyMarketProfile({ name: 'Antares Capital', oneLiner: 'Middle-market lender serving private equity sponsors.' })).toBe('financial_firm');
+    expect(classifyMarketProfile({ name: 'Owl Rock', oneLiner: 'A business development company focused on direct lending.' })).toBe('financial_firm');
+  });
+
+  it('keeps lending software and consumer lending marketplaces out of the fund profile', () => {
+    expect(classifyMarketProfile({ name: 'Funding Circle', oneLiner: 'Online lending platform for small businesses.' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'LoanPro', oneLiner: 'Loan management software for direct lenders and credit funds.' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'Cardo', oneLiner: 'Private credit data platform for investors.' })).toBe('operating_company');
+  });
+
   it('classifies operating companies as operating companies', () => {
     expect(classifyMarketProfile({ name: 'Tesla', oneLiner: 'Designs and manufactures electric vehicles and energy storage.' })).toBe('operating_company');
     expect(classifyMarketProfile({ name: 'Acme Storage', oneLiner: 'Grid-scale battery storage systems.' })).toBe('operating_company');

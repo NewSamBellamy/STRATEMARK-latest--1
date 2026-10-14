@@ -14,9 +14,12 @@ const MAX_BYTES = 2 * 1024 * 1024;
 // documents get this larger bounded download; retained text stays 4 KB.
 const MAX_SEC_FILING_BYTES = 12 * 1024 * 1024;
 const MAX_TEXT = 4000;
-// The official Form ADV PDF report runs tens of MB (a16z: 27 MB, 636 pages);
-// only the first part is text-extracted, and only a bounded slice is retained.
-const MAX_SEC_ADV_BYTES = 40 * 1024 * 1024;
+// The official Form ADV PDF report runs tens to hundreds of MB (a16z: 27 MB;
+// HPS Investment Partners: 59 MB; Apollo Capital Management: 165 MB, 3,537
+// pages — Schedule D lists every private fund). The largest managers are the
+// ones whose AUM matters most, so the ceiling sits above them; only the first
+// pages are text-extracted, and only a bounded slice is retained.
+const MAX_SEC_ADV_BYTES = 256 * 1024 * 1024;
 let nextSecReadAt = 0;
 const denied = new BlockList();
 for (const [address, prefix] of [
@@ -37,7 +40,7 @@ export interface SourceTransport {
 }
 export type { OriginalSourceReceipt } from './original-source';
 import type { OriginalSourceReceipt, OriginalSourceScope } from './original-source';
-import { secAdvCrd, selectSecAdvRetainedText } from './sec-adv';
+import { isSecAdvSearchUrl, secAdvCrd, selectSecAdvRetainedText, selectSecAdvSearchSlice } from './sec-adv';
 import { selectTickerMapSlice, selectTickerRowsSlice, tickerLookupSymbols } from './market-quote';
 import { isScheduleDocumentUrl, parseScheduleOwnershipXml, secSubmissionsCik, selectScheduleFilingIndex } from './sec-ownership';
 import { getCrawl4aiLane } from './crawl4ai';
@@ -315,8 +318,17 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
         return { ...receipt, status: 'retrieved', text: JSON.stringify(schedule), truncated: false,
           contentHash: createHash('sha256').update(response.body).digest('hex') };
       }
-      // JSON APIs are evidence lanes too (IAPD search, XBRL shares, Yahoo
-      // chart): accepted bounded and parse-validated below, like any page.
+      // IAPD firm search: a large manager's answer (every relying adviser of
+      // the umbrella) runs past the retained bound, so only the deterministic
+      // selection slice is kept, hashed against the whole answer.
+      if (isSecAdvSearchUrl(url.href) && type === 'application/json') {
+        const slice = selectSecAdvSearchSlice(response.body.toString('utf8'), url.href);
+        if (!slice) return { ...receipt, reason: 'IAPD search answer was not parsable within the retained bound' };
+        return { ...receipt, status: 'retrieved', text: slice, truncated: false,
+          contentHash: createHash('sha256').update(response.body).digest('hex') };
+      }
+      // JSON APIs are evidence lanes too (XBRL shares, Yahoo chart): accepted
+      // bounded and parse-validated below, like any page.
       const jsonSource = type === 'application/json';
       const secConceptJson = jsonSource && Boolean(secRevenueCik(url.href));
       if ((!['text/html', 'text/plain'].includes(type) && !jsonSource) ||

@@ -1,0 +1,70 @@
+{
+ "hits": {
+  "total": 5,
+  "hits": [
+   {
+    "_source": {
+     "firm_source_id": "283250",
+     "firm_name": "BLUE OWL SECURITIES",
+     "firm_other_names": [
+      "BLUE OWL SECURITIES",
+      "OWL ROCK SECURITIES",
+      "OWL ROCK CAPITAL SECURITIES LLC",
+      "BLUE OWL SECURITIES LLC"
+     ],
+     "firm_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "293945",
+     "firm_name": "BLUE OWL GPSC ADVISORS LLC",
+     "firm_other_names": [
+      "BLUE OWL GPSC ADVISORS LLC",
+      "NB DYAL ADVISORS LLC",
+      "DYAL CAPITAL",
+      "DYAL ADVISORS LLC"
+     ],
+     "firm_ia_full_sec_number": "801-120706",
+     "firm_ia_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "282575",
+     "firm_name": "BLUE OWL CREDIT ADVISORS LLC",
+     "firm_other_names": [
+      "BLUE OWL CREDIT ADVISORS LLC",
+      "OWL ROCK CAPITAL ADVISORS LLC"
+     ],
+     "firm_ia_full_sec_number": "801-107232",
+     "firm_ia_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "165132",
+     "firm_name": "BLUE OWL REAL ESTATE CAPITAL LLC",
+     "firm_other_names": [
+      "BLUE OWL REAL ESTATE CAPITAL LLC",
+      "OAK STREET REAL ESTATE CAPITAL, LLC"
+     ],
+     "firm_ia_full_sec_number": "801-77141",
+     "firm_ia_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "297506",
+     "firm_name": "BLUE OWL CREDIT PRIVATE FUND ADVISORS LLC",
+     "firm_other_names": [
+      "BLUE OWL CREDIT PRIVATE FUND ADVISORS LLC",
+      "OWL ROCK CAPITAL PRIVATE FUND ADVISORS LLC"
+     ],
+     "firm_ia_full_sec_number": "801-113629",
+     "firm_ia_scope": "ACTIVE"
+    }
+   }
+  ]
+ }
+}

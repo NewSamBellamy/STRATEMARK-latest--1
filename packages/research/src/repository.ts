@@ -116,7 +116,7 @@ import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvi
 import { searchEvidenceCorpus } from './retrieval';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
-import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
+import { secAdvFirmCandidates, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
 import { companyNameKey, marketCapEstimate, secSharesConceptUrl, yahooChartUrl } from './market-quote';
 import { readRegistrantProfile, resolveListedIdentity, type ListedIdentityResult } from './sec-identity';
 import { secHeadquartersPlace } from './sec-profile';
@@ -142,6 +142,8 @@ const JOB_STALL_MS = 8 * 60_000;
 /** The hydration-time logo is a gstatic favicon guess, not company art. The
  * asset lane (and only the asset lane, or the user) replaces it. */
 const SEC_READ_GAP_MS = 150;
+/** Concurrent IAPD (Form ADV) reads across a deck — see advRead. */
+const ADV_READ_SLOTS = 2;
 const GUESSED_LOGO_RE = /^https:\/\/t[0-3]\.gstatic\.com\/faviconV2|^https:\/\/www\.google\.com\/s2\/favicons/;
 /** The generic example.com globe stub logo — a placeholder, never company art. */
 const PLACEHOLDER_LOGO_RE = /[?&]url=https?:\/\/example\.com|[?&]domain=example\.com/;
@@ -2875,14 +2877,26 @@ export class GeminiRepository implements MarketIntelRepository {
     const advTypes = profile === 'financial_firm' ? missing.filter((t) => t === 'aum' || t === 'employees') : [];
     if (advTypes.length > 0) {
       try {
-        const searchReceipt = await sources.retrieve(secAdvSearchUrl(company.name), scope);
-        const match = searchReceipt.status === 'retrieved' && searchReceipt.text ? secAdvFirmMatch(searchReceipt.text, company.name) : null;
-        if (match) {
-          const reportReceipt = await sources.retrieve(secAdvReportUrl(match.crd), { ...scope, metricType: 'sec-adv' });
-          const originals = [searchReceipt, reportReceipt].filter((r) => r.status === 'retrieved' && r.text);
-          await retain('sec-adv', originals);
+        const searchReceipt = await this.advRead(() => sources.retrieve(secAdvSearchUrl(company.name), scope));
+        // Every candidate adviser (≤3: the exact-name filer alone, or alias and
+        // brand-core hits) is read; the filed reports' identity decides, and
+        // a brand-core candidate is only worth reading when the company's own
+        // website can confirm it.
+        const candidates = searchReceipt.status === 'retrieved' && searchReceipt.text
+          ? secAdvFirmCandidates(searchReceipt.text, company.name).filter((c) => c.matchedBy === 'name' || company.websiteUrl)
+          : [];
+        if (candidates.length) {
+          const reports: OriginalSourceReceipt[] = [];
+          for (const candidate of candidates) {
+            const report = await this.advRead(() => sources.retrieve(secAdvReportUrl(candidate.crd), { ...scope, metricType: 'sec-adv' }));
+            if (report.status === 'retrieved' && report.text) reports.push(report);
+          }
+          // Each report is retained beside the search that selected it, so
+          // the facts projection re-derives identity from one ledger row.
+          for (const report of reports) await retain('sec-adv', [searchReceipt, report]);
+          const originals = [searchReceipt, ...reports];
           for (const type of advTypes) {
-            const observed = secAdvObservationFor(type, company.name, originals);
+            const observed = secAdvObservationFor(type, company.name, originals, Date.now(), company.websiteUrl);
             if (!observed) continue;
             const supported = acceptedMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl,
               metricType: type, value: observed.value, support: observed.passageSupport, originals });
@@ -3847,6 +3861,29 @@ export class GeminiRepository implements MarketIntelRepository {
 
   /** Serialises the structured lanes' SEC reads across a deck's companies. */
   private secQueue: Promise<void> = Promise.resolve();
+
+  /** IAPD reads (Form ADV search + PDF reports) across a deck's companies run
+   * at most ADV_READ_SLOTS at a time. The node reader refuses SEC reads queued
+   * more than five seconds deep, so a whole deck of asset managers fired at
+   * once used to lose most of its ADV searches before a request was sent. */
+  private advActive = 0;
+  private readonly advWaiters: Array<() => void> = [];
+  private async advRead(read: () => Promise<OriginalSourceReceipt>): Promise<OriginalSourceReceipt> {
+    while (this.advActive >= ADV_READ_SLOTS) await new Promise<void>((resolve) => this.advWaiters.push(resolve));
+    this.advActive += 1;
+    try {
+      const first = await read();
+      // One polite retry for a throttled or refused read; a missing page stays missing.
+      const transient = [403, 429, 500, 502, 503, 504].includes(first.httpStatus ?? 0) ||
+        /busy|retrieval failed/i.test(first.reason ?? '');
+      if ((first.status === 'retrieved' && first.text) || !transient) return first;
+      await sleep(1500);
+      return await read();
+    } finally {
+      this.advActive -= 1;
+      this.advWaiters.shift()?.();
+    }
+  }
 
   /** Facts the asset lane sourced from the company's own homepage or its
    * Wikidata item, kept so a later hydration that found none of its own never

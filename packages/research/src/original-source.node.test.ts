@@ -19,26 +19,56 @@ function transportFor(
 
 describe('structured-lane reader regressions (live-verified)', () => {
   it('retains JSON API responses as evidence, bounded and parse-validated', async () => {
-    const iapd = 'https://api.adviserinfo.sec.gov/search/firm?query=Andreessen%20Horowitz&hl=1';
-    const json = '{"hits":{"total":1,"hits":[{"_source":{"firm_source_id":"160489","firm_name":"ANDREESSEN HOROWITZ"}}]}}';
-    const ok = await retrieveOriginalSource(iapd, transportFor(() => ({
+    const api = 'https://query1.finance.yahoo.com/v8/finance/chart/AAPL';
+    const json = '{"chart":{"result":[{"meta":{"symbol":"AAPL","regularMarketPrice":227.5}}]}}';
+    const ok = await retrieveOriginalSource(api, transportFor(() => ({
       status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from(json),
     })));
     expect(ok.status).toBe('retrieved');
     expect(ok.text).toBe(json);
 
-    const invalid = await retrieveOriginalSource(iapd, transportFor(() => ({
+    const invalid = await retrieveOriginalSource(api, transportFor(() => ({
       status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from('<html>blocked</html>'),
     })));
     expect(invalid.status).toBe('unavailable');
     expect(invalid.reason).toBe('Source did not return valid JSON');
 
-    const oversized = await retrieveOriginalSource(iapd, transportFor(() => ({
+    const oversized = await retrieveOriginalSource(api, transportFor(() => ({
       status: 200, headers: { 'content-type': 'application/json' },
       body: Buffer.from(`{"x":"${'a'.repeat(33000)}"}`),
     })));
     expect(oversized.status).toBe('unavailable');
     expect(oversized.reason).toBe('JSON source exceeds the retained document limit');
+  });
+
+  it('retains the IAPD firm search as a bounded slice that keeps every firm row', async () => {
+    // Apollo's live answer was 41 KB — past both the 32 KB JSON bound and the
+    // 4 KB retained-attempt bound, so the whole attempt (PDF proof included)
+    // used to be discarded. The slice drops relying-adviser rosters and
+    // unrelated DBAs, never a competing firm.
+    const iapd = 'https://api.adviserinfo.sec.gov/search/firm?query=Apollo%20Global%20Management&hl=1';
+    const relying = Array.from({ length: 400 }, (_, i) => `APOLLO FUND ${i} MANAGEMENT, LLC (RELYING ADVISER)`);
+    const body = JSON.stringify({ hits: { total: 2, hits: [
+      { _source: { firm_source_id: '143161', firm_name: 'APOLLO CAPITAL MANAGEMENT, L.P.', firm_ia_full_sec_number: '801-67592',
+        firm_ia_scope: 'ACTIVE', firm_other_names: [...relying, 'APOLLO CAPITAL MANAGEMENT, L.P.'] } },
+      { _source: { firm_source_id: '151243', firm_name: 'APOLLO GLOBAL REAL ESTATE MANAGEMENT, L.P.', firm_ia_full_sec_number: '801-70669',
+        firm_ia_scope: 'INACTIVE', firm_other_names: ['APOLLO GLOBAL REAL ESTATE MANAGEMENT, L.P.'] } },
+    ] } });
+    expect(body.length).toBeGreaterThan(20_000);
+    const receipt = await retrieveOriginalSource(iapd, transportFor(() => ({
+      status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from(body),
+    })));
+    expect(receipt.status).toBe('retrieved');
+    expect(receipt.text!.length).toBeLessThanOrEqual(4000);
+    expect(receipt.text).toContain('"crd":"143161"');
+    expect(receipt.text).toContain('"crd":"151243"');
+    expect(receipt.text).not.toContain('RELYING');
+    expect(receipt.contentHash).toMatch(/^[a-f0-9]{64}$/);
+
+    const invalid = await retrieveOriginalSource(iapd, transportFor(() => ({
+      status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from('{"error":"blocked"}'),
+    })));
+    expect(invalid.status).not.toBe('retrieved');
   });
 
   it('slices the official ticker map when the lookup parameter is present', async () => {
