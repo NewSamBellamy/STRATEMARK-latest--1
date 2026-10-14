@@ -162,7 +162,7 @@ function entityDesks(cards: CardWithCompany[]): CardWithCompany[] {
 }
 
 function hasCoreGap(card: CardWithCompany): boolean {
-  const metrics = buildMetricViews(card.metrics, card.company?.websiteUrl).map(view => view.metric);
+  const metrics = buildMetricViews(card.metrics, card.company?.websiteUrl, card.company?.ownership).map(view => view.metric);
   // Match the card's four core profile slots; either valuation or market cap
   // satisfies company value. Estimates with a value belong to verification.
   const slots = CORE_PROFILE_SLOTS[classifyMarketProfile(card.company)];

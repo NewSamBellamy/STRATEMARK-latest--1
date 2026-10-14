@@ -47,9 +47,32 @@ export interface MarketProfileInput {
 const FINANCIAL_PRODUCT_PATTERN =
   /\b(?:software|saas|platform|app|application|tools?|api|fintech|data provider|analytics|crm|erp)\b/i;
 
+// A company that SERVES funds sells to managers; it does not manage capital
+// itself, so it has no AUM to hunt. "Fund administration services for
+// alternative asset managers" (Alter Domus) used to read as a fund because the
+// manager words sat in the object of the service phrase. Two reads close that:
+//  - a service ROLE anywhere in the descriptor (fund administrator, custodian,
+//    transfer agent, outsourced provider, data/technology provider, law firm,
+//    auditor) makes the company an operating company;
+//  - the OBJECT of a service phrase ("services for ...", "platform for ...",
+//    "provider to ...", "serving ...", "used by ...") is the customer list:
+//    it is cut away before the fund-manager test, so only the subject decides.
+// A lender "serving private equity sponsors" keeps its subject ("lender") and
+// stays a financial firm; "an alternative investment adviser and asset
+// manager" has no service phrase at all and stays one too.
+const SERVICE_ROLE_PATTERN =
+  /\b(?:fund administrat(?:ion|ors?)|fund services|administrators? (?:to|for)|custodians?|custody (?:bank|services?)|transfer agen(?:ts?|cy)|outsourced|technology providers?|data providers?|law firms?|auditors?|accounting firms?)\b/i;
+
+// The customer clause after a service phrase runs to the end of its sentence
+// (";", a full stop and a space, or the end; the initials in "U.S." do not end it).
+const SERVICE_OBJECT_PATTERN =
+  /\b(?:(?:services?|administration|platforms?|software|technology|solutions?|tools?|data|products?|consulting|outsourcing)\s+(?:for|to)|providers?\s+to|serv(?:es|ing)|used\s+by|trusted\s+by|built\s+for)\b[^;]*?(?=;|(?<!\b[a-z])\.\s|[.…]*\s*$)/gi;
+
 export function classifyMarketProfile(company: MarketProfileInput | null | undefined): MarketProfile {
   const text = `${company?.name ?? ''} ${company?.oneLiner ?? ''}`;
   if (!FINANCIAL_FIRM_PATTERN.test(text)) return 'operating_company';
+  if (SERVICE_ROLE_PATTERN.test(text)) return 'operating_company';
+  if (!FINANCIAL_FIRM_PATTERN.test(text.replace(SERVICE_OBJECT_PATTERN, ' '))) return 'operating_company';
   return SERVES_FINANCIAL_PATTERN.test(text) || FINANCIAL_PRODUCT_PATTERN.test(text.replace(LENDING_FRANCHISE_PATTERN, ' '))
     ? 'operating_company' : 'financial_firm';
 }

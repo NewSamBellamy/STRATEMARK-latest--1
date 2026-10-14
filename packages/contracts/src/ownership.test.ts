@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ACQUISITION_PRICE_NOTE, acquisitionPriceSentence, isAcquisitionPriceValuation, metricEvidenceTexts } from './acquisition-price';
-import { enforceOwnershipProvenance, ownershipLabel } from './ownership';
+import { DEAL_TIME_VALUATION_NOTE, enforceOwnershipProvenance, ownershipLabel, ownershipWithholdsValuation } from './ownership';
 import { enforceMetricProvenance } from './provenance';
 import { companySchema, ownershipSchema } from './schemas';
 import type { CompanyMetric, Ownership } from './types';
@@ -108,5 +108,67 @@ describe('ownership provenance and label', () => {
     const machine = enforceOwnershipProvenance({ ...acquired, confidence: 'user_verified' }, true);
     expect(machine?.confidence).toBe('verified');
     expect(machine?.methodNote).toMatch(/only a person/);
+  });
+});
+
+describe('an acquired company shows no deal-time valuation', () => {
+  // The stored live Poppi row: a provider-reported figure dated the announcement day.
+  const POPPI_REPORTED = 'Poppi was valued at USD 1.95 billion as of March 17, 2025';
+  const reportedRow = (value: number, asOf: string, over: Partial<CompanyMetric> = {}) => valuation({
+    value,
+    reportedSupport: {
+      provider: 'google-search', companyName: 'Poppi', basis: 'valuation', value, unit: 'USD', asOf, definition: 'valuation' as never,
+      support: { supportIndex: 0, text: POPPI_REPORTED, sources: [{ chunkIndex: 0, url: 'https://example.org/poppi', title: 'example.org' }] },
+    } as CompanyMetric['reportedSupport'],
+    ...over,
+  });
+
+  it('(a) a value matching the acquisition price within 0.5% is withheld', () => {
+    const noDate = { ...acquired, announcedOn: null, closedOn: null };
+    expect(ownershipWithholdsValuation(valuation({ value: 1.955e9 }), noDate)).toBe(true);
+    expect(ownershipWithholdsValuation(valuation({ value: 2.2e9 }), noDate)).toBe(false);
+  });
+
+  it('(b) the live Poppi row, dated on the announcement, is withheld', () => {
+    const row = reportedRow(2e9, '2025-03-17');
+    expect(ownershipWithholdsValuation(row, { ...acquired, price: null })).toBe(true);
+    const gated = enforceMetricProvenance(row, null, acquired);
+    expect(gated).toMatchObject({ value: null, confidence: 'unknown', methodNote: DEAL_TIME_VALUATION_NOTE });
+  });
+
+  it('(b) uses closedOn when announcedOn is null, with a 90-day window', () => {
+    const closedOnly = { ...acquired, price: null, announcedOn: null, closedOn: '2025-05' };
+    expect(ownershipWithholdsValuation(reportedRow(1e9, '2025-02-15'), closedOnly)).toBe(true);
+    expect(ownershipWithholdsValuation(reportedRow(1e9, '2025-01-15'), closedOnly)).toBe(false);
+  });
+
+  it('an earlier funding-round valuation stands', () => {
+    const row = reportedRow(5e8, '2024-06-01');
+    expect(ownershipWithholdsValuation(row, acquired)).toBe(false);
+    expect(enforceMetricProvenance(row, null, acquired).value).toBe(5e8);
+  });
+
+  it('never for a pending deal: Anysphere\'s pre-deal round stands', () => {
+    const pending: Ownership = { ...acquired, status: 'acquisition_pending', acquirer: 'SpaceX', announcedOn: '2026-06-10', closedOn: null,
+      price: { value: 6e10, currency: 'USD' } };
+    const round = reportedRow(2.93e10, '2026-05-01', { companyId: 'cmp_anysphere' });
+    expect(ownershipWithholdsValuation(round, pending)).toBe(false);
+    expect(enforceMetricProvenance(round, null, pending).value).toBe(2.93e10);
+  });
+
+  it('(b) needs a cited ownership record; a human-verified figure is untouched', () => {
+    const uncitedHuman: Ownership = { ...acquired, price: null, confidence: 'user_verified', citations: [] };
+    expect(ownershipWithholdsValuation(reportedRow(2e9, '2025-03-17'), uncitedHuman)).toBe(false);
+    // An uncited machine record is dropped entirely.
+    expect(ownershipWithholdsValuation(reportedRow(2e9, '2025-03-17'), { ...acquired, citations: [] })).toBe(false);
+    const human = reportedRow(1.95e9, '2025-03-17', { confidence: 'user_verified' });
+    expect(ownershipWithholdsValuation(human, acquired)).toBe(false);
+    expect(enforceMetricProvenance(human, null, acquired)).toMatchObject({ value: 1.95e9, confidence: 'user_verified' });
+  });
+
+  it('without ownership nothing changes', () => {
+    const row = reportedRow(5e8, '2025-03-17');
+    expect(enforceMetricProvenance(row, null, null).value).toBe(5e8);
+    expect(enforceMetricProvenance(row).value).toBe(5e8);
   });
 });

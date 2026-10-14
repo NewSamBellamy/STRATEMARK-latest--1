@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { enforceMetricProvenance, type CompanyMetric } from '@mi/contracts';
 import {
-  acquisitionStatements, dateInSentence, decideOwnership, findOwnership, gleifOwnership, metricOwnershipEvidence,
+  acquisitionStatements, dateInSentence, dealPriceInSentence, decideOwnership, findOwnership, gleifOwnership, metricOwnershipEvidence,
   wikidataParentClaims, type OwnershipEvidenceText,
 } from './ownership';
 import type { OriginalSourceReceipt } from './original-source';
@@ -111,6 +111,68 @@ describe('decideOwnership', () => {
   it('a Wikidata parent alone is a subsidiary at most estimated', () => {
     const o = decideOwnership({ statements: [], registry: [{ registry: 'wikidata', kind: 'parent', parent: 'Alphabet Inc.', citation: { url: 'https://www.wikidata.org/wiki/Q1', title: 'Wikidata' } }] });
     expect(o).toMatchObject({ status: 'subsidiary', acquirer: 'Alphabet Inc.', confidence: 'estimated' });
+  });
+});
+
+describe('price and announcement-date integrity (live Poppi regression)', () => {
+  // Paraphrase of a payout-cut news item dated after the deal: its figures are
+  // a payout and a distractor, never the purchase price, and its page date is
+  // not the announcement date.
+  const payoutArticle: OwnershipEvidenceText = {
+    url: 'https://www.ad-hoc-news.de/boerse/news/pepsico-cuts-poppi-payout-to-usd-12-million', title: 'ad-hoc-news',
+    text: 'PepsiCo agreed to acquire Poppi and has now cut the founders\' payout to $12 million from $40 million after a class-action settlement. ' +
+      'PepsiCo agreed to buy Poppi, which had about $40 million in revenue, in a deal that closes later.',
+    date: '2025-05-19',
+  };
+
+  it('dealPriceInSentence binds only a figure tied to the purchase', () => {
+    expect(dealPriceInSentence('PepsiCo agreed to acquire Poppi for $1.95 billion.')).toEqual({ value: 1.95e9, currency: 'USD' });
+    expect(dealPriceInSentence('PepsiCo will buy Poppi in a deal valued at approximately $1.95 billion.')).toEqual({ value: 1.95e9, currency: 'USD' });
+    expect(dealPriceInSentence('SpaceX will acquire Anysphere at a purchase price of $60 billion.')).toEqual({ value: 6e10, currency: 'USD' });
+    expect(dealPriceInSentence('PepsiCo cut the payout for the Poppi acquisition to $12 million from $40 million.')).toBeNull();
+    expect(dealPriceInSentence('PepsiCo agreed to buy Poppi, which had $40 million in revenue.')).toBeNull();
+    expect(dealPriceInSentence('Poppi raised $40 million before the acquisition.')).toBeNull();
+    expect(dealPriceInSentence('The deal includes $300 million of anticipated cash tax benefits.')).toBeNull();
+    expect(dealPriceInSentence('PepsiCo will acquire Poppi.')).toBeNull();
+  });
+
+  it('a payout article yields no price and no announcement date', () => {
+    const statements = acquisitionStatements('Poppi', payoutArticle, { website: POPPI_SITE });
+    expect(statements.length).toBeGreaterThan(0);
+    for (const s of statements) {
+      expect(s.price).toBeNull();
+      expect(s.date).not.toBe('2025-05-19');
+    }
+  });
+
+  it('with the payout article alongside, the grounded announcement keeps its price and date', () => {
+    const statements = [
+      ...acquisitionStatements('Poppi', poppiAnnounced, { website: POPPI_SITE }),
+      ...acquisitionStatements('Poppi', payoutArticle, { website: POPPI_SITE }),
+      ...acquisitionStatements('Poppi', { url: 'https://www.pepsico.com/newsroom/press-releases/2025/poppi', title: 'PepsiCo', text: poppiClosedRelease }, { website: POPPI_SITE }),
+    ];
+    const o = decideOwnership({ statements, registry: [] });
+    expect(o).toMatchObject({ status: 'acquired', announcedOn: '2025-03-17', closedOn: '2025-05-27', price: { value: 1.95e9, currency: 'USD' } });
+  });
+
+  it('two disagreeing non-primary prices: price null', () => {
+    const one = (url: string, amount: string) => acquisitionStatements('Anysphere', { url, title: 'x',
+      text: `SpaceX has agreed to acquire Anysphere for ${amount}.` }, { website: ANYSPHERE_SITE });
+    const o = decideOwnership({ statements: [...one('https://a.example.com/1', '$60 billion'), ...one('https://b.example.org/2', '$40 million')], registry: [] });
+    expect(o?.price).toBeNull();
+  });
+
+  it('completion-only evidence: announcedOn is null, never the completion article date', () => {
+    const completion: OwnershipEvidenceText = {
+      url: 'https://finance.yahoo.com/news/pepsico-completes-acquisition-poppi.html', title: 'Yahoo Finance',
+      text: 'PepsiCo has completed its acquisition of Poppi. PepsiCo agreed to buy Poppi in March, and the deal closed this week.',
+      date: '2025-05-27',
+    };
+    const statements = acquisitionStatements('Poppi', completion, { website: POPPI_SITE });
+    expect(statements.filter((s) => s.phase === 'announced').every((s) => s.date !== '2025-05-27')).toBe(true);
+    const closes = (url: string) => acquisitionStatements('Poppi', { ...completion, url }, { website: POPPI_SITE });
+    const o = decideOwnership({ statements: [...closes('https://a.example.com/1'), ...closes('https://b.example.org/2')], registry: [] });
+    expect(o).toMatchObject({ status: 'acquired', announcedOn: null, closedOn: '2025-05-27' });
   });
 });
 

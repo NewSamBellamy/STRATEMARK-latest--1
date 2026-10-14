@@ -161,6 +161,58 @@ describe('revalidateStoredMetrics', () => {
     expect(byId(migrateSnapshot(total).snapshot, circleRevenue.id)).toEqual(circleRevenue);
   });
 
+  it('v2: withdraws an acquired company deal-time valuation, never a pending deal round', () => {
+    const poppi = { id: 'co_poppi', name: 'Poppi' };
+    const anysphere = { id: 'co_anysphere', name: 'Anysphere' };
+    const cite = [{ url: 'https://www.cnbc.com/2025/03/17/pepsico-poppi.html', title: 'CNBC' }];
+    const poppiRow = reported(poppi, 'valuation', 2e9, 'Poppi was valued at USD 1.95 billion as of March 17, 2025', '2025-03-17');
+    const roundRow = reported(anysphere, 'valuation', 2.93e10, 'Anysphere was valued at $29.3 billion in its Series D round as of May 1, 2026.', '2026-05-01');
+    const base = snapshot();
+    const snap = snapshot({
+      companies: [...base.companies,
+        { ...poppi, websiteUrl: null, ownership: { status: 'acquired', acquirer: 'PepsiCo', announcedOn: '2025-03-17', closedOn: '2025-05',
+          price: null, citations: cite, confidence: 'estimated' } },
+        { ...anysphere, websiteUrl: null, ownership: { status: 'acquisition_pending', acquirer: 'SpaceX', announcedOn: '2026-06-10', closedOn: null,
+          price: { value: 6e10, currency: 'USD' }, citations: cite, confidence: 'estimated' } },
+      ] as unknown as RepoSnapshot['companies'],
+      metrics: [...base.metrics, poppiRow, roundRow],
+    });
+    const { snapshot: out, revalidation } = migrateSnapshot(snap);
+    expect(revalidation?.reset.find((r) => r.metricId === poppiRow.id)?.gate).toBe('acquired_deal_valuation');
+    expect(byId(out, poppiRow.id)).toMatchObject({ value: null, confidence: 'unknown', reportedSupport: null });
+    expect(byId(out, roundRow.id)).toEqual(roundRow);
+  });
+
+  it('v3: a v2 snapshot from either branch gets both v2 sets (ownership + dating/summary/HQ)', () => {
+    const poppi = { id: 'co_poppi', name: 'Poppi' };
+    const cite = [{ url: 'https://www.cnbc.com/2025/03/17/pepsico-poppi.html', title: 'CNBC' }];
+    const ownership = { status: 'acquired', acquirer: 'PepsiCo', announcedOn: '2025-03-17', closedOn: '2025-05',
+      price: null, citations: cite, confidence: 'estimated' };
+    const dealRow = reported(poppi, 'valuation', 2e9, 'Poppi was valued at USD 1.95 billion as of March 17, 2025', '2025-03-17');
+    const undatedRow = reported(acme, 'valuation', 2e9, 'Acme raised a Series C at a $2 billion valuation in February 2025.', '', {
+      id: 'met_acme_undated', methodNote: 'Source reported valuation; provider-grounded, not verified against an original.' });
+    undatedRow.reportedSupport = { ...undatedRow.reportedSupport!, asOf: null };
+    // The same stored 2 whichever branch wrote it: the version alone cannot
+    // say which checks already ran, so all of them run again (idempotently).
+    const v2 = snapshot({
+      metricGateVersion: 2, dashboards: {},
+      companies: [
+        { ...acme, websiteUrl: null, oneLiner: 'Acme builds software for teams.', hqLocation: 'Austin, TX' },
+        { ...poppi, websiteUrl: null, oneLiner: 'Poppi makes prebiotic soda.', hqLocation: 'Mumbai, IN', ownership },
+      ] as unknown as RepoSnapshot['companies'],
+      metrics: [dealRow, undatedRow],
+    });
+    const { snapshot: out, revalidation } = migrateSnapshot(v2);
+    expect(revalidation?.fromVersion).toBe(2);
+    expect(revalidation?.reset.map((r) => [r.metricId, r.gate])).toEqual([[dealRow.id, 'acquired_deal_valuation']]);
+    expect(revalidation?.relabelled.map((r) => [r.metricId, r.change, r.asOf])).toEqual([['met_acme_undated', 'redated', '2025-02-28']]);
+    expect(out.companies.map((c) => c.hqLocation)).toEqual(['Austin, Texas', 'Mumbai, IN']);
+    expect(out.metricGateVersion).toBe(3);
+    // Idempotent: the checks re-run on their own output change nothing.
+    const again = revalidateStoredMetrics({ ...structuredClone(out), metricGateVersion: 2 });
+    expect([again.reset, again.relabelled, again.resetSummaries, again.normalizedHq]).toEqual([[], [], [], []]);
+  });
+
   it('does not revalidate a snapshot from a newer build', () => {
     const future = snapshot({ schemaVersion: 99 });
     const outcome = migrateSnapshot(future);

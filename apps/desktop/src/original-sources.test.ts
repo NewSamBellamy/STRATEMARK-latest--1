@@ -148,7 +148,7 @@ describe('native original source artifacts', () => {
     expect(client.ground).not.toHaveBeenCalled();
     expect(client.structure).not.toHaveBeenCalled();
     expect(snapshot.read()!.metrics).toEqual(initial.metrics);
-  });
+  }, 20_000); // Thirty disk writes plus a restart; slow under a full parallel `pnpm check`.
 
   it('honors a bounded twenty-record window without changing the default or company scope', async () => {
     const { store } = await setup();

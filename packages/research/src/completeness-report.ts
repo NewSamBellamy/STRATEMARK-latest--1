@@ -68,6 +68,8 @@ export interface CompletenessSnapshot {
   researchEvidence?: ResearchEvidence[];
   originalSourceAttempts?: OriginalSourceAttempt[];
   sourceChecks?: SourceChecks;
+  /** Background dashboard warm-up attempts (dashboard-warmup.ts) per company and tab. */
+  dashboardWarmup?: Record<string, Partial<Record<string, { at?: string; outcome?: string; count?: number } | undefined>>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +90,8 @@ export interface SlotAttempts {
   evidenceRecords: number;
   /** A researched dashboard tab for this slot is cached (even if empty). */
   cachedTab: boolean;
+  /** Background warm-up attempts recorded for this slot's tab (failed or empty included). */
+  warmAttempts: number;
   /** Stored metric-ledger rows for this slot's types (any confidence). */
   storedRows: number;
   /** Distinct topics the attempts came from, e.g. "employees", "company_profile". */
@@ -307,11 +311,12 @@ interface CompanyContext {
   evidence: ResearchEvidence[];
   rows: CompanyMetric[];
   tabs: Partial<Record<DashboardTab, { content?: unknown } | undefined>>;
+  warm: Partial<Record<string, { outcome?: string; count?: number } | undefined>>;
 }
 
 function slotAttempts(def: SlotDef, ctx: CompanyContext): SlotAttempts {
   const out: SlotAttempts = { targeted: false, originalAttempts: 0, receipts: { retrieved: 0, blocked: 0, unavailable: 0 },
-    evidenceRecords: 0, cachedTab: false, storedRows: 0, topics: [] };
+    evidenceRecords: 0, cachedTab: false, warmAttempts: 0, storedRows: 0, topics: [] };
   const topics = new Set<string>();
   for (const attempt of ctx.attempts) {
     const relevance = def.relevance(attempt.metricType);
@@ -336,6 +341,12 @@ function slotAttempts(def: SlotDef, ctx: CompanyContext): SlotAttempts {
     out.targeted = true;
     topics.add(`tab:${def.tab}`);
   }
+  const warm = def.tab ? ctx.warm[def.tab] : undefined;
+  if (warm?.outcome) {
+    out.warmAttempts = Math.max(1, warm.count ?? 1);
+    out.targeted = true;
+    topics.add(`warm:${def.tab}`);
+  }
   if (def.metricTypes) {
     out.storedRows = ctx.rows.filter((row) => def.metricTypes!.includes(row.metricType)).length;
     if (out.storedRows > 0) { out.targeted = true; topics.add('ledger'); }
@@ -344,16 +355,17 @@ function slotAttempts(def: SlotDef, ctx: CompanyContext): SlotAttempts {
   return out;
 }
 
-const attempted = (a: SlotAttempts) => a.originalAttempts > 0 || a.evidenceRecords > 0 || a.cachedTab || a.storedRows > 0;
+const attempted = (a: SlotAttempts) => a.originalAttempts > 0 || a.evidenceRecords > 0 || a.cachedTab || a.warmAttempts > 0 || a.storedRows > 0;
 
 function scoreCompany(company: Company, cardTypes: CardType[], snap: Required<Pick<CompletenessSnapshot,
-  'metrics' | 'researchEvidence' | 'originalSourceAttempts' | 'dashboards' | 'companyMarket' | 'companies'>> & Pick<CompletenessSnapshot, 'sourceChecks'>,
+  'metrics' | 'researchEvidence' | 'originalSourceAttempts' | 'dashboards' | 'companyMarket' | 'companies'>> & Pick<CompletenessSnapshot, 'sourceChecks' | 'dashboardWarmup'>,
 ): { report: CompanyCompletenessReport; facts: CompanyMetric[]; shown: Company } {
   const ctx: CompanyContext = {
     attempts: snap.originalSourceAttempts.filter((row) => row?.companyId === company.id),
     evidence: snap.researchEvidence.filter((row) => row?.companyId === company.id),
     rows: snap.metrics.filter((row) => row?.companyId === company.id),
     tabs: snap.dashboards[company.id] ?? {},
+    warm: snap.dashboardWarmup?.[company.id] ?? {},
   };
   const marketId = snap.companyMarket[company.id];
   const otherCompanies = marketId === undefined ? undefined : snap.companies
@@ -367,7 +379,10 @@ function scoreCompany(company: Company, cardTypes: CardType[], snap: Required<Pi
 
   const content = (tab: DashboardTab) => ctx.tabs[tab]?.content;
   const timeline = arrayAt(content('history'), 'timeline');
-  const founded = foundedYearOf(timeline);
+  // A stored founded year (with its citation) outranks re-deriving one from the tab.
+  const stored = company.founded && Number.isInteger(company.founded.year) && (company.founded.citations?.length ?? 0) > 0 ? company.founded : null;
+  const founded = stored?.year ?? foundedYearOf(timeline);
+  const foundedFrom = stored ? (stored.source === 'wikidata' ? 'Wikidata' : 'history tab') : 'history tab';
   const teamCount = arrayAt(content('team_org'), 'nodes').length;
   const productCount = arrayAt(content('products_roadmap'), 'products').length;
   const newsCount = arrayAt(content('live_intel'), 'items').length;
@@ -381,7 +396,7 @@ function scoreCompany(company: Company, cardTypes: CardType[], snap: Required<Pi
       case 'identity.website': value = company.websiteUrl?.trim() || null; break;
       case 'identity.hq': value = company.hqLocation?.trim() || null; break;
       case 'identity.founded':
-        value = founded != null ? `${founded} (history tab)` : null;
+        value = founded != null ? `${founded} (${foundedFrom})` : null;
         if (value == null) note = 'Snapshot holds no founding event; the live header may still show a Wikidata year.';
         break;
       case 'description': value = isPendingCompanySummary(shown.oneLiner) ? null : shown.oneLiner.trim(); break;
@@ -533,6 +548,7 @@ export function buildCompletenessReport(snapshot: CompletenessSnapshot, options:
     companyMarket: snapshot.companyMarket ?? {},
     companies: (snapshot.companies ?? []).filter(Boolean),
     sourceChecks: snapshot.sourceChecks,
+    dashboardWarmup: snapshot.dashboardWarmup,
   };
   const companiesById = new Map(snap.companies.map((company) => [company.id, company]));
   const marketsById = new Map((snapshot.markets ?? []).map((market) => [market.id, market]));

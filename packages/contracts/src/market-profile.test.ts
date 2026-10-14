@@ -29,6 +29,30 @@ describe('market profile classification', () => {
     expect(classifyMarketProfile({ name: 'Cardo', oneLiner: 'Private credit data platform for investors.' })).toBe('operating_company');
   });
 
+  it('keeps companies that SERVE funds and managers out of the fund profile', () => {
+    // Fund-manager words in the object of a service phrase name the customers.
+    expect(classifyMarketProfile({ name: 'Alter Domus', oneLiner: 'Discover Alter Domus, offering expert services for alternative investments…' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'Alter Domus', oneLiner: 'Fund administration services for alternative asset managers.' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'SS&C Technologies', oneLiner: 'provider of software and services to the financial services industry including asset managers' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'iCapital', oneLiner: 'technology platform for wealth managers to access alternative investments' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'CAIS', oneLiner: 'Alternative investment platform for financial advisors and wealth management firms.' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'Fund Admin Co', oneLiner: 'Fund administrator to private equity and hedge funds.' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'Custody Co', oneLiner: 'Custodian for asset managers.' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'Back Office Co', oneLiner: 'Outsourced CFO services for venture capital firms.' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'Kirkland & Ellis', oneLiner: 'Law firm advising private equity funds.' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'Preqin', oneLiner: 'Data provider to private credit managers.' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'Advisory Co', oneLiner: 'Consulting services to U.S. asset managers.' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'Juniper Square', oneLiner: 'Investment management software used by private equity firms.' })).toBe('operating_company');
+  });
+
+  it('keeps a manager a manager when it also serves clients', () => {
+    // Cliffwater consults AND manages assets: it really is a financial firm.
+    expect(classifyMarketProfile({ name: 'Cliffwater', oneLiner: 'alternative investment adviser and asset manager' })).toBe('financial_firm');
+    // The subject before "serving" still decides.
+    expect(classifyMarketProfile({ name: 'Hamilton Lane', oneLiner: 'Private markets investment management firm serving institutional investors.' })).toBe('financial_firm');
+    expect(classifyMarketProfile({ name: 'Blackstone', oneLiner: 'Asset manager serving institutional investors in the U.S. and Europe.' })).toBe('financial_firm');
+  });
+
   it('classifies operating companies as operating companies', () => {
     expect(classifyMarketProfile({ name: 'Tesla', oneLiner: 'Designs and manufactures electric vehicles and energy storage.' })).toBe('operating_company');
     expect(classifyMarketProfile({ name: 'Acme Storage', oneLiner: 'Grid-scale battery storage systems.' })).toBe('operating_company');

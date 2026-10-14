@@ -15,7 +15,8 @@
  * add the check here) whenever a new write gate should also reach stored rows.
  * Human-verified figures are never touched.
  */
-import { classifyMarketProfile, isEntityCardType, type CardType, type Citation, type CompanyMetric, type MetricType } from '@mi/contracts';
+import { classifyMarketProfile, isEntityCardType, ownershipWithholdsValuation, type CardType, type Citation, type CompanyMetric,
+  type MetricType, type Ownership } from '@mi/contracts';
 import { canonicalHqLocation } from './brand/hq-format';
 import { isPendingCompanySummary, summaryIsUnfit, UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
 import type { OriginalSourceAttempt, OriginalSourceReceipt } from './original-source';
@@ -30,17 +31,24 @@ import { storedSecRevenueIsSubLine } from './sec-revenue';
  * v1: parent/subsidiary + acquisition-price attribution (reported lane),
  *     400-day share-count staleness (market-cap quote lane),
  *     SEC sub-line revenue concept (structured revenue lane).
- * v2: undated estimates re-dated from their own stored support (a literal
- *     business date, else the end of the one period it states) or marked
- *     explicitly undated; a financial firm's "ARR" relabelled annual revenue
- *     (or withdrawn when the stored support does not state revenue);
- *     stored company summaries that are sales lines, page-bound or broken
- *     extraction reset to the pending placeholder (company + entity cards);
- *     stored headquarters rewritten to the one canonical display form.
+ * v2: two branches each shipped a "v2" independently, so a stored 2 may
+ *     have had either set (never assume both):
+ *     - an acquired company's deal-time valuation (ownership rule);
+ *     - undated estimates re-dated from their own stored support (a literal
+ *       business date, else the end of the one period it states) or marked
+ *       explicitly undated; a financial firm's "ARR" relabelled annual revenue
+ *       (or withdrawn when the stored support does not state revenue);
+ *       stored company summaries that are sales lines, page-bound or broken
+ *       extraction reset to the pending placeholder (company + entity cards);
+ *       stored headquarters rewritten to the one canonical display form.
+ * v3: both v2 sets together. Every check below is idempotent and ALL of them
+ *     run whenever the stored version is below the current one, so a v2
+ *     snapshot that ran only one branch's checks still gets the other's.
  */
-export const METRIC_GATE_VERSION = 2;
+export const METRIC_GATE_VERSION = 3;
 
-export type RevalidationGate = 'parent_or_acquisition' | 'stale_share_count' | 'sec_revenue_sub_line' | 'non_subscription_arr';
+export type RevalidationGate = 'parent_or_acquisition' | 'stale_share_count' | 'sec_revenue_sub_line'
+  | 'acquired_deal_valuation' | 'non_subscription_arr';
 
 /** A stored estimate that kept its value but had its date or definition corrected. */
 export interface RelabelledMetric {
@@ -81,7 +89,8 @@ export interface RevalidationOutcome {
 /** The snapshot fields this pass reads and writes. */
 export interface RevalidatableSnapshot {
   metricGateVersion?: number;
-  companies: Array<{ id: string; name: string; websiteUrl?: string | null; oneLiner?: string; hqLocation?: string | null }>;
+  companies: Array<{ id: string; name: string; websiteUrl?: string | null; oneLiner?: string; hqLocation?: string | null;
+    ownership?: Ownership | null }>;
   cards?: Array<{ companyId: string | null; cardType: CardType; summary: string | null; citations?: Citation[] }>;
   metrics: CompanyMetric[];
   dashboards: Record<string, unknown>;
@@ -93,6 +102,7 @@ const NOTES: Record<RevalidationGate, string> = {
   parent_or_acquisition: 'Withdrawn: the stored source sentence gives a parent company\'s figure or an acquisition price, not this company\'s own figure. Unknown until re-researched.',
   stale_share_count: 'Withdrawn: the stored market cap multiplied the share price by a share count more than 400 days older than the price. Unknown until re-researched.',
   sec_revenue_sub_line: 'Withdrawn: the stored SEC revenue was a sub-line concept; the issuer files a larger total for the same period. Unknown until re-researched.',
+  acquired_deal_valuation: 'Withdrawn: the company was acquired and this valuation is the deal price or dates from the deal itself, not an independent valuation.',
   non_subscription_arr: 'Withdrawn: a financial firm\'s fee revenue was stored as ARR, and the stored source sentence does not state it as annual revenue. Unknown until re-researched.',
 };
 
@@ -137,8 +147,10 @@ function correctedEstimate(metric: CompanyMetric, company: RevalidatableSnapshot
 }
 
 function failedGate(metric: CompanyMetric, companyName: string | undefined,
-  answers: () => string[], receipts: () => OriginalSourceReceipt[], undecided: string[]): RevalidationGate | null {
+  answers: () => string[], receipts: () => OriginalSourceReceipt[], undecided: string[],
+  ownership?: Ownership | null): RevalidationGate | null {
   if (metric.value === null) return null;
+  if (ownershipWithholdsValuation(metric, ownership)) return 'acquired_deal_valuation';
   if (metric.reportedSupport && storedReportedFigureMisattributed(metric, answers())) return 'parent_or_acquisition';
   if (metric.metricType === 'market_cap') {
     const dates = storedMarketCapDates(metric);
@@ -183,7 +195,7 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
     // Only a human may set or clear a user_verified figure.
     if (metric.confidence === 'user_verified' || metric.confidence === 'unknown') return metric;
     let gate = failedGate(metric, names.get(metric.companyId),
-      () => answersFor(metric.companyId), () => receiptsFor(metric.companyId), undecided);
+      () => answersFor(metric.companyId), () => receiptsFor(metric.companyId), undecided, companies.get(metric.companyId)?.ownership);
     if (!gate) {
       const corrected = correctedEstimate(metric, companies.get(metric.companyId));
       if (corrected === null) return metric;
