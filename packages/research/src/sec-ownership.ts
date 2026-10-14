@@ -24,7 +24,8 @@
  */
 import { z } from 'zod';
 import { companyNameKey, secTickerMapUrl } from './market-quote';
-import { companyFilingRowSchema, describeCompanyFiling, MAX_COMPANY_FILINGS, selectCompanyFilings, type CompanyFiling, type CompanyFilingRow } from './sec-filings';
+import { companyFilingRowSchema, describeCompanyFiling, formDFilingRowSchema, MAX_COMPANY_FILINGS, MAX_FORM_D_FILINGS, selectCompanyFilings, selectFormDFilings,
+  type CompanyFiling, type CompanyFilingRow, type FormDFilingRow } from './sec-filings';
 import type { OriginalSourceReceipt } from './original-source';
 
 export const SCHEDULE_13_FORMS = ['SCHEDULE 13G', 'SCHEDULE 13G/A', 'SCHEDULE 13D', 'SCHEDULE 13D/A'] as const;
@@ -87,6 +88,8 @@ export interface ScheduleFilingIndex {
   filings: ScheduleFilingRow[];
   /** The company's own recent disclosure filings (sec-filings.ts). */
   companyFilings: CompanyFilingRow[];
+  /** The issuer's own Regulation D notices (sec-form-d.ts). */
+  formDFilings: FormDFilingRow[];
 }
 
 const submissionsSchema = z.object({
@@ -120,7 +123,7 @@ export function selectScheduleFilingIndex(submissionsJson: string): string {
   }
   filings.sort((a, b) => b.filingDate.localeCompare(a.filingDate) || b.accession.localeCompare(a.accession));
   return JSON.stringify({ cik: padCik(String(doc.cik)), name: doc.name.slice(0, MAX_NAME), filings: filings.slice(0, MAX_SCHEDULE_FILINGS),
-    companyFilings: selectCompanyFilings(recent) });
+    companyFilings: selectCompanyFilings(recent), formDFilings: selectFormDFilings(recent) });
 }
 
 const indexSchema = z.object({
@@ -134,6 +137,8 @@ const indexSchema = z.object({
   })).max(MAX_SCHEDULE_FILINGS),
   // Absent from slices retained before the filings feed existed.
   companyFilings: z.array(companyFilingRowSchema).max(MAX_COMPANY_FILINGS).default([]),
+  // Absent from slices retained before the Form D lane existed.
+  formDFilings: z.array(formDFilingRowSchema).max(MAX_FORM_D_FILINGS).default([]),
 });
 
 export function parseScheduleFilingIndex(text: string): ScheduleFilingIndex | null {
@@ -162,7 +167,8 @@ export interface ScheduleOwnershipDocument {
   reportingPersons: ScheduleReportingPerson[];
 }
 
-function decode(text: string): string {
+/** Entity-decoded, whitespace-collapsed text of one XML leaf. */
+export function decodeSecXml(text: string): string {
   return text.replace(/<!\[CDATA\[([^]*?)\]\]>/g, '$1')
     .replace(/&#(x[\da-f]+|\d+);/gi, (entity, digits: string) => {
       const code = /^x/i.test(digits) ? parseInt(digits.slice(1), 16) : Number(digits);
@@ -172,15 +178,17 @@ function decode(text: string): string {
     .replace(/\s+/g, ' ').trim();
 }
 
-function blocks(xml: string, tag: string): string[] {
+/** Inner text of every `<tag>` element, in document order. */
+export function secXmlBlocks(xml: string, tag: string): string[] {
   return [...xml.matchAll(new RegExp(`<${tag}(?:\\s[^>]*)?>([^]*?)</${tag}\\s*>`, 'g'))].map((m) => m[1]!);
 }
 
-function field(xml: string, ...tags: string[]): string | null {
+/** The first non-empty leaf value among the given tags. */
+export function secXmlField(xml: string, ...tags: string[]): string | null {
   for (const tag of tags) {
-    const inner = blocks(xml, tag)[0];
+    const inner = secXmlBlocks(xml, tag)[0];
     if (inner !== undefined && !/<[A-Za-z]/.test(inner)) {
-      const value = decode(inner);
+      const value = decodeSecXml(inner);
       if (value) return value;
     }
   }
@@ -213,35 +221,35 @@ function isoDate(raw: string | null): string | null {
 export function parseScheduleOwnershipXml(xml: string): ScheduleOwnershipDocument | null {
   if (!/<(?:\w+:)?edgarSubmission\b[^>]*schedule13[dg]/i.test(xml)) return null;
   const doc = xml.replace(/<!--[^]*?-->/g, '').replace(/<(\/?)[A-Za-z_][\w.-]*:/g, '<$1');
-  const form = field(doc, 'submissionType');
+  const form = secXmlField(doc, 'submissionType');
   if (!form || !(SCHEDULE_13_FORMS as readonly string[]).includes(form)) return null;
-  const issuerInfo = blocks(doc, 'issuerInfo')[0] ?? '';
-  const issuerCik = field(issuerInfo, 'issuerCik', 'issuerCIK');
+  const issuerInfo = secXmlBlocks(doc, 'issuerInfo')[0] ?? '';
+  const issuerCik = secXmlField(issuerInfo, 'issuerCik', 'issuerCIK');
   if (!issuerCik || !/^\d{1,10}$/.test(issuerCik)) return null;
-  const filerCik = field(blocks(doc, 'filerCredentials')[0] ?? '', 'cik');
+  const filerCik = secXmlField(secXmlBlocks(doc, 'filerCredentials')[0] ?? '', 'cik');
   const personBlocks = form.startsWith('SCHEDULE 13G')
-    ? blocks(doc, 'coverPageHeaderReportingPersonDetails')
-    : blocks(doc, 'reportingPersonInfo');
+    ? secXmlBlocks(doc, 'coverPageHeaderReportingPersonDetails')
+    : secXmlBlocks(doc, 'reportingPersonInfo');
   const reportingPersons: ScheduleReportingPerson[] = [];
   for (const person of personBlocks) {
-    const name = field(person, 'reportingPersonName');
+    const name = secXmlField(person, 'reportingPersonName');
     if (!name) continue;
     reportingPersons.push({
       name: name.slice(0, MAX_NAME),
-      percentOfClass: parsePercentOfClass(field(person, 'classPercent', 'percentOfClass')),
-      shares: parseShares(field(person, 'reportingPersonBeneficiallyOwnedAggregateNumberOfShares', 'aggregateAmountOwned')),
+      percentOfClass: parsePercentOfClass(secXmlField(person, 'classPercent', 'percentOfClass')),
+      shares: parseShares(secXmlField(person, 'reportingPersonBeneficiallyOwnedAggregateNumberOfShares', 'aggregateAmountOwned')),
     });
     if (reportingPersons.length >= MAX_PERSONS) break;
   }
   if (reportingPersons.length === 0) return null;
-  const item5 = blocks(doc, 'item5')[0] ?? '';
+  const item5 = secXmlBlocks(doc, 'item5')[0] ?? '';
   return {
     form: form as Schedule13Form,
     issuerCik: padCik(issuerCik),
-    issuerName: field(issuerInfo, 'issuerName')?.slice(0, MAX_NAME) ?? null,
+    issuerName: secXmlField(issuerInfo, 'issuerName')?.slice(0, MAX_NAME) ?? null,
     filerCik: filerCik && /^\d{1,10}$/.test(filerCik) ? padCik(filerCik) : null,
-    eventDate: isoDate(field(doc, 'eventDateRequiresFilingThisStatement', 'dateOfEvent')),
-    exitedFivePercent: field(item5, 'classOwnership5PercentOrLess') === 'Y',
+    eventDate: isoDate(secXmlField(doc, 'eventDateRequiresFilingThisStatement', 'dateOfEvent')),
+    exitedFivePercent: secXmlField(item5, 'classOwnership5PercentOrLess') === 'Y',
     reportingPersons,
   };
 }

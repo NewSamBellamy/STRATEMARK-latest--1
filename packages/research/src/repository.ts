@@ -117,6 +117,7 @@ import { searchEvidenceCorpus } from './retrieval';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
 import { secAdvFirmMatch, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
+import { findFormDLastRound } from './sec-form-d';
 import { companyNameKey, marketCapEstimate, secSharesConceptUrl, secTickerMapUrl, yahooChartUrl } from './market-quote';
 import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane, type DiscoveryNotes } from './searxng';
@@ -1126,7 +1127,7 @@ export class GeminiRepository implements MarketIntelRepository {
       // slow SEC ADV read never delays a logo.
       const structured = (async () => {
         try {
-          await this.fillFromStructuredSources(company, ['market_cap', 'arr', 'aum', 'employees']);
+          await this.fillFromStructuredSources(company, ['market_cap', 'arr', 'aum', 'employees', 'last_round']);
         } catch { /* the hunt ladder remains the fallback, not a failure */ }
       })();
       const assets = (async () => {
@@ -3003,6 +3004,47 @@ export class GeminiRepository implements MarketIntelRepository {
       } catch { /* the hunt ladder is the fallback, not a failure */ }
     }
 
+    // A private company's latest round from its own SEC Form D notice: the
+    // amount sold in its latest Regulation D offering, exactly as filed. It
+    // only fills a GAP — any existing figure (a news-backed round names its
+    // stage; a human or verified row outranks it) stands — and it lands at
+    // estimated tier: the amount is filed, but "latest" is an inference
+    // (a later round without a Form D would not show). Never a valuation,
+    // never a stage name, never a funding total. A listed company is skipped.
+    const lastRoundGap = () => {
+      const current = currentMetricRevision(rowsFor('last_round'), company.id, 'last_round');
+      return !current || (!current.ambiguous && current.metric.value === null && current.metric.confidence === 'unknown');
+    };
+    if (missing.includes('last_round') && company.hqLocation?.trim() && lastRoundGap()) {
+      try {
+        const { receipt: mapReceipt, match: listed } = await listedMatch();
+        if (!listed && mapReceipt.status === 'retrieved') {
+          const observed = await findFormDLastRound(company, (url) => retrieveSteady(url, 'last_round'));
+          if (observed && lastRoundGap()) {
+            await retain('last_round', [observed.receipt]);
+            const current = currentMetricRevision(rowsFor('last_round'), company.id, 'last_round');
+            const row = current?.metric ?? {
+              id: `met_struct_${Date.now().toString(36)}_last_round`,
+              companyId: company.id, metricType: 'last_round' as const, value: null,
+              confidence: 'unknown' as const, source: null, citations: [] as Citation[], methodNote: null,
+              capturedAt: nowIso,
+            };
+            if (!current) this.snap.metrics.push(row);
+            row.value = observed.value;
+            row.confidence = 'estimated';
+            row.passageSupport = null;
+            row.reportedSupport = null;
+            row.quotedSupport = null;
+            row.citations = observed.citations;
+            row.source = observed.citations[0]?.url ?? null;
+            row.methodNote = observed.methodNote;
+            row.capturedAt = nowIso;
+            filled.push('last_round');
+          }
+        }
+      } catch { /* the hunt ladder is the fallback, not a failure */ }
+    }
+
     if (filled.length > 0) {
       this.invalidateDashboard(company.id);
       await this.persist();
@@ -4803,7 +4845,7 @@ ${references}`
     const lanes = new Map(stubs.filter((s) => s.company).map((s) => [s.company!.id, (async () => {
       const company = s.company!;
       await Promise.all([
-        this.fillFromStructuredSources(company, ['market_cap', 'arr', 'aum', 'employees']).catch(() => []),
+        this.fillFromStructuredSources(company, ['market_cap', 'arr', 'aum', 'employees', 'last_round']).catch(() => []),
         this.assetSourceReader ? this.fillCompanyAssets(company.id, this.assetSourceReader).catch(() => undefined) : undefined,
       ]);
     })()]));

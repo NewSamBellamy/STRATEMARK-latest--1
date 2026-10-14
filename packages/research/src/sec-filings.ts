@@ -103,3 +103,37 @@ export function describeCompanyFiling(cik: string, row: CompanyFilingRow): Compa
     url: `https://www.sec.gov/Archives/edgar/data/${Number(cik.replace(/\D/g, ''))}/${row.accession.replace(/-/g, '')}/${row.primaryDocument}`,
   };
 }
+
+/** Regulation D notices of exempt offerings (a private company's own filing). */
+export const FORM_D_FORMS = ['D', 'D/A'] as const;
+export type FormDForm = typeof FORM_D_FORMS[number];
+/** Newest Form D rows kept from the submissions feed. */
+export const MAX_FORM_D_FILINGS = 12;
+
+export interface FormDFilingRow {
+  form: FormDForm;
+  filingDate: string;
+  accession: string;
+}
+
+export const formDFilingRowSchema = z.object({
+  form: z.enum(FORM_D_FORMS),
+  filingDate: z.string().regex(datePattern),
+  accession: z.string().regex(accessionPattern),
+});
+
+/** Reader-side: the issuer's own newest Form D / D/A rows from `filings.recent`, bounded.
+ * Only structured filings (an XML primary document) are kept; paper-era rows are not read. */
+export function selectFormDFilings(recent: unknown): FormDFilingRow[] {
+  const parsed = recentSchema.safeParse(recent);
+  if (!parsed.success) return [];
+  const r = parsed.data;
+  const rows: FormDFilingRow[] = [];
+  for (let i = 0; i < r.form.length; i++) {
+    if (!/^(?:[\w.-]{1,60}\/)?primary_doc\.xml$/.test(r.primaryDocument[i] ?? '')) continue;
+    const row = formDFilingRowSchema.safeParse({ form: r.form[i], filingDate: r.filingDate[i], accession: r.accessionNumber[i] });
+    if (row.success) rows.push(row.data);
+  }
+  return rows.sort((a, b) => b.filingDate.localeCompare(a.filingDate) || b.accession.localeCompare(a.accession))
+    .slice(0, MAX_FORM_D_FILINGS);
+}
