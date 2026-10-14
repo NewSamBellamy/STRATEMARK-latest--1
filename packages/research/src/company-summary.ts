@@ -31,8 +31,18 @@ export function summaryIsUnfit(summary: string): boolean {
     SALES_LINE.test(sentence) || CONTEXT_BOUND.test(sentence)) || /\s[.,;:!?]/.test(summary);
 }
 
+/** The name a company's own site uses: "Seedlip Ltd." is "Seedlip" on seedlip.com,
+ * "Döhler GmbH" is "Döhler". Legal suffixes are dropped; a name that is only a
+ * suffix-like word is left whole. */
+export function commonCompanyName(companyName: string): string {
+  const stripped = normalizeSourceText(companyName)
+    .replace(/(?:[,\s]+(?:inc|incorporated|ltd|limited|llc|l\.l\.c|plc|corp|corporation|co|company|gmbh|ag|sa|s\.a|nv|n\.v|bv|b\.v|ab|as|oy|spa|s\.p\.a|pty|lp|llp))+\.?$/i, '')
+    .replace(/[,\s]+$/, '').trim();
+  return stripped.length >= 3 ? stripped : normalizeSourceText(companyName);
+}
+
 function eligibleSentences(text: string, companyName: string): string[] {
-  const normalizedName = normalizeSourceText(companyName).toLocaleLowerCase();
+  const normalizedName = commonCompanyName(companyName).toLocaleLowerCase();
   const protectedText = text.replace(/\b(Inc|Ltd|Corp|Co|U\.S|e\.g|i\.e)\.(?=\s)/gi, '$1<PERIOD>');
   return (protectedText.match(/[^.!?]+[.!?](?=\s|$)|[^.!?]+$/gu) ?? [])
     .map(sentence => sentence.replace(/<PERIOD>/g, '.'))
@@ -69,7 +79,7 @@ export function sourceBackedCompanySummary(input: {
       .filter(proposal => proposal.length >= 40 && proposal.length <= 240);
     const sentence = proposals.find(proposal => sentences.some(candidate => candidate === proposal)) ?? sentences
       .sort((a, b) => {
-        const name = normalizeSourceText(input.companyName).toLocaleLowerCase();
+        const name = commonCompanyName(input.companyName).toLocaleLowerCase();
         const aNamed = a.toLocaleLowerCase().includes(name) ? 1 : 0;
         const bNamed = b.toLocaleLowerCase().includes(name) ? 1 : 0;
         return bNamed - aNamed;
@@ -103,7 +113,7 @@ export function homepageCompanySummary(input: {
     .filter(tag => /\b(?:name|property)\s*=\s*["'](?:description|og:description|twitter:description)["']/i.test(tag))
     .map(tag => /\bcontent\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag))
     .map(match => pageText(match?.[1] ?? match?.[2] ?? ''));
-  const name = normalizeSourceText(input.companyName).toLocaleLowerCase();
+  const name = commonCompanyName(input.companyName).toLocaleLowerCase();
   // "<Company> is/builds/makes …" plainly says what it does. Any other body
   // sentence (testimonials, alt text, "X does not …", awards) is not a summary.
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
