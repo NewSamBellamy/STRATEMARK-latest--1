@@ -72,7 +72,7 @@ export function secHeadquartersPlace(profile: SubmissionsProfile | null): string
   if (!address || !placeWord.test(address.city)) return null;
   const city = titleCase(address.city.replace(/\s+/g, ' '));
   const state = US_STATES[address.stateOrCountry.toUpperCase()];
-  if (state) return canonicalHqLocation(`${city}, ${state}`);
+  if (state) return canonicalHqLocation(`${city}, ${state}`, { usFiler: true });
   const description = address.stateOrCountryDescription?.replace(/\s+/g, ' ').trim() ?? '';
   if (description.length < 4 || !placeWord.test(description.replace(/,/g, ''))) return null;
   return canonicalHqLocation(`${city}, ${titleCase(description)}`);

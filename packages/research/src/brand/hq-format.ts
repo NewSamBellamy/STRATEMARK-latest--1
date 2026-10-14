@@ -8,6 +8,8 @@
  * or region between city and country. A US location whose state is unknown
  * keeps its country ("Austin, United States"); input this cannot read is kept
  * as written (cleaned of digits and stray spacing) rather than guessed at.
+ * A two-letter code that is both a US state and a country ("IN", "CA") is
+ * read as a state only on positive US evidence; otherwise it stays as written.
  * Pure formatting: it never adds a place the input did not state.
  */
 
@@ -48,17 +50,58 @@ function cased(part: string): string {
   return part === part.toUpperCase() || part === part.toLowerCase() ? titleCase(part) : part;
 }
 
-function usState(part: string, allowCode: boolean): string | null {
+/**
+ * Every ISO 3166-1 alpha-2 country code. A two-letter code that is both a US
+ * state and a country ("IN" India/Indiana, "CA" Canada/California, "DE",
+ * "GA", "PA" ...) says nothing on its own about which was meant.
+ */
+const ISO_ALPHA2 = new Set(('AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ '
+  + 'CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR '
+  + 'GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP '
+  + 'KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT '
+  + 'MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW '
+  + 'SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG '
+  + 'UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW').split(' '));
+
+/** A US state code that is also a country code: read as a state only with US evidence. */
+export function ambiguousRegionCode(code: string): boolean {
+  const key = code.toUpperCase();
+  // Puerto Rico is Puerto Rico under either reading.
+  return Boolean(US_STATES[key]) && ISO_ALPHA2.has(key) && key !== 'PR';
+}
+
+/**
+ * A US state from a region part. A two-letter code is read as a state only
+ * on positive US evidence (`usEvidence`: the text names the US, or the
+ * caller knows the address is a US filing), or when the code cannot also be
+ * a country ("TX", "NY", "OR"). Full state names are always read.
+ */
+function usState(part: string, usEvidence: boolean): string | null {
   const key = STATE_ALIASES[part.toLowerCase()] ?? part;
-  if (allowCode && /^[A-Za-z]{2}$/.test(key) && US_STATES[key.toUpperCase()] && (key === key.toUpperCase() || key === 'DC')) return US_STATES[key.toUpperCase()]!;
+  if (/^[A-Za-z]{2}$/.test(key) && US_STATES[key.toUpperCase()]) {
+    const code = key.toUpperCase();
+    // Lower-case "in" / "or" are words, not codes, unless the US is stated.
+    if (!usEvidence && key !== code) return null;
+    return usEvidence || !ambiguousRegionCode(code) ? US_STATES[code]! : null;
+  }
   return STATE_BY_NAME.get(part.toLowerCase()) ?? (key === 'DC' ? US_STATES.DC! : null);
 }
 
 function country(part: string): string {
-  return COUNTRY_CODES[part.toUpperCase()] && /^[A-Za-z]{2,3}$/.test(part) ? COUNTRY_CODES[part.toUpperCase()]! : cased(part);
+  if (!/^[A-Za-z]{2,3}$/.test(part)) return cased(part);
+  const code = part.toUpperCase();
+  // "Toronto, CA" / "Mumbai, IN": kept as written. Spelling the code out as
+  // either the country or the state would choose a fact the text did not state.
+  if (ambiguousRegionCode(code)) return code;
+  return COUNTRY_CODES[code] ?? cased(part);
 }
 
-export function canonicalHqLocation(raw: string | null | undefined): string | null {
+export interface HqFormatOptions {
+  /** The address is a US filing (SEC submissions): its region codes are states. */
+  usFiler?: boolean;
+}
+
+export function canonicalHqLocation(raw: string | null | undefined, options: HqFormatOptions = {}): string | null {
   if (raw == null) return null;
   const parts = raw.split(',')
     // A street line ("100 Main St") is never the place; a ZIP or postal code
@@ -73,12 +116,17 @@ export function canonicalHqLocation(raw: string | null | undefined): string | nu
   const rest = parts.slice(1);
   const last = rest[rest.length - 1]!;
   const isUs = US_NAMES.test(last);
-  // A state anywhere after the city: a two-letter code only when the country
-  // is the US or unstated ("Toronto, ON, Canada" is not Oregon).
+  const usEvidence = isUs || Boolean(options.usFiler);
+  // A state anywhere after the city when the country is the US or unstated
+  // ("Toronto, ON, Canada" is not Oregon).
   const regions = isUs ? rest.slice(0, -1) : rest.length === 1 ? rest : [];
-  const state = regions.map((part) => usState(part, isUs || rest.length === 1)).find(Boolean);
+  const state = regions.map((part) => usState(part, usEvidence)).find(Boolean);
   if (state) return `${city}, ${state}`;
-  if (isUs) return `${city}, United States`;
+  if (isUs) {
+    // A region the text stated but this cannot read is kept, never dropped.
+    const region = regions.find((part) => !US_NAMES.test(part));
+    return region ? `${city}, ${cased(region)}, United States` : `${city}, United States`;
+  }
   const named = country(last);
   return named.toLowerCase() === city.toLowerCase() ? city : `${city}, ${named}`;
 }
