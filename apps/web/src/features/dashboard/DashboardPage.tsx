@@ -329,14 +329,20 @@ export default function DashboardPage() {
   const metrics = useCompanyMetrics(companyId);
   // Only once the History tab has been researched: never starts research of its own.
   const historyFounded = foundedYear(useCachedDashboardTab(companyId ?? '', 'history').data?.content.timeline);
+  // Stored at research time with its citation (company.founded); a Wikidata
+  // year stored there needs no lookup.
+  const stored = company.data?.founded ?? null;
   // The company's own Wikidata item (matched by its website) outranks a milestone's wording.
   const registryFounded = useQuery({
     queryKey: ['founded-year', company.data?.name, company.data?.websiteUrl],
     queryFn: () => lookupFoundedYear(company.data!.name, company.data!.websiteUrl),
-    enabled: Boolean(company.data?.name && company.data?.websiteUrl),
+    enabled: Boolean(company.data?.name && company.data?.websiteUrl) && stored?.source !== 'wikidata',
     staleTime: Infinity,
   }).data;
-  const founded = registryFounded ? { year: registryFounded.year, from: 'Wikidata' } : historyFounded ? { year: historyFounded, from: 'the History tab' } : null;
+  const founded = stored?.source === 'wikidata' ? { year: stored.year, from: 'Wikidata' }
+    : registryFounded ? { year: registryFounded.year, from: 'Wikidata' }
+      : stored ? { year: stored.year, from: 'the History tab' }
+        : historyFounded ? { year: historyFounded, from: 'the History tab' } : null;
   // The fallback oneLiner reads as a contradiction when the metrics grid below
   // it shows figures. With provider-reported figures on file, say what state
   // the snapshot is actually in instead of claiming nothing exists.

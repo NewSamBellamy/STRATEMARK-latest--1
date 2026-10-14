@@ -23,7 +23,9 @@ import { QUOTA_PRESETS, useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
 import { currentWebSearch } from '@/lib/settings/searchKey';
 import { currentNewsSearch } from './news-lane';
-import { recordCall, recordCallMetrics } from '@/lib/usage';
+import { isLowPower, recordCall, recordCallMetrics } from '@/lib/usage';
+import { useResearchControl } from '@/lib/living/researchControl';
+import { wikidataJson } from '@/lib/media/wikidataFounded';
 
 const RepositoryContext = createContext<MarketIntelRepository | null>(null);
 
@@ -81,6 +83,17 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       // and the grounded estimate is the honest (never-undercount) side.
       onCall: ({ kind }) => recordCall(kind === 'judge' ? 'ground' : kind),
       onCallMetrics: (m) => recordCallMetrics(m),
+      // Every company's History, Team, Products and News tabs research in the
+      // background after a deck is built (highest tier first), gated by the
+      // spending cap and the background-research pause. Stored decks backfill
+      // on start and on open only on a paid key: the free tier's daily
+      // grounded budget belongs to the user's own clicks.
+      dashboardWarmup: {
+        allowed: () => !isLowPower() && !useResearchControl.getState().paused,
+        backfill: quotaPreset === 'paid',
+      },
+      // Founded year from the company's own Wikidata item (no provider calls).
+      wikidataJson,
     });
   }
   if (!sample) throw new Error('Demo mode needs the sample deck loaded first (loadSampleSnapshot).');

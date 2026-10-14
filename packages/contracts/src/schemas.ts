@@ -113,6 +113,31 @@ export const brandThemeSchema = z.object({
   signal: z.string().optional(),
 });
 
+// Citation schema ----------------------------------------------------------
+export const citationSchema = z.object({
+  title: z.string(),
+  url: z.string(),
+  credibility: z
+    .enum(['primary', 'reputable_secondary', 'industry', 'user_generated', 'unknown'])
+    .optional(),
+});
+
+/**
+ * The year a company was founded, stored once with where it came from so the
+ * header is stable and the completeness scoreboard can measure it. Never a
+ * guess: 'wikidata' is the company's own item (matched by its official
+ * website), 'history' is a founding milestone from the researched History tab.
+ * At least one citation is required. Additive and optional on Company.
+ */
+export const companyFoundedSchema = z.object({
+  year: z.number().int().min(1600).max(2100),
+  source: z.enum(['wikidata', 'history']),
+  citations: z.array(citationSchema).min(1),
+  /** The founding statement the year was read from (history), when there is one. */
+  evidence: z.string().max(400).optional(),
+  capturedAt: z.string(),
+});
+
 export const companySchema = z.object({
   id: z.string(),
   name: z.string().min(1),
@@ -121,15 +146,8 @@ export const companySchema = z.object({
   hqLocation: z.string().nullable(),
   websiteUrl: z.string().nullable(),
   brandTheme: brandThemeSchema.nullable(),
-});
-
-// Citation schema ----------------------------------------------------------
-export const citationSchema = z.object({
-  title: z.string(),
-  url: z.string(),
-  credibility: z
-    .enum(['primary', 'reputable_secondary', 'industry', 'user_generated', 'unknown'])
-    .optional(),
+  /** Additive: absent on companies stored before it existed and until a sourced year is found. */
+  founded: companyFoundedSchema.nullable().optional(),
 });
 
 /** Retained extraction evidence, never a model assertion of verification. */

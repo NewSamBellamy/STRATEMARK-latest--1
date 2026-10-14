@@ -51,3 +51,7 @@ export * from './completeness';
 export * from './completeness-report';
 export * from './displayed-facts';
 export * from './chat-context';
+
+// Dashboard warm-up (every deck company's tabs researched in the background)
+export * from './dashboard-warmup';
+export * from './founded-year';

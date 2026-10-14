@@ -4,6 +4,7 @@ import type {
   boardMemberSchema,
   businessRelationshipSchema,
   brandThemeSchema,
+  companyFoundedSchema,
   capTableSliceSchema,
   cardSchema,
   companyMetricSchema,
@@ -42,6 +43,7 @@ export type Market = z.infer<typeof marketSchema>;
 export type Deck = z.infer<typeof deckSchema>;
 export type BrandTheme = z.infer<typeof brandThemeSchema>;
 export type Company = z.infer<typeof companySchema>;
+export type CompanyFounded = z.infer<typeof companyFoundedSchema>;
 export type CompanyMetric = z.infer<typeof companyMetricSchema>;
 export type ReportedMetricSupport = z.infer<typeof reportedMetricSupportSchema>;
 export type Card = z.infer<typeof cardSchema>;

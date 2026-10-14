@@ -599,6 +599,35 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
     }
   });
 
+  it('deck creation warms History, Team, Products and News for every company, highest tier first', async () => {
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    let snapshot: RepoSnapshot | null = null;
+    const repo = new GeminiRepository({ apiKey: 'x', client: fakeClient(), coverage: testCoverage, catalogMax: 3, catalogPasses: 0,
+      store: { read: () => snapshot, write: (next) => { snapshot = next; } },
+      originalSourceReader: async (url) => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'offline' }) });
+    const dashboard = vi.spyOn(repo, 'getDashboardTab');
+    const { deck } = await repo.createResearchedDeck({ prompt: 'test', region: 'CA' });
+    await repo.waitForBackgroundJobs();
+    await repo.waitForDashboardWarmup();
+    const entries = (await repo.listCards(deck.id)).filter((entry) => entry.company &&
+      ['company', 'infrastructure', 'distribution'].includes(entry.card.cardType));
+    expect(entries.length).toBeGreaterThanOrEqual(3);
+    // Every company: every warm tab researched (cached) or its attempt recorded.
+    for (const entry of entries) {
+      const id = entry.company!.id;
+      for (const tab of ['overview', 'history', 'team_org', 'products_roadmap', 'live_intel'] as const) {
+        const called = dashboard.mock.calls.some((call) => call[0] === id && call[1] === tab);
+        expect(called, `${entry.company!.name}:${tab}`).toBe(true);
+        expect(snapshot!.dashboards[id]?.[tab] ?? snapshot!.dashboardWarmup?.[id]?.[tab], `${entry.company!.name}:${tab}`).toBeDefined();
+      }
+    }
+    // The warm-up walks companies by tier (the lead's overview may come earlier, at lead-ready).
+    const tierOf = new Map(entries.map((entry) => [entry.company!.id, entry.card.tier ?? -1]));
+    const historyOrder = dashboard.mock.calls.filter((call) => call[1] === 'history').map((call) => tierOf.get(call[0] as string) ?? -1);
+    expect(historyOrder).toEqual([...historyOrder].sort((a, b) => b - a));
+    vi.unstubAllGlobals();
+  }, 20000);
+
   it('hydrates the roster in cohorts — fewer grounded passes than companies', async () => {
     let snapshot: RepoSnapshot | null = null;
     const client = fakeClient(false);

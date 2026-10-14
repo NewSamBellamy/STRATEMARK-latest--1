@@ -32,6 +32,7 @@ import {
   reconcileMetrics,
   usableCitations,
   teamOrgContentSchema,
+  historyContentSchema,
   type Card,
   type CardType,
   type CardFilter,
@@ -81,7 +82,7 @@ import {
   type Unsubscribe,
   type ViceClaim,
 } from '@mi/contracts';
-import { createGeminiClient, type GeminiClientConfig } from './gemini';
+import { createGeminiClient, DEFAULT_GROUNDED_RPM, type GeminiClientConfig } from './gemini';
 import { withSearchFallback } from './search-fallback';
 import { homepageCompanySummary, isPendingCompanySummary } from './company-summary';
 import { mergeTeamOrgNodes, researchDashboardWithSources } from './dashboard';
@@ -132,6 +133,8 @@ import { homepageHeadquarters, wikidataHeadquarters, type Headquarters } from '.
 import { extractOrganizationJsonLd } from './registries/jsonld';
 import { faviconUrl, knownCompanyDomain } from './logos';
 import { METRIC_GATE_VERSION, revalidateStoredMetrics, type RevalidationOutcome } from './revalidate-stored';
+import { DashboardWarmup, type CachedTabState, type WarmAttempts, type WarmPriority, type WarmTab } from './dashboard-warmup';
+import { foundedFromHistory, foundedFromWikidata, wikidataFoundedYear, type JsonFetcher } from './founded-year';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
  * persists per card and every provider call is deadline-bounded, so a job
@@ -216,6 +219,9 @@ export interface RepoSnapshot {
   removedFromDeck?: Array<{ deckId: string; companyKey: string; at: string }>;
   /** Per figure and cited source: the real page it led to and whether it states the figure (source-binding.ts). */
   sourceChecks?: SourceChecks;
+  /** Dashboard warm-up attempts per company and tab (dashboard-warmup.ts): what
+   * was tried, when, and how it ended, so a reload resumes and empty tabs back off. */
+  dashboardWarmup?: WarmAttempts;
 }
 
 export interface ResearchStore {
@@ -411,6 +417,22 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   webSearch?: () => WebSearchFn | null;
   /** Free news lane (no key) adding dated news articles as hunt candidates. */
   newsSearch?: () => WebSearchFn | null;
+  /**
+   * Background dashboard warm-up: after a deck is built, every company's
+   * Overview, History, Team, Products and News tabs research through the same
+   * getDashboardTab path a click takes, highest tier first. `false` disables it.
+   */
+  dashboardWarmup?: false | {
+    /** Companies warming at once; defaults to 2 on a paid-rate key (>=30 grounded RPM), else 1. */
+    concurrency?: number;
+    /** Spend gate checked before every tab (spending cap, user pause). */
+    allowed?: () => boolean;
+    /** Warm stored decks too: on start (after `startupDelayMs`) and when a deck is opened. */
+    backfill?: boolean;
+    startupDelayMs?: number;
+  };
+  /** JSON reader for the Wikidata founded-year lane (zero provider calls). Omitted = lane off. */
+  wikidataJson?: JsonFetcher;
 }
 
 /** Earlier overviews kept for comparison; each refresh appends one. */
@@ -440,6 +462,12 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly hydrationFirstBatchMax?: number;
   private readonly webSearch?: () => WebSearchFn | null;
   private readonly newsSearch?: () => WebSearchFn | null;
+  private readonly wikidataJson?: JsonFetcher;
+  /** Background tab warm-up (null when disabled). */
+  private readonly warmup: DashboardWarmup | null = null;
+  private readonly warmBackfill: boolean = false;
+  /** Founded-year lookups in flight or done this session (Wikidata is asked once per company). */
+  private readonly foundedLookups = new Map<string, Promise<void>>();
   private readonly jobControllers = new Map<string, AbortController>();
   /** In-flight source-binding passes, one per company. */
   private readonly sourceBindings = new Map<string, Promise<number>>();
@@ -458,11 +486,26 @@ export class GeminiRepository implements MarketIntelRepository {
       .map((m) => m.value as number);
   }
 
-  /** The company's figures changed: every cached dashboard tab is stale. */
-  private invalidateDashboard(companyId: string): void {
-    this.snap.dashboards[companyId] = {};
+  /**
+   * The company's figures changed: the tabs built FROM those figures are stale.
+   * Only the Overview reads stored figures (Metrics is never cached); History,
+   * Team, Products, News and Governance research the company itself, so a
+   * metric fill must not throw them away — that wiped every warmed tab each
+   * time a hunt or verification landed. `all` (a deck refresh, a re-hydration)
+   * still clears everything.
+   */
+  private invalidateDashboard(companyId: string, scope: 'figures' | 'all' = 'figures'): void {
+    if (scope === 'all') {
+      this.snap.dashboards[companyId] = {};
+      this.dashboardAllEpochs.set(companyId, (this.dashboardAllEpochs.get(companyId) ?? 0) + 1);
+    } else {
+      const { overview: _overview, metrics: _metrics, ...independent } = this.snap.dashboards[companyId] ?? {};
+      this.snap.dashboards[companyId] = independent;
+    }
     this.dashboardEpochs.set(companyId, (this.dashboardEpochs.get(companyId) ?? 0) + 1);
   }
+  /** Bumped only by a full invalidation: any tab pass that started before it caches nothing. */
+  private readonly dashboardAllEpochs = new Map<string, number>();
   /** Companies a running hunt has placed but not yet researched: kept out of
    * the grid so an empty placeholder never reads as a finished card. */
   private readonly pendingHuntCompanies = new Set<string>();
@@ -490,6 +533,33 @@ export class GeminiRepository implements MarketIntelRepository {
     this.hydrationFirstBatchMax = options.hydrationFirstBatchMax;
     this.webSearch = options.webSearch;
     this.newsSearch = options.newsSearch;
+    this.wikidataJson = options.wikidataJson;
+    if (options.dashboardWarmup !== false) {
+      const warm = options.dashboardWarmup ?? {};
+      const paidRate = (options.groundedRpm ?? DEFAULT_GROUNDED_RPM) >= 30;
+      this.warmup = new DashboardWarmup({
+        concurrency: Math.max(1, Math.floor(warm.concurrency ?? (paidRate ? 2 : 1))),
+        // Deck builds own the model slots; the warm-up waits for them, and for
+        // the user's spending cap / pause switch, before every tab.
+        canRun: () => !this.persistenceError && this.activeBackgroundJobs.size === 0 && (warm.allowed?.() ?? true),
+        cached: (companyId, tab) => this.warmTabState(companyId, tab),
+        // The on-open path: same research, same gates, same in-flight dedupe.
+        research: (companyId, tab, force) => this.getDashboardTab(companyId, tab, force || undefined),
+        attempts: () => this.snap.dashboardWarmup ?? {},
+        recordAttempt: async (companyId, tab, attempt) => {
+          if (!this.snap.companies.some((company) => company.id === companyId)) return;
+          const all = this.snap.dashboardWarmup ?? {};
+          this.snap.dashboardWarmup = { ...all, [companyId]: { ...all[companyId], [tab]: attempt } };
+          await this.persist();
+        },
+        afterCompany: (companyId) => this.fillFoundedYear(companyId),
+        retryIdleMs: 60_000,
+      });
+      this.warmBackfill = Boolean(warm.backfill);
+      if (this.warmBackfill) {
+        setTimeout(() => { this.warmStoredDecks(); }, Math.max(0, warm.startupDelayMs ?? 45_000));
+      }
+    }
     // Migrate on load, not on demand. A snapshot written by an older build is
     // brought forward once, here, so nothing downstream has to reason about
     // which format it is looking at.
@@ -695,7 +765,7 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     for (const company of companyById.values()) {
       const index = this.snap.companies.findIndex((existing) => existing.id === company.id);
-      if (index >= 0) this.snap.companies[index] = company;
+      if (index >= 0) this.snap.companies[index] = { ...company, founded: company.founded ?? this.snap.companies[index]!.founded };
       else this.snap.companies.push(company);
     }
     const otherMetrics = this.snap.metrics.filter((m) => !companyById.has(m.companyId));
@@ -768,6 +838,8 @@ export class GeminiRepository implements MarketIntelRepository {
   getDeckByMarket(marketId: string): Promise<Deck | null> {
     const deck = this.snap.decks.find((d) => d.marketId === marketId) ?? null;
     if (!deck) return Promise.resolve(null);
+    // Opening a stored deck queues its cold dashboard tabs (low priority, within quota).
+    if (this.warmBackfill) this.warmDeckDashboards(deck.id, 'open');
 
     // Local/BYOK runs persist their job separately from the deck. Surface the
     // same small status contract as cloud runs so the UI never mistakes fast
@@ -1157,7 +1229,9 @@ export class GeminiRepository implements MarketIntelRepository {
           await this.fillCompanyAssets(company.id, this.assetSourceReader);
         } catch { /* favicon fallback stands */ }
       })();
-      await Promise.all([structured, assets]);
+      // Founded year from the company's own Wikidata item: zero provider calls.
+      const founded = this.fillFoundedYear(company.id).catch(() => undefined);
+      await Promise.all([structured, assets, founded]);
     };
     const pumpPrewarm = () => {
       while (prewarmActive < PREWARM_CONCURRENCY && prewarmQueue.length > 0) {
@@ -1181,7 +1255,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const ingestStreamedStub = (stub: CardWithCompany) => {
       if (!stub.company) return;
       const existingIdx = this.snap.companies.findIndex((c) => c.id === stub.company!.id);
-      if (existingIdx >= 0) this.snap.companies[existingIdx] = stub.company;
+      if (existingIdx >= 0) this.snap.companies[existingIdx] = { ...stub.company, founded: stub.company.founded ?? this.snap.companies[existingIdx]!.founded };
       else this.snap.companies.push(stub.company);
       this.snap.companyMarket[stub.company.id] = interpreted?.market.name ?? '';
       if (!this.snap.cards.some((c) => c.id === stub.card.id)) this.snap.cards.push(stub.card);
@@ -1251,6 +1325,8 @@ export class GeminiRepository implements MarketIntelRepository {
           // the ones discovery or the asset lane already established.
           hydrated.company.websiteUrl ??= prior.websiteUrl;
           if (!hydrated.company.hqLocation?.trim()) hydrated.company.hqLocation = prior.hqLocation;
+          // A stored, cited founded year survives re-hydration.
+          hydrated.company.founded ??= prior.founded;
           this.snap.companies[coIdx] = hydrated.company;
         } else {
           this.snap.companies.push(hydrated.company);
@@ -1784,13 +1860,9 @@ export class GeminiRepository implements MarketIntelRepository {
             if (leadCompanyId && !controller.signal.aborted) {
               await this.getDashboardTab(leadCompanyId, 'overview').catch(() => undefined);
             }
-            // The rest wait for core card evidence — dashboards never compete
-            // with the hydration pool for model slots.
-            await Promise.all(hydrationWorkers);
-            for (const companyId of hydratedOrder) {
-              if (controller.signal.aborted) return;
-              await this.getDashboardTab(companyId, 'overview').catch(() => undefined);
-            }
+            // The rest of the roster (every warm tab, highest tier first)
+            // warms through the background warm-up queue once the deck has
+            // completed and been tiered — see warmDeckDashboards below.
           } catch { /* dashboards remain on-demand */ }
         })();
 
@@ -1887,6 +1959,9 @@ export class GeminiRepository implements MarketIntelRepository {
         await this.persist();
         this.jobControllers.delete(job.id);
         this.activeBackgroundJobs.delete(job.id);
+        // Cards are ready and tiered: every company's dashboard tabs warm in
+        // the background, highest tier first. Never awaited — the job is done.
+        this.warmDeckDashboards(stubsResult.deck.id, 'creation');
       } catch (error) {
         if (!leadCardReadySettled) {
           leadCardReadySettled = true;
@@ -1995,7 +2070,7 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     // Cached tab research also re-runs on next open so prose catches up.
     for (const companyId of deckCompanyIds) {
-      this.invalidateDashboard(companyId);
+      this.invalidateDashboard(companyId, 'all');
     }
 
     // 2. One targeted hunt for new entrants since the deck was built.
@@ -2236,6 +2311,103 @@ export class GeminiRepository implements MarketIntelRepository {
     return Promise.resolve(this.snap.viceClaims.filter((v) => v.cardId === cardId));
   }
 
+  // Dashboard warm-up -------------------------------------------------------
+  /** What the cache holds for a warm tab: nothing, real rows, or an empty answer. */
+  private warmTabState(companyId: string, tab: WarmTab): { state: CachedTabState; at?: string | null } {
+    const cached = this.snap.dashboards[companyId]?.[tab];
+    if (!cached) return { state: 'missing' };
+    const content = cached.content as Record<string, unknown> | unknown[] | null | undefined;
+    const rows = (field: string): number => {
+      if (Array.isArray(content)) return field === 'nodes' ? content.length : 0;
+      const value = content && typeof content === 'object' ? (content as Record<string, unknown>)[field] : undefined;
+      return Array.isArray(value) ? value.length : 0;
+    };
+    const filled = tab === 'overview' ? true
+      : tab === 'history' ? rows('timeline') > 0
+        : tab === 'team_org' ? rows('nodes') > 0
+          : tab === 'products_roadmap' ? rows('products') > 0
+            : rows('items') > 0;
+    return { state: filled ? 'filled' : 'empty', at: cached.lastRefreshedAt };
+  }
+
+  /**
+   * Queue every entity company of a deck for background tab warm-up, highest
+   * tier first. Cached tabs are skipped and failed/empty ones back off (see
+   * dashboard-warmup.ts), so calling this repeatedly is cheap and never loops.
+   * Returns how many companies were newly queued.
+   */
+  warmDeckDashboards(deckId: string, priority: WarmPriority = 'open'): number {
+    if (!this.warmup) return 0;
+    const tiers = new Map<string, number | null>();
+    for (const card of this.snap.cards) {
+      if (card.deckId !== deckId || !card.companyId || !isEntityCardType(card.cardType)) continue;
+      if (!this.snap.companies.some((company) => company.id === card.companyId)) continue;
+      const prior = tiers.get(card.companyId) ?? null;
+      tiers.set(card.companyId, card.tier != null ? Math.max(card.tier, prior ?? 0) : prior);
+    }
+    // A History tab cached before founded years were stored still yields one (free).
+    for (const companyId of tiers.keys()) {
+      const company = this.snap.companies.find((c) => c.id === companyId);
+      if (company && !company.founded && this.snap.dashboards[companyId]?.history) void this.fillFoundedYear(companyId).catch(() => undefined);
+    }
+    return this.warmup.enqueue([...tiers].map(([companyId, tier]) => ({ companyId, tier })), priority);
+  }
+
+  /** Startup backfill: queue every stored deck's cold tabs at the lowest priority. */
+  warmStoredDecks(): number {
+    return this.snap.decks.reduce((queued, deck) => queued + this.warmDeckDashboards(deck.id, 'backfill'), 0);
+  }
+
+  /** Resolves when the warm-up has nothing running (tests, diagnostics). */
+  async waitForDashboardWarmup(): Promise<void> {
+    await this.warmup?.idle();
+    await Promise.all([...this.foundedLookups.values()].map((lookup) => lookup.catch(() => undefined)));
+  }
+
+  /** Companies queued for warm-up, in the order they will run. */
+  pendingDashboardWarmup(): string[] {
+    return this.warmup?.pending() ?? [];
+  }
+
+  /**
+   * Store the founded year once, with its source. Wikidata (the company's own
+   * item, matched by website; zero provider calls) outranks a History-tab
+   * founding milestone, matching the dashboard header. Nothing is stored
+   * without a citation, and nothing is ever estimated (Rule 9).
+   */
+  async fillFoundedYear(companyId: string): Promise<void> {
+    const current = () => this.snap.companies.find((c) => c.id === companyId);
+    const company = current();
+    if (!company || company.founded?.source === 'wikidata') return;
+    if (this.wikidataJson && company.websiteUrl) {
+      // Keyed by website too: a hydration that repairs the site asks again.
+      const key = `${companyId}|${company.websiteUrl}`;
+      let lookup = this.foundedLookups.get(key);
+      if (!lookup) {
+        const { name, websiteUrl } = company;
+        const getJson = this.wikidataJson;
+        lookup = (async () => {
+          const found = await wikidataFoundedYear(name, websiteUrl, getJson).catch(() => null);
+          const target = current();
+          if (!found || !target || target.founded?.source === 'wikidata' || target.websiteUrl !== websiteUrl) return;
+          target.founded = foundedFromWikidata(found);
+          await this.persist();
+        })();
+        this.foundedLookups.set(key, lookup);
+      }
+      await lookup;
+    }
+    const target = current();
+    if (!target || target.founded) return;
+    const history = this.snap.dashboards[companyId]?.history;
+    const parsed = history ? historyContentSchema.safeParse(history.content) : null;
+    if (!history || !parsed?.success) return;
+    const founded = foundedFromHistory(parsed.data.timeline, history.citations);
+    if (!founded) return;
+    target.founded = founded;
+    await this.persist();
+  }
+
   // Dashboard (lazy, cached) -----------------------------------------------
   /**
    * In-flight tab research, keyed `companyId:tab`. A user click and the warm-up
@@ -2362,6 +2534,9 @@ export class GeminiRepository implements MarketIntelRepository {
       },
     };
     const epoch = this.dashboardEpochs.get(companyId) ?? 0;
+    const allEpoch = this.dashboardAllEpochs.get(companyId) ?? 0;
+    // Only the Overview is built from stored figures (see invalidateDashboard).
+    const figureBound = tab === 'overview';
     const work = (async (): Promise<DashboardTabResult<T> | null> => {
       const { content, citations, sourceDiagnostics, overviewNarrative, productSelections, teamOrgSelections } = await researchDashboardWithSources(tab, {
         company,
@@ -2382,7 +2557,8 @@ export class GeminiRepository implements MarketIntelRepository {
       const lastRefreshedAt = new Date().toISOString();
       const result = { companyId, tab, content, citations, ...(sourceDiagnostics ? { sourceDiagnostics } : {}), lastRefreshedAt };
       // The figures changed while this pass ran: answer the caller, cache nothing.
-      if ((this.dashboardEpochs.get(companyId) ?? 0) !== epoch) return result;
+      if ((figureBound && (this.dashboardEpochs.get(companyId) ?? 0) !== epoch) ||
+        (this.dashboardAllEpochs.get(companyId) ?? 0) !== allEpoch) return result;
       const previous = this.snap.dashboards[companyId]?.overview;
       const history = previous ? [...(previous.overviewHistory ?? []),
         Object.fromEntries(Object.entries(previous).filter(([key]) => key !== 'overviewHistory')) as Omit<CachedTab, 'overviewHistory'>]
@@ -4972,6 +5148,7 @@ ${references}`
     if (prior) {
       company.websiteUrl ??= prior.websiteUrl;
       if (!company.hqLocation?.trim()) company.hqLocation = prior.hqLocation;
+      company.founded ??= prior.founded;
     }
     if (idx >= 0) this.snap.companies[idx] = company; else this.snap.companies.push(company);
     this.snap.companyMarket[companyId] = marketName;
@@ -4995,7 +5172,7 @@ ${references}`
       added.push(facet.card.id);
       if (facet.viceClaims.length > 0) this.snap.viceClaims.push(...facet.viceClaims);
     }
-    this.invalidateDashboard(companyId);
+    this.invalidateDashboard(companyId, 'all');
     return { added, updated: [card.id] };
   }
 
