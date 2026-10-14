@@ -137,7 +137,8 @@ import { checkHomepageName, discoverOfficialDomain, homepageOnTopic, marketTerms
 import { homepageHeadquarters, wikidataHeadquarters, type Headquarters } from './brand/headquarters';
 import { extractOrganizationJsonLd } from './registries/jsonld';
 import { faviconUrl, knownCompanyDomain } from './logos';
-import { METRIC_GATE_VERSION, revalidateStoredMetrics, type RevalidationOutcome } from './revalidate-stored';
+import { figureScopes, METRIC_GATE_VERSION, revalidateStoredMetrics, type RevalidationOutcome } from './revalidate-stored';
+import { implausibleScaleFigures, withheldScaleRow } from './scale-plausibility';
 import { DashboardWarmup, type CachedTabState, type WarmAttempts, type WarmPriority, type WarmTab } from './dashboard-warmup';
 import { foundedFromHistory, foundedFromWebsite, foundedFromWikidata, wikidataFoundedYear, type JsonFetcher } from './founded-year';
 
@@ -727,6 +728,7 @@ export class GeminiRepository implements MarketIntelRepository {
 
   private async persist(): Promise<void> {
     await this.ready();
+    this.withholdImplausibleScale();
     try {
       await this.store?.write(this.snap);
     } catch (cause) {
@@ -737,6 +739,25 @@ export class GeminiRepository implements MarketIntelRepository {
       // Do not clear data if even recovery reading fails.
       try { this.snap = migrateSnapshot(this.store?.read() ?? null).snapshot; } catch { /* Preserve the recovery material; never overwrite it. */ }
       throw this.persistenceError;
+    }
+  }
+
+  /** Every write passes the scale-plausibility gate (scale-plausibility.ts):
+   * an unverified figure the company's own headcount cannot carry, or another
+   * deck company's identical figure bound to this one, is withheld before it
+   * is ever stored. Rows are updated in place so lanes holding a row keep it. */
+  private withholdImplausibleScale(): void {
+    const findings = implausibleScaleFigures({ companies: this.snap.companies, metrics: this.snap.metrics,
+      scopes: figureScopes(this.snap) });
+    if (!findings.length) return;
+    const byId = new Map(findings.map((finding) => [finding.metricId, finding]));
+    for (const metric of this.snap.metrics) {
+      const finding = byId.get(metric.id);
+      if (finding) Object.assign(metric, withheldScaleRow(metric, finding.gate));
+    }
+    for (const companyId of new Set(findings.map((finding) => finding.companyId))) {
+      this.retierCompany(companyId, 'Re-tiered after an implausible unverified figure was withheld.');
+      this.invalidateDashboard(companyId);
     }
   }
 

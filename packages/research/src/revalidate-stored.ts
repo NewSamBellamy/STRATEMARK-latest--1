@@ -28,6 +28,7 @@ import { reportedBandNote, reportedRowNote, reportedStoredCitations, storedDefin
   storedSupportDate } from './reported-metrics';
 import { shareCountTooOld, storedMarketCapDates } from './market-quote';
 import { storedSecRevenueIsSubLine } from './sec-revenue';
+import { implausibleScaleFigures, SCALE_NOTES, type ScaleGate } from './scale-plausibility';
 
 /**
  * v1: parent/subsidiary + acquisition-price attribution (reported lane),
@@ -63,11 +64,18 @@ import { storedSecRevenueIsSubLine } from './sec-revenue';
  *     only says where the company is goes back to the pending placeholder.
  *     Cited (source-sentence) descriptions are never rewritten. Idempotent;
  *     runs alongside every v1-v6 check.
+ * v8: unverified scale figures that another company's evidence produced are
+ *     withheld (scale-plausibility.ts): revenue/ARR or market cap/valuation the
+ *     company's own headcount cannot carry, and an identical large figure that
+ *     sits on two companies of one deck/market where this holder's evidence
+ *     names the other, its retained batch answer places it in the other's
+ *     section, or its per-head scale is 100x the other's. Runs alongside every
+ *     v1-v7 check.
  */
-export const METRIC_GATE_VERSION = 7;
+export const METRIC_GATE_VERSION = 8;
 
 export type RevalidationGate = 'parent_or_acquisition' | 'stale_share_count' | 'sec_revenue_sub_line'
-  | 'acquired_deal_valuation' | 'non_subscription_arr';
+  | 'acquired_deal_valuation' | 'non_subscription_arr' | ScaleGate;
 
 /** A stored estimate that kept its value but had its date or definition corrected. */
 export interface RelabelledMetric {
@@ -117,7 +125,7 @@ export interface RevalidatableSnapshot {
     ownership?: Ownership | null }>;
   viceClaims?: Array<{ cardId: string }>;
   companyMarket?: Record<string, string>;
-  cards?: Array<{ id?: string; companyId: string | null; cardType: CardType; summary: string | null; citations?: Citation[] }>;
+  cards?: Array<{ id?: string; deckId?: string; companyId: string | null; cardType: CardType; summary: string | null; citations?: Citation[] }>;
   metrics: CompanyMetric[];
   dashboards: Record<string, unknown>;
   researchEvidence?: readonly ResearchEvidence[];
@@ -130,7 +138,17 @@ const NOTES: Record<RevalidationGate, string> = {
   sec_revenue_sub_line: 'Withdrawn: the stored SEC revenue was a sub-line concept; the issuer files a larger total for the same period. Unknown until re-researched.',
   acquired_deal_valuation: 'Withdrawn: the company was acquired and this valuation is the deal price, dates from the deal itself, or has no date to show it came before the deal. After an acquisition there is no independent valuation.',
   non_subscription_arr: 'Withdrawn: a financial firm\'s fee revenue was stored as ARR, and the stored source sentence does not state it as annual revenue. Unknown until re-researched.',
+  ...SCALE_NOTES,
 };
+
+/** Company-id groups that share a deck or a market: the cross-company scope. */
+export function figureScopes(snapshot: Pick<RevalidatableSnapshot, 'cards' | 'companyMarket'>): string[][] {
+  const groups = new Map<string, Set<string>>();
+  const add = (key: string, id: string) => { const g = groups.get(key) ?? new Set<string>(); g.add(id); groups.set(key, g); };
+  for (const card of snapshot.cards ?? []) if (card.deckId && card.companyId) add(`deck:${card.deckId}`, card.companyId);
+  for (const [id, market] of Object.entries(snapshot.companyMarket ?? {})) add(`market:${market}`, id);
+  return [...groups.values()].filter((g) => g.size > 1).map((g) => [...g]);
+}
 
 const UNDATED = /\bundated\b/i;
 /** Date or relabel a kept estimate from its own stored evidence. Returns the
@@ -254,6 +272,23 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
     return { ...metric, value: null, confidence: 'unknown', source: null, citations: [], methodNote: NOTES[gate],
       passageSupport: null, reportedSupport: null, quotedSupport: null, lastVerifiedAt: null };
   });
+  // Snapshot-level scale gate: needs every company's headcount and the deck's
+  // other holders of the same figure, so it runs over the per-row result.
+  const answers = [...new Set((snapshot.researchEvidence ?? []).flatMap((e) => [e.text, e.grounding?.answerText ?? '']))]
+    .filter((t) => t.length > 0);
+  const scale = new Map(implausibleScaleFigures({ companies: snapshot.companies, metrics: snapshot.metrics,
+    scopes: figureScopes(snapshot), answers }).map((f) => [f.metricId, f]));
+  if (scale.size) {
+    snapshot.metrics = snapshot.metrics.map((metric) => {
+      const finding = scale.get(metric.id);
+      if (!finding) return metric;
+      reset.push(finding);
+      const index = relabelled.findIndex((r) => r.metricId === metric.id);
+      if (index >= 0) relabelled.splice(index, 1);
+      return { ...metric, value: null, confidence: 'unknown', source: null, citations: [], methodNote: NOTES[finding.gate],
+        passageSupport: null, reportedSupport: null, quotedSupport: null, lastVerifiedAt: null };
+    });
+  }
   // Summaries are model-free copy from a source page; no human edits them, so
   // an unfit one goes back to the pending placeholder the asset and hydration
   // lanes refill. The entity cards mirror it (with its citation).
