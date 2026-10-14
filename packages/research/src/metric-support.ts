@@ -5,6 +5,7 @@ import { secIssuerName } from './sec-identity';
 import { isSecAdvSearchUrl, secAdvObservationFor } from './sec-adv';
 import { currencyMentionPattern, describeCurrencyConversion, isConvertibleCurrency, usdPerUnit } from './fx';
 import { headcountFramedAsReach } from './headcount-reach';
+import { valueOnlyInDates } from './date-digits';
 
 export type MetricPassageSupport = NonNullable<CompanyMetric['passageSupport']>;
 const normalize = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim();
@@ -179,6 +180,8 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
   const numbers = [...withoutDate.matchAll(/\b(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|thousand|[TBMK])?\b/gi)]
     .map((match) => Number(match[1]!.replaceAll(',', '')) * ({ trillion: 1e12, billion: 1e9, million: 1e6, thousand: 1e3, t: 1e12, b: 1e9, m: 1e6, k: 1e3 }[match[2]?.toLowerCase() ?? ''] ?? 1));
   if (!numbers.length || numbers.some((number) => Math.abs(number - input.value!) > Math.max(1, input.value!) * 1e-9)) return reject('Passage contains a different or ambiguous numeric value.');
+  // A day, year or quarter of another date in the passage is never the figure.
+  if (valueOnlyInDates(withoutDate, input.value!)) return reject('The value appears in the passage only as part of a date, not as a figure.');
   const matching = input.originals.filter(source => source.finalUrl === proof.sourceUrl || source.requestedUrl === proof.sourceUrl);
   if (!matching.length) return reject('No saved original passage for this claim. Retrieve the original source before accepting the figure.');
   if (!matching.some(source => source.status === 'retrieved')) return reject('Original source could not be read. Try an accessible original publisher or provide a human correction.');

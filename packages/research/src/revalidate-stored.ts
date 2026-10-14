@@ -85,8 +85,16 @@ import { storedWebsiteFoundedFails } from './founded-year';
  *     read (a copyright footer or a template's default foundingDate) or a
  *     copyright line with a legal name ("© ABM Industries Incorporated 2026").
  *     The founded-year ladder fills it again. Runs alongside every v1-v9 check.
+ * v11: unverified figures that are a digit of a date are withheld
+ *     (date-digits.ts, applied in the scale pass as `date_digit_figure`): a row
+ *     whose value appears in its own stored support only as a day of the month,
+ *     a year or a quarter inside a date, and never there as a standalone number
+ *     (Ecolab stored as 29 employees from "… as reported on September 29,
+ *     2026"). Withheld before the v8 per-head checks, so it never serves as
+ *     their denominator. Verified and user_verified rows are never touched.
+ *     Runs alongside every v1-v10 check.
  */
-export const METRIC_GATE_VERSION = 10;
+export const METRIC_GATE_VERSION = 11;
 
 export type RevalidationGate = 'parent_or_acquisition' | 'stale_share_count' | 'sec_revenue_sub_line'
   | 'acquired_deal_valuation' | 'non_subscription_arr' | ScaleGate;
