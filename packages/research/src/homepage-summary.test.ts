@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { homepageCompanySummary, isPendingCompanySummary, UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
+import { homepageCompanySummary, isPendingCompanySummary, sourceBackedCompanySummary, UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
 import type { OriginalSourceReceipt } from './original-source';
 
 const page = (html: string, finalUrl = 'https://www.brinc.com/'): OriginalSourceReceipt => ({
@@ -36,6 +36,16 @@ describe('homepageCompanySummary', () => {
     expect(homepageCompanySummary({ companyName: 'Brinc', websiteUrl: 'https://brinc.com', homepage: page(html, 'https://www.acquirer.com/unmanned') })).toBeNull();
     expect(homepageCompanySummary({ companyName: 'Brinc', websiteUrl: 'https://brinc.com',
       homepage: { ...page(html), status: 'unavailable', text: undefined } })).toBeNull();
+  });
+
+  it('never takes a sales line or a sentence that leans on its page (private credit deck)', () => {
+    const original = (text: string): OriginalSourceReceipt => ({ ...page(text, 'https://www.example-adviser.com/about'), text });
+    const pick = (companyName: string, text: string) => sourceBackedCompanySummary({ companyName,
+      websiteUrl: 'https://example-adviser.com', originals: [original(text)] });
+    expect(pick('Alter Domus', 'Discover Alter Domus, offering expert services across fund administration.')).toBeNull();
+    expect(pick('Oak Branch Advisors', 'Oak Branch Advisors is purpose-built for this environment .')).toBeNull();
+    expect(pick('Oak Branch Advisors', 'Oak Branch Advisors provides credit research to private lenders.')?.summary)
+      .toBe('Oak Branch Advisors provides credit research to private lenders.');
   });
 
   it('treats the placeholder and empty copy as pending', () => {
