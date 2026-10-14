@@ -85,6 +85,23 @@ describe('sqlite research store', () => {
     expect(read).toEqual(parseResearchExport(JSON.stringify(original)));
   });
 
+  it('persists warm-up progress and deck intent across a restart (and keeps them absent when unset)', () => {
+    const file = path.join(dir, 'repo.json');
+    const store = createSqliteStore(file)!;
+    const original = snapshot();
+    store.write(original);
+    expect(createSqliteStore(file)!.read()).not.toHaveProperty('deckWarmup');
+    const withWarmup = {
+      ...original,
+      deckWarmup: { [original.decks[0]!.id]: { startedAt: '2026-10-14T00:00:00.000Z' } },
+      dashboardWarmup: { [original.companies[0]!.id]: { history: { at: '2026-10-14T00:01:00.000Z', outcome: 'filled' as const, count: 0 } } },
+    };
+    store.write(withWarmup);
+    const read = createSqliteStore(file)!.read()!;
+    expect(read.deckWarmup).toEqual(withWarmup.deckWarmup);
+    expect(read.dashboardWarmup).toEqual(withWarmup.dashboardWarmup);
+  });
+
   it('persists incremental changes: row updates, deletions, additions and record edits', () => {
     const file = path.join(dir, 'repo.json');
     const store = createSqliteStore(file)!;
