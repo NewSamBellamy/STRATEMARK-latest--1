@@ -25,7 +25,8 @@ import {
   selectSecAdvSearchSlice,
 } from './sec-adv';
 
-const fixture = (name: string) => readFileSync(new URL(`./__fixtures__/sec-adv/${name}`, import.meta.url), 'utf8');
+// The reader retains LF text; a CRLF checkout (core.autocrlf) must not change that.
+const fixture = (name: string) => readFileSync(new URL(`./__fixtures__/sec-adv/${name}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
 function report(crd: string, text: string): OriginalSourceReceipt {
   return {
