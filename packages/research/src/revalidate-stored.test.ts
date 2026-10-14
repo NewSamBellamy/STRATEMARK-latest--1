@@ -183,6 +183,32 @@ describe('revalidateStoredMetrics', () => {
     expect(byId(out, roundRow.id)).toEqual(roundRow);
   });
 
+  it('v4: withdraws an acquired company UNDATED valuation (live Poppi: price null, no reporting date)', () => {
+    const poppi = { id: 'co_poppi', name: 'Poppi' };
+    const cite = [{ url: 'https://www.cnbc.com/2025/03/17/pepsico-poppi.html', title: 'CNBC' }];
+    const dated = reported(poppi, 'valuation', 1.95e9, 'Poppi was valued at USD 1.95 billion.', '2025-03-17');
+    const undated = { ...dated, methodNote: 'Source reported valuation (undated; reporting date not published).',
+      reportedSupport: { ...dated.reportedSupport!, asOf: null } } as unknown as CompanyMetric;
+    const roundSource = reported(poppi, 'valuation', 5e8, 'Poppi was valued at $500 million in its Series B in June 2023.', '', {
+      id: 'met_poppi_round', methodNote: 'Source reported valuation; provider-grounded, not verified against an original.' });
+    const round = { ...roundSource, reportedSupport: { ...roundSource.reportedSupport!, asOf: null } } as unknown as CompanyMetric;
+    const base = snapshot();
+    const snap = snapshot({
+      companies: [...base.companies,
+        { ...poppi, websiteUrl: null, ownership: { status: 'acquired', acquirer: 'PepsiCo', announcedOn: '2025-05-19', closedOn: '2025-05',
+          price: null, citations: cite, confidence: 'estimated' } },
+      ] as unknown as RepoSnapshot['companies'],
+      metrics: [...base.metrics, undated, round],
+    });
+    // A deck already revalidated by the previous gate version still re-runs.
+    const { snapshot: out, revalidation } = migrateSnapshot({ ...snap, metricGateVersion: METRIC_GATE_VERSION - 1 } as typeof snap);
+    expect(revalidation?.reset.find((r) => r.metricId === undated.id)?.gate).toBe('acquired_deal_valuation');
+    expect(byId(out, undated.id)).toMatchObject({ value: null, confidence: 'unknown' });
+    // An undated row whose own support states a pre-deal date is re-dated, then judged: it stands.
+    expect(revalidation?.reset.map((r) => r.metricId)).not.toContain(round.id);
+    expect(byId(out, round.id)).toMatchObject({ value: 5e8, reportedSupport: { asOf: '2023-06-30' } });
+  });
+
   it('v3: a v2 snapshot from either branch gets both v2 sets (ownership + dating/summary/HQ)', () => {
     const poppi = { id: 'co_poppi', name: 'Poppi' };
     const cite = [{ url: 'https://www.cnbc.com/2025/03/17/pepsico-poppi.html', title: 'CNBC' }];
@@ -207,7 +233,7 @@ describe('revalidateStoredMetrics', () => {
     expect(revalidation?.reset.map((r) => [r.metricId, r.gate])).toEqual([[dealRow.id, 'acquired_deal_valuation']]);
     expect(revalidation?.relabelled.map((r) => [r.metricId, r.change, r.asOf])).toEqual([['met_acme_undated', 'redated', '2025-02-28']]);
     expect(out.companies.map((c) => c.hqLocation)).toEqual(['Austin, Texas', 'Mumbai, IN']);
-    expect(out.metricGateVersion).toBe(3);
+    expect(out.metricGateVersion).toBe(METRIC_GATE_VERSION);
     // Idempotent: the checks re-run on their own output change nothing.
     const again = revalidateStoredMetrics({ ...structuredClone(out), metricGateVersion: 2 });
     expect([again.reset, again.relabelled, again.resetSummaries, again.normalizedHq]).toEqual([[], [], [], []]);

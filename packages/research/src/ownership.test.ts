@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { enforceMetricProvenance, type CompanyMetric } from '@mi/contracts';
+import { enforceMetricProvenance, type CompanyMetric, type Ownership } from '@mi/contracts';
 import {
   acquisitionStatements, dateInSentence, dealPriceInSentence, decideOwnership, findOwnership, gleifOwnership, metricOwnershipEvidence,
-  wikidataParentClaims, type OwnershipEvidenceText,
+  preferOwnership, wikidataParentClaims, type OwnershipEvidenceText,
 } from './ownership';
 import type { OriginalSourceReceipt } from './original-source';
 import type { WebSearchResult } from './web-search';
@@ -250,5 +250,95 @@ describe('findOwnership (fixtures, no network)', () => {
       { fetchImpl, nowMs: NOW });
     expect(found.ownership).toMatchObject({ status: 'independent', confidence: 'verified' });
     expect(found.ownership!.citations[0]!.url).toBe(`https://search.gleif.org/#/record/${lei}`);
+  });
+});
+
+describe('announcement date, close date and price from news phrasing (Poppi/PepsiCo pattern)', () => {
+  // Synthetic sentences in the style of deal reporting; no network.
+  const site = { website: POPPI_SITE };
+  const src = (url: string, text: string, date: string | null = null): OwnershipEvidenceText => ({ url, title: 'x', text, date });
+
+  it('a later article merely naming the deal does not date the announcement', () => {
+    const later = src('https://news.example.com/poppi-shelves', 'PepsiCo\'s acquisition of Poppi gives it a foothold in prebiotic soda.', '2025-05-19');
+    const [s] = acquisitionStatements('Poppi', later, site);
+    expect(s).toMatchObject({ phase: 'announced', announcedExplicitly: false });
+    const closes = (url: string) => acquisitionStatements('Poppi', src(url, 'PepsiCo completed its acquisition of Poppi in May 2025.'), site);
+    const o = decideOwnership({ statements: [s!, ...closes('https://a.example.com/1'), ...closes('https://b.example.org/2')], registry: [] });
+    expect(o).toMatchObject({ status: 'acquired', announcedOn: null, closedOn: '2025-05' });
+  });
+
+  it('"said it will acquire" is the announcement; its page date dates it', () => {
+    const [s] = acquisitionStatements('Poppi', src('https://news.example.com/a', 'PepsiCo on Monday said it will acquire prebiotic soda brand Poppi for $1.95 billion.', '2025-03-17'), site);
+    expect(s).toMatchObject({ phase: 'announced', announcedExplicitly: true, date: '2025-03-17', price: { value: 1.95e9 } });
+  });
+
+  it('one sentence stating both phases dates each phase by its own wording', () => {
+    const text = 'PepsiCo has completed its acquisition of Poppi on May 27, 2025, after it announced the deal on March 17, 2025.';
+    const [s] = acquisitionStatements('Poppi', src('https://news.example.com/b', text, '2025-05-28'), site);
+    expect(s).toMatchObject({ phase: 'completed', date: '2025-05-27' });
+    const recalledOnly = 'PepsiCo has completed its acquisition of Poppi, a deal it first announced on March 17, 2025.';
+    const [r] = acquisitionStatements('Poppi', src('https://news.example.com/c', recalledOnly, '2025-05-28'), site);
+    // The only date is the announcement's: the close is not dated by it, nor by the page.
+    expect(r).toMatchObject({ phase: 'completed', date: null });
+  });
+
+  it('prices: "in a deal valued at", "for", and the follow-on "The deal is valued at" sentence', () => {
+    const one = (text: string) => acquisitionStatements('Poppi', src('https://news.example.com/d', text, '2025-03-17'), site)[0];
+    expect(one('PepsiCo agreed to acquire Poppi in a deal valued at $1.95 billion.')?.price).toEqual({ value: 1.95e9, currency: 'USD' });
+    expect(one('PepsiCo has agreed to buy Poppi for $1.95 billion.')?.price).toEqual({ value: 1.95e9, currency: 'USD' });
+    expect(one('PepsiCo has agreed to buy Poppi in a transaction worth $1.95bn.')?.price).toEqual({ value: 1.95e9, currency: 'USD' });
+    expect(one('PepsiCo has agreed to acquire Poppi. The deal is valued at $1.95 billion, including tax benefits.')?.price).toEqual({ value: 1.95e9, currency: 'USD' });
+    // A follow-on sentence that is not about the deal, or a tax figure, binds nothing.
+    expect(one('PepsiCo has agreed to acquire Poppi. Poppi raised $40 million last year.')?.price).toBeNull();
+    expect(one('PepsiCo has agreed to acquire Poppi. The deal includes $300 million of anticipated cash tax benefits.')?.price).toBeNull();
+  });
+
+  it('a hedged "nearly $2 billion" never becomes the price but does not block the exact one', () => {
+    const exact = acquisitionStatements('Poppi', src('https://a.example.com/1', 'PepsiCo agreed to acquire Poppi for $1.95 billion.', '2025-03-17'), site);
+    const hedged = acquisitionStatements('Poppi', src('https://b.example.org/2', 'PepsiCo agreed to buy Poppi for nearly $2 billion.', '2025-03-18'), site);
+    expect(hedged[0]).toMatchObject({ priceApproximate: true });
+    expect(decideOwnership({ statements: [...exact, ...hedged], registry: [] })?.price).toEqual({ value: 1.95e9, currency: 'USD' });
+    expect(decideOwnership({ statements: hedged, registry: [] })?.price).toBeNull();
+    const contradicting = acquisitionStatements('Poppi', src('https://c.example.net/3', 'PepsiCo agreed to buy Poppi for about $3 billion.'), site);
+    expect(decideOwnership({ statements: [...exact, ...contradicting], registry: [] })?.price).toBeNull();
+  });
+
+  it('the full Poppi set: announced 2025-03-17, closed 2025-05-27, price $1.95B', () => {
+    const statements = [
+      ...acquisitionStatements('Poppi', src('https://news.example.com/later', 'PepsiCo\'s acquisition of Poppi gives it a foothold in prebiotic soda.', '2025-05-19'), site),
+      ...acquisitionStatements('Poppi', src('https://news.example.com/a', 'PepsiCo said Monday it has agreed to acquire Poppi. The deal is valued at $1.95 billion.', '2025-03-17'), site),
+      ...acquisitionStatements('Poppi', { url: 'https://www.pepsico.com/newsroom/press-releases/2025/poppi', title: 'PepsiCo', text: poppiClosedRelease }, site),
+    ];
+    expect(decideOwnership({ statements, registry: [] })).toMatchObject({ status: 'acquired', announcedOn: '2025-03-17', closedOn: '2025-05-27',
+      price: { value: 1.95e9, currency: 'USD' }, confidence: 'verified' });
+  });
+});
+
+describe('preferOwnership: a fresh run vs the stored record', () => {
+  const cite = (url: string) => ({ url, title: 'x' });
+  const stale: Ownership = { status: 'acquired', acquirer: 'PepsiCo', announcedOn: '2025-05-19', closedOn: '2025-05', price: null,
+    citations: [cite('https://a.example.com/1')], confidence: 'estimated', methodNote: 'old' };
+
+  it('a fresh record at least as well evidenced replaces the stale one', () => {
+    const fresh: Ownership = { ...stale, announcedOn: '2025-03-17', price: { value: 1.95e9, currency: 'USD' }, citations: [cite('https://b.example.org/2')] };
+    expect(preferOwnership(stale, fresh)).toMatchObject({ announcedOn: '2025-03-17', price: { value: 1.95e9 } });
+    expect(preferOwnership(stale, { ...fresh, confidence: 'verified', closedOn: '2025-05-27' })).toMatchObject({ confidence: 'verified', closedOn: '2025-05-27' });
+  });
+
+  it('a weaker fresh run keeps the stored status but takes its evidenced date and price', () => {
+    const weaker: Ownership = { status: 'acquisition_pending', acquirer: 'PepsiCo', announcedOn: '2025-03-17', closedOn: null,
+      price: { value: 1.95e9, currency: 'USD' }, citations: [cite('https://cnbc.example.com/p')], confidence: 'verified', methodNote: 'new' };
+    const kept = preferOwnership(stale, weaker)!;
+    expect(kept).toMatchObject({ status: 'acquired', closedOn: '2025-05', announcedOn: '2025-03-17', price: { value: 1.95e9 } });
+    expect(kept.citations.map((c) => c.url)).toEqual(['https://a.example.com/1', 'https://cnbc.example.com/p']);
+    // A different buyer's weaker record changes nothing.
+    expect(preferOwnership(stale, { ...weaker, acquirer: 'Coca-Cola' })).toBe(stale);
+  });
+
+  it('nothing found keeps the stored record; a human-verified record is never replaced', () => {
+    expect(preferOwnership(stale, null)).toBe(stale);
+    const human: Ownership = { ...stale, confidence: 'user_verified' };
+    expect(preferOwnership(human, { ...stale, confidence: 'verified', announcedOn: '2025-03-17' })).toBe(human);
+    expect(preferOwnership(null, stale)).toMatchObject({ status: 'acquired' });
   });
 });

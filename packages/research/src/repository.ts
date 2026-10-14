@@ -110,8 +110,8 @@ import {
 } from './semantic-memory';
 import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest } from './prompts';
 import type { ResearchPassage } from '@mi/contracts';
-import { enforceOwnershipProvenance, type Ownership } from '@mi/contracts';
-import { findOwnership, metricOwnershipEvidence, receiptOwnershipEvidence } from './ownership';
+import type { Ownership } from '@mi/contracts';
+import { findOwnership, metricOwnershipEvidence, preferOwnership, receiptOwnershipEvidence } from './ownership';
 import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { LlmClient, ProviderGrounding, ResearchCoverage, RunResearchOptions } from './types';
 import type { ResearchNoteEntry, ReportedMetricSupport } from '@mi/contracts';
@@ -4350,9 +4350,13 @@ export class GeminiRepository implements MarketIntelRepository {
           capturedAt: new Date().toISOString(), receipts: found.receipts.slice(i, i + 2) }).catch(() => undefined);
       }
     }
-    const next = enforceOwnershipProvenance(found.ownership, true);
     const live = this.snap.companies.find((c) => c.id === companyId);
-    if (!next || !live || live.ownership?.confidence === 'user_verified') return { ownership: live?.ownership ?? current };
+    if (!live) return { ownership: current };
+    // A fresh record at least as well evidenced replaces a stale stored one
+    // (wrong date, lost price); a weaker run only fills what it evidences.
+    const stored = live.ownership ?? null;
+    const next = preferOwnership(stored, found.ownership);
+    if (!next || next === stored) return { ownership: next };
     live.ownership = next;
     await this.persist();
     return { ownership: next };

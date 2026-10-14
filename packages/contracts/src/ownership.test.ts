@@ -126,7 +126,30 @@ describe('an acquired company shows no deal-time valuation', () => {
   it('(a) a value matching the acquisition price within 0.5% is withheld', () => {
     const noDate = { ...acquired, announcedOn: null, closedOn: null };
     expect(ownershipWithholdsValuation(valuation({ value: 1.955e9 }), noDate)).toBe(true);
-    expect(ownershipWithholdsValuation(valuation({ value: 2.2e9 }), noDate)).toBe(false);
+    expect(ownershipWithholdsValuation(reportedRow(2.2e9, '2024-06-01'), noDate)).toBe(false);
+  });
+
+  it('(c) the live Poppi row: undated, price unknown, still withheld', () => {
+    // Stored state seen live: price null, figure reported with no reporting date.
+    const live: Ownership = { ...acquired, price: null, announcedOn: '2025-05-19', closedOn: '2025-05' };
+    const undated = valuation({ value: 1.95e9, methodNote: 'Source reported valuation (undated; reporting date not published).' });
+    expect(ownershipWithholdsValuation(undated, live)).toBe(true);
+    expect(enforceMetricProvenance(undated, null, live)).toMatchObject({ value: null, confidence: 'unknown', methodNote: DEAL_TIME_VALUATION_NOTE });
+    // A support present but with no asOf is still undated.
+    const supportNoDate = valuation({ value: 2e9, quotedSupport: { sourceUrl: 'https://example.org/p', quote: 'Poppi is valued at $2 billion.', value: 2e9, unit: 'USD' } as CompanyMetric['quotedSupport'] });
+    expect(ownershipWithholdsValuation(supportNoDate, live)).toBe(true);
+    // Unparseable dates count as no date.
+    expect(ownershipWithholdsValuation(reportedRow(2e9, 'unknown'), live)).toBe(true);
+  });
+
+  it('(c) an undated figure stays for pending, uncited, human-verified, or independent', () => {
+    const undated = valuation({ value: 1.95e9 });
+    expect(ownershipWithholdsValuation(undated, { ...acquired, price: null, status: 'acquisition_pending' })).toBe(false);
+    expect(ownershipWithholdsValuation(undated, { ...acquired, price: null, citations: [] })).toBe(false);
+    expect(ownershipWithholdsValuation(undated, { ...acquired, price: null, confidence: 'user_verified', citations: [] })).toBe(false);
+    expect(ownershipWithholdsValuation({ ...undated, confidence: 'user_verified' }, { ...acquired, price: null })).toBe(false);
+    expect(ownershipWithholdsValuation(undated, { ...acquired, price: null, status: 'independent', acquirer: undefined })).toBe(false);
+    expect(ownershipWithholdsValuation(undated, null)).toBe(false);
   });
 
   it('(b) the live Poppi row, dated on the announcement, is withheld', () => {

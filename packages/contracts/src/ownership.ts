@@ -92,10 +92,15 @@ function samePrice(a: number, b: number): boolean {
  * valuation figure is withheld when
  *  (a) it equals the acquisition price (within 0.5%), or
  *  (b) its evidence is dated on/after the deal's announcement (or close when no
- *      announcement is evidenced) minus {@link PRE_DEAL_WINDOW_DAYS} — only
- *      when the ownership record carries a usable citation.
+ *      announcement is evidenced) minus {@link PRE_DEAL_WINDOW_DAYS}, or
+ *  (c) its evidence carries no date at all (no `asOf` on its quoted, reported
+ *      or passage support). After an acquisition there is no independent
+ *      current valuation, and an undated figure cannot be shown to pre-date the
+ *      deal — it is most often the deal price itself.
+ * (b) and (c) apply only when the ownership record carries a usable citation.
  * Never for a pending deal (a pre-deal round is legitimate history), never for
- * a human-verified figure, and never without a sourced acquired status.
+ * a human-verified figure, and never without a sourced acquired status. A
+ * DATED round from before the window stands as history.
  */
 export function ownershipWithholdsValuation(
   metric: Pick<CompanyMetric, 'metricType' | 'value' | 'confidence' | 'passageSupport' | 'reportedSupport' | 'quotedSupport'>,
@@ -111,14 +116,16 @@ export function ownershipWithholdsValuation(
     if (values.some((v) => samePrice(v, price))) return true;
   }
   if (o.citations.length === 0) return false;
+  const dates = [metric.quotedSupport?.asOf, metric.reportedSupport?.asOf, metric.passageSupport?.asOf]
+    .map((d) => startOf(d)).filter((t): t is number => t != null);
+  // (c) Undated: nothing shows this figure pre-dates the deal.
+  if (dates.length === 0) return true;
   const anchor = startOf(o.announcedOn ?? o.closedOn);
   if (anchor == null) return false;
   const floor = anchor - PRE_DEAL_WINDOW_DAYS * DAY_MS;
-  const dates = [metric.quotedSupport?.asOf, metric.reportedSupport?.asOf, metric.passageSupport?.asOf]
-    .map((d) => startOf(d)).filter((t): t is number => t != null);
   return dates.some((t) => t >= floor);
 }
 
 /** Reason stamped on a valuation withheld by {@link ownershipWithholdsValuation}. */
 export const DEAL_TIME_VALUATION_NOTE =
-  'Not shown as a valuation: the company was acquired, and this figure matches the acquisition price or dates from the deal itself (within 90 days before the announcement), so it is the deal, not an independent valuation.';
+  'Not shown as a valuation: the company was acquired, and this figure matches the acquisition price, dates from the deal itself (within 90 days before the announcement), or has no date to show it came before the deal. After an acquisition there is no independent valuation.';

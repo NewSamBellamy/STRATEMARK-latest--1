@@ -53,6 +53,13 @@ export interface AcquisitionStatement {
   acquirer: string | null;
   date: string | null;
   price: { value: number; currency: string } | null;
+  /** The price was hedged ("nearly $2 billion"): it can veto a contradicting
+   * figure but is never itself shown as the price. */
+  priceApproximate: boolean;
+  /** An `announced` statement whose wording actually announces the deal
+   * ("announced", "agreed to acquire", "said it will acquire"). Only these date
+   * `announcedOn`; "PepsiCo's acquisition of Poppi" in a later article does not. */
+  announcedExplicitly: boolean;
   sentence: string;
   citation: Citation;
   primary: boolean;
@@ -168,26 +175,88 @@ function isoDay(y: number, m: number, d: number): string | null {
   return date.getUTCMonth() === m && date.getUTCDate() === d ? date.toISOString().slice(0, 10) : null;
 }
 
+interface DateMention { date: string; index: number; rank: number }
+
+const MON = 'Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?';
+const DATE_FORMS: Array<{ re: RegExp; parse: (m: RegExpMatchArray) => string | null }> = [
+  { re: /\b((?:19|20)\d{2})-(\d{2})-(\d{2})\b/g, parse: (m) => isoDay(Number(m[1]), Number(m[2]) - 1, Number(m[3])) },
+  { re: new RegExp(`\\b(${MON})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+((?:19|20)\\d{2})\\b`, 'gi'), parse: (m) => isoDay(Number(m[3]), monthIndex(m[1]!), Number(m[2])) },
+  { re: new RegExp(`\\b(\\d{1,2})\\s+(${MON})\\.?\\s+((?:19|20)\\d{2})\\b`, 'gi'), parse: (m) => isoDay(Number(m[3]), monthIndex(m[2]!), Number(m[1])) },
+  { re: /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+((?:19|20)\d{2})\b/gi,
+    parse: (m) => `${m[2]}-${String(monthIndex(m[1]!) + 1).padStart(2, '0')}` },
+];
+
+/** Every dated mention in the sentence, most specific form first. A bare year
+ * counts only when it is the sentence's only date of any kind. */
+function dateMentions(sentence: string): DateMention[] {
+  const out: DateMention[] = [];
+  const covered: Array<[number, number]> = [];
+  DATE_FORMS.forEach(({ re, parse }, rank) => {
+    for (const m of sentence.matchAll(re)) {
+      const from = m.index!, to = from + m[0].length;
+      // A shorter form inside an already-found date is the same mention.
+      if (covered.some(([a, b]) => from < b && to > a)) continue;
+      const date = parse(m);
+      if (!date) continue;
+      covered.push([from, to]);
+      out.push({ date, index: from, rank });
+    }
+  });
+  if (out.length) return out.sort((a, b) => a.rank - b.rank || a.index - b.index);
+  const years = [...sentence.matchAll(/(?<!(?:founded|established|since|launched) in\s)\b((?:19|20)\d{2})\b/gi)];
+  return years.length === 1 ? [{ date: years[0]![1]!, index: years[0]!.index!, rank: DATE_FORMS.length }] : [];
+}
+
 /** The most specific date written in the sentence: a day, else a month, else a year. */
 export function dateInSentence(sentence: string): string | null {
-  const iso = /\b((?:19|20)\d{2})-(\d{2})-(\d{2})\b/.exec(sentence);
-  if (iso) return isoDay(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
-  const mdy = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+((?:19|20)\d{2})\b/i.exec(sentence);
-  if (mdy) return isoDay(Number(mdy[3]), monthIndex(mdy[1]!), Number(mdy[2]));
-  const dmy = /\b(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+((?:19|20)\d{2})\b/i.exec(sentence);
-  if (dmy) return isoDay(Number(dmy[3]), monthIndex(dmy[2]!), Number(dmy[1]));
-  const my = /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+((?:19|20)\d{2})\b/i.exec(sentence);
-  if (my) return `${my[2]}-${String(monthIndex(my[1]!) + 1).padStart(2, '0')}`;
-  const years = [...sentence.matchAll(/(?<!(?:founded|established|since|launched) in\s)\b((?:19|20)\d{2})\b/gi)].map((m) => m[1]!);
-  return years.length === 1 ? years[0]! : null;
+  return dateMentions(sentence)[0]?.date ?? null;
 }
+
+/** Words that state the deal was agreed/announced, and words that state it closed. */
+const ANNOUNCE_ANCHOR = /\b(?:announc\w*|agree[sd]?|agreement|signed|unveil\w*|said|says)\b/gi;
+const CLOSE_ANCHOR = /\b(?:complet(?:ed|es|ion)|closed|closes|closing|finali[sz](?:ed|es)|consummated|acquired|bought|purchased|took over|owned by|subsidiary of|sold)\b/gi;
+/** A completion sentence recalling the announcement ("which announced the deal on March 17, 2025"). */
+const RECALLED_ANNOUNCEMENT = /\b(?:announced|agreed|signed)\s+(?:the |its |a |an |their )?(?:deal|acquisition|agreement|merger|purchase|takeover|to (?:acquire|buy|purchase|be acquired))\b|\b(?:deal|acquisition|agreement|merger|transaction)\s+(?:that\s+)?(?:it|they|was|were)\s+(?:first\s+|originally\s+)?(?:announced|agreed|signed)\b/gi;
+/** An announcement sentence also stating the close ("... and closed the deal in May 2025"). */
+const STATED_CLOSE = /\b(?:complet(?:ed|es)|closed|closes|finali[sz](?:ed|es)|consummated)\b/gi;
+
+/**
+ * The date this sentence gives for THIS phase of the deal. A sentence that
+ * states both phases ("agreed in March 2025 and closed in May 2025") dates each
+ * phase by the date nearest its own wording; a date nearer the other phase's
+ * wording is never borrowed.
+ */
+export function phaseDateInSentence(sentence: string, phase: DealPhase): string | null {
+  const mentions = dateMentions(sentence);
+  if (!mentions.length || phase === 'terminated') return mentions[0]?.date ?? null;
+  const own = [...sentence.matchAll(phase === 'announced' ? ANNOUNCE_ANCHOR : CLOSE_ANCHOR)].map((m) => m.index!);
+  const other = [...sentence.matchAll(phase === 'announced' ? STATED_CLOSE : RECALLED_ANNOUNCEMENT)].map((m) => m.index!);
+  if (!other.length) return mentions[0]!.date;
+  // A date belongs to the phase wording that precedes it most closely ("completed
+  // ... on May 27, 2025", "announced the deal on March 17, 2025"); a date ahead of
+  // all wording belongs to the wording that follows it most closely.
+  const owner = (at: number): 'own' | 'other' | null => {
+    const anchors = [...own.map((i) => ({ i, k: 'own' as const })), ...other.map((i) => ({ i, k: 'other' as const }))];
+    const before = anchors.filter((a) => a.i < at).sort((a, b) => b.i - a.i)[0];
+    const after = anchors.filter((a) => a.i > at).sort((a, b) => a.i - b.i)[0];
+    return (before ?? after)?.k ?? null;
+  };
+  return mentions.find((d) => owner(d.index) === 'own')?.date ?? null;
+}
+
+/** Wording that actually announces a deal, as opposed to merely naming it. */
+const EXPLICIT_ANNOUNCEMENT = /\b(?:announc\w*|agree[sd]|agreement|signed|unveil\w*)\b|\b(?:said|says|confirmed|confirms)\b[^.;]{0,60}?\b(?:will|would|plans to|is to|intends to|to)\s+(?:acquire|buy|purchase)\b/i;
 
 const SCALE: Record<string, number> = { trillion: 1e12, billion: 1e9, million: 1e6, bn: 1e9, mn: 1e6, b: 1e9, m: 1e6 };
 const CURRENCY: Array<[RegExp, string]> = [[/^(?:US\$|\$|USD\s?)$/i, 'USD'], [/^(?:€|EUR\s?)$/i, 'EUR'], [/^(?:£|GBP\s?)$/i, 'GBP']];
 
-/** The deal price the sentence states: a currency amount the valuation rule reads as a price. */
 /** Words that bind a figure to the purchase itself, immediately before it. */
-const PRICE_LEAD = /(?:\b(?:for|valued at|valuing (?:it|the company|the deal|the brand|\w+) at|worth|priced at|purchase price of|(?:total |aggregate )?consideration of|price tag of|in a deal (?:valued at|worth)|at a price of)\s+(?:(?:approximately|about|roughly|nearly|around|some|an estimated|a reported|reportedly)\s+)?)$/i;
+const PRICE_LEAD = /(?:\b(?:for|valued at|valuing (?:it|the company|the deal|the brand|\w+) at|worth|priced at|purchase price of|(?:total |aggregate )?consideration of|price tag of|in a (?:deal|transaction) (?:valued at|worth)|at a price of)\s+(?:(approximately|about|roughly|nearly|almost|around|some|an estimated|a reported|reportedly|close to|more than|over|just (?:over|under)|up to)\s+)?)$/i;
+/** Qualifiers that make a figure a ballpark, not the price ("approximately" is
+ * how a press release states an exact price, so it is not one of them). */
+const APPROXIMATE = /^(?:about|roughly|nearly|almost|around|some|close to|more than|over|just (?:over|under)|up to)$/i;
+/** The same ballpark words before a figure bound by what follows it ("a nearly $2 billion deal"). */
+const APPROXIMATE_BEFORE = /\b(about|roughly|nearly|almost|around|some|close to|more than|over|just (?:over|under)|up to)\s+$/i;
 /** Or immediately after it: "$1.95 billion deal", "$1.95bn acquisition of Poppi". */
 const PRICE_TAIL = /^\s*(?:-|–)?\s*(?:all-cash\s+|cash\s+|stock\s+)?(?:deal|acquisition|takeover|buyout|purchase|transaction|merger)\b/i;
 /** A figure next to any of these is something else: a payout, an adjustment, revenue, funding. */
@@ -208,8 +277,13 @@ function clauseAround(sentence: string, start: number, end: number): { before: s
  * the same sentence is never the price; when unsure, null.
  */
 export function dealPriceInSentence(sentence: string): { value: number; currency: string } | null {
-  if (!/\b(?:acquir\w*|acquisition|bought|buy|buys|purchas\w*|takeover|buyout|merger|deal|sold)\b/i.test(sentence)) return null;
-  const found: Array<{ value: number; currency: string }> = [];
+  return boundDealPrice(sentence)?.price ?? null;
+}
+
+/** {@link dealPriceInSentence} plus whether the sentence hedged the figure. */
+function boundDealPrice(sentence: string): { price: { value: number; currency: string }; approximate: boolean } | null {
+  if (!/\b(?:acquir\w*|acquisition|bought|buy|buys|purchas\w*|takeover|buyout|merger|deal|transaction|sold)\b/i.test(sentence)) return null;
+  const found: Array<{ value: number; currency: string; approximate: boolean }> = [];
   for (const m of sentence.matchAll(/(US\$|\$|USD\s?|€|EUR\s?|£|GBP\s?)(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|bn|mn|b|m)?\b/gi)) {
     const currency = CURRENCY.find(([re]) => re.test(m[1]!))?.[1];
     const value = Number(m[2]!.replaceAll(',', '')) * (SCALE[m[3]?.toLowerCase() ?? ''] ?? 1);
@@ -217,16 +291,21 @@ export function dealPriceInSentence(sentence: string): { value: number; currency
     const start = m.index!, end = start + m[0].length;
     const lead = sentence.slice(Math.max(0, start - 60), start);
     const tail = sentence.slice(end, end + 40);
-    if (!PRICE_LEAD.test(lead) && !PRICE_TAIL.test(tail)) continue;
+    const leadMatch = PRICE_LEAD.exec(lead);
+    if (!leadMatch && !PRICE_TAIL.test(tail)) continue;
     const { before, after } = clauseAround(sentence, start, end);
     if (NOT_THE_PRICE.test(before) || NOT_THE_PRICE.test(after)) continue;
-    found.push({ value, currency });
+    const qualifier = leadMatch ? leadMatch[1] : APPROXIMATE_BEFORE.exec(lead.replace(/\b(?:an?|the)\s+$/i, ''))?.[1];
+    found.push({ value, currency, approximate: !!qualifier && APPROXIMATE.test(qualifier) });
   }
   // Two different bound figures in one sentence: cannot tell which is the price.
   const first = found[0];
   if (!first || found.some((f) => f.currency !== first.currency || Math.abs(f.value - first.value) > first.value * 0.005)) return null;
-  return first;
+  return { price: { value: first.value, currency: first.currency }, approximate: found.every((f) => f.approximate) };
 }
+
+/** A follow-on sentence about the same deal: "The deal is valued at $1.95 billion." */
+const DEAL_FOLLOW_ON = /^(?:The|This|That|Its)\s+(?:[\w$.,'’-]+\s+){0,3}?(?:deal|acquisition|transaction|purchase|agreement|takeover)\b/i;
 
 function hostOf(url: string): string {
   try { return new URL(url).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; }
@@ -274,7 +353,8 @@ export function acquisitionStatements(companyName: string, source: OwnershipEvid
   // announcement: never a completion/closing article recalling it, and never a
   // sentence that refers back to it ("which agreed to buy it in March").
   const announcementSource = !COMPLETION_WORDING.test(source.text);
-  for (const sentence of sentencesOf(source.text)) {
+  const sentences = sentencesOf(source.text);
+  for (const [at, sentence] of sentences.entries()) {
     const hits = [...sentence.matchAll(new RegExp(brand.source, brand.flags))];
     if (!hits.length) continue;
     let found: { phase: DealPhase; acquirer: string | null } | null = null;
@@ -312,11 +392,24 @@ export function acquisitionStatements(companyName: string, source: OwnershipEvid
       if (!buyer || buyer === own || new RegExp(brand.source, brand.flags.replace('g', '')).test(found.acquirer)) continue;
     }
     const primary = source.primary ?? isPrimaryOwnershipSource(source.url, options.website, found.acquirer);
+    // The price is in this sentence, or in the very next one when that sentence
+    // is plainly about the same deal ("The deal is valued at $1.95 billion.").
+    const next = sentences[at + 1];
+    const bound = found.phase === 'terminated' ? null : boundDealPrice(sentence) ??
+      (next && DEAL_FOLLOW_ON.test(next) && !HEDGE.test(next) && !MODAL_HEDGE.test(next) && !TERMINATED.test(next) ? boundDealPrice(next) : null);
+    const explicit = found.phase === 'announced' && EXPLICIT_ANNOUNCEMENT.test(sentence);
+    // A sentence that names dates dates itself (by the phase's own wording when
+    // it states both phases); the page's own date only fills in for a sentence
+    // with no date, and for an announcement only on the announcement itself.
+    const dated = dateMentions(sentence).length > 0;
+    const pageDateFits = !dated && (found.phase !== 'announced' || (explicit && announcementSource && !RETROSPECTIVE.test(sentence)));
     out.push({
       phase: found.phase,
       acquirer: found.acquirer,
-      date: dateInSentence(sentence) ?? (found.phase !== 'announced' || (announcementSource && !RETROSPECTIVE.test(sentence)) ? source.date ?? null : null),
-      price: found.phase === 'terminated' ? null : dealPriceInSentence(sentence),
+      date: phaseDateInSentence(sentence, found.phase) ?? (pageDateFits ? source.date ?? null : null),
+      price: bound?.price ?? null,
+      priceApproximate: bound?.approximate ?? false,
+      announcedExplicitly: explicit,
       sentence,
       citation: { url: source.url, title: source.title || publisher },
       primary,
@@ -536,11 +629,16 @@ export function decideOwnership(input: { statements: readonly AcquisitionStateme
     // A reported termination with no proof of closing: no deal stands.
     if (terminated && !closed) return null;
     const announced = group.filter((s) => s.phase === 'announced');
-    // A primary source's price stands; otherwise every stated price must agree, or none is shown.
-    const prices = group.filter((s) => s.price);
-    const primaryPrice = prices.find((s) => s.primary);
-    const agreed = prices.length && prices.every((s) => s.price!.currency === prices[0]!.price!.currency &&
-      Math.abs(s.price!.value - prices[0]!.price!.value) <= prices[0]!.price!.value * 0.005) ? prices[0] : undefined;
+    // A primary source's exact price stands; otherwise every exact price must
+    // agree, and a hedged figure ("nearly $2 billion") must not contradict them
+    // (within 10%). A hedged figure is never shown as the price itself.
+    const exact = group.filter((s) => s.price && !s.priceApproximate);
+    const hedged = group.filter((s) => s.price && s.priceApproximate);
+    const primaryPrice = exact.find((s) => s.primary);
+    const base = exact[0];
+    const near = (s: AcquisitionStatement, tolerance: number) => !!base && s.price!.currency === base.price!.currency &&
+      Math.abs(s.price!.value - base.price!.value) <= base.price!.value * tolerance;
+    const agreed = base && exact.every((s) => near(s, 0.005)) && hedged.every((s) => near(s, 0.1)) ? base : undefined;
     const priced = primaryPrice ?? agreed;
     const evidence = closed ? [...(primaryClose.length ? primaryClose : completed), ...announced] : group;
     const citations = [...evidence.map((s) => s.citation), ...(closed && gleifParent ? [gleifParent.citation] : []),
@@ -549,7 +647,8 @@ export function decideOwnership(input: { statements: readonly AcquisitionStateme
     const record: Ownership = {
       status: closed ? 'acquired' : 'acquisition_pending',
       acquirer,
-      announcedOn: ordered(announced.map((s) => s.date))[0] ?? null,
+      // Only wording that announces the deal dates the announcement.
+      announcedOn: ordered(announced.filter((s) => s.announcedExplicitly).map((s) => s.date))[0] ?? null,
       closedOn: closeDate,
       price: priced?.price ?? null,
       citations,
@@ -585,6 +684,49 @@ export function decideOwnership(input: { statements: readonly AcquisitionStateme
     }, true);
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Stored record vs a fresh run
+
+const STATUS_RANK: Record<Ownership['status'], number> = { acquired: 3, acquisition_pending: 2, subsidiary: 2, independent: 1 };
+const CONFIDENCE_RANK: Partial<Record<Ownership['confidence'], number>> = { user_verified: 3, verified: 2, estimated: 1 };
+
+function evidenceRank(o: Ownership): [number, number] {
+  return [STATUS_RANK[o.status] ?? 0, CONFIDENCE_RANK[o.confidence] ?? 0];
+}
+
+/**
+ * Which record to keep when a fresh run of the lane meets a stored one.
+ * The fresh record wins whenever it is at least as well evidenced (a closed
+ * deal over a pending one, then verified over estimated): it was built by
+ * today's rules, so a stale stored date or a lost price is corrected. A
+ * strictly weaker fresh run (say the closing press release was unreachable
+ * this time) keeps the stored record, but for the SAME buyer still takes the
+ * fresh run's explicitly evidenced announcement date and, when the stored
+ * record has none, its price — each with its citations. Nothing found keeps
+ * the stored record; a human-verified record is never replaced.
+ */
+export function preferOwnership(current: Ownership | null | undefined, fresh: Ownership | null | undefined): Ownership | null {
+  const next = enforceOwnershipProvenance(fresh, true);
+  if (!current) return next;
+  if (!next || current.confidence === 'user_verified') return current;
+  const [cs, cc] = evidenceRank(current);
+  const [ns, nc] = evidenceRank(next);
+  if (ns > cs || (ns === cs && nc >= cc)) return next;
+  const same = !!current.acquirer && !!next.acquirer && sameBuyer(current.acquirer, next.acquirer);
+  if (!same) return current;
+  const takeDate = !!next.announcedOn && next.announcedOn !== current.announcedOn;
+  const takePrice = !current.price && !!next.price;
+  if (!takeDate && !takePrice) return current;
+  const urls = new Set(current.citations.map((c) => c.url));
+  return enforceOwnershipProvenance({
+    ...current,
+    announcedOn: takeDate ? next.announcedOn : current.announcedOn,
+    price: takePrice ? next.price : current.price,
+    citations: [...current.citations, ...next.citations.filter((c) => !urls.has(c.url))],
+    checkedAt: next.checkedAt ?? current.checkedAt,
+  }, true);
 }
 
 // ---------------------------------------------------------------------------

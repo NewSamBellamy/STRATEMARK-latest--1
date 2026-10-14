@@ -44,8 +44,11 @@ import { storedSecRevenueIsSubLine } from './sec-revenue';
  * v3: both v2 sets together. Every check below is idempotent and ALL of them
  *     run whenever the stored version is below the current one, so a v2
  *     snapshot that ran only one branch's checks still gets the other's.
+ * v4: an acquired company's UNDATED valuation is withheld too (ownership rule,
+ *     same acquired_deal_valuation gate); undated estimates are re-dated from
+ *     their own stored support first, so a dated pre-deal round still stands.
  */
-export const METRIC_GATE_VERSION = 3;
+export const METRIC_GATE_VERSION = 4;
 
 export type RevalidationGate = 'parent_or_acquisition' | 'stale_share_count' | 'sec_revenue_sub_line'
   | 'acquired_deal_valuation' | 'non_subscription_arr';
@@ -102,7 +105,7 @@ const NOTES: Record<RevalidationGate, string> = {
   parent_or_acquisition: 'Withdrawn: the stored source sentence gives a parent company\'s figure or an acquisition price, not this company\'s own figure. Unknown until re-researched.',
   stale_share_count: 'Withdrawn: the stored market cap multiplied the share price by a share count more than 400 days older than the price. Unknown until re-researched.',
   sec_revenue_sub_line: 'Withdrawn: the stored SEC revenue was a sub-line concept; the issuer files a larger total for the same period. Unknown until re-researched.',
-  acquired_deal_valuation: 'Withdrawn: the company was acquired and this valuation is the deal price or dates from the deal itself, not an independent valuation.',
+  acquired_deal_valuation: 'Withdrawn: the company was acquired and this valuation is the deal price, dates from the deal itself, or has no date to show it came before the deal. After an acquisition there is no independent valuation.',
   non_subscription_arr: 'Withdrawn: a financial firm\'s fee revenue was stored as ARR, and the stored source sentence does not state it as annual revenue. Unknown until re-researched.',
 };
 
@@ -194,10 +197,14 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
   snapshot.metrics = snapshot.metrics.map((metric) => {
     // Only a human may set or clear a user_verified figure.
     if (metric.confidence === 'user_verified' || metric.confidence === 'unknown') return metric;
-    let gate = failedGate(metric, names.get(metric.companyId),
+    // Gates judge the row as its own stored evidence dates it: an undated
+    // estimate whose support states a date is judged with that date, so an
+    // acquired company's dated pre-deal round is not withheld as undated.
+    const corrected = correctedEstimate(metric, companies.get(metric.companyId));
+    const judged = corrected && corrected !== 'reset' ? corrected.row : metric;
+    let gate = failedGate(judged, names.get(metric.companyId),
       () => answersFor(metric.companyId), () => receiptsFor(metric.companyId), undecided, companies.get(metric.companyId)?.ownership);
     if (!gate) {
-      const corrected = correctedEstimate(metric, companies.get(metric.companyId));
       if (corrected === null) return metric;
       if (corrected !== 'reset') {
         relabelled.push({ metricId: metric.id, companyId: metric.companyId, metricType: metric.metricType,
