@@ -246,6 +246,8 @@ class SqliteStore implements ResearchStore {
       upsert.run(field, JSON.stringify(snapshot[field] ?? {}));
     }
     upsert.run('schemaVersion', String(snapshot.schemaVersion ?? REPO_SCHEMA_VERSION));
+    // Without the gate stamp every read would re-run stored-figure revalidation.
+    if (snapshot.metricGateVersion !== undefined) upsert.run('metricGateVersion', String(snapshot.metricGateVersion));
   }
 
   read(): RepoSnapshot | null {
@@ -269,6 +271,8 @@ class SqliteStore implements ResearchStore {
     }
     const kvVersion = this.db.prepare('SELECT value FROM kv WHERE key = ?').get('schemaVersion') as { value: string } | undefined;
     if (kvVersion) snapshot.schemaVersion = Number(kvVersion.value);
+    const gateVersion = this.db.prepare('SELECT value FROM kv WHERE key = ?').get('metricGateVersion') as { value: string } | undefined;
+    if (gateVersion) snapshot.metricGateVersion = Number(gateVersion.value);
     return parseResearchExport(JSON.stringify(snapshot));
   }
 
