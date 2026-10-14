@@ -47,6 +47,7 @@ import {
 import { computeCompanyCompleteness } from './completeness';
 import { isPendingCompanySummary } from './company-summary';
 import { displayedCompanyFacts } from './displayed-facts';
+import { storedMarketCapDates } from './market-quote';
 import type { OriginalSourceAttempt } from './original-source';
 import type { ResearchEvidence } from './research-evidence';
 import { savedCompanySummary } from './saved-profile';
@@ -281,8 +282,10 @@ function formatFigure(metric: CompanyMetric): string {
 }
 
 function asOfOf(metric: CompanyMetric): string | null {
+  // A computed market cap (Yahoo price × SEC shares) records its dates in the
+  // methodNote/citations, not a support: it is dated by its price date.
   return metric.passageSupport?.asOf || metric.reportedSupport?.asOf || metric.quotedSupport?.asOf ||
-    metric.reportedBand?.asOf || null;
+    metric.reportedBand?.asOf || (metric.metricType === 'market_cap' ? storedMarketCapDates(metric)?.priceAsOf : null) || null;
 }
 
 const SALES_VERB = /^\s*(?:discover|shop|buy|explore|get|find|experience|unlock|try|join|book|order|save|start|learn|meet|browse|sign up|welcome to|elevate|transform|empower)\b/i;

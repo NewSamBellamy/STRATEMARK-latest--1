@@ -1,4 +1,4 @@
-import type { Company, CompanyMetric } from '@mi/contracts';
+import { classifyMarketProfile, type Company, type CompanyMetric } from '@mi/contracts';
 import { enrichmentOutSchema } from './schemas';
 import { providerCompanySummary, reportedCompanyMetrics } from './reported-metrics';
 import type { ResearchEvidence } from './research-evidence';
@@ -31,7 +31,8 @@ export function savedCompanyProfile(company: Company, metrics: readonly CompanyM
   if (!profile) return { company, metrics: [...metrics] };
   const recovered = reportedCompanyMetrics({ companyId: company.id, companyName: company.name, website: company.websiteUrl,
     enrichment: enrichmentOutSchema.parse({ metrics: {} }), text: profile.text, grounding: profile.grounding, capturedAt: profile.capturedAt,
-    identity: otherCompanies ? { answerText: profile.grounding?.answerText, otherCompanies } : undefined });
+    identity: otherCompanies ? { answerText: profile.grounding?.answerText, otherCompanies } : undefined,
+    profile: classifyMarketProfile(company) });
   const current = metrics.filter(row => row.companyId === company.id);
   // A slot withheld because sources disagree is not missing: filling it from the
   // saved profile would show one side of the conflict as fact.

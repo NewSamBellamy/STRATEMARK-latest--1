@@ -1,7 +1,7 @@
 import { METRIC_TYPES, companyMetricSchema, currentMetricRevision, metricPassageSupportSchema,
   validMetricVerificationValue, isSignalCardType, type CardWithCompany, type Company, type CompanyMetric } from '@mi/contracts';
-import { currencyConversionNote, inspectMetricPassage } from './metric-support';
-import { CARD_FACT_TYPES, reportedBandCitations, reportedStoredCitations } from './reported-metrics';
+import { inspectMetricPassage } from './metric-support';
+import { reportedBandCitations, reportedRowNote, reportedStoredCitations } from './reported-metrics';
 import { quotedStoredCitations } from './quoted-estimate';
 import { isOriginalSourceAttempt, originalSupportReferences, selectOriginalSourceAttempts, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceQuery } from './original-source';
 
@@ -77,7 +77,7 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
     }
     if (reportedCitations.length) return [{ ...structuredClone(metric), citations: reportedCitations,
       source: reportedCitations[0]!.url, passageSupport: null, lastVerifiedAt: null,
-      methodNote: `Source reported ${metric.reportedSupport!.definition ?? type} (${metric.reportedSupport!.asOf ? `as of ${metric.reportedSupport!.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original.${CARD_FACT_TYPES.includes(type) ? ` Source statement: ${JSON.stringify(metric.reportedSupport!.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}` : ''}${metric.reportedSupport!.unit !== 'USD' && metric.reportedSupport!.unit !== 'count' && metric.reportedSupport!.unit !== 'percent' ? ` ${currencyConversionNote(metric.reportedSupport!.value, metric.reportedSupport!.unit)}` : ''}` }];
+      methodNote: reportedRowNote(type, metric.reportedSupport!) }];
     const proof = metricPassageSupportSchema.safeParse(metric.passageSupport);
     // Market share needs a defined market/denominator/period contract. A dated
     // percentage in a sentence is not that contract; automatic shares wait.

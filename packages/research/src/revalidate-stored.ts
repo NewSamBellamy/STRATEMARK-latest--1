@@ -15,10 +15,12 @@
  * add the check here) whenever a new write gate should also reach stored rows.
  * Human-verified figures are never touched.
  */
-import type { CompanyMetric, MetricType } from '@mi/contracts';
+import { classifyMarketProfile, type CompanyMetric, type MetricType } from '@mi/contracts';
 import type { OriginalSourceAttempt, OriginalSourceReceipt } from './original-source';
 import type { ResearchEvidence } from './research-evidence';
-import { storedReportedFigureMisattributed } from './reported-metrics';
+import { reportedBandNote, reportedRowNote, reportedStoredCitations, storedDefinition, storedReportedFigureMisattributed,
+  supportStatesRevenue,
+  storedSupportDate } from './reported-metrics';
 import { shareCountTooOld, storedMarketCapDates } from './market-quote';
 import { storedSecRevenueIsSubLine } from './sec-revenue';
 
@@ -26,10 +28,25 @@ import { storedSecRevenueIsSubLine } from './sec-revenue';
  * v1: parent/subsidiary + acquisition-price attribution (reported lane),
  *     400-day share-count staleness (market-cap quote lane),
  *     SEC sub-line revenue concept (structured revenue lane).
+ * v2: undated estimates re-dated from their own stored support (a literal
+ *     business date, else the end of the one period it states) or marked
+ *     explicitly undated; a financial firm's "ARR" relabelled annual revenue
+ *     (or withdrawn when the stored support does not state revenue).
  */
-export const METRIC_GATE_VERSION = 1;
+export const METRIC_GATE_VERSION = 2;
 
-export type RevalidationGate = 'parent_or_acquisition' | 'stale_share_count' | 'sec_revenue_sub_line';
+export type RevalidationGate = 'parent_or_acquisition' | 'stale_share_count' | 'sec_revenue_sub_line' | 'non_subscription_arr';
+
+/** A stored estimate that kept its value but had its date or definition corrected. */
+export interface RelabelledMetric {
+  metricId: string;
+  companyId: string;
+  metricType: MetricType;
+  /** redated: the stored support's own date was applied; undated: the note now
+   * says no date is published; annual_revenue: a financial firm's ARR relabelled. */
+  change: 'redated' | 'undated' | 'annual_revenue';
+  asOf: string | null;
+}
 
 export interface RevalidatedMetric {
   metricId: string;
@@ -46,6 +63,8 @@ export interface RevalidationOutcome {
   /** True when this call ran the checks (the stored version was older). */
   ran: boolean;
   reset: RevalidatedMetric[];
+  /** Kept figures whose date or definition was corrected. */
+  relabelled: RelabelledMetric[];
   /** SEC revenue rows whose retained evidence could not decide the sub-line question. */
   undecided: string[];
 }
@@ -53,7 +72,7 @@ export interface RevalidationOutcome {
 /** The snapshot fields this pass reads and writes. */
 export interface RevalidatableSnapshot {
   metricGateVersion?: number;
-  companies: ReadonlyArray<{ id: string; name: string }>;
+  companies: ReadonlyArray<{ id: string; name: string; websiteUrl?: string | null; oneLiner?: string }>;
   metrics: CompanyMetric[];
   dashboards: Record<string, unknown>;
   researchEvidence?: readonly ResearchEvidence[];
@@ -64,7 +83,48 @@ const NOTES: Record<RevalidationGate, string> = {
   parent_or_acquisition: 'Withdrawn: the stored source sentence gives a parent company\'s figure or an acquisition price, not this company\'s own figure. Unknown until re-researched.',
   stale_share_count: 'Withdrawn: the stored market cap multiplied the share price by a share count more than 400 days older than the price. Unknown until re-researched.',
   sec_revenue_sub_line: 'Withdrawn: the stored SEC revenue was a sub-line concept; the issuer files a larger total for the same period. Unknown until re-researched.',
+  non_subscription_arr: 'Withdrawn: a financial firm\'s fee revenue was stored as ARR, and the stored source sentence does not state it as annual revenue. Unknown until re-researched.',
 };
+
+const UNDATED = /\bundated\b/i;
+/** Date or relabel a kept estimate from its own stored evidence. Returns the
+ * replacement row, 'reset' when a financial firm's ARR cannot be relabelled,
+ * or null when nothing changes. A derived date must pass the same display gate
+ * the card runs, or the row stays (explicitly) undated. */
+function correctedEstimate(metric: CompanyMetric, company: RevalidatableSnapshot['companies'][number] | undefined):
+  { row: CompanyMetric; change: RelabelledMetric['change'] } | 'reset' | null {
+  if (metric.confidence !== 'estimated') return null;
+  if (metric.reportedSupport && company) {
+    const website = company.websiteUrl ?? null;
+    let proof = metric.reportedSupport;
+    let change: RelabelledMetric['change'] | null = null;
+    const definition = storedDefinition(metric.metricType, proof.definition, classifyMarketProfile(company));
+    if (definition !== proof.definition) {
+      const relabelled = { ...proof, definition };
+      if (!supportStatesRevenue(proof.support.text) ||
+        !reportedStoredCitations(company.name, website, { ...metric, reportedSupport: relabelled }).length) return 'reset';
+      proof = relabelled;
+      change = 'annual_revenue';
+    }
+    if (!proof.asOf) {
+      const asOf = storedSupportDate(proof.support.text, metric.capturedAt);
+      const dated = asOf ? { ...proof, asOf } : null;
+      if (dated && reportedStoredCitations(company.name, website, { ...metric, reportedSupport: dated }).length) {
+        proof = dated;
+        change ??= 'redated';
+      } else if (!UNDATED.test(metric.methodNote ?? '')) change ??= 'undated';
+    }
+    if (!change) return null;
+    return { row: { ...metric, reportedSupport: proof, methodNote: reportedRowNote(metric.metricType, proof) }, change };
+  }
+  if (metric.reportedBand && !metric.reportedBand.asOf) {
+    const asOf = storedSupportDate(metric.reportedBand.support.text, metric.capturedAt);
+    if (!asOf && UNDATED.test(metric.methodNote ?? '')) return null;
+    const band = { ...metric.reportedBand, asOf };
+    return { row: { ...metric, reportedBand: band, methodNote: reportedBandNote(band) }, change: asOf ? 'redated' : 'undated' };
+  }
+  return null;
+}
 
 function failedGate(metric: CompanyMetric, companyName: string | undefined,
   answers: () => string[], receipts: () => OriginalSourceReceipt[], undecided: string[]): RevalidationGate | null {
@@ -88,9 +148,10 @@ function failedGate(metric: CompanyMetric, companyName: string | undefined,
  */
 export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): RevalidationOutcome {
   const fromVersion = typeof snapshot.metricGateVersion === 'number' ? snapshot.metricGateVersion : 0;
-  if (fromVersion >= METRIC_GATE_VERSION) return { fromVersion, ran: false, reset: [], undecided: [] };
+  if (fromVersion >= METRIC_GATE_VERSION) return { fromVersion, ran: false, reset: [], relabelled: [], undecided: [] };
 
   const names = new Map(snapshot.companies.map((c) => [c.id, c.name]));
+  const companies = new Map(snapshot.companies.map((c) => [c.id, c]));
   const answersByCompany = new Map<string, string[]>();
   const answersFor = (companyId: string) => {
     let found = answersByCompany.get(companyId);
@@ -105,21 +166,31 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
     .filter((a) => a.companyId === companyId).flatMap((a) => a.receipts);
 
   const reset: RevalidatedMetric[] = [];
+  const relabelled: RelabelledMetric[] = [];
   const undecided: string[] = [];
   // Rows are replaced, never mutated: callers may still hold the read snapshot.
   snapshot.metrics = snapshot.metrics.map((metric) => {
     // Only a human may set or clear a user_verified figure.
     if (metric.confidence === 'user_verified' || metric.confidence === 'unknown') return metric;
-    const gate = failedGate(metric, names.get(metric.companyId),
+    let gate = failedGate(metric, names.get(metric.companyId),
       () => answersFor(metric.companyId), () => receiptsFor(metric.companyId), undecided);
-    if (!gate) return metric;
+    if (!gate) {
+      const corrected = correctedEstimate(metric, companies.get(metric.companyId));
+      if (corrected === null) return metric;
+      if (corrected !== 'reset') {
+        relabelled.push({ metricId: metric.id, companyId: metric.companyId, metricType: metric.metricType,
+          change: corrected.change, asOf: corrected.row.reportedSupport?.asOf ?? corrected.row.reportedBand?.asOf ?? null });
+        return corrected.row;
+      }
+      gate = 'non_subscription_arr';
+    }
     reset.push({ metricId: metric.id, companyId: metric.companyId, metricType: metric.metricType, gate, previousValue: metric.value });
     return { ...metric, value: null, confidence: 'unknown', source: null, citations: [], methodNote: NOTES[gate],
       passageSupport: null, reportedSupport: null, quotedSupport: null, lastVerifiedAt: null };
   });
   // A cached dashboard may restate a withdrawn figure in its prose.
-  const touched = new Set(reset.map((r) => r.companyId));
+  const touched = new Set([...reset, ...relabelled].map((r) => r.companyId));
   if (touched.size) snapshot.dashboards = { ...snapshot.dashboards, ...Object.fromEntries([...touched].map((id) => [id, {}])) };
   snapshot.metricGateVersion = METRIC_GATE_VERSION;
-  return { fromVersion, ran: true, reset, undecided };
+  return { fromVersion, ran: true, reset, relabelled, undecided };
 }

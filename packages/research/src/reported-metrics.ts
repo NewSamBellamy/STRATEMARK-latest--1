@@ -1,6 +1,6 @@
 import { isAttributedGrounding } from './grounding-support';
 import { MONEY_METRIC_TYPES, reportedBandSchema, reportedMetricSupportSchema, usableCitations, validMetricVerificationValue,
-  type Citation, type CompanyMetric, type MetricType, type ReportedMetricSupport } from '@mi/contracts';
+  type Citation, type CompanyMetric, type MetricType, type MarketProfile, type ReportedBand, type ReportedMetricSupport } from '@mi/contracts';
 import type { ProviderGrounding } from './types';
 import type { EnrichmentOut } from './schemas';
 import { describeCurrencyConversion, isConvertibleCurrency, usdPerUnit } from './fx';
@@ -279,12 +279,18 @@ export function isTalkOnlyValuation(text: string): boolean {
 const LOCATIVE_AFTER_NUMBER =
   /^\s*(?:based\s+in|in\s+(?:the\s+)?(?:americas?|emea|apac|asia(?:[- ]pacific)?|us|u\.s\.?|europe)|across\s+(?:the\s+)?(?:americas?|emea|apac|asia|us|u\.s\.?|europe)|outside\s+(?:the\s+)?(?:us|u\.s\.?|americas?))\b/i;
 
-function hasDate(text: string, date: string): boolean {
+function hasExactDate(text: string, date: string): boolean {
   const parsed = new Date(`${date}T00:00:00Z`);
   if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return false;
   const month = parsed.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
   const day = parsed.getUTCDate(), year = parsed.getUTCFullYear();
   return text.includes(date) || new RegExp(`\\b(?:${month} ${day}(?:st|nd|rd|th)?[,]? ${year}|${day} ${month} ${year})\\b`, 'i').test(text);
+}
+
+/** The text states this date literally, or states the period it ends
+ * ("in February 2025" for 2025-02-28) — see statedPeriods. */
+function hasDate(text: string, date: string): boolean {
+  return hasExactDate(text, date) || statedPeriods(text).some(period => period.asOf === date);
 }
 
 /** Event figures whose date is the event's date: a round or valuation "as of"
@@ -374,11 +380,78 @@ export function businessDates(text: string): string[] {
   return [...new Set(dates)];
 }
 
+const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+// "in February 2025", "during 2024", "as of March 2026", "for 2024". The lead
+// word is required: a bare year ("since 2019", "a 2022 round") is not the
+// figure's period. Fiscal-year wording is excluded on purpose — a fiscal year
+// need not end on December 31, and guessing its end would invent a date.
+const STATED_PERIOD = /\b(in|during|for|as of|as at|at the end of|end of)\s+(?:(january|february|march|april|may|june|july|august|september|october|november|december)\s+)?((?:19|20)\d{2})\b(?![-/]\d)/gi;
+// A year that dates the company, not the figure ("founded in 2015").
+const NOT_THE_FIGURE = /\b(?:founded|established|launched|started|incorporated|formed|created|born|since|from)\s*$/i;
+
+export interface StatedPeriod {
+  /** The period's END (month end, or December 31): the figure held by then. */
+  asOf: string;
+  /** The period exactly as the source wrote it ("February 2025", "2024"). */
+  stated: string;
+}
+
+/** Every month/year or calendar-year period the text states in figure-dating
+ * wording, as the period's last day. Literal only: no relative dates, no
+ * quarters, no fiscal years, never a publication or retrieval timestamp. */
+export function statedPeriods(text: string): StatedPeriod[] {
+  const found = new Map<string, StatedPeriod>();
+  for (const match of text.matchAll(STATED_PERIOD)) {
+    if (NOT_THE_FIGURE.test(text.slice(Math.max(0, match.index! - 24), match.index!))) continue;
+    const year = Number(match[3]);
+    const month = match[2] ? MONTH_NAMES.indexOf(match[2].toLowerCase()) : 11;
+    const asOf = new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
+    const stated = match[2] ? `${match[2][0]!.toUpperCase()}${match[2].slice(1).toLowerCase()} ${year}` : String(year);
+    if (!found.has(asOf)) found.set(asOf, { asOf, stated });
+  }
+  return [...found.values()];
+}
+
+/**
+ * The one period a claim states when it states no exact business date: its
+ * end as the as-of date. Null when the text states an exact business date
+ * (that one governs), states no period or several (ambiguous), or the period
+ * had not ended by `notAfter` (a projection, or a period still running — the
+ * capture date itself is never used as a figure's date).
+ */
+export function statedPeriodDate(text: string, notAfter?: string): StatedPeriod | null {
+  if (businessDates(text).length) return null;
+  const periods = statedPeriods(text);
+  if (periods.length !== 1) return null;
+  const period = periods[0]!;
+  return notAfter && period.asOf >= notAfter.slice(0, 10) ? null : period;
+}
+
+/** How a reported row's methodNote states its date: exact, the end of a period
+ * the source names, or explicitly undated. */
+export function reportedAsOfNote(asOf: string | null | undefined, supportText: string): string {
+  if (!asOf) return 'undated; reporting date not published';
+  if (hasExactDate(supportText, asOf)) return `as of ${asOf}`;
+  const period = statedPeriods(supportText).find(row => row.asOf === asOf);
+  return period ? `as of ${asOf}, the end of the period the source states (${period.stated})` : `as of ${asOf}`;
+}
+
+/** The honest date of a STORED undated support, for revalidation: the one
+ * literal business date it states, else the end of the one period it states
+ * (never on/after the capture date). Null when the text dates nothing. The
+ * caller must still re-run the display gate with the date applied. */
+export function storedSupportDate(supportText: string, capturedAt?: string | null): string | null {
+  const exact = [...new Set(businessDates(supportText))];
+  if (exact.length === 1) return capturedAt && exact[0]! > capturedAt.slice(0, 10) ? null : exact[0]!;
+  if (exact.length > 1) return null;
+  return statedPeriodDate(supportText, capturedAt ?? undefined)?.asOf ?? null;
+}
+
 /** Repair a missing model selector from literal, per-claim provider attribution.
  * No fuzzy estimates, user populations, new calls or original-verification claim.
  * Multiple values for the same latest period are ambiguous and stay unknown. */
 function recoverOmittedClaim(companyName: string, website: string | null, type: MetricType,
-  grounding?: ProviderGrounding, otherCompanies?: readonly string[]) {
+  grounding?: ProviderGrounding, otherCompanies?: readonly string[], revenueOnly = false) {
   if (!grounding || !['arr', 'employees', 'valuation', 'market_cap', 'market_share', 'aum', 'users', ...CARD_FACT_TYPES].includes(type)) return undefined;
   const choices: Array<{ value: number; selector: NonNullable<NonNullable<EnrichmentOut['metrics']['arr']>['reportedClaim']> }> = [];
   for (const support of grounding.supports) {
@@ -400,7 +473,7 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
     // Annual revenue and ARR share a slot, but remain distinct candidates.
     // Do not let the presence of ARR hide annual revenue in the same segment.
     const candidates: Array<NonNullable<ReportedMetricSupport['definition']>> =
-      type === 'arr' ? ['arr', 'annual_revenue'] : [type];
+      type === 'arr' ? (revenueOnly ? ['annual_revenue'] : ['arr', 'annual_revenue']) : [type];
     const definitions = candidates.filter(definition => basisPatterns[definition]?.test(text));
     const baseUnit = type === 'employees' || type === 'users' || type === 'distribution' ? 'count' : type === 'market_share' ? 'percent' : 'USD';
     const pattern = /(?:\bUSD\s*|US\$|\$)?\s*(?<![A-Za-z\d])(\d[\d,]*(?:\.\d+)?)\s*\+?\s*(trillion|billion|million|thousand|[kmbt]\b)?/gi;
@@ -668,10 +741,43 @@ export function reportedStoredCitations(companyName: string, website: string | n
   return appears ? lenient : [];
 }
 
+/** A financial firm's 'arr' slot is annual revenue, never ARR: an asset
+ * manager's fees are not subscription revenue, whatever label the answer used.
+ * The relabelled row must still pass the annual-revenue basis gate. */
+export function storedDefinition(type: MetricType, definition: ReportedMetricSupport['definition'], profile?: MarketProfile): ReportedMetricSupport['definition'] {
+  return type === 'arr' && profile === 'financial_firm' ? 'annual_revenue' : definition;
+}
+
+/** Whether a stored support states its figure as revenue (not ARR): the
+ * precondition for relabelling a financial firm's stored "ARR" as annual revenue. */
+export function supportStatesRevenue(text: string): boolean {
+  const bare = plain(text);
+  return !basisPatterns.arr!.test(bare) && (basisPatterns.annual_revenue!.test(bare) || basisPatterns.revenue!.test(bare));
+}
+
+/** The methodNote of a provider-reported estimated row: what was reported, its
+ * date (exact, the end of a stated period, or explicitly undated), and any
+ * currency conversion. One wording for the write lane, the read projection and
+ * the stored-data revalidation. */
+export function reportedRowNote(type: MetricType, proof: ReportedMetricSupport): string {
+  const statement = JSON.stringify(proof.support.text.replace(/\s+/g, ' ').trim().slice(0, 240));
+  const dated = reportedAsOfNote(proof.asOf, proof.support.text);
+  const rate = isConvertibleCurrency(proof.unit) ? usdPerUnit(proof.unit) : null;
+  const conversion = MONEY_METRIC_TYPES.includes(type) && rate != null
+    ? ` ${describeCurrencyConversion(proof.value, proof.unit, proof.value * rate)}` : '';
+  return (type === 'valuation' && isTalkOnlyValuation(proof.support.text)
+    ? `Reported talks or a proposal at this valuation, not a closed round (${dated}); provider-grounded, not verified against an original. Source statement: ${statement}`
+    : `Source reported ${proof.definition ?? type} (${dated}); provider-grounded, not verified against an original.${CARD_FACT_TYPES.includes(type) ? ` Source statement: ${statement}` : ''}`) + conversion;
+}
+
 /** Model fields select claims only; support is copied from the provider, never JSON. */
 export function reportedCompanyMetrics(input: { companyId: string; companyName: string; website: string | null;
   enrichment: EnrichmentOut; text: string; grounding?: ProviderGrounding; capturedAt: string; includeUnknowns?: boolean;
-  identity?: ReportedIdentityContext }): CompanyMetric[] {
+  identity?: ReportedIdentityContext;
+  /** The company's market profile. A financial firm's 'arr' slot holds annual
+   * revenue (fees are not subscription revenue): only that definition is kept. */
+  profile?: MarketProfile }): CompanyMetric[] {
+  const revenueOnly = input.profile === 'financial_firm';
   const identity: ReportedIdentityContext = {
     answerText: input.identity?.answerText ?? (isAttributedGrounding(input.grounding) ? input.grounding.answerText : undefined),
     otherCompanies: input.identity?.otherCompanies,
@@ -692,7 +798,7 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
     // independently from provider evidence, never by trusting that number.
     // An explicit but rejected selector must not silently trigger recovery.
     const recovered = proposedMetric?.value == null || (!proposedMetric.reportedClaim && !proposedMetric.passageSupport)
-      ? recoverOmittedClaim(input.companyName, input.website, type, trusted, identity.otherCompanies) : undefined;
+      ? recoverOmittedClaim(input.companyName, input.website, type, trusted, identity.otherCompanies, revenueOnly && type === 'arr') : undefined;
     const proposal = recovered ? { value: recovered.value, reportedClaim: recovered.selector } : proposedMetric;
     const selector = proposal?.reportedClaim ?? ('passageSupport' in (proposal ?? {}) ? proposedMetric?.passageSupport : undefined);
     if (proposal?.value == null || !selector || selector.basis !== type) return row;
@@ -708,30 +814,36 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
         !support.sources.some(source => source.url === selector.sourceUrl)) continue;
       // A selector that omits its date while the quoted claim states exactly one
       // literal business date ("… as of September 29, 2025") takes that date:
-      // it is the source's own wording, not an inference.
+      // it is the source's own wording, not an inference. Failing that, the one
+      // period the stored support states ("in February 2025") dates it by that
+      // period's end — tried first, and dropped (undated) if any gate refuses it.
       const statedDates = selector.asOf ? [] : businessDates(support.text);
       const asOf = selector.asOf ?? (statedDates.length === 1 ? statedDates[0]! : selector.asOf);
-      const proof = reportedMetricSupportSchema.safeParse({ provider: trusted!.provider, companyName: input.companyName,
-        basis: type, value: proposal.value, unit: selector.unit, asOf,
-        definition: selector.definition,
-        periodStart: selector.periodStart && hasDate(support.text, selector.periodStart) ? selector.periodStart : undefined,
-        support: structuredClone(support) });
-      if (!proof.success) continue;
-      // A share price moves daily; an undated market cap can be years stale
-      // (Xero's "9.86B AUD" was) and reads as today's figure on the card.
-      if (type === 'market_cap' && !proof.data.asOf) continue;
-      const proposed = { ...row, value: proposal.value, reportedSupport: proof.data };
-      const citations = reportedMetricCitations(input.companyName, input.website, proposed, identity);
-      if (!citations.length) continue;
-      // The stored row is USD (decks stay comparable); the proof keeps the
-      // native observation and the methodNote says how it was converted.
-      const conversion = MONEY_METRIC_TYPES.includes(type) && isConvertibleCurrency(proof.data.unit)
-        ? ` ${describeCurrencyConversion(proposal.value, proof.data.unit, proposal.value * usdPerUnit(proof.data.unit)!)}` : '';
-      return { ...proposed, value: MONEY_METRIC_TYPES.includes(type) && isConvertibleCurrency(proof.data.unit)
-        ? proposal.value * usdPerUnit(proof.data.unit)! : proposal.value, confidence: 'estimated', citations, source: citations[0]!.url,
-        methodNote: (type === 'valuation' && isTalkOnlyValuation(proof.data.support.text)
-          ? `Reported talks or a proposal at this valuation, not a closed round (${proof.data.asOf ? `as of ${proof.data.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original. Source statement: ${JSON.stringify(proof.data.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}`
-          : `Source reported ${proof.data.definition ?? type} (${proof.data.asOf ? `as of ${proof.data.asOf}` : 'undated; reporting date not published'}); provider-grounded, not verified against an original.${CARD_FACT_TYPES.includes(type) ? ` Source statement: ${JSON.stringify(proof.data.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}` : ''}`) + conversion };
+      const period = asOf ? null : statedPeriodDate(support.text, input.capturedAt);
+      for (const candidate of period ? [period.asOf, asOf] : [asOf]) {
+        const proof = reportedMetricSupportSchema.safeParse({ provider: trusted!.provider, companyName: input.companyName,
+          basis: type, value: proposal.value, unit: selector.unit, asOf: candidate,
+          definition: storedDefinition(type, selector.definition, input.profile),
+          periodStart: selector.periodStart && hasDate(support.text, selector.periodStart) ? selector.periodStart : undefined,
+          support: structuredClone(support) });
+        if (!proof.success) continue;
+        // A share price moves daily; an undated market cap can be years stale
+        // (Xero's "9.86B AUD" was) and reads as today's figure on the card.
+        if (type === 'market_cap' && !proof.data.asOf) continue;
+        const proposed = { ...row, value: proposal.value, reportedSupport: proof.data };
+        const citations = reportedMetricCitations(input.companyName, input.website, proposed, identity);
+        if (!citations.length) continue;
+        // The stored row is USD (decks stay comparable); the proof keeps the
+        // native observation and the methodNote says how it was converted.
+        const value = MONEY_METRIC_TYPES.includes(type) && isConvertibleCurrency(proof.data.unit)
+          ? proposal.value * usdPerUnit(proof.data.unit)! : proposal.value;
+        // A derived period date must also survive the stored-row recheck every
+        // reader runs, or the dated row would be hidden where the undated one shows.
+        if (period && candidate === period.asOf &&
+          !reportedStoredCitations(input.companyName, input.website, { ...proposed, value, citations }).length) continue;
+        return { ...proposed, value, confidence: 'estimated', citations, source: citations[0]!.url,
+          methodNote: reportedRowNote(type, proof.data) };
+      }
     }
     return row;
   });
@@ -819,6 +931,11 @@ export function reportedBandCitations(companyName: string, website: string | nul
     website ?? undefined);
 }
 
+/** The methodNote of a band-only employees row. */
+export function reportedBandNote(band: ReportedBand): string {
+  return `Source reported a headcount band of ${band.low}–${band.high} employees (${reportedAsOfNote(band.asOf, band.support.text)}); stored as a range, not a point value; provider-grounded, not verified against an original. Source statement: ${JSON.stringify(band.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}`;
+}
+
 /** Build an estimated, band-only employees row from a grounded answer. Returns
  * null when no single, company-named, citable band is stated. */
 export function reportedEmployeeBandRow(input: { companyId: string; companyName: string; website: string | null;
@@ -838,7 +955,11 @@ export function reportedEmployeeBandRow(input: { companyId: string; companyName:
   }
   if (!bands.length || new Set(bands.map(b => `${b.low}-${b.high}`)).size !== 1) return null;
   const pick = bands[0]!;
-  const asOf = businessDates(pick.sentence)[0] ?? null;
+  // An exact business date in the claim sentence; else the one period the
+  // stored support itself states, by its end; else explicitly undated.
+  const period = statedPeriodDate(pick.support.text, input.capturedAt);
+  const asOf = businessDates(pick.sentence)[0] ??
+    (period && statedPeriods(pick.sentence).some(row => row.asOf === period.asOf) ? period.asOf : null);
   const parsed = reportedBandSchema.safeParse({ provider: grounding.provider, companyName: input.companyName, basis: 'employees',
     low: pick.low, high: pick.high, unit: 'count', asOf, support: structuredClone(pick.support) });
   if (!parsed.success) return null;
@@ -847,6 +968,6 @@ export function reportedEmployeeBandRow(input: { companyId: string; companyName:
   if (!citations.length) return null;
   return { id: `met_${input.companyId}_employees_band`, companyId: input.companyId, metricType: 'employees', value: null,
     confidence: 'estimated', source: citations[0]!.url, citations, reportedBand: parsed.data,
-    methodNote: `Source reported a headcount band of ${pick.low}–${pick.high} employees (${asOf ? `as of ${asOf}` : 'undated; reporting date not published'}); stored as a range, not a point value; provider-grounded, not verified against an original. Source statement: ${JSON.stringify(parsed.data.support.text.replace(/\s+/g, ' ').trim().slice(0, 240))}`,
+    methodNote: reportedBandNote(parsed.data),
     capturedAt: input.capturedAt, lastVerifiedAt: null, passageSupport: null, reportedSupport: null };
 }

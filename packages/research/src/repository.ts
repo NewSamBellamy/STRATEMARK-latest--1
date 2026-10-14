@@ -97,7 +97,7 @@ import type { CompanyCandidate, MarketPlan } from './types';
 import { hydrateCompanyCard, hydrateCompanyCardsBatch, type HydrateCompanyCardInput, type HydrateCompanyCardResult } from './company-agent';
 import { latestSavedCompanyProfile } from './saved-profile';
 import { CARD_FACT_TYPES as CARD_FACT_HUNT_TYPES, reportedCompanyMetrics, reportedEmployeeBandRow, reportedMetricCitations } from './reported-metrics';
-import { businessDates } from './reported-metrics';
+import { businessDates, reportedAsOfNote, statedPeriodDate, storedDefinition } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
 import { mapWithConcurrency, rootDomain, sleep, throwIfAborted, websiteUrlOf } from './util';
@@ -111,7 +111,7 @@ import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INST
 import type { ResearchPassage } from '@mi/contracts';
 import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { LlmClient, ProviderGrounding, ResearchCoverage, RunResearchOptions } from './types';
-import type { ResearchNoteEntry } from '@mi/contracts';
+import type { ResearchNoteEntry, ReportedMetricSupport } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { searchEvidenceCorpus } from './retrieval';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
@@ -3126,7 +3126,10 @@ export class GeminiRepository implements MarketIntelRepository {
     const g = await this.client.ground(
       [
         `One research pass over a ${batch.length}-company roster in one market. For EACH company below, report its missing figures:`,
-        ...batch.map(({ company, missing }) => `- ${company.name}: ${missing.map((t) => METRIC_TYPE_LABELS[t]).join(', ')}`),
+        // A financial firm's 'arr' slot is annual revenue: asking for its "ARR"
+        // got fee revenue labelled ARR (Ares Management).
+        ...batch.map(({ company, missing }) => `- ${company.name}: ${missing.map((t) =>
+          storedDefinition(t, undefined, classifyMarketProfile(company)) === 'annual_revenue' ? 'Annual revenue' : METRIC_TYPE_LABELS[t]).join(', ')}`),
         `Use Google Search. Every figure needs the value, its as-of date, who reported it, and where. If a figure is not reliably reported for a company, omit that figure entirely — never guess.`,
         `MEASUREMENT BASIS: whole legal company, never a division. UNITS: ${CURRENCY_UNIT_LIST} for money figures; plain counts for users and employees.`,
       ].join('\n'),
@@ -3158,6 +3161,7 @@ export class GeminiRepository implements MarketIntelRepository {
       if (estimate.unit !== expectedUnit || !validMetricVerificationValue(estimate.metricType, estimate.value)) { rejected += 1; continue; }
       const unit = expectedUnit as 'USD' | 'count' | 'percent';
       const asOf = estimate.asOf && /^\d{4}-\d{2}-\d{2}$/.test(estimate.asOf) ? estimate.asOf : null;
+      const definition = storedDefinition(estimate.metricType, estimate.metricType as ReportedMetricSupport['definition'], classifyMarketProfile(target.company));
       // The grounding support must itself state THIS figure for THIS company
       // under the same projection gate the card face runs; anything else is
       // rejected rather than stored behind an unrelated sentence.
@@ -3168,16 +3172,22 @@ export class GeminiRepository implements MarketIntelRepository {
       let reportedSupport: CompanyMetric['reportedSupport'] = null;
       for (const candidate of g.grounding?.supports ?? []) {
         if (!candidate.sources.length) continue;
-        const proof = reportedMetricSupportSchema.safeParse({ provider: g.grounding?.provider ?? 'google-search', companyName: target.company.name,
-          basis: estimate.metricType, value: estimate.value, unit, asOf, definition: estimate.metricType,
-          support: { supportIndex: candidate.supportIndex, text: candidate.text.slice(0, 12000), startIndex: candidate.startIndex,
-            endIndex: candidate.endIndex, partIndex: candidate.partIndex,
-            sources: candidate.sources.slice(0, 4).map((src) => ({ chunkIndex: src.chunkIndex, url: src.url.slice(0, 2048), title: src.title })) } });
-        if (!proof.success) continue;
-        if (!reportedMetricCitations(target.company.name, target.company.websiteUrl,
-          { metricType: estimate.metricType, value: estimate.value, reportedSupport: proof.data },
-          { answerText: g.text, otherCompanies }).length) continue;
-        support = candidate; reportedSupport = proof.data; break;
+        // No model date: the one period this support states dates the figure
+        // by its end (tried first; undated if any gate refuses it).
+        const period = asOf ? null : statedPeriodDate(candidate.text, nowIso);
+        for (const dated of period ? [period.asOf, null] : [asOf]) {
+          const proof = reportedMetricSupportSchema.safeParse({ provider: g.grounding?.provider ?? 'google-search', companyName: target.company.name,
+            basis: estimate.metricType, value: estimate.value, unit, asOf: dated, definition,
+            support: { supportIndex: candidate.supportIndex, text: candidate.text.slice(0, 12000), startIndex: candidate.startIndex,
+              endIndex: candidate.endIndex, partIndex: candidate.partIndex,
+              sources: candidate.sources.slice(0, 4).map((src) => ({ chunkIndex: src.chunkIndex, url: src.url.slice(0, 2048), title: src.title })) } });
+          if (!proof.success) continue;
+          if (!reportedMetricCitations(target.company.name, target.company.websiteUrl,
+            { metricType: estimate.metricType, value: estimate.value, reportedSupport: proof.data },
+            { answerText: g.text, otherCompanies }).length) continue;
+          support = candidate; reportedSupport = proof.data; break;
+        }
+        if (support) break;
       }
       if (!support || !reportedSupport) { rejected += 1; continue; }
       const current = currentMetricRevision(
@@ -3199,7 +3209,7 @@ export class GeminiRepository implements MarketIntelRepository {
       metric.reportedSupport = reportedSupport;
       metric.citations = support.sources.slice(0, 2).map((s) => ({ title: s.title, url: s.url }));
       metric.source = metric.citations[0]?.url ?? null;
-      metric.methodNote = `${estimate.methodNote} Provider-reported estimate, not verified against an original.`;
+      metric.methodNote = `${estimate.methodNote} Provider-reported estimate (${reportedAsOfNote(reportedSupport.asOf, reportedSupport.support.text)}), not verified against an original.`;
       metric.capturedAt = nowIso;
       touched.add(target.company.id);
       filledTypes += 1;
@@ -3568,7 +3578,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const rows = reportedCompanyMetrics({
       companyId: company.id, companyName: company.name, website: company.websiteUrl,
       enrichment: enrichmentOutSchema.parse({ metrics: {} }), text: g.text, grounding: g.grounding,
-      capturedAt: nowIso, identity: { answerText: g.text, otherCompanies },
+      capturedAt: nowIso, identity: { answerText: g.text, otherCompanies }, profile: classifyMarketProfile(company),
     });
     const mine = () => this.snap.metrics.filter((m) => m.companyId === company.id);
     const written: MetricType[] = [];
@@ -3662,7 +3672,7 @@ export class GeminiRepository implements MarketIntelRepository {
       enrichment: enrichmentOutSchema.parse({ metrics: {} }),
       text: evidence.text, grounding: evidence.grounding,
       capturedAt: new Date().toISOString(),
-      identity: { answerText: evidence.text, otherCompanies },
+      identity: { answerText: evidence.text, otherCompanies }, profile: classifyMarketProfile(company),
     });
     const nowIso = new Date().toISOString();
     const filledTypes: MetricType[] = [];

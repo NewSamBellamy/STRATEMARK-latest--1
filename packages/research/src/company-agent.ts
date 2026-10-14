@@ -22,6 +22,7 @@
 import {
   buildCmsInput,
   classifySource,
+  classifyMarketProfile,
   computeCms,
   enforceMetricsProvenance,
   enforceModelMetricsProvenance,
@@ -693,7 +694,7 @@ async function hydrateFromGrounded(
   // 4. Provider-supported reported claims; no proxies or fabricated verification.
   const reported = reportedCompanyMetrics({ companyId, companyName: candidate.name, website,
     enrichment, text: grounded.text, grounding: grounded.grounding, capturedAt: now(), includeUnknowns: options.includeUnknowns,
-    identity: { answerText: grounded.text, otherCompanies: options.otherCompanies } });
+    identity: { answerText: grounded.text, otherCompanies: options.otherCompanies }, profile: classifyMarketProfile(company) });
   // Existing human facts remain authoritative across hydration.
   const humans = options.existingMemory?.card.metrics.filter(row => row.companyId === companyId && isHumanAuthored(row)) ?? [];
   const metrics = [...reported.filter(row => !humans.some(human => human.metricType === row.metricType)), ...humans];

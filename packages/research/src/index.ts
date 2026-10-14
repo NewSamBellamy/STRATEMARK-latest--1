@@ -18,7 +18,7 @@ export * from './web-search';
 export { originalSupportReferences, selectOriginalSourceAttempts, validatedOriginalSupport, normalizeSourceText } from './original-source';
 export type { OriginalSourceQuery } from './original-source';
 export * from './repository';
-export { METRIC_GATE_VERSION, revalidateStoredMetrics, type RevalidationGate, type RevalidationOutcome, type RevalidatedMetric } from './revalidate-stored';
+export { METRIC_GATE_VERSION, revalidateStoredMetrics, type RevalidationGate, type RevalidationOutcome, type RevalidatedMetric, type RelabelledMetric } from './revalidate-stored';
 export * from './source-policy';
 export * from './research-evidence';
 export type { OriginalSourceReceipt, OriginalSourceAttempt, OriginalSourceServices, OriginalSourceScope } from './original-source';
