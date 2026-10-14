@@ -72,6 +72,7 @@ import type {
 import { selectOriginalSourceCitations, type OriginalSourceServices } from './original-source';
 import { sourceBackedCompanySummary, UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
 import { providerCompanySummary, reportedCompanyMetrics } from './reported-metrics';
+import { canonicalHqLocation } from './brand/hq-format';
 export { reportedMetricCitations, reportedSupportCitations, reportedBandCitations, reportedEmployeeBandRow, employeeBandIn } from './reported-metrics';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueObservation } from './sec-revenue';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
@@ -686,7 +687,7 @@ async function hydrateFromGrounded(
     name: candidate.name,
     oneLiner: sourceSummary?.summary ?? UNSUPPORTED_COMPANY_SUMMARY,
     logoUrl,
-    hqLocation: enrichment.hqLocation ?? null,
+    hqLocation: canonicalHqLocation(enrichment.hqLocation),
     websiteUrl: website,
     brandTheme: brandFrom(enrichment.brand ?? null),
   };

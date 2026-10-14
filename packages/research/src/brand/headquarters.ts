@@ -9,6 +9,7 @@
  *    never speaks for the company.
  */
 import { extractOrganizationJsonLd } from '../registries/jsonld';
+import { canonicalHqLocation } from './hq-format';
 
 type FetchLike = typeof fetch;
 
@@ -38,19 +39,12 @@ function place(...parts: Array<string | null | undefined>): string | null {
   return kept.length ? kept.join(', ') : null;
 }
 
-/** Two-letter country codes are common in JSON-LD; spell the usual ones out. */
-const COUNTRY_CODES: Record<string, string> = {
-  US: 'USA', USA: 'USA', GB: 'United Kingdom', UK: 'United Kingdom', CH: 'Switzerland', DE: 'Germany',
-  FR: 'France', CN: 'China', JP: 'Japan', CA: 'Canada', IL: 'Israel', IN: 'India', NL: 'Netherlands',
-  SE: 'Sweden', AU: 'Australia', SG: 'Singapore', IE: 'Ireland', ES: 'Spain', IT: 'Italy', KR: 'South Korea',
-  NO: 'Norway', DK: 'Denmark', FI: 'Finland', BE: 'Belgium', AT: 'Austria', BR: 'Brazil',
-};
-
 export function homepageHeadquarters(html: string, homepageUrl: string): Headquarters | null {
   const org = extractOrganizationJsonLd(html);
   if (!org?.addressLocality) return null;
-  const country = org.addressCountry ? COUNTRY_CODES[org.addressCountry.toUpperCase()] ?? org.addressCountry : null;
-  const location = place(org.addressLocality, org.addressRegion && org.addressRegion.length > 2 ? org.addressRegion : null, country);
+  // Region codes are kept: canonicalHqLocation spells out a US state ("CA")
+  // and drops a non-US region between city and country.
+  const location = canonicalHqLocation(place(org.addressLocality, org.addressRegion, org.addressCountry));
   return location ? { location, sourceUrl: homepageUrl, via: 'homepage-jsonld' } : null;
 }
 
@@ -96,6 +90,6 @@ export async function wikidataHeadquarters(input: { name: string; websiteUrl: st
   if (!cityId) return null;
   const countryId = claimIds(entity, 'P17')[0];
   const labels = await entities([cityId, ...(countryId && countryId !== cityId ? [countryId] : [])], 'labels', doFetch);
-  const location = place(labels[cityId]?.labels?.en?.value, countryId ? labels[countryId]?.labels?.en?.value : null);
+  const location = canonicalHqLocation(place(labels[cityId]?.labels?.en?.value, countryId ? labels[countryId]?.labels?.en?.value : null));
   return location ? { location, sourceUrl: `https://www.wikidata.org/wiki/${qid}`, via: 'wikidata' } : null;
 }

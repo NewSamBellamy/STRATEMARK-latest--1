@@ -2,7 +2,7 @@ import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { METRIC_GATE_VERSION, REPO_SCHEMA_VERSION, type RepoSnapshot } from '@mi/research';
+import { METRIC_GATE_VERSION, migrateSnapshot, REPO_SCHEMA_VERSION, type RepoSnapshot } from '@mi/research';
 import sampleSnapshot from '../../web/src/sample/frontier-snapshot.json';
 import { createSqliteStore } from './sqlite.js';
 import { createFileStore, parseResearchExport } from './storage.js';
@@ -117,9 +117,12 @@ describe('sqlite research store', () => {
     const before = readFileSync(file, 'utf8');
 
     const store = createSqliteStore(file)!;
-    // Import migrates once (stamping the metric gate version), and the stamp survives.
+    // Import migrates once (stamping the metric gate version), and the stamp
+    // survives. The import is lossless: exactly the migration, nothing else
+    // (the migration may itself normalise stored fields, e.g. HQ format).
     const imported = store.read();
-    expect(imported).toEqual({ ...original, metricGateVersion: METRIC_GATE_VERSION });
+    expect(imported).toEqual(migrateSnapshot(structuredClone(original)).snapshot);
+    expect(imported?.metricGateVersion).toBe(METRIC_GATE_VERSION);
     expect(createSqliteStore(file)!.read()?.metricGateVersion).toBe(METRIC_GATE_VERSION);
     expect(readFileSync(file, 'utf8')).toBe(before);
     expect(existsSync(file.replace(/\.json$/, '') + '.sqlite')).toBe(true);

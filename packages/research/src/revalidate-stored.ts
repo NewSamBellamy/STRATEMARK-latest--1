@@ -16,6 +16,7 @@
  * Human-verified figures are never touched.
  */
 import { classifyMarketProfile, isEntityCardType, type CardType, type Citation, type CompanyMetric, type MetricType } from '@mi/contracts';
+import { canonicalHqLocation } from './brand/hq-format';
 import { isPendingCompanySummary, summaryIsUnfit, UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
 import type { OriginalSourceAttempt, OriginalSourceReceipt } from './original-source';
 import type { ResearchEvidence } from './research-evidence';
@@ -34,7 +35,8 @@ import { storedSecRevenueIsSubLine } from './sec-revenue';
  *     explicitly undated; a financial firm's "ARR" relabelled annual revenue
  *     (or withdrawn when the stored support does not state revenue);
  *     stored company summaries that are sales lines, page-bound or broken
- *     extraction reset to the pending placeholder (company + entity cards).
+ *     extraction reset to the pending placeholder (company + entity cards);
+ *     stored headquarters rewritten to the one canonical display form.
  */
 export const METRIC_GATE_VERSION = 2;
 
@@ -70,6 +72,8 @@ export interface RevalidationOutcome {
   relabelled: RelabelledMetric[];
   /** Companies whose stored summary was reset to the pending placeholder. */
   resetSummaries: Array<{ companyId: string; previous: string }>;
+  /** Companies whose stored headquarters was rewritten to the canonical form. */
+  normalizedHq: Array<{ companyId: string; previous: string; hqLocation: string }>;
   /** SEC revenue rows whose retained evidence could not decide the sub-line question. */
   undecided: string[];
 }
@@ -77,7 +81,7 @@ export interface RevalidationOutcome {
 /** The snapshot fields this pass reads and writes. */
 export interface RevalidatableSnapshot {
   metricGateVersion?: number;
-  companies: Array<{ id: string; name: string; websiteUrl?: string | null; oneLiner?: string }>;
+  companies: Array<{ id: string; name: string; websiteUrl?: string | null; oneLiner?: string; hqLocation?: string | null }>;
   cards?: Array<{ companyId: string | null; cardType: CardType; summary: string | null; citations?: Citation[] }>;
   metrics: CompanyMetric[];
   dashboards: Record<string, unknown>;
@@ -154,7 +158,7 @@ function failedGate(metric: CompanyMetric, companyName: string | undefined,
  */
 export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): RevalidationOutcome {
   const fromVersion = typeof snapshot.metricGateVersion === 'number' ? snapshot.metricGateVersion : 0;
-  if (fromVersion >= METRIC_GATE_VERSION) return { fromVersion, ran: false, reset: [], relabelled: [], resetSummaries: [], undecided: [] };
+  if (fromVersion >= METRIC_GATE_VERSION) return { fromVersion, ran: false, reset: [], relabelled: [], resetSummaries: [], normalizedHq: [], undecided: [] };
 
   const names = new Map(snapshot.companies.map((c) => [c.id, c.name]));
   const companies = new Map(snapshot.companies.map((c) => [c.id, c]));
@@ -199,12 +203,21 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
   // lanes refill. The entity cards mirror it (with its citation).
   const resetSummaries: RevalidationOutcome['resetSummaries'] = [];
   const summaries = new Map<string, string>();
+  // Headquarters: same place, one display form ("City, Full State" in the US,
+  // "City, Country" elsewhere). Input it cannot read is left as it is.
+  const normalizedHq: RevalidationOutcome['normalizedHq'] = [];
   snapshot.companies = snapshot.companies.map((company) => {
+    let next = company;
+    const hq = company.hqLocation?.trim() ? canonicalHqLocation(company.hqLocation) : null;
+    if (hq && hq !== company.hqLocation) {
+      normalizedHq.push({ companyId: company.id, previous: company.hqLocation!, hqLocation: hq });
+      next = { ...next, hqLocation: hq };
+    }
     const previous = company.oneLiner;
-    if (!previous || isPendingCompanySummary(previous) || !summaryIsUnfit(previous)) return company;
+    if (!previous || isPendingCompanySummary(previous) || !summaryIsUnfit(previous)) return next;
     resetSummaries.push({ companyId: company.id, previous });
     summaries.set(company.id, previous);
-    return { ...company, oneLiner: UNSUPPORTED_COMPANY_SUMMARY };
+    return { ...next, oneLiner: UNSUPPORTED_COMPANY_SUMMARY };
   });
   if (snapshot.cards && summaries.size) {
     snapshot.cards = snapshot.cards.map((card) => {
@@ -214,9 +227,12 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
       return { ...card, summary: UNSUPPORTED_COMPANY_SUMMARY, citations: [] };
     });
   }
-  // A cached dashboard may restate a withdrawn figure (or summary) in its prose.
-  const touched = new Set([...reset, ...relabelled, ...resetSummaries].map((r) => r.companyId));
+  // A cached dashboard may restate a withdrawn figure, or a revenue figure as
+  // "ARR". Dashboards are model-written tabs that do not mirror the summary or
+  // HQ fields, and regenerating one is a paid call: a date, summary or HQ
+  // correction alone keeps it.
+  const touched = new Set([...reset, ...relabelled.filter((r) => r.change === 'annual_revenue')].map((r) => r.companyId));
   if (touched.size) snapshot.dashboards = { ...snapshot.dashboards, ...Object.fromEntries([...touched].map((id) => [id, {}])) };
   snapshot.metricGateVersion = METRIC_GATE_VERSION;
-  return { fromVersion, ran: true, reset, relabelled, resetSummaries, undecided };
+  return { fromVersion, ran: true, reset, relabelled, resetSummaries, normalizedHq, undecided };
 }

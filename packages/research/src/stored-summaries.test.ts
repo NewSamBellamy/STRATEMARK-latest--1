@@ -62,8 +62,8 @@ describe('revalidateStoredMetrics — v2 summaries', () => {
     expect(snap.cards[1]!.summary).toBe('A culture note.');
     expect(snap.cards[2]!.summary).toBe(GOOD);
     expect(outcome.resetSummaries.map((r) => r.companyId)).toEqual(['co_alter', 'co_oak']);
-    // The cached dashboard restating the old copy is dropped; others stay.
-    expect(snap.dashboards.co_alter).toEqual({});
+    // Cached dashboards are model-written tabs, not the summary: kept (no paid regeneration).
+    expect(snap.dashboards.co_alter).toEqual({ cached: true });
     expect(snap.dashboards.co_good).toEqual({ cached: true });
   });
 

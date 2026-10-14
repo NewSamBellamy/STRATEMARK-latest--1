@@ -5,6 +5,7 @@
  * (sec-ownership.ts) so identity and headquarters re-derive from the record.
  */
 import { z } from 'zod';
+import { canonicalHqLocation, titleCase, US_STATES } from './brand/hq-format';
 
 const MAX_FIELD = 200;
 const MAX_TICKERS = 10;
@@ -58,23 +59,6 @@ export function parseSubmissionsProfile(slice: string): { cik: string; name: str
   try { return sliceSchema.parse(JSON.parse(slice)); } catch { return null; }
 }
 
-const US_STATES: Record<string, string> = {
-  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut',
-  DE: 'Delaware', DC: 'District of Columbia', FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois',
-  IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
-  MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana',
-  NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
-  NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania',
-  RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah',
-  VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',
-  PR: 'Puerto Rico',
-};
-
-/** "ROUND ROCK" -> "Round Rock", "ST. LOUIS" -> "St. Louis". */
-function titleCase(raw: string): string {
-  return raw.toLowerCase().replace(/(^|[\s.'-])([a-z])/g, (_m, lead: string, ch: string) => `${lead}${ch.toUpperCase()}`);
-}
-
 const placeWord = /^[A-Za-z][A-Za-z .'-]{1,59}$/;
 
 /**
@@ -88,8 +72,8 @@ export function secHeadquartersPlace(profile: SubmissionsProfile | null): string
   if (!address || !placeWord.test(address.city)) return null;
   const city = titleCase(address.city.replace(/\s+/g, ' '));
   const state = US_STATES[address.stateOrCountry.toUpperCase()];
-  if (state) return `${city}, ${state}`;
+  if (state) return canonicalHqLocation(`${city}, ${state}`);
   const description = address.stateOrCountryDescription?.replace(/\s+/g, ' ').trim() ?? '';
   if (description.length < 4 || !placeWord.test(description.replace(/,/g, ''))) return null;
-  return `${city}, ${titleCase(description)}`;
+  return canonicalHqLocation(`${city}, ${titleCase(description)}`);
 }
