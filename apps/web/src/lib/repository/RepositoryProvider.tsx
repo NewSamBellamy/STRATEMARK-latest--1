@@ -23,7 +23,9 @@ import { QUOTA_PRESETS, useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
 import { currentWebSearch } from '@/lib/settings/searchKey';
 import { currentNewsSearch } from './news-lane';
-import { recordCall, recordCallMetrics } from '@/lib/usage';
+import { isLowPower, recordCall, recordCallMetrics } from '@/lib/usage';
+import { useResearchControl } from '@/lib/living/researchControl';
+import { wikidataJson } from '@/lib/media/wikidataFounded';
 
 const RepositoryContext = createContext<MarketIntelRepository | null>(null);
 
@@ -33,6 +35,22 @@ const RepositoryModeContext = createContext<RepositoryMode>('demo');
 /** Demo mode (no key, no desktop bridge, not the cloud engine): the only branch that needs the bundled sample deck. */
 export function needsSampleDeck(apiKey: string, engine?: string): boolean {
   return !(isElectron() && window.mi) && engine !== 'cloud' && !apiKey;
+}
+
+/** localStorage switch for warming STORED decks' dashboard tabs (on start and on open). */
+export const STORED_DECK_WARMUP_KEY = 'mi.warmStoredDecks';
+
+/**
+ * Stored-deck dashboard backfill is OFF unless explicitly switched on
+ * (`localStorage['mi.warmStoredDecks'] = 'on'`): warming every company of every
+ * stored deck is a one-time spend the owner approves first. New decks always warm.
+ */
+export function storedDeckWarmupEnabled(storage: Pick<Storage, 'getItem'> | null = typeof localStorage === 'undefined' ? null : localStorage): boolean {
+  try {
+    return storage?.getItem(STORED_DECK_WARMUP_KEY) === 'on';
+  } catch {
+    return false;
+  }
 }
 
 export function selectRepository(apiKey: string, model: string, engine?: string, store?: ResearchStore,
@@ -83,6 +101,17 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       // and the grounded estimate is the honest (never-undercount) side.
       onCall: ({ kind }) => recordCall(kind === 'judge' ? 'ground' : kind),
       onCallMetrics: (m) => recordCallMetrics(m),
+      // Every company's History, Team, Products and News tabs research in the
+      // background after a deck is built (highest tier first), gated by the
+      // spending cap and the background-research pause. Stored decks are
+      // backfilled only when explicitly enabled (a one-time spend the owner
+      // approves): see storedDeckWarmupEnabled.
+      dashboardWarmup: {
+        allowed: () => !isLowPower() && !useResearchControl.getState().paused,
+        backfill: storedDeckWarmupEnabled(),
+      },
+      // Founded year from the company's own Wikidata item (no provider calls).
+      wikidataJson,
     });
   }
   if (!sample) throw new Error('Demo mode needs the sample deck loaded first (loadSampleSnapshot).');

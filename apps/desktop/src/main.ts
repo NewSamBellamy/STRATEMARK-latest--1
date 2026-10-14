@@ -239,6 +239,12 @@ function makeRepository(): MarketIntelRepository {
     concurrency: 3,
     groundedRpm: 8,
     structureRpm: 8,
+    // New decks warm every company's History, Team, Products and News tabs in
+    // the background (highest tier first). No key: nothing to warm with. At
+    // this pacing stored decks are not backfilled; they research on open.
+    dashboardWarmup: apiKey ? { backfill: false } : false,
+    // Founded year from the company's own Wikidata item (no provider calls).
+    wikidataJson: async (url) => (await fetch(url, { signal: AbortSignal.timeout(8000) })).json(),
   });
 }
 

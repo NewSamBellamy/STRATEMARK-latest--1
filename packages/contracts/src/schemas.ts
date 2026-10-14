@@ -123,6 +123,22 @@ export const citationSchema = z.object({
 });
 
 /**
+ * The year a company was founded, stored once with where it came from so the
+ * header is stable and the completeness scoreboard can measure it. Never a
+ * guess: 'wikidata' is the company's own item (matched by its official
+ * website), 'history' is a founding milestone from the researched History tab.
+ * At least one citation is required. Additive and optional on Company.
+ */
+export const companyFoundedSchema = z.object({
+  year: z.number().int().min(1600).max(2100),
+  source: z.enum(['wikidata', 'history']),
+  citations: z.array(citationSchema).min(1),
+  /** The founding statement the year was read from (history), when there is one. */
+  evidence: z.string().max(400).optional(),
+  capturedAt: z.string(),
+});
+
+/**
  * Who owns the company, as its sources state it (ownership.ts has the rules).
  *
  * - `acquired`: a source says the deal CLOSED — a primary source (SEC filing,
@@ -160,6 +176,8 @@ export const companySchema = z.object({
   hqLocation: z.string().nullable(),
   websiteUrl: z.string().nullable(),
   brandTheme: brandThemeSchema.nullable(),
+  /** Additive: absent on companies stored before it existed and until a sourced year is found. */
+  founded: companyFoundedSchema.nullable().optional(),
   /** Optional: absent means ownership has not been researched, not "independent". */
   ownership: ownershipSchema.nullish(),
 });

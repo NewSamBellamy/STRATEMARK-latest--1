@@ -42,7 +42,10 @@ it.each(['ground', 'structure'] as const)('aborts a hung %s after 90s and frees 
   expect(vi.getTimerCount()).toBe(0);
 });
 
-it('answers but does not cache a tab whose figures changed while it was researched', async () => {
+it('a figure change mid-pass does not discard a tab that is not built from figures', async () => {
+  // History researches the company itself, never its stored figures; only the
+  // Overview is figure-bound (and is the one tab a figure change drops). A
+  // metric fill landing mid-pass used to throw every warmed tab away.
   const s = setup(); let finish!: (value: unknown) => void;
   s.ground.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   s.structure.mockResolvedValue({ founderStory: 'Story written on older figures', timeline: [], quotes: [] });
@@ -51,7 +54,7 @@ it('answers but does not cache a tab whose figures changed while it was research
   await s.repository.overrideMetric({ companyId: 'cmp', metricType: 'employees', value: 120, note: 'analyst count' });
   finish({ text: 'Example history', citations: [], queries: [] });
   expect((await pending)?.content.founderStory).toContain('older figures');
-  expect(s.store.read()!.dashboards.cmp?.history).toBeUndefined();
+  expect(s.store.read()!.dashboards.cmp?.history?.content).toMatchObject({ founderStory: 'Story written on older figures' });
 });
 
 it('does not let a late provider overwrite newer successful dashboard research', async () => {
