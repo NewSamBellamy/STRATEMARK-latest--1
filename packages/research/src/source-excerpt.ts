@@ -31,6 +31,18 @@ export function selectSourceExcerpt(text: string, scope?: { companyName: string;
       return text.slice(start, start + limit);
     }
   }
+  if (scope?.metricType === 'ownership') {
+    // A deal sentence near the company's name: an 8-K or article body, not the
+    // page's navigation. Selection only; the ownership lane still requires the
+    // sentence itself to name the company and the buyer.
+    const deals = [...text.matchAll(/\b(?:acquir(?:e|ed|es|ing)|acquisition of|to be acquired|merger agreement|agreement and plan of merger|bought|purchase of)\b/gi)];
+    const name = scope.companyName.trim().toLowerCase();
+    const selected = deals.find(match => name && text.slice(Math.max(0, match.index! - 400), match.index! + 400).toLowerCase().includes(name)) ?? deals[0];
+    if (selected) {
+      const start = Math.min(Math.max(0, selected.index! - 1200), text.length - limit);
+      return text.slice(start, start + limit);
+    }
+  }
   const products = scope?.metricType === 'products_roadmap';
   const cues = products ? [
     /\b(?:available|launched|released|beta|discontinued|retired)\b/gi,

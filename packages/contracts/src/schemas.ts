@@ -113,6 +113,45 @@ export const brandThemeSchema = z.object({
   signal: z.string().optional(),
 });
 
+// Citation schema ----------------------------------------------------------
+export const citationSchema = z.object({
+  title: z.string(),
+  url: z.string(),
+  credibility: z
+    .enum(['primary', 'reputable_secondary', 'industry', 'user_generated', 'unknown'])
+    .optional(),
+});
+
+/**
+ * Who owns the company, as its sources state it (ownership.ts has the rules).
+ *
+ * - `acquired`: a source says the deal CLOSED — a primary source (SEC filing,
+ *   company press release, GLEIF parent record) or two independent ones.
+ * - `acquisition_pending`: announced, not shown to have closed.
+ * - `subsidiary`: a registry names a parent, no acquisition event is on file.
+ * - `independent`: a registry explicitly states there is no parent.
+ *
+ * No citation, no status: `enforceOwnershipProvenance` drops a status nothing
+ * states. `price` is what the acquirer paid — never a valuation of the
+ * company. Additive and optional, so every snapshot written before it parses.
+ */
+export const OWNERSHIP_STATUSES = ['independent', 'acquired', 'acquisition_pending', 'subsidiary'] as const;
+export const ownershipStatusSchema = z.enum(OWNERSHIP_STATUSES);
+/** YYYY, YYYY-MM or YYYY-MM-DD: a source dated only to the month stays a month. */
+const partialDate = z.string().regex(/^\d{4}(?:-\d{2}(?:-\d{2})?)?$/);
+export const ownershipSchema = z.object({
+  status: ownershipStatusSchema,
+  acquirer: z.string().min(1).max(160).optional(),
+  announcedOn: partialDate.nullish(),
+  closedOn: partialDate.nullish(),
+  price: z.object({ value: z.number().finite().positive(), currency: z.string().regex(/^[A-Z]{3}$/) }).nullish(),
+  citations: z.array(citationSchema).default([]),
+  confidence: confidenceSchema,
+  /** One line on how the status was reached (which sources, why not closed). */
+  methodNote: z.string().max(600).nullish(),
+  checkedAt: isoTimestamp.optional(),
+});
+
 export const companySchema = z.object({
   id: z.string(),
   name: z.string().min(1),
@@ -121,15 +160,8 @@ export const companySchema = z.object({
   hqLocation: z.string().nullable(),
   websiteUrl: z.string().nullable(),
   brandTheme: brandThemeSchema.nullable(),
-});
-
-// Citation schema ----------------------------------------------------------
-export const citationSchema = z.object({
-  title: z.string(),
-  url: z.string(),
-  credibility: z
-    .enum(['primary', 'reputable_secondary', 'industry', 'user_generated', 'unknown'])
-    .optional(),
+  /** Optional: absent means ownership has not been researched, not "independent". */
+  ownership: ownershipSchema.nullish(),
 });
 
 /** Retained extraction evidence, never a model assertion of verification. */

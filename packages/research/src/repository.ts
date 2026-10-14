@@ -109,6 +109,8 @@ import {
 } from './semantic-memory';
 import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest } from './prompts';
 import type { ResearchPassage } from '@mi/contracts';
+import { enforceOwnershipProvenance, type Ownership } from '@mi/contracts';
+import { findOwnership, metricOwnershipEvidence, receiptOwnershipEvidence } from './ownership';
 import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { LlmClient, ProviderGrounding, ResearchCoverage, RunResearchOptions } from './types';
 import type { ResearchNoteEntry } from '@mi/contracts';
@@ -414,6 +416,10 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   webSearch?: () => WebSearchFn | null;
   /** Free news lane (no key) adding dated news articles as hunt candidates. */
   newsSearch?: () => WebSearchFn | null;
+  /** JSON fetch for the CORS-open ownership registries (Wikidata, GLEIF).
+   * Without it the ownership lane runs on retained text and the reader only,
+   * and deck builds never start it on their own. */
+  ownershipFetch?: typeof fetch;
 }
 
 /** Earlier overviews kept for comparison; each refresh appends one. */
@@ -443,6 +449,7 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly hydrationFirstBatchMax?: number;
   private readonly webSearch?: () => WebSearchFn | null;
   private readonly newsSearch?: () => WebSearchFn | null;
+  private readonly ownershipFetch?: typeof fetch;
   private readonly jobControllers = new Map<string, AbortController>();
   /** In-flight source-binding passes, one per company. */
   private readonly sourceBindings = new Map<string, Promise<number>>();
@@ -493,6 +500,7 @@ export class GeminiRepository implements MarketIntelRepository {
     this.hydrationFirstBatchMax = options.hydrationFirstBatchMax;
     this.webSearch = options.webSearch;
     this.newsSearch = options.newsSearch;
+    this.ownershipFetch = options.ownershipFetch;
     // Migrate on load, not on demand. A snapshot written by an older build is
     // brought forward once, here, so nothing downstream has to reason about
     // which format it is looking at.
@@ -1160,7 +1168,12 @@ export class GeminiRepository implements MarketIntelRepository {
           await this.fillCompanyAssets(company.id, this.assetSourceReader);
         } catch { /* favicon fallback stands */ }
       })();
-      await Promise.all([structured, assets]);
+      // Ownership (acquired / pending) from registries, filings and news; only
+      // where the transport supplied the registry fetch.
+      const ownership = this.ownershipFetch
+        ? this.fillCompanyOwnership(company.id).catch(() => undefined)
+        : undefined;
+      await Promise.all([structured, assets, ownership]);
     };
     const pumpPrewarm = () => {
       while (prewarmActive < PREWARM_CONCURRENCY && prewarmQueue.length > 0) {
@@ -4114,6 +4127,47 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     await this.persist();
     return { logo };
+  }
+
+  /** Ownership lane: acquired / acquisition pending / registry parent, from
+   * Wikidata + GLEIF (CORS-open, direct), the acquirer's SEC 8-Ks and news
+   * pages (through the original-source reader), and deal sentences the stored
+   * metric evidence already carries — including a valuation the metric gate
+   * rejected as an acquisition price, which is how that price reaches
+   * `ownership.price`. Zero provider calls. A human-verified record is never
+   * replaced; a run that finds nothing keeps the previous record (absence of
+   * evidence is not evidence of independence). */
+  async fillCompanyOwnership(companyId: string): Promise<{ ownership: Ownership | null }> {
+    const company = this.snap.companies.find((c) => c.id === companyId);
+    if (!company) return { ownership: null };
+    const current = company.ownership ?? null;
+    if (current?.confidence === 'user_verified') return { ownership: current };
+    const sources = this.originalSources;
+    const read = sources
+      ? (url: string, scope?: OriginalSourceScope) => sources.retrieve(url, scope)
+      : this.assetSourceReader ? (url: string) => this.assetSourceReader!(url) : undefined;
+    const texts = [
+      ...metricOwnershipEvidence(this.snap.metrics.filter((m) => m.companyId === companyId)),
+      ...receiptOwnershipEvidence((this.snap.originalSourceAttempts ?? []).filter((a) => a.companyId === companyId).flatMap((a) => a.receipts)),
+    ];
+    const found = await findOwnership({ companyId, companyName: company.name, websiteUrl: company.websiteUrl ?? null, texts }, {
+      read,
+      newsSearch: this.newsSearch?.() ?? null,
+      fetchImpl: this.ownershipFetch,
+    });
+    // Pages that stated the deal are retained like every other claim's source.
+    if (sources && found.receipts.length) {
+      for (let i = 0; i < found.receipts.length; i += 2) {
+        await sources.save({ id: `src_own_${globalThis.crypto.randomUUID()}`, companyId, metricType: 'ownership',
+          capturedAt: new Date().toISOString(), receipts: found.receipts.slice(i, i + 2) }).catch(() => undefined);
+      }
+    }
+    const next = enforceOwnershipProvenance(found.ownership, true);
+    const live = this.snap.companies.find((c) => c.id === companyId);
+    if (!next || !live || live.ownership?.confidence === 'user_verified') return { ownership: live?.ownership ?? current };
+    live.ownership = next;
+    await this.persist();
+    return { ownership: next };
   }
 
   /** Recompute CMS tiers for a company's company-cards; returns moved card ids. */

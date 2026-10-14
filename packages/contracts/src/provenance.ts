@@ -15,6 +15,7 @@ import { MODEL_PROPOSABLE_CONFIDENCE, type Confidence } from './enums';
 import type { Citation, MetricConflict, SourceCredibility } from './repository';
 import type { CompanyMetric } from './types';
 import { metricObservationIdentity } from './metric-definition';
+import { ACQUISITION_PRICE_NOTE, isAcquisitionPriceValuation } from './acquisition-price';
 
 /** Reason text stamped on a figure that lost its "verified" claim. */
 export const UNSOURCED_DOWNGRADE_NOTE =
@@ -314,6 +315,15 @@ export function enforceMetricProvenance(metric: CompanyMetric, officialWebsite?:
     methodNote = methodNote
       ? `${methodNote} — ${JUNK_DOWNGRADE_NOTE}`
       : JUNK_DOWNGRADE_NOTE;
+  }
+
+  // A price paid to acquire the company is not its valuation (Poppi's "$1.95B
+  // valuation" was PepsiCo's purchase price). Process rule, applied on every
+  // write and every read: the figure belongs to ownership.price instead.
+  // A human's own figure is theirs to keep.
+  if (confidence !== 'user_verified' && isAcquisitionPriceValuation(metric)) {
+    confidence = 'unknown';
+    methodNote = ACQUISITION_PRICE_NOTE;
   }
 
   // An "unknown" figure cannot carry a number.

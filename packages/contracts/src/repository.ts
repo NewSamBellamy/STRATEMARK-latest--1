@@ -25,6 +25,7 @@ import type {
   Company,
   CompanyMetric,
   DashboardContentFor,
+  Ownership,
   Deck,
   Market,
   ScopeDefinition,
@@ -776,6 +777,13 @@ export interface MarketIntelRepository {
     companyId: string,
     read: (url: string) => Promise<unknown>,
   ): Promise<{ logo: { url: string; sourceUrl: string } | null }>;
+
+  /**
+   * Ownership lane (optional): acquired / acquisition pending / registry
+   * parent, each with citations, persisted on `company.ownership`. Never
+   * replaces a human-verified record; finding nothing keeps the stored one.
+   */
+  fillCompanyOwnership?(companyId: string): Promise<{ ownership: Ownership | null }>;
 
   /** Fill a gap in a deck via targeted micro-research (e.g. hunt Seed-stage companies). */
   expandDeck(
