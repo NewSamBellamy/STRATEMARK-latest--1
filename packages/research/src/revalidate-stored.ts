@@ -17,6 +17,7 @@
  */
 import { classifyMarketProfile, isEntityCardType, ownershipWithholdsValuation, type CardType, type Citation, type CompanyMetric,
   type MetricType, type Ownership } from '@mi/contracts';
+import { hasPlaceholderName } from './placeholder-names';
 import { canonicalHqLocation, hqGroundedInEvidence } from './brand/hq-format';
 import { isPendingCompanySummary, summaryIsUnfit, UNSUPPORTED_COMPANY_SUMMARY } from './company-summary';
 import type { OriginalSourceAttempt, OriginalSourceReceipt } from './original-source';
@@ -52,8 +53,11 @@ import { storedSecRevenueIsSubLine } from './sec-revenue';
  *     city there is cut back to what the text literally says (city + the state
  *     it names, else the bare city). Text that never names the city decides
  *     nothing. All v1-v4 checks still run.
+ * v6: stored companies whose name is a template row ("Company Two", "Example
+ *     Corp", "Competitor A") are dropped with their cards, figures and claims.
+ *     All v1-v5 checks still run.
  */
-export const METRIC_GATE_VERSION = 5;
+export const METRIC_GATE_VERSION = 6;
 
 export type RevalidationGate = 'parent_or_acquisition' | 'stale_share_count' | 'sec_revenue_sub_line'
   | 'acquired_deal_valuation' | 'non_subscription_arr';
@@ -79,6 +83,8 @@ export interface RevalidatedMetric {
 }
 
 export interface RevalidationOutcome {
+  /** Template-named companies ("Company Two") removed from the snapshot. */
+  droppedPlaceholders?: Array<{ companyId: string; name: string }>;
   /** Gate version found on the snapshot (0 when it was never revalidated). */
   fromVersion: number;
   /** True when this call ran the checks (the stored version was older). */
@@ -99,7 +105,9 @@ export interface RevalidatableSnapshot {
   metricGateVersion?: number;
   companies: Array<{ id: string; name: string; websiteUrl?: string | null; oneLiner?: string; hqLocation?: string | null;
     ownership?: Ownership | null }>;
-  cards?: Array<{ companyId: string | null; cardType: CardType; summary: string | null; citations?: Citation[] }>;
+  viceClaims?: Array<{ cardId: string }>;
+  companyMarket?: Record<string, string>;
+  cards?: Array<{ id?: string; companyId: string | null; cardType: CardType; summary: string | null; citations?: Citation[] }>;
   metrics: CompanyMetric[];
   dashboards: Record<string, unknown>;
   researchEvidence?: readonly ResearchEvidence[];
@@ -180,6 +188,20 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
   const fromVersion = typeof snapshot.metricGateVersion === 'number' ? snapshot.metricGateVersion : 0;
   if (fromVersion >= METRIC_GATE_VERSION) return { fromVersion, ran: false, reset: [], relabelled: [], resetSummaries: [], normalizedHq: [], undecided: [] };
 
+  // Template rows were never businesses: drop them, and everything keyed to
+  // them, before any figure gate looks at their evidence.
+  const droppedPlaceholders = snapshot.companies.filter((c) => hasPlaceholderName(c.name))
+    .map((c) => ({ companyId: c.id, name: c.name }));
+  if (droppedPlaceholders.length) {
+    const gone = new Set(droppedPlaceholders.map((d) => d.companyId));
+    snapshot.companies = snapshot.companies.filter((c) => !gone.has(c.id));
+    snapshot.metrics = snapshot.metrics.filter((m) => !gone.has(m.companyId));
+    const goneCards = new Set((snapshot.cards ?? []).filter((c) => c.companyId && gone.has(c.companyId)).map((c) => c.id));
+    if (snapshot.cards) snapshot.cards = snapshot.cards.filter((c) => !c.companyId || !gone.has(c.companyId));
+    if (snapshot.viceClaims) snapshot.viceClaims = snapshot.viceClaims.filter((v) => !goneCards.has(v.cardId));
+    if (snapshot.companyMarket) snapshot.companyMarket = Object.fromEntries(Object.entries(snapshot.companyMarket).filter(([id]) => !gone.has(id)));
+    snapshot.dashboards = Object.fromEntries(Object.entries(snapshot.dashboards).filter(([id]) => !gone.has(id)));
+  }
   const names = new Map(snapshot.companies.map((c) => [c.id, c.name]));
   const companies = new Map(snapshot.companies.map((c) => [c.id, c]));
   const answersByCompany = new Map<string, string[]>();
@@ -262,5 +284,5 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
   const touched = new Set([...reset, ...relabelled.filter((r) => r.change === 'annual_revenue')].map((r) => r.companyId));
   if (touched.size) snapshot.dashboards = { ...snapshot.dashboards, ...Object.fromEntries([...touched].map((id) => [id, {}])) };
   snapshot.metricGateVersion = METRIC_GATE_VERSION;
-  return { fromVersion, ran: true, reset, relabelled, resetSummaries, normalizedHq, undecided };
+  return { fromVersion, ran: true, droppedPlaceholders, reset, relabelled, resetSummaries, normalizedHq, undecided };
 }

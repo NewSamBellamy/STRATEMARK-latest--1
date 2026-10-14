@@ -1567,10 +1567,18 @@ describe('discovery coverage contract', () => {
     expect(result.success).toBe(false);
   });
 
+  it('does not count padded template rows toward the ten-company minimum', () => {
+    const real = ['Locus Robotics', 'Symbotic', 'Geek Plus'].map((name) => ({
+      name, domain: null, descriptor: 'warehouse robots', cardTypes: ['company'] }));
+    const padding = ['Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'].map((n) => ({
+      name: `Company ${n}`, domain: null, descriptor: 'Placeholder company to satisfy minimum count.', cardTypes: ['company'] }));
+    expect(discoveryMinimumOutSchema.safeParse({ companies: [...real, ...padding] }).success).toBe(false);
+  });
+
   it('accepts ten unique companies', () => {
     const result = discoveryMinimumOutSchema.safeParse({
       companies: Array.from({ length: 10 }, (_, i) => ({
-        name: `Company ${i}`,
+        name: `Real Co ${String.fromCharCode(65 + i)}${i}x`,
         domain: `company-${i}.example`,
         descriptor: 'operating company',
         cardTypes: ['company'],
