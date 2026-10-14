@@ -6,6 +6,7 @@ import type { ProviderGrounding } from './types';
 import type { EnrichmentOut } from './schemas';
 import { describeCurrencyConversion, isConvertibleCurrency, usdPerUnit } from './fx';
 import { summaryIsUnfit } from './company-summary';
+import { dateSpans, withinDate } from './date-digits';
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const sentences = (text: string) => text.split(/(?<=[.!?])\s+(?=[A-Z])/);
@@ -390,11 +391,16 @@ function hasNumber(text: string, value: number, unit: ReportedMetricSupport['uni
   // tolerant separator the figure would parse as 65 unscaled dollars.
   // A digit glued to letters is part of a name ("AG1", "Q4", "FY2024"), never a figure.
   const pattern = /(?:\b(USD|US dollars?)\s*|(US\$|\$)\s*)?(?<![A-Za-z\d])(\d[\d,]*(?:\.\d+)?)\s*\+?\s*(trillion|billion|million|thousand|[kmbt]\b)?\s*(USD|US dollars?|%|percent|employees|users|customers)?/gi;
+  const dates = dateSpans(text);
   for (const match of text.matchAll(pattern)) {
     const magnitude = match[4]?.toLowerCase();
     const multiplier = magnitude ? ({ trillion: 1e12, billion: 1e9, million: 1e6, thousand: 1e3, t: 1e12, b: 1e9, m: 1e6, k: 1e3 }[magnitude] ?? 1) : 1;
     const number = Number(match[3]!.replace(/,/g, '')) * multiplier;
     if (number !== value) continue;
+    // A digit of a date ("as reported on September 29, 2026") is the date,
+    // never the figure (date-digits.ts) — however close a basis word sits.
+    const digitsAt = match.index! + match[0].indexOf(match[3]!);
+    if (withinDate(text, digitsAt, digitsAt + match[3]!.length, dates)) continue;
     const start = match.index!, end = start + match[0].trimEnd().length;
     if (native) {
       // A native figure must carry its own currency and no dollar marker.
@@ -538,6 +544,7 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
       type === 'arr' ? (revenueOnly ? ['annual_revenue'] : ['arr', 'annual_revenue']) : [type];
     const definitions = candidates.filter(definition => basisPatterns[definition]?.test(text));
     const baseUnit = type === 'employees' || type === 'users' || type === 'distribution' ? 'count' : type === 'market_share' ? 'percent' : 'USD';
+    const dateRanges = dateSpans(text);
     const pattern = /(?:\bUSD\s*|US\$|\$)?\s*(?<![A-Za-z\d])(\d[\d,]*(?:\.\d+)?)\s*\+?\s*(trillion|billion|million|thousand|[kmbt]\b)?/gi;
     for (const match of text.matchAll(pattern)) {
       // Parenthetical breakdowns are not company-wide employee candidates.
@@ -550,6 +557,9 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
         LOCATIVE_AFTER_NUMBER.test(text.slice(match.index! + match[0].length, match.index! + match[0].length + 24))) continue;
       // A band ("51 to 100") has no single value; never pick one end of it.
       if (inRange(text, match.index!, match.index! + match[0].trimEnd().length)) continue;
+      // A date's day, year or quarter is never a candidate figure (date-digits.ts).
+      const digitsAt = match.index! + match[0].indexOf(match[1]!);
+      if (withinDate(text, digitsAt, digitsAt + match[1]!.length, dateRanges)) continue;
       const scale = match[2]?.toLowerCase();
       const value = Number(match[1]!.replace(/,/g, '')) * (scale ? ({ trillion: 1e12, billion: 1e9, million: 1e6, thousand: 1e3, t: 1e12, b: 1e9, m: 1e6, k: 1e3 }[scale] ?? 1) : 1);
       // A money figure may be quoted natively ("£270 million"); the unit is the

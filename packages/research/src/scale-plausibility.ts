@@ -26,6 +26,11 @@
  *   (> 2.5M), is not a headcount (headcount-reach.ts). It is withheld first and
  *   never used as the denominator above: a reach figure as headcount would hide
  *   exactly the cross-company figures this gate exists to catch.
+ * - date_digit_figure (v11): an unverified figure whose value appears in its
+ *   own stored support only as a digit of a date (a day of the month, a year,
+ *   a quarter — "as reported on September 29, 2026" stored as 29 employees)
+ *   and never as a standalone number there (date-digits.ts). Withheld first,
+ *   like reach, so it never serves as a headcount denominator.
  *
  * Only 'estimated' rows are judged: verified rows carry an original citation
  * and only a human may touch user_verified. A withheld figure is null with
@@ -34,13 +39,15 @@
 import type { CompanyMetric, MetricType } from '@mi/contracts';
 import { namesCompany, supportSectionOwner } from './reported-metrics';
 import { unverifiedHeadcountProblem, type HeadcountProblem } from './headcount-reach';
+import { storedValueIsDateDigit } from './date-digits';
 
-export type ScaleGate = 'implausible_scale' | 'cross_company_figure' | HeadcountProblem;
+export type ScaleGate = 'implausible_scale' | 'cross_company_figure' | HeadcountProblem | 'date_digit_figure';
 
 export const SCALE_NOTES: Record<ScaleGate, string> = {
   implausible_scale: 'Withheld: this unverified figure is implausible for the company\'s own reported headcount (far beyond any real company\'s revenue or value per employee), the signature of another company\'s figure bound to this one. Unknown until re-researched.',
   cross_company_figure: 'Withheld: the same unverified figure is stored on another company in this deck, and the evidence attributes it to that company, not this one. Unknown until re-researched.',
   headcount_is_reach: 'Withheld: the stored source counts people the company serves or reaches (employees of its clients using the product), not the company\'s own staff. Unknown until re-researched.',
+  date_digit_figure: 'Withheld: the stored figure is a digit of a date in its own source sentence (a day of the month, a year or a quarter), not a figure the source states. Unknown until re-researched.',
   headcount_too_large: 'Withheld: this unverified headcount exceeds any real employer (no company employs more than about 2.3 million people), so it is not the company\'s own staff. Unknown until re-researched.',
 };
 
@@ -81,7 +88,8 @@ export interface ScaleFinding {
 function headcounts(metrics: readonly CompanyMetric[]): Map<string, number> {
   const out = new Map<string, number>();
   for (const row of metrics) {
-    if (row.metricType !== 'employees' || row.confidence === 'unknown' || unverifiedHeadcountProblem(row)) continue;
+    if (row.metricType !== 'employees' || row.confidence === 'unknown' || unverifiedHeadcountProblem(row) ||
+      storedValueIsDateDigit(row)) continue;
     const count = row.value != null && row.value > 0 ? row.value : row.reportedBand?.high ?? null;
     if (count == null || !(count > 0)) continue;
     out.set(row.companyId, Math.max(out.get(row.companyId) ?? 0, count));
@@ -112,6 +120,7 @@ export function implausibleScaleFigures(input: ScaleGateInput): ScaleFinding[] {
   };
 
   for (const row of input.metrics) {
+    if (storedValueIsDateDigit(row)) { flag(row, 'date_digit_figure'); continue; }
     const headcount = unverifiedHeadcountProblem(row);
     if (headcount) flag(row, headcount);
   }

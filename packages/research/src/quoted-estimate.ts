@@ -20,6 +20,7 @@ import type { OriginalSourceReceipt } from './original-source';
 import type { MetricPassageSupport } from './metric-support';
 import { currencyMentionPattern, isConvertibleCurrency } from './fx';
 import { headcountFramedAsReach, MAX_PLAUSIBLE_HEADCOUNT } from './headcount-reach';
+import { dateSpans, withinDate } from './date-digits';
 
 const normalize = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim();
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -62,9 +63,12 @@ function brandOf(companyName: string): string {
 
 interface Amount { value: number; start: number; end: number }
 
+/** Figures only: a date's day, year or quarter is never an amount (date-digits.ts). */
 function amountsIn(text: string): Amount[] {
   const scale: Record<string, number> = { trillion: 1e12, billion: 1e9, million: 1e6, thousand: 1e3, tn: 1e12, bn: 1e9, b: 1e9, mn: 1e6, m: 1e6, k: 1e3 };
+  const dates = dateSpans(text);
   return [...text.matchAll(/(?<![A-Za-z\d])(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|thousand|tn|bn|mn|[bmk])?\b/gi)]
+    .filter((match) => !withinDate(text, match.index!, match.index! + match[1]!.length, dates))
     .map((match) => ({ value: Number(match[1]!.replaceAll(',', '')) * (scale[match[2]?.toLowerCase() ?? ''] ?? 1),
       start: match.index!, end: match.index! + match[0].length }));
 }
