@@ -1,6 +1,7 @@
 import { MONEY_METRIC_TYPES, hasVerificationGradeCitation, usableCitations, validMetricVerificationValue, type Citation, type MetricType, type CompanyMetric } from '@mi/contracts';
 import type { OriginalSourceReceipt } from './original-source';
-import { secFilingHeadcountObservation, secRevenueObservation } from './sec-revenue';
+import { secFilingHeadcountObservation, secRevenueCik, secRevenueObservation } from './sec-revenue';
+import { secIssuerName } from './sec-identity';
 import { secAdvObservationFor } from './sec-adv';
 import { currencyMentionPattern, describeCurrencyConversion, isConvertibleCurrency, usdPerUnit } from './fx';
 
@@ -58,7 +59,11 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
   const reject = (reason: string) => ({ citations: [] as Citation[], reason });
   const proof = input.support;
   if (proof?.format === 'sec-companyconcept') {
-    const observed = secRevenueObservation(input.companyName, input.originals.filter(source => source.finalUrl === proof.sourceUrl), input.nowMs);
+    // A listed company whose name is not its registrant title ("IBM") is
+    // checked against the title only when the retained identity receipts
+    // establish that alias for this concept's own CIK (sec-identity.ts).
+    const issuer = secIssuerName({ name: input.companyName, websiteUrl: input.officialWebsite }, input.originals, secRevenueCik(proof.sourceUrl));
+    const observed = secRevenueObservation(issuer, input.originals.filter(source => source.finalUrl === proof.sourceUrl), input.nowMs);
     return input.metricType === 'arr' && observed && input.value === observed.value &&
       proof.basis === 'arr' && proof.unit === 'USD' && proof.definition === 'annual_revenue' &&
       proof.asOf === observed.passageSupport.asOf && proof.periodStart === observed.passageSupport.periodStart &&

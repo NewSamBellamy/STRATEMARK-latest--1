@@ -15,7 +15,7 @@ type FetchLike = typeof fetch;
 export interface Headquarters {
   location: string;
   sourceUrl: string;
-  via: 'homepage-jsonld' | 'wikidata';
+  via: 'homepage-jsonld' | 'wikidata' | 'sec-submissions';
 }
 
 const WIKIDATA_API = 'https://www.wikidata.org/w/api.php';

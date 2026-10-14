@@ -26,6 +26,7 @@ import { z } from 'zod';
 import { companyNameKey, secTickerMapUrl } from './market-quote';
 import { companyFilingRowSchema, describeCompanyFiling, MAX_COMPANY_FILINGS, selectCompanyFilings, type CompanyFiling, type CompanyFilingRow } from './sec-filings';
 import type { OriginalSourceReceipt } from './original-source';
+import { selectSubmissionsProfile } from './sec-profile';
 
 export const SCHEDULE_13_FORMS = ['SCHEDULE 13G', 'SCHEDULE 13G/A', 'SCHEDULE 13D', 'SCHEDULE 13D/A'] as const;
 export type Schedule13Form = typeof SCHEDULE_13_FORMS[number];
@@ -120,7 +121,9 @@ export function selectScheduleFilingIndex(submissionsJson: string): string {
   }
   filings.sort((a, b) => b.filingDate.localeCompare(a.filingDate) || b.accession.localeCompare(a.accession));
   return JSON.stringify({ cik: padCik(String(doc.cik)), name: doc.name.slice(0, MAX_NAME), filings: filings.slice(0, MAX_SCHEDULE_FILINGS),
-    companyFilings: selectCompanyFilings(recent) });
+    companyFilings: selectCompanyFilings(recent),
+    // The registrant's own tickers, website and business address (sec-profile.ts).
+    profile: selectSubmissionsProfile(doc) });
 }
 
 const indexSchema = z.object({
