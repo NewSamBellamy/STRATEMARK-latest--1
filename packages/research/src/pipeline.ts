@@ -51,6 +51,7 @@ import type {
   RunResearchOptions,
 } from './types';
 import { faviconUrl } from './logos';
+import { isPlaceholderCompany } from './placeholder-names';
 import {
   AbortError, mapWithConcurrency, rootDomain, slugify, throwIfAborted
 } from './util';
@@ -323,11 +324,7 @@ export function discoverySearchHints(plan: MarketPlan, focus: DiscoveryFocus, ex
   ];
 }
 
-/** A row the model made up to fill a count, not a business it found. */
-export function isPlaceholderCompany(name: string, descriptor?: string | null): boolean {
-  return /^(?:company|placeholder|entity|startup|firm|vendor|player|competitor|example|sample)\s*(?:[a-z]|\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)?$/i.test(name.trim()) ||
-    /\b(?:placeholder|to satisfy|minimum count|fictional|hypothetical|dummy entry|example company)\b/i.test(descriptor ?? '');
-}
+export { isPlaceholderCompany };
 
 /** Whether a discovered name literally appears in the notes it was structured
  * from (a trailing legal or category word may be absent in the notes). */
@@ -348,6 +345,7 @@ function mergeCandidates(
   const seen = new Set(existing.flatMap((c) => identityKeys(c.name, c.domain)));
   const merged = [...existing];
   for (const candidate of additions) {
+    if (isPlaceholderCompany(candidate.name, candidate.descriptor)) continue;
     const keys = identityKeys(candidate.name, candidate.domain);
     if (keys.some((key) => seen.has(key))) continue;
     keys.forEach((key) => seen.add(key));
@@ -849,7 +847,11 @@ export async function discoverDeckStubs(
 /** Phase 3 of deck construction: candidates → ingestible placeholder cards.
  * Reuses stubs already built during streaming when the caller passes them. */
 export function buildStubs(candidates: CompanyCandidate[], deck: Deck): CardWithCompany[] {
-  return candidates.map((candidate) => buildStubCard(candidate, deck));
+  // Last gate before a candidate becomes a stored company: no path (discovery,
+  // hunts, delta, a fallback) may store a template row.
+  return candidates
+    .filter((candidate) => !isPlaceholderCompany(candidate.name, candidate.descriptor))
+    .map((candidate) => buildStubCard(candidate, deck));
 }
 
 /** One candidate → one ingestible placeholder card with stable ids. Extracted

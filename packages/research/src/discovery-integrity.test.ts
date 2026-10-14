@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { discoverySearchHints, isPlaceholderCompany, namedInNotes } from './pipeline';
+import { buildStubs, discoverySearchHints, isPlaceholderCompany, namedInNotes } from './pipeline';
 import { companyNameKey, parseTickerMatches } from './market-quote';
 
 describe('discovery never turns padding into companies', () => {
@@ -22,6 +22,29 @@ describe('discovery never turns padding into companies', () => {
     expect(isPlaceholderCompany('Acme Robotics', 'Placeholder company to satisfy minimum count.')).toBe(true);
     expect(isPlaceholderCompany('Company Ventures')).toBe(false);
     expect(isPlaceholderCompany('Locus Robotics', 'Warehouse robots')).toBe(false);
+  });
+});
+
+describe('placeholder-shaped names', () => {
+  it.each(['Company Two', 'company ten', 'Company 10', 'Company A', 'Competitor A', 'Example Corp', 'Example Inc.',
+    'Foo Bar Inc', 'Dummy Corp', 'TBD', 'N/A', 'Unknown company', 'Another startup', 'Startup 3', 'Vendor #2', '[Company Name]',
+    'Your Company', 'Sample Company'])('rejects %s', (name) => {
+    expect(isPlaceholderCompany(name)).toBe(true);
+  });
+
+  it.each(['Company.com', 'Company Ventures', 'Vendr', 'Example Health', 'Locus Robotics', 'Symbotic', 'Acme Robotics', 'Acme Inc.', 'Acme',
+    'Players Health', 'Test Gorilla', 'Brandwatch', 'Entity Labs Pharma'])('keeps %s', (name) => {
+    expect(isPlaceholderCompany(name)).toBe(false);
+  });
+
+  it('buildStubs and the ADK and delta gates never store a template row', () => {
+    const deck = { id: 'deck_1', marketId: 'm1', title: 'x' } as unknown as Parameters<typeof buildStubs>[1];
+    const stubs = buildStubs([
+      { name: 'Locus Robotics', domain: 'locusrobotics.com', descriptor: 'robots', cardTypes: ['company'] },
+      { name: 'Company Two', domain: null, descriptor: '', cardTypes: ['company'] },
+      { name: 'Company Three', domain: null, descriptor: '', cardTypes: ['company'] },
+    ], deck);
+    expect(stubs.map((s) => s.company?.name)).toEqual(['Locus Robotics']);
   });
 });
 

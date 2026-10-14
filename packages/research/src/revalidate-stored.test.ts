@@ -107,6 +107,26 @@ describe('revalidateStoredMetrics', () => {
     expect(snap.metricGateVersion).toBe(METRIC_GATE_VERSION);
   });
 
+  it('drops stored template-named companies with their cards, figures and claims', () => {
+    const base = snapshot();
+    const fake = { id: 'co_two', name: 'Company Two', websiteUrl: null };
+    const snap = snapshot({
+      companies: [...base.companies, fake] as unknown as RepoSnapshot['companies'],
+      metrics: [...base.metrics, row(fake, { id: 'm_fake', metricType: 'valuation' } as Partial<CompanyMetric>)],
+      cards: [{ id: 'card_two', companyId: 'co_two', cardType: 'company', summary: null }] as unknown as RepoSnapshot['cards'],
+      viceClaims: [{ id: 'v1', cardId: 'card_two', claimText: 'x' }] as unknown as RepoSnapshot['viceClaims'],
+      companyMarket: { co_two: 'Warehouse automation' },
+    });
+    const { snapshot: out, revalidation } = migrateSnapshot({ ...snap, metricGateVersion: 4 } as typeof snap);
+    expect(revalidation?.droppedPlaceholders).toEqual([{ companyId: 'co_two', name: 'Company Two' }]);
+    expect(out.companies.some((c) => c.id === 'co_two')).toBe(false);
+    expect(out.metrics.some((m) => m.companyId === 'co_two')).toBe(false);
+    expect(out.cards).toEqual([]);
+    expect(out.viceClaims).toEqual([]);
+    expect(out.companyMarket).toEqual({});
+    expect(out.companies.some((c) => c.id === github.id)).toBe(true);
+  });
+
   it('never touches a human-verified figure, and keeps clean figures intact', () => {
     const { snapshot: snap } = migrateSnapshot(snapshot());
     expect(byId(snap, humanValuation.id)).toEqual(humanValuation);

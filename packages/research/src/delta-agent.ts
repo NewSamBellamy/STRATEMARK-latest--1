@@ -26,6 +26,7 @@
  *      - Missing data is honestly reported as null / unknown with method notes.
  */
 
+import { isPlaceholderCompany } from './placeholder-names';
 import {
   buildCmsInput,
   computeCms,
@@ -563,6 +564,10 @@ export class IncrementalDeltaAgent {
 
     for (const c of structured.companies ?? []) {
       const name = c.name.trim();
+      if (isPlaceholderCompany(name, c.descriptor)) {
+        rejected.push(name);
+        continue;
+      }
       const domain = rootDomain(c.domain);
       const keys = buildEntityIdentityKeys(name, domain);
 

@@ -4,6 +4,7 @@
  * malformed / hallucinated response is caught, not rendered. Defaults are
  * permissive (missing → Unknown/null) to honor the missing-data protocol.
  */
+import { isPlaceholderCompany } from './placeholder-names';
 import { z } from 'zod';
 import { cardTypeSchema, modelConfidenceSchema, metricPassageSupportSchema } from '@mi/contracts';
 import { FUNDING_ROUND_TYPES, parseFundingRoundType } from './proxy-estimator';
@@ -80,7 +81,11 @@ export const discoveryOutSchema = z.preprocess(
 /** Strict schema for the primary discovery pass. Focused fallback passes remain
  * tolerant because a sparse niche is better represented honestly than padded. */
 export const discoveryMinimumOutSchema = discoveryOutSchema.superRefine((value, ctx) => {
-  const unique = new Set(value.companies.map((company) => company.name.trim().toLowerCase()));
+  // Padding rows ("Company Two") do not count toward the minimum: counting
+  // them is exactly what let invented rows through.
+  const unique = new Set(value.companies
+    .filter((company) => !isPlaceholderCompany(company.name, company.descriptor))
+    .map((company) => company.name.trim().toLowerCase()));
   if (unique.size < 10) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
