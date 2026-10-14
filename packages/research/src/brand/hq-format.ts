@@ -103,7 +103,10 @@ export interface HqFormatOptions {
 
 export function canonicalHqLocation(raw: string | null | undefined, options: HqFormatOptions = {}): string | null {
   if (raw == null) return null;
-  const parts = raw.split(',')
+  // "Miami, FL / Dallas, Texas": two places in one string. Only the first is
+  // the headquarters; joining its city to the last region invents a place.
+  const first = raw.split(/\s*[;|/]\s*|\s+(?:and|&|with|plus)\s+|\s*\(/i)[0] ?? raw;
+  const parts = first.split(',')
     // A street line ("100 Main St") is never the place; a ZIP or postal code
     // beside a state ("CA 94105") is dropped from it.
     .filter((part) => !/^\s*\d/.test(part))
@@ -119,6 +122,10 @@ export function canonicalHqLocation(raw: string | null | undefined, options: HqF
   const usEvidence = isUs || Boolean(options.usFiler);
   // A state anywhere after the city when the country is the US or unstated
   // ("Toronto, ON, Canada" is not Oregon).
+  // A state written right after the city belongs to that city, even when
+  // more places follow ("Miami, FL, Dallas, TX" is Miami, Florida).
+  const adjacent = !isUs && rest.length > 1 ? usState(rest[0]!, usEvidence) : null;
+  if (adjacent && !ambiguousRegionCode(rest[0]!)) return `${city}, ${adjacent}`;
   const regions = isUs ? rest.slice(0, -1) : rest.length === 1 ? rest : [];
   const state = regions.map((part) => usState(part, usEvidence)).find(Boolean);
   if (state) return `${city}, ${state}`;
@@ -129,4 +136,34 @@ export function canonicalHqLocation(raw: string | null | undefined, options: HqF
   }
   const named = country(last);
   return named.toLowerCase() === city.toLowerCase() ? city : `${city}, ${named}`;
+}
+
+const escapeRe = (t: string): string => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const LINK = String.raw`[\s,.(–—-]{1,3}(?:in\s+|of\s+)?`;
+
+/**
+ * Keeps a "City, State" headquarters derivable from the evidence text that
+ * supports it. Where the text names the city, the state must stand beside it;
+ * otherwise only what the text literally says is kept: the state it puts
+ * beside that city, or the bare city. Text that never names the city cannot
+ * speak for the location, which is returned unchanged.
+ */
+export function hqGroundedInEvidence(location: string | null | undefined, evidence: string | null | undefined): string | null {
+  if (!location) return null;
+  const at = location.lastIndexOf(', ');
+  if (at < 0 || !evidence) return location;
+  const city = location.slice(0, at);
+  const state = location.slice(at + 2);
+  const code = Object.entries(US_STATES).find(([, name]) => name === state)?.[0];
+  if (!code) return location;
+  const cityRe = String.raw`\b${escapeRe(city)}`;
+  if (!new RegExp(String.raw`${cityRe}(?!\w)`, 'i').test(evidence)) return location;
+  const beside = (name: string, abbr: string): boolean => new RegExp(String.raw`${cityRe}${LINK}${escapeRe(name)}\b`, 'i').test(evidence)
+    // A code that is also a word or country ("IN", "OR") counts only in capitals.
+    || new RegExp(String.raw`${cityRe}${LINK}${abbr}\b`, ambiguousRegionCode(abbr) ? '' : 'i').test(evidence);
+  if (beside(state, code)) return location;
+  for (const [abbr, name] of Object.entries(US_STATES)) {
+    if (name !== state && beside(name, abbr)) return `${city}, ${name}`;
+  }
+  return city;
 }

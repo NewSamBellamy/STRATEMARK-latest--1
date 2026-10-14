@@ -3,7 +3,7 @@
  * "City, Full State" in the US, "City, Country" elsewhere, Title Case.
  */
 import { describe, expect, it } from 'vitest';
-import { canonicalHqLocation } from './hq-format';
+import { canonicalHqLocation, hqGroundedInEvidence } from './hq-format';
 import { homepageHeadquarters, wikidataHeadquarters } from './headquarters';
 import { secHeadquartersPlace } from '../sec-profile';
 import { revalidateStoredMetrics } from '../revalidate-stored';
@@ -104,5 +104,46 @@ describe('revalidateStoredMetrics — v2 headquarters', () => {
       'Mumbai, IN', 'Austin, Texas']);
     expect(outcome.normalizedHq.map((r) => r.companyId)).toEqual(['a', 'd', 'f']);
     expect(snapshot.dashboards).toEqual({});
+  });
+});
+
+describe('one headquarters is never stitched from two places', () => {
+  it.each([
+    ['Miami, Florida; Dallas, Texas', 'Miami, Florida'],
+    ['Miami, FL / Dallas, Texas', 'Miami, Florida'],
+    ['Miami, Florida and Dallas, Texas', 'Miami, Florida'],
+    ['Miami, FL, Dallas, Texas', 'Miami, Florida'],
+    ['Miami, Florida (with a large office in Dallas, Texas)', 'Miami, Florida'],
+    ['Toronto, ON, Canada', 'Toronto, Canada'],
+  ])('%s -> %s', (raw, expected) => expect(canonicalHqLocation(raw)).toBe(expected));
+});
+
+describe('hqGroundedInEvidence', () => {
+  const evidence = 'Southern Glazer\'s is headquartered in Miami, Florida, with a large office in Dallas, Texas.';
+  it('replaces a state the evidence does not put beside the city', () => {
+    expect(hqGroundedInEvidence('Miami, Texas', evidence)).toBe('Miami, Florida');
+  });
+  it('keeps a state the evidence supports, by name or code', () => {
+    expect(hqGroundedInEvidence('Miami, Florida', evidence)).toBe('Miami, Florida');
+    expect(hqGroundedInEvidence('Austin, Texas', 'Based in Austin, TX since 2012.')).toBe('Austin, Texas');
+  });
+  it('keeps only the city when the evidence names no state beside it', () => {
+    expect(hqGroundedInEvidence('Miami, Texas', 'The firm is based in Miami and sells wine.')).toBe('Miami');
+  });
+  it('leaves a location alone when the evidence never names the city', () => {
+    expect(hqGroundedInEvidence('Miami, Texas', 'A distributor of wine and spirits.')).toBe('Miami, Texas');
+    expect(hqGroundedInEvidence('Zurich, Switzerland', 'Zurich is nice.')).toBe('Zurich, Switzerland');
+    expect(hqGroundedInEvidence(null, evidence)).toBeNull();
+  });
+});
+
+describe('revalidateStoredMetrics v5 headquarters', () => {
+  it('cuts a stored city+state back to what its retained research text says', () => {
+    const snapshot = { metricGateVersion: 4, metrics: [], dashboards: {} as Record<string, unknown>,
+      companies: [{ id: 'sg', name: 'SGWS', oneLiner: 'x', hqLocation: 'Miami, Texas' }, { id: 'gp', name: 'GP', oneLiner: 'x', hqLocation: 'Grand Prairie, Texas' }],
+      researchEvidence: [{ id: 'e1', companyId: 'sg', topic: 'hq', capturedAt: '2026-01-01', text: 'Headquarters: Miami, Florida. Dallas, Texas office.', citations: [], queries: [] }] };
+    const outcome = revalidateStoredMetrics(snapshot);
+    expect(snapshot.companies.map((c) => c.hqLocation)).toEqual(['Miami, Florida', 'Grand Prairie, Texas']);
+    expect(outcome.normalizedHq.map((r) => r.companyId)).toEqual(['sg']);
   });
 });
