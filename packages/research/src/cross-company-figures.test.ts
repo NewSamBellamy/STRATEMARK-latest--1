@@ -177,8 +177,8 @@ const byId = (snap: RepoSnapshot, id: string) => snap.metrics.find((m) => m.id =
 describe('stored decks: v8 revalidation and the write-time gate', () => {
   it('v8 withholds the stored Mixmax figures (null, unknown, explained) and keeps Google\'s', () => {
     const { snapshot: out, revalidation } = migrateSnapshot({ ...deckSnapshot(), metricGateVersion: 7 });
-    expect(METRIC_GATE_VERSION).toBe(8);
-    expect(out.metricGateVersion).toBe(8);
+    expect(METRIC_GATE_VERSION).toBeGreaterThanOrEqual(8);
+    expect(out.metricGateVersion).toBe(METRIC_GATE_VERSION);
     expect(revalidation?.reset.map((r) => [r.metricId, r.gate]).sort()).toEqual([
       [`met_${mixmax.id}_arr`, 'implausible_scale'], [`met_${mixmax.id}_market_cap`, 'implausible_scale']]);
     for (const type of ['market_cap', 'arr']) {

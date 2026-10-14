@@ -19,6 +19,7 @@ import { MONEY_METRIC_TYPES, validMetricVerificationValue, type Citation, type C
 import type { OriginalSourceReceipt } from './original-source';
 import type { MetricPassageSupport } from './metric-support';
 import { currencyMentionPattern, isConvertibleCurrency } from './fx';
+import { headcountFramedAsReach, MAX_PLAUSIBLE_HEADCOUNT } from './headcount-reach';
 
 const normalize = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim();
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -109,6 +110,9 @@ export function quoteHolds(input: { companyName: string; metricType: MetricType;
 
   const quote = normalize(input.quote);
   if (quote.length < 15 || quote.length > 600 || HEDGE.test(quote) || !wording.test(quote)) return false;
+  // A payroll/EWA/HR product's reach ("serving 112,000 employees at 12,000
+  // employers") is not the company's own headcount (headcount-reach.ts).
+  if (input.metricType === 'employees' && (input.value > MAX_PLAUSIBLE_HEADCOUNT || headcountFramedAsReach(quote, input.value))) return false;
   // The date here is usually the article's dateline. An article restating an
   // older round ("which was valued at $61.5 billion in 2024") is not dated by it.
   if (EVENT_TYPES.includes(input.metricType) && (RESTATED.test(quote) ||

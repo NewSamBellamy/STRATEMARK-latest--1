@@ -71,8 +71,16 @@ import { implausibleScaleFigures, SCALE_NOTES, type ScaleGate } from './scale-pl
  *     names the other, its retained batch answer places it in the other's
  *     section, or its per-head scale is 100x the other's. Runs alongside every
  *     v1-v7 check.
+ * v9: unverified headcounts that are not the company's own staff are withheld
+ *     (headcount-reach.ts, applied in the scale pass): an `employees` row whose
+ *     stored support frames the number as people the company serves or reaches
+ *     ("6 million employees use DailyPay", "serving 112,000 employees at 12,000
+ *     employers"), or one above 2.5M (beyond any real employer). Withheld
+ *     before the v8 per-head checks, so a reach figure never serves as their
+ *     denominator. Verified and user_verified rows are never touched. Runs
+ *     alongside every v1-v8 check.
  */
-export const METRIC_GATE_VERSION = 8;
+export const METRIC_GATE_VERSION = 9;
 
 export type RevalidationGate = 'parent_or_acquisition' | 'stale_share_count' | 'sec_revenue_sub_line'
   | 'acquired_deal_valuation' | 'non_subscription_arr' | ScaleGate;

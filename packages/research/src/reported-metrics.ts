@@ -1,3 +1,4 @@
+import { headcountFramedAsReach, MAX_PLAUSIBLE_HEADCOUNT } from './headcount-reach';
 import { isAttributedGrounding } from './grounding-support';
 import { MONEY_METRIC_TYPES, reportedBandSchema, reportedMetricSupportSchema, usableCitations, validMetricVerificationValue,
   type Citation, type CompanyMetric, type MetricType, type MarketProfile, type ReportedBand, type ReportedMetricSupport } from '@mi/contracts';
@@ -618,6 +619,8 @@ export function reportedMetricCitations(companyName: string, website: string | n
   if (proof.companyName !== companyName || proof.basis !== type || !sameValue(type, proof.value, proof.unit, metric.value) ||
     !validMetricVerificationValue(type, metric.value) || metric.value === 0 ||
     (['employees', 'users'].includes(type) && !Number.isSafeInteger(metric.value))) return [];
+  // No company employs more than ~2.3M people; a reach phrase is not staff.
+  if (type === 'employees' && (proof.value > MAX_PLAUSIBLE_HEADCOUNT || headcountFramedAsReach(proof.support.text, proof.value))) return [];
   const definition = proof.definition ?? type;
     // User populations are always reported AS OF a date or period in any source
   // worth citing. A users claim with no reporting date ('1B active users',
@@ -738,7 +741,10 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
     (!proof.asOf || !/\b(?:article published|page published|retrieved|accessed|updated on)\b/i.test(sentence)) &&
     (definition !== 'distribution' || !DISTRIBUTION_NOT_SALES.test(sentence)) &&
     (!(ownSite && reach) || !OWN_SITE_SPECULATIVE.test(sentence)) &&
-    (definition !== 'users' || !/\b(?:active|monthly|daily|weekly|customers|registered|downloads|followers|employees?|employs?|employed|headcount|staff|workforce)\b/i.test(sentence)))) return [];
+    (definition !== 'users' || !/\b(?:active|monthly|daily|weekly|customers|registered|downloads|followers|employees?|employs?|employed|headcount|staff|workforce)\b/i.test(sentence)) &&
+    // "6 million employees use DailyPay" counts the people a payroll/EWA/HR
+    // product reaches, not the company's own staff (headcount-reach.ts).
+    (definition !== 'employees' || !headcountFramedAsReach(sentence, proof.value)))) return [];
   return citations;
 }
 
@@ -756,6 +762,8 @@ export function reportedSupportCitations(companyName: string, website: string | 
   if (proof.companyName !== companyName || proof.basis !== type || !sameValue(type, proof.value, proof.unit, metric.value) ||
     !validMetricVerificationValue(type, metric.value) || metric.value === 0 ||
     (['employees', 'users'].includes(type) && !Number.isSafeInteger(metric.value))) return [];
+  // No company employs more than ~2.3M people; a reach phrase is not staff.
+  if (type === 'employees' && (proof.value > MAX_PLAUSIBLE_HEADCOUNT || headcountFramedAsReach(proof.support.text, proof.value))) return [];
   const definition = proof.definition ?? type;
   if ((type === 'arr' && !['arr', 'annual_revenue'].includes(definition)) ||
     (type === 'users' && !['users', 'active_users', 'monthly_active_users', 'daily_active_users', 'customers', 'paying_customers'].includes(definition)) ||

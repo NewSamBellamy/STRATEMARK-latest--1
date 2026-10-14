@@ -4,6 +4,7 @@ import { secFilingHeadcountObservation, secRevenueCik, secRevenueObservation } f
 import { secIssuerName } from './sec-identity';
 import { isSecAdvSearchUrl, secAdvObservationFor } from './sec-adv';
 import { currencyMentionPattern, describeCurrencyConversion, isConvertibleCurrency, usdPerUnit } from './fx';
+import { headcountFramedAsReach } from './headcount-reach';
 
 export type MetricPassageSupport = NonNullable<CompanyMetric['passageSupport']>;
 const normalize = (text: string) => text.normalize('NFKC').replace(/\s+/g, ' ').trim();
@@ -160,6 +161,8 @@ export function inspectMetricPassage(input: Parameters<typeof acceptedMetricPass
     /\b(?:article|published|publication|retrieved|updated)\b/i.test(quote) ||
     (!intervalDate && !new RegExp(`\\b(?:as of|as at|on|at|ended|ending)\\s+${escape(literalDate)}(?![\\p{L}\\p{N}])`, 'iu').test(quote)) ||
     Object.entries(basis).some(([type, pattern]) => type !== input.metricType && pattern.test(quote))) return reject('Claim attribution is ambiguous. A direct company statement and metric reporting date are required, not an article date or another company’s figure.');
+  // "COMPANY serves 6 million employees" is the product's reach, not its staff.
+  if (input.metricType === 'employees' && headcountFramedAsReach(quote, input.value)) return reject('The passage counts people the company serves or reaches, not its own employees.');
   const expectedUnit = MONEY_METRIC_TYPES.includes(input.metricType) ? 'USD' : input.metricType === 'market_share' ? 'percent' : 'count';
   // A money figure may be quoted natively in a convertible currency: the model
   // sets unit to the ISO code the SOURCE uses and the quote must name that
