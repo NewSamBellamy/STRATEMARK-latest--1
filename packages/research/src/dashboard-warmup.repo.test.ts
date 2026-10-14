@@ -46,11 +46,12 @@ function client(): LlmClient & { ground: ReturnType<typeof vi.fn> } {
   };
 }
 
-function fixtureRepo(options: { wikidataJson?: (url: string) => Promise<unknown>; saved?: RepoSnapshot | null; llm?: LlmClient } = {}) {
+function fixtureRepo(options: { wikidataJson?: (url: string) => Promise<unknown>; saved?: RepoSnapshot | null; llm?: LlmClient; backfill?: boolean } = {}) {
   let saved: RepoSnapshot = options.saved ?? ({ ...completenessFixture(), viceClaims: [], reports: [], briefings: [], savedCards: [],
     opportunity: {}, researchJobs: [], threads: [] } as unknown as RepoSnapshot);
   const llm = options.llm ?? client();
   const repo = new GeminiRepository({ apiKey: 'test', client: llm, wikidataJson: options.wikidataJson,
+    ...(options.backfill !== undefined ? { dashboardWarmup: { backfill: options.backfill, startupDelayMs: 0 } } : {}),
     // Offline readers: no page or news lane may reach the network from a unit test.
     originalSourceReader: async (url) => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'offline' }),
     store: { read: () => structuredClone(saved), write: async (next) => { saved = structuredClone(next); } } });
@@ -150,5 +151,21 @@ describe('dashboard warm-up in the repository', () => {
     expect(fresh.saved().dashboards.acme?.history).toBeDefined();
     expect(fresh.saved().dashboards.acme?.live_intel).toBeDefined();
     void repo;
+  });
+
+  it('never backfills stored decks unless explicitly enabled (one-time spend needs approval)', async () => {
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    for (const backfill of [undefined, false]) {
+      const off = fixtureRepo(backfill === undefined ? {} : { backfill });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await off.repo.getDeckByMarket('mkt_fx');
+      await off.repo.waitForDashboardWarmup();
+      expect(off.llm.ground, `backfill=${String(backfill)}`).not.toHaveBeenCalled();
+    }
+    const on = fixtureRepo({ backfill: true });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await on.repo.getDeckByMarket('mkt_fx');
+    await on.repo.waitForDashboardWarmup();
+    expect(on.llm.ground).toHaveBeenCalled();
   });
 });

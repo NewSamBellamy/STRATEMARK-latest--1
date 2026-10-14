@@ -37,6 +37,22 @@ export function needsSampleDeck(apiKey: string, engine?: string): boolean {
   return !(isElectron() && window.mi) && engine !== 'cloud' && !apiKey;
 }
 
+/** localStorage switch for warming STORED decks' dashboard tabs (on start and on open). */
+export const STORED_DECK_WARMUP_KEY = 'mi.warmStoredDecks';
+
+/**
+ * Stored-deck dashboard backfill is OFF unless explicitly switched on
+ * (`localStorage['mi.warmStoredDecks'] = 'on'`): warming every company of every
+ * stored deck is a one-time spend the owner approves first. New decks always warm.
+ */
+export function storedDeckWarmupEnabled(storage: Pick<Storage, 'getItem'> | null = typeof localStorage === 'undefined' ? null : localStorage): boolean {
+  try {
+    return storage?.getItem(STORED_DECK_WARMUP_KEY) === 'on';
+  } catch {
+    return false;
+  }
+}
+
 export function selectRepository(apiKey: string, model: string, engine?: string, store?: ResearchStore,
   quotaPreset: 'free' | 'paid' = 'free', judgeModel = '', sample?: SeedSnapshot): MarketIntelRepository {
   if (isElectron() && window.mi) {
@@ -87,12 +103,12 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       onCallMetrics: (m) => recordCallMetrics(m),
       // Every company's History, Team, Products and News tabs research in the
       // background after a deck is built (highest tier first), gated by the
-      // spending cap and the background-research pause. Stored decks backfill
-      // on start and on open only on a paid key: the free tier's daily
-      // grounded budget belongs to the user's own clicks.
+      // spending cap and the background-research pause. Stored decks are
+      // backfilled only when explicitly enabled (a one-time spend the owner
+      // approves): see storedDeckWarmupEnabled.
       dashboardWarmup: {
         allowed: () => !isLowPower() && !useResearchControl.getState().paused,
-        backfill: quotaPreset === 'paid',
+        backfill: storedDeckWarmupEnabled(),
       },
       // Founded year from the company's own Wikidata item (no provider calls).
       wikidataJson,
