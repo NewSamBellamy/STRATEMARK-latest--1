@@ -46,12 +46,13 @@ function client(): LlmClient & { ground: ReturnType<typeof vi.fn> } {
   };
 }
 
-function fixtureRepo(options: { wikidataJson?: (url: string) => Promise<unknown>; saved?: RepoSnapshot | null; llm?: LlmClient; backfill?: boolean } = {}) {
+function fixtureRepo(options: { wikidataJson?: (url: string) => Promise<unknown>; saved?: RepoSnapshot | null; llm?: LlmClient; backfill?: boolean; allowed?: () => boolean; resumeDelayMs?: number } = {}) {
   let saved: RepoSnapshot = options.saved ?? ({ ...completenessFixture(), viceClaims: [], reports: [], briefings: [], savedCards: [],
     opportunity: {}, researchJobs: [], threads: [] } as unknown as RepoSnapshot);
   const llm = options.llm ?? client();
   const repo = new GeminiRepository({ apiKey: 'test', client: llm, wikidataJson: options.wikidataJson,
-    ...(options.backfill !== undefined ? { dashboardWarmup: { backfill: options.backfill, startupDelayMs: 0 } } : {}),
+    ...(options.backfill !== undefined || options.allowed || options.resumeDelayMs !== undefined
+      ? { dashboardWarmup: { backfill: options.backfill ?? false, startupDelayMs: 0, resumeDelayMs: options.resumeDelayMs ?? 3_600_000, ...(options.allowed ? { allowed: options.allowed } : {}) } } : {}),
     // Offline readers: no page or news lane may reach the network from a unit test.
     originalSourceReader: async (url) => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'offline' }),
     store: { read: () => structuredClone(saved), write: async (next) => { saved = structuredClone(next); } } });
@@ -167,5 +168,73 @@ describe('dashboard warm-up in the repository', () => {
     await on.repo.getDeckByMarket('mkt_fx');
     await on.repo.waitForDashboardWarmup();
     expect(on.llm.ground).toHaveBeenCalled();
+  });
+
+  describe('deck-level resume (started, never completed)', () => {
+    const started = (snap: RepoSnapshot): RepoSnapshot => ({ ...structuredClone(snap), deckWarmup: { deck_fx: { startedAt: '2026-10-14T00:00:00.000Z' } } });
+    const fresh = (): RepoSnapshot => ({ ...completenessFixture(), viceClaims: [], reports: [], briefings: [], savedCards: [],
+      opportunity: {}, researchJobs: [], threads: [], dashboards: {}, dashboardWarmup: {} } as unknown as RepoSnapshot);
+
+    it('an interrupted warm-up resumes on a new instance, does only the remaining work, then marks itself complete', async () => {
+      vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+      let gate = 0;
+      const first = fixtureRepo({ saved: started(fresh()), allowed: () => ++gate <= 4, backfill: false });
+      first.repo.warmDeckDashboards('deck_fx', 'creation');
+      await first.repo.waitForDashboardWarmup();
+      // "Reload": only four tabs were researched; the deck is still marked pending.
+      expect(first.saved().deckWarmup?.deck_fx?.completedAt).toBeUndefined();
+      const doneTabs = Object.values(first.saved().dashboards).reduce((n, tabs) => n + Object.keys(tabs ?? {}).length, 0);
+      expect(doneTabs).toBeGreaterThan(0);
+
+      const reloaded = fixtureRepo({ saved: first.saved(), resumeDelayMs: 0 });
+      // The startup timer resumes it with NO backfill flag.
+      await vi.waitFor(() => expect(reloaded.saved().deckWarmup?.deck_fx?.completedAt).toBeDefined(), { timeout: 5000 });
+      await reloaded.repo.waitForDashboardWarmup();
+      const researched = (reloaded.repo as unknown as { warmup: { researched: Array<{ companyId: string; tab: string }> } }).warmup.researched;
+      const before = new Set(Object.entries(first.saved().dashboards).flatMap(([id, tabs]) => Object.keys(tabs ?? {}).map((tab) => id + ':' + tab)));
+      // Nothing already cached was researched again.
+      for (const row of researched) expect(before.has(row.companyId + ':' + row.tab), row.companyId + ':' + row.tab).toBe(false);
+      expect(researched.length).toBeGreaterThan(0);
+      for (const id of ['acme', 'beta', 'gamma']) expect(reloaded.saved().dashboards[id]?.history, id).toBeDefined();
+    });
+
+    it('a completed deck does not warm again, even after dashboards are invalidated', async () => {
+      vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+      const first = fixtureRepo({ saved: started(fresh()), backfill: false });
+      first.repo.warmDeckDashboards('deck_fx', 'creation');
+      await first.repo.waitForDashboardWarmup();
+      await vi.waitFor(() => expect(first.saved().deckWarmup?.deck_fx?.completedAt).toBeDefined());
+      // A full invalidation empties the cache; a completed deck must not re-warm by itself.
+      const wiped = { ...first.saved(), dashboards: {} } as RepoSnapshot;
+      const again = fixtureRepo({ saved: wiped });
+      expect(again.repo.resumeInterruptedWarmups()).toBe(0);
+      await again.repo.getDeckByMarket('mkt_fx');
+      await again.repo.waitForDashboardWarmup();
+      expect(again.llm.ground).not.toHaveBeenCalled();
+    });
+
+    it('an old deck that never had a warm-up stays governed by the opt-in flag', async () => {
+      vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+      const old = fixtureRepo({ saved: fresh(), resumeDelayMs: 0 });
+      expect(old.repo.resumeInterruptedWarmups()).toBe(0);
+      await old.repo.getDeckByMarket('mkt_fx');
+      await old.repo.waitForDashboardWarmup();
+      expect(old.llm.ground).not.toHaveBeenCalled();
+      expect(old.saved().deckWarmup).toBeUndefined();
+    });
+
+    it('failures do not loop: a pass that cannot fill tabs still completes and never retries in-session', async () => {
+      vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+      const failing = client();
+      (failing as { structure: unknown }).structure = async () => { throw new Error('provider down'); };
+      const first = fixtureRepo({ saved: started(fresh()), llm: failing });
+      first.repo.warmDeckDashboards('deck_fx', 'creation');
+      await first.repo.waitForDashboardWarmup();
+      await vi.waitFor(() => expect(first.saved().deckWarmup?.deck_fx?.completedAt).toBeDefined());
+      const calls = (failing.ground as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(first.repo.resumeInterruptedWarmups()).toBe(0);
+      await first.repo.waitForDashboardWarmup();
+      expect((failing.ground as ReturnType<typeof vi.fn>).mock.calls.length).toBe(calls);
+    });
   });
 });

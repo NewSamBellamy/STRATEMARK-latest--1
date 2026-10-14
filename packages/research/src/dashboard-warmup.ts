@@ -152,7 +152,8 @@ export class DashboardWarmup {
   /** Re-check the gate (e.g. after a job finished or the user resumed). */
   kick(): void { this.pump(); }
 
-  private hasDueTab(companyId: string): boolean {
+  /** Whether any warm tab of this company is due now (cached, backing off and exhausted tabs are not). */
+  hasDueTab(companyId: string): boolean {
     const attempts = this.deps.attempts()[companyId] ?? {};
     const now = this.now();
     return WARM_TABS.some((tab) => warmTabDue(this.deps.cached(companyId, tab), attempts[tab], now).due);

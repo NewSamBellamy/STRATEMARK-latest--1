@@ -229,6 +229,10 @@ export interface RepoSnapshot {
   /** Dashboard warm-up attempts per company and tab (dashboard-warmup.ts): what
    * was tried, when, and how it ended, so a reload resumes and empty tabs back off. */
   dashboardWarmup?: WarmAttempts;
+  /** Deck-level warm-up intent: stamped when a NEW deck's post-creation warm-up starts and
+   * again when it has nothing left to do. Started-but-not-completed resumes on the next load
+   * without the stored-deck backfill flag; a deck with no entry (built before this) stays opt-in. */
+  deckWarmup?: Record<string, { startedAt: string; completedAt?: string }>;
 }
 
 export interface ResearchStore {
@@ -439,6 +443,8 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
      * must be switched on explicitly. New decks warm regardless. */
     backfill?: boolean;
     startupDelayMs?: number;
+    /** Delay before an interrupted post-creation warm-up resumes (default 5s, or `startupDelayMs` when set). */
+    resumeDelayMs?: number;
   };
   /** JSON reader for the Wikidata founded-year lane (zero provider calls). Omitted = lane off. */
   wikidataJson?: JsonFetcher;
@@ -575,6 +581,8 @@ export class GeminiRepository implements MarketIntelRepository {
       if (this.warmBackfill) {
         setTimeout(() => { this.warmStoredDecks(); }, Math.max(0, warm.startupDelayMs ?? 45_000));
       }
+      // An interrupted post-creation warm-up resumes on its own, flag or no flag.
+      setTimeout(() => { this.resumeInterruptedWarmups(); }, Math.max(0, warm.resumeDelayMs ?? warm.startupDelayMs ?? 5_000));
     }
     this.ownershipFetch = options.ownershipFetch;
     // Migrate on load, not on demand. A snapshot written by an older build is
@@ -856,7 +864,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const deck = this.snap.decks.find((d) => d.marketId === marketId) ?? null;
     if (!deck) return Promise.resolve(null);
     // Opening a stored deck queues its cold dashboard tabs (low priority, within quota).
-    if (this.warmBackfill) this.warmDeckDashboards(deck.id, 'open');
+    if (this.warmBackfill || this.warmupPending(deck.id)) this.warmDeckDashboards(deck.id, 'open');
 
     // Local/BYOK runs persist their job separately from the deck. Surface the
     // same small status contract as cloud runs so the UI never mistakes fast
@@ -1983,6 +1991,7 @@ export class GeminiRepository implements MarketIntelRepository {
         this.activeBackgroundJobs.delete(job.id);
         // Cards are ready and tiered: every company's dashboard tabs warm in
         // the background, highest tier first. Never awaited — the job is done.
+        this.markDeckWarmupStarted(stubsResult.deck.id);
         this.warmDeckDashboards(stubsResult.deck.id, 'creation');
       } catch (error) {
         if (!leadCardReadySettled) {
@@ -2372,7 +2381,43 @@ export class GeminiRepository implements MarketIntelRepository {
       const company = this.snap.companies.find((c) => c.id === companyId);
       if (company && !company.founded && this.snap.dashboards[companyId]?.history) void this.fillFoundedYear(companyId).catch(() => undefined);
     }
-    return this.warmup.enqueue([...tiers].map(([companyId, tier]) => ({ companyId, tier })), priority);
+    const queued = this.warmup.enqueue([...tiers].map(([companyId, tier]) => ({ companyId, tier })), priority);
+    if (this.warmupPending(deckId)) void this.completeDeckWarmupIfDone(deckId).catch(() => undefined);
+    return queued;
+  }
+
+  /** True while a deck's post-creation warm-up was started and not completed. */
+  private warmupPending(deckId: string): boolean {
+    const entry = this.snap.deckWarmup?.[deckId];
+    return Boolean(entry && !entry.completedAt);
+  }
+
+  private markDeckWarmupStarted(deckId: string): void {
+    if (!this.warmup) return;
+    this.snap.deckWarmup = { ...this.snap.deckWarmup, [deckId]: { startedAt: new Date().toISOString() } };
+    void this.persist().catch(() => undefined);
+  }
+
+  /** Mark a deck's warm-up done once nothing in it is due. Runs when the queue drains; a pause leaves due work, so it stays pending. */
+  private async completeDeckWarmupIfDone(deckId: string): Promise<void> {
+    if (!this.warmup || !this.warmupPending(deckId)) return;
+    await this.warmup.idle();
+    if (!this.warmupPending(deckId)) return;
+    const companyIds = new Set(this.snap.cards
+      .filter((card) => card.deckId === deckId && card.companyId && isEntityCardType(card.cardType))
+      .map((card) => card.companyId as string));
+    if ([...companyIds].some((id) => this.warmup!.hasDueTab(id))) return;
+    this.snap.deckWarmup = { ...this.snap.deckWarmup, [deckId]: { ...this.snap.deckWarmup![deckId]!, completedAt: new Date().toISOString() } };
+    await this.persist();
+  }
+
+  /** Resume every deck whose warm-up started but never finished (reload, restart, closed app). Returns companies queued. */
+  resumeInterruptedWarmups(): number {
+    let queued = 0;
+    for (const deck of this.snap.decks) {
+      if (this.warmupPending(deck.id)) queued += this.warmDeckDashboards(deck.id, 'open');
+    }
+    return queued;
   }
 
   /** Startup backfill: queue every stored deck's cold tabs at the lowest priority. */

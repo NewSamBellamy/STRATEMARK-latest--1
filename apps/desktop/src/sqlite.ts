@@ -118,6 +118,9 @@ const TABLES: TableSpec[] = [
 ];
 
 const RECORD_FIELDS = ['dashboards', 'companyMarket', 'opportunity'] as const;
+/** Optional records: stored only when present, so an absent field stays absent (never an empty default).
+ * Both drive the dashboard warm-up: without them a restart forgets what was tried and what was started. */
+const OPTIONAL_RECORD_FIELDS = ['dashboardWarmup', 'deckWarmup'] as const;
 
 interface CachedRow { key: string; json: string; ord: number }
 
@@ -245,6 +248,10 @@ class SqliteStore implements ResearchStore {
     for (const field of RECORD_FIELDS) {
       upsert.run(field, JSON.stringify(snapshot[field] ?? {}));
     }
+    for (const field of OPTIONAL_RECORD_FIELDS) {
+      if (snapshot[field] !== undefined) upsert.run(field, JSON.stringify(snapshot[field]));
+      else this.db.prepare('DELETE FROM kv WHERE key = ?').run(field);
+    }
     upsert.run('schemaVersion', String(snapshot.schemaVersion ?? REPO_SCHEMA_VERSION));
     // Without the gate stamp every read would re-run stored-figure revalidation.
     if (snapshot.metricGateVersion !== undefined) upsert.run('metricGateVersion', String(snapshot.metricGateVersion));
@@ -268,6 +275,10 @@ class SqliteStore implements ResearchStore {
     for (const field of RECORD_FIELDS) {
       const row = this.db.prepare('SELECT value FROM kv WHERE key = ?').get(field) as { value: string } | undefined;
       snapshot[field] = row ? JSON.parse(row.value) : {};
+    }
+    for (const field of OPTIONAL_RECORD_FIELDS) {
+      const row = this.db.prepare('SELECT value FROM kv WHERE key = ?').get(field) as { value: string } | undefined;
+      if (row) snapshot[field] = JSON.parse(row.value);
     }
     const kvVersion = this.db.prepare('SELECT value FROM kv WHERE key = ?').get('schemaVersion') as { value: string } | undefined;
     if (kvVersion) snapshot.schemaVersion = Number(kvVersion.value);
