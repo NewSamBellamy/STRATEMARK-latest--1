@@ -47,4 +47,6 @@ export * from './semantic-memory';
 export * from './assets';
 export * from './crawl4ai';
 export * from './completeness';
+export * from './completeness-report';
+export * from './displayed-facts';
 export * from './chat-context';
