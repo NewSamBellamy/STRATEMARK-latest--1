@@ -232,3 +232,16 @@ export function strengthMix(items: ReadonlyArray<{ strength: SourceStrength }>):
   for (const item of items) counts.set(item.strength, (counts.get(item.strength) ?? 0) + 1);
   return SOURCE_STRENGTH_ORDER.filter((strength) => counts.has(strength)).map((strength) => ({ strength, count: counts.get(strength)! }));
 }
+
+const SEARCH_REPORT = /^Google Search reports \(original page not retrieved\):\s*[“"]?([\s\S]*?)[”"]?\s*$/;
+
+/**
+ * A claim the pipeline could only source from Google's search answer arrives as
+ * "Google Search reports (original page not retrieved): “…”". Said on every
+ * card, that wrapper buries the claim; this returns the claim itself and a flag
+ * so the card can show one small "Search-reported" marker instead.
+ */
+export function splitSearchReport(text: string): { text: string; searchReported: boolean } {
+  const match = SEARCH_REPORT.exec(text.trim());
+  return match && match[1] ? { text: match[1].trim(), searchReported: true } : { text, searchReported: false };
+}

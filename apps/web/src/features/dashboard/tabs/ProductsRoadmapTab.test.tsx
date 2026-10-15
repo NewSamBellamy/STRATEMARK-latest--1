@@ -32,6 +32,24 @@ describe('product evidence wording in the existing view', () => {
     expect(screen.getByText('Atlas launch')).toBeInTheDocument();
     expect(screen.queryByText('Series B')).not.toBeInTheDocument();
   });
+  it('says "revenue not established" once in the header, not on every product card, and still shows a reported revenue note', () => {
+    state.products = [
+      { name: 'Atlas', status: 'live', description: 'Company-reported: Atlas is now available.', revenueNote: '', url: 'https://acme.com/blog/atlas' },
+      { name: 'Beacon', status: 'live', description: 'Company-reported: Beacon ships.', revenueNote: 'Reported as 12% of 2025 sales.', url: null },
+    ];
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.getByText(/Revenue contribution is not established/)).toBeInTheDocument();
+    expect(screen.queryByText('Revenue role not disclosed')).not.toBeInTheDocument();
+    expect(screen.getByText('Reported as 12% of 2025 sales.')).toBeInTheDocument();
+  });
+  it('shows a search-reported claim itself, with one small marker instead of the long wrapper', () => {
+    state.products = [{ name: 'T380AMR', status: null, revenueNote: '', url: null,
+      description: 'Google Search reports (original page not retrieved): “Tennant operates the T380AMR, an autonomous robotic floor scrubber”' }];
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.getByText('Tennant operates the T380AMR, an autonomous robotic floor scrubber')).toBeInTheDocument();
+    expect(screen.getByText(/Search-reported · original not retrieved/)).toBeInTheDocument();
+    expect(screen.queryByText(/Google Search reports/)).not.toBeInTheDocument();
+  });
   it('opens the fetched official source without calling an announcement the live product', async () => {
     state.products = [{ name: 'Atlas', status: 'live', description: 'Company-reported: Atlas is now available.', revenueNote: '', url: 'https://acme.com/blog/atlas' }];
     render(<ProductsRoadmapTab companyId="cmp" />);
