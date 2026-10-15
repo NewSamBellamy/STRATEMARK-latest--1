@@ -104,7 +104,7 @@ async function interpret(
   signal?: AbortSignal,
 ): Promise<MarketPlan> {
   const grounded = await client.ground(interpretMarketPrompt(brief.prompt, brief.region), {
-    system: GROUNDED_SYSTEM,
+    system: GROUNDED_SYSTEM, label: 'market:interpret',
     signal,
   });
   const plan = await client.structure(
@@ -211,7 +211,7 @@ async function discover(
   const grounded = await client.ground(
     discoverPrompt(plan, target, focus, excludeNames, searchAngle, exactCompanyNames),
     {
-      system: GROUNDED_SYSTEM,
+      system: GROUNDED_SYSTEM, label: 'market:discover',
       signal,
       searchHints: discoverySearchHints(plan, focus, exactCompanyNames, searchAngle, excludeNames.length),
     },

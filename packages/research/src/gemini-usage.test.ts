@@ -44,3 +44,17 @@ it('splits the run by what each call was for, so the costly topic is visible', a
   expect(by.team_org!.estCostUsd).toBeGreaterThan(by.history!.estCostUsd);
   expect(Object.values(by).reduce((n, r) => n + r.estCostUsd, 0)).toBeCloseTo(client.metrics!().estCostUsd!, 9);
 });
+
+it('an explicit cost label wins over the research topic, and never reaches the request body', async () => {
+  const bodies: string[] = [];
+  const fetchImpl = vi.fn(async (_url: unknown, init?: { body?: string }) => { bodies.push(String(init?.body ?? '')); return grounded({ promptTokenCount: 10, candidatesTokenCount: 5 }); });
+  const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl: fetchImpl as unknown as typeof fetch });
+  await client.ground('p', { label: 'tab:history', researchContext: { topic: 'history' } });
+  await client.ground('q', { label: 'market:discover' });
+  const by = client.metrics!().byTopic!;
+  expect(by['tab:history']!.calls).toBe(1);
+  expect(by['market:discover']!.calls).toBe(1);
+  expect(by.history).toBeUndefined();
+  expect(bodies.join(' ')).not.toContain('market:discover');
+  expect(bodies.join(' ')).not.toContain('tab:history');
+});

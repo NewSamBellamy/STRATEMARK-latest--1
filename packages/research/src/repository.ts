@@ -2741,7 +2741,7 @@ export class GeminiRepository implements MarketIntelRepository {
       `Write a clear, well-structured markdown explanation: a one-line summary, then 2-4 short sections or bullet lists covering concrete figures, dates, drivers, and context. Cite specifics from the search results.`,
       `If a detail is not disclosed or you cannot verify it, say so explicitly — do NOT speculate or invent numbers.`,
     ].join('\n');
-    const g = await this.client.ground(prompt, { system: GROUNDED_SYSTEM });
+    const g = await this.client.ground(prompt, { system: GROUNDED_SYSTEM, label: 'deep_dive' });
     const markdown = await this.elevate(g.text, 'deep_dive', input.topic);
     return { markdown, citations: g.citations };
   }

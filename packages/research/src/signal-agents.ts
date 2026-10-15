@@ -518,7 +518,7 @@ export class BarrierToEntryAgent {
     const target = options.target ?? 6;
 
     const grounded = await client.ground(this.formatPrompt(plan, target), {
-      system: GROUNDED_SYSTEM,
+      system: GROUNDED_SYSTEM, label: 'signal:barrier',
       signal: options.signal,
     });
 
@@ -636,7 +636,7 @@ export class MarketInsightAgent {
     const target = options.target ?? 6;
 
     const grounded = await client.ground(this.formatPrompt(plan, target), {
-      system: GROUNDED_SYSTEM,
+      system: GROUNDED_SYSTEM, label: 'signal:insight',
       signal: options.signal,
     });
 
@@ -728,7 +728,7 @@ export class CultureAgent {
     throwIfAborted(options.signal);
 
     const grounded = await client.ground(this.formatPrompt(company, plan), {
-      system: GROUNDED_SYSTEM,
+      system: GROUNDED_SYSTEM, label: 'signal:culture',
       signal: options.signal,
     });
 
@@ -823,7 +823,7 @@ export class ViceAgent {
     throwIfAborted(options.signal);
 
     const grounded = await client.ground(this.formatPrompt(company, plan), {
-      system: GROUNDED_SYSTEM,
+      system: GROUNDED_SYSTEM, label: 'signal:vice',
       signal: options.signal,
     });
 
@@ -924,7 +924,7 @@ export async function researchMarketSignals(
     // A few calls the deck waits on: they go ahead of the bulk company work
     // queued at the free-tier pace, or the signal tabs sit empty for minutes.
     const grounded = await client.ground(prompt, {
-      system: GROUNDED_SYSTEM,
+      system: GROUNDED_SYSTEM, label: 'signal:market',
       signal: options.signal,
       priority: 'urgent',
     });
