@@ -26,6 +26,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import type { GenerateContentResponse } from '@google/genai';
 import type { Citation, LlmClient } from './types';
 import { extractProviderGrounding } from './grounding-support';
+import { callCostUsd, readUsage } from './call-cost';
 import { createRateLimiter, extractJson, withRetry, type CallPriority, type RetryableError } from './util';
 import type { CallMetrics, CallMetricsAggregate } from './types';
 import {
@@ -317,11 +318,18 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     aggregate.calls += 1;
     aggregate.retries += Math.max(0, attempts - 1);
     aggregate.rateLimitedMs += retryWaitMs;
+    const callUsage = readUsage(res.usageMetadata);
+    const searchQueries = res.candidates?.[0]?.groundingMetadata?.webSearchQueries?.length ?? 0;
+    aggregate.inputTokens = (aggregate.inputTokens ?? 0) + (callUsage?.inputTokens ?? 0);
+    aggregate.outputTokens = (aggregate.outputTokens ?? 0) + (callUsage?.outputTokens ?? 0);
+    aggregate.searchQueries = (aggregate.searchQueries ?? 0) + searchQueries;
+    aggregate.estCostUsd = (aggregate.estCostUsd ?? 0) + callCostUsd({ model, grounded: kind === 'ground', ...(callUsage ? { usage: callUsage } : {}), searchQueries });
     try {
       config.onCallMetrics?.({
         model, kind, attempts, retries: Math.max(0, attempts - 1),
         queuedMs, requestMs: Math.max(0, totalMs - queuedMs - retryWaitMs),
         retryWaitMs, totalMs,
+        ...(callUsage ? { usage: callUsage } : {}), ...(searchQueries ? { searchQueries } : {}),
       });
     } catch { /* a metrics consumer must never break the call */ }
 

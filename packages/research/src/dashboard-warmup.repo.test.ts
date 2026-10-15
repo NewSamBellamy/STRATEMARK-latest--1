@@ -198,6 +198,16 @@ describe('dashboard warm-up in the repository', () => {
       for (const id of ['acme', 'beta', 'gamma']) expect(reloaded.saved().dashboards[id]?.history, id).toBeDefined();
     });
 
+    it('stamps when the warm-up of a measured deck finished, once', async () => {
+      vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+      const measured = { ...started(fresh()), deckRun: { deck_fx: { submittedAt: '2026-10-14T20:00:00.000Z', deckReadyAt: '2026-10-14T20:03:00.000Z' } } } as RepoSnapshot;
+      const first = fixtureRepo({ saved: measured, backfill: false });
+      first.repo.warmDeckDashboards('deck_fx', 'creation');
+      await first.repo.waitForDashboardWarmup();
+      await vi.waitFor(() => expect(first.saved().deckRun?.deck_fx?.warmupDoneAt).toBeDefined());
+      expect(first.saved().deckRun?.deck_fx?.submittedAt).toBe('2026-10-14T20:00:00.000Z');
+    });
+
     it('a completed deck does not warm again, even after dashboards are invalidated', async () => {
       vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
       const first = fixtureRepo({ saved: started(fresh()), backfill: false });

@@ -33,6 +33,10 @@ export interface CallMetrics {
   /** Retry-After / backoff sleeps between attempts. */
   retryWaitMs: number;
   totalMs: number;
+  /** Token counts the provider reported for this call (absent when it sent none). */
+  usage?: { inputTokens: number; outputTokens: number };
+  /** Distinct web searches Google ran for a grounded call (each is billed). */
+  searchQueries?: number;
 }
 
 /** Rolling spend/pacing totals since a client's construction, read through
@@ -45,6 +49,13 @@ export interface CallMetricsAggregate {
   fallbacks: number;
   /** Lite-primary answers that came back with zero grounding chunks and were retried once on the next ladder line. */
   ungroundedRetries?: number;
+  /** Provider-reported tokens summed over every settled call. */
+  inputTokens?: number;
+  outputTokens?: number;
+  /** Web searches Google ran for grounded calls. */
+  searchQueries?: number;
+  /** Estimated USD of everything above (call-cost.ts, deliberately high list prices). */
+  estCostUsd?: number;
 }
 
 /** What the user submits from the "New deck" screen. */

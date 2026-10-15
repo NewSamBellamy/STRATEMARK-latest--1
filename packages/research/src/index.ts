@@ -51,6 +51,8 @@ export * from './assets';
 export * from './crawl4ai';
 export * from './completeness';
 export * from './completeness-report';
+export * from './call-cost';
+export * from './deck-run';
 export * from './displayed-facts';
 export * from './chat-context';
 

@@ -119,6 +119,19 @@ describe('buildCompletenessReport', () => {
     expect(table).toMatch(/Acme Robotics\s+# {3}# {3}# {3}# {3}# {3}o {3}o {3}\. {3}o {3}# {3}\. {3}# {4}7\/12/);
     expect(table).toContain('TOP GAPS');
     expect(table).toContain('[hq_format_inconsistent]');
+    // A deck with no measured run (built before the ledger) shows no RUN line.
+    expect(table).not.toContain('RUN ');
+  });
+
+  it('prints the measured time and spend of a deck right under its fill', () => {
+    const measured = buildCompletenessReport({
+      ...completenessFixture(),
+      deckRun: { deck_fx: { submittedAt: '2026-10-14T20:00:00.000Z', leadCardAt: '2026-10-14T20:00:30.000Z', deckReadyAt: '2026-10-14T20:02:00.000Z',
+        usage: { calls: 40, inputTokens: 300_000, outputTokens: 50_000, searchQueries: 20, estCostUsd: 0.74 } } },
+    });
+    const lines = renderCompletenessTable(measured).split('\n');
+    const at = lines.findIndex((line) => line.startsWith('DECK Fixture Robotics'));
+    expect(lines[at + 1]).toBe('  RUN first card 30s · deck 2m00s · warm-up n/a · 40 calls · 300k in / 50k out tokens · 20 searches · est $0.74');
   });
 });
 
