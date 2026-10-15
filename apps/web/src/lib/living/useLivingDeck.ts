@@ -79,7 +79,14 @@ const CORE_PROFILE_SLOTS = PROFILE_CORE_SLOTS;
 // got another turn. Reserve BEFORE awaiting, cool down between attempts, and
 // cap attempts per session so a genuinely undocumented company still bottoms
 // out. Manual hunts remain unlimited; reopening the page resets the ladder.
-const HUNT_ATTEMPTS_PER_SESSION = 3;
+// One automatic attempt per company per session. Measured on a fresh 16-company deck
+// (2026-10-15): creation already runs a plain and an escalated pass for every company
+// with a gap, and the ambient ladder then repeated the SAME two prompts and a third,
+// 75 hunts for 16 companies ($3.4 of a $9.7 deck, the largest single cost); of the 37
+// figures the deck ended with, 7 arrived after the creation passes. A private company's
+// valuation or revenue that two passes could not find is not there to find on the third.
+// A manual "Find more metrics" stays unlimited.
+const HUNT_ATTEMPTS_PER_SESSION = 1;
 // Short enough that a watched deck keeps filling (a 10-minute wait read as
 // "stuck at half-filled"); the 3-attempt cap is what bounds spend.
 const HUNT_RETRY_COOLDOWN_MS = 90_000;
