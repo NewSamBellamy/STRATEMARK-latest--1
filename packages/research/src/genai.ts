@@ -26,7 +26,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import type { GenerateContentResponse } from '@google/genai';
 import type { Citation, LlmClient } from './types';
 import { extractProviderGrounding } from './grounding-support';
-import { callCostUsd, readUsage } from './call-cost';
+import { readUsage, tallyCall } from './call-cost';
 import { createRateLimiter, extractJson, withRetry, type CallPriority, type RetryableError } from './util';
 import type { CallMetrics, CallMetricsAggregate } from './types';
 import {
@@ -251,6 +251,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     signal: AbortSignal | undefined,
     kind: 'ground' | 'structure' | 'judge',
     priority?: CallPriority,
+    label?: string,
   ): Promise<GenerateContentResponse> {
     const limiter = limiterFor(model);
     const callStartedAt = Date.now();
@@ -320,16 +321,14 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     aggregate.rateLimitedMs += retryWaitMs;
     const callUsage = readUsage(res.usageMetadata);
     const searchQueries = res.candidates?.[0]?.groundingMetadata?.webSearchQueries?.length ?? 0;
-    aggregate.inputTokens = (aggregate.inputTokens ?? 0) + (callUsage?.inputTokens ?? 0);
-    aggregate.outputTokens = (aggregate.outputTokens ?? 0) + (callUsage?.outputTokens ?? 0);
-    aggregate.searchQueries = (aggregate.searchQueries ?? 0) + searchQueries;
-    aggregate.estCostUsd = (aggregate.estCostUsd ?? 0) + callCostUsd({ model, grounded: kind === 'ground', ...(callUsage ? { usage: callUsage } : {}), searchQueries });
+    const topic = label ?? kind;
+    tallyCall(aggregate, { model, grounded: kind === 'ground', ...(callUsage ? { usage: callUsage } : {}), searchQueries, totalMs, topic });
     try {
       config.onCallMetrics?.({
         model, kind, attempts, retries: Math.max(0, attempts - 1),
         queuedMs, requestMs: Math.max(0, totalMs - queuedMs - retryWaitMs),
         retryWaitMs, totalMs,
-        ...(callUsage ? { usage: callUsage } : {}), ...(searchQueries ? { searchQueries } : {}),
+        ...(callUsage ? { usage: callUsage } : {}), ...(searchQueries ? { searchQueries } : {}), topic,
       });
     } catch { /* a metrics consumer must never break the call */ }
 
@@ -345,7 +344,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
       };
       if (opts?.system) cfg.systemInstruction = opts.system;
       const route = groundRoute(prompt, opts?.researchContext?.topic);
-      const res = await call(route.model, prompt, cfg, opts?.signal, route.kind, opts?.priority);
+      const res = await call(route.model, prompt, cfg, opts?.signal, route.kind, opts?.priority, opts?.researchContext?.topic ?? 'ground');
       if (res.promptFeedback?.blockReason) {
         throw new Error(`Gemini blocked the request: ${res.promptFeedback.blockReason}`);
       }

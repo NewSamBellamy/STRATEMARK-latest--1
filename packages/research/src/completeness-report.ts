@@ -52,7 +52,7 @@ import type { OriginalSourceAttempt } from './original-source';
 import type { ResearchEvidence } from './research-evidence';
 import { savedCompanySummary } from './saved-profile';
 import type { SourceChecks } from './source-binding';
-import { formatDeckRun, type DeckRun } from './deck-run';
+import { formatDeckRun, formatDeckRunTopics, type DeckRun } from './deck-run';
 
 // ---------------------------------------------------------------------------
 // Input: a tolerant structural subset of RepoSnapshot (exports can be old).
@@ -639,7 +639,10 @@ export function renderCompletenessTable(report: CompletenessReport): string {
   for (const deck of report.decks) {
     lines.push('');
     lines.push(`DECK ${deck.marketName} [${deck.deckId}]  ${deck.companies.length} companies  ${deck.totals.fillPct.toFixed(1)}% filled`);
-    if (deck.run) lines.push(`  RUN ${formatDeckRun(deck.run)}`);
+    if (deck.run) {
+      lines.push(`  RUN ${formatDeckRun(deck.run)}`);
+      for (const topicLine of formatDeckRunTopics(deck.run)) lines.push(`    ${topicLine}`);
+    }
     // One grid per market profile: their metric slots differ.
     for (const profile of [...new Set(deck.companies.map((company) => company.profile))]) {
       const members = deck.companies.filter((company) => company.profile === profile);

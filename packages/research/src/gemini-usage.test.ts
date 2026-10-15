@@ -29,3 +29,18 @@ it('counts a response with no usage report as a call with no tokens, never as to
   expect(metrics.usage).toBeUndefined();
   expect(client.metrics!()).toMatchObject({ calls: 1, inputTokens: 0, outputTokens: 0, searchQueries: 3 });
 });
+
+it('splits the run by what each call was for, so the costly topic is visible', async () => {
+  const fetchImpl = vi.fn(async () => grounded({ promptTokenCount: 1000, candidatesTokenCount: 100 }));
+  const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl });
+  await client.ground('p1', { researchContext: { topic: 'team_org' } });
+  await client.ground('p2', { researchContext: { topic: 'team_org' } });
+  await client.ground('p3', { researchContext: { topic: 'history' } });
+  await client.ground('p4');
+  const by = client.metrics!().byTopic!;
+  expect(by.team_org!.calls).toBe(2);
+  expect(by.history!.calls).toBe(1);
+  expect(by.ground!.calls).toBe(1);
+  expect(by.team_org!.estCostUsd).toBeGreaterThan(by.history!.estCostUsd);
+  expect(Object.values(by).reduce((n, r) => n + r.estCostUsd, 0)).toBeCloseTo(client.metrics!().estCostUsd!, 9);
+});

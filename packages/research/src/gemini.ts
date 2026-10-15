@@ -12,7 +12,7 @@ import type { CallMetrics, CallMetricsAggregate, Citation, LlmClient } from './t
 export type { CallMetrics, CallMetricsAggregate };
 import { AbortError, throwIfAborted, createRateLimiter, extractJson, withRetry, type CallPriority, type RetryableError } from './util';
 import { extractProviderGrounding } from './grounding-support';
-import { callCostUsd, readUsage } from './call-cost';
+import { readUsage, tallyCall } from './call-cost';
 import { batchVerifyOutSchema, redTeamOutSchema, verifyMetricOutSchema } from './schemas';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -332,6 +332,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
     budget?: { retryBudgetMs?: number; attemptTimeoutMs?: number },
     onText?: (textSoFar: string) => void,
     priority?: CallPriority,
+    label?: string,
   ): Promise<GeminiResponse> {
     const limiter = limiterFor(model);
     const quotaKey = `${model}|${body.tools ? 'grounded' : 'plain'}`;
@@ -436,10 +437,8 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
     aggregate.rateLimitedMs += retryWaitMs;
     const usage = readUsage(data.usageMetadata);
     const searchQueries = data.candidates?.[0]?.groundingMetadata?.webSearchQueries?.length ?? 0;
-    aggregate.inputTokens = (aggregate.inputTokens ?? 0) + (usage?.inputTokens ?? 0);
-    aggregate.outputTokens = (aggregate.outputTokens ?? 0) + (usage?.outputTokens ?? 0);
-    aggregate.searchQueries = (aggregate.searchQueries ?? 0) + searchQueries;
-    aggregate.estCostUsd = (aggregate.estCostUsd ?? 0) + callCostUsd({ model, grounded: Boolean(body.tools), ...(usage ? { usage } : {}), searchQueries });
+    const topic = label ?? kind;
+    tallyCall(aggregate, { model, grounded: Boolean(body.tools), ...(usage ? { usage } : {}), searchQueries, totalMs, topic });
     try {
       config.onCallMetrics?.({
         model, kind, attempts, retries: Math.max(0, attempts - 1),
@@ -447,7 +446,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         // retry backoff is dispatch + body read + JSON parse.
         queuedMs, requestMs: Math.max(0, totalMs - queuedMs - retryWaitMs),
         retryWaitMs, totalMs,
-        ...(usage ? { usage } : {}), ...(searchQueries ? { searchQueries } : {}),
+        ...(usage ? { usage } : {}), ...(searchQueries ? { searchQueries } : {}), topic,
       });
     } catch { /* a metrics consumer must never break the call */ }
     return data;
@@ -513,7 +512,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
             const data = await call(model, body, signal, route.kind, {
               retryBudgetMs: isPrimary ? Math.min(cap, primaryBudget) : cap,
               attemptTimeoutMs: Math.min(cap, isPrimary ? primaryAttemptTimeout : cap),
-            }, opts?.onText, opts?.priority);
+            }, opts?.onText, opts?.priority, opts?.researchContext?.topic ?? 'ground');
             if (isPrimary) primarySickUntil = 0;
             else if (!ungroundedAnswer) { primarySickUntil = Date.now() + SICK_PRIMARY_COOLDOWN_MS; aggregate.fallbacks += 1; }
             const answer = parse(data);
