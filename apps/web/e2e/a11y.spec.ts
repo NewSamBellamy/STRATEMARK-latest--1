@@ -7,7 +7,7 @@ import { unlockPreview } from './access';
 const PAGES: Array<[string, string, string]> = [
   ['markets', '/#/history', 'text=All decks'],
   ['deck', '/#/markets/mkt_frontier-ai-ecosystem_s248s/deck', '[data-testid="card-grid"]'],
-  ['dashboard', '/#/company/cmp_openai_5sz16/dashboard/overview', 'text=At a glance'],
+  ['dashboard', '/#/company/cmp_openai_5sz16/dashboard/overview', 'text=Key figures'],
 ];
 
 for (const [name, path, waitFor] of PAGES) {
