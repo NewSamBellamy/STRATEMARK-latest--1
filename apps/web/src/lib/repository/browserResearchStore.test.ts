@@ -6,6 +6,34 @@ import { installBrowserResearch, openBrowserResearchStore, readBrowserResearchDa
 const KEY = 'mi.repo.v1';
 const data = () => migrateSnapshot(null).snapshot;
 
+/** The raw saved record, as IndexedDB holds it. */
+async function rawRecord(key: string): Promise<Record<string, unknown> | undefined> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('stratemark.vault', 2);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  return new Promise((resolve) => {
+    const request = db.transaction('snapshots', 'readonly').objectStore('snapshots').get(key);
+    request.onsuccess = () => { db.close(); resolve(request.result as Record<string, unknown> | undefined); };
+  });
+}
+
+/** Writes a record the way builds before compression did. */
+async function putRaw(key: string, value: unknown): Promise<void> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('stratemark.vault', 2);
+    request.onupgradeneeded = () => { request.result.createObjectStore('snapshots'); request.result.createObjectStore('images'); };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction('snapshots', 'readwrite');
+    tx.objectStore('snapshots').put(value, key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+  });
+}
+
 describe('acknowledged browser research storage', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -33,6 +61,45 @@ describe('acknowledged browser research storage', () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Full', 'QuotaExceededError'); });
     await store.write(original);
     expect((await openBrowserResearchStore()).read()).toEqual(original);
+  });
+
+  it('saves the workspace compressed, far under the browser per-record limit a twenty-deck workspace passed', async () => {
+    // Chromium refuses one IndexedDB value over 133,169,152 bytes; a 66.6M-character JSON string (UTF-16) is 133.3M.
+    const original = data();
+    original.reports = Array.from({ length: 2000 }, (_, n) => ({ id: `report-${n}`, markdown: `Evidence row ${n}: the same research prose repeats across companies. `.repeat(20) })) as typeof original.reports;
+    const store = await openBrowserResearchStore();
+    await store.write(original);
+    const json = JSON.stringify(original);
+    const saved = await rawRecord(`${KEY}.committed`);
+    expect(typeof saved?.json).toBe('undefined');
+    expect(Object.prototype.toString.call(saved?.gz)).toBe('[object ArrayBuffer]');
+    expect((saved!.gz as ArrayBuffer).byteLength).toBeLessThan(json.length / 5);
+    expect((await openBrowserResearchStore()).read()).toEqual(original);
+    expect((await readBrowserResearchData()).current).toBe(json);
+  });
+
+  it('opens a workspace saved before compression and keeps it as the backup of its first compressed save', async () => {
+    const before = { ...data(), reports: [{ id: 'saved-uncompressed' }] } as ReturnType<typeof data>;
+    await putRaw(`${KEY}.committed`, { json: JSON.stringify(before), revision: 4, at: 1 });
+    const store = await openBrowserResearchStore();
+    expect(store.read()).toEqual(before);
+    const after = { ...data(), reports: [{ id: 'saved-compressed' }] } as ReturnType<typeof data>;
+    await store.write(after);
+    const saved = await readBrowserResearchData();
+    expect(JSON.parse(saved.current!)).toEqual(after);
+    expect(JSON.parse(saved.backup!)).toEqual(before);
+    // The uncompressed revision is kept compressed: copied as it was, one near the per-record limit would fail the save.
+    expect(typeof (await rawRecord(`${KEY}.committed.backup`))?.json).toBe('undefined');
+    expect((await rawRecord(`${KEY}.committed.backup`))?.revision).toBe(4);
+    expect((await rawRecord(`${KEY}.committed`))?.revision).toBe(5);
+    expect((await openBrowserResearchStore()).read()).toEqual(after);
+  });
+
+  it('refuses a damaged compressed record instead of treating the workspace as empty', async () => {
+    await putRaw(`${KEY}.committed`, { gz: new Uint8Array([1, 2, 3]).buffer, revision: 2, at: 1 });
+    await expect(openBrowserResearchStore()).rejects.toThrow(/unreadable/i);
+    await putRaw(`${KEY}.committed`, { revision: 2, at: 1 });
+    await expect(openBrowserResearchStore()).rejects.toThrow(/unreadable/i);
   });
 
   it('keeps immutable queued revisions instead of saving later caller mutations', async () => {
