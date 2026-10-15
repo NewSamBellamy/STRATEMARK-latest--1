@@ -13,6 +13,18 @@ function setup() {
 }
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
+/** A shared Team + History answer: team half, the COMPANY STORY line, story half, each half grounded on its own source. */
+function storyAnswer(team: string, story: string, teamUrl: string, storyUrl: string) {
+  const text = `${team}\nCOMPANY STORY\n${story}`;
+  return { text, citations: [{ title: 'Team', url: teamUrl }, { title: 'Story', url: storyUrl }], queries: [], grounding: {
+    provider: 'google-search' as const, answerText: text, supports: [
+      { supportIndex: 0, text: team, sources: [{ chunkIndex: 0, url: teamUrl, title: 'Team' }] },
+      { supportIndex: 1, text: story, sources: [{ chunkIndex: 1, url: storyUrl, title: 'Story' }] },
+    ] } };
+}
+const historyAnswer = (story: string) => storyAnswer('Example is led by its founders.', story, 'https://example.com/team', 'https://example.com/history');
+
+
 it.each(['ground', 'structure'] as const)('aborts a hung %s after 90s and frees the flight for an explicit retry', async phase => {
   vi.useFakeTimers();
   const s = setup(); let signal: AbortSignal | undefined;
@@ -20,7 +32,7 @@ it.each(['ground', 'structure'] as const)('aborts a hung %s after 90s and frees 
     signal = opts?.signal; return new Promise(() => undefined);
   });
   else {
-    s.ground.mockResolvedValue({ text: 'Example history', citations: [{ url: 'https://example.com/history', title: 'History' }], queries: [] });
+    s.ground.mockResolvedValue(historyAnswer('Example history'));
     s.structure.mockImplementation((_prompt, _schema, opts) => { signal = opts?.signal; return new Promise(() => undefined); });
   }
   let error: Error | undefined;
@@ -35,10 +47,11 @@ it.each(['ground', 'structure'] as const)('aborts a hung %s after 90s and frees 
   expect(s.store.read()!.dashboards.cmp?.history).toBeUndefined();
   expect(s.ground).toHaveBeenCalledTimes(1);
   expect(vi.getTimerCount()).toBe(0);
-  s.ground.mockResolvedValue({ text: 'Example history', citations: [{ url: 'https://example.com/history', title: 'History' }], queries: [] });
+  s.ground.mockResolvedValue(historyAnswer('Example history'));
   s.structure.mockResolvedValue({ founderStory: 'Source-reported company story.', timeline: [], quotes: [] });
   expect((await s.repository.getDashboardTab('cmp', 'history'))?.content.founderStory).toContain('company story');
-  expect(s.ground).toHaveBeenCalledTimes(2);
+  // A hung search is asked again; a hung structure reuses the search it already paid for.
+  expect(s.ground).toHaveBeenCalledTimes(phase === 'ground' ? 2 : 1);
   expect(vi.getTimerCount()).toBe(0);
 });
 
@@ -52,7 +65,7 @@ it('a figure change mid-pass does not discard a tab that is not built from figur
   const pending = s.repository.getDashboardTab('cmp', 'history');
   await new Promise(resolve => setTimeout(resolve, 0));
   await s.repository.overrideMetric({ companyId: 'cmp', metricType: 'employees', value: 120, note: 'analyst count' });
-  finish({ text: 'Example history', citations: [], queries: [] });
+  finish(historyAnswer('Example history'));
   expect((await pending)?.content.founderStory).toContain('older figures');
   expect(s.store.read()!.dashboards.cmp?.history?.content).toMatchObject({ founderStory: 'Story written on older figures' });
 });

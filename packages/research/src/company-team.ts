@@ -182,10 +182,53 @@ export function selectTeamOrgSources(citations: readonly Citation[], company: Co
   return selectOriginalSourceCitations(citations, company.websiteUrl, false, supportsUrl);
 }
 
+/**
+ * The one grounded search a company's Team and History tabs share (the repository
+ * runs it once per company and hands it to both). It asks for the team answer
+ * first (one current person per sentence, as the Team gates require), then a
+ * COMPANY STORY line, then the founding narrative, dated milestones and verbatim
+ * quotes. Each tab reads only its own half (companyStoryPart), so a past leader
+ * named in a milestone or an investor quoted in the story can never reach Team,
+ * and team pages never become History's sources.
+ */
+export function companyStoryPrompt(company: Pick<Company, 'name' | 'websiteUrl'>, marketName: string): string {
+  const name = JSON.stringify(company.name);
+  return `Research ${name} (known official domain: ${JSON.stringify(company.websiteUrl ?? 'not established')}), a company in the market ${JSON.stringify(marketName)}. First, its current leadership and team: search official team/about pages and recent company announcements first, then reputable reporting for gaps. Include a legal entity or brand alias only when a source explicitly links it to ${name}; do not assume similarly named affiliates. Cover the founders and the leadership team (executives, heads of major functions, board chair), up to 20 people, as plain, complete sentences, one person per sentence, each naming the person, exact current role, current status and ${name} together (for example: “Sam Altman currently serves as Chief Executive Officer of OpenAI.”). Do not use headings, name-only bullets or role-only bullets. Exclude former, departed and future roles from this part. Then write a line that reads exactly COMPANY STORY, and after it, in separate paragraphs, the company story: the founding story as a short readable narrative, then dated milestones from inception to today (every major product and model release, funding round, leadership change, pivot, stumble and partnership; month-level dates such as "2026 Mar" for the most recent 18 months where coverage supports it; 12-20 milestones for an established company), then 3-6 notable verbatim quotes said by named people (founders, executives, investors) with where and when they said them. Cite sources.`;
+}
+
+type GroundResult = Awaited<ReturnType<LlmClient['ground']>>;
+const STORY_MARKER = /^[ \t#*_]*COMPANY STORY[ \t]*:?[ \t*_]*$/gm;
+
+/**
+ * One half of the shared Team + History answer: the team part (before the
+ * COMPANY STORY line) or the story part (after it), with only the provider
+ * supports that lie in that half and only the sources those supports cite.
+ * Null when the answer does not carry exactly one marker line, either half is
+ * empty, or this half has no provider support of its own: the halves cannot be
+ * told apart (or this one is unsourced), so the tab runs its own search instead.
+ */
+export function companyStoryPart(result: GroundResult, part: 'team' | 'story'): GroundResult | null {
+  const markers = [...result.text.matchAll(STORY_MARKER)];
+  if (markers.length !== 1 || !result.grounding) return null;
+  const at = markers[0]!.index!;
+  const halves = { team: result.text.slice(0, at), story: result.text.slice(at + markers[0]![0].length) };
+  if (!halves.team.trim() || !halves.story.trim()) return null;
+  const text = halves[part].trim();
+  const other = halves[part === 'team' ? 'story' : 'team'];
+  // Provider offsets index the whole answer, so they are dropped with it.
+  const supports = result.grounding.supports.filter(support => support.text.trim() && text.includes(support.text) && !other.includes(support.text))
+    .map(({ startIndex: _start, endIndex: _end, ...support }) => support);
+  if (!supports.length) return null;
+  const citations = usableCitations(supports.flatMap(support => support.sources.map(source => ({ url: source.url, title: source.title }))));
+  return { text, citations, queries: result.queries, grounding: { ...result.grounding, answerText: text, supports } };
+}
+
 export interface ResearchCompanyTeamArgs {
   company: Company;
   client: LlmClient;
   signal?: AbortSignal;
+  /** The team half of the shared Team + History search (companyStoryPart); null runs Team's own search. */
+  companyStory?: () => Promise<GroundResult | null>;
   originalSources?: OriginalSourceServices;
   originalAttempts?: OriginalSourceAttempt[];
   refreshOriginals?: boolean;
@@ -201,7 +244,7 @@ export async function researchCompanyTeamOrg(args: ResearchCompanyTeamArgs) {
   let reportedGrounding: ProviderGrounding | undefined;
   let search: Awaited<ReturnType<LlmClient['ground']>> | undefined;
   try {
-    search = await args.client.ground(
+    search = (args.companyStory && await args.companyStory()) ?? await args.client.ground(
       `Research the current leadership and team of ${JSON.stringify(args.company.name)} (known official domain: ${JSON.stringify(args.company.websiteUrl ?? 'not established')}). Search official team/about pages and recent company announcements first, then reputable reporting for gaps. Include a legal entity or brand alias only when a source explicitly links it to ${JSON.stringify(args.company.name)}; do not assume similarly named affiliates. Cover the founders and the leadership team (executives, heads of major functions, board chair), up to 20 people. For each candidate, establish the person's full name, exact current role, and explicit evidence that the role is current. Format findings as plain, complete sentences, one person per sentence, each naming the person, exact role, current status, and ${JSON.stringify(args.company.name)} together (for example: “Sam Altman currently serves as Chief Executive Officer of OpenAI.”). Do not use headings, name-only bullets, role-only bullets, or separate the company/current-status evidence from the sentence. Exclude former, departed, and future roles. Return direct original-page URLs as discovery leads; search text and snippets are not original-page verification.`,
       { system: GROUNDED_SYSTEM, signal: args.signal, researchContext: { companyId: args.company.id, companyName: args.company.name, topic: 'team_org' } },
     );

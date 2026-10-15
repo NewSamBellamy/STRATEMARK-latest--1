@@ -92,7 +92,11 @@ describe('source-backed company team records', () => {
     snapshot.companies.push(company);
     const store: ResearchStore = { read: () => structuredClone(snapshot), write: async value => { snapshot = structuredClone(value); } };
     const attempts: Array<{ id: string; companyId: string; metricType: string; capturedAt: string; receipts: typeof source[] }> = [];
-    const ground = vi.fn().mockResolvedValue({ text: 'Leadership', citations: [{ title: 'Company leadership', url }], queries: [] });
+    // The team half of the shared Team + History search.
+    const answer = 'Leadership\nCOMPANY STORY\nStory';
+    const ground = vi.fn().mockResolvedValue({ text: answer, citations: [{ title: 'Company leadership', url }], queries: [],
+      grounding: { provider: 'google-search', answerText: answer, supports: [
+        { supportIndex: 0, text: 'Leadership', sources: [{ chunkIndex: 0, url, title: 'Company leadership' }] }] } });
     const structure = vi.fn().mockResolvedValue(selections);
     const originals = { list: vi.fn(async () => structuredClone(attempts)),
       retrieve: vi.fn(async () => structuredClone(source)),
