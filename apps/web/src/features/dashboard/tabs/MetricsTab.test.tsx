@@ -174,6 +174,14 @@ describe('distribution rows say what they count', () => {
     expect((await screen.findAllByText('Countries')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Distribution', { exact: true })).not.toBeInTheDocument();
   });
+  it('does so for a stored figure whose definition is "distribution" and whose sentence says countries (Tennant: "21 countries")', async () => {
+    show({ metricType: 'distribution', value: 21, confidence: 'estimated', source: 'https://investors.example.com/',
+      methodNote: 'Source reported distribution (as of 2026-08-31); provider-grounded, not verified against an original.',
+      reportedSupport: { provider: 'google-search', companyName: 'Tennant Company', basis: 'distribution', value: 21, unit: 'count', asOf: '2026-08-31', definition: 'distribution',
+        support: { supportIndex: 0, text: 'Tennant Company sells products directly in more than 21 countries.', sources: [{ chunkIndex: 0, url: 'https://investors.example.com/', title: 'Investors' }] } } });
+    expect((await screen.findAllByText('Countries')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Distribution', { exact: true })).not.toBeInTheDocument();
+  });
   it('keeps "Distribution" when the source never says what is counted', async () => {
     show({ metricType: 'distribution', value: 21, confidence: 'estimated', source: 'https://investors.example.com/', methodNote: 'Source reported distribution.' });
     expect((await screen.findAllByText('Distribution')).length).toBeGreaterThan(0);

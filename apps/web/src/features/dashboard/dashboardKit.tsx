@@ -18,10 +18,15 @@ import { UNKNOWN_REASON } from '@/features/card/UnknownValue';
 import { FILL_HINT, formatAsOf, isKnown, type PeerRanking } from './dashboardModel';
 
 /** The table's name for a figure. A distribution count says what it counts ("Countries 21"), as the card does, never a bare number. */
-export const metricLabel = (m: Pick<CompanyMetric, 'metricType' | 'passageSupport' | 'reportedSupport'> & { methodNote?: string | null }) =>
-  metricDefinitionLabel(m) ?? (m.metricType === 'distribution'
-    ? distributionLabel({ passageSupport: m.passageSupport, reportedSupport: m.reportedSupport, methodNote: m.methodNote ?? null })
-    : METRIC_TYPE_LABELS[m.metricType]);
+export const metricLabel = (m: Pick<CompanyMetric, 'metricType' | 'passageSupport' | 'reportedSupport'> & { methodNote?: string | null }) => {
+  const byDefinition = metricDefinitionLabel(m);
+  // A stored distribution figure carries the definition "distribution", whose label is the bare word:
+  // for that one the source's own wording (countries, stockists) is the better name.
+  if (m.metricType === 'distribution' && (!byDefinition || byDefinition === METRIC_TYPE_LABELS.distribution)) {
+    return distributionLabel({ passageSupport: m.passageSupport, reportedSupport: m.reportedSupport, methodNote: m.methodNote ?? null });
+  }
+  return byDefinition ?? METRIC_TYPE_LABELS[m.metricType];
+};
 
 /** Build links between dashboard tabs, carrying the deck/card context along. */
 export function useTabHref(companyId: string) {
