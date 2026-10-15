@@ -4,6 +4,7 @@ import { companyAliases, mentionsCompany } from './company-aliases';
 import { isOriginalSourceAttempt, normalizeSourceText, selectOriginalSourceCitations, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceServices } from './original-source';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { LlmClient, ProviderGrounding } from './types';
+import { dropPartialDuplicates } from './person-name';
 import { throwIfAborted } from './util';
 
 const rowSchema = z.object({
@@ -159,6 +160,7 @@ export function renderCompanyTeamOrg(company: Company, originals: readonly Origi
   }
   if (retained.reportedNodes.length && grounding) retained.reportedGrounding = grounding;
   for (const url of citationUrls) citations.push({ title: `Person-level source · ${host(url)}`, url });
+  content.nodes = dropPartialDuplicates(content.nodes);
   return { content: teamOrgContentSchema.parse(content), citations: usableCitations(citations), teamOrgSelections: retained };
 }
 
