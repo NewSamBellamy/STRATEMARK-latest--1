@@ -5,6 +5,7 @@
  * caught, never silently rendered (see Constraints).
  */
 import { z } from 'zod';
+import { normalizeEventDate } from './event-date';
 import {
   CARD_TYPES,
   CONFIDENCE_LEVELS,
@@ -520,7 +521,8 @@ export const missionGovernanceContentSchema = z.object({
 });
 
 export const timelineEventSchema = z.object({
-  date: prose(),
+  // One written form for the dates research returns a dozen ways (event-date.ts).
+  date: prose().transform(normalizeEventDate),
   title: z.string(),
   detail: prose(),
 });
