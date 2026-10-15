@@ -67,3 +67,13 @@ describe('per-topic usage', () => {
     expect(formatDeckRunTopics({ submittedAt: '2026-10-14T20:00:00.000Z' })).toEqual([]);
   });
 });
+
+describe('a run that outlived an app restart', () => {
+  it('says its spend is partial instead of presenting an under-count as the total', () => {
+    const run: DeckRun = { submittedAt: '2026-10-14T20:00:00.000Z', deckReadyAt: '2026-10-14T20:03:00.000Z', warmupDoneAt: '2026-10-14T20:25:00.000Z', usagePartial: true,
+      usage: { calls: 30, inputTokens: 300_000, outputTokens: 30_000, searchQueries: 10, estCostUsd: 0.5 } };
+    expect(formatDeckRun(run)).toContain('(partial: the app restarted mid-run, later spend not counted)');
+    expect(formatDeckRun({ ...run, usagePartial: false })).not.toContain('partial');
+    expect(formatDeckRun({ ...run, usage: undefined })).not.toContain('partial');
+  });
+});

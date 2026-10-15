@@ -29,6 +29,11 @@ describe('namesFromRequest', () => {
     expect(namesFromRequest(['Coffee Beanery'], 'specialty coffee roasters')).toEqual([]);
   });
 
+  it('works on names written in any script', () => {
+    expect(namesFromRequest(['腾讯控股有限公司', '阿里巴巴集团'], '比较 腾讯控股有限公司 与竞争对手')).toEqual(['腾讯控股有限公司']);
+    expect(namesFromRequest(['Яндекс', 'Сбербанк'], 'сравнить яндекс и других')).toEqual(['Яндекс']);
+  });
+
   it('removes duplicates and blanks, and keeps a name that is all legal words rather than lose it', () => {
     expect(namesFromRequest(['Stripe', 'stripe', ' ', ''], 'stripe')).toEqual(['Stripe']);
     expect(namesFromRequest(['The Company'], 'the company')).toEqual(['The Company']);

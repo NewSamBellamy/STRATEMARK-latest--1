@@ -244,6 +244,12 @@ export function markGroundingSpent(now = Date.now()): void {
   notify();
 }
 
+/** Forget the "search quota spent" state: a different key has its own quota. */
+export function clearGroundingSpent(): void {
+  try { localStorage.removeItem(GROUNDING_KEY); } catch { /* private mode */ }
+  notify();
+}
+
 /** The standing "search quota spent" state, or null once the quota day has turned over. */
 export function getGroundingSpent(now = Date.now()): GroundingSpent | null {
   try {

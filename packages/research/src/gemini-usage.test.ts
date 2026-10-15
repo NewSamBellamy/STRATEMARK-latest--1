@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { createGeminiClient } from './gemini';
+import { usageSince } from './deck-run';
 
 const grounded = (usageMetadata?: unknown) => new Response(JSON.stringify({
   candidates: [{ content: { parts: [{ text: 'answer' }] },
@@ -57,4 +58,18 @@ it('an explicit cost label wins over the research topic, and never reaches the r
   expect(by.history).toBeUndefined();
   expect(bodies.join(' ')).not.toContain('market:discover');
   expect(bodies.join(' ')).not.toContain('tab:history');
+});
+
+it('a baseline taken before a deck started does not follow the counters afterwards (per-topic spend survives)', async () => {
+  const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl: vi.fn(async () => grounded({ promptTokenCount: 1000, candidatesTokenCount: 100 })) });
+  await client.ground('earlier chat', { label: 'chat' });
+  const base = client.metrics!();
+  await client.ground('p1', { label: 'tab:history' });
+  await client.ground('p2', { label: 'tab:history' });
+  await client.ground('p3', { label: 'tab:team_org' });
+  // The baseline still says one call; it was not edited by the three that followed.
+  expect(base.byTopic).toEqual({ chat: expect.objectContaining({ calls: 1 }) });
+  const used = usageSince(client.metrics!(), base)!;
+  expect(used.calls).toBe(3);
+  expect(used.byTopic).toEqual({ 'tab:history': expect.objectContaining({ calls: 2 }), 'tab:team_org': expect.objectContaining({ calls: 1 }) });
 });

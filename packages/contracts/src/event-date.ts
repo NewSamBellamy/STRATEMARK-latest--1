@@ -16,7 +16,7 @@ const MONTH_NAMES = MONTHS.map((month) => month[0]!.toUpperCase() + month.slice(
 const SEASONS: Record<string, string> = { spring: 'Spring', summer: 'Summer', fall: 'Fall', autumn: 'Fall', winter: 'Winter' };
 const PARTS: Record<string, string> = { early: 'Early', mid: 'Mid', middle: 'Mid', late: 'Late' };
 /** Words that say "the whole year" or "this year": nothing a reader needs beside the year itself. */
-const WHOLE_YEAR = /\b(?:full[- ]?year|fy|current year|this year|year[- ]end|annual)\b/i;
+const WHOLE_YEAR = /\b(?:full[- ]?year|current year|this year|year[- ]end|annual)\b/i;
 
 function monthOf(word: string): number {
   const w = word.toLowerCase().replace(/\.$/, '');
@@ -55,6 +55,6 @@ export function normalizeEventDate(raw: string): string {
   if (only && SEASONS[only]) return `${SEASONS[only]} ${year}`;
   // "Mid-Year" / "Mid year": the middle of that year.
   if (/^mid year$/i.test(rest)) return `Mid ${year}`;
-  if (WHOLE_YEAR.test(rest) && words.every((word) => WHOLE_YEAR.test(word) || /^(?:full|year|current|this|end|fy|annual)$/i.test(word))) return year;
+  if (WHOLE_YEAR.test(rest) && words.every((word) => WHOLE_YEAR.test(word) || /^(?:full|year|current|this|end|annual)$/i.test(word))) return year;
   return text;
 }

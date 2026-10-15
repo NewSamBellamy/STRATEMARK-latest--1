@@ -55,6 +55,19 @@ export function callCostUsd(input: { model: string; grounded: boolean; usage?: C
   return tokens + search;
 }
 
+/**
+ * A copy of the rolling counters that later calls cannot change. A shallow
+ * copy shares `byTopic` with the live counters, so a baseline taken at a deck's
+ * submission would silently track every later call and the per-topic difference
+ * would always come out empty.
+ */
+export function snapshotAggregate(aggregate: CallMetricsAggregate): CallMetricsAggregate {
+  const byTopic = aggregate.byTopic
+    ? Object.fromEntries(Object.entries(aggregate.byTopic).map(([topic, row]) => [topic, { ...row }]))
+    : undefined;
+  return { ...aggregate, ...(byTopic ? { byTopic } : {}) };
+}
+
 /** Fold one settled call into a client's rolling counters; returns what the call was estimated to cost. */
 export function tallyCall(
   aggregate: CallMetricsAggregate,

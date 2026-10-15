@@ -39,6 +39,14 @@ describe('dropPartialDuplicates', () => {
     const rows = [huml, { id: 'b', name: 'Huml', role: 'Chief Executive Officer', parentId: null }, { id: 'c', name: 'Fay West', role: 'Chief Financial Officer', parentId: 'b' }];
     expect(dropPartialDuplicates(rows).find((row) => row.id === 'c')?.parentId).toBe('a');
   });
+  it('does not treat an unreadable (non-Latin) role as the same role as everyone else', () => {
+    const rows = [{ id: 'a', name: 'Li Chen', role: '首席执行官', parentId: null }, { id: 'b', name: 'Chen', role: '首席财务官', parentId: null }, { id: 'c', name: 'Jones', role: '', parentId: null }];
+    expect(dropPartialDuplicates(rows).map((row) => row.id)).toEqual(['a', 'b', 'c']);
+  });
+  it('keeps the reporting line of a dropped surname-only record when the fuller one has none', () => {
+    const rows = [huml, { id: 'b', name: 'Huml', role: 'Chief Executive Officer', parentId: 'boss' }, { id: 'boss', name: 'Pat Chair', role: 'Chair', parentId: null }];
+    expect(dropPartialDuplicates(rows).find((row) => row.id === 'a')?.parentId).toBe('boss');
+  });
   it('leaves a clean list untouched', () => {
     const rows = [huml, { id: 'c', name: 'Fay West', role: 'Chief Financial Officer', parentId: null }];
     expect(dropPartialDuplicates(rows)).toEqual(rows);

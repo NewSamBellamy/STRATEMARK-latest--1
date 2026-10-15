@@ -114,10 +114,11 @@ export function withSearchFallback(client: LlmClient, searches: () => WebSearchF
         return await client.ground(prompt, opts);
       } catch (error) {
         if (!isQuotaExhausted(error) || opts?.signal?.aborted) throw error;
-        // Tell the app (once per fallback) so it can say plainly why research just got slower.
-        try { onGroundingSpent?.(); } catch { /* a notice must never break research */ }
         const lanes = searches();
         if (lanes.length === 0) throw error;
+        // A fallback really is about to run: tell the app so it can say plainly why research just got slower.
+        // (With no search lane the quota error itself reaches the user; claiming a fallback would be false.)
+        try { onGroundingSpent?.(); } catch { /* a notice must never break research */ }
         const context = opts?.researchContext;
         const fallbackQuery = [context?.companyName, context?.topic].filter(Boolean).join(' ').trim();
         const query = await client.structure(
