@@ -51,6 +51,12 @@ export interface TabResearchArgs {
   newsSearch?: WebSearchFn;
   /** Reads a public page's raw HTML (follows redirects). Live Intel only. */
   readPage?: PageReader;
+  /**
+   * The company's shared Overview + Products search (companyBriefingPrompt), run once
+   * per company by the repository. When set, those two tabs read it instead of
+   * paying for a search each; each still applies its own gates to the answer.
+   */
+  companyBriefing?: () => ReturnType<LlmClient['ground']>;
 }
 
 const ctx = (a: TabResearchArgs): string =>

@@ -37,6 +37,20 @@ function setup() {
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('written source-reported overview', () => {
+  it('shows only what the company does today: no plans, rankings or counts', async () => {
+    const s = setup();
+    s.structure.mockResolvedValue({ paragraphs: [
+      paragraphs[0],
+      { section: 'products', text: 'Microsoft plans to launch a new assistant for teams next year.', supportIndices: [1], sourceUrls: [urls[1]] },
+      { section: 'position', text: 'Microsoft is ranked the number one cloud vendor by analysts.', supportIndices: [0], sourceUrls: [urls[0]] },
+      { section: 'customers', text: 'Its Teams app is used daily by 300,000 subscribers through partner channels.', supportIndices: [2], sourceUrls: [urls[0]] },
+    ] });
+    const result = await s.run();
+    expect(result.content.markdown).toContain(paragraphs[0]!.text);
+    expect(result.content.markdown).not.toContain('plans to launch');
+    expect(result.content.markdown).not.toContain('number one');
+    expect(result.content.markdown).not.toContain('300,000 subscribers');
+  });
   it('writes products, positioning and customer context from Google support without waiting for original retrieval', async () => {
     const s = setup();
     let result: Awaited<ReturnType<typeof s.run>> | undefined;

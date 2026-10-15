@@ -107,11 +107,14 @@ const RELATIONSHIP_WORDING: Record<'customer' | 'supplier' | 'partner', RegExp> 
   supplier: /\b(?:suppl\w*|vendors?|manufactur\w*|fabricat\w*|foundry|built\s+(?:by|on)|runs?\s+on|powered\s+by|sources?|sourced|purchas\w*|buys?|bought|provider|provides?)\b/i,
   partner: /\b(?:partner\w*|alliance|collaborat\w*|joint\s+venture)\b/i,
 };
+/** A rival, or a counterparty reached through a reseller, is not this company's customer, supplier or partner. */
+const RIVAL_OR_RESELLER = /\b(?:compet\w*|rivals?|versus|vs|unlike|resell\w*)\b/i;
 const ENDED_OR_DENIED = /\b(?:former(?:ly)?|ended|terminat\w*|no\s+longer|not|never|stopped|dropped|exited|rumou?r\w*|reportedly\s+in\s+talks|considering)\b/i;
 /** A named counterparty is shown only when one exact provider sentence names
  * the company (any alias), the counterparty, and the relationship as current. */
 function reportedRelationship(sentence: string, aliases: readonly string[], name: string, kind: keyof typeof RELATIONSHIP_WORDING) {
-  return !mentionsCompany(name, aliases) && RELATIONSHIP_WORDING[kind].test(sentence) && !ENDED_OR_DENIED.test(sentence);
+  return !mentionsCompany(name, aliases) && RELATIONSHIP_WORDING[kind].test(sentence) && !ENDED_OR_DENIED.test(sentence) &&
+    !RIVAL_OR_RESELLER.test(sentence);
 }
 
 export function productSupportReferences(selections: unknown) {
@@ -232,6 +235,20 @@ export function renderCompanyProducts(company: Company, originals: readonly Orig
   return { content, citations: usableCitations(citations), productSelections: retained };
 }
 
+/**
+ * The one grounded search a company's Overview and Products tabs share (the
+ * repository runs it once per company and hands it to both). It opens with a
+ * short paragraph on what the company does, which is what the Overview reads,
+ * then asks for the products answer: one owned product per sentence and a final
+ * relationships paragraph. Sharing the search shares nothing else: each tab
+ * applies its own gates to the answer, so a sentence only reaches a tab when that
+ * tab's checks accept it.
+ */
+export function companyBriefingPrompt(company: Pick<Company, 'name' | 'websiteUrl'>, marketName: string): string {
+  const name = JSON.stringify(company.name);
+  return `Research ${name} (known official domain: ${JSON.stringify(company.websiteUrl ?? 'not established')}) in the market ${JSON.stringify(marketName)}. Start with a short paragraph of plain sentences on what ${name} does, its market positioning, and its customers and distribution, naming the company in each sentence and no other company (customers, retailers and partners belong in the final paragraph); give no financial figures, user counts or rankings there (they are supplied separately). Then research its current products, brands, models and services, and its announced product plans. Search official product/catalog/docs pages and dated company announcements first, then reputable reporting for gaps. Cover the main products (up to 12). Include legal entities or brand aliases only if sources explicitly link them to ${name}. Write findings as plain, complete sentences, one product per sentence, each naming the company and the product together and saying it is the company's product (for example: “SpaceX operates Starlink, a satellite internet service.”). Do not use headings, name-only bullets, or comparisons with competitors' products. State a lifecycle (available/launched, beta, discontinued) only where a source states it; distinguish current status from planned or historical availability. For plans, preserve the exact announcement and any explicit date. Then, in a separate final paragraph, name up to 8 current customers, suppliers (including manufacturing and cloud providers) and partners that ${name}, its filings or reputable reporting name, one relationship per sentence naming both companies and the relationship (for example: “Pfizer is a customer of Anthropic.”); omit this paragraph when sources name none, and never list a relationship described as former, rumoured or under discussion. Return direct original-page URLs as discovery leads; provider grounding passages are reported evidence, not original-page verification. Never infer users, revenue, ranking, or unsupported dates.`;
+}
+
 export async function researchCompanyProducts(args: TabResearchArgs) {
   // Without a resolved official domain the official-original lane is skipped
   // (officialUrl() is false for every URL), but the provider-reported lane
@@ -247,11 +264,13 @@ export async function researchCompanyProducts(args: TabResearchArgs) {
   const aliases = companyAliases(args.company.name, args.company.websiteUrl);
   let search: Awaited<ReturnType<TabResearchArgs['client']['ground']>> | undefined;
   try {
-    search = await args.client.ground(`Research the current products, brands, models and services of ${name} (known official domain: ${JSON.stringify(args.company.websiteUrl ?? 'not established')}), and its announced product plans. Search official product/catalog/docs pages and dated company announcements first, then reputable reporting for gaps. Cover the main products (up to 12). Include legal entities or brand aliases only if sources explicitly link them to ${name}. Write findings as plain, complete sentences, one product per sentence, each naming the company and the product together and saying it is the company's product (for example: “SpaceX operates Starlink, a satellite internet service.”). Do not use headings, name-only bullets, or comparisons with competitors' products. State a lifecycle (available/launched, beta, discontinued) only where a source states it; distinguish current status from planned or historical availability. For plans, preserve the exact announcement and any explicit date. Then, in a separate final paragraph, name up to 8 current customers, suppliers (including manufacturing and cloud providers) and partners that ${name}, its filings or reputable reporting name, one relationship per sentence naming both companies and the relationship (for example: “Pfizer is a customer of Anthropic.”); omit this paragraph when sources name none, and never list a relationship described as former, rumoured or under discussion. Return direct original-page URLs as discovery leads; provider grounding passages are reported evidence, not original-page verification. Never infer users, revenue, ranking, or unsupported dates.`,
-      { system: GROUNDED_SYSTEM, signal: args.signal, researchContext: { companyId: args.company.id, companyName: args.company.name, topic: 'products_roadmap' } });
+    search = await (args.companyBriefing ? args.companyBriefing() : args.client.ground(companyBriefingPrompt(args.company, args.marketName),
+      { system: GROUNDED_SYSTEM, signal: args.signal, researchContext: { companyId: args.company.id, companyName: args.company.name, topic: 'products_roadmap' } }));
   } catch (error) {
     throwIfAborted(args.signal);
-    if (!hasOfficialOriginal) throw error; // Retained originals remain usable if the optional search is unavailable.
+    // Retained originals remain usable if the optional search is unavailable. A shared search that ran out of
+    // time is not "unavailable": nothing is cached, so the next open asks again.
+    if (!hasOfficialOriginal || (error as Error)?.name === 'TimeoutError') throw error;
   }
   throwIfAborted(args.signal);
   const reportedGrounding = search ? validProviderGrounding(search.grounding, search.text, search.citations, aliases) : undefined;
