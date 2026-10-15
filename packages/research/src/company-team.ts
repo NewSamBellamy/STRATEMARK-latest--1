@@ -28,7 +28,7 @@ const selectionsSchema = z.object({ nodes: capped(80), reportedNodes: capped(80)
   reportedGrounding: providerGroundingSchema.optional() });
 export type TeamOrgSelections = z.infer<typeof selectionsSchema>;
 
-function validProviderGrounding(value: unknown, expectedText?: string, allowedCitations?: readonly Citation[]): ProviderGrounding | undefined {
+function validProviderGrounding(value: unknown, expectedText?: string, allowedCitations?: readonly Citation[], aliases: readonly string[] = []): ProviderGrounding | undefined {
   const parsed = providerGroundingSchema.safeParse(value);
   if (!parsed.success || (expectedText !== undefined && parsed.data.answerText.trim() !== expectedText.trim())) return;
   const allowed = allowedCitations ? new Set(usableCitations(allowedCitations).map(row => row.url)) : null;
@@ -41,7 +41,7 @@ function validProviderGrounding(value: unknown, expectedText?: string, allowedCi
     });
     return sources.length ? [{ ...support, sources }] : [];
   });
-  return supports.length ? widenSupportsToSentences({ ...parsed.data, supports }) : undefined;
+  return supports.length ? widenSupportsToSentences({ ...parsed.data, supports }, aliases) : undefined;
 }
 
 /** A provider sentence that contains the exact quote, names the company by any
@@ -136,7 +136,7 @@ export function renderCompanyTeamOrg(company: Company, originals: readonly Origi
       /\breports?\s+(?:directly\s+)?to\b/i.test(normalizeSourceText(person.quote))) person.node.parentId = manager.id;
     content.nodes.push(person.node);
   }
-  const grounding = validProviderGrounding(parsed.data.reportedGrounding);
+  const grounding = validProviderGrounding(parsed.data.reportedGrounding, undefined, undefined, aliases);
   for (const proposal of parsed.data.reportedNodes) {
     const row = reportedRowSchema.safeParse(proposal);
     if (!row.success) continue;
@@ -210,7 +210,7 @@ export async function researchCompanyTeamOrg(args: ResearchCompanyTeamArgs) {
     if (!hasReadable) throw error; // A failed optional search must not hide already retained originals.
   }
   throwIfAborted(args.signal);
-  if (search) reportedGrounding = validProviderGrounding(search.grounding, search.text, search.citations);
+  if (search) reportedGrounding = validProviderGrounding(search.grounding, search.text, search.citations, companyAliases(args.company.name, args.company.websiteUrl));
   if (search && args.originalSources && (args.refreshOriginals || !hasReadable)) {
     const collected: OriginalSourceReceipt[] = [];
     try {
