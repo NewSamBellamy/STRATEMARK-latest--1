@@ -206,26 +206,17 @@ it.each(['empty', 'failure'] as const)('does not repeat a %s hunt after rerender
   reopened.unmount(); s.client.clear();
 });
 
-it('escalates an empty hunt after the cooldown and caps the ladder at three attempts', async () => {
+it('makes one automatic attempt per company, then stops: creation already ran the plain and escalated passes', async () => {
   const s = await setup();
   s.huntCompanyMetrics.mockResolvedValue({ filledTypes: [], metrics: [], retieredCardIds: [] });
   const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
   expect(s.huntCompanyMetrics).toHaveBeenLastCalledWith('company-0', undefined);
-  // Inside the cooldown window the failed hunt gets no second breath.
-  await act(async () => { await vi.advanceTimersByTimeAsync(80_000); });
-  expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
-  // After the cooldown the desk retries with an escalated prompt.
-  await act(async () => { await vi.advanceTimersByTimeAsync(2 * 60_000); });
-  expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(2);
-  expect(s.huntCompanyMetrics).toHaveBeenLastCalledWith('company-0', { escalation: 1 });
-  await act(async () => { await vi.advanceTimersByTimeAsync(2.5 * 60_000); });
-  expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(3);
-  expect(s.huntCompanyMetrics).toHaveBeenLastCalledWith('company-0', { escalation: 2 });
-  // A still-empty company bottoms out instead of burning queries forever.
+  // Neither the cooldown nor a long session buys a second automatic hunt for a company that came back empty.
+  await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
   await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60_000); });
-  expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(3);
+  expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
   hook.unmount(); s.client.clear();
 });
 
