@@ -432,6 +432,8 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   webSearch?: () => WebSearchFn | null;
   /** Free news lane (no key) adding dated news articles as hunt candidates. */
   newsSearch?: () => WebSearchFn | null;
+  /** Fires when Google Search grounding is out of quota and research falls back to web pages. */
+  onGroundingSpent?: () => void;
   /**
    * Background dashboard warm-up: after a deck is built, every company's
    * Overview, History, Team, Products and News tabs research through the same
@@ -639,7 +641,7 @@ export class GeminiRepository implements MarketIntelRepository {
     // the free news lane, rather than stopping every deck cold.
     const searchBacked = withSearchFallback(guardedProvider, () =>
       [this.webSearch?.() ?? null, this.newsSearch?.() ?? null].filter((lane): lane is WebSearchFn => lane !== null),
-      options.assetSourceReader);
+      options.assetSourceReader, options.onGroundingSpent);
     this.client = recordResearchEvidence(searchBacked, async (evidence) => {
       this.snap.researchEvidence = [...(this.snap.researchEvidence ?? []), evidence];
       await this.persist();

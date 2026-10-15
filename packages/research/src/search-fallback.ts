@@ -106,7 +106,7 @@ export function quoteGrounding(answer: string, quotes: Array<{ source: number; q
 }
 
 export function withSearchFallback(client: LlmClient, searches: () => WebSearchFn[],
-  readPage?: (url: string) => Promise<OriginalSourceReceipt>): LlmClient {
+  readPage?: (url: string) => Promise<OriginalSourceReceipt>, onGroundingSpent?: () => void): LlmClient {
   return {
     ...client,
     async ground(prompt, opts) {
@@ -114,6 +114,8 @@ export function withSearchFallback(client: LlmClient, searches: () => WebSearchF
         return await client.ground(prompt, opts);
       } catch (error) {
         if (!isQuotaExhausted(error) || opts?.signal?.aborted) throw error;
+        // Tell the app (once per fallback) so it can say plainly why research just got slower.
+        try { onGroundingSpent?.(); } catch { /* a notice must never break research */ }
         const lanes = searches();
         if (lanes.length === 0) throw error;
         const context = opts?.researchContext;

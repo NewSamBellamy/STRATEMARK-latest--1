@@ -10,6 +10,7 @@ import { useCompany, useCompanyMetrics, useReports, useRerunDashboardTab } from 
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
 import { useDashboardWarm } from '@/lib/living/useDashboardWarm';
 import { BackgroundResearchControl } from '@/lib/living/BackgroundResearchControl';
+import { GroundingQuotaNotice } from '@/lib/living/GroundingQuotaNotice';
 import { siteUrl } from '@/lib/siteUrl';
 import { ReportButton, ThreadHistoryButton } from '@/features/research/ResearchControls';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
@@ -473,6 +474,7 @@ export default function DashboardPage() {
               fromDeckView={fromDeckView}
             />
             <BackgroundResearchControl />
+            <GroundingQuotaNotice />
             {prefetchFailed.length > 0 && (
               <div className="mb-3 rounded-lg border border-negative/30 bg-negative/5 px-3 py-2 text-[12px] text-negative">
                 Some dashboard research did not finish in the background:{' '}

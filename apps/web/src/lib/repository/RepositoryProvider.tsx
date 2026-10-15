@@ -23,7 +23,7 @@ import { QUOTA_PRESETS, useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
 import { currentWebSearch } from '@/lib/settings/searchKey';
 import { currentNewsSearch } from './news-lane';
-import { isLowPower, recordCall, recordCallMetrics } from '@/lib/usage';
+import { isLowPower, markGroundingSpent, recordCall, recordCallMetrics } from '@/lib/usage';
 import { useResearchControl } from '@/lib/living/researchControl';
 import { wikidataJson } from '@/lib/media/wikidataFounded';
 
@@ -101,6 +101,8 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       // and the grounded estimate is the honest (never-undercount) side.
       onCall: ({ kind }) => recordCall(kind === 'judge' ? 'ground' : kind),
       onCallMetrics: (m) => recordCallMetrics(m),
+      // Google Search is out of quota: research continues from web pages, and the app says why.
+      onGroundingSpent: () => markGroundingSpent(),
       // Every company's History, Team, Products and News tabs research in the
       // background after a deck is built (highest tier first), gated by the
       // spending cap and the background-research pause. Stored decks are

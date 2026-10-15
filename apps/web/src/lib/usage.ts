@@ -212,6 +212,52 @@ export function imagesAllowed(): boolean {
   return getCostControls().imagesEnabled && !isLowPower();
 }
 
+// ---------------------------------------------------------------------------
+// Google Search quota spent: say so, with when it comes back.
+// ---------------------------------------------------------------------------
+
+const GROUNDING_KEY = 'mi.groundingSpent.v1';
+const HOUR_MS = 3_600_000;
+const pacificHour = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hourCycle: 'h23', hour: '2-digit' });
+
+/** The next midnight in Pacific time after `from` (ms): when Google's daily request quotas reset. */
+export function nextPacificMidnight(from: number): number {
+  let t = Math.floor(from / HOUR_MS) * HOUR_MS + HOUR_MS; // Pacific offsets are whole hours
+  for (let step = 0; step < 26; step += 1, t += HOUR_MS) {
+    if (Number(pacificHour.format(new Date(t))) === 0) return t;
+  }
+  return from + 24 * HOUR_MS;
+}
+
+export interface GroundingSpent {
+  /** When research last fell back to web pages for want of search quota. */
+  at: number;
+  /** When the daily quota should be back (next midnight Pacific). */
+  resetsAt: number;
+}
+
+/** Record that Google Search grounding is out of quota. Bursts of fallbacks write once a minute. */
+export function markGroundingSpent(now = Date.now()): void {
+  const prior = getGroundingSpent(now);
+  if (prior && now - prior.at < 60_000) return;
+  write(GROUNDING_KEY, { at: now });
+  notify();
+}
+
+/** The standing "search quota spent" state, or null once the quota day has turned over. */
+export function getGroundingSpent(now = Date.now()): GroundingSpent | null {
+  try {
+    const raw = localStorage.getItem(GROUNDING_KEY);
+    if (!raw) return null;
+    const at = (JSON.parse(raw) as { at?: unknown }).at;
+    if (typeof at !== 'number' || !Number.isFinite(at)) return null;
+    const resetsAt = nextPacificMidnight(at);
+    return now < resetsAt ? { at, resetsAt } : null;
+  } catch {
+    return null;
+  }
+}
+
 // --- tiny subscription so the UI can live-update without a store dependency ---
 const listeners = new Set<() => void>();
 function notify(): void {
