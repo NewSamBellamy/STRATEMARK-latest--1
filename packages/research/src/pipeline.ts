@@ -11,6 +11,7 @@
  * and every figure is tagged verified / estimated / unknown with a citation.
  */
 import { scrubOneLiner } from './oneliner-scrub';
+import { namesFromRequest } from './company-scope';
 import type { infer as ZodInfer } from 'zod';
 import {
   buildCmsInput,
@@ -127,7 +128,11 @@ async function interpret(
             ? [...new Set(brief.companyScope.names.map((name) => name.trim()).filter(Boolean))].slice(0, 30)
             : [],
         }
-      : plan.companyScope,
+      // A market scan may anchor on companies the USER named; names the model
+      // lifted from its own search notes are not the user's (company-scope.ts).
+      : plan.companyScope?.mode === 'market'
+        ? { mode: 'market', names: namesFromRequest(plan.companyScope.names, brief.prompt) }
+        : plan.companyScope,
   };
 }
 
