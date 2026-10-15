@@ -18,12 +18,13 @@ const TOPIC_LABELS: Record<string, string> = {
   user_note: 'Your notes',
   company_profile: 'Company profile',
   overview: 'Overview',
+  company_briefing: 'Overview & products',
   team_org: 'Team & org',
   live_intel: 'Live intel',
   metrics_hunt: 'Metrics hunt',
 };
 
-const TOPIC_ORDER = ['user_note', 'company_profile', 'overview', 'team_org', 'live_intel', 'metrics_hunt'];
+const TOPIC_ORDER = ['user_note', 'company_profile', 'overview', 'company_briefing', 'team_org', 'live_intel', 'metrics_hunt'];
 
 function topicLabel(topic: string): string {
   return TOPIC_LABELS[topic] ?? topic.replaceAll('_', ' ');

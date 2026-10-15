@@ -166,6 +166,55 @@ describe('dashboard warm-up in the repository', () => {
     expect(fresh.llm.ground).not.toHaveBeenCalled();
   });
 
+  it('Overview and Products share one search per company; a forced refresh or a failed search starts a new one', async () => {
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    const llm = client();
+    const { repo } = fixtureRepo({ llm });
+    await repo.getDashboardTab('acme', 'overview');
+    await repo.getDashboardTab('acme', 'products_roadmap');
+    expect(llm.ground).toHaveBeenCalledTimes(1);
+    expect(llm.ground.mock.calls[0]![1]).toMatchObject({ label: 'company_briefing', researchContext: { companyId: 'acme', topic: 'company_briefing' } });
+    // Another company gets its own search.
+    await repo.getDashboardTab('beta', 'overview');
+    expect(llm.ground).toHaveBeenCalledTimes(2);
+    // Refresh asks Google again rather than replaying the shared answer.
+    await repo.getDashboardTab('acme', 'products_roadmap', true);
+    expect(llm.ground).toHaveBeenCalledTimes(3);
+
+    const failingLlm = client();
+    failingLlm.ground.mockRejectedValueOnce(new Error('quota'));
+    const failing = fixtureRepo({ llm: failingLlm });
+    await failing.repo.getDashboardTab('acme', 'overview');
+    await failing.repo.getDashboardTab('acme', 'products_roadmap');
+    expect(failingLlm.ground).toHaveBeenCalledTimes(2);
+  });
+
+  it('a tab that joins the shared search late and outlives it caches nothing, so the next open asks again', async () => {
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    vi.useFakeTimers();
+    try {
+      const llm = client();
+      // The shared search hangs until its own deadline aborts it.
+      llm.ground.mockImplementationOnce((_prompt: string, opts?: { signal?: AbortSignal }) => new Promise((_resolve, reject) => {
+        opts?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      }));
+      const { repo, saved } = fixtureRepo({ llm });
+      const products = repo.getDashboardTab('acme', 'products_roadmap').catch((error: Error) => error);
+      await vi.advanceTimersByTimeAsync(50_000);
+      const overview = repo.getDashboardTab('acme', 'overview').catch((error: Error) => error);
+      await vi.advanceTimersByTimeAsync(41_000);
+      expect(await overview).toMatchObject({ name: 'TimeoutError' });
+      await products;
+      expect(saved().dashboards.acme?.overview).toBeUndefined();
+      expect(llm.ground).toHaveBeenCalledTimes(1);
+      // Reopening asks Google again instead of showing a cached "background unavailable".
+      await repo.getDashboardTab('acme', 'overview');
+      expect(llm.ground).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('never backfills stored decks unless explicitly enabled (one-time spend needs approval)', async () => {
     vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
     for (const backfill of [undefined, false]) {

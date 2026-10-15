@@ -103,7 +103,7 @@ import { CARD_FACT_TYPES as CARD_FACT_HUNT_TYPES, reportedCompanyMetrics, report
 import { businessDates, reportedAsOfNote, statedPeriodDate, storedDefinition } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
-import { mapWithConcurrency, rootDomain, sleep, throwIfAborted, websiteUrlOf } from './util';
+import { AbortError, mapWithConcurrency, rootDomain, sleep, throwIfAborted, websiteUrlOf } from './util';
 import { IncrementalDeltaAgent } from './delta-agent';
 import {
   shouldDistillThread,
@@ -149,6 +149,8 @@ import { foundedFromHistory, foundedFromWebsite, foundedFromWikidata, wikidataFo
  * hung summary tail held a job 'running' for 13+ minutes with zero provider
  * activity while the deck was already rendered). */
 const JOB_STALL_MS = 8 * 60_000;
+/** How long a company's shared Overview + Products search is reused (a warm-up finishes well inside it). */
+const COMPANY_BRIEFING_TTL_MS = 15 * 60_000;
 /** The hydration-time logo is a gstatic favicon guess, not company art. The
  * asset lane (and only the asset lane, or the user) replaces it. */
 const SEC_READ_GAP_MS = 150;
@@ -166,7 +168,7 @@ import { buildChatPrompt, formatCompanyBlock, formatDeckRankings } from './chat-
 import { savedCompanySummary } from './saved-profile';
 import { projectedCompanyFacts } from './displayed-facts';
 import { companySourceTargets } from './source-policy';
-import { renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
+import { companyBriefingPrompt, renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
 import { renderCompanyTeamOrg, teamOrgOriginalAttempts, teamOrgSupportReferences, type TeamOrgSelections } from './company-team';
 
 interface CachedTab {
@@ -531,6 +533,7 @@ export class GeminiRepository implements MarketIntelRepository {
     if (scope === 'all') {
       this.snap.dashboards[companyId] = {};
       this.dashboardAllEpochs.set(companyId, (this.dashboardAllEpochs.get(companyId) ?? 0) + 1);
+      this.companyBriefings.delete(companyId);
     } else {
       const { overview, metrics: _metrics, ...independent } = this.snap.dashboards[companyId] ?? {};
       this.snap.dashboards[companyId] = overview?.overviewEvidenceVersion === 3 ? { ...independent, overview } : independent;
@@ -2573,6 +2576,47 @@ export class GeminiRepository implements MarketIntelRepository {
    * The second caller now awaits the first caller's promise.
    */
   private tabResearchInFlight = new Map<string, Promise<unknown>>();
+  /**
+   * One shared Overview + Products search per company (companyBriefingPrompt).
+   * The two tabs used to pay for a search each about the same company; now the
+   * first tab to run starts it and the other reuses it for COMPANY_BRIEFING_TTL_MS.
+   * A forced refresh starts a new one, a full re-research of the company drops it,
+   * and a failed search is forgotten so the next tab tries again. It runs on its
+   * own 90-second deadline, so one tab giving up does not cancel it for the other.
+   */
+  private readonly companyBriefings = new Map<string, { key: string; at: number; result: ReturnType<LlmClient['ground']>; deadline: AbortController }>();
+
+  private companyBriefing(company: Company, marketName: string, force: boolean, signal: AbortSignal): ReturnType<LlmClient['ground']> {
+    const key = JSON.stringify([company.name, company.websiteUrl ?? null, marketName]);
+    const hit = this.companyBriefings.get(company.id);
+    let entry = !force && hit && hit.key === key && Date.now() - hit.at < COMPANY_BRIEFING_TTL_MS ? hit : undefined;
+    if (!entry) {
+      const deadline = new AbortController();
+      const timer = setTimeout(() => deadline.abort(), 90_000);
+      const result = this.client.ground(companyBriefingPrompt(company, marketName), { system: GROUNDED_SYSTEM, signal: deadline.signal,
+        label: 'company_briefing', researchContext: { companyId: company.id, companyName: company.name, topic: 'company_briefing' } })
+        .finally(() => clearTimeout(timer));
+      const started = { key, at: Date.now(), result, deadline };
+      for (const [id, old] of this.companyBriefings) if (Date.now() - old.at >= COMPANY_BRIEFING_TTL_MS) this.companyBriefings.delete(id);
+      this.companyBriefings.set(company.id, started);
+      result.catch(() => { if (this.companyBriefings.get(company.id) === started) this.companyBriefings.delete(company.id); });
+      entry = started;
+    }
+    // The waiting tab still stops on its own deadline. A tab that joined late and outlived the shared
+    // search's deadline gets a TimeoutError, which both tabs rethrow, so no "unavailable" tab is cached.
+    const { result, deadline } = entry;
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) { reject(new AbortError()); return; }
+      const stop = () => reject(new AbortError());
+      signal.addEventListener('abort', stop, { once: true });
+      result.then(resolve, (error: unknown) => {
+        if (!deadline.signal.aborted) { reject(error); return; }
+        const timeout = new Error('The shared company search timed out after 90 seconds.');
+        timeout.name = 'TimeoutError';
+        reject(timeout);
+      }).finally(() => signal.removeEventListener('abort', stop));
+    });
+  }
 
   async getDashboardTab<T extends DashboardTab>(
     companyId: string,
@@ -2629,7 +2673,7 @@ export class GeminiRepository implements MarketIntelRepository {
         const originals = attempts.filter(isOriginalSourceAttempt).filter(row => row.companyId === companyId).flatMap(row => row.receipts);
         if (cached.overviewEvidenceVersion === 3) {
           const args = { company, storedMetrics: metrics, client: this.client, marketName: '' };
-          const saved = this.getResearchEvidence({ companyId, limit: 10 }).filter(row => row.companyName === company.name && row.topic === 'overview')
+          const saved = this.getResearchEvidence({ companyId, limit: 10 }).filter(row => row.companyName === company.name && (row.topic === 'overview' || row.topic === 'company_briefing'))
             .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))[0];
           const canRecover = !cached.overviewNarrative || cached.overviewNarrative.companyId === companyId;
           const narrative = cached.overviewNarrative?.paragraphs.length ? cached.overviewNarrative : canRecover ? savedOverviewNarrative(args, saved) : cached.overviewNarrative;
@@ -2700,6 +2744,8 @@ export class GeminiRepository implements MarketIntelRepository {
         signal: controller.signal,
         refreshOriginals: Boolean(force),
         ...(tab === 'live_intel' ? { newsSearch: this.newsSearch?.() ?? undefined, readPage: this.assetSourceReader } : {}),
+        ...(tab === 'overview' || tab === 'products_roadmap' ? { companyBriefing: () => this.companyBriefing(company,
+          this.snap.companyMarket[companyId] ?? 'this market', Boolean(force), controller.signal) } : {}),
         ...(tab === 'overview' ? { originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20,
           support: originalSupportReferences(this.snap.metrics, companyId) }) } : {}),
         ...(['products_roadmap', 'team_org'].includes(tab) ? { originalSources: this.originalSources,

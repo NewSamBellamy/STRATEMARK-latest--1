@@ -227,13 +227,13 @@ const IDENTITY_SLOTS: SlotDef[] = [
   { key: 'identity.website', group: 'identity', label: 'Website', relevance: topicIs(['company_profile'], ['overview']) },
   { key: 'identity.hq', group: 'identity', label: 'HQ', relevance: topicIs(['company_profile'], ['overview']) },
   { key: 'identity.founded', group: 'identity', label: 'Founded', relevance: topicIs(['history', 'company_profile'], ['overview']), tab: 'history' },
-  { key: 'description', group: 'description', label: 'Description', relevance: topicIs(['company_profile'], ['overview']), tab: 'overview' },
+  { key: 'description', group: 'description', label: 'Description', relevance: topicIs(['company_profile'], ['overview', 'company_briefing']), tab: 'overview' },
 ];
 
 const TAIL_SLOTS: SlotDef[] = [
   { key: 'team', group: 'team', label: 'Team', relevance: topicIs(['team_org']), tab: 'team_org' },
   { key: 'history', group: 'history', label: 'History', relevance: topicIs(['history']), tab: 'history' },
-  { key: 'products', group: 'products', label: 'Products', relevance: topicIs(['products_roadmap']), tab: 'products_roadmap' },
+  { key: 'products', group: 'products', label: 'Products', relevance: topicIs(['products_roadmap', 'company_briefing']), tab: 'products_roadmap' },
   { key: 'news', group: 'news', label: 'News', relevance: topicIs(['live_intel', 'news']), tab: 'live_intel' },
 ];
 

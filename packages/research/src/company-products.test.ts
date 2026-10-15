@@ -108,6 +108,25 @@ describe('original-backed company product dossier', () => {
     ]);
     expect(result.productSelections!.reportedRelationships).toHaveLength(2);
   });
+  it('never shows a rival, or a reseller\'s account, as a relationship', async () => {
+    const reportUrl = 'https://reuters.com/acme-channels';
+    const report = 'Acme serves enterprise customers through resellers such as CDW. Acme competes with Beta, which partners with Microsoft. Acme versus Hooli: Hooli uses cloud chips.';
+    const sentences = report.split(/(?<=\.) /);
+    let at = 0;
+    const grounding = extractProviderGrounding(report, { groundingChunks: [{ web: { uri: reportUrl, title: 'Acme channels' } }],
+      groundingSupports: sentences.map((text) => { const startIndex = report.indexOf(text, at); at = startIndex + text.length;
+        return { segment: { text, startIndex, endIndex: startIndex + text.length }, groundingChunkIndices: [0] }; }) });
+    const { run, sources, ground, structure } = setup();
+    ground.mockResolvedValue({ text: report, citations: [{ url: reportUrl, title: 'Acme channels' }], queries: [], grounding });
+    structure.mockResolvedValue({ products: [], roadmap: [], reportedProducts: [], reportedRoadmap: [], reportedRelationships: [
+      { name: 'CDW', kind: 'customer', supportIndex: 0, quote: sentences[0] },
+      { name: 'Microsoft', kind: 'partner', supportIndex: 1, quote: sentences[1] },
+      { name: 'Hooli', kind: 'customer', supportIndex: 2, quote: sentences[2] },
+    ] });
+    sources.retrieve.mockResolvedValue({ requestedUrl: url, status: 'blocked', retrievedAt: time } as never);
+
+    expect((await run()).content.relationships).toBeUndefined();
+  });
   it('combines irrelevant readable originals and Google-supported products in one extraction call', async () => {
     const reportUrl = 'https://reuters.com/acme-atlas-launch';
     const report = "Acme's Atlas is now available to all research teams.";
