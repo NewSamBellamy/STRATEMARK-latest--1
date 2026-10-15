@@ -102,6 +102,37 @@ describe('acknowledged browser research storage', () => {
     await expect(openBrowserResearchStore()).rejects.toThrow(/unreadable/i);
   });
 
+  it('a damaged backup never blocks viewing or exporting the healthy current workspace', async () => {
+    const store = await openBrowserResearchStore();
+    const current = { ...data(), reports: [{ id: 'healthy' }] } as ReturnType<typeof data>;
+    await store.write(current);
+    await putRaw(`${KEY}.committed.backup`, { gz: new Uint8Array([1, 2, 3]).buffer, revision: 1, at: 1 });
+    const saved = await readBrowserResearchData();
+    expect(JSON.parse(saved.current!)).toEqual(current);
+    expect(saved.backup).toBeNull();
+  });
+
+  it('says saved research is intact when the browser cannot prepare a save, and a retry works', async () => {
+    const store = await openBrowserResearchStore();
+    const kept = { ...data(), reports: [{ id: 'kept' }] } as ReturnType<typeof data>;
+    await store.write(kept);
+    const encoder = vi.spyOn(TextEncoder.prototype, 'encode').mockImplementationOnce(() => { throw new RangeError('Array buffer allocation failed'); });
+    await expect(store.write(data())).rejects.toThrow(/not saved.*intact/i);
+    encoder.mockRestore();
+    expect((await openBrowserResearchStore()).read()).toEqual(kept);
+    const next = { ...data(), reports: [{ id: 'retried' }] } as ReturnType<typeof data>;
+    await store.write(next);
+    expect((await openBrowserResearchStore()).read()).toEqual(next);
+  });
+
+  it('tells a browser without decompression to update instead of calling the research unreadable', async () => {
+    const store = await openBrowserResearchStore();
+    await store.write(data());
+    vi.stubGlobal('DecompressionStream', undefined);
+    await expect(openBrowserResearchStore()).rejects.toThrow(/cannot open compressed research/i);
+    vi.unstubAllGlobals();
+  });
+
   it('keeps immutable queued revisions instead of saving later caller mutations', async () => {
     const store = await openBrowserResearchStore();
     const snapshot = data();

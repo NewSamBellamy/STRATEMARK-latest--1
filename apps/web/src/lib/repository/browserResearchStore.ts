@@ -38,7 +38,8 @@ async function encode(json: string, revision: number): Promise<RecordValue> {
 /** The JSON a saved record holds; throws when the record is damaged, never returns an empty workspace for it. */
 async function decode(record: RecordValue): Promise<string> {
   if (typeof record.json === 'string') return record.json;
-  if (Object.prototype.toString.call(record.gz) !== '[object ArrayBuffer]' || !compressed()) throw new Error('Your saved research is unreadable. Nothing has been overwritten.');
+  if (Object.prototype.toString.call(record.gz) !== '[object ArrayBuffer]') throw new Error('Your saved research is unreadable. Nothing has been overwritten.');
+  if (!compressed()) throw new Error('This browser cannot open compressed research. Update it to continue; nothing has been overwritten.');
   try {
     const gunzip = new DecompressionStream('gzip');
     const writer = gunzip.writable.getWriter();
@@ -142,10 +143,16 @@ export async function openBrowserResearchStore(): Promise<ResearchStore> {
 
   async function commit(json: string): Promise<void> {
     // Compressed before the transaction opens: a transaction left waiting on other work commits early.
-    const next = await encode(json, revision + 1);
-    // An uncompressed revision becomes a compressed backup: copied as it is, one near the
-    // per-record limit could fail the save that is meant to rescue it.
-    const backup = plainOnDisk && committed ? await encode(committed, revision) : null;
+    let next: RecordValue;
+    let backup: RecordValue | null;
+    try {
+      next = await encode(json, revision + 1);
+      // An uncompressed revision becomes a compressed backup: copied as it is, one near the
+      // per-record limit could fail the save that is meant to rescue it.
+      backup = plainOnDisk && committed ? await encode(committed, revision) : null;
+    } catch (cause) {
+      throw new Error('Research was not saved. The browser could not prepare it; previous saved research is intact.', { cause });
+    }
     const db = await openDatabase();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('snapshots', 'readwrite');
@@ -210,7 +217,8 @@ export async function readBrowserResearchData(): Promise<{ current: string | nul
   const found = await records();
   return {
     current: (await jsonOf(found[CURRENT])) ?? localStorage.getItem(LEGACY) ?? (await jsonOf(found[LEGACY])) ?? null,
-    backup: (await jsonOf(found[BACKUP])) ?? localStorage.getItem(`${LEGACY}.backup`),
+    // A damaged backup must not block viewing or exporting a healthy current workspace.
+    backup: found[BACKUP] ? await jsonOf(found[BACKUP]).catch(() => null) : localStorage.getItem(`${LEGACY}.backup`),
   };
 }
 
