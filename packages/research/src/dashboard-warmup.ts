@@ -28,6 +28,17 @@ import type { DashboardTab } from '@mi/contracts';
 export const WARM_TABS = ['overview', 'history', 'team_org', 'products_roadmap', 'live_intel'] as const satisfies readonly DashboardTab[];
 export type WarmTab = (typeof WARM_TABS)[number];
 
+/**
+ * Companies researched at once during warm-up. One company's tabs run one at a
+ * time, so this is what sets how long a whole deck takes: with a key allowed 60
+ * grounded searches a minute, two companies in flight left the limiter idle and
+ * a 16-company deck took 12-25 minutes. The limiter still paces every call, so
+ * more companies in flight never means more calls per minute than the key allows.
+ */
+export function warmupConcurrency(groundedRpm: number): number {
+  return Math.max(1, Math.min(4, Math.floor(groundedRpm / 15)));
+}
+
 export type WarmPriority = 'creation' | 'open' | 'backfill';
 const PRIORITY_RANK: Record<WarmPriority, number> = { creation: 0, open: 1, backfill: 2 };
 
