@@ -12,6 +12,7 @@ import type { CallMetrics, CallMetricsAggregate, Citation, LlmClient } from './t
 export type { CallMetrics, CallMetricsAggregate };
 import { AbortError, throwIfAborted, createRateLimiter, extractJson, withRetry, type CallPriority, type RetryableError } from './util';
 import { extractProviderGrounding } from './grounding-support';
+import { callCostUsd, readUsage } from './call-cost';
 import { batchVerifyOutSchema, redTeamOutSchema, verifyMetricOutSchema } from './schemas';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -195,6 +196,7 @@ interface GeminiCandidate {
 interface GeminiResponse {
   candidates?: GeminiCandidate[];
   promptFeedback?: { blockReason?: string };
+  usageMetadata?: unknown;
 }
 
 function extractText(data: GeminiResponse): string {
@@ -432,6 +434,12 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
     aggregate.calls += 1;
     aggregate.retries += Math.max(0, attempts - 1);
     aggregate.rateLimitedMs += retryWaitMs;
+    const usage = readUsage(data.usageMetadata);
+    const searchQueries = data.candidates?.[0]?.groundingMetadata?.webSearchQueries?.length ?? 0;
+    aggregate.inputTokens = (aggregate.inputTokens ?? 0) + (usage?.inputTokens ?? 0);
+    aggregate.outputTokens = (aggregate.outputTokens ?? 0) + (usage?.outputTokens ?? 0);
+    aggregate.searchQueries = (aggregate.searchQueries ?? 0) + searchQueries;
+    aggregate.estCostUsd = (aggregate.estCostUsd ?? 0) + callCostUsd({ model, grounded: Boolean(body.tools), ...(usage ? { usage } : {}), searchQueries });
     try {
       config.onCallMetrics?.({
         model, kind, attempts, retries: Math.max(0, attempts - 1),
@@ -439,6 +447,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         // retry backoff is dispatch + body read + JSON parse.
         queuedMs, requestMs: Math.max(0, totalMs - queuedMs - retryWaitMs),
         retryWaitMs, totalMs,
+        ...(usage ? { usage } : {}), ...(searchQueries ? { searchQueries } : {}),
       });
     } catch { /* a metrics consumer must never break the call */ }
     return data;

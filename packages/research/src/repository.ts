@@ -115,7 +115,8 @@ import type { ResearchPassage } from '@mi/contracts';
 import type { Ownership } from '@mi/contracts';
 import { findOwnership, metricOwnershipEvidence, preferOwnership, receiptOwnershipEvidence } from './ownership';
 import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
-import type { LlmClient, ProviderGrounding, ResearchCoverage, RunResearchOptions } from './types';
+import type { CallMetricsAggregate, LlmClient, ProviderGrounding, ResearchCoverage, RunResearchOptions } from './types';
+import { applyMilestone, usageSince, type DeckRun, type DeckRunMilestone } from './deck-run';
 import type { ResearchNoteEntry, ReportedMetricSupport } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { searchEvidenceCorpus } from './retrieval';
@@ -234,6 +235,8 @@ export interface RepoSnapshot {
    * again when it has nothing left to do. Started-but-not-completed resumes on the next load
    * without the stored-deck backfill flag; a deck with no entry (built before this) stays opt-in. */
   deckWarmup?: Record<string, { startedAt: string; completedAt?: string }>;
+  /** Measured run per deck: milestone times and the provider usage up to each (deck-run.ts). */
+  deckRun?: Record<string, DeckRun>;
 }
 
 export interface ResearchStore {
@@ -1220,6 +1223,7 @@ export class GeminiRepository implements MarketIntelRepository {
     // Stage timings surface in the run log: discovery, per-company hydration
     // and the total, so latency claims rest on measurements, not impressions.
     const runStartedAt = Date.now();
+    const runBase = this.client.metrics?.();
 
     // Streaming hydration: discovery hands over each new entity as an
     // ingestible stub while fallback passes are still running. Workers ingest
@@ -1517,6 +1521,7 @@ export class GeminiRepository implements MarketIntelRepository {
         });
         if (isFirstEntityReady) {
           leadCardReadySettled = true;
+          this.stampDeckRun(hydrated.primaryCard.card.deckId, 'leadCardAt', runStartedAt, runBase);
           resolveLeadCardReady();
         }
       } catch (err) {
@@ -2007,6 +2012,7 @@ export class GeminiRepository implements MarketIntelRepository {
         job.status = 'completed';
         job.stage = 'signals';
         job.updatedAt = new Date().toISOString();
+        this.stampDeckRun(stubsResult.deck.id, 'deckReadyAt', runStartedAt, runBase);
         await this.persist();
         this.jobControllers.delete(job.id);
         this.activeBackgroundJobs.delete(job.id);
@@ -2413,6 +2419,21 @@ export class GeminiRepository implements MarketIntelRepository {
     return Boolean(entry && !entry.completedAt);
   }
 
+  /** Counters at each deck's submission, so later milestones can say what the deck itself cost. Lost on reload, by design: a resumed deck keeps its earlier numbers. */
+  private readonly deckRunBase = new Map<string, { startedAt: number; base: CallMetricsAggregate | undefined }>();
+
+  /** Stamp one measured milestone for a deck (the first stamp wins). Never throws: measuring must not break research. */
+  private stampDeckRun(deckId: string, milestone: DeckRunMilestone, startedAt?: number, base?: CallMetricsAggregate): void {
+    try {
+      if (startedAt !== undefined && !this.deckRunBase.has(deckId)) this.deckRunBase.set(deckId, { startedAt, base });
+      const known = this.deckRunBase.get(deckId);
+      const prior = this.snap.deckRun?.[deckId] ?? (known ? { submittedAt: new Date(known.startedAt).toISOString() } : undefined);
+      if (!prior) return;
+      const usage = known ? usageSince(this.client.metrics?.(), known.base) : undefined;
+      this.snap.deckRun = { ...this.snap.deckRun, [deckId]: applyMilestone(prior, milestone, new Date().toISOString(), usage) };
+    } catch { /* measurement only */ }
+  }
+
   private markDeckWarmupStarted(deckId: string): void {
     if (!this.warmup) return;
     this.snap.deckWarmup = { ...this.snap.deckWarmup, [deckId]: { startedAt: new Date().toISOString() } };
@@ -2429,6 +2450,7 @@ export class GeminiRepository implements MarketIntelRepository {
       .map((card) => card.companyId as string));
     if ([...companyIds].some((id) => this.warmup!.hasDueTab(id))) return;
     this.snap.deckWarmup = { ...this.snap.deckWarmup, [deckId]: { ...this.snap.deckWarmup![deckId]!, completedAt: new Date().toISOString() } };
+    this.stampDeckRun(deckId, 'warmupDoneAt');
     await this.persist();
   }
 

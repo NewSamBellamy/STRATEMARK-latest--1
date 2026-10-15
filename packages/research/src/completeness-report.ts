@@ -52,6 +52,7 @@ import type { OriginalSourceAttempt } from './original-source';
 import type { ResearchEvidence } from './research-evidence';
 import { savedCompanySummary } from './saved-profile';
 import type { SourceChecks } from './source-binding';
+import { formatDeckRun, type DeckRun } from './deck-run';
 
 // ---------------------------------------------------------------------------
 // Input: a tolerant structural subset of RepoSnapshot (exports can be old).
@@ -70,6 +71,8 @@ export interface CompletenessSnapshot {
   sourceChecks?: SourceChecks;
   /** Background dashboard warm-up attempts (dashboard-warmup.ts) per company and tab. */
   dashboardWarmup?: Record<string, Partial<Record<string, { at?: string; outcome?: string; count?: number } | undefined>>>;
+  /** Measured run per deck (deck-run.ts); decks built before it have none. */
+  deckRun?: Record<string, DeckRun>;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,6 +156,8 @@ export interface DeckCompletenessReport {
   companies: CompanyCompletenessReport[];
   totals: Totals;
   bySlot: SlotAggregate[];
+  /** Measured time and provider spend of this deck's run, when it was recorded. */
+  run?: DeckRun;
 }
 
 export interface CompletenessGap extends SlotAggregate {
@@ -572,8 +577,9 @@ export function buildCompletenessReport(snapshot: CompletenessSnapshot, options:
     });
     const companies = scored.map((entry) => entry.report);
     const { bySlot, totals } = aggregate(companies);
+    const run = snapshot.deckRun?.[deck.id];
     deckReports.push({ deckId: deck.id, marketId: deck.marketId, marketName: marketsById.get(deck.marketId)?.name ?? deck.marketId,
-      companies, totals, bySlot });
+      companies, totals, bySlot, ...(run ? { run } : {}) });
     smells.push(...deckSmells(deck.id, scored));
   }
 
@@ -633,6 +639,7 @@ export function renderCompletenessTable(report: CompletenessReport): string {
   for (const deck of report.decks) {
     lines.push('');
     lines.push(`DECK ${deck.marketName} [${deck.deckId}]  ${deck.companies.length} companies  ${deck.totals.fillPct.toFixed(1)}% filled`);
+    if (deck.run) lines.push(`  RUN ${formatDeckRun(deck.run)}`);
     // One grid per market profile: their metric slots differ.
     for (const profile of [...new Set(deck.companies.map((company) => company.profile))]) {
       const members = deck.companies.filter((company) => company.profile === profile);

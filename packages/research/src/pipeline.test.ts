@@ -306,6 +306,30 @@ describe('runDeckResearch (full orchestration, fake LLM)', () => {
       expect(receipts).toHaveLength(0);
     }
   }, 20000);
+  it('measures the run: when the first card and the finished deck appeared, and what the provider calls added up to', async () => {
+    let snapshot: RepoSnapshot | null = null;
+    const client = fakeClient(false);
+    let calls = 0;
+    client.metrics = () => {
+      calls += 4;
+      return { calls, retries: 0, rateLimitedMs: 0, fallbacks: 0, inputTokens: calls * 1000, outputTokens: calls * 100, searchQueries: calls, estCostUsd: calls * 0.05 };
+    };
+    const repo = new GeminiRepository({
+      apiKey: 'test-key', client, coverage: testCoverage, catalogMax: 3, catalogPasses: 0,
+      store: { read: () => snapshot ? structuredClone(snapshot) : null, write: async next => { snapshot = structuredClone(next); } },
+    });
+    const { deck } = await repo.createResearchedDeck({ prompt: 'Software', region: null });
+    await repo.waitForBackgroundJobs();
+    const run = (snapshot as RepoSnapshot | null)?.deckRun?.[deck.id];
+    expect(run?.submittedAt).toBeDefined();
+    expect(run?.leadCardAt).toBeDefined();
+    expect(run?.deckReadyAt).toBeDefined();
+    expect(Date.parse(run!.leadCardAt!)).toBeLessThanOrEqual(Date.parse(run!.deckReadyAt!));
+    // Spend is what the client counted between submission and the milestone, not a flat guess.
+    expect(run?.usageAtDeckReady?.calls).toBeGreaterThan(0);
+    expect(run?.usageAtDeckReady?.inputTokens).toBe(run!.usageAtDeckReady!.calls * 1000);
+  }, 20000);
+
   it('keeps unsupported initial figures unknown through stored deck, card and reader queries', async () => {
     let snapshot: RepoSnapshot | null = null;
     const save = vi.fn(async () => {});
