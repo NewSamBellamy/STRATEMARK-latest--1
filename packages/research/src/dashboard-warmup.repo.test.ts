@@ -154,6 +154,18 @@ describe('dashboard warm-up in the repository', () => {
     void repo;
   });
 
+  it('a figure change keeps a current Overview: its narrative holds no figures and they are projected on read', async () => {
+    const seeded = fixtureRepo().saved();
+    seeded.dashboards.acme = { ...seeded.dashboards.acme, overview: { content: { markdown: 'rendered' }, lastRefreshedAt: '2026-10-01T00:00:00.000Z', citations: [],
+      overviewEvidenceVersion: 3, overviewNarrative: { companyId: 'acme', basis: 'google-search', answerText: 'Acme builds warehouse robots.', citations: [], paragraphs: [] } } } as RepoSnapshot['dashboards'][string];
+    const fresh = fixtureRepo({ saved: seeded });
+    await fresh.repo.overrideMetric({ companyId: 'acme', metricType: 'employees', value: 1300, note: 'analyst count' });
+    expect(fresh.saved().dashboards.acme?.overview?.overviewNarrative?.answerText).toBe('Acme builds warehouse robots.');
+    // Reading it again spends nothing.
+    await fresh.repo.getDashboardTab('acme', 'overview');
+    expect(fresh.llm.ground).not.toHaveBeenCalled();
+  });
+
   it('never backfills stored decks unless explicitly enabled (one-time spend needs approval)', async () => {
     vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
     for (const backfill of [undefined, false]) {
