@@ -37,12 +37,11 @@ export function isPartialOfName(partial: string, full: string): boolean {
  * moves to 'other'; a chair, a managing director or any officer title stays.
  */
 export function orgGroupFor<G extends string>(role: string, group: G): G | 'other' {
-  const text = role.toLowerCase();
-  // "Director of Engineering" is a management job; only a board seat qualifies.
-  const boardSeat = /\bboard\b/.test(text) || /^(?:lead |independent |non-executive )*directors?$/.test(text.trim());
-  const boardOnly = boardSeat &&
-    !/\b(?:chief|president|ceo|cfo|coo|cto|cio|ciso|cmo|chro|officer|executive|vice president|vp|svp|evp|managing|general counsel|chair\w*)\b/.test(text);
-  return boardOnly ? 'other' : group;
+  // Qualifiers do not change what a board seat is: "Independent Non-Executive Director" is a director.
+  const text = role.toLowerCase().replace(/\b(?:non[- ]executive|independent|senior|lead|outside|external)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  // The WHOLE role must be a board seat: "Co-founder & Board Member" or "Director of Board Relations" are other jobs.
+  const boardSeat = /^(?:(?:a|the) )?(?:board member|member of (?:the )?board(?: of directors)?|board of directors member|directors?(?: (?:of|on) the board(?: of directors)?)?|board observer|trustee)$/.test(text);
+  return boardSeat ? 'other' : group;
 }
 
 const foldRole = (role: string): string => role.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();

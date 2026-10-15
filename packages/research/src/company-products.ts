@@ -40,7 +40,7 @@ function officialOriginal(company: Company, source: OriginalSourceReceipt) {
   return officialUrl(company, source.finalUrl ?? '') && !source.format && source.status === 'retrieved' &&
     source.httpStatus === 200 && /^[a-f0-9]{64}$/.test(source.contentHash ?? '') && Boolean(source.text?.trim());
 }
-function validProviderGrounding(value: unknown, expectedText?: string, allowedCitations?: readonly Citation[]): ProviderGrounding | undefined {
+function validProviderGrounding(value: unknown, expectedText?: string, allowedCitations?: readonly Citation[], aliases: readonly string[] = []): ProviderGrounding | undefined {
   const parsed = providerGroundingSchema.safeParse(value);
   if (!parsed.success || (expectedText !== undefined && parsed.data.answerText.trim() !== expectedText.trim())) return;
   const allowed = allowedCitations ? new Set(usableCitations(allowedCitations).map(row => row.url)) : null;
@@ -53,7 +53,7 @@ function validProviderGrounding(value: unknown, expectedText?: string, allowedCi
     });
     return sources.length ? [{ ...support, sources }] : [];
   });
-  return supports.length ? widenSupportsToSentences({ ...parsed.data, supports }) : undefined;
+  return supports.length ? widenSupportsToSentences({ ...parsed.data, supports }, aliases) : undefined;
 }
 const contains = (text: string, term: string) => normalizeSourceText(text).toLowerCase().includes(normalizeSourceText(term).toLowerCase());
 /** The sentences of a provider support passage that contain the exact quote,
@@ -184,7 +184,7 @@ export function renderCompanyProducts(company: Company, originals: readonly Orig
     retained.roadmap.push(row.data);
     citations.push({ title: `Company-reported plan · ${host(source.finalUrl!)}`, url: source.finalUrl! });
   }
-  const grounding = validProviderGrounding(parsed.data.reportedGrounding);
+  const grounding = validProviderGrounding(parsed.data.reportedGrounding, undefined, undefined, companyAliases(company.name, company.websiteUrl));
   const reportLabel = 'Google Search reports (original page not retrieved):';
   if (grounding) {
     const aliases = companyAliases(company.name, company.websiteUrl);
@@ -254,7 +254,7 @@ export async function researchCompanyProducts(args: TabResearchArgs) {
     if (!hasOfficialOriginal) throw error; // Retained originals remain usable if the optional search is unavailable.
   }
   throwIfAborted(args.signal);
-  const reportedGrounding = search ? validProviderGrounding(search.grounding, search.text, search.citations) : undefined;
+  const reportedGrounding = search ? validProviderGrounding(search.grounding, search.text, search.citations, aliases) : undefined;
   if (hasOfficialDomain && search && args.originalSources && (args.refreshOriginals || !hasOfficialOriginal)) {
     const collected: OriginalSourceReceipt[] = [];
     try {

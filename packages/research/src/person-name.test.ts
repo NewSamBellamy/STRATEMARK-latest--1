@@ -73,23 +73,36 @@ describe('team tab', () => {
 
 describe('orgGroupFor', () => {
   it.each([
-    ['member of the Board of Directors', 'other'],
-    ['Independent Director', 'other'],
-    ['Director', 'other'],
-  ])('%s is not an executive seat', (role, group) => expect(orgGroupFor(role, 'exec')).toBe(group));
+    'member of the Board of Directors',
+    'Independent Director',
+    'Director',
+    'Non-Executive Director',
+    'Independent Non-Executive Director',
+    'Senior Independent Director',
+    'Non-Executive Board Member',
+    'Board Observer',
+    'Lead Independent Director',
+  ])('%s is a board seat, not an executive job', (role) => expect(orgGroupFor(role, 'exec')).toBe('other'));
 
   it.each([
     'President and Chief Executive Officer',
     'Chairman of the Executive Board',
     "Chair of Tennant's Board of Directors",
-    'Director of Engineering',
+    'Chairman and CEO',
+    'Vice Chair',
     'Managing Director',
+    'Executive Director',
     'Senior Vice President, General Counsel',
-    'Chief Operating Officer',
-    'Head of Product',
+    'Director of Engineering',
+    'Director, Product Management',
+    'Co-founder & Board Member',
+    'Founder and Board Member',
+    'Head of Product and Board Member',
+    'Director of Board Relations',
+    'Head of Board Relations',
   ])('%s keeps the group the model gave', (role) => expect(orgGroupFor(role, 'exec')).toBe('exec'));
 
-  it('never moves a non-exec group, and never invents a group', () => {
+  it('moves a mislabelled non-exec group too, and never invents a group', () => {
     expect(orgGroupFor('Independent Director', 'product')).toBe('other');
     expect(orgGroupFor('Head of Design', 'design')).toBe('design');
   });
