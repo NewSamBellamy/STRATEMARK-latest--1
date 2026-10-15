@@ -31,6 +31,16 @@ function setup() {
   return { store, ground, structure, repo };
 }
 
+/** A shared Team + History answer: team half, the COMPANY STORY line, story half, each half grounded on its own source. */
+function storyAnswer(team: string, story: string, teamUrl: string, storyUrl: string) {
+  const text = `${team}\nCOMPANY STORY\n${story}`;
+  return { text, citations: [{ title: 'Team', url: teamUrl }, { title: 'Story', url: storyUrl }], queries: [], grounding: {
+    provider: 'google-search' as const, answerText: text, supports: [
+      { supportIndex: 0, text: team, sources: [{ chunkIndex: 0, url: teamUrl, title: 'Team' }] },
+      { supportIndex: 1, text: story, sources: [{ chunkIndex: 1, url: storyUrl, title: 'Story' }] },
+    ] } };
+}
+
 describe('dashboard source lineage', () => {
   it('does not trust fabricated cached overview text or selections when the originals do not match', async () => {
     const { store, repo, ground, structure } = setup();
@@ -59,6 +69,9 @@ describe('dashboard source lineage', () => {
   it.each(['overview', 'live_intel', 'mission_governance', 'history', 'products_roadmap'] as DashboardTab[])(
     'retains actual search citations through %s synthesis and reopen without another paid pass', async tab => {
       const { repo, ground, structure } = setup();
+      // History reads the story half of the shared Team + History search.
+      if (tab === 'history') ground.mockResolvedValue(storyAnswer('Example is led by its founders.',
+        'Example sells research software. Example raised a Seed round.', 'https://example.com/team', url));
       const result = await repo().getDashboardTab('cmp', tab);
       expect(result).toHaveProperty('citations', [expect.objectContaining({ url })]);
       expect(structure.mock.calls[0]![0]).toContain(url);

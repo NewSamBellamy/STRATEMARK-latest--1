@@ -268,9 +268,9 @@ export async function researchCompanyProducts(args: TabResearchArgs) {
       { system: GROUNDED_SYSTEM, signal: args.signal, researchContext: { companyId: args.company.id, companyName: args.company.name, topic: 'products_roadmap' } }));
   } catch (error) {
     throwIfAborted(args.signal);
-    // Retained originals remain usable if the optional search is unavailable. A shared search that ran out of
-    // time is not "unavailable": nothing is cached, so the next open asks again.
-    if (!hasOfficialOriginal || (error as Error)?.name === 'TimeoutError') throw error;
+    // Retained originals remain usable if the optional search is unavailable. Without them, a failed search
+    // (a shared one that ran out of time included) throws, so nothing is cached and the next open asks again.
+    if (!hasOfficialOriginal) throw error;
   }
   throwIfAborted(args.signal);
   const reportedGrounding = search ? validProviderGrounding(search.grounding, search.text, search.citations, aliases) : undefined;

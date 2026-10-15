@@ -169,7 +169,7 @@ import { savedCompanySummary } from './saved-profile';
 import { projectedCompanyFacts } from './displayed-facts';
 import { companySourceTargets } from './source-policy';
 import { companyBriefingPrompt, renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
-import { renderCompanyTeamOrg, teamOrgOriginalAttempts, teamOrgSupportReferences, type TeamOrgSelections } from './company-team';
+import { companyStoryPart, companyStoryPrompt, renderCompanyTeamOrg, teamOrgOriginalAttempts, teamOrgSupportReferences, type TeamOrgSelections } from './company-team';
 
 interface CachedTab {
   content: unknown;
@@ -534,6 +534,7 @@ export class GeminiRepository implements MarketIntelRepository {
       this.snap.dashboards[companyId] = {};
       this.dashboardAllEpochs.set(companyId, (this.dashboardAllEpochs.get(companyId) ?? 0) + 1);
       this.companyBriefings.delete(companyId);
+      this.companyBriefings.delete(`${companyId}:story`);
     } else {
       const { overview, metrics: _metrics, ...independent } = this.snap.dashboards[companyId] ?? {};
       this.snap.dashboards[companyId] = overview?.overviewEvidenceVersion === 3 ? { ...independent, overview } : independent;
@@ -2586,20 +2587,29 @@ export class GeminiRepository implements MarketIntelRepository {
    */
   private readonly companyBriefings = new Map<string, { key: string; at: number; result: ReturnType<LlmClient['ground']>; deadline: AbortController }>();
 
-  private companyBriefing(company: Company, marketName: string, force: boolean, signal: AbortSignal): ReturnType<LlmClient['ground']> {
+  private companyBriefing(company: Company, marketName: string, force: boolean, signal: AbortSignal,
+    kind: 'briefing' | 'story' = 'briefing'): ReturnType<LlmClient['ground']> {
     const key = JSON.stringify([company.name, company.websiteUrl ?? null, marketName]);
-    const hit = this.companyBriefings.get(company.id);
+    // Overview + Products share the briefing; Team + History share the story (companyStoryPrompt).
+    const slot = kind === 'briefing' ? company.id : `${company.id}:story`;
+    const topic = kind === 'briefing' ? 'company_briefing' : 'company_story';
+    const hit = this.companyBriefings.get(slot);
     let entry = !force && hit && hit.key === key && Date.now() - hit.at < COMPANY_BRIEFING_TTL_MS ? hit : undefined;
     if (!entry) {
       const deadline = new AbortController();
-      const timer = setTimeout(() => deadline.abort(), 90_000);
-      const result = this.client.ground(companyBriefingPrompt(company, marketName), { system: GROUNDED_SYSTEM, signal: deadline.signal,
-        label: 'company_briefing', researchContext: { companyId: company.id, companyName: company.name, topic: 'company_briefing' } })
+      // A provider that never settles must not hold the slot: the deadline frees it for the next open.
+      const timer = setTimeout(() => {
+        deadline.abort();
+        if (this.companyBriefings.get(slot)?.deadline === deadline) this.companyBriefings.delete(slot);
+      }, 90_000);
+      const prompt = kind === 'briefing' ? companyBriefingPrompt(company, marketName) : companyStoryPrompt(company, marketName);
+      const result = this.client.ground(prompt, { system: GROUNDED_SYSTEM, signal: deadline.signal,
+        label: topic, researchContext: { companyId: company.id, companyName: company.name, topic } })
         .finally(() => clearTimeout(timer));
       const started = { key, at: Date.now(), result, deadline };
       for (const [id, old] of this.companyBriefings) if (Date.now() - old.at >= COMPANY_BRIEFING_TTL_MS) this.companyBriefings.delete(id);
-      this.companyBriefings.set(company.id, started);
-      result.catch(() => { if (this.companyBriefings.get(company.id) === started) this.companyBriefings.delete(company.id); });
+      this.companyBriefings.set(slot, started);
+      result.catch(() => { if (this.companyBriefings.get(slot) === started) this.companyBriefings.delete(slot); });
       entry = started;
     }
     // The waiting tab still stops on its own deadline. A tab that joined late and outlived the shared
@@ -2744,6 +2754,9 @@ export class GeminiRepository implements MarketIntelRepository {
         signal: controller.signal,
         refreshOriginals: Boolean(force),
         ...(tab === 'live_intel' ? { newsSearch: this.newsSearch?.() ?? undefined, readPage: this.assetSourceReader } : {}),
+        ...(tab === 'history' || tab === 'team_org' ? { companyStory: () => this.companyBriefing(company,
+          this.snap.companyMarket[companyId] ?? 'this market', Boolean(force), controller.signal, 'story')
+          .then(result => companyStoryPart(result, tab === 'team_org' ? 'team' : 'story')) } : {}),
         ...(tab === 'overview' || tab === 'products_roadmap' ? { companyBriefing: () => this.companyBriefing(company,
           this.snap.companyMarket[companyId] ?? 'this market', Boolean(force), controller.signal) } : {}),
         ...(tab === 'overview' ? { originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20,

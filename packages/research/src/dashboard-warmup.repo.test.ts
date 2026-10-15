@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import { buildCompletenessReport, type CompanyCompletenessReport } from './completeness-report';
 import { completenessFixture } from './completeness-report.fixture';
+import { companyStoryPart } from './company-team';
 import { WARM_TABS } from './dashboard-warmup';
 import { GeminiRepository, type RepoSnapshot } from './repository';
 import type { LlmClient } from './types';
@@ -38,6 +39,16 @@ const TAB_ANSWER = {
   cadence: 'weekly',
   lastRefreshedAt: null,
 };
+
+/** A shared Team + History answer: team half, the COMPANY STORY line, story half, each half grounded on its own source. */
+function storyAnswer(team: string, story: string, teamUrl: string, storyUrl: string) {
+  const text = `${team}\nCOMPANY STORY\n${story}`;
+  return { text, citations: [{ title: 'Team', url: teamUrl }, { title: 'Story', url: storyUrl }], queries: [], grounding: {
+    provider: 'google-search' as const, answerText: text, supports: [
+      { supportIndex: 0, text: team, sources: [{ chunkIndex: 0, url: teamUrl, title: 'Team' }] },
+      { supportIndex: 1, text: story, sources: [{ chunkIndex: 1, url: storyUrl, title: 'Story' }] },
+    ] } };
+}
 
 function client(): LlmClient & { ground: ReturnType<typeof vi.fn> } {
   return {
@@ -187,6 +198,51 @@ describe('dashboard warm-up in the repository', () => {
     await failing.repo.getDashboardTab('acme', 'overview');
     await failing.repo.getDashboardTab('acme', 'products_roadmap');
     expect(failingLlm.ground).toHaveBeenCalledTimes(2);
+  });
+
+  it('History and Team share one search per company, and History keeps that search sources', async () => {
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    const llm = client();
+    llm.ground.mockImplementation(async (prompt: string) => prompt.includes('COMPANY STORY')
+      ? storyAnswer('Gamma Shop is led by its founder.', 'Gamma Shop was founded in 2014.', 'https://gamma.example/team', CITATIONS[0]!.url)
+      : { text: 'Gamma Shop sells robot gadgets.', citations: CITATIONS, queries: ['q'] });
+    const { repo } = fixtureRepo({ llm });
+    const history = await repo.getDashboardTab('gamma', 'history');
+    await repo.getDashboardTab('gamma', 'team_org');
+    expect(llm.ground).toHaveBeenCalledTimes(1);
+    expect(llm.ground.mock.calls[0]![1]).toMatchObject({ label: 'company_story', researchContext: { companyId: 'gamma', topic: 'company_story' } });
+    // History cites the story half's source, never the team page.
+    expect((history?.citations ?? []).map((c) => c.url)).toEqual([CITATIONS[0]!.url]);
+    // Overview + Products are a different search.
+    await repo.getDashboardTab('gamma', 'overview');
+    expect(llm.ground).toHaveBeenCalledTimes(2);
+    // Refresh asks Google again rather than replaying the shared answer.
+    await repo.getDashboardTab('gamma', 'history', true);
+    expect(llm.ground).toHaveBeenCalledTimes(3);
+  });
+
+  it('each tab reads only its half of the shared answer, and an unmarked answer is not shared', () => {
+    const shared = storyAnswer('Ada Lovelace currently serves as Chief Executive Officer of Gamma Shop.',
+      '2023 Nov: Emmett Shear was named as interim CEO of Gamma Shop.', 'https://gamma.example/team', 'https://news.example/story');
+    const team = companyStoryPart(shared, 'team')!;
+    expect(team.text).toBe('Ada Lovelace currently serves as Chief Executive Officer of Gamma Shop.');
+    expect(team.text).not.toContain('Emmett');
+    expect(team.grounding!.supports.map((s) => s.text)).toEqual([team.text]);
+    expect(team.citations.map((c) => c.url)).toEqual(['https://gamma.example/team']);
+    const story = companyStoryPart(shared, 'story')!;
+    expect(story.text).not.toContain('Ada Lovelace');
+    expect(story.citations.map((c) => c.url)).toEqual(['https://news.example/story']);
+    // Without exactly one marker line, or without grounding, the halves cannot be told apart.
+    expect(companyStoryPart({ ...shared, text: shared.text.replace('COMPANY STORY', 'Story') }, 'team')).toBeNull();
+    expect(companyStoryPart({ ...shared, text: `${shared.text}\nCOMPANY STORY` }, 'story')).toBeNull();
+    expect(companyStoryPart({ text: shared.text, citations: shared.citations, queries: [] }, 'team')).toBeNull();
+    // A support straddling the marker belongs to neither half; a half left without sources is not used.
+    const straddling = { ...shared, grounding: { ...shared.grounding, supports: [{ supportIndex: 0,
+      text: shared.text, sources: [{ chunkIndex: 0, url: 'https://gamma.example/team', title: 'Team' }] }] } };
+    expect(companyStoryPart(straddling, 'team')).toBeNull();
+    expect(companyStoryPart(straddling, 'story')).toBeNull();
+    // A marker first leaves no team half: History must not read the team text as its story.
+    expect(companyStoryPart({ ...shared, text: `COMPANY STORY\n${shared.text.replace('\nCOMPANY STORY', '')}` }, 'story')).toBeNull();
   });
 
   it('a tab that joins the shared search late and outlives it caches nothing, so the next open asks again', async () => {
