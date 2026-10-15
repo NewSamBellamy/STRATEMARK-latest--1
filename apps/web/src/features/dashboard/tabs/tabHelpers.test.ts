@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { OrgNode } from '@mi/contracts';
 import {
   buildOrgTree, classifyEvent, countByGroup, filterOrgTree, groupByHost, groupByYear,
-  hostOf, matchesQuery, orgInitials, parseEventYear, recencyBucket, sourceStrength, strengthMix,
+  hostOf, matchesQuery, orgInitials, parseEventYear, recencyBucket, sourceStrength, splitSearchReport, strengthMix,
   type OrgTreeNode,
 } from './tabHelpers';
 
@@ -104,5 +104,19 @@ describe('source strength', () => {
     expect(strengthMix(items.map((strength) => ({ strength })))).toEqual([
       { strength: 'primary', count: 1 }, { strength: 'press', count: 2 }, { strength: 'unrated', count: 1 },
     ]);
+  });
+});
+
+describe('splitSearchReport', () => {
+  it('returns the claim and flags it when it came only from the search answer', () => {
+    expect(splitSearchReport('Google Search reports (original page not retrieved): “Tennant Company operates the T380AMR, an autonomous robotic floor scrubber”'))
+      .toEqual({ text: 'Tennant Company operates the T380AMR, an autonomous robotic floor scrubber', searchReported: true });
+  });
+  it('leaves any other description alone', () => {
+    expect(splitSearchReport('Company-reported: Atlas is now available.')).toEqual({ text: 'Company-reported: Atlas is now available.', searchReported: false });
+    expect(splitSearchReport('')).toEqual({ text: '', searchReported: false });
+  });
+  it('does not turn an empty report into an empty claim', () => {
+    expect(splitSearchReport('Google Search reports (original page not retrieved): ').searchReported).toBe(false);
   });
 });

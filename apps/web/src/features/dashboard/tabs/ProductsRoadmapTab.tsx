@@ -10,7 +10,7 @@ import { InsightReader } from '@/components/reader/InsightReader';
 import { DigDeeper, DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
-import { classifyEvent, hostOf, matchesQuery } from './tabHelpers';
+import { classifyEvent, hostOf, matchesQuery, splitSearchReport } from './tabHelpers';
 import { parseOverviewSections } from '../dashboardModel';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { Paragraph } from './OverviewTab';
@@ -280,8 +280,16 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                                   </span>
                                 )}
                               </div>
+                              {p.description && splitSearchReport(p.description).searchReported && (
+                                <span
+                                  className="mt-1 inline-block text-[11px] text-faint"
+                                  title="Reported by Google Search; the original page was not retrieved"
+                                >
+                                  Search-reported · original not retrieved
+                                </span>
+                              )}
                               {p.description ? (
-                                <p className="mt-1.5 line-clamp-3 text-sm text-muted">{p.description}</p>
+                                <p className="mt-1.5 line-clamp-3 text-sm text-muted">{splitSearchReport(p.description).text}</p>
                               ) : (
                                 <p className="mt-1.5 text-sm text-faint">No description retained.</p>
                               )}
@@ -290,11 +298,8 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                                   className="min-w-0 text-[11px] text-muted"
                                   title="What sources report about revenue contribution"
                                 >
-                                  {p.revenueNote ? (
-                                    <span className="line-clamp-2">{p.revenueNote}</span>
-                                  ) : (
-                                    <span className="text-faint">Revenue role not disclosed</span>
-                                  )}
+                                  {/* Said once in the section header; a repeat on every card was noise. */}
+                                  {p.revenueNote ? <span className="line-clamp-2">{p.revenueNote}</span> : null}
                                 </span>
                                 {hasUrl && (
                                   <a
