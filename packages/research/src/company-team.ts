@@ -5,6 +5,7 @@ import { isOriginalSourceAttempt, normalizeSourceText, selectOriginalSourceCitat
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { LlmClient, ProviderGrounding } from './types';
 import { dropPartialDuplicates } from './person-name';
+import { SENTENCE_END, widenSupportsToSentences } from './support-sentences';
 import { throwIfAborted } from './util';
 
 const rowSchema = z.object({
@@ -40,12 +41,9 @@ function validProviderGrounding(value: unknown, expectedText?: string, allowedCi
     });
     return sources.length ? [{ ...support, sources }] : [];
   });
-  return supports.length ? { ...parsed.data, supports } : undefined;
+  return supports.length ? widenSupportsToSentences({ ...parsed.data, supports }) : undefined;
 }
 
-// Sentence ends, but not after a legal form, honorific or initial: "Anthropic
-// Inc. CEO Dario Amodei" and "John D. Smith" stay one sentence.
-const SENTENCE_END = /(?<!\b(?:Inc|Corp|Ltd|Co|Jr|Sr|Dr|Mr|Ms|Mrs|St|plc|vs|[A-Z]))(?<=[.!?])\s+|\n+/u;
 /** A provider sentence that contains the exact quote, names the company by any
  * real alias ("Heineken" for "Heineken N.V. / Heineken 0.0"), names the person
  * verbatim and states the role (synonym-aware: CEO = Chief Executive Officer). */
