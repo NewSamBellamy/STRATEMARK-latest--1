@@ -10,6 +10,7 @@ import {
   WARM_FAILED_BACKOFF_MS,
   WARM_MAX_ATTEMPTS,
   WARM_TABS,
+  warmupConcurrency,
   warmTabDue,
   type CachedTabState,
   type DashboardWarmupDeps,
@@ -210,5 +211,15 @@ describe('warmTabDue', () => {
     expect(warmTabDue({ state: 'empty', at }, undefined, T0 + WARM_EMPTY_BACKOFF_MS)).toEqual({ due: true, force: true });
     expect(warmTabDue({ state: 'filled', at }, undefined, T0)).toEqual({ due: false, force: false });
     expect(warmTabDue({ state: 'missing' }, undefined, T0)).toEqual({ due: true, force: false });
+  });
+});
+
+describe('warmupConcurrency', () => {
+  it('follows the key allowance: one company at a time on a free key, four on a fast one, never more', () => {
+    expect(warmupConcurrency(0)).toBe(1);
+    expect(warmupConcurrency(10)).toBe(1);
+    expect(warmupConcurrency(30)).toBe(2);
+    expect(warmupConcurrency(60)).toBe(4);
+    expect(warmupConcurrency(1000)).toBe(4);
   });
 });

@@ -140,7 +140,7 @@ import { extractOrganizationJsonLd } from './registries/jsonld';
 import { faviconUrl, knownCompanyDomain } from './logos';
 import { figureScopes, METRIC_GATE_VERSION, revalidateStoredMetrics, type RevalidationOutcome } from './revalidate-stored';
 import { implausibleScaleFigures, withheldScaleRow } from './scale-plausibility';
-import { DashboardWarmup, type CachedTabState, type WarmAttempts, type WarmPriority, type WarmTab } from './dashboard-warmup';
+import { DashboardWarmup, warmupConcurrency, type CachedTabState, type WarmAttempts, type WarmPriority, type WarmTab } from './dashboard-warmup';
 import { foundedFromHistory, foundedFromWebsite, foundedFromWikidata, wikidataFoundedYear, type JsonFetcher } from './founded-year';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
@@ -562,9 +562,8 @@ export class GeminiRepository implements MarketIntelRepository {
     this.wikidataJson = options.wikidataJson;
     if (options.dashboardWarmup !== false) {
       const warm = options.dashboardWarmup ?? {};
-      const paidRate = (options.groundedRpm ?? DEFAULT_GROUNDED_RPM) >= 30;
       this.warmup = new DashboardWarmup({
-        concurrency: Math.max(1, Math.floor(warm.concurrency ?? (paidRate ? 2 : 1))),
+        concurrency: Math.max(1, Math.floor(warm.concurrency ?? warmupConcurrency(options.groundedRpm ?? DEFAULT_GROUNDED_RPM))),
         // Deck builds own the model slots; the warm-up waits for them, and for
         // the user's spending cap / pause switch, before every tab.
         canRun: () => !this.persistenceError && this.activeBackgroundJobs.size === 0 && (warm.allowed?.() ?? true),
