@@ -37,6 +37,8 @@ describe('normalizeEventDate', () => {
     'c. 1932',
     '2020 (Spring/Summer)',
     'Founding',
+    'FY 2024', // a fiscal year is not a calendar year: never reduce it to "2024"
+    '2024 (FY)',
     '',
     '2019-21',
   ])('leaves "%s" exactly as written: it never guesses', (raw) => expect(normalizeEventDate(raw)).toBe(raw.trim()));

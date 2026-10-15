@@ -14,7 +14,7 @@ const LEGAL_WORDS = new Set([
 ]);
 
 const fold = (text: string): string[] =>
-  text.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[.'’]/g, '').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+  text.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[.'’]/g, '').replace(/&/g, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').filter(Boolean);
 
 /** The distinguishing words of a company name: legal suffixes and a leading "the" removed. */
 function coreWords(name: string): string[] {

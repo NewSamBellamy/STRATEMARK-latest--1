@@ -208,6 +208,17 @@ describe('dashboard warm-up in the repository', () => {
       expect(first.saved().deckRun?.deck_fx?.submittedAt).toBe('2026-10-14T20:00:00.000Z');
     });
 
+    it('a deck measured before an app restart is marked partial when its resumed warm-up finishes', async () => {
+      vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+      const usage = { calls: 30, inputTokens: 3000, outputTokens: 300, searchQueries: 5, estCostUsd: 0.4 };
+      const measured = { ...started(fresh()), deckRun: { deck_fx: { submittedAt: '2026-10-14T20:00:00.000Z', deckReadyAt: '2026-10-14T20:03:00.000Z', usage } } } as RepoSnapshot;
+      const first = fixtureRepo({ saved: measured, backfill: false });
+      first.repo.warmDeckDashboards('deck_fx', 'creation');
+      await first.repo.waitForDashboardWarmup();
+      await vi.waitFor(() => expect(first.saved().deckRun?.deck_fx?.warmupDoneAt).toBeDefined());
+      expect(first.saved().deckRun?.deck_fx).toMatchObject({ usage, usagePartial: true });
+    });
+
     it('a completed deck does not warm again, even after dashboards are invalidated', async () => {
       vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
       const first = fixtureRepo({ saved: started(fresh()), backfill: false });

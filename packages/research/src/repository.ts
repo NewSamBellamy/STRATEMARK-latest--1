@@ -2431,7 +2431,9 @@ export class GeminiRepository implements MarketIntelRepository {
       const prior = this.snap.deckRun?.[deckId] ?? (known ? { submittedAt: new Date(known.startedAt).toISOString() } : undefined);
       if (!prior) return;
       const usage = known ? usageSince(this.client.metrics?.(), known.base) : undefined;
-      this.snap.deckRun = { ...this.snap.deckRun, [deckId]: applyMilestone(prior, milestone, new Date().toISOString(), usage) };
+      const stamped = applyMilestone(prior, milestone, new Date().toISOString(), usage);
+      // No baseline after a restart: whatever spend came later is unmeasured, and the line must say so.
+      this.snap.deckRun = { ...this.snap.deckRun, [deckId]: !known && stamped.usage ? { ...stamped, usagePartial: true } : stamped };
     } catch { /* measurement only */ }
   }
 

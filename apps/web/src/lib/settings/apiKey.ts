@@ -7,6 +7,7 @@
  */
 import { create } from 'zustand';
 import { hasHostedApi } from '@/lib/hostedApi';
+import { clearGroundingSpent } from '@/lib/usage';
 
 /** A build with the hosted Worker can research without a personal key (free beta). */
 const HOSTED = typeof window !== 'undefined' && !window.miSecure && hasHostedApi();
@@ -126,6 +127,8 @@ export const useApiKey = create<ApiKeyState>((set) => ({
       writeLocal(STORAGE_KEY, trimmed);
       localStorage.removeItem('mi.apiKey');
     }
+    // The old key's "search quota spent" notice says nothing about the new one.
+    clearGroundingSpent();
     set({ apiKey: trimmed, hasKey: trimmed.length > 0 || HOSTED, hosted: !trimmed && HOSTED, storageError: null });
   },
   setModel: (model) => {

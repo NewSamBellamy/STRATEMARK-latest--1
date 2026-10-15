@@ -37,6 +37,12 @@ describe('withSearchFallback', () => {
     expect(onSpent).toHaveBeenCalledTimes(1);
 
     const onOther = vi.fn();
+    // Spent quota but no search lane to fall back to: nothing is being run from web pages, so nothing is announced.
+    const onNoLane = vi.fn();
+    const noLane = { ground: vi.fn().mockRejectedValue(spent()), structure: vi.fn() } as unknown as LlmClient;
+    await expect(withSearchFallback(noLane, () => [], undefined, onNoLane).ground('p')).rejects.toBeDefined();
+    expect(onNoLane).not.toHaveBeenCalled();
+
     const other = { ground: vi.fn().mockRejectedValue(new Error('blocked')), structure: vi.fn() } as unknown as LlmClient;
     await expect(withSearchFallback(other, () => [search], undefined, onOther).ground('p')).rejects.toThrow('blocked');
     expect(onOther).not.toHaveBeenCalled();

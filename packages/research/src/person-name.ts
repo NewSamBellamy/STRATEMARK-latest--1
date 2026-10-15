@@ -36,6 +36,8 @@ const foldRole = (role: string): string => role.normalize('NFKD').toLowerCase().
 function sameRole(a: string, b: string): boolean {
   const x = foldRole(a);
   const y = foldRole(b);
+  // A role with no Latin letters folds to nothing; that is "unknown", never "the same as every other role".
+  if (!x || !y) return false;
   return x === y || x.includes(y) || y.includes(x);
 }
 
@@ -51,8 +53,12 @@ export function dropPartialDuplicates<T extends { id: string; name: string; role
   }
   if (kept.size === 0) return [...people];
   const resolve = (id: string): string => { let at = id; for (let hop = 0; hop < people.length && kept.has(at); hop += 1) at = kept.get(at)!; return at; };
+  const droppedParent = new Map(people.filter((person) => kept.has(person.id) && person.parentId).map((person) => [resolve(person.id), person.parentId!]));
   return people.filter((person) => !kept.has(person.id)).map((person) => {
     const parent = person.parentId && kept.has(person.parentId) ? resolve(person.parentId) : undefined;
-    return parent && parent !== person.id ? { ...person, parentId: parent } : person;
+    if (parent && parent !== person.id) return { ...person, parentId: parent };
+    // The fuller record had no reporting line of its own: take the one the partial record carried.
+    const inherited = !person.parentId ? droppedParent.get(person.id) : undefined;
+    return inherited && inherited !== person.id && !kept.has(inherited) ? { ...person, parentId: inherited } : person;
   });
 }

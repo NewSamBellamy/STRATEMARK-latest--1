@@ -37,6 +37,8 @@ export interface DeckRun {
   usageAtDeckReady?: RunUsage;
   /** Usage up to the latest milestone. */
   usage?: RunUsage;
+  /** The app restarted after usage was last measured, so later spend (a resumed warm-up) is not in `usage`. */
+  usagePartial?: boolean;
 }
 
 /** Counters now minus counters at submission; undefined when the client keeps no counters (mocks). */
@@ -99,7 +101,8 @@ export function formatDeckRun(run: DeckRun): string {
   const cost = u
     ? ` · ${u.calls} calls · ${tok(u.inputTokens)} in / ${tok(u.outputTokens)} out tokens · ${u.searchQueries} searches · est $${u.estCostUsd.toFixed(2)}`
     : ' · usage not measured';
-  return `first card ${mmss(t.toFirstCardSec)} · deck ${mmss(t.toDeckSec)} · warm-up ${mmss(t.toWarmupSec)}${cost}`;
+  const partial = run.usagePartial && u ? ' (partial: the app restarted mid-run, later spend not counted)' : '';
+  return `first card ${mmss(t.toFirstCardSec)} · deck ${mmss(t.toDeckSec)} · warm-up ${mmss(t.toWarmupSec)}${cost}${partial}`;
 }
 
 /** The costliest topics of a deck, one line each: where the money and the model time went. */

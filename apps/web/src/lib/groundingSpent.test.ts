@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { getGroundingSpent, markGroundingSpent, nextPacificMidnight } from './usage';
+import { clearGroundingSpent, getGroundingSpent, markGroundingSpent, nextPacificMidnight } from './usage';
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -37,6 +37,11 @@ describe('grounding spent state', () => {
     expect(getGroundingSpent(at + 30_000)?.at).toBe(at);
     markGroundingSpent(at + 61_000);
     expect(getGroundingSpent(at + 61_000)?.at).toBe(at + 61_000);
+  });
+  it('is forgotten when a new key is saved: a new key has its own quota', () => {
+    markGroundingSpent(at);
+    clearGroundingSpent();
+    expect(getGroundingSpent(at + 1000)).toBeNull();
   });
   it('ignores a damaged stored value', () => {
     localStorage.setItem('mi.groundingSpent.v1', '{"at":"soon"}');

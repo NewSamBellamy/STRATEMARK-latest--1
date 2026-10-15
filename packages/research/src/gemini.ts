@@ -12,7 +12,7 @@ import type { CallMetrics, CallMetricsAggregate, Citation, LlmClient } from './t
 export type { CallMetrics, CallMetricsAggregate };
 import { AbortError, throwIfAborted, createRateLimiter, extractJson, withRetry, type CallPriority, type RetryableError } from './util';
 import { extractProviderGrounding } from './grounding-support';
-import { readUsage, tallyCall } from './call-cost';
+import { readUsage, snapshotAggregate, tallyCall } from './call-cost';
 import { batchVerifyOutSchema, redTeamOutSchema, verifyMetricOutSchema } from './schemas';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -457,7 +457,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
   const aggregate: CallMetricsAggregate = { calls: 0, retries: 0, rateLimitedMs: 0, fallbacks: 0, ungroundedRetries: 0 };
 
   return {
-    metrics: () => ({ ...aggregate }),
+    metrics: () => snapshotAggregate(aggregate),
     async ground(prompt, opts) {
       return withDeadline(async signal => {
         const body: Record<string, unknown> = {

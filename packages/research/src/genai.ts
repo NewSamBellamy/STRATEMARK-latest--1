@@ -26,7 +26,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import type { GenerateContentResponse } from '@google/genai';
 import type { Citation, LlmClient } from './types';
 import { extractProviderGrounding } from './grounding-support';
-import { readUsage, tallyCall } from './call-cost';
+import { readUsage, snapshotAggregate, tallyCall } from './call-cost';
 import { createRateLimiter, extractJson, withRetry, type CallPriority, type RetryableError } from './util';
 import type { CallMetrics, CallMetricsAggregate } from './types';
 import {
@@ -322,7 +322,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     const callUsage = readUsage(res.usageMetadata);
     const searchQueries = res.candidates?.[0]?.groundingMetadata?.webSearchQueries?.length ?? 0;
     const topic = label ?? kind;
-    tallyCall(aggregate, { model, grounded: kind === 'ground', ...(callUsage ? { usage: callUsage } : {}), searchQueries, totalMs, topic });
+    tallyCall(aggregate, { model, grounded: Boolean(cfg.tools), ...(callUsage ? { usage: callUsage } : {}), searchQueries, totalMs, topic });
     try {
       config.onCallMetrics?.({
         model, kind, attempts, retries: Math.max(0, attempts - 1),
@@ -336,7 +336,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
   }
 
   return {
-    metrics: () => ({ ...aggregate }),
+    metrics: () => snapshotAggregate(aggregate),
     async ground(prompt, opts) {
       const cfg: Record<string, unknown> = {
         tools: [{ googleSearch: {} }],
