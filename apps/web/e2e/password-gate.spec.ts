@@ -5,7 +5,9 @@ test.describe('Password Gate & Core Agent Testing Flow', () => {
     // 1. Visit root without unlocking via script so the real gate is under test
     await page.goto('/#/');
 
-    // 2. Locate the access code input and fill in user's password
+    // 2. The gate opens on email sign-in; the access code is one click away
+    await page.getByRole('button', { name: /Have an access code/i }).click();
+    // Locate the access code input and fill in user's password
     const accessInput = page.locator('#access-code');
     await expect(accessInput).toBeVisible();
     await accessInput.fill('SENTINEL-DECK-77');
@@ -26,7 +28,7 @@ test.describe('Password Gate & Core Agent Testing Flow', () => {
 
     // 6. Verify agent key requirement or execution gate
     await expect(
-      page.getByText('Researching a new market needs your Gemini API key.')
+      page.getByRole('heading', { name: 'Gemini API Key Required' })
         .or(page.getByText(/Researching/i)),
     ).toBeVisible();
   });
