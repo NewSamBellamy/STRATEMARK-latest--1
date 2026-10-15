@@ -11,6 +11,7 @@ import {
   WARM_MAX_ATTEMPTS,
   WARM_TABS,
   warmupConcurrency,
+  warmupTabsInParallel,
   warmTabDue,
   type CachedTabState,
   type DashboardWarmupDeps,
@@ -22,6 +23,7 @@ const T0 = Date.parse('2026-10-13T00:00:00.000Z');
 
 function harness(options: {
   concurrency?: number;
+  tabsInParallel?: number;
   /** What a research call leaves in the cache. */
   result?: (companyId: string, tab: WarmTab) => CachedTabState | 'throw';
   cached?: Record<string, Partial<Record<WarmTab, CachedTabState>>>;
@@ -44,6 +46,7 @@ function harness(options: {
   const releases: Array<() => void> = [];
   const deps: DashboardWarmupDeps = {
     concurrency: options.concurrency ?? 1,
+    ...(options.tabsInParallel !== undefined ? { tabsInParallel: options.tabsInParallel } : {}),
     now: () => now,
     canRun: () => allowed,
     cached: (companyId, tab) => cache[companyId]?.[tab] ?? { state: 'missing' },
@@ -79,6 +82,7 @@ function harness(options: {
     get maxCompanies() { return maxCompanies; },
     advance: (ms: number) => { now += ms; },
     setAllowed: (value: boolean) => { allowed = value; },
+    releaseOne: async () => { releases.shift()?.(); await new Promise((r) => setTimeout(r, 0)); },
     releaseAll: async () => {
       while (releases.length) { releases.shift()!(); await new Promise((r) => setTimeout(r, 0)); }
     },
@@ -221,5 +225,52 @@ describe('warmupConcurrency', () => {
     expect(warmupConcurrency(30)).toBe(2);
     expect(warmupConcurrency(60)).toBe(4);
     expect(warmupConcurrency(1000)).toBe(4);
+  });
+});
+
+describe('tabs of one company in parallel', () => {
+  it('follows the key allowance: strictly one at a time below 60 a minute, two at 60', () => {
+    expect(warmupTabsInParallel(10)).toBe(1);
+    expect(warmupTabsInParallel(30)).toBe(1);
+    expect(warmupTabsInParallel(60)).toBe(2);
+    expect(warmupTabsInParallel(600)).toBe(2);
+  });
+
+  it('runs the Overview alone first, then at most two tabs of the company at once, and every tab', async () => {
+    const h = harness({ concurrency: 1, tabsInParallel: 2, hold: true });
+    h.warmup.enqueue([{ companyId: 'c', tier: 8 }], 'creation');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.calls.map((call) => call.tab)).toEqual(['overview']);
+    await h.releaseOne(); // overview done: two more start together
+    expect(h.calls.map((call) => call.tab)).toEqual(['overview', 'history', 'team_org']);
+    await h.releaseOne(); // one of the two done: the next tab takes its place, never a third at once
+    expect(h.calls.map((call) => call.tab)).toEqual(['overview', 'history', 'team_org', 'products_roadmap']);
+    await h.releaseAll();
+    await h.warmup.idle();
+    expect(h.calls.map((call) => call.tab).sort()).toEqual([...WARM_TABS].sort());
+    expect(h.maxInFlight).toBe(2);
+  });
+
+  it('keeps the default of one tab at a time, in reading order', async () => {
+    const h = harness({ concurrency: 1 });
+    h.warmup.enqueue([{ companyId: 'c', tier: 8 }], 'creation');
+    await h.warmup.idle();
+    expect(h.calls.map((call) => call.tab)).toEqual([...WARM_TABS]);
+    expect(h.maxInFlight).toBe(1);
+  });
+
+  it('stops starting tabs when the gate closes mid-company, and finishes the rest when it reopens', async () => {
+    const h = harness({ concurrency: 1, tabsInParallel: 2, hold: true });
+    h.warmup.enqueue([{ companyId: 'c', tier: 8 }], 'creation');
+    await new Promise((r) => setTimeout(r, 0));
+    h.setAllowed(false);
+    await h.releaseAll(); // overview finishes; the gate is shut, so no more tabs start
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.calls.map((call) => call.tab)).toEqual(['overview']);
+    h.setAllowed(true);
+    h.warmup.kick();
+    for (let round = 0; round < 6; round += 1) { await h.releaseAll(); await new Promise((r) => setTimeout(r, 0)); }
+    await h.warmup.idle();
+    expect(h.calls.map((call) => call.tab).sort()).toEqual([...WARM_TABS].sort());
   });
 });
