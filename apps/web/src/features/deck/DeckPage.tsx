@@ -45,6 +45,7 @@ import { buildDeckShare } from '@/lib/share/codec';
 import { ShareDialog } from '@/features/share/ShareDialog';
 import { ExportMenu } from '@/features/export/ExportMenu';
 import { AgentActivityFeed } from './AgentActivityFeed';
+import { GroundingQuotaNotice } from '@/lib/living/GroundingQuotaNotice';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { ThreadHistoryButton } from '@/features/research/ResearchControls';
 import { cn } from '@/lib/cn';
@@ -343,6 +344,7 @@ export default function DeckPage() {
         <DemoDeckBanner />
         {/* The visible heartbeat: desks verifying, correcting, and warming tabs live. */}
         <AgentActivityFeed living={living} />
+        <GroundingQuotaNotice />
       </div>
 
       {all.length > 0 && (isRunning || isPartial) && (

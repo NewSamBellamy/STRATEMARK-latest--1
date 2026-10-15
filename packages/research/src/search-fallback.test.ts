@@ -28,6 +28,20 @@ describe('withSearchFallback', () => {
     expect((await withSearchFallback(client, () => [empty, news]).ground('p')).citations).toHaveLength(1);
   });
 
+  it('tells the app grounding is spent, only for a spent quota, and a failing listener never breaks research', async () => {
+    const structure = vi.fn().mockResolvedValueOnce({ query: 'q' }).mockResolvedValueOnce({ text: 't' });
+    const spentClient = { ground: vi.fn().mockRejectedValue(spent()), structure } as unknown as LlmClient;
+    const search = vi.fn().mockResolvedValue([{ url: 'https://a.com/x', title: 'a', snippet: '' }]);
+    const onSpent = vi.fn(() => { throw new Error('listener bug'); });
+    await expect(withSearchFallback(spentClient, () => [search], undefined, onSpent).ground('p')).resolves.toMatchObject({ text: 't' });
+    expect(onSpent).toHaveBeenCalledTimes(1);
+
+    const onOther = vi.fn();
+    const other = { ground: vi.fn().mockRejectedValue(new Error('blocked')), structure: vi.fn() } as unknown as LlmClient;
+    await expect(withSearchFallback(other, () => [search], undefined, onOther).ground('p')).rejects.toThrow('blocked');
+    expect(onOther).not.toHaveBeenCalled();
+  });
+
   it('leaves every other failure, and a quota failure with no search, untouched', async () => {
     const other = new Error('blocked');
     const a = { ground: vi.fn().mockRejectedValue(other), structure: vi.fn() } as unknown as LlmClient;
