@@ -157,6 +157,8 @@ export function RepositoryProvider({
         const selected = repository ?? selectRepository(apiKey, model, engine, store, quotaPreset, judgeModel, sample);
         if (selected instanceof GeminiRepository) await selected.ready();
         if (live) {
+          // Dev builds only: a console handle for diagnosing a research run against the real client.
+          if (import.meta.env.DEV) (globalThis as { __miRepo?: unknown }).__miRepo = selected;
           setValue(selected);
           setMode(repository
             ? 'browser-live'
