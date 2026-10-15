@@ -542,7 +542,7 @@ export class IncrementalDeltaAgent {
     ].join('\n');
 
     const grounded = await this.client.ground(groundPrompt, {
-      system: GROUNDED_SYSTEM,
+      system: GROUNDED_SYSTEM, label: 'deck:refresh-discover',
       signal: options.signal,
     });
 

@@ -512,7 +512,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
             const data = await call(model, body, signal, route.kind, {
               retryBudgetMs: isPrimary ? Math.min(cap, primaryBudget) : cap,
               attemptTimeoutMs: Math.min(cap, isPrimary ? primaryAttemptTimeout : cap),
-            }, opts?.onText, opts?.priority, opts?.researchContext?.topic ?? 'ground');
+            }, opts?.onText, opts?.priority, opts?.label ?? opts?.researchContext?.topic ?? 'ground');
             if (isPrimary) primarySickUntil = 0;
             else if (!ungroundedAnswer) { primarySickUntil = Date.now() + SICK_PRIMARY_COOLDOWN_MS; aggregate.fallbacks += 1; }
             const answer = parse(data);

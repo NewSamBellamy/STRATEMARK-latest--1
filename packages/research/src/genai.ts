@@ -344,7 +344,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
       };
       if (opts?.system) cfg.systemInstruction = opts.system;
       const route = groundRoute(prompt, opts?.researchContext?.topic);
-      const res = await call(route.model, prompt, cfg, opts?.signal, route.kind, opts?.priority, opts?.researchContext?.topic ?? 'ground');
+      const res = await call(route.model, prompt, cfg, opts?.signal, route.kind, opts?.priority, opts?.label ?? opts?.researchContext?.topic ?? 'ground');
       if (res.promptFeedback?.blockReason) {
         throw new Error(`Gemini blocked the request: ${res.promptFeedback.blockReason}`);
       }

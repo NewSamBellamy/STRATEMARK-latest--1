@@ -1020,6 +1020,7 @@ export async function askCompanyRepresentative(
 
   const g = await client.ground(prompt, {
     system: CHAT_SYSTEM,
+    label: 'chat',
     signal: options?.signal,
   });
 

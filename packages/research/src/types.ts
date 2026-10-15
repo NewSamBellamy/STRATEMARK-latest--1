@@ -219,6 +219,8 @@ export interface LlmClient {
       onText?: (textSoFar: string) => void;
       /** Pacing lane; see CallPriority. Bulk work never sets it. */
       priority?: CallPriority;
+      /** What this call is for, in the cost breakdown ("market:discover", "tab:history"). Never reaches the model. */
+      label?: string;
       /** Plain web-search queries the search fallback always runs alongside its
        * own, so one off-target query cannot steer the whole answer. */
       searchHints?: string[];

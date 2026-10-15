@@ -186,7 +186,7 @@ export async function researchDashboardWithSources<T extends DashboardTab>(tab: 
   let citations: Citation[] = [];
   const client: LlmClient = {
     async ground(prompt, opts) {
-      const result = await args.client.ground(prompt, opts);
+      const result = await args.client.ground(prompt, { ...opts, label: opts?.label ?? `tab:${tab}` });
       citations = usableCitations([...citations, ...result.citations]);
       return result;
     },

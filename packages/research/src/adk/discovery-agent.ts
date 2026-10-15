@@ -179,7 +179,7 @@ export async function runDiscoveryVector(
     span.toolCall('llm.ground', { vector });
     const grounded = await client.ground(
       discoverPrompt(plan, target, focus, [...(options.exclude ?? [])], VECTOR_SEARCH_ANGLES[vector]),
-      { system: GROUNDED_SYSTEM, signal },
+      { system: GROUNDED_SYSTEM, label: 'market:discover', signal },
     );
     span.toolResult('llm.ground', {
       vector,
