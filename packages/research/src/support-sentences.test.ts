@@ -43,9 +43,9 @@ describe('widenSupportsToSentences: the subject, and only the subject', () => {
     const once = widenSupportsToSentences(clauseGrounding(answer, ['operates the Bourbon Alternative as its product']), aliases);
     expect(widenSupportsToSentences(once, aliases)).toEqual(once);
   });
-  it('accepts a possessive subject', () => {
+  it('does not widen a possessive subject: it continues the name rather than predicates it', () => {
     const text = "Acme's flagship Widget Pro is its product. Acme's Widget Pro ships worldwide.";
-    expect(widen(acme, clauseGrounding(text, ['flagship Widget Pro is its product'])).text).toBe("Acme's flagship Widget Pro is its product.");
+    expect(widen(acme, clauseGrounding(text, ['flagship Widget Pro is its product'])).text).toBe('flagship Widget Pro is its product');
   });
 
   // Every case below once passed because the widened sentence, not the claim, was the unit of attribution.
@@ -72,6 +72,50 @@ describe('widenSupportsToSentences: the subject, and only the subject', () => {
     const byteAt = new TextEncoder().encode(text.slice(0, charAt)).length;
     expect(byteAt).toBeGreaterThan(charAt);
     expect(widen(acme, clauseGrounding(text, [clause], [byteAt])).text).toBe('Acme operates the Widget Pro.');
+  });
+});
+
+describe('widening, round three: every way a clause can still carry a wrong subject', () => {
+  const apple = company('Apple Inc.', 'https://apple.com');
+  const meta = company('Meta Platforms, Inc.', 'https://meta.com');
+  it.each([
+    ['a retraction opens the clause (no longer)', acme, 'Acme no longer employs Bob Stone, who is the Chief Executive Officer of Globex.', 'no longer employs Bob Stone, who is the Chief Executive Officer of Globex'],
+    ['a retraction opens the clause (formerly)', acme, 'Acme formerly sold the Widget Deluxe in Europe.', 'formerly sold the Widget Deluxe in Europe'],
+    ['a retraction opens the clause (previously)', acme, 'Acme previously sold the Widget Deluxe in Europe.', 'previously sold the Widget Deluxe in Europe'],
+    ['a contraction negates it', acme, "Acme doesn't sell the Widget Deluxe in Europe.", "doesn't sell the Widget Deluxe in Europe"],
+    ['the name is continued by a noun', acme, "Acme's supplier Globex makes the Widget Pro for industrial users.", 'supplier Globex makes the Widget Pro for industrial users'],
+    ['the name is continued by a noun (no possessive)', acme, 'Acme supplier Globex is led by Bob Stone, the Chief Executive Officer.', 'supplier Globex is led by Bob Stone, the Chief Executive Officer'],
+    ['a former title starts the clause', acme, "Acme's ex-Chief Executive Officer Bob Stone is the Chief Executive Officer of Globex.", 'ex-Chief Executive Officer Bob Stone is the Chief Executive Officer of Globex'],
+    ['the alias is a common word', apple, 'Apple growers like Globex sell the Orchard Box to consumers.', 'growers like Globex sell the Orchard Box to consumers'],
+    ['the alias is the start of a hyphenated word', meta, 'Meta-analysis shows Globex sells the Widget Pro to industrial users.', 'analysis shows Globex sells the Widget Pro to industrial users'],
+  ])('leaves the support alone when %s', (_why, who, sentence, clause) => {
+    expect(widen(who, clauseGrounding(sentence, [clause])).text).toBe(clause);
+  });
+
+  it('refuses to choose when the character and byte readings of the offset point at different occurrences', () => {
+    const lead = 'é'.repeat(30) + ' ';
+    const text = lead + 'Globex operates the Widget Pro. Acme operates the Widget Pro.';
+    const clause = 'operates the Widget Pro';
+    const globexChar = text.indexOf(clause);
+    const globexByte = new TextEncoder().encode(text.slice(0, globexChar)).length; // equals the character index of the Acme clause
+    expect(globexByte).toBe(text.lastIndexOf(clause));
+    expect(widen(acme, clauseGrounding(text, [clause], [globexByte])).text).toBe(clause);
+  });
+
+  it('judges a clause that ends its sentence by that sentence, not by the next one', () => {
+    const text = 'Acme operates the Widget Pro. It will expand next year.';
+    expect(widen(acme, clauseGrounding(text, ['operates the Widget Pro.'])).text).toBe('Acme operates the Widget Pro.');
+  });
+
+  it.each([
+    'Acme provides the Widget Pro to the Department of Defense.',
+    'Acme sells Plan B.',
+    'Acme sells the Left Hand Widget.',
+    'Acme sells the Will Power Kit.',
+    'Acme operates the note-taking Widget Pro.',
+  ])('does not mistake an ordinary sentence for a retraction: %s', (sentence) => {
+    const clause = sentence.slice('Acme '.length, -1);
+    expect(widen(acme, clauseGrounding(sentence, [clause])).text).toBe(sentence);
   });
 });
 
