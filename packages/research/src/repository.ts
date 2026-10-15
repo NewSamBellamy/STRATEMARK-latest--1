@@ -502,9 +502,6 @@ export class GeminiRepository implements MarketIntelRepository {
   /** In-flight source-binding passes, one per company. */
   private readonly sourceBindings = new Map<string, Promise<number>>();
   private readonly hunts = new Map<string, { options?: HuntMetricsOptions; result: Promise<HuntMetricsResult> }>();
-  /** Bumped on every dashboard invalidation, so a tab pass that started on older
-   * figures never caches its answer as current. */
-  private readonly dashboardEpochs = new Map<string, number>();
 
   /** Comparable user counts of the companies on this deck: the population a
    * card's users figure is ranked against when tiering. */
@@ -523,16 +520,21 @@ export class GeminiRepository implements MarketIntelRepository {
    * metric fill must not throw them away — that wiped every warmed tab each
    * time a hunt or verification landed. `all` (a deck refresh, a re-hydration)
    * still clears everything.
+   *
+   * A current (version 3) Overview survives a figure change too: it stores only
+   * its grounded narrative, a paragraph carrying a business figure is never shown,
+   * and the figures are projected from the stored metrics each time it is read.
+   * Dropping it re-bought the same search for about a third of a deck's companies.
+   * Older Overviews, which saved figures into their text, are still dropped.
    */
   private invalidateDashboard(companyId: string, scope: 'figures' | 'all' = 'figures'): void {
     if (scope === 'all') {
       this.snap.dashboards[companyId] = {};
       this.dashboardAllEpochs.set(companyId, (this.dashboardAllEpochs.get(companyId) ?? 0) + 1);
     } else {
-      const { overview: _overview, metrics: _metrics, ...independent } = this.snap.dashboards[companyId] ?? {};
-      this.snap.dashboards[companyId] = independent;
+      const { overview, metrics: _metrics, ...independent } = this.snap.dashboards[companyId] ?? {};
+      this.snap.dashboards[companyId] = overview?.overviewEvidenceVersion === 3 ? { ...independent, overview } : independent;
     }
-    this.dashboardEpochs.set(companyId, (this.dashboardEpochs.get(companyId) ?? 0) + 1);
   }
   /** Bumped only by a full invalidation: any tab pass that started before it caches nothing. */
   private readonly dashboardAllEpochs = new Map<string, number>();
@@ -1084,7 +1086,6 @@ export class GeminiRepository implements MarketIntelRepository {
       this.jobControllers.delete(id);
     }
     for (const companyId of orphaned) {
-      this.dashboardEpochs.delete(companyId);
       this.pendingHuntCompanies.delete(companyId);
     }
     const refreshedAt = new Date().toISOString();
@@ -2689,10 +2690,7 @@ export class GeminiRepository implements MarketIntelRepository {
         return result;
       },
     };
-    const epoch = this.dashboardEpochs.get(companyId) ?? 0;
     const allEpoch = this.dashboardAllEpochs.get(companyId) ?? 0;
-    // Only the Overview is built from stored figures (see invalidateDashboard).
-    const figureBound = tab === 'overview';
     const work = (async (): Promise<DashboardTabResult<T> | null> => {
       const { content, citations, sourceDiagnostics, overviewNarrative, productSelections, teamOrgSelections } = await researchDashboardWithSources(tab, {
         company,
@@ -2712,9 +2710,9 @@ export class GeminiRepository implements MarketIntelRepository {
       throwIfAborted(controller.signal);
       const lastRefreshedAt = new Date().toISOString();
       const result = { companyId, tab, content, citations, ...(sourceDiagnostics ? { sourceDiagnostics } : {}), lastRefreshedAt };
-      // The figures changed while this pass ran: answer the caller, cache nothing.
-      if ((figureBound && (this.dashboardEpochs.get(companyId) ?? 0) !== epoch) ||
-        (this.dashboardAllEpochs.get(companyId) ?? 0) !== allEpoch) return result;
+      // The company was re-researched from scratch while this pass ran: answer the caller, cache nothing.
+      // (A figure change no longer counts: no cached tab is built from stored figures, see invalidateDashboard.)
+      if ((this.dashboardAllEpochs.get(companyId) ?? 0) !== allEpoch) return result;
       const previous = this.snap.dashboards[companyId]?.overview;
       const history = previous ? [...(previous.overviewHistory ?? []),
         Object.fromEntries(Object.entries(previous).filter(([key]) => key !== 'overviewHistory')) as Omit<CachedTab, 'overviewHistory'>]
