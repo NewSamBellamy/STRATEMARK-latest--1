@@ -34,8 +34,13 @@ export type WarmTab = (typeof WARM_TABS)[number];
  * grounded searches a minute, two companies in flight left the limiter idle and
  * a 16-company deck took 12-25 minutes. The limiter still paces every call, so
  * more companies in flight never means more calls per minute than the key allows.
+ * Overview + Products and History + Team now share one search per company, so a
+ * company needs about three searches for five tabs: on a 60/min key four companies
+ * kept the limiter about a quarter busy (a 20-company deck took 7m15s to warm), so
+ * a fast key warms eight at once. Slower keys keep their pace.
  */
 export function warmupConcurrency(groundedRpm: number): number {
+  if (groundedRpm >= 60) return 8;
   return Math.max(1, Math.min(4, Math.floor(groundedRpm / 15)));
 }
 
@@ -43,7 +48,7 @@ export function warmupConcurrency(groundedRpm: number): number {
  * Tabs of one company researched at once. A company's five tabs used to run one
  * after another, which with a handful of companies in flight left a fast key mostly
  * idle. On a key allowed 60 searches a minute two tabs at a time keeps the limiter busy
- * (4 companies x 2 tabs = 8 calls in flight) without exceeding it; the limiter still
+ * (8 companies x 2 tabs, about 12 searches in flight with shared searches) without exceeding it; the limiter still
  * paces every call.
  */
 export function warmupTabsInParallel(groundedRpm: number): number {

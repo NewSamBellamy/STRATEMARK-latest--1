@@ -223,8 +223,10 @@ describe('warmupConcurrency', () => {
     expect(warmupConcurrency(0)).toBe(1);
     expect(warmupConcurrency(10)).toBe(1);
     expect(warmupConcurrency(30)).toBe(2);
-    expect(warmupConcurrency(60)).toBe(4);
-    expect(warmupConcurrency(1000)).toBe(4);
+    expect(warmupConcurrency(45)).toBe(3);
+    // A fast key warms eight companies at once: shared searches left it mostly idle at four.
+    expect(warmupConcurrency(60)).toBe(8);
+    expect(warmupConcurrency(1000)).toBe(8);
   });
 });
 
