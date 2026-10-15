@@ -591,6 +591,25 @@ function HuntMetricsButton({
   );
 }
 
+const CONFIDENCE_RANK: Partial<Record<CompanyMetric['confidence'], number>> = { user_verified: 3, verified: 2, estimated: 1 };
+
+/**
+ * One company's annual revenue can arrive twice: as a search-reported "revenue"
+ * row and as the SEC's filed annual revenue (stored under the ARR slot with the
+ * annual-revenue definition). Listed as two rows they read as two figures. When
+ * both are known and agree within 5%, the better-evidenced one is kept; rows
+ * that disagree stay side by side, since that is real information.
+ */
+export function dropRestatedRevenue(rows: CompanyMetric[]): CompanyMetric[] {
+  const restated = (m: CompanyMetric) => m.metricType === 'arr' && (m.passageSupport?.definition ?? m.reportedSupport?.definition) === 'annual_revenue';
+  const revenue = rows.find((m) => m.metricType === 'revenue' && isKnown(m) && m.value != null);
+  const annual = rows.find((m) => restated(m) && isKnown(m) && m.value != null);
+  if (!revenue || !annual || revenue.value == null || annual.value == null) return rows;
+  if (Math.abs(revenue.value - annual.value) > 0.05 * Math.max(revenue.value, annual.value)) return rows;
+  const loser = (CONFIDENCE_RANK[revenue.confidence] ?? 0) > (CONFIDENCE_RANK[annual.confidence] ?? 0) ? annual : revenue;
+  return rows.filter((m) => m !== loser);
+}
+
 /**
  * An Unknown row that a known sibling already answers is noise, not a gap:
  * "Revenue: Unknown" under a sourced annual revenue, "Market cap: Unknown"
@@ -638,7 +657,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
       {(metrics) => {
         const seen = new Set<MetricType>();
         const projected = buildMetricViews(metrics, company?.websiteUrl, company?.ownership).map(({ metric }) => metric);
-        const deduped = orderMetrics(projected).filter((m) => !seen.has(m.metricType) && !!seen.add(m.metricType));
+        const deduped = dropRestatedRevenue(orderMetrics(projected).filter((m) => !seen.has(m.metricType) && !!seen.add(m.metricType)));
         const financialFirm = company ? classifyMarketProfile(company) === 'financial_firm' : false;
         const real = pruneRedundantGaps(deduped, financialFirm);
         // Core figures with no row at all stay visible as labelled gaps, so a

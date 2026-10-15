@@ -3,7 +3,7 @@ import { screen, within } from '@testing-library/react';
 import { buildDataset } from '@mi/mocks';
 import type { CompanyMetric } from '@mi/contracts';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
-import { MetricsTab } from './MetricsTab';
+import { MetricsTab, dropRestatedRevenue } from './MetricsTab';
 import { OverviewTab } from './OverviewTab';
 
 const seed = buildDataset().metrics[0]!;
@@ -141,5 +141,41 @@ describe('dashboard metric evidence projection', () => {
     expect(rows[0]).toMatch(/Valuation/);
     expect(rows[1]).toMatch(/Employees/);
     expect(rows).toHaveLength(2);
+  });
+});
+
+describe('dropRestatedRevenue', () => {
+  const row = (patch: Partial<CompanyMetric>): CompanyMetric => ({ ...seed, source: null, citations: [], ...patch });
+  const sec = row({ id: 'sec', metricType: 'arr', value: 1_203_500_000, confidence: 'verified',
+    passageSupport: { sourceUrl: 'https://data.sec.gov/r', quote: 'q', basis: 'arr', unit: 'USD', definition: 'annual_revenue', asOf: '2025-12-31', periodStart: '2025-01-01' } });
+  const reported = row({ id: 'rep', metricType: 'revenue', value: 1_200_000_000, confidence: 'estimated' });
+
+  it('keeps the filed figure when a search-reported revenue says the same thing', () => {
+    expect(dropRestatedRevenue([reported, sec]).map((m) => m.id)).toEqual(['sec']);
+  });
+  it('keeps the better-evidenced row whichever way round they arrive', () => {
+    expect(dropRestatedRevenue([sec, reported]).map((m) => m.id)).toEqual(['sec']);
+    expect(dropRestatedRevenue([{ ...reported, confidence: 'verified' }, { ...sec, confidence: 'estimated' }]).map((m) => m.id)).toEqual(['rep']);
+  });
+  it('shows both rows when the two figures disagree: that disagreement is information', () => {
+    const different = { ...reported, value: 900_000_000 };
+    expect(dropRestatedRevenue([different, sec]).map((m) => m.id)).toEqual(['rep', 'sec']);
+  });
+  it('touches nothing when only one of them is known', () => {
+    expect(dropRestatedRevenue([sec])).toEqual([sec]);
+    expect(dropRestatedRevenue([{ ...reported, value: null, confidence: 'unknown' }, sec]).map((m) => m.id)).toEqual(['rep', 'sec']);
+  });
+});
+
+describe('distribution rows say what they count', () => {
+  it('labels a country count "Countries" in the table, like the card, not a bare "Distribution 21"', async () => {
+    show({ metricType: 'distribution', value: 21, confidence: 'estimated', source: 'https://investors.example.com/',
+      methodNote: 'Source reported distribution (as of 2026-08-31); provider-grounded, not verified against an original. Source statement: "Tennant operates in 21 countries."' });
+    expect((await screen.findAllByText('Countries')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Distribution', { exact: true })).not.toBeInTheDocument();
+  });
+  it('keeps "Distribution" when the source never says what is counted', async () => {
+    show({ metricType: 'distribution', value: 21, confidence: 'estimated', source: 'https://investors.example.com/', methodNote: 'Source reported distribution.' });
+    expect((await screen.findAllByText('Distribution')).length).toBeGreaterThan(0);
   });
 });
