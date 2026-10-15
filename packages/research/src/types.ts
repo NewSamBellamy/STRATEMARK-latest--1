@@ -37,6 +37,15 @@ export interface CallMetrics {
   usage?: { inputTokens: number; outputTokens: number };
   /** Distinct web searches Google ran for a grounded call (each is billed). */
   searchQueries?: number;
+  /** What the call was for (the research topic of a grounded call; structuring is 'structure'). */
+  topic?: string;
+}
+
+/** Calls, estimated spend and wall time of everything done for one research topic. */
+export interface TopicUsage {
+  calls: number;
+  estCostUsd: number;
+  totalMs: number;
 }
 
 /** Rolling spend/pacing totals since a client's construction, read through
@@ -56,6 +65,8 @@ export interface CallMetricsAggregate {
   searchQueries?: number;
   /** Estimated USD of everything above (call-cost.ts, deliberately high list prices). */
   estCostUsd?: number;
+  /** The same totals split by what the calls were for: where a deck's money and time go. */
+  byTopic?: Record<string, TopicUsage>;
 }
 
 /** What the user submits from the "New deck" screen. */

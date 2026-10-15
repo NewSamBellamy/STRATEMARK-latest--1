@@ -34,6 +34,8 @@ export function priceFamily(model: string): keyof typeof PRICE_PER_M {
   return 'pro'; // an unknown model is charged at the most expensive rate
 }
 
+import type { CallMetricsAggregate } from './types';
+
 /** The raw `usageMetadata` object of a Gemini response, read defensively. */
 export function readUsage(meta: unknown): CallUsage | undefined {
   if (!meta || typeof meta !== 'object') return undefined;
@@ -51,4 +53,22 @@ export function callCostUsd(input: { model: string; grounded: boolean; usage?: C
   const tokens = ((input.usage?.inputTokens ?? 0) * price.input + (input.usage?.outputTokens ?? 0) * price.output) / 1_000_000;
   const search = input.grounded ? Math.max(GROUNDED_PROMPT_USD, SEARCH_QUERY_USD * Math.max(1, input.searchQueries ?? 0)) : 0;
   return tokens + search;
+}
+
+/** Fold one settled call into a client's rolling counters; returns what the call was estimated to cost. */
+export function tallyCall(
+  aggregate: CallMetricsAggregate,
+  call: { model: string; grounded: boolean; usage?: CallUsage; searchQueries: number; totalMs: number; topic: string },
+): number {
+  const estUsd = callCostUsd({ model: call.model, grounded: call.grounded, ...(call.usage ? { usage: call.usage } : {}), searchQueries: call.searchQueries });
+  aggregate.inputTokens = (aggregate.inputTokens ?? 0) + (call.usage?.inputTokens ?? 0);
+  aggregate.outputTokens = (aggregate.outputTokens ?? 0) + (call.usage?.outputTokens ?? 0);
+  aggregate.searchQueries = (aggregate.searchQueries ?? 0) + call.searchQueries;
+  aggregate.estCostUsd = (aggregate.estCostUsd ?? 0) + estUsd;
+  const topics = aggregate.byTopic ?? (aggregate.byTopic = {});
+  const row = topics[call.topic] ?? (topics[call.topic] = { calls: 0, estCostUsd: 0, totalMs: 0 });
+  row.calls += 1;
+  row.estCostUsd += estUsd;
+  row.totalMs += call.totalMs;
+  return estUsd;
 }

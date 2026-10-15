@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyMilestone, deckRunTimes, formatDeckRun, usageSince, type DeckRun } from './deck-run';
+import { applyMilestone, deckRunTimes, formatDeckRun, formatDeckRunTopics, usageSince, type DeckRun } from './deck-run';
 
 const counters = (n: number) => ({ calls: n, retries: 0, rateLimitedMs: 0, fallbacks: 0, inputTokens: n * 1000, outputTokens: n * 100, searchQueries: n, estCostUsd: n * 0.05 });
 
@@ -46,5 +46,24 @@ describe('formatDeckRun', () => {
   it('says so plainly when a milestone or the usage was never measured', () => {
     expect(formatDeckRun({ submittedAt: '2026-10-14T20:00:00.000Z', leadCardAt: '2026-10-14T20:00:41.000Z' }))
       .toBe('first card 41s · deck n/a · warm-up n/a · usage not measured');
+  });
+});
+
+describe('per-topic usage', () => {
+  const withTopics = (n: number, team: number, hist: number) => ({ ...counters(n),
+    byTopic: { team_org: { calls: team, estCostUsd: team * 0.04, totalMs: team * 3000 }, history: { calls: hist, estCostUsd: hist * 0.04, totalMs: hist * 2000 } } });
+  it('is the per-topic difference, leaving out topics the deck never touched', () => {
+    const u = usageSince(withTopics(30, 20, 10), { ...counters(10), byTopic: { history: { calls: 10, estCostUsd: 0.4, totalMs: 20000 } } })!;
+    expect(u.byTopic).toEqual({ team_org: { calls: 20, estCostUsd: expect.closeTo(0.8, 6), totalMs: 60000 } });
+  });
+  it('lists the costliest topics first with their share of the deck', () => {
+    const usage = { ...usageSince(withTopics(30, 20, 10), counters(0))!, estCostUsd: 1.2 };
+    const lines = formatDeckRunTopics({ submittedAt: '2026-10-14T20:00:00.000Z', usage });
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/^team_org\s+20 calls\s+\$\s*0\.80\s+67%\s+60s of model time$/);
+    expect(lines[1]).toMatch(/^history\s+10 calls/);
+  });
+  it('lists nothing for a deck with no usage', () => {
+    expect(formatDeckRunTopics({ submittedAt: '2026-10-14T20:00:00.000Z' })).toEqual([]);
   });
 });

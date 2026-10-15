@@ -9,7 +9,7 @@
  * client did meanwhile. Decks are built one at a time, which makes that the
  * deck's own spend; two decks running at once would each see the other's calls.
  */
-import type { CallMetricsAggregate } from './types';
+import type { CallMetricsAggregate, TopicUsage } from './types';
 
 export interface RunUsage {
   calls: number;
@@ -18,6 +18,8 @@ export interface RunUsage {
   searchQueries: number;
   /** Estimated USD at deliberately high list prices (call-cost.ts). */
   estCostUsd: number;
+  /** The same, split by what the calls were for. */
+  byTopic?: Record<string, TopicUsage>;
 }
 
 export type DeckRunMilestone = 'leadCardAt' | 'deckReadyAt' | 'warmupDoneAt';
@@ -41,12 +43,19 @@ export interface DeckRun {
 export function usageSince(now: CallMetricsAggregate | undefined, base: CallMetricsAggregate | undefined): RunUsage | undefined {
   if (!now || !base) return undefined;
   const d = (a: number | undefined, b: number | undefined): number => Math.max(0, (a ?? 0) - (b ?? 0));
+  const byTopic: Record<string, TopicUsage> = {};
+  for (const [topic, row] of Object.entries(now.byTopic ?? {})) {
+    const before = base.byTopic?.[topic];
+    const calls = d(row.calls, before?.calls);
+    if (calls > 0) byTopic[topic] = { calls, estCostUsd: d(row.estCostUsd, before?.estCostUsd), totalMs: d(row.totalMs, before?.totalMs) };
+  }
   return {
     calls: d(now.calls, base.calls),
     inputTokens: d(now.inputTokens, base.inputTokens),
     outputTokens: d(now.outputTokens, base.outputTokens),
     searchQueries: d(now.searchQueries, base.searchQueries),
     estCostUsd: d(now.estCostUsd, base.estCostUsd),
+    ...(Object.keys(byTopic).length ? { byTopic } : {}),
   };
 }
 
@@ -91,4 +100,11 @@ export function formatDeckRun(run: DeckRun): string {
     ? ` · ${u.calls} calls · ${tok(u.inputTokens)} in / ${tok(u.outputTokens)} out tokens · ${u.searchQueries} searches · est $${u.estCostUsd.toFixed(2)}`
     : ' · usage not measured';
   return `first card ${mmss(t.toFirstCardSec)} · deck ${mmss(t.toDeckSec)} · warm-up ${mmss(t.toWarmupSec)}${cost}`;
+}
+
+/** The costliest topics of a deck, one line each: where the money and the model time went. */
+export function formatDeckRunTopics(run: DeckRun, limit = 6): string[] {
+  const topics = Object.entries(run.usage?.byTopic ?? {}).sort((a, b) => b[1].estCostUsd - a[1].estCostUsd).slice(0, limit);
+  const total = run.usage?.estCostUsd ?? 0;
+  return topics.map(([topic, row]) => `${topic.padEnd(24)} ${String(row.calls).padStart(4)} calls  $${row.estCostUsd.toFixed(2).padStart(6)}  ${total > 0 ? `${Math.round((row.estCostUsd / total) * 100)}%`.padStart(4) : '   -'}  ${Math.round(row.totalMs / 1000)}s of model time`);
 }
