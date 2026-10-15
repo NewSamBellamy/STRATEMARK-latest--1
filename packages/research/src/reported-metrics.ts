@@ -869,7 +869,7 @@ export function reportedRowNote(type: MetricType, proof: ReportedMetricSupport):
   }
   return (type === 'valuation' && isTalkOnlyValuation(proof.support.text)
     ? `Reported talks or a proposal at this valuation, not a closed round (${dated}); provider-grounded, not verified against an original. Source statement: ${statement}`
-    : `Source reported ${proof.definition ?? type} (${dated}); provider-grounded, not verified against an original.${CARD_FACT_TYPES.includes(type) ? ` Source statement: ${statement}` : ''}`) + conversion;
+    : `Source reported ${String(proof.definition ?? type).replace(/_/g, ' ')} (${dated}); provider-grounded, not verified against an original.${CARD_FACT_TYPES.includes(type) ? ` Source statement: ${statement}` : ''}`) + conversion;
 }
 
 /** Model fields select claims only; support is copied from the provider, never JSON. */
