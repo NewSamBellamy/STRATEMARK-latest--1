@@ -5,6 +5,7 @@ import { companyAliases, mentionsCompany } from './company-aliases';
 import { isOriginalSourceAttempt, normalizeSourceText, selectOriginalSourceCitations, validatedOriginalSupport, type OriginalSourceReceipt } from './original-source';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { ProviderGrounding } from './types';
+import { SENTENCE_END, widenSupportsToSentences } from './support-sentences';
 import { throwIfAborted } from './util';
 
 const referenceSchema = z.object({ sourceUrl: z.string().max(2048), quote: z.string().min(30).max(600) });
@@ -52,14 +53,14 @@ function validProviderGrounding(value: unknown, expectedText?: string, allowedCi
     });
     return sources.length ? [{ ...support, sources }] : [];
   });
-  return supports.length ? { ...parsed.data, supports } : undefined;
+  return supports.length ? widenSupportsToSentences({ ...parsed.data, supports }) : undefined;
 }
 const contains = (text: string, term: string) => normalizeSourceText(text).toLowerCase().includes(normalizeSourceText(term).toLowerCase());
 /** The sentences of a provider support passage that contain the exact quote,
  * name the company by a real alias ("Anthropic" for "Anthropic, PBC") and
  * contain every term. The full stored legal name is not required. */
 function claimSentences(text: string, quote: string, aliases: readonly string[], ...terms: string[]) {
-  return text.includes(quote) ? text.split(/(?<=[.!?])\s+|\n+/u).filter(sentence => sentence.includes(quote) &&
+  return text.includes(quote) ? text.split(SENTENCE_END).filter(sentence => sentence.includes(quote) &&
     mentionsCompany(sentence, aliases) && terms.every(term => contains(sentence, term))) : [];
 }
 // A product named next to these words is someone else's (a rival, partner,
