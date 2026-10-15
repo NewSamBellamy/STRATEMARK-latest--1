@@ -3,7 +3,59 @@ import { migrateSnapshot, isOriginalSourceAttempt, REPO_SCHEMA_VERSION, type Rep
 const LEGACY = 'mi.repo.v1';
 const CURRENT = `${LEGACY}.committed`;
 const BACKUP = `${CURRENT}.backup`;
-type RecordValue = { json: string; revision: number; at: number };
+/**
+ * A saved revision. New saves hold the workspace JSON gzip-compressed (gz):
+ * Chromium refuses any single IndexedDB value over about 133 MB, and a JSON
+ * string counts double (UTF-16), so a workspace of about twenty decks (66.6M
+ * characters) could no longer be saved at all. Compressed it is a tenth of
+ * that. Revisions saved before compression hold the plain JSON (json) and stay
+ * readable; each is replaced by a compressed one on the next save.
+ */
+type RecordValue = { json?: string; gz?: ArrayBuffer; revision: number; at: number };
+
+const compressed = () => typeof CompressionStream === 'function' && typeof DecompressionStream === 'function';
+
+async function drain(stream: ReadableStream<Uint8Array>, chunk: (bytes: Uint8Array) => void): Promise<void> {
+  const reader = stream.getReader();
+  for (let next = await reader.read(); !next.done; next = await reader.read()) chunk(next.value);
+}
+
+/** The record to save for this JSON: compressed where the browser can, plain otherwise. */
+async function encode(json: string, revision: number): Promise<RecordValue> {
+  if (!compressed()) return { json, revision, at: Date.now() };
+  const gzip = new CompressionStream('gzip');
+  const writer = gzip.writable.getWriter();
+  const written = writer.write(new TextEncoder().encode(json)).then(() => writer.close());
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  await Promise.all([written, drain(gzip.readable, (bytes) => { parts.push(bytes); size += bytes.byteLength; })]);
+  const gz = new Uint8Array(size);
+  let at = 0;
+  for (const part of parts) { gz.set(part, at); at += part.byteLength; }
+  return { gz: gz.buffer, revision, at: Date.now() };
+}
+
+/** The JSON a saved record holds; throws when the record is damaged, never returns an empty workspace for it. */
+async function decode(record: RecordValue): Promise<string> {
+  if (typeof record.json === 'string') return record.json;
+  if (Object.prototype.toString.call(record.gz) !== '[object ArrayBuffer]') throw new Error('Your saved research is unreadable. Nothing has been overwritten.');
+  if (!compressed()) throw new Error('This browser cannot open compressed research. Update it to continue; nothing has been overwritten.');
+  try {
+    const gunzip = new DecompressionStream('gzip');
+    const writer = gunzip.writable.getWriter();
+    const written = writer.write(new Uint8Array(record.gz!)).then(() => writer.close());
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    const text: string[] = [];
+    await Promise.all([written, drain(gunzip.readable, (bytes) => { text.push(decoder.decode(bytes, { stream: true })); })]);
+    text.push(decoder.decode());
+    return text.join('');
+  } catch (cause) {
+    throw new Error('Your saved research is unreadable. Nothing has been overwritten.', { cause });
+  }
+}
+
+/** A record's JSON, or null when there is no record. */
+const jsonOf = async (record: RecordValue | undefined) => record ? decode(record) : null;
 
 function openDatabase(): Promise<IDBDatabase> {
   if (typeof indexedDB === 'undefined') return Promise.reject(new Error('Research storage is unavailable. Your existing data has not been changed.'));
@@ -72,11 +124,13 @@ async function records(): Promise<Record<string, RecordValue | undefined>> {
 export async function openBrowserResearchStore(): Promise<ResearchStore> {
   const found = await records();
   const saved = found[CURRENT];
-  if (saved && (typeof saved.json !== 'string' || !Number.isSafeInteger(saved.revision) || saved.revision < 1)) {
+  if (saved && (!Number.isSafeInteger(saved.revision) || saved.revision < 1)) {
     throw new Error('Your saved research is unreadable. Nothing has been overwritten.');
   }
-  let revision = found[CURRENT]?.revision ?? 0;
-  let committed = found[CURRENT]?.json ?? localStorage.getItem(LEGACY) ?? found[LEGACY]?.json ?? null;
+  let revision = saved?.revision ?? 0;
+  let committed = (await jsonOf(saved)) ?? localStorage.getItem(LEGACY) ?? (await jsonOf(found[LEGACY])) ?? null;
+  // The committed revision is stored uncompressed (saved before compression, or not yet in IndexedDB at all).
+  let plainOnDisk = !saved?.gz;
   const initial = committed ? parseResearchSnapshot(committed) : null;
   const future = (initial?.schemaVersion ?? 1) > REPO_SCHEMA_VERSION;
   let queue = Promise.resolve();
@@ -88,6 +142,17 @@ export async function openBrowserResearchStore(): Promise<ResearchStore> {
   let pending: { json: string; done: Promise<void> } | null = null;
 
   async function commit(json: string): Promise<void> {
+    // Compressed before the transaction opens: a transaction left waiting on other work commits early.
+    let next: RecordValue;
+    let backup: RecordValue | null;
+    try {
+      next = await encode(json, revision + 1);
+      // An uncompressed revision becomes a compressed backup: copied as it is, one near the
+      // per-record limit could fail the save that is meant to rescue it.
+      backup = plainOnDisk && committed ? await encode(committed, revision) : null;
+    } catch (cause) {
+      throw new Error('Research was not saved. The browser could not prepare it; previous saved research is intact.', { cause });
+    }
     const db = await openDatabase();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('snapshots', 'readwrite');
@@ -102,11 +167,11 @@ export async function openBrowserResearchStore(): Promise<ResearchStore> {
           return;
         }
         // Backup and current are one transaction: neither can be partially replaced.
-        if (previous) store.put(previous, BACKUP);
-        else if (committed) store.put({ json: committed, revision: 0, at: Date.now() }, BACKUP);
-        store.put({ json, revision: revision + 1, at: Date.now() }, CURRENT);
+        if (backup) store.put(backup, BACKUP);
+        else if (previous) store.put(previous, BACKUP);
+        store.put(next, CURRENT);
       };
-      tx.oncomplete = () => { revision += 1; committed = json; db.close(); resolve(); };
+      tx.oncomplete = () => { revision += 1; committed = json; plainOnDisk = !next.gz; db.close(); resolve(); };
       tx.onabort = () => { db.close(); reject(failure ?? new Error('Research was not saved. Storage may be full or unavailable; previous saved research is intact.', { cause: tx.error })); };
     });
   }
@@ -151,8 +216,9 @@ export async function openBrowserResearchStore(): Promise<ResearchStore> {
 export async function readBrowserResearchData(): Promise<{ current: string | null; backup: string | null }> {
   const found = await records();
   return {
-    current: found[CURRENT]?.json ?? localStorage.getItem(LEGACY) ?? found[LEGACY]?.json ?? null,
-    backup: found[BACKUP]?.json ?? localStorage.getItem(`${LEGACY}.backup`),
+    current: (await jsonOf(found[CURRENT])) ?? localStorage.getItem(LEGACY) ?? (await jsonOf(found[LEGACY])) ?? null,
+    // A damaged backup must not block viewing or exporting a healthy current workspace.
+    backup: found[BACKUP] ? await jsonOf(found[BACKUP]).catch(() => null) : localStorage.getItem(`${LEGACY}.backup`),
   };
 }
 
