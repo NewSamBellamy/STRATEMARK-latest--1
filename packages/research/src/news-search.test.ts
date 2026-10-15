@@ -1,6 +1,6 @@
 /** news-search — the free Bing News RSS lane. */
 import { describe, expect, it, vi } from 'vitest';
-import { bingNewsRssUrl, parseBingNewsRss, parseNewsRelayRequest, runNewsSearch } from './news-search';
+import { bingNewsRssUrl, cleanPublisher, parseBingNewsRss, parseNewsRelayRequest, runNewsSearch } from './news-search';
 import { cachedWebSearch } from './web-search';
 
 const wrap = (url: string) => `http://www.bing.com/news/apiclick.aspx?ref=FexRss&amp;aid=&amp;tid=x&amp;url=${encodeURIComponent(url)}&amp;c=1&amp;mkt=en-us`;
@@ -30,6 +30,21 @@ describe('parseBingNewsRss', () => {
   it('returns nothing for junk', () => {
     expect(parseBingNewsRss('not xml')).toEqual([]);
   });
+
+  it('reads a percent-encoded publisher name back ("Morningstar%2c Inc." -> "Morningstar, Inc.")', () => {
+    const xml = `<rss><item><title>t</title><link>${wrap('https://a.com/x')}</link><pubDate>Thu, 04 Jun 2026 15:08:00 GMT</pubDate><News:Source>Morningstar%2c Inc.</News:Source></item></rss>`;
+    expect(parseBingNewsRss(xml)[0]?.publisher).toBe('Morningstar, Inc.');
+  });
+});
+
+describe('cleanPublisher', () => {
+  it.each([
+    ['Morningstar%2c Inc.', 'Morningstar, Inc.'],
+    ['Reuters on MSN', 'Reuters'],
+    ['Yahoo Finance', 'Yahoo Finance'],
+    ['100% Pure Energy', '100% Pure Energy'], // a bare percent sign is not an escape
+    ['Bad %E0%A4%A escape', 'Bad %E0%A4%A escape'], // malformed escapes are left alone
+  ])('%s -> %s', (raw, expected) => expect(cleanPublisher(raw)).toBe(expected));
 });
 
 describe('runNewsSearch', () => {

@@ -29,6 +29,13 @@ function tag(item: string, name: string): string {
   return match ? decodeXml(match[1]!).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() : '';
 }
 
+/** Bing percent-encodes punctuation in the source field ("Morningstar%2c Inc."); a name never carries a URL escape, so read it back. */
+export function cleanPublisher(raw: string): string {
+  const name = raw.replace(/\s+on MSN$/i, '');
+  if (!/%[0-9a-f]{2}/i.test(name)) return name;
+  try { return decodeURIComponent(name); } catch { return name; }
+}
+
 /** Bing wraps article links in an apiclick redirect; the real URL is its `url` parameter. */
 function articleUrl(link: string): URL | null {
   try {
@@ -54,7 +61,7 @@ export function parseBingNewsRss(xml: string): WebSearchResult[] {
     seen.add(url.href);
     const published = tag(item, 'pubDate');
     const date = Number.isFinite(Date.parse(published)) ? new Date(published).toISOString().slice(0, 10) : '';
-    const publisher = tag(item, 'News:Source').replace(/\s+on MSN$/i, '').slice(0, 120);
+    const publisher = cleanPublisher(tag(item, 'News:Source')).slice(0, 120);
     out.push({ url: url.href, title: tag(item, 'title').slice(0, 200) || url.hostname,
       snippet: tag(item, 'description').slice(0, 600), ...(date ? { published: date } : {}), ...(publisher ? { publisher } : {}) });
     if (out.length >= MAX_RESULTS) break;
