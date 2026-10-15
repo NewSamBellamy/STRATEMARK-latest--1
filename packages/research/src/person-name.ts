@@ -30,6 +30,21 @@ export function isPartialOfName(partial: string, full: string): boolean {
   return true;
 }
 
+/**
+ * A seat on the board is not an executive job. The model files "member of the
+ * Board of Directors" under 'exec', so a team tab listed Tennant's directors as
+ * "Executive 11". Only a role that is board-only (a director, a board member)
+ * moves to 'other'; a chair, a managing director or any officer title stays.
+ */
+export function orgGroupFor<G extends string>(role: string, group: G): G | 'other' {
+  const text = role.toLowerCase();
+  // "Director of Engineering" is a management job; only a board seat qualifies.
+  const boardSeat = /\bboard\b/.test(text) || /^(?:lead |independent |non-executive )*directors?$/.test(text.trim());
+  const boardOnly = boardSeat &&
+    !/\b(?:chief|president|ceo|cfo|coo|cto|cio|ciso|cmo|chro|officer|executive|vice president|vp|svp|evp|managing|general counsel|chair\w*)\b/.test(text);
+  return boardOnly ? 'other' : group;
+}
+
 const foldRole = (role: string): string => role.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 /** The two roles are the same position, worded alike or one inside the other ("President and Chief Executive Officer"). */
