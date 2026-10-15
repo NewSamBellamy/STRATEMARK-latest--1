@@ -111,6 +111,24 @@ describe('researchLiveIntel', () => {
     expect(content.items).toHaveLength(1);
   });
 
+  it('does not pay for a grounded search when the free feed already has enough real stories', async () => {
+    const client = { ground: vi.fn().mockResolvedValue({ text: 'notes', citations: [], queries: [] }),
+      structure: vi.fn().mockResolvedValue({ labels: [] }) } as unknown as LlmClient;
+    const newsSearch = vi.fn().mockResolvedValue(Array.from({ length: 5 }, (_, i) =>
+      ({ url: `https://news.example/anthropic-${i}`, title: `Anthropic story ${i}`, snippet: 'Anthropic', published: '2026-10-10' })));
+    const { content } = await researchLiveIntel({ company: company(), context: 'Anthropic', client, newsSearch });
+    expect(content.items).toHaveLength(5);
+    expect(client.ground).not.toHaveBeenCalled();
+  });
+
+  it('still runs the grounded search when the feed is thin', async () => {
+    const client = { ground: vi.fn().mockResolvedValue({ text: 'notes', citations: [], queries: [] }),
+      structure: vi.fn().mockResolvedValue({ labels: [], items: [] }) } as unknown as LlmClient;
+    const newsSearch = vi.fn().mockResolvedValue([{ url: 'https://news.example/a', title: 'Anthropic ships Claude', snippet: '' }]);
+    await researchLiveIntel({ company: company(), context: 'Anthropic', client, newsSearch });
+    expect(client.ground).toHaveBeenCalledTimes(1);
+  });
+
   it('reports an outage instead of an empty tab when no lane can run', async () => {
     const client = { ground: vi.fn().mockRejectedValue(new Error('quota')), structure: vi.fn() } as unknown as LlmClient;
     await expect(researchLiveIntel({ company: company(), context: 'Anthropic', client })).rejects.toThrow(/unavailable/);

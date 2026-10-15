@@ -290,7 +290,6 @@ export function mergeLiveIntel(companyId: string, lists: LiveIntelItem[][]): Liv
 }
 
 const ENOUGH_FEED_STORIES = 5;
-const GROUNDED_GRACE_MS = 20_000;
 const LEAD_PICTURES = 6;
 
 /** Read the publisher's preview picture for the first `count` stories lacking one. */
@@ -307,20 +306,19 @@ export async function researchLiveIntel(args: LiveIntelArgs): Promise<{ content:
   const now = (args.now?.() ?? new Date()).toISOString();
   const newsPromise = newsLane(args).catch(() => [] as WebSearchResult[]);
   const sentimentPromise = newsPromise.then((rows) => classify(args, rows));
-  const groundedPromise = groundedLane(args).catch((error: unknown) => {
+  const videoPromise = videoLane(args).catch(() => [] as CompanyVideo[]);
+  const news = await newsPromise;
+  // Cost: the news feed is free and the grounded lane is a paid Google search
+  // (three to four queries a company). With a solid set of real stories already
+  // in hand the grounded lane is not started at all: on a 16-company deck it
+  // added nothing visible for half the companies (its answer arrived after the
+  // grace wait, or every item was a duplicate of a feed story) and was billed anyway.
+  // A thin feed still gets the grounded lane, with the full wait.
+  const groundedPromise = news.length >= ENOUGH_FEED_STORIES ? Promise.resolve(null) : groundedLane(args).catch((error: unknown) => {
     if (args.signal?.aborted) throw error;
     return null;
   });
-  const videoPromise = videoLane(args).catch(() => [] as CompanyVideo[]);
-  const news = await newsPromise;
-  // Speed: with a solid set of real stories already in hand, the slower
-  // grounded lane (social threads, extra coverage) gets a bounded wait
-  // instead of holding the whole tab hostage to a congested model quota.
-  const [sentiments, grounded, videos] = await Promise.all([
-    sentimentPromise,
-    news.length >= ENOUGH_FEED_STORIES ? withTimeout(groundedPromise, GROUNDED_GRACE_MS) : groundedPromise,
-    videoPromise,
-  ]);
+  const [sentiments, grounded, videos] = await Promise.all([sentimentPromise, groundedPromise, videoPromise]);
   // Both story lanes failing is an outage, not "no news": let the caller retry.
   if (!grounded && !news.length && !args.newsSearch) throw new Error('Live news search is unavailable right now.');
   const fromNews: LiveIntelItem[] = news.map((r, i) => ({
