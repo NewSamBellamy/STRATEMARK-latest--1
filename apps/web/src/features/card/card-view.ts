@@ -57,18 +57,21 @@ export function companyFrontName(name: string): string {
   return outer.length >= 2 ? outer : name;
 }
 
+/** What a distribution figure counts, from the wording of its own source: stockists, countries, or the bare word. */
+export function distributionLabel(metric: Pick<CompanyMetric, 'passageSupport' | 'reportedSupport' | 'methodNote'>): 'Stockists' | 'Countries' | 'Distribution' {
+  const text = `${metric.passageSupport?.quote ?? ''} ${metric.reportedSupport?.support.text ?? ''} ${metric.methodNote ?? ''}`.toLowerCase();
+  if (/\b(?:stockists?|retailers?|retail doors?|doors|stores|retail locations?|points of sale)\b/.test(text)) return 'Stockists';
+  if (/\b(?:countries|country|markets)\b/.test(text)) return 'Countries';
+  return 'Distribution';
+}
+
 /** The face label must name the figure actually shown, never the slot's default. */
 function metricTypeLabel(metric: CompanyMetric): string | null {
   switch (metric.metricType) {
     case 'revenue': return 'Revenue';
     case 'funding_total': return 'Total raised';
     case 'last_round': return 'Latest round';
-    case 'distribution': {
-      const text = `${metric.passageSupport?.quote ?? ''} ${metric.reportedSupport?.support.text ?? ''} ${metric.methodNote ?? ''}`.toLowerCase();
-      if (/\b(?:stockists?|retailers?|retail doors?|doors|stores|retail locations?|points of sale)\b/.test(text)) return 'Stockists';
-      if (/\b(?:countries|country|markets)\b/.test(text)) return 'Countries';
-      return 'Distribution';
-    }
+    case 'distribution': return distributionLabel(metric);
     default: return null;
   }
 }

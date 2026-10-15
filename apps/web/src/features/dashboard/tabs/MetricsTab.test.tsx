@@ -166,3 +166,16 @@ describe('dropRestatedRevenue', () => {
     expect(dropRestatedRevenue([{ ...reported, value: null, confidence: 'unknown' }, sec]).map((m) => m.id)).toEqual(['rep', 'sec']);
   });
 });
+
+describe('distribution rows say what they count', () => {
+  it('labels a country count "Countries" in the table, like the card, not a bare "Distribution 21"', async () => {
+    show({ metricType: 'distribution', value: 21, confidence: 'estimated', source: 'https://investors.example.com/',
+      methodNote: 'Source reported distribution (as of 2026-08-31); provider-grounded, not verified against an original. Source statement: "Tennant operates in 21 countries."' });
+    expect((await screen.findAllByText('Countries')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Distribution', { exact: true })).not.toBeInTheDocument();
+  });
+  it('keeps "Distribution" when the source never says what is counted', async () => {
+    show({ metricType: 'distribution', value: 21, confidence: 'estimated', source: 'https://investors.example.com/', methodNote: 'Source reported distribution.' });
+    expect((await screen.findAllByText('Distribution')).length).toBeGreaterThan(0);
+  });
+});

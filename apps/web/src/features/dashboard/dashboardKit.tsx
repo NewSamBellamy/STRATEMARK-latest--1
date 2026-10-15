@@ -13,11 +13,15 @@ import { cn } from '@/lib/cn';
 import { formatMetricValue } from '@/lib/format';
 import { METRIC_COLORS } from '@/lib/theme';
 import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
+import { distributionLabel } from '@/features/card/card-view';
 import { UNKNOWN_REASON } from '@/features/card/UnknownValue';
 import { FILL_HINT, formatAsOf, isKnown, type PeerRanking } from './dashboardModel';
 
-export const metricLabel = (m: Pick<CompanyMetric, 'metricType' | 'passageSupport' | 'reportedSupport'>) =>
-  metricDefinitionLabel(m) ?? METRIC_TYPE_LABELS[m.metricType];
+/** The table's name for a figure. A distribution count says what it counts ("Countries 21"), as the card does, never a bare number. */
+export const metricLabel = (m: Pick<CompanyMetric, 'metricType' | 'passageSupport' | 'reportedSupport'> & { methodNote?: string | null }) =>
+  metricDefinitionLabel(m) ?? (m.metricType === 'distribution'
+    ? distributionLabel({ passageSupport: m.passageSupport, reportedSupport: m.reportedSupport, methodNote: m.methodNote ?? null })
+    : METRIC_TYPE_LABELS[m.metricType]);
 
 /** Build links between dashboard tabs, carrying the deck/card context along. */
 export function useTabHref(companyId: string) {
