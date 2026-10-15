@@ -38,7 +38,7 @@ export function isPartialOfName(partial: string, full: string): boolean {
  */
 export function orgGroupFor<G extends string>(role: string, group: G): G | 'other' {
   // Qualifiers do not change what a board seat is: "Independent Non-Executive Director" is a director.
-  const text = role.toLowerCase().replace(/\b(?:non[- ]executive|independent|senior|lead|outside|external)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const text = role.toLowerCase().replace(/\bsenior independent\b/g, 'independent').replace(/\b(?:non[- ]executive|independent|lead|outside|external)\b/g, ' ').replace(/\s+/g, ' ').trim();
   // The WHOLE role must be a board seat: "Co-founder & Board Member" or "Director of Board Relations" are other jobs.
   const boardSeat = /^(?:(?:a|the) )?(?:board member|member of (?:the )?board(?: of directors)?|board of directors member|directors?(?: (?:of|on) the board(?: of directors)?)?|board observer|trustee)$/.test(text);
   return boardSeat ? 'other' : group;

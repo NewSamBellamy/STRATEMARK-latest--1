@@ -15,8 +15,18 @@ import { normalizedName } from './registries/shared';
  */
 export const SENTENCE_END = /(?<=[.!?])\s+(?!(?<=\b(?:Inc|Corp|Ltd|Co)\.\s+)[a-z])|\n+/u;
 
-/** Words in a sentence that retract, date or hedge a claim: a clause is never lifted out of such a sentence. */
-const RETRACTS = /\b(?:former(?:ly)?|ex|ended|terminat\w*|no longer|not|never|stopped|dropped|exited|resign\w*|depart\w*|left|discontinu\w*|retir\w*|rumou?r\w*|reportedly|considering|will|would|plans?)\b/i;
+/** Words that retract, date or hedge a claim. A clause is never lifted out of a sentence that contains one. */
+const RETRACTS = /\b(?:former(?:ly)?|previously|used to|no longer|never|not|until|ended|terminat\w*|stopped|ceased|dropped|exited|divested|resign\w*|departed|departing|departs|retire[sd]?|retiring|discontinu\w*|cancell?ed|rumou?r\w*|reportedly|considering|planned|planning|plans? to)\b|n['’]t\b|\bex-/i;
+/** Hedges that are only hedges in lower case: "Will" and "Left Hand" are names. */
+const HEDGES = /\b(?:will|would|may|might|left)\b/;
+
+/**
+ * A clause is only given a subject when it opens with a predicate: an
+ * ownership, offering or role verb. "supplier Globex makes ...", "growers like
+ * Globex sell ..." or "ex-Chief Executive ..." continue the NAME in front of them
+ * rather than say something about it, and are left exactly as Google gave them.
+ */
+const PREDICATE_START = /^(?:currently\s+|also\s+)?(?:operat\w*|offer\w*|mak(?:es?|ing)|made|sell\w*|sold|produc\w*|provid\w*|launch\w*|releas\w*|introduc\w*|unveil\w*|build\w*|built|creat\w*|own\w*|market\w*|manufactur\w*|distribut\w*|brew\w*|develop\w*|ship\w*|is|are|was|were|has|have|serves?|serving|appointed|named|lead\w*|head\w*|chair\w*|found\w*|co-found\w*|join\w*)\b/i;
 
 function occurrences(text: string, fragment: string): number[] {
   const found: number[] = [];
@@ -37,24 +47,32 @@ function charIndexOfByteOffset(text: string, byteOffset: number): number {
 }
 
 /**
- * Where a support's clause really sits in the answer. Provider offsets win when
- * they validate (as characters or as UTF-8 bytes); otherwise the clause must occur
- * exactly once. A clause that repeats ("operates the Widget" for two companies)
- * with no offset to tell them apart is not located at all.
+ * Where a support's clause really sits in the answer. A provider offset is trusted
+ * when it validates as a character index or as a UTF-8 byte offset, but not when the
+ * two readings validate to DIFFERENT occurrences; with no usable offset the clause
+ * must occur exactly once. A clause that repeats ("operates the Widget" for two
+ * companies) and cannot be told apart is not located at all.
  */
 function locate(answerText: string, clause: string, startIndex: number | undefined): number {
   const starts = occurrences(answerText, clause);
   if (starts.length === 0) return -1;
   if (startIndex !== undefined) {
-    if (starts.includes(startIndex)) return startIndex;
-    const asChars = charIndexOfByteOffset(answerText, startIndex);
-    if (asChars >= 0 && starts.includes(asChars)) return asChars;
+    const asChar = starts.includes(startIndex) ? startIndex : -1;
+    const bytes = charIndexOfByteOffset(answerText, startIndex);
+    const asByte = bytes >= 0 && starts.includes(bytes) ? bytes : -1;
+    if (asChar >= 0 && asByte >= 0 && asChar !== asByte) return -1;
+    if (asChar >= 0 || asByte >= 0) return Math.max(asChar, asByte);
   }
   return starts.length === 1 ? starts[0]! : -1;
 }
 
-/** The text before a clause is only the company's own name: "Acme ", "Lyre's Spirit Co. ", "Acme's ". */
+/**
+ * The text before a clause is only the company's own name ("Acme ", "Lyre's Spirit
+ * Co. ", "Acme's "): name characters only, ending in a space. A hyphen or bracket
+ * at the end ("Meta-", "Acme (acme.com) ") means the name continues or is qualified.
+ */
 function isSubjectOnly(prefix: string, aliases: readonly string[]): boolean {
+  if (!/\s$/.test(prefix) || !/^[\p{L}\p{N}\s.,'’&-]+$/u.test(prefix)) return false;
   const name = normalizedName(prefix);
   const bare = name.endsWith(' s') ? name.slice(0, -2) : name;
   return name !== '' && aliases.some((alias) => alias === name || alias === bare);
@@ -69,12 +87,14 @@ function isSubjectOnly(prefix: string, aliases: readonly string[]): boolean {
  * Bourbon Alternative as its product". The product and team gates need the
  * company named in the supporting sentence, so they dropped every such claim.
  *
- * The clause is extended to the left, and only by the company's own name.
- * Anything else in front of it ("Globex, a supplier to Acme, makes ...", "Bob
- * Stone, who left Acme, is ...", "Acme formerly sold ...") leaves the support as
- * it was, as does a sentence whose remainder retracts or hedges the claim ("... but
- * the partnership ended"). The result is verbatim answer text; provider
- * attribution still covers the clause it covered before.
+ * The clause is extended to the left, and only by the company's own name, and only
+ * when the clause opens with a predicate verb. Anything else in front of it ("Globex,
+ * a supplier to Acme, makes ...", "Acme's supplier Globex makes ...", "Acme
+ * formerly sold ...") leaves the support as it was, as does a sentence that
+ * retracts or hedges the claim anywhere ("Acme no longer sells ...", "... but the
+ * partnership ended"). The result is verbatim answer text; provider attribution
+ * still covers the clause it covered before. A person's name is never lent this
+ * way: who the person is has to sit inside the attributed span.
  */
 export function widenSupportsToSentences(grounding: ProviderGrounding, aliases: readonly string[]): ProviderGrounding {
   if (aliases.length === 0) return grounding;
@@ -83,6 +103,7 @@ export function widenSupportsToSentences(grounding: ProviderGrounding, aliases: 
     ...grounding,
     supports: grounding.supports.map((support) => {
       const clause = support.text;
+      if (!PREDICATE_START.test(clause)) return support;
       const at = locate(answer, clause, support.startIndex);
       if (at < 0) return support;
       // The sentence the clause opens in: from the last sentence end on its line, up to the clause.
@@ -92,9 +113,13 @@ export function widenSupportsToSentences(grounding: ProviderGrounding, aliases: 
       const leading = pieces[pieces.length - 1]!;
       const prefix = leading.slice(0, leading.length - 1);
       if (!prefix.trim() || !isSubjectOnly(prefix, aliases)) return support;
+      // What follows the clause in its sentence. A clause that already ends the sentence has no tail:
+      // whatever comes next is another sentence.
       const lineEnd = answer.indexOf('\n', at + clause.length);
-      const tail = answer.slice(at + clause.length, lineEnd < 0 ? answer.length : lineEnd).split(SENTENCE_END)[0] ?? '';
-      if (RETRACTS.test(`${prefix} ${tail}`)) return support;
+      const rest = answer.slice(at + clause.length, lineEnd < 0 ? answer.length : lineEnd);
+      const tail = /[.!?]$/.test(clause) ? '' : (rest.split(SENTENCE_END)[0] ?? '');
+      const whole = `${prefix} ${clause} ${tail}`;
+      if (RETRACTS.test(whole) || HEDGES.test(whole)) return support;
       const from = at - prefix.length + (prefix.length - prefix.trimStart().length);
       // When the clause is the whole rest of the sentence, its closing punctuation belongs to it ("... as its product.").
       const closing = /^[.!?]+$/.test(tail) ? tail : '';

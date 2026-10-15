@@ -82,6 +82,7 @@ describe('orgGroupFor', () => {
     'Non-Executive Board Member',
     'Board Observer',
     'Lead Independent Director',
+    'Lead Director',
   ])('%s is a board seat, not an executive job', (role) => expect(orgGroupFor(role, 'exec')).toBe('other'));
 
   it.each([
@@ -94,6 +95,7 @@ describe('orgGroupFor', () => {
     'Executive Director',
     'Senior Vice President, General Counsel',
     'Director of Engineering',
+    'Senior Director',
     'Director, Product Management',
     'Co-founder & Board Member',
     'Founder and Board Member',
