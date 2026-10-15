@@ -1225,6 +1225,33 @@ describe('discovery coverage contract', () => {
     ]);
   });
 
+  describe('a market scan anchors only on companies the user named', () => {
+    const planFor = async (prompt: string, modelNames: string[]) => {
+      const structure = vi.fn(async (text: string, schema: ZodType<unknown>) => {
+        if (text.includes('market definition')) {
+          return schema.parse({ marketName: 'Coffee', vertical: 'Coffee', geography: null, notes: null, searchThemes: ['roasting'],
+            companyScope: { mode: 'market', names: modelNames } });
+        }
+        return schema.parse({ companies: [{ name: 'Pilot Coffee Roasters', domain: 'pilot.example', descriptor: 'roaster', cardTypes: ['company'] }] });
+      });
+      const client: LlmClient = { ground: vi.fn(async () => ({ text: 'notes', citations: [], queries: [] })), structure: structure as LlmClient['structure'] };
+      let scope: unknown;
+      await discoverDeckStubs({ prompt, region: null }, client, {
+        coverage: testCoverage, catalogMax: 10, catalogPasses: 0, onInterpreted: (trio) => { scope = trio.plan.companyScope; },
+      });
+      return scope;
+    };
+
+    it('drops names the model lifted from its own search notes', async () => {
+      expect(await planFor('Specialty coffee roasters', ['Starbucks Corp.', 'McDonald Corp.', 'Nestle SA'])).toEqual({ mode: 'market', names: [] });
+    });
+
+    it('keeps the ones the user typed, in whatever legal form the model wrote them', async () => {
+      expect(await planFor('Specialty coffee roasters like Pilot Coffee and Peet\'s', ['Pilot Coffee Roasters', 'Peets Coffee Inc.', 'Starbucks Corp.']))
+        .toEqual({ mode: 'market', names: ['Pilot Coffee Roasters'] });
+    });
+  });
+
   it('keeps an explicitly selected-company deck scoped to those companies', async () => {
     const requested = ['Meta', 'Anthropic'];
     const structure = vi.fn(async (prompt: string, schema: ZodType<unknown>) => {
