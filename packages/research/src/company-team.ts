@@ -4,7 +4,7 @@ import { companyAliases, mentionsCompany } from './company-aliases';
 import { isOriginalSourceAttempt, normalizeSourceText, selectOriginalSourceCitations, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceServices } from './original-source';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { LlmClient, ProviderGrounding } from './types';
-import { dropPartialDuplicates } from './person-name';
+import { dropPartialDuplicates, orgGroupFor } from './person-name';
 import { SENTENCE_END, widenSupportsToSentences } from './support-sentences';
 import { throwIfAborted } from './util';
 
@@ -117,7 +117,7 @@ export function renderCompanyTeamOrg(company: Company, originals: readonly Origi
     const supported = (value: string | null) => value && contains(row.data.quote, value) ? value : null;
     const bio = supported(row.data.bio) ?? row.data.quote;
     const node = orgNodeSchema.parse({
-      id: row.data.id, name: row.data.name, role: row.data.role, group: row.data.group, parentId: null,
+      id: row.data.id, name: row.data.name, role: row.data.role, group: orgGroupFor(row.data.role, row.data.group), parentId: null,
       bio, tenure: supported(row.data.tenure), priorCompany: supported(row.data.priorCompany),
       notableProject: supported(row.data.notableProject), sourceUrl: source.finalUrl, supportingQuote: row.data.quote,
       sourceRetrievedAt: source.retrievedAt,
@@ -148,7 +148,7 @@ export function renderCompanyTeamOrg(company: Company, originals: readonly Origi
     const current = /\b(?:current(?:ly)?|serves? as|serving as|is (?:the|a|an|its|their)|is [\p{L}\p{N}&.\- ]{1,60}?['’]s|appointed as|named as|assumed the|leads|heads|chairs|(?:led|headed|chaired|helmed) by)\b/iu.test(row.data.quote) &&
       !/\b(?:former|formerly|previously|will become|will be|resigned|departed|left the role)\b/i.test(row.data.quote);
     if (!current) continue;
-    const node = orgNodeSchema.parse({ id: row.data.id, name: row.data.name, role: row.data.role, group: row.data.group, parentId: null,
+    const node = orgNodeSchema.parse({ id: row.data.id, name: row.data.name, role: row.data.role, group: orgGroupFor(row.data.role, row.data.group), parentId: null,
       bio: `Google Search reports (original page not retrieved): “${row.data.quote}”`, tenure: null, priorCompany: null,
       notableProject: null, sourceUrl: null, supportingQuote: null, sourceRetrievedAt: null });
     people.set(key, { node, parentName: null, quote: '' });

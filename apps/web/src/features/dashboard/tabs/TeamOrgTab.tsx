@@ -27,7 +27,7 @@ const GROUP_LABEL: Record<OrgNode['group'], string> = {
   ai: 'AI & research',
   product: 'Product',
   design: 'Design',
-  other: 'Other',
+  other: 'Board & other',
 };
 const GROUP_DOT: Record<OrgNode['group'], string> = {
   exec: 'bg-indigo-500',

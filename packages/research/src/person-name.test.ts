@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dropPartialDuplicates, isPartialOfName } from './person-name';
+import { dropPartialDuplicates, isPartialOfName, orgGroupFor } from './person-name';
 import { renderCompanyTeamOrg } from './company-team';
 
 describe('isPartialOfName', () => {
@@ -68,5 +68,45 @@ describe('team tab', () => {
     ] };
     const { content } = renderCompanyTeamOrg(company, [source], selections);
     expect(content.nodes.map((node) => node.name)).toEqual(['David W. Huml']);
+  });
+});
+
+describe('orgGroupFor', () => {
+  it.each([
+    ['member of the Board of Directors', 'other'],
+    ['Independent Director', 'other'],
+    ['Director', 'other'],
+  ])('%s is not an executive seat', (role, group) => expect(orgGroupFor(role, 'exec')).toBe(group));
+
+  it.each([
+    'President and Chief Executive Officer',
+    'Chairman of the Executive Board',
+    "Chair of Tennant's Board of Directors",
+    'Director of Engineering',
+    'Managing Director',
+    'Senior Vice President, General Counsel',
+    'Chief Operating Officer',
+    'Head of Product',
+  ])('%s keeps the group the model gave', (role) => expect(orgGroupFor(role, 'exec')).toBe('exec'));
+
+  it('never moves a non-exec group, and never invents a group', () => {
+    expect(orgGroupFor('Independent Director', 'product')).toBe('other');
+    expect(orgGroupFor('Head of Design', 'design')).toBe('design');
+  });
+});
+
+describe('team tab groups', () => {
+  const company = { id: 'cmp', name: 'Tennant Company', websiteUrl: 'https://tennantco.com', oneLiner: 'Floor cleaning equipment', logoUrl: null, hqLocation: null, brandTheme: null };
+  const url = 'https://tennantco.com/investors/governance';
+  const text = 'Maria Green is a member of the Board of Directors of Tennant Company. David W. Huml is President and Chief Executive Officer of Tennant Company.';
+  const source = { requestedUrl: url, finalUrl: url, status: 'retrieved' as const, httpStatus: 200, contentHash: 'c'.repeat(64), text, retrievedAt: '2026-10-14T00:00:00.000Z' };
+  const row = (id: string, name: string, role: string, quote: string) => ({ id, name, role, group: 'exec', parentName: null, bio: '', tenure: null, priorCompany: null, notableProject: null, sourceUrl: url, quote });
+
+  it('files a board seat under "other" even when the model called it executive, and leaves the chief executive alone', () => {
+    const { content } = renderCompanyTeamOrg(company, [source], { nodes: [
+      row('g', 'Maria Green', 'member of the Board of Directors', 'Maria Green is a member of the Board of Directors of Tennant Company.'),
+      row('h', 'David W. Huml', 'President and Chief Executive Officer', 'David W. Huml is President and Chief Executive Officer of Tennant Company.'),
+    ] });
+    expect(Object.fromEntries(content.nodes.map((node) => [node.name, node.group]))).toEqual({ 'Maria Green': 'other', 'David W. Huml': 'exec' });
   });
 });
