@@ -39,6 +39,17 @@ export function warmupConcurrency(groundedRpm: number): number {
   return Math.max(1, Math.min(4, Math.floor(groundedRpm / 15)));
 }
 
+/**
+ * Tabs of one company researched at once. A company's five tabs used to run one
+ * after another, which with a handful of companies in flight left a fast key mostly
+ * idle. On a key allowed 60 searches a minute two tabs at a time keeps the limiter busy
+ * (4 companies x 2 tabs = 8 calls in flight) without exceeding it; the limiter still
+ * paces every call.
+ */
+export function warmupTabsInParallel(groundedRpm: number): number {
+  return groundedRpm >= 60 ? 2 : 1;
+}
+
 export type WarmPriority = 'creation' | 'open' | 'backfill';
 const PRIORITY_RANK: Record<WarmPriority, number> = { creation: 0, open: 1, backfill: 2 };
 
@@ -72,6 +83,8 @@ export interface DashboardWarmupDeps {
   afterCompany?(companyId: string): Promise<void>;
   /** Companies in flight at once. */
   concurrency: number;
+  /** Tabs of ONE company researched at once, after its Overview (default 1: strictly one at a time). */
+  tabsInParallel?: number;
   now?: () => number;
   /** When `canRun` says no, look again after this long (0 = only on the next enqueue). */
   retryIdleMs?: number;
@@ -208,18 +221,15 @@ export class DashboardWarmup {
   }
 
   private async warmCompany(entry: QueueEntry): Promise<void> {
-    for (const tab of WARM_TABS) {
-      if (this.stopped) return;
-      if (!this.deps.canRun()) {
-        // Paused mid-company: put it back so the remaining tabs resume later.
-        if (!this.queue.some((queued) => queued.companyId === entry.companyId)) this.queue.push(entry);
-        this.scheduleRetry();
-        break;
-      }
+    let paused = false;
+    /** One tab: research it if due and record how it ended. Returns false once the gate says stop. */
+    const warmTab = async (tab: WarmTab): Promise<void> => {
+      if (this.stopped || paused) return;
+      if (!this.deps.canRun()) { paused = true; return; }
       const previous = this.deps.attempts()[entry.companyId]?.[tab];
       const before = this.deps.cached(entry.companyId, tab);
       const { due, force } = warmTabDue(before, previous, this.now());
-      if (!due) continue;
+      if (!due) return;
       // An empty cache with no record of ours already counts as one empty attempt (see warmTabDue).
       const prior = previous && previous.outcome !== 'filled' ? previous.count : before.state === 'empty' ? 1 : 0;
       let outcome: WarmAttempt['outcome'];
@@ -235,6 +245,24 @@ export class DashboardWarmup {
       }
       const count = outcome === 'filled' ? 0 : prior + 1;
       await this.deps.recordAttempt(entry.companyId, tab, { at: new Date(this.now()).toISOString(), outcome, count });
+    };
+
+    const width = Math.max(1, Math.floor(this.deps.tabsInParallel ?? 1));
+    if (width === 1) {
+      for (const tab of WARM_TABS) { await warmTab(tab); if (this.stopped || paused) break; }
+    } else {
+      // The Overview first and alone (it settles the company's figures), then the rest `width` at a time.
+      await warmTab(WARM_TABS[0]);
+      const rest = WARM_TABS.slice(1);
+      let next = 0;
+      await Promise.all(Array.from({ length: Math.min(width, rest.length) }, async () => {
+        while (!this.stopped && !paused && next < rest.length) await warmTab(rest[next++]!);
+      }));
+    }
+    // Paused mid-company: put it back so the remaining tabs resume later.
+    if (paused && !this.stopped) {
+      if (!this.queue.some((queued) => queued.companyId === entry.companyId)) this.queue.push(entry);
+      this.scheduleRetry();
     }
     if (this.deps.afterCompany) {
       try { await this.deps.afterCompany(entry.companyId); } catch { /* best effort */ }

@@ -140,7 +140,7 @@ import { extractOrganizationJsonLd } from './registries/jsonld';
 import { faviconUrl, knownCompanyDomain } from './logos';
 import { figureScopes, METRIC_GATE_VERSION, revalidateStoredMetrics, type RevalidationOutcome } from './revalidate-stored';
 import { implausibleScaleFigures, withheldScaleRow } from './scale-plausibility';
-import { DashboardWarmup, warmupConcurrency, type CachedTabState, type WarmAttempts, type WarmPriority, type WarmTab } from './dashboard-warmup';
+import { DashboardWarmup, warmupConcurrency, warmupTabsInParallel, type CachedTabState, type WarmAttempts, type WarmPriority, type WarmTab } from './dashboard-warmup';
 import { foundedFromHistory, foundedFromWebsite, foundedFromWikidata, wikidataFoundedYear, type JsonFetcher } from './founded-year';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
@@ -442,6 +442,8 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   dashboardWarmup?: false | {
     /** Companies warming at once; defaults to 2 on a paid-rate key (>=30 grounded RPM), else 1. */
     concurrency?: number;
+    /** Tabs of one company researched at once after its Overview; defaults to 2 on a 60/min key, else 1. */
+    tabsInParallel?: number;
     /** Spend gate checked before every tab (spending cap, user pause). */
     allowed?: () => boolean;
     /** Warm STORED decks too: on start (after `startupDelayMs`) and when a deck is
@@ -566,6 +568,7 @@ export class GeminiRepository implements MarketIntelRepository {
       const warm = options.dashboardWarmup ?? {};
       this.warmup = new DashboardWarmup({
         concurrency: Math.max(1, Math.floor(warm.concurrency ?? warmupConcurrency(options.groundedRpm ?? DEFAULT_GROUNDED_RPM))),
+        tabsInParallel: warm.tabsInParallel ?? warmupTabsInParallel(options.groundedRpm ?? DEFAULT_GROUNDED_RPM),
         // Deck builds own the model slots; the warm-up waits for them, and for
         // the user's spending cap / pause switch, before every tab.
         canRun: () => !this.persistenceError && this.activeBackgroundJobs.size === 0 && (warm.allowed?.() ?? true),
