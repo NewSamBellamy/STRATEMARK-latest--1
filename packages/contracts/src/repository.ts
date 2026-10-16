@@ -580,8 +580,8 @@ export interface CompanyFollow {
 
 export interface MovesRefreshResult {
   added: number;
-  /** False when the last refresh was recent enough that nothing was searched. */
-  refreshed: boolean;
+  /** Followed companies looked at successfully; 0 when every one was looked at in the last day. */
+  refreshed: number;
   refreshedAt: string | null;
 }
 

@@ -82,6 +82,9 @@ import {
   type ResearchThread,
   type Unsubscribe,
   type ViceClaim,
+  type CompanyFollow,
+  type CompanyMove,
+  type MovesRefreshResult,
 } from '@mi/contracts';
 import { createGeminiClient, DEFAULT_GROUNDED_RPM, type GeminiClientConfig } from './gemini';
 import { withSearchFallback } from './search-fallback';
@@ -126,7 +129,8 @@ import { secAdvFirmCandidates, secAdvObservationFor, secAdvReportUrl, secAdvSear
 import { companyNameKey, marketCapEstimate, secSharesConceptUrl, yahooChartUrl } from './market-quote';
 import { readRegistrantProfile, resolveListedIdentity, type ListedIdentityResult } from './sec-identity';
 import { secHeadquartersPlace } from './sec-profile';
-import { secSubmissionsUrl } from './sec-ownership';
+import { findCompanyFilings, secSubmissionsUrl } from './sec-ownership';
+import { classifyMoves, filingMoveCandidates, mergeMoves, moveSince, newsMoveCandidates, rankMoves, type MoveCandidate } from './company-moves';
 import { findFormDLastRound } from './sec-form-d';
 import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane, type DiscoveryNotes } from './searxng';
@@ -168,6 +172,10 @@ interface TabBatch {
 /** The hydration-time logo is a gstatic favicon guess, not company art. The
  * asset lane (and only the asset lane, or the user) replaces it. */
 const SEC_READ_GAP_MS = 150;
+/** Today: a followed company is looked at again after this long (a daily refresh with some slack). */
+const MOVES_REFRESH_EVERY_MS = 20 * 60 * 60_000;
+/** Followed companies looked at at once during a refresh. */
+const MOVES_REFRESH_LANES = 4;
 /** Concurrent IAPD (Form ADV) reads across a deck — see advRead. */
 const ADV_READ_SLOTS = 2;
 const GUESSED_LOGO_RE = /^https:\/\/t[0-3]\.gstatic\.com\/faviconV2|^https:\/\/www\.google\.com\/s2\/favicons/;
@@ -223,6 +231,12 @@ export interface RepoSnapshot {
   /** Daily Briefings — the overnight desk's structured digests, newest first. */
   briefings: DeckBriefing[];
   savedCards: SavedCard[];
+  /** Today: dated, sourced moves of followed companies (company-moves.ts), newest first. */
+  moves?: CompanyMove[];
+  /** Companies the user follows on Today. */
+  follows?: CompanyFollow[];
+  /** companyId → when its moves were last looked for successfully. */
+  movesRefreshedAt?: Record<string, string>;
   /** marketId → cached whitespace analysis. */
   opportunity: Record<
     string,
@@ -1140,6 +1154,11 @@ export class GeminiRepository implements MarketIntelRepository {
       cards: keptCards,
       viceClaims: prev.viceClaims.filter((claim) => !removedCardIds.has(claim.cardId)),
       savedCards: prev.savedCards.filter((saved) => !removedCardIds.has(saved.cardId)),
+      moves: prev.moves?.filter((move) => !orphaned.has(move.companyId)),
+      follows: prev.follows?.filter((follow) => !orphaned.has(follow.companyId)),
+      movesRefreshedAt: prev.movesRefreshedAt
+        ? Object.fromEntries(Object.entries(prev.movesRefreshedAt).filter(([companyId]) => !orphaned.has(companyId)))
+        : prev.movesRefreshedAt,
       researchJobs: prev.researchJobs.filter((job) => !allJobIds.has(job.id)),
       briefings: prev.briefings.filter((b) => b.marketId !== marketId && !deckIds.has(b.deckId)),
       opportunity,
@@ -1158,6 +1177,7 @@ export class GeminiRepository implements MarketIntelRepository {
       originalSourceAttempts: prev.originalSourceAttempts?.filter((row) => !orphaned.has(row.companyId)),
     };
     if (prev.removedFromDeck === undefined) delete next.removedFromDeck;
+    for (const key of ['moves', 'follows', 'movesRefreshedAt'] as const) if (prev[key] === undefined) delete next[key];
     this.snap = next;
     try {
       await this.persist();
@@ -2315,6 +2335,117 @@ export class GeminiRepository implements MarketIntelRepository {
     return this.cardsWithFacts(
       this.snap.cards.filter((card) => savedIds.has(card.id)).map((card) => this.hydrate(card)),
     );
+  }
+
+  async listFollows(): Promise<CompanyFollow[]> {
+    return [...(this.snap.follows ?? [])];
+  }
+
+  async followCompanies(companyIds: readonly string[]): Promise<void> {
+    const follows = [...(this.snap.follows ?? [])];
+    const known = new Set(this.snap.companies.map((company) => company.id));
+    const at = new Date().toISOString();
+    for (const companyId of companyIds) {
+      if (known.has(companyId) && !follows.some((follow) => follow.companyId === companyId)) follows.push({ companyId, followedAt: at });
+    }
+    if (follows.length === (this.snap.follows ?? []).length) return;
+    this.snap.follows = follows;
+    await this.persist();
+  }
+
+  async unfollowCompany(companyId: string): Promise<void> {
+    if (!(this.snap.follows ?? []).some((follow) => follow.companyId === companyId)) return;
+    this.snap.follows = (this.snap.follows ?? []).filter((follow) => follow.companyId !== companyId);
+    // Its stored moves go too; following it again starts a fresh week.
+    this.snap.moves = (this.snap.moves ?? []).filter((move) => move.companyId !== companyId);
+    if (this.snap.movesRefreshedAt) delete this.snap.movesRefreshedAt[companyId];
+    await this.persist();
+  }
+
+  async listMoves(): Promise<CompanyMove[]> {
+    const followed = new Set((this.snap.follows ?? []).map((follow) => follow.companyId));
+    return rankMoves((this.snap.moves ?? []).filter((move) => followed.has(move.companyId)));
+  }
+
+  async markMoveRead(moveId: string, read: boolean): Promise<void> {
+    const move = (this.snap.moves ?? []).find((m) => m.id === moveId);
+    if (!move || Boolean(move.readAt) === read) return;
+    move.readAt = read ? new Date().toISOString() : null;
+    await this.persist();
+  }
+
+  private movesRefresh: Promise<MovesRefreshResult> | null = null;
+
+  /**
+   * Today's daily look: for each followed company not looked at in the last
+   * 20 hours (all of them when forced), the free news feed and its own SEC
+   * filings, then ONE structure call that sorts every headline. No grounded
+   * search runs here.
+   */
+  refreshMoves(options?: { force?: boolean }): Promise<MovesRefreshResult> {
+    this.movesRefresh ??= this.runMovesRefresh(Boolean(options?.force)).finally(() => { this.movesRefresh = null; });
+    return this.movesRefresh;
+  }
+
+  private async runMovesRefresh(force: boolean): Promise<MovesRefreshResult> {
+    const now = new Date();
+    const last = this.snap.movesRefreshedAt ?? {};
+    const due = (this.snap.follows ?? []).flatMap((follow) => {
+      const company = this.snap.companies.find((c) => c.id === follow.companyId);
+      const at = last[follow.companyId] ? Date.parse(last[follow.companyId]!) : NaN;
+      return company && (force || !Number.isFinite(at) || now.getTime() - at >= MOVES_REFRESH_EVERY_MS) ? [company] : [];
+    });
+    const latest = () => Object.values(this.snap.movesRefreshedAt ?? {}).sort().at(-1) ?? null;
+    if (!due.length) return { added: 0, refreshed: 0, refreshedAt: latest() };
+    const news = this.newsSearch?.() ?? null;
+    const sources = this.originalSources;
+    const failed = new Set<string>();
+    const candidates: MoveCandidate[] = [];
+    let next = 0;
+    const lane = async (): Promise<void> => {
+      for (let company = due[next++]; company; company = due[next++]) {
+        const since = moveSince(last[company.id], now);
+        if (news) {
+          // A feed that fails is not "nothing new": the company is looked at again next time.
+          const feed: WebSearchFn = (query) => news(query).catch((error: unknown) => { failed.add(company!.id); throw error; });
+          candidates.push(...await newsMoveCandidates(company, feed, since, now));
+        }
+        const scope = { companyId: company.id, companyName: company.name, metricType: 'company_moves' };
+        const read = sources
+          // The filing index must be today's; the ticker map may be reused.
+          ? (url: string) => this.secTurn(() => sources.retrieve(url, { ...scope, forceRefresh: url.includes('/submissions/') }))
+          : this.assetSourceReader ? (url: string) => this.secTurn(() => this.assetSourceReader!(url)) : null;
+        if (read) {
+          const found = await findCompanyFilings(company.name, read).catch(() => null);
+          if (found) candidates.push(...filingMoveCandidates(company, found.filings, since));
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(MOVES_REFRESH_LANES, due.length) }, lane));
+    const sorted = await classifyMoves(this.client, candidates, undefined, failed);
+    const foundAt = new Date().toISOString();
+    const merged = mergeMoves(this.snap.moves ?? [], sorted.filter((move) => !failed.has(move.companyId) || move.source !== 'news'), foundAt);
+    const refreshedAt = { ...(this.snap.movesRefreshedAt ?? {}) };
+    let refreshed = 0;
+    for (const company of due) {
+      if (failed.has(company.id) || !(this.snap.follows ?? []).some((follow) => follow.companyId === company.id)) continue;
+      refreshedAt[company.id] = foundAt;
+      refreshed += 1;
+    }
+    // Moves of a company unfollowed while this ran are not filed.
+    const followed = new Set((this.snap.follows ?? []).map((follow) => follow.companyId));
+    this.snap.moves = merged.moves.filter((move) => followed.has(move.companyId));
+    this.snap.movesRefreshedAt = refreshedAt;
+    await this.persist();
+    const added = merged.moves.filter((move) => move.foundAt === foundAt && followed.has(move.companyId)).length;
+    return { added, refreshed, refreshedAt: latest() };
+  }
+
+  /** One paced turn on the shared SEC queue (SEC refuses bursts). */
+  private secTurn<T>(read: () => Promise<T>): Promise<T> {
+    const turn = this.secQueue.then(read);
+    this.secQueue = turn.then(() => sleep(SEC_READ_GAP_MS), () => sleep(SEC_READ_GAP_MS));
+    return turn;
   }
 
   async saveCard(cardId: string): Promise<SavedCard> {

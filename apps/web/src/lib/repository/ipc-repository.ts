@@ -26,6 +26,9 @@ import type {
   Report,
   ReportRequest,
   SavedCard,
+  CompanyFollow,
+  CompanyMove,
+  MovesRefreshResult,
   Deck,
   DeckRefreshListener,
   DeckResearchBrief,
@@ -110,6 +113,25 @@ export class IpcRepository implements MarketIntelRepository {
   }
   unsaveCard(cardId: string): Promise<void> {
     return this.api.unsaveCard(cardId);
+  }
+  listMoves(): Promise<CompanyMove[]> {
+    return this.api.listMoves?.() ?? Promise.resolve([]);
+  }
+  refreshMoves(options?: { force?: boolean }): Promise<MovesRefreshResult> {
+    if (!this.api.refreshMoves) return Promise.reject(new Error('Update the desktop shell to use Today.'));
+    return this.api.refreshMoves(options);
+  }
+  async markMoveRead(moveId: string, read: boolean): Promise<void> {
+    await this.api.markMoveRead?.(moveId, read);
+  }
+  listFollows(): Promise<CompanyFollow[]> {
+    return this.api.listFollows?.() ?? Promise.resolve([]);
+  }
+  async followCompanies(companyIds: readonly string[]): Promise<void> {
+    await this.api.followCompanies?.([...companyIds]);
+  }
+  async unfollowCompany(companyId: string): Promise<void> {
+    await this.api.unfollowCompany?.(companyId);
   }
   getCompany(companyId: string): Promise<Company | null> {
     return this.api.getCompany(companyId);

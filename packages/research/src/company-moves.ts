@@ -117,7 +117,9 @@ const labelSchema = z.object({ labels: z.array(z.object({
  * says is not about the company itself, or is none of the five kinds, is not a
  * move. A failed call yields no news moves (filings still stand on their own).
  */
-export async function classifyMoves(client: LlmClient, candidates: readonly MoveCandidate[], signal?: AbortSignal): Promise<MoveCandidate[]> {
+export async function classifyMoves(client: LlmClient, candidates: readonly MoveCandidate[], signal?: AbortSignal,
+  /** Collects the companies whose headlines went unsorted, so their next refresh looks back over them again. */
+  unsorted?: Set<string>): Promise<MoveCandidate[]> {
   const news = candidates.filter((c) => c.source === 'news');
   const kept: MoveCandidate[] = candidates.filter((c) => c.source !== 'news');
   for (let start = 0; start < news.length; start += MOVE_CLASSIFY_BATCH) {
@@ -132,7 +134,10 @@ export async function classifyMoves(client: LlmClient, candidates: readonly Move
         if (!label || !label.about || label.kind === 'other') return;
         kept.push({ ...candidate, kind: label.kind, importance: label.importance });
       });
-    } catch { /* this chunk's news waits for the next refresh */ }
+    } catch {
+      // This chunk's news waits for the next refresh.
+      for (const candidate of chunk) unsorted?.add(candidate.companyId);
+    }
   }
   return kept;
 }
