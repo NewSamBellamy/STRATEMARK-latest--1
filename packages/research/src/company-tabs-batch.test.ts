@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import { completenessFixture } from './completeness-report.fixture';
-import { companyTabsBatchPrompt, companyTabsParts } from './company-tabs-batch';
+import { companyTabsBatchPrompt, companyTabsParts, companyTabsSections } from './company-tabs-batch';
 import { companyStoryPart } from './company-team';
-import { companySection, GeminiRepository, type RepoSnapshot } from './repository';
+import { GeminiRepository, type RepoSnapshot } from './repository';
 import type { LlmClient } from './types';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
@@ -35,7 +35,7 @@ describe('one combined tabs search for several companies', () => {
     acme.sentences.splice(2, 0, 'Acme Robotics partners with Gamma Shop on gadgets.');
     const g = batchAnswer([acme, section('Gamma Shop')]);
     const names = ['Acme Robotics', 'Gamma Shop'];
-    const parts = companyTabsParts(g, companySection(g.text, 'Acme Robotics', names), 'Acme Robotics', ['Gamma Shop']);
+    const parts = companyTabsParts(g, companyTabsSections(g.text, names)!.get('Acme Robotics'), 'Acme Robotics', ['Gamma Shop']);
     expect(parts.briefing!.grounding!.supports.map((s) => s.text)).toEqual([
       'Acme Robotics builds warehouse robots for retailers.', 'Acme Robotics operates Picker, a picking robot.']);
     expect(parts.briefing!.text).not.toContain('Pat Lee');
@@ -51,17 +51,17 @@ describe('one combined tabs search for several companies', () => {
 
   it('a section without its markers, or with a sentence shared with another section, is not used', () => {
     const plain = batchAnswer([{ name: 'Acme Robotics', sentences: ['Acme Robotics builds robots.'] }]);
-    expect(companyTabsParts(plain, companySection(plain.text, 'Acme Robotics'), 'Acme Robotics', [])).toEqual({ briefing: null, story: null });
+    expect(companyTabsParts(plain, companyTabsSections(plain.text, ['Acme Robotics'])!.get('Acme Robotics'), 'Acme Robotics', [])).toEqual({ briefing: null, story: null });
     // No COMPANY STORY line: the briefing is still usable, the story is not.
     const noStory = batchAnswer([{ name: 'Acme Robotics', sentences: ['Acme Robotics builds robots.', 'COMPANY TEAM', 'Pat Lee currently serves as CEO of Acme Robotics.'] }]);
-    const partial = companyTabsParts(noStory, companySection(noStory.text, 'Acme Robotics'), 'Acme Robotics', []);
+    const partial = companyTabsParts(noStory, companyTabsSections(noStory.text, ['Acme Robotics'])!.get('Acme Robotics'), 'Acme Robotics', []);
     expect(partial.briefing).not.toBeNull();
     expect(partial.story).toBeNull();
     // The same sentence in two sections cannot be told apart: it counts for neither.
     const twin = batchAnswer([section('Acme Robotics'), { ...section('Gamma Shop'), sentences: [...section('Gamma Shop').sentences, 'Robots are popular.'] }]);
     const twinText = twin.text.replace('Acme Robotics builds warehouse robots for retailers.', 'Robots are popular.\nAcme Robotics builds warehouse robots for retailers.');
     const shared = { ...twin, text: twinText, grounding: { ...twin.grounding!, answerText: twinText } };
-    const acme = companyTabsParts(shared, companySection(shared.text, 'Acme Robotics', ['Acme Robotics', 'Gamma Shop']), 'Acme Robotics', ['Gamma Shop']);
+    const acme = companyTabsParts(shared, companyTabsSections(shared.text, ['Acme Robotics', 'Gamma Shop'])!.get('Acme Robotics'), 'Acme Robotics', ['Gamma Shop']);
     expect(acme.briefing!.grounding!.supports.map((s) => s.text)).not.toContain('Robots are popular.');
   });
 
@@ -69,8 +69,10 @@ describe('one combined tabs search for several companies', () => {
     const prompt = companyTabsBatchPrompt([
       { company: { name: 'Acme Robotics', websiteUrl: 'https://acme.example' }, marketName: 'Robots' },
       { company: { name: 'Gamma Shop', websiteUrl: null }, marketName: 'Gadgets' }]);
-    expect(prompt).toContain('1. "Acme Robotics" (known official domain: "https://acme.example"; market: "Robots")');
-    expect(prompt).toContain('2. "Gamma Shop" (known official domain: "not established"; market: "Gadgets")');
+    // Bullets, not numbers: a numbered roster invites "### 1. Acme" headings.
+    expect(prompt).toContain('- "Acme Robotics" (known official domain: "https://acme.example"; market: "Robots")');
+    expect(prompt).toContain('- "Gamma Shop" (known official domain: "not established"; market: "Gadgets")');
+    expect(prompt).not.toMatch(/^1\. "/m);
     expect(prompt).toMatch(/exactly COMPANY TEAM/);
     expect(prompt).toMatch(/exactly COMPANY STORY/);
   });
@@ -104,6 +106,56 @@ function fixtureRepo(ground: (prompt: string) => Promise<Ground>) {
 const NAMES = ['Acme Robotics', 'Beta Capital', 'Gamma Shop'];
 const single = async (): Promise<Ground> => ({ text: 'Acme Robotics was founded in 2014 in Oakland.', citations: [{ title: 'About', url: 'https://acme.example/about' }], queries: ['q'] });
 
+describe('cutting a combined answer into companies', () => {
+  const roster = ['Acme Robotics', 'Gamma Shop'];
+  const sectionText = (name: string) => section(name).sentences.join('\n');
+
+  it('ends a section at the next heading of its level, whatever it names', () => {
+    // A trailing notes heading holds a rival's round: it is in nobody's section.
+    const notes = `### Acme Robotics\n${sectionText('Acme Robotics')}\n\n### Gamma Shop\n${sectionText('Gamma Shop')}\n\n### Notes\nIn 2021 the retailer raised a 20 million dollar Series B.`;
+    const cut = companyTabsSections(notes, roster)!;
+    expect(cut.get('Gamma Shop')).not.toContain('Series B');
+    expect(cut.get('Acme Robotics')).not.toContain('Gamma Shop');
+    // A misnamed heading for a rival ends Acme's section, and Gamma then has no section: nobody's part is used.
+    const misnamed = `### Acme Robotics\n${sectionText('Acme Robotics')}\n\n### Gamma Shop Inc. (gammashop.com) overview\nIn 2021 the retailer raised a 20 million dollar Series B.`;
+    expect(companyTabsSections(misnamed, roster)).toBeNull();
+    // A company named twice, or at another heading level, cannot be cut either.
+    expect(companyTabsSections('### Acme Robotics\na\n### Gamma Shop\nb\n### Acme Robotics\nc', roster)).toBeNull();
+    expect(companyTabsSections('### Acme Robotics\na\n#### Gamma Shop\nb', roster)).toBeNull();
+    // Part markers written as headings are not boundaries; a rule after the last section ends it.
+    const marked = notes.replace(/^COMPANY (TEAM|STORY)$/gm, '### COMPANY $1').replace('### Notes', '---');
+    const markedCut = companyTabsSections(marked, roster)!;
+    expect(markedCut.get('Acme Robotics')).toContain('Acme Robotics was founded in 2014');
+    expect(markedCut.get('Gamma Shop')).toContain('Gamma Shop was founded in 2014');
+    expect(markedCut.get('Gamma Shop')).not.toContain('Series B');
+    // A rule inside the last section, before its story, does not cut it off from its own parts.
+    const midRule = notes.replace('### Notes\n', '').replace('Gamma Shop operates Picker, a picking robot.', 'Gamma Shop operates Picker, a picking robot.\n---');
+    expect(companyTabsSections(midRule, roster)!.get('Gamma Shop')).toContain('Gamma Shop was founded in 2014');
+  });
+
+  it('reads numbered headings', () => {
+    for (const [a, b] of [['### 1. Acme Robotics', '### 2. Gamma Shop'], ['### **1) Acme Robotics**', '### **2) Gamma Shop**'],
+      ['## Company 1: Acme Robotics', '## Company 2: Gamma Shop']] as const) {
+      const cut = companyTabsSections(`${a}\n${sectionText('Acme Robotics')}\n\n${b}\n${sectionText('Gamma Shop')}`, roster);
+      expect(cut?.get('Acme Robotics')).toContain('Acme Robotics was founded in 2014');
+      expect(cut?.get('Gamma Shop')).toContain('Gamma Shop was founded in 2014');
+    }
+    // A name that starts with digits is still itself.
+    expect(companyTabsSections('### 3M\nx\n### Gamma Shop\ny', ['3M', 'Gamma Shop'])?.get('3M')).toContain('x');
+  });
+
+  it("gives companies that share a name key no part, and files only a company's own queries", () => {
+    const text = `### Scale\n${sectionText('Scale')}\n\n### Gamma Shop\n${sectionText('Gamma Shop')}`;
+    const cut = companyTabsSections(text, ['Scale', 'Scale Inc', 'Gamma Shop'])!;
+    expect(cut.has('Scale')).toBe(false);
+    expect(cut.has('Scale Inc')).toBe(false);
+    expect(cut.get('Gamma Shop')).toBeDefined();
+    const g = { ...batchAnswer([section('Acme Robotics'), section('Gamma Shop')]), queries: ['Acme Robotics products', 'Gamma Shop leadership team'] };
+    const parts = companyTabsParts(g, companyTabsSections(g.text, roster)!.get('Acme Robotics'), 'Acme Robotics', ['Gamma Shop']);
+    expect(parts.briefing!.queries).toEqual(['Acme Robotics products']);
+  });
+});
+
 describe('dashboard warm-up with a combined tabs search', () => {
   it('researches Overview, Products, Team and History of the deck\'s companies in one search instead of two per company', async () => {
     vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
@@ -112,8 +164,10 @@ describe('dashboard warm-up with a combined tabs search', () => {
     repo.warmDeckDashboards('deck_fx', 'creation');
     await repo.waitForDashboardWarmup();
     expect(labels().filter((label) => label === 'company_tabs_batch')).toHaveLength(1);
-    // Acme's Team tab was cached empty, so the warm-up re-researches it on purpose (forced): its own search.
-    expect(labels().filter((label) => /^company_(briefing|story)/.test(label))).toEqual(['company_story:acme']);
+    // Beta and Gamma share the combined search. Acme's other pair was already researched (History
+    // filled, Team cached empty and re-researched on purpose), so Acme searches on its own and its
+    // story is never searched early for a batch.
+    expect(labels().filter((label) => /^company_(briefing|story)/.test(label)).sort()).toEqual(['company_briefing:acme', 'company_story:acme']);
     // Each company's part is filed as its own evidence under the tab topics the scoreboard counts.
     const gamma = (saved().researchEvidence ?? []).filter((row) => row.companyId === 'gamma').map((row) => row.topic);
     expect(gamma).toEqual(expect.arrayContaining(['company_briefing', 'company_story']));
@@ -132,6 +186,61 @@ describe('dashboard warm-up with a combined tabs search', () => {
     expect(labels().filter((label) => label === 'company_tabs_batch')).toHaveLength(1);
     expect(labels().filter((label) => label.startsWith('company_briefing')).length).toBeGreaterThanOrEqual(2);
     expect(saved().dashboards.gamma?.overview).toBeDefined();
+  });
+
+  it('a combined search that never settles frees its companies, and pays for no late search', async () => {
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    vi.useFakeTimers();
+    try {
+      // The provider ignores the abort and never answers the combined search.
+      const { repo, labels } = fixtureRepo((prompt) => prompt.includes('Write one section per company') ? new Promise<Ground>(() => {}) : single());
+      repo.warmDeckDashboards('deck_fx', 'creation');
+      await vi.advanceTimersByTimeAsync(49_000);
+      expect(labels().filter((label) => label === 'company_tabs_batch')).toHaveLength(1);
+      expect(labels().filter((label) => /^company_(briefing|story):(beta|gamma)$/.test(label))).toEqual([]);
+      await vi.advanceTimersByTimeAsync(120_000);
+      // Released at the batch deadline, the waiting tabs fail at once: too late for a search of their
+      // own. The warm-up's next tabs then each run the company's own search, in their own time,
+      // once per tab pair (the slots are free), and never a second combined search.
+      expect(labels().filter((label) => label === 'company_tabs_batch')).toHaveLength(1);
+      expect(labels().filter((label) => label === 'company_briefing:gamma')).toHaveLength(1);
+      expect(labels().filter((label) => label === 'company_story:gamma')).toHaveLength(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a tab the user opens while a combined search hangs still gets its own search, and a late answer is not filed', async () => {
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    vi.useFakeTimers();
+    try {
+      let answer: ((g: Ground) => void) | undefined;
+      const { repo, labels, saved } = fixtureRepo((prompt) => prompt.includes('Write one section per company')
+        ? new Promise<Ground>((resolve) => { answer = resolve; }) : single());
+      repo.warmDeckDashboards('deck_fx', 'creation');
+      await vi.advanceTimersByTimeAsync(1_000);
+      // The user opens Gamma's Team while its pair waits on the combined search.
+      const opened = repo.getDashboardTab('gamma', 'team_org');
+      await vi.advanceTimersByTimeAsync(60_000);
+      await expect(opened).resolves.toBeDefined();
+      expect(labels()).toContain('company_story:gamma');
+      // The provider answers long after the deadline: nobody waits for it, so nothing of it is filed.
+      answer!(batchAnswer(NAMES.map(section)));
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect((saved().researchEvidence ?? []).some((row) => row.text.includes('Gamma Shop builds warehouse robots'))).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a user who opens a tab the warm-up has just started is never failed for a late batch', async () => {
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    vi.useFakeTimers();
+    try {
+      const { repo } = fixtureRepo((prompt) => prompt.includes('Write one section per company') ? new Promise<Ground>(() => {}) : single());
+      repo.warmDeckDashboards('deck_fx', 'creation');
+      // Same tick: the user joins the warm-up's run before it reached its search.
+      const opened = Promise.allSettled([repo.getDashboardTab('gamma', 'overview')]);
+      await vi.advanceTimersByTimeAsync(90_000);
+      const [outcome] = await opened;
+      expect(outcome!.status === 'rejected' ? String(outcome.reason) : 'ok').not.toMatch(/nothing in time/);
+    } finally { vi.useRealTimers(); }
   });
 
   it('a tab the user opens is not held back to wait for a batch', async () => {
