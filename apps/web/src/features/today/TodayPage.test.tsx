@@ -29,7 +29,7 @@ function todayRepo(follows: CompanyFollow[], moves: CompanyMove[]) {
     }),
     followCompanies: vi.fn(async () => {}),
     unfollowCompany: vi.fn(async (id: string) => { state.follows = state.follows.filter((f) => f.companyId !== id); }),
-  }) as MarketIntelRepository & Record<string, ReturnType<typeof vi.fn>>;
+  });
   return repo;
 }
 
