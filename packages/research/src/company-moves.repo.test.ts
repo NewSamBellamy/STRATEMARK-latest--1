@@ -74,25 +74,43 @@ describe('Today in the workspace', () => {
     expect(newsSearch).toHaveBeenLastCalledWith(expect.stringContaining('Gamma Shop'));
   });
 
-  it('a company whose feed or sorting failed is tried again next time, not skipped for a day', async () => {
-    let down = true;
-    const { repo, structure } = movesRepo(async (query) => { if (down) throw new Error('feed down'); return feed(query); });
-    await repo.followCompanies(['acme']);
-    expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 0 });
-    down = false;
-    structure.mockRejectedValueOnce(new Error('model down'));
-    expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 0 });
-    expect(await repo.refreshMoves()).toMatchObject({ added: 1, refreshed: 1 });
+  it('a company whose feed or sorting failed is tried again within hours, not skipped for a day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      let down = true;
+      const { repo, structure } = movesRepo(async (query) => { if (down) throw new Error('feed down'); return feed(query); });
+      await repo.followCompanies(['acme']);
+      expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 0 });
+      down = false;
+      vi.setSystemTime(Date.now() + 2 * HOUR + 1_000);
+      structure.mockRejectedValueOnce(new Error('model down'));
+      expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 0 });
+      vi.setSystemTime(Date.now() + 2 * HOUR + 1_000);
+      expect(await repo.refreshMoves()).toMatchObject({ added: 1, refreshed: 1 });
+    } finally { vi.useRealTimers(); }
   });
 
   it('an SEC outage does not count as a look, and does not hold back the news', async () => {
-    const sec = { down: true };
-    const { repo, newsSearch } = movesRepo(feed, sec);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const sec = { down: true };
+      const { repo, newsSearch } = movesRepo(feed, sec);
+      await repo.followCompanies(['acme']);
+      expect(await repo.refreshMoves()).toMatchObject({ added: 1, refreshed: 0 });
+      sec.down = false;
+      vi.setSystemTime(Date.now() + 2 * HOUR + 1_000);
+      expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 1 });
+      expect(newsSearch).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('while SEC stays unreachable, opening Today again soon searches and sorts nothing more', async () => {
+    const { repo, newsSearch, structure } = movesRepo(feed, { down: true });
     await repo.followCompanies(['acme']);
-    expect(await repo.refreshMoves()).toMatchObject({ added: 1, refreshed: 0 });
-    sec.down = false;
-    expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 1 });
-    expect(newsSearch).toHaveBeenCalledTimes(2);
+    await repo.refreshMoves();
+    expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 0 });
+    expect(newsSearch).toHaveBeenCalledTimes(1);
+    expect(structure).toHaveBeenCalledTimes(1);
   });
 
   it('a look the feed answered with nothing still finds a story a few days old once the feed is back', async () => {

@@ -174,6 +174,8 @@ interface TabBatch {
 const SEC_READ_GAP_MS = 150;
 /** Today: a followed company is looked at again after this long (a daily refresh with some slack). */
 const MOVES_REFRESH_EVERY_MS = 20 * 60 * 60_000;
+/** Today: a company whose look failed (feed, SEC or sorting) is tried again after this long. */
+const MOVES_RETRY_MS = 2 * 60 * 60_000;
 /** Followed companies looked at at once during a refresh. */
 const MOVES_REFRESH_LANES = 4;
 /** Concurrent IAPD (Form ADV) reads across a deck — see advRead. */
@@ -2441,8 +2443,14 @@ export class GeminiRepository implements MarketIntelRepository {
     const merged = mergeMoves(this.snap.moves ?? [], sorted, foundAt);
     const refreshedAt = { ...(this.snap.movesRefreshedAt ?? {}) };
     let refreshed = 0;
+    // A failed look is retried after MOVES_RETRY_MS, not on every open of Today (a source can stay down for days).
+    const retryAt = new Date(now.getTime() + MOVES_RETRY_MS - MOVES_REFRESH_EVERY_MS).toISOString();
     for (const company of due) {
-      if (failed.has(company.id) || !(this.snap.follows ?? []).some((follow) => follow.companyId === company.id)) continue;
+      if (!(this.snap.follows ?? []).some((follow) => follow.companyId === company.id)) continue;
+      if (failed.has(company.id)) {
+        if (!refreshedAt[company.id] || refreshedAt[company.id]! < retryAt) refreshedAt[company.id] = retryAt;
+        continue;
+      }
       refreshedAt[company.id] = foundAt;
       refreshed += 1;
     }
