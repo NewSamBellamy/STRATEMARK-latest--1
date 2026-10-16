@@ -230,6 +230,10 @@ export class IpcRepository implements MarketIntelRepository {
     if (!this.api.huntCompanyMetrics) return Promise.reject(new Error('Update the desktop shell to hunt metrics.'));
     return this.api.huntCompanyMetrics(id, options);
   }
+  /** An older desktop host batches nothing; the face sweep then hunts each company alone. */
+  huntFaceSlotsBatch(companyIds: readonly string[]): Promise<Record<string, HuntMetricsResult>> {
+    return this.api.huntFaceSlotsBatch?.(companyIds) ?? Promise.resolve({});
+  }
   generateDeckBriefing(id: string, opts?: { windowHours?: number }): Promise<DeckBriefing> {
     if (!this.api.generateDeckBriefing) return Promise.reject(new Error('Update the desktop shell to generate briefings.'));
     return this.api.generateDeckBriefing(id, opts);
