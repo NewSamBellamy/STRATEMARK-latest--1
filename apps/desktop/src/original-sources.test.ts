@@ -43,6 +43,29 @@ describe('native original source artifacts', () => {
     expect(await repo.reuseCompanyEvidence('acme_2')).toBe(0);
   });
 
+  it('a company added again in a second deck opens its twin\'s products tab from the real page store, with no search', async () => {
+    const { directory, store } = await setup();
+    const quote = 'Acme Fleet Manager is the software operators use to run every warehouse robot.';
+    const page = attempt('acme');
+    page.metricType = 'products_roadmap';
+    page.receipts = [{ ...page.receipts[0]!, requestedUrl: 'https://acme.example/products', finalUrl: 'https://acme.example/products', text: `Products. ${quote} Contact sales.` }];
+    await store.save(page);
+    const snapshot = migrateSnapshot(null).snapshot;
+    const acme = { name: 'Acme Robotics', oneLiner: 'Robots', websiteUrl: 'https://acme.example', logoUrl: null, hqLocation: null, brandTheme: null };
+    snapshot.companies = [{ id: 'acme', ...acme }, { id: 'acme_2', ...acme }];
+    snapshot.dashboards = { acme: { products_roadmap: { content: { products: [], roadmap: [] }, citations: [], lastRefreshedAt: new Date().toISOString(),
+      productSelections: { products: [{ name: 'Fleet Manager', status: null, sourceUrl: 'https://acme.example/products', quote }], roadmap: [] } } } } as typeof snapshot.dashboards;
+    const statePath = path.join(directory, 'twin-tabs.json');
+    await createFileStore(statePath).write(snapshot);
+    const ground = vi.fn(async () => { throw new Error('no paid search'); });
+    const repo = new GeminiRepository({ apiKey: 'test', client: { ground, structure: ground } as unknown as LlmClient, dashboardWarmup: false,
+      store: createFileStore(statePath), originalSources: store });
+    const products = await repo.getDashboardTab('acme_2', 'products_roadmap');
+    expect(products?.content.products.map((row) => row.name)).toEqual(['Fleet Manager']);
+    expect(await store.list({ companyId: 'acme_2', limit: 20 })).toHaveLength(1);
+    expect(ground).not.toHaveBeenCalled();
+  });
+
   it('retains complete SEC records beyond excerpt size and reopens their typed company facts offline', async () => {
     const { directory, store } = await setup();
     const url = 'https://data.sec.gov/api/xbrl/companyconcept/CIK0000789019/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax.json';

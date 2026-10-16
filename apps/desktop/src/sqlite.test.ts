@@ -122,6 +122,14 @@ describe('sqlite research store', () => {
     expect(read.movesRefreshedAt).toEqual(today.movesRefreshedAt);
   });
 
+  it('remembers a deck refresh across a restart, so pre-refresh tabs are never lent back', () => {
+    const file = path.join(dir, 'repo.json');
+    const original = snapshot();
+    const refreshed = { ...original, tabsRefreshedAt: { [original.companies[0]!.id]: '2026-10-16T00:00:00.000Z' } };
+    createSqliteStore(file)!.write(refreshed);
+    expect(createSqliteStore(file)!.read()!.tabsRefreshedAt).toEqual(refreshed.tabsRefreshedAt);
+  });
+
   it('persists incremental changes: row updates, deletions, additions and record edits', () => {
     const file = path.join(dir, 'repo.json');
     const store = createSqliteStore(file)!;
