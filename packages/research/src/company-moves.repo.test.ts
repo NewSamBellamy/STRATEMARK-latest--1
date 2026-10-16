@@ -8,7 +8,7 @@ import type { WebSearchFn } from './web-search';
 const HOUR = 60 * 60_000;
 
 /** A workspace with the fixture deck (Acme Robotics, Beta Capital, Gamma Shop), a news feed and one sorting model. */
-function movesRepo(news: WebSearchFn) {
+function movesRepo(news: WebSearchFn, sec: { down: boolean } = { down: false }) {
   let saved = { ...completenessFixture(), viceClaims: [], reports: [], briefings: [], savedCards: [],
     opportunity: {}, researchJobs: [], threads: [] } as unknown as RepoSnapshot;
   const structure = vi.fn(async (prompt: string, schema: ZodType<unknown>) => {
@@ -19,7 +19,10 @@ function movesRepo(news: WebSearchFn) {
   const newsSearch = vi.fn(news);
   const repo = new GeminiRepository({ apiKey: 'test', client: { structure, ground: vi.fn() } as unknown as LlmClient,
     newsSearch: () => newsSearch,
-    originalSourceReader: async (url) => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'offline' }),
+    // SEC answers that none of the fixture companies is a registrant, unless it is down.
+    originalSourceReader: async (url) => (sec.down || !url.includes('company_tickers')
+      ? { requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'offline' }
+      : { requestedUrl: url, status: 'retrieved', retrievedAt: new Date().toISOString(), text: '{}' }),
     store: { read: () => structuredClone(saved), write: async (next) => { saved = structuredClone(next); } } });
   return { repo, structure, newsSearch, saved: () => saved };
 }
@@ -80,6 +83,48 @@ describe('Today in the workspace', () => {
     structure.mockRejectedValueOnce(new Error('model down'));
     expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 0 });
     expect(await repo.refreshMoves()).toMatchObject({ added: 1, refreshed: 1 });
+  });
+
+  it('an SEC outage does not count as a look, and does not hold back the news', async () => {
+    const sec = { down: true };
+    const { repo, newsSearch } = movesRepo(feed, sec);
+    await repo.followCompanies(['acme']);
+    expect(await repo.refreshMoves()).toMatchObject({ added: 1, refreshed: 0 });
+    sec.down = false;
+    expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 1 });
+    expect(newsSearch).toHaveBeenCalledTimes(2);
+  });
+
+  it('a look the feed answered with nothing still finds a story a few days old once the feed is back', async () => {
+    // The relay turns an outage into an empty answer: nothing tells the refresh it was down.
+    let down = true;
+    const { repo } = movesRepo(async (query) => (down ? [] : [
+      { url: 'https://news.example/acme-old', title: 'Acme Robotics raises $40M Series B', snippet: '', published: recent(72), publisher: 'Reuters' },
+    ].filter(() => query.includes('Acme'))));
+    await repo.followCompanies(['acme']);
+    await repo.refreshMoves();
+    down = false;
+    expect(await repo.refreshMoves({ force: true })).toMatchObject({ added: 1 });
+  });
+
+  it('stories already filed are not sent to be sorted again', async () => {
+    const { repo, structure } = movesRepo(feed);
+    await repo.followCompanies(['acme']);
+    await repo.refreshMoves();
+    const sorted = structure.mock.calls.length;
+    await repo.refreshMoves({ force: true });
+    const prompts = structure.mock.calls.slice(sorted).map((call) => call[0] as string);
+    expect(prompts.join('\n')).not.toContain('raises $40M Series B');
+  });
+
+  it('a forced check asked during a running one still looks at every company', async () => {
+    const { repo, newsSearch } = movesRepo(feed);
+    await repo.followCompanies(['acme']);
+    await repo.refreshMoves();
+    await repo.followCompanies(['gamma']);
+    const [, forced] = await Promise.all([repo.refreshMoves(), repo.refreshMoves({ force: true })]);
+    expect(forced.refreshed).toBe(2);
+    expect(newsSearch.mock.calls.filter(([q]) => String(q).includes('Acme')).length).toBe(2);
   });
 
   it('read state persists, and moves of a company no longer followed are not shown', async () => {

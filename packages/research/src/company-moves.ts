@@ -54,12 +54,15 @@ export function moveUrlKey(raw: string): string | null {
   return url.href.replace(/\/$/, '');
 }
 
+/** Feed clocks drift a little; beyond this a date ahead of now is wrong, not early. */
+const CLOCK_SKEW_MS = 15 * 60_000;
+
 /** A feed date as ISO, or null when it is missing, unreadable or in the future (a move must be dated). */
 export function movePublishedAt(raw: string | undefined, now: Date): string | null {
   if (!raw?.trim()) return null;
   const at = Date.parse(raw);
-  if (!Number.isFinite(at) || at > now.getTime() + DAY_MS) return null;
-  return new Date(at).toISOString();
+  if (!Number.isFinite(at) || at > now.getTime() + CLOCK_SKEW_MS) return null;
+  return new Date(Math.min(at, now.getTime())).toISOString();
 }
 
 /** News stories naming the company, published after `since`, one per address. */
@@ -149,17 +152,26 @@ export function moveId(companyId: string, url: string): string {
   return `mv_${h.toString(36)}`;
 }
 
-/** New moves join the stored ones (read state kept); one per company and address, and one per company and headline. */
+const titleKey = (m: { companyId: string; title: string }) => `${m.companyId}|${m.title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 90)}`;
+
+/** Headlines not filed yet: what is already stored is not sent to be sorted again. */
+export function unfiledCandidates(existing: readonly CompanyMove[], candidates: readonly MoveCandidate[]): MoveCandidate[] {
+  const ids = new Set(existing.map((move) => move.id));
+  const titles = new Set(existing.filter((move) => move.source === 'news').map(titleKey));
+  return candidates.filter((c) => !ids.has(moveId(c.companyId, c.url)) && !(c.source === 'news' && titles.has(titleKey(c))));
+}
+
+/** New moves join the stored ones (read state kept); one per company and address, and one news story per company and headline
+ * (EDGAR titles every quarter's filing alike, so filings are told apart by address only). */
 export function mergeMoves(existing: readonly CompanyMove[], fresh: readonly MoveCandidate[], foundAt: string): { moves: CompanyMove[]; added: number } {
   const byId = new Map(existing.map((move) => [move.id, move]));
-  const titleKey = (m: { companyId: string; title: string }) => `${m.companyId}|${m.title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 90)}`;
-  const titles = new Set(existing.map(titleKey));
+  const titles = new Set(existing.filter((move) => move.source === 'news').map(titleKey));
   let added = 0;
   for (const c of fresh) {
     if (!c.kind) continue;
     const id = moveId(c.companyId, c.url);
-    if (byId.has(id) || titles.has(titleKey(c))) continue;
-    titles.add(titleKey(c));
+    if (byId.has(id) || (c.source === 'news' && titles.has(titleKey(c)))) continue;
+    if (c.source === 'news') titles.add(titleKey(c));
     byId.set(id, { id, companyId: c.companyId, companyName: c.companyName, kind: c.kind, importance: c.importance ?? 1,
       title: c.title, url: c.url, publisher: c.publisher, publishedAt: c.publishedAt, foundAt, source: c.source, readAt: null });
     added += 1;
@@ -174,9 +186,11 @@ export function rankMoves(moves: readonly CompanyMove[]): CompanyMove[] {
     || b.importance - a.importance || b.publishedAt.localeCompare(a.publishedAt));
 }
 
-/** Where a company's next refresh starts: just after its last one, else a week back. */
-export function moveSince(lastRefreshedAt: string | undefined, now: Date): Date {
-  const last = lastRefreshedAt ? Date.parse(lastRefreshedAt) : NaN;
-  // Feeds date stories late: look back a day before the last refresh; merge drops the repeats.
-  return Number.isFinite(last) ? new Date(last - DAY_MS) : new Date(now.getTime() - MOVE_FIRST_LOOK_DAYS * DAY_MS);
+/**
+ * Where every look starts: a week back. A feed outage reads as an empty answer,
+ * so a look is never trusted to have seen everything since the last one; what
+ * is already filed is dropped before sorting (unfiledCandidates).
+ */
+export function moveSince(now: Date): Date {
+  return new Date(now.getTime() - MOVE_FIRST_LOOK_DAYS * DAY_MS);
 }

@@ -130,7 +130,7 @@ import { companyNameKey, marketCapEstimate, secSharesConceptUrl, yahooChartUrl }
 import { readRegistrantProfile, resolveListedIdentity, type ListedIdentityResult } from './sec-identity';
 import { secHeadquartersPlace } from './sec-profile';
 import { findCompanyFilings, secSubmissionsUrl } from './sec-ownership';
-import { classifyMoves, filingMoveCandidates, mergeMoves, moveSince, newsMoveCandidates, rankMoves, type MoveCandidate } from './company-moves';
+import { classifyMoves, filingMoveCandidates, mergeMoves, moveSince, newsMoveCandidates, rankMoves, unfiledCandidates, type MoveCandidate } from './company-moves';
 import { findFormDLastRound } from './sec-form-d';
 import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane, type DiscoveryNotes } from './searxng';
@@ -2386,8 +2386,14 @@ export class GeminiRepository implements MarketIntelRepository {
    * search runs here.
    */
   refreshMoves(options?: { force?: boolean }): Promise<MovesRefreshResult> {
-    this.movesRefresh ??= this.runMovesRefresh(Boolean(options?.force)).finally(() => { this.movesRefresh = null; });
-    return this.movesRefresh;
+    const running = this.movesRefresh;
+    // A forced check asked while another runs goes next: the running one may have skipped companies.
+    if (running && !options?.force) return running;
+    const run: Promise<MovesRefreshResult> = (running ? running.catch(() => undefined) : Promise.resolve())
+      .then(() => this.runMovesRefresh(Boolean(options?.force)))
+      .finally(() => { if (this.movesRefresh === run) this.movesRefresh = null; });
+    this.movesRefresh = run;
+    return run;
   }
 
   private async runMovesRefresh(force: boolean): Promise<MovesRefreshResult> {
@@ -2407,17 +2413,22 @@ export class GeminiRepository implements MarketIntelRepository {
     let next = 0;
     const lane = async (): Promise<void> => {
       for (let company = due[next++]; company; company = due[next++]) {
-        const since = moveSince(last[company.id], now);
+        const since = moveSince(now);
         if (news) {
           // A feed that fails is not "nothing new": the company is looked at again next time.
           const feed: WebSearchFn = (query) => news(query).catch((error: unknown) => { failed.add(company!.id); throw error; });
           candidates.push(...await newsMoveCandidates(company, feed, since, now));
         }
         const scope = { companyId: company.id, companyName: company.name, metricType: 'company_moves' };
-        const read = sources
+        const reader = sources
           // The filing index must be today's; the ticker map may be reused.
-          ? (url: string) => this.secTurn(() => sources.retrieve(url, { ...scope, forceRefresh: url.includes('/submissions/') }))
-          : this.assetSourceReader ? (url: string) => this.secTurn(() => this.assetSourceReader!(url)) : null;
+          ? (url: string) => sources.retrieve(url, { ...scope, forceRefresh: url.includes('/submissions/') })
+          : this.assetSourceReader;
+        // An SEC page that could not be read is not "no filings": the company is looked at again next time.
+        const read = reader ? (url: string) => this.secTurn(() => reader(url)).then((receipt) => {
+          if (receipt.status !== 'retrieved') failed.add(company!.id);
+          return receipt;
+        }, (error: unknown) => { failed.add(company!.id); throw error; }) : null;
         if (read) {
           const found = await findCompanyFilings(company.name, read).catch(() => null);
           if (found) candidates.push(...filingMoveCandidates(company, found.filings, since));
@@ -2425,9 +2436,9 @@ export class GeminiRepository implements MarketIntelRepository {
       }
     };
     await Promise.all(Array.from({ length: Math.min(MOVES_REFRESH_LANES, due.length) }, lane));
-    const sorted = await classifyMoves(this.client, candidates, undefined, failed);
+    const sorted = await classifyMoves(this.client, unfiledCandidates(this.snap.moves ?? [], candidates), undefined, failed);
     const foundAt = new Date().toISOString();
-    const merged = mergeMoves(this.snap.moves ?? [], sorted.filter((move) => !failed.has(move.companyId) || move.source !== 'news'), foundAt);
+    const merged = mergeMoves(this.snap.moves ?? [], sorted, foundAt);
     const refreshedAt = { ...(this.snap.movesRefreshedAt ?? {}) };
     let refreshed = 0;
     for (const company of due) {

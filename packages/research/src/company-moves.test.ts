@@ -7,6 +7,25 @@ import type { LlmClient } from './types';
 const now = new Date('2026-10-16T09:00:00Z');
 const acme = { id: 'acme', name: 'Acme Robotics', websiteUrl: 'https://acme.example' };
 
+describe('dates and repeats', () => {
+  it('a story dated ahead of now (beyond clock skew) is not a move', async () => {
+    const found = await newsMoveCandidates(acme, async () => [
+      { url: 'https://news.example/f', title: 'Acme Robotics raises $40M', snippet: '', published: '2026-10-16T20:00:00Z' },
+      { url: 'https://news.example/g', title: 'Acme Robotics hires a CFO', snippet: '', published: '2026-10-16T09:10:00Z' },
+    ], new Date('2026-10-09T00:00:00Z'), now);
+    expect(found.map((c) => c.url)).toEqual(['https://news.example/g']);
+    // Within skew: dated now, never in the future.
+    expect(found[0]!.publishedAt).toBe(now.toISOString());
+  });
+
+  it('each quarter\'s filing is its own move although EDGAR titles them alike', () => {
+    const q = (url: string, publishedAt: string): MoveCandidate => ({ companyId: 'acme', companyName: 'Acme Robotics', title: 'Quarterly report (Form 10-Q)',
+      url, publisher: 'SEC EDGAR', publishedAt, snippet: '', source: 'sec_filing', kind: 'filing', importance: 1 });
+    const first = mergeMoves([], [q('https://www.sec.gov/a-q2', '2026-08-01T00:00:00.000Z')], '2026-08-02T00:00:00.000Z');
+    expect(mergeMoves(first.moves, [q('https://www.sec.gov/a-q3', '2026-11-01T00:00:00.000Z')], '2026-11-02T00:00:00.000Z').added).toBe(1);
+  });
+});
+
 describe('news moves', () => {
   it('keeps only dated stories naming the company, newer than the last look, one per address', async () => {
     const newsSearch = vi.fn(async () => [
@@ -90,7 +109,6 @@ describe('merging and ranking', () => {
   });
 
   it('looks a week back the first time, and a day before the last refresh after that', () => {
-    expect(moveSince(undefined, now).toISOString()).toBe('2026-10-09T09:00:00.000Z');
-    expect(moveSince('2026-10-15T09:00:00.000Z', now).toISOString()).toBe('2026-10-14T09:00:00.000Z');
+    expect(moveSince(now).toISOString()).toBe('2026-10-09T09:00:00.000Z');
   });
 });

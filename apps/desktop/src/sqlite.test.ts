@@ -102,6 +102,26 @@ describe('sqlite research store', () => {
     expect(read.dashboardWarmup).toEqual(withWarmup.dashboardWarmup);
   });
 
+  it('keeps Today (follows, moves with read state, last looks) across a restart', () => {
+    const file = path.join(dir, 'repo.json');
+    const store = createSqliteStore(file)!;
+    const original = snapshot();
+    const companyId = original.companies[0]!.id;
+    const today = {
+      ...original,
+      follows: [{ companyId, followedAt: '2026-10-16T00:00:00.000Z' }],
+      moves: [{ id: 'mv_1', companyId, companyName: 'Acme', kind: 'funding' as const, importance: 3 as const, title: 'Acme raises $40M',
+        url: 'https://news.example/a', publisher: 'Reuters', publishedAt: '2026-10-15T08:00:00.000Z', foundAt: '2026-10-16T00:00:00.000Z',
+        source: 'news' as const, readAt: '2026-10-16T01:00:00.000Z' }],
+      movesRefreshedAt: { [companyId]: '2026-10-16T00:00:00.000Z' },
+    };
+    store.write(today);
+    const read = createSqliteStore(file)!.read()!;
+    expect(read.follows).toEqual(today.follows);
+    expect(read.moves).toEqual(today.moves);
+    expect(read.movesRefreshedAt).toEqual(today.movesRefreshedAt);
+  });
+
   it('persists incremental changes: row updates, deletions, additions and record edits', () => {
     const file = path.join(dir, 'repo.json');
     const store = createSqliteStore(file)!;
