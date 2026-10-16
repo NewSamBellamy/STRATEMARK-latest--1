@@ -206,17 +206,20 @@ export function namesRosterRival(text: string, companyName: string, others: read
   if (!others?.length || !text) return false;
   const own = [companyName, stripCorporateSuffix(companyName), ...entityAliases(companyName)].filter((form) => form.length > 0);
   const ownKeys = new Set(own.map((form) => form.toLowerCase()));
-  let hay = text;
-  for (const alias of [...new Set(own)].sort((a, b) => b.length - a.length)) {
-    hay = hay.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escape(alias)}(?![\\p{L}\\p{N}])`, 'giu'), ' ');
-  }
+  const spans = (form: string, flags: string) => [...text.matchAll(new RegExp(`(?<![\\p{L}\\p{N}])${escape(form)}(?![\\p{L}\\p{N}])`, flags))]
+    .map((m) => [m.index!, m.index! + m[0].length] as const);
+  // A rival mention counts unless it lies inside a mention of the subject: "Scale"
+  // inside "Scale AI" is the subject itself, but "Gusto Pro" is a rival even
+  // though it starts with "Gusto".
+  const ownSpans = [...new Set(own)].flatMap((form) => spans(form, 'giu'));
   const forms = new Set<string>();
   for (const name of others) {
     for (const form of [name.trim(), stripCorporateSuffix(name.trim()), ...entityAliases(name)]) {
       if (form.length >= 3 && !ownKeys.has(form.toLowerCase())) forms.add(form);
     }
   }
-  return [...forms].some((form) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(form)}(?![\\p{L}\\p{N}])`, 'u').test(hay));
+  return [...forms].some((form) => spans(form, 'gu')
+    .some(([start, end]) => !ownSpans.some(([s, e]) => s <= start && end <= e && e - s > end - start)));
 }
 
 /** True when `text` names the company anywhere (legal, short or alias form). */

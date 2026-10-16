@@ -213,17 +213,28 @@ describe('huntFaceSlotsBatch — adversarial review cases', () => {
 });
 
 describe('huntFaceSlotsBatch — a paid search is never paid again', () => {
-  it('a company whose extraction fails after the search still comes back, so the caller does not repeat its plain pass', async () => {
+  it('a company whose page reads fail after the search still gets its gated pass, so the caller does not repeat it', async () => {
+    const reader = async () => { throw new Error('network down'); };
+    const answer = '### Skydio\nSkydio had 900 employees as of 2026-04-23.\nOriginal source: https://www.skydio.com/about';
+    const ground = vi.fn().mockResolvedValue({ text: answer, citations: [], queries: [], grounding: undefined });
+    const structure = vi.fn().mockResolvedValue({ figures: [] });
+    const repo = new GeminiRepository({ apiKey: 'k', store: store(snap()), client: { ground, structure } as unknown as LlmClient,
+      originalSourceReader: reader as never });
+    const results = await repo.huntFaceSlotsBatch(['cmp_s']);
+    expect(results.cmp_s).toBeDefined();
+  });
+
+  it('an extraction failure is not dressed up as "nothing found": the company is left for the caller to hunt alone', async () => {
     const reader = async (url: string) => ({ requestedUrl: url, finalUrl: url, status: 'retrieved' as const, httpStatus: 200,
       retrievedAt: new Date().toISOString(), text: 'Skydio had 900 employees as of April 23, 2026.', contentHash: 'b'.repeat(64) });
     const answer = '### Skydio\nSkydio had 900 employees as of 2026-04-23.\nOriginal source: https://www.skydio.com/about';
     const ground = vi.fn().mockResolvedValue({ text: answer, citations: [], queries: [], grounding: undefined });
-    const structure = vi.fn().mockRejectedValue(new Error('rate limited'));
+    const structure = vi.fn().mockRejectedValue(new Error('429 quota'));
     const repo = new GeminiRepository({ apiKey: 'k', store: store(snap()), client: { ground, structure } as unknown as LlmClient,
       originalSourceReader: reader as never });
     const results = await repo.huntFaceSlotsBatch(['cmp_s']);
     expect(structure).toHaveBeenCalled();
-    expect(results.cmp_s).toMatchObject({ filledTypes: [] });
+    expect(results.cmp_s).toBeUndefined();
   });
 });
 
@@ -234,6 +245,11 @@ describe('namesRosterRival', () => {
     expect(namesRosterRival('Wingtra, a global drone maker, had 127 employees', 'Wingtra', ['Global Drones Inc.'])).toBe(false);
     expect(namesRosterRival('Wingtra and Skydio had 900 employees', 'Wingtra', ['Skydio'])).toBe(true);
     expect(namesRosterRival('Wingtra AG had 127 employees', 'Wingtra', ['Skydio, Inc.'])).toBe(false);
+    // A rival whose name starts with the subject's name is still a rival.
+    expect(namesRosterRival('Gusto Pro had 500 employees', 'Gusto', ['Gusto Pro'])).toBe(true);
+    expect(namesRosterRival('Rocket Lab had 2,000 employees', 'Rocket', ['Rocket Lab'])).toBe(true);
+    // The subject's own longer name never counts as the shorter rival.
+    expect(namesRosterRival('Scale AI had 900 employees', 'Scale AI', ['Scale'])).toBe(false);
   });
 });
 

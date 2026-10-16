@@ -4047,25 +4047,22 @@ export class GeminiRepository implements MarketIntelRepository {
         // Every other company in the batch is a rival for this one, whatever market it is filed under.
         const peers = names.filter((name) => name !== company.name);
         const section = companySection(g.text, company.name, names);
-        try {
-          return await slot(async () => {
-            const leads = await this.huntSearchLeads(company, softTypes, profile, escalation);
-            // Fetch leads only from this company's own part of the answer, never a rival's.
-            const originals = await readCompanyOriginals({ sources: this.originalSources!,
-              companyId: company.id, companyName: company.name, topic: 'metrics_hunt', maxSources: 4,
-              missing: softTypes, forceRefresh: true,
-              citations: selectOriginalSourceCitations([...(leads?.citations ?? []), ...sectionCitations(g, section), ...priorLeads],
-                company.websiteUrl, needsAnnualFiling, this.originalSources!.supports, section, 4) });
-            const outcome = await this.finishHunt(company, { softTypes, structuredFilled: plan.structuredFilled,
-              revisions: plan.revisions, mine: plan.mine, g, leads, originals, peers, notes: section || g.text });
-            void this.bindReportedSources(company.id);
-            return outcome;
-          });
-        } catch {
-          // The search was paid for and this company was in it: it counts as its plain pass, so a
-          // caller does not pay a second plain search (a face still short gets the escalated one).
-          return { filledTypes: plan.structuredFilled, metrics: plan.mine(), retieredCardIds: [] };
-        }
+        return slot(async () => {
+          // Free leads and page reads only add evidence: one failing still gives this company its
+          // gated pass over the paid answer, so the caller does not pay a second plain search.
+          // Extraction or save failures are real and reach the caller, which hunts this company alone.
+          const leads = await this.huntSearchLeads(company, softTypes, profile, escalation).catch(() => null);
+          // Fetch leads only from this company's own part of the answer, never a rival's.
+          const originals = await readCompanyOriginals({ sources: this.originalSources!,
+            companyId: company.id, companyName: company.name, topic: 'metrics_hunt', maxSources: 4,
+            missing: softTypes, forceRefresh: true,
+            citations: selectOriginalSourceCitations([...(leads?.citations ?? []), ...sectionCitations(g, section), ...priorLeads],
+              company.websiteUrl, needsAnnualFiling, this.originalSources!.supports, section, 4) }).catch(() => []);
+          const outcome = await this.finishHunt(company, { softTypes, structuredFilled: plan.structuredFilled,
+            revisions: plan.revisions, mine: plan.mine, g, leads, originals, peers, notes: section || g.text });
+          void this.bindReportedSources(company.id);
+          return outcome;
+        });
       })().finally(() => {
         if (this.hunts.get(id)?.result === result) this.hunts.delete(id);
       });
