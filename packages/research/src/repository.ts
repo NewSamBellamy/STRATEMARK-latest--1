@@ -6,7 +6,7 @@
  * satisfies the same interface as MockRepository, the app swaps to it simply by
  * having an API key present — no UI changes.
  */
-import { isAttributedGrounding } from './grounding-support';
+import { copyProviderGrounding, isAttributedGrounding } from './grounding-support';
 import {
   METRIC_TYPES,
   METRIC_TYPE_LABELS,
@@ -151,6 +151,14 @@ import { foundedFromHistory, foundedFromWebsite, foundedFromWikidata, wikidataFo
 const JOB_STALL_MS = 8 * 60_000;
 /** How long a company's shared Overview + Products search is reused (a warm-up finishes well inside it). */
 const COMPANY_BRIEFING_TTL_MS = 15 * 60_000;
+/** How long the warm-up's first tab search waits for other companies to share its search. */
+const TAB_BATCH_WINDOW_MS = 250;
+type GroundAnswer = Awaited<ReturnType<LlmClient['ground']>>;
+type CompanyTabParts = ReturnType<typeof companyTabsParts>;
+interface TabBatch {
+  members: Array<{ company: Company; marketName: string; done: (parts: CompanyTabParts | null) => void }>;
+  started: boolean;
+}
 /** The hydration-time logo is a gstatic favicon guess, not company art. The
  * asset lane (and only the asset lane, or the user) replaces it. */
 const SEC_READ_GAP_MS = 150;
@@ -169,6 +177,7 @@ import { savedCompanySummary } from './saved-profile';
 import { projectedCompanyFacts } from './displayed-facts';
 import { companySourceTargets } from './source-policy';
 import { companyBriefingPrompt, renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
+import { companyTabsBatchPrompt, companyTabsParts, TAB_BATCH_SIZE } from './company-tabs-batch';
 import { companyStoryPart, companyStoryPrompt, renderCompanyTeamOrg, teamOrgOriginalAttempts, teamOrgSupportReferences, type TeamOrgSelections } from './company-team';
 
 interface CachedTab {
@@ -658,7 +667,7 @@ export class GeminiRepository implements MarketIntelRepository {
         canRun: () => !this.persistenceError && this.activeBackgroundJobs.size === 0 && (warm.allowed?.() ?? true),
         cached: (companyId, tab) => this.warmTabState(companyId, tab),
         // The on-open path: same research, same gates, same in-flight dedupe.
-        research: (companyId, tab, force) => this.getDashboardTab(companyId, tab, force || undefined),
+        research: (companyId, tab, force) => { this.warmedCompanies.add(companyId); return this.getDashboardTab(companyId, tab, force || undefined); },
         attempts: () => this.snap.dashboardWarmup ?? {},
         recordAttempt: async (companyId, tab, attempt) => {
           if (!this.snap.companies.some((company) => company.id === companyId)) return;
@@ -2664,31 +2673,33 @@ export class GeminiRepository implements MarketIntelRepository {
    * own 90-second deadline, so one tab giving up does not cancel it for the other.
    */
   private readonly companyBriefings = new Map<string, { key: string; at: number; result: ReturnType<LlmClient['ground']>; deadline: AbortController }>();
+  /** Companies the dashboard warm-up has researched: only their tab searches wait to be batched. */
+  private readonly warmedCompanies = new Set<string>();
+  /** Warm-up companies gathering for one combined tabs search (companyTabsBatchPrompt). */
+  private tabBatch: TabBatch | null = null;
 
   private companyBriefing(company: Company, marketName: string, force: boolean, signal: AbortSignal,
     kind: 'briefing' | 'story' = 'briefing'): ReturnType<LlmClient['ground']> {
     const key = JSON.stringify([company.name, company.websiteUrl ?? null, marketName]);
     // Overview + Products share the briefing; Team + History share the story (companyStoryPrompt).
-    const slot = kind === 'briefing' ? company.id : `${company.id}:story`;
-    const topic = kind === 'briefing' ? 'company_briefing' : 'company_story';
-    const hit = this.companyBriefings.get(slot);
-    let entry = !force && hit && hit.key === key && Date.now() - hit.at < COMPANY_BRIEFING_TTL_MS ? hit : undefined;
+    const fresh = (k: 'briefing' | 'story') => {
+      const hit = this.companyBriefings.get(k === 'briefing' ? company.id : `${company.id}:story`);
+      return hit && hit.key === key && Date.now() - hit.at < COMPANY_BRIEFING_TTL_MS ? hit : undefined;
+    };
+    let entry = force ? undefined : fresh(kind);
     if (!entry) {
-      const deadline = new AbortController();
-      // A provider that never settles must not hold the slot: the deadline frees it for the next open.
-      const timer = setTimeout(() => {
-        deadline.abort();
-        if (this.companyBriefings.get(slot)?.deadline === deadline) this.companyBriefings.delete(slot);
-      }, 90_000);
-      const prompt = kind === 'briefing' ? companyBriefingPrompt(company, marketName) : companyStoryPrompt(company, marketName);
-      const result = this.client.ground(prompt, { system: GROUNDED_SYSTEM, signal: deadline.signal,
-        label: topic, researchContext: { companyId: company.id, companyName: company.name, topic } })
-        .finally(() => clearTimeout(timer));
-      const started = { key, at: Date.now(), result, deadline };
-      for (const [id, old] of this.companyBriefings) if (Date.now() - old.at >= COMPANY_BRIEFING_TTL_MS) this.companyBriefings.delete(id);
-      this.companyBriefings.set(slot, started);
-      result.catch(() => { if (this.companyBriefings.get(slot) === started) this.companyBriefings.delete(slot); });
-      entry = started;
+      const other = kind === 'briefing' ? 'story' : 'briefing';
+      const otherTabs: WarmTab[] = other === 'story' ? ['team_org', 'history'] : ['overview', 'products_roadmap'];
+      // The warm-up opens many companies at once: when this company's other tab pair is still to
+      // research too, both pairs come from one search shared with up to three other companies.
+      if (!force && this.warmedCompanies.has(company.id) && !fresh(other)
+        && otherTabs.some((tab) => this.warmTabState(company.id, tab).state !== 'filled')) {
+        const parts = this.joinTabBatch(company, marketName);
+        this.startCompanyBriefing(company, marketName, key, other, parts.then((p) => p?.[other] ?? null));
+        entry = this.startCompanyBriefing(company, marketName, key, kind, parts.then((p) => p?.[kind] ?? null));
+      } else {
+        entry = this.startCompanyBriefing(company, marketName, key, kind);
+      }
     }
     // The waiting tab still stops on its own deadline. A tab that joined late and outlived the shared
     // search's deadline gets a TimeoutError, which both tabs rethrow, so no "unavailable" tab is cached.
@@ -2704,6 +2715,84 @@ export class GeminiRepository implements MarketIntelRepository {
         reject(timeout);
       }).finally(() => signal.removeEventListener('abort', stop));
     });
+  }
+
+  /**
+   * Start (and remember) one company's briefing or story search. `first` is its part of a batched
+   * search: when the batch gave it nothing usable, the company's own search runs instead, on its
+   * own deadline.
+   */
+  private startCompanyBriefing(company: Company, marketName: string, key: string, kind: 'briefing' | 'story',
+    first?: Promise<GroundAnswer | null>) {
+    const slot = kind === 'briefing' ? company.id : `${company.id}:story`;
+    const topic = kind === 'briefing' ? 'company_briefing' : 'company_story';
+    const deadline = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const own = () => {
+      // A provider that never settles must not hold the slot: the deadline frees it for the next open.
+      timer = setTimeout(() => {
+        deadline.abort();
+        if (this.companyBriefings.get(slot)?.deadline === deadline) this.companyBriefings.delete(slot);
+      }, 90_000);
+      const prompt = kind === 'briefing' ? companyBriefingPrompt(company, marketName) : companyStoryPrompt(company, marketName);
+      return this.client.ground(prompt, { system: GROUNDED_SYSTEM, signal: deadline.signal,
+        label: topic, researchContext: { companyId: company.id, companyName: company.name, topic } });
+    };
+    const result = (first ? first.then((part) => part ?? own()) : own()).finally(() => clearTimeout(timer));
+    const started = { key, at: Date.now(), result, deadline };
+    for (const [id, old] of this.companyBriefings) if (Date.now() - old.at >= COMPANY_BRIEFING_TTL_MS) this.companyBriefings.delete(id);
+    this.companyBriefings.set(slot, started);
+    result.catch(() => { if (this.companyBriefings.get(slot) === started) this.companyBriefings.delete(slot); });
+    return started;
+  }
+
+  /** Join the warm-up's gathering batch; it searches once TAB_BATCH_SIZE companies joined or the window closed. Never rejects. */
+  private joinTabBatch(company: Company, marketName: string): Promise<CompanyTabParts | null> {
+    return new Promise((done) => {
+      let batch = this.tabBatch;
+      if (!batch) {
+        const opened: TabBatch = { members: [], started: false };
+        this.tabBatch = batch = opened;
+        setTimeout(() => this.runTabBatch(opened), TAB_BATCH_WINDOW_MS);
+      }
+      batch.members.push({ company, marketName, done });
+      if (batch.members.length >= TAB_BATCH_SIZE) this.runTabBatch(batch);
+    });
+  }
+
+  private runTabBatch(batch: TabBatch): void {
+    if (batch.started) return;
+    batch.started = true;
+    if (this.tabBatch === batch) this.tabBatch = null;
+    const { members } = batch;
+    // Alone, the company's own two searches are what it gets today: nothing to share.
+    if (members.length < 2) { for (const member of members) member.done(null); return; }
+    const names = members.map((member) => member.company.name);
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(), 90_000);
+    void this.client.ground(companyTabsBatchPrompt(members), { system: GROUNDED_SYSTEM, signal: deadline.signal, label: 'company_tabs_batch' })
+      .then(async (g) => {
+        const evidence: ResearchEvidence[] = [];
+        for (const member of members) {
+          const { company } = member;
+          const parts = companyTabsParts(g, companySection(g.text, company.name, names), company.name,
+            names.filter((name) => name !== company.name));
+          member.done(parts);
+          // Each part is filed as its company's own evidence, as its own search would have been.
+          for (const [topic, part] of [['company_briefing', parts.briefing], ['company_story', parts.story]] as const) {
+            if (!part?.citations.length) continue;
+            evidence.push({ id: `ev_${globalThis.crypto.randomUUID()}`, companyId: company.id, companyName: company.name, topic,
+              capturedAt: new Date().toISOString(), text: part.text, citations: part.citations, queries: [...part.queries],
+              ...(part.grounding ? { grounding: copyProviderGrounding(part.grounding) } : {}) });
+          }
+        }
+        if (evidence.length) {
+          this.snap.researchEvidence = [...(this.snap.researchEvidence ?? []), ...evidence];
+          await this.persist();
+        }
+      })
+      .catch(() => { for (const member of members) member.done(null); })
+      .finally(() => clearTimeout(timer));
   }
 
   async getDashboardTab<T extends DashboardTab>(
