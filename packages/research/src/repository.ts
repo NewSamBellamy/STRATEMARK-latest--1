@@ -158,13 +158,16 @@ const COMPANY_BRIEFING_TTL_MS = 15 * 60_000;
 /** A twin's cached tab is reused in another deck while younger than this (Live Intel: one day). */
 const TWIN_TAB_FRESH_MS = 30 * 24 * 60 * 60_000;
 const TWIN_NEWS_FRESH_MS = 24 * 60 * 60_000;
+/** How long a tab waits on borrowing before researching as usual: the user's tab barely waits. */
+const TWIN_BORROW_USER_MS = 3_000;
+const TWIN_BORROW_WARMUP_MS = 30_000;
 /** A website as a twin key: host, path and query (tracking tags aside), so two companies on one shared
  * host (linkedin.com/company/…, facebook.com/profile.php?id=…) never match. */
 function twinSiteKey(url: string | null | undefined): string {
   if (!url) return '';
   try {
     const parsed = new URL(url.includes('://') ? url : `https://${url}`);
-    const query = [...parsed.searchParams].filter(([key]) => !/^utm_/i.test(key)).map(([key, value]) => `${key}=${value}`).sort().join('&');
+    const query = [...parsed.searchParams].filter(([key]) => !/^(?:utm_.*|gclid|fbclid|ref)$/i.test(key)).map(([key, value]) => `${key}=${value}`).sort().join('&');
     return `${parsed.hostname.replace(/^www\./, '').toLowerCase()}${parsed.pathname.replace(/\/+$/, '').toLowerCase()}${query ? `?${query}` : ''}`;
   } catch { return ''; }
 }
@@ -3054,7 +3057,13 @@ export class GeminiRepository implements MarketIntelRepository {
       return { companyId, tab, ...result, lastRefreshedAt: null };
     }
     // The same company already researched in another deck: its fresh tabs open here without a new search.
-    if (!force && !this.snap.dashboards[companyId]?.[tab]) await this.borrowTwinTabs(companyId, tab);
+    // Time-boxed: a borrow that is slow (a busy page store) gives way to research as usual.
+    if (!force && !this.snap.dashboards[companyId]?.[tab] && this.tabTwin(companyId, tab)) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([this.borrowTwinTabs(companyId, tab),
+        new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), warmup ? TWIN_BORROW_WARMUP_MS : TWIN_BORROW_USER_MS); })]);
+      clearTimeout(timer);
+    }
     const cached = force ? undefined : this.snap.dashboards[companyId]?.[tab];
     if (cached) {
       // Preserve legacy notes on disk, but don't present unchecked historical
@@ -4055,23 +4064,23 @@ export class GeminiRepository implements MarketIntelRepository {
    * paragraph passes the same checks again. Any failure falls back to paid research. */
   private async borrowTwinTabs(companyId: string, tab: DashboardTab): Promise<boolean> {
     // A borrow started for another tab may not cover this one (its twin lacked that tab): wait, then try for this one.
-    for (let waits = 0; waits < 4; waits += 1) {
-      const running = this.tabBorrows.get(companyId);
-      if (!running) break;
+    // Every borrow ends (the caller's time box bounds the wait), so this loop does too.
+    for (let running = this.tabBorrows.get(companyId); running; running = this.tabBorrows.get(companyId)) {
       await running;
       if (this.snap.dashboards[companyId]?.[tab]) return true;
     }
-    if (this.tabBorrows.has(companyId)) return false;
+    if (!this.tabTwin(companyId, tab)) return false;
     const run = this.copyTwinTabs(companyId, tab).catch(() => false).finally(() => this.tabBorrows.delete(companyId));
     this.tabBorrows.set(companyId, run);
     return run;
   }
 
-  private async copyTwinTabs(companyId: string, wanted: DashboardTab): Promise<boolean> {
+  /** The twin that can lend `wanted` now, with every fresh tab this company lacks; no lookups, no waiting. */
+  private tabTwin(companyId: string, wanted: DashboardTab) {
     const company = this.snap.companies.find((c) => c.id === companyId);
     const site = twinSiteKey(company?.websiteUrl);
     const nameKey = company ? companyNameKey(company.name) : '';
-    if (!company || !site || nameKey.length < 4) return false;
+    if (!company || !site || nameKey.length < 4 || wanted === 'live_landing') return null;
     // A deck refresh asks for new tabs: nothing researched before this company's latest refresh is borrowed.
     const refreshedAt = this.snap.tabsRefreshedAt?.[companyId];
     const floor = Number.isFinite(Date.parse(refreshedAt ?? '')) ? Date.parse(refreshedAt!) : 0;
@@ -4093,7 +4102,13 @@ export class GeminiRepository implements MarketIntelRepository {
       .filter((c) => c.id !== companyId && twinSiteKey(c.websiteUrl) === site && companyNameKey(c.name) === nameKey)
       .map((c) => ({ company: c, tabs: freshTabs(c.id) })).filter((row) => row.tabs.some(([tab]) => tab === wanted))
       .sort((a, b) => newest(b.tabs).localeCompare(newest(a.tabs)))[0];
-    if (!twin) return false;
+    return twin ? { company, twin, refreshedAt, missing } : null;
+  }
+
+  private async copyTwinTabs(companyId: string, wanted: DashboardTab): Promise<boolean> {
+    const found = this.tabTwin(companyId, wanted);
+    if (!found) return false;
+    const { company, twin, refreshedAt, missing } = found;
     const epoch = this.dashboardAllEpochs.get(companyId) ?? 0;
     // Lend the twin's other saved pages and notes first: once borrowed pages are filed here,
     // that free lending (which feeds missing figures) would see "has pages" and stop.

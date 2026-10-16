@@ -233,3 +233,37 @@ describe('borrowing in a real second deck', () => {
     expect(ground).not.toHaveBeenCalled();
   });
 });
+
+describe('borrowing never holds a tab up', () => {
+  it('six tabs opened at once still borrow the one the twin has', async () => {
+    const snap = twinWorkspace(2);
+    delete snap.dashboards.acme!.history;
+    const { make, saved } = restartable(snap, [productPage('src_p1', 'acme')]);
+    const repo = make();
+    const tabs = ['history', 'team_org', 'live_intel', 'mission_governance', 'live_landing', 'products_roadmap'] as const;
+    await Promise.all(tabs.map((tab) => repo.getDashboardTab('acme_2', tab).catch(() => null)));
+    expect(saved().dashboards.acme_2?.products_roadmap?.lastRefreshedAt).toBe(snap.dashboards.acme!.products_roadmap!.lastRefreshedAt);
+  });
+
+  it('a tab the user opens waits only briefly on a stuck page store, then researches as usual', async () => {
+    const snap = twinWorkspace(2);
+    let saved = structuredClone(snap);
+    const ground = vi.fn(async () => { throw new Error('no paid search in this test'); });
+    const repo = new GeminiRepository({ apiKey: 'test', client: { ground, structure: ground } as unknown as LlmClient, dashboardWarmup: false,
+      // Reading the twin's pages never answers; this company's own lookups do.
+      originalSources: { retrieve: vi.fn(), save: vi.fn(), list: async (input) => input.companyId === 'acme' ? new Promise(() => undefined) : [] },
+      store: { read: () => structuredClone(saved), write: async (next) => { saved = structuredClone(next); } } });
+    const started = Date.now();
+    await repo.getDashboardTab('acme_2', 'history').catch(() => null);
+    expect(ground).toHaveBeenCalled();
+    expect(Date.now() - started).toBeLessThan(6_000);
+  }, 10_000);
+
+  it('common tracking tags in a stored address do not keep real twins apart', async () => {
+    const snap = twinWorkspace(2);
+    snap.companies.find((c) => c.id === 'acme_2')!.websiteUrl = 'https://acme.example/?gclid=abc&ref=producthunt';
+    const { make, ground } = restartable(snap, [productPage('src_p1', 'acme')]);
+    await make().getDashboardTab('acme_2', 'history');
+    expect(ground).not.toHaveBeenCalled();
+  });
+});
