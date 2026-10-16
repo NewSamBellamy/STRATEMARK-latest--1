@@ -51,7 +51,7 @@ describe('a company already researched in another deck opens its tabs without a 
     const [history, products] = await Promise.all([repo.getDashboardTab('acme_2', 'history'), repo.getDashboardTab('acme_2', 'products_roadmap')]);
     expect(history?.content).toEqual({ markdown: '## History\n\nAcme Robotics was founded to automate warehouses.' });
     expect(products?.content.products.map((p) => p.name)).toEqual(['Fleet Manager']);
-    expect(products?.citations.map((c) => c.url)).toEqual(['https://acme.example/products']);
+    expect(products?.citations?.map((c) => c.url)).toEqual(['https://acme.example/products']);
     expect(store.filter((row) => row.companyId === 'acme_2')).toHaveLength(1);
     expect(ground).not.toHaveBeenCalled();
     expect(structure).not.toHaveBeenCalled();
