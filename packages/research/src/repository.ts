@@ -587,6 +587,8 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly catalogMax?: number;
   private readonly catalogPasses?: number;
   private readonly originalSources?: OriginalSourceServices;
+  /** True when saved pages live in the workspace snapshot (browser); false when a separate page store holds them (desktop). */
+  private readonly originalsInSnapshot: boolean = false;
   private readonly assetSourceReader?: (url: string) => Promise<OriginalSourceReceipt>;
   private readonly hydrationBatchMax?: number;
   private readonly hydrationFirstBatchMax?: number;
@@ -707,6 +709,7 @@ export class GeminiRepository implements MarketIntelRepository {
     this.snap = migration.snapshot;
     if (!options.originalSources && options.originalSourceReader) {
       if (!this.store) throw new Error('Original-source research requires acknowledged local storage.');
+      this.originalsInSnapshot = true;
       this.originalSources = {
         ...(options.originalSourceSupports ? { supports: options.originalSourceSupports } : {}),
         retrieve: coalesceOriginalSources(async (url, scope) => { await this.ready(); return options.originalSourceReader!(url, scope); }),
@@ -4009,7 +4012,12 @@ export class GeminiRepository implements MarketIntelRepository {
   async reuseCompanyEvidence(companyId: string): Promise<number> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company) return 0;
-    if ((this.snap.originalSourceAttempts ?? []).some((a) => a.companyId === companyId)) return 0;
+    // On desktop the saved pages live in their own store, not in the snapshot: read and file them there.
+    const pageStore = this.originalSources && !this.originalsInSnapshot ? this.originalSources : null;
+    const pagesOf = async (id: string) => pageStore
+      ? await pageStore.list({ companyId: id, limit: 100 })
+      : (this.snap.originalSourceAttempts ?? []).filter((a) => a.companyId === id);
+    if ((await pagesOf(companyId)).length > 0) return 0;
     const domain = company.websiteUrl ? rootDomain(company.websiteUrl) : null;
     const nameKey = companyNameKey(company.name);
     const prior = this.snap.companies.find((c) => c.id !== companyId &&
@@ -4017,12 +4025,13 @@ export class GeminiRepository implements MarketIntelRepository {
         (nameKey.length >= 4 && companyNameKey(c.name) === nameKey)));
     if (!prior) return 0;
     let copied = 0;
-    for (const attempt of this.snap.originalSourceAttempts ?? []) {
-      if (attempt.companyId !== prior.id) continue;
+    for (const attempt of await pagesOf(prior.id)) {
       const clone = structuredClone(attempt);
       clone.id = `src_reuse_${crypto.randomUUID()}`;
       clone.companyId = companyId;
-      (this.snap.originalSourceAttempts ??= []).push(clone);
+      if (pageStore) {
+        try { await pageStore.save(clone); } catch { continue; /* the store refused it: not lent */ }
+      } else (this.snap.originalSourceAttempts ??= []).push(clone);
       copied += 1;
     }
     for (const evidence of this.snap.researchEvidence ?? []) {
