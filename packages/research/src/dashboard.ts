@@ -175,7 +175,14 @@ export function mergeTeamOrgNodes(first: readonly TeamOrgNode[], gapFill: readon
 /** Preserve attribution outside model-generated content on every research tab.
  * Existing content-only callers keep their contract; real repositories use this
  * envelope so sources survive synthesis, caching, IPC and cloud transport. */
-export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, args: TabResearchArgs): Promise<{ content: DashboardContentMap[T]; citations: Citation[]; sourceDiagnostics?: DashboardSourceDiagnostics; overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>; overviewNarrative?: OverviewNarrative; productSelections?: ProductEvidenceSelections; teamOrgSelections?: TeamOrgSelections }> {
+export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, input: TabResearchArgs): Promise<{ content: DashboardContentMap[T]; citations: Citation[]; sourceDiagnostics?: DashboardSourceDiagnostics; overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>; overviewNarrative?: OverviewNarrative; productSelections?: ProductEvidenceSelections; teamOrgSelections?: TeamOrgSelections }> {
+  // Every paid call a tab makes is booked to that tab, so tab spend per company can be read off a deck run.
+  const label = `tab:${tab}`;
+  const args: TabResearchArgs = { ...input, client: {
+    ...(input.client.metrics ? { metrics: input.client.metrics } : {}),
+    ground: (prompt, opts) => input.client.ground(prompt, { ...opts, label: opts?.label ?? label }),
+    structure: (prompt, schema, opts) => input.client.structure(prompt, schema, { ...opts, label: opts?.label ?? label }),
+  } };
   if (tab === 'overview') {
     const result = await researchCompanyOverview(args);
     return { ...result, content: result.content as DashboardContentMap[T] };

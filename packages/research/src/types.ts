@@ -237,7 +237,8 @@ export interface LlmClient {
     // Input param widened to `unknown` so T binds to the schema's OUTPUT type
     // (post-defaults), not its input type.
     schema: ZodType<T, ZodTypeDef, unknown>,
-    opts?: { system?: string; signal?: AbortSignal; priority?: CallPriority },
+    /** `label`: what this call is for, in the cost breakdown (as on ground). Never reaches the model. */
+    opts?: { system?: string; signal?: AbortSignal; priority?: CallPriority; label?: string },
   ): Promise<T>;
 }
 

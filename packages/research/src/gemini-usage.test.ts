@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { createGeminiClient } from './gemini';
 import { usageSince } from './deck-run';
 
@@ -72,4 +73,16 @@ it('a baseline taken before a deck started does not follow the counters afterwar
   const used = usageSince(client.metrics!(), base)!;
   expect(used.calls).toBe(3);
   expect(used.byTopic).toEqual({ 'tab:history': expect.objectContaining({ calls: 2 }), 'tab:team_org': expect.objectContaining({ calls: 1 }) });
+});
+
+it('an extraction call is booked to its cost label too, which never reaches the request body', async () => {
+  const bodies: string[] = [];
+  const fetchImpl = vi.fn(async (_url: unknown, init?: { body?: string }) => {
+    bodies.push(String(init?.body ?? ''));
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"a":1}' }] } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 } }), { status: 200 });
+  });
+  const client = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl: fetchImpl as unknown as typeof fetch });
+  await client.structure('p', z.object({ a: z.number() }), { label: 'tab:history' });
+  expect(client.metrics!().byTopic!['tab:history']!.calls).toBe(1);
+  expect(bodies.join(' ')).not.toContain('tab:history');
 });

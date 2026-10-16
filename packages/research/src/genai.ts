@@ -359,7 +359,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
     async structure<T>(
       prompt: string,
       schema: ZodType<T, ZodTypeDef, unknown>,
-      opts?: { system?: string; signal?: AbortSignal; priority?: CallPriority },
+      opts?: { system?: string; signal?: AbortSignal; priority?: CallPriority; label?: string },
     ): Promise<T> {
       const cfg: Record<string, unknown> = {
         responseMimeType: 'application/json',
@@ -371,7 +371,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
       let lastError: unknown;
       // One reparse retry, matching gemini.ts: JSON mode is reliable, not infallible.
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const res = await call(route.model, prompt, cfg, opts?.signal, route.kind, opts?.priority);
+        const res = await call(route.model, prompt, cfg, opts?.signal, route.kind, opts?.priority, opts?.label);
         try {
           return schema.parse(extractJson((res.text ?? '').trim()));
         } catch (err) {
