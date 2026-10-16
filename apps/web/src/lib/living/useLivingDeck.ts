@@ -256,6 +256,13 @@ export function useLivingDeck(
       repo,
       shouldStop: () => useResearchControl.getState().paused,
       onCompany: async (target, outcome) => {
+        // The sweep's searches were this company's automatic attempt: the ladder
+        // repeating them paid a third search for figures two passes did not find.
+        if (!outcome.failed) {
+          let ladder = huntAttempts.get(repo);
+          if (!ladder) { ladder = new Map(); huntAttempts.set(repo, ladder); }
+          ladder.set(target.companyId, { attempts: HUNT_ATTEMPTS_PER_SESSION, lastAt: Date.now() });
+        }
         await invalidateMetricSurfaces(qc, target.companyId, outcome.filled > 0);
         pushSweepEvent(outcome.failed
           ? `Card-face fill did not complete for ${target.companyName}`
@@ -362,6 +369,9 @@ export function useLivingDeck(
       canAct: async () => !isLowPower() && !(await creationIsActive(repo, deckId)),
       nextRecovery: (exclude) => {
         if (!(canHunt || canRecoverFree) || isLowPower() || useResearchControl.getState().paused) return null;
+        // The face sweep goes first: it searches up to ten companies at once, where a
+        // ladder hunt pays a search per company. The ladder takes what it leaves.
+        if (autoFaceSweep && canSweep && (!sweptDecks.get(repo)?.has(deckId) || sweepsInFlight.get(repo)?.has(deckId))) return null;
         const now = nowMs();
         // Least-attempted first: every company with a core gap gets its first
         // hunt before anyone gets a second, and empty hunts escalate only
