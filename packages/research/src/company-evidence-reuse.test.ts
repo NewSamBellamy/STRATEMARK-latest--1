@@ -76,3 +76,47 @@ describe('a company researched in another deck lends its saved pages', () => {
     expect(write).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('only a true twin lends its saved pages and notes', () => {
+  const note = (companyId: string, companyName: string, text: string) => ({ id: `ev_${companyId}_${text.length}`, companyId, companyName,
+    topic: 'company_briefing', capturedAt: '2026-10-10T00:00:00.000Z', text, citations: [], queries: [] });
+
+  it('a different company on the same shared host (two LinkedIn pages) lends nothing', async () => {
+    const start = twinWorkspace();
+    start.companies.find((c) => c.id === 'acme')!.websiteUrl = 'https://www.linkedin.com/company/acme-robotics';
+    const stranger = start.companies.find((c) => c.id === 'acme_2')!;
+    stranger.name = 'Beacon Freight'; stranger.websiteUrl = 'https://www.linkedin.com/company/beacon-freight';
+    start.researchEvidence = [note('acme', 'Acme Robotics', 'Acme Robotics builds warehouse robots.')] as RepoSnapshot['researchEvidence'];
+    const store = [page('p1', 'acme')];
+    const { repo, saved } = desktopRepoFrom(start, store);
+    expect(await repo.reuseCompanyEvidence('acme_2')).toBe(0);
+    expect(store.filter((row) => row.companyId === 'acme_2')).toHaveLength(0);
+    expect(saved().researchEvidence?.filter((e) => e.companyId === 'acme_2') ?? []).toHaveLength(0);
+  });
+
+  it('a same-name company with its own, different website lends nothing', async () => {
+    const start = twinWorkspace();
+    start.companies.find((c) => c.id === 'acme_2')!.websiteUrl = 'https://acme-robotics.example';
+    const store = [page('p1', 'acme')];
+    const { repo } = desktopRepoFrom(start, store);
+    expect(await repo.reuseCompanyEvidence('acme_2')).toBe(0);
+    expect(store.filter((row) => row.companyId === 'acme_2')).toHaveLength(0);
+  });
+
+  it('a twin lends its own notes but not a note about another company filed under it', async () => {
+    const start = twinWorkspace();
+    start.researchEvidence = [note('acme', 'Acme Robotics', 'Acme Robotics builds warehouse robots.'),
+      note('acme', 'Beacon Freight', 'Beacon Freight raised a Series B.')] as RepoSnapshot['researchEvidence'];
+    const { repo, saved } = desktopRepoFrom(start, [page('p1', 'acme')]);
+    await repo.reuseCompanyEvidence('acme_2');
+    expect(saved().researchEvidence?.filter((e) => e.companyId === 'acme_2').map((e) => e.text)).toEqual(['Acme Robotics builds warehouse robots.']);
+  });
+
+  it('the same site written with www and a trailing slash is still the twin', async () => {
+    const start = twinWorkspace();
+    start.companies.find((c) => c.id === 'acme_2')!.websiteUrl = 'https://www.acme.example/';
+    const store = [page('p1', 'acme')];
+    const { repo } = desktopRepoFrom(start, store);
+    expect(await repo.reuseCompanyEvidence('acme_2')).toBe(1);
+  });
+});

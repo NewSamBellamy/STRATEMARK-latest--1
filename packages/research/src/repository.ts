@@ -106,7 +106,7 @@ import { CARD_FACT_TYPES as CARD_FACT_HUNT_TYPES, namesRosterRival, reportedComp
 import { businessDates, reportedAsOfNote, statedPeriodDate, storedDefinition } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
-import { AbortError, mapWithConcurrency, rootDomain, sleep, throwIfAborted, websiteUrlOf } from './util';
+import { AbortError, mapWithConcurrency, sleep, throwIfAborted, websiteUrlOf } from './util';
 import { IncrementalDeltaAgent } from './delta-agent';
 import {
   shouldDistillThread,
@@ -4050,7 +4050,8 @@ export class GeminiRepository implements MarketIntelRepository {
 
   /** Cross-run company evidence reuse (WS6): a company already researched in
    * another deck lends its RETAINED originals and evidence to its twin here —
-   * same root domain or normalized legal name. The twin's facts re-derive
+   * same normalized legal name AND the same exact website (two companies on
+   * linkedin.com, or two "Mercury"s, are not twins). The twin's facts re-derive
    * through the same gates afterward, so confidence is re-earned, never
    * copied, and a company with its own evidence never borrows. */
   reuseCompanyEvidence(companyId: string): Promise<number> {
@@ -4197,11 +4198,12 @@ export class GeminiRepository implements MarketIntelRepository {
       ? await pageStore.list({ companyId: id, limit: 100, support: originalSupportReferences(this.snap.metrics, id) })
       : (this.snap.originalSourceAttempts ?? []).filter((a) => a.companyId === id);
     if ((await pagesOf(companyId)).length > 0) return 0;
-    const domain = company.websiteUrl ? rootDomain(company.websiteUrl) : null;
+    // The same twin rule as the tab path: a shared host or a shared name alone lent a stranger's pages and notes.
+    const site = twinSiteKey(company.websiteUrl);
     const nameKey = companyNameKey(company.name);
-    const prior = twinId ? this.snap.companies.find((c) => c.id === twinId && c.id !== companyId) : this.snap.companies.find((c) => c.id !== companyId &&
-      ((domain && c.websiteUrl && rootDomain(c.websiteUrl) === domain) ||
-        (nameKey.length >= 4 && companyNameKey(c.name) === nameKey)));
+    if (!site || nameKey.length < 4) return 0;
+    const prior = this.snap.companies.find((c) => c.id !== companyId && (!twinId || c.id === twinId) &&
+      twinSiteKey(c.websiteUrl) === site && companyNameKey(c.name) === nameKey);
     if (!prior) return 0;
     let copied = 0;
     for (const attempt of await pagesOf(prior.id)) {
@@ -4218,6 +4220,8 @@ export class GeminiRepository implements MarketIntelRepository {
     const filed = new Set((this.snap.researchEvidence ?? []).filter((e) => e.companyId === companyId).map((e) => `${e.topic}\u0000${e.text}`));
     for (const evidence of this.snap.researchEvidence ?? []) {
       if (evidence.companyId !== prior.id || filed.has(`${evidence.topic}\u0000${evidence.text}`)) continue;
+      // A note filed under the twin but written about someone else is never lent.
+      if (evidence.companyName && companyNameKey(evidence.companyName) !== nameKey) continue;
       const clone = structuredClone(evidence);
       clone.id = `ev_reuse_${crypto.randomUUID()}`;
       clone.companyId = companyId;
