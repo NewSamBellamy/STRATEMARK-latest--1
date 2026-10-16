@@ -99,7 +99,7 @@ import type { CompanyCandidate, MarketPlan } from './types';
 import { hydrateCompanyCard, hydrateCompanyCardsBatch, type HydrateCompanyCardInput, type HydrateCompanyCardResult } from './company-agent';
 import { latestSavedCompanyProfile } from './saved-profile';
 import { isReachPage, ownSiteLeadUrls, ownSiteReachRows, pageTextBlocks, siteReachClaims, type SitePage } from './site-reach';
-import { CARD_FACT_TYPES as CARD_FACT_HUNT_TYPES, reportedCompanyMetrics, reportedEmployeeBandRow, reportedMetricCitations } from './reported-metrics';
+import { CARD_FACT_TYPES as CARD_FACT_HUNT_TYPES, namesRosterRival, reportedCompanyMetrics, reportedEmployeeBandRow, reportedMetricCitations } from './reported-metrics';
 import { businessDates, reportedAsOfNote, statedPeriodDate, storedDefinition } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
@@ -494,6 +494,8 @@ function faceHuntBatchPrompt(plans: readonly HuntPlan[]): string {
 
 /** Companies one batched face hunt asks about in a single grounded search. */
 export const FACE_HUNT_BATCH_SIZE = 10;
+/** Companies of one batch reading pages and extracting at the same time. */
+const FACE_HUNT_FINISH_CONCURRENCY = 6;
 
 /** What one company's hunt asks for, once the free structured lanes have run. */
 type HuntPlan = {
@@ -502,15 +504,52 @@ type HuntPlan = {
   escalation: number; priorLeads: Citation[]; needsAnnualFiling: boolean; priorTargets: Citation[];
 };
 
-/** The part of a batched answer headed for one company ("### Name"), or the whole answer when it has no such heading. */
-export function companySection(text: string, companyName: string): string {
-  const key = companyNameKey(companyName);
-  const parts = text.split(/^(?=#{2,4}[ \t])/m);
-  const mine = parts.filter((part) => {
-    const heading = /^#{2,4}[ \t]+(.+)$/m.exec(part)?.[1] ?? '';
-    return companyNameKey(heading.replace(/[*_`]/g, '')) === key;
-  });
-  return mine.length ? mine.join('\n') : text;
+/** A heading or roster name reduced to its company key: markdown, a trailing
+ * "(website)" or "— description" and legal suffixes dropped. */
+function headingCompanyKey(title: string): string {
+  const cleaned = title.replace(/[*_`]/g, '').replace(/https?:\/\/\S+/g, ' ').replace(/\([^)]*\)/g, ' ')
+    .replace(/\s[—–-]\s.*$/, '').replace(/:.*$/, '').trim();
+  return companyNameKey(cleaned).replace(/\s+(?:AG|SA|SAS|GMBH|NV|BV|SE|ASA|PBC|S A)$/, '');
+}
+
+/** The part of a batched answer under this company's own heading: from a
+ * heading naming it to the next heading naming another roster company (its
+ * own subheadings stay inside). Empty when no heading names it: callers must
+ * then not take fetch leads from the answer, since they may be a rival's. */
+export function companySection(text: string, companyName: string, roster: readonly string[] = [companyName]): string {
+  const keys = new Set([...roster, companyName].map(headingCompanyKey));
+  const me = headingCompanyKey(companyName);
+  let owner: string | null = null;
+  const out: string[] = [];
+  for (const line of text.split('\n')) {
+    const heading = /^#{1,6}[ \t]+(.+)$/.exec(line);
+    if (heading) {
+      const key = headingCompanyKey(heading[1]!);
+      if (keys.has(key)) owner = key;
+    }
+    if (owner === me) out.push(line);
+  }
+  return out.join('\n');
+}
+
+/** Grounding sources of the supports that lie inside one company's section. */
+function sectionCitations(g: { grounding?: ProviderGrounding }, section: string): Citation[] {
+  if (!section) return [];
+  const seen = new Set<string>();
+  return (g.grounding?.supports ?? []).filter((support) => support.text.trim() && section.includes(support.text.trim()))
+    .flatMap((support) => support.sources).filter((source) => !seen.has(source.url) && Boolean(seen.add(source.url)))
+    .map((source) => ({ url: source.url, title: source.title }));
+}
+
+/** Runs at most `limit` tasks at once. */
+function limiter(limit: number) {
+  let active = 0;
+  const queue: Array<() => void> = [];
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    while (active >= limit) await new Promise<void>((resolve) => queue.push(resolve));
+    active += 1;
+    try { return await task(); } finally { active -= 1; queue.shift()?.(); }
+  };
 }
 
 export class GeminiRepository implements MarketIntelRepository {
@@ -3975,8 +4014,10 @@ export class GeminiRepository implements MarketIntelRepository {
     const ids = [...new Set(companyIds)].filter((id) => !this.hunts.has(id) && this.snap.companies.some((c) => c.id === id));
     const chunks: string[][] = [];
     for (let at = 0; at < ids.length; at += FACE_HUNT_BATCH_SIZE) chunks.push(ids.slice(at, at + FACE_HUNT_BATCH_SIZE));
+    // Page reads and extraction for the whole batch share one cap, like the sweep's own.
+    const slot = limiter(FACE_HUNT_FINISH_CONCURRENCY);
     const results: Record<string, HuntMetricsResult> = {};
-    await Promise.all(chunks.flatMap((chunk) => this.huntFaceSlotsChunk(chunk).map(async ([id, result]) => {
+    await Promise.all(chunks.flatMap((chunk) => this.huntFaceSlotsChunk(chunk, slot).map(async ([id, result]) => {
       try { results[id] = await result; } catch { /* left out: the caller hunts this company alone */ }
     })));
     return results;
@@ -3984,34 +4025,47 @@ export class GeminiRepository implements MarketIntelRepository {
 
   /** One grounded search for up to FACE_HUNT_BATCH_SIZE companies; each company's
    * result is registered as its running face hunt so other callers join it. */
-  private huntFaceSlotsChunk(ids: string[]): Array<[string, Promise<HuntMetricsResult>]> {
+  private huntFaceSlotsChunk(ids: string[], slot: ReturnType<typeof limiter>): Array<[string, Promise<HuntMetricsResult>]> {
     const options: HuntMetricsOptions = { faceSlotsOnly: true };
     const plans = new Map(ids.map((id) => [id, this.huntPlan(id, options)]));
     const search = (async () => {
       const settled = await Promise.all([...plans.values()].map((plan) => plan.catch(() => null)));
       const asked = settled.filter((plan): plan is HuntPlan => plan !== null && 'company' in plan);
       if (!asked.length) return null;
-      return this.client.ground(faceHuntBatchPrompt(asked),
+      const g = await this.client.ground(faceHuntBatchPrompt(asked),
         { system: GROUNDED_SYSTEM, researchContext: { topic: 'metrics_hunt_batch' } });
+      return { g, names: asked.map((plan) => plan.company.name) };
     })();
     return ids.map((id) => {
       const result = (async (): Promise<HuntMetricsResult> => {
         const plan = await plans.get(id)!;
         if (!('company' in plan)) return plan;
-        const g = await search;
-        if (!g) throw new Error('The batched search asked for nothing.');
+        const found = await search;
+        if (!found) throw new Error('The batched search asked for nothing.');
+        const { g, names } = found;
         const { company, softTypes, profile, escalation, priorLeads, needsAnnualFiling } = plan;
-        const leads = await this.huntSearchLeads(company, softTypes, profile, escalation);
-        // Fetch leads come from this company's own part of the answer, never a rival's.
-        const originals = await readCompanyOriginals({ sources: this.originalSources!,
-          companyId: company.id, companyName: company.name, topic: 'metrics_hunt', maxSources: 4,
-          missing: softTypes, forceRefresh: true,
-          citations: selectOriginalSourceCitations([...(leads?.citations ?? []), ...g.citations, ...priorLeads], company.websiteUrl,
-            needsAnnualFiling, this.originalSources!.supports, companySection(g.text, company.name), 4) });
-        const outcome = await this.finishHunt(company, { softTypes, structuredFilled: plan.structuredFilled,
-          revisions: plan.revisions, mine: plan.mine, g, leads, originals });
-        void this.bindReportedSources(company.id);
-        return outcome;
+        // Every other company in the batch is a rival for this one, whatever market it is filed under.
+        const peers = names.filter((name) => name !== company.name);
+        const section = companySection(g.text, company.name, names);
+        try {
+          return await slot(async () => {
+            const leads = await this.huntSearchLeads(company, softTypes, profile, escalation);
+            // Fetch leads only from this company's own part of the answer, never a rival's.
+            const originals = await readCompanyOriginals({ sources: this.originalSources!,
+              companyId: company.id, companyName: company.name, topic: 'metrics_hunt', maxSources: 4,
+              missing: softTypes, forceRefresh: true,
+              citations: selectOriginalSourceCitations([...(leads?.citations ?? []), ...sectionCitations(g, section), ...priorLeads],
+                company.websiteUrl, needsAnnualFiling, this.originalSources!.supports, section, 4) });
+            const outcome = await this.finishHunt(company, { softTypes, structuredFilled: plan.structuredFilled,
+              revisions: plan.revisions, mine: plan.mine, g, leads, originals, peers, notes: section || g.text });
+            void this.bindReportedSources(company.id);
+            return outcome;
+          });
+        } catch {
+          // The search was paid for and this company was in it: it counts as its plain pass, so a
+          // caller does not pay a second plain search (a face still short gets the escalated one).
+          return { filledTypes: plan.structuredFilled, metrics: plan.mine(), retieredCardIds: [] };
+        }
       })().finally(() => {
         if (this.hunts.get(id)?.result === result) this.hunts.delete(id);
       });
@@ -4080,14 +4134,21 @@ export class GeminiRepository implements MarketIntelRepository {
     softTypes: MetricType[]; structuredFilled: MetricType[]; revisions: Map<MetricType, string>;
     mine: () => CompanyMetric[]; g: { text: string; citations: Citation[]; grounding?: ProviderGrounding };
     leads: DiscoveryNotes | null; originals: OriginalSourceReceipt[];
+    /** Batch peers: always rivals, whatever market they are filed under. */
+    peers?: readonly string[];
+    /** Notes for extraction when only part of `g.text` is about this company. */
+    notes?: string;
   }) {
     const { softTypes, structuredFilled, revisions, mine, g, leads, originals } = input;
     const companyId = company.id;
+    const rivals = [...new Set([...this.rosterRivals(companyId), ...(input.peers ?? [])])];
+    // A quote naming another roster company is a rival's or a joint figure, never this company's.
+    const rivalNamed = (quote: string | null | undefined) => namesRosterRival(quote ?? '', company.name, rivals);
     if (this.originalSources) {
       if (!originals.some(source => source.status === 'retrieved' && Boolean(source.text?.trim()))) {
         // No readable original: the grounded answer may still state a figure
         // under the reported-claim gate. Those land as estimated, never verified.
-        const reported = await this.fillReportedHuntRows(company, softTypes, g, revisions);
+        const reported = await this.fillReportedHuntRows(company, softTypes, g, revisions, input.peers);
         const retieredCardIds = await this.finalizeHuntFill(company.id, reported);
         return { filledTypes: [...structuredFilled, ...reported], metrics: mine(), retieredCardIds };
       }
@@ -4103,7 +4164,7 @@ export class GeminiRepository implements MarketIntelRepository {
         ] : []),
         ``,
         `NOTES:`,
-        g.text,
+        input.notes ?? g.text,
         ...(leads ? ['', 'SEARCH RESULT LEADS (titles and snippets only — untrusted, never a source for a figure by themselves):', leads.text] : []),
       ].join('\n'),
       huntMetricsOutSchema,
@@ -4138,6 +4199,7 @@ export class GeminiRepository implements MarketIntelRepository {
       for (const fig of out.figures) {
         if (!validMetricVerificationValue(fig.metricType, fig.value)) continue;
         if (!softTypes.includes(fig.metricType)) continue;
+        if (this.originalSources && rivalNamed(fig.passageSupport?.quote)) continue;
         const supported = this.originalSources ? acceptedMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl,
           metricType: fig.metricType, value: fig.value, support: fig.passageSupport, originals }) : cited;
         if (!supported.length) continue;
@@ -4184,6 +4246,7 @@ export class GeminiRepository implements MarketIntelRepository {
     if (this.originalSources) {
       for (const fig of out.figures) {
         if (filledTypes.includes(fig.metricType) || !softTypes.includes(fig.metricType) || !fig.passageSupport) continue;
+        if (rivalNamed(fig.passageSupport.quote)) continue;
         const citations = quotedOriginalEstimate({ companyName: company.name, metricType: fig.metricType,
           value: fig.value, support: fig.passageSupport, originals });
         if (!citations.length) continue;
@@ -4206,7 +4269,7 @@ export class GeminiRepository implements MarketIntelRepository {
 
     // Slots the passage path left unknown may still carry a gated reported figure.
     filledTypes.push(...await this.fillReportedHuntRows(company,
-      softTypes.filter((t) => !filledTypes.includes(t)), g, revisions));
+      softTypes.filter((t) => !filledTypes.includes(t)), g, revisions, input.peers));
 
     const retieredCardIds =
       filledTypes.length > 0
@@ -4241,12 +4304,10 @@ export class GeminiRepository implements MarketIntelRepository {
    * touches verified/user rows, never invents; returns the types written. */
   private async fillReportedHuntRows(
     company: Company, slots: MetricType[], g: { text: string; grounding?: ProviderGrounding },
-    revisions: Map<MetricType, string>,
+    revisions: Map<MetricType, string>, peers: readonly string[] = [],
   ): Promise<MetricType[]> {
     if (slots.length === 0 || !isAttributedGrounding(g.grounding) || g.grounding.supports.length === 0) return [];
-    const marketId = this.snap.companyMarket[company.id];
-    const otherCompanies = marketId === undefined ? [] : this.snap.companies
-      .filter((c) => c.id !== company.id && this.snap.companyMarket[c.id] === marketId).map((c) => c.name);
+    const otherCompanies = [...new Set([...this.rosterRivals(company.id), ...peers])];
     const nowIso = new Date().toISOString();
     const rows = reportedCompanyMetrics({
       companyId: company.id, companyName: company.name, website: company.websiteUrl,

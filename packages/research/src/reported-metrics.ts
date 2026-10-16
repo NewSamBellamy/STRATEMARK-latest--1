@@ -194,6 +194,31 @@ const mentionsCompany = (text: string, name: string) => {
   const forms = [stripCorporateSuffix(name), name, ...entityAliases(name)].filter((f) => f.length > 0);
   return forms.some((alias) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(alias)}(?![\\p{L}\\p{N}])`, 'iu').test(text));
 };
+/**
+ * True when `text` names another roster company by its full name (legal or
+ * short form, case as written), once the subject's own names are removed.
+ * Strict on purpose: the loose rival matcher also matches a rival's first word
+ * ("Health" of Health Catalyst), which inside "Oscar Health had 5,000
+ * employees" is the subject's own name. Used to refuse joint figures
+ * ("Wingtra and Skydio had 900 employees") and quotes about a rival.
+ */
+export function namesRosterRival(text: string, companyName: string, others: readonly string[] | undefined): boolean {
+  if (!others?.length || !text) return false;
+  const own = [companyName, stripCorporateSuffix(companyName), ...entityAliases(companyName)].filter((form) => form.length > 0);
+  const ownKeys = new Set(own.map((form) => form.toLowerCase()));
+  let hay = text;
+  for (const alias of [...new Set(own)].sort((a, b) => b.length - a.length)) {
+    hay = hay.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escape(alias)}(?![\\p{L}\\p{N}])`, 'giu'), ' ');
+  }
+  const forms = new Set<string>();
+  for (const name of others) {
+    for (const form of [name.trim(), stripCorporateSuffix(name.trim()), ...entityAliases(name)]) {
+      if (form.length >= 3 && !ownKeys.has(form.toLowerCase())) forms.add(form);
+    }
+  }
+  return [...forms].some((form) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(form)}(?![\\p{L}\\p{N}])`, 'u').test(hay));
+}
+
 /** True when `text` names the company anywhere (legal, short or alias form). */
 export const namesCompany = (text: string, name: string): boolean => mentionsCompany(text, name);
 
@@ -704,9 +729,8 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
   // employees" is a joint (or combined) figure, not Wingtra's. Batched answers
   // cover many companies at once and make such sentences common.
   const rivalBeforeBasis = (sentence: string) => {
-    if (!rivals) return false;
     const at = basisPatterns[definition] ? new RegExp(basisPatterns[definition]!.source, 'i').exec(sentence)?.index : undefined;
-    return rivals.test(at === undefined ? sentence : sentence.slice(0, at));
+    return namesRosterRival(at === undefined ? sentence : sentence.slice(0, at), companyName, identity?.otherCompanies);
   };
   // Each source sentence is considered as its bare text (inline label dropped,
   // as before) and, for an inline bullet label beside the figure, with the label

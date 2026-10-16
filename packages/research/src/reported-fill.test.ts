@@ -153,8 +153,99 @@ describe('companySection', () => {
   it('returns only the named company\'s part of a batched answer', async () => {
     const { companySection } = await import('./repository');
     const text = '### Wingtra\nWingtra had 127 employees.\nOriginal source: https://wingtra.com/a\n### **Skydio**\nSkydio had 900 employees.';
-    expect(companySection(text, 'Skydio')).toBe('### **Skydio**\nSkydio had 900 employees.');
-    expect(companySection(text, 'Wingtra')).not.toContain('Skydio');
-    expect(companySection('No headings here.', 'Skydio')).toBe('No headings here.');
+    expect(companySection(text, 'Skydio', ['Wingtra', 'Skydio'])).toBe('### **Skydio**\nSkydio had 900 employees.');
+    expect(companySection(text, 'Wingtra', ['Wingtra', 'Skydio'])).not.toContain('Skydio');
+    expect(companySection('No headings here.', 'Skydio')).toBe('');
+  });
+});
+
+describe('huntFaceSlotsBatch — adversarial review cases', () => {
+  const PAGE = 'https://www.reuters.com/technology/skydio-headcount';
+  const quote = 'Unlike Wingtra, Skydio had 900 employees as of April 23, 2026.';
+  const unreadable = async (url: string) => ({ requestedUrl: url, status: 'unavailable' as const,
+    retrievedAt: new Date().toISOString(), reason: 'Public page unavailable' });
+  const make = (s: RepoSnapshot, answer: string, supports: Array<{ text: string; url?: string }>,
+    reader: (url: string, scope?: unknown) => Promise<unknown> = unreadable, figures: unknown[] = []) => {
+    const cited = [...new Set(supports.map((x) => x.url ?? URL_A))].map((url) => ({ url, title: 'Reuters' }));
+    const ground = vi.fn().mockResolvedValue({ text: answer, citations: cited, queries: [], grounding: { provider: 'google-search', answerText: answer,
+      supports: supports.map((x, i) => ({ supportIndex: i, text: x.text, sources: [{ chunkIndex: 0, url: x.url ?? URL_A, title: 'Reuters' }] })) } });
+    const structure = vi.fn().mockResolvedValue({ figures });
+    return new GeminiRepository({ apiKey: 'k', store: store(s), client: { ground, structure } as unknown as LlmClient,
+      originalSourceReader: reader as never });
+  };
+  const values = async (repo: GeminiRepository, id: string) => (await repo.getCompanyMetrics(id)).filter((m) => m.value != null);
+
+  it('a batch peer filed under another market is still a rival: its section never fills this company', async () => {
+    const s = snap();
+    // Each market has a rival of its own, so neither company's roster is empty.
+    s.companies.push(company('cmp_p', 'Pix4D', 'https://pix4d.com'), company('cmp_z', 'Zipline', 'https://flyzipline.com'));
+    s.companyMarket = { cmp_w: 'Mapping', cmp_p: 'Mapping', cmp_s: 'Drones', cmp_z: 'Drones' };
+    const bullet = '- Employees: 900 as of 2026-04-23.';
+    const repo = make(s, `### Wingtra\nWingtra headcount is not disclosed.\n\n### Skydio\n${bullet}`, [{ text: bullet }]);
+    await repo.huntFaceSlotsBatch(['cmp_w', 'cmp_s']);
+    expect(await values(repo, 'cmp_w')).toEqual([]);
+  });
+
+  it('a company with no market label still refuses a joint figure naming its batch peer', async () => {
+    const s = snap();
+    s.companyMarket = { cmp_s: 'Drones' };
+    const joint = 'Wingtra and Skydio had 900 employees as of 2026-04-23.';
+    const repo = make(s, joint, [{ text: joint }]);
+    await repo.huntFaceSlotsBatch(['cmp_w', 'cmp_s']);
+    expect(await values(repo, 'cmp_w')).toEqual([]);
+  });
+
+  it('never reads a peer\'s cited page for this company, nor keeps a quote naming a rival', async () => {
+    const reads: Array<[string, string | undefined]> = [];
+    const reader = async (url: string, scope?: unknown) => {
+      reads.push([url, (scope as { companyId?: string } | undefined)?.companyId]);
+      return { requestedUrl: url, finalUrl: url, status: 'retrieved' as const, httpStatus: 200, retrievedAt: new Date().toISOString(),
+        text: `April 23, 2026. ${quote}`, contentHash: 'a'.repeat(64) };
+    };
+    const support = 'Skydio had 900 employees as of April 23, 2026.';
+    const figure = { metricType: 'employees', value: 900, methodNote: 'Reuters',
+      passageSupport: { sourceUrl: PAGE, quote, asOf: '2026-04-23', basis: 'employees', unit: 'count' } };
+    const repo = make(snap(), `### Wingtra\nNot disclosed.\n\n### Skydio\n${support}`, [{ text: support, url: PAGE }], reader, [figure]);
+    await repo.huntFaceSlotsBatch(['cmp_w', 'cmp_s']);
+    expect(reads.filter(([url, company]) => url === PAGE && company === 'cmp_w')).toEqual([]);
+    expect(await values(repo, 'cmp_w')).toEqual([]);
+  });
+});
+
+describe('huntFaceSlotsBatch — a paid search is never paid again', () => {
+  it('a company whose extraction fails after the search still comes back, so the caller does not repeat its plain pass', async () => {
+    const reader = async (url: string) => ({ requestedUrl: url, finalUrl: url, status: 'retrieved' as const, httpStatus: 200,
+      retrievedAt: new Date().toISOString(), text: 'Skydio had 900 employees as of April 23, 2026.', contentHash: 'b'.repeat(64) });
+    const answer = '### Skydio\nSkydio had 900 employees as of 2026-04-23.\nOriginal source: https://www.skydio.com/about';
+    const ground = vi.fn().mockResolvedValue({ text: answer, citations: [], queries: [], grounding: undefined });
+    const structure = vi.fn().mockRejectedValue(new Error('rate limited'));
+    const repo = new GeminiRepository({ apiKey: 'k', store: store(snap()), client: { ground, structure } as unknown as LlmClient,
+      originalSourceReader: reader as never });
+    const results = await repo.huntFaceSlotsBatch(['cmp_s']);
+    expect(structure).toHaveBeenCalled();
+    expect(results.cmp_s).toMatchObject({ filledTypes: [] });
+  });
+});
+
+describe('namesRosterRival', () => {
+  it('matches a rival by its full name only, never by the subject\'s own words', async () => {
+    const { namesRosterRival } = await import('./reported-metrics');
+    expect(namesRosterRival('Oscar Health had 5,000 employees', 'Oscar Health', ['Health Catalyst'])).toBe(false);
+    expect(namesRosterRival('Wingtra, a global drone maker, had 127 employees', 'Wingtra', ['Global Drones Inc.'])).toBe(false);
+    expect(namesRosterRival('Wingtra and Skydio had 900 employees', 'Wingtra', ['Skydio'])).toBe(true);
+    expect(namesRosterRival('Wingtra AG had 127 employees', 'Wingtra', ['Skydio, Inc.'])).toBe(false);
+  });
+});
+
+describe('companySection — heading shapes a model writes', () => {
+  it('finds the company under a legal suffix, a website, or with its own subheadings', async () => {
+    const { companySection } = await import('./repository');
+    const roster = ['Wingtra', 'Skydio'];
+    const tail = '\n### Skydio\nSkydio had 900 employees.';
+    expect(companySection(`### Wingtra AG\nWingtra had 127 employees.${tail}`, 'Wingtra', roster)).toBe('### Wingtra AG\nWingtra had 127 employees.');
+    expect(companySection(`### Wingtra (https://wingtra.com)\nWingtra had 127 employees.${tail}`, 'Wingtra', roster)).not.toContain('Skydio');
+    const nested = companySection(`## Wingtra\n### Employees\nWingtra had 127 employees.\nOriginal source: https://wingtra.com/a\n## Skydio\nSkydio had 900.`, 'Wingtra', roster);
+    expect(nested).toContain('Original source: https://wingtra.com/a');
+    expect(nested).not.toContain('Skydio');
   });
 });
