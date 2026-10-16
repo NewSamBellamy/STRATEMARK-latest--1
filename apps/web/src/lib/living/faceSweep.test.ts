@@ -115,3 +115,40 @@ describe('face sweep run', () => {
     expect(stopped).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('face sweep run — batched', () => {
+  const none = { filledTypes: [], metrics: [], retieredCardIds: [] };
+  it('recovers free first, asks ONE batched search for the faces still empty, and escalates only faces still short', async () => {
+    const cards = Array.from({ length: 12 }, (_, i) => deckCard(i + 1, []));
+    const order: string[] = [];
+    // Free recovery fills company 12's whole face: it is never searched for.
+    const recoverSavedCompanyMetrics = vi.fn(async (id: string) => { order.push(`recover:${id}`);
+      return id === 'cmp_sweep_12' ? { filledTypes: ['employees' as const], metrics: full(12).metrics, retieredCardIds: [] } : none; });
+    const huntFaceSlotsBatch = vi.fn(async (ids: readonly string[]) => { order.push('batch');
+      // Companies 1-5 come back full, 6-10 empty; 11 was left out (the caller hunts it alone).
+      return Object.fromEntries(ids.filter((id) => id !== 'cmp_sweep_11').map((id) => [id, Number(id.split('_')[2]) <= 5
+        ? { filledTypes: ['employees' as const, 'arr' as const], metrics: full(1).metrics, retieredCardIds: [] } : none])); });
+    const huntCompanyMetrics = vi.fn(async (_id: string, _options?: unknown) => none);
+    const result = await runFaceSweep(cards, { repo: { huntCompanyMetrics, recoverSavedCompanyMetrics, huntFaceSlotsBatch } });
+    expect(huntFaceSlotsBatch).toHaveBeenCalledTimes(1);
+    expect(huntFaceSlotsBatch.mock.calls[0]![0]).toHaveLength(11);
+    expect(huntFaceSlotsBatch.mock.calls[0]![0]).not.toContain('cmp_sweep_12');
+    expect(order.indexOf('batch')).toBe(12);
+    const calls = huntCompanyMetrics.mock.calls.map((c) => [c[0], c[1]]);
+    // Batched companies still short get ONE escalated search; none repeats the plain pass.
+    for (const n of [6, 7, 8, 9, 10]) expect(calls).toContainEqual([`cmp_sweep_${n}`, { faceSlotsOnly: true, escalation: 1 }]);
+    for (const n of [1, 2, 3, 4, 5, 12]) expect(calls.map((c) => c[0])).not.toContain(`cmp_sweep_${n}`);
+    expect(calls.filter((c) => c[0] !== 'cmp_sweep_11')).toHaveLength(5);
+    // The company the batch left out is hunted alone, plain then escalated.
+    expect(calls.filter((c) => c[0] === 'cmp_sweep_11')).toEqual([['cmp_sweep_11', { faceSlotsOnly: true }], ['cmp_sweep_11', { faceSlotsOnly: true, escalation: 1 }]]);
+    expect(result).toMatchObject({ targeted: 12, filledCompanies: 6, filledTypes: 11, failed: 0 });
+  });
+
+  it('a failed batch falls back to a hunt per company', async () => {
+    const huntFaceSlotsBatch = vi.fn(async () => { throw new Error('quota'); });
+    const huntCompanyMetrics = vi.fn(async (_id: string, _options?: unknown) => none);
+    await runFaceSweep([deckCard(1, []), deckCard(2, [])], { repo: { huntCompanyMetrics, huntFaceSlotsBatch } });
+    expect(huntCompanyMetrics.mock.calls.map((c) => c[1])).toContainEqual({ faceSlotsOnly: true });
+    expect(huntCompanyMetrics).toHaveBeenCalledTimes(4);
+  });
+});

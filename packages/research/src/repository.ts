@@ -110,7 +110,7 @@ import {
   distillThreadMemory,
   buildPromptContext,
 } from './semantic-memory';
-import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest, reachHuntRequest } from './prompts';
+import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest, reachHuntRequest, FIGURE_DATE_RULE } from './prompts';
 import type { ResearchPassage } from '@mi/contracts';
 import type { Ownership } from '@mi/contracts';
 import { findOwnership, metricOwnershipEvidence, preferOwnership, receiptOwnershipEvidence } from './ownership';
@@ -472,6 +472,45 @@ const OVERVIEW_HISTORY_LIMIT = 5;
  * asks for a different approach, so it must run on its own). */
 function huntCovers(running: HuntMetricsOptions | undefined, wanted: HuntMetricsOptions | undefined): boolean {
   return (!running?.faceSlotsOnly || Boolean(wanted?.faceSlotsOnly)) && (running?.escalation ?? 0) >= (wanted?.escalation ?? 0);
+}
+
+/** One grounded search asking several companies' missing face figures. Each
+ * figure must be a sentence naming its company: the reported-claim gate
+ * accepts a provider support only when it names the company and no rival. */
+function faceHuntBatchPrompt(plans: readonly HuntPlan[]): string {
+  const label = (plan: HuntPlan, type: MetricType) =>
+    storedDefinition(type, undefined, plan.profile) === 'annual_revenue' ? 'Annual revenue' : METRIC_TYPE_LABELS[type];
+  return [
+    `Research pass over ${plans.length} companies in one market. For EACH company below, find the most current, reliable figures it is missing:`,
+    ...plans.map((plan) => `- ${plan.company.name} (${plan.company.websiteUrl ?? 'no website on record'}): ${plan.softTypes.map((t) => label(plan, t)).join(', ')}`),
+    `Write one section per company headed "### <exact company name>". State each figure in ONE sentence that names the company, gives the exact figure with its currency and its as-of date, and says who reported it, e.g. "Acme had 1,200 employees as of March 3, 2026, according to its annual report." A company that publishes only a headcount range: state the range in a sentence naming the company.`,
+    `Under each company add a line "Original source: <url>" for every primary page you used (annual report, regulatory filing, earnings release, the company's own site).`,
+    `Use Google Search. Prefer primary sources and recent reputable coverage. Revenue means whole-company fiscal annual revenue (say which fiscal year) unless a source explicitly reports ARR; keep them distinct. Funding: total raised to date and the latest round (amount, stage, date). If a figure is not reliably reported for a company, write that it is not disclosed. Never guess, never estimate, never derive one figure from another, never give one company another company's figure.`,
+    FIGURE_DATE_RULE,
+    `MEASUREMENT BASIS: every figure must describe the WHOLE legal company, never a division's figure presented as the company's.`,
+    `UNITS: Users, Employees and Distribution (countries or doors) as plain counts; Valuation, Market Cap, Revenue, ARR, Funding and AUM (assets under management) in the currency the source reports (${CURRENCY_UNIT_LIST}).`,
+  ].join('\n');
+}
+
+/** Companies one batched face hunt asks about in a single grounded search. */
+export const FACE_HUNT_BATCH_SIZE = 10;
+
+/** What one company's hunt asks for, once the free structured lanes have run. */
+type HuntPlan = {
+  company: Company; profile: ReturnType<typeof classifyMarketProfile>; softTypes: MetricType[];
+  structuredFilled: MetricType[]; revisions: Map<MetricType, string>; mine: () => CompanyMetric[];
+  escalation: number; priorLeads: Citation[]; needsAnnualFiling: boolean; priorTargets: Citation[];
+};
+
+/** The part of a batched answer headed for one company ("### Name"), or the whole answer when it has no such heading. */
+export function companySection(text: string, companyName: string): string {
+  const key = companyNameKey(companyName);
+  const parts = text.split(/^(?=#{2,4}[ \t])/m);
+  const mine = parts.filter((part) => {
+    const heading = /^#{2,4}[ \t]+(.+)$/m.exec(part)?.[1] ?? '';
+    return companyNameKey(heading.replace(/[*_`]/g, '')) === key;
+  });
+  return mine.length ? mine.join('\n') : text;
 }
 
 export class GeminiRepository implements MarketIntelRepository {
@@ -3809,7 +3848,9 @@ export class GeminiRepository implements MarketIntelRepository {
     return result;
   }
 
-  private async huntCompanyMetricsOnce(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
+  /** Targets for one company's hunt, after the free structured lanes: a result
+   * when nothing is left to ask a provider for. */
+  private async huntPlan(companyId: string, options?: HuntMetricsOptions): Promise<HuntPlan | HuntMetricsResult> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company) throw new Error(`Company not found: ${companyId}`);
     const mine = () => this.snap.metrics.filter((m) => m.companyId === companyId);
@@ -3881,7 +3922,6 @@ export class GeminiRepository implements MarketIntelRepository {
       }
     }
 
-    const wanted = softTypes.map((t) => `- ${METRIC_TYPE_LABELS[t]}`).join('\n');
     const escalation = Math.max(0, Math.floor(options?.escalation ?? 0));
     // Prior originals supply fetch leads, never current proof. Keep retries
     // company-scoped and bounded instead of forgetting discovered disclosures.
@@ -3891,6 +3931,14 @@ export class GeminiRepository implements MarketIntelRepository {
           .map(receipt => ({ url: receipt.finalUrl!, title: 'Previously retrieved original (recheck required)' }))) : [];
     const needsAnnualFiling = softTypes.includes('arr') || softTypes.includes('employees');
     const priorTargets = selectOriginalSourceCitations(priorLeads, company.websiteUrl, needsAnnualFiling, this.originalSources?.supports);
+    return { company, profile, softTypes, structuredFilled, revisions, mine, escalation, priorLeads, needsAnnualFiling, priorTargets };
+  }
+
+  private async huntCompanyMetricsOnce(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
+    const plan = await this.huntPlan(companyId, options);
+    if (!('company' in plan)) return plan;
+    const { company, profile, softTypes, structuredFilled, revisions, mine, escalation, priorLeads, needsAnnualFiling, priorTargets } = plan;
+    const wanted = softTypes.map((t) => `- ${METRIC_TYPE_LABELS[t]}`).join('\n');
     // Primary discovery (grounded search, or a local SearXNG) and extra search
     // leads (free news, optional BYOK engine) run in parallel: the leads add
     // candidate articles without adding wait time. Measured A/B (2026-10-10,
@@ -3907,6 +3955,69 @@ export class GeminiRepository implements MarketIntelRepository {
       citations: selectOriginalSourceCitations([...(leads?.citations ?? []), ...g.citations, ...priorLeads], company.websiteUrl,
         needsAnnualFiling, this.originalSources.supports, g.text, 4) }) : [];
     return this.finishHunt(company, { softTypes, structuredFilled, revisions, mine, g, leads, originals });
+  }
+
+  /**
+   * Face hunt for several companies in ONE grounded search. A hunt per company
+   * paid the per-call search fee for each one (about $0.04, twice when it
+   * escalated), most of a deck's research bill. This asks for every listed
+   * company's missing face figures together; each company then reads its own
+   * originals and goes through exactly the gates of a single hunt
+   * (finishHunt): a figure is written for a company only from a quote naming it
+   * on a page we read, or a provider support sentence naming it and no rival.
+   * Needs an original-source reader (without one the citation gate cannot tell
+   * the companies apart): nothing is batched and callers hunt per company. A
+   * company already being hunted is left out; a failed search rejects that
+   * company's result so the caller can hunt it alone.
+   */
+  async huntFaceSlotsBatch(companyIds: readonly string[]): Promise<Record<string, HuntMetricsResult>> {
+    if (!this.originalSources) return {};
+    const ids = [...new Set(companyIds)].filter((id) => !this.hunts.has(id) && this.snap.companies.some((c) => c.id === id));
+    const chunks: string[][] = [];
+    for (let at = 0; at < ids.length; at += FACE_HUNT_BATCH_SIZE) chunks.push(ids.slice(at, at + FACE_HUNT_BATCH_SIZE));
+    const results: Record<string, HuntMetricsResult> = {};
+    await Promise.all(chunks.flatMap((chunk) => this.huntFaceSlotsChunk(chunk).map(async ([id, result]) => {
+      try { results[id] = await result; } catch { /* left out: the caller hunts this company alone */ }
+    })));
+    return results;
+  }
+
+  /** One grounded search for up to FACE_HUNT_BATCH_SIZE companies; each company's
+   * result is registered as its running face hunt so other callers join it. */
+  private huntFaceSlotsChunk(ids: string[]): Array<[string, Promise<HuntMetricsResult>]> {
+    const options: HuntMetricsOptions = { faceSlotsOnly: true };
+    const plans = new Map(ids.map((id) => [id, this.huntPlan(id, options)]));
+    const search = (async () => {
+      const settled = await Promise.all([...plans.values()].map((plan) => plan.catch(() => null)));
+      const asked = settled.filter((plan): plan is HuntPlan => plan !== null && 'company' in plan);
+      if (!asked.length) return null;
+      return this.client.ground(faceHuntBatchPrompt(asked),
+        { system: GROUNDED_SYSTEM, researchContext: { topic: 'metrics_hunt_batch' } });
+    })();
+    return ids.map((id) => {
+      const result = (async (): Promise<HuntMetricsResult> => {
+        const plan = await plans.get(id)!;
+        if (!('company' in plan)) return plan;
+        const g = await search;
+        if (!g) throw new Error('The batched search asked for nothing.');
+        const { company, softTypes, profile, escalation, priorLeads, needsAnnualFiling } = plan;
+        const leads = await this.huntSearchLeads(company, softTypes, profile, escalation);
+        // Fetch leads come from this company's own part of the answer, never a rival's.
+        const originals = await readCompanyOriginals({ sources: this.originalSources!,
+          companyId: company.id, companyName: company.name, topic: 'metrics_hunt', maxSources: 4,
+          missing: softTypes, forceRefresh: true,
+          citations: selectOriginalSourceCitations([...(leads?.citations ?? []), ...g.citations, ...priorLeads], company.websiteUrl,
+            needsAnnualFiling, this.originalSources!.supports, companySection(g.text, company.name), 4) });
+        const outcome = await this.finishHunt(company, { softTypes, structuredFilled: plan.structuredFilled,
+          revisions: plan.revisions, mine: plan.mine, g, leads, originals });
+        void this.bindReportedSources(company.id);
+        return outcome;
+      })().finally(() => {
+        if (this.hunts.get(id)?.result === result) this.hunts.delete(id);
+      });
+      this.hunts.set(id, { options, result });
+      return [id, result] as [string, Promise<HuntMetricsResult>];
+    });
   }
 
   /** Grounded search for the hunt (or a local SearXNG when one answers). */

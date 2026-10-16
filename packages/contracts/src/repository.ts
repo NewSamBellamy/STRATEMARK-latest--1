@@ -707,6 +707,13 @@ export interface MarketIntelRepository {
   huntCompanyMetrics?(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult>;
 
   /**
+   * Face hunt for several companies in one grounded search, each company still
+   * held to its own per-figure gates. Returns the companies it hunted; one it
+   * left out or failed is absent, for the caller to hunt alone. OPTIONAL.
+   */
+  huntFaceSlotsBatch?(companyIds: readonly string[]): Promise<Record<string, HuntMetricsResult>>;
+
+  /**
    * Market-batch estimated fill: ONE grounded call proposes estimated-tier
    * figures for several gapped companies at once, per-claim provider support,
    * identity-guarded against the deck roster. Estimated tier only; structured

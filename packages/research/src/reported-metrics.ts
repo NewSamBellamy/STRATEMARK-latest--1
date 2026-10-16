@@ -699,6 +699,15 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
     const firstBasisAt = basisPatterns[definition] ? new RegExp(basisPatterns[definition]!.source, 'i').exec(sentence)?.index : undefined;
     return subjectAt !== undefined && firstBasisAt !== undefined && subjectAt < firstBasisAt;
   } : null;
+  // A sentence opening with the subject still binds to no one when a roster
+  // rival is named before the figure's basis word: "Wingtra and Skydio had 900
+  // employees" is a joint (or combined) figure, not Wingtra's. Batched answers
+  // cover many companies at once and make such sentences common.
+  const rivalBeforeBasis = (sentence: string) => {
+    if (!rivals) return false;
+    const at = basisPatterns[definition] ? new RegExp(basisPatterns[definition]!.source, 'i').exec(sentence)?.index : undefined;
+    return rivals.test(at === undefined ? sentence : sentence.slice(0, at));
+  };
   // Each source sentence is considered as its bare text (inline label dropped,
   // as before) and, for an inline bullet label beside the figure, with the label
   // kept as the claim's own basis word. A conversion clause that follows a
@@ -711,13 +720,13 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
   for (const sentenceRaw of raw) {
     const bare = stripCurrencyConversion(neutralizeNumericAliases(plain(sentenceRaw), companyName));
     const kept = stripCurrencyConversion(neutralizeNumericAliases(plainKeepLabel(sentenceRaw), companyName));
-    const bareOk = !!entity(bare, companyName) ||
+    const bareOk = (!!entity(bare, companyName) && !rivalBeforeBasis(bare)) ||
       (official && /^(?:annual revenue|ARR|annual recurring revenue|headcount|employees|users|customers|valuation|market cap)\b/i.test(bare)) ||
       (answerAnchored && anonymousClaimLabel.test(bare) && !rivals!.test(bare)) ||
       (namedBeforeBasis?.(bare) ?? false) ||
       // The company's own page speaking about itself (see ownSiteSupport).
       (ownSite && reach && !(rivals?.test(bare) ?? false));
-    const keptOk = kept !== bare && (!!entity(plain(sentenceRaw), companyName) ||
+    const keptOk = kept !== bare && ((!!entity(plain(sentenceRaw), companyName) && !rivalBeforeBasis(kept)) ||
       (answerAnchored && anonymousClaimLabel.test(kept) && !rivals!.test(kept)));
     if (bareOk) admitted.push(bare);
     if (keptOk) admitted.push(kept);

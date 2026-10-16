@@ -89,3 +89,72 @@ describe('huntCompanyMetrics — reported-estimate lane', () => {
     expect((await repo.getCompanyMetrics('cmp_s')).filter((m) => m.value != null)).toEqual([]);
   });
 });
+
+describe('huntFaceSlotsBatch — one search for several companies, per-company gates', () => {
+  const unreadable = async (url: string) => ({ requestedUrl: url, status: 'unavailable' as const,
+    retrievedAt: new Date().toISOString(), reason: 'Public page unavailable' });
+  const setup = (answer: string, supports: string[], reader: typeof unreadable | null = unreadable) => {
+    const ground = vi.fn().mockResolvedValue(grounded(answer, supports.map((text) => ({ text }))));
+    const structure = vi.fn().mockResolvedValue({ figures: [] });
+    const repo = new GeminiRepository({ apiKey: 'k', store: store(snap()), client: { ground, structure } as unknown as LlmClient,
+      ...(reader ? { originalSourceReader: reader } : {}) });
+    return { repo, ground };
+  };
+
+  it('asks one grounded search for every company and fills each only from a sentence naming it', async () => {
+    const skydio = 'Skydio had 900 employees as of 2026-04-23.';
+    const { repo, ground } = setup(`### Skydio\n${skydio}\n\n### Wingtra\nWingtra headcount is not disclosed.`, [skydio]);
+    const results = await repo.huntFaceSlotsBatch(['cmp_w', 'cmp_s']);
+    expect(ground).toHaveBeenCalledTimes(1);
+    const prompt = ground.mock.calls[0]![0] as string;
+    expect(prompt).toContain('- Wingtra (https://wingtra.com)');
+    expect(prompt).toContain('- Skydio (https://skydio.com)');
+    expect(ground.mock.calls[0]![1]).toMatchObject({ researchContext: { topic: 'metrics_hunt_batch' } });
+    expect(results.cmp_s?.filledTypes).toContain('employees');
+    expect(results.cmp_w?.filledTypes).toEqual([]);
+    expect((await repo.getCompanyMetrics('cmp_s')).find((m) => m.metricType === 'employees')).toMatchObject({ value: 900, confidence: 'estimated' });
+    expect((await repo.getCompanyMetrics('cmp_w')).filter((m) => m.value != null)).toEqual([]);
+  });
+
+  it('never gives a figure stated alongside a rival to either company', async () => {
+    const mixed = 'Wingtra and Skydio had 900 employees as of 2026-04-23.';
+    const { repo } = setup(mixed, [mixed]);
+    await repo.huntFaceSlotsBatch(['cmp_w', 'cmp_s']);
+    for (const id of ['cmp_w', 'cmp_s']) {
+      expect((await repo.getCompanyMetrics(id)).filter((m) => m.value != null)).toEqual([]);
+    }
+  });
+
+  it('batches nothing without an original-source reader, leaving each company to its own hunt', async () => {
+    const { repo, ground } = setup('Skydio had 900 employees as of 2026-04-23.', ['Skydio had 900 employees as of 2026-04-23.'], null);
+    expect(await repo.huntFaceSlotsBatch(['cmp_w', 'cmp_s'])).toEqual({});
+    expect(ground).not.toHaveBeenCalled();
+  });
+
+  it('is joined by a face hunt asked for while it runs, instead of paying a second search', async () => {
+    const skydio = 'Skydio had 900 employees as of 2026-04-23.';
+    const { repo, ground } = setup(`### Skydio\n${skydio}`, [skydio]);
+    const batch = repo.huntFaceSlotsBatch(['cmp_s']);
+    const joined = await repo.huntCompanyMetrics('cmp_s', { faceSlotsOnly: true });
+    await batch;
+    expect(ground).toHaveBeenCalledTimes(1);
+    expect(joined.filledTypes).toContain('employees');
+  });
+
+  it('a failed search leaves the companies out for the caller to hunt alone', async () => {
+    const ground = vi.fn().mockRejectedValue(new Error('quota'));
+    const repo = new GeminiRepository({ apiKey: 'k', store: store(snap()),
+      client: { ground, structure: vi.fn() } as unknown as LlmClient, originalSourceReader: unreadable });
+    expect(await repo.huntFaceSlotsBatch(['cmp_w', 'cmp_s'])).toEqual({});
+  });
+});
+
+describe('companySection', () => {
+  it('returns only the named company\'s part of a batched answer', async () => {
+    const { companySection } = await import('./repository');
+    const text = '### Wingtra\nWingtra had 127 employees.\nOriginal source: https://wingtra.com/a\n### **Skydio**\nSkydio had 900 employees.';
+    expect(companySection(text, 'Skydio')).toBe('### **Skydio**\nSkydio had 900 employees.');
+    expect(companySection(text, 'Wingtra')).not.toContain('Skydio');
+    expect(companySection('No headings here.', 'Skydio')).toBe('No headings here.');
+  });
+});
