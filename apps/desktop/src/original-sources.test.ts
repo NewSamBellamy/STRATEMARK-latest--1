@@ -25,6 +25,24 @@ function attempt(companyId = 'acme'): OriginalSourceAttempt {
 }
 
 describe('native original source artifacts', () => {
+  it('a company added again in a second deck borrows its twin\'s saved pages from the real page store', async () => {
+    const { directory, store } = await setup();
+    await store.save(attempt('acme'));
+    await store.save(attempt('acme'));
+    const snapshot = migrateSnapshot(null).snapshot;
+    const acme = { name: 'Acme Robotics', oneLiner: 'Robots', websiteUrl: 'https://acme.example', logoUrl: null, hqLocation: null, brandTheme: null };
+    snapshot.companies = [{ id: 'acme', ...acme }, { id: 'acme_2', ...acme }];
+    const statePath = path.join(directory, 'twin.json');
+    await createFileStore(statePath).write(snapshot);
+    const repo = new GeminiRepository({ apiKey: 'test', client: { ground: vi.fn(), structure: vi.fn() } as unknown as LlmClient,
+      store: createFileStore(statePath), originalSources: store });
+    expect(await repo.reuseCompanyEvidence('acme_2')).toBe(2);
+    const lent = await store.list({ companyId: 'acme_2', limit: 20 });
+    expect(lent).toHaveLength(2);
+    expect(lent[0]!.receipts[0]!.text).toBe('Company revenue passage.');
+    expect(await repo.reuseCompanyEvidence('acme_2')).toBe(0);
+  });
+
   it('retains complete SEC records beyond excerpt size and reopens their typed company facts offline', async () => {
     const { directory, store } = await setup();
     const url = 'https://data.sec.gov/api/xbrl/companyconcept/CIK0000789019/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax.json';
