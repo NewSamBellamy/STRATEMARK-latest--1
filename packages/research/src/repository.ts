@@ -131,6 +131,7 @@ import { companyNameKey, marketCapEstimate, secSharesConceptUrl, yahooChartUrl }
 import { readRegistrantProfile, resolveListedIdentity, type ListedIdentityResult } from './sec-identity';
 import { secHeadquartersPlace } from './sec-profile';
 import { findCompanyFilings, secSubmissionsUrl } from './sec-ownership';
+import type { CompanyFiling } from './sec-filings';
 import { classifyMoves, filingMoveCandidates, mergeMoves, moveSince, newsMoveCandidates, rankMoves, unfiledCandidates, type MoveCandidate } from './company-moves';
 import { findFormDLastRound } from './sec-form-d';
 import { computeCompanyCompleteness } from './completeness';
@@ -2984,6 +2985,19 @@ export class GeminiRepository implements MarketIntelRepository {
     });
   }
 
+  /** A listed company's own recent SEC filings, free; null for a company not known to be listed (a sourced market cap),
+   * so a private company never picks up a listed namesake's filings. Shares Today's SEC read scope, so one read serves both. */
+  private async listedCompanyFilings(company: Company, force: boolean): Promise<CompanyFiling[] | null> {
+    if (classifyCompanyType(company, this.snap.metrics.filter((m) => m.companyId === company.id)).listing !== 'public') return null;
+    const sources = this.originalSources;
+    const scope = { companyId: company.id, companyName: company.name, metricType: 'company_moves' };
+    // A forced refresh reads today's filing index, as Today's refresh does.
+    const reader = sources ? (url: string) => sources.retrieve(url, { ...scope, forceRefresh: force && url.includes('/submissions/') }) : this.assetSourceReader;
+    if (!reader) return null;
+    const found = await findCompanyFilings(company.name, (url) => this.secTurn(() => reader(url))).catch(() => null);
+    return found?.filings ?? null;
+  }
+
   /** What this company's tab searches look for first, from the kind of company its stored figures show. */
   private companyFocus(company: Company): string | null {
     return companyTypeFocus(classifyCompanyType(company, this.snap.metrics.filter((m) => m.companyId === company.id)));
@@ -3185,6 +3199,7 @@ export class GeminiRepository implements MarketIntelRepository {
         signal: controller.signal,
         refreshOriginals: Boolean(force),
         ...(tab === 'live_intel' ? { newsSearch: this.newsSearch?.() ?? undefined, readPage: this.assetSourceReader } : {}),
+        ...(tab === 'history' ? { officialFilings: () => this.listedCompanyFilings(company, Boolean(force)) } : {}),
         ...(tab === 'history' || tab === 'team_org' ? { companyStory: () => this.companyBriefing(company,
           this.snap.companyMarket[companyId] ?? 'this market', Boolean(force), controller.signal, 'story', warmup)
           .then(result => companyStoryPart(result, tab === 'team_org' ? 'team' : 'story')) } : {}),

@@ -16,6 +16,7 @@ import {
   type Company,
   type CompanyMetric,
   type DashboardContentMap,
+  type HistoryContent,
   type DashboardTab,
   type DashboardSourceDiagnostics,
   type MetricsContent,
@@ -35,6 +36,8 @@ import { attachQuoteSources, groundGovernanceInNotes, groundHistoryInNotes } fro
 import { researchCompanyProducts, type ProductEvidenceSelections } from './company-products';
 import { researchCompanyTeamOrg, type TeamOrgSelections } from './company-team';
 import { researchLiveIntel, type PageReader } from './live-intel';
+import { filingMilestones, withFilingMilestones } from './filing-milestones';
+import type { CompanyFiling } from './sec-filings';
 import type { WebSearchFn } from './web-search';
 
 export interface TabResearchArgs {
@@ -62,6 +65,8 @@ export interface TabResearchArgs {
    * company by the repository; null when the answer cannot be split, and the tab runs its own search.
    */
   companyStory?: () => Promise<Awaited<ReturnType<LlmClient['ground']>> | null>;
+  /** A listed company's own recent SEC filings (free); null when it is not known to be listed. History only. */
+  officialFilings?: () => Promise<readonly CompanyFiling[] | null>;
 }
 
 const ctx = (a: TabResearchArgs): string =>
@@ -175,6 +180,15 @@ export function mergeTeamOrgNodes(first: readonly TeamOrgNode[], gapFill: readon
 /** Preserve attribution outside model-generated content on every research tab.
  * Existing content-only callers keep their contract; real repositories use this
  * envelope so sources survive synthesis, caching, IPC and cloud transport. */
+/** How long History waits, after its own research, for a listed company's filings. */
+export const FILINGS_WAIT_MS = 4_000;
+
+function withinMs<V>(work: Promise<V>, ms: number): Promise<V | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
 export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, input: TabResearchArgs): Promise<{ content: DashboardContentMap[T]; citations: Citation[]; sourceDiagnostics?: DashboardSourceDiagnostics; overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>; overviewNarrative?: OverviewNarrative; productSelections?: ProductEvidenceSelections; teamOrgSelections?: TeamOrgSelections }> {
   // Every paid call a tab makes is booked to that tab, so tab spend per company can be read off a deck run.
   const label = `tab:${tab}`;
@@ -218,7 +232,16 @@ export async function researchDashboardWithSources<T extends DashboardTab>(tab: 
     if (result) citations = usableCitations([...citations, ...result.citations]);
     return result;
   });
+  // Free and official: read while the paid search runs.
+  // Bounded: SEC reads share one paced queue, and a slow one must never cost History the paid research it already has.
+  const filings = tab === 'history' && args.officialFilings ? args.officialFilings().catch(() => null) : null;
   const content = await researchDashboardTab(tab, { ...args, client, ...(companyStory ? { companyStory } : {}) });
+  // The wait starts once the research is in: filings that arrive while it runs are never cut off.
+  const milestones = filingMilestones((filings ? await withinMs(filings, FILINGS_WAIT_MS) : null) ?? []);
+  if (milestones.length) {
+    const placed = withFilingMilestones(content as HistoryContent, citations, milestones);
+    return { content: placed.content as DashboardContentMap[T], citations: placed.citations };
+  }
   return { content, citations };
 }
 
