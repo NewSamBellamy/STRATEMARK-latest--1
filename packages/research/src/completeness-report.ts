@@ -52,7 +52,7 @@ import type { OriginalSourceAttempt } from './original-source';
 import type { ResearchEvidence } from './research-evidence';
 import { savedCompanySummary } from './saved-profile';
 import type { SourceChecks } from './source-binding';
-import { formatDeckRun, formatDeckRunTopics, type DeckRun } from './deck-run';
+import { formatDeckRun, formatDeckRunTopics, splitRunSpend, type DeckRun } from './deck-run';
 
 // ---------------------------------------------------------------------------
 // Input: a tolerant structural subset of RepoSnapshot (exports can be old).
@@ -641,6 +641,9 @@ export function renderCompletenessTable(report: CompletenessReport): string {
     lines.push(`DECK ${deck.marketName} [${deck.deckId}]  ${deck.companies.length} companies  ${deck.totals.fillPct.toFixed(1)}% filled`);
     if (deck.run) {
       lines.push(`  RUN ${formatDeckRun(deck.run)}`);
+      const spend = splitRunSpend(deck.run.usage);
+      if (spend) lines.push(`  SPEND cards+figures est $${spend.cardsUsd.toFixed(2)} · tabs est $${spend.tabsUsd.toFixed(2)}${deck.companies.length
+        ? ` ($${(spend.tabsUsd / deck.companies.length).toFixed(3)} per company)` : ''}`);
       for (const topicLine of formatDeckRunTopics(deck.run)) lines.push(`    ${topicLine}`);
     }
     // One grid per market profile: their metric slots differ.

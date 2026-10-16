@@ -61,6 +61,17 @@ export function usageSince(now: CallMetricsAggregate | undefined, base: CallMetr
   };
 }
 
+/** The shared searches behind the tabs (Overview + Products, Team + History, the warm-up's combined search). */
+const SHARED_TAB_TOPICS = new Set(['company_briefing', 'company_story', 'company_tabs_batch']);
+
+/** A deck's estimated spend in the two budgets it is held to: cards with their figures, and company tabs. */
+export function splitRunSpend(usage: RunUsage | undefined): { cardsUsd: number; tabsUsd: number } | null {
+  if (!usage?.byTopic) return null;
+  let tabsUsd = 0;
+  for (const [topic, row] of Object.entries(usage.byTopic)) if (topic.startsWith('tab:') || SHARED_TAB_TOPICS.has(topic)) tabsUsd += row.estCostUsd;
+  return { cardsUsd: Math.max(0, usage.estCostUsd - tabsUsd), tabsUsd };
+}
+
 /** Record a milestone once: the first time wins, so a resumed warm-up never rewrites history. */
 export function applyMilestone(run: DeckRun, milestone: DeckRunMilestone, at: string, usage?: RunUsage): DeckRun {
   if (run[milestone]) return run;

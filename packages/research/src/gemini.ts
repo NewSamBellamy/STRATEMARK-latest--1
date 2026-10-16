@@ -535,7 +535,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
       }, opts?.signal, config.groundDeadlineMs ?? GROUND_DEADLINE_MS);
     },
 
-    async structure<T>(prompt: string, schema: ZodType<T, ZodTypeDef, unknown>, opts?: { system?: string; signal?: AbortSignal; priority?: CallPriority }): Promise<T> {
+    async structure<T>(prompt: string, schema: ZodType<T, ZodTypeDef, unknown>, opts?: { system?: string; signal?: AbortSignal; priority?: CallPriority; label?: string }): Promise<T> {
       return withDeadline(async signal => {
         // No `responseSchema` here, deliberately (issue #48). The SDK client
         // (`genai.ts`) sends one, because it can derive it without cost. Doing the
@@ -558,13 +558,13 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         for (let attempt = 0; attempt < 2; attempt += 1) {
           let data: GeminiResponse;
           try {
-            data = await call(model, body, signal, route.kind, undefined, undefined, opts?.priority);
+            data = await call(model, body, signal, route.kind, undefined, undefined, opts?.priority, opts?.label);
           } catch (err) {
             // This model's quota is spent; one other line may still have some.
             const spare = GROUND_FALLBACK_MODELS.find((m) => m !== model);
             if ((err as RetryableError | null)?.status !== 402 || !spare || model !== route.model) throw err;
             model = spare;
-            data = await call(model, body, signal, route.kind, undefined, undefined, opts?.priority);
+            data = await call(model, body, signal, route.kind, undefined, undefined, opts?.priority, opts?.label);
           }
           try {
             return schema.parse(extractJson(extractText(data)));
