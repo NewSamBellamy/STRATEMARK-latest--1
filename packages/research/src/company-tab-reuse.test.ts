@@ -102,3 +102,77 @@ describe('a company already researched in another deck opens its tabs without a 
     expect(ground).not.toHaveBeenCalled();
   });
 });
+
+/** A workspace that survives an app restart: each `make()` is a fresh repository on the same saved state and pages. */
+function restartable(start: RepoSnapshot, store: OriginalSourceAttempt[]) {
+  let saved = structuredClone(start);
+  const ground = vi.fn(async () => { throw new Error('no paid search in this test'); });
+  const make = () => new GeminiRepository({ apiKey: 'test', client: { ground, structure: ground } as unknown as LlmClient, dashboardWarmup: false,
+    originalSources: { retrieve: vi.fn(), save: async (a) => { store.push(structuredClone(a)); }, list: async (input) => selectOriginalSourceAttempts(store, input) },
+    store: { read: () => structuredClone(saved), write: async (next) => { saved = structuredClone(next); } } });
+  return { make, ground, saved: () => saved };
+}
+
+describe('what a twin must never lend', () => {
+  it('two different companies with the same name on one shared host (LinkedIn pages) are not twins', async () => {
+    const snap = twinWorkspace(1);
+    snap.companies.find((c) => c.id === 'acme')!.websiteUrl = 'https://www.linkedin.com/company/acme-other';
+    snap.companies.find((c) => c.id === 'acme_2')!.websiteUrl = 'https://www.linkedin.com/company/acme-robotics-gmbh';
+    const { make, ground, saved } = restartable(snap, [productPage('src_p1', 'acme')]);
+    await make().getDashboardTab('acme_2', 'history').catch(() => null);
+    expect(ground).toHaveBeenCalled();
+    expect(saved().dashboards.acme_2?.history).toBeUndefined();
+  });
+
+  it('an Overview the twin itself hides (its narrative names another company) is not lent', async () => {
+    const snap = twinWorkspace(1);
+    const text = 'Orbital Freight designs reusable cargo rockets for lunar delivery.';
+    const cite = 'https://www.reuters.com/business/orbital-freight-profile';
+    snap.dashboards = { acme: { overview: { content: { markdown: '' }, citations: [], lastRefreshedAt: new Date(Date.now() - DAY).toISOString(),
+      overviewEvidenceVersion: 3, overviewNarrative: { companyId: 'orbital_freight', basis: 'google-search', answerText: text,
+        citations: [{ title: 'Reuters', url: cite }], paragraphs: [{ section: 'background', text, supportIndices: [], sourceUrls: [cite] }] } } } } as unknown as RepoSnapshot['dashboards'];
+    const { make, ground } = restartable(snap, []);
+    const repo = make();
+    expect(JSON.stringify((await repo.getDashboardTab('acme', 'overview'))?.content)).not.toContain('Orbital Freight');
+    const borrowed = await repo.getDashboardTab('acme_2', 'overview').catch(() => null);
+    expect(JSON.stringify(borrowed?.content ?? null)).not.toContain('Orbital Freight');
+    expect(ground).toHaveBeenCalled();
+  });
+
+  it('after a deck refresh, even across an app restart, tabs from before the refresh are not lent back', async () => {
+    const snap = twinWorkspace(5);
+    // acme_2 sits on the refreshed deck; acme (the twin) keeps its five-day-old tabs in another deck.
+    snap.cards.filter((card) => card.companyId === 'acme').forEach((card) => { card.companyId = 'acme_2'; });
+    const { make, ground, saved } = restartable(snap, [productPage('src_p1', 'acme')]);
+    await make().refreshDeck('mkt_fx');
+    expect(saved().decks[0]!.lastRefreshedAt).not.toBeNull();
+    ground.mockClear();
+    // A new repository on the same saved state: what an app restart sees.
+    await make().getDashboardTab('acme_2', 'history').catch(() => null);
+    expect(ground).toHaveBeenCalled();
+    expect(saved().dashboards.acme_2?.history).toBeUndefined();
+  });
+});
+
+describe('borrowing never costs a free step', () => {
+  it('the twin\'s saved notes are still lent after its tabs are borrowed, so missing figures recover for free', async () => {
+    const snap = twinWorkspace(1);
+    snap.researchEvidence = [{ id: 'ev_arr', companyId: 'acme', companyName: 'Acme Robotics', topic: 'arr', capturedAt: '2026-10-10T00:00:00.000Z',
+      text: 'Acme Robotics ARR reached $40M in 2026.', citations: [{ title: 'Reuters', url: 'https://www.reuters.com/x' }], queries: [] }] as unknown as RepoSnapshot['researchEvidence'];
+    const { make, saved } = restartable(snap, [productPage('src_p1', 'acme')]);
+    await make().getDashboardTab('acme_2', 'history');
+    expect(saved().researchEvidence?.some((e) => e.companyId === 'acme_2' && e.topic === 'arr')).toBe(true);
+  });
+
+  it('a free tab opened before the twin finished does not stop a later borrow of the rest', async () => {
+    const snap = twinWorkspace(1);
+    snap.dashboards = { acme: {}, acme_2: { live_landing: { content: { url: 'https://acme.example', embeddable: true, screenshotUrl: null },
+      citations: [], lastRefreshedAt: new Date().toISOString() } } } as unknown as RepoSnapshot['dashboards'];
+    snap.dashboards.acme = twinWorkspace(1).dashboards.acme!;
+    const { make, ground, saved } = restartable(snap, [productPage('src_p1', 'acme')]);
+    const history = await make().getDashboardTab('acme_2', 'history');
+    expect(history?.content).toEqual({ markdown: '## History\n\nAcme Robotics was founded to automate warehouses.' });
+    expect(ground).not.toHaveBeenCalled();
+    expect(saved().dashboards.acme_2?.live_landing).toBeDefined();
+  });
+});

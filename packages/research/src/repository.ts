@@ -158,6 +158,14 @@ const COMPANY_BRIEFING_TTL_MS = 15 * 60_000;
 /** A twin's cached tab is reused in another deck while younger than this (Live Intel: one day). */
 const TWIN_TAB_FRESH_MS = 30 * 24 * 60 * 60_000;
 const TWIN_NEWS_FRESH_MS = 24 * 60 * 60_000;
+/** A website as a twin key: host and path, so two companies on one shared host (linkedin.com, github.com) never match. */
+function twinSiteKey(url: string | null | undefined): string {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url.includes('://') ? url : `https://${url}`);
+    return `${parsed.hostname.replace(/^www\./, '').toLowerCase()}${parsed.pathname.replace(/\/+$/, '').toLowerCase()}`;
+  } catch { return ''; }
+}
 /** How long the warm-up's first tab search waits for other companies to share its search. */
 const TAB_BATCH_WINDOW_MS = 250;
 /** A combined search slower than this is dropped: its tabs need time left to extract and save. */
@@ -3040,7 +3048,7 @@ export class GeminiRepository implements MarketIntelRepository {
       return { companyId, tab, ...result, lastRefreshedAt: null };
     }
     // The same company already researched in another deck: its fresh tabs open here without a new search.
-    if (!force && !this.snap.dashboards[companyId]?.[tab]) await this.borrowTwinTabs(companyId);
+    if (!force && !this.snap.dashboards[companyId]?.[tab]) await this.borrowTwinTabs(companyId, tab);
     const cached = force ? undefined : this.snap.dashboards[companyId]?.[tab];
     if (cached) {
       // Preserve legacy notes on disk, but don't present unchecked historical
@@ -4029,43 +4037,51 @@ export class GeminiRepository implements MarketIntelRepository {
     return run;
   }
 
-  /** Cross-deck tab reuse: a company with no cached tabs yet takes its twin's fresh cached tabs and the
-   * saved pages they quote. The twin must share BOTH the normalized name and the root domain (stricter
-   * than evidence lending: a shared host or a same-name company elsewhere never lends prose). Each tab
-   * then renders through the normal cached path against this company's own copy of the pages, so every
-   * product, person and paragraph passes the same checks again. Any failure falls back to paid research. */
-  private borrowTwinTabs(companyId: string): Promise<boolean> {
+  /** Cross-deck tab reuse: a company missing a tab takes the fresh cached tabs it lacks from a twin, plus
+   * the saved pages they quote. The twin must share BOTH the normalized name and the exact website (host
+   * and path: two companies on linkedin.com or github.com are not twins). Each tab then renders through
+   * the normal cached path against this company's own copy of the pages, so every product, person and
+   * paragraph passes the same checks again. Any failure falls back to paid research. */
+  private borrowTwinTabs(companyId: string, tab: DashboardTab): Promise<boolean> {
     const running = this.tabBorrows.get(companyId);
     if (running) return running;
-    const run = this.copyTwinTabs(companyId).catch(() => false).finally(() => this.tabBorrows.delete(companyId));
+    const run = this.copyTwinTabs(companyId, tab).catch(() => false).finally(() => this.tabBorrows.delete(companyId));
     this.tabBorrows.set(companyId, run);
     return run;
   }
 
-  private async copyTwinTabs(companyId: string): Promise<boolean> {
-    const hasTabs = () => Object.keys(this.snap.dashboards[companyId] ?? {}).length > 0;
-    if (this.noTabBorrow.has(companyId) || hasTabs()) return false;
+  private async copyTwinTabs(companyId: string, wanted: DashboardTab): Promise<boolean> {
     const company = this.snap.companies.find((c) => c.id === companyId);
-    const domain = company?.websiteUrl ? rootDomain(company.websiteUrl) : '';
+    const site = twinSiteKey(company?.websiteUrl);
     const nameKey = company ? companyNameKey(company.name) : '';
-    if (!company || !domain || nameKey.length < 4) return false;
+    if (!company || !site || nameKey.length < 4 || this.noTabBorrow.has(companyId)) return false;
+    // A deck refresh asks for new tabs: nothing researched before the latest refresh of this company's decks is borrowed.
+    const deckIds = new Set(this.snap.cards.filter((card) => card.companyId === companyId).map((card) => card.deckId));
+    const floor = Math.max(0, ...this.snap.decks.filter((deck) => deckIds.has(deck.id))
+      .map((deck) => Date.parse(deck.lastRefreshedAt ?? '')).filter(Number.isFinite));
     const now = Date.now();
+    const missing = (tab: DashboardTab) => !this.snap.dashboards[companyId]?.[tab];
     const freshTabs = (id: string) => (Object.entries(this.snap.dashboards[id] ?? {}) as Array<[DashboardTab, CachedTab | undefined]>)
       .filter((row): row is [DashboardTab, CachedTab] => {
         const [tab, entry] = row;
         const at = Date.parse(entry?.lastRefreshedAt ?? '');
-        // Metrics and Research are never cached tabs; an older Overview needs a refresh anyway.
-        return Boolean(entry) && tab !== 'metrics' && tab !== 'research' && Number.isFinite(at) && at <= now + 60_000 &&
+        // Metrics and Research are never cached; Live Landing costs nothing to build and shows the page's own address.
+        return Boolean(entry) && missing(tab) && !['metrics', 'research', 'live_landing'].includes(tab) &&
+          Number.isFinite(at) && at > floor && at <= now + 60_000 &&
           now - at <= (tab === 'live_intel' ? TWIN_NEWS_FRESH_MS : TWIN_TAB_FRESH_MS) &&
-          (tab !== 'overview' || entry!.overviewEvidenceVersion === 3);
+          // An Overview is lent only if the twin itself would show it: current format, its own narrative.
+          (tab !== 'overview' || (entry!.overviewEvidenceVersion === 3 && (!entry!.overviewNarrative || entry!.overviewNarrative.companyId === id)));
       });
     const newest = (tabs: Array<[DashboardTab, CachedTab]>) => tabs.map(([, entry]) => entry.lastRefreshedAt).sort().at(-1) ?? '';
     const twin = this.snap.companies
-      .filter((c) => c.id !== companyId && c.websiteUrl && rootDomain(c.websiteUrl) === domain && companyNameKey(c.name) === nameKey)
-      .map((c) => ({ id: c.id, tabs: freshTabs(c.id) })).filter((row) => row.tabs.length > 0)
+      .filter((c) => c.id !== companyId && twinSiteKey(c.websiteUrl) === site && companyNameKey(c.name) === nameKey)
+      .map((c) => ({ company: c, tabs: freshTabs(c.id) })).filter((row) => row.tabs.some(([tab]) => tab === wanted))
       .sort((a, b) => newest(b.tabs).localeCompare(newest(a.tabs)))[0];
     if (!twin) return false;
     const epoch = this.dashboardAllEpochs.get(companyId) ?? 0;
+    // Lend the twin's other saved pages and notes first: once borrowed pages are filed here,
+    // that free lending (which feeds missing figures) would see "has pages" and stop.
+    await this.reuseCompanyEvidence(companyId).catch(() => 0);
 
     // The pages each tab reads when it renders: the same lookups the cached path makes.
     const excerpts = (entry: CachedTab) => Array.isArray(entry.overviewExcerpts) ? entry.overviewExcerpts.flatMap((ref) => {
@@ -4074,7 +4090,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const lookups = twin.tabs.flatMap(([tab, entry]): Array<{ metricType?: string; support: NonNullable<OriginalSourceQuery['support']> }> =>
       tab === 'products_roadmap' ? [{ support: productSupportReferences(entry.productSelections) }]
         : tab === 'team_org' ? [{ metricType: 'team_org', support: teamOrgSupportReferences(entry.teamOrgSelections) }]
-          : tab === 'overview' ? [{ support: [...originalSupportReferences(this.snap.metrics, twin.id), ...excerpts(entry)] }] : []);
+          : tab === 'overview' ? [{ support: [...originalSupportReferences(this.snap.metrics, twin.company.id), ...excerpts(entry)] }] : []);
     const pagesOf = async (id: string) => {
       const rows = new Map<string, OriginalSourceAttempt>();
       for (const { metricType, support } of lookups) {
@@ -4090,7 +4106,7 @@ export class GeminiRepository implements MarketIntelRepository {
       .map((r) => `${r.status}|${r.finalUrl ?? r.requestedUrl}|${r.contentHash ?? ''}`).sort().join('\n')}`;
     const own = new Set((await pagesOf(companyId)).map(fingerprint));
     const pageStore = this.originalSources && !this.originalsInSnapshot ? this.originalSources : null;
-    for (const page of await pagesOf(twin.id)) {
+    for (const page of await pagesOf(twin.company.id)) {
       if (own.has(fingerprint(page))) continue;
       own.add(fingerprint(page));
       const clone = structuredClone(page);
@@ -4100,22 +4116,25 @@ export class GeminiRepository implements MarketIntelRepository {
       if (pageStore) await pageStore.save(clone);
       else (this.snap.originalSourceAttempts ??= []).push(clone);
     }
-    // The Overview falls back to this company's saved briefing notes, matched by its name.
-    const filed = new Set((this.snap.researchEvidence ?? []).filter((e) => e.companyId === companyId).map((e) => `${e.topic}\u0000${e.text}`));
-    if (twin.tabs.some(([tab]) => tab === 'overview')) {
-      for (const evidence of this.snap.researchEvidence ?? []) {
-        if (evidence.companyId !== twin.id || (evidence.topic !== 'overview' && evidence.topic !== 'company_briefing') ||
-          filed.has(`${evidence.topic}\u0000${evidence.text}`)) continue;
-        (this.snap.researchEvidence ??= []).push({ ...structuredClone(evidence), id: `ev_reuse_${crypto.randomUUID()}`, companyId, companyName: company.name });
-      }
-    }
-    // A pass for this company finished, or the user refreshed it, while pages were copied: keep its result.
-    if (hasTabs() || (this.dashboardAllEpochs.get(companyId) ?? 0) !== epoch || this.noTabBorrow.has(companyId)) return false;
-    this.snap.dashboards[companyId] = Object.fromEntries(twin.tabs.map(([tab, entry]) => {
+    // The user refreshed this company while pages were copied: keep the refresh.
+    if ((this.dashboardAllEpochs.get(companyId) ?? 0) !== epoch || this.noTabBorrow.has(companyId)) return false;
+    // A tab a pass for this company cached meanwhile is its own and stays.
+    const lent = twin.tabs.filter(([tab]) => missing(tab));
+    if (!lent.length) return false;
+    this.snap.dashboards[companyId] = { ...this.snap.dashboards[companyId], ...Object.fromEntries(lent.map(([tab, entry]) => {
       const { overviewHistory: _history, ...copy } = structuredClone(entry);
       if (copy.overviewNarrative) copy.overviewNarrative = { ...copy.overviewNarrative, companyId };
       return [tab, copy];
-    }));
+    })) };
+    // The Overview's fallback reads this company's saved briefing notes, which must carry its exact name.
+    if (lent.some(([tab]) => tab === 'overview') && twin.company.name === company.name) {
+      const filed = new Set((this.snap.researchEvidence ?? []).filter((e) => e.companyId === companyId).map((e) => `${e.topic}\u0000${e.text}`));
+      for (const evidence of this.snap.researchEvidence ?? []) {
+        if (evidence.companyId !== twin.company.id || evidence.companyName !== company.name ||
+          (evidence.topic !== 'overview' && evidence.topic !== 'company_briefing') || filed.has(`${evidence.topic}\u0000${evidence.text}`)) continue;
+        (this.snap.researchEvidence ??= []).push({ ...structuredClone(evidence), id: `ev_reuse_${crypto.randomUUID()}`, companyId });
+      }
+    }
     await this.persist();
     return true;
   }
