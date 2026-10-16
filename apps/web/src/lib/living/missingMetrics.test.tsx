@@ -220,6 +220,30 @@ it('makes one automatic attempt per company, then stops: creation already ran th
   hook.unmount(); s.client.clear();
 });
 
+it('does not repeat the face sweep: a company the sweep searched gets no third, ladder search', async () => {
+  const s = await setup();
+  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60_000); });
+  // The sweep's plain and escalated face searches, and nothing after them.
+  expect(s.huntCompanyMetrics.mock.calls).toEqual([
+    ['company-0', { faceSlotsOnly: true }],
+    ['company-0', { faceSlotsOnly: true, escalation: 1 }],
+  ]);
+  hook.unmount(); s.client.clear();
+});
+
+it('still lets the ladder hunt a company whose sweep failed', async () => {
+  const s = await setup();
+  s.huntCompanyMetrics.mockImplementation(async (_id: string, options?: { faceSlotsOnly?: boolean }) => {
+    if (options?.faceSlotsOnly) throw new Error('offline');
+    return { filledTypes: [], metrics: [], retieredCardIds: [] };
+  });
+  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60_000); });
+  expect(s.huntCompanyMetrics.mock.calls.filter((c) => !c[1])).toHaveLength(1);
+  hook.unmount(); s.client.clear();
+});
+
 it('invalidates real card, saved, metric and dashboard queries after recovery', async () => {
   const s = await setup();
   s.huntCompanyMetrics.mockResolvedValue({ filledTypes: ['employees'], metrics: [], retieredCardIds: ['card-0'] });
@@ -251,7 +275,8 @@ it('refetches an observed card query so recovered metrics reach the open UI', as
     return card.data;
   }, { wrapper: s.wrapper });
   expect(hook.result.current?.metrics).toEqual([]);
-  await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+  // The face sweep (one second after open) is the first to search; its figures reach the open card.
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
   expect(read).toHaveBeenCalledTimes(1);
   expect(hook.result.current?.metrics[0]?.value).toBe(250);
   hook.unmount(); s.client.clear();

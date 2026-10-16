@@ -58,12 +58,16 @@ export function selectFaceSweepTargets(cards: readonly CardWithCompany[]): FaceS
 }
 
 export interface FaceSweepDeps {
-  repo: Pick<MarketIntelRepository, 'huntCompanyMetrics' | 'recoverSavedCompanyMetrics' | 'huntFaceSlotsBatch'>;
+  repo: Pick<MarketIntelRepository, 'huntCompanyMetrics' | 'recoverSavedCompanyMetrics' | 'huntFaceSlotsBatch' | 'reuseCompanyEvidence'>;
   concurrency?: number;
   /** Called after each company finishes (success or failure). */
-  onCompany?(target: FaceSweepTarget, outcome: { filled: number; failed: boolean }): void | Promise<void>;
+  onCompany?(target: FaceSweepTarget, outcome: FaceSweepOutcome): void | Promise<void>;
   shouldStop?(): boolean;
 }
+
+/** One company's sweep. `searched`: a paid face search ran for it (the batch or
+ * its own plain hunt). `stopped`: research was paused before its escalated pass. */
+export interface FaceSweepOutcome { filled: number; failed: boolean; searched: boolean; stopped: boolean }
 
 export const FACE_SWEEP_CONCURRENCY = 6;
 
@@ -92,12 +96,19 @@ export async function runFaceSweep(cards: readonly CardWithCompany[], deps: Face
   const recovered = new Map<string, number>();
   const stillShort = new Set(targets.map((t) => t.companyId));
   const batch = deps.repo.huntFaceSlotsBatch;
+  // A twin of this company researched in another deck lends its saved evidence
+  // first (free), so recovery below can re-derive figures instead of paying for them.
+  const reuse = async (target: FaceSweepTarget) => {
+    if (!deps.repo.reuseCompanyEvidence) return;
+    try { await deps.repo.reuseCompanyEvidence(target.companyId); } catch { /* recovery still runs */ }
+  };
   let batched: Record<string, Awaited<ReturnType<NonNullable<MarketIntelRepository['huntCompanyMetrics']>>>> = {};
   if (batch && deps.repo.huntCompanyMetrics) {
     // Free recovery for every company first, so the batched search asks only for what is still empty.
     if (deps.repo.recoverSavedCompanyMetrics) {
       const recover = deps.repo.recoverSavedCompanyMetrics;
       await pool(async (target) => {
+        await reuse(target);
         try {
           const out = await recover(target.companyId);
           recovered.set(target.companyId, out.filledTypes.length);
@@ -114,14 +125,19 @@ export async function runFaceSweep(cards: readonly CardWithCompany[], deps: Face
   await pool(async (target) => {
     let filled = recovered.get(target.companyId) ?? 0;
     let failed = false;
+    let searched = false;
+    let stopped = false;
     if (!batch && deps.repo.recoverSavedCompanyMetrics) {
+      await reuse(target);
       try { filled += (await deps.repo.recoverSavedCompanyMetrics(target.companyId)).filledTypes.length; } catch { /* the hunt still runs */ }
     }
     const first = batched[target.companyId];
     if (first && deps.repo.huntCompanyMetrics) {
       filled += first.filledTypes.length;
+      searched = true;
       // The batched search was this face's plain pass: only a face still short gets one escalated search.
-      if (short(target, first.metrics) && !deps.shouldStop?.()) {
+      if (short(target, first.metrics) && deps.shouldStop?.()) stopped = true;
+      else if (short(target, first.metrics)) {
         try { filled += (await deps.repo.huntCompanyMetrics(target.companyId, { faceSlotsOnly: true, escalation: 1 })).filledTypes.length; }
         catch { failed = true; }
       }
@@ -129,18 +145,20 @@ export async function runFaceSweep(cards: readonly CardWithCompany[], deps: Face
       try {
         const first = await deps.repo.huntCompanyMetrics(target.companyId, { faceSlotsOnly: true });
         filled += first.filledTypes.length;
+        searched = true;
         // A face still short after the first pass gets one escalated pass
         // (filings, trade press, funding news) before it settles on "Not found yet".
         const stillMissing = first.filledTypes.length === 0 || !target.card ||
           missingFaceSlots({ ...target.card, metrics: first.metrics }).length > 0;
-        if (stillMissing && !deps.shouldStop?.()) {
+        if (stillMissing && deps.shouldStop?.()) stopped = true;
+        else if (stillMissing) {
           filled += (await deps.repo.huntCompanyMetrics(target.companyId, { faceSlotsOnly: true, escalation: 1 })).filledTypes.length;
         }
       } catch { failed = true; }
     }
     if (failed) result.failed += 1;
     if (filled > 0) { result.filledCompanies += 1; result.filledTypes += filled; }
-    try { await deps.onCompany?.(target, { filled, failed }); } catch { /* reporting must not stop the sweep */ }
+    try { await deps.onCompany?.(target, { filled, failed, searched, stopped }); } catch { /* reporting must not stop the sweep */ }
   });
   return result;
 }
