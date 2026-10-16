@@ -120,3 +120,24 @@ describe('only a true twin lends its saved pages and notes', () => {
     expect(await repo.reuseCompanyEvidence('acme_2')).toBe(1);
   });
 });
+
+describe('the twin that lends is one with something to lend', () => {
+  it('a third deck\'s copy skips an unresearched copy listed first and borrows from the researched one', async () => {
+    const start = twinWorkspace();
+    const acme = start.companies.find((c) => c.id === 'acme')!;
+    start.companies = [...start.companies.filter((c) => c.id !== 'acme'), { ...acme, id: 'acme_3' }, acme];
+    const store = [page('p1', 'acme')];
+    const { repo } = desktopRepoFrom(start, store);
+    expect(await repo.reuseCompanyEvidence('acme_3')).toBe(1);
+    expect(store.filter((row) => row.companyId === 'acme_3')).toHaveLength(1);
+  });
+
+  it('two same-name companies on hash-routed pages of one site are not twins', async () => {
+    const start = twinWorkspace();
+    start.companies.find((c) => c.id === 'acme')!.websiteUrl = 'https://sites.example/#/acme-robotics';
+    start.companies.find((c) => c.id === 'acme_2')!.websiteUrl = 'https://sites.example/#/acme-robotics-uk';
+    const store = [page('p1', 'acme')];
+    const { repo } = desktopRepoFrom(start, store);
+    expect(await repo.reuseCompanyEvidence('acme_2')).toBe(0);
+  });
+});

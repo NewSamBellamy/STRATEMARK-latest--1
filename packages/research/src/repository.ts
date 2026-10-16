@@ -168,7 +168,9 @@ function twinSiteKey(url: string | null | undefined): string {
   try {
     const parsed = new URL(url.includes('://') ? url : `https://${url}`);
     const query = [...parsed.searchParams].filter(([key]) => !/^(?:utm_.*|gclid|fbclid|ref)$/i.test(key)).map(([key, value]) => `${key}=${value}`).sort().join('&');
-    return `${parsed.hostname.replace(/^www\./, '').toLowerCase()}${parsed.pathname.replace(/\/+$/, '').toLowerCase()}${query ? `?${query}` : ''}`;
+    // A hash-routed page (sites.example/#/acme-uk) names its company after the #.
+    const hash = parsed.hash.length > 1 ? parsed.hash.toLowerCase() : '';
+    return `${parsed.hostname.replace(/^www\./, '').toLowerCase()}${parsed.pathname.replace(/\/+$/, '').toLowerCase()}${query ? `?${query}` : ''}${hash}`;
   } catch { return ''; }
 }
 /** How long the warm-up's first tab search waits for other companies to share its search. */
@@ -4202,11 +4204,17 @@ export class GeminiRepository implements MarketIntelRepository {
     const site = twinSiteKey(company.websiteUrl);
     const nameKey = companyNameKey(company.name);
     if (!site || nameKey.length < 4) return 0;
-    const prior = this.snap.companies.find((c) => c.id !== companyId && (!twinId || c.id === twinId) &&
-      twinSiteKey(c.websiteUrl) === site && companyNameKey(c.name) === nameKey);
+    // The first twin that has something to lend: a copy in a third deck must not stop at an unresearched one.
+    let prior: Company | undefined;
+    let priorPages: OriginalSourceAttempt[] = [];
+    for (const c of this.snap.companies) {
+      if (c.id === companyId || (twinId && c.id !== twinId) || twinSiteKey(c.websiteUrl) !== site || companyNameKey(c.name) !== nameKey) continue;
+      const pages = await pagesOf(c.id);
+      if (pages.length > 0 || (this.snap.researchEvidence ?? []).some((e) => e.companyId === c.id)) { prior = c; priorPages = pages; break; }
+    }
     if (!prior) return 0;
     let copied = 0;
-    for (const attempt of await pagesOf(prior.id)) {
+    for (const attempt of priorPages) {
       const clone = structuredClone(attempt);
       // The desktop store accepts only src_<uuid> ids.
       clone.id = `src_${crypto.randomUUID()}`;
