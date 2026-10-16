@@ -27,13 +27,14 @@ const MILESTONE_TITLES: Record<string, string> = {
 };
 /** What a researched row about the same event says, so the event is not told twice in one month. */
 const SAME_EVENT: Record<string, RegExp> = {
-  'Acquisition or sale completed': /\b(?:acqui\w*|merg\w*|bought|buys?|sold|sells?|sale|divest\w*)\b/i,
-  'Change in control': /\b(?:acqui\w*|merg\w*|taken private|buyout|control)\b/i,
-  'Executive or director change': /\b(?:ceo|cfo|coo|cto|chief|president|chair\w*|appoint\w*|named|hire[sd]?|join\w*|resign\w*|depart\w*|steps? down|director|board|officer|successor)\b/i,
-  'Material agreement': /\b(?:agreement|partner\w*|deal|contract|credit facility|loan)\b/i,
-  'Bankruptcy': /\b(?:bankrupt\w*|chapter 11|receiver\w*|insolven\w*)\b/i,
-  'Restructuring costs': /\b(?:restructur\w*|layoffs?|job cuts|closure|wind(?:s|ing)? down)\b/i,
-  'Cybersecurity incident': /\b(?:cyber\w*|breach\w*|hack\w*|ransomware|incident)\b/i,
+  // Narrow on purpose: a word that also tells other news ("joined the S&P 500", "sold its millionth unit") would hide a real filing.
+  'Acquisition or sale completed': /\b(?:acqui(?:re[sd]?|ring|sition)|merge[rsd]?|merging|divest\w*)\b/i,
+  'Change in control': /\b(?:acqui(?:re[sd]?|ring|sition)|merge[rsd]?|merging|taken private|buyout|change (?:in|of) control)\b/i,
+  'Executive or director change': /\b(?:ceo|cfo|coo|cto|chief [a-z]+ officer|appoint\w*|resign\w*|steps? down|retire[sd]?|successor)\b/i,
+  'Material agreement': /\b(?:agreements?|contracts?|credit facility)\b/i,
+  'Bankruptcy': /\b(?:bankrupt\w*|chapter 11|receivership|insolven\w*)\b/i,
+  'Restructuring costs': /\b(?:restructur\w*|layoffs?|job cuts|reduction in force)\b/i,
+  'Cybersecurity incident': /\b(?:cyber\w*|data breach|hack(?:ed|ers?)?|ransomware)\b/i,
 };
 /** Filing milestones added to one History, newest first. */
 export const MAX_FILING_MILESTONES = 8;
@@ -53,6 +54,8 @@ export interface FilingMilestone { event: TimelineEvent; citation: Citation; eve
 export function filingMilestones(filings: readonly CompanyFiling[]): FilingMilestone[] {
   const out: FilingMilestone[] = [];
   for (const filing of filings) {
+    // An amended 8-K restates an original already on the list: one event, one row.
+    if (filing.form === '8-K/A' && filings.some((f) => f.form === '8-K' && (f.reportDate ?? f.filingDate) === (filing.reportDate ?? filing.filingDate))) continue;
     const events = filing.events.filter((e) => MILESTONE_TITLES[e]);
     if (!events.length) continue;
     // An 8-K's report date is the day the event happened; the filing can follow by days.

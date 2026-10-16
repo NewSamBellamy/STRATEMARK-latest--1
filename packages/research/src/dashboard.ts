@@ -234,9 +234,10 @@ export async function researchDashboardWithSources<T extends DashboardTab>(tab: 
   });
   // Free and official: read while the paid search runs.
   // Bounded: SEC reads share one paced queue, and a slow one must never cost History the paid research it already has.
-  const filings = tab === 'history' && args.officialFilings ? withinMs(args.officialFilings().catch(() => null), FILINGS_WAIT_MS) : null;
+  const filings = tab === 'history' && args.officialFilings ? args.officialFilings().catch(() => null) : null;
   const content = await researchDashboardTab(tab, { ...args, client, ...(companyStory ? { companyStory } : {}) });
-  const milestones = filingMilestones((await filings) ?? []);
+  // The wait starts once the research is in: filings that arrive while it runs are never cut off.
+  const milestones = filingMilestones((filings ? await withinMs(filings, FILINGS_WAIT_MS) : null) ?? []);
   if (milestones.length) {
     const placed = withFilingMilestones(content as HistoryContent, citations, milestones);
     return { content: placed.content as DashboardContentMap[T], citations: placed.citations };

@@ -108,6 +108,52 @@ describe('a slow SEC never costs History its research', () => {
   });
 });
 
+describe('round two: what the research says, the wait, and amendments', () => {
+  it('other news in the same month never hides a filing', () => {
+    const milestones = filingMilestones([
+      filing('8-K', '2024-03-15', ['Executive or director change'], '2024-03-14'),
+      filing('8-K', '2024-03-20', ['Acquisition or sale completed'], '2024-03-19'),
+    ]);
+    const placed = withFilingMilestones({ timeline: [
+      { date: 'March 2024', title: 'Joined the S&P 500 index', detail: '' },
+      { date: 'March 2024', title: 'Sold its 100 millionth device', detail: 'Named to the board of a trade group.' },
+    ] }, [], milestones);
+    expect(placed.content.timeline).toHaveLength(4);
+  });
+
+  it('a researched CEO appointment that month keeps the 5.02 filing out', () => {
+    const milestones = filingMilestones([filing('8-K', '2024-03-15', ['Executive or director change'], '2024-03-14')]);
+    expect(withFilingMilestones({ timeline: [{ date: 'March 2024', title: 'Jane Roe appointed CEO', detail: '' }] }, [], milestones)
+      .content.timeline).toHaveLength(1);
+  });
+
+  it('an amended 8-K is one event with its original, not a second row', () => {
+    const out = filingMilestones([
+      filing('8-K/A', '2026-05-20', ['Acquisition or sale completed'], '2026-05-01'),
+      filing('8-K', '2026-05-04', ['Material agreement', 'Acquisition or sale completed'], '2026-05-01'),
+    ]);
+    expect(out).toHaveLength(1);
+  });
+
+  it('filings that arrive while slow research runs are kept', async () => {
+    vi.useFakeTimers();
+    try {
+      const client = {
+        ground: () => new Promise((resolve) => setTimeout(() => resolve({ text: 'Gamma Shop was founded in 2010.',
+          citations: [{ title: 'About', url: 'https://gamma.example/about' }], queries: [] }), 20_000)),
+        structure: async () => ({ founderStory: 'Gamma Shop was founded in 2010.', quotes: [], timeline: [{ date: '2010', title: 'Gamma Shop founded', detail: '' }] }),
+      } as unknown as LlmClient;
+      const company = { id: 'gamma', name: 'Gamma Shop', oneLiner: 'Gadgets.', logoUrl: null, hqLocation: null, websiteUrl: 'https://gamma.example', brandTheme: null };
+      const pending = researchDashboardWithSources('history', { company, marketName: 'Gadgets', storedMetrics: [], client,
+        officialFilings: () => new Promise((resolve) => setTimeout(() => resolve([filing('8-K', '2026-05-04', ['Change in control'], '2026-05-01')]), 5_000)) });
+      await vi.advanceTimersByTimeAsync(21_000);
+      expect((await pending).content.timeline.map((row) => row.title)).toEqual(['Gamma Shop founded', 'Change in control of the company']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 // ---- in the repository: the History tab -------------------------------------------------------
 
 const SUBMISSIONS = JSON.stringify({ cik: '0000000777', name: 'GAMMA SHOP INC', tickers: ['GMMA'], filings: { recent: {
