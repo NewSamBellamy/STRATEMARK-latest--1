@@ -2338,7 +2338,10 @@ export class GeminiRepository implements MarketIntelRepository {
   }
 
   async listFollows(): Promise<CompanyFollow[]> {
-    return [...(this.snap.follows ?? [])];
+    return (this.snap.follows ?? []).map((follow) => {
+      const name = this.snap.companies.find((company) => company.id === follow.companyId)?.name;
+      return name ? { ...follow, companyName: name } : { ...follow };
+    });
   }
 
   async followCompanies(companyIds: readonly string[]): Promise<void> {

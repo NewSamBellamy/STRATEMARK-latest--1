@@ -576,6 +576,8 @@ export interface CompanyMove {
 export interface CompanyFollow {
   companyId: string;
   followedAt: string;
+  /** The company's name, for listing follows without loading each company. */
+  companyName?: string;
 }
 
 export interface MovesRefreshResult {

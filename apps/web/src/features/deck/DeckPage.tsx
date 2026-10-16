@@ -19,6 +19,7 @@ import {
   Target,
   X,
   Sparkles,
+  Sun,
 } from 'lucide-react';
 import {
   CARD_TYPE_DESCRIPTIONS,
@@ -57,6 +58,7 @@ import { EmptyState } from '@/components/states/EmptyState';
 import { CardGrid } from './CardGrid';
 import { deckActionPolicy } from './deck-actions';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
+import { useFollowCompanies, useFollows } from '@/hooks/today';
 
 /** Human count noun per card type — fixes the old "20 company companies" bug. */
 function cardCountNoun(type: CardType, count: number): string {
@@ -143,6 +145,12 @@ export default function DeckPage() {
   const actionPolicy = deckActionPolicy(typeParam);
 
   const all = useMemo(() => cards.data ?? [], [cards.data]);
+  const canFollow = useSupports('followCompanies');
+  const follows = useFollows();
+  const followCompanies = useFollowCompanies();
+  const deckCompanyIds = useMemo(() => [...new Set(all.flatMap((entry) => (entry.company ? [entry.company.id] : [])))], [all]);
+  const followed = useMemo(() => new Set((follows.data ?? []).map((follow) => follow.companyId)), [follows.data]);
+  const allFollowed = deckCompanyIds.length > 0 && deckCompanyIds.every((id) => followed.has(id));
   const companyCount = useMemo(
     () => new Set(all.filter((entry) => isEntityCardType(entry.card.cardType))
       .map((entry) => entry.company?.id)
@@ -331,6 +339,18 @@ export default function DeckPage() {
                     <Sparkles className={`h-4 w-4 text-muted ${filling ? 'animate-pulse' : ''}`} />
                     {filling ? 'Filling cards…' : 'Fill missing figures'}
                   </button>
+                  {canFollow && (
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-content hover:bg-surface-2 disabled:opacity-60"
+                      disabled={deckCompanyIds.length === 0 || allFollowed || followCompanies.isPending}
+                      title="List this deck's companies' funding, launches, hires, deals and filings on Today, checked daily."
+                      onClick={() => { close(); followCompanies.mutate(deckCompanyIds); }}
+                    >
+                      <Sun className="h-4 w-4 text-muted" />
+                      {allFollowed ? 'Following on Today' : `Follow ${deckCompanyIds.length} companies on Today`}
+                    </button>
+                  )}
                 </>
               )}
             />
