@@ -180,6 +180,15 @@ export function mergeTeamOrgNodes(first: readonly TeamOrgNode[], gapFill: readon
 /** Preserve attribution outside model-generated content on every research tab.
  * Existing content-only callers keep their contract; real repositories use this
  * envelope so sources survive synthesis, caching, IPC and cloud transport. */
+/** How long History waits, after its own research, for a listed company's filings. */
+export const FILINGS_WAIT_MS = 4_000;
+
+function withinMs<V>(work: Promise<V>, ms: number): Promise<V | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
 export async function researchDashboardWithSources<T extends DashboardTab>(tab: T, input: TabResearchArgs): Promise<{ content: DashboardContentMap[T]; citations: Citation[]; sourceDiagnostics?: DashboardSourceDiagnostics; overviewExcerpts?: Array<{ sourceUrl: string; quote: string }>; overviewNarrative?: OverviewNarrative; productSelections?: ProductEvidenceSelections; teamOrgSelections?: TeamOrgSelections }> {
   // Every paid call a tab makes is booked to that tab, so tab spend per company can be read off a deck run.
   const label = `tab:${tab}`;
@@ -224,7 +233,8 @@ export async function researchDashboardWithSources<T extends DashboardTab>(tab: 
     return result;
   });
   // Free and official: read while the paid search runs.
-  const filings = tab === 'history' && args.officialFilings ? args.officialFilings().catch(() => null) : null;
+  // Bounded: SEC reads share one paced queue, and a slow one must never cost History the paid research it already has.
+  const filings = tab === 'history' && args.officialFilings ? withinMs(args.officialFilings().catch(() => null), FILINGS_WAIT_MS) : null;
   const content = await researchDashboardTab(tab, { ...args, client, ...(companyStory ? { companyStory } : {}) });
   const milestones = filingMilestones((await filings) ?? []);
   if (milestones.length) {
