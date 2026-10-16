@@ -629,7 +629,8 @@ describe('GeminiRepository (fake client + in-memory store)', () => {
     const repo = new GeminiRepository({ apiKey: 'x', client: fakeClient(), coverage: testCoverage, catalogMax: 3, catalogPasses: 0,
       store: { read: () => snapshot, write: (next) => { snapshot = next; } },
       originalSourceReader: async (url) => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'offline' }) });
-    const dashboard = vi.spyOn(repo, 'getDashboardTab');
+    // Every tab research, the user's and the warm-up's, goes through researchDashboardTab.
+    const dashboard = vi.spyOn(repo as unknown as { researchDashboardTab: GeminiRepository['getDashboardTab'] }, 'researchDashboardTab');
     const { deck } = await repo.createResearchedDeck({ prompt: 'test', region: 'CA' });
     await repo.waitForBackgroundJobs();
     await repo.waitForDashboardWarmup();
