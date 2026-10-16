@@ -234,6 +234,14 @@ export class IpcRepository implements MarketIntelRepository {
   huntFaceSlotsBatch(companyIds: readonly string[]): Promise<Record<string, HuntMetricsResult>> {
     return this.api.huntFaceSlotsBatch?.(companyIds) ?? Promise.resolve({});
   }
+  recoverSavedCompanyMetrics(id: string): Promise<HuntMetricsResult> {
+    if (!this.api.recoverSavedCompanyMetrics) return Promise.reject(new Error('Update the desktop shell to recover saved figures.'));
+    return this.api.recoverSavedCompanyMetrics(id);
+  }
+  /** An older desktop host lends nothing; recovery and the hunt still run. */
+  reuseCompanyEvidence(id: string): Promise<number> {
+    return this.api.reuseCompanyEvidence?.(id) ?? Promise.resolve(0);
+  }
   generateDeckBriefing(id: string, opts?: { windowHours?: number }): Promise<DeckBriefing> {
     if (!this.api.generateDeckBriefing) return Promise.reject(new Error('Update the desktop shell to generate briefings.'));
     return this.api.generateDeckBriefing(id, opts);

@@ -77,6 +77,8 @@ export const IPC_CHANNELS = {
   verifyMetric: 'mi:verifyMetric',
   huntCompanyMetrics: 'mi:huntCompanyMetrics',
   huntFaceSlotsBatch: 'mi:huntFaceSlotsBatch',
+  recoverSavedCompanyMetrics: 'mi:recoverSavedCompanyMetrics',
+  reuseCompanyEvidence: 'mi:reuseCompanyEvidence',
   generateDeckBriefing: 'mi:generateDeckBriefing',
   listDeckBriefings: 'mi:listDeckBriefings',
   auditSite: 'mi:auditSite',

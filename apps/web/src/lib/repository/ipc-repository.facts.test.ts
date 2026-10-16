@@ -20,6 +20,20 @@ it('batches face-slot hunts over the desktop channel, and an older host batches 
   expect(await new IpcRepository({} as unknown as PreloadRepositoryApi).huntFaceSlotsBatch(['cmp'])).toEqual({});
 });
 
+it('the desktop sweep gets its free steps: saved-figure recovery and a twin company\'s evidence', async () => {
+  const recover = vi.fn().mockResolvedValue({ filledTypes: ['employees'], metrics: [], retieredCardIds: [] });
+  const reuse = vi.fn().mockResolvedValue(3);
+  const repo = new IpcRepository({ recoverSavedCompanyMetrics: recover, reuseCompanyEvidence: reuse } as unknown as PreloadRepositoryApi);
+  expect((await repo.recoverSavedCompanyMetrics('cmp')).filledTypes).toEqual(['employees']);
+  expect(await repo.reuseCompanyEvidence('cmp')).toBe(3);
+  expect(recover).toHaveBeenCalledWith('cmp');
+  expect(reuse).toHaveBeenCalledWith('cmp');
+  // An older host: nothing is lent, and recovery fails so the sweep's paid hunt still runs.
+  const old = new IpcRepository({} as unknown as PreloadRepositoryApi);
+  expect(await old.reuseCompanyEvidence('cmp')).toBe(0);
+  await expect(old.recoverSavedCompanyMetrics('cmp')).rejects.toThrow(/desktop shell/i);
+});
+
 it('asks to restart an older desktop host instead of trusting its legacy metric labels', async () => {
   const raw = vi.fn();
   const repo = new IpcRepository({ getCompanyMetrics: raw } as unknown as PreloadRepositoryApi);
