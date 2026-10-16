@@ -372,6 +372,12 @@ function registerIpc(): void {
   });
   ipcMain.handle(IPC_CHANNELS.huntFaceSlotsBatch, (_e, companyIds: unknown) =>
     repository.huntFaceSlotsBatch?.(z.array(z.string().min(1)).max(500).parse(companyIds)) ?? {});
+  ipcMain.handle(IPC_CHANNELS.recoverSavedCompanyMetrics, (_e, id: unknown) => {
+    if (!repository.recoverSavedCompanyMetrics) throw new Error('Saved-figure recovery is unavailable.');
+    return repository.recoverSavedCompanyMetrics(z.string().min(1).parse(id));
+  });
+  ipcMain.handle(IPC_CHANNELS.reuseCompanyEvidence, (_e, id: unknown) =>
+    repository.reuseCompanyEvidence?.(z.string().min(1).parse(id)) ?? 0);
   ipcMain.handle(IPC_CHANNELS.generateDeckBriefing, (_e, id: unknown, opts: unknown) => {
     if (!repository.generateDeckBriefing) throw new Error('Briefings are unavailable.');
     return repository.generateDeckBriefing(z.string().min(1).parse(id), z.object({ windowHours: z.number().int().min(1).max(720).optional() }).optional().parse(opts));
