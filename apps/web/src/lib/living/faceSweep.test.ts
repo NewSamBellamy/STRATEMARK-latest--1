@@ -185,4 +185,19 @@ describe('face sweep run — batched', () => {
     expect(huntCompanyMetrics.mock.calls.map((c) => c[1])).toContainEqual({ faceSlotsOnly: true });
     expect(huntCompanyMetrics).toHaveBeenCalledTimes(4);
   });
+
+  it('calls the real repository as an object, so free recovery and the batched search actually run', async () => {
+    // The app's repository is a class whose methods read `this`; a detached call throws and was
+    // swallowed, silently turning the sweep back into one paid search per company.
+    class Repo {
+      readonly calls: string[] = [];
+      async recoverSavedCompanyMetrics(id: string) { this.calls.push(`recover:${id}`); return none; }
+      async huntFaceSlotsBatch(ids: readonly string[]) { this.calls.push('batch');
+        return Object.fromEntries(ids.map((id) => [id, { filledTypes: ['employees' as const], metrics: full(1).metrics, retieredCardIds: [] }])); }
+      async huntCompanyMetrics(id: string) { this.calls.push(`hunt:${id}`); return none; }
+    }
+    const repo = new Repo();
+    await runFaceSweep([deckCard(1, []), deckCard(2, [])], { repo });
+    expect(repo.calls).toEqual(['recover:cmp_sweep_1', 'recover:cmp_sweep_2', 'batch']);
+  });
 });

@@ -95,7 +95,8 @@ export async function runFaceSweep(cards: readonly CardWithCompany[], deps: Face
 
   const recovered = new Map<string, number>();
   const stillShort = new Set(targets.map((t) => t.companyId));
-  const batch = deps.repo.huntFaceSlotsBatch;
+  // Bound: the app's repository is a class instance, and a detached method call loses `this`.
+  const batch = deps.repo.huntFaceSlotsBatch?.bind(deps.repo);
   // A twin of this company researched in another deck lends its saved evidence
   // first (free), so recovery below can re-derive figures instead of paying for them.
   const reuse = async (target: FaceSweepTarget) => {
@@ -106,7 +107,7 @@ export async function runFaceSweep(cards: readonly CardWithCompany[], deps: Face
   if (batch && deps.repo.huntCompanyMetrics) {
     // Free recovery for every company first, so the batched search asks only for what is still empty.
     if (deps.repo.recoverSavedCompanyMetrics) {
-      const recover = deps.repo.recoverSavedCompanyMetrics;
+      const recover = deps.repo.recoverSavedCompanyMetrics.bind(deps.repo);
       await pool(async (target) => {
         await reuse(target);
         try {
