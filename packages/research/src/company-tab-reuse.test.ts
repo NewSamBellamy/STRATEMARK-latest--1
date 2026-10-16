@@ -176,3 +176,60 @@ describe('borrowing never costs a free step', () => {
     expect(saved().dashboards.acme_2?.live_landing).toBeDefined();
   });
 });
+
+describe('borrowing in a real second deck', () => {
+  /** acme_2 on a deck just built: deck creation stamps lastRefreshedAt with the creation time. */
+  function onNewDeck(snap: RepoSnapshot) {
+    const created = new Date(Date.now() - 60_000).toISOString();
+    snap.markets.push({ ...snap.markets[0]!, id: 'mkt_2' });
+    snap.decks.push({ id: 'deck_2', marketId: 'mkt_2', createdAt: created, lastRefreshedAt: created });
+    snap.cards.push({ ...snap.cards.find((c) => c.companyId === 'acme')!, id: 'card_acme_2', deckId: 'deck_2', companyId: 'acme_2' });
+    return snap;
+  }
+
+  it('a company on a deck built a minute ago borrows its twin\'s two-day-old tabs', async () => {
+    const { make, ground } = restartable(onNewDeck(twinWorkspace(2)), [productPage('src_p1', 'acme')]);
+    const history = await make().getDashboardTab('acme_2', 'history');
+    expect(history?.content).toEqual({ markdown: '## History\n\nAcme Robotics was founded to automate warehouses.' });
+    expect(ground).not.toHaveBeenCalled();
+  });
+
+  it('tabs opened together still borrow when the first one opened is a tab the twin lacks', async () => {
+    const snap = twinWorkspace(2);
+    delete snap.dashboards.acme!.history;
+    const { make, saved } = restartable(snap, [productPage('src_p1', 'acme')]);
+    const repo = make();
+    const [, products] = await Promise.all([repo.getDashboardTab('acme_2', 'history').catch(() => null), repo.getDashboardTab('acme_2', 'products_roadmap')]);
+    expect(products?.content.products.map((p) => p.name)).toEqual(['Fleet Manager']);
+    // History pays (the twin never had it); Products is the twin's, copied, not researched again.
+    expect(saved().dashboards.acme_2?.products_roadmap?.lastRefreshedAt).toBe(snap.dashboards.acme!.products_roadmap!.lastRefreshedAt);
+  });
+
+  it('notes are lent from the matched twin, never from a same-name company elsewhere listed first', async () => {
+    const snap = twinWorkspace(2);
+    const acme = snap.companies.find((c) => c.id === 'acme')!;
+    snap.companies.unshift({ ...acme, id: 'acme_uk', name: 'Acme Robotics Ltd', websiteUrl: 'https://acmerobotics.co.uk', oneLiner: 'UK firm' });
+    snap.researchEvidence = [{ id: 'ev_uk', companyId: 'acme_uk', companyName: 'Acme Robotics Ltd', topic: 'arr', capturedAt: '2026-10-10T00:00:00.000Z',
+      text: 'Acme Robotics Ltd revenue reached GBP 3M.', citations: [{ title: 'FT', url: 'https://www.ft.com/x' }], queries: [] }] as unknown as RepoSnapshot['researchEvidence'];
+    const { make, saved } = restartable(snap, [productPage('src_p1', 'acme')]);
+    await make().getDashboardTab('acme_2', 'history');
+    expect(saved().researchEvidence?.some((e) => e.companyId === 'acme_2' && e.text.includes('GBP 3M'))).toBe(false);
+  });
+
+  it('two pages on one shared host told apart only by their query are not twins', async () => {
+    const snap = twinWorkspace(2);
+    snap.companies.find((c) => c.id === 'acme')!.websiteUrl = 'https://www.facebook.com/profile.php?id=1';
+    snap.companies.find((c) => c.id === 'acme_2')!.websiteUrl = 'https://www.facebook.com/profile.php?id=2';
+    const { make, ground } = restartable(snap, []);
+    await make().getDashboardTab('acme_2', 'history').catch(() => null);
+    expect(ground).toHaveBeenCalled();
+  });
+
+  it('the same site written differently is still a twin', async () => {
+    const snap = twinWorkspace(2);
+    snap.companies.find((c) => c.id === 'acme_2')!.websiteUrl = 'http://ACME.example/?utm_source=x';
+    const { make, ground } = restartable(snap, [productPage('src_p1', 'acme')]);
+    await make().getDashboardTab('acme_2', 'history');
+    expect(ground).not.toHaveBeenCalled();
+  });
+});

@@ -158,12 +158,14 @@ const COMPANY_BRIEFING_TTL_MS = 15 * 60_000;
 /** A twin's cached tab is reused in another deck while younger than this (Live Intel: one day). */
 const TWIN_TAB_FRESH_MS = 30 * 24 * 60 * 60_000;
 const TWIN_NEWS_FRESH_MS = 24 * 60 * 60_000;
-/** A website as a twin key: host and path, so two companies on one shared host (linkedin.com, github.com) never match. */
+/** A website as a twin key: host, path and query (tracking tags aside), so two companies on one shared
+ * host (linkedin.com/company/…, facebook.com/profile.php?id=…) never match. */
 function twinSiteKey(url: string | null | undefined): string {
   if (!url) return '';
   try {
     const parsed = new URL(url.includes('://') ? url : `https://${url}`);
-    return `${parsed.hostname.replace(/^www\./, '').toLowerCase()}${parsed.pathname.replace(/\/+$/, '').toLowerCase()}`;
+    const query = [...parsed.searchParams].filter(([key]) => !/^utm_/i.test(key)).map(([key, value]) => `${key}=${value}`).sort().join('&');
+    return `${parsed.hostname.replace(/^www\./, '').toLowerCase()}${parsed.pathname.replace(/\/+$/, '').toLowerCase()}${query ? `?${query}` : ''}`;
   } catch { return ''; }
 }
 /** How long the warm-up's first tab search waits for other companies to share its search. */
@@ -250,6 +252,8 @@ export interface RepoSnapshot {
   follows?: CompanyFollow[];
   /** companyId → when its moves were last looked for successfully. */
   movesRefreshedAt?: Record<string, string>;
+  /** companyId → when the user last refreshed a deck holding it: a twin's tabs from before then are never lent. */
+  tabsRefreshedAt?: Record<string, string>;
   /** marketId → cached whitespace analysis. */
   opportunity: Record<
     string,
@@ -621,8 +625,6 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly evidenceReuse = new Map<string, Promise<number>>();
   /** One cross-deck tab borrow per company at a time (the warm-up opens several tabs at once). */
   private readonly tabBorrows = new Map<string, Promise<boolean>>();
-  /** Companies whose deck the user refreshed this session: their tabs are re-researched, never borrowed. */
-  private readonly noTabBorrow = new Set<string>();
   private readonly hunts = new Map<string, { options?: HuntMetricsOptions; result: Promise<HuntMetricsResult> }>();
 
   /** Comparable user counts of the companies on this deck: the population a
@@ -1181,6 +1183,9 @@ export class GeminiRepository implements MarketIntelRepository {
       movesRefreshedAt: prev.movesRefreshedAt
         ? Object.fromEntries(Object.entries(prev.movesRefreshedAt).filter(([companyId]) => !orphaned.has(companyId)))
         : prev.movesRefreshedAt,
+      tabsRefreshedAt: prev.tabsRefreshedAt
+        ? Object.fromEntries(Object.entries(prev.tabsRefreshedAt).filter(([companyId]) => !orphaned.has(companyId)))
+        : prev.tabsRefreshedAt,
       researchJobs: prev.researchJobs.filter((job) => !allJobIds.has(job.id)),
       briefings: prev.briefings.filter((b) => b.marketId !== marketId && !deckIds.has(b.deckId)),
       opportunity,
@@ -1199,7 +1204,7 @@ export class GeminiRepository implements MarketIntelRepository {
       originalSourceAttempts: prev.originalSourceAttempts?.filter((row) => !orphaned.has(row.companyId)),
     };
     if (prev.removedFromDeck === undefined) delete next.removedFromDeck;
-    for (const key of ['moves', 'follows', 'movesRefreshedAt'] as const) if (prev[key] === undefined) delete next[key];
+    for (const key of ['moves', 'follows', 'movesRefreshedAt', 'tabsRefreshedAt'] as const) if (prev[key] === undefined) delete next[key];
     this.snap = next;
     try {
       await this.persist();
@@ -2263,9 +2268,10 @@ export class GeminiRepository implements MarketIntelRepository {
       dueCount += 1;
     }
     // Cached tab research also re-runs on next open so prose catches up.
+    const tabsRefreshedAt = new Date().toISOString();
     for (const companyId of deckCompanyIds) {
       this.invalidateDashboard(companyId, 'all');
-      this.noTabBorrow.add(companyId);
+      this.snap.tabsRefreshedAt = { ...this.snap.tabsRefreshedAt, [companyId]: tabsRefreshedAt };
     }
 
     // 2. One targeted hunt for new entrants since the deck was built.
@@ -4030,9 +4036,14 @@ export class GeminiRepository implements MarketIntelRepository {
    * through the same gates afterward, so confidence is re-earned, never
    * copied, and a company with its own evidence never borrows. */
   reuseCompanyEvidence(companyId: string): Promise<number> {
+    return this.lendOnce(companyId);
+  }
+
+  /** `twinId`: lend from this twin only (the tab path has already matched it strictly). */
+  private lendOnce(companyId: string, twinId?: string): Promise<number> {
     const running = this.evidenceReuse.get(companyId);
     if (running) return running.then(() => 0);
-    const run = this.lendTwinEvidence(companyId).finally(() => this.evidenceReuse.delete(companyId));
+    const run = this.lendTwinEvidence(companyId, twinId).finally(() => this.evidenceReuse.delete(companyId));
     this.evidenceReuse.set(companyId, run);
     return run;
   }
@@ -4042,9 +4053,15 @@ export class GeminiRepository implements MarketIntelRepository {
    * and path: two companies on linkedin.com or github.com are not twins). Each tab then renders through
    * the normal cached path against this company's own copy of the pages, so every product, person and
    * paragraph passes the same checks again. Any failure falls back to paid research. */
-  private borrowTwinTabs(companyId: string, tab: DashboardTab): Promise<boolean> {
-    const running = this.tabBorrows.get(companyId);
-    if (running) return running;
+  private async borrowTwinTabs(companyId: string, tab: DashboardTab): Promise<boolean> {
+    // A borrow started for another tab may not cover this one (its twin lacked that tab): wait, then try for this one.
+    for (let waits = 0; waits < 4; waits += 1) {
+      const running = this.tabBorrows.get(companyId);
+      if (!running) break;
+      await running;
+      if (this.snap.dashboards[companyId]?.[tab]) return true;
+    }
+    if (this.tabBorrows.has(companyId)) return false;
     const run = this.copyTwinTabs(companyId, tab).catch(() => false).finally(() => this.tabBorrows.delete(companyId));
     this.tabBorrows.set(companyId, run);
     return run;
@@ -4054,11 +4071,10 @@ export class GeminiRepository implements MarketIntelRepository {
     const company = this.snap.companies.find((c) => c.id === companyId);
     const site = twinSiteKey(company?.websiteUrl);
     const nameKey = company ? companyNameKey(company.name) : '';
-    if (!company || !site || nameKey.length < 4 || this.noTabBorrow.has(companyId)) return false;
-    // A deck refresh asks for new tabs: nothing researched before the latest refresh of this company's decks is borrowed.
-    const deckIds = new Set(this.snap.cards.filter((card) => card.companyId === companyId).map((card) => card.deckId));
-    const floor = Math.max(0, ...this.snap.decks.filter((deck) => deckIds.has(deck.id))
-      .map((deck) => Date.parse(deck.lastRefreshedAt ?? '')).filter(Number.isFinite));
+    if (!company || !site || nameKey.length < 4) return false;
+    // A deck refresh asks for new tabs: nothing researched before this company's latest refresh is borrowed.
+    const refreshedAt = this.snap.tabsRefreshedAt?.[companyId];
+    const floor = Number.isFinite(Date.parse(refreshedAt ?? '')) ? Date.parse(refreshedAt!) : 0;
     const now = Date.now();
     const missing = (tab: DashboardTab) => !this.snap.dashboards[companyId]?.[tab];
     const freshTabs = (id: string) => (Object.entries(this.snap.dashboards[id] ?? {}) as Array<[DashboardTab, CachedTab | undefined]>)
@@ -4081,7 +4097,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const epoch = this.dashboardAllEpochs.get(companyId) ?? 0;
     // Lend the twin's other saved pages and notes first: once borrowed pages are filed here,
     // that free lending (which feeds missing figures) would see "has pages" and stop.
-    await this.reuseCompanyEvidence(companyId).catch(() => 0);
+    await this.lendOnce(companyId, twin.company.id).catch(() => 0);
 
     // The pages each tab reads when it renders: the same lookups the cached path makes.
     const excerpts = (entry: CachedTab) => Array.isArray(entry.overviewExcerpts) ? entry.overviewExcerpts.flatMap((ref) => {
@@ -4117,7 +4133,7 @@ export class GeminiRepository implements MarketIntelRepository {
       else (this.snap.originalSourceAttempts ??= []).push(clone);
     }
     // The user refreshed this company while pages were copied: keep the refresh.
-    if ((this.dashboardAllEpochs.get(companyId) ?? 0) !== epoch || this.noTabBorrow.has(companyId)) return false;
+    if ((this.dashboardAllEpochs.get(companyId) ?? 0) !== epoch || this.snap.tabsRefreshedAt?.[companyId] !== refreshedAt) return false;
     // A tab a pass for this company cached meanwhile is its own and stays.
     const lent = twin.tabs.filter(([tab]) => missing(tab));
     if (!lent.length) return false;
@@ -4139,7 +4155,7 @@ export class GeminiRepository implements MarketIntelRepository {
     return true;
   }
 
-  private async lendTwinEvidence(companyId: string): Promise<number> {
+  private async lendTwinEvidence(companyId: string, twinId?: string): Promise<number> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company) return 0;
     // On desktop the saved pages live in their own store, not in the snapshot: read and file them there.
@@ -4151,7 +4167,7 @@ export class GeminiRepository implements MarketIntelRepository {
     if ((await pagesOf(companyId)).length > 0) return 0;
     const domain = company.websiteUrl ? rootDomain(company.websiteUrl) : null;
     const nameKey = companyNameKey(company.name);
-    const prior = this.snap.companies.find((c) => c.id !== companyId &&
+    const prior = twinId ? this.snap.companies.find((c) => c.id === twinId && c.id !== companyId) : this.snap.companies.find((c) => c.id !== companyId &&
       ((domain && c.websiteUrl && rootDomain(c.websiteUrl) === domain) ||
         (nameKey.length >= 4 && companyNameKey(c.name) === nameKey)));
     if (!prior) return 0;

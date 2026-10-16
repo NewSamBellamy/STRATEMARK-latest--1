@@ -120,7 +120,7 @@ const TABLES: TableSpec[] = [
 const RECORD_FIELDS = ['dashboards', 'companyMarket', 'opportunity'] as const;
 /** Optional records: stored only when present, so an absent field stays absent (never an empty default).
  * Both drive the dashboard warm-up: without them a restart forgets what was tried and what was started. */
-const OPTIONAL_RECORD_FIELDS = ['dashboardWarmup', 'deckWarmup', 'deckRun', 'follows', 'moves', 'movesRefreshedAt'] as const;
+const OPTIONAL_RECORD_FIELDS = ['dashboardWarmup', 'deckWarmup', 'deckRun', 'follows', 'moves', 'movesRefreshedAt', 'tabsRefreshedAt'] as const;
 
 interface CachedRow { key: string; json: string; ord: number }
 
