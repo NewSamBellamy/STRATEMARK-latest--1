@@ -142,7 +142,7 @@ export function structureDiscoveryPrompt(
 
 /** A figure's date is the source's, never one the model supplies: an invented
  * "as of" turned a 2022 round into a current one on the card. */
-const FIGURE_DATE_RULE = 'The date is the date the source gives for that figure (when the round closed, when the count was reported). If the source gives no date, write "undated": never use today\'s date, the search date or a year-end as a stand-in, and never restate an older round as current.';
+export const FIGURE_DATE_RULE = 'The date is the date the source gives for that figure (when the round closed, when the count was reported). If the source gives no date, write "undated": never use today\'s date, the search date or a year-end as a stand-in, and never restate an older round as current.';
 
 /** The face of a card carries four figures. Small private brands rarely publish
  * ARR or a valuation, so ask for every figure a source may honestly state. A

@@ -194,6 +194,34 @@ const mentionsCompany = (text: string, name: string) => {
   const forms = [stripCorporateSuffix(name), name, ...entityAliases(name)].filter((f) => f.length > 0);
   return forms.some((alias) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(alias)}(?![\\p{L}\\p{N}])`, 'iu').test(text));
 };
+/**
+ * True when `text` names another roster company by its full name (legal or
+ * short form, case as written), once the subject's own names are removed.
+ * Strict on purpose: the loose rival matcher also matches a rival's first word
+ * ("Health" of Health Catalyst), which inside "Oscar Health had 5,000
+ * employees" is the subject's own name. Used to refuse joint figures
+ * ("Wingtra and Skydio had 900 employees") and quotes about a rival.
+ */
+export function namesRosterRival(text: string, companyName: string, others: readonly string[] | undefined): boolean {
+  if (!others?.length || !text) return false;
+  const own = [companyName, stripCorporateSuffix(companyName), ...entityAliases(companyName)].filter((form) => form.length > 0);
+  const ownKeys = new Set(own.map((form) => form.toLowerCase()));
+  const spans = (form: string, flags: string) => [...text.matchAll(new RegExp(`(?<![\\p{L}\\p{N}])${escape(form)}(?![\\p{L}\\p{N}])`, flags))]
+    .map((m) => [m.index!, m.index! + m[0].length] as const);
+  // A rival mention counts unless it lies inside a mention of the subject: "Scale"
+  // inside "Scale AI" is the subject itself, but "Gusto Pro" is a rival even
+  // though it starts with "Gusto".
+  const ownSpans = [...new Set(own)].flatMap((form) => spans(form, 'giu'));
+  const forms = new Set<string>();
+  for (const name of others) {
+    for (const form of [name.trim(), stripCorporateSuffix(name.trim()), ...entityAliases(name)]) {
+      if (form.length >= 3 && !ownKeys.has(form.toLowerCase())) forms.add(form);
+    }
+  }
+  return [...forms].some((form) => spans(form, 'gu')
+    .some(([start, end]) => !ownSpans.some(([s, e]) => s <= start && end <= e && e - s > end - start)));
+}
+
 /** True when `text` names the company anywhere (legal, short or alias form). */
 export const namesCompany = (text: string, name: string): boolean => mentionsCompany(text, name);
 
@@ -699,6 +727,14 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
     const firstBasisAt = basisPatterns[definition] ? new RegExp(basisPatterns[definition]!.source, 'i').exec(sentence)?.index : undefined;
     return subjectAt !== undefined && firstBasisAt !== undefined && subjectAt < firstBasisAt;
   } : null;
+  // A sentence opening with the subject still binds to no one when a roster
+  // rival is named before the figure's basis word: "Wingtra and Skydio had 900
+  // employees" is a joint (or combined) figure, not Wingtra's. Batched answers
+  // cover many companies at once and make such sentences common.
+  const rivalBeforeBasis = (sentence: string) => {
+    const at = basisPatterns[definition] ? new RegExp(basisPatterns[definition]!.source, 'i').exec(sentence)?.index : undefined;
+    return namesRosterRival(at === undefined ? sentence : sentence.slice(0, at), companyName, identity?.otherCompanies);
+  };
   // Each source sentence is considered as its bare text (inline label dropped,
   // as before) and, for an inline bullet label beside the figure, with the label
   // kept as the claim's own basis word. A conversion clause that follows a
@@ -711,13 +747,13 @@ if (type === 'users' && /\b(?:users engaging with|AI-powered features|across its
   for (const sentenceRaw of raw) {
     const bare = stripCurrencyConversion(neutralizeNumericAliases(plain(sentenceRaw), companyName));
     const kept = stripCurrencyConversion(neutralizeNumericAliases(plainKeepLabel(sentenceRaw), companyName));
-    const bareOk = !!entity(bare, companyName) ||
+    const bareOk = (!!entity(bare, companyName) && !rivalBeforeBasis(bare)) ||
       (official && /^(?:annual revenue|ARR|annual recurring revenue|headcount|employees|users|customers|valuation|market cap)\b/i.test(bare)) ||
       (answerAnchored && anonymousClaimLabel.test(bare) && !rivals!.test(bare)) ||
       (namedBeforeBasis?.(bare) ?? false) ||
       // The company's own page speaking about itself (see ownSiteSupport).
       (ownSite && reach && !(rivals?.test(bare) ?? false));
-    const keptOk = kept !== bare && (!!entity(plain(sentenceRaw), companyName) ||
+    const keptOk = kept !== bare && ((!!entity(plain(sentenceRaw), companyName) && !rivalBeforeBasis(kept)) ||
       (answerAnchored && anonymousClaimLabel.test(kept) && !rivals!.test(kept)));
     if (bareOk) admitted.push(bare);
     if (keptOk) admitted.push(kept);
