@@ -107,6 +107,7 @@ import { businessDates, reportedAsOfNote, statedPeriodDate, storedDefinition } f
 import { enrichmentOutSchema } from './schemas';
 import { researchMarketSignals } from './signal-agents';
 import { AbortError, mapWithConcurrency, sleep, throwIfAborted, websiteUrlOf } from './util';
+import { classifyCompanyType, companyTypeFocus } from './company-type';
 import { IncrementalDeltaAgent } from './delta-agent';
 import {
   shouldDistillThread,
@@ -2956,7 +2957,8 @@ export class GeminiRepository implements MarketIntelRepository {
         late.name = 'TimeoutError';
         return Promise.reject(late);
       }
-      const prompt = kind === 'briefing' ? companyBriefingPrompt(company, marketName) : companyStoryPrompt(company, marketName);
+      const focus = this.companyFocus(company);
+      const prompt = kind === 'briefing' ? companyBriefingPrompt(company, marketName, focus) : companyStoryPrompt(company, marketName, focus);
       return this.client.ground(prompt, { system: GROUNDED_SYSTEM, signal: deadline.signal,
         label: topic, researchContext: { companyId: company.id, companyName: company.name, topic } });
     };
@@ -2982,6 +2984,11 @@ export class GeminiRepository implements MarketIntelRepository {
     });
   }
 
+  /** What this company's tab searches look for first, from the kind of company its stored figures show. */
+  private companyFocus(company: Company): string | null {
+    return companyTypeFocus(classifyCompanyType(company, this.snap.metrics.filter((m) => m.companyId === company.id)));
+  }
+
   private runTabBatch(batch: TabBatch): void {
     if (batch.started) return;
     batch.started = true;
@@ -2993,7 +3000,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const deadline = new AbortController();
     // A provider that ignores the abort must not hold its companies: they are released at the deadline.
     const timer = setTimeout(() => { deadline.abort(); for (const member of members) member.done(null); }, TAB_BATCH_DEADLINE_MS);
-    void this.client.ground(companyTabsBatchPrompt(members), { system: GROUNDED_SYSTEM, signal: deadline.signal, label: 'company_tabs_batch' })
+    void this.client.ground(companyTabsBatchPrompt(members.map((member) => ({ ...member, focus: this.companyFocus(member.company) }))), { system: GROUNDED_SYSTEM, signal: deadline.signal, label: 'company_tabs_batch' })
       .then(async (g) => {
         // An answer after the deadline is for nobody: its companies were released and search on their own.
         if (deadline.signal.aborted) return;
