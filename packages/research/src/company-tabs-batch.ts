@@ -32,10 +32,10 @@ export function headingCompanyKey(title: string): string {
  * its own "### Name" section with the briefing, a COMPANY TEAM line, the team, a COMPANY STORY
  * line and the story, so every tab still reads only its own company's part.
  */
-export function companyTabsBatchPrompt(companies: ReadonlyArray<{ company: Pick<Company, 'name' | 'websiteUrl'>; marketName: string }>): string {
+export function companyTabsBatchPrompt(companies: ReadonlyArray<{ company: Pick<Company, 'name' | 'websiteUrl'>; marketName: string; focus?: string | null }>): string {
   // Bullets, not numbers: a numbered roster invites numbered headings ("### 1. Acme").
-  const roster = companies.map(({ company, marketName }) =>
-    `- ${JSON.stringify(company.name)} (known official domain: ${JSON.stringify(company.websiteUrl ?? 'not established')}; market: ${JSON.stringify(marketName)})`).join('\n');
+  const roster = companies.map(({ company, marketName, focus }) =>
+    `- ${JSON.stringify(company.name)} (known official domain: ${JSON.stringify(company.websiteUrl ?? 'not established')}; market: ${JSON.stringify(marketName)})${focus ? ` ${focus}` : ''}`).join('\n');
   return `Research each company below separately, from its own sources. Write one section per company, in the order listed, each starting with a line "### " followed by the company's exact name as listed and nothing else. Use no other "#", "##" or "###" headings anywhere. Never put one company's facts in another company's section, and do not compare the companies with each other.
 
 Companies:
