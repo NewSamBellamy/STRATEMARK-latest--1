@@ -547,6 +547,47 @@ export interface DeckRefreshEvent {
 export type DeckRefreshListener = (event: DeckRefreshEvent) => void;
 export type Unsubscribe = () => void;
 
+/** What a followed company did: Today's kinds of move. */
+export type MoveKind = 'funding' | 'launch' | 'hire' | 'deal' | 'filing';
+
+/**
+ * One dated move by a followed company, from a free source (a news feed or SEC
+ * EDGAR). The title is the publisher's own headline, or EDGAR's form name and
+ * filed items; nothing in it is written by a model.
+ */
+export interface CompanyMove {
+  id: string;
+  companyId: string;
+  companyName: string;
+  kind: MoveKind;
+  /** 3 = major, 2 = notable, 1 = minor. */
+  importance: 1 | 2 | 3;
+  title: string;
+  url: string;
+  publisher: string | null;
+  /** When the source published or filed it (ISO). */
+  publishedAt: string;
+  /** When Stratemark found it (ISO). */
+  foundAt: string;
+  source: 'news' | 'sec_filing';
+  readAt: string | null;
+}
+
+export interface CompanyFollow {
+  companyId: string;
+  followedAt: string;
+  /** The company's name, for listing follows without loading each company. */
+  companyName?: string;
+}
+
+export interface MovesRefreshResult {
+  added: number;
+  /** Followed companies looked at successfully; 0 when every one was looked at in the last day. */
+  refreshed: number;
+  refreshedAt: string | null;
+}
+
+
 export interface SavedCard {
   cardId: string;
   savedAt: string;
@@ -658,6 +699,14 @@ export interface MarketIntelRepository {
    */
   removeCard?(cardId: string): Promise<void>;
   listSavedCards(): Promise<CardWithCompany[]>;
+  /** Today: moves of followed companies, unread first, then importance, then newest. */
+  listMoves?(): Promise<CompanyMove[]>;
+  /** Look for new moves (free sources + one classification call). At most once a day unless forced. */
+  refreshMoves?(options?: { force?: boolean }): Promise<MovesRefreshResult>;
+  markMoveRead?(moveId: string, read: boolean): Promise<void>;
+  listFollows?(): Promise<CompanyFollow[]>;
+  followCompanies?(companyIds: readonly string[]): Promise<void>;
+  unfollowCompany?(companyId: string): Promise<void>;
   saveCard(cardId: string): Promise<SavedCard>;
   unsaveCard(cardId: string): Promise<void>;
 

@@ -9,11 +9,13 @@ import {
   Info,
   PlusCircle,
   Stack,
+  Sun,
 } from '@phosphor-icons/react';
 import { isHostedBeta } from '@/lib/beta';
 import { cn } from '@/lib/cn';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useMarkets } from '@/hooks/data';
+import { useSupports } from '@/lib/repository/RepositoryProvider';
 import { useResearchSession } from '@/features/deck/research-session';
 import wordmark from '@/assets/wordmark.svg';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
@@ -40,6 +42,7 @@ export function SettingsTrigger({ collapsed }: { collapsed: boolean }) {
 export function Sidebar() {
   const hasKey = useApiKey((s) => s.hasKey);
   const [collapsed, setCollapsed] = useState(false);
+  const hasToday = useSupports('listMoves');
   const markets = useMarkets();
   // A deck being researched RIGHT NOW belongs in this list already —
   // "I started it, where is it?" should never have an empty answer.
@@ -83,6 +86,7 @@ export function Sidebar() {
       <nav className="flex shrink-0 flex-col gap-0.5" aria-label="Primary">
         <SidebarLink to="/" end icon={PlusCircle} label="New Deck" collapsed={collapsed} primary />
         {/* Collapsed: no room for the inline list, so keep a link to the full history page. */}
+        {hasToday && <SidebarLink to="/today" icon={Sun} label="Today" collapsed={collapsed} />}
         <SidebarLink to="/history" icon={Stack} label="All Decks" collapsed={collapsed} />
         <SidebarLink to="/saved" icon={BookmarkSimple} label="Saved Cards" collapsed={collapsed} />
         <SidebarLink to="/reports" icon={FileText} label="Reports" collapsed={collapsed} />

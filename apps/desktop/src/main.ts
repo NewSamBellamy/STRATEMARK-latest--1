@@ -29,7 +29,8 @@ import {
   refreshCadenceSchema,
   dashboardTabSchema,
 } from './ipc-schemas.js';
-import { GeminiRepository, migrateSnapshot, type RepoSnapshot } from '@mi/research';
+import { cachedWebSearch, GeminiRepository, migrateSnapshot, type RepoSnapshot } from '@mi/research';
+import { runNewsSearch } from '@mi/research/news-search';
 
 // Unhandled main-process failures otherwise die silently (the Oct-6 audit:
 // only startup was protected). Surface the first one honestly and keep
@@ -223,6 +224,9 @@ const ipcMain = {
   },
 };
 
+/** One cached news lane per app run: repeated queries minutes apart are answered from memory. */
+const desktopNews = cachedWebSearch((query) => runNewsSearch(query, fetch));
+
 function makeRepository(): MarketIntelRepository {
   const apiKey = loadApiKey();
   const store = researchStore();
@@ -243,6 +247,8 @@ function makeRepository(): MarketIntelRepository {
     // the background (highest tier first). No key: nothing to warm with. At
     // this pacing stored decks are not backfilled; they research on open.
     dashboardWarmup: apiKey ? { backfill: false } : false,
+    // The free dated news feed (no key): Today's moves, and leads for hunts and ownership, as on the web.
+    newsSearch: () => desktopNews,
     // Founded year from the company's own Wikidata item (no provider calls).
     wikidataJson: async (url) => (await fetch(url, { signal: AbortSignal.timeout(8000) })).json(),
   });
@@ -309,6 +315,19 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.unsaveCard, (_e, cardId: unknown) =>
     repository.unsaveCard(z.string().min(1).parse(cardId)),
   );
+  // Today: followed companies' moves.
+  ipcMain.handle(IPC_CHANNELS.listMoves, () => repository.listMoves?.() ?? []);
+  ipcMain.handle(IPC_CHANNELS.refreshMoves, (_e, options: unknown) => {
+    if (!repository.refreshMoves) throw new Error('Today is unavailable.');
+    return repository.refreshMoves(z.object({ force: z.boolean().optional() }).optional().parse(options));
+  });
+  ipcMain.handle(IPC_CHANNELS.markMoveRead, (_e, moveId: unknown, read: unknown) =>
+    repository.markMoveRead?.(z.string().min(1).parse(moveId), z.boolean().parse(read)));
+  ipcMain.handle(IPC_CHANNELS.listFollows, () => repository.listFollows?.() ?? []);
+  ipcMain.handle(IPC_CHANNELS.followCompanies, (_e, companyIds: unknown) =>
+    repository.followCompanies?.(z.array(z.string().min(1)).max(500).parse(companyIds)));
+  ipcMain.handle(IPC_CHANNELS.unfollowCompany, (_e, companyId: unknown) =>
+    repository.unfollowCompany?.(z.string().min(1).parse(companyId)));
   ipcMain.handle(IPC_CHANNELS.getCompany, (_e, companyId: unknown) =>
     repository.getCompany(z.string().min(1).parse(companyId)),
   );
