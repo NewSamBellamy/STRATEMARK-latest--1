@@ -19,9 +19,16 @@ function twinWorkspace(): RepoSnapshot {
 
 /** The desktop shape: saved pages live in their own file store, not in the workspace snapshot. */
 function desktopRepo(pages: OriginalSourceAttempt[]) {
-  let saved = twinWorkspace();
-  const store = [...pages];
-  const save = vi.fn(async (attempt: OriginalSourceAttempt) => { store.push(structuredClone(attempt)); });
+  return desktopRepoFrom(twinWorkspace(), [...pages]);
+}
+
+function desktopRepoFrom(start: RepoSnapshot, store: OriginalSourceAttempt[]) {
+  let saved = structuredClone(start);
+  // Like the desktop store, it accepts only src_<uuid> ids.
+  const save = vi.fn(async (attempt: OriginalSourceAttempt) => {
+    if (!/^src_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(attempt.id)) throw new Error('Invalid original-source attempt.');
+    store.push(structuredClone(attempt));
+  });
   const repo = new GeminiRepository({ apiKey: 'test', client: { structure: vi.fn(), ground: vi.fn() } as unknown as LlmClient,
     originalSources: { retrieve: vi.fn(), save, list: async (input) => selectOriginalSourceAttempts(store, input) },
     store: { read: () => structuredClone(saved), write: async (next) => { saved = structuredClone(next); } } });
@@ -38,6 +45,17 @@ describe('a company researched in another deck lends its saved pages', () => {
     expect(lent[0]!.receipts[0]!.text).toBe('Acme Robotics employs 120 people.');
     expect(lent.every((row) => !['p1', 'p2'].includes(row.id))).toBe(true);
     expect(await repo.getOriginalSourceEvidence({ companyId: 'acme_2' })).toHaveLength(2);
+  });
+
+  it('two lending passes at once lend once, and a repeat lends nothing again', async () => {
+    const start = twinWorkspace();
+    start.researchEvidence = [{ id: 'ev_a', companyId: 'acme', companyName: 'Acme Robotics', topic: 'company_briefing',
+      capturedAt: '2026-10-10T00:00:00.000Z', text: 'Acme Robotics builds warehouse robots.', citations: [], queries: [] }] as RepoSnapshot['researchEvidence'];
+    const store = [page('p1', 'acme')];
+    const { repo: fresh } = desktopRepoFrom(start, store);
+    expect(await Promise.all([fresh.reuseCompanyEvidence('acme_2'), fresh.reuseCompanyEvidence('acme_2')])).toEqual([2, 0]);
+    expect(await fresh.reuseCompanyEvidence('acme_2')).toBe(0);
+    expect(store.filter((row) => row.companyId === 'acme_2')).toHaveLength(1);
   });
 
   it('on desktop, a company with saved pages of its own borrows nothing', async () => {

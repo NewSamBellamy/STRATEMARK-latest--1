@@ -606,6 +606,8 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly jobControllers = new Map<string, AbortController>();
   /** In-flight source-binding passes, one per company. */
   private readonly sourceBindings = new Map<string, Promise<number>>();
+  /** One cross-deck lending pass per company at a time: two at once both saw "nothing lent yet". */
+  private readonly evidenceReuse = new Map<string, Promise<number>>();
   private readonly hunts = new Map<string, { options?: HuntMetricsOptions; result: Promise<HuntMetricsResult> }>();
 
   /** Comparable user counts of the companies on this deck: the population a
@@ -4009,13 +4011,22 @@ export class GeminiRepository implements MarketIntelRepository {
    * same root domain or normalized legal name. The twin's facts re-derive
    * through the same gates afterward, so confidence is re-earned, never
    * copied, and a company with its own evidence never borrows. */
-  async reuseCompanyEvidence(companyId: string): Promise<number> {
+  reuseCompanyEvidence(companyId: string): Promise<number> {
+    const running = this.evidenceReuse.get(companyId);
+    if (running) return running.then(() => 0);
+    const run = this.lendTwinEvidence(companyId).finally(() => this.evidenceReuse.delete(companyId));
+    this.evidenceReuse.set(companyId, run);
+    return run;
+  }
+
+  private async lendTwinEvidence(companyId: string): Promise<number> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company) return 0;
     // On desktop the saved pages live in their own store, not in the snapshot: read and file them there.
+    // That store returns the newest 20 plus any page a figure quotes, so the twin's quoted pages always come.
     const pageStore = this.originalSources && !this.originalsInSnapshot ? this.originalSources : null;
     const pagesOf = async (id: string) => pageStore
-      ? await pageStore.list({ companyId: id, limit: 100 })
+      ? await pageStore.list({ companyId: id, limit: 100, support: originalSupportReferences(this.snap.metrics, id) })
       : (this.snap.originalSourceAttempts ?? []).filter((a) => a.companyId === id);
     if ((await pagesOf(companyId)).length > 0) return 0;
     const domain = company.websiteUrl ? rootDomain(company.websiteUrl) : null;
@@ -4027,15 +4038,18 @@ export class GeminiRepository implements MarketIntelRepository {
     let copied = 0;
     for (const attempt of await pagesOf(prior.id)) {
       const clone = structuredClone(attempt);
-      clone.id = `src_reuse_${crypto.randomUUID()}`;
+      // The desktop store accepts only src_<uuid> ids.
+      clone.id = `src_${crypto.randomUUID()}`;
       clone.companyId = companyId;
       if (pageStore) {
         try { await pageStore.save(clone); } catch { continue; /* the store refused it: not lent */ }
       } else (this.snap.originalSourceAttempts ??= []).push(clone);
       copied += 1;
     }
+    // A note already filed for this company (its own, or lent before) is not copied again.
+    const filed = new Set((this.snap.researchEvidence ?? []).filter((e) => e.companyId === companyId).map((e) => `${e.topic}\u0000${e.text}`));
     for (const evidence of this.snap.researchEvidence ?? []) {
-      if (evidence.companyId !== prior.id) continue;
+      if (evidence.companyId !== prior.id || filed.has(`${evidence.topic}\u0000${evidence.text}`)) continue;
       const clone = structuredClone(evidence);
       clone.id = `ev_reuse_${crypto.randomUUID()}`;
       clone.companyId = companyId;
