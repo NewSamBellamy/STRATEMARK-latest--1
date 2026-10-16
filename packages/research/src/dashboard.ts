@@ -16,6 +16,7 @@ import {
   type Company,
   type CompanyMetric,
   type DashboardContentMap,
+  type HistoryContent,
   type DashboardTab,
   type DashboardSourceDiagnostics,
   type MetricsContent,
@@ -35,6 +36,8 @@ import { attachQuoteSources, groundGovernanceInNotes, groundHistoryInNotes } fro
 import { researchCompanyProducts, type ProductEvidenceSelections } from './company-products';
 import { researchCompanyTeamOrg, type TeamOrgSelections } from './company-team';
 import { researchLiveIntel, type PageReader } from './live-intel';
+import { filingMilestones, withFilingMilestones } from './filing-milestones';
+import type { CompanyFiling } from './sec-filings';
 import type { WebSearchFn } from './web-search';
 
 export interface TabResearchArgs {
@@ -62,6 +65,8 @@ export interface TabResearchArgs {
    * company by the repository; null when the answer cannot be split, and the tab runs its own search.
    */
   companyStory?: () => Promise<Awaited<ReturnType<LlmClient['ground']>> | null>;
+  /** A listed company's own recent SEC filings (free); null when it is not known to be listed. History only. */
+  officialFilings?: () => Promise<readonly CompanyFiling[] | null>;
 }
 
 const ctx = (a: TabResearchArgs): string =>
@@ -218,7 +223,14 @@ export async function researchDashboardWithSources<T extends DashboardTab>(tab: 
     if (result) citations = usableCitations([...citations, ...result.citations]);
     return result;
   });
+  // Free and official: read while the paid search runs.
+  const filings = tab === 'history' && args.officialFilings ? args.officialFilings().catch(() => null) : null;
   const content = await researchDashboardTab(tab, { ...args, client, ...(companyStory ? { companyStory } : {}) });
+  const milestones = filingMilestones((await filings) ?? []);
+  if (milestones.length) {
+    const placed = withFilingMilestones(content as HistoryContent, citations, milestones);
+    return { content: placed.content as DashboardContentMap[T], citations: placed.citations };
+  }
   return { content, citations };
 }
 
