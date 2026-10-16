@@ -56,6 +56,7 @@ const api: PreloadRepositoryApi = {
   generateReport: (request) => ipcRenderer.invoke(IPC_CHANNELS.generateReport, request),
   listReports: () => ipcRenderer.invoke(IPC_CHANNELS.listReports),
   huntCompanyMetrics: (id, options) => ipcRenderer.invoke(IPC_CHANNELS.huntCompanyMetrics, id, options),
+  huntFaceSlotsBatch: (companyIds) => ipcRenderer.invoke(IPC_CHANNELS.huntFaceSlotsBatch, companyIds),
   generateDeckBriefing: (id, opts) => ipcRenderer.invoke(IPC_CHANNELS.generateDeckBriefing, id, opts),
   listDeckBriefings: (id) => ipcRenderer.invoke(IPC_CHANNELS.listDeckBriefings, id),
   auditSite: (input) => ipcRenderer.invoke(IPC_CHANNELS.auditSite, input),

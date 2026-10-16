@@ -370,6 +370,8 @@ function registerIpc(): void {
       z.object({ escalation: z.number().int().min(0).max(9).optional(), faceSlotsOnly: z.boolean().optional() }).optional().parse(options),
     );
   });
+  ipcMain.handle(IPC_CHANNELS.huntFaceSlotsBatch, (_e, companyIds: unknown) =>
+    repository.huntFaceSlotsBatch?.(z.array(z.string().min(1)).max(500).parse(companyIds)) ?? {});
   ipcMain.handle(IPC_CHANNELS.generateDeckBriefing, (_e, id: unknown, opts: unknown) => {
     if (!repository.generateDeckBriefing) throw new Error('Briefings are unavailable.');
     return repository.generateDeckBriefing(z.string().min(1).parse(id), z.object({ windowHours: z.number().int().min(1).max(720).optional() }).optional().parse(opts));

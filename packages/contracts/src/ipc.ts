@@ -76,6 +76,7 @@ export const IPC_CHANNELS = {
   factCheck: 'mi:factCheck',
   verifyMetric: 'mi:verifyMetric',
   huntCompanyMetrics: 'mi:huntCompanyMetrics',
+  huntFaceSlotsBatch: 'mi:huntFaceSlotsBatch',
   generateDeckBriefing: 'mi:generateDeckBriefing',
   listDeckBriefings: 'mi:listDeckBriefings',
   auditSite: 'mi:auditSite',
