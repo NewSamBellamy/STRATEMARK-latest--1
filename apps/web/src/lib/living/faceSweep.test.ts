@@ -144,6 +144,40 @@ describe('face sweep run — batched', () => {
     expect(result).toMatchObject({ targeted: 12, filledCompanies: 6, filledTypes: 11, failed: 0 });
   });
 
+  it('says which companies a paid search covered, so the ladder only skips those', async () => {
+    const outcomes = new Map<string, { searched: boolean; stopped: boolean }>();
+    // Company 2's face is filled by free recovery: no paid search, its ladder hunt stays.
+    const recoverSavedCompanyMetrics = vi.fn(async (id: string) => id === 'cmp_sweep_2'
+      ? { filledTypes: ['employees' as const], metrics: full(2).metrics, retieredCardIds: [] } : none);
+    const huntFaceSlotsBatch = vi.fn(async (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, none])));
+    const huntCompanyMetrics = vi.fn(async (_id: string, _options?: unknown) => none);
+    await runFaceSweep([deckCard(1, []), deckCard(2, [])], { concurrency: 1,
+      repo: { huntCompanyMetrics, recoverSavedCompanyMetrics, huntFaceSlotsBatch },
+      onCompany: (t, o) => { outcomes.set(t.companyId, { searched: o.searched, stopped: o.stopped }); } });
+    expect(huntCompanyMetrics.mock.calls).toEqual([['cmp_sweep_1', { faceSlotsOnly: true, escalation: 1 }]]);
+    expect(outcomes.get('cmp_sweep_2')).toEqual({ searched: false, stopped: false });
+    expect(outcomes.get('cmp_sweep_1')).toEqual({ searched: true, stopped: false });
+    // Research paused after a plain pass: the escalated pass never ran, so the ladder keeps its hunt.
+    let paused = false;
+    const pausing = vi.fn(async (_id: string, _options?: unknown) => { paused = true; return none; });
+    await runFaceSweep([deckCard(3, [])], { shouldStop: () => paused, repo: { huntCompanyMetrics: pausing },
+      onCompany: (t, o) => { outcomes.set(t.companyId, { searched: o.searched, stopped: o.stopped }); } });
+    expect(pausing).toHaveBeenCalledTimes(1);
+    expect(outcomes.get('cmp_sweep_3')).toEqual({ searched: true, stopped: true });
+  });
+
+  it('lends a twin\'s saved evidence from another deck before free recovery', async () => {
+    const order: string[] = [];
+    const reuseCompanyEvidence = vi.fn(async (id: string) => { order.push(`reuse:${id}`); return 0; });
+    const recoverSavedCompanyMetrics = vi.fn(async (id: string) => { order.push(`recover:${id}`); return none; });
+    for (const huntFaceSlotsBatch of [async () => ({}), undefined]) {
+      order.length = 0;
+      await runFaceSweep([deckCard(1, [])], { repo: { huntCompanyMetrics: async () => none, recoverSavedCompanyMetrics,
+        reuseCompanyEvidence, ...(huntFaceSlotsBatch ? { huntFaceSlotsBatch } : {}) } });
+      expect(order.slice(0, 2)).toEqual(['reuse:cmp_sweep_1', 'recover:cmp_sweep_1']);
+    }
+  });
+
   it('a failed batch falls back to a hunt per company', async () => {
     const huntFaceSlotsBatch = vi.fn(async () => { throw new Error('quota'); });
     const huntCompanyMetrics = vi.fn(async (_id: string, _options?: unknown) => none);

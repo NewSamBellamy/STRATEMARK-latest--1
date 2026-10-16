@@ -258,7 +258,10 @@ export function useLivingDeck(
       onCompany: async (target, outcome) => {
         // The sweep's searches were this company's automatic attempt: the ladder
         // repeating them paid a third search for figures two passes did not find.
-        if (!outcome.failed) {
+        // A company the sweep did not search (free recovery filled its face but a
+        // core slot may still be open), or one paused before its escalated pass,
+        // keeps its ladder hunt.
+        if (outcome.searched && !outcome.stopped && !outcome.failed) {
           let ladder = huntAttempts.get(repo);
           if (!ladder) { ladder = new Map(); huntAttempts.set(repo, ladder); }
           ladder.set(target.companyId, { attempts: HUNT_ATTEMPTS_PER_SESSION, lastAt: Date.now() });
