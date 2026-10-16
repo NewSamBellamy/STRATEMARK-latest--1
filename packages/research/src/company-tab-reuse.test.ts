@@ -267,3 +267,38 @@ describe('borrowing never holds a tab up', () => {
     expect(ground).not.toHaveBeenCalled();
   });
 });
+
+describe('a borrow that goes wrong costs one short wait, never more', () => {
+  it('after a stuck page store times out one tab, the next tab does not wait on it again', async () => {
+    let saved = structuredClone(twinWorkspace(2));
+    const ground = vi.fn(async () => { throw new Error('no paid search in this test'); });
+    const repo = new GeminiRepository({ apiKey: 'test', client: { ground, structure: ground } as unknown as LlmClient, dashboardWarmup: false,
+      originalSources: { retrieve: vi.fn(), save: vi.fn(), list: async (input) => input.companyId === 'acme' ? new Promise(() => undefined) : [] },
+      store: { read: () => structuredClone(saved), write: async (next) => { saved = structuredClone(next); } } });
+    await repo.getDashboardTab('acme_2', 'history').catch(() => null);
+    const started = Date.now();
+    await repo.getDashboardTab('acme_2', 'products_roadmap').catch(() => null);
+    expect(Date.now() - started).toBeLessThan(1_500);
+  }, 15_000);
+
+  it('a website corrected while the twin\'s pages are copied stops the borrow', async () => {
+    const store = [productPage('src_p1', 'acme')];
+    let saved = structuredClone(twinWorkspace(2));
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const ground = vi.fn(async () => { throw new Error('no paid search in this test'); });
+    const repo = new GeminiRepository({ apiKey: 'test', client: { ground, structure: ground } as unknown as LlmClient, dashboardWarmup: false,
+      originalSources: { retrieve: vi.fn(), save: async (attempt) => { store.push(structuredClone(attempt)); },
+        list: async (input) => { if (input.companyId === 'acme') await gate; return selectOriginalSourceAttempts(store, input); } },
+      store: { read: () => structuredClone(saved), write: async (next) => { saved = structuredClone(next); } } });
+    await repo.ready();
+    const opening = repo.getDashboardTab('acme_2', 'products_roadmap').catch(() => null);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The logo pass finds this company's real site: it is not the Acme of the first deck after all.
+    (repo as unknown as { snap: RepoSnapshot }).snap.companies.find((c) => c.id === 'acme_2')!.websiteUrl = 'https://acme-tools.example';
+    release();
+    await opening;
+    expect(saved.dashboards.acme_2?.products_roadmap).toBeUndefined();
+    expect(saved.dashboards.acme_2?.history).toBeUndefined();
+  });
+});

@@ -628,6 +628,8 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly evidenceReuse = new Map<string, Promise<number>>();
   /** One cross-deck tab borrow per company at a time (the warm-up opens several tabs at once). */
   private readonly tabBorrows = new Map<string, Promise<boolean>>();
+  /** Companies whose borrow outlived its time box and is still running: their tabs research as usual until it ends. */
+  private readonly slowTabBorrows = new Set<string>();
   private readonly hunts = new Map<string, { options?: HuntMetricsOptions; result: Promise<HuntMetricsResult> }>();
 
   /** Comparable user counts of the companies on this deck: the population a
@@ -3058,11 +3060,18 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     // The same company already researched in another deck: its fresh tabs open here without a new search.
     // Time-boxed: a borrow that is slow (a busy page store) gives way to research as usual.
-    if (!force && !this.snap.dashboards[companyId]?.[tab] && this.tabTwin(companyId, tab)) {
+    if (!force && !this.snap.dashboards[companyId]?.[tab] && !this.slowTabBorrows.has(companyId) && this.tabTwin(companyId, tab)) {
       let timer: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([this.borrowTwinTabs(companyId, tab),
-        new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), warmup ? TWIN_BORROW_WARMUP_MS : TWIN_BORROW_USER_MS); })]);
+      const timedOut = Symbol('timed out');
+      const outcome = await Promise.race([this.borrowTwinTabs(companyId, tab),
+        new Promise<typeof timedOut>((resolve) => { timer = setTimeout(() => resolve(timedOut), warmup ? TWIN_BORROW_WARMUP_MS : TWIN_BORROW_USER_MS); })]);
       clearTimeout(timer);
+      // A borrow that may never end (a stuck page store) must not make every later tab wait out the box too.
+      const running = outcome === timedOut ? this.tabBorrows.get(companyId) : undefined;
+      if (running) {
+        this.slowTabBorrows.add(companyId);
+        void running.finally(() => this.slowTabBorrows.delete(companyId));
+      }
     }
     const cached = force ? undefined : this.snap.dashboards[companyId]?.[tab];
     if (cached) {
@@ -4064,7 +4073,7 @@ export class GeminiRepository implements MarketIntelRepository {
    * paragraph passes the same checks again. Any failure falls back to paid research. */
   private async borrowTwinTabs(companyId: string, tab: DashboardTab): Promise<boolean> {
     // A borrow started for another tab may not cover this one (its twin lacked that tab): wait, then try for this one.
-    // Every borrow ends (the caller's time box bounds the wait), so this loop does too.
+    // Callers time-box this wait; a borrow that outlives the box is skipped (slowTabBorrows) until it ends.
     for (let running = this.tabBorrows.get(companyId); running; running = this.tabBorrows.get(companyId)) {
       await running;
       if (this.snap.dashboards[companyId]?.[tab]) return true;
@@ -4109,6 +4118,9 @@ export class GeminiRepository implements MarketIntelRepository {
     const found = this.tabTwin(companyId, wanted);
     if (!found) return false;
     const { company, twin, refreshedAt, missing } = found;
+    // Captured now: the company rows may be edited in place while pages are copied.
+    const site = twinSiteKey(company.websiteUrl);
+    const nameKey = companyNameKey(company.name);
     const epoch = this.dashboardAllEpochs.get(companyId) ?? 0;
     // Lend the twin's other saved pages and notes first: once borrowed pages are filed here,
     // that free lending (which feeds missing figures) would see "has pages" and stop.
@@ -4149,6 +4161,11 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     // The user refreshed this company while pages were copied: keep the refresh.
     if ((this.dashboardAllEpochs.get(companyId) ?? 0) !== epoch || this.snap.tabsRefreshedAt?.[companyId] !== refreshedAt) return false;
+    // Either company's name or website was corrected while pages were copied: they may no longer be twins.
+    const nowCompany = this.snap.companies.find((c) => c.id === companyId);
+    const nowTwin = this.snap.companies.find((c) => c.id === twin.company.id);
+    if (!nowCompany || !nowTwin || twinSiteKey(nowCompany.websiteUrl) !== site || twinSiteKey(nowTwin.websiteUrl) !== site ||
+      companyNameKey(nowCompany.name) !== nameKey || companyNameKey(nowTwin.name) !== nameKey) return false;
     // A tab a pass for this company cached meanwhile is its own and stays.
     const lent = twin.tabs.filter(([tab]) => missing(tab));
     if (!lent.length) return false;
