@@ -191,6 +191,45 @@ export const DASHBOARD_TAB_LABELS: Record<DashboardTab, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Company report topics — the sections a user ticks when creating a report.
+// Each mirrors a dashboard tab, so a report is "the tabs I care about", written up.
+// ---------------------------------------------------------------------------
+export const REPORT_TOPICS = [
+  'overview',
+  'metrics',
+  'live_intel',
+  'team_org',
+  'products_roadmap',
+  'history',
+  'mission_governance',
+  'sources',
+] as const;
+export type ReportTopic = (typeof REPORT_TOPICS)[number];
+
+export const REPORT_TOPIC_LABELS: Record<ReportTopic, string> = {
+  overview: 'Overview',
+  metrics: 'Metrics',
+  live_intel: 'Live intel',
+  team_org: 'Team & org',
+  products_roadmap: 'Products & roadmap',
+  history: 'History',
+  mission_governance: 'Mission & governance',
+  sources: 'Sources',
+};
+
+/** The dashboard tab whose stored research a report topic is written from. */
+export const REPORT_TOPIC_TAB: Record<ReportTopic, DashboardTab> = {
+  overview: 'overview',
+  metrics: 'metrics',
+  live_intel: 'live_intel',
+  team_org: 'team_org',
+  products_roadmap: 'products_roadmap',
+  history: 'history',
+  mission_governance: 'mission_governance',
+  sources: 'research',
+};
+
+// ---------------------------------------------------------------------------
 // Company Maturity Tiers (spec §5 Level-2, §6.2)
 // ---------------------------------------------------------------------------
 export const MATURITY_TIERS = [1, 2, 3, 4, 5, 6, 7, 8] as const;

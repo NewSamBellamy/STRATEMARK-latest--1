@@ -13,6 +13,7 @@ import {
   maturityTierSchema,
   dashboardTabSchema,
   metricTypeSchema,
+  REPORT_TOPICS,
 } from '@mi/contracts';
 
 export {
@@ -65,6 +66,7 @@ export const reportRequestSchema = z.object({
   subjectId: z.string().min(1),
   focus: z.string().nullable().optional().default(null),
   threadId: z.string().nullable().optional().default(null),
+  topics: z.array(z.enum(REPORT_TOPICS)).min(1).max(REPORT_TOPICS.length).optional(),
 });
 
 export const expandFocusSchema = z.object({
