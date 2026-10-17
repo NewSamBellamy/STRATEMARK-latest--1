@@ -18,7 +18,6 @@ import {
   SquareMousePointer,
   Target,
   X,
-  Sparkles,
   Sun,
 } from 'lucide-react';
 import {
@@ -39,13 +38,12 @@ import {
   useResumeResearchJob,
 } from '@/hooks/data';
 import { useLivingDeck } from '@/lib/living/useLivingDeck';
-import { DeckCompletionBanner } from './DeckCompletionBanner';
+import { DeckStatusBar } from './DeckStatusBar';
 import { DemoDeckBanner } from './DemoDeckBanner';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
 import { buildDeckShare } from '@/lib/share/codec';
 import { ShareDialog } from '@/features/share/ShareDialog';
 import { ExportMenu } from '@/features/export/ExportMenu';
-import { AgentActivityFeed } from './AgentActivityFeed';
 import { GroundingQuotaNotice } from '@/lib/living/GroundingQuotaNotice';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { ThreadHistoryButton } from '@/features/research/ResearchControls';
@@ -161,7 +159,6 @@ export default function DeckPage() {
   // blank screen (audit 7:44): show a recovery path instead.
   const deckMissing = market.isSuccess && deck.isSuccess && (!market.data || !deck.data);
   const living = useLivingDeck(deckId, all);
-  const [filling, setFilling] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
   // Anchor the floating presence's "Chat" to THIS deck's synthesized research.
@@ -325,20 +322,6 @@ export default function DeckPage() {
                     <Share2 className="h-4 w-4 text-muted" />
                     Share deck
                   </button>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-content hover:bg-surface-2 disabled:opacity-60"
-                    disabled={all.length === 0 || filling}
-                    title="Look for sourced figures for every card slot that still shows Unknown."
-                    onClick={() => {
-                      close();
-                      setFilling(true);
-                      void living.fillCardFaces().finally(() => setFilling(false));
-                    }}
-                  >
-                    <Sparkles className={`h-4 w-4 text-muted ${filling ? 'animate-pulse' : ''}`} />
-                    {filling ? 'Filling cards…' : 'Fill missing figures'}
-                  </button>
                   {canFollow && (
                     <button
                       type="button"
@@ -357,24 +340,21 @@ export default function DeckPage() {
           </div>
         </div>
 
-        {/* The finish line (red team P0-2): baseline research outcome stated
-            in plain terms, so completion is a visible fact. The ambient feed
-            below is ongoing HEALTH, not incompleteness. */}
-        <DeckCompletionBanner deckId={deckId} />
         <DemoDeckBanner />
-        {/* The visible heartbeat: desks verifying, correcting, and warming tabs live. */}
-        <AgentActivityFeed living={living} />
+        {/* One status line for the deck: creation progress, card completeness
+            and live research, counted the same way as the header above. */}
+        <DeckStatusBar
+          deckId={deckId}
+          marketName={market.data?.name ?? 'this deck'}
+          cards={all}
+          living={living}
+          deckStatus={deckStatus}
+          resume={resumableJob.data
+            ? { run: () => resumableJob.data && resumeJob.mutate(resumableJob.data.id), pending: resumeJob.isPending }
+            : null}
+        />
         <GroundingQuotaNotice />
       </div>
-
-      {all.length > 0 && (isRunning || isPartial) && (
-        <div role="status" className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-sm text-muted">
-          {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertCircle className="h-4 w-4" />}
-          <span>{isRunning
-            ? 'Completed research is ready to explore. More cards will appear as their research finishes.'
-            : 'Completed research is available below. Some companies still need another pass.'}</span>
-        </div>
-      )}
 
       {(isRunning || isPartial) && all.length === 0 ? (
           <div className={cn(
