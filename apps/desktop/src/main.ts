@@ -251,6 +251,8 @@ function makeRepository(): MarketIntelRepository {
     newsSearch: () => desktopNews,
     // Founded year from the company's own Wikidata item (no provider calls).
     wikidataJson: async (url) => (await fetch(url, { signal: AbortSignal.timeout(8000) })).json(),
+    // YouTube's public oEmbed answer, to confirm a History video exists and can be embedded.
+    videoJson: async (url) => (await fetch(url, { signal: AbortSignal.timeout(8000) })).json(),
   });
 }
 
@@ -428,6 +430,17 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.peekDashboardTab, (_e, companyId: unknown, tab: unknown) =>
     repository.peekDashboardTab?.(z.string().min(1).parse(companyId), dashboardTabSchema.parse(tab)) ?? null,
+  );
+  ipcMain.handle(IPC_CHANNELS.researchProductBrief, (_e, input: unknown) =>
+    repository.researchProductBrief?.(
+      z.object({ companyId: z.string().min(1), productName: z.string().min(1).max(200), force: z.boolean().optional() }).parse(input),
+    ),
+  );
+  ipcMain.handle(IPC_CHANNELS.peekProductBrief, (_e, companyId: unknown, productName: unknown) =>
+    repository.peekProductBrief?.(z.string().min(1).parse(companyId), z.string().min(1).max(200).parse(productName)) ?? null,
+  );
+  ipcMain.handle(IPC_CHANNELS.listSourceActivity, (_e, sinceId: unknown) =>
+    repository.listSourceActivity?.(z.number().int().nonnegative().optional().parse(sinceId)) ?? { items: [], lastId: 0 },
   );
   ipcMain.handle(IPC_CHANNELS.exportShareSnapshot, (_e, input: unknown) =>
     repository.exportShareSnapshot?.(

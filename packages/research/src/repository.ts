@@ -33,6 +33,7 @@ import {
   usableCitations,
   teamOrgContentSchema,
   historyContentSchema,
+  productBriefSchema,
   type Card,
   type CardType,
   type CardFilter,
@@ -61,8 +62,10 @@ import {
   type VerifyMetricResult,
   type VerifyCompanyMetricsResult,
   type BatchMetricVerification,
+  type ProductBrief,
   type Report,
   type ShareSnapshot,
+  type SourceActivity,
   type ReportRequest,
   type SavedCard,
   type SiteAuditContent,
@@ -138,6 +141,7 @@ import { findFormDLastRound } from './sec-form-d';
 import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane, type DiscoveryNotes } from './searxng';
 import { huntSearchQueries, webSearchLane, type WebSearchFn } from './web-search';
+import { SourceActivityLog, observeFetch, observeFetchApi, observeGrounding, observeOriginalSources, observeRead, observeSearch } from './source-activity';
 import { quotedEstimateNote, quotedOriginalEstimate } from './quoted-estimate';
 import { alternateSources, applySourceChecks, checkFromReceipt, uncheckedSources, type SourceChecks } from './source-binding';
 import { resolveCompanyBrand, type CompanyLogo } from './assets';
@@ -149,6 +153,8 @@ import { figureScopes, METRIC_GATE_VERSION, revalidateStoredMetrics, type Revali
 import { implausibleScaleFigures, withheldScaleRow } from './scale-plausibility';
 import { DashboardWarmup, warmupConcurrency, warmupTabsInParallel, type CachedTabState, type WarmAttempts, type WarmPriority, type WarmTab } from './dashboard-warmup';
 import { foundedFromHistory, foundedFromWebsite, foundedFromWikidata, wikidataFoundedYear, type JsonFetcher } from './founded-year';
+import { findHistoryVideo, isStoredHistoryVideo } from './history-video';
+import { productKey, researchProductBrief } from './product-brief';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
  * persists per card and every provider call is deadline-bounded, so a job
@@ -294,6 +300,9 @@ export interface RepoSnapshot {
   deckWarmup?: Record<string, { startedAt: string; completedAt?: string }>;
   /** Measured run per deck: milestone times and the provider usage up to each (deck-run.ts). */
   deckRun?: Record<string, DeckRun>;
+  /** Product pages researched on request (product-brief.ts): companyId -> normalized product name -> brief.
+   * Additive and optional: absent on snapshots written before it existed; never part of a share export. */
+  productBriefs?: Record<string, Record<string, ProductBrief>>;
 }
 
 export interface ResearchStore {
@@ -513,6 +522,9 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   };
   /** JSON reader for the Wikidata founded-year lane (zero provider calls). Omitted = lane off. */
   wikidataJson?: JsonFetcher;
+  /** JSON reader for YouTube oEmbed (the History video's existence check): a plain CORS JSON
+   * fetch, e.g. the same one as `wikidataJson`. Omitted = no History video is ever chosen. */
+  videoJson?: JsonFetcher;
   /** JSON fetch for the CORS-open ownership registries (Wikidata, GLEIF).
    * Without it the ownership lane runs on retained text and the reader only,
    * and deck builds never start it on their own. */
@@ -521,6 +533,11 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
 
 /** Earlier overviews kept for comparison; each refresh appends one. */
 const OVERVIEW_HISTORY_LIMIT = 5;
+/** A History-video search that found nothing is not repeated this session for this long. */
+const HISTORY_VIDEO_RETRY_MS = 6 * 60 * 60_000;
+const HISTORY_VIDEO_DEADLINE_MS = 60_000;
+/** One product brief is three grounded searches in parallel plus one structure call. */
+const PRODUCT_BRIEF_DEADLINE_MS = 240_000;
 
 /** A running hunt already does what this request asks: at least as wide (a full
  * hunt covers a face-slot sweep) and at least as escalated (a higher escalation
@@ -622,6 +639,16 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly webSearch?: () => WebSearchFn | null;
   private readonly newsSearch?: () => WebSearchFn | null;
   private readonly wikidataJson?: JsonFetcher;
+  private readonly videoJson?: JsonFetcher;
+  /** History-video searches in flight (one per company) and when each last ran this session. */
+  private readonly historyVideoLookups = new Map<string, Promise<void>>();
+  /** "companyId|free" or "companyId|grounded" -> when a real search of that kind last found nothing (see runHistoryVideo). */
+  private readonly historyVideoTried = new Map<string, number>();
+  /** What the newest queued or running video lookup covers, so a stronger request is queued rather than dropped. */
+  private readonly historyVideoModes = new Map<string, { force: boolean; grounded: boolean }>();
+  /** Red-team score of the video chosen this session (memory only; a stored video from an earlier session has none). */
+  private readonly historyVideoScores = new Map<string, number>();
+  private readonly productBriefRuns = new Map<string, Promise<ProductBrief>>();
   /** Background tab warm-up (null when disabled). */
   private readonly warmup: DashboardWarmup | null = null;
   private readonly warmBackfill: boolean = false;
@@ -682,6 +709,8 @@ export class GeminiRepository implements MarketIntelRepository {
    * the grid so an empty placeholder never reads as a finished card. */
   private readonly pendingHuntCompanies = new Set<string>();
   private readonly activeBackgroundJobs = new Map<string, Promise<void>>();
+  /** Websites research actually touched (reads, search results, cited sources); feeds the status bar. */
+  private readonly sourceLog = new SourceActivityLog();
   /** Detached post-reveal discovery tails (reveal-at-first-card). */
   private readonly detachedDiscovery = new Map<string, Promise<void>>();
   /** Stall watchdogs per research job — see watchJobForStall. */
@@ -699,13 +728,18 @@ export class GeminiRepository implements MarketIntelRepository {
     this.coverage = options.coverage;
     this.catalogMax = options.catalogMax;
     this.catalogPasses = options.catalogPasses;
-    this.originalSources = options.originalSources;
-    this.assetSourceReader = options.assetSourceReader;
+    this.originalSources = options.originalSources ? observeOriginalSources(options.originalSources, this.sourceLog) : undefined;
+    const assetSourceReader = options.assetSourceReader ? observeRead(options.assetSourceReader, this.sourceLog) : undefined;
+    this.assetSourceReader = assetSourceReader;
     this.hydrationBatchMax = options.hydrationBatchMax;
     this.hydrationFirstBatchMax = options.hydrationFirstBatchMax;
-    this.webSearch = options.webSearch;
-    this.newsSearch = options.newsSearch;
-    this.wikidataJson = options.wikidataJson;
+    const observeLane = (factory?: () => WebSearchFn | null): (() => WebSearchFn | null) | undefined => factory
+      ? () => { const lane = factory(); return lane ? observeSearch(lane, this.sourceLog) : null; }
+      : undefined;
+    this.webSearch = observeLane(options.webSearch);
+    this.newsSearch = observeLane(options.newsSearch);
+    this.wikidataJson = options.wikidataJson ? observeFetch(options.wikidataJson, this.sourceLog) : undefined;
+    this.videoJson = options.videoJson ? observeFetch(options.videoJson, this.sourceLog) : undefined;
     if (options.dashboardWarmup !== false) {
       const warm = options.dashboardWarmup ?? {};
       this.warmup = new DashboardWarmup({
@@ -736,7 +770,7 @@ export class GeminiRepository implements MarketIntelRepository {
       // An interrupted post-creation warm-up resumes on its own, flag or no flag.
       setTimeout(() => { this.resumeInterruptedWarmups(); }, Math.max(0, warm.resumeDelayMs ?? warm.startupDelayMs ?? 5_000));
     }
-    this.ownershipFetch = options.ownershipFetch;
+    this.ownershipFetch = options.ownershipFetch ? observeFetchApi(options.ownershipFetch, this.sourceLog) : undefined;
     // Migrate on load, not on demand. A snapshot written by an older build is
     // brought forward once, here, so nothing downstream has to reason about
     // which format it is looking at.
@@ -747,7 +781,11 @@ export class GeminiRepository implements MarketIntelRepository {
       this.originalsInSnapshot = true;
       this.originalSources = {
         ...(options.originalSourceSupports ? { supports: options.originalSourceSupports } : {}),
-        retrieve: coalesceOriginalSources(async (url, scope) => { await this.ready(); return options.originalSourceReader!(url, scope); }),
+        // Reported inside the coalescing cache, so only reads that really start are shown.
+        retrieve: coalesceOriginalSources(async (url, scope) => {
+          await this.ready();
+          return observeRead<[string, OriginalSourceScope?]>(options.originalSourceReader!, this.sourceLog, (_url, s) => s?.companyName ?? null)(url, scope);
+        }),
         save: async attempt => {
           await this.ready();
           const retained = structuredClone(attempt);
@@ -789,8 +827,8 @@ export class GeminiRepository implements MarketIntelRepository {
     // the free news lane, rather than stopping every deck cold.
     const searchBacked = withSearchFallback(guardedProvider, () =>
       [this.webSearch?.() ?? null, this.newsSearch?.() ?? null].filter((lane): lane is WebSearchFn => lane !== null),
-      options.assetSourceReader, options.onGroundingSpent);
-    this.client = recordResearchEvidence(searchBacked, async (evidence) => {
+      assetSourceReader, options.onGroundingSpent);
+    this.client = recordResearchEvidence(observeGrounding(searchBacked, this.sourceLog), async (evidence) => {
       this.snap.researchEvidence = [...(this.snap.researchEvidence ?? []), evidence];
       await this.persist();
     });
@@ -860,6 +898,11 @@ export class GeminiRepository implements MarketIntelRepository {
   /** Scoped originals can be read offline without invoking a provider. */
   getOriginalSourceEvidence(input: OriginalSourceQuery): Promise<OriginalSourceAttempt[]> {
     return this.originalSources?.list(input) ?? Promise.resolve(this.listLocalOriginals(input));
+  }
+
+  /** Websites research touched after `sinceId`, newest last. Reported as they happen; absence is an empty list. */
+  async listSourceActivity(sinceId?: number): Promise<{ items: SourceActivity[]; lastId: number }> {
+    return this.sourceLog.list(Math.max(0, Number.isFinite(sinceId) ? Math.floor(sinceId as number) : 0));
   }
 
   /** Apply the optional BYOK writer pass; on ANY failure return the draft untouched. */
@@ -1258,8 +1301,12 @@ export class GeminiRepository implements MarketIntelRepository {
       sourceChecks,
       researchEvidence: prev.researchEvidence?.filter((row) => !(row.companyId && orphaned.has(row.companyId))),
       originalSourceAttempts: prev.originalSourceAttempts?.filter((row) => !orphaned.has(row.companyId)),
+      productBriefs: prev.productBriefs
+        ? Object.fromEntries(Object.entries(prev.productBriefs).filter(([companyId]) => !orphaned.has(companyId)))
+        : prev.productBriefs,
     };
     if (prev.removedFromDeck === undefined) delete next.removedFromDeck;
+    if (prev.productBriefs === undefined) delete next.productBriefs;
     for (const key of ['moves', 'follows', 'movesRefreshedAt', 'tabsRefreshedAt'] as const) if (prev[key] === undefined) delete next[key];
     this.snap = next;
     try {
@@ -2800,12 +2847,146 @@ export class GeminiRepository implements MarketIntelRepository {
   /** Resolves when the warm-up has nothing running (tests, diagnostics). */
   async waitForDashboardWarmup(): Promise<void> {
     await this.warmup?.idle();
-    await Promise.all([...this.foundedLookups.values()].map((lookup) => lookup.catch(() => undefined)));
+    await Promise.all([...this.foundedLookups.values(), ...this.historyVideoLookups.values(), ...this.productBriefRuns.values()].map((lookup) => lookup.catch(() => undefined)));
   }
 
   /** Companies queued for warm-up, in the order they will run. */
   pendingDashboardWarmup(): string[] {
     return this.warmup?.pending() ?? [];
+  }
+
+  /**
+   * The History tab's video: searched for, existence-checked and red-teamed
+   * (history-video.ts), stored on `history.content.video`. Never blocks the tab:
+   * callers fire it after the timeline exists. A stored valid video is kept
+   * (no repeat search) unless `force`; a forced search that finds nothing keeps
+   * the old one. A miss is not stored (absent = no answer) and is not retried
+   * this session for six hours. Search is the user's own key or the hosted
+   * relay (free to the engine); the red-team call is billed under label
+   * "history_video", and the grounded fallback only runs with no search lane.
+   */
+  fillHistoryVideo(companyId: string, options: { force?: boolean; grounded?: boolean } = {}): Promise<void> {
+    const force = Boolean(options.force);
+    const grounded = options.grounded ?? true;
+    const running = this.historyVideoLookups.get(companyId);
+    const covers = this.historyVideoModes.get(companyId);
+    // A running lookup that already covers this request is shared. A weaker one (not forced, or free-only)
+    // must not swallow a forced or grounded request: that one runs after it.
+    if (running && covers && (!force || covers.force) && (!grounded || covers.grounded)) return running;
+    const start = running ? running.catch(() => undefined).then(() => this.runHistoryVideo(companyId, force, grounded)) : this.runHistoryVideo(companyId, force, grounded);
+    const lookup: Promise<void> = start.finally(() => {
+      if (this.historyVideoLookups.get(companyId) === lookup) {
+        this.historyVideoLookups.delete(companyId);
+        this.historyVideoModes.delete(companyId);
+      }
+    });
+    this.historyVideoLookups.set(companyId, lookup);
+    this.historyVideoModes.set(companyId, { force: force || Boolean(covers?.force), grounded: grounded || Boolean(covers?.grounded) });
+    return lookup;
+  }
+
+  private async runHistoryVideo(companyId: string, force: boolean, grounded: boolean): Promise<void> {
+    const fetchJson = this.videoJson;
+    const company = this.snap.companies.find((c) => c.id === companyId);
+    if (!fetchJson || !company) return;
+    const stored = this.snap.dashboards[companyId]?.history;
+    const parsed = stored ? historyContentSchema.safeParse(stored.content) : null;
+    if (!stored || !parsed?.success || parsed.data.timeline.length === 0) return;
+    if (!force && isStoredHistoryVideo((stored.content as { video?: unknown }).video)) return;
+    // The six-hour miss window is per mode and starts only after a search that really ran and judged its results
+    // (never for a free-only no-op, a network blip or a timeout), so none of those can block a later grounded run.
+    const modeKey = `${companyId}|${grounded ? 'grounded' : 'free'}`;
+    const tried = this.historyVideoTried.get(modeKey);
+    if (!force && tried !== undefined && Date.now() - tried < HISTORY_VIDEO_RETRY_MS) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), HISTORY_VIDEO_DEADLINE_MS);
+    try {
+      const products = this.snap.dashboards[companyId]?.products_roadmap?.content as { products?: Array<{ name?: unknown }> } | undefined;
+      const aliases = (products?.products ?? []).map((p) => p.name).filter((n): n is string => typeof n === 'string' && n.length > 0).slice(0, 8);
+      const { video, citations, searched, score } = await findHistoryVideo({
+        company, client: this.client, fetchJson, aliases, signal: controller.signal,
+        searches: [this.webSearch?.() ?? null], grounded,
+      });
+      if (!video) {
+        if (searched) {
+          const now = Date.now();
+          this.historyVideoTried.set(modeKey, now);
+          // A grounded search starts with the free lanes, so it settles the free question too.
+          if (grounded) this.historyVideoTried.set(`${companyId}|free`, now);
+        }
+        return;
+      }
+      // Re-read: the tab may have been re-researched while the search ran.
+      const target = this.snap.dashboards[companyId]?.history;
+      if (!target || typeof target.content !== 'object' || target.content === null) return;
+      const current = (target.content as { video?: unknown }).video;
+      if (isStoredHistoryVideo(current)) {
+        // A video chosen meanwhile stays unless the user asked again AND the new one was judged at least as good.
+        if (!force) return;
+        const keptScore = this.historyVideoScores.get(companyId);
+        if (current.id !== video.id && keptScore !== undefined && (score ?? 0) < keptScore) return;
+      }
+      if (score !== undefined) this.historyVideoScores.set(companyId, score);
+      target.content = { ...(target.content as Record<string, unknown>), video };
+      target.citations = usableCitations([...(target.citations ?? []), ...citations]);
+      await this.persist();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * "Research this product" (product-brief.ts): at most three grounded searches
+   * and one structure call, billed under label "product_brief". The brief is
+   * stored on `snap.productBriefs` and reused: a call without `force` returns
+   * the stored brief and spends nothing. A failed or empty forced run keeps the
+   * old brief. Runs for the same product are shared, never doubled.
+   */
+  researchProductBrief(input: { companyId: string; productName: string; force?: boolean }): Promise<ProductBrief> {
+    const name = (input.productName ?? '').replace(/\s+/g, ' ').trim();
+    if (!name) return Promise.reject(new Error('Name a product to research.'));
+    const key = productKey(name);
+    const flight = `${input.companyId}|${key}`;
+    const running = this.productBriefRuns.get(flight);
+    if (running) return running;
+    if (!input.force) {
+      const stored = this.storedProductBrief(input.companyId, key);
+      if (stored) return Promise.resolve(stored);
+    }
+    const run = this.runProductBrief(input.companyId, name, key).finally(() => {
+      if (this.productBriefRuns.get(flight) === run) this.productBriefRuns.delete(flight);
+    });
+    this.productBriefRuns.set(flight, run);
+    return run;
+  }
+
+  /** The stored brief only; never researches. */
+  async peekProductBrief(companyId: string, productName: string): Promise<ProductBrief | null> {
+    return this.storedProductBrief(companyId, productKey(productName ?? ''));
+  }
+
+  private storedProductBrief(companyId: string, key: string): ProductBrief | null {
+    const raw = this.snap.productBriefs?.[companyId]?.[key];
+    const parsed = raw ? productBriefSchema.safeParse(raw) : null;
+    return parsed?.success && parsed.data.companyId === companyId ? parsed.data : null;
+  }
+
+  private async runProductBrief(companyId: string, productName: string, key: string): Promise<ProductBrief> {
+    const company = this.snap.companies.find((c) => c.id === companyId);
+    if (!company) throw new Error('Company not found for product research.');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PRODUCT_BRIEF_DEADLINE_MS);
+    try {
+      const brief = await researchProductBrief({ company, productName, client: this.client, signal: controller.signal });
+      // Re-read: the company may have been deleted while the search ran.
+      if (!this.snap.companies.some((c) => c.id === companyId)) throw new Error('Company not found for product research.');
+      const byCompany = (this.snap.productBriefs ??= {});
+      byCompany[companyId] = { ...byCompany[companyId], [key]: brief };
+      await this.persist();
+      return brief;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -3196,6 +3377,8 @@ export class GeminiRepository implements MarketIntelRepository {
           lastRefreshedAt: cached.lastRefreshedAt,
           ...(cached.citations !== undefined ? { citations: usableCitations(cached.citations) } : {}) };
       }
+      // A History tab saved before videos existed gets one, from free search lanes only (no grounded spend on a plain open).
+      if (tab === 'history') void this.fillHistoryVideo(companyId, { grounded: false }).catch(() => undefined);
       return structuredClone({
         companyId,
         tab,
@@ -3235,7 +3418,7 @@ export class GeminiRepository implements MarketIntelRepository {
     };
     const allEpoch = this.dashboardAllEpochs.get(companyId) ?? 0;
     const work = (async (): Promise<DashboardTabResult<T> | null> => {
-      const { content, citations, sourceDiagnostics, overviewNarrative, productSelections, teamOrgSelections } = await researchDashboardWithSources(tab, {
+      const { content: researched, citations, sourceDiagnostics, overviewNarrative, productSelections, teamOrgSelections } = await researchDashboardWithSources(tab, {
         company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
         storedMetrics: await this.getCompanyFacts(companyId),
@@ -3257,6 +3440,10 @@ export class GeminiRepository implements MarketIntelRepository {
               : originalSupportReferences(this.snap.metrics, companyId) }) } : {}) } : {}),
       });
       throwIfAborted(controller.signal);
+      // A re-research keeps the video already chosen, so the search is not paid for twice.
+      const keptVideo = tab === 'history' ? (this.snap.dashboards[companyId]?.history?.content as { video?: unknown } | undefined)?.video : undefined;
+      const content = tab === 'history' && isStoredHistoryVideo(keptVideo) && researched && typeof researched === 'object'
+        ? { ...researched, video: keptVideo } as typeof researched : researched;
       const lastRefreshedAt = new Date().toISOString();
       const result = { companyId, tab, content, citations, ...(sourceDiagnostics ? { sourceDiagnostics } : {}), lastRefreshedAt };
       // The company was re-researched from scratch while this pass ran: answer the caller, cache nothing.
@@ -3275,6 +3462,8 @@ export class GeminiRepository implements MarketIntelRepository {
           ...(tab === 'team_org' ? { teamOrgSelections } : {}) },
       };
       await this.persist();
+      // After the timeline exists, never blocking the tab: find the video (free search first).
+      if (tab === 'history') void this.fillHistoryVideo(companyId, { force: Boolean(force), grounded: true }).catch(() => undefined);
       return result;
     })();
     const run = Promise.race([work, deadline]);

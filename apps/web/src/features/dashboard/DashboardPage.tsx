@@ -23,6 +23,7 @@ import { ExportMenu } from '@/features/export/ExportMenu';
 import { useAvailableTabs, useReadOnly } from '@/lib/readOnly';
 import { DigDeeper, useDeepDive } from '@/features/deepdive/DeepDive';
 import { TabFreshness } from './TabFreshness';
+import { useDashboardAssembly, type Assembly } from './useDashboardAssembly';
 import { foundedYear, reportsToSec, secFilingsUrl } from './snapshot';
 import { useCachedDashboardTab } from './useCachedTab';
 import { OverviewTab } from './tabs/OverviewTab';
@@ -189,7 +190,7 @@ const NAV_TABS: DashboardTab[] = [
  * pulsing pill rides the tab bar. Driven by REAL in-flight query state —
  * it appears when work is genuinely happening and vanishes when it's done.
  */
-function AgentWorkingPill({ companyId }: { companyId: string }) {
+function AgentWorkingPill({ companyId, assembly }: { companyId: string; assembly: Assembly }) {
   const queryClient = useQueryClient();
   // Red team #15: "Agent researching 1 section" was too vague. The query cache
   // knows EXACTLY which dashboard tabs are in flight — name them.
@@ -215,8 +216,25 @@ function AgentWorkingPill({ companyId }: { companyId: string }) {
         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
       </span>
       Researching {named}…
+      <span className="tabular-nums text-faint">{assembly.filled} of {assembly.total} sections ready</span>
     </span>
   );
+}
+
+/** A quiet mark on a tab: pulsing while it is researched, a solid dot for a moment once it lands. */
+function SectionMarker({ assembly, tab }: { assembly: Assembly; tab: DashboardTab }) {
+  if (assembly.state(tab) === 'researching') {
+    return (
+      <span className="relative flex h-1.5 w-1.5" role="img" aria-label="Researching now">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60 motion-reduce:animate-none" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      </span>
+    );
+  }
+  if (assembly.landed.has(tab)) {
+    return <span className="h-1.5 w-1.5 rounded-full bg-primary" role="img" aria-label="Just filled in" />;
+  }
+  return null;
 }
 
 function DashboardTabNav({
@@ -234,6 +252,7 @@ function DashboardTabNav({
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const assembly = useDashboardAssembly(companyId);
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -264,14 +283,16 @@ function DashboardTabNav({
           to={`/company/${companyId}/dashboard/${t}${qs}`}
           className={({ isActive }) =>
             cn(
-              'whitespace-nowrap border-b-2 px-3.5 py-2 text-[13px] font-medium transition-colors',
+              'inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-[13px] font-medium transition-colors',
               isActive
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted hover:text-content',
+              assembly.landed.has(t) && 'sm-landed',
             )
           }
         >
           {DASHBOARD_TAB_LABELS[t]}
+          <SectionMarker assembly={assembly} tab={t} />
         </NavLink>
       ))}
       {overflowTabs.length > 0 && (
@@ -312,7 +333,7 @@ function DashboardTabNav({
           )}
         </div>
       )}
-      <AgentWorkingPill companyId={companyId} />
+      <AgentWorkingPill companyId={companyId} assembly={assembly} />
     </nav>
   );
 }

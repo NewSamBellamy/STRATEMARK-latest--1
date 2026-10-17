@@ -5,15 +5,15 @@ import { useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
 import { AiCover } from '@/components/media/AiCover';
-import { Modal } from '@/components/ui/Modal';
 import { InsightReader } from '@/components/reader/InsightReader';
-import { DigDeeper, DigDeeperMenu } from '@/features/deepdive/DeepDive';
+import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
 import { classifyEvent, hostOf, matchesQuery, splitSearchReport } from './tabHelpers';
 import { parseOverviewSections } from '../dashboardModel';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { Paragraph } from './OverviewTab';
+import { ProductPage } from './ProductPage';
 
 /** A product's lifecycle when a source states it; null renders no badge. */
 type ProductStatus = NonNullable<Product['status']>;
@@ -44,70 +44,6 @@ const RELATIONSHIP_KINDS: { key: BusinessRelationship['kind']; label: string; do
   { key: 'supplier', label: 'Suppliers', dot: 'bg-amber-500' },
   { key: 'partner', label: 'Partners', dot: 'bg-slate-400' },
 ];
-
-/** The product, opened like a newsletter feature: capture, paragraph, link. */
-function ProductReader({
-  product,
-  companyId,
-  companyName,
-  onClose,
-}: {
-  product: Product;
-  companyId: string;
-  companyName: string;
-  onClose: () => void;
-}) {
-  const hasUrl = !!product.url && /^https?:\/\//.test(product.url);
-  return (
-    <Modal
-      open
-      onOpenChange={(o) => {
-        if (!o) onClose();
-      }}
-      title={product.name}
-      description={product.status ? `${companyName} · ${product.status}` : companyName}
-    >
-      <div className="space-y-4">
-        {/* The card art: a generated illustration of the product experience,
-            prompted from the research (page captures kept hitting bot walls —
-            a CAPTCHA is not product art). */}
-        <div className="h-[200px] overflow-hidden rounded-xl border border-border">
-          <AiCover
-            cacheKey={`product:${companyName}:${product.name}`}
-            title={`${companyName} — ${product.name}`}
-            context={`Product card art. ${product.description} Depict the essence of using this product — the experience, the interface mood, the domain — as premium collectible-card artwork.`}
-            url={product.url ?? ''}
-            source="news"
-          />
-        </div>
-        <p className="text-sm leading-relaxed text-content/90">{product.description}</p>
-        {product.revenueNote && (
-          <p className="rounded-lg border border-border bg-surface-2/60 px-3 py-2 text-[12px] text-muted">
-            <span className="font-semibold text-content">Reported revenue role:</span>{' '}
-            {product.revenueNote}
-          </p>
-        )}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-          {hasUrl ? (
-            <a href={product.url!} target="_blank" rel="noopener noreferrer" className="btn-primary">
-              <ExternalLink className="h-4 w-4" />
-              Open official source
-            </a>
-          ) : (
-            <span className="text-[11px] text-faint">No official page surfaced yet.</span>
-          )}
-          <DigDeeper
-            topic={`${product.name} — product deep dive`}
-            companyId={companyId}
-            companyName={companyName}
-            context={`${companyName}'s product "${product.name}": ${product.description}. Research its positioning, pricing, adoption, and how it fits the company's strategy — grounded and current.`}
-            label="Research this product"
-          />
-        </div>
-      </div>
-    </Modal>
-  );
-}
 
 const STATUS_LABEL: Record<ProductStatus, string> = {
   live: 'Live',
@@ -162,7 +98,8 @@ function ProductsFromResearch({ companyId }: { companyId: string }) {
 
 export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
   const query = useDashboardTab(companyId, 'products_roadmap');
-  const name = useCompany(companyId).data?.name ?? 'this company';
+  const companyRecord = useCompany(companyId).data;
+  const name = companyRecord?.name ?? 'this company';
   const [openProduct, setOpenProduct] = useState<Product | null>(null);
   const [openRoadmap, setOpenRoadmap] = useState<RoadmapItem | null>(null);
   const [status, setStatus] = useState<ProductStatus | 'all'>('all');
@@ -432,10 +369,11 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
             )}
 
             {openProduct && (
-              <ProductReader
+              <ProductPage
                 product={openProduct}
                 companyId={companyId}
-                companyName={name}
+                company={{ name, logoUrl: companyRecord?.logoUrl ?? null, websiteUrl: companyRecord?.websiteUrl ?? null }}
+                roadmap={c.roadmap}
                 onClose={() => setOpenProduct(null)}
               />
             )}
