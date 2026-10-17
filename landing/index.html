@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stratemark — Every market, dealt as a deck</title>
+<meta name="description" content="Describe a market. Stratemark deals every company that matters as a collectible card — real logo, brand colours, a 0–99 rating and four sourced figures. Unknown beats invented." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Parkinsans:wght@500;600;700;800&family=Google+Sans+Flex:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #f8f9f6;
+    --ink: #17201e;
+    --muted: #5b6763;
+    --faint: #8a9591;
+    --line: #dfe5e1;
+    --mint: #eaf6f2;
+    --green: #075b50;
+    --green-2: #0b7a6b;
+    --teal: #19b39b;
+    --night: #0a1513;
+    --paper: #fbf9f2;
+    --radius: 18px;
+    --sans: "Google Sans Flex", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --display: "Parkinsans", "Google Sans Flex", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: inherit; text-decoration: none; }
+  img { max-width: 100%; }
+  .wrap { width: 100%; max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+  .eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--green-2); }
+  .eyebrow.light { color: #7fd9c8; }
+  h1, h2, h3 { font-family: var(--display); letter-spacing: -0.02em; margin: 0; }
+  h2 { font-size: clamp(30px, 4.2vw, 48px); line-height: 1.05; font-weight: 700; }
+  .lede { font-size: clamp(16px, 1.6vw, 19px); line-height: 1.6; color: var(--muted); max-width: 620px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 50px; padding: 0 24px; border-radius: 999px; font: 600 15px var(--sans); cursor: pointer; border: 0; transition: transform .2s ease, box-shadow .2s ease, background .2s ease; }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-light { background: #fff; color: var(--ink); box-shadow: 0 6px 20px -8px rgba(0,0,0,.4); }
+  .btn-ghost { background: rgba(255,255,255,.08); color: #fff; border: 1px solid rgba(255,255,255,.18); }
+  .btn-dark { background: var(--ink); color: #fff; }
+  .btn-outline { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  section { padding: 104px 0; }
+  .center { text-align: center; }
+  .center .lede { margin-left: auto; margin-right: auto; }
+
+  /* ---------- Nav ---------- */
+  nav { position: absolute; top: 0; left: 0; right: 0; z-index: 10; }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 76px; }
+  .brand { display: flex; align-items: center; gap: 10px; font: 700 20px var(--display); color: #fff; }
+  .brand svg { width: 28px; height: 28px; }
+  .navlinks { display: flex; gap: 28px; font-size: 14px; color: rgba(255,255,255,.72); }
+  .navlinks a:hover { color: #fff; }
+  .navcta { height: 40px; padding: 0 18px; font-size: 14px; }
+
+  /* ---------- Hero ---------- */
+  .hero { position: relative; overflow: hidden; padding: 150px 0 90px; color: #fff;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, rgba(25,179,155,.28), transparent 60%),
+      radial-gradient(800px 500px at 90% 80%, rgba(7,91,80,.55), transparent 60%),
+      linear-gradient(180deg, #0c2420 0%, #0a1513 100%); }
+  .hero::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: radial-gradient(rgba(255,255,255,.06) 1px, transparent 1px); background-size: 22px 22px;
+    mask-image: linear-gradient(180deg, #000 0%, transparent 85%); }
+  .hero-grid { position: relative; z-index: 1; display: grid; grid-template-columns: 1.02fr 1fr; gap: 48px; align-items: center; }
+  .hero h1 { font-size: clamp(42px, 6vw, 74px); line-height: .98; font-weight: 800; margin: 18px 0 22px; }
+  .hero h1 em { font-style: normal; background: linear-gradient(90deg, #7fe3cf, #e9d38f); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero .lede { color: rgba(255,255,255,.74); }
+  .hero .lede strong { color: #fff; font-weight: 600; }
+  .ctas { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 30px; }
+  .trust { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 26px; font: 500 12.5px var(--mono); color: rgba(255,255,255,.55); }
+  .trust span::before { content: "●"; color: var(--teal); margin-right: 7px; font-size: 9px; vertical-align: 2px; }
+
+  /* prompt chip */
+  .prompt { display: flex; align-items: center; gap: 10px; margin-top: 34px; max-width: 520px; padding: 10px 10px 10px 18px; border-radius: 16px;
+    background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14); backdrop-filter: blur(8px); }
+  .prompt .typed { flex: 1; font-size: 15px; color: #fff; white-space: nowrap; overflow: hidden; }
+  .prompt .typed::after { content: "▍"; color: var(--teal); animation: blink 1s steps(2) infinite; margin-left: 2px; }
+  .prompt .go { width: 38px; height: 38px; border-radius: 12px; background: var(--teal); display: grid; place-items: center; color: #04201b; font-weight: 700; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ---------- Collectible card (mirrors the product card) ---------- */
+  .card { --accent: #0b7a6b; position: relative; width: 250px; aspect-ratio: 5 / 7.4; border-radius: 16px; padding: 6px;
+    background: linear-gradient(150deg, color-mix(in srgb, var(--accent) 70%, #ddd5bf), color-mix(in srgb, var(--accent) 35%, #cfc6ad));
+    box-shadow: 0 30px 60px -25px rgba(0,0,0,.55), 0 2px 0 rgba(255,255,255,.35) inset; color: #1d2a25; font-family: var(--sans); }
+  .card-paper { height: 100%; border-radius: 12px; display: flex; flex-direction: column; overflow: hidden;
+    background:
+      radial-gradient(circle at 18% 14%, #ffffff80 0 .7px, transparent .9px) 0 0 / 5px 5px,
+      linear-gradient(148deg, #fbf9f2 0%, #f7f4eb 58%, #f0eddf 100%); }
+  .card-edition { padding: 9px 11px 7px; font: 700 7.5px var(--display); letter-spacing: 1.15px; color: #465850; }
+  .card-art { position: relative; margin: 0 7px; height: 40%; border-radius: 8px; overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, #d5d0c4);
+    background: radial-gradient(ellipse at 50% 35%, #fff 0%, transparent 70%), linear-gradient(145deg, #faf8f1, color-mix(in srgb, var(--accent) 10%, #eeece4));
+    display: grid; place-items: center; }
+  .card-label { position: absolute; top: 8px; left: 8px; padding: 3px 6px; border-radius: 3px; background: #fffdf5e8; border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+    font: 650 7px var(--sans); letter-spacing: 1px; text-transform: uppercase; color: #2d4038; }
+  .wordmark { font: 800 22px/1 var(--display); color: var(--accent); letter-spacing: -0.02em; text-align: center; padding: 0 14px; }
+  .wordmark small { display: block; font: 600 8px var(--mono); letter-spacing: .2em; color: color-mix(in srgb, var(--accent) 70%, #555); margin-top: 6px; text-transform: uppercase; }
+  .ovr { position: absolute; top: 7px; right: 8px; display: flex; flex-direction: column; align-items: center; min-width: 40px; padding: 5px 6px 4px;
+    border-radius: 6px 6px 12px 12px; border: 1px solid var(--edge); color: var(--oink);
+    background: linear-gradient(160deg, var(--hi) 0%, var(--mid) 48%, var(--lo) 100%);
+    box-shadow: inset 0 1px 0 #ffffffb3, inset 0 -2px 3px #0000001f, 0 2px 5px -1px #1f2a2440; font-family: var(--display); line-height: 1; }
+  .ovr b { font-size: 22px; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+  .ovr i { font-style: normal; font-size: 6.5px; font-weight: 750; letter-spacing: 1.4px; opacity: .78; margin-top: 2px; }
+  .icon   { --hi:#fff6d6; --mid:#e6c66e; --lo:#b88a2c; --edge:#9c7424; --oink:#3b2a08; }
+  .gold   { --hi:#fbf1d2; --mid:#e3cd8c; --lo:#c7a75a; --edge:#b0914a; --oink:#3d3112; }
+  .silver { --hi:#f8f9f8; --mid:#d6dad8; --lo:#aab1ae; --edge:#959d99; --oink:#26302c; }
+  .bronze { --hi:#f6e2d0; --mid:#d6a983; --lo:#a8714b; --edge:#8f5f3e; --oink:#331d0e; }
+  .card-id { padding: 9px 12px 0; }
+  .card-eyebrow { font: 700 7px var(--display); letter-spacing: 1.2px; text-transform: uppercase; color: #5c6b64; }
+  .card-name { display: block; margin-top: 3px; font: 700 16px/1.1 var(--display); color: #16211d; }
+  .card-desc { margin: 4px 0 0; font-size: 9px; line-height: 1.35; color: #4e5b55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card-metrics { margin: 8px 12px 0; display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid color-mix(in srgb, var(--accent) 18%, #cdd3c8); }
+  .card-metrics div { padding: 6px 0 5px; border-bottom: 1px solid #d2d5cc; }
+  .card-metrics div:nth-child(odd) { padding-right: 8px; border-right: 1px solid #d2d5cc; }
+  .card-metrics div:nth-child(even) { padding-left: 10px; }
+  .card-metrics b { display: block; font: 700 14px var(--display); color: #15201c; font-variant-numeric: tabular-nums; }
+  .card-metrics span { font-size: 7.5px; color: #4e5b55; }
+  .card-foot { margin-top: auto; display: flex; justify-content: space-between; padding: 8px 12px; border-top: 1px solid #cbd2c7;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, #e8eade), #edf0e7); font: 650 7.5px var(--sans); color: #405349; }
+
+  /* hero fan */
+  .fan { position: relative; height: 470px; }
+  .fan .card { position: absolute; left: 50%; top: 50%; transition: transform .6s cubic-bezier(.2,.8,.2,1); }
+  .fan .c1 { transform: translate(-112%, -46%) rotate(-12deg); }
+  .fan .c2 { transform: translate(-74%, -52%) rotate(-4deg); }
+  .fan .c3 { transform: translate(-26%, -50%) rotate(4deg); }
+  .fan .c4 { transform: translate(14%, -44%) rotate(12deg); }
+  .fan:hover .c1 { transform: translate(-128%, -48%) rotate(-15deg); }
+  .fan:hover .c4 { transform: translate(30%, -46%) rotate(15deg); }
+  .fan-note { position: absolute; bottom: -6px; left: 0; right: 0; text-align: center; font: 500 11px var(--mono); color: rgba(255,255,255,.5); }
+
+  /* ---------- Steps ---------- */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 54px; }
+  .step { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 26px; }
+  .step .n { font: 500 12px var(--mono); color: var(--green-2); }
+  .step h3 { font-size: 21px; margin: 12px 0 8px; }
+  .step p { margin: 0; color: var(--muted); line-height: 1.55; font-size: 15px; }
+  .step .demo { margin-top: 18px; padding: 12px 14px; border-radius: 12px; background: var(--mint); font: 500 12.5px var(--mono); color: var(--green); }
+
+  /* ---------- Anatomy ---------- */
+  .anatomy { background: #fff; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .anat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; margin-top: 56px; }
+  .anat-card { display: grid; place-items: center; padding: 30px; border-radius: 24px; background: radial-gradient(circle at 50% 30%, #e7f4ef, #f6f8f4 70%); }
+  .anat-card .card { width: 300px; }
+  .anat-card .card-name { font-size: 19px; }
+  .anat-card .card-metrics b { font-size: 16px; }
+  .anat-list { display: grid; gap: 14px; }
+  .anat-item { display: grid; grid-template-columns: 36px 1fr; gap: 14px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--bg); }
+  .anat-item .k { width: 36px; height: 36px; border-radius: 10px; background: var(--ink); color: #fff; display: grid; place-items: center; font: 700 14px var(--display); }
+  .anat-item h3 { font-size: 17px; margin: 2px 0 4px; }
+  .anat-item p { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.5; }
+
+  /* ---------- Rating ---------- */
+  .rating { background: var(--night); color: #fff; }
+  .rating .lede { color: rgba(255,255,255,.7); }
+  .tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 50px; }
+  .tier { border-radius: 18px; padding: 24px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); }
+  .tier .ovr { position: static; width: 64px; padding: 9px 8px 7px; }
+  .tier .ovr b { font-size: 30px; }
+  .tier .ovr i { font-size: 8px; }
+  .tier h3 { margin: 16px 0 6px; font-size: 18px; }
+  .tier p { margin: 0; color: rgba(255,255,255,.6); font-size: 14px; line-height: 1.5; }
+  .formula { margin-top: 26px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .formula div { padding: 18px 20px; border-radius: 14px; background: rgba(25,179,155,.08); border: 1px solid rgba(25,179,155,.25); font-size: 14.5px; line-height: 1.5; color: rgba(255,255,255,.82); }
+  .formula b { display: block; font: 500 11.5px var(--mono); letter-spacing: .14em; color: #7fd9c8; margin-bottom: 6px; text-transform: uppercase; }
+
+  /* ---------- Honesty ---------- */
+  .truth { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 50px; }
+  .truth-card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font: 600 12px var(--sans); }
+  .b-ver { background: #e3f6ee; color: #0a6b4f; }
+  .b-rep { background: #fff3dc; color: #8a5a00; }
+  .b-unk { background: #eef0ee; color: #5b6763; }
+  .truth-card .fig { margin: 16px 0 6px; font: 700 30px var(--display); }
+  .truth-card .src { font-size: 13.5px; color: var(--muted); line-height: 1.5; }
+  .truth-card .src q { color: var(--ink); }
+
+  /* ---------- Dashboard mock ---------- */
+  .dash-wrap { margin-top: 54px; border-radius: 22px; border: 1px solid var(--line); background: #fff; box-shadow: 0 40px 80px -40px rgba(10,30,25,.35); overflow: hidden; }
+  .dash-top { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f3f5f2; }
+  .dash-top i { width: 10px; height: 10px; border-radius: 50%; background: #d3d9d5; }
+  .dash-top span { margin-left: 10px; font: 500 12px var(--mono); color: var(--faint); }
+  .dash { padding: 28px; }
+  .dash-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .logo-tile { width: 56px; height: 56px; border-radius: 14px; border: 1px solid var(--line); display: grid; place-items: center; font: 800 15px var(--display); color: #fff; background: #0d2c54; }
+  .dash-head .ovr { position: static; }
+  .dash-head h3 { font-size: 26px; }
+  .dash-head p { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+  .tabs { display: flex; gap: 22px; margin: 22px 0 22px; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--muted); overflow-x: auto; }
+  .tabs span { padding: 10px 0; white-space: nowrap; }
+  .tabs .on { color: var(--green); border-bottom: 2px solid var(--green); font-weight: 600; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .kpi { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; border-top: 3px solid var(--k, #19b39b); }
+  .kpi small { font: 600 10.5px var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+  .kpi b { display: block; margin: 6px 0 4px; font: 700 26px var(--display); }
+  .kpi span { font-size: 12px; color: var(--muted); }
+  .kpi .badge { margin-top: 8px; font-size: 11px; padding: 3px 8px; }
+  .dash-row { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; margin-top: 16px; }
+  .panel { border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .panel h4 { margin: 0 0 12px; font: 600 11px var(--sans); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+  .take { display: grid; grid-template-columns: 22px 1fr; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; line-height: 1.5; }
+  .take:first-of-type { border-top: 0; padding-top: 0; }
+  .take b { font: 600 13px var(--display); color: var(--faint); }
+  .take em { font-style: normal; font-size: 11.5px; color: var(--green-2); display: block; margin-top: 2px; }
+  .bar { margin: 14px 0 6px; }
+  .bar label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
+  .bar label span { color: var(--faint); }
+  .track { position: relative; height: 8px; border-radius: 99px; background: #e9eeeb; }
+  .track .fill { position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: linear-gradient(90deg, #8fd8c8, var(--teal)); }
+  .track .dot { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; background: var(--green); border: 3px solid #fff; transform: translate(-50%,-50%); box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+
+  /* ---------- Feature duo ---------- */
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 54px; }
+  .feature { background: #fff; border: 1px solid var(--line); border-radius: 22px; padding: 28px; overflow: hidden; }
+  .feature h3 { font-size: 24px; margin: 10px 0 8px; }
+  .feature > p { margin: 0 0 20px; color: var(--muted); line-height: 1.55; }
+  .chat { display: grid; gap: 10px; }
+  .msg { max-width: 88%; padding: 12px 14px; border-radius: 14px; font-size: 14px; line-height: 1.5; }
+  .msg.me { justify-self: end; background: var(--ink); color: #fff; border-bottom-right-radius: 4px; }
+  .msg.ai { background: var(--mint); color: var(--ink); border-bottom-left-radius: 4px; }
+  .msg.ai small { display: block; margin-top: 6px; font: 500 11px var(--mono); color: var(--green-2); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .chips span { padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); font-size: 12.5px; color: var(--muted); background: #fff; }
+  .exports { display: grid; gap: 10px; }
+  .exp { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); }
+  .exp b { font: 600 15px var(--display); }
+  .exp span { font-size: 13px; color: var(--muted); }
+  .exp i { font: 500 11px var(--mono); font-style: normal; color: var(--green-2); background: var(--mint); padding: 4px 8px; border-radius: 8px; }
+
+  /* ---------- Deck stacks ---------- */
+  .stacks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; margin-top: 56px; }
+  .stack { position: relative; aspect-ratio: 3 / 4; }
+  .stack .back { position: absolute; inset: 0; border-radius: 20px; border: 1px solid var(--line); background: #fff; box-shadow: 0 6px 16px -10px rgba(0,0,0,.3); transition: transform .35s ease; }
+  .stack .b1 { transform: rotate(3deg); background: #eef1ee; }
+  .stack .b2 { transform: rotate(-2deg); }
+  .stack:hover .b1 { transform: translate(10px,-2px) rotate(5.5deg); }
+  .stack:hover .b2 { transform: translate(-8px,-2px) rotate(-4deg); }
+  .stack .face { position: absolute; inset: 0; border-radius: 20px; overflow: hidden; color: #fff; transition: transform .35s ease;
+    background: linear-gradient(155deg, var(--c) 0%, var(--c) 55%, rgba(0,0,0,.4) 140%); box-shadow: 0 20px 40px -20px rgba(0,0,0,.5); }
+  .stack:hover .face { transform: translateY(-6px); }
+  .stack .face .ovr { top: 12px; right: 12px; }
+  .stack .mark { position: absolute; left: 50%; top: 34%; transform: translate(-50%,-50%); width: 72px; height: 72px; border-radius: 18px; background: #fff; display: grid; place-items: center; font: 800 16px var(--display); color: var(--c); }
+  .stack .meta { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 20px; background: linear-gradient(0deg, rgba(0,0,0,.55), transparent); }
+  .stack .meta small { font: 500 11px var(--mono); opacity: .75; }
+  .stack .meta h3 { font-size: 21px; margin-top: 4px; }
+  .stack-info { display: flex; justify-content: space-between; margin-top: 14px; font-size: 13px; color: var(--muted); }
+  .stack-info b { color: var(--ink); }
+
+  /* ---------- Audience ---------- */
+  .aud { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 50px; }
+  .aud div { padding: 26px; border-radius: 20px; background: #fff; border: 1px solid var(--line); }
+  .aud h3 { font-size: 20px; margin-bottom: 8px; }
+  .aud p { margin: 0; color: var(--muted); line-height: 1.55; }
+  .aud .eg { margin-top: 16px; font: 500 12px var(--mono); color: var(--green-2); }
+
+  /* ---------- Final CTA ---------- */
+  .final { margin: 0 20px 20px; border-radius: 28px; padding: 90px 20px; color: #fff; text-align: center;
+    background: radial-gradient(800px 400px at 50% 0%, rgba(25,179,155,.35), transparent 60%), linear-gradient(180deg, #0c2420, #0a1513); }
+  .final h2 { font-size: clamp(34px, 5vw, 58px); }
+  .final .lede { color: rgba(255,255,255,.72); margin: 18px auto 30px; }
+  footer { padding: 30px 0 40px; color: var(--faint); font-size: 13px; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .note { font: 500 11.5px var(--mono); color: var(--faint); margin-top: 18px; }
+
+  /* reveal */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 980px) {
+    .hero-grid, .anat-grid, .duo, .dash-row { grid-template-columns: 1fr; }
+    .fan { height: 430px; margin-top: 10px; }
+    .fan .c1 { transform: translate(-96%, -46%) rotate(-12deg); }
+    .fan .c4 { transform: translate(-2%, -44%) rotate(12deg); }
+    .tiers { grid-template-columns: repeat(2, 1fr); }
+    .steps, .truth, .aud, .stacks, .formula { grid-template-columns: 1fr; }
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .navlinks { display: none; }
+    .stacks { max-width: 360px; margin-left: auto; margin-right: auto; }
+  }
+  @media (max-width: 560px) {
+    section { padding: 76px 0; }
+    .hero { padding-top: 120px; }
+    .fan { height: 380px; transform: scale(.82); transform-origin: top center; }
+    .tiers { grid-template-columns: 1fr; }
+    .anat-card .card { width: 270px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+    .reveal { opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= NAV ================= -->
+<nav>
+  <div class="wrap">
+    <a href="#" class="brand">
+      <svg aria-hidden="true" viewBox="20 25 35 38" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M38.2891 26.8369L41.0625 26.8477C42.1418 26.8519 46.5687 26.9759 48.0605 27.0186C48.2698 27.0245 48.4143 27.1486 48.4414 27.3018C48.5032 27.6535 48.4966 28.0707 48.2559 28.3604C43.9023 33.5976 39.4588 38.753 35.0605 43.959C34.8946 44.1554 34.5606 44.4575 34.1963 44.7646C33.8397 45.0653 33.4691 45.3578 33.2373 45.5371C31.9495 46.4239 30.2685 47.112 28.7305 47.3047C28.3579 47.3513 27.1055 47.4331 25.8838 47.4531C25.2738 47.4631 24.6783 47.4568 24.209 47.4248C23.9738 47.4088 23.7762 47.3871 23.627 47.3584C23.5526 47.3441 23.495 47.3291 23.4531 47.3145C23.4077 47.2986 23.396 47.2883 23.4004 47.292C23.389 47.2824 23.3553 47.2308 23.3281 47.1016C23.3038 46.9859 23.2949 46.8599 23.2871 46.7559C23.2059 45.6671 23.2841 44.5665 23.2793 43.4365C23.2689 40.9745 23.3711 38.9471 23.8896 37.0576C24.4066 35.1741 25.3418 33.4144 27.0156 31.5C29.4344 28.7336 33.1638 27.1186 36.8096 26.8623L36.8174 26.8613L36.8262 26.8604C36.9536 26.8427 37.2298 26.8354 37.5322 26.834L38.2891 26.8369Z" fill="url(#paint0_linear_logo_mark)" stroke="#18BFB2" stroke-width="0.5"/>
+  <path d="M36.3047 60.1631L33.5312 60.1523C32.452 60.1481 28.025 60.0241 26.5332 59.9814C26.324 59.9755 26.1795 59.8514 26.1523 59.6982C26.0906 59.3465 26.0971 58.9293 26.3379 58.6396C30.6914 53.4024 35.1349 48.247 39.5332 43.041C39.6992 42.8446 40.0332 42.5425 40.3975 42.2354C40.7541 41.9347 41.1246 41.6422 41.3564 41.4629C42.6443 40.5761 44.3253 39.888 45.8633 39.6953C46.2359 39.6487 47.4883 39.5669 48.71 39.5469C49.32 39.5369 49.9155 39.5432 50.3848 39.5752C50.6199 39.5912 50.8175 39.6129 50.9668 39.6416C51.0412 39.6559 51.0987 39.6709 51.1406 39.6855C51.186 39.7014 51.1977 39.7117 51.1934 39.708C51.2048 39.7176 51.2385 39.7692 51.2656 39.8984C51.2899 400141 51.2989 40.1401 51.3066 40.2441C51.3878 41.3329 51.3097 42.4335 51.3145 43.5635C51.3249 46.0255 51.2227 48.0529 50.7041 49.9424C50.1871 51.8259 49.2519 53.5856 47.5781 55.5C45.1594 58.2664 41.4299 59.8814 37.7842 60.1377L37.7764 60.1387L37.7676 60.1396C37.6401 60.1573 37.3639 60.1646 37.0615 60.166L36.3047 60.1631Z" fill="url(#paint1_linear_logo_mark)" stroke="#18BFB2" stroke-width="0.5"/>
+  <defs>
+    <linearGradient id="paint0_linear_logo_mark" x1="36.9447" y1="32.4629" x2="36.4227" y2="47.7264" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F766E"/>
+      <stop offset="1" stop-color="#1CDCCD"/>
+    </linearGradient>
+    <linearGradient id="paint1_linear_logo_mark" x1="37.6491" y1="54.5371" x2="38.171" y2="39.2736" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F766E"/>
+      <stop offset="1" stop-color="#1CDCCD"/>
+    </linearGradient>
+  </defs>
+</svg>
+      Stratemark
+    </a>
+    <div class="navlinks">
+      <a href="#how">How it works</a>
+      <a href="#card">The card</a>
+      <a href="#rating">Ratings</a>
+      <a href="#dashboard">Dashboards</a>
+    </div>
+    <a href="#start" class="btn btn-light navcta">Build a deck</a>
+  </div>
+</nav>
+
+<!-- ================= HERO ================= -->
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="eyebrow light">Market intelligence, card by card</div>
+      <h1>Every market,<br /><em>dealt as a deck.</em></h1>
+      <p class="lede">Describe a market. In under a minute, Stratemark finds the companies that matter and deals each one as a card: <strong>real logo, brand colours, a 0–99 rating and four sourced figures.</strong> If a number can’t be sourced, the card says Unknown. It never guesses.</p>
+      <div class="prompt" aria-hidden="true">
+        <div class="typed" id="typed">Craft non-alcoholic beer brands</div>
+        <div class="go">↑</div>
+      </div>
+      <div class="ctas">
+        <a href="#start" class="btn btn-light">Build your first deck</a>
+        <a href="#card" class="btn btn-ghost">See a live deck</a>
+      </div>
+      <div class="trust"><span>Every figure cited</span><span>Unknown beats invented</span><span>PDF · PPTX · CSV export</span></div>
+    </div>
+
+    <div class="fan" aria-label="Example deck: craft non-alcoholic beer">
+      <!-- Lyre's -->
+      <div class="card c1" style="--accent:#a8853f">
+        <div class="card-paper">
+          <div class="card-edition">STRATEMARK</div>
+          <div class="card-art"><span class="card-label">Company</span><span class="ovr silver"><b>64</b><i>OVR</i></span><div class="wordmark">LYRE’S<small>Non-alcoholic spirits</small></div></div>
+          <div class="card-id"><span class="card-eyebrow">Sydney, Australia</span><span class="card-name">Lyre’s Spirit Co.</span><p class="card-desc">Alcohol-free versions of classic spirits, built flavour-first rather than de-alcoholised.</p></div>
+          <div class="card-metrics">
+            <div><b>51–100</b><span>Employees (range)</span></div>
+            <div><b>£20M</b><span>Latest round</span></div>
+            <div><b>60+</b><span>Countries</span></div>
+            <div><b>£270M</b><span>Valuation</span></div>
+          </div>
+          <div class="card-foot"><span>Market Disruptors</span><span>4 sources tracked</span></div>
+        </div>
+      </div>
+      <!-- Heineken -->
+      <div class="card c2" style="--accent:#1f7a3a">
+        <div class="card-paper">
+          <div class="card-edition">STRATEMARK</div>
+          <div class="card-art"><span class="card-label">Company</span><span class="ovr icon"><b>91</b><i>OVR</i></span><div class="wordmark">Heineken<small>Heineken 0.0</small></div></div>
+          <div class="card-id"><span class="card-eyebrow">Amsterdam, Netherlands</span><span class="card-name">Heineken N.V.</span><p class="card-desc">Global brewer behind Heineken 0.0, one of the best-selling alcohol-free beers.</p></div>
+          <div class="card-metrics">
+            <div><b>87.9K</b><span>Employees</span></div>
+            <div><b>€34.3B</b><span>Annual revenue</span></div>
+            <div><b>190+</b><span>Markets</span></div>
+            <div><b>€39.1B</b><span>Market cap</span></div>
+          </div>
+          <div class="card-foot"><span>The Titans</span><span>6 sources tracked</span></div>
+        </div>
+      </div>
+      <!-- AB InBev -->
+      <div class="card c3" style="--accent:#b8860b">
+        <div class="card-paper">
+          <div class="card-edition">STRATEMARK</div>
+          <div class="card-art"><span class="card-label">Company</span><span class="ovr icon"><b>95</b><i>OVR</i></span><div class="wordmark">AB InBev<small>Budweiser Zero · Corona Cero</small></div></div>
+          <div class="card-id"><span class="card-eyebrow">Leuven, Belgium</span><span class="card-name">Anheuser-Busch InBev</span><p class="card-desc">The world’s largest brewer, scaling zero-alcohol lines across its global brands.</p></div>
+          <div class="card-metrics">
+            <div><b>137K</b><span>Employees</span></div>
+            <div><b>$59.3B</b><span>Annual revenue</span></div>
+            <div><b>150+</b><span>Countries</span></div>
+            <div><b>$151.6B</b><span>Market cap</span></div>
+          </div>
+          <div class="card-foot"><span>The Titans</span><span>7 sources tracked</span></div>
+        </div>
+      </div>
+      <!-- Athletic -->
+      <div class="card c4" style="--accent:#1d3f6e">
+        <div class="card-paper">
+          <div class="card-edition">STRATEMARK</div>
+          <div class="card-art"><span class="card-label">Company</span><span class="ovr gold"><b>78</b><i>OVR</i></span><div class="wordmark">ATHLETIC<small>Brewing Co.</small></div></div>
+          <div class="card-id"><span class="card-eyebrow">Milford, Connecticut, US</span><span class="card-name">Athletic Brewing</span><p class="card-desc">America’s leading non-alcoholic craft brewer, built for an active lifestyle.</p></div>
+          <div class="card-metrics">
+            <div><b>307</b><span>Employees</span></div>
+            <div><b>$90M</b><span>Annual revenue</span></div>
+            <div><b>$50M</b><span>Latest round</span></div>
+            <div><b>$800M</b><span>Valuation</span></div>
+          </div>
+          <div class="card-foot"><span>Market Disruptors</span><span>5 sources tracked</span></div>
+        </div>
+      </div>
+      <div class="fan-note">Example deck · Craft non-alcoholic beer · Researched Oct 2026</div>
+    </div>
+  </div>
+</header>
+
+<!-- ================= HOW IT WORKS ================= -->
+<section id="how">
+  <div class="wrap center">
+    <div class="eyebrow">How it works</div>
+    <h2 style="margin-top:14px">From a question to a full deck in about a minute.</h2>
+    <p class="lede" style="margin-top:16px">No spreadsheets, no twenty open tabs. You type one line; research agents do the rest and show their work.</p>
+    <div class="steps" style="text-align:left">
+      <div class="step reveal">
+        <div class="n">01 · Ask</div>
+        <h3>Describe the market</h3>
+        <p>Plain English, any industry, any region. Stratemark defines the market and searches the open web for the companies in it.</p>
+        <div class="demo">“Craft non-alcoholic beer brands”</div>
+      </div>
+      <div class="step reveal">
+        <div class="n">02 · Deal</div>
+        <h3>Your deck opens fast</h3>
+        <p>The first cards land in seconds, with real logos and brand colours. The rest stream in while you start exploring.</p>
+        <div class="demo">Deck open · 40s · 11 companies</div>
+      </div>
+      <div class="step reveal">
+        <div class="n">03 · Fill</div>
+        <h3>Cards fill themselves</h3>
+        <p>Agents hunt every empty slot and keep a figure only if its source sentence names the company and states the number.</p>
+        <div class="demo">Filling cards · 30 of 44 figures sourced</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CARD ANATOMY ================= -->
+<section id="card" class="anatomy">
+  <div class="wrap">
+    <div class="center">
+      <div class="eyebrow">The card</div>
+      <h2 style="margin-top:14px">Everything you need to know,<br />on one card.</h2>
+      <p class="lede" style="margin-top:16px">Each company gets a collectible card you can scan in two seconds and trust in ten.</p>
+    </div>
+    <div class="anat-grid">
+      <div class="anat-card reveal">
+        <div class="card" style="--accent:#1d3f6e">
+          <div class="card-paper">
+            <div class="card-edition">STRATEMARK</div>
+            <div class="card-art"><span class="card-label">Company</span><span class="ovr gold"><b>78</b><i>OVR</i></span><div class="wordmark">ATHLETIC<small>Brewing Co.</small></div></div>
+            <div class="card-id"><span class="card-eyebrow">Milford, Connecticut, US</span><span class="card-name">Athletic Brewing Company</span><p class="card-desc">America’s leading non-alcoholic craft brewer, built for an active lifestyle.</p></div>
+            <div class="card-metrics">
+              <div><b>307</b><span>Employees</span></div>
+              <div><b>$90M</b><span>Annual revenue</span></div>
+              <div><b>$50M</b><span>Latest round</span></div>
+              <div><b>$800M</b><span>Valuation</span></div>
+            </div>
+            <div class="card-foot"><span>Market Disruptors</span><span>5 sources tracked</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="anat-list">
+        <div class="anat-item reveal"><div class="k">1</div><div><h3>Real logo and brand colours</h3><p>Pulled from the company’s own website, never a generic icon. The card frame takes on the brand’s colour.</p></div></div>
+        <div class="anat-item reveal"><div class="k">2</div><div><h3>A 0–99 overall rating</h3><p>A trading-card style score that ranks the company against the rest of its deck, in gold, silver or bronze.</p></div></div>
+        <div class="anat-item reveal"><div class="k">3</div><div><h3>Four sourced figures</h3><p>The four that matter for that company: staff, revenue or funding, reach, and value. Each one has a dated source.</p></div></div>
+        <div class="anat-item reveal"><div class="k">4</div><div><h3>Stage and provenance</h3><p>Where the company sits in its market, and how many sources back the card. Tap any figure to read the evidence.</p></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= RATING ================= -->
+<section id="rating" class="rating">
+  <div class="wrap">
+    <div class="center">
+      <div class="eyebrow light">The rating</div>
+      <h2 style="margin-top:14px">Rate any company, in any market,<br />on the same 0–99 scale.</h2>
+      <p class="lede" style="margin-top:16px">Like a player rating, but every point is earned from evidence. Market leaders land in the 90s; most credible players sit above 30.</p>
+    </div>
+    <div class="tiers">
+      <div class="tier reveal"><span class="ovr icon"><b>95</b><i>OVR</i></span><h3>Icon · 90–99</h3><p>Category leaders with deep, well-sourced evidence.</p></div>
+      <div class="tier reveal"><span class="ovr gold"><b>82</b><i>OVR</i></span><h3>Gold · 75–89</h3><p>Established players with scale and strong signals.</p></div>
+      <div class="tier reveal"><span class="ovr silver"><b>66</b><i>OVR</i></span><h3>Silver · 60–74</h3><p>Proven challengers gaining ground.</p></div>
+      <div class="tier reveal"><span class="ovr bronze"><b>46</b><i>OVR</i></span><h3>Bronze · 30–59</h3><p>Early or niche players still building scale.</p></div>
+    </div>
+    <div class="formula">
+      <div class="reveal"><b>Half: maturity</b>The company’s stage, from early-stage to market titan, set by rules and recorded with its reasoning.</div>
+      <div class="reveal"><b>Half: scale vs. peers</b>Where its sourced staff, revenue, value, funding and reach rank inside this deck.</div>
+      <div class="reveal"><b>Evidence first</b>Unknown figures never count as zero. No sourced evidence means no rating, not a made-up one.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= HONESTY ================= -->
+<section>
+  <div class="wrap center">
+    <div class="eyebrow">Built on evidence</div>
+    <h2 style="margin-top:14px">Unknown beats invented.</h2>
+    <p class="lede" style="margin-top:16px">Every figure is labelled with how much you can trust it, and carries the sentence it came from. When nothing credible exists, the gap stays visible.</p>
+    <div class="truth" style="text-align:left">
+      <div class="truth-card reveal">
+        <span class="badge b-ver">✓ Verified</span>
+        <div class="fig">87,870</div>
+        <div class="src">Heineken employees (FY2025 average), checked against the company’s own annual report.</div>
+      </div>
+      <div class="truth-card reveal">
+        <span class="badge b-rep">◐ Source reported</span>
+        <div class="fig">$800M</div>
+        <div class="src"><q>Athletic Brewing raised $50 million at an $800 million valuation</q>, July 2024, financial press.</div>
+      </div>
+      <div class="truth-card reveal">
+        <span class="badge b-unk">— Unknown</span>
+        <div class="fig" style="color:var(--faint)">Unknown</div>
+        <div class="src">A private brewer’s customer count. No credible public figure exists, so we show the gap and what would fill it.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= DASHBOARD ================= -->
+<section id="dashboard" style="background:#fff;border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap">
+    <div class="center">
+      <div class="eyebrow">Company dashboards</div>
+      <h2 style="margin-top:14px">Open any card. Go as deep as you need.</h2>
+      <p class="lede" style="margin-top:16px">Overview, metrics, team and org chart, history, products and live news, all on one page with sources attached.</p>
+    </div>
+    <div class="dash-wrap reveal">
+      <div class="dash-top"><i></i><i></i><i></i><span>stratemark · Athletic Brewing Company</span></div>
+      <div class="dash">
+        <div class="dash-head">
+          <div class="logo-tile">AB</div>
+          <span class="ovr gold"><b>78</b><i>OVR</i></span>
+          <div><h3>Athletic Brewing Company</h3><p>Non-alcoholic craft brewer · Milford, Connecticut · athleticbrewing.com</p></div>
+        </div>
+        <div class="tabs"><span class="on">Overview</span><span>Metrics</span><span>Team &amp; Org Chart</span><span>History</span><span>Products &amp; Roadmap</span><span>Live Intel</span></div>
+        <div class="kpis">
+          <div class="kpi" style="--k:#19b39b"><small>Employees</small><b>307</b><span>As of 2026 · #2 of 11 in deck</span><div><span class="badge b-rep">Source reported</span></div></div>
+          <div class="kpi" style="--k:#e3a33b"><small>Annual revenue</small><b>$90M</b><span>FY2024 · #3 of 11 in deck</span><div><span class="badge b-rep">Source reported</span></div></div>
+          <div class="kpi" style="--k:#5b7ee5"><small>Latest round</small><b>$50M</b><span>Jul 2024 · Series</span><div><span class="badge b-rep">Source reported</span></div></div>
+          <div class="kpi" style="--k:#a46be0"><small>Valuation</small><b>$800M</b><span>Jul 2024 · #1 private</span><div><span class="badge b-rep">Source reported</span></div></div>
+        </div>
+        <div class="dash-row">
+          <div class="panel">
+            <h4>What matters</h4>
+            <div class="take"><b>1</b><div>The category’s best-funded independent: $800M valuation after a $50M raise in 2024.<em>2 sources</em></div></div>
+            <div class="take"><b>2</b><div>Revenue near $90M puts it ahead of every other independent non-alcoholic brewer in this deck.<em>2 sources</em></div></div>
+            <div class="take"><b>3</b><div>Competes on shelf with brewers 100× its size, including AB InBev and Heineken 0.0.<em>3 sources</em></div></div>
+          </div>
+          <div class="panel">
+            <h4>Position in this market</h4>
+            <div class="bar"><label>Employees <span>#2 of 11</span></label><div class="track"><div class="fill" style="width:82%"></div><div class="dot" style="left:82%"></div></div></div>
+            <div class="bar"><label>Annual revenue <span>#3 of 11</span></label><div class="track"><div class="fill" style="width:74%"></div><div class="dot" style="left:74%"></div></div></div>
+            <div class="bar"><label>Valuation <span>#1 private</span></label><div class="track"><div class="fill" style="width:96%"></div><div class="dot" style="left:96%"></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ASK + EXPORT ================= -->
+<section>
+  <div class="wrap">
+    <div class="center">
+      <div class="eyebrow">Ask &amp; share</div>
+      <h2 style="margin-top:14px">Talk to your deck. Then hand it off.</h2>
+    </div>
+    <div class="duo">
+      <div class="feature reveal">
+        <div class="eyebrow">Ask</div>
+        <h3>Answers grounded in your deck</h3>
+        <p>Ask follow-ups like you would an analyst. Every answer cites the card it came from, and says so when the deck doesn’t know.</p>
+        <div class="chat">
+          <div class="msg me">How does Athletic compare with the big brewers?</div>
+          <div class="msg ai">Athletic is the largest independent: about $90M revenue and an $800M valuation (both source reported, 2024). AB InBev ($59.3B revenue) and Heineken (€34.3B) are hundreds of times larger, but sell non-alcoholic beer as one line among many.<small>From 3 cards · 6 sources</small></div>
+          <div class="chips"><span>Who raised most recently?</span><span>Rank by revenue</span><span>Compare the top three</span></div>
+        </div>
+      </div>
+      <div class="feature reveal">
+        <div class="eyebrow">Export</div>
+        <h3>Reports people actually read</h3>
+        <p>Turn a deck or a single company into a polished report, with every figure footnoted to its source.</p>
+        <div class="exports">
+          <div class="exp"><div><b>Deck report</b><br /><span>Cover, contents, a page per company</span></div><i>PDF</i></div>
+          <div class="exp"><div><b>Board deck</b><br /><span>Top companies ranked by rating</span></div><i>PPTX</i></div>
+          <div class="exp"><div><b>Raw data</b><br /><span>Every figure with source URL and date</span></div><i>CSV</i></div>
+          <div class="exp"><div><b>Chat transcript</b><br /><span>Your questions and cited answers</span></div><i>MD · PDF</i></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= DECK LIBRARY ================= -->
+<section style="background:var(--mint)">
+  <div class="wrap">
+    <div class="center">
+      <div class="eyebrow">Your collection</div>
+      <h2 style="margin-top:14px">Build a library of markets.</h2>
+      <p class="lede" style="margin-top:16px">Every deck you research stays in your collection, led by its top-rated card, and keeps filling in as new evidence lands.</p>
+    </div>
+    <div class="stacks">
+      <div class="reveal">
+        <div class="stack" style="--c:#7a5a12">
+          <span class="back b1"></span><span class="back b2"></span>
+          <div class="face"><span class="ovr icon"><b>95</b><i>OVR</i></span><div class="mark">AB InBev</div><div class="meta"><small>Stratemark deck</small><h3>Craft non-alcoholic beer</h3></div></div>
+        </div>
+        <div class="stack-info"><span><b>11</b> companies</span><span><b>68%</b> filled</span><span>Live</span></div>
+      </div>
+      <div class="reveal">
+        <div class="stack" style="--c:#0e3b36">
+          <span class="back b1"></span><span class="back b2"></span>
+          <div class="face"><span class="ovr icon"><b>97</b><i>OVR</i></span><div class="mark">DJI</div><div class="meta"><small>Stratemark deck</small><h3>Commercial drone platforms</h3></div></div>
+        </div>
+        <div class="stack-info"><span><b>12</b> companies</span><span><b>74%</b> filled</span><span>Complete</span></div>
+      </div>
+      <div class="reveal">
+        <div class="stack" style="--c:#5a2a3c">
+          <span class="back b1"></span><span class="back b2"></span>
+          <div class="face"><span class="ovr gold"><b>84</b><i>OVR</i></span><div class="mark">Seedlip</div><div class="meta"><small>Stratemark deck</small><h3>Non-alcoholic spirits</h3></div></div>
+        </div>
+        <div class="stack-info"><span><b>16</b> companies</span><span><b>61%</b> filled</span><span>Live</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= AUDIENCE ================= -->
+<section>
+  <div class="wrap center">
+    <div class="eyebrow">Who it’s for</div>
+    <h2 style="margin-top:14px">Built for people who make the call.</h2>
+    <div class="aud" style="text-align:left">
+      <div class="reveal"><h3>Founders</h3><p>Size the market and see who you’re really up against before you commit.</p><div class="eg">“Who has raised in my space this year?”</div></div>
+      <div class="reveal"><h3>Investors</h3><p>Map a landscape in minutes, then spend your diligence time where the evidence is thin.</p><div class="eg">“Rank the challengers by revenue.”</div></div>
+      <div class="reveal"><h3>Strategy teams</h3><p>Positioning, competitors and gaps in one shared view, exportable for the next meeting.</p><div class="eg">“Compare our top three rivals.”</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FINAL CTA ================= -->
+<div class="final" id="start">
+  <div class="eyebrow light">Free beta</div>
+  <h2 style="margin-top:14px">Deal your first deck.</h2>
+  <p class="lede">Your first decks are on us. Sign in with Google, describe a market, and watch the cards fill in.</p>
+  <div class="ctas" style="justify-content:center">
+    <a href="#" class="btn btn-light">Build your first deck</a>
+    <a href="#card" class="btn btn-ghost">See how a card works</a>
+  </div>
+  <div class="note" style="color:rgba(255,255,255,.45)">Example figures from a live Stratemark deck, researched October 2026. Sources are shown in the product.</div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Stratemark</span>
+    <span>Every figure cited · Unknown beats invented</span>
+  </div>
+</footer>
+
+<script>
+  // Typewriter cycle for the prompt chip
+  (function () {
+    var el = document.getElementById('typed');
+    if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var items = ['Craft non-alcoholic beer brands', 'Commercial drone platforms', 'Climate-risk software', 'Independent game studios'];
+    var i = 0, j = items[0].length, deleting = true;
+    function tick() {
+      var word = items[i];
+      el.textContent = word.slice(0, j);
+      if (deleting) { j--; if (j < 0) { deleting = false; i = (i + 1) % items.length; j = 0; } }
+      else { j++; if (j > items[i].length) { deleting = true; setTimeout(tick, 1800); return; } }
+      setTimeout(tick, deleting ? 28 : 55);
+    }
+    setTimeout(tick, 2200);
+  })();
+  // Reveal on scroll
+  (function () {
+    var els = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window)) { els.forEach(function (e) { e.classList.add('in'); }); return; }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.12 });
+    els.forEach(function (e) { io.observe(e); });
+  })();
+</script>
+</body>
+</html>
