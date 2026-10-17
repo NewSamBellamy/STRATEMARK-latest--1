@@ -18,6 +18,7 @@ import type {
   MaturityTier,
   MetricType,
   RefreshCadence,
+  ReportTopic,
 } from './enums';
 import type { MarketProfile } from './market-profile';
 import type {
@@ -281,6 +282,13 @@ export interface ReportRequest {
   focus?: string | null;
   /** Fold a research conversation's findings into the report. */
   threadId?: string | null;
+  /**
+   * Company reports only: the sections to include, mirroring the dashboard
+   * tabs. When given, the report runs the four-step flow (read what is stored,
+   * find the gaps, research those gaps more deeply, write it up) and returns
+   * structured `sections`. Absent keeps the older single-pass report.
+   */
+  topics?: ReportTopic[];
 }
 
 // ---------------------------------------------------------------------------
@@ -451,6 +459,29 @@ export interface SiteAuditInput {
   companyId?: string | null;
 }
 
+/** One written section of a topic-based company report. */
+export interface ReportSection {
+  topic: ReportTopic;
+  title: string;
+  markdown: string;
+  /** Sources behind this section, shown as numbered footnotes. */
+  citations: Citation[];
+  /** What the stored research lacked for this topic, in plain words. Empty when nothing was missing. */
+  gaps: string[];
+  /** True when the section needed a deeper research pass beyond what was stored. */
+  researchedDeeper: boolean;
+}
+
+/** What building a report cost. Unknown is null, never zero. */
+export interface ReportCost {
+  /** Estimated USD at deliberately high list prices; null when the provider reported no usage. */
+  estUsd: number | null;
+  /** Provider calls made while building this report; null when not measured. */
+  calls: number | null;
+  /** Google searches those calls ran; null when not measured. */
+  searches: number | null;
+}
+
 export interface Report {
   id: string;
   kind: 'deck' | 'company' | 'site_audit';
@@ -463,6 +494,10 @@ export interface Report {
   evidenceCitations?: Citation[];
   /** Structured content when kind='site_audit' — drives the visual report. */
   audit?: SiteAuditContent;
+  /** Topic-based company reports: the topics asked for and the written sections. */
+  topics?: ReportTopic[];
+  sections?: ReportSection[];
+  cost?: ReportCost;
   createdAt: string;
 }
 

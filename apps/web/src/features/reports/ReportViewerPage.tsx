@@ -14,6 +14,7 @@ import { printScoped } from '@/lib/print';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { formatRelative } from '@/lib/format';
 import { ExportMenu } from '@/features/export/ExportMenu';
+import { TopicReportPage } from './TopicReportPage';
 import { METRIC_COLORS, tint } from '@/lib/theme';
 import { buildReportShare } from '@/lib/share/codec';
 import { exportDeckPptx } from './pptx';
@@ -156,6 +157,7 @@ export default function ReportViewerPage() {
       <QueryBoundary query={report}>
         {(r) => {
           if (r.kind === 'site_audit' && r.audit) return <SiteAuditView report={r} audit={r.audit} />;
+          if (r.kind === 'company' && r.sections && r.sections.length > 0) return <TopicReportPage report={r} />;
           // The deck's opening brief was written before research ran; its
           // "research in progress" footer is stale the moment research ends.
           const markdown = (typeof r.markdown === 'string' ? r.markdown : '')

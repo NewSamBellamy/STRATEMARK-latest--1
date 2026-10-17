@@ -82,5 +82,25 @@
   .sm-md > * { margin: 0 0 2mm; }
   .sm-md table { border-collapse: collapse; font-size: 9pt; break-inside: avoid; }
   .sm-md th, .sm-md td { border: 1px solid #dce8e5; padding: 1mm 2mm; text-align: left; }
-  .sm-md ul, .sm-md ol { padding-left: 5mm; }
+  .sm-md ul { padding-left: 5mm; list-style: disc; }
+  .sm-md ol { padding-left: 5mm; list-style: decimal; }
+  /* Footnote numbers must print: the page reset strips list markers. */
+  .sm-notes { list-style: decimal; }
+
+  /* Topic report: a cover with the company mark, sections with real pictures, footnotes under each */
+  .sm-cover-brand { display: flex; align-items: center; gap: 5mm; margin: 0 0 6mm; }
+  .sm-cover-brand .sm-eyebrow { margin: 0; }
+  .sm-cover-logo { width: 18mm; height: 18mm; border: 1px solid #dce8e5; border-radius: 3mm; overflow: hidden; flex: none; }
+  .sm-cover-hero { margin: 0 0 8mm; }
+  .sm-cover-hero img { display: block; width: 100%; max-height: 80mm; object-fit: cover; border-radius: 2mm; border: 1px solid #dce8e5; }
+  .sm-cover-hero figcaption { margin-top: 1.2mm; font-size: 7.5pt; color: #68716f; }
+  .sm-topic { margin: 0 0 12mm; }
+  .sm-topic .sm-h2 { margin-bottom: 4mm; break-after: avoid; }
+  .sm-figs { display: grid; grid-template-columns: 1fr; gap: 4mm; margin: 0 0 5mm; }
+  .sm-figs-2 { grid-template-columns: 1fr 1fr; }
+  .sm-fig { margin: 0; break-inside: avoid; page-break-inside: avoid; }
+  .sm-fig img { display: block; width: 100%; max-height: 62mm; object-fit: cover; border: 1px solid #dce8e5; border-radius: 2mm; }
+  .sm-fig figcaption { margin-top: 1.2mm; font-size: 7.5pt; color: #68716f; }
+  .sm-gap { margin: 3mm 0 0; padding: 2mm 3mm; border-left: 2px solid #c9a227; background: #faf6e6; font-size: 8.5pt; color: #3d4543; break-inside: avoid; }
+  .sm-gap-note { border-left-color: #0f766e; background: #eef6f4; }
 }

@@ -39,8 +39,10 @@ import {
   type ResearchThread,
   type Unsubscribe,
   type ViceClaim,
+  usableCitations,
 } from '@mi/contracts';
 import { buildDataset, type DashboardRecord, type Dataset } from './build-dataset';
+import { buildDemoSections } from './demo-report';
 
 export interface MockRepositoryOptions {
   /** Artificial latency (ms) so loading states are visible in dev. Default 0. */
@@ -474,6 +476,32 @@ export class MockRepository implements MarketIntelRepository {
   }
 
   async generateReport(request: ReportRequest): Promise<Report> {
+    const topics = request.topics;
+    if (request.kind === 'company' && topics && topics.length > 0) {
+      const company = this.companies.find((c) => c.id === request.subjectId);
+      if (!company) throw new Error('Company not found for report');
+      const sections = buildDemoSections(
+        company,
+        this.metrics.filter((m) => m.companyId === company.id),
+        this.dashboards[company.id]?.content ?? {},
+        topics,
+      );
+      const topicReport: Report = {
+        id: uid('rpt'),
+        kind: 'company',
+        subjectId: company.id,
+        title: `${company.name} — Company Report (demo)`,
+        markdown: sections.map((x) => `## ${x.title}\n\n${x.markdown}`).join('\n\n'),
+        citations: usableCitations(sections.flatMap((x) => x.citations)),
+        topics: [...topics],
+        sections,
+        // Nothing was researched in demo mode, so there is no cost to report.
+        cost: { estUsd: null, calls: null, searches: null },
+        createdAt: new Date().toISOString(),
+      };
+      this.reports = [topicReport, ...this.reports];
+      return this.delay(topicReport);
+    }
     const subjectName =
       request.kind === 'company'
         ? (this.companies.find((c) => c.id === request.subjectId)?.name ?? 'Company')

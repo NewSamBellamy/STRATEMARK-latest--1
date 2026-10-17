@@ -12,6 +12,7 @@ import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { useHuntRunner } from '@/lib/agentic/useHuntRunner';
 import { useSentinel } from '@/lib/agentic/useSentinel';
 import { SettingsModal } from '@/features/settings/SettingsModal';
+import { TaskToasts } from './TaskToasts';
 import { SettingsLink } from '@/components/SettingsLink';
 import { useHostedBudget } from '@/lib/hostedApi';
 import { useApiKey } from '@/lib/settings/apiKey';
@@ -155,6 +156,7 @@ export function AppShell() {
         </main>
       </div>
       <SettingsModal />
+      <TaskToasts />
     </div>
   );
 }

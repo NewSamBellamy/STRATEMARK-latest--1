@@ -210,6 +210,7 @@ import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } f
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
 import { buildChatPrompt, formatCompanyBlock, formatDeckRankings } from './chat-context';
 import { savedCompanySummary } from './saved-profile';
+import { buildCompanyTopicReport } from './company-report';
 import { projectedCompanyFacts } from './displayed-facts';
 import { companySourceTargets } from './source-policy';
 import { companyBriefingPrompt, renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
@@ -5552,7 +5553,76 @@ export class GeminiRepository implements MarketIntelRepository {
     return lines;
   }
 
-  async generateReport(request: ReportRequest): Promise<Report> {
+  /**
+   * The sourced half of a research conversation, for folding into a topic report: every question the analyst
+   * asked, but only the answers that carried at least one usable source (an unsourced answer is not evidence).
+   */
+  private reportConversation(threadId: string | null | undefined): { text: string; citations: Citation[] } | null {
+    const thread = threadId ? this.snap.threads.find((t) => t.id === threadId) : null;
+    if (!thread) return null;
+    const kept = thread.messages.filter((m) => m.role === 'user' || usableCitations(m.citations ?? []).length > 0);
+    if (!kept.some((m) => m.role === 'assistant')) return null;
+    return {
+      text: kept.map((m) => `${m.role === 'user' ? 'ANALYST ASKED' : 'RESEARCH FOUND'}: ${m.text}`).join('\n'),
+      citations: usableCitations(kept.flatMap((m) => m.citations ?? [])),
+    };
+  }
+
+  /**
+   * Topic-based company report (see company-report.ts): read what is stored,
+   * find the gaps, research only the gaps, write it up. Findings from the deeper
+   * pass live in the report; they are never written back to the stored tabs.
+   */
+  private async generateCompanyTopicReport(request: ReportRequest, signal?: AbortSignal): Promise<Report> {
+    const company = this.snap.companies.find((c) => c.id === request.subjectId);
+    if (!company) throw new Error('Company not found for report');
+    const result = await buildCompanyTopicReport({
+      company,
+      client: this.client,
+      // The cache only: a read must never start research (that is `researchTab`'s job, and only for tabs never researched).
+      // If the source-bound projection fails this THROWS: the report then flags the gap instead of showing raw, unbound cache content.
+      readStoredTab: async (tab) => {
+        if (!this.snap.dashboards[company.id]?.[tab]) return null;
+        const shown = await this.researchDashboardTab(company.id, tab, undefined, true); // cached: no research, no user-asked bookkeeping
+        if (!shown) throw new Error('Stored tab could not be projected.');
+        return { content: shown.content, citations: shown.citations ?? [], lastRefreshedAt: shown.lastRefreshedAt ?? null };
+      },
+      researchTab: async (tab) => {
+        const found = await this.getDashboardTab(company.id, tab);
+        return found ? { content: found.content, citations: usableCitations(found.citations ?? []), lastRefreshedAt: found.lastRefreshedAt ?? null } : null;
+      },
+      facts: () => this.getCompanyFacts(company.id),
+      evidence: () => (this.snap.researchEvidence ?? [])
+        .filter((row) => row.companyId === company.id)
+        .map((row) => ({ topic: row.topic ?? '', capturedAt: row.capturedAt ?? '', text: row.text ?? '', citations: row.citations ?? [] })),
+      // The usage counters are global: while a deck job or a tab lane runs beside the report they cannot be attributed to it.
+      busy: () => this.activeBackgroundJobs.size > 0 || this.tabResearchInFlight.size > 0,
+      tabCitations: () => Object.values(this.snap.dashboards[company.id] ?? {}).flatMap((tab) => tab?.citations ?? []),
+    }, request.topics ?? [], signal, { focus: request.focus ?? null, conversation: this.reportConversation(request.threadId) });
+    // A cancel that landed after the last write-up must not be saved as a finished report.
+    throwIfAborted(signal);
+    const report: Report = {
+      id: `rpt_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      kind: 'company',
+      subjectId: request.subjectId,
+      title: result.title,
+      markdown: result.markdown,
+      citations: result.citations,
+      evidenceDigest: result.evidenceDigest,
+      evidenceCitations: result.evidenceCitations,
+      topics: result.topics,
+      sections: result.sections,
+      cost: result.cost,
+      createdAt: new Date().toISOString(),
+    };
+    this.snap.reports = [report, ...this.snap.reports];
+    await this.persist();
+    return report;
+  }
+
+  async generateReport(request: ReportRequest, opts?: { signal?: AbortSignal }): Promise<Report> {
+    // Topic-based company reports run the four-step flow; every other report keeps the single pass below.
+    if (request.kind === 'company' && Array.isArray(request.topics) && request.topics.length) return this.generateCompanyTopicReport(request, opts?.signal);
     let title = 'Research Report';
     let digest = '';
     if (request.kind === 'deck') {

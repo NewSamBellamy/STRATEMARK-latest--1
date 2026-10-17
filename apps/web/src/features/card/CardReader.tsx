@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, ExternalLink, Printer, Share2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, ExternalLink, FilePlus2, Printer, Share2 } from 'lucide-react';
 import { publisherOf, type CardWithCompany } from '@mi/contracts';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/Modal';
 import { useMarket, useRemoveCard } from '@/hooks/data';
@@ -9,6 +9,8 @@ import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { buildCardShare, buildReportShare } from '@/lib/share/codec';
 import { verifyCardForShare } from '@/lib/share/preflight';
 import { ShareDialog } from '@/features/share/ShareDialog';
+import { ReportBuilderDialog } from '@/features/reports/ReportBuilderDialog';
+import { useCompanyReportRun } from '@/features/reports/useCompanyReportRun';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { CardStage } from './CardStage';
 import { SaveCardButton } from './GameCard';
@@ -83,6 +85,9 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
   const repo = useRepository();
   const { chat } = useDeepDive();
   const [shareOpen, setShareOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const runCompanyReport = useCompanyReportRun();
+  const canReport = useSupports('generateReport');
   const [fullFinding, setFullFinding] = useState(false);
   const canRemove = useSupports('removeCard');
   const removeCard = useRemoveCard();
@@ -279,7 +284,11 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
           <div className="card-inspector__actions">
             <div className="flex items-center gap-1"><SaveCardButton cardId={card.id} />
               <button type="button" className="card-control" aria-label="Share card" onClick={() => setShareOpen(true)}><Share2 size={15} /></button>
-              <span className="ml-2 text-[11px] text-muted">Keep or share this card</span></div>
+              {canReport && company && dashboardUrl && (
+                <button type="button" className="card-control" aria-label="Create report" title={`Create a report on ${company.name}`}
+                  onClick={() => setReportOpen(true)}><FilePlus2 size={15} /></button>
+              )}
+              <span className="ml-2 text-[11px] text-muted">{canReport && company && dashboardUrl ? 'Keep, share or write up this company' : 'Keep or share this card'}</span></div>
             {canRemove && (confirmRemove ? (
               <span className="flex items-center gap-2 text-[11px]">
                 <span className="text-muted">Remove {view.title} from this deck?</span>
@@ -303,6 +312,10 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
           </div>
         </div>
       </div>
+      {canReport && company && dashboardUrl && (
+        <ReportBuilderDialog open={reportOpen} onOpenChange={setReportOpen} companyName={company.name}
+          onStart={({ topics, focus }) => { void runCompanyReport({ companyId: company.id, companyName: company.name, topics, focus }); }} />
+      )}
       <ShareDialog open={shareOpen} onOpenChange={setShareOpen} title={view.title}
         subtitle={fullFinding ? 'Sourced research finding' : marketName ? `${marketName} — market research snapshot` : 'Market research snapshot'}
         build={async (onStage) => {

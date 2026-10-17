@@ -437,7 +437,7 @@ export default function DashboardPage() {
               </div>
               <ExportMenu
                 className="shrink-0"
-                report={{ kind: 'company', subjectId: c.id }}
+                report={{ kind: 'company', subjectId: c.id, name: c.name }}
                 company={{
                   id: c.id,
                   name: c.name,

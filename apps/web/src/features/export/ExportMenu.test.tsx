@@ -10,7 +10,7 @@ describe('the Share & export menu', () => {
     const { user } = renderWithProviders(
       <ExportMenu
         company={company}
-        report={{ kind: 'company', subjectId: 'co_1' }}
+        report={{ kind: 'company', subjectId: 'co_1', name: 'Acme' }}
         share={{ title: 'Acme', build: async () => { throw new Error('not built in this test'); } }}
       />,
     );
@@ -37,7 +37,7 @@ describe('the Share & export menu', () => {
     const capabilities = repository.capabilities!();
     repository.capabilities = () => ({ ...capabilities, unsupported: ['generateReport'] });
     const { user } = renderWithProviders(
-      <ExportMenu company={company} report={{ kind: 'company', subjectId: 'co_1' }} />,
+      <ExportMenu company={company} report={{ kind: 'company', subjectId: 'co_1', name: 'Acme' }} />,
       { repository },
     );
     await user.click(screen.getByRole('button', { name: 'Share & export' }));
@@ -53,18 +53,40 @@ describe('the Share & export menu', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
-  it('composes a company report with an optional focus and opens it', async () => {
+  it('opens the section picker for a company report and starts it in the background', async () => {
     const repository = makeRepo();
     const generate = vi.spyOn(repository, 'generateReport');
     const { user } = renderWithProviders(
-      <ExportMenu company={company} report={{ kind: 'company', subjectId: 'co_1' }} />,
+      <ExportMenu company={company} report={{ kind: 'company', subjectId: 'co_1', name: 'Acme' }} />,
+      { repository },
+    );
+    await user.click(screen.getByRole('button', { name: 'Share & export' }));
+    await user.click(screen.getByRole('menuitem', { name: /create report/i }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    // Everything but the bare source list is ticked; untick one and add a focus.
+    await user.click(screen.getByRole('checkbox', { name: /history/i }));
+    await user.type(screen.getByLabelText(/focus/i), 'pricing');
+    await user.click(screen.getByRole('button', { name: 'Create report' }));
+    await waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
+    const request = generate.mock.calls[0]![0];
+    expect(request).toMatchObject({ kind: 'company', subjectId: 'co_1', focus: 'pricing' });
+    expect(request.topics).toContain('overview');
+    expect(request.topics).not.toContain('history');
+    expect(request.topics).not.toContain('sources');
+  });
+
+  it('composes a deck report with an optional focus', async () => {
+    const repository = makeRepo();
+    const generate = vi.spyOn(repository, 'generateReport');
+    const { user } = renderWithProviders(
+      <ExportMenu company={company} report={{ kind: 'deck', subjectId: 'dk_1' }} />,
       { repository },
     );
     await user.click(screen.getByRole('button', { name: 'Share & export' }));
     await user.click(screen.getByRole('menuitem', { name: /create report/i }));
     await user.type(screen.getByLabelText(/focus/i), 'pricing');
     await user.click(screen.getByRole('button', { name: 'Compose' }));
-    await waitFor(() => expect(generate).toHaveBeenCalledWith({ kind: 'company', subjectId: 'co_1', focus: 'pricing' }));
+    await waitFor(() => expect(generate).toHaveBeenCalledWith({ kind: 'deck', subjectId: 'dk_1', focus: 'pricing' }));
   });
 
   it('lets a host add its own downloads and runs the one picked', async () => {
