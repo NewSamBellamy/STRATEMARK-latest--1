@@ -42,6 +42,7 @@ import { DemoDeckBanner } from './DemoDeckBanner';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
 import { buildDeckShare } from '@/lib/share/codec';
 import { ExportMenu } from '@/features/export/ExportMenu';
+import { useReadOnly } from '@/lib/readOnly';
 import { GroundingQuotaNotice } from '@/lib/living/GroundingQuotaNotice';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { ThreadHistoryButton } from '@/features/research/ResearchControls';
@@ -97,6 +98,7 @@ export default function DeckPage() {
   const resumableJob = useResumableJob(marketId);
   const resumeJob = useResumeResearchJob();
   const { chat } = useDeepDive();
+  const readOnly = useReadOnly();
 
   const deckStatus = (deck.data as { status?: 'running' | 'refreshing' | 'partial' | 'failed' | 'ready' | 'ready_stale' } | null)?.status;
   const isRunning = deckStatus === 'running';
@@ -219,10 +221,12 @@ export default function DeckPage() {
       {/* ── Header — tight, structured, clear hierarchy ── */}
       <div className="mb-6">
         {/* Back link */}
-        <Link to="/history" className="inline-flex items-center gap-1 text-[12px] font-medium text-muted hover:text-primary-ink transition-colors">
-          <ArrowLeft className="h-3 w-3" />
-          Back
-        </Link>
+        {!readOnly && (
+          <Link to="/history" className="inline-flex items-center gap-1 text-[12px] font-medium text-muted hover:text-primary-ink transition-colors">
+            <ArrowLeft className="h-3 w-3" />
+            Back
+          </Link>
+        )}
 
         {/* Title row */}
         <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -248,8 +252,8 @@ export default function DeckPage() {
             )}
           </div>
 
-          {/* Compact action bar */}
-          <div className="flex flex-wrap items-center gap-1.5">
+          {/* Compact action bar (a shared copy has nothing to ask, research or change) */}
+          {!readOnly && <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
               className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
@@ -293,6 +297,7 @@ export default function DeckPage() {
                 title: market.data?.name ?? 'Market deck',
                 subtitle: 'Full deck — research snapshot',
                 build: async () => buildDeckShare(all, market.data?.name ?? null),
+                page: deckId ? { deckId } : undefined,
               }}
               report={actionPolicy.compare ? { kind: 'deck', subjectId: marketId } : undefined}
             />
@@ -328,13 +333,13 @@ export default function DeckPage() {
                 </>
               )}
             />
-          </div>
+          </div>}
         </div>
 
-        <DemoDeckBanner />
+        {!readOnly && <DemoDeckBanner />}
         {/* One status line for the deck: creation progress, card completeness
             and live research, counted the same way as the header above. */}
-        <DeckStatusBar
+        {!readOnly && <DeckStatusBar
           deckId={deckId}
           marketName={market.data?.name ?? 'this deck'}
           cards={all}
@@ -343,8 +348,8 @@ export default function DeckPage() {
           resume={resumableJob.data
             ? { run: () => resumableJob.data && resumeJob.mutate(resumableJob.data.id), pending: resumeJob.isPending }
             : null}
-        />
-        <GroundingQuotaNotice />
+        />}
+        {!readOnly && <GroundingQuotaNotice />}
       </div>
 
       {(isRunning || isPartial) && all.length === 0 ? (

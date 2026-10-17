@@ -47,7 +47,7 @@ export interface ExportMenuProps {
   /** `bar` matches the deck action bar; `icon` is the compact variant for panel headers. */
   variant?: 'bar' | 'icon';
   /** Offer a share link: the dialog packages the payload when it opens. */
-  share?: { title: string; subtitle?: string | null; build: (onStage: (stage: string) => void) => Promise<SharePayload> };
+  share?: { title: string; subtitle?: string | null; build: (onStage: (stage: string) => void) => Promise<SharePayload>; page?: { deckId: string; cardId?: string | null } };
   /**
    * Offer "Create report". A company report (`kind: 'company'` with a `name`)
    * opens the section picker and runs in the background; a deck report opens
@@ -362,7 +362,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
         </div>
       )}
       {share && (
-        <ShareDialog open={shareOpen} onOpenChange={setShareOpen} title={share.title} subtitle={share.subtitle} build={share.build} />
+        <ShareDialog open={shareOpen} onOpenChange={setShareOpen} title={share.title} subtitle={share.subtitle} build={share.build} page={share.page} />
       )}
       {report && 'kind' in report && report.kind === 'company' && report.subjectId && (
         <ReportBuilderDialog

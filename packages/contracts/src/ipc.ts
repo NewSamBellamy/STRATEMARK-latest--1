@@ -94,6 +94,7 @@ export const IPC_CHANNELS = {
   listResearchThreads: 'mi:listResearchThreads',
   getResearchThread: 'mi:getResearchThread',
   saveThreadAsReport: 'mi:saveThreadAsReport',
+  exportShareSnapshot: 'mi:exportShareSnapshot',
   listResearchJobs: 'mi:listResearchJobs',
   addResearchNote: 'mi:addResearchNote',
   searchResearchCorpus: 'mi:searchResearchCorpus',
