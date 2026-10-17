@@ -130,8 +130,10 @@ export default function DeckPage() {
     chat(
       { kind: 'cards', deckId, cardIds: [...selected] },
       {
-        placeholder: 'Compare these…',
-        draft: `Compare these ${selected.size} head-to-head: strengths, weaknesses and momentum.`,
+        placeholder: 'Ask a follow-up about these…',
+        seed: selected.size === 1
+          ? 'What stands out about this one, and what would you check next?'
+          : `Compare these ${selected.size} head-to-head: where each is stronger, where the research has gaps, and who you would back.`,
       },
     );
     exitCompare();

@@ -1,5 +1,6 @@
 import { HashRouter, MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from './routes';
+import { DeepDiveProviderWithPanel } from '@/features/deepdive/DeepDive';
 
 /**
  * Can this document support a URL-based router?
@@ -29,13 +30,18 @@ export function App() {
   if (!supportsUrlRouting()) {
     return (
       <MemoryRouter initialEntries={['/']}>
-        <AppRoutes />
+        <DeepDiveProviderWithPanel>
+          <AppRoutes />
+        </DeepDiveProviderWithPanel>
       </MemoryRouter>
     );
   }
   return (
     <HashRouter>
-      <AppRoutes />
+      {/* Inside the router: the chat panel opens cards and links like any other screen. */}
+      <DeepDiveProviderWithPanel>
+        <AppRoutes />
+      </DeepDiveProviderWithPanel>
     </HashRouter>
   );
 }

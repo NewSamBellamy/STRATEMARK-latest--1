@@ -30,6 +30,7 @@ import { readUsage, snapshotAggregate, tallyCall } from './call-cost';
 import { createRateLimiter, extractJson, withRetry, type CallPriority, type RetryableError } from './util';
 import type { CallMetrics, CallMetricsAggregate } from './types';
 import {
+  DEFAULT_CHAT_MODEL,
   DEFAULT_GROUNDED_MODEL,
   DEFAULT_GROUNDED_RPM,
   DEFAULT_STRUCTURE_MODEL,
@@ -63,6 +64,8 @@ export interface GenAiClientConfig {
    * gates are applied downstream and untouched).
    */
   judgeModel?: string;
+  /** Conversation turns (label 'chat') run here; unset uses DEFAULT_CHAT_MODEL, empty keeps them on the grounded model. A failure retries once on the grounded model. */
+  chatModel?: string;
   /** Proactive pacing per model line. Set 0 to disable (tests). */
   groundedRpm?: number;
   structureRpm?: number;
@@ -188,6 +191,7 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
   const groundedModel = config.model ?? DEFAULT_GROUNDED_MODEL;
   const structureModel = config.structureModel ?? DEFAULT_STRUCTURE_MODEL;
   const judgeModel = config.judgeModel || undefined;
+  const chatModel = config.chatModel === undefined ? DEFAULT_CHAT_MODEL : (config.chatModel || undefined);
 
   // Verification-class calls (metric verify, batch verify, red-team) belong to
   // the judge: the model that verifies dashboards must be configurable apart
@@ -344,7 +348,16 @@ export function createGenAiClient(config: GenAiClientConfig): LlmClient {
       };
       if (opts?.system) cfg.systemInstruction = opts.system;
       const route = groundRoute(prompt, opts?.researchContext?.topic);
-      const res = await call(route.model, prompt, cfg, opts?.signal, route.kind, opts?.priority, opts?.label ?? opts?.researchContext?.topic ?? 'ground');
+      const callLabel = opts?.label ?? opts?.researchContext?.topic ?? 'ground';
+      const wantsChatLine = Boolean(chatModel) && route.kind === 'ground' && opts?.label === 'chat';
+      let res;
+      try {
+        res = await call(wantsChatLine ? chatModel! : route.model, prompt, cfg, opts?.signal, route.kind, opts?.priority, callLabel);
+      } catch (err) {
+        // The chat line is a preference: if this key cannot use it, the conversation still gets answered.
+        if (!wantsChatLine || opts?.signal?.aborted) throw err;
+        res = await call(route.model, prompt, cfg, opts?.signal, route.kind, opts?.priority, callLabel);
+      }
       if (res.promptFeedback?.blockReason) {
         throw new Error(`Gemini blocked the request: ${res.promptFeedback.blockReason}`);
       }

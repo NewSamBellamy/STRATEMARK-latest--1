@@ -123,6 +123,14 @@ export interface GeminiClientConfig {
    * gates are applied downstream and untouched).
    */
   judgeModel?: string;
+  /**
+   * Chat model: conversation turns (calls labelled 'chat') run here instead of on
+   * the filler models, so answers read as thought through. Unset uses
+   * DEFAULT_CHAT_MODEL; an empty string keeps chat on the grounded model. If the
+   * line is unavailable on the key (not found, not allowed, quota, errors) the
+   * ordinary fallback ladder answers, so a chat never fails because of this choice.
+   */
+  chatModel?: string;
   /** Injectable for tests. */
   fetchImpl?: typeof fetch;
   /**
@@ -176,6 +184,8 @@ export const DEFAULT_STRUCTURE_RPM = 15;
 // older-stable line sit in the fallback ladder below.
 export const DEFAULT_GROUNDED_MODEL = 'gemini-flash-lite-latest';
 export const DEFAULT_REASONING_MODEL = 'gemini-3.1-pro-preview';
+/** Conversation turns (label 'chat') run on this stronger line; the ordinary fallback ladder answers if it cannot. */
+export const DEFAULT_CHAT_MODEL = DEFAULT_REASONING_MODEL;
 export const DEFAULT_STRUCTURE_MODEL = 'gemini-3.5-flash-lite';
 
 // Vertex AI model IDs verified in us-central1.
@@ -269,6 +279,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
   const groundedModel = config.model ?? DEFAULT_GROUNDED_MODEL;
   const structureModel = config.structureModel ?? DEFAULT_STRUCTURE_MODEL;
   const judgeModel = config.judgeModel || undefined;
+  const chatModel = config.chatModel === undefined ? DEFAULT_CHAT_MODEL : (config.chatModel || undefined);
 
   // Verification-class calls (metric verify, batch verify, red-team) belong to
   // the judge: the model that verifies dashboards must be configurable apart
@@ -280,10 +291,12 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
   const VERIFICATION_SCHEMAS: Set<unknown> = new Set([
     verifyMetricOutSchema, batchVerifyOutSchema, redTeamOutSchema,
   ]);
-  const groundRoute = (prompt: string, topic: string | undefined) =>
+  const groundRoute = (prompt: string, topic: string | undefined, label?: string) =>
     judgeModel && (Boolean(topic?.startsWith('verify:')) || prompt.startsWith('RED-TEAM'))
-      ? { model: judgeModel, kind: 'judge' as const }
-      : { model: groundedModel, kind: 'ground' as const };
+      ? { model: judgeModel, kind: 'judge' as const, chat: false }
+      : chatModel && label === 'chat'
+        ? { model: chatModel, kind: 'ground' as const, chat: true }
+        : { model: groundedModel, kind: 'ground' as const, chat: false };
   const structureRoute = (schema: unknown) =>
     judgeModel && VERIFICATION_SCHEMAS.has(schema)
       ? { model: judgeModel, kind: 'judge' as const }
@@ -318,6 +331,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
       model === groundedModel ? groundedRpm : 0,
       model === structureModel ? structureRpm : 0,
       model === judgeModel ? groundedRpm : 0,
+      model === chatModel ? groundedRpm : 0,
     ].filter((rpm) => rpm > 0);
     const limiter = rpms.length ? createRateLimiter(Math.min(...rpms)) : null;
     limiters.set(model, limiter);
@@ -480,7 +494,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         // The verification-class route (if any) is decided once: the judge
         // line leads the ladder and the kind marks the role for metering even
         // when a reserve line ends up answering.
-        const route = groundRoute(prompt, opts?.researchContext?.topic);
+        const route = groundRoute(prompt, opts?.researchContext?.topic, opts?.label);
         const primary = route.model;
         // While the primary is sick, the healthy line answers first and the
         // primary moves to the back — one re-probe per cooldown window.
@@ -526,7 +540,10 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           } catch (err) {
             lastError = err;
             // A blocked prompt or a dead network is nobody else's to fix.
-            if (signal?.aborted || !isLineFailure(err)) throw err;
+            // The chat line is a preference, not a requirement: a key that cannot use it (unknown model, not allowed)
+            // falls through to the ordinary lines instead of failing the conversation.
+            const chatLineMissing = route.chat && isPrimary && [400, 403, 404].includes((err as RetryableError | null)?.status ?? 0);
+            if (signal?.aborted || !(isLineFailure(err) || chatLineMissing)) throw err;
             if (isPrimary) primarySickUntil = Date.now() + SICK_PRIMARY_COOLDOWN_MS;
           }
         }

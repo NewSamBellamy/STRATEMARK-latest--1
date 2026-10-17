@@ -12,7 +12,7 @@
 import { sourceHref } from '@/lib/sourceHref';
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -37,6 +37,10 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { ExportMenu } from '@/features/export/ExportMenu';
 import { splitFollowUps } from './followUps';
+import { AskOrb } from './AskOrb';
+import { CardThumbStrip } from './CardThumbs';
+import { resolveOrbScope } from './orbScope';
+import logoMark from '@/assets/logo-mark.svg';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
 
 type PanelMode = 'locked' | 'floating';
@@ -85,22 +89,6 @@ function useIsDesktop(): boolean {
     return () => mq.removeEventListener('change', on);
   }, []);
   return desktop;
-}
-
-function useCurrentRoute(): { isStartingPage: boolean } {
-  const [hash, setHash] = useState(() => (typeof window !== 'undefined' ? window.location.hash : ''));
-  useEffect(() => {
-    const onHashChange = () => setHash(window.location.hash);
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
-  }, []);
-
-  // Hash routing: the pathname is always "/", so only the hash says where we
-  // are. Path routing (no hash route) falls back to the pathname.
-  const path = typeof window !== 'undefined' ? window.location.pathname : '';
-  const isStart = hash.startsWith('#/') ? hash === '#/' || hash.startsWith('#/?') : path === '/';
-
-  return { isStartingPage: isStart };
 }
 
 /**
@@ -264,9 +252,9 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
   const canSaveReport = useSupports('saveThreadAsReport');
   const qc = useQueryClient();
   const conversational = typeof repo.askResearch === 'function';
-  const { isStartingPage } = useCurrentRoute();
   const hasKey = useApiKey((st) => st.hasKey);
   const openSettings = useSettingsModal((st) => st.open);
+  const location = useLocation();
 
   const [openState, setOpenState] = useState(false);
   const [scope, setScope] = useState<ResearchScope | null>(null);
@@ -551,17 +539,17 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     >
       {children}
 
-      {/* Reopen pill: once a conversation exists, a closed panel is one tap away on any page but the start page. */}
-      {!openState && scope && (thread || mode === 'floating') && !isStartingPage && (
-        <button
-          type="button"
-          onClick={() => setOpenState(true)}
-          className="fixed bottom-5 right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-fg shadow-lg transition-transform hover:scale-105"
-          aria-label="Open AI chat"
-          title="Open AI chat"
-        >
-          <MessageCircle className="h-5 w-5" />
-        </button>
+      {/* The Ask orb: from any page, one press asks about what you are looking at, or reopens the conversation you left. */}
+      {!openState && conversational && !location.pathname.startsWith('/share/') && (
+        <AskOrb
+          hint={thread ? 'Back to your conversation. Drag to move.' : 'Ask Stratemark about what you are looking at. Drag to move.'}
+          onAsk={() => {
+            if (scope && thread) { setOpenState(true); return; }
+            void resolveOrbScope(`#${location.pathname}${location.search}`, repo)
+              .then((s) => { if (s) chat(s, { placeholder: 'Ask me anything about this…' }); })
+              .catch(() => undefined);
+          }}
+        />
       )}
 
       {/* AI panel — docks (locked) or overlays (floating) at the right edge.
@@ -668,13 +656,10 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
         {/* Conversation */}
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           {(thread?.messages ?? []).length === 0 && !busy && !error && (
-            <div className="flex flex-col items-center justify-center gap-4 py-10 text-center text-muted">
-              <p className="text-[13px]">
-                What would you like to dig into about{' '}
-                <span className="font-medium text-content">{scopeLabel.toLowerCase()}</span>?
-              </p>
+            <div className="flex flex-col gap-4 py-4 text-muted">
+              {scope && <Greeting scope={scope} scopeLabel={scopeLabel} />}
               {conversational && (
-                <div className="flex max-w-sm flex-wrap justify-center gap-2">
+                <div className="flex flex-wrap gap-2 pl-9">
                   {starters.map((q) => (
                     <button
                       key={q}
@@ -687,9 +672,9 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                   ))}
                 </div>
               )}
-              <p className="max-w-xs text-[11px] leading-relaxed text-faint">
-                Or type your own below — every answer is grounded in this deck's research plus a
-                fresh search.
+              <p className="max-w-xs pl-9 text-[11px] leading-relaxed text-faint">
+                Or type your own below. Every answer comes from this deck&apos;s research plus a
+                fresh search, with the sources next to it.
               </p>
             </div>
           )}
@@ -921,36 +906,41 @@ function CompanyChip({ companyId, subject }: { companyId: string; subject: strin
   );
 }
 
-function CardsChips({ deckId, cardIds }: { deckId: string; cardIds: string[] }) {
-  const cards = useCards(deckId).data ?? [];
-  const wanted = new Set(cardIds);
-  const matched = cards.filter((c) => wanted.has(c.card.id));
-  const shown = matched.slice(0, 6);
+/**
+ * The analyst's opening line: who they are looking at, in plain words, with no
+ * figures in it. For cards the user lined up it names them, so the chat starts
+ * as a conversation about those cards and not an empty box.
+ */
+function Greeting({ scope, scopeLabel }: { scope: ResearchScope; scopeLabel: string }) {
+  const cards = useCards(scope.kind === 'cards' && scope.deckId ? scope.deckId : undefined).data ?? [];
+  const company = useCompany(scope.kind === 'company' || scope.kind === 'datapoint' ? scope.companyId ?? undefined : undefined).data;
+  let line: string;
+  if (scope.kind === 'cards') {
+    const wanted = new Set(scope.cardIds ?? []);
+    const names = cards.filter((c) => wanted.has(c.card.id)).map((c) => c.company?.name ?? c.card.title ?? '').filter(Boolean);
+    line = names.length >= 2
+      ? `You've lined up ${names.length <= 3 ? names.join(', ').replace(/, ([^,]*)$/, ' and $1') : `${names.length} cards`}. I'll put them side by side and be straight about where the research has gaps. Where do you want to start?`
+      : `I have ${names[0] ?? 'this card'}'s research in front of me. Ask me anything: what stands out, where they're exposed, what I'd check next.`;
+  } else if (scope.kind === 'company' || scope.kind === 'datapoint') {
+    const name = company?.name ?? scope.subject ?? 'this company';
+    line = `I have ${name}'s research in front of me. Ask me what changed, how they make money, or where they're exposed, and I'll tell you what the sources say.`;
+  } else {
+    line = `I've been through everything in ${scopeLabel === 'This deck' ? 'this deck' : scopeLabel}. Ask me who's winning, who looks overhyped, or where the gaps are.`;
+  }
   return (
-    <ChipRow>
-      {shown.map((c) => (
-        <RefChip
-          key={c.card.id}
-          label={c.company?.name ?? c.card.title ?? 'Card'}
-          logo={
-            c.company ? (
-              <Logo name={c.company.name} website={c.company.websiteUrl} logoUrl={c.company.logoUrl} className="h-full w-full" />
-            ) : undefined
-          }
-        />
-      ))}
-      {matched.length > shown.length && (
-        <span className="text-[11px] text-faint">+{matched.length - shown.length} more</span>
-      )}
-      {matched.length === 0 && <span className="text-[11px] text-faint">{cardIds.length} cards</span>}
-    </ChipRow>
+    <div className="flex items-start gap-2.5">
+      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full border border-border bg-surface">
+        <img src={logoMark} alt="" className="h-4 w-4" />
+      </span>
+      <p className="max-w-[88%] rounded-2xl rounded-tl-md bg-surface-2 px-3 py-2 text-[13px] leading-relaxed text-content">{line}</p>
+    </div>
   );
 }
 
 /** Renders the reference chips appropriate to the current chat scope. */
 function ContextChips({ scope }: { scope: ResearchScope }) {
   if (scope.kind === 'cards' && scope.deckId) {
-    return <CardsChips deckId={scope.deckId} cardIds={scope.cardIds ?? []} />;
+    return <CardThumbStrip deckId={scope.deckId} cardIds={scope.cardIds ?? []} />;
   }
   if ((scope.kind === 'company' || scope.kind === 'datapoint') && scope.companyId) {
     return (
