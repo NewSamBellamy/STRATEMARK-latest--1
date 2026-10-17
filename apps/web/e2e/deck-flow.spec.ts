@@ -32,7 +32,7 @@ test('full journey: markets → deck → 2-level split → card reader → dashb
   // Dashboard tabs.
   await expect(page.getByRole('heading', { name: 'Key figures' })).toBeVisible();
   await page.getByRole('link', { name: 'Metrics' }).click();
-  await expect(page.getByText('ARR')).toBeVisible();
+  await expect(page.getByText('ARR').first()).toBeVisible();
   await page.getByRole('link', { name: 'Team & Org Chart' }).click();
   await expect(page.locator('.react-flow')).toBeVisible();
 });

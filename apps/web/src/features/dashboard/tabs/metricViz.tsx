@@ -35,11 +35,11 @@ import { cn } from '@/lib/cn';
 import { chartTheme, tint, type ChartTheme } from '@/lib/theme';
 import { useTheme } from '@/lib/settings/theme';
 
-function useChartTheme(): ChartTheme {
+export function useChartTheme(): ChartTheme {
   return chartTheme(useTheme((s) => s.resolved) === 'dark');
 }
 
-function tooltipStyle(c: ChartTheme) {
+export function tooltipStyle(c: ChartTheme) {
   return {
     background: c.tooltipBg,
     border: `1px solid ${c.tooltipBorder}`,

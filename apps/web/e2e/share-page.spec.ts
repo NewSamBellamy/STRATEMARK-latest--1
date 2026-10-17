@@ -120,7 +120,7 @@ test('a shared card opens read-only on a phone and walks into its dashboard with
     await viewer.getByRole('link', { name: /View the full research/ }).click();
     await expect(viewer.getByRole('heading', { name: 'Key figures' })).toBeVisible();
     await viewer.getByRole('link', { name: 'Metrics' }).click();
-    await expect(viewer.getByText('ARR')).toBeVisible();
+    await expect(viewer.getByText('ARR').first()).toBeVisible();
     // The Products tab is where a saved key used to start picture generation.
     const productsHref = await viewer.getByRole('navigation', { name: 'Company dashboard tabs' }).getByRole('link', { name: /Products/ }).getAttribute('href');
     await viewer.evaluate((href) => { window.location.hash = href!.replace(/^#/, ''); }, productsHref);

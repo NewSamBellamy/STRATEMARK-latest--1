@@ -28,6 +28,7 @@ import { buildMetricViews } from '@/features/card/card-view';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { FactCheck } from '@/features/factcheck/FactCheck';
 import { ChartPanel, CompositionDonut, Delta, ShareDonut, TrendArea, TrendBar, TrendLine } from './metricViz';
+import { MetricExplorer } from './MetricExplorer';
 import {
   FAMILY_LABELS,
   FILL_HINT,
@@ -711,6 +712,14 @@ export function MetricsTab({ companyId }: { companyId: string }) {
                 />
               </span>
             </div>
+
+            <MetricExplorer
+              rows={sorted}
+              missing={missing.map((r) => r.metric)}
+              selected={selectedRow?.metric.metricType ?? null}
+              onSelect={setPicked}
+              series={series ? { revenue: series.revenue, revenueQuarterly: quarterly, users: series.users } : null}
+            />
 
             <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
               <div className="min-w-0 space-y-3">
