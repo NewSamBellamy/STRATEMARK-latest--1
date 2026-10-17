@@ -14,9 +14,16 @@ const singleFile = process.env.SINGLEFILE === '1';
 const isElectron = process.env.ELECTRON === '1';
 const base = isElectron || singleFile ? './' : '/';
 
-export default defineConfig({
-  plugins: [react(), localSourcePlugin(), localGeminiPlugin(), ...(singleFile ? [viteSingleFile()] : [])],
-  base,
+// `vite build --mode share` builds the share viewer (share.html) as one self-contained
+// page next to the app in dist/. A share is that page with the shared research embedded.
+export default defineConfig(({ mode }) => {
+const shareBuild = mode === 'share';
+return {
+  plugins: [react(), localSourcePlugin(), localGeminiPlugin(), ...(singleFile || shareBuild ? [viteSingleFile()] : [])],
+  base: shareBuild ? './' : base,
+  ...(shareBuild
+    ? { build: { outDir: 'dist', emptyOutDir: false, rollupOptions: { input: fileURLToPath(new URL('./share.html', import.meta.url)) } } }
+    : {}),
   // Visible build stamp: browsers cache the published single-file HTML hard,
   // and a stale build looks exactly like "you broke my features". The stamp in
   // the sidebar makes "which build am I on?" answerable in one glance.
@@ -54,4 +61,5 @@ export default defineConfig({
       ],
     },
   },
+};
 });

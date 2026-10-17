@@ -426,6 +426,11 @@ function registerIpc(): void {
       z.string().nullable().optional().parse(focus),
     ),
   );
+  ipcMain.handle(IPC_CHANNELS.exportShareSnapshot, (_e, input: unknown) =>
+    repository.exportShareSnapshot?.(
+      z.object({ deckId: z.string().min(1), cardId: z.string().nullable().optional() }).parse(input),
+    ),
+  );
   ipcMain.handle(IPC_CHANNELS.listResearchJobs, () => repository.listResearchJobs?.() ?? []);
   ipcMain.handle(IPC_CHANNELS.addResearchNote, (_e, input: unknown) =>
     repository.addResearchNote?.(z.object({

@@ -30,6 +30,8 @@ import {
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { encodeSharePayload, shareUrlFor, type SharePayload } from '@/lib/share/codec';
+import { useSupports } from '@/lib/repository/RepositoryProvider';
+import { SharePageSection } from './SharePageSection';
 
 /** Clipboard with the sandbox-proof fallback chain. */
 async function copyText(text: string, input: HTMLInputElement | null): Promise<boolean> {
@@ -139,6 +141,7 @@ export function ShareDialog({
   title,
   subtitle,
   build,
+  page,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -153,7 +156,10 @@ export function ShareDialog({
    * with contradiction flags on its face.
    */
   build: (onStage: (stage: string) => void) => Promise<SharePayload>;
+  /** Also offer "Share as a page" (the full card or deck as one hostable page) for this deck, or this card in it. */
+  page?: { deckId: string; cardId?: string | null };
 }) {
+  const canPage = useSupports('exportShareSnapshot') && !!page;
   const qc = useQueryClient();
   const [stage, setStage] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
@@ -396,6 +402,8 @@ export function ShareDialog({
             </p>
           </>
         )}
+
+        {canPage && page && <SharePageSection deckId={page.deckId} cardId={page.cardId ?? null} />}
       </div>
     </Modal>
   );

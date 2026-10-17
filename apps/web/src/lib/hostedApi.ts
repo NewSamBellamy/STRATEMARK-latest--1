@@ -15,7 +15,10 @@ import { create } from 'zustand';
 /** Set when the hosted Worker says today's free budget is spent (HTTP 402). */
 export const useHostedBudget = create<{ exhausted: null | 'global' | 'visitor' }>(() => ({ exhausted: null }));
 
-export const HOSTED_API_URL: string = String(import.meta.env.VITE_STRATEMARK_API_URL ?? '').trim().replace(/\/+$/, '');
+// A share page never talks to the hosted Worker, whatever the build was configured with.
+export const HOSTED_API_URL: string = import.meta.env.MODE === 'share'
+  ? ''
+  : String(import.meta.env.VITE_STRATEMARK_API_URL ?? '').trim().replace(/\/+$/, '');
 
 /** Stand-in "key" that marks the hosted engine. Never sent anywhere: the fetch shim strips it. */
 export const HOSTED_KEY = 'stratemark-hosted';

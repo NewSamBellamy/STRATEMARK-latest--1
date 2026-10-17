@@ -24,6 +24,7 @@ import type {
   VerifyMetricResult,
   OverrideMetricInput,
   Report,
+  ShareSnapshot,
   ReportRequest,
   SavedCard,
   CompanyFollow,
@@ -195,6 +196,10 @@ export class IpcRepository implements MarketIntelRepository {
   }
   getResearchThread(id: string): Promise<ResearchThread | null> {
     return this.api.getResearchThread!.call(this.api, id);
+  }
+  exportShareSnapshot(input: { deckId: string; cardId?: string | null }): Promise<ShareSnapshot> {
+    if (!this.api.exportShareSnapshot) return Promise.reject(new Error('Update the desktop app to share a card or deck as a page.'));
+    return this.api.exportShareSnapshot.call(this.api, input);
   }
   saveThreadAsReport(threadId: string, focus?: string | null): Promise<Report> {
     return this.api.saveThreadAsReport!.call(this.api, threadId, focus);

@@ -501,6 +501,29 @@ export interface Report {
   createdAt: string;
 }
 
+/**
+ * A read-only copy of researched work, for a share link: what a recipient needs
+ * to browse a card or a deck (cards, companies, figures with their sources, and
+ * every stored dashboard tab) and nothing private (no chats, notes, saved
+ * flags, reports, keys or evidence vault). Shaped like the demo seed so the
+ * same viewer code renders it. Built from what is stored; it never runs research.
+ */
+export interface ShareSnapshot {
+  v: 1;
+  kind: 'card' | 'deck';
+  /** The card a card share opens on; null for a whole deck. */
+  focusCardId: string | null;
+  sharedAt: string;
+  markets: Market[];
+  decks: Deck[];
+  companies: Company[];
+  metrics: CompanyMetric[];
+  cards: Card[];
+  viceClaims: ViceClaim[];
+  /** Stored dashboard tabs per company, exactly as the dashboard shows them. */
+  dashboards: Record<string, Partial<Record<DashboardTab, { content: unknown; lastRefreshedAt: string }>>>;
+}
+
 /** Targeted micro-research to fill a gap in an existing deck (intelligent empty states). */
 export interface ExpandFocus {
   tier?: MaturityTier;
@@ -894,6 +917,12 @@ export interface MarketIntelRepository {
 
   // Reports — AI-composed research artifacts, kept in an organized library.
   generateReport(request: ReportRequest, handlers?: ResearchHandlers): Promise<Report>;
+  /**
+   * Package a card or a whole deck as a read-only snapshot for a share link.
+   * Reads stored research only: a tab that was never researched is simply
+   * absent. OPTIONAL — engines holding research locally.
+   */
+  exportShareSnapshot?(input: { deckId: string; cardId?: string | null }): Promise<ShareSnapshot>;
   listReports(): Promise<Report[]>;
   getReport(id: string): Promise<Report | null>;
 

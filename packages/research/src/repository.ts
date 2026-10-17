@@ -62,6 +62,7 @@ import {
   type VerifyCompanyMetricsResult,
   type BatchMetricVerification,
   type Report,
+  type ShareSnapshot,
   type ReportRequest,
   type SavedCard,
   type SiteAuditContent,
@@ -597,6 +598,9 @@ function limiter(limit: number) {
     try { return await task(); } finally { active -= 1; queue.shift()?.(); }
   };
 }
+
+/** The dashboard tabs a share link carries (Research & Sources reads the private evidence vault, so it stays home). */
+const SHARE_TABS: DashboardTab[] = ['overview', 'live_intel', 'team_org', 'live_landing', 'metrics', 'mission_governance', 'history', 'products_roadmap'];
 
 export class GeminiRepository implements MarketIntelRepository {
   private snap: RepoSnapshot;
@@ -5618,6 +5622,55 @@ export class GeminiRepository implements MarketIntelRepository {
     this.snap.reports = [report, ...this.snap.reports];
     await this.persist();
     return report;
+  }
+
+  /**
+   * A card or a whole deck as a read-only snapshot for a share link. It reads
+   * what is stored, the way the screens show it (source-bound figures, each
+   * tab as the dashboard would render it from the cache) and never starts
+   * research: a tab that was never researched is simply absent. Nothing
+   * private travels (no chats, notes, saved flags, reports or evidence vault).
+   */
+  async exportShareSnapshot(input: { deckId: string; cardId?: string | null }): Promise<ShareSnapshot> {
+    const deck = this.snap.decks.find((d) => d.id === input.deckId);
+    const market = deck ? this.snap.markets.find((m) => m.id === deck.marketId) : undefined;
+    if (!deck || !market) throw new Error('Deck not found to share.');
+    const cards = this.snap.cards.filter((c) => c.deckId === deck.id && (!input.cardId || c.id === input.cardId));
+    if (input.cardId && cards.length === 0) throw new Error('Card not found to share.');
+    // Signal cards (culture, vice, insight) never inherit a company's figures or research: only entity cards bring their company.
+    const companyIds = [...new Set(cards.filter((c) => isEntityCardType(c.cardType)).map((c) => c.companyId).filter((id): id is string => Boolean(id)))];
+    const companies: Company[] = [];
+    const metrics: CompanyMetric[] = [];
+    const dashboards: ShareSnapshot['dashboards'] = {};
+    for (const id of companyIds) {
+      const company = await this.getCompany(id);
+      if (!company) continue;
+      companies.push(company);
+      metrics.push(...await this.getCompanyFacts(id));
+      const tabs: ShareSnapshot['dashboards'][string] = {};
+      for (const tab of SHARE_TABS) {
+        // Metrics are a free projection of the stored figures (never cached); every other tab must already be stored.
+        if (tab !== 'metrics' && !this.snap.dashboards[id]?.[tab]) continue;
+        // The cache projection only (warm-up mode never researches); a tab that cannot be projected is left out.
+        const shown = await this.researchDashboardTab(id, tab, undefined, true).catch(() => null);
+        if (shown) tabs[tab] = { content: shown.content, lastRefreshedAt: shown.lastRefreshedAt ?? '' };
+      }
+      if (Object.keys(tabs).length > 0) dashboards[id] = tabs;
+    }
+    const cardIds = new Set(cards.map((c) => c.id));
+    return {
+      v: 1,
+      kind: input.cardId ? 'card' : 'deck',
+      focusCardId: input.cardId ?? null,
+      sharedAt: new Date().toISOString(),
+      markets: [market],
+      decks: [deck],
+      companies,
+      metrics,
+      cards: structuredClone(cards),
+      viceClaims: structuredClone(this.snap.viceClaims.filter((v) => cardIds.has(v.cardId))),
+      dashboards,
+    };
   }
 
   async generateReport(request: ReportRequest, opts?: { signal?: AbortSignal }): Promise<Report> {

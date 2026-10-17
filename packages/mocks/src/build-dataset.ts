@@ -24,6 +24,8 @@ import { id, ts } from './ids';
 export interface DashboardRecord {
   content: DashboardContentMap;
   lastRefreshedAt: string;
+  /** Per-tab research time when known (a seeded snapshot); falls back to `lastRefreshedAt`. */
+  tabRefreshedAt?: Partial<Record<string, string>>;
 }
 
 export interface Dataset {

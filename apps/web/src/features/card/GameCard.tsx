@@ -1,3 +1,4 @@
+import { useReadOnly } from '@/lib/readOnly';
 import { useCallback, useMemo, useState } from 'react';
 import { Bookmark, Share2, ArrowUpRight, RefreshCw, LoaderCircle, Droplets } from 'lucide-react';
 import type { CardWithCompany } from '@mi/contracts';
@@ -96,6 +97,12 @@ export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, class
 }
 
 export function SaveCardButton({ cardId }: { cardId: string }) {
+  const readOnly = useReadOnly();
+  if (readOnly) return null;
+  return <SaveCardButtonInner cardId={cardId} />;
+}
+
+function SaveCardButtonInner({ cardId }: { cardId: string }) {
   const saved = useSavedCards();
   const save = useSaveCard();
   const unsave = useUnsaveCard();

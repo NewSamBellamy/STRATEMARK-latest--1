@@ -37,6 +37,7 @@ import {
   type ResearchHandlers,
   type AskResearchInput,
   type ResearchThread,
+  type ShareSnapshot,
   type Unsubscribe,
   type ViceClaim,
   usableCitations,
@@ -56,6 +57,8 @@ export interface MockRepositoryOptions {
    * RepoSnapshot; typed loosely here to avoid a package cycle.
    */
   seedSnapshot?: SeedSnapshot | null;
+  /** Start from empty and hold ONLY the seed snapshot (a share link's viewer): no demo companies. */
+  seedOnly?: boolean;
 }
 
 /** Structural subset of @mi/research's RepoSnapshot (see repository.ts there). */
@@ -151,6 +154,8 @@ export class MockRepository implements MarketIntelRepository {
   }
 
   private readonly latency: number;
+  /** A share's figures were already source-bound by the engine that exported them: do not re-judge them without that context. */
+  private readonly trustSeedMetrics: boolean;
   private markets: Market[];
   private decks: Deck[];
   private companies: Company[];
@@ -163,6 +168,7 @@ export class MockRepository implements MarketIntelRepository {
 
   constructor(options: MockRepositoryOptions = {}) {
     this.latency = options.latencyMs ?? 0;
+    this.trustSeedMetrics = options.seedOnly === true;
     const data = options.dataset ?? buildDataset();
     this.markets = [data.market];
     this.decks = [data.deck];
@@ -171,6 +177,15 @@ export class MockRepository implements MarketIntelRepository {
     this.cards = [...data.cards];
     this.viceClaims = [...data.viceClaims];
     this.dashboards = { ...data.dashboards };
+    if (options.seedOnly) {
+      this.markets = [];
+      this.decks = [];
+      this.companies = [];
+      this.metrics = [];
+      this.cards = [];
+      this.viceClaims = [];
+      this.dashboards = {};
+    }
     if (options.seedSnapshot) this.ingestSeed(options.seedSnapshot);
   }
 
@@ -186,9 +201,9 @@ export class MockRepository implements MarketIntelRepository {
       // Run the same rules over it so the shipped sample deck is honest.
       this.metrics = [
         ...this.metrics,
-        ...enforceMetricsProvenance(
-          (seed.metrics ?? []).map((m) => ({ ...m, citations: m.citations ?? [] })),
-        ),
+        ...(this.trustSeedMetrics
+          ? (seed.metrics ?? []).map((m) => ({ ...m, citations: m.citations ?? [] }))
+          : enforceMetricsProvenance((seed.metrics ?? []).map((m) => ({ ...m, citations: m.citations ?? [] })))),
       ];
       this.cards = [...this.cards, ...(seed.cards ?? [])];
       this.viceClaims = [...this.viceClaims, ...(seed.viceClaims ?? [])];
@@ -204,7 +219,11 @@ export class MockRepository implements MarketIntelRepository {
           .map(([, v]) => v.lastRefreshedAt)
           .sort()
           .at(-1)!;
-        this.dashboards[companyId] = { content, lastRefreshedAt };
+        this.dashboards[companyId] = {
+          content,
+          lastRefreshedAt,
+          tabRefreshedAt: Object.fromEntries(entries.map(([t, v]) => [t, v.lastRefreshedAt])),
+        };
       }
       this.reports = [...(seed.reports ?? []), ...this.reports];
       this.seededOpportunity = seed.opportunity ?? {};
@@ -460,12 +479,46 @@ export class MockRepository implements MarketIntelRepository {
       companyId,
       tab,
       content: record.content[tab],
-      lastRefreshedAt: record.lastRefreshedAt,
+      lastRefreshedAt: record.tabRefreshedAt?.[tab] ?? record.lastRefreshedAt,
     };
     return this.delay(result);
   }
 
   private reports: Report[] = [];
+
+  /** A card or a whole deck as a read-only snapshot for a share link (stored data only). */
+  async exportShareSnapshot(input: { deckId: string; cardId?: string | null }): Promise<ShareSnapshot> {
+    const deck = this.decks.find((d) => d.id === input.deckId);
+    const market = deck ? this.markets.find((m) => m.id === deck.marketId) : undefined;
+    if (!deck || !market) throw new Error('Deck not found to share.');
+    const cards = this.cards.filter((c) => c.deckId === deck.id && (!input.cardId || c.id === input.cardId));
+    if (input.cardId && cards.length === 0) throw new Error('Card not found to share.');
+    // Signal cards (culture, vice, insight) never inherit a company's figures or research.
+    const companyIds = new Set(cards.filter((c) => isEntityCardType(c.cardType)).map((c) => c.companyId).filter((id): id is string => Boolean(id)));
+    const dashboards: ShareSnapshot['dashboards'] = {};
+    for (const id of companyIds) {
+      const record = this.dashboards[id];
+      if (!record) continue;
+      dashboards[id] = Object.fromEntries(
+        (Object.entries(record.content) as Array<[DashboardTab, unknown]>)
+          .filter(([, content]) => content != null)
+          .map(([tab, content]) => [tab, { content, lastRefreshedAt: record.lastRefreshedAt }]),
+      );
+    }
+    return {
+      v: 1,
+      kind: input.cardId ? 'card' : 'deck',
+      focusCardId: input.cardId ?? null,
+      sharedAt: new Date().toISOString(),
+      markets: [market],
+      decks: [deck],
+      companies: this.companies.filter((c) => companyIds.has(c.id)),
+      metrics: this.metrics.filter((m) => companyIds.has(m.companyId)),
+      cards,
+      viceClaims: this.viceClaims.filter((v) => cards.some((c) => c.id === v.cardId)),
+      dashboards,
+    };
+  }
 
   factCheck(input: FactCheckInput): Promise<FactCheckResult> {
     return this.delay({

@@ -17,6 +17,7 @@ import { SaveCardButton } from './GameCard';
 import { ViceDisclaimer } from './CardDisclaimer';
 import { buildCardView, faceFigureStatus, sourceUrl } from './card-view';
 import { printScoped } from '@/lib/print';
+import { useReadOnly } from '@/lib/readOnly';
 import { sourceHref } from '@/lib/sourceHref';
 
 type Props = {
@@ -84,6 +85,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
   const marketName = useMarket(marketId).data?.name ?? null;
   const repo = useRepository();
   const { chat } = useDeepDive();
+  const readOnly = useReadOnly();
   const [shareOpen, setShareOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const runCompanyReport = useCompanyReportRun();
@@ -259,16 +261,16 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
               <button type="button" className="btn-ghost" onClick={printScoped}>
                 <Printer size={14} aria-hidden="true" /> Save as PDF
               </button>
-              <button type="button" className="btn-ghost" onClick={() => setShareOpen(true)}>
+              {!readOnly && <button type="button" className="btn-ghost" onClick={() => setShareOpen(true)}>
                 <Share2 size={14} aria-hidden="true" /> Share report
-              </button>
-              <button type="button" className="btn-ghost" onClick={() => {
+              </button>}
+              {!readOnly && <button type="button" className="btn-ghost" onClick={() => {
                 onOpenChange(false);
                 chat({ kind: 'cards', deckId: card.deckId, cardIds: [card.id], subject: card.title },
                   { seed: `Dig into "${card.title ?? view.title}" — what does the evidence support?` });
               }}>
                 Ask AI about this finding <ArrowUpRight size={14} aria-hidden="true" />
-              </button>
+              </button>}
             </div>
           </section>}
 
@@ -276,20 +278,20 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
               navigates the deck query and competes with this destination. */}
           {dashboardUrl ? <Link to={dashboardUrl} className="card-inspector__cta">
             <span>Open full company dashboard</span><ArrowUpRight size={17} />
-          </Link> : !fullFinding && <button type="button" className="card-inspector__cta" onClick={() => {
+          </Link> : !fullFinding && !readOnly && <button type="button" className="card-inspector__cta" onClick={() => {
             onOpenChange(false);
             chat({ kind: 'cards', deckId: card.deckId, cardIds: [card.id], subject: card.title },
               { seed: `Dig into "${card.title}" — what's the full picture?` });
           }}>Ask about this finding <ArrowUpRight size={17} /></button>}
           <div className="card-inspector__actions">
-            <div className="flex items-center gap-1"><SaveCardButton cardId={card.id} />
+            {readOnly ? <span /> : <div className="flex items-center gap-1"><SaveCardButton cardId={card.id} />
               <button type="button" className="card-control" aria-label="Share card" onClick={() => setShareOpen(true)}><Share2 size={15} /></button>
               {canReport && company && dashboardUrl && (
                 <button type="button" className="card-control" aria-label="Create report" title={`Create a report on ${company.name}`}
                   onClick={() => setReportOpen(true)}><FilePlus2 size={15} /></button>
               )}
-              <span className="ml-2 text-[11px] text-muted">{canReport && company && dashboardUrl ? 'Keep, share or write up this company' : 'Keep or share this card'}</span></div>
-            {canRemove && (confirmRemove ? (
+              <span className="ml-2 text-[11px] text-muted">{canReport && company && dashboardUrl ? 'Keep, share or write up this company' : 'Keep or share this card'}</span></div>}
+            {canRemove && !readOnly && (confirmRemove ? (
               <span className="flex items-center gap-2 text-[11px]">
                 <span className="text-muted">Remove {view.title} from this deck?</span>
                 <button type="button" className="font-semibold text-negative hover:underline" disabled={removeCard.isPending}
@@ -317,6 +319,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
           onStart={({ topics, focus }) => { void runCompanyReport({ companyId: company.id, companyName: company.name, topics, focus }); }} />
       )}
       <ShareDialog open={shareOpen} onOpenChange={setShareOpen} title={view.title}
+        page={fullFinding ? undefined : { deckId: card.deckId, cardId: card.id }}
         subtitle={fullFinding ? 'Sourced research finding' : marketName ? `${marketName} — market research snapshot` : 'Market research snapshot'}
         build={async (onStage) => {
           if (fullFinding) return buildReportShare({

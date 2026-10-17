@@ -20,6 +20,7 @@ import { formatRelative } from '@/lib/format';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { Logo } from '@/features/card/Logo';
 import { ExportMenu } from '@/features/export/ExportMenu';
+import { useAvailableTabs, useReadOnly } from '@/lib/readOnly';
 import { DigDeeper, useDeepDive } from '@/features/deepdive/DeepDive';
 import { TabFreshness } from './TabFreshness';
 import { foundedYear, reportsToSec, secFilingsUrl } from './snapshot';
@@ -243,8 +244,11 @@ function DashboardTabNav({
     return () => document.removeEventListener('mousedown', close);
   }, [moreOpen]);
 
-  const visibleTabs = NAV_TABS.slice(0, VISIBLE_TAB_COUNT);
-  const overflowTabs = NAV_TABS.slice(VISIBLE_TAB_COUNT);
+  // A shared copy offers only the tabs that travelled with it.
+  const available = useAvailableTabs(companyId);
+  const navTabs = available ? NAV_TABS.filter((t) => available.includes(t)) : NAV_TABS;
+  const visibleTabs = navTabs.slice(0, VISIBLE_TAB_COUNT);
+  const overflowTabs = navTabs.slice(VISIBLE_TAB_COUNT);
   const activeInOverflow = overflowTabs.includes(activeTab);
 
   const qs = fromMarketId ? `?${new URLSearchParams({ deck: fromMarketId, ...(fromCardId ? { card: fromCardId } : {}), ...(fromDeckView ? { view: fromDeckView } : {}) })}` : '';
@@ -353,6 +357,8 @@ export default function DashboardPage() {
       ? 'Some figures come from data providers and haven’t been checked against an original source yet.'
       : company.data?.oneLiner;
   const hasKey = useApiKey((s) => s.hasKey);
+  const readOnly = useReadOnly();
+  const availableTabs = useAvailableTabs(companyId ?? '');
   const activeTab = tab as DashboardTab;
   const rerunTab = useRerunDashboardTab(companyId, activeTab);
   useFocusCompany(companyId);
@@ -393,14 +399,16 @@ export default function DashboardPage() {
           <ArrowLeft className="h-4 w-4" />
           {fromMarketId ? fromCardId ? 'Back to card' : 'Back to deck' : 'Back'}
         </button>
-        <span className="text-faint">·</span>
-        <Link
-          to="/history"
-          className="text-sm text-muted transition-colors hover:text-content"
-          title="All your decks"
-        >
-          All decks
-        </Link>
+        {!readOnly && <span className="text-faint">·</span>}
+        {!readOnly && (
+          <Link
+            to="/history"
+            className="text-sm text-muted transition-colors hover:text-content"
+            title="All your decks"
+          >
+            All decks
+          </Link>
+        )}
       </div>
 
       <QueryBoundary query={company}>
@@ -435,20 +443,22 @@ export default function DashboardPage() {
                   filingsUrl={reportsToSec(metrics.data ?? []) ? secFilingsUrl(c.name) : null}
                 />
               </div>
-              <ExportMenu
-                className="shrink-0"
-                report={{ kind: 'company', subjectId: c.id, name: c.name }}
-                company={{
-                  id: c.id,
-                  name: c.name,
-                  oneLiner: c.oneLiner === UNSUPPORTED_COMPANY_SUMMARY ? null : c.oneLiner ?? null,
-                  hq: c.hqLocation ?? null,
-                  website: c.websiteUrl ?? null,
-                  logoUrl: c.logoUrl ?? null,
-                  tier: null,
-                  metrics: metrics.data ?? [],
-                }}
-              />
+              {!readOnly && (
+                <ExportMenu
+                  className="shrink-0"
+                  report={{ kind: 'company', subjectId: c.id, name: c.name }}
+                  company={{
+                    id: c.id,
+                    name: c.name,
+                    oneLiner: c.oneLiner === UNSUPPORTED_COMPANY_SUMMARY ? null : c.oneLiner ?? null,
+                    hq: c.hqLocation ?? null,
+                    website: c.websiteUrl ?? null,
+                    logoUrl: c.logoUrl ?? null,
+                    tier: null,
+                    metrics: metrics.data ?? [],
+                  }}
+                />
+              )}
               <ThreadHistoryButton companyId={c.id} className="shrink-0" compact />
               <DigDeeper
                 topic="Recent developments & what to watch"
@@ -460,10 +470,12 @@ export default function DashboardPage() {
             </header>
 
             {/* Context-aware research row: ask anything + this company's intel file. */}
-            <div className="mb-4 flex flex-wrap items-center gap-3">
-              <ResearchComposer companyId={companyId} companyName={c.name} />
-              <IntelFile companyId={companyId} />
-            </div>
+            {!readOnly && (
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <ResearchComposer companyId={companyId} companyName={c.name} />
+                <IntelFile companyId={companyId} />
+              </div>
+            )}
 
             {/* 6 visible tabs + overflow dropdown for the rest */}
             <DashboardTabNav
@@ -473,9 +485,9 @@ export default function DashboardPage() {
               fromCardId={fromCardId}
               fromDeckView={fromDeckView}
             />
-            <BackgroundResearchControl />
-            <GroundingQuotaNotice />
-            {prefetchFailed.length > 0 && (
+            {!readOnly && <BackgroundResearchControl />}
+            {!readOnly && <GroundingQuotaNotice />}
+            {!readOnly && prefetchFailed.length > 0 && (
               <div className="mb-3 rounded-lg border border-negative/30 bg-negative/5 px-3 py-2 text-[12px] text-negative">
                 Some dashboard research did not finish in the background:{' '}
                 {prefetchFailed
@@ -485,17 +497,23 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* Right-click any tab's content → rerun just that research. */}
-            <ContextRerun
-              label={`the ${DASHBOARD_TAB_LABELS[activeTab]} tab`}
-              onRerun={() => rerunTab.mutate()}
-              running={rerunTab.isPending}
-              disabled={!hasKey}
-            >
-              <TabFreshness companyId={companyId} tab={activeTab} onRefresh={() => rerunTab.mutate()}
-                refreshing={rerunTab.isPending} disabled={!hasKey} />
-              <TabView tab={activeTab} companyId={companyId} />
-            </ContextRerun>
+            {/* Right-click any tab's content → rerun just that research (not in a shared copy). */}
+            {readOnly && availableTabs && !availableTabs.includes(activeTab) ? (
+              <p className="panel px-5 py-8 text-center text-[13px] text-muted">
+                This section was not researched when this was shared.
+              </p>
+            ) : readOnly ? <TabView tab={activeTab} companyId={companyId} /> : (
+              <ContextRerun
+                label={`the ${DASHBOARD_TAB_LABELS[activeTab]} tab`}
+                onRerun={() => rerunTab.mutate()}
+                running={rerunTab.isPending}
+                disabled={!hasKey}
+              >
+                <TabFreshness companyId={companyId} tab={activeTab} onRefresh={() => rerunTab.mutate()}
+                  refreshing={rerunTab.isPending} disabled={!hasKey} />
+                <TabView tab={activeTab} companyId={companyId} />
+              </ContextRerun>
+            )}
           </>
         )}
       </QueryBoundary>

@@ -8,6 +8,7 @@ import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { buildCardShare } from '@/lib/share/codec';
 import { verifyCardForShare } from '@/lib/share/preflight';
 import { ShareDialog } from '@/features/share/ShareDialog';
+import { useReadOnly } from '@/lib/readOnly';
 import { GameCard } from '@/features/card/GameCard';
 import { CardReader } from '@/features/card/CardReader';
 
@@ -102,6 +103,7 @@ export function CardGrid({
         onOpenChange={(o) => {
           if (!o) setShareTarget(null);
         }}
+        page={shareTarget ? { deckId: shareTarget.card.deckId, cardId: shareTarget.card.id } : undefined}
         title={shareTarget?.company?.name ?? shareTarget?.card.title ?? 'Card'}
         subtitle={marketName ? `${marketName} — market research snapshot` : 'Market research snapshot'}
         build={async (onStage) => {
@@ -148,6 +150,7 @@ const CardGridItem = memo(function CardGridItem({
 }) {
   const cardId = data.card.id;
   const onOpen = useCallback(() => onOpenCard(cardId), [onOpenCard, cardId]);
+  const readOnly = useReadOnly();
   const onShare = useCallback(() => onShareCard(data), [onShareCard, data]);
   return (
     <div className={cn('relative', selectable && 'cursor-pointer')} data-card-id={cardId}>
@@ -156,7 +159,7 @@ const CardGridItem = memo(function CardGridItem({
         deckUserValues={deckUserValues}
         deckStatus={deckStatus}
         onOpen={onOpen}
-        onShare={onShare}
+        onShare={readOnly ? undefined : onShare}
         className={cn(
           selectable && 'transition-opacity',
           selectable && !isSelected && 'opacity-80 hover:opacity-100',
