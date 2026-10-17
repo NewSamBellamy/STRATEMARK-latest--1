@@ -110,4 +110,13 @@
   .sm-sentiment { color: #68716f; letter-spacing: 0.1em; }
   .sm-update-title { font-size: 14pt; line-height: 1.25; }
   .sm-note-line { margin: 2mm 0 0; font-size: 8pt; color: #3d4543; word-break: break-all; }
+
+  /* Person report */
+  .sm-portrait { margin: 0 0 6mm; width: 52mm; }
+  .sm-portrait img { display: block; width: 52mm; height: 52mm; object-fit: cover; border-radius: 3mm; border: 1px solid #dce8e5; }
+  .sm-portrait figcaption { margin-top: 1mm; font-size: 7pt; color: #68716f; }
+  .sm-table th { width: 32mm; text-align: left; font-size: 8pt; letter-spacing: 0.1em; text-transform: uppercase; color: #68716f; border-bottom: 1px solid #dce8e5; vertical-align: top; }
+  .sm-quote { margin: 5mm 0 0; padding: 0 0 0 4mm; border-left: 2px solid #0f766e; font-size: 10pt; color: #3d4543; break-inside: avoid; }
+  .sm-quote p { margin: 0 0 1.5mm; }
+  .sm-quote cite { display: block; font-style: normal; font-size: 7.5pt; color: #68716f; word-break: break-all; }
 }
