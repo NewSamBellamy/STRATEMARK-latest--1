@@ -19,7 +19,6 @@ import {
   Loader2,
   Newspaper,
   RefreshCw,
-  Share2,
 } from 'lucide-react';
 import { deckBakedState, type DeckBriefing } from '@mi/contracts';
 import { useCards, useDeckBriefings, useDeckByMarket, useGenerateBriefing, useMarket } from '@/hooks/data';
@@ -27,7 +26,7 @@ import { useRepository, useRepositoryMode } from '@/lib/repository/RepositoryPro
 import { useApiKey } from '@/lib/settings/apiKey';
 import { SettingsLink } from '@/components/SettingsLink';
 import { buildBriefingShare } from '@/lib/share/codec';
-import { ShareDialog } from '@/features/share/ShareDialog';
+import { ExportMenu } from '@/features/export/ExportMenu';
 import { cn } from '@/lib/cn';
 import { BriefingUnboxing } from './BriefingUnboxing';
 import { BriefingReport, toBriefingView } from './BriefingReport';
@@ -47,7 +46,6 @@ export default function BriefingPage() {
   const cards = useCards(deck.data?.id);
   const briefings = useDeckBriefings(marketId);
   const generate = useGenerateBriefing();
-  const [shareOpen, setShareOpen] = useState(false);
 
   const [windowHours, setWindowHours] = useState(24);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -239,15 +237,13 @@ export default function BriefingPage() {
                     <RefreshCw className="h-3.5 w-3.5" />
                     Replay
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setShareOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-                    title="Share this briefing — the unboxing, the report, and its evidence cards all travel inside the link. AI layer removed."
-                  >
-                    <Share2 className="h-3.5 w-3.5" />
-                    Share
-                  </button>
+                  <ExportMenu
+                    share={{
+                      title: `${active.marketName} — Daily Briefing`,
+                      subtitle: new Date(active.generatedAt).toLocaleDateString(),
+                      build: async () => buildShare(),
+                    }}
+                  />
                   <button
                     type="button"
                     onClick={runGenerate}
@@ -300,14 +296,6 @@ export default function BriefingPage() {
         </>
       )}
 
-      {/* The share dialog — packages the briefing + its evidence cards. */}
-      <ShareDialog
-        open={shareOpen}
-        onOpenChange={setShareOpen}
-        title={active ? `${active.marketName} — Daily Briefing` : 'Daily Briefing'}
-        subtitle={active ? new Date(active.generatedAt).toLocaleDateString() : null}
-        build={async () => buildShare()}
-      />
     </div>
   );
 }

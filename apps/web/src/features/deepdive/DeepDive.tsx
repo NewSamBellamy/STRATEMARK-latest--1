@@ -18,7 +18,6 @@ import remarkGfm from 'remark-gfm';
 import {
   ArrowUp,
   ExternalLink,
-  FilePlus2,
   FileText,
   Layers,
   MessageCircle,
@@ -618,16 +617,10 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
               <ExportMenu
                 variant="icon"
                 transcript={{ title: thread.title ?? scopeLabel, scopeLabel, messages: thread.messages }}
+                report={canConverse && canSaveReport && !thread.reportId
+                  ? { label: 'Save this chat as a report', onClick: () => setShowReportForm(true) }
+                  : undefined}
               />
-            )}
-            {canConverse && hasAnswer && canSaveReport && !thread?.reportId && (
-              <button
-                type="button"
-                onClick={() => setShowReportForm((v) => !v)}
-                className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:border-primary/50 hover:text-primary-ink"
-              >
-                <FilePlus2 className="h-3 w-3" /> Report
-              </button>
             )}
             {thread?.reportId && (
               <Link

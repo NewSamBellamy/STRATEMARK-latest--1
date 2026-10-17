@@ -1,9 +1,13 @@
 /**
- * One Export menu for every surface. Which entries appear depends on what the
- * host page can honestly export:
- *   deck        -> deck report (PDF), data (CSV), PowerPoint
- *   company     -> company report (PDF), data (CSV)
- *   transcript  -> chat transcript (Markdown, PDF)
+ * The one "Share & export" menu for every surface. Three groups, each shown
+ * only when the host page can honestly offer it:
+ *   Create    -> compose a report from the stored research (with an optional focus)
+ *   Share     -> a read-only share link (opens the share dialog)
+ *   Download  -> what the page can export:
+ *     deck        -> deck report (PDF), data (CSV), PowerPoint
+ *     company     -> company report (PDF), data (CSV)
+ *     transcript  -> chat transcript (Markdown, PDF)
+ *     downloads   -> anything else the host passes in (a report's own PDF / Markdown)
  *
  * PDFs use the browser/Electron print pipeline with the print stylesheet in
  * print.css: the report is rendered off-screen, body gets `sm-exporting`, and
@@ -11,10 +15,15 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, FileSpreadsheet, FileText, MessageSquareText, Presentation, Printer } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { FilePlus2, FileSpreadsheet, FileText, Link2, MessageSquareText, Presentation, Printer, Share2 } from 'lucide-react';
 import type { CardWithCompany, ThreadMessage } from '@mi/contracts';
 import { cn } from '@/lib/cn';
 import { usePopoverSide } from '@/lib/usePopoverSide';
+import { useGenerateReport } from '@/hooks/data';
+import { useSupports } from '@/lib/repository/RepositoryProvider';
+import { ShareDialog } from '@/features/share/ShareDialog';
+import type { SharePayload } from '@/lib/share/codec';
 import { exportDeckPptx } from '@/features/reports/pptx';
 import { PrintDocument, type PrintJob } from './PrintDocument';
 import {
@@ -33,9 +42,32 @@ export interface ExportMenuProps {
   company?: ExportCompany;
   transcript?: { title: string; scopeLabel?: string | null; messages: readonly ThreadMessage[] };
   className?: string;
-  /** `ghost` matches the deck action bar; `icon` is the compact variant for panel headers. */
+  /** `bar` matches the deck action bar; `icon` is the compact variant for panel headers. */
   variant?: 'bar' | 'icon';
+  /** Offer a share link: the dialog packages the payload when it opens. */
+  share?: { title: string; subtitle?: string | null; build: (onStage: (stage: string) => void) => Promise<SharePayload> };
+  /**
+   * Offer "Create report". `kind` + `subjectId` composes a deck or company
+   * report and opens it; `onClick` lets a host (the chat panel) own the flow.
+   */
+  report?: { kind: 'deck' | 'company'; subjectId: string | undefined } | { label: string; onClick: () => void };
+  /** Extra Download entries a host owns (a report page's own PDF or Markdown). */
+  downloads?: readonly ExportDownload[];
 }
+
+export interface ExportDownload {
+  key: string;
+  label: string;
+  hint?: string;
+  icon?: 'pdf' | 'markdown' | 'slides' | 'data';
+  disabled?: boolean;
+  onSelect: () => void | Promise<void>;
+}
+
+const DOWNLOAD_ICONS = { pdf: Printer, markdown: FileText, slides: Presentation, data: FileSpreadsheet } as const;
+
+const GROUP =
+  'px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-widest text-faint';
 
 const ITEM =
   'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] text-content hover:bg-surface-2 disabled:opacity-50';
@@ -49,13 +81,19 @@ async function imagesSettled(root: ParentNode, timeoutMs = 2500): Promise<void> 
   ]);
 }
 
-export function ExportMenu({ deck, company, transcript, className, variant = 'bar' }: ExportMenuProps) {
+export function ExportMenu({ deck, company, transcript, className, variant = 'bar', share, report, downloads = [] }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [job, setJob] = useState<{ doc: PrintJob; fileTitle: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [focusOpen, setFocusOpen] = useState(false);
+  const [focus, setFocus] = useState('');
   const ref = useRef<HTMLDivElement>(null);
-  const side = usePopoverSide(ref, open, 256);
+  const side = usePopoverSide(ref, open, 288);
+  const navigate = useNavigate();
+  const generateReport = useGenerateReport();
+  const canGenerate = useSupports('generateReport');
 
   useEffect(() => {
     if (!open) return;
@@ -69,6 +107,9 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
       document.removeEventListener('mousedown', close);
       document.removeEventListener('keydown', esc);
     };
+  }, [open]);
+  useEffect(() => {
+    if (!open) setFocusOpen(false);
   }, [open]);
 
   // Once the print document is mounted, print it, then tear everything down.
@@ -165,9 +206,26 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
       `${transcript.title} - Stratemark conversation`,
     );
 
+  const composeReport = () => {
+    if (!report || !('kind' in report) || !report.subjectId) return;
+    setError(null);
+    generateReport.mutate(
+      { kind: report.kind, subjectId: report.subjectId, focus: focus.trim() || null },
+      {
+        onSuccess: (r) => {
+          setOpen(false);
+          setFocus('');
+          navigate(`/reports/${r.id}`);
+        },
+        onError: (e) => setError(e instanceof Error ? e.message : 'Could not create the report.'),
+      },
+    );
+  };
+  const reportEntry = report ? ('kind' in report ? (canGenerate && Boolean(report.subjectId) ? 'compose' : null) : 'host') : null;
   const hasData = Boolean(deck && deckCompanies.length > 0) || Boolean(company);
   const hasTranscript = Boolean(transcript && transcript.messages.length > 0);
-  if (!deck && !company && !transcript) return null;
+  const hasDownloads = hasData || hasTranscript || downloads.length > 0;
+  if (!hasDownloads && !share && !reportEntry) return null;
 
   return (
     <div ref={ref} className={cn('relative', className)}>
@@ -180,15 +238,68 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
         }
         aria-haspopup="menu"
         aria-expanded={open}
-        title="Export this as a PDF report, spreadsheet, PowerPoint or transcript"
+        aria-label={variant === 'icon' ? 'Share and export' : undefined}
+        title="Create a report, share a link, or download this"
         onClick={() => setOpen((v) => !v)}
-        disabled={variant === 'icon' ? !hasTranscript : !hasData && !hasTranscript}
       >
-        <Download className={variant === 'icon' ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
-        {busy ? 'Exporting…' : 'Export'}
+        <Share2 className={variant === 'icon' ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
+        {variant === 'icon' ? null : busy ? 'Exporting…' : 'Share & export'}
       </button>
       {open && (
-        <div role="menu" className={cn('absolute top-full z-50 mt-1 w-64 rounded-xl border border-border bg-surface p-1 shadow-card', side === 'left' ? 'left-0' : 'right-0')}>
+        <div role="menu" className={cn('absolute top-full z-50 mt-1 w-72 rounded-xl border border-border bg-surface p-1 shadow-card', side === 'left' ? 'left-0' : 'right-0')}>
+          {reportEntry && (
+            <>
+              <p className={GROUP}>Create</p>
+              {reportEntry === 'host' && report && 'onClick' in report ? (
+                <button role="menuitem" type="button" className={ITEM} onClick={() => { setOpen(false); report.onClick(); }}>
+                  <FilePlus2 className="h-4 w-4 text-muted" />
+                  <span>{report.label}</span>
+                </button>
+              ) : focusOpen ? (
+                <div className="px-3 pb-2">
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-muted" htmlFor="share-export-focus">Focus (optional)</label>
+                  <input
+                    id="share-export-focus"
+                    className="input mt-1.5 py-2 text-sm"
+                    placeholder="e.g. who is winning enterprise, pricing pressure…"
+                    value={focus}
+                    onChange={(e) => setFocus(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') composeReport(); }}
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="text-[11px] text-muted">Sourcing rules don’t change. Focus steers emphasis.</p>
+                    <button type="button" className="btn-primary shrink-0 px-3 py-1.5 text-xs" disabled={generateReport.isPending} onClick={composeReport}>
+                      {generateReport.isPending ? 'Composing…' : 'Compose'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button role="menuitem" type="button" className={ITEM} onClick={() => setFocusOpen(true)}>
+                  <FilePlus2 className="h-4 w-4 text-muted" />
+                  <span>Create report<span className="block text-[11px] text-faint">An executive report from the researched evidence</span></span>
+                </button>
+              )}
+            </>
+          )}
+          {share && (
+            <>
+              <p className={GROUP}>Share</p>
+              <button role="menuitem" type="button" className={ITEM} onClick={() => { setOpen(false); setShareOpen(true); }}>
+                <Link2 className="h-4 w-4 text-muted" />
+                <span>Share link<span className="block text-[11px] text-faint">A read-only copy, no account needed to open it</span></span>
+              </button>
+            </>
+          )}
+          {hasDownloads && (reportEntry || share) && <p className={GROUP}>Download</p>}
+          {downloads.map((d) => {
+            const Icon = DOWNLOAD_ICONS[d.icon ?? 'data'];
+            return (
+              <button key={d.key} role="menuitem" type="button" className={ITEM} disabled={d.disabled} onClick={() => { setOpen(false); void d.onSelect(); }}>
+                <Icon className="h-4 w-4 text-muted" />
+                <span>{d.label}{d.hint && <span className="block text-[11px] text-faint">{d.hint}</span>}</span>
+              </button>
+            );
+          })}
           {deck && (
             <>
               <button role="menuitem" type="button" className={ITEM} disabled={deckCompanies.length === 0} onClick={deckReport}>
@@ -232,6 +343,9 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
           )}
           {error && <p className="px-3 py-2 text-[11px] text-negative">{error}</p>}
         </div>
+      )}
+      {share && (
+        <ShareDialog open={shareOpen} onOpenChange={setShareOpen} title={share.title} subtitle={share.subtitle} build={share.build} />
       )}
       {job && createPortal(<PrintDocument job={job.doc} />, document.body)}
     </div>
