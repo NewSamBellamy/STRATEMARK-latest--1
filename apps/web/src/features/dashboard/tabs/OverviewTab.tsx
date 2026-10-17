@@ -25,6 +25,7 @@ import { ArticleReader, TopStories } from './LiveIntelTab';
 import { SitePreview } from './LiveLandingTab';
 import { VideoStrip } from '@/components/media/StoryMedia';
 import { MarketPeers, OverviewSnapshot } from './OverviewSnapshot';
+import { OverviewCoverage } from './OverviewCoverage';
 
 /**
  * Overview: the company in one screen, nothing repeated.
@@ -308,6 +309,10 @@ export function OverviewTab({ companyId }: { companyId: string }) {
           </div>
         )}
       </Section>
+
+      {face && (
+        <OverviewCoverage companyId={companyId} figuresFound={face.filter((i) => i.metric !== undefined).length} figureSlots={face.length} />
+      )}
 
       <Happening companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} />
 
