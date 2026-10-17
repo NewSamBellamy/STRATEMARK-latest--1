@@ -52,7 +52,7 @@ export function useSentinel(): void {
         for (const m of markets) {
           if (!allowed()) break;
           const hours = REFRESH_CADENCE_HOURS[m.refreshCadence];
-          if (!hours || handled.current.has(m.id)) continue;
+          if (!hours || m.archivedAt || handled.current.has(m.id)) continue;
           const briefings = await repo.listDeckBriefings!(m.id);
           if (!allowed()) break;
           // Opt-in rule: the first briefing is always run by hand.

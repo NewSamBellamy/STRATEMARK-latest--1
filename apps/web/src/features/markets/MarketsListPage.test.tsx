@@ -27,3 +27,27 @@ describe('deleting a deck from the library', () => {
     expect(await screen.findByRole('button', { name: `Open ${name}` })).toBeInTheDocument();
   });
 });
+
+describe('archiving a deck from the library', () => {
+  it('moves the deck to Archived and restores it, without deleting it', async () => {
+    const repository = makeRepo();
+    const deleteDeck = vi.spyOn(repository, 'deleteDeck');
+    const { user } = renderWithProviders(<MarketsListPage />, { repository });
+    const menu = (await screen.findAllByRole('button', { name: /^More actions for / }))[0]!;
+    const name = menu.getAttribute('aria-label')!.replace('More actions for ', '');
+
+    await user.click(menu);
+    await user.click(screen.getByRole('menuitem', { name: 'Archive deck' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: `Open ${name}` })).not.toBeInTheDocument());
+
+    await user.click(await screen.findByRole('button', { name: 'Archived (1)' }));
+    expect(await screen.findByRole('button', { name: `Open ${name}` })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: `More actions for ${name}` }));
+    await user.click(screen.getByRole('menuitem', { name: 'Restore deck' }));
+
+    // Restoring the only archived deck returns to the library, with the deck back in it.
+    expect(await screen.findByRole('button', { name: `Open ${name}` })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Archived/ })).not.toBeInTheDocument();
+    expect(deleteDeck).not.toHaveBeenCalled();
+  });
+});

@@ -1024,6 +1024,15 @@ export class GeminiRepository implements MarketIntelRepository {
     await this.persist();
     return Promise.resolve(market);
   }
+  async setMarketArchived(id: string, archived: boolean): Promise<Market> {
+    const at = this.snap.markets.findIndex((m) => m.id === id);
+    if (at < 0) throw new Error(`Market not found: ${id}`);
+    // A new object, so views holding the old list see the change.
+    const market = { ...this.snap.markets[at]!, archivedAt: archived ? new Date().toISOString() : null };
+    this.snap.markets = this.snap.markets.map((m, i) => (i === at ? market : m));
+    await this.persist();
+    return market;
+  }
 
   // Decks -------------------------------------------------------------------
   getDeckByMarket(marketId: string): Promise<Deck | null> {

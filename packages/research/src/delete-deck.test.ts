@@ -216,3 +216,26 @@ describe('GeminiRepository.deleteMarket', () => {
     expect(events).not.toHaveBeenCalled();
   });
 });
+
+describe('GeminiRepository.setMarketArchived', () => {
+  it('archives a deck without removing anything, survives reopen, and restores', async () => {
+    const h = harness();
+    const repo = h.open();
+
+    const archived = await repo.setMarketArchived('mkt_a', true);
+    expect(archived.archivedAt).toEqual(expect.any(String));
+    let snap = (h.open() as unknown as { snap: RepoSnapshot }).snap;
+    expect(snap.markets.find((m) => m.id === 'mkt_a')?.archivedAt).toBe(archived.archivedAt);
+    expect(snap.decks).toHaveLength(2);
+    expect(snap.cards).toHaveLength(4);
+    expect(snap.companies).toHaveLength(2);
+
+    expect((await repo.setMarketArchived('mkt_a', false)).archivedAt).toBeNull();
+    snap = (h.open() as unknown as { snap: RepoSnapshot }).snap;
+    expect(snap.markets.find((m) => m.id === 'mkt_a')?.archivedAt).toBeNull();
+  });
+
+  it('an unknown deck is an error, not a silent no-op', async () => {
+    await expect(harness().open().setMarketArchived('mkt_nope', true)).rejects.toThrow('Market not found');
+  });
+});

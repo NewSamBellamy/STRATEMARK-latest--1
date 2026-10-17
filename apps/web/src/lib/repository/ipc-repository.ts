@@ -83,6 +83,13 @@ export class IpcRepository implements MarketIntelRepository {
   updateMarketCadence(id: string, cadence: RefreshCadence): Promise<Market> {
     return this.api.updateMarketCadence(id, cadence);
   }
+  deleteMarket(id: string): Promise<boolean> {
+    return this.api.deleteMarket ? this.api.deleteMarket(id) : Promise.resolve(false);
+  }
+  setMarketArchived(id: string, archived: boolean): Promise<Market> {
+    if (!this.api.setMarketArchived) return Promise.reject(new Error('Archiving decks needs a newer desktop build.'));
+    return this.api.setMarketArchived(id, archived);
+  }
   getDeckByMarket(marketId: string): Promise<Deck | null> {
     return this.api.getDeckByMarket(marketId);
   }

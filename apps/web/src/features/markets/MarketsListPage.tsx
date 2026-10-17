@@ -9,7 +9,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQueries } from '@tanstack/react-query';
 import { MoreHorizontal, PlusCircle, Search } from 'lucide-react';
 import type { CardWithCompany, Deck, Market } from '@mi/contracts';
-import { useDeleteDeck, useMarkets, projectCard } from '@/hooks/data';
+import { useArchiveDeck, useDeleteDeck, useMarkets, projectCard } from '@/hooks/data';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { CardGridSkeleton } from '@/components/states/Skeleton';
@@ -185,10 +185,12 @@ function StatusChip({ state }: { state: ResearchState }) {
 function OverflowMenu({
   market,
   onOpen,
+  onArchive,
   onDelete,
 }: {
   market: Market;
   onOpen: () => void;
+  onArchive: (() => void) | null;
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -236,6 +238,19 @@ function OverflowMenu({
           >
             Deck settings
           </button>
+          {onArchive && (
+            <button
+              role="menuitem"
+              type="button"
+              className={item}
+              onClick={() => {
+                setOpen(false);
+                onArchive();
+              }}
+            >
+              {market.archivedAt ? 'Restore deck' : 'Archive deck'}
+            </button>
+          )}
           <button
             role="menuitem"
             type="button"
@@ -256,10 +271,12 @@ function OverflowMenu({
 function DeckTile({
   row,
   onOpen,
+  onArchive,
   onDelete,
 }: {
   row: DeckRow;
   onOpen: () => void;
+  onArchive: (() => void) | null;
   onDelete: () => void;
 }) {
   const { market } = row;
@@ -281,7 +298,7 @@ function DeckTile({
           </p>
           <p className="mt-0.5 truncate text-[12px] text-muted">{market.scopeDefinition.vertical}</p>
         </div>
-        <OverflowMenu market={market} onOpen={onOpen} onDelete={onDelete} />
+        <OverflowMenu market={market} onOpen={onOpen} onArchive={onArchive} onDelete={onDelete} />
       </div>
       <dl className="mt-2 grid grid-cols-3 gap-2 px-1 text-[12px]">
         <div>
@@ -309,11 +326,17 @@ function Controls({
   setQuery,
   sort,
   setSort,
+  archivedCount,
+  showArchived,
+  setShowArchived,
 }: {
   query: string;
   setQuery: (v: string) => void;
   sort: DeckSort;
   setSort: (v: DeckSort) => void;
+  archivedCount: number;
+  showArchived: boolean;
+  setShowArchived: (v: boolean) => void;
 }) {
   return (
     <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -340,6 +363,16 @@ function Controls({
           <option value="size">Size</option>
         </select>
       </label>
+      {(archivedCount > 0 || showArchived) && (
+        <button
+          type="button"
+          aria-pressed={showArchived}
+          onClick={() => setShowArchived(!showArchived)}
+          className={cn('btn-ghost shrink-0 text-[13px]', showArchived && 'bg-surface-2 text-content')}
+        >
+          {showArchived ? 'Back to decks' : `Archived (${archivedCount})`}
+        </button>
+      )}
     </div>
   );
 }
@@ -376,27 +409,53 @@ function ResearchingTile({ query }: { query: string }) {
 function Library({ markets, researching }: { markets: Market[]; researching: string | null }) {
   const navigate = useNavigate();
   const deleteDeck = useDeleteDeck();
+  const archiveDeck = useArchiveDeck();
+  const canArchive = Boolean(useRepository().setMarketArchived);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<DeckSort>('recent');
+  const [showArchived, setShowArchived] = useState(false);
   const rows = useDeckRows(markets);
   // A delete can wait on research still running for the deck: take the tile away
   // at once and bring it back only if the delete fails.
   const [removing, setRemoving] = useState<ReadonlySet<string>>(new Set());
-  const shown = useMemo(() => sortDecks(filterDecks(rows, query), sort).filter((row) => !removing.has(row.market.id)), [rows, query, sort, removing]);
+  const archivedCount = useMemo(() => rows.filter((row) => row.market.archivedAt).length, [rows]);
+  const shown = useMemo(() => sortDecks(filterDecks(rows, query), sort)
+    .filter((row) => !removing.has(row.market.id) && Boolean(row.market.archivedAt) === showArchived),
+  [rows, query, sort, removing, showArchived]);
+  // Restoring the last archived deck returns to the library.
+  useEffect(() => {
+    if (showArchived && archivedCount === 0) setShowArchived(false);
+  }, [showArchived, archivedCount]);
 
   return (
     <>
-      <Controls query={query} setQuery={setQuery} sort={sort} setSort={setSort} />
-      {shown.length === 0 && !researching ? (
-        <p className="py-16 text-center text-sm text-muted">No decks match &ldquo;{query}&rdquo;.</p>
+      <Controls
+        query={query}
+        setQuery={setQuery}
+        sort={sort}
+        setSort={setSort}
+        archivedCount={archivedCount}
+        showArchived={showArchived}
+        setShowArchived={setShowArchived}
+      />
+      {archiveDeck.isError && (
+        <p role="alert" className="mb-4 text-[13px] text-negative">
+          {archiveDeck.error instanceof Error ? archiveDeck.error.message : 'The deck could not be archived.'}
+        </p>
+      )}
+      {shown.length === 0 && !(researching && !showArchived) ? (
+        <p className="py-16 text-center text-sm text-muted">
+          {query ? <>No decks match &ldquo;{query}&rdquo;.</> : showArchived ? 'No archived decks.' : 'Every deck is archived.'}
+        </p>
       ) : (
         <ul className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-6 gap-y-10">
-          {researching && !query && <ResearchingTile query={researching} />}
+          {researching && !query && !showArchived && <ResearchingTile query={researching} />}
           {shown.map((row) => (
             <DeckTile
               key={row.market.id}
               row={row}
               onOpen={() => navigate(`/markets/${row.market.id}/deck`)}
+              onArchive={canArchive ? () => archiveDeck.mutate({ id: row.market.id, archived: !row.market.archivedAt }) : null}
               onDelete={() => {
                 if (confirm(`Delete "${row.market.name}"? This removes the deck and its cards.`)) {
                   const id = row.market.id;

@@ -51,7 +51,7 @@ export function Sidebar() {
 
   // Most-recent decks first — the sidebar becomes the deck history itself.
   const recentDecks = useMemo(() => {
-    const list = markets.data ?? [];
+    const list = (markets.data ?? []).filter((m) => !m.archivedAt);
     return [...list].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );

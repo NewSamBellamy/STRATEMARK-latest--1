@@ -43,6 +43,7 @@ export function useAutoRefresh(): void {
         const now = Date.now();
         for (const market of markets) {
           if (!allowed()) break;
+          if (market.archivedAt) continue; // an archived deck is kept, not kept fresh
           const deck = await repo.getDeckByMarket(market.id);
           if (!allowed()) break;
           if (!deck) continue;

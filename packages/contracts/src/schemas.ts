@@ -93,6 +93,8 @@ export const marketSchema = z.object({
   scopeDefinition: scopeDefinitionSchema,
   refreshCadence: refreshCadenceSchema,
   createdAt: isoTimestamp,
+  /** Set when the user archives the deck: kept intact, but out of the library, sidebar and scheduled refreshes. */
+  archivedAt: isoTimestamp.nullable().optional(),
 });
 
 export const deckSchema = z.object({

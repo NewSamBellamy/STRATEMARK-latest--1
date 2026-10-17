@@ -286,6 +286,14 @@ export class SentinelRepository implements MarketIntelRepository {
     throw new Error(`Cloud market cadence updates are not available through Sentinel yet: ${id}`);
   }
 
+  async setMarketArchived(id: string, archived: boolean): Promise<Market> {
+    if ((this.memoryMarkets.get(id) as CloudMarket | undefined)?.engine === 'cloud') {
+      throw new Error(`Archiving cloud decks is not available through Sentinel yet: ${id}`);
+    }
+    const fallback = await this.fallback();
+    return fallback.setMarketArchived(id, archived);
+  }
+
   async deleteMarket(id: string): Promise<boolean> {
     const existingMarket = this.memoryMarkets.get(id);
     const isCloud = (existingMarket as CloudMarket)?.engine === 'cloud';
