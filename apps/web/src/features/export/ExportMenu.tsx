@@ -23,6 +23,8 @@ import { usePopoverSide } from '@/lib/usePopoverSide';
 import { useGenerateReport } from '@/hooks/data';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
 import { ShareDialog } from '@/features/share/ShareDialog';
+import { ReportBuilderDialog } from '@/features/reports/ReportBuilderDialog';
+import { useCompanyReportRun } from '@/features/reports/useCompanyReportRun';
 import type { SharePayload } from '@/lib/share/codec';
 import { exportDeckPptx } from '@/features/reports/pptx';
 import { PrintDocument, type PrintJob } from './PrintDocument';
@@ -47,10 +49,14 @@ export interface ExportMenuProps {
   /** Offer a share link: the dialog packages the payload when it opens. */
   share?: { title: string; subtitle?: string | null; build: (onStage: (stage: string) => void) => Promise<SharePayload> };
   /**
-   * Offer "Create report". `kind` + `subjectId` composes a deck or company
-   * report and opens it; `onClick` lets a host (the chat panel) own the flow.
+   * Offer "Create report". A company report (`kind: 'company'` with a `name`)
+   * opens the section picker and runs in the background; a deck report opens
+   * after a short focus prompt; `onClick` lets a host (the chat panel) own the flow.
    */
-  report?: { kind: 'deck' | 'company'; subjectId: string | undefined } | { label: string; onClick: () => void };
+  report?:
+    | { kind: 'deck'; subjectId: string | undefined }
+    | { kind: 'company'; subjectId: string | undefined; name: string }
+    | { label: string; onClick: () => void };
   /** Extra Download entries a host owns (a report page's own PDF or Markdown). */
   downloads?: readonly ExportDownload[];
 }
@@ -61,7 +67,7 @@ export interface ExportDownload {
   hint?: string;
   icon?: 'pdf' | 'markdown' | 'slides' | 'data';
   disabled?: boolean;
-  onSelect: () => void | Promise<void>;
+  onSelect: (ctx: { print: (doc: PrintJob, fileTitle: string) => void }) => void | Promise<void>;
 }
 
 const DOWNLOAD_ICONS = { pdf: Printer, markdown: FileText, slides: Presentation, data: FileSpreadsheet } as const;
@@ -89,10 +95,12 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
   const [shareOpen, setShareOpen] = useState(false);
   const [focusOpen, setFocusOpen] = useState(false);
   const [focus, setFocus] = useState('');
+  const [builderOpen, setBuilderOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const side = usePopoverSide(ref, open, 288);
   const navigate = useNavigate();
   const generateReport = useGenerateReport();
+  const runCompanyReport = useCompanyReportRun();
   const canGenerate = useSupports('generateReport');
 
   useEffect(() => {
@@ -207,7 +215,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
     );
 
   const composeReport = () => {
-    if (!report || !('kind' in report) || !report.subjectId) return;
+    if (!report || !('kind' in report) || report.kind !== 'deck' || !report.subjectId) return;
     setError(null);
     generateReport.mutate(
       { kind: report.kind, subjectId: report.subjectId, focus: focus.trim() || null },
@@ -221,7 +229,11 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
       },
     );
   };
-  const reportEntry = report ? ('kind' in report ? (canGenerate && Boolean(report.subjectId) ? 'compose' : null) : 'host') : null;
+  const reportEntry = report
+    ? ('kind' in report
+      ? (canGenerate && Boolean(report.subjectId) ? (report.kind === 'company' ? 'builder' : 'compose') : null)
+      : 'host')
+    : null;
   const hasData = Boolean(deck && deckCompanies.length > 0) || Boolean(company);
   const hasTranscript = Boolean(transcript && transcript.messages.length > 0);
   const hasDownloads = hasData || hasTranscript || downloads.length > 0;
@@ -254,6 +266,11 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
                 <button role="menuitem" type="button" className={ITEM} onClick={() => { setOpen(false); report.onClick(); }}>
                   <FilePlus2 className="h-4 w-4 text-muted" />
                   <span>{report.label}</span>
+                </button>
+              ) : reportEntry === 'builder' ? (
+                <button role="menuitem" type="button" className={ITEM} onClick={() => { setOpen(false); setBuilderOpen(true); }}>
+                  <FilePlus2 className="h-4 w-4 text-muted" />
+                  <span>Create report<span className="block text-[11px] text-faint">Pick the sections; we research what is missing</span></span>
                 </button>
               ) : focusOpen ? (
                 <div className="px-3 pb-2">
@@ -294,7 +311,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
           {downloads.map((d) => {
             const Icon = DOWNLOAD_ICONS[d.icon ?? 'data'];
             return (
-              <button key={d.key} role="menuitem" type="button" className={ITEM} disabled={d.disabled} onClick={() => { setOpen(false); void d.onSelect(); }}>
+              <button key={d.key} role="menuitem" type="button" className={ITEM} disabled={d.disabled} onClick={() => { setOpen(false); void d.onSelect({ print }); }}>
                 <Icon className="h-4 w-4 text-muted" />
                 <span>{d.label}{d.hint && <span className="block text-[11px] text-faint">{d.hint}</span>}</span>
               </button>
@@ -346,6 +363,16 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
       )}
       {share && (
         <ShareDialog open={shareOpen} onOpenChange={setShareOpen} title={share.title} subtitle={share.subtitle} build={share.build} />
+      )}
+      {report && 'kind' in report && report.kind === 'company' && report.subjectId && (
+        <ReportBuilderDialog
+          open={builderOpen}
+          onOpenChange={setBuilderOpen}
+          companyName={report.name}
+          onStart={({ topics, focus: chosenFocus }) => {
+            void runCompanyReport({ companyId: report.subjectId as string, companyName: report.name, topics, focus: chosenFocus });
+          }}
+        />
       )}
       {job && createPortal(<PrintDocument job={job.doc} />, document.body)}
     </div>

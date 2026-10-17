@@ -14,6 +14,10 @@ export interface RunningTask {
   error?: string;
   startedAt: number;
   finishedAt?: number;
+  /** Where "Open" goes when the task is done (a finished report, for example). */
+  link?: string;
+  /** Progress is not measurable (the engine reports no stages): show activity, not a percentage. */
+  indeterminate?: boolean;
 }
 
 interface TaskManagerContextType {
@@ -23,7 +27,7 @@ interface TaskManagerContextType {
   startTask: (
     type: RunningTask['type'],
     title: string,
-    meta?: { marketId?: string; deckId?: string },
+    meta?: { marketId?: string; deckId?: string; indeterminate?: boolean },
   ) => string;
   appendLog: (
     taskId: string,
@@ -33,7 +37,7 @@ interface TaskManagerContextType {
   ) => void;
   completeTask: (
     taskId: string,
-    meta?: { marketId?: string; deckId?: string; message?: string },
+    meta?: { marketId?: string; deckId?: string; message?: string; link?: string },
   ) => void;
   failTask: (taskId: string, error: string) => void;
   dismissTask: (taskId: string) => void;
@@ -52,7 +56,7 @@ export function TaskManagerProvider({ children }: { children: ReactNode }) {
     (
       type: RunningTask['type'],
       title: string,
-      meta?: { marketId?: string; deckId?: string },
+      meta?: { marketId?: string; deckId?: string; indeterminate?: boolean },
     ): string => {
       taskCounter += 1;
       const id = `task_${Date.now()}_${taskCounter}`;
@@ -68,6 +72,7 @@ export function TaskManagerProvider({ children }: { children: ReactNode }) {
         currentStep: 'Starting task…',
         log: [{ message: `Started: ${title}`, kind: 'step', at: now }],
         startedAt: now,
+        ...(meta?.indeterminate ? { indeterminate: true } : {}),
       };
       setTasks((prev) => [newTask, ...prev]);
       return id;
@@ -100,7 +105,7 @@ export function TaskManagerProvider({ children }: { children: ReactNode }) {
   );
 
   const completeTask = useCallback(
-    (taskId: string, meta?: { marketId?: string; deckId?: string; message?: string }) => {
+    (taskId: string, meta?: { marketId?: string; deckId?: string; message?: string; link?: string }) => {
       const now = Date.now();
       setTasks((prev) =>
         prev.map((t) => {
@@ -113,6 +118,7 @@ export function TaskManagerProvider({ children }: { children: ReactNode }) {
             currentStep: finalMsg,
             marketId: meta?.marketId ?? t.marketId,
             deckId: meta?.deckId ?? t.deckId,
+            link: meta?.link ?? t.link,
             log: [...t.log, { message: finalMsg, kind: 'find', at: now }],
             finishedAt: now,
           };
@@ -169,6 +175,11 @@ export function TaskManagerProvider({ children }: { children: ReactNode }) {
       {children}
     </TaskManagerContext.Provider>
   );
+}
+
+/** For surfaces that should simply do nothing where no task manager is mounted (tests, embeds). */
+export function useOptionalTaskManager(): TaskManagerContextType | null {
+  return useContext(TaskManagerContext);
 }
 
 export function useTaskManager(): TaskManagerContextType {
