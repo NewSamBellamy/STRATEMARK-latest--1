@@ -27,6 +27,7 @@ import { useRepository, useRepositoryMode } from '@/lib/repository/RepositoryPro
 import { SettingsLink } from '@/components/SettingsLink';
 import { useResearchSession } from './research-session';
 import { groupSites, KIND_VERB, useSourceActivity } from './sourceActivity';
+import { spendBetween, useFillRecord } from './fillLedger';
 
 const CATEGORY_LABEL: Record<string, string> = {
   vice: 'risk and controversy signals',
@@ -160,6 +161,7 @@ export function DeckStatusBar({
           : living.canVerify && living.status === 'running' ? 'filling'
             : 'incomplete';
 
+  const fillRecord = useFillRecord(deckId, desks, phase === 'ready' || phase === 'incomplete' || phase === 'filling');
   const sourceFeed = useSourceActivity(open && (phase === 'creating' || phase === 'filling'));
   const sites = groupSites(sourceFeed.items);
 
@@ -360,6 +362,20 @@ export function DeckStatusBar({
                   ? (planned > 0 ? `${plural(Math.max(0, planned - done), 'company', 'companies')} of ${planned}` : 'the company list is still forming')
                   : `${plural(missing, 'figure', 'figures')} on ${plural(desks.length - complete, 'card', 'cards')}`}. No time estimate: research pace depends on the sources.
               </p>
+            </section>
+          )}
+          {fillRecord && (
+            <section aria-label="Fill record" className="md:col-span-2">
+              <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-faint">Fill record</h3>
+              <p className="text-[12px] text-muted">
+                Figures on the cards: <span className="font-medium text-content">{fillRecord.latest.filled} of {fillRecord.latest.total}</span> now
+                {(fillRecord.first.filled !== fillRecord.latest.filled || spendBetween(fillRecord) >= 0.005) && (
+                  <>, {fillRecord.first.filled} of {fillRecord.first.total} when this deck was first seen finished
+                    {spendBetween(fillRecord) >= 0.005 && <>. Estimated spend since then: about ${spendBetween(fillRecord).toFixed(2)} at list prices</>}</>
+                )}
+                .
+              </p>
+              <p className="mt-1 text-[11px] text-faint">Counted from the cards on this device. Spend is the usage meter's estimate, not a bill.</p>
             </section>
           )}
           {coverage.length > 0 && (
