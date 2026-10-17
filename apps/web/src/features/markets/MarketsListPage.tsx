@@ -4,6 +4,7 @@
  * colour. Every figure shown (company count, coverage, status, updated) is
  * derived from stored data in ./deck-library; nothing is estimated.
  */
+import { DeckCover } from './DeckCover';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueries } from '@tanstack/react-query';
@@ -38,22 +39,6 @@ interface DeckRow {
   state: ResearchState;
   coverage: Coverage | null;
   lead: CardWithCompany | null;
-}
-
-/** Quiet fallback hues, used only when a lead company has no stored brand colour. */
-const FALLBACKS = ['#1f2937', '#1e3a5f', '#3b3054', '#1f3d33', '#4a3728', '#2d3a4a'] as const;
-function fallbackColor(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0;
-  return FALLBACKS[Math.abs(h) % FALLBACKS.length]!;
-}
-
-const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
-/** Only trust a well-formed, scraped/manual stored hex; the default theme falls back. */
-function brandColor(row: DeckRow): string {
-  const theme = row.lead?.company?.brandTheme;
-  const primary = theme && theme.source !== 'default' ? theme.primary : undefined;
-  return primary && HEX.test(primary) ? primary : fallbackColor(row.market.id);
 }
 
 interface LibraryEntry {
@@ -99,58 +84,38 @@ export function useDeckRows(markets: Market[]): DeckRow[] {
   }), [markets, entries]);
 }
 
-/** Fanned stack: two backs behind the face card. Motion is disabled under reduced-motion. */
+/**
+ * A deck on the shelf: a card-shaped cover (engraved like the card backs, unique
+ * to the deck), with the edges of the cards behind it showing like a real deck.
+ * On hover the cover lifts and the stack fans a little. Motion is off under
+ * reduced-motion.
+ */
 function DeckStack({ row }: { row: DeckRow }) {
-  const color = brandColor(row);
-  const logo = row.lead?.company?.logoUrl ?? null;
-  const [logoFailed, setLogoFailed] = useState(false);
-  const back =
-    'absolute inset-0 rounded-2xl border border-border shadow-sm transition-transform duration-300 ease-out motion-reduce:transition-none';
+  const { market } = row;
+  const count = row.size;
+  const edge =
+    'absolute inset-0 rounded-2xl border border-black/25 bg-[#1b2a25] shadow-sm transition-transform duration-300 ease-out motion-reduce:transition-none';
   return (
-    <div className="relative aspect-[3/4] w-full">
+    <div className="relative aspect-[5/7] w-full">
       <span
         aria-hidden
-        className={cn(
-          back,
-          'bg-surface-2 [transform:rotate(3deg)] group-hover:[transform:translate(10px,-2px)_rotate(5.5deg)] group-focus-visible:[transform:translate(10px,-2px)_rotate(5.5deg)] motion-reduce:group-hover:[transform:rotate(3deg)] motion-reduce:group-focus-visible:[transform:rotate(3deg)]',
-        )}
+        className={cn(edge, '[transform:translate(8px,8px)] group-hover:[transform:translate(14px,8px)_rotate(2.5deg)] group-focus-visible:[transform:translate(14px,8px)_rotate(2.5deg)] motion-reduce:group-hover:[transform:translate(8px,8px)] motion-reduce:group-focus-visible:[transform:translate(8px,8px)]')}
       />
       <span
         aria-hidden
-        className={cn(
-          back,
-          'bg-surface [transform:rotate(-2deg)] group-hover:[transform:translate(-8px,-2px)_rotate(-4deg)] group-focus-visible:[transform:translate(-8px,-2px)_rotate(-4deg)] motion-reduce:group-hover:[transform:rotate(-2deg)] motion-reduce:group-focus-visible:[transform:rotate(-2deg)]',
-        )}
+        className={cn(edge, 'bg-[#24362f] [transform:translate(4px,4px)] group-hover:[transform:translate(5px,4px)_rotate(1deg)] group-focus-visible:[transform:translate(5px,4px)_rotate(1deg)] motion-reduce:group-hover:[transform:translate(4px,4px)] motion-reduce:group-focus-visible:[transform:translate(4px,4px)]')}
       />
-      <span
-        className="absolute inset-0 overflow-hidden rounded-2xl border border-black/10 shadow-card transition-all duration-300 ease-out group-hover:-translate-y-1.5 group-hover:shadow-card-hover motion-reduce:transition-none motion-reduce:group-hover:translate-y-0"
-        style={{
-          background: `linear-gradient(155deg, ${color} 0%, ${color} 55%, rgb(0 0 0 / 0.35) 140%)`,
-        }}
-      >
-        <span className="absolute left-1/2 top-[34%] grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-2xl bg-white shadow-sm">
-          {logo && !logoFailed ? (
-            <img
-              src={logo}
-              alt=""
-              loading="lazy"
-              draggable={false}
-              onError={() => setLogoFailed(true)}
-              className="h-10 w-10 object-contain"
-            />
-          ) : (
-            <img src={logoMark} alt="" className="h-7 w-7 opacity-40 grayscale" />
-          )}
-        </span>
-        <span
-          aria-hidden
-          className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 via-black/35 to-transparent"
-        />
-        <span className="absolute inset-x-0 bottom-0 p-4 text-left">
-          <span className="block text-[10px] font-medium text-white/65">Stratemark deck</span>
-          <span className="mt-1 line-clamp-3 block font-display text-[17px] font-semibold leading-snug text-white [text-wrap:balance]">
-            {row.market.name}
+      <span className="absolute inset-0 overflow-hidden rounded-2xl shadow-card transition-all duration-300 ease-out group-hover:-translate-y-1.5 group-hover:shadow-card-hover motion-reduce:transition-none motion-reduce:group-hover:translate-y-0">
+        <DeckCover name={market.name} seed={market.id} className="absolute inset-0 h-full w-full" />
+        <span className="absolute inset-x-0 bottom-0 px-5 pb-9 pt-4 text-center">
+          <span className="line-clamp-3 block font-display text-[17px] font-semibold leading-snug text-[#f1ead2] [text-wrap:balance]">
+            {market.name}
           </span>
+          {count != null && (
+            <span className="mt-1.5 block text-[10.5px] uppercase tracking-[0.18em] text-[#f1ead2]/70">
+              {count} {count === 1 ? 'company' : 'companies'}
+            </span>
+          )}
         </span>
       </span>
     </div>
