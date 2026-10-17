@@ -1,21 +1,18 @@
 /**
- * Shared research-conversation controls: the thread-history dropdown (a deck's
- * or company's accumulated questions) and the report button with a custom
- * focus prompt. Both feature-detect the conversational repository and hide
- * themselves on transports that haven't wired it.
+ * Shared research-conversation control: the thread-history dropdown (a deck's
+ * or company's accumulated questions). It feature-detects the conversational
+ * repository and hides itself on transports that haven't wired it. Reports
+ * are created from the one Share & export menu, not from here.
  */
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
-import { FileText, History, MessagesSquare } from 'lucide-react';
+import { History, MessagesSquare } from 'lucide-react';
 import type { ResearchThread } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
-import { useGenerateReport } from '@/hooks/data';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { formatRelative } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { usePopoverSide } from '@/lib/usePopoverSide';
-import { useSupports } from '@/lib/repository/RepositoryProvider';
 
 /** Close-on-outside-click without a dependency. */
 function useDismiss(onDismiss: () => void) {
@@ -42,12 +39,18 @@ export function ThreadHistoryButton({
   companyId,
   className,
   compact = false,
+  inMenu = false,
+  onPick,
 }: {
   deckId?: string;
   companyId?: string;
   className?: string;
   /** Match the deck's small bordered action buttons. */
   compact?: boolean;
+  /** A row inside an actions menu: the list opens inline under the row. */
+  inMenu?: boolean;
+  /** Called after a thread is opened (so a parent menu can close). */
+  onPick?: () => void;
 }) {
   const repo = useRepository();
   const { openThread } = useDeepDive();
@@ -63,6 +66,47 @@ export function ThreadHistoryButton({
 
   if (typeof repo.listResearchThreads !== 'function') return null;
   const list: ResearchThread[] = threads.data ?? [];
+
+  if (inMenu) {
+    return (
+      <div ref={ref} className={className}>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-content hover:bg-surface-2"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <History className="h-4 w-4 text-muted" />
+          Past chats
+          {list.length > 0 && (
+            <span className="ml-auto rounded-full bg-surface-2 px-1.5 text-xs tabular-nums text-muted">{list.length}</span>
+          )}
+        </button>
+        {open && (
+          <div className="mx-1 mb-1 rounded-lg border border-border bg-surface-2/40 p-1">
+            {list.length === 0 ? (
+              <p className="px-2 py-1.5 text-[12px] text-muted">No conversations yet. Every thread you start is saved here.</p>
+            ) : (
+              <ul className="max-h-60 overflow-y-auto">
+                {list.slice(0, 20).map((t) => (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      className="w-full rounded-md px-2 py-1.5 text-left hover:bg-surface-2"
+                      onClick={() => { setOpen(false); onPick?.(); openThread(t.id); }}
+                    >
+                      <span className="block truncate text-[13px] text-content">{t.title}</span>
+                      <span className="text-[11px] text-faint">{formatRelative(t.updatedAt)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className={cn('relative', className)} ref={ref}>
@@ -124,87 +168,6 @@ export function ThreadHistoryButton({
               ))}
             </ul>
           )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Generate a report with an optional focus prompt — "what should this report
- * concentrate on" — instead of a fixed one-size composition.
- */
-export function ReportButton(props: Parameters<typeof ReportButtonInner>[0]) {
-  return useSupports('generateReport') ? <ReportButtonInner {...props} /> : null;
-}
-
-function ReportButtonInner({
-  kind,
-  subjectId,
-  className,
-}: {
-  kind: 'deck' | 'company';
-  subjectId: string | undefined;
-  className?: string;
-}) {
-  const generateReport = useGenerateReport();
-  const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const [focus, setFocus] = useState('');
-  const ref = useDismiss(() => setOpen(false));
-  const side = usePopoverSide(ref, open, 320);
-
-  const run = () => {
-    if (!subjectId) return;
-    generateReport.mutate(
-      { kind, subjectId, focus: focus.trim() || null },
-      {
-        onSuccess: (r) => {
-          setOpen(false);
-          setFocus('');
-          navigate(`/reports/${r.id}`);
-        },
-      },
-    );
-  };
-
-  return (
-    <div className={cn('relative', className)} ref={ref}>
-      <button
-        type="button"
-        className="btn-ghost"
-        disabled={generateReport.isPending || !subjectId}
-        title="Compose an executive report from the researched evidence"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        <FileText className={`h-4 w-4 ${generateReport.isPending ? 'animate-pulse' : ''}`} />
-        {generateReport.isPending ? 'Composing…' : 'Report'}
-      </button>
-      {open && !generateReport.isPending && (
-        <div className={cn('absolute z-40 mt-2 w-80 rounded-xl border border-border bg-surface p-3 shadow-card', side === 'left' ? 'left-0' : 'right-0')}>
-          <label
-            className="text-[11px] font-semibold uppercase tracking-wide text-muted"
-            htmlFor={`report-focus-${kind}`}
-          >
-            Focus (optional)
-          </label>
-          <input
-            id={`report-focus-${kind}`}
-            className="input mt-1.5 py-2 text-sm"
-            placeholder="e.g. who is winning enterprise, pricing pressure…"
-            value={focus}
-            onChange={(e) => setFocus(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') run();
-            }}
-          />
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <p className="text-[11px] text-muted">Sourcing rules don’t change — focus steers emphasis.</p>
-            <button type="button" className="btn-primary shrink-0 px-3 py-1.5 text-xs" onClick={run}>
-              Compose
-            </button>
-          </div>
         </div>
       )}
     </div>

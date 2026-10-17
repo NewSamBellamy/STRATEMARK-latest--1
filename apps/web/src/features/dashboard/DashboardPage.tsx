@@ -12,7 +12,7 @@ import { useDashboardWarm } from '@/lib/living/useDashboardWarm';
 import { BackgroundResearchControl } from '@/lib/living/BackgroundResearchControl';
 import { GroundingQuotaNotice } from '@/lib/living/GroundingQuotaNotice';
 import { siteUrl } from '@/lib/siteUrl';
-import { ReportButton, ThreadHistoryButton } from '@/features/research/ResearchControls';
+import { ThreadHistoryButton } from '@/features/research/ResearchControls';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { ContextRerun } from '@/components/ui/ContextRerun';
 import { cn } from '@/lib/cn';
@@ -437,6 +437,7 @@ export default function DashboardPage() {
               </div>
               <ExportMenu
                 className="shrink-0"
+                report={{ kind: 'company', subjectId: c.id }}
                 company={{
                   id: c.id,
                   name: c.name,
@@ -448,8 +449,7 @@ export default function DashboardPage() {
                   metrics: metrics.data ?? [],
                 }}
               />
-              <ThreadHistoryButton companyId={c.id} className="shrink-0" />
-              <ReportButton kind="company" subjectId={c.id} className="shrink-0" />
+              <ThreadHistoryButton companyId={c.id} className="shrink-0" compact />
               <DigDeeper
                 topic="Recent developments & what to watch"
                 companyId={c.id}

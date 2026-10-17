@@ -14,7 +14,6 @@ import {
   RefreshCw,
   Search,
   Settings,
-  Share2,
   SquareMousePointer,
   Target,
   X,
@@ -42,7 +41,6 @@ import { DeckStatusBar } from './DeckStatusBar';
 import { DemoDeckBanner } from './DemoDeckBanner';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
 import { buildDeckShare } from '@/lib/share/codec';
-import { ShareDialog } from '@/features/share/ShareDialog';
 import { ExportMenu } from '@/features/export/ExportMenu';
 import { GroundingQuotaNotice } from '@/lib/living/GroundingQuotaNotice';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
@@ -159,7 +157,6 @@ export default function DeckPage() {
   // blank screen (audit 7:44): show a recovery path instead.
   const deckMissing = market.isSuccess && deck.isSuccess && (!market.data || !deck.data);
   const living = useLivingDeck(deckId, all);
-  const [shareOpen, setShareOpen] = useState(false);
 
   // Anchor the floating presence's "Chat" to THIS deck's synthesized research.
   const setChatContext = useAgentTrace((s) => s.setChatContext);
@@ -290,38 +287,32 @@ export default function DeckPage() {
               <SquareMousePointer className="h-3.5 w-3.5" />
               {compare ? 'Cancel' : 'Compare'}
             </button>}
-            {actionPolicy.briefing && <Link
-              to={`/markets/${marketId}/briefing`}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-              title="The Daily Briefing — the desk hunts the last 24h across every tracked company and unboxes it as an editorial report"
-            >
-              <Newspaper className="h-3.5 w-3.5" />
-              Briefing
-            </Link>}
-            <ShareDialog
-              open={shareOpen}
-              onOpenChange={setShareOpen}
-              title={market.data?.name ?? 'Market deck'}
-              subtitle="Full deck — research snapshot"
-              build={async () => buildDeckShare(all, market.data?.name ?? null)}
+            <ExportMenu
+              deck={{ title: market.data?.name ?? 'Market deck', cards: all }}
+              share={all.length === 0 ? undefined : {
+                title: market.data?.name ?? 'Market deck',
+                subtitle: 'Full deck — research snapshot',
+                build: async () => buildDeckShare(all, market.data?.name ?? null),
+              }}
+              report={actionPolicy.compare ? { kind: 'deck', subjectId: marketId } : undefined}
             />
-            <ExportMenu deck={{ title: market.data?.name ?? 'Market deck', cards: all }} />
-            <ThreadHistoryButton deckId={deckId} compact />
             <MoreMenu
               marketId={marketId}
               refreshDeck={refreshDeck}
               extra={(close) => (
                 <>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-content hover:bg-surface-2 disabled:opacity-60"
-                    disabled={all.length === 0}
-                    title="Share a read-only snapshot of this deck; all the research travels inside the link."
-                    onClick={() => { close(); setShareOpen(true); }}
-                  >
-                    <Share2 className="h-4 w-4 text-muted" />
-                    Share deck
-                  </button>
+                  {actionPolicy.briefing && (
+                    <Link
+                      to={`/markets/${marketId}/briefing`}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-content hover:bg-surface-2"
+                      title="The desk hunts the last 24h across every tracked company and unboxes it as an editorial report"
+                      onClick={close}
+                    >
+                      <Newspaper className="h-4 w-4 text-muted" />
+                      Daily briefing
+                    </Link>
+                  )}
+                  <ThreadHistoryButton deckId={deckId} inMenu onPick={close} />
                   {canFollow && (
                     <button
                       type="button"
