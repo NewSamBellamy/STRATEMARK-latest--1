@@ -10,14 +10,14 @@ import { HydratingPanel } from './HydratingPanel';
 import { Modal } from '@/components/ui/Modal';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { LeaderGrid, WikiAvatar } from './LeaderGrid';
-import { UnknownInline } from '@/features/card/UnknownValue';
+import { CARD_H, CARD_W, ProfileCard, type ProfileCompany } from './ProfileCard';
+import { PersonProfile } from './PersonProfile';
 import { cn } from '@/lib/cn';
-import { EmptyNote, FieldLabel, FilterChip, SearchBox, SectionHeader, SourceLink } from './TabKit';
+import { EmptyNote, FilterChip, SearchBox, SectionHeader, SourceLink } from './TabKit';
 import {
   buildOrgTree,
   countByGroup,
   filterOrgTree,
-  hostOf,
   matchesQuery,
   type OrgTreeNode,
 } from './tabHelpers';
@@ -129,126 +129,41 @@ function OrgRow({
   );
 }
 
-function PersonDetail({
-  person,
-  companyName,
-  onDigDeeper,
-}: {
-  person: OrgNode;
-  companyName: string;
-  onDigDeeper: () => void;
-}) {
-  const details = [
-    ['Tenure', person.tenure],
-    ['Prior company', person.priorCompany],
-    ['Notable project', person.notableProject],
-  ] as const;
-
-  return (
-    <div className="space-y-5">
-      <div className="flex items-start gap-3">
-        <WikiAvatar name={person.name} companyName={companyName} />
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-content">{person.role || 'Role not reported'}</p>
-          <p className="mt-1 text-xs text-muted">
-            {GROUP_LABEL[person.group]} · <span className="font-medium text-content">{companyName}</span>
-          </p>
-        </div>
-      </div>
-
-      <dl className="grid gap-3 sm:grid-cols-3">
-        {details.map(([label, value]) => (
-          <div key={label} className="rounded-lg border border-border bg-surface-2/60 px-3 py-2.5">
-            <dt><FieldLabel>{label}</FieldLabel></dt>
-            <dd className="mt-1 text-sm text-content">
-              {reportedValue(value) === UNKNOWN ? <UnknownInline /> : reportedValue(value)}
-            </dd>
-          </div>
-        ))}
-      </dl>
-
-      <div>
-        <h3><FieldLabel>Reported background</FieldLabel></h3>
-        {reportedValue(person.bio) === UNKNOWN ? (
-          <p className="mt-2"><UnknownInline /></p>
-        ) : (
-          <p className="mt-2 text-sm leading-relaxed text-content/90">{reportedValue(person.bio)}</p>
-        )}
-      </div>
-
-      {person.sourceUrl && person.supportingQuote && (
-        <div className="rounded-lg border border-border bg-surface-2/60 px-3 py-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <h3>
-              <FieldLabel>
-                Reported source{person.sourceRetrievedAt ? ` · retrieved ${person.sourceRetrievedAt.slice(0, 10)}` : ''}
-              </FieldLabel>
-            </h3>
-            <a href={person.sourceUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-primary-ink hover:underline">
-              Open original ↗
-            </a>
-          </div>
-          <blockquote className="mt-2 border-l-2 border-primary/40 pl-3 text-sm leading-relaxed text-content/90">
-            “{person.supportingQuote}”
-          </blockquote>
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-        <p className="max-w-xs text-[11px] leading-relaxed text-faint">
-          Unknown means the current research did not surface a credible detail; it is not an
-          inference.
-        </p>
-        <button type="button" className="btn-primary shrink-0" onClick={onDigDeeper}>
-          Ask about them
-        </button>
-      </div>
-    </div>
-  );
-}
-
 interface OrgCardData extends Record<string, unknown> {
   person: OrgNode;
-  companyName: string;
+  company: ProfileCompany;
   dim: boolean;
+  flipped: boolean;
+  onFlip: () => void;
+  onOpen: () => void;
 }
 
-/** A person in the graph: portrait/initials, name, role; bio and source on hover. */
+/** A person on the whiteboard: a sports-style profile card that turns over to the basics. */
 function OrgCardNode({ data }: NodeProps) {
-  const { person: p, companyName, dim } = data as OrgCardData;
+  const { person, company, dim, flipped, onFlip, onOpen } = data as OrgCardData;
   return (
-    <div
-      className={cn(
-        'w-[200px] cursor-pointer rounded-xl border border-border bg-surface p-2.5 shadow-card transition-opacity hover:border-primary/40',
-        dim && 'opacity-30',
-      )}
-      title={[p.bio, p.tenure, p.priorCompany ? `Previously ${p.priorCompany}` : null, p.sourceUrl ? `Source: ${hostOf(p.sourceUrl) ?? p.sourceUrl}` : null]
-        .filter(Boolean)
-        .join('\n') || `${p.name} — click for person details`}
-    >
+    <div className="nopan">
       <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !border-0 !bg-border" />
-      <div className="flex items-center gap-2.5">
-        <WikiAvatar name={p.name} companyName={companyName} size="sm" />
-        <div className="min-w-0">
-          <p className="flex items-center gap-1.5 text-[13px] font-semibold text-content">
-            <span className="truncate">{p.name}</span>
-            <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', GROUP_DOT[p.group])} aria-hidden />
-          </p>
-          <p className="truncate text-[11px] text-muted">{p.role || 'Role not reported'}</p>
-        </div>
-      </div>
+      <ProfileCard person={person} company={company} dim={dim} flipped={flipped} onFlip={onFlip} onOpenProfile={onOpen} />
       <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !border-0 !bg-border" />
     </div>
   );
 }
 
 const NODE_TYPES = { person: OrgCardNode };
-const NODE_W = 200;
+const NODE_W = CARD_W;
 const GAP_X = 28;
-const ROW_H = 120;
+const ROW_H = CARD_H + 64;
 
 /** Tidy tree layout: each subtree is as wide as its leaves; parents centre over children. */
-function layoutForest(forest: OrgTreeNode[], companyName: string, matches: Set<string> | null) {
+function layoutForest(
+  forest: OrgTreeNode[],
+  company: ProfileCompany,
+  matches: Set<string> | null,
+  flipped: ReadonlySet<string>,
+  toggleFlip: (id: string) => void,
+  onOpen: (id: string) => void,
+) {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
   let cursor = 0;
@@ -265,7 +180,14 @@ function layoutForest(forest: OrgTreeNode[], companyName: string, matches: Set<s
       id: n.person.id,
       type: 'person',
       position: { x, y: n.depth * ROW_H },
-      data: { person: n.person, companyName, dim: matches ? !matches.has(n.person.id) : false } satisfies OrgCardData,
+      data: {
+        person: n.person,
+        company,
+        dim: matches ? !matches.has(n.person.id) : false,
+        flipped: flipped.has(n.person.id),
+        onFlip: () => toggleFlip(n.person.id),
+        onOpen: () => onOpen(n.person.id),
+      } satisfies OrgCardData,
     });
     if (parentId) {
       edges.push({
@@ -285,31 +207,42 @@ function layoutForest(forest: OrgTreeNode[], companyName: string, matches: Set<s
 /** The reporting-lines graph: pan/zoom, fit to view, filter dims non-matches. */
 function OrgChart({
   forest,
-  companyName,
+  company,
   matches,
   onOpen,
 }: {
   forest: OrgTreeNode[];
-  companyName: string;
+  company: ProfileCompany;
   matches: Set<string> | null;
   onOpen: (id: string) => void;
 }) {
-  const graph = useMemo(() => layoutForest(forest, companyName, matches), [forest, companyName, matches]);
+  const [flipped, setFlipped] = useState<ReadonlySet<string>>(new Set());
+  const toggleFlip = (id: string) => setFlipped((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const graph = useMemo(
+    () => layoutForest(forest, company, matches, flipped, toggleFlip, onOpen),
+    // toggleFlip only closes over a state setter
+    [forest, company, matches, flipped, onOpen],
+  );
   return (
-    <div className="panel h-[520px] overflow-hidden" aria-label="Org chart">
+    <div className="panel h-[680px] overflow-hidden bg-[radial-gradient(circle_at_1px_1px,rgb(var(--c-border))_1px,transparent_0)] [background-size:22px_22px]" aria-label="Org whiteboard">
       <ReactFlow
         nodes={graph.nodes}
         edges={graph.edges}
         nodeTypes={NODE_TYPES}
         fitView
-        fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
-        minZoom={0.2}
+        fitViewOptions={{ padding: 0.12, maxZoom: 1 }}
+        minZoom={0.15}
+        maxZoom={1.6}
         proOptions={{ hideAttribution: true }}
         nodesDraggable={false}
         nodesConnectable={false}
-        onNodeClick={(_, node) => onOpen(node.id)}
+        elementsSelectable={false}
       >
-        <Background color="rgb(var(--c-border))" gap={20} />
+        <Background color="rgb(var(--c-border))" gap={22} />
         <Controls showInteractive={false} />
       </ReactFlow>
     </div>
@@ -336,7 +269,15 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
     }
   };
   const query = useDashboardTab(companyId, 'team_org');
-  const name = useCompany(companyId).data?.name ?? 'this company';
+  const companyQ = useCompany(companyId).data;
+  const name = companyQ?.name ?? 'this company';
+  const profileCompany: ProfileCompany = useMemo(() => ({
+    id: companyId,
+    name,
+    logoUrl: companyQ?.logoUrl ?? null,
+    websiteUrl: companyQ?.websiteUrl ?? null,
+    brandTheme: companyQ?.brandTheme ?? null,
+  }), [companyId, name, companyQ?.logoUrl, companyQ?.websiteUrl, companyQ?.brandTheme]);
   const { chat } = useDeepDive();
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -517,7 +458,7 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
                     Clear the search or choose All to see everyone research has surfaced.
                   </EmptyNote>
                 )}
-                <OrgChart forest={forest} companyName={name} matches={matches} onOpen={setSelectedPersonId} />
+                <OrgChart forest={forest} company={profileCompany} matches={matches} onOpen={setSelectedPersonId} />
               </div>
             ) : visible.length === 0 ? (
               <EmptyNote compact title="No one matches these filters">
@@ -546,29 +487,32 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
             {selected && (
               <Modal
                 open
+                size="xl"
                 onOpenChange={(open) => {
                   if (!open) setSelectedPersonId(null);
                 }}
                 title={selected.name}
                 description={selected.role}
               >
-                <PersonDetail
-                  person={selected}
-                  companyName={name}
-                  onDigDeeper={() => {
+                <PersonProfile
+                  people={result.content.nodes}
+                  selectedId={selected.id}
+                  onSelect={setSelectedPersonId}
+                  company={profileCompany}
+                  onAsk={(person) => {
                     const pinnedContext = [
-                      `Name: ${selected.name}`,
-                      `Role: ${selected.role}`,
+                      `Name: ${person.name}`,
+                      `Role: ${person.role}`,
                       `Company: ${name}`,
-                      `Tenure: ${reportedValue(selected.tenure)}`,
-                      `Prior company: ${reportedValue(selected.priorCompany)}`,
-                      `Notable project: ${reportedValue(selected.notableProject)}`,
-                      `Reported background: ${reportedValue(selected.bio)}`,
+                      `Tenure: ${reportedValue(person.tenure)}`,
+                      `Prior company: ${reportedValue(person.priorCompany)}`,
+                      `Notable project: ${reportedValue(person.notableProject)}`,
+                      `Reported background: ${reportedValue(person.bio)}`,
                     ].join('\n');
                     chat(
-                      { kind: 'datapoint', deckId: null, companyId, subject: selected.name },
+                      { kind: 'datapoint', deckId: null, companyId, subject: person.name },
                       {
-                        seed: `Research ${selected.name} at ${name}. Verify the pinned dashboard context below with grounded, current sources. Expand their background, track record, relevant projects, and any meaningful influence on the company. Keep unknowns explicit and distinguish sourced facts from inference.\n\nPinned dashboard context:\n${pinnedContext}`,
+                        seed: `Research ${person.name} at ${name}. Verify the pinned dashboard context below with grounded, current sources. Expand their background, track record, relevant projects, and any meaningful influence on the company. Keep unknowns explicit and distinguish sourced facts from inference.\n\nPinned dashboard context:\n${pinnedContext}`,
                       },
                     );
                     setSelectedPersonId(null);

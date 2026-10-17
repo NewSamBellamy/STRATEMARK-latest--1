@@ -17,7 +17,7 @@ import { fetchWikidataHeadshot } from '@/lib/media/wikidataHeadshot';
 import { loadPersisted, makeLimiter, savePersisted } from '@/lib/media/headshotCache';
 import { LruCache, fetchWithTimeout } from '@/lib/media/lookupCache';
 
-interface Headshot {
+export interface Headshot {
   thumb: string;
   sourceUrl: string;
 }
@@ -177,7 +177,7 @@ async function resolveHeadshot(f: typeof fetch, personName: string, companyName:
 }
 
 /** Shared hook: resolve the verified headshot for a person at a company. */
-function useWikiHeadshot(name: string, companyName: string): Headshot | null {
+export function useWikiHeadshot(name: string, companyName: string): Headshot | null {
   const key = `${name}::${companyName}`;
   // The face is remembered WITH whose face it is: an avatar reused for another
   // person (a list re-filtered, re-sorted or re-keyed) must never keep showing
@@ -203,11 +203,11 @@ const GROUP_RING: Record<OrgNode['group'], string> = {
   other: 'ring-slate-300/60',
 };
 
-function photoCredit(shot: Headshot): string {
+export function photoCredit(shot: Headshot): string {
   return /wikipedia.org/.test(shot.sourceUrl) ? 'Photo: Wikipedia' : 'Photo: Wikimedia Commons';
 }
 
-function initialsOf(name: string): string {
+export function initialsOf(name: string): string {
   return name
     .split(/\s+/)
     .filter(Boolean)
