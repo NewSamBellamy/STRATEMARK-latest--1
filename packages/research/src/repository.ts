@@ -5631,6 +5631,13 @@ export class GeminiRepository implements MarketIntelRepository {
    * research: a tab that was never researched is simply absent. Nothing
    * private travels (no chats, notes, saved flags, reports or evidence vault).
    */
+  /** A tab only if it is already stored, as the dashboard shows it. Never researches. */
+  async peekDashboardTab<T extends DashboardTab>(companyId: string, tab: T): Promise<DashboardTabResult<T> | null> {
+    if (tab === 'research' || !this.snap.dashboards[companyId]?.[tab]) return null;
+    // The cache projection only (warm-up mode never researches).
+    return this.researchDashboardTab(companyId, tab, undefined, true).catch(() => null);
+  }
+
   async exportShareSnapshot(input: { deckId: string; cardId?: string | null }): Promise<ShareSnapshot> {
     const deck = this.snap.decks.find((d) => d.id === input.deckId);
     const market = deck ? this.snap.markets.find((m) => m.id === deck.marketId) : undefined;

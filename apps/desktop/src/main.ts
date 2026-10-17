@@ -426,6 +426,9 @@ function registerIpc(): void {
       z.string().nullable().optional().parse(focus),
     ),
   );
+  ipcMain.handle(IPC_CHANNELS.peekDashboardTab, (_e, companyId: unknown, tab: unknown) =>
+    repository.peekDashboardTab?.(z.string().min(1).parse(companyId), dashboardTabSchema.parse(tab)) ?? null,
+  );
   ipcMain.handle(IPC_CHANNELS.exportShareSnapshot, (_e, input: unknown) =>
     repository.exportShareSnapshot?.(
       z.object({ deckId: z.string().min(1), cardId: z.string().nullable().optional() }).parse(input),

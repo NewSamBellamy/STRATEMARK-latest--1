@@ -37,6 +37,9 @@ import {
   type ResearchHandlers,
   type AskResearchInput,
   type ResearchThread,
+  type CompanyFollow,
+  type CompanyMove,
+  type MovesRefreshResult,
   type ShareSnapshot,
   type Unsubscribe,
   type ViceClaim,
@@ -485,6 +488,65 @@ export class MockRepository implements MarketIntelRepository {
   }
 
   private reports: Report[] = [];
+
+  // Today (demo) -------------------------------------------------------------
+  // Follows live in memory. Moves are the sample deck's own stored news items that
+  // carry a reported date and a link: real headlines and links, filed under a kind
+  // by plain keywords. No refresh finds anything new; the demo says so by changing nothing.
+  private follows: CompanyFollow[] = [];
+  private readMoves = new Set<string>();
+
+  listFollows(): Promise<CompanyFollow[]> {
+    return this.delay([...this.follows]);
+  }
+
+  followCompanies(companyIds: readonly string[]): Promise<void> {
+    const at = new Date().toISOString();
+    for (const id of companyIds) {
+      const company = this.companies.find((c) => c.id === id);
+      if (company && !this.follows.some((f) => f.companyId === id)) this.follows = [...this.follows, { companyId: id, followedAt: at, companyName: company.name }];
+    }
+    return this.delay(undefined);
+  }
+
+  unfollowCompany(companyId: string): Promise<void> {
+    this.follows = this.follows.filter((f) => f.companyId !== companyId);
+    return this.delay(undefined);
+  }
+
+  listMoves(): Promise<CompanyMove[]> {
+    const moves: CompanyMove[] = [];
+    for (const follow of this.follows) {
+      const items = (this.dashboards[follow.companyId]?.content.live_intel?.items ?? []) as Array<{ id: string; source: string; title: string; url: string; publisher?: string | null; publishedDate?: string | null }>;
+      for (const item of items) {
+        if (item.source !== 'news' || !item.publishedDate || !/^https?:\/\//i.test(item.url) || Number.isNaN(Date.parse(item.publishedDate))) continue;
+        const id = `mv_${follow.companyId}_${item.id}`;
+        const t = item.title;
+        moves.push({
+          id, companyId: follow.companyId, companyName: follow.companyName ?? follow.companyId,
+          kind: /launch|release|introduc|unveil|announc/i.test(t) ? 'launch' : /rais|funding|series|valuation|invest/i.test(t) ? 'funding' : /appoint|hire|joins|names|steps down|ceo|cfo/i.test(t) ? 'hire' : 'deal',
+          importance: 2, title: t, url: item.url, publisher: item.publisher ?? null,
+          publishedAt: new Date(item.publishedDate).toISOString(), foundAt: new Date(item.publishedDate).toISOString(), source: 'news',
+          readAt: this.readMoves.has(id) ? new Date().toISOString() : null,
+        });
+      }
+    }
+    return this.delay(moves.sort((a, b) => (a.publishedAt < b.publishedAt ? 1 : -1)));
+  }
+
+  refreshMoves(): Promise<MovesRefreshResult> {
+    return this.delay({ added: 0, refreshed: 0, refreshedAt: new Date().toISOString() });
+  }
+
+  markMoveRead(moveId: string, read: boolean): Promise<void> {
+    if (read) this.readMoves.add(moveId); else this.readMoves.delete(moveId);
+    return this.delay(undefined);
+  }
+
+  /** A stored tab, never researched (the demo has only stored tabs). */
+  peekDashboardTab<T extends DashboardTab>(companyId: string, tab: T): Promise<DashboardTabResult<T> | null> {
+    return this.getDashboardTab(companyId, tab);
+  }
 
   /** A card or a whole deck as a read-only snapshot for a share link (stored data only). */
   async exportShareSnapshot(input: { deckId: string; cardId?: string | null }): Promise<ShareSnapshot> {

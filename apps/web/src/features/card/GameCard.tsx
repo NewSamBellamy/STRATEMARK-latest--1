@@ -1,4 +1,5 @@
 import { useReadOnly } from '@/lib/readOnly';
+import { FollowTodayButton } from '@/features/today/FollowTodayButton';
 import { useCallback, useMemo, useState } from 'react';
 import { Bookmark, Share2, ArrowUpRight, RefreshCw, LoaderCircle, Droplets } from 'lucide-react';
 import type { CardWithCompany } from '@mi/contracts';
@@ -90,6 +91,7 @@ export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, class
           {logoRetrying ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={14} />}
         </button>}
         <SaveCardButton cardId={data.card.id} />
+        {data.company && !view.signal && <FollowTodayButton companyId={data.company.id} companyName={data.company.name} />}
         {onShare && <button type="button" className="card-control" aria-label="Share card" onClick={onShare}><Share2 size={15} /></button>}
       </div>
     </div>}

@@ -13,4 +13,6 @@ export const qk = {
   savedCards: ['savedCards'] as const,
   moves: ['moves'] as const,
   follows: ['follows'] as const,
+  todayIntel: (companyId: string) => ['today', 'intel', companyId] as const,
+  companyCard: (companyId: string) => ['today', 'card', companyId] as const,
 };

@@ -1,11 +1,12 @@
 import { CheckCircle, Circle, Sun, X } from '@phosphor-icons/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import type { CompanyMove, MoveKind } from '@mi/contracts';
 import { EmptyState } from '@/components/states/EmptyState';
 import { cn } from '@/lib/cn';
 import { formatRelative } from '@/lib/format';
 import { useFollows, useMarkMoveRead, useMoves, useRefreshMoves, useUnfollowCompany } from '@/hooks/today';
+import { TodayCompanyView } from './TodayCompanyView';
 
 const KIND_LABEL: Record<MoveKind, string> = {
   funding: 'Funding', launch: 'Launch', hire: 'People', deal: 'Deal', filing: 'Filing',
@@ -49,6 +50,9 @@ export default function TodayPage() {
   const markRead = useMarkMoveRead();
   const unfollow = useUnfollowCompany();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]['id']>('all');
+  const [params, setParams] = useSearchParams();
+  const selected = params.get('company');
+  const select = (id: string | null) => setParams(id ? { company: id } : {}, { replace: false });
   const followCount = follows.data?.length ?? 0;
 
   // The daily look runs when Today opens; the engine skips companies it looked at in the last day.
@@ -68,7 +72,7 @@ export default function TodayPage() {
   const checkedAt = refresh.data?.refreshedAt ?? null;
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className={cn('mx-auto', selected ? 'max-w-6xl' : 'max-w-3xl')}>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-[28px] font-bold tracking-tight text-content">Today</h1>
@@ -91,6 +95,29 @@ export default function TodayPage() {
         )}
       </div>
 
+      {followCount > 0 && (
+        <nav className="mb-5 flex flex-wrap gap-1.5" aria-label="Companies on Today">
+          <button type="button" aria-current={!selected ? 'page' : undefined}
+            className={cn('rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+              !selected ? 'border-primary bg-primary/8 text-primary' : 'border-border text-muted hover:bg-surface-2 hover:text-content')}
+            onClick={() => select(null)}>
+            All companies
+          </button>
+          {(follows.data ?? []).map((follow) => {
+            const unreadHere = all.filter((m) => m.companyId === follow.companyId && !m.readAt).length;
+            return (
+              <button key={follow.companyId} type="button" aria-current={selected === follow.companyId ? 'page' : undefined}
+                className={cn('inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                  selected === follow.companyId ? 'border-primary bg-primary/8 text-primary' : 'border-border text-muted hover:bg-surface-2 hover:text-content')}
+                onClick={() => select(follow.companyId)}>
+                {follow.companyName ?? follow.companyId}
+                {unreadHere > 0 && <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold text-white" aria-label={`${unreadHere} unread`}>{unreadHere}</span>}
+              </button>
+            );
+          })}
+        </nav>
+      )}
+
       {refresh.isError && (
         <p role="alert" className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
           The check didn’t finish: {refresh.error instanceof Error ? refresh.error.message : 'unknown error'}. Stored moves are still shown.
@@ -103,6 +130,8 @@ export default function TodayPage() {
           description="Open a deck and choose More → Follow on Today. Each morning this page lists what those companies did — funding, launches, hires, deals and filings — every item dated and linked to its source."
           icon={<Sun weight="duotone" size={24} />}
         />
+      ) : selected ? (
+        <TodayCompanyView key={selected} companyId={selected} />
       ) : (
         <>
           {all.length > 0 && (
@@ -130,7 +159,7 @@ export default function TodayPage() {
               <li key={move.id} className={cn('panel flex items-start gap-3 p-4', move.readAt && 'opacity-70')}>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                    <Link to={`/company/${move.companyId}/dashboard/overview`} className="font-semibold text-content hover:text-primary hover:underline">
+                    <Link to={`/today?company=${encodeURIComponent(move.companyId)}`} className="font-semibold text-content hover:text-primary hover:underline" title="Open this company on Today">
                       {move.companyName}
                     </Link>
                     <span className="rounded-full bg-surface-2 px-2 py-0.5 font-medium">{KIND_LABEL[move.kind]}</span>

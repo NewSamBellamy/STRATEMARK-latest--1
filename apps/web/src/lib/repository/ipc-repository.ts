@@ -197,6 +197,9 @@ export class IpcRepository implements MarketIntelRepository {
   getResearchThread(id: string): Promise<ResearchThread | null> {
     return this.api.getResearchThread!.call(this.api, id);
   }
+  peekDashboardTab<T extends DashboardTab>(companyId: string, tab: T): Promise<DashboardTabResult<T> | null> {
+    return (this.api.peekDashboardTab?.(companyId, tab) as Promise<DashboardTabResult<T> | null> | undefined) ?? Promise.resolve(null);
+  }
   exportShareSnapshot(input: { deckId: string; cardId?: string | null }): Promise<ShareSnapshot> {
     if (!this.api.exportShareSnapshot) return Promise.reject(new Error('Update the desktop app to share a card or deck as a page.'));
     return this.api.exportShareSnapshot.call(this.api, input);
