@@ -50,4 +50,13 @@ describe('archiving a deck from the library', () => {
     expect(screen.queryByRole('button', { name: /^Archived/ })).not.toBeInTheDocument();
     expect(deleteDeck).not.toHaveBeenCalled();
   });
+
+  it('offers no Archive where the engine cannot archive (cloud decks)', async () => {
+    const repository = makeRepo();
+    const capabilities = repository.capabilities!();
+    repository.capabilities = () => ({ ...capabilities, unsupported: ['setMarketArchived'] });
+    const { user } = renderWithProviders(<MarketsListPage />, { repository });
+    await user.click((await screen.findAllByRole('button', { name: /^More actions for / }))[0]!);
+    expect(screen.queryByRole('menuitem', { name: 'Archive deck' })).not.toBeInTheDocument();
+  });
 });

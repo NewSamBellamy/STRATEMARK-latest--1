@@ -135,7 +135,8 @@ export class SentinelRepository implements MarketIntelRepository {
     // image-generation route, and pretending otherwise wastes user time.
     return {
       ground: true, structure: true, image: false,
-      unsupported: ['updateMarketCadence', 'deepDive', 'factCheck', 'overrideMetric', 'getMarketOpportunity', 'saveThreadAsReport', 'generateReport'],
+      // Archive: Sentinel lists only its cloud decks, and the cloud has no archive route yet.
+      unsupported: ['updateMarketCadence', 'setMarketArchived', 'deepDive', 'factCheck', 'overrideMetric', 'getMarketOpportunity', 'saveThreadAsReport', 'generateReport'],
     };
   }
 
@@ -284,14 +285,6 @@ export class SentinelRepository implements MarketIntelRepository {
   async updateMarketCadence(id: string, cadence: RefreshCadence): Promise<Market> {
     void cadence;
     throw new Error(`Cloud market cadence updates are not available through Sentinel yet: ${id}`);
-  }
-
-  async setMarketArchived(id: string, archived: boolean): Promise<Market> {
-    if ((this.memoryMarkets.get(id) as CloudMarket | undefined)?.engine === 'cloud') {
-      throw new Error(`Archiving cloud decks is not available through Sentinel yet: ${id}`);
-    }
-    const fallback = await this.fallback();
-    return fallback.setMarketArchived(id, archived);
   }
 
   async deleteMarket(id: string): Promise<boolean> {

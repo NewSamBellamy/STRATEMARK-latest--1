@@ -709,6 +709,8 @@ export class GeminiRepository implements MarketIntelRepository {
         // Deck builds own the model slots; the warm-up waits for them, and for
         // the user's spending cap / pause switch, before every tab.
         canRun: () => !this.persistenceError && this.activeBackgroundJobs.size === 0 && (warm.allowed?.() ?? true),
+        // Archiving a deck stops warm-ups already queued for it, unless a live deck shares the company.
+        wanted: (companyId) => !this.companyOnlyInArchivedDecks(companyId),
         cached: (companyId, tab) => this.warmTabState(companyId, tab),
         // The on-open path: same research, same gates, same in-flight dedupe.
         research: (companyId, tab, force) => this.researchDashboardTab(companyId, tab, force || undefined, true),
@@ -933,10 +935,7 @@ export class GeminiRepository implements MarketIntelRepository {
       if (stableCardId) entry.viceClaims = entry.viceClaims.map((claim) => ({ ...claim, cardId: stableCardId }));
     }
     const incomingKeys = new Set(result.cards.map((entry) => keyFor(entry.card, entry.company?.name)));
-    this.snap.markets = [
-      result.market,
-      ...this.snap.markets.filter((m) => m.id !== result.market.id),
-    ];
+    this.upsertMarket(result.market);
     this.snap.decks = [result.deck, ...this.snap.decks.filter((d) => d.id !== result.deck.id)];
     const existingCompanyIds = new Set(this.snap.companies.map((company) => company.id));
     const companyById = new Map<string, Company>();
@@ -1027,11 +1026,45 @@ export class GeminiRepository implements MarketIntelRepository {
   async setMarketArchived(id: string, archived: boolean): Promise<Market> {
     const at = this.snap.markets.findIndex((m) => m.id === id);
     if (at < 0) throw new Error(`Market not found: ${id}`);
+    const deckIds = new Set(this.snap.decks.filter((d) => d.marketId === id).map((d) => d.id));
+    const researching = this.snap.researchJobs.some((job) =>
+      (job.status === 'running' || job.status === 'queued') &&
+      (job.market?.id === id || (job.deck ? deckIds.has(job.deck.id) : false)));
+    if (archived && researching) {
+      throw new Error('This deck is still being researched. You can archive it once research finishes.');
+    }
     // A new object, so views holding the old list see the change.
     const market = { ...this.snap.markets[at]!, archivedAt: archived ? new Date().toISOString() : null };
     this.snap.markets = this.snap.markets.map((m, i) => (i === at ? market : m));
     await this.persist();
     return market;
+  }
+
+  /**
+   * Put a market row first, keeping what the user set on the stored row.
+   * Research results carry the market as it was when the run started, so a
+   * resumed or re-run job must not un-archive a deck or reset its cadence.
+   */
+  private upsertMarket(incoming: Market): void {
+    const existing = this.snap.markets.find((m) => m.id === incoming.id);
+    const market: Market = existing
+      ? { ...incoming, refreshCadence: existing.refreshCadence, archivedAt: existing.archivedAt ?? null }
+      : incoming;
+    this.snap.markets = [market, ...this.snap.markets.filter((m) => m.id !== incoming.id)];
+  }
+
+  /** An archived deck is set aside: no warm-ups, no background spend. */
+  private deckArchived(deckId: string): boolean {
+    const marketId = this.snap.decks.find((d) => d.id === deckId)?.marketId;
+    return Boolean(marketId && this.snap.markets.find((m) => m.id === marketId)?.archivedAt);
+  }
+
+  /** True when every deck showing this company as an entity card is archived. */
+  private companyOnlyInArchivedDecks(companyId: string): boolean {
+    const deckIds = new Set(this.snap.cards
+      .filter((card) => card.companyId === companyId && isEntityCardType(card.cardType))
+      .map((card) => card.deckId));
+    return deckIds.size > 0 && [...deckIds].every((deckId) => this.deckArchived(deckId));
   }
 
   // Decks -------------------------------------------------------------------
@@ -1907,10 +1940,7 @@ export class GeminiRepository implements MarketIntelRepository {
     // Ingest the market and deck rows. Entity stubs were already ingested
     // per-stub as discovery streamed them (hydrating against real deck ids);
     // catch any stub that never streamed rather than re-ingesting the world.
-    this.snap.markets = [
-      stubsResult.market,
-      ...this.snap.markets.filter((m) => m.id !== stubsResult.market.id),
-    ];
+    this.upsertMarket(stubsResult.market);
     this.snap.decks = [
       stubsResult.deck,
       ...this.snap.decks.filter((d) => d.id !== stubsResult.deck.id),
@@ -2218,7 +2248,7 @@ export class GeminiRepository implements MarketIntelRepository {
       // load now. Persist the market/deck rows first (the deck view reads
       // them), then release the caller while discovery's remaining passes and
       // the post-discovery setup keep streaming into the persisted deck.
-      this.snap.markets = [earlyTrio.market, ...this.snap.markets.filter((m) => m.id !== earlyTrio.market.id)];
+      this.upsertMarket(earlyTrio.market);
       this.snap.decks = [earlyTrio.deck, ...this.snap.decks.filter((d) => d.id !== earlyTrio.deck.id)];
       job.market = earlyTrio.market;
       job.deck = earlyTrio.deck;
@@ -2687,7 +2717,7 @@ export class GeminiRepository implements MarketIntelRepository {
    * Returns how many companies were newly queued.
    */
   warmDeckDashboards(deckId: string, priority: WarmPriority = 'open'): number {
-    if (!this.warmup) return 0;
+    if (!this.warmup || this.deckArchived(deckId)) return 0;
     const tiers = new Map<string, number | null>();
     for (const card of this.snap.cards) {
       if (card.deckId !== deckId || !card.companyId || !isEntityCardType(card.cardType)) continue;

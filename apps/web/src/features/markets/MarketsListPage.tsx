@@ -10,7 +10,7 @@ import { useQueries } from '@tanstack/react-query';
 import { MoreHorizontal, PlusCircle, Search } from 'lucide-react';
 import type { CardWithCompany, Deck, Market } from '@mi/contracts';
 import { useArchiveDeck, useDeleteDeck, useMarkets, projectCard } from '@/hooks/data';
-import { useRepository } from '@/lib/repository/RepositoryProvider';
+import { useRepository, useSupports } from '@/lib/repository/RepositoryProvider';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
@@ -410,7 +410,7 @@ function Library({ markets, researching }: { markets: Market[]; researching: str
   const navigate = useNavigate();
   const deleteDeck = useDeleteDeck();
   const archiveDeck = useArchiveDeck();
-  const canArchive = Boolean(useRepository().setMarketArchived);
+  const canArchive = useSupports('setMarketArchived');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<DeckSort>('recent');
   const [showArchived, setShowArchived] = useState(false);

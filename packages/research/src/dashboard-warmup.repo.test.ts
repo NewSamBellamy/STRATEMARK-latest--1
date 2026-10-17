@@ -74,6 +74,43 @@ const slot = (company: CompanyCompletenessReport, key: string) => company.slots.
 const TAB_SLOTS = ['team', 'history', 'products', 'news'];
 
 describe('dashboard warm-up in the repository', () => {
+  it('never warms an archived deck, and warms it again once restored', async () => {
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    const { repo, llm, saved } = fixtureRepo();
+    const marketId = saved().decks.find((deck) => deck.id === 'deck_fx')!.marketId;
+    await repo.setMarketArchived(marketId, true);
+
+    expect(repo.warmDeckDashboards('deck_fx', 'open')).toBe(0);
+    expect(repo.warmStoredDecks()).toBe(0);
+    expect(repo.resumeInterruptedWarmups()).toBe(0);
+    await repo.getDeckByMarket(marketId);
+    await repo.waitForDashboardWarmup();
+    expect(llm.ground).not.toHaveBeenCalled();
+
+    await repo.setMarketArchived(marketId, false);
+    expect(repo.warmDeckDashboards('deck_fx', 'backfill')).toBe(3);
+  });
+
+  it('archiving drops warm-ups already queued for the deck, without marking them tried', async () => {
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    let open = false;
+    const { repo, llm, saved } = fixtureRepo({ allowed: () => open });
+    const marketId = saved().decks.find((deck) => deck.id === 'deck_fx')!.marketId;
+    expect(repo.warmDeckDashboards('deck_fx', 'creation')).toBe(3); // queued behind a closed gate
+    await repo.setMarketArchived(marketId, true);
+
+    open = true;
+    (repo as unknown as { warmup: { kick(): void } }).warmup.kick();
+    await repo.waitForDashboardWarmup();
+    expect(llm.ground).not.toHaveBeenCalled();
+    expect(repo.pendingDashboardWarmup()).toEqual([]);
+    expect(saved().dashboardWarmup ?? {}).toEqual({});
+
+    // Restored, the deck warms in full: nothing was recorded as attempted.
+    await repo.setMarketArchived(marketId, false);
+    expect(repo.warmDeckDashboards('deck_fx', 'open')).toBe(3);
+  });
+
   it('moves every tab slot of a stored deck out of "never attempted" and stores a cited founded year', async () => {
     vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
     const { repo, saved } = fixtureRepo();
