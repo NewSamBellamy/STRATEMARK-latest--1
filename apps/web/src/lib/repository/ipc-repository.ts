@@ -24,6 +24,8 @@ import type {
   VerifyMetricResult,
   OverrideMetricInput,
   Report,
+  ProductBrief,
+  SourceActivity,
   ShareSnapshot,
   ReportRequest,
   SavedCard,
@@ -199,6 +201,16 @@ export class IpcRepository implements MarketIntelRepository {
   }
   peekDashboardTab<T extends DashboardTab>(companyId: string, tab: T): Promise<DashboardTabResult<T> | null> {
     return (this.api.peekDashboardTab?.(companyId, tab) as Promise<DashboardTabResult<T> | null> | undefined) ?? Promise.resolve(null);
+  }
+  researchProductBrief(input: { companyId: string; productName: string; force?: boolean }): Promise<ProductBrief> {
+    if (!this.api.researchProductBrief) return Promise.reject(new Error('Update the desktop app to research a product.'));
+    return this.api.researchProductBrief.call(this.api, input);
+  }
+  listSourceActivity(sinceId?: number): Promise<{ items: SourceActivity[]; lastId: number }> {
+    return this.api.listSourceActivity?.(sinceId) ?? Promise.resolve({ items: [], lastId: 0 });
+  }
+  peekProductBrief(companyId: string, productName: string): Promise<ProductBrief | null> {
+    return this.api.peekProductBrief?.(companyId, productName) ?? Promise.resolve(null);
   }
   exportShareSnapshot(input: { deckId: string; cardId?: string | null }): Promise<ShareSnapshot> {
     if (!this.api.exportShareSnapshot) return Promise.reject(new Error('Update the desktop app to share a card or deck as a page.'));

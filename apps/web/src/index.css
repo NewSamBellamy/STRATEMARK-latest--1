@@ -405,6 +405,10 @@
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+@keyframes sm-landed { from { background-color: rgb(var(--c-primary) / 0.22); } to { background-color: transparent; } }
+.sm-landed { animation: sm-landed 1.8s ease-out; border-radius: 6px 6px 0 0; }
+@media (prefers-reduced-motion: reduce) { .sm-landed { animation: none; } }
+
 .cascade > * {
   animation: mi-cascade-in 420ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }

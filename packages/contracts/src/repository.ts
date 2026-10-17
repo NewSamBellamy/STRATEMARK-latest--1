@@ -27,6 +27,7 @@ import type {
   CompanyMetric,
   DashboardContentFor,
   Ownership,
+  ProductBrief,
   Deck,
   Market,
   ScopeDefinition,
@@ -508,6 +509,16 @@ export interface Report {
  * flags, reports, keys or evidence vault). Shaped like the demo seed so the
  * same viewer code renders it. Built from what is stored; it never runs research.
  */
+/** One website the research engine just searched, read or found a source on. */
+export interface SourceActivity {
+  id: number;
+  at: string;
+  /** The site only (no path, no query): enough to show where research is looking. */
+  domain: string;
+  kind: 'searched' | 'read' | 'found';
+  company: string | null;
+}
+
 export interface ShareSnapshot {
   v: 1;
   kind: 'card' | 'deck';
@@ -930,6 +941,19 @@ export interface MarketIntelRepository {
    * OPTIONAL — engines holding research locally.
    */
   peekDashboardTab?<T extends DashboardTab>(companyId: string, tab: T): Promise<DashboardTabResult<T> | null>;
+  /**
+   * Research one product for its own page: key metrics, overview, how it is
+   * received and its growth timeline, every figure sourced. Stores the result.
+   * Spends research credits, so only on request. OPTIONAL — live-research engines.
+   */
+  researchProductBrief?(input: { companyId: string; productName: string; force?: boolean }): Promise<ProductBrief>;
+  /**
+   * The websites research touched most recently, newest last, after `sinceId`.
+   * Reported as they happen; nothing here is a forecast. OPTIONAL — live-research engines.
+   */
+  listSourceActivity?(sinceId?: number): Promise<{ items: SourceActivity[]; lastId: number }>;
+  /** A stored product brief, or null when none was researched. Never researches. OPTIONAL. */
+  peekProductBrief?(companyId: string, productName: string): Promise<ProductBrief | null>;
   listReports(): Promise<Report[]>;
   getReport(id: string): Promise<Report | null>;
 

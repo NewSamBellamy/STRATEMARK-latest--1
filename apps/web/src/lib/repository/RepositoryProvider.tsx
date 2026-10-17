@@ -114,6 +114,8 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       },
       // Founded year from the company's own Wikidata item (no provider calls).
       wikidataJson,
+      // YouTube's public oEmbed answer, to confirm a History video exists and can be embedded.
+      videoJson: wikidataJson,
     });
   }
   if (!sample) throw new Error('Demo mode needs the sample deck loaded first (loadSampleSnapshot).');

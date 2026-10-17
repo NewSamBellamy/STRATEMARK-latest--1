@@ -26,6 +26,7 @@ import { useResearchControl } from '@/lib/living/researchControl';
 import { useRepository, useRepositoryMode } from '@/lib/repository/RepositoryProvider';
 import { SettingsLink } from '@/components/SettingsLink';
 import { useResearchSession } from './research-session';
+import { groupSites, KIND_VERB, useSourceActivity } from './sourceActivity';
 
 const CATEGORY_LABEL: Record<string, string> = {
   vice: 'risk and controversy signals',
@@ -158,6 +159,9 @@ export function DeckStatusBar({
         : desks.length > 0 && complete === desks.length ? 'ready'
           : living.canVerify && living.status === 'running' ? 'filling'
             : 'incomplete';
+
+  const sourceFeed = useSourceActivity(open && (phase === 'creating' || phase === 'filling'));
+  const sites = groupSites(sourceFeed.items);
 
   // The clock ticks only while something is moving.
   const moving = phase === 'creating' || phase === 'filling' || open;
@@ -335,6 +339,29 @@ export function DeckStatusBar({
               </p>
             )}
           </section>
+          {sourceFeed.supported && (phase === 'creating' || phase === 'filling') && (
+            <section aria-label="Where research is looking" className="md:col-span-2">
+              <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-faint">Where research is looking</h3>
+              {sites.length > 0 ? (
+                <ul className="flex flex-wrap gap-1.5">
+                  {sites.map((site) => (
+                    <li key={site.domain} className="rounded-full border border-border px-2.5 py-0.5 text-[12px] text-muted"
+                      title={`${KIND_VERB[site.kind]}${site.company ? ` for ${site.company}` : ''}${site.count > 1 ? `, ${site.count} times` : ''}`}>
+                      <span className="font-medium text-content">{site.domain}</span>
+                      <span className="text-faint"> · {KIND_VERB[site.kind]}{site.count > 1 ? ` ×${site.count}` : ''}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[12px] text-faint">Waiting for the next search. Sites appear here as research reaches them.</p>
+              )}
+              <p className="mt-1.5 text-[11px] text-faint">
+                Left to do: {phase === 'creating'
+                  ? (planned > 0 ? `${plural(Math.max(0, planned - done), 'company', 'companies')} of ${planned}` : 'the company list is still forming')
+                  : `${plural(missing, 'figure', 'figures')} on ${plural(desks.length - complete, 'card', 'cards')}`}. No time estimate: research pace depends on the sources.
+              </p>
+            </section>
+          )}
           {coverage.length > 0 && (
             <section aria-label="Coverage notes" className="md:col-span-2">
               <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-faint">Coverage notes</h3>

@@ -6,6 +6,7 @@ import { HydratingPanel } from './HydratingPanel';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { InsightReader } from '@/components/reader/InsightReader';
 import { WikiAvatar } from './LeaderGrid';
+import { HistoryVideoHero } from './HistoryVideoHero';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader, SourceLink } from './TabKit';
@@ -83,6 +84,7 @@ export function HistoryTab({ companyId }: { companyId: string }) {
         const years0 = years.length ? `${years[years.length - 1]!.label}–${years[0]!.label}` : null;
         return (
           <div className="space-y-5 cascade">
+            {c.video && <HistoryVideoHero video={c.video} companyName={name} />}
             {/* The one-pager: the company's story, written to be read. */}
             {c.founderStory.trim().length > 0 && (
               <section className="panel p-6" aria-label="Company story">

@@ -543,6 +543,11 @@ export class MockRepository implements MarketIntelRepository {
     return this.delay(undefined);
   }
 
+  /** The demo holds no researched product pages. */
+  peekProductBrief(): Promise<null> {
+    return Promise.resolve(null);
+  }
+
   /** A stored tab, never researched (the demo has only stored tabs). */
   peekDashboardTab<T extends DashboardTab>(companyId: string, tab: T): Promise<DashboardTabResult<T> | null> {
     return this.getDashboardTab(companyId, tab);

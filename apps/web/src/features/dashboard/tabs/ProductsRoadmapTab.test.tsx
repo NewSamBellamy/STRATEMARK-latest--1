@@ -9,6 +9,7 @@ vi.mock('@/hooks/data', () => ({ useCompany: () => ({ data: { name: 'Acme' } }),
 }) }));
 vi.mock('../useCachedTab', () => ({ useCachedDashboardTab: (_id: string, tab: string) => ({ data: state.cached[tab] }) }));
 vi.mock('@/components/media/AiCover', () => ({ AiCover: () => null }));
+vi.mock('./ProductPage', () => ({ ProductPage: ({ product }: { product: Product }) => <a href={product.url ?? undefined}>Official page</a> }));
 vi.mock('@/features/deepdive/DeepDive', () => ({ DigDeeper: () => null, DigDeeperMenu: () => null }));
 beforeEach(() => { state.products = []; state.relationships = undefined; state.cached = {}; });
 
@@ -55,7 +56,7 @@ describe('product evidence wording in the existing view', () => {
     render(<ProductsRoadmapTab companyId="cmp" />);
     expect(screen.getByText(/not a revenue ranking/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Atlas/ }));
-    expect(await screen.findByRole('link', { name: 'Open official source' })).toHaveAttribute('href', 'https://acme.com/blog/atlas');
+    expect(await screen.findByRole('link', { name: 'Official page' })).toHaveAttribute('href', 'https://acme.com/blog/atlas');
   });
   it('lists named relationships by kind with their reported sentence and source, and shows nothing when none are reported', () => {
     const { unmount } = render(<ProductsRoadmapTab companyId="cmp" />);

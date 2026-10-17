@@ -59,3 +59,5 @@ export * from './chat-context';
 // Dashboard warm-up (every deck company's tabs researched in the background)
 export * from './dashboard-warmup';
 export * from './founded-year';
+export * from './history-video';
+export * from './product-brief';

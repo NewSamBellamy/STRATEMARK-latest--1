@@ -540,10 +540,22 @@ export const quoteSchema = z.object({
   // a quote without provenance, not a malformed row to discard.
   sourceUrl: z.string().url().optional().catch(undefined),
 });
+/** The video chosen for the History tab: found by search, then checked against the company by a second pass. */
+export const historyVideoSchema = z.object({
+  id: z.string().regex(/^[\w-]{11}$/),
+  title: z.string().max(300),
+  channel: z.string().max(200),
+  channelUrl: z.string().max(300).regex(/^https:[/][/](www[.])?youtube[.]com[/]/i).nullable().catch(null),
+  /** One plain sentence on why the check accepted it. */
+  verdict: z.string().max(400),
+  checkedAt: isoTimestamp,
+});
 export const historyContentSchema = z.object({
   founderStory: prose(),
   timeline: rows(timelineEventSchema),
   quotes: rows(quoteSchema),
+  /** Additive: absent until a video passed the check; never filled with a guess. */
+  video: historyVideoSchema.nullable().optional().catch(null),
 });
 
 export const productSchema = z.object({
@@ -578,6 +590,43 @@ export const businessRelationshipSchema = z.object({
   quote: z.string(),
   sourceUrl: prose().nullable().catch(null),
   sourceTitle: prose().nullable().catch(null),
+});
+/**
+ * One product's page, researched on request. Every metric is a figure a source
+ * states: a value without a source is dropped by the engine, and a metric
+ * nobody reports is carried as null (shown as "Not reported"), never estimated.
+ */
+export const productBriefMetricSchema = z.object({
+  label: z.string(),
+  /** As the source writes it ("100M weekly users"); null = not reported. */
+  value: z.string().nullable().catch(null),
+  asOf: z.string().nullable().catch(null),
+  sourceUrl: z.string().nullable().catch(null),
+  sourceTitle: z.string().nullable().catch(null),
+});
+export const productBriefSentimentSchema = z.object({
+  summary: prose(),
+  positive: z.array(z.string()).catch([]),
+  negative: z.array(z.string()).catch([]),
+  /** Where the reporting on reception comes from. */
+  sources: rows(z.object({ title: z.string(), url: z.string() })),
+});
+export const productBriefTimelineSchema = z.object({
+  /** As the source dates it ("Nov 2022", "2024 Q3"). */
+  date: z.string(),
+  title: z.string(),
+  detail: prose(),
+  sourceUrl: z.string().nullable().catch(null),
+});
+export const productBriefSchema = z.object({
+  companyId: z.string(),
+  productName: z.string(),
+  generatedAt: isoTimestamp,
+  overview: prose(),
+  metrics: rows(productBriefMetricSchema),
+  sentiment: productBriefSentimentSchema.nullable().catch(null),
+  timeline: rows(productBriefTimelineSchema),
+  citations: z.array(citationSchema).catch([]),
 });
 export const productsRoadmapContentSchema = z.object({
   products: rows(productSchema),
