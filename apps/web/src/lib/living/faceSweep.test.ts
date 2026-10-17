@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildDataset } from '@mi/mocks';
 import type { CardWithCompany, CompanyMetric } from '@mi/contracts';
 import { buildCardView } from '@/features/card/card-view';
-import { FACE_SWEEP_CONCURRENCY, missingFaceSlots, runFaceSweep, selectFaceSweepTargets } from './faceSweep';
+import { FACE_SWEEP_CONCURRENCY, gapsByKind, missingFaceSlots, runFaceSweep, selectFaceSweepTargets } from './faceSweep';
 
 const dataset = buildDataset();
 const baseCard = dataset.cards.find((c) => c.cardType === 'company' && c.companyId)!;
@@ -20,6 +20,24 @@ function deckCard(n: number, metrics: CompanyMetric[]): CardWithCompany {
     metrics: metrics.map((m) => ({ ...m, companyId: id })), viceClaims: [] };
 }
 const full = (n: number) => deckCard(n, [human('x', 'employees', 40), human('x', 'arr', 2e6), human('x', 'users', 900), human('x', 'valuation', 2e7)]);
+
+describe('gapsByKind', () => {
+  it('counts which kinds of figure are missing across companies, most common first, ignoring full faces', () => {
+    const partial = deckCard(2, [human('x', 'employees', 40), human('x', 'users', 900)]);
+    const empty = deckCard(3, []);
+    const gaps = gapsByKind([full(1), partial, empty]);
+    expect(gaps.length).toBeGreaterThan(0);
+    expect(gaps.reduce((n, g) => n + g.companies, 0)).toBe(2 + 4);
+    expect(gaps[0]!.companies).toBeGreaterThanOrEqual(gaps[gaps.length - 1]!.companies);
+    expect(gapsByKind([full(1)])).toEqual([]);
+  });
+
+  it('counts a company once even when several of its cards are in the deck', () => {
+    const a = deckCard(7, []);
+    const b = { ...a, card: { ...a.card, id: 'card_7b' } };
+    expect(gapsByKind([a, b]).every((g) => g.companies === 1)).toBe(true);
+  });
+});
 
 describe('face sweep selection', () => {
   it('targets only cards with an empty face slot, most empty first, and names the missing slots', () => {

@@ -20,7 +20,7 @@ import { Check, ChevronDown, Info, Pause, Play, RefreshCw, Sparkles } from 'luci
 import { isEntityCardType, type CardWithCompany, type ResearchJob } from '@mi/contracts';
 import { cn } from '@/lib/cn';
 import { buildCardView } from '@/features/card/card-view';
-import { missingFaceSlots } from '@/lib/living/faceSweep';
+import { gapsByKind, missingFaceSlots } from '@/lib/living/faceSweep';
 import type { LivingDeckState } from '@/lib/living/useLivingDeck';
 import { useResearchControl } from '@/lib/living/researchControl';
 import { useRepository, useRepositoryMode } from '@/lib/repository/RepositoryProvider';
@@ -161,6 +161,7 @@ export function DeckStatusBar({
           : living.canVerify && living.status === 'running' ? 'filling'
             : 'incomplete';
 
+  const gaps = useMemo(() => gapsByKind(cards), [cards]);
   const fillRecord = useFillRecord(deckId, desks, phase === 'ready' || phase === 'incomplete' || phase === 'filling');
   const sourceFeed = useSourceActivity(open && (phase === 'creating' || phase === 'filling'));
   const sites = groupSites(sourceFeed.items);
@@ -376,6 +377,19 @@ export function DeckStatusBar({
                 .
               </p>
               <p className="mt-1 text-[11px] text-faint">Counted from the cards on this device. Spend is the usage meter's estimate, not a bill.</p>
+            </section>
+          )}
+          {gaps.length > 0 && phase !== 'creating' && (
+            <section aria-label="Figures still missing" className="md:col-span-2">
+              <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-faint">Figures still missing</h3>
+              <ul className="flex flex-wrap gap-1.5">
+                {gaps.map((g) => (
+                  <li key={g.label} className="rounded-full border border-border px-2.5 py-0.5 text-[12px] text-muted">
+                    <span className="font-medium text-content">{g.label}</span> · {plural(g.companies, 'company', 'companies')}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-[11px] text-faint">A kind missing on many companies points at the research process; one or two is usually a figure nobody publishes.</p>
             </section>
           )}
           {coverage.length > 0 && (

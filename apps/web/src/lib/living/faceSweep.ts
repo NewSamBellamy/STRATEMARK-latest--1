@@ -44,6 +44,25 @@ export function missingFaceSlots(card: CardWithCompany): string[] {
   return buildCardView(card).faceMetrics.filter((slot) => slot.metric === undefined).map((slot) => slot.key);
 }
 
+/**
+ * Which kinds of figure the deck's faces are still missing, most common first:
+ * the systematic gaps (a figure type that fails across many companies) stand
+ * out from one-off misses, so a fix targets the process rather than a deck.
+ */
+export function gapsByKind(cards: readonly CardWithCompany[]): Array<{ label: string; companies: number }> {
+  const seen = new Set<string>();
+  const counts = new Map<string, number>();
+  for (const card of cards) {
+    if (!card.company || seen.has(card.company.id) || !isEntityCardType(card.card.cardType)) continue;
+    seen.add(card.company.id);
+    for (const slot of buildCardView(card).faceMetrics) {
+      if (slot.metric === undefined) counts.set(slot.label, (counts.get(slot.label) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()].map(([label, companies]) => ({ label, companies }))
+    .sort((a, b) => b.companies - a.companies || a.label.localeCompare(b.label));
+}
+
 /** One target per company with at least one empty face slot, most-empty first. */
 export function selectFaceSweepTargets(cards: readonly CardWithCompany[]): FaceSweepTarget[] {
   const seen = new Set<string>();
