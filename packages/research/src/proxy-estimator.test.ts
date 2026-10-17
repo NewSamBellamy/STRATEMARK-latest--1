@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CATEGORY_BENCHMARKS,
   FUNDING_DILUTION_BENCHMARKS,
+  FUNDING_ROUND_TYPES,
   detectCategoryBenchmark,
   detectFundingBenchmark,
   estimateArrFromHeadcount,
@@ -539,5 +540,33 @@ describe('Deep-Module Interface & 4-Tier Hierarchy Architecture', () => {
     expect(emptyResult.valuation?.value).toBeNull();
     expect(emptyResult.valuation?.confidence).toBe('unknown');
     expect(emptyResult.valuation?.methodNote).toContain('Unknown: No verified venture funding rounds disclosed');
+  });
+});
+
+describe('funding round type as a constrained outcome (issue #48)', () => {
+  it('exposes the canonical round vocabulary a model may report', () => {
+    expect(FUNDING_ROUND_TYPES).toContain('series_a');
+    expect(FUNDING_ROUND_TYPES).toContain('pre_seed');
+    expect(FUNDING_ROUND_TYPES).not.toContain('Series A'); // prose is not a value
+  });
+
+  it('maps every canonical round value to a dilution bracket', () => {
+    // The regex classifier was written for prose ("Series A"). Fed the canonical
+    // `series_a`, its `series[- ]a` pattern misses the underscore and silently
+    // falls through to general_venture — a different multiplier, so a different
+    // valuation. Every enum value must land on its intended bracket.
+    expect(detectFundingBenchmark('pre_seed').key).toBe('seed');
+    expect(detectFundingBenchmark('seed').key).toBe('seed');
+    expect(detectFundingBenchmark('series_a').key).toBe('series_a');
+    expect(detectFundingBenchmark('series_b').key).toBe('series_b_c_growth');
+    expect(detectFundingBenchmark('series_c').key).toBe('series_b_c_growth');
+    expect(detectFundingBenchmark('series_d_plus').key).toBe('series_b_c_growth');
+    expect(detectFundingBenchmark('growth').key).toBe('series_b_c_growth');
+  });
+
+  it('still classifies legacy prose, so decks stored before the enum keep working', () => {
+    expect(detectFundingBenchmark('Series A').key).toBe('series_a');
+    expect(detectFundingBenchmark('Seed round').key).toBe('seed');
+    expect(detectFundingBenchmark(null).key).toBe('general_venture');
   });
 });

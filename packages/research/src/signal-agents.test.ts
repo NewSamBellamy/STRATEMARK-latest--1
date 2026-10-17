@@ -21,6 +21,7 @@ import {
   researchCompanyVice,
   researchMarketInsights,
   researchMarketSignals,
+  resolveClaimCitations,
   resolveClaimCitation,
 } from './signal-agents';
 
@@ -214,6 +215,14 @@ describe('Signal Agents Deep Module', () => {
       expect(resolveClaimCitation(null, sampleCitations)).toEqual([]);
       expect(resolveClaimCitation(-1, sampleCitations)).toEqual([]);
       expect(resolveClaimCitation(99, sampleCitations)).toEqual([]);
+    });
+
+    it('retains multiple distinct source receipts for one market finding', () => {
+      const citations = resolveClaimCitations(0, [0, 1, 99], sampleCitations);
+      expect(citations.map((citation) => citation.url)).toEqual([
+        'https://reuters.com/article/ai-compute-moats',
+        'https://sec.gov/edgar/filings/10k',
+      ]);
     });
 
     it('extracts sourced vice claims dropping unsourced claims', () => {
@@ -511,6 +520,16 @@ describe('Signal Agents Deep Module', () => {
   });
 
   describe('researchMarketSignals (Unified Orchestration)', () => {
+    it('asks for its few calls ahead of the deck\'s queued bulk work', async () => {
+      const client = createMockLlmClient({});
+      const ground = vi.spyOn(client, 'ground');
+      const structure = vi.spyOn(client, 'structure');
+      await researchMarketSignals(client, samplePlan, 'dck_macro_priority', { minBarriers: 1, minInsights: 1 });
+      expect(ground).toHaveBeenCalled();
+      expect(ground.mock.calls.every(([, opts]) => opts?.priority === 'urgent')).toBe(true);
+      expect(structure.mock.calls.every(([, , opts]) => opts?.priority === 'urgent')).toBe(true);
+    });
+
     it('orchestrates joint macro research pass producing barrier and insight cards', async () => {
       const client = createMockLlmClient({});
       const cards = await researchMarketSignals(client, samplePlan, 'dck_macro_1', {
@@ -606,6 +625,27 @@ describe('Signal Agents Deep Module', () => {
       // Verify citation sourceIndex offsetting
       const barrier2 = cards.find((c) => c.card.title === 'Barrier 2')!;
       expect(barrier2.card.citations[0]!.url).toBe('https://sec.gov/p2');
+    });
+
+    it('runs the fallback pass when first-pass items have no usable source', async () => {
+      let calls = 0;
+      const claim = (title: string, sourceIndex: number | null) => ({ title, summary: `${title} summary`, sourceIndex, keyPoints: ['p'] });
+      const client: LlmClient = {
+        ground: vi.fn(async () => {
+          calls += 1;
+          return calls === 1
+            ? { text: 'Ungrounded notes', citations: [], queries: [] }
+            : { text: 'Grounded notes', citations: [{ title: 'sec.gov', url: 'https://sec.gov/p2' }], queries: ['q'] };
+        }),
+        structure: vi.fn(async (_prompt: string, schema: ZodType<unknown>) => schema.parse({
+          barriers: [claim('B1', 0), claim('B2', 0)],
+          insights: [claim('I1', calls === 1 ? null : 0), claim('I2', 0)],
+        })) as LlmClient['structure'],
+      };
+      const cards = await researchMarketSignals(client, samplePlan, 'dck_unsourced', { minBarriers: 2, minInsights: 2 });
+      expect(client.ground).toHaveBeenCalledTimes(2);
+      expect(cards.filter((c) => c.card.cardType === 'insight').length).toBeGreaterThan(0);
+      expect(cards.every((c) => c.card.citations.length > 0)).toBe(true);
     });
 
     it('respects AbortSignal and cancels gracefully', async () => {

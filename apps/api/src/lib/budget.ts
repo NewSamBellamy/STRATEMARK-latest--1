@@ -24,6 +24,8 @@ export interface BudgetState {
   ground: number;
   structure: number;
   vision: number;
+  /** Verification-class calls (LLM-as-judge), priced like grounded work. */
+  judge: number;
 }
 
 export interface BudgetStatus {
@@ -42,6 +44,7 @@ export const EST_COST_USD = {
   ground: 0.04,
   structure: 0.002,
   vision: 0.002,
+  judge: 0.04,
 } as const;
 
 export type SpendKind = keyof typeof EST_COST_USD;
@@ -57,14 +60,14 @@ export class DailyBudget {
   private state: BudgetState;
 
   constructor(private readonly capUsd: number = DEFAULT_DAILY_CAP_USD) {
-    this.state = { day: today(), ground: 0, structure: 0, vision: 0 };
+    this.state = { day: today(), ground: 0, structure: 0, vision: 0, judge: 0 };
   }
 
   /** Roll the counters when the UTC day changes. */
   private roll(): void {
     const now = today();
     if (this.state.day !== now) {
-      this.state = { day: now, ground: 0, structure: 0, vision: 0 };
+      this.state = { day: now, ground: 0, structure: 0, vision: 0, judge: 0 };
     }
   }
 
@@ -72,7 +75,8 @@ export class DailyBudget {
     return (
       this.state.ground * EST_COST_USD.ground +
       this.state.structure * EST_COST_USD.structure +
-      this.state.vision * EST_COST_USD.vision
+      this.state.vision * EST_COST_USD.vision +
+      this.state.judge * EST_COST_USD.judge
     );
   }
 
@@ -108,7 +112,7 @@ export class DailyBudget {
 
   /** Test seam. */
   reset(): void {
-    this.state = { day: today(), ground: 0, structure: 0, vision: 0 };
+    this.state = { day: today(), ground: 0, structure: 0, vision: 0, judge: 0 };
   }
 }
 

@@ -1,21 +1,33 @@
+import { useFocusCompany } from '@/lib/living/researchFocus';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useIsFetching, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChevronDown, FileText, Search } from 'lucide-react';
-import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, type DashboardTab } from '@mi/contracts';
-import { useCompany, useReports, useRerunDashboardTab } from '@/hooks/data';
-import { useRepository } from '@/lib/repository/RepositoryProvider';
+import { Link, Navigate, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient, useIsFetching } from '@tanstack/react-query';
+import { lookupFoundedYear } from '@/lib/media/wikidataFounded';
+import { ArrowLeft, CalendarDays, ChevronDown, FileText, Globe, MapPin, Search } from 'lucide-react';
+import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, ownershipLabel, type DashboardTab } from '@mi/contracts';
+import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
+import { useCompany, useCompanyMetrics, useReports, useRerunDashboardTab } from '@/hooks/data';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
-import { qk } from '@/lib/query/keys';
-import { ReportButton, ThreadHistoryButton } from '@/features/research/ResearchControls';
+import { useDashboardWarm } from '@/lib/living/useDashboardWarm';
+import { BackgroundResearchControl } from '@/lib/living/BackgroundResearchControl';
+import { GroundingQuotaNotice } from '@/lib/living/GroundingQuotaNotice';
+import { siteUrl } from '@/lib/siteUrl';
+import { ThreadHistoryButton } from '@/features/research/ResearchControls';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { ContextRerun } from '@/components/ui/ContextRerun';
 import { cn } from '@/lib/cn';
 import { formatRelative } from '@/lib/format';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { Logo } from '@/features/card/Logo';
+import { ExportMenu } from '@/features/export/ExportMenu';
+import { useAvailableTabs, useReadOnly } from '@/lib/readOnly';
 import { DigDeeper, useDeepDive } from '@/features/deepdive/DeepDive';
+import { TabFreshness } from './TabFreshness';
+import { useDashboardAssembly, type Assembly } from './useDashboardAssembly';
+import { foundedYear, reportsToSec, secFilingsUrl } from './snapshot';
+import { useCachedDashboardTab } from './useCachedTab';
 import { OverviewTab } from './tabs/OverviewTab';
+import { ResearchTab } from './tabs/ResearchTab';
 import { LiveIntelTab } from './tabs/LiveIntelTab';
 import { TeamOrgTab } from './tabs/TeamOrgTab';
 import { LiveLandingTab } from './tabs/LiveLandingTab';
@@ -61,6 +73,40 @@ function ResearchComposer({ companyId, companyName }: { companyId: string; compa
   );
 }
 
+/** A fallback one-liner that only says where the company is adds nothing next to the HQ chip. */
+function restatesHq(line: string, hq: string | null | undefined): boolean {
+  return Boolean(hq) && line.includes(hq!) && /\b(?:is |are )?(?:headquartered|based|located) in\b/i.test(line) && line.length < hq!.length + 90;
+}
+
+/** One quiet row of facts under the company name; each only if it exists. */
+function KeyFacts({ hq, website, founded, filingsUrl }: { hq: string | null; website: string | null; founded: { year: number; from: string } | null; filingsUrl: string | null }) {
+  if (!hq && !website && !founded && !filingsUrl) return null;
+  return (
+    <ul className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted" aria-label="Key facts">
+      {hq && (
+        <li className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 text-faint" aria-hidden />{hq}</li>
+      )}
+      {founded && (
+        <li className="inline-flex items-center gap-1.5" title={`From ${founded.from}`}><CalendarDays className="h-3.5 w-3.5 text-faint" aria-hidden />Founded {founded.year}</li>
+      )}
+      {filingsUrl && (
+        <li>
+          <a href={filingsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:text-primary-ink hover:underline" title="Filings, ownership forms and statements on SEC EDGAR">
+            <FileText className="h-3.5 w-3.5 text-faint" aria-hidden />SEC filings
+          </a>
+        </li>
+      )}
+      {website && (
+        <li>
+          <a href={siteUrl(website) ?? undefined} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:text-primary-ink hover:underline">
+            <Globe className="h-3.5 w-3.5 text-faint" aria-hidden />{website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+          </a>
+        </li>
+      )}
+    </ul>
+  );
+}
+
 /** The company's intel file: every report generated about it, attached here. */
 function IntelFile({ companyId }: { companyId: string }) {
   const reports = useReports();
@@ -100,6 +146,8 @@ function TabView({ tab, companyId }: { tab: DashboardTab; companyId: string }) {
   switch (tab) {
     case 'overview':
       return <OverviewTab companyId={companyId} />;
+    case 'research':
+      return <ResearchTab companyId={companyId} />;
     case 'live_intel':
       return <LiveIntelTab companyId={companyId} />;
     case 'team_org':
@@ -117,7 +165,24 @@ function TabView({ tab, companyId }: { tab: DashboardTab; companyId: string }) {
   }
 }
 
-const VISIBLE_TAB_COUNT = 6;
+const VISIBLE_TAB_COUNT = 5;
+
+/**
+ * Tab order shown in the nav. Every figure and sentence carries its own source
+ * link; the full source list and saved research live in one place at the end
+ * (Research & Sources), not in a box under every tab.
+ */
+const NAV_TABS: DashboardTab[] = [
+  'overview',
+  'metrics',
+  'team_org',
+  'history',
+  'products_roadmap',
+  'live_intel',
+  'mission_governance',
+  'live_landing',
+  'research',
+];
 
 /**
  * The non-intrusive agentic trace: while desk agents research tabs in the
@@ -125,34 +190,69 @@ const VISIBLE_TAB_COUNT = 6;
  * pulsing pill rides the tab bar. Driven by REAL in-flight query state —
  * it appears when work is genuinely happening and vanishes when it's done.
  */
-function AgentWorkingPill({ companyId }: { companyId: string }) {
+function AgentWorkingPill({ companyId, assembly }: { companyId: string; assembly: Assembly }) {
+  const queryClient = useQueryClient();
+  // Red team #15: "Agent researching 1 section" was too vague. The query cache
+  // knows EXACTLY which dashboard tabs are in flight — name them.
   const inFlight = useIsFetching({ queryKey: ['dashboard', companyId] });
   if (inFlight === 0) return null;
+  const fetchingTabs = queryClient
+    .getQueryCache()
+    .getAll()
+    .filter((q) => Array.isArray(q.queryKey) && q.queryKey[0] === 'dashboard' &&
+      q.queryKey[1] === companyId && q.state.fetchStatus === 'fetching')
+    .map((q) => DASHBOARD_TAB_LABELS[(q.queryKey[2] as DashboardTab) ?? ''] ?? String(q.queryKey[2] ?? 'section'))
+    .slice(0, 3);
+  const named = fetchingTabs.length
+    ? fetchingTabs.join(fetchingTabs.length > 1 ? ' · ' : '')
+    : 'dashboard sections';
   return (
     <span
       className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap pb-1 text-[11px] font-medium text-muted"
-      title="Desk agents are researching sections of this dashboard in the background — each finishes and fills in live."
+      title="Desk agents are researching these sections in the background — each finishes and fills in live."
     >
       <span className="relative flex h-1.5 w-1.5">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
       </span>
-      {inFlight === 1 ? 'Agent researching 1 section…' : `Agents researching ${inFlight} sections…`}
+      Researching {named}…
+      <span className="tabular-nums text-faint">{assembly.filled} of {assembly.total} sections ready</span>
     </span>
   );
+}
+
+/** A quiet mark on a tab: pulsing while it is researched, a solid dot for a moment once it lands. */
+function SectionMarker({ assembly, tab }: { assembly: Assembly; tab: DashboardTab }) {
+  if (assembly.state(tab) === 'researching') {
+    return (
+      <span className="relative flex h-1.5 w-1.5" role="img" aria-label="Researching now">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60 motion-reduce:animate-none" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      </span>
+    );
+  }
+  if (assembly.landed.has(tab)) {
+    return <span className="h-1.5 w-1.5 rounded-full bg-primary" role="img" aria-label="Just filled in" />;
+  }
+  return null;
 }
 
 function DashboardTabNav({
   companyId,
   activeTab,
   fromMarketId,
+  fromCardId,
+  fromDeckView,
 }: {
   companyId: string;
   activeTab: DashboardTab;
   fromMarketId: string | null;
+  fromCardId: string | null;
+  fromDeckView: string | null;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const assembly = useDashboardAssembly(companyId);
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -163,11 +263,14 @@ function DashboardTabNav({
     return () => document.removeEventListener('mousedown', close);
   }, [moreOpen]);
 
-  const visibleTabs = DASHBOARD_TABS.slice(0, VISIBLE_TAB_COUNT);
-  const overflowTabs = DASHBOARD_TABS.slice(VISIBLE_TAB_COUNT);
+  // A shared copy offers only the tabs that travelled with it.
+  const available = useAvailableTabs(companyId);
+  const navTabs = available ? NAV_TABS.filter((t) => available.includes(t)) : NAV_TABS;
+  const visibleTabs = navTabs.slice(0, VISIBLE_TAB_COUNT);
+  const overflowTabs = navTabs.slice(VISIBLE_TAB_COUNT);
   const activeInOverflow = overflowTabs.includes(activeTab);
 
-  const qs = fromMarketId ? `?deck=${fromMarketId}` : '';
+  const qs = fromMarketId ? `?${new URLSearchParams({ deck: fromMarketId, ...(fromCardId ? { card: fromCardId } : {}), ...(fromDeckView ? { view: fromDeckView } : {}) })}` : '';
 
   return (
     <nav
@@ -180,14 +283,16 @@ function DashboardTabNav({
           to={`/company/${companyId}/dashboard/${t}${qs}`}
           className={({ isActive }) =>
             cn(
-              'whitespace-nowrap border-b-2 px-3.5 py-2 text-[13px] font-medium transition-colors',
+              'inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-[13px] font-medium transition-colors',
               isActive
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted hover:text-content',
+              assembly.landed.has(t) && 'sm-landed',
             )
           }
         >
           {DASHBOARD_TAB_LABELS[t]}
+          <SectionMarker assembly={assembly} tab={t} />
         </NavLink>
       ))}
       {overflowTabs.length > 0 && (
@@ -202,7 +307,7 @@ function DashboardTabNav({
                 : 'border-transparent text-muted hover:text-content',
             )}
           >
-            {activeInOverflow ? DASHBOARD_TAB_LABELS[activeTab] : 'More'}
+            More
             <ChevronDown className={cn('h-3 w-3 transition-transform', moreOpen && 'rotate-180')} />
           </button>
           {moreOpen && (
@@ -228,7 +333,7 @@ function DashboardTabNav({
           )}
         </div>
       )}
-      <AgentWorkingPill companyId={companyId} />
+      <AgentWorkingPill companyId={companyId} assembly={assembly} />
     </nav>
   );
 }
@@ -238,31 +343,51 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const fromMarketId = params.get('deck');
+  const fromCardId = params.get('card');
+  const fromDeckView = params.get('view');
+  const returnToDeck = () => {
+    if (!fromMarketId) return navigate(-1);
+    const deckParams = new URLSearchParams(fromDeckView ?? '');
+    if (fromCardId) deckParams.set('card', fromCardId);
+    navigate(`/markets/${fromMarketId}/deck${deckParams.size ? `?${deckParams}` : ''}`);
+  };
   const company = useCompany(companyId);
+  const metrics = useCompanyMetrics(companyId);
+  // Only once the History tab has been researched: never starts research of its own.
+  const historyFounded = foundedYear(useCachedDashboardTab(companyId ?? '', 'history').data?.content.timeline);
+  // Stored at research time with its citation (company.founded); a Wikidata
+  // year stored there needs no lookup.
+  const stored = company.data?.founded ?? null;
+  // The company's own Wikidata item (matched by its website) outranks a milestone's wording.
+  const registryFounded = useQuery({
+    queryKey: ['founded-year', company.data?.name, company.data?.websiteUrl],
+    queryFn: () => lookupFoundedYear(company.data!.name, company.data!.websiteUrl),
+    enabled: Boolean(company.data?.name && company.data?.websiteUrl) && stored?.source !== 'wikidata',
+    staleTime: Infinity,
+  }).data;
+  const founded = stored?.source === 'wikidata' ? { year: stored.year, from: 'Wikidata' }
+    : registryFounded ? { year: registryFounded.year, from: 'Wikidata' }
+      : stored ? { year: stored.year, from: stored.source === 'website' ? 'the company website' : 'the History tab' }
+        : historyFounded ? { year: historyFounded, from: 'the History tab' } : null;
+  // The fallback oneLiner reads as a contradiction when the metrics grid below
+  // it shows figures. With provider-reported figures on file, say what state
+  // the snapshot is actually in instead of claiming nothing exists.
+  const headerSubtitle = company.data
+    && company.data.oneLiner === UNSUPPORTED_COMPANY_SUMMARY
+    && (metrics.data ?? []).some((m) => m.value != null && m.confidence !== 'unknown')
+      ? 'Some figures come from data providers and haven’t been checked against an original source yet.'
+      : company.data?.oneLiner;
   const hasKey = useApiKey((s) => s.hasKey);
+  const readOnly = useReadOnly();
+  const availableTabs = useAvailableTabs(companyId ?? '');
   const activeTab = tab as DashboardTab;
   const rerunTab = useRerunDashboardTab(companyId, activeTab);
-  const repo = useRepository();
-  const qc = useQueryClient();
-  const [prefetchFailed, setPrefetchFailed] = useState<string[]>([]);
-
-  // Warm EVERY tab the moment the dashboard opens (founder's audit: "as I'm
-  // reading the overview I want all the other tabs to start loading"). Runs
-  // sequentially so the free-tier rate limiter never sees a burst; each tab is
-  // cached in the snapshot, so revisits cost nothing.
-  // CLICK PRIORITY (founder's video audit: Live Intel spun for 30s while the
-  // background quietly warmed other tabs ahead of it). The warm loop re-checks
-  // the CURRENTLY ACTIVE tab before every step and always researches it first,
-  // so a user's click jumps the queue instead of waiting behind prefetch work.
-  const activeTabRef = useRef(activeTab);
-  activeTabRef.current = activeTab;
+  useFocusCompany(companyId);
+  const prefetchFailed = useDashboardWarm(companyId, activeTab, company.data?.name);
 
   // Anchor the floating presence's "Chat" to THIS company's research context.
   const setChatContext = useAgentTrace((s) => s.setChatContext);
   const companyName = company.data?.name;
-  // Ref for the warm loop below: the loop must not restart when the name loads.
-  const companyNameRef = useRef(companyName);
-  companyNameRef.current = companyName;
   useEffect(() => {
     if (companyId && companyName) {
       setChatContext({ kind: 'company', companyId, subject: companyName });
@@ -270,45 +395,13 @@ export default function DashboardPage() {
     return () => setChatContext(null);
   }, [companyId, companyName, setChatContext]);
 
-  useEffect(() => {
-    if (!companyId) return;
-    setPrefetchFailed([]);
-    let cancelled = false;
-    const warm = async (t: DashboardTab) => {
-      if (qc.getQueryData(qk.dashboard(companyId, t)) != null) return;
-      try {
-        useAgentTrace
-          .getState()
-          .trace(
-            `${companyNameRef.current ?? 'Company'} desk`,
-            `Researching ${DASHBOARD_TAB_LABELS[t]} in the background`,
-          );
-        await qc.prefetchQuery({
-          queryKey: qk.dashboard(companyId, t),
-          queryFn: () => repo.getDashboardTab(companyId, t),
-          staleTime: Infinity,
-        });
-      } catch {
-        if (!cancelled) setPrefetchFailed((failed) => [...new Set([...failed, t])]);
-      }
-    };
-    void (async () => {
-      const pending = new Set<DashboardTab>(DASHBOARD_TABS);
-      while (pending.size > 0 && !cancelled) {
-        // Whatever the user is looking at RIGHT NOW always wins.
-        const next = pending.has(activeTabRef.current)
-          ? activeTabRef.current
-          : (DASHBOARD_TABS.find((t) => pending.has(t)) as DashboardTab);
-        pending.delete(next);
-        await warm(next);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [companyId, qc, repo]);
-
-  if (!companyId || !DASHBOARD_TABS.includes(activeTab)) return <NotFoundPage />;
+  if (!companyId) return <NotFoundPage />;
+  // An unknown tab slug (old link, typo) lands on this company's overview,
+  // keeping the deck context, instead of a full-page 404.
+  if (!DASHBOARD_TABS.includes(activeTab)) {
+    const qs = params.toString();
+    return <Navigate to={`/company/${companyId}/dashboard/overview${qs ? `?${qs}` : ''}`} replace />;
+  }
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -321,38 +414,73 @@ export default function DashboardPage() {
           // A real route back to the deck. History fallback only when the
           // dashboard was reached without deck context. NOTE: the deck lives
           // at /markets/:id/deck — /markets/:id alone is a 404.
-          onClick={() => (fromMarketId ? navigate(`/markets/${fromMarketId}/deck`) : navigate(-1))}
+          onClick={returnToDeck}
           className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-content"
         >
           <ArrowLeft className="h-4 w-4" />
-          {fromMarketId ? 'Back to deck' : 'Back'}
+          {fromMarketId ? fromCardId ? 'Back to card' : 'Back to deck' : 'Back'}
         </button>
-        <span className="text-faint">·</span>
-        <Link
-          to="/history"
-          className="text-sm text-muted transition-colors hover:text-content"
-          title="All your decks"
-        >
-          All decks
-        </Link>
+        {!readOnly && <span className="text-faint">·</span>}
+        {!readOnly && (
+          <Link
+            to="/history"
+            className="text-sm text-muted transition-colors hover:text-content"
+            title="All your decks"
+          >
+            All decks
+          </Link>
+        )}
       </div>
 
       <QueryBoundary query={company}>
         {(c) => (
           <>
-            <header className="mb-5 flex items-center gap-4">
+            <header className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
               <Logo
                 name={c.name}
                 website={c.websiteUrl}
                 logoUrl={c.logoUrl}
                 className="h-14 w-14 border border-border"
               />
-              <div className="min-w-0 flex-1">
+              <div className="min-w-[14rem] flex-1 basis-[60%]">
                 <h1 className="font-display text-2xl font-semibold text-content">{c.name}</h1>
-                <p className="text-sm text-muted">{c.oneLiner}</p>
+                {ownershipLabel(c.ownership) && (
+                  <a
+                    className="chip border-border bg-surface text-muted"
+                    href={c.ownership!.citations[0]?.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={c.ownership!.methodNote ?? undefined}
+                    data-testid="ownership-label"
+                  >
+                    {ownershipLabel(c.ownership)}
+                  </a>
+                )}
+                {headerSubtitle && !restatesHq(headerSubtitle, c.hqLocation) && <p className="text-sm text-muted">{headerSubtitle}</p>}
+                <KeyFacts
+                  hq={c.hqLocation}
+                  website={c.websiteUrl}
+                  founded={founded}
+                  filingsUrl={reportsToSec(metrics.data ?? []) ? secFilingsUrl(c.name) : null}
+                />
               </div>
-              <ThreadHistoryButton companyId={c.id} className="shrink-0" />
-              <ReportButton kind="company" subjectId={c.id} className="shrink-0" />
+              {!readOnly && (
+                <ExportMenu
+                  className="shrink-0"
+                  report={{ kind: 'company', subjectId: c.id, name: c.name }}
+                  company={{
+                    id: c.id,
+                    name: c.name,
+                    oneLiner: c.oneLiner === UNSUPPORTED_COMPANY_SUMMARY ? null : c.oneLiner ?? null,
+                    hq: c.hqLocation ?? null,
+                    website: c.websiteUrl ?? null,
+                    logoUrl: c.logoUrl ?? null,
+                    tier: null,
+                    metrics: metrics.data ?? [],
+                  }}
+                />
+              )}
+              <ThreadHistoryButton companyId={c.id} className="shrink-0" compact />
               <DigDeeper
                 topic="Recent developments & what to watch"
                 companyId={c.id}
@@ -363,18 +491,24 @@ export default function DashboardPage() {
             </header>
 
             {/* Context-aware research row: ask anything + this company's intel file. */}
-            <div className="mb-4 flex flex-wrap items-center gap-3">
-              <ResearchComposer companyId={companyId} companyName={c.name} />
-              <IntelFile companyId={companyId} />
-            </div>
+            {!readOnly && (
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <ResearchComposer companyId={companyId} companyName={c.name} />
+                <IntelFile companyId={companyId} />
+              </div>
+            )}
 
             {/* 6 visible tabs + overflow dropdown for the rest */}
             <DashboardTabNav
               companyId={companyId}
               activeTab={activeTab}
               fromMarketId={fromMarketId}
+              fromCardId={fromCardId}
+              fromDeckView={fromDeckView}
             />
-            {prefetchFailed.length > 0 && (
+            {!readOnly && <BackgroundResearchControl />}
+            {!readOnly && <GroundingQuotaNotice />}
+            {!readOnly && prefetchFailed.length > 0 && (
               <div className="mb-3 rounded-lg border border-negative/30 bg-negative/5 px-3 py-2 text-[12px] text-negative">
                 Some dashboard research did not finish in the background:{' '}
                 {prefetchFailed
@@ -384,15 +518,23 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* Right-click any tab's content → rerun just that research. */}
-            <ContextRerun
-              label={`the ${DASHBOARD_TAB_LABELS[activeTab]} tab`}
-              onRerun={() => rerunTab.mutate()}
-              running={rerunTab.isPending}
-              disabled={!hasKey}
-            >
-              <TabView tab={activeTab} companyId={companyId} />
-            </ContextRerun>
+            {/* Right-click any tab's content → rerun just that research (not in a shared copy). */}
+            {readOnly && availableTabs && !availableTabs.includes(activeTab) ? (
+              <p className="panel px-5 py-8 text-center text-[13px] text-muted">
+                This section was not researched when this was shared.
+              </p>
+            ) : readOnly ? <TabView tab={activeTab} companyId={companyId} /> : (
+              <ContextRerun
+                label={`the ${DASHBOARD_TAB_LABELS[activeTab]} tab`}
+                onRerun={() => rerunTab.mutate()}
+                running={rerunTab.isPending}
+                disabled={!hasKey}
+              >
+                <TabFreshness companyId={companyId} tab={activeTab} onRefresh={() => rerunTab.mutate()}
+                  refreshing={rerunTab.isPending} disabled={!hasKey} />
+                <TabView tab={activeTab} companyId={companyId} />
+              </ContextRerun>
+            )}
           </>
         )}
       </QueryBoundary>

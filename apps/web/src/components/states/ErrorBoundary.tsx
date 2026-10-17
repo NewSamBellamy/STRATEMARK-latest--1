@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { isChunkLoadError } from '@/lib/lazyRoute';
 import { ErrorState } from './ErrorState';
 
 interface Props {
@@ -26,12 +27,15 @@ export class ErrorBoundary extends Component<Props, State> {
 
   override render(): ReactNode {
     if (this.state.error) {
+      // A page whose code could not be fetched is a connection or deploy
+      // problem, not a crash; only a reload fetches it again.
+      const chunk = isChunkLoadError(this.state.error);
       return (
         <div className="p-8">
           <ErrorState
-            title={this.props.fallbackTitle ?? 'This view crashed'}
-            message={this.state.error.message}
-            onRetry={this.reset}
+            title={chunk ? 'This page could not load' : this.props.fallbackTitle ?? 'This view crashed'}
+            message={chunk ? 'Check your connection, then try again.' : this.state.error.message}
+            onRetry={chunk ? () => window.location.reload() : this.reset}
           />
         </div>
       );

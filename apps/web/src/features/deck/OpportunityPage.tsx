@@ -1,3 +1,4 @@
+import { sourceHref } from '@/lib/sourceHref';
 import { useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -10,10 +11,8 @@ import {
   Tooltip as ReTooltip,
   XAxis,
   YAxis,
-  ZAxis,
   ResponsiveContainer,
 } from 'recharts';
-import { TIER_LABELS, type MaturityTier } from '@mi/contracts';
 import {
   useCards,
   useDeckByMarket,
@@ -25,15 +24,15 @@ import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { ContextRerun } from '@/components/ui/ContextRerun';
 import { FullPageLoader } from '@/components/states/FullPageLoader';
 import { useApiKey } from '@/lib/settings/apiKey';
-import { formatUsd } from '@/lib/format';
-import { TIER_COLORS } from '@/lib/theme';
+import { formatMetricValue, formatUsd } from '@/lib/format';
+import { METRIC_COLORS } from '@/lib/theme';
 
 interface Point {
   name: string;
-  tier: number;
-  share: number | null;
-  arr: number;
-  color: string;
+  team: number;
+  share: number;
+  /** Sourced revenue/ARR, or null — bubbles never get an invented size. */
+  arr: number | null;
 }
 
 /**
@@ -51,19 +50,14 @@ export default function OpportunityPage() {
 
   const points = useMemo<Point[]>(() => {
     return (cards.data ?? [])
-      .filter((c) => c.card.cardType === 'company' && c.company && c.card.tier != null)
-      .map((c) => {
-        const share = c.metrics.find((m) => m.metricType === 'market_share' && m.value != null);
-        const arr = c.metrics.find((m) => m.metricType === 'arr' && m.value != null);
-        return {
-          name: c.company!.name,
-          tier: c.card.tier as number,
-          share: share?.value ?? null,
-          arr: arr?.value ?? 1,
-          color: TIER_COLORS[c.card.tier as MaturityTier],
-        };
-      })
-      .filter((p) => p.share != null);
+      .filter((c) => c.card.cardType === 'company' && c.company)
+      .flatMap((c) => {
+        const find = (t: string) => c.metrics.find((m) => m.metricType === t && m.value != null && m.value > 0)?.value ?? null;
+        const share = find('market_share');
+        const team = find('employees');
+        if (share == null || team == null) return [];
+        return [{ name: c.company!.name, team, share, arr: find('arr') ?? find('revenue') }];
+      });
   }, [cards.data]);
 
   return (
@@ -86,8 +80,8 @@ export default function OpportunityPage() {
       {/* Positioning map from real deck data (no LLM in the chart). */}
       <div className="panel mt-5 p-5">
         <h2 className="font-display text-sm font-semibold text-content">
-          Positioning map — maturity vs. market share
-          <span className="ml-2 text-xs font-normal text-muted">bubble size = ARR</span>
+          Positioning map — team size vs. market share
+          <span className="ml-2 text-xs font-normal text-muted">bubble size = sourced revenue or ARR</span>
         </h2>
         {points.length > 0 ? (
           <div className="mt-2 h-[340px]" >
@@ -96,11 +90,11 @@ export default function OpportunityPage() {
                 <CartesianGrid stroke="#ECEAE4" strokeDasharray="3 3" />
                 <XAxis
                   type="number"
-                  dataKey="tier"
-                  name="Maturity"
-                  domain={[0.5, 8.5]}
-                  ticks={[1, 2, 3, 4, 5, 6, 7, 8]}
-                  tickFormatter={(t: number) => `T${t}`}
+                  dataKey="team"
+                  name="Team size"
+                  scale="log"
+                  domain={['auto', 'auto']}
+                  tickFormatter={(t: number) => formatMetricValue('employees', t)}
                   stroke="#9A9AA1"
                   fontSize={11}
                 />
@@ -113,13 +107,9 @@ export default function OpportunityPage() {
                   fontSize={11}
                   width={44}
                 />
-                <ZAxis type="number" dataKey="arr" range={[80, 900]} />
-                <ReTooltip
+                                <ReTooltip
                   cursor={{ strokeDasharray: '3 3' }}
                   contentStyle={{ background: '#fff', border: '1px solid #E5E3DD', borderRadius: 8, fontSize: 12 }}
-                  formatter={(value: number, key: string) =>
-                    key === 'arr' ? formatUsd(value) : key === 'tier' ? TIER_LABELS[value as MaturityTier] : `${value}%`
-                  }
                   labelFormatter={() => ''}
                   content={({ payload }) => {
                     const p = payload?.[0]?.payload as Point | undefined;
@@ -128,7 +118,7 @@ export default function OpportunityPage() {
                       <div className="rounded-lg border border-border bg-surface px-3 py-2 text-xs shadow-soft">
                         <div className="font-semibold text-content">{p.name}</div>
                         <div className="text-muted">
-                          {TIER_LABELS[p.tier as MaturityTier]} · share {p.share}% · ARR {formatUsd(p.arr)}
+                          {formatMetricValue('employees', p.team)} people · share {p.share}%{p.arr != null ? ` · revenue ${formatUsd(p.arr)}` : ''}
                         </div>
                       </div>
                     );
@@ -138,8 +128,8 @@ export default function OpportunityPage() {
                   <circle
                     cx={props.cx}
                     cy={props.cy}
-                    r={Math.max(6, Math.min(22, Math.sqrt((props.payload?.arr ?? 1) / 1e6) * 1.6))}
-                    fill={props.payload?.color ?? '#888'}
+                    r={props.payload?.arr != null ? Math.max(6, Math.min(22, Math.sqrt(props.payload.arr / 1e6) * 1.6)) : 6}
+                    fill={METRIC_COLORS.market_share}
                     fillOpacity={0.75}
                     stroke="#fff"
                     strokeWidth={1.5}
@@ -150,19 +140,30 @@ export default function OpportunityPage() {
           </div>
         ) : (
           <p className="mt-3 text-sm text-muted">
-            Not enough companies with market-share data to plot yet — the whitespace thesis below
+            Not enough companies with both sourced market share and team size to plot yet — the whitespace thesis below
             still runs from everything the deck knows.
           </p>
         )}
       </div>
 
-      {/* Grounded whitespace thesis — right-click to re-run the analysis. */}
+      {/* Grounded whitespace thesis — re-run from the button (or right-click). */}
+      <div className="mt-6 flex items-center justify-between gap-3">
+        <h2 className="font-display text-sm font-semibold text-content">Where a new entrant could win</h2>
+        <button
+          type="button"
+          className="btn-ghost px-3 py-1.5 text-[12px]"
+          disabled={!hasKey || rerunOpportunity.isPending}
+          onClick={() => rerunOpportunity.mutate()}
+        >
+          {rerunOpportunity.isPending ? 'Re-running…' : 'Re-run analysis'}
+        </button>
+      </div>
       <ContextRerun
         label="the whitespace analysis"
         onRerun={() => rerunOpportunity.mutate()}
         running={rerunOpportunity.isPending}
         disabled={!hasKey}
-        className="mt-4"
+        className="mt-2"
       >
       <div className="panel p-6">
         <QueryBoundary
@@ -183,7 +184,7 @@ export default function OpportunityPage() {
                     {o.citations.slice(0, 8).map((c, i) => (
                       <a
                         key={i}
-                        href={c.url}
+                        href={sourceHref(c.url, c.title)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-xs text-primary-ink hover:underline"

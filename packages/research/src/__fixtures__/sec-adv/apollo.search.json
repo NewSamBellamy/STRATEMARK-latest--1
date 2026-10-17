@@ -1,0 +1,35 @@
+{
+ "hits": {
+  "total": 2,
+  "hits": [
+   {
+    "_source": {
+     "firm_source_id": "151243",
+     "firm_name": "APOLLO GLOBAL REAL ESTATE MANAGEMENT, L.P.",
+     "firm_other_names": [
+      "2012 CMBS-I MANAGEMENT, LLC (RELYING ADVISER)",
+      "CPI CEE MANAGEMENT LLC (RELYING ADVISER)",
+      "APOLLO NA MANAGEMENT II, LLC (RELYING ADVISER)",
+      "APOLLO GLOBAL REAL ESTATE MANAGEMENT, L.P."
+     ],
+     "firm_ia_full_sec_number": "801-70669",
+     "firm_ia_scope": "INACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "143161",
+     "firm_name": "APOLLO CAPITAL MANAGEMENT, L.P.",
+     "firm_other_names": [
+      "ACE CREDIT MANAGEMENT, LLC (RELYING ADVISER)",
+      "APOLLO RRI MANAGEMENT LLC (RELYING ADVISER)",
+      "APOLLO PALMETTO ATHENE MANAGEMENT, LLC (RELYING ADVISER)",
+      "APOLLO CAPITAL MANAGEMENT, L.P."
+     ],
+     "firm_ia_full_sec_number": "801-67592",
+     "firm_ia_scope": "ACTIVE"
+    }
+   }
+  ]
+ }
+}

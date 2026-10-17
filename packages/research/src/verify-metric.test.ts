@@ -7,12 +7,150 @@
  * component state; nothing ever revised the stored metric. These tests pin the
  * new contract: grounded evidence + citations → the stored figure REVISES,
  * freshness stamps, the company re-tiers, and a deck event fires. No evidence →
- * nothing changes but the verification timestamp.
+ * no successful-verification timestamp advances; only the attempt is recorded.
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { Citation, DeckRefreshEvent } from '@mi/contracts';
 import { GeminiRepository, type RepoSnapshot, type ResearchStore } from './repository';
 import type { LlmClient } from './types';
+
+describe('local verification original-source handoff', () => {
+  it('spends its two original reads on priority sources, not the first two search links', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ citations: [
+      { url: 'https://reddit.com/r/example', title: 'SEC filing', credibility: 'primary' },
+      { url: 'https://retailer.example/report', title: 'Reuters', credibility: 'primary' },
+      { url: 'https://reuters.com/report', title: 'Reporting' },
+      { url: 'https://sec.gov/Archives/report', title: 'Filing' },
+    ], structured: {} });
+    const retrieve = vi.fn(async (url: string) => ({ requestedUrl: url, status: 'unavailable' as const, retrievedAt: new Date().toISOString() }));
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSources: { retrieve, save: async () => {}, list: async () => [] } });
+    await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(retrieve.mock.calls.map(([url]) => url)).toEqual(['https://sec.gov/Archives/report', 'https://reuters.com/report']);
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).not.toHaveBeenCalled();
+  });
+  it('returns retained source failures for inspection without another model call', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ citations: CITED, structured: {} });
+    const receipt = { requestedUrl: CITED[0]!.url, status: 'blocked' as const,
+      retrievedAt: '2026-10-05T00:00:00.000Z', reason: 'Browser source requires protected desktop retrieval.' };
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSourceReader: async () => receipt });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result).toHaveProperty('originalSources', [receipt]);
+    expect(client.structure).not.toHaveBeenCalled();
+    const reopened = new GeminiRepository({ apiKey: 'k', store, client });
+    expect((await reopened.getOriginalSourceEvidence({ companyId: 'cmp_openai', metricType: 'arr' }))[0]!.receipts).toEqual([receipt]);
+  });
+  it('retains browser-reader originals before synthesis and reloads detached scoped evidence', async () => {
+    let committed = seededSnapshot();
+    const quote = 'OpenAI reports ARR of USD 40 billion as of 2026-10-01.';
+    const url = CITED[0]!.url;
+    const store: ResearchStore = { read: () => structuredClone(committed), write: async snapshot => { committed = structuredClone(snapshot); } };
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 40_000_000_000,
+      passageSupport: { sourceUrl: url, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' } } });
+    const structure = client.structure;
+    client.structure = vi.fn(async (prompt, schema, options) => {
+      expect((committed as RepoSnapshot & { originalSourceAttempts?: unknown[] }).originalSourceAttempts).toHaveLength(1);
+      return structure(prompt, schema, options);
+    }) as LlmClient['structure'];
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSourceReader: async () => ({ requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: quote, retrievedAt: '2026-10-03T00:00:00.000Z' }) });
+    expect((await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' })).metric.value).toBe(40_000_000_000);
+    const reopened = new GeminiRepository({ apiKey: 'k', store, client, originalSourceReader: async () => { throw new Error('Offline reads must not fetch'); } });
+    const evidence = await reopened.getOriginalSourceEvidence({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]!.receipts[0]!.text).toBe(quote);
+    evidence[0]!.receipts[0]!.text = 'External mutation';
+    expect((await reopened.getOriginalSourceEvidence({ companyId: 'cmp_openai' }))[0]!.receipts[0]!.text).toBe(quote);
+    expect(await reopened.getOriginalSourceEvidence({ companyId: 'other' })).toEqual([]);
+  });
+  it('refuses browser synthesis if local original retention fails', async () => {
+    let committed = seededSnapshot();
+    const store: ResearchStore = { read: () => structuredClone(committed), write: async snapshot => {
+      if ((snapshot as RepoSnapshot & { originalSourceAttempts?: unknown[] }).originalSourceAttempts?.length) throw new Error('Original storage full');
+      committed = structuredClone(snapshot);
+    } };
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 123 } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSourceReader: async url => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString() }) });
+    await expect(repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' })).rejects.toThrow('Original storage full');
+    expect(client.structure).not.toHaveBeenCalled();
+    expect((await repo.getCompanyMetrics('cmp_openai')).find(metric => metric.metricType === 'arr')!.value).toBe(990_000_000);
+  });
+  it('writes a supported native correction with its original URL and reported date', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const quote = 'OpenAI reports ARR of USD 40 billion as of 2026-10-01.';
+    const url = CITED[0]!.url;
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 40_000_000_000,
+      passageSupport: { sourceUrl: url, quote, asOf: '2026-10-01', basis: 'arr', unit: 'USD' } } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSources: {
+      retrieve: async () => ({ requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: quote, retrievedAt: '2026-10-03T00:00:00.000Z' }),
+      save: async () => {}, list: async () => [],
+    } });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.metric.value).toBe(40_000_000_000);
+    expect(result.metric.source).toBe(url);
+    expect(result.metric.methodNote).toContain('2026-10-01');
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).toHaveBeenCalledTimes(1);
+  });
+  it('does not promote a credible citation without literal original passage support', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 40_000_000_000 } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSources: {
+      retrieve: async (url) => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString() }),
+      save: async () => {}, list: async () => [],
+    } });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr', correction: { value: 40_000_000_000, citations: CITED } });
+    expect(result.verdict).toBe('unverified');
+    expect(result.metric.value).toBe(990_000_000);
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).not.toHaveBeenCalled();
+    expect(result.metric.lastVerificationAttemptAt).toBeTruthy();
+  });
+  it.each(['empty', 'unavailable', 'blank'] as const)('skips synthesis for %s originals and retains the attempt across reopen', async (kind) => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ citations: kind === 'empty' ? [] : CITED,
+      structured: { verdict: 'contradicted', currentValue: 123 } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client,
+      originalSourceReader: async url => ({ requestedUrl: url,
+        status: kind === 'blank' ? 'retrieved' : 'unavailable',
+        ...(kind === 'blank' ? { text: '   ', finalUrl: url, httpStatus: 200, contentHash: 'a'.repeat(64) } : {}),
+        retrievedAt: new Date().toISOString() }) });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.verdict).toBe('unverified');
+    expect(result.metric.value).toBe(990_000_000);
+    expect(client.ground).toHaveBeenCalledTimes(1);
+    expect(client.structure).not.toHaveBeenCalled();
+    const reopened = new GeminiRepository({ apiKey: 'k', store, client });
+    expect(await reopened.getOriginalSourceEvidence({ companyId: 'cmp_openai', metricType: 'arr' })).toHaveLength(1);
+    expect((await reopened.getCompanyMetrics('cmp_openai')).find(metric => metric.metricType === 'arr')!.lastVerificationAttemptAt).toBeTruthy();
+  });
+  it('saves company-scoped originals before interpretation and supplies their text', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { verdict: 'unverified', currentValue: null } });
+    const save = vi.fn(async () => {});
+    const retrieve = vi.fn(async (url: string) => ({ requestedUrl: url, finalUrl: url, status: 'retrieved' as const, retrievedAt: new Date().toISOString(), contentHash: 'a'.repeat(64), text: 'Original reported revenue passage.' }));
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSources: { retrieve, save, list: async () => [] } });
+    await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ companyId: 'cmp_openai', metricType: 'arr', receipts: [expect.objectContaining({ text: 'Original reported revenue passage.' })] }));
+    expect(retrieve).toHaveBeenCalledWith(expect.any(String), { companyId: 'cmp_openai', companyName: 'OpenAI', metricType: 'arr' });
+    expect(save.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(client.structure).mock.invocationCallOrder[0]!);
+    expect(vi.mocked(client.structure).mock.calls[0]![0]).toContain('UNTRUSTED ORIGINAL EXTRACTS');
+    expect(vi.mocked(client.structure).mock.calls[0]![0]).toContain('Original reported revenue passage.');
+  });
+
+  it('does not interpret or revise a metric when the artifact cannot be saved', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 123 } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSources: {
+      retrieve: async (url) => ({ requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString() }),
+      save: async () => { throw new Error('Cannot save original evidence'); }, list: async () => [],
+    } });
+    await expect(repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' })).rejects.toThrow('Cannot save original evidence');
+    expect(client.structure).not.toHaveBeenCalled();
+    expect((await repo.getCompanyMetrics('cmp_openai')).find((m) => m.metricType === 'arr')!.value).toBe(990_000_000);
+  });
+});
 
 function seededSnapshot(): RepoSnapshot {
   const now = new Date().toISOString();
@@ -124,6 +262,97 @@ function stubClient(overrides: {
 }
 
 describe('verifyMetric', () => {
+  it('does not downgrade or replace a newer verification that finishes first', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 50_000_000_000 } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    vi.mocked(client.structure).mockImplementationOnce(async () => {
+      await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+      return { verdict: 'unverified', currentValue: null, rationale: 'Older request lacked support', methodNote: null };
+    });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.changed).toBe(false);
+    expect(result.metric).toMatchObject({ value: 50_000_000_000, confidence: 'verified' });
+    expect((await repo.getCompanyMetrics('cmp_openai')).find(m => m.metricType === 'arr')!.confidence).toBe('verified');
+  });
+
+  it('refuses ambiguous equal-time duplicates before spending or mutating either row', async () => {
+    const snap = seededSnapshot();
+    snap.metrics.push({ ...snap.metrics[0]!, id: 'conflicting_arr', value: 2_000_000_000 });
+    const { store } = memoryStore(snap);
+    const client = stubClient({ structured: {} });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    await expect(repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' })).rejects.toThrow('Conflicting stored figures');
+    expect(client.ground).not.toHaveBeenCalled();
+    expect((await repo.getCompanyMetrics('cmp_openai')).filter(m => m.metricType === 'arr')).toHaveLength(2);
+  });
+
+  it('updates the current duplicate revision, preserving the older stored row', async () => {
+    const snap = seededSnapshot();
+    snap.metrics[0]!.capturedAt = '2026-08-01T00:00:00.000Z';
+    snap.metrics.push({ ...snap.metrics[0]!, id: 'current_arr', value: 2_000_000_000,
+      capturedAt: '2026-09-01T00:00:00.000Z' });
+    const { store } = memoryStore(snap);
+    const repo = new GeminiRepository({ apiKey: 'k', store,
+      client: stubClient({ structured: { verdict: 'contradicted', currentValue: 40_000_000_000 } }) });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.metric.id).toBe('current_arr');
+    expect(result.metric.value).toBe(40_000_000_000);
+    expect((await repo.getCompanyMetrics('cmp_openai')).find(m => m.id === 'met_arr')!.value).toBe(990_000_000);
+  });
+
+  it('does not spend or revise a hidden human duplicate', async () => {
+    const snap = seededSnapshot();
+    snap.metrics.push({ ...snap.metrics[0]!, id: 'human_arr', value: 50_000_000_000, confidence: 'user_verified' });
+    const { store } = memoryStore(snap);
+    const client = stubClient({ structured: { verdict: 'contradicted', currentValue: 40_000_000_000 } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.metric.id).toBe('human_arr');
+    expect(result.changed).toBe(false);
+    expect(client.ground).not.toHaveBeenCalled();
+  });
+
+  it('discards an in-flight result after a user clears the figure, including across reopen', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: {} });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    vi.mocked(client.structure).mockImplementationOnce(async () => {
+      await repo.overrideMetric({ companyId: 'cmp_openai', metricType: 'arr', value: null, note: 'Incorrect attribution' });
+      return { verdict: 'contradicted', currentValue: 40_000_000_000, rationale: 'Old request', methodNote: null };
+    });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.changed).toBe(false);
+    expect(result.verdict).toBe('unverified');
+    expect(result.metric.value).toBeNull();
+    const reopened = new GeminiRepository({ apiKey: 'k', store, client });
+    expect((await reopened.getCompanyMetrics('cmp_openai')).find(m => m.metricType === 'arr')!.value).toBeNull();
+  });
+
+  it('applies an explicit human correction to the currently authoritative duplicate', async () => {
+    const snap = seededSnapshot();
+    snap.metrics.push({ ...snap.metrics[0]!, id: 'human_arr', value: 50_000_000_000, confidence: 'user_verified' });
+    const { store } = memoryStore(snap);
+    const repo = new GeminiRepository({ apiKey: 'k', store, client: stubClient({ structured: {} }) });
+    const corrected = await repo.overrideMetric({ companyId: 'cmp_openai', metricType: 'arr', value: 60_000_000_000, note: 'CFO confirmation' });
+    expect(corrected.id).toBe('human_arr');
+    expect((await repo.getCompanyMetrics('cmp_openai')).find(m => m.id === 'met_arr')!.value).toBe(990_000_000);
+  });
+
+  it('retains scoped grounded notes even when structuring fails', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ groundText: 'An original report needs further review.', structured: {} });
+    vi.mocked(client.structure).mockRejectedValueOnce(new Error('Invalid structured response'));
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    await expect(repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' })).rejects.toThrow('Invalid structured response');
+    const persisted = store.read()!;
+    expect(persisted.researchEvidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ companyId: 'cmp_openai', companyName: 'OpenAI', topic: 'verify:arr',
+        text: 'An original report needs further review.' }),
+    ]));
+    expect(persisted.metrics.find((m) => m.metricType === 'arr')!.value).toBe(990_000_000);
+  });
+
   it('revises a contradicted figure with citations, re-tiers, and emits a deck event', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({
@@ -154,7 +383,7 @@ describe('verifyMetric', () => {
     expect(persisted.dashboards['cmp_openai']).toEqual({});
   });
 
-  it('confirms a supported figure: freshness stamps, value untouched, no event', async () => {
+  it('confirms an estimated figure: support attaches, value stays, and views reconcile', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({
       structured: {
@@ -170,11 +399,12 @@ describe('verifyMetric', () => {
 
     const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
 
-    expect(result.changed).toBe(false);
+    expect(result.changed).toBe(true);
     expect(result.metric.value).toBe(990_000_000);
-    expect(result.metric.confidence).toBe('estimated'); // unchanged
-    expect(result.metric.lastVerifiedAt).toBeTruthy(); // but freshness recorded
-    expect(events).toHaveLength(0);
+    expect(result.metric.confidence).toBe('verified');
+    expect(result.metric.citations).toEqual(CITED);
+    expect(result.metric.lastVerifiedAt).toBeTruthy();
+    expect(events).toHaveLength(1);
   });
 
   it('NEVER revises without citations, even when a figure is offered (no-fabrication)', async () => {
@@ -194,6 +424,18 @@ describe('verifyMetric', () => {
 
     expect(result.changed).toBe(false);
     expect(result.metric.value).toBe(990_000_000); // untouched
+  });
+
+  it('does not revise from a forged high-credibility citation', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ citations: [{ url: 'https://reddit.com/r/stocks/example', title: 'SEC filing', credibility: 'primary' }],
+      structured: { verdict: 'contradicted', currentValue: 40_000_000_000, rationale: 'Claimed correction', methodNote: null } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+    expect(result.verdict).toBe('unverified');
+    expect(result.changed).toBe(false);
+    expect(result.metric.value).toBe(990_000_000);
+    expect(result.metric.lastVerifiedAt).toBeFalsy();
   });
 
   it('never overwrites a user_verified figure — the human outranks the machine', async () => {
@@ -238,7 +480,7 @@ describe('verifyMetric', () => {
     expect(result.metric.methodNote).toContain('Could not re-corroborate');
   });
 
-  it('treats an inconclusive check as timestamp-only', async () => {
+  it('records an inconclusive attempt without claiming successful verification', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({
       structured: { verdict: 'unverified', currentValue: null, rationale: 'No reliable figure.', methodNote: null },
@@ -250,7 +492,34 @@ describe('verifyMetric', () => {
     expect(result.changed).toBe(false);
     expect(result.verdict).toBe('unverified');
     expect(result.metric.value).toBe(990_000_000);
-    expect(result.metric.lastVerifiedAt).toBeTruthy();
+    expect(result.metric.lastVerifiedAt).toBeFalsy();
+    expect(result.metric).toHaveProperty('lastVerificationAttemptAt', expect.any(String));
+  });
+
+  it.each([
+    { verdict: 'unverified', currentValue: 40_000_000_000, citations: CITED },
+    { verdict: 'supported', currentValue: null, citations: CITED },
+    { verdict: 'supported', currentValue: 990_000_000, citations: [] },
+    { verdict: 'supported', currentValue: 40_000_000_000, citations: CITED },
+    { verdict: 'contradicted', currentValue: -10, citations: CITED },
+  ])('rejects an unsupported verification outcome: $verdict / $currentValue', async ({ verdict, currentValue, citations }) => {
+    const snap = seededSnapshot();
+    const arr = snap.metrics.find((m) => m.metricType === 'arr')!;
+    const priorCapture = arr.capturedAt;
+    const priorVerification = '2026-01-01T00:00:00.000Z';
+    arr.lastVerifiedAt = priorVerification;
+    const { store } = memoryStore(snap);
+    const client = stubClient({ citations, structured: { verdict, currentValue, rationale: 'Inconclusive', methodNote: null } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+
+    expect(result.metric.value).toBe(990_000_000);
+    expect(result.metric.confidence).toBe('estimated');
+    expect(result.metric.capturedAt).toBe(priorCapture);
+    expect(result.metric.lastVerifiedAt).toBe(priorVerification);
+    expect(result.verdict).toBe('unverified');
+    expect(result.changed).toBe(false);
   });
 });
 
@@ -301,6 +570,17 @@ describe('factCheck metric corrections', () => {
 });
 
 describe('verifyMetric fast-path correction (fact-check evidence applied directly)', () => {
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid shortcut values: %s', async (value) => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { verdict: 'unverified', currentValue: null } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr',
+      correction: { value, citations: CITED } });
+    expect(result.metric.value).toBe(990_000_000);
+    expect(result.verdict).toBe('unverified');
+    expect(client.ground).toHaveBeenCalledTimes(1);
+  });
+
   it('applies a cited correction with ZERO research calls — the latency fix', async () => {
     const { store } = memoryStore(seededSnapshot());
     const client = stubClient({ structured: {} });
@@ -367,5 +647,82 @@ describe('verifyMetric fast-path correction (fact-check evidence applied directl
     const users = metrics.find((m) => m.metricType === 'users')!;
     expect(users.value).toBe(1_000_000_000);
     expect(users.confidence).toBe('user_verified');
+  });
+});
+
+// Batch verification — one grounded pass re-checks every estimated figure.
+// Per-metric verification cost 2 calls per figure, which priced background
+// verification out of existence: the Oct 8 nuclear run ended 0-for-168.
+describe('verifyCompanyMetrics (batch)', () => {
+  it('promotes a corroborated estimate to verified without replacing the value', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { metrics: [
+      { metricType: 'arr', verdict: 'supported', currentValue: 995_000_000,
+        rationale: 'Reuters confirms the figure.', methodNote: 'reuters.com' },
+    ] } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyCompanyMetrics('cmp_openai');
+    expect(result.examined).toEqual(['arr']);
+    expect(result.changedTypes).toEqual(['arr']);
+    const arr = (await repo.getCompanyMetrics('cmp_openai')).find(m => m.metricType === 'arr')!;
+    expect(arr.confidence).toBe('verified');
+    expect(arr.value).toBe(990_000_000);
+    expect(result.results[0]).toMatchObject({ verdict: 'supported', changed: true });
+  });
+
+  it('replaces the value when a reputable source contradicts within the same pass', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { metrics: [
+      { metricType: 'arr', verdict: 'contradicted', currentValue: 40_000_000_000,
+        rationale: 'The stored estimate predates the latest disclosure.', methodNote: null },
+    ] } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyCompanyMetrics('cmp_openai');
+    expect(result.changedTypes).toEqual(['arr']);
+    const arr = (await repo.getCompanyMetrics('cmp_openai')).find(m => m.metricType === 'arr')!;
+    expect(arr.value).toBe(40_000_000_000);
+    expect(arr.confidence).toBe('verified');
+  });
+
+  it('examines only estimated rows: user figures are law, unknowns belong to hunts', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { metrics: [] } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyCompanyMetrics('cmp_openai');
+    expect(result.examined).toEqual(['arr']);
+    const users = (await repo.getCompanyMetrics('cmp_openai')).find(m => m.metricType === 'users')!;
+    expect(users.confidence).toBe('user_verified');
+  });
+
+  it('skips a row that changed mid-flight instead of overwriting it', async () => {
+    const { store } = memoryStore(seededSnapshot());
+    const client = stubClient({ structured: { metrics: [
+      { metricType: 'arr', verdict: 'contradicted', currentValue: 1_000_000_000,
+        rationale: 'Late evidence.', methodNote: null },
+    ] } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    vi.mocked(client.structure).mockImplementationOnce(async (_prompt, _schema, options) => {
+      // A concurrent single-metric verification lands while the batch is in flight.
+      await repo.verifyMetric({ companyId: 'cmp_openai', metricType: 'arr' });
+      void options;
+      return { metrics: [] } as never;
+    });
+    const result = await repo.verifyCompanyMetrics('cmp_openai');
+    expect(result.results[0]!.changed).toBe(false);
+    expect(result.results[0]!.rationale).toContain('changed during verification');
+  });
+
+  it('spends no model calls when there is nothing estimated to verify', async () => {
+    const seeded = seededSnapshot();
+    for (const metric of seeded.metrics ?? []) {
+      if (metric.confidence === 'estimated') metric.confidence = 'user_verified';
+    }
+    const { store } = memoryStore(seeded);
+    const client = stubClient({ structured: { metrics: [] } });
+    const repo = new GeminiRepository({ apiKey: 'k', store, client });
+    const result = await repo.verifyCompanyMetrics('cmp_openai');
+    expect(result.examined).toEqual([]);
+    expect(client.ground).not.toHaveBeenCalled();
+    expect(client.structure).not.toHaveBeenCalled();
   });
 });

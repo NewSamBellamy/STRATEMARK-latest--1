@@ -235,7 +235,7 @@ function metrics(ctx: ContentContext): MetricsContent {
     { holder: 'Series A/B', pct: 22 },
     { holder: 'Employee pool', pct: 15 },
   ];
-  return { revenue, users: usersSeries, churn, nps, capTable };
+  return { revenue, revenueQuarterly: [], users: usersSeries, churn, nps, capTable };
 }
 
 function missionGovernance(ctx: ContentContext): MissionGovernanceContent {
@@ -304,6 +304,7 @@ function productsRoadmap(ctx: ContentContext): ProductsRoadmapContent {
 export function generateDashboardContent(ctx: ContentContext): DashboardContentMap {
   return {
     overview: overview(ctx),
+    research: { markdown: '' },
     live_intel: liveIntel(ctx),
     team_org: teamOrg(ctx),
     live_landing: liveLanding(ctx),

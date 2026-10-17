@@ -9,7 +9,7 @@ describe('⚖️ Independent LLM-as-a-Judge Audit (Institutional Partner Persona
     // is what left CI unable to gate anything. Matches the skip pattern used by
     // live-gemini-search and live-30-company-census.
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
-    if (!apiKey) {
+    if (!apiKey || process.env.LIVE_TESTS !== '1') {
       console.warn('Skipping LLM-as-a-Judge audit — no API key in environment.');
       return;
     }

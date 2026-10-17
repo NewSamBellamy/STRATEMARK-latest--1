@@ -16,6 +16,7 @@ import {
   type CardWithCompany,
   type MarketIntelRepository,
 } from '@mi/contracts';
+import { projectCompanyFacts } from '@mi/research';
 
 /** Cap the pre-share verification burn: at most this many grounded checks. */
 const MAX_CHECKS = 5;
@@ -26,17 +27,15 @@ export async function verifyCardForShare(
   onStage: (stage: string) => void,
 ): Promise<CardWithCompany> {
   const companyId = data.company?.id ?? null;
-  if (!companyId || typeof repo.verifyMetric !== 'function') return data;
+  if (!companyId || !data.company) return data;
 
   const soft = data.metrics
     .filter((m) => m.value != null && m.confidence !== 'verified' && m.confidence !== 'user_verified')
     .slice(0, MAX_CHECKS);
-  if (soft.length === 0) return data;
-
   for (const m of soft) {
     onStage(`Fact-checking ${METRIC_TYPE_LABELS[m.metricType] ?? m.metricType}…`);
     try {
-      await repo.verifyMetric({ companyId, metricType: m.metricType, correction: null });
+      await repo.verifyMetric?.({ companyId, metricType: m.metricType, correction: null });
     } catch {
       /* one failed check must never block the share */
     }
@@ -44,9 +43,11 @@ export async function verifyCardForShare(
 
   onStage('Packaging the card…');
   try {
-    const fresh = await repo.getCompanyMetrics(companyId);
+    if (!repo.getCompanyFacts) throw new Error('Accepted company facts unavailable');
+    const fresh = await repo.getCompanyFacts(companyId);
     return { ...data, metrics: fresh };
   } catch {
-    return data;
+    // No unsafe fallback to legacy labels when the host is old or offline.
+    return { ...data, metrics: projectCompanyFacts(data.company, data.metrics, []) };
   }
 }

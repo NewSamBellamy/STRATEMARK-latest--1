@@ -20,7 +20,7 @@ export function PageShot({ url, className }: { url: string; className?: string }
     () => () => {
       if (timer.current) clearTimeout(timer.current);
     },
-    [],
+    [url],
   );
   if (failed) return null;
   const retry = () => {
@@ -28,6 +28,7 @@ export function PageShot({ url, className }: { url: string; className?: string }
       setFailed(true);
       return;
     }
+    if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setAttempt((a) => a + 1), SHOT_RETRY_MS);
   };
   return (

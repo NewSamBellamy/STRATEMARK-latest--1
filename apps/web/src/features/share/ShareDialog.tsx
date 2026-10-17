@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Check,
   Copy,
+  Link2,
   Loader2,
   Mail,
   RefreshCw,
@@ -29,6 +30,8 @@ import {
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { encodeSharePayload, shareUrlFor, type SharePayload } from '@/lib/share/codec';
+import { useSupports } from '@/lib/repository/RepositoryProvider';
+import { SharePageSection } from './SharePageSection';
 
 /** Clipboard with the sandbox-proof fallback chain. */
 async function copyText(text: string, input: HTMLInputElement | null): Promise<boolean> {
@@ -138,6 +141,7 @@ export function ShareDialog({
   title,
   subtitle,
   build,
+  page,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -152,7 +156,10 @@ export function ShareDialog({
    * with contradiction flags on its face.
    */
   build: (onStage: (stage: string) => void) => Promise<SharePayload>;
+  /** Also offer "Share as a page" (the full card or deck as one hostable page) for this deck, or this card in it. */
+  page?: { deckId: string; cardId?: string | null };
 }) {
+  const canPage = useSupports('exportShareSnapshot') && !!page;
   const qc = useQueryClient();
   const [stage, setStage] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
@@ -162,6 +169,13 @@ export function ShareDialog({
   const [shortening, setShortening] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const runId = useRef(0);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
 
   const prepare = useCallback(async () => {
     const id = ++runId.current;
@@ -178,15 +192,9 @@ export function ShareDialog({
       const fullUrl = shareUrlFor(blob);
       setUrl(fullUrl);
       setStage(null);
-      // Short link in the background — the dialog is already usable.
-      setShortening(true);
-      void shortenUrl(fullUrl)
-        .then((short) => {
-          if (runId.current === id) setShortUrl(short);
-        })
-        .finally(() => {
-          if (runId.current === id) setShortening(false);
-        });
+      // Short links are OPT-IN (created by an explicit user action below):
+      // the share URL carries the whole research snapshot, and shortening
+      // transmits it to a third-party service. Never auto-submit research.
       // The preflight may have corrected figures — let open views reconcile.
       void qc.invalidateQueries({ queryKey: ['cards'] });
     } catch (err) {
@@ -213,11 +221,25 @@ export function ShareDialog({
 
   const bestLink = shortUrl ?? url;
 
+  /** Opt-in only: the shortener receives the research-bearing link. */
+  const makeShortLink = async () => {
+    if (!url || shortUrl || shortening) return;
+    const id = runId.current;
+    setShortening(true);
+    try {
+      const short = await shortenUrl(url);
+      if (runId.current === id && short) setShortUrl(short);
+    } finally {
+      if (runId.current === id) setShortening(false);
+    }
+  };
+
   const onCopy = async () => {
     if (!bestLink) return;
     const ok = await copyText(bestLink, inputRef.current);
     setCopied(ok ? 'ok' : 'fail');
-    setTimeout(() => setCopied('idle'), 2500);
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied('idle'), 2500);
   };
 
   const nav = navigator as Navigator & {
@@ -297,6 +319,26 @@ export function ShareDialog({
               </p>
             )}
 
+            {/* Opt-in short link: the service receives the research-bearing
+                link, so the user — not the dialog — decides to send it. */}
+            {url && !shortUrl && !shortening && (
+              <div className="rounded-xl border border-border bg-surface-2/60 px-3.5 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => void makeShortLink()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1 text-[12px] font-medium text-content hover:bg-surface-2"
+                >
+                  <Link2 className="h-3.5 w-3.5 text-muted" />
+                  Create short link
+                </button>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-faint">
+                  Optional: makes one-tap sharing work on platforms that reject long links. The
+                  short-link service (tinyurl.com) receives this link, which contains the research —
+                  skip it and copy the full link to keep everything on this device.
+                </p>
+              </div>
+            )}
+
             {/* One-tap destinations — plain links, LENGTH-GUARDED. Intent
                 endpoints reject over-long URLs with a Bad Request, so a
                 target only renders when its final URL fits. With the short
@@ -360,6 +402,8 @@ export function ShareDialog({
             </p>
           </>
         )}
+
+        {canPage && page && <SharePageSection deckId={page.deckId} cardId={page.cardId ?? null} />}
       </div>
     </Modal>
   );

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--STRATEMARK_SHARE_META-->
+    <title>Stratemark</title>
+    <link rel="icon" href="data:," />
+    <script>
+      /* Same pre-paint theme step as the app: no flash of the wrong theme. */
+      (function () {
+        try {
+          var mode = localStorage.getItem('mi.theme');
+          var followSystem = !mode || mode === 'system';
+          var prefersDark = !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (mode === 'dark' || (followSystem && prefersDark)) document.documentElement.classList.add('dark');
+        } catch (e) { /* no storage: light default */ }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- The shared research rides inside the page. Replaced when a share is built. -->
+    <script id="stratemark-share-data" type="application/json">__STRATEMARK_SHARE_DATA__</script>
+    <script type="module" src="/src/share-main.tsx"></script>
+  </body>
+</html>

@@ -3,6 +3,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import { fileURLToPath, URL } from 'node:url';
+import { localSourcePlugin } from './local-source-plugin';
+import { localGeminiPlugin } from './local-gemini-plugin';
 
 // SINGLEFILE=1 inlines all JS/CSS into one index.html — used to publish a
 // self-contained public demo (works with the user's own key, client-side).
@@ -12,9 +14,16 @@ const singleFile = process.env.SINGLEFILE === '1';
 const isElectron = process.env.ELECTRON === '1';
 const base = isElectron || singleFile ? './' : '/';
 
-export default defineConfig({
-  plugins: [react(), ...(singleFile ? [viteSingleFile()] : [])],
-  base,
+// `vite build --mode share` builds the share viewer (share.html) as one self-contained
+// page next to the app in dist/. A share is that page with the shared research embedded.
+export default defineConfig(({ mode }) => {
+const shareBuild = mode === 'share';
+return {
+  plugins: [react(), localSourcePlugin(), localGeminiPlugin(), ...(singleFile || shareBuild ? [viteSingleFile()] : [])],
+  base: shareBuild ? './' : base,
+  ...(shareBuild
+    ? { build: { outDir: 'dist', emptyOutDir: false, rollupOptions: { input: fileURLToPath(new URL('./share.html', import.meta.url)) } } }
+    : {}),
   // Visible build stamp: browsers cache the published single-file HTML hard,
   // and a stale build looks exactly like "you broke my features". The stamp in
   // the sidebar makes "which build am I on?" answerable in one glance.
@@ -28,6 +37,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    allowedHosts: true,
     // Allow importing the workspace packages' TS source from the monorepo root.
     fs: { allow: ['../..'] },
   },
@@ -51,4 +61,5 @@ export default defineConfig({
       ],
     },
   },
+};
 });

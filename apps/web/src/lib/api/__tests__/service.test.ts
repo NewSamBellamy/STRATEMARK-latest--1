@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { captureSite, renderReportPdf, checkHealth, isServiceConfigured } from '../service';
 
-const BASE = 'https://stratemark-agent-abc.a.run.app';
+const BASE = 'https://stratemark-agent-142700126606.us-central1.run.app';
 
 function jsonRes(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });

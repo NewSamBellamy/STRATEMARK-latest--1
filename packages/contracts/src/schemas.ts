@@ -5,11 +5,13 @@
  * caught, never silently rendered (see Constraints).
  */
 import { z } from 'zod';
+import { normalizeEventDate } from './event-date';
 import {
   CARD_TYPES,
   CONFIDENCE_LEVELS,
   DASHBOARD_TABS,
   METRIC_TYPES,
+  MODEL_PROPOSABLE_CONFIDENCE,
   REFRESH_CADENCES,
   SUBSCRIPTION_STATUSES,
   SUBSCRIPTION_TIERS,
@@ -19,6 +21,30 @@ import {
 export const cardTypeSchema = z.enum(CARD_TYPES);
 export const metricTypeSchema = z.enum(METRIC_TYPES);
 export const confidenceSchema = z.enum(CONFIDENCE_LEVELS);
+
+/**
+ * Confidence as a MODEL may state it (issue #48). Use this — never
+ * `confidenceSchema` — on any structured-output schema handed to a model.
+ *
+ * Two jobs. Declaring the narrow enum makes the generated native
+ * `responseSchema` exclude `user_verified`, so a conforming model cannot emit a
+ * forged human sign-off at all. Normalising first stops a NON-conforming model
+ * from costing us an entire enrichment payload: the human-only value is demoted
+ * to `verified` (which must then be earned from a citation downstream), and
+ * anything unrecognisable becomes `unknown` rather than being trusted.
+ * `enforceModelMetricProvenance` applies the same demotion for callers that
+ * bypass this schema, so both entry points agree.
+ */
+export const modelConfidenceSchema = z
+  .preprocess((raw) => {
+    if (raw === undefined || raw === null) return undefined; // let .default() apply
+    if (raw === 'user_verified') return 'verified'; // human-only: never asserted
+    return (MODEL_PROPOSABLE_CONFIDENCE as readonly string[]).includes(raw as string)
+      ? raw
+      : 'unknown'; // malformed is a gap, not a figure to trust
+  }, z.enum(MODEL_PROPOSABLE_CONFIDENCE))
+  .default('unknown');
+
 export const refreshCadenceSchema = z.enum(REFRESH_CADENCES);
 export const dashboardTabSchema = z.enum(DASHBOARD_TABS);
 export const subscriptionTierSchema = z.enum(SUBSCRIPTION_TIERS);
@@ -67,6 +93,8 @@ export const marketSchema = z.object({
   scopeDefinition: scopeDefinitionSchema,
   refreshCadence: refreshCadenceSchema,
   createdAt: isoTimestamp,
+  /** Set when the user archives the deck: kept intact, but out of the library, sidebar and scheduled refreshes. */
+  archivedAt: isoTimestamp.nullable().optional(),
 });
 
 export const deckSchema = z.object({
@@ -84,6 +112,65 @@ export const brandThemeSchema = z.object({
   background: z.string(),
   fontFamily: z.string().nullable(),
   source: z.enum(['scraped', 'llm', 'manual', 'default']),
+  /** Which extraction signal supplied a scraped primary (theme-color, css-vars, logo-svg, ...). */
+  signal: z.string().optional(),
+});
+
+// Citation schema ----------------------------------------------------------
+export const citationSchema = z.object({
+  title: z.string(),
+  url: z.string(),
+  credibility: z
+    .enum(['primary', 'reputable_secondary', 'industry', 'user_generated', 'unknown'])
+    .optional(),
+});
+
+/**
+ * The year a company was founded, stored once with where it came from so the
+ * header is stable and the completeness scoreboard can measure it. Never a
+ * guess: 'wikidata' is the company's own item (matched by its official
+ * website), 'website' is the company's own page (schema.org foundingDate or
+ * a "founded in YYYY" sentence), 'history' is a founding milestone from the
+ * researched History tab.
+ * At least one citation is required. Additive and optional on Company.
+ */
+export const companyFoundedSchema = z.object({
+  year: z.number().int().min(1600).max(2100),
+  source: z.enum(['wikidata', 'history', 'website']),
+  citations: z.array(citationSchema).min(1),
+  /** The founding statement the year was read from (history), when there is one. */
+  evidence: z.string().max(400).optional(),
+  capturedAt: z.string(),
+});
+
+/**
+ * Who owns the company, as its sources state it (ownership.ts has the rules).
+ *
+ * - `acquired`: a source says the deal CLOSED — a primary source (SEC filing,
+ *   company press release, GLEIF parent record) or two independent ones.
+ * - `acquisition_pending`: announced, not shown to have closed.
+ * - `subsidiary`: a registry names a parent, no acquisition event is on file.
+ * - `independent`: a registry explicitly states there is no parent.
+ *
+ * No citation, no status: `enforceOwnershipProvenance` drops a status nothing
+ * states. `price` is what the acquirer paid — never a valuation of the
+ * company. Additive and optional, so every snapshot written before it parses.
+ */
+export const OWNERSHIP_STATUSES = ['independent', 'acquired', 'acquisition_pending', 'subsidiary'] as const;
+export const ownershipStatusSchema = z.enum(OWNERSHIP_STATUSES);
+/** YYYY, YYYY-MM or YYYY-MM-DD: a source dated only to the month stays a month. */
+const partialDate = z.string().regex(/^\d{4}(?:-\d{2}(?:-\d{2})?)?$/);
+export const ownershipSchema = z.object({
+  status: ownershipStatusSchema,
+  acquirer: z.string().min(1).max(160).optional(),
+  announcedOn: partialDate.nullish(),
+  closedOn: partialDate.nullish(),
+  price: z.object({ value: z.number().finite().positive(), currency: z.string().regex(/^[A-Z]{3}$/) }).nullish(),
+  citations: z.array(citationSchema).default([]),
+  confidence: confidenceSchema,
+  /** One line on how the status was reached (which sources, why not closed). */
+  methodNote: z.string().max(600).nullish(),
+  checkedAt: isoTimestamp.optional(),
 });
 
 export const companySchema = z.object({
@@ -94,7 +181,80 @@ export const companySchema = z.object({
   hqLocation: z.string().nullable(),
   websiteUrl: z.string().nullable(),
   brandTheme: brandThemeSchema.nullable(),
+  /** Additive: absent on companies stored before it existed and until a sourced year is found. */
+  founded: companyFoundedSchema.nullable().optional(),
+  /** Optional: absent means ownership has not been researched, not "independent". */
+  ownership: ownershipSchema.nullish(),
 });
+
+/** Retained extraction evidence, never a model assertion of verification. */
+export const metricPassageSupportSchema = z.object({
+  sourceUrl: z.string().max(2048), quote: z.string().max(600), asOf: z.string().max(40),
+  /**
+   * Money metrics (arr, valuation, market_cap, aum) carry the ISO 4217 code the
+   * SOURCE quotes — USD or one of the convertible majors. A non-USD figure is
+   * stored converted to USD on the metric row; the quote and this code keep
+   * the native observation. count and percent are non-monetary units.
+   */
+  basis: metricTypeSchema, unit: z.enum(['USD', 'count', 'percent',
+    'EUR', 'GBP', 'JPY', 'CNY', 'KRW', 'TWD', 'INR', 'CAD', 'AUD', 'CHF', 'HKD', 'SGD', 'SEK', 'NOK', 'DKK', 'BRL', 'MXN']),
+  /** basis is the legacy storage slot; definition is the actual measurement. */
+  definition: z.enum(['arr', 'annual_revenue', 'users', 'active_users', 'monthly_active_users',
+    'daily_active_users', 'customers', 'paying_customers', 'employees', 'valuation', 'market_cap', 'market_share', 'aum', 'revenue', 'funding_total', 'last_round', 'distribution']).optional(),
+  /** Inclusive annual reporting interval; asOf is its end, not retrieval time. */
+  periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /** Deterministic retained SEC evidence, never generated prose. 'sec-adv' is
+   * the IAPD Form ADV PDF report (Item 5.A employees, Item 5.F regulatory AUM). */
+  format: z.enum(['sec-companyconcept', 'sec-filing', 'sec-adv']).optional(),
+});
+
+/** Who attributed a passage to its sources: Google Search grounding, or a
+ * 'page-quote' — a sentence verified verbatim on the cited page's own text
+ * (the search-key fallback when grounding quota is spent). */
+export const groundingProviderSchema = z.enum(['google-search', 'page-quote']);
+
+/** Provider-attributed reported claim, explicitly NOT original verification. */
+export const reportedMetricSupportSchema = z.object({
+  provider: groundingProviderSchema, companyName: z.string().min(1),
+  basis: metricTypeSchema, value: z.number().finite().nonnegative(),
+  unit: metricPassageSupportSchema.shape.unit,
+  asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  definition: metricPassageSupportSchema.shape.definition,
+  periodStart: metricPassageSupportSchema.shape.periodStart,
+  support: z.object({
+    supportIndex: z.number().int().nonnegative(), text: z.string().min(1).max(12000),
+    sources: z.array(z.object({ chunkIndex: z.number().int().nonnegative(), url: z.string().max(2048), title: z.string() })).min(1),
+    startIndex: z.number().int().nonnegative().optional(), endIndex: z.number().int().nonnegative().optional(),
+    partIndex: z.number().int().nonnegative().optional(),
+  }),
+});
+
+/**
+ * A headcount BAND ("51 to 100 employees") a source states instead of a point
+ * value. A band is never a point: the metric row keeps `value: null` and the
+ * band lives here, with the same provider support proof a reported figure has.
+ * Additive: older snapshots without it parse unchanged.
+ */
+export const reportedBandSchema = z.object({
+  provider: groundingProviderSchema, companyName: z.string().min(1),
+  basis: z.literal('employees'),
+  low: z.number().int().positive(), high: z.number().int().positive(),
+  unit: z.literal('count'),
+  asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  support: reportedMetricSupportSchema.shape.support,
+}).refine((band) => band.high > band.low, { message: 'band high must exceed low' });
+export type ReportedBand = z.infer<typeof reportedBandSchema>;
+
+/** A figure quoted word for word from a fetched original page; see companyMetricSchema.quotedSupport. */
+export const quotedSupportSchema = z.object({
+  sourceUrl: z.string().max(2048),
+  quote: z.string().min(1).max(600),
+  asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** The figure as the source states it, before any USD conversion. */
+  value: z.number(),
+  unit: z.string().max(16),
+});
+export type QuotedSupport = z.infer<typeof quotedSupportSchema>;
 
 export const companyMetricSchema = z.object({
   id: z.string(),
@@ -111,18 +271,18 @@ export const companyMetricSchema = z.object({
    * expire, so the publisher name is the durable half of the provenance.
    * Defaulted to [] so snapshots written before this field still parse.
    */
-  citations: z
-    .array(
-      z.object({
-        title: z.string(),
-        url: z.string(),
-        credibility: z
-          .enum(['primary', 'reputable_secondary', 'industry', 'user_generated', 'unknown'])
-          .optional(),
-      }),
-    )
-    .default([]),
+  citations: z.array(citationSchema).default([]),
   methodNote: z.string().nullable(), // "how we got this number" for estimated figures
+  passageSupport: metricPassageSupportSchema.nullish(),
+  reportedSupport: reportedMetricSupportSchema.nullish(),
+  /** Employees only: a stated headcount range; `value` stays null (never a point). */
+  reportedBand: reportedBandSchema.nullish(),
+  /**
+   * Estimated only: the exact sentence a fetched original page states this
+   * figure in (press/news prose the verified gate does not accept). Kept so
+   * every reader re-checks it instead of trusting the stored label.
+   */
+  quotedSupport: quotedSupportSchema.nullish(),
   capturedAt: isoTimestamp,
   /**
    * When a source last CONFIRMED this figure, as opposed to when we wrote the
@@ -132,6 +292,8 @@ export const companyMetricSchema = z.object({
    * Defaulted so snapshots written before freshness tracking still parse.
    */
   lastVerifiedAt: isoTimestamp.nullish(),
+  /** Last completed check, including inconclusive attempts; not evidence of support. */
+  lastVerificationAttemptAt: isoTimestamp.nullish(),
   /**
    * This figure's own decay window. Written onto the row rather than derived at
    * read time, so a later policy change cannot silently reinterpret the
@@ -148,6 +310,7 @@ export const companyMetricSchema = z.object({
             confidence: confidenceSchema,
             source: z.string().nullable(),
             capturedAt: isoTimestamp,
+            passageSupport: metricPassageSupportSchema.nullish(),
           }),
         ),
         detectedAt: isoTimestamp,
@@ -234,6 +397,10 @@ export const overviewContentSchema = z.object({
   markdown: prose(),
 });
 
+/** The Research & Sources tab renders retained evidence directly; the
+// cached-content stub only satisfies the shared content contract. */
+export const researchContentSchema = z.object({ markdown: z.string() });
+
 export const liveIntelItemSchema = z.object({
   id: z.string(),
   source: z.enum(['news', 'x', 'reddit']),
@@ -251,11 +418,25 @@ export const liveIntelItemSchema = z.object({
   sentiment: z.enum(['positive', 'neutral', 'negative']),
   publishedAt: isoTimestamp,
   stale: z.boolean(),
+  // The publication's own name ("Reuters"), as the news feed or page reports it.
+  publisher: z.string().max(120).nullable().optional().catch(null),
+  // The article's own link-preview picture (og:image), when research read it.
+  imageUrl: z.string().max(2048).nullable().optional().catch(null),
+});
+/** A video from the company's OWN YouTube channel, linked from its homepage. */
+export const companyVideoSchema = z.object({
+  id: z.string().regex(/^[\w-]{11}$/),
+  title: z.string().max(300),
+  /** As YouTube shows it ("2 weeks ago"); never converted into a fake date. */
+  age: z.string().max(60).nullable().catch(null),
+  views: z.string().max(40).nullable().catch(null),
+  channelUrl: z.string().max(300),
 });
 export const liveIntelContentSchema = z.object({
   items: rows(liveIntelItemSchema),
   lastRefreshedAt: isoTimestamp.nullable().catch(null),
   cadence: refreshCadenceSchema.catch('weekly'),
+  videos: rows(companyVideoSchema).optional(),
 });
 
 export const orgNodeSchema = z.object({
@@ -274,6 +455,10 @@ export const orgNodeSchema = z.object({
   priorCompany: prose().nullable().optional().catch(null),
   /** Notable project or ownership area explicitly tied to the person. */
   notableProject: prose().nullable().optional().catch(null),
+  /** Exact retained original that supports this person/title, when available. */
+  sourceUrl: z.string().url().nullable().optional().catch(null),
+  supportingQuote: prose().nullable().optional().catch(null),
+  sourceRetrievedAt: isoTimestamp.nullable().optional().catch(null),
 });
 /**
  * Tolerant to the model returning the node list bare instead of wrapped in
@@ -299,6 +484,8 @@ export const timePointSchema = z.object({ period: z.string(), value: z.number() 
 export const capTableSliceSchema = z.object({ holder: z.string(), pct: z.number() });
 export const metricsContentSchema = z.object({
   revenue: rows(timePointSchema),
+  /** Three-month revenue periods exactly as filed (SEC 10-Q); empty when none are on file. */
+  revenueQuarterly: rows(timePointSchema),
   users: rows(timePointSchema),
   churn: rows(timePointSchema),
   nps: rows(timePointSchema),
@@ -336,15 +523,39 @@ export const missionGovernanceContentSchema = z.object({
 });
 
 export const timelineEventSchema = z.object({
-  date: prose(),
+  // One written form for the dates research returns a dozen ways (event-date.ts).
+  date: prose().transform(normalizeEventDate),
   title: z.string(),
   detail: prose(),
 });
-export const quoteSchema = z.object({ text: z.string(), attribution: prose() });
+export const quoteSchema = z.object({
+  text: z.string(),
+  attribution: prose(),
+  /** Provenance (red team #18): who said it needs when and where. All
+   * optional so cached content parses; the dashboard builder drops source
+   * fields that do not match the response's real citations. */
+  date: prose().optional(),
+  sourceTitle: prose().optional(),
+  // A quote the notes carry but no link for arrives as "" or prose: that is
+  // a quote without provenance, not a malformed row to discard.
+  sourceUrl: z.string().url().optional().catch(undefined),
+});
+/** The video chosen for the History tab: found by search, then checked against the company by a second pass. */
+export const historyVideoSchema = z.object({
+  id: z.string().regex(/^[\w-]{11}$/),
+  title: z.string().max(300),
+  channel: z.string().max(200),
+  channelUrl: z.string().max(300).regex(/^https:[/][/](www[.])?youtube[.]com[/]/i).nullable().catch(null),
+  /** One plain sentence on why the check accepted it. */
+  verdict: z.string().max(400),
+  checkedAt: isoTimestamp,
+});
 export const historyContentSchema = z.object({
   founderStory: prose(),
   timeline: rows(timelineEventSchema),
   quotes: rows(quoteSchema),
+  /** Additive: absent until a video passed the check; never filled with a guess. */
+  video: historyVideoSchema.nullable().optional().catch(null),
 });
 
 export const productSchema = z.object({
@@ -359,9 +570,10 @@ export const productSchema = z.object({
   /** Official product page URL when sources name one — powers the live product
    * capture in the UI. Additive; null when not reported. */
   url: prose().nullable().catch(null),
-  // No neutral value exists here, so an unreadable status drops the row rather
-  // than asserting a lifecycle stage we did not find.
-  status: z.enum(['live', 'beta', 'sunset']),
+  // null = the product is sourced but no source states its lifecycle: render no
+  // badge. An unreadable (non-null, non-enum) status still drops the row rather
+  // than asserting a lifecycle stage we did not find. Additive widening.
+  status: z.enum(['live', 'beta', 'sunset']).nullable(),
 });
 export const roadmapItemSchema = z.object({
   title: z.string(),
@@ -370,14 +582,63 @@ export const roadmapItemSchema = z.object({
   /** Announced/reported date when sources give one (e.g. "2026 H2"); additive. */
   date: prose().nullable().catch(null),
 });
+/** A named customer, supplier or partner, only as an exact reported sentence states it. */
+export const businessRelationshipSchema = z.object({
+  name: z.string(),
+  kind: z.enum(['customer', 'supplier', 'partner']),
+  /** The exact sentence that names both companies and the relationship. */
+  quote: z.string(),
+  sourceUrl: prose().nullable().catch(null),
+  sourceTitle: prose().nullable().catch(null),
+});
+/**
+ * One product's page, researched on request. Every metric is a figure a source
+ * states: a value without a source is dropped by the engine, and a metric
+ * nobody reports is carried as null (shown as "Not reported"), never estimated.
+ */
+export const productBriefMetricSchema = z.object({
+  label: z.string(),
+  /** As the source writes it ("100M weekly users"); null = not reported. */
+  value: z.string().nullable().catch(null),
+  asOf: z.string().nullable().catch(null),
+  sourceUrl: z.string().nullable().catch(null),
+  sourceTitle: z.string().nullable().catch(null),
+});
+export const productBriefSentimentSchema = z.object({
+  summary: prose(),
+  positive: z.array(z.string()).catch([]),
+  negative: z.array(z.string()).catch([]),
+  /** Where the reporting on reception comes from. */
+  sources: rows(z.object({ title: z.string(), url: z.string() })),
+});
+export const productBriefTimelineSchema = z.object({
+  /** As the source dates it ("Nov 2022", "2024 Q3"). */
+  date: z.string(),
+  title: z.string(),
+  detail: prose(),
+  sourceUrl: z.string().nullable().catch(null),
+});
+export const productBriefSchema = z.object({
+  companyId: z.string(),
+  productName: z.string(),
+  generatedAt: isoTimestamp,
+  overview: prose(),
+  metrics: rows(productBriefMetricSchema),
+  sentiment: productBriefSentimentSchema.nullable().catch(null),
+  timeline: rows(productBriefTimelineSchema),
+  citations: z.array(citationSchema).catch([]),
+});
 export const productsRoadmapContentSchema = z.object({
   products: rows(productSchema),
   roadmap: rows(roadmapItemSchema),
+  /** Additive: absent when nothing is reported, and on content stored before it existed. */
+  relationships: rows(businessRelationshipSchema).optional(),
 });
 
 /** Tab → content schema. Used to validate `dashboard_data.content_json` per tab. */
 export const DASHBOARD_CONTENT_SCHEMAS = {
   overview: overviewContentSchema,
+  research: researchContentSchema,
   live_intel: liveIntelContentSchema,
   team_org: teamOrgContentSchema,
   live_landing: liveLandingContentSchema,
@@ -394,3 +655,67 @@ export const dashboardDataSchema = z.object({
   contentJson: z.unknown(),
   lastRefreshedAt: isoTimestamp.nullable(),
 });
+
+// Semantic Memory & Research Thread Schemas (spec #56) -----------------------
+export const distilledSemanticFactSchema = z.object({
+  id: z.string(),
+  fact: z.string().min(1),
+  category: z
+    .enum(['metric', 'finding', 'competitor', 'trend', 'risk', 'general'])
+    .default('general'),
+  companyId: z.string().nullable().optional(),
+  subject: z.string().nullable().optional(),
+  citations: z.array(citationSchema).default([]),
+  extractedAt: isoTimestamp,
+  userVerified: z.boolean().optional(),
+});
+
+export const semanticMemorySchema = z.object({
+  threadId: z.string(),
+  distilledFacts: z.array(distilledSemanticFactSchema).default([]),
+  lastDistilledTurnIndex: z.number().int().nonnegative(),
+  totalTurnsDistilled: z.number().int().nonnegative(),
+  distilledAt: isoTimestamp,
+});
+
+export const distillationExtractionSchema = z.object({
+  facts: z.array(
+    z.object({
+      fact: z.string().min(1),
+      category: z
+        .enum(['metric', 'finding', 'competitor', 'trend', 'risk', 'general'])
+        .default('general'),
+      companyId: z.string().nullable().optional(),
+      subject: z.string().nullable().optional(),
+      citations: z.array(citationSchema).default([]),
+    }),
+  ),
+});
+
+export const researchScopeSchema = z.object({
+  kind: z.enum(['deck', 'company', 'cards', 'datapoint']),
+  deckId: z.string().nullable(),
+  companyId: z.string().nullable().optional(),
+  cardIds: z.array(z.string()).optional(),
+  subject: z.string().nullable().optional(),
+});
+
+export const threadMessageSchema = z.object({
+  id: z.string(),
+  role: z.enum(['user', 'assistant']),
+  text: z.string(),
+  citations: z.array(citationSchema).default([]),
+  at: isoTimestamp,
+});
+
+export const researchThreadSchema = z.object({
+  id: z.string(),
+  scope: researchScopeSchema,
+  title: z.string(),
+  messages: z.array(threadMessageSchema),
+  reportId: z.string().nullable().default(null),
+  semanticMemory: semanticMemorySchema.nullable().optional(),
+  createdAt: isoTimestamp,
+  updatedAt: isoTimestamp,
+});
+

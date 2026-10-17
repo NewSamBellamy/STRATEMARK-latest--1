@@ -16,7 +16,7 @@ export function formatCount(value: number | null | undefined): string {
   if (value == null) return 'Unknown';
   const abs = Math.abs(value);
   if (abs >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
-  if (abs >= 1e3) return `${(value / 1e3).toFixed(0)}K`;
+  if (abs >= 1e3) return `${(value / 1e3).toFixed(1).replace(/\.0$/, '')}K`;
   return value.toLocaleString();
 }
 
@@ -48,11 +48,16 @@ export function formatMetricValue(type: MetricType, value: number | null): strin
     case 'market_cap':
     case 'valuation':
     case 'arr':
+    case 'aum':
+    case 'revenue':
+    case 'funding_total':
+    case 'last_round':
       return formatUsd(value);
     case 'market_share':
       return formatPercent(value);
     case 'users':
     case 'employees':
+    case 'distribution':
       return formatCount(value);
   }
 }

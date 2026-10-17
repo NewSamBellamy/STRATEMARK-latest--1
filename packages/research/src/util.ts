@@ -61,6 +61,8 @@ export async function withRetry<T>(
     signal?: AbortSignal;
     /** Total wall-clock budget across all attempts. Default 120s. */
     maxTotalMs?: number;
+    /** Observes every retry sleep (Retry-After / backoff) as it starts. */
+    onRetryWait?: (waitMs: number) => void;
   } = {},
 ): Promise<T> {
   const retries = opts.retries ?? 4;
@@ -86,6 +88,7 @@ export async function withRetry<T>(
       if (Date.now() - startedAt + delay > maxTotalMs) throw err;
 
       attempt += 1;
+      opts.onRetryWait?.(delay);
       await sleep(delay, opts.signal);
     }
   }
@@ -118,6 +121,22 @@ export function rootDomain(input: string | null | undefined): string | null {
   try {
     const host = input.includes('://') ? new URL(input).hostname : input.trim();
     return host.replace(/^www\./, '').toLowerCase() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Models return bare hosts ("rillet.com", "www.x.com"), but every official-host
+ * gate parses websiteUrl with `new URL`. A bare host silently failed all of them,
+ * so a company's own site never counted as its own site. Full URLs pass through. */
+export function websiteUrlOf(input: string | null | undefined): string | null {
+  const value = input?.trim();
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.includes('://') || /\s/.test(value)) return null;
+  try {
+    const url = new URL(`https://${value}`);
+    return url.hostname.includes('.') ? url.href.replace(/\/$/, '') : null;
   } catch {
     return null;
   }
@@ -160,36 +179,56 @@ export function extractJson(text: string): unknown {
  * `withRetry` stays as the safety net for genuine spikes.
  */
 export interface RateLimiter {
-  acquire(signal?: AbortSignal): Promise<void>;
+  /** `urgent`: a call the user is waiting on, served ahead of queued bulk work. */
+  acquire(signal?: AbortSignal, priority?: CallPriority): Promise<void>;
 }
+
+/**
+ * Pacing priority. A deck's bulk work (hydration, face hunts, dashboard
+ * warm-up) can queue minutes of calls at the free-tier rate; a handful of
+ * calls that would otherwise wait behind all of it — market signals — take
+ * `urgent` so they are not starved. Never use it for bulk work.
+ */
+export type CallPriority = 'normal' | 'urgent';
 
 export function createRateLimiter(requestsPerMinute: number): RateLimiter {
   const windowMs = 60_000;
   const limit = Math.max(1, requestsPerMinute);
   const sent: number[] = [];
-  // Serialize waiters so N callers don't all wake and burst through together.
-  let chain: Promise<void> = Promise.resolve();
+  // One queue, served in order (urgent first), so N callers never all wake
+  // and burst through together.
+  const waiting: Array<{ urgent: boolean; grant: () => void }> = [];
+  let timer: ReturnType<typeof setTimeout> | null = null;
 
-  async function reserve(signal?: AbortSignal): Promise<void> {
-    for (;;) {
-      throwIfAborted(signal);
-      const now = Date.now();
-      while (sent.length && now - sent[0]! >= windowMs) sent.shift();
-      if (sent.length < limit) {
-        sent.push(now);
-        return;
-      }
-      // Wait until the oldest call leaves the window (+ a little slack).
-      await sleep(windowMs - (now - sent[0]!) + 60, signal);
+  function pump(): void {
+    timer = null;
+    const now = Date.now();
+    while (sent.length && now - sent[0]! >= windowMs) sent.shift();
+    while (waiting.length && sent.length < limit) {
+      const urgent = waiting.findIndex((w) => w.urgent);
+      const [next] = waiting.splice(urgent >= 0 ? urgent : 0, 1);
+      sent.push(now);
+      next!.grant();
     }
+    // Full: wake when the oldest call leaves the window (+ a little slack).
+    if (waiting.length) timer = setTimeout(pump, windowMs - (now - sent[0]!) + 60);
   }
 
   return {
-    acquire(signal) {
-      const next = chain.then(() => reserve(signal));
-      // Keep the chain alive even if one waiter aborts.
-      chain = next.catch(() => undefined);
-      return next;
+    acquire(signal, priority = 'normal') {
+      throwIfAborted(signal);
+      return new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          const at = waiting.indexOf(entry);
+          if (at >= 0) waiting.splice(at, 1);
+          reject(new AbortError());
+        };
+        const entry = { urgent: priority === 'urgent', grant: () => { signal?.removeEventListener('abort', onAbort); resolve(); } };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        waiting.push(entry);
+        // A pending timer means the window is full until it fires.
+        if (!timer) pump();
+      });
     },
   };
 }

@@ -62,6 +62,14 @@ describe('volatility policy', () => {
 });
 
 describe('due dates', () => {
+  it('backs off an inconclusive attempt without changing successful support history', () => {
+    const m = metric({ confidence: 'unknown', value: null, lastVerifiedAt: null,
+      lastVerificationAttemptAt: new Date(T0).toISOString() });
+    expect(isMetricStale(m, T0 + 1_000)).toBe(false);
+    expect(isMetricStale(m, T0 + DAY_MS)).toBe(true);
+    expect(m.lastVerifiedAt).toBeNull();
+  });
+
   it('is fresh immediately after verification and stale after its window', () => {
     const m = markVerified(metric(), new Date(T0).toISOString());
     expect(isMetricStale(m, T0 + 1_000)).toBe(false);

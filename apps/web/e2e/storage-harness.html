@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Keystone storage verification — isolated fixture</title>
+<style>body{font:16px system-ui;max-width:900px;margin:48px auto;color:#173c32;background:#f5f8f7}button{padding:12px;margin:6px;border:1px solid #9fbab1;border-radius:10px;background:white}pre{white-space:pre-wrap;padding:24px;background:white;border-radius:16px}</style></head>
+<body><h1>Isolated research storage verification</h1><p>No provider key, no paid requests, no existing user data. This page uses the application's actual storage module.</p>
+<button id="open">Open two writers</button><button id="large">Save 6 MB fixture</button><button id="stale">Try stale writer</button><button id="reopen">Reopen and verify</button><button id="export">Export fixture</button>
+<pre id="result" role="status">Ready. Use a separate test origin.</pre>
+<script type="module">
+import { migrateSnapshot } from '@mi/research';
+import { openBrowserResearchStore, readBrowserResearchData } from '/src/lib/repository/browserResearchStore.ts';
+import { exportSnapshot } from '/src/lib/repository/vault.ts';
+let first, stale;
+const result = document.querySelector('#result');
+const show = (value) => { result.textContent = JSON.stringify(value, null, 2); };
+const run = (id, work) => document.querySelector(id).addEventListener('click', async () => {
+  try {
+    if (location.origin !== 'http://127.0.0.1:4188') throw new Error('Fixture actions are restricted to the isolated test origin on port 4188. Do not run this on your research preview.');
+    show(await work());
+  } catch(error) { show({ failed: true, message: error.message }); }
+});
+run('#open', async () => {
+  first = await openBrowserResearchStore(); stale = await openBrowserResearchStore();
+  return { opened: true, existingReports: first.read()?.reports?.length ?? 0 };
+});
+run('#large', async () => {
+  if (!first) throw new Error('Open the writers first.');
+  const snapshot = migrateSnapshot(null).snapshot;
+  snapshot.reports = [{ id: 'durability-fixture', markdown: 'x'.repeat(6_000_000) }];
+  const started = performance.now();
+  await first.write(snapshot);
+  return { saved: true, payloadCharacters: snapshot.reports[0].markdown.length, acknowledgedMs: Math.round(performance.now() - started), localStorageSnapshotPresent: localStorage.getItem('mi.repo.v1') !== null };
+});
+run('#stale', async () => {
+  if (!stale) throw new Error('Open the writers first.');
+  try { await stale.write(migrateSnapshot(null).snapshot); return { staleWriteRejected: false }; }
+  catch(error) { return { staleWriteRejected: /another window/i.test(error.message), message: error.message }; }
+});
+run('#reopen', async () => {
+  const reopened = await openBrowserResearchStore();
+  const report = reopened.read()?.reports.find((report) => report.id === 'durability-fixture');
+  const { current } = await readBrowserResearchData();
+  return { reopened: !!report, payloadCharacters: report?.markdown.length ?? 0, exportCharacters: current?.length ?? 0 };
+});
+run('#export', async () => ({ exported: await exportSnapshot() }));
+</script></body></html>

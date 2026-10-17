@@ -11,4 +11,9 @@ export const qk = {
   companyMetrics: (id: string) => ['companyMetrics', id] as const,
   dashboard: (companyId: string, tab: DashboardTab) => ['dashboard', companyId, tab] as const,
   savedCards: ['savedCards'] as const,
+  moves: ['moves'] as const,
+  follows: ['follows'] as const,
+  todayIntel: (companyId: string) => ['today', 'intel', companyId] as const,
+  productBrief: (companyId: string, productName: string) => ['productBrief', companyId, productName] as const,
+  companyCard: (companyId: string) => ['today', 'card', companyId] as const,
 };

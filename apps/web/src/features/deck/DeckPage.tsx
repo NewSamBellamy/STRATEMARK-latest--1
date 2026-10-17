@@ -1,28 +1,29 @@
-import { useMemo, useEffect, useRef, useState } from 'react';
+import { useMemo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
+  AlertCircle,
   ArrowLeft,
   ChevronRight,
   FileText,
   Layers,
+  Loader2,
   MessagesSquare,
   MoreHorizontal,
   Newspaper,
+  Radar,
   RefreshCw,
   Search,
   Settings,
-  Share2,
   SquareMousePointer,
   Target,
   X,
+  Sun,
 } from 'lucide-react';
 import {
   CARD_TYPE_DESCRIPTIONS,
   CARD_TYPE_LABELS,
   CARD_TYPE_ORDER,
-  MATURITY_TIERS,
-  TIER_BLURBS,
-  TIER_LABELS,
+  isEntityCardType,
   type CardType,
   type CardWithCompany,
   type MaturityTier,
@@ -32,29 +33,29 @@ import {
   useDeckByMarket,
   useMarket,
   useRefreshDeck,
+  useResumableJob,
+  useResumeResearchJob,
 } from '@/hooks/data';
 import { useLivingDeck } from '@/lib/living/useLivingDeck';
+import { DeckStatusBar } from './DeckStatusBar';
+import { DemoDeckBanner } from './DemoDeckBanner';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
 import { buildDeckShare } from '@/lib/share/codec';
-import { ShareDialog } from '@/features/share/ShareDialog';
-import { AgentActivityFeed } from './AgentActivityFeed';
+import { ExportMenu } from '@/features/export/ExportMenu';
+import { useReadOnly } from '@/lib/readOnly';
+import { GroundingQuotaNotice } from '@/lib/living/GroundingQuotaNotice';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { ThreadHistoryButton } from '@/features/research/ResearchControls';
 import { cn } from '@/lib/cn';
 import { useApiKey } from '@/lib/settings/apiKey';
+import { SettingsLink } from '@/components/SettingsLink';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
 import { CardGrid } from './CardGrid';
-import { TierBadge } from '@/features/card/TierBadge';
-
-/**
- * Retired for now (founder's call): Vice and Culture read as too ambiguous
- * next to company cards. Barrier and Insight stay. Cards remain in storage —
- * this is a display retirement, reversible by deleting two entries.
- */
-const HIDDEN_CARD_TYPES: ReadonlySet<CardType> = new Set(['vice', 'culture'] as CardType[]);
-const VISIBLE_CARD_TYPE_ORDER = CARD_TYPE_ORDER.filter((t) => !HIDDEN_CARD_TYPES.has(t));
+import { deckActionPolicy } from './deck-actions';
+import { useSupports } from '@/lib/repository/RepositoryProvider';
+import { useFollowCompanies, useFollows } from '@/hooks/today';
 
 /** Human count noun per card type — fixes the old "20 company companies" bug. */
 function cardCountNoun(type: CardType, count: number): string {
@@ -94,7 +95,20 @@ export default function DeckPage() {
   const deckId = deck.data?.id;
   const cards = useCards(deckId);
   const refreshDeck = useRefreshDeck();
+  const resumableJob = useResumableJob(marketId);
+  const resumeJob = useResumeResearchJob();
   const { chat } = useDeepDive();
+  const readOnly = useReadOnly();
+
+  const deckStatus = (deck.data as { status?: 'running' | 'refreshing' | 'partial' | 'failed' | 'ready' | 'ready_stale' } | null)?.status;
+  const isRunning = deckStatus === 'running';
+  const isPartial = deckStatus === 'partial';
+  const isRefreshing = deckStatus === 'refreshing';
+  const isFailed = deckStatus === 'failed';
+  const isStale = deckStatus === 'ready_stale';
+  const deckError = (deck.data as { error?: string } | null)?.error;
+  const lastSyncedAt = (deck.data as { lastSyncedAt?: string } | null)?.lastSyncedAt;
+  const deckRevision = (deck.data as { revision?: number } | null)?.revision;
 
   // Compare mode: select cards, then ask a grounded question about exactly
   // that set. Selection is deck-page state — leaving the page clears it.
@@ -115,7 +129,12 @@ export default function DeckPage() {
     if (!deckId || selected.size === 0) return;
     chat(
       { kind: 'cards', deckId, cardIds: [...selected] },
-      { placeholder: 'Compare these…' },
+      {
+        placeholder: 'Ask a follow-up about these…',
+        seed: selected.size === 1
+          ? 'What stands out about this one, and what would you check next?'
+          : `Compare these ${selected.size} head-to-head: where each is stronger, where the research has gaps, and who you would back.`,
+      },
     );
     exitCompare();
   };
@@ -123,16 +142,25 @@ export default function DeckPage() {
   const [params, setParams] = useSearchParams();
   const split = params.get('split'); // 'types' | 'company' | null
   const typeParam = params.get('type') as CardType | null;
+  const actionPolicy = deckActionPolicy(typeParam);
 
-  const all = useMemo(
-    () => (cards.data ?? []).filter((c) => !HIDDEN_CARD_TYPES.has(c.card.cardType)),
-    [cards.data],
+  const all = useMemo(() => cards.data ?? [], [cards.data]);
+  const canFollow = useSupports('followCompanies');
+  const follows = useFollows();
+  const followCompanies = useFollowCompanies();
+  const deckCompanyIds = useMemo(() => [...new Set(all.flatMap((entry) => (entry.company ? [entry.company.id] : [])))], [all]);
+  const followed = useMemo(() => new Set((follows.data ?? []).map((follow) => follow.companyId)), [follows.data]);
+  const allFollowed = deckCompanyIds.length > 0 && deckCompanyIds.every((id) => followed.has(id));
+  const companyCount = useMemo(
+    () => new Set(all.filter((entry) => isEntityCardType(entry.card.cardType))
+      .map((entry) => entry.company?.id)
+      .filter((id): id is string => Boolean(id))).size,
+    [all],
   );
   // A market whose deck record is gone (or a stale link) must NEVER render a
   // blank screen (audit 7:44): show a recovery path instead.
   const deckMissing = market.isSuccess && deck.isSuccess && (!market.data || !deck.data);
   const living = useLivingDeck(deckId, all);
-  const [shareOpen, setShareOpen] = useState(false);
 
   // Anchor the floating presence's "Chat" to THIS deck's synthesized research.
   const setChatContext = useAgentTrace((s) => s.setChatContext);
@@ -155,105 +183,11 @@ export default function DeckPage() {
     setParams(p);
   };
 
-  return (
-    <div className="w-full max-w-[1600px] px-2 sm:px-4">
-      {/* ── Header — tight, structured, clear hierarchy ── */}
-      <div className="mb-6">
-        {/* Back link */}
-        <Link to="/history" className="inline-flex items-center gap-1 text-[12px] font-medium text-muted hover:text-primary-ink transition-colors">
-          <ArrowLeft className="h-3 w-3" />
-          Back
-        </Link>
-
-        {/* Title row */}
-        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-display text-[22px] font-bold tracking-tight text-content sm:text-[28px]">
-                {market.data?.name ?? 'Deck'}
-              </h1>
-              {((market.data as { engine?: string } | undefined)?.engine === 'cloud' ||
-                (all[0]?.card as { engine?: string } | undefined)?.engine === 'cloud') && (
-                <span className="inline-flex items-center gap-1 rounded border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-700 dark:border-teal-800 dark:bg-teal-950/50 dark:text-teal-300">
-                  ☁️ Sentinel Cloud Agent
-                </span>
-              )}
-            </div>
-            {market.data?.scopeDefinition && (
-              <p className="mt-0.5 text-[12px] text-faint">
-                {[
-                  all.filter(c => c.card.cardType === 'company').length + ' companies',
-                  market.data.scopeDefinition.geography,
-                ].filter(Boolean).join(' · ')}
-              </p>
-            )}
-          </div>
-
-          {/* Compact action bar */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-              disabled={!deckId}
-              onClick={() =>
-                deckId &&
-                chat(
-                  { kind: 'deck', deckId },
-                  { placeholder: 'Ask about this market…' },
-                )
-              }
-            >
-              <MessagesSquare className="h-3.5 w-3.5" />
-              Ask
-            </button>
-            <button
-              type="button"
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2',
-                compare && 'border-primary bg-primary/10 text-primary-ink',
-              )}
-              disabled={!deckId}
-              aria-pressed={compare}
-              onClick={() => (compare ? exitCompare() : setCompare(true))}
-            >
-              <SquareMousePointer className="h-3.5 w-3.5" />
-              {compare ? 'Cancel' : 'Compare'}
-            </button>
-            <Link
-              to={`/markets/${marketId}/briefing`}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-              title="The Daily Briefing — the desk hunts the last 24h across every tracked company and unboxes it as an editorial report"
-            >
-              <Newspaper className="h-3.5 w-3.5" />
-              Briefing
-            </Link>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-              disabled={all.length === 0}
-              title="Share this whole deck as a clean interactive snapshot — all the research travels inside the link, AI layer removed."
-              onClick={() => setShareOpen(true)}
-            >
-              <Share2 className="h-3.5 w-3.5" />
-              Share
-            </button>
-            <ShareDialog
-              open={shareOpen}
-              onOpenChange={setShareOpen}
-              title={market.data?.name ?? 'Market deck'}
-              subtitle="Full deck — research snapshot"
-              build={async () => buildDeckShare(all, market.data?.name ?? null)}
-            />
-            <ThreadHistoryButton deckId={deckId} />
-            <MoreMenu marketId={marketId} refreshDeck={refreshDeck} />
-          </div>
-        </div>
-
-        {/* The visible heartbeat: desks verifying, correcting, and warming tabs live. */}
-        <AgentActivityFeed living={living} />
-      </div>
-
-      {deckMissing && (
+  // A missing deck is a dead end, not a deck: none of the deck chrome (title,
+  // live actions, demo/progress banners) may imply there is research here.
+  if (deckMissing) {
+    return (
+      <div className="w-full max-w-[1600px] px-2 sm:px-4">
         <div className="panel mx-auto max-w-xl p-8 text-center">
           <Layers className="mx-auto h-8 w-8 text-muted" />
           <h2 className="mt-3 font-display text-xl font-semibold text-content">
@@ -276,65 +210,278 @@ export default function DeckPage() {
                 {refreshDeck.isPending ? 'Researching…' : 'Re-run research'}
               </button>
             )}
-            <Link to="/settings" className="btn-ghost">Data safety</Link>
+            <SettingsLink className="btn-ghost">Data safety</SettingsLink>
             <Link to="/history" className="btn-ghost">All decks</Link>
           </div>
         </div>
-      )}
+      </div>
+    );
+  }
 
-      {!deckMissing && (
-            <QueryBoundary
+  return (
+    <div className="w-full max-w-[1600px] px-2 sm:px-4">
+      {/* ── Header — tight, structured, clear hierarchy ── */}
+      <div className="mb-6">
+        {/* Back link */}
+        {!readOnly && (
+          <Link to="/history" className="inline-flex items-center gap-1 text-[12px] font-medium text-muted hover:text-primary-ink transition-colors">
+            <ArrowLeft className="h-3 w-3" />
+            Back
+          </Link>
+        )}
+
+        {/* Title row */}
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="font-display text-[22px] font-bold tracking-tight text-content sm:text-[28px]">
+                {market.data?.name ?? 'Deck'}
+              </h1>
+              {((market.data as { engine?: string } | undefined)?.engine === 'cloud' ||
+                (all[0]?.card as { engine?: string } | undefined)?.engine === 'cloud') && (
+                <span className="inline-flex items-center gap-1 rounded border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-700 dark:border-teal-800 dark:bg-teal-950/50 dark:text-teal-300">
+                  ☁️ Stratemark Cloud
+                </span>
+              )}
+            </div>
+            {market.data?.scopeDefinition && (
+              <p className="mt-0.5 text-[12px] text-faint">
+                {[
+                  `${companyCount} ${companyCount === 1 ? 'company' : 'companies'}`,
+                  market.data.scopeDefinition.geography,
+                ].filter(Boolean).join(' · ')}
+              </p>
+            )}
+          </div>
+
+          {/* Compact action bar (a shared copy has nothing to ask, research or change) */}
+          {!readOnly && <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
+              disabled={!deckId}
+              onClick={() =>
+                deckId && (actionPolicy.compare
+                  ? chat(
+                    { kind: 'deck', deckId },
+                    { placeholder: 'Ask about this market…' },
+                  )
+                  : chat(
+                    {
+                      kind: 'cards',
+                      deckId,
+                      cardIds: all.filter((item) => item.card.cardType === typeParam).map((item) => item.card.id),
+                      subject: typeParam ? `${CARD_TYPE_LABELS[typeParam]} findings` : 'market findings',
+                    },
+                    { placeholder: 'Ask about these findings…' },
+                  ))
+              }
+            >
+              <MessagesSquare className="h-3.5 w-3.5" />
+              {actionPolicy.askLabel}
+            </button>
+            {actionPolicy.compare && <button
+              type="button"
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2',
+                compare && 'border-primary bg-primary/10 text-primary-ink',
+              )}
+              disabled={!deckId}
+              aria-pressed={compare}
+              onClick={() => (compare ? exitCompare() : setCompare(true))}
+            >
+              <SquareMousePointer className="h-3.5 w-3.5" />
+              {compare ? 'Cancel' : 'Compare'}
+            </button>}
+            <ExportMenu
+              deck={{ title: market.data?.name ?? 'Market deck', cards: all }}
+              share={all.length === 0 ? undefined : {
+                title: market.data?.name ?? 'Market deck',
+                subtitle: 'Full deck — research snapshot',
+                build: async () => buildDeckShare(all, market.data?.name ?? null),
+                page: deckId ? { deckId } : undefined,
+              }}
+              report={actionPolicy.compare ? { kind: 'deck', subjectId: marketId } : undefined}
+            />
+            <MoreMenu
+              marketId={marketId}
+              refreshDeck={refreshDeck}
+              extra={(close) => (
+                <>
+                  {actionPolicy.briefing && (
+                    <Link
+                      to={`/markets/${marketId}/briefing`}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-content hover:bg-surface-2"
+                      title="The desk hunts the last 24h across every tracked company and unboxes it as an editorial report"
+                      onClick={close}
+                    >
+                      <Newspaper className="h-4 w-4 text-muted" />
+                      Daily briefing
+                    </Link>
+                  )}
+                  <ThreadHistoryButton deckId={deckId} inMenu onPick={close} />
+                  {canFollow && (
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-content hover:bg-surface-2 disabled:opacity-60"
+                      disabled={deckCompanyIds.length === 0 || allFollowed || followCompanies.isPending}
+                      title="List this deck's companies' funding, launches, hires, deals and filings on Today, checked daily."
+                      onClick={() => { close(); followCompanies.mutate(deckCompanyIds); }}
+                    >
+                      <Sun className="h-4 w-4 text-muted" />
+                      {allFollowed ? 'Following on Today' : `Follow ${deckCompanyIds.length} companies on Today`}
+                    </button>
+                  )}
+                </>
+              )}
+            />
+          </div>}
+        </div>
+
+        {!readOnly && <DemoDeckBanner />}
+        {/* One status line for the deck: creation progress, card completeness
+            and live research, counted the same way as the header above. */}
+        {!readOnly && <DeckStatusBar
+          deckId={deckId}
+          marketName={market.data?.name ?? 'this deck'}
+          cards={all}
+          living={living}
+          deckStatus={deckStatus}
+          resume={resumableJob.data
+            ? { run: () => resumableJob.data && resumeJob.mutate(resumableJob.data.id), pending: resumeJob.isPending }
+            : null}
+        />}
+        {!readOnly && <GroundingQuotaNotice />}
+      </div>
+
+      {(isRunning || isPartial) && all.length === 0 ? (
+          <div className={cn(
+            'panel mx-auto my-6 max-w-xl p-8 text-center',
+            isPartial ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50' : 'glow-border',
+          )}>
+            <div className={cn(
+              'mx-auto flex h-12 w-12 items-center justify-center rounded-full',
+              isPartial ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300' : 'bg-primary/10 text-primary',
+            )}>
+              {isPartial ? <AlertCircle className="h-6 w-6" /> : <Radar className="h-6 w-6 animate-pulse" />}
+            </div>
+            <h2 className="mt-4 font-display text-xl font-semibold text-content">
+              {isPartial ? 'This deck needs another research pass' : 'Preparing the cards before reveal'}
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              {isPartial
+                ? 'Some card faces or first-look summaries did not finish. Stratemark is keeping unfinished cards out of view instead of presenting partial research as complete.'
+                : 'Researching each company’s identity, core business figures, sources, and first-look summary. The deck opens when those card-ready essentials are complete.'}
+            </p>
+            {isPartial ? (
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                {resumableJob.data && (
+                  <button type="button" className="btn-primary" disabled={resumeJob.isPending}
+                    onClick={() => resumableJob.data && resumeJob.mutate(resumableJob.data.id)}>
+                    <RefreshCw className={`h-4 w-4 ${resumeJob.isPending ? 'animate-spin' : ''}`} />
+                    {resumeJob.isPending ? 'Resuming…' : 'Resume where it stopped'}
+                  </button>
+                )}
+                <button type="button" className="btn-ghost" disabled={refreshDeck.isPending || !marketId}
+                  onClick={() => marketId && refreshDeck.mutate(marketId)}>
+                  {refreshDeck.isPending ? 'Checking figures…' : 'Re-verify current cards'}
+                </button>
+              </div>
+            ) : (
+              <div className="mt-6 flex items-center justify-center gap-2 text-xs font-medium text-primary">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Building evidence-ready card faces…</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <QueryBoundary
         query={cards}
         loading={<CardGridSkeleton />}
         isEmpty={(list) => list.length === 0}
         empty={
-          <EmptyState
-            title="No cards yet"
-            description="Run the research pass to populate this deck with competitive-intelligence cards."
-            icon={<Layers className="h-6 w-6" />}
-            action={
-              <button
-                type="button"
-                className="btn-primary mt-2"
-                disabled={refreshDeck.isPending || !marketId}
-                onClick={() => marketId && refreshDeck.mutate(marketId)}
-              >
-                <RefreshCw className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
-                {refreshDeck.isPending ? 'Researching…' : 'Run research'}
-              </button>
-            }
-          />
+          isRefreshing ? (
+            <div className="panel mx-auto max-w-xl p-8 text-center border-teal-200 bg-teal-50 my-6 dark:border-teal-800 dark:bg-teal-950/50">
+              <RefreshCw className="mx-auto h-8 w-8 text-teal-600 animate-spin" />
+              <h2 className="mt-3 font-display text-xl font-semibold text-teal-800 dark:text-teal-200">
+                Refreshing deck…
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-muted">
+                Delta research is running. Your existing cards remain visible while new discoveries are added.
+              </p>
+            </div>
+          ) : isStale ? (
+            <div className="panel mx-auto max-w-xl p-8 text-center border-amber-200 bg-amber-50 my-6 dark:border-amber-800 dark:bg-amber-950/50">
+              <AlertCircle className="mx-auto h-8 w-8 text-amber-600" />
+              <h2 className="mt-3 font-display text-xl font-semibold text-amber-800 dark:text-amber-200">
+                Last refresh failed — showing previous results
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-muted">
+                {deckError || 'The refresh did not complete. The deck below is the last successful snapshot.'}
+                {lastSyncedAt && (
+                  <span className="block mt-1 text-xs text-faint">
+                    Last synced: {new Date(lastSyncedAt).toLocaleString()}{deckRevision ? ` · Revision ${deckRevision}` : ''}
+                  </span>
+                )}
+              </p>
+              <div className="mt-5 flex justify-center gap-2">
+                {marketId && (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={refreshDeck.isPending}
+                    onClick={() => refreshDeck.mutate(marketId)}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
+                    Retry refresh
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : isFailed ? (
+            <div className="panel mx-auto max-w-xl p-8 text-center border-negative/30 bg-negative/5 my-6">
+              <AlertCircle className="mx-auto h-8 w-8 text-negative" />
+              <h2 className="mt-3 font-display text-xl font-semibold text-negative">
+                Research failed
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-muted">
+                {deckError || 'The research run failed or timed out.'}
+              </p>
+              <div className="mt-5 flex justify-center gap-2">
+                {marketId && (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={refreshDeck.isPending}
+                    onClick={() => refreshDeck.mutate(marketId)}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
+                    Retry research
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <EmptyState
+              title="No cards yet"
+              description="Run the research pass to populate this deck with competitive-intelligence cards."
+              icon={<Layers className="h-6 w-6" />}
+              action={
+                <button
+                  type="button"
+                  className="btn-primary mt-2"
+                  disabled={refreshDeck.isPending || !marketId}
+                  onClick={() => marketId && refreshDeck.mutate(marketId)}
+                >
+                  <RefreshCw className={`h-4 w-4 ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
+                  {refreshDeck.isPending ? 'Researching…' : 'Run research'}
+                </button>
+              }
+            />
+          )
         }
       >
         {(list) => {
-          // Level 2 — Company sub-deck split into 8 tier-decks.
-          if (split === 'company') {
-            return (
-              <section>
-                <TypeNav
-                  cards={list}
-                  active="company"
-                  onSelect={(t) => setSplit(t === 'company' ? {} : (t ? { type: t } : {}))}
-                  split={split}
-                  onToggleSplit={() => setSplit({})}
-                />
-                <p className="mb-4 text-[12px] text-muted">
-                  Companies grouped by maturity tier — T8 giants down to T1 seeds.
-                  <span className="text-faint"> {CARD_TYPE_DESCRIPTIONS.company}</span>
-                </p>
-                <TierSplit cards={list} deckUserValues={userValues} marketId={marketId} />
-                {/* The deck never hard-stops in this view either. */}
-                <div className="mt-8">
-                  <ExpandPrompt
-                    marketId={marketId}
-                    focus={{}}
-                    label="Hunt for more companies in this market"
-                    compact
-                  />
-                </div>
-              </section>
-            );
-          }
           // Level 1 leaf — a specific non-company sub-deck's cards.
           if (split === 'types' && typeParam) {
             const filtered = list.filter((c) => c.card.cardType === typeParam);
@@ -345,7 +492,6 @@ export default function DeckPage() {
                   active={typeParam}
                   onSelect={(t) => setSplit(t ? { type: t } : {})}
                   split={split}
-                  onToggleSplit={() => setSplit({ split: 'company' })}
                 />
                 <h2 className="mb-1 font-display text-lg text-content">
                   {CARD_TYPE_LABELS[typeParam]} — {filtered.length} card
@@ -353,33 +499,38 @@ export default function DeckPage() {
                 </h2>
                 <p className="mb-3 text-[12px] text-faint">{CARD_TYPE_DESCRIPTIONS[typeParam]}</p>
                 {filtered.length > 0 ? (
-                  <CardGrid cards={filtered} deckUserValues={userValues} marketId={marketId} />
+                  <CardGrid cards={filtered} deckCards={all} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} />
                 ) : (
-                  <ExpandPrompt marketId={marketId} focus={{ cardType: typeParam }} label={`Hunt for ${CARD_TYPE_LABELS[typeParam].toLowerCase()} players in this market`} />
+                  <ExpandPrompt marketId={marketId} focus={{ cardType: typeParam }} label={`Hunt for ${cardCountNoun(typeParam, 2)} in this market`} />
                 )}
               </section>
             );
           }
-          // Level 1 — six card-type sub-decks.
+          // Level 1 — seven card-type sub-decks.
           if (split === 'types') {
             return (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {VISIBLE_CARD_TYPE_ORDER.map((t) => (
+                {CARD_TYPE_ORDER.map((t) => (
                   <SubDeckTile
                     key={t}
                     type={t}
                     count={countByType.get(t) ?? 0}
                     onClick={() =>
-                      t === 'company' ? setSplit({ split: 'company' }) : setSplit({ split: 'types', type: t })
+                      t === 'company' ? setSplit({ type: 'company' }) : setSplit({ split: 'types', type: t })
                     }
                   />
                 ))}
               </div>
             );
           }
-          // Level 0 — show company cards by default (the primary view).
-          // Other types are accessible via the category nav.
-          const defaultType: CardType = typeParam ?? 'company';
+          // Level 0 — prefer company cards, but never land on an empty category
+          // when an exact-scope deck's only valid lead card is infrastructure or
+          // distribution. Signal-only decks also fall back to their first
+          // populated category; a genuinely empty/running deck remains Company.
+          const firstPopulatedType = CARD_TYPE_ORDER.find((type) =>
+            list.some((card) => card.card.cardType === type),
+          );
+          const defaultType: CardType = typeParam ?? firstPopulatedType ?? 'company';
           const filtered = list.filter((c) => c.card.cardType === defaultType);
           return (
             <section>
@@ -388,7 +539,6 @@ export default function DeckPage() {
                 active={defaultType}
                 onSelect={(t) => setSplit(t ? { type: t } : {})}
                 split={split}
-                onToggleSplit={() => setSplit(split === 'company' ? {} : { split: 'company' })}
               />
               <div className="mb-4">
                 <p className="text-[12px] text-muted">
@@ -400,8 +550,10 @@ export default function DeckPage() {
                 <>
                   <CardGrid
                     cards={filtered}
+                    deckCards={all}
                     deckUserValues={userValues}
                     marketId={marketId}
+                    deckStatus={deckStatus}
                     selectable={compare}
                     selected={selected}
                     onToggle={toggleSelected}
@@ -413,7 +565,7 @@ export default function DeckPage() {
                       focus={typeParam ? { cardType: typeParam } : {}}
                       label={
                         typeParam
-                          ? `Hunt for more ${CARD_TYPE_LABELS[typeParam].toLowerCase()} players`
+                          ? `Hunt for more ${cardCountNoun(typeParam, 2)} in this market`
                           : 'Hunt for more companies in this market'
                       }
                       compact
@@ -434,11 +586,11 @@ export default function DeckPage() {
             </section>
           );
         }}
-      </QueryBoundary>
-      )}
+          </QueryBoundary>
+        )}
 
       {/* Compare mode action bar */}
-      {compare && (
+      {compare && actionPolicy.compare && (
         <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full border border-border bg-surface px-4 py-2.5 shadow-card">
           <span className="text-sm tabular-nums text-muted">
             {selected.size} card{selected.size === 1 ? '' : 's'} selected
@@ -470,10 +622,14 @@ export default function DeckPage() {
 function MoreMenu({
   marketId,
   refreshDeck,
+  extra,
 }: {
   marketId: string | undefined;
   refreshDeck: { isPending: boolean; mutate: (id: string) => void };
+  /** Deck actions that live here to keep the header to its primary few. */
+  extra?: (close: () => void) => ReactNode;
 }) {
+  const canOpportunity = useSupports('getMarketOpportunity');
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -498,7 +654,8 @@ function MoreMenu({
         <MoreHorizontal className="h-4 w-4" />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-1 w-48 rounded-xl border border-border bg-surface p-1 shadow-card">
+        <div className="absolute right-0 top-full z-30 mt-1 w-56 rounded-xl border border-border bg-surface p-1 shadow-card">
+          {extra?.(() => setOpen(false))}
           <Link
             to="/reports"
             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-content hover:bg-surface-2"
@@ -519,14 +676,14 @@ function MoreMenu({
             <RefreshCw className={`h-4 w-4 text-muted ${refreshDeck.isPending ? 'animate-spin' : ''}`} />
             {refreshDeck.isPending ? 'Refreshing…' : 'Refresh deck'}
           </button>
-          <Link
+          {canOpportunity && <Link
             to={`/markets/${marketId}/opportunity`}
             className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-content hover:bg-surface-2"
             onClick={() => setOpen(false)}
           >
             <Target className="h-4 w-4 text-muted" />
             Opportunity
-          </Link>
+          </Link>}
           <Link
             to={`/markets/${marketId}/settings`}
             className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-content hover:bg-surface-2"
@@ -563,7 +720,7 @@ function SubDeckTile({
       </div>
       <p className="mt-2 text-sm text-muted">{CARD_TYPE_DESCRIPTIONS[type]}</p>
       <span className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-primary-ink opacity-0 transition-opacity group-hover:opacity-100">
-        {type === 'company' ? 'Split into 8 tiers' : 'View cards'}
+        View cards
         <ChevronRight className="h-3.5 w-3.5" />
       </span>
     </button>
@@ -583,19 +740,17 @@ function TypeNav({
   active,
   onSelect,
   split,
-  onToggleSplit,
 }: {
   cards: CardWithCompany[];
   active: CardType | null;
   onSelect: (t: CardType | null) => void;
   split?: string | null;
-  onToggleSplit?: () => void;
 }) {
   const counts = new Map<CardType, number>();
   for (const c of cards) counts.set(c.card.cardType, (counts.get(c.card.cardType) ?? 0) + 1);
   // EVERY card class keeps its tab, even at zero (audit: "the tab should
   // still be there") — an empty class opens its hunt prompt, never vanishes.
-  const present = VISIBLE_CARD_TYPE_ORDER;
+  const present = CARD_TYPE_ORDER;
 
   const Tab = ({
     label,
@@ -648,19 +803,6 @@ function TypeNav({
           />
         ))}
       </nav>
-      {onToggleSplit && (
-        <button
-          type="button"
-          onClick={onToggleSplit}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2 mb-1',
-            split === 'company' && 'border-primary bg-primary/10 text-primary-ink',
-          )}
-        >
-          <Layers className="h-3.5 w-3.5" />
-          {split === 'company' ? 'Ungroup' : 'Group by Tier'}
-        </button>
-      )}
     </div>
   );
 }
@@ -734,45 +876,3 @@ function ExpandPrompt({
   );
 }
 
-function TierSplit({
-  cards,
-  deckUserValues,
-  marketId,
-}: {
-  cards: CardWithCompany[];
-  deckUserValues: number[];
-  marketId: string | undefined;
-}) {
-  const companyCards = cards.filter((c) => c.card.cardType === 'company');
-  const byTier = new Map<MaturityTier, CardWithCompany[]>();
-  for (const t of MATURITY_TIERS) byTier.set(t, []);
-  for (const c of companyCards) {
-    if (c.card.tier != null) byTier.get(c.card.tier)!.push(c);
-  }
-
-  return (
-    <div className="space-y-8">
-      {MATURITY_TIERS.map((tier) => {
-        const group = byTier.get(tier)!;
-        return (
-          <section key={tier}>
-            <div className="mb-3 flex items-center gap-3 border-b border-border pb-2">
-              <TierBadge tier={tier} size="md" />
-              <span className="text-sm text-muted">{TIER_BLURBS[tier]}</span>
-              <span className="ml-auto chip border-border text-muted">{group.length}</span>
-            </div>
-            {group.length > 0 ? (
-              <CardGrid cards={group} deckUserValues={deckUserValues} />
-            ) : (
-              <ExpandPrompt
-                marketId={marketId}
-                focus={{ tier }}
-                label={`Hunt for ${TIER_LABELS[tier]} companies`}
-              />
-            )}
-          </section>
-        );
-      })}
-    </div>
-  );
-}

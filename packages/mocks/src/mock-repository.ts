@@ -7,6 +7,9 @@ import {
   type Card,
   type CardFilter,
   type CardWithCompany,
+  type ProviderCapabilities,
+  type ResearchNoteEntry,
+
   isEntityCardType,
   type Company,
   type CompanyMetric,
@@ -34,10 +37,16 @@ import {
   type ResearchHandlers,
   type AskResearchInput,
   type ResearchThread,
+  type CompanyFollow,
+  type CompanyMove,
+  type MovesRefreshResult,
+  type ShareSnapshot,
   type Unsubscribe,
   type ViceClaim,
+  usableCitations,
 } from '@mi/contracts';
 import { buildDataset, type DashboardRecord, type Dataset } from './build-dataset';
+import { buildDemoSections } from './demo-report';
 
 export interface MockRepositoryOptions {
   /** Artificial latency (ms) so loading states are visible in dev. Default 0. */
@@ -51,6 +60,8 @@ export interface MockRepositoryOptions {
    * RepoSnapshot; typed loosely here to avoid a package cycle.
    */
   seedSnapshot?: SeedSnapshot | null;
+  /** Start from empty and hold ONLY the seed snapshot (a share link's viewer): no demo companies. */
+  seedOnly?: boolean;
 }
 
 /** Structural subset of @mi/research's RepoSnapshot (see repository.ts there). */
@@ -78,8 +89,76 @@ const uid = (prefix: string): string => {
   return `${prefix}_${Date.now().toString(36)}${counter}`;
 };
 
+/** Structural match of the research package's evidence record (the mock
+ * package cannot import @mi/research). */
+interface MockEvidence {
+  id: string; companyId: string; companyName: string; topic: string;
+  capturedAt: string; text: string; citations: { title: string; url: string }[]; queries: string[];
+}
+
 export class MockRepository implements MarketIntelRepository {
+  capabilities(): ProviderCapabilities {
+    return { ground: true, structure: true, image: true };
+  }
+
+
+  /** In-memory knowledge base so the preview's Research tab can grow. */
+  async searchResearchCorpus(query: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }) {
+    const records = (this as unknown as { snap?: { researchEvidence?: Array<{ id: string; companyId?: string; companyName?: string; topic: string; capturedAt: string; text: string; citations: { title: string; url: string }[] }> } }).snap?.researchEvidence ?? [];
+    const terms = query.query.toLowerCase().match(/[a-z0-9]{2,}/g) ?? [];
+    const companyFilter = query.companyIds ? new Set(query.companyIds) : null;
+    const topicFilter = query.topics ? new Set(query.topics.map((t) => t.toLowerCase())) : null;
+    return records
+      .filter((r) => (!companyFilter || (r.companyId && companyFilter.has(r.companyId))) &&
+        (!topicFilter || topicFilter.has(r.topic.toLowerCase())))
+      .map((r) => {
+        const haystack = `${r.topic} ${r.companyName ?? ''} ${r.text}`.toLowerCase();
+        const score = terms.reduce((sum, term) => sum + (haystack.includes(term) ? 1 : 0), 0);
+        return { r, score };
+      })
+      .filter(({ score }) => !terms.length || score > 0)
+      .sort((a, b) => b.score - a.score || b.r.capturedAt.localeCompare(a.r.capturedAt))
+      .slice(0, query.limit ?? 8)
+      .map(({ r }) => ({
+        evidenceId: r.id, companyId: r.companyId ?? null, companyName: r.companyName ?? null,
+        topic: r.topic, capturedAt: r.capturedAt, snippet: r.text.slice(0, 700),
+        citations: r.citations.map((c) => ({ ...c })),
+      }));
+  }
+  private readonly savedReports: Array<{ id: string; kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[]; createdAt: string }> = [];
+  async saveReport(input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }) {
+    const report = {
+      id: `rpt_${Date.now().toString(36)}`, kind: input.kind, subjectId: input.subjectId,
+      title: input.title, markdown: input.markdown, citations: input.citations,
+      createdAt: new Date().toISOString(),
+    };
+    this.savedReports.unshift(report);
+    return report;
+  }
+  private readonly userNotes: ResearchNoteEntry[] = [];
+
+  addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<ResearchNoteEntry> {
+    const nowIso = new Date().toISOString();
+    const note: ResearchNoteEntry = {
+      id: `ev_note_${nowIso}_${Math.random().toString(36).slice(2, 7)}`, companyId: input.companyId,
+      companyName: input.companyName, topic: 'user_note', capturedAt: nowIso, text: input.text,
+      citations: input.sourceUrl ? [{ title: 'Added source', url: input.sourceUrl }] : [],
+    };
+    this.userNotes.unshift(note);
+    return Promise.resolve(note);
+  }
+
+  getResearchEvidence(input: { companyId?: string; limit?: number }): MockEvidence[] {
+    const mine = this.userNotes.filter((n) => !input.companyId || n.companyId === input.companyId);
+    return mine.slice(0, input.limit ?? 50).map((n) => ({
+      id: n.id, companyId: n.companyId, companyName: n.companyName, topic: n.topic,
+      capturedAt: n.capturedAt, text: n.text, citations: n.citations, queries: [],
+    }));
+  }
+
   private readonly latency: number;
+  /** A share's figures were already source-bound by the engine that exported them: do not re-judge them without that context. */
+  private readonly trustSeedMetrics: boolean;
   private markets: Market[];
   private decks: Deck[];
   private companies: Company[];
@@ -92,6 +171,7 @@ export class MockRepository implements MarketIntelRepository {
 
   constructor(options: MockRepositoryOptions = {}) {
     this.latency = options.latencyMs ?? 0;
+    this.trustSeedMetrics = options.seedOnly === true;
     const data = options.dataset ?? buildDataset();
     this.markets = [data.market];
     this.decks = [data.deck];
@@ -100,6 +180,15 @@ export class MockRepository implements MarketIntelRepository {
     this.cards = [...data.cards];
     this.viceClaims = [...data.viceClaims];
     this.dashboards = { ...data.dashboards };
+    if (options.seedOnly) {
+      this.markets = [];
+      this.decks = [];
+      this.companies = [];
+      this.metrics = [];
+      this.cards = [];
+      this.viceClaims = [];
+      this.dashboards = {};
+    }
     if (options.seedSnapshot) this.ingestSeed(options.seedSnapshot);
   }
 
@@ -115,9 +204,9 @@ export class MockRepository implements MarketIntelRepository {
       // Run the same rules over it so the shipped sample deck is honest.
       this.metrics = [
         ...this.metrics,
-        ...enforceMetricsProvenance(
-          (seed.metrics ?? []).map((m) => ({ ...m, citations: m.citations ?? [] })),
-        ),
+        ...(this.trustSeedMetrics
+          ? (seed.metrics ?? []).map((m) => ({ ...m, citations: m.citations ?? [] }))
+          : enforceMetricsProvenance((seed.metrics ?? []).map((m) => ({ ...m, citations: m.citations ?? [] })))),
       ];
       this.cards = [...this.cards, ...(seed.cards ?? [])];
       this.viceClaims = [...this.viceClaims, ...(seed.viceClaims ?? [])];
@@ -133,7 +222,11 @@ export class MockRepository implements MarketIntelRepository {
           .map(([, v]) => v.lastRefreshedAt)
           .sort()
           .at(-1)!;
-        this.dashboards[companyId] = { content, lastRefreshedAt };
+        this.dashboards[companyId] = {
+          content,
+          lastRefreshedAt,
+          tabRefreshedAt: Object.fromEntries(entries.map(([t, v]) => [t, v.lastRefreshedAt])),
+        };
       }
       this.reports = [...(seed.reports ?? []), ...this.reports];
       this.seededOpportunity = seed.opportunity ?? {};
@@ -180,6 +273,13 @@ export class MockRepository implements MarketIntelRepository {
     if (!market) return Promise.reject(new Error(`Market not found: ${id}`));
     market.refreshCadence = cadence;
     return this.delay(market);
+  }
+
+  setMarketArchived(id: string, archived: boolean): Promise<Market> {
+    if (!this.markets.some((m) => m.id === id)) return Promise.reject(new Error(`Market not found: ${id}`));
+    const at = new Date().toISOString();
+    this.markets = this.markets.map((m) => (m.id === id ? { ...m, archivedAt: archived ? at : null } : m));
+    return this.delay(this.markets.find((m) => m.id === id)!);
   }
 
   deleteMarket(id: string): Promise<boolean> {
@@ -357,6 +457,11 @@ export class MockRepository implements MarketIntelRepository {
     return this.delay(this.companies.find((c) => c.id === companyId) ?? null);
   }
 
+  // Explicit demo data only; production repositories revalidate original evidence.
+  getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
+    return this.getCompanyMetrics(companyId);
+  }
+
   getCompanyMetrics(companyId: string): Promise<CompanyMetric[]> {
     return this.delay(this.metrics.filter((m) => m.companyId === companyId));
   }
@@ -377,12 +482,110 @@ export class MockRepository implements MarketIntelRepository {
       companyId,
       tab,
       content: record.content[tab],
-      lastRefreshedAt: record.lastRefreshedAt,
+      lastRefreshedAt: record.tabRefreshedAt?.[tab] ?? record.lastRefreshedAt,
     };
     return this.delay(result);
   }
 
   private reports: Report[] = [];
+
+  // Today (demo) -------------------------------------------------------------
+  // Follows live in memory. Moves are the sample deck's own stored news items that
+  // carry a reported date and a link: real headlines and links, filed under a kind
+  // by plain keywords. No refresh finds anything new; the demo says so by changing nothing.
+  private follows: CompanyFollow[] = [];
+  private readMoves = new Set<string>();
+
+  listFollows(): Promise<CompanyFollow[]> {
+    return this.delay([...this.follows]);
+  }
+
+  followCompanies(companyIds: readonly string[]): Promise<void> {
+    const at = new Date().toISOString();
+    for (const id of companyIds) {
+      const company = this.companies.find((c) => c.id === id);
+      if (company && !this.follows.some((f) => f.companyId === id)) this.follows = [...this.follows, { companyId: id, followedAt: at, companyName: company.name }];
+    }
+    return this.delay(undefined);
+  }
+
+  unfollowCompany(companyId: string): Promise<void> {
+    this.follows = this.follows.filter((f) => f.companyId !== companyId);
+    return this.delay(undefined);
+  }
+
+  listMoves(): Promise<CompanyMove[]> {
+    const moves: CompanyMove[] = [];
+    for (const follow of this.follows) {
+      const items = (this.dashboards[follow.companyId]?.content.live_intel?.items ?? []) as Array<{ id: string; source: string; title: string; url: string; publisher?: string | null; publishedDate?: string | null }>;
+      for (const item of items) {
+        if (item.source !== 'news' || !item.publishedDate || !/^https?:\/\//i.test(item.url) || Number.isNaN(Date.parse(item.publishedDate))) continue;
+        const id = `mv_${follow.companyId}_${item.id}`;
+        const t = item.title;
+        moves.push({
+          id, companyId: follow.companyId, companyName: follow.companyName ?? follow.companyId,
+          kind: /launch|release|introduc|unveil|announc/i.test(t) ? 'launch' : /rais|funding|series|valuation|invest/i.test(t) ? 'funding' : /appoint|hire|joins|names|steps down|ceo|cfo/i.test(t) ? 'hire' : 'deal',
+          importance: 2, title: t, url: item.url, publisher: item.publisher ?? null,
+          publishedAt: new Date(item.publishedDate).toISOString(), foundAt: new Date(item.publishedDate).toISOString(), source: 'news',
+          readAt: this.readMoves.has(id) ? new Date().toISOString() : null,
+        });
+      }
+    }
+    return this.delay(moves.sort((a, b) => (a.publishedAt < b.publishedAt ? 1 : -1)));
+  }
+
+  refreshMoves(): Promise<MovesRefreshResult> {
+    return this.delay({ added: 0, refreshed: 0, refreshedAt: new Date().toISOString() });
+  }
+
+  markMoveRead(moveId: string, read: boolean): Promise<void> {
+    if (read) this.readMoves.add(moveId); else this.readMoves.delete(moveId);
+    return this.delay(undefined);
+  }
+
+  /** The demo holds no researched product pages. */
+  peekProductBrief(): Promise<null> {
+    return Promise.resolve(null);
+  }
+
+  /** A stored tab, never researched (the demo has only stored tabs). */
+  peekDashboardTab<T extends DashboardTab>(companyId: string, tab: T): Promise<DashboardTabResult<T> | null> {
+    return this.getDashboardTab(companyId, tab);
+  }
+
+  /** A card or a whole deck as a read-only snapshot for a share link (stored data only). */
+  async exportShareSnapshot(input: { deckId: string; cardId?: string | null }): Promise<ShareSnapshot> {
+    const deck = this.decks.find((d) => d.id === input.deckId);
+    const market = deck ? this.markets.find((m) => m.id === deck.marketId) : undefined;
+    if (!deck || !market) throw new Error('Deck not found to share.');
+    const cards = this.cards.filter((c) => c.deckId === deck.id && (!input.cardId || c.id === input.cardId));
+    if (input.cardId && cards.length === 0) throw new Error('Card not found to share.');
+    // Signal cards (culture, vice, insight) never inherit a company's figures or research.
+    const companyIds = new Set(cards.filter((c) => isEntityCardType(c.cardType)).map((c) => c.companyId).filter((id): id is string => Boolean(id)));
+    const dashboards: ShareSnapshot['dashboards'] = {};
+    for (const id of companyIds) {
+      const record = this.dashboards[id];
+      if (!record) continue;
+      dashboards[id] = Object.fromEntries(
+        (Object.entries(record.content) as Array<[DashboardTab, unknown]>)
+          .filter(([, content]) => content != null)
+          .map(([tab, content]) => [tab, { content, lastRefreshedAt: record.lastRefreshedAt }]),
+      );
+    }
+    return {
+      v: 1,
+      kind: input.cardId ? 'card' : 'deck',
+      focusCardId: input.cardId ?? null,
+      sharedAt: new Date().toISOString(),
+      markets: [market],
+      decks: [deck],
+      companies: this.companies.filter((c) => companyIds.has(c.id)),
+      metrics: this.metrics.filter((m) => companyIds.has(m.companyId)),
+      cards,
+      viceClaims: this.viceClaims.filter((v) => cards.some((c) => c.id === v.cardId)),
+      dashboards,
+    };
+  }
 
   factCheck(input: FactCheckInput): Promise<FactCheckResult> {
     return this.delay({
@@ -393,6 +596,32 @@ export class MockRepository implements MarketIntelRepository {
   }
 
   async generateReport(request: ReportRequest): Promise<Report> {
+    const topics = request.topics;
+    if (request.kind === 'company' && topics && topics.length > 0) {
+      const company = this.companies.find((c) => c.id === request.subjectId);
+      if (!company) throw new Error('Company not found for report');
+      const sections = buildDemoSections(
+        company,
+        this.metrics.filter((m) => m.companyId === company.id),
+        this.dashboards[company.id]?.content ?? {},
+        topics,
+      );
+      const topicReport: Report = {
+        id: uid('rpt'),
+        kind: 'company',
+        subjectId: company.id,
+        title: `${company.name} — Company Report (demo)`,
+        markdown: sections.map((x) => `## ${x.title}\n\n${x.markdown}`).join('\n\n'),
+        citations: usableCitations(sections.flatMap((x) => x.citations)),
+        topics: [...topics],
+        sections,
+        // Nothing was researched in demo mode, so there is no cost to report.
+        cost: { estUsd: null, calls: null, searches: null },
+        createdAt: new Date().toISOString(),
+      };
+      this.reports = [topicReport, ...this.reports];
+      return this.delay(topicReport);
+    }
     const subjectName =
       request.kind === 'company'
         ? (this.companies.find((c) => c.id === request.subjectId)?.name ?? 'Company')
@@ -571,11 +800,10 @@ export class MockRepository implements MarketIntelRepository {
     thread.messages.push({
       id: `msg_${rid()}`,
       role: 'assistant',
-      text: `Research Insight for "${input.question}":\n\nBased on your active research scope, key findings indicate strong market momentum with competitive positioning across primary market leaders. Metrics and citations have been updated.`,
-      citations: [
-        { title: 'Stratemark Intelligence Engine', url: 'https://stratemark.com/research' },
-        { title: 'Market Data Snapshot', url: 'https://stratemark.com/data' },
-      ],
+      // Demo mode has no research engine: say so plainly rather than inventing
+      // findings or citing sources that were never read.
+      text: 'This is demo data, so there is no live research to answer from. Add a Gemini key in Settings to get a sourced answer.',
+      citations: [],
       at: new Date().toISOString(),
     });
     thread.updatedAt = new Date().toISOString();

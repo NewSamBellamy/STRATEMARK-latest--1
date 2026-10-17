@@ -1,0 +1,55 @@
+{
+ "hits": {
+  "total": 3,
+  "hits": [
+   {
+    "_source": {
+     "firm_source_id": "148687",
+     "firm_name": "GC ADVISORS LLC",
+     "firm_other_names": [
+      "GOLUB CAPITAL INTERNATIONAL MANAGEMENT, LLC, RELYING ADVISER",
+      "GC SYNEXUS ADVISORS, LLC, RELYING ADVISER",
+      "GC INVESTMENT MANAGEMENT LLC, RELYING ADVISER",
+      "GC ADVISORS LLC",
+      "GOLUB CAPITAL ADVISORS LLC"
+     ],
+     "firm_ia_full_sec_number": "801-70448",
+     "firm_ia_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "289425",
+     "firm_name": "GC OPAL ADVISORS LLC",
+     "firm_other_names": [
+      "GC INVESTMENT MANAGEMENT LLC, RELYING ADVISER",
+      "OPAL BSL LLC (MANAGEMENT SERIES), RELYING ADVISER",
+      "GOLUB CAPITAL LIQUID CREDIT ADVISORS, LLC (MANAGEMENT SERIES), RELYING ADVISOR",
+      "GC OPAL ADVISORS LLC"
+     ],
+     "firm_ia_full_sec_number": "801-111632",
+     "firm_ia_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "145488",
+     "firm_name": "ARETE WEALTH ADVISORS, LLC",
+     "firm_other_names": [
+      "GOLUB CAPITAL",
+      "25 FINANCIAL",
+      "WESTERN PORTFOLIO PARTNERS",
+      "WEALTH STRATEGIES ADVISORY GROUP",
+      "WEALTH SOLUTIONS 360",
+      "THORNHILL FINANCIAL",
+      "SILVERCAP WEALTH MANAGEMENT",
+      "SHADES CREEK WEALTH ADVISORS",
+      "SEREIN WEALTH ADVISORS LLC"
+     ],
+     "firm_ia_full_sec_number": "801-69827",
+     "firm_ia_scope": "ACTIVE"
+    }
+   }
+  ]
+ }
+}

@@ -53,7 +53,7 @@ describe('🚀 Continual Living Deck & Balanced 8-Tier Swarm Architecture', () =
 
   it('executes continuous living deck auto-hydration and topology expansion', async () => {
     const apiKey = process.env.GEMINI_API_KEY || '';
-    if (!apiKey) return;
+    if (!apiKey || process.env.LIVE_TESTS !== '1') return;
 
     const client = createGeminiClient({ apiKey, model: 'gemini-3.7-flash' });
     const telemetry = createAdkTelemetry({ rootAuthor: 'continual_living_deck_test' });

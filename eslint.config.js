@@ -10,6 +10,7 @@ export default tseslint.config(
       '**/release/**',
       '**/dist-electron/**',
       '**/coverage/**',
+      '**/.wrangler/**',
       '**/storybook-static/**',
       '**/playwright-report/**',
       '**/test-results/**',

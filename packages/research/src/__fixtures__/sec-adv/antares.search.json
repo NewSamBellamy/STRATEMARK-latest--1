@@ -1,0 +1,41 @@
+{
+ "hits": {
+  "total": 3,
+  "hits": [
+   {
+    "_source": {
+     "firm_source_id": "163334",
+     "firm_name": "ANTARES CAPITAL CORPORATION",
+     "firm_other_names": [
+      "ANTARES CAPITAL CORPORATION"
+     ],
+     "firm_ia_full_sec_number": "802-76311",
+     "firm_ia_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "281998",
+     "firm_name": "ANTARES CAPITAL ADVISERS LLC",
+     "firm_other_names": [
+      "ANTARES CAPITAL ADVISERS LLC",
+      "ANTARES CAPITAL ADVISORS, LLC"
+     ],
+     "firm_ia_full_sec_number": "801-106919",
+     "firm_ia_scope": "ACTIVE"
+    }
+   },
+   {
+    "_source": {
+     "firm_source_id": "328497",
+     "firm_name": "ANTARES CAPITAL CREDIT ADVISERS LLC",
+     "firm_other_names": [
+      "ANTARES CAPITAL CREDIT ADVISERS LLC"
+     ],
+     "firm_ia_full_sec_number": "801-129069",
+     "firm_ia_scope": "ACTIVE"
+    }
+   }
+  ]
+ }
+}

@@ -5,7 +5,18 @@
  * Fails silently (null) on CORS-opaque hosts; callers fall back to the LLM
  * palette or the default theme. Results are memoized per URL.
  */
+import { hasHostedApi, hostedUrl } from '@/lib/hostedApi';
+
 const cache = new Map<string, Promise<string | null>>();
+
+/** Cross-origin logos go through the hosted image reader (which adds CORS); others load directly. */
+function sampleUrl(url: string): string {
+  try {
+    const target = new URL(url, window.location.href);
+    if (target.origin === window.location.origin || target.protocol === 'data:' || target.protocol === 'blob:') return url;
+    return hasHostedApi() && target.protocol === 'https:' ? hostedUrl(`image?url=${encodeURIComponent(target.href)}`) : url;
+  } catch { return url; }
+}
 
 export function extractDominantColor(url: string): Promise<string | null> {
   const hit = cache.get(url);
@@ -16,7 +27,7 @@ export function extractDominantColor(url: string): Promise<string | null> {
 }
 
 async function compute(url: string): Promise<string | null> {
-  const res = await fetch(url, { mode: 'cors' });
+  const res = await fetch(sampleUrl(url), { mode: 'cors', credentials: 'omit' });
   if (!res.ok) return null;
   const blob = await res.blob();
   const bitmap = await createImageBitmap(blob);

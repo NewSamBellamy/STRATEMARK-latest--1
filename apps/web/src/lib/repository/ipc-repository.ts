@@ -24,8 +24,14 @@ import type {
   VerifyMetricResult,
   OverrideMetricInput,
   Report,
+  ProductBrief,
+  SourceActivity,
+  ShareSnapshot,
   ReportRequest,
   SavedCard,
+  CompanyFollow,
+  CompanyMove,
+  MovesRefreshResult,
   Deck,
   DeckRefreshListener,
   DeckResearchBrief,
@@ -39,13 +45,33 @@ import type {
   ResearchHandlers,
   Unsubscribe,
   ViceClaim,
+  HuntMetricsOptions,
+  HuntMetricsResult,
+  DeckBriefing,
+  SiteAuditInput,
+  ProviderCapabilities,
+  ResearchNoteEntry,
+  ResearchPassage,
+  VerifyCompanyMetricsResult,
 } from '@mi/contracts';
+
+/** Structural match of the research package's evidence record over IPC. */
+interface ResearchEvidenceRow {
+  id: string; companyId?: string; companyName?: string; topic: string;
+  capturedAt: string; text: string;
+  citations: { title: string; url: string }[]; queries: string[];
+}
 
 export function isElectron(): boolean {
   return typeof window !== 'undefined' && typeof window.mi !== 'undefined';
 }
 
 export class IpcRepository implements MarketIntelRepository {
+  capabilities(): ProviderCapabilities {
+    // Desktop research is the local BYOK Gemini path, which performs all
+    // three capabilities in the main process.
+    return { ground: true, structure: true, image: true };
+  }
   constructor(private readonly api: PreloadRepositoryApi) {}
 
   listMarkets(): Promise<Market[]> {
@@ -59,6 +85,17 @@ export class IpcRepository implements MarketIntelRepository {
   }
   updateMarketCadence(id: string, cadence: RefreshCadence): Promise<Market> {
     return this.api.updateMarketCadence(id, cadence);
+  }
+  deleteMarket(id: string): Promise<boolean> {
+    return this.api.deleteMarket ? this.api.deleteMarket(id) : Promise.resolve(false);
+  }
+  setMarketArchived(id: string, archived: boolean): Promise<Market> {
+    if (!this.api.setMarketArchived) return Promise.reject(new Error('Archiving decks needs a newer desktop build.'));
+    // Electron wraps a main-process error as "Error invoking remote method '…': Error: <message>".
+    return this.api.setMarketArchived(id, archived).catch((error: unknown) => {
+      if (!(error instanceof Error)) throw error;
+      throw new Error(error.message.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, ''));
+    });
   }
   getDeckByMarket(marketId: string): Promise<Deck | null> {
     return this.api.getDeckByMarket(marketId);
@@ -91,11 +128,34 @@ export class IpcRepository implements MarketIntelRepository {
   unsaveCard(cardId: string): Promise<void> {
     return this.api.unsaveCard(cardId);
   }
+  listMoves(): Promise<CompanyMove[]> {
+    return this.api.listMoves?.() ?? Promise.resolve([]);
+  }
+  refreshMoves(options?: { force?: boolean }): Promise<MovesRefreshResult> {
+    if (!this.api.refreshMoves) return Promise.reject(new Error('Update the desktop shell to use Today.'));
+    return this.api.refreshMoves(options);
+  }
+  async markMoveRead(moveId: string, read: boolean): Promise<void> {
+    await this.api.markMoveRead?.(moveId, read);
+  }
+  listFollows(): Promise<CompanyFollow[]> {
+    return this.api.listFollows?.() ?? Promise.resolve([]);
+  }
+  async followCompanies(companyIds: readonly string[]): Promise<void> {
+    await this.api.followCompanies?.([...companyIds]);
+  }
+  async unfollowCompany(companyId: string): Promise<void> {
+    await this.api.unfollowCompany?.(companyId);
+  }
   getCompany(companyId: string): Promise<Company | null> {
     return this.api.getCompany(companyId);
   }
   getCompanyMetrics(companyId: string): Promise<CompanyMetric[]> {
     return this.api.getCompanyMetrics(companyId);
+  }
+  async getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
+    if (!this.api.getCompanyFacts) throw new Error('Restart the updated desktop app to load accepted company facts.');
+    return this.api.getCompanyFacts(companyId);
   }
   getViceClaims(cardId: string): Promise<ViceClaim[]> {
     return this.api.getViceClaims(cardId);
@@ -128,8 +188,10 @@ export class IpcRepository implements MarketIntelRepository {
   getMarketOpportunity(marketId: string, force?: boolean): Promise<DeepDiveResult> {
     return this.api.getMarketOpportunity(marketId, force);
   }
+  // An older desktop shell may lack these: fail with a clear message instead of a TypeError.
   askResearch(input: AskResearchInput): Promise<ResearchThread> {
-    return this.api.askResearch!.call(this.api, input);
+    if (!this.api.askResearch) return Promise.reject(new Error('Update the desktop app to chat with your research.'));
+    return this.api.askResearch.call(this.api, input);
   }
   listResearchThreads(filter?: { deckId?: string; companyId?: string }): Promise<ResearchThread[]> {
     return this.api.listResearchThreads!.call(this.api, filter);
@@ -137,11 +199,48 @@ export class IpcRepository implements MarketIntelRepository {
   getResearchThread(id: string): Promise<ResearchThread | null> {
     return this.api.getResearchThread!.call(this.api, id);
   }
+  peekDashboardTab<T extends DashboardTab>(companyId: string, tab: T): Promise<DashboardTabResult<T> | null> {
+    return (this.api.peekDashboardTab?.(companyId, tab) as Promise<DashboardTabResult<T> | null> | undefined) ?? Promise.resolve(null);
+  }
+  researchProductBrief(input: { companyId: string; productName: string; force?: boolean }): Promise<ProductBrief> {
+    if (!this.api.researchProductBrief) return Promise.reject(new Error('Update the desktop app to research a product.'));
+    return this.api.researchProductBrief.call(this.api, input);
+  }
+  listSourceActivity(sinceId?: number): Promise<{ items: SourceActivity[]; lastId: number }> {
+    return this.api.listSourceActivity?.(sinceId) ?? Promise.resolve({ items: [], lastId: 0 });
+  }
+  peekProductBrief(companyId: string, productName: string): Promise<ProductBrief | null> {
+    return this.api.peekProductBrief?.(companyId, productName) ?? Promise.resolve(null);
+  }
+  exportShareSnapshot(input: { deckId: string; cardId?: string | null }): Promise<ShareSnapshot> {
+    if (!this.api.exportShareSnapshot) return Promise.reject(new Error('Update the desktop app to share a card or deck as a page.'));
+    return this.api.exportShareSnapshot.call(this.api, input);
+  }
   saveThreadAsReport(threadId: string, focus?: string | null): Promise<Report> {
     return this.api.saveThreadAsReport!.call(this.api, threadId, focus);
   }
   listResearchJobs(): Promise<ResearchJob[]> {
     return this.api.listResearchJobs?.() ?? Promise.resolve([]);
+  }
+  getResearchEvidence(input: { companyId?: string; limit?: number }): ResearchEvidenceRow[] {
+    return (this.api.getResearchEvidence?.(input) ?? []) as ResearchEvidenceRow[];
+  }
+
+  searchResearchCorpus(query: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }) {
+    return this.api.searchResearchCorpus?.(query) as Promise<ResearchPassage[] | []>;
+  }
+
+  verifyCompanyMetrics(companyId: string) {
+    return this.api.verifyCompanyMetrics?.(companyId) as Promise<VerifyCompanyMetricsResult>;
+  }
+
+  async saveReport(input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }) {
+    return (await this.api.saveReport?.(input)) as never;
+  }
+  async addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<ResearchNoteEntry> {
+    const result = await this.api.addResearchNote?.(input);
+    if (!result) throw new Error('Research notes are unavailable in this session.');
+    return result;
   }
   getResearchJob(id: string): Promise<ResearchJob | null> {
     return this.api.getResearchJob?.(id) ?? Promise.resolve(null);
@@ -157,6 +256,33 @@ export class IpcRepository implements MarketIntelRepository {
   }
   listReports(): Promise<Report[]> {
     return this.api.listReports();
+  }
+  huntCompanyMetrics(id: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
+    if (!this.api.huntCompanyMetrics) return Promise.reject(new Error('Update the desktop shell to hunt metrics.'));
+    return this.api.huntCompanyMetrics(id, options);
+  }
+  /** An older desktop host batches nothing; the face sweep then hunts each company alone. */
+  huntFaceSlotsBatch(companyIds: readonly string[]): Promise<Record<string, HuntMetricsResult>> {
+    return this.api.huntFaceSlotsBatch?.(companyIds) ?? Promise.resolve({});
+  }
+  recoverSavedCompanyMetrics(id: string): Promise<HuntMetricsResult> {
+    if (!this.api.recoverSavedCompanyMetrics) return Promise.reject(new Error('Update the desktop shell to recover saved figures.'));
+    return this.api.recoverSavedCompanyMetrics(id);
+  }
+  /** An older desktop host lends nothing; recovery and the hunt still run. */
+  reuseCompanyEvidence(id: string): Promise<number> {
+    return this.api.reuseCompanyEvidence?.(id) ?? Promise.resolve(0);
+  }
+  generateDeckBriefing(id: string, opts?: { windowHours?: number }): Promise<DeckBriefing> {
+    if (!this.api.generateDeckBriefing) return Promise.reject(new Error('Update the desktop shell to generate briefings.'));
+    return this.api.generateDeckBriefing(id, opts);
+  }
+  listDeckBriefings(id: string): Promise<DeckBriefing[]> {
+    return this.api.listDeckBriefings?.(id) ?? Promise.resolve([]);
+  }
+  auditSite(input: SiteAuditInput): Promise<Report> {
+    if (!this.api.auditSite) return Promise.reject(new Error('Update the desktop shell to audit sites.'));
+    return this.api.auditSite(input);
   }
   getReport(id: string): Promise<Report | null> {
     return this.api.getReport(id);

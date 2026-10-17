@@ -5,6 +5,7 @@
  * confidence badges, and sources — with the AI layer (fact-check, dig-deeper,
  * live desks, dashboards) removed. No account, no backend, no setup.
  */
+import { sourceHref } from '@/lib/sourceHref';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -12,10 +13,8 @@ import remarkGfm from 'remark-gfm';
 import { ExternalLink, Layers, Link2Off, MapPin } from 'lucide-react';
 import {
   METRIC_TYPE_LABELS,
-  TIER_LABELS,
   publisherOf,
   type CardWithCompany,
-  type MaturityTier,
 } from '@mi/contracts';
 import { decodeSharePayload, sharedToCardWithCompany, type SharePayload } from '@/lib/share/codec';
 import { GameCard } from '@/features/card/GameCard';
@@ -26,6 +25,7 @@ import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
 import { Modal } from '@/components/ui/Modal';
 import { FullPageLoader } from '@/components/states/FullPageLoader';
 import { formatMetricValue } from '@/lib/format';
+import { siteUrl } from '@/lib/siteUrl';
 
 /** Read-only card reader: evidence only, no AI actions. */
 function SharedReader({
@@ -68,7 +68,7 @@ function SharedReader({
                 )}
                 {company.websiteUrl && (
                   <a
-                    href={company.websiteUrl}
+                    href={siteUrl(company.websiteUrl) ?? undefined}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-primary-ink hover:underline"
@@ -76,11 +76,6 @@ function SharedReader({
                     <ExternalLink className="h-3 w-3" />
                     {company.websiteUrl.replace(/^https?:\/\//, '')}
                   </a>
-                )}
-                {card.tier != null && (
-                  <span className="font-medium text-muted">
-                    Tier {card.tier} · {TIER_LABELS[card.tier as MaturityTier]}
-                  </span>
                 )}
               </div>
             </div>
@@ -164,7 +159,7 @@ function SharedReader({
             {card.citations.map((c, i) => (
               <a
                 key={i}
-                href={c.url}
+                href={sourceHref(c.url, c.title)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"
