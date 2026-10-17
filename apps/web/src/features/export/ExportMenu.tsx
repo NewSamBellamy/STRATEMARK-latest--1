@@ -14,6 +14,7 @@ import { createPortal } from 'react-dom';
 import { Download, FileSpreadsheet, FileText, MessageSquareText, Presentation, Printer } from 'lucide-react';
 import type { CardWithCompany, ThreadMessage } from '@mi/contracts';
 import { cn } from '@/lib/cn';
+import { usePopoverSide } from '@/lib/usePopoverSide';
 import { exportDeckPptx } from '@/features/reports/pptx';
 import { PrintDocument, type PrintJob } from './PrintDocument';
 import {
@@ -54,6 +55,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const side = usePopoverSide(ref, open, 256);
 
   useEffect(() => {
     if (!open) return;
@@ -186,7 +188,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
         {busy ? 'Exporting…' : 'Export'}
       </button>
       {open && (
-        <div role="menu" className="absolute right-0 top-full z-50 mt-1 w-64 rounded-xl border border-border bg-surface p-1 shadow-card">
+        <div role="menu" className={cn('absolute top-full z-50 mt-1 w-64 rounded-xl border border-border bg-surface p-1 shadow-card', side === 'left' ? 'left-0' : 'right-0')}>
           {deck && (
             <>
               <button role="menuitem" type="button" className={ITEM} disabled={deckCompanies.length === 0} onClick={deckReport}>

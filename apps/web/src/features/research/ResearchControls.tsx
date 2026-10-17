@@ -14,6 +14,7 @@ import { useGenerateReport } from '@/hooks/data';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { formatRelative } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { usePopoverSide } from '@/lib/usePopoverSide';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
 
 /** Close-on-outside-click without a dependency. */
@@ -52,6 +53,7 @@ export function ThreadHistoryButton({
   const { openThread } = useDeepDive();
   const [open, setOpen] = useState(false);
   const ref = useDismiss(() => setOpen(false));
+  const side = usePopoverSide(ref, open, 320);
 
   const threads = useQuery({
     queryKey: ['researchThreads', deckId ?? '', companyId ?? ''],
@@ -82,7 +84,7 @@ export function ThreadHistoryButton({
         )}
       </button>
       {open && (
-        <div className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-border bg-surface p-2 shadow-card">
+        <div className={cn('absolute z-40 mt-2 w-80 rounded-xl border border-border bg-surface p-2 shadow-card', side === 'left' ? 'left-0' : 'right-0')}>
           <p className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-widest text-faint">
             Research history
           </p>
@@ -150,6 +152,7 @@ function ReportButtonInner({
   const [open, setOpen] = useState(false);
   const [focus, setFocus] = useState('');
   const ref = useDismiss(() => setOpen(false));
+  const side = usePopoverSide(ref, open, 320);
 
   const run = () => {
     if (!subjectId) return;
@@ -179,7 +182,7 @@ function ReportButtonInner({
         {generateReport.isPending ? 'Composing…' : 'Report'}
       </button>
       {open && !generateReport.isPending && (
-        <div className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-border bg-surface p-3 shadow-card">
+        <div className={cn('absolute z-40 mt-2 w-80 rounded-xl border border-border bg-surface p-3 shadow-card', side === 'left' ? 'left-0' : 'right-0')}>
           <label
             className="text-[11px] font-semibold uppercase tracking-wide text-muted"
             htmlFor={`report-focus-${kind}`}
