@@ -17,6 +17,17 @@ const COVER_TRIES = 3;
 /** How many capture attempts of the primary service before the second one. */
 const PRIMARY_SHOT_ATTEMPTS = Math.min(4, SHOT_MAX_ATTEMPTS);
 
+/**
+ * Hosts whose pages a capture service only ever gets a login or "blocked" wall
+ * from. A capture of those would print the wall as if it were the source, so no
+ * page capture is taken (a picture the page itself publishes is still used).
+ */
+const NO_CAPTURE_HOSTS = /(^|\.)(reddit\.com|redd\.it|x\.com|twitter\.com|t\.co|facebook\.com|fb\.com|instagram\.com|linkedin\.com|tiktok\.com|threads\.net|bsky\.app|quora\.com|discord\.com)$/i;
+
+export function captureAllowed(pageUrl: string): boolean {
+  try { return !NO_CAPTURE_HOSTS.test(new URL(pageUrl).hostname); } catch { return false; }
+}
+
 export interface ReportImageDeps {
   cover: (pageUrl: string) => Promise<RealCover | null>;
   /** A displayable capture URL of the page, or null when none materialises. */
@@ -66,7 +77,7 @@ export async function resolveSectionImages(
       break;
     }
   }
-  const first = pages[0];
+  const first = pages.find((page) => captureAllowed(page.url));
   if (first && withShot) {
     const shot = await deps.shot(first.url).catch(() => null);
     if (shot) images.push({ src: shot, credit: publisherOf(first.url, first.title), sourceUrl: first.url, kind: 'screenshot' });
@@ -79,7 +90,7 @@ export function shotSections(sections: readonly ReportSection[]): Set<ReportTopi
   const picked = new Set<ReportTopic>();
   for (const section of sections) {
     if (picked.size >= SHOT_SECTIONS) break;
-    if (usableCitations(section.citations).some((c) => isDirectSource(c.url) && /^https:\/\//i.test(c.url))) picked.add(section.topic);
+    if (usableCitations(section.citations).some((c) => isDirectSource(c.url) && /^https:\/\//i.test(c.url) && captureAllowed(c.url))) picked.add(section.topic);
   }
   return picked;
 }
@@ -95,6 +106,31 @@ export async function resolveReportImages(
   await Promise.all(sections.map(async (section) => {
     const images = await resolveSectionImages(section, withShot.has(section.topic), used, deps);
     if (images.length > 0) out.set(section.topic, images);
+  }));
+  return out;
+}
+
+/** A cover and a capture for one dated update, each credited to the page it came from. Pictures are never made up. */
+export async function resolveUpdateImages(
+  updates: ReadonlyArray<{ id: string; url: string; title: string }>,
+  deps: ReportImageDeps = DEFAULT_DEPS,
+): Promise<Map<string, ReportImage[]>> {
+  const out = new Map<string, ReportImage[]>();
+  const used = new Set<string>();
+  await Promise.all(updates.map(async (update, index) => {
+    if (!isDirectSource(update.url) || !/^https:\/\//i.test(update.url)) return;
+    const images: ReportImage[] = [];
+    const cover = await deps.cover(update.url).catch(() => null);
+    if (cover?.src && !used.has(cover.src)) {
+      used.add(cover.src);
+      images.push({ src: cover.src, credit: cover.publisher ?? publisherOf(update.url, update.title), sourceUrl: update.url, kind: 'cover' });
+    }
+    // A page capture only for the first few, and only when the page published no picture of its own.
+    if (images.length === 0 && index < SHOT_SECTIONS && captureAllowed(update.url)) {
+      const shot = await deps.shot(update.url).catch(() => null);
+      if (shot) images.push({ src: shot, credit: publisherOf(update.url, update.title), sourceUrl: update.url, kind: 'screenshot' });
+    }
+    if (images.length > 0) out.set(update.id, images);
   }));
   return out;
 }

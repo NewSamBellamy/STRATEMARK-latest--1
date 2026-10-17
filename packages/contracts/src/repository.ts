@@ -923,6 +923,13 @@ export interface MarketIntelRepository {
    * absent. OPTIONAL — engines holding research locally.
    */
   exportShareSnapshot?(input: { deckId: string; cardId?: string | null }): Promise<ShareSnapshot>;
+  /**
+   * A dashboard tab only if it is already stored, exactly as the dashboard shows
+   * it; null when it was never researched. Unlike `getDashboardTab` this never
+   * starts research, so a screen can show what is known without spending.
+   * OPTIONAL — engines holding research locally.
+   */
+  peekDashboardTab?<T extends DashboardTab>(companyId: string, tab: T): Promise<DashboardTabResult<T> | null>;
   listReports(): Promise<Report[]>;
   getReport(id: string): Promise<Report | null>;
 

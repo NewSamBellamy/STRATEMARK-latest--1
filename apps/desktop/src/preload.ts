@@ -74,6 +74,7 @@ const api: PreloadRepositoryApi = {
   getResearchThread: (id) => ipcRenderer.invoke(IPC_CHANNELS.getResearchThread, id),
   saveThreadAsReport: (threadId, focus) =>
     ipcRenderer.invoke(IPC_CHANNELS.saveThreadAsReport, threadId, focus),
+  peekDashboardTab: (companyId, tab) => ipcRenderer.invoke(IPC_CHANNELS.peekDashboardTab, companyId, tab),
   exportShareSnapshot: (input) => ipcRenderer.invoke(IPC_CHANNELS.exportShareSnapshot, input),
   listResearchJobs: () =>
     ipcRenderer.invoke(IPC_CHANNELS.listResearchJobs) as Promise<ResearchJob[]>,

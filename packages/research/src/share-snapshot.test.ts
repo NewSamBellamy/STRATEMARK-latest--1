@@ -48,6 +48,29 @@ function repo() {
   return { repository: new GeminiRepository({ apiKey: 'k', store, client, dashboardWarmup: false }), throwing };
 }
 
+describe('peekDashboardTab', () => {
+  it('returns a stored tab as the dashboard shows it, without any model call', async () => {
+    const { repository, throwing } = repo();
+    const tab = await repository.peekDashboardTab!('cmp_a', 'history');
+    expect(tab?.tab).toBe('history');
+    expect((tab?.content as { founderStory: string }).founderStory).toBe('Founded in a garage.');
+    expect(throwing).not.toHaveBeenCalled();
+  });
+
+  it('is null for a tab that was never researched, and never starts researching it', async () => {
+    const { repository, throwing } = repo();
+    expect(await repository.peekDashboardTab!('cmp_b', 'live_intel')).toBeNull();
+    expect(await repository.peekDashboardTab!('cmp_b', 'team_org')).toBeNull();
+    expect(await repository.peekDashboardTab!('cmp_unknown', 'history')).toBeNull();
+    expect(throwing).not.toHaveBeenCalled();
+  });
+
+  it('does not read the private research tab', async () => {
+    const { repository } = repo();
+    expect(await repository.peekDashboardTab!('cmp_a', 'research')).toBeNull();
+  });
+});
+
 describe('exportShareSnapshot', () => {
   it('packages one company card with only that company, its figures and its stored tabs', async () => {
     const { repository, throwing } = repo();

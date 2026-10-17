@@ -11,6 +11,7 @@ import { verifyCardForShare } from '@/lib/share/preflight';
 import { ShareDialog } from '@/features/share/ShareDialog';
 import { ReportBuilderDialog } from '@/features/reports/ReportBuilderDialog';
 import { useCompanyReportRun } from '@/features/reports/useCompanyReportRun';
+import { FollowTodayButton } from '@/features/today/FollowTodayButton';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { CardStage } from './CardStage';
 import { SaveCardButton } from './GameCard';
@@ -285,6 +286,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
           }}>Ask about this finding <ArrowUpRight size={17} /></button>}
           <div className="card-inspector__actions">
             {readOnly ? <span /> : <div className="flex items-center gap-1"><SaveCardButton cardId={card.id} />
+              {company && !view.signal && <FollowTodayButton companyId={company.id} companyName={company.name} />}
               <button type="button" className="card-control" aria-label="Share card" onClick={() => setShareOpen(true)}><Share2 size={15} /></button>
               {canReport && company && dashboardUrl && (
                 <button type="button" className="card-control" aria-label="Create report" title={`Create a report on ${company.name}`}

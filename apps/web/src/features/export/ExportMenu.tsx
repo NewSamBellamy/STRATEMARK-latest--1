@@ -14,7 +14,6 @@
  * everything else is hidden for the duration of window.print().
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { FilePlus2, FileSpreadsheet, FileText, Link2, MessageSquareText, Presentation, Printer, Share2 } from 'lucide-react';
 import type { CardWithCompany, ThreadMessage } from '@mi/contracts';
@@ -27,7 +26,8 @@ import { ReportBuilderDialog } from '@/features/reports/ReportBuilderDialog';
 import { useCompanyReportRun } from '@/features/reports/useCompanyReportRun';
 import type { SharePayload } from '@/lib/share/codec';
 import { exportDeckPptx } from '@/features/reports/pptx';
-import { PrintDocument, type PrintJob } from './PrintDocument';
+import type { PrintJob } from './PrintDocument';
+import { usePrintJob } from './usePrintJob';
 import {
   buildReportModel,
   companiesFromCards,
@@ -78,18 +78,9 @@ const GROUP =
 const ITEM =
   'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] text-content hover:bg-surface-2 disabled:opacity-50';
 
-async function imagesSettled(root: ParentNode, timeoutMs = 2500): Promise<void> {
-  const imgs = Array.from(root.querySelectorAll('img')).filter((i) => !i.complete);
-  if (imgs.length === 0) return;
-  await Promise.race([
-    Promise.all(imgs.map((i) => new Promise<void>((r) => { i.addEventListener('load', () => r(), { once: true }); i.addEventListener('error', () => r(), { once: true }); }))),
-    new Promise<void>((r) => setTimeout(r, timeoutMs)),
-  ]);
-}
-
 export function ExportMenu({ deck, company, transcript, className, variant = 'bar', share, report, downloads = [] }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
-  const [job, setJob] = useState<{ doc: PrintJob; fileTitle: string } | null>(null);
+  const printer = usePrintJob();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -120,44 +111,11 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
     if (!open) setFocusOpen(false);
   }, [open]);
 
-  // Once the print document is mounted, print it, then tear everything down.
-  useEffect(() => {
-    if (!job) return;
-    let cancelled = false;
-    const prevTitle = document.title;
-    const cleanup = () => {
-      document.body.classList.remove('sm-exporting');
-      document.title = prevTitle;
-      window.removeEventListener('afterprint', cleanup);
-      if (!cancelled) setJob(null);
-    };
-    void (async () => {
-      await new Promise((r) => requestAnimationFrame(() => r(null)));
-      const host = document.querySelector('.sm-print-doc');
-      if (host) await imagesSettled(host);
-      if (cancelled) return;
-      document.title = job.fileTitle;
-      document.body.classList.add('sm-exporting');
-      window.addEventListener('afterprint', cleanup);
-      try {
-        window.print();
-      } catch {
-        cleanup();
-      }
-    })();
-    return () => {
-      cancelled = true;
-      document.body.classList.remove('sm-exporting');
-      document.title = prevTitle;
-      window.removeEventListener('afterprint', cleanup);
-    };
-  }, [job]);
-
   const print = useCallback((doc: PrintJob, fileTitle: string) => {
     setOpen(false);
     setError(null);
-    setJob({ doc, fileTitle });
-  }, []);
+    printer.print(doc, fileTitle);
+  }, [printer]);
 
   const deckCompanies = deck ? companiesFromCards(deck.cards) : [];
   const date = localDate();
@@ -374,7 +332,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
           }}
         />
       )}
-      {job && createPortal(<PrintDocument job={job.doc} />, document.body)}
+      {printer.host}
     </div>
   );
 }

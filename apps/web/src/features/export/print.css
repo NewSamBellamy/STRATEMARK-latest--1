@@ -103,4 +103,11 @@
   .sm-fig figcaption { margin-top: 1.2mm; font-size: 7.5pt; color: #68716f; }
   .sm-gap { margin: 3mm 0 0; padding: 2mm 3mm; border-left: 2px solid #c9a227; background: #faf6e6; font-size: 8.5pt; color: #3d4543; break-inside: avoid; }
   .sm-gap-note { border-left-color: #0f766e; background: #eef6f4; }
+
+  /* Today's report: one block per dated update */
+  .sm-update { break-inside: avoid; page-break-inside: avoid; padding-bottom: 6mm; border-bottom: 1px solid #dce8e5; margin: 0 0 7mm; }
+  .sm-kind { margin: 0 0 1.5mm; font-size: 7.5pt; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 700; color: #0f766e; }
+  .sm-sentiment { color: #68716f; letter-spacing: 0.1em; }
+  .sm-update-title { font-size: 14pt; line-height: 1.25; }
+  .sm-note-line { margin: 2mm 0 0; font-size: 8pt; color: #3d4543; word-break: break-all; }
 }
