@@ -40,3 +40,11 @@ it('asks to restart an older desktop host instead of trusting its legacy metric 
   await expect(repo.getCompanyFacts('cmp')).rejects.toThrow(/restart/i);
   expect(raw).not.toHaveBeenCalled();
 });
+
+it('shows the desktop host\'s archive refusal in plain words, without Electron\'s wrapper', async () => {
+  const refuse = vi.fn().mockRejectedValue(new Error(
+    "Error invoking remote method 'mi:setMarketArchived': Error: This deck is still being researched. You can archive it once research finishes."));
+  const repo = new IpcRepository({ setMarketArchived: refuse } as unknown as PreloadRepositoryApi);
+  await expect(repo.setMarketArchived('mkt', true)).rejects.toThrow(
+    /^This deck is still being researched\. You can archive it once research finishes\.$/);
+});

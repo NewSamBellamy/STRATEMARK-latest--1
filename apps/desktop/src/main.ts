@@ -282,6 +282,12 @@ function registerIpc(): void {
       refreshCadenceSchema.parse(cadence),
     ),
   );
+  ipcMain.handle(IPC_CHANNELS.deleteMarket, (_e, id: unknown) =>
+    repository.deleteMarket?.(z.string().min(1).parse(id)) ?? false,
+  );
+  ipcMain.handle(IPC_CHANNELS.setMarketArchived, (_e, id: unknown, archived: unknown) =>
+    repository.setMarketArchived!(z.string().min(1).parse(id), z.boolean().parse(archived)),
+  );
   ipcMain.handle(IPC_CHANNELS.getDeckByMarket, (_e, marketId: unknown) =>
     repository.getDeckByMarket(z.string().min(1).parse(marketId)),
   );

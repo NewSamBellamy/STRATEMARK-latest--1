@@ -28,6 +28,8 @@ const api: PreloadRepositoryApi = {
   createMarket: (input) => ipcRenderer.invoke(IPC_CHANNELS.createMarket, input),
   updateMarketCadence: (id, cadence) =>
     ipcRenderer.invoke(IPC_CHANNELS.updateMarketCadence, id, cadence),
+  deleteMarket: (id) => ipcRenderer.invoke(IPC_CHANNELS.deleteMarket, id),
+  setMarketArchived: (id, archived) => ipcRenderer.invoke(IPC_CHANNELS.setMarketArchived, id, archived),
   getDeckByMarket: (marketId) => ipcRenderer.invoke(IPC_CHANNELS.getDeckByMarket, marketId),
   refreshDeck: (marketId) => ipcRenderer.invoke(IPC_CHANNELS.refreshDeck, marketId),
   // Progress handlers can't cross IPC; the renderer polls/receives events instead.

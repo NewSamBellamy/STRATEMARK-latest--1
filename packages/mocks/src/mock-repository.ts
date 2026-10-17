@@ -251,6 +251,13 @@ export class MockRepository implements MarketIntelRepository {
     return this.delay(market);
   }
 
+  setMarketArchived(id: string, archived: boolean): Promise<Market> {
+    if (!this.markets.some((m) => m.id === id)) return Promise.reject(new Error(`Market not found: ${id}`));
+    const at = new Date().toISOString();
+    this.markets = this.markets.map((m) => (m.id === id ? { ...m, archivedAt: archived ? at : null } : m));
+    return this.delay(this.markets.find((m) => m.id === id)!);
+  }
+
   deleteMarket(id: string): Promise<boolean> {
     const initialLen = this.markets.length;
     const market = this.markets.find((m) => m.id === id);

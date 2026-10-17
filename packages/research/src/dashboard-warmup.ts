@@ -84,6 +84,12 @@ export interface DashboardWarmupDeps {
   recordAttempt(companyId: string, tab: WarmTab, attempt: WarmAttempt): Promise<void> | void;
   /** Quota / pause / busy gate, checked before every tab. */
   canRun(): boolean;
+  /**
+   * False when nobody wants this company warmed any more (e.g. its only deck was
+   * archived). Checked before every tab; an unwanted company leaves the queue
+   * without an attempt being recorded, so a later enqueue warms it normally.
+   */
+  wanted?(companyId: string): boolean;
   /** Called after a company's tabs were walked (e.g. to store the founded year). */
   afterCompany?(companyId: string): Promise<void>;
   /** Companies in flight at once. */
@@ -197,6 +203,7 @@ export class DashboardWarmup {
       }
       this.queue.sort(compareEntries);
       const next = this.queue.shift()!;
+      if (this.deps.wanted && !this.deps.wanted(next.companyId)) continue;
       this.running += 1;
       this.active.add(next.companyId);
       void this.warmCompany(next)
@@ -231,6 +238,7 @@ export class DashboardWarmup {
     const warmTab = async (tab: WarmTab): Promise<void> => {
       if (this.stopped || paused) return;
       if (!this.deps.canRun()) { paused = true; return; }
+      if (this.deps.wanted && !this.deps.wanted(entry.companyId)) { paused = true; return; }
       const previous = this.deps.attempts()[entry.companyId]?.[tab];
       const before = this.deps.cached(entry.companyId, tab);
       const { due, force } = warmTabDue(before, previous, this.now());

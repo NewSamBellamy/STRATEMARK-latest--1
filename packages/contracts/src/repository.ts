@@ -674,6 +674,9 @@ export interface MarketIntelRepository {
   createMarket(input: CreateMarketInput): Promise<Market>;
   updateMarketCadence(id: string, cadence: RefreshCadence): Promise<Market>;
   deleteMarket?(id: string): Promise<boolean>;
+  /** Archive (or restore) a deck by its market id. Nothing is deleted; an archived
+   * deck is left out of the library, sidebar and scheduled refreshes. */
+  setMarketArchived?(id: string, archived: boolean): Promise<Market>;
 
   // Decks
   getDeckByMarket(marketId: string): Promise<Deck | null>;

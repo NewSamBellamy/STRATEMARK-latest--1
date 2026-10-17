@@ -135,7 +135,8 @@ export class SentinelRepository implements MarketIntelRepository {
     // image-generation route, and pretending otherwise wastes user time.
     return {
       ground: true, structure: true, image: false,
-      unsupported: ['updateMarketCadence', 'deepDive', 'factCheck', 'overrideMetric', 'getMarketOpportunity', 'saveThreadAsReport', 'generateReport'],
+      // Archive: Sentinel lists only its cloud decks, and the cloud has no archive route yet.
+      unsupported: ['updateMarketCadence', 'setMarketArchived', 'deepDive', 'factCheck', 'overrideMetric', 'getMarketOpportunity', 'saveThreadAsReport', 'generateReport'],
     };
   }
 

@@ -53,6 +53,8 @@ export const IPC_CHANNELS = {
   getMarket: 'mi:getMarket',
   createMarket: 'mi:createMarket',
   updateMarketCadence: 'mi:updateMarketCadence',
+  deleteMarket: 'mi:deleteMarket',
+  setMarketArchived: 'mi:setMarketArchived',
   getDeckByMarket: 'mi:getDeckByMarket',
   refreshDeck: 'mi:refreshDeck',
   createResearchedDeck: 'mi:createResearchedDeck',

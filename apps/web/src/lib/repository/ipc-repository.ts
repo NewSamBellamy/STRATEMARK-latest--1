@@ -83,6 +83,17 @@ export class IpcRepository implements MarketIntelRepository {
   updateMarketCadence(id: string, cadence: RefreshCadence): Promise<Market> {
     return this.api.updateMarketCadence(id, cadence);
   }
+  deleteMarket(id: string): Promise<boolean> {
+    return this.api.deleteMarket ? this.api.deleteMarket(id) : Promise.resolve(false);
+  }
+  setMarketArchived(id: string, archived: boolean): Promise<Market> {
+    if (!this.api.setMarketArchived) return Promise.reject(new Error('Archiving decks needs a newer desktop build.'));
+    // Electron wraps a main-process error as "Error invoking remote method '…': Error: <message>".
+    return this.api.setMarketArchived(id, archived).catch((error: unknown) => {
+      if (!(error instanceof Error)) throw error;
+      throw new Error(error.message.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, ''));
+    });
+  }
   getDeckByMarket(marketId: string): Promise<Deck | null> {
     return this.api.getDeckByMarket(marketId);
   }

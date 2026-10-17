@@ -250,6 +250,22 @@ export function useDeleteDeck() {
   });
 }
 
+/** Archive or restore a deck by its market id. Nothing is deleted. */
+export function useArchiveDeck() {
+  const repo = useRepository();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, archived }: { id: string; archived: boolean }) => {
+      if (!repo.setMarketArchived) return Promise.reject(new Error('Archiving decks is not available here.'));
+      return repo.setMarketArchived(id, archived);
+    },
+    onSuccess: (market) => Promise.all([
+      qc.invalidateQueries({ queryKey: qk.markets }),
+      qc.invalidateQueries({ queryKey: qk.market(market.id) }),
+    ]),
+  });
+}
+
 export function useUpdateCadence() {
   const repo = useRepository();
   const qc = useQueryClient();

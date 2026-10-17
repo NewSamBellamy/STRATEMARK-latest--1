@@ -216,3 +216,50 @@ describe('GeminiRepository.deleteMarket', () => {
     expect(events).not.toHaveBeenCalled();
   });
 });
+
+describe('GeminiRepository.setMarketArchived', () => {
+  it('archives a deck without removing anything, survives reopen, and restores', async () => {
+    const h = harness();
+    const repo = h.open();
+
+    const archived = await repo.setMarketArchived('mkt_a', true);
+    expect(archived.archivedAt).toEqual(expect.any(String));
+    let snap = (h.open() as unknown as { snap: RepoSnapshot }).snap;
+    expect(snap.markets.find((m) => m.id === 'mkt_a')?.archivedAt).toBe(archived.archivedAt);
+    expect(snap.decks).toHaveLength(2);
+    expect(snap.cards).toHaveLength(4);
+    expect(snap.companies).toHaveLength(2);
+
+    expect((await repo.setMarketArchived('mkt_a', false)).archivedAt).toBeNull();
+    snap = (h.open() as unknown as { snap: RepoSnapshot }).snap;
+    expect(snap.markets.find((m) => m.id === 'mkt_a')?.archivedAt).toBeNull();
+  });
+
+  it('an unknown deck is an error, not a silent no-op', async () => {
+    await expect(harness().open().setMarketArchived('mkt_nope', true)).rejects.toThrow('Market not found');
+  });
+
+  it('research writing the deck again keeps it archived and keeps its cadence', async () => {
+    const h = harness();
+    const repo = h.open();
+    const archived = await repo.setMarketArchived('mkt_a', true);
+    await repo.updateMarketCadence('mkt_a', 'daily');
+    const stale = seed().markets[0]!; // the market row as the run saw it when it started
+    const internals = repo as unknown as { ingest(result: unknown): Promise<void>; snap: RepoSnapshot };
+    await internals.ingest({ market: stale, deck: seed().decks[0]!, cards: [] });
+
+    expect(internals.snap.markets[0]).toMatchObject({ id: 'mkt_a', archivedAt: archived.archivedAt, refreshCadence: 'daily' });
+    expect(internals.snap.markets.filter((m) => m.id === 'mkt_a')).toHaveLength(1);
+  });
+
+  it('will not archive a deck while its research is still running', async () => {
+    const repo = harness().open();
+    // Live state: a reopened app marks a saved "running" job as interrupted.
+    const snap = (repo as unknown as { snap: RepoSnapshot }).snap;
+    snap.researchJobs = snap.researchJobs.map((job) => (job.id === 'job_a' ? { ...job, status: 'running' as const } : job));
+    await expect(repo.setMarketArchived('mkt_a', true)).rejects.toThrow('You can archive it once research finishes.');
+    // Restoring is always allowed, and other decks are unaffected.
+    expect((await repo.setMarketArchived('mkt_a', false)).archivedAt).toBeNull();
+    expect((await repo.setMarketArchived('mkt_b', true)).archivedAt).toEqual(expect.any(String));
+  });
+});
