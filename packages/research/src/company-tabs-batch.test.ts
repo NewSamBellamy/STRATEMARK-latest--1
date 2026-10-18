@@ -81,6 +81,17 @@ describe('one combined tabs search for several companies', () => {
   });
 });
 
+describe('the combined search names how many companies it wants', () => {
+  it('says all of them, by count, at the start and again before the end', () => {
+    const three = companyTabsBatchPrompt(['A One', 'B Two', 'C Three'].map((name) => ({ company: { name, websiteUrl: null }, marketName: 'Robots' })));
+    expect(three).toMatch(/^There are 3 companies below, and the answer must cover all 3: write exactly 3 sections/);
+    expect(three).toMatch(/fewer than 3 companies is wrong, so do not stop after the first company/);
+    expect(three).toMatch(/check that all 3 companies each have their own "### " section containing a COMPANY TEAM line and a COMPANY STORY line\.$/);
+    expect(companyTabsBatchPrompt([{ company: { name: 'A One', websiteUrl: null }, marketName: 'Robots' }, { company: { name: 'B Two', websiteUrl: null }, marketName: 'Robots' }]))
+      .toMatch(/^There are 2 companies below/);
+  });
+});
+
 /** The answer with its part markers written in the given forms, in order ("Acme TEAM" for "COMPANY TEAM"). */
 function withMarkers(g: Ground, forms: string[]): Ground {
   let n = 0;

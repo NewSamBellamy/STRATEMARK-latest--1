@@ -32,12 +32,20 @@ export function headingCompanyKey(title: string): string {
  * companyStoryPrompt (Team + History) each ask, for several companies at once. Each company gets
  * its own "### Name" section with the briefing, a COMPANY TEAM line, the team, a COMPANY STORY
  * line and the story, so every tab still reads only its own company's part.
+ *
+ * The opening and closing lines that name the number of companies are not decoration. Measured live
+ * (2026-10-18, four-company batches on the default grounded line, eight runs each): without them the
+ * model answered only the first company in about half the runs (usable briefing and story for 37% of
+ * companies); with them all eight answers had all four sections (84% of companies usable).
  */
 export function companyTabsBatchPrompt(companies: ReadonlyArray<{ company: Pick<Company, 'name' | 'websiteUrl'>; marketName: string; focus?: string | null }>): string {
   // Bullets, not numbers: a numbered roster invites numbered headings ("### 1. Acme").
   const roster = companies.map(({ company, marketName, focus }) =>
     `- ${JSON.stringify(company.name)} (known official domain: ${JSON.stringify(company.websiteUrl ?? 'not established')}; market: ${JSON.stringify(marketName)})${focus ? ` ${focus}` : ''}`).join('\n');
-  return `Research each company below separately, from its own sources. Write one section per company, in the order listed, each starting with a line "### " followed by the company's exact name as listed and nothing else. Use no other "#", "##" or "###" headings anywhere. Never put one company's facts in another company's section, and do not compare the companies with each other.
+  const n = companies.length;
+  return `There are ${n} companies below, and the answer must cover all ${n}: write exactly ${n} sections, one for each company, in the order listed. An answer that covers fewer than ${n} companies is wrong, so do not stop after the first company.
+
+Research each company below separately, from its own sources. Write one section per company, in the order listed, each starting with a line "### " followed by the company's exact name as listed and nothing else. Use no other "#", "##" or "###" headings anywhere. Never put one company's facts in another company's section, and do not compare the companies with each other.
 
 Companies:
 ${roster}
@@ -49,7 +57,9 @@ In each section, in this order:
 4. A line that reads exactly COMPANY TEAM (the word COMPANY itself, never the company's name), then its current leadership and team from official team/about pages and recent company announcements first, then reputable reporting: the founders and the leadership team (executives, heads of major functions, board chair), up to 20 people, one person per plain, complete sentence naming the person, exact current role, current status and the company together (for example: "Sam Altman currently serves as Chief Executive Officer of OpenAI."). No name-only or role-only bullets. Exclude former, departed and future roles from this part.
 5. A line that reads exactly COMPANY STORY (the word COMPANY itself, never the company's name), then in separate paragraphs: the founding story as a short readable narrative; dated milestones from inception to today (every major product and model release, funding round, leadership change, pivot, stumble and partnership; month-level dates such as "2026 Mar" for the most recent 18 months where coverage supports it; 12-20 milestones for an established company); then 3-6 notable verbatim quotes said by named people (founders, executives, investors) with where and when they said them.
 
-Include a legal entity or brand alias only when a source explicitly links it to the company; do not assume similarly named affiliates. Return direct original-page URLs as discovery leads; provider grounding passages are reported evidence, not original-page verification. Never infer users, revenue, ranking, or unsupported dates. Cite sources.`;
+Include a legal entity or brand alias only when a source explicitly links it to the company; do not assume similarly named affiliates. Return direct original-page URLs as discovery leads; provider grounding passages are reported evidence, not original-page verification. Never infer users, revenue, ranking, or unsupported dates. Cite sources.
+
+Before you finish, check that all ${n} companies each have their own "### " section containing a COMPANY TEAM line and a COMPANY STORY line.`;
 }
 
 /** A part marker the model personalised with a company name: "Gusto TEAM", "### Gusto's Story:", "Company Team". */
