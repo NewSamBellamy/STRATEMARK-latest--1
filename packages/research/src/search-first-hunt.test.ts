@@ -41,7 +41,7 @@ const sources = [
 
 describe('huntFacesFromSearch', () => {
   it('fills money and headcount slots from result snippets with no model call', async () => {
-    const engine = vi.fn<Parameters<WebSearchFn>, ReturnType<WebSearchFn>>(async () => sources);
+    const engine = vi.fn<WebSearchFn>(async () => sources);
     const { repo, ground, structure } = setup({ engine });
     const out = await repo.huntFacesFromSearch!(['cmp_z']);
     expect(out.cmp_z!.filledTypes).toEqual(expect.arrayContaining(['valuation', 'employees']));
@@ -68,7 +68,7 @@ describe('huntFacesFromSearch', () => {
   });
 
   it('does nothing without the user\'s search key, even with the free news lane', async () => {
-    const news = vi.fn<Parameters<WebSearchFn>, ReturnType<WebSearchFn>>(async () => sources);
+    const news = vi.fn<WebSearchFn>(async () => sources);
     const { repo, ground } = setup({ engine: null, news });
     expect(await repo.huntFacesFromSearch!(['cmp_z'])).toEqual({});
     expect(news).not.toHaveBeenCalled();
