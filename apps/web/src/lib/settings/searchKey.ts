@@ -11,7 +11,7 @@
  * hunt keeps using model-grounded search exactly as before.
  */
 import { create } from 'zustand';
-import { isSearchProvider, relayWebSearch, type SearchProvider, type WebSearchFn } from '@mi/research';
+import { cachedWebSearch, isSearchProvider, relayWebSearch, type SearchProvider, type WebSearchFn } from '@mi/research';
 import { hasHostedApi } from '@/lib/hostedApi';
 import { hasLocalSourceBridge, relayEndpoint } from '@/lib/repository/local-source-reader';
 import { sanitizeApiKey } from './apiKey';
@@ -121,15 +121,32 @@ export function currentWebSearch(): WebSearchFn | null {
   if (!endpoint) return null;
   const { provider, key } = useSearchKey.getState();
   if (key) {
-    const search = relayWebSearch({ endpoint: endpoint.url, headers: endpoint.headers, provider, key });
-    // The user's own free allowance: count every request this month and stop
-    // at the cap, so research falls back to grounded search instead of
-    // exhausting their key (or running up a bill).
-    return async (query, options) => {
-      if (!spendSearch()) return [];
-      return search(query, options);
-    };
+    return memoised(`${endpoint.url}|${provider}|${key}`, () => {
+      const search = relayWebSearch({ endpoint: endpoint.url, headers: endpoint.headers, provider, key });
+      // The user's own free allowance: count every request this month and stop
+      // at the cap, so research falls back to grounded search instead of
+      // exhausting their key (or running up a bill).
+      return async (query, options) => {
+        if (!spendSearch()) return [];
+        return search(query, options);
+      };
+    });
   }
-  if (hostedSearchAvailable()) return relayWebSearch({ endpoint: endpoint.url, headers: endpoint.headers, provider: 'serper' });
+  if (hostedSearchAvailable()) {
+    return memoised(`${endpoint.url}|hosted`, () =>
+      relayWebSearch({ endpoint: endpoint.url, headers: endpoint.headers, provider: 'serper' }));
+  }
   return null;
+}
+
+/**
+ * One memoised search per provider and key. The search-first pass and the hunt's
+ * own search leads often ask the same query minutes apart; the memo answers the
+ * repeat from memory, so it costs neither a request nor a count against the
+ * monthly cap. A changed key or provider starts a fresh memo.
+ */
+let memo: { signature: string; search: WebSearchFn } | null = null;
+function memoised(signature: string, build: () => WebSearchFn): WebSearchFn {
+  if (memo?.signature !== signature) memo = { signature, search: cachedWebSearch(build()) };
+  return memo.search;
 }

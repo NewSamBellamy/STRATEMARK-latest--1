@@ -140,7 +140,8 @@ import { classifyMoves, filingMoveCandidates, mergeMoves, moveSince, newsMoveCan
 import { findFormDLastRound } from './sec-form-d';
 import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane, type DiscoveryNotes } from './searxng';
-import { huntSearchQueries, webSearchLane, type WebSearchFn } from './web-search';
+import { HUNT_SEARCH_SINCE_DAYS, huntSearchQueries, relevantSearchResults, webSearchLane, type WebSearchFn, type WebSearchResult } from './web-search';
+import { SEARCH_SNIPPET_TYPES, snippetGrounding } from './search-snippets';
 import { SourceActivityLog, observeFetch, observeFetchApi, observeGrounding, observeOriginalSources, observeRead, observeSearch } from './source-activity';
 import { quotedEstimateNote, quotedOriginalEstimate } from './quoted-estimate';
 import { alternateSources, applySourceChecks, checkFromReceipt, uncheckedSources, type SourceChecks } from './source-binding';
@@ -4776,6 +4777,56 @@ export class GeminiRepository implements MarketIntelRepository {
       try { results[id] = await result; } catch { /* left out: the caller hunts this company alone */ }
     })));
     return results;
+  }
+
+  /**
+   * Search-first pass for card faces: BEFORE the paid grounded search, a real
+   * search engine (the user's own key, plus the free news lane) answers what its
+   * snippets state outright. No model call and no paid search: result titles and
+   * snippets become verbatim supports (see snippetGrounding) and go through
+   * exactly the reported-claim gate a grounded answer does, so a figure is
+   * written only from a sentence that names this company, states the figure in
+   * the right definition, and names no rival. Rows land as estimated.
+   *
+   * Only runs with the user's engine key (without one nothing changes). The
+   * grounded hunt that follows plans from the figures this left, so it asks
+   * only for what is still empty. A failure here never blocks that hunt. Returns
+   * the companies it looked at.
+   */
+  async huntFacesFromSearch(companyIds: readonly string[]): Promise<Record<string, HuntMetricsResult>> {
+    const engine = this.webSearch?.() ?? null;
+    if (!engine) return {};
+    const lanes = [this.newsSearch?.() ?? null, engine].filter((lane): lane is WebSearchFn => lane !== null);
+    const ids = [...new Set(companyIds)].filter((id) => !this.hunts.has(id) && this.snap.companies.some((c) => c.id === id));
+    const slot = limiter(FACE_HUNT_FINISH_CONCURRENCY);
+    const results: Record<string, HuntMetricsResult> = {};
+    await Promise.all(ids.map((id) => slot(async () => {
+      try { results[id] = await this.huntFromSnippets(id, lanes); } catch { /* the grounded hunt still covers this company */ }
+    })));
+    return results;
+  }
+
+  /** One company's search-first pass (see huntFacesFromSearch). */
+  private async huntFromSnippets(companyId: string, lanes: WebSearchFn[]): Promise<HuntMetricsResult> {
+    const plan = await this.huntPlan(companyId, { faceSlotsOnly: true });
+    if (!('company' in plan)) return plan;
+    const { company, profile, revisions, mine } = plan;
+    const slots = plan.softTypes.filter((type) => SEARCH_SNIPPET_TYPES.includes(type));
+    const nothing = (): HuntMetricsResult => ({ filledTypes: [...plan.structuredFilled], metrics: mine(), retieredCardIds: [] });
+    if (slots.length === 0) return nothing();
+    const queries = huntSearchQueries(company.name, slots, { financialFirm: profile === 'financial_firm' });
+    const found = await Promise.all(lanes.flatMap((lane) => queries.map((q) =>
+      lane(q.query, { news: q.news, sinceDays: HUNT_SEARCH_SINCE_DAYS }).catch((): WebSearchResult[] => []))));
+    const seen = new Set<string>();
+    const results = relevantSearchResults(found.flat().filter((r) => !seen.has(r.url) && Boolean(seen.add(r.url))),
+      company.name, company.websiteUrl);
+    const grounding = snippetGrounding(results, company.name);
+    if (!grounding) return nothing();
+    const filled = await this.fillReportedHuntRows(company, slots, { text: grounding.answerText, grounding }, revisions);
+    const retieredCardIds = await this.finalizeHuntFill(company.id, filled);
+    // The cited result pages are checked in the background, like any reported figure.
+    if (filled.length > 0) void this.bindReportedSources(company.id);
+    return { filledTypes: [...plan.structuredFilled, ...filled], metrics: mine(), retieredCardIds };
   }
 
   /** One grounded search for up to FACE_HUNT_BATCH_SIZE companies; each company's

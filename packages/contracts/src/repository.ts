@@ -835,6 +835,14 @@ export interface MarketIntelRepository {
   huntFaceSlotsBatch?(companyIds: readonly string[]): Promise<Record<string, HuntMetricsResult>>;
 
   /**
+   * Search-first pass run before the grounded face hunt: a search engine's own
+   * result snippets are checked by the same reported-claim gate, with no model
+   * call and no paid search. Does nothing without the user's search-engine key.
+   * Returns the companies it looked at. OPTIONAL.
+   */
+  huntFacesFromSearch?(companyIds: readonly string[]): Promise<Record<string, HuntMetricsResult>>;
+
+  /**
    * Market-batch estimated fill: ONE grounded call proposes estimated-tier
    * figures for several gapped companies at once, per-claim provider support,
    * identity-guarded against the deck roster. Estimated tier only; structured

@@ -218,4 +218,29 @@ describe('face sweep run — batched', () => {
     await runFaceSweep([deckCard(1, []), deckCard(2, [])], { repo });
     expect(repo.calls).toEqual(['recover:cmp_sweep_1', 'recover:cmp_sweep_2', 'batch']);
   });
+
+  it('runs the search-first pass after free recovery and before the paid batch, and counts what it filled', async () => {
+    class Repo {
+      readonly calls: string[] = [];
+      async recoverSavedCompanyMetrics(id: string) { this.calls.push(`recover:${id}`); return none; }
+      async huntFacesFromSearch(ids: readonly string[]) { this.calls.push(`search:${ids.length}`);
+        return { cmp_sweep_1: { filledTypes: ['valuation' as const, 'employees' as const], metrics: [], retieredCardIds: [] } }; }
+      async huntFaceSlotsBatch(ids: readonly string[]) { this.calls.push('batch');
+        return Object.fromEntries(ids.map((id) => [id, none])); }
+      async huntCompanyMetrics(id: string) { this.calls.push(`hunt:${id}`); return none; }
+    }
+    const repo = new Repo();
+    const result = await runFaceSweep([deckCard(1, []), deckCard(2, [])], { repo });
+    expect(repo.calls.slice(0, 4)).toEqual(['recover:cmp_sweep_1', 'recover:cmp_sweep_2', 'search:2', 'batch']);
+    // The two figures the snippets filled count even though the paid batch found nothing more.
+    expect(result).toMatchObject({ targeted: 2, filledCompanies: 1, filledTypes: 2, failed: 0 });
+  });
+
+  it('a failing search-first pass never blocks the paid batch', async () => {
+    const huntFacesFromSearch = vi.fn(async () => { throw new Error('relay down'); });
+    const huntFaceSlotsBatch = vi.fn(async (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, none])));
+    await runFaceSweep([deckCard(1, [])], { repo: { huntCompanyMetrics: async () => none, huntFacesFromSearch, huntFaceSlotsBatch } });
+    expect(huntFacesFromSearch).toHaveBeenCalledTimes(1);
+    expect(huntFaceSlotsBatch).toHaveBeenCalledTimes(1);
+  });
 });

@@ -77,7 +77,7 @@ export function selectFaceSweepTargets(cards: readonly CardWithCompany[]): FaceS
 }
 
 export interface FaceSweepDeps {
-  repo: Pick<MarketIntelRepository, 'huntCompanyMetrics' | 'recoverSavedCompanyMetrics' | 'huntFaceSlotsBatch' | 'reuseCompanyEvidence'>;
+  repo: Pick<MarketIntelRepository, 'huntCompanyMetrics' | 'recoverSavedCompanyMetrics' | 'huntFaceSlotsBatch' | 'huntFacesFromSearch' | 'reuseCompanyEvidence'>;
   concurrency?: number;
   /** Called after each company finishes (success or failure). */
   onCompany?(target: FaceSweepTarget, outcome: FaceSweepOutcome): void | Promise<void>;
@@ -116,6 +116,8 @@ export async function runFaceSweep(cards: readonly CardWithCompany[], deps: Face
   const stillShort = new Set(targets.map((t) => t.companyId));
   // Bound: the app's repository is a class instance, and a detached method call loses `this`.
   const batch = deps.repo.huntFaceSlotsBatch?.bind(deps.repo);
+  const fromSearch = deps.repo.huntFacesFromSearch?.bind(deps.repo);
+  const searchFilled = new Map<string, number>();
   // A twin of this company researched in another deck lends its saved evidence
   // first (free), so recovery below can re-derive figures instead of paying for them.
   const reuse = async (target: FaceSweepTarget) => {
@@ -138,12 +140,19 @@ export async function runFaceSweep(cards: readonly CardWithCompany[], deps: Face
     }
     const ids = targets.map((t) => t.companyId).filter((id) => stillShort.has(id));
     if (ids.length > 0 && !deps.shouldStop?.()) {
+      // Search-first (no model call, no paid search): a search engine's own snippets fill what
+      // they state outright, so the batched grounded search below asks only for what is still empty.
+      if (fromSearch) {
+        try {
+          for (const [id, out] of Object.entries(await fromSearch(ids))) searchFilled.set(id, out.filledTypes.length);
+        } catch { /* the grounded search still runs */ }
+      }
       try { batched = await batch(ids); } catch { /* each company is hunted alone below */ }
     }
   }
 
   await pool(async (target) => {
-    let filled = recovered.get(target.companyId) ?? 0;
+    let filled = (recovered.get(target.companyId) ?? 0) + (searchFilled.get(target.companyId) ?? 0);
     let failed = false;
     let searched = false;
     let stopped = false;
