@@ -1,10 +1,38 @@
 import type { Plugin } from 'vite';
 import { allowsLocalSourceRequest } from './src/lib/repository/local-source-policy';
 
+/**
+ * Node 24's bundled HTTP client (undici) can throw `assert(!this.paused)` from a socket event when an upstream
+ * connection ends while an aborted response is still being read. The throw is in an event handler, so no
+ * try/catch around the fetch sees it: it ends the whole dev server. The app aborts requests on purpose (a search
+ * past its deadline, a fallback line taking over), so a research run on the preview ended the server mid-run on
+ * 2026-10-18 (this assertion is in the log of the second death), and the page then hung on refused connections.
+ */
+export function isUndiciPauseAssertion(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AssertionError' && /assert\(!this\.paused\)/.test(error.message)
+    && /undici/i.test(error.stack ?? '');
+}
+
+let guarded = false;
+/** Ignore exactly that assertion, once per process; every other uncaught error still ends the process as before. */
+function guardDevServerFromUndiciAbort(): void {
+  if (guarded) return;
+  guarded = true;
+  process.on('uncaughtException', (error) => {
+    if (isUndiciPauseAssertion(error)) {
+      console.warn('[stratemark-local-gemini] ignored a Node/undici socket assertion after an aborted request');
+      return;
+    }
+    console.error(error);
+    process.exit(1);
+  });
+}
+
 /** Local development only; no generic URL proxy, key storage or request logging. */
 export function localGeminiPlugin(upstream: typeof fetch = fetch): Plugin {
   let active = 0;
   return { name: 'stratemark-local-gemini', apply: 'serve', configureServer(server) {
+    guardDevServerFromUndiciAbort();
     server.middlewares.use((req, res, next) => {
       const match = req.url?.match(/^\/__stratemark\/gemini\/([a-zA-Z0-9][a-zA-Z0-9._-]{0,119}):generateContent$/);
       if (!match) return next();
