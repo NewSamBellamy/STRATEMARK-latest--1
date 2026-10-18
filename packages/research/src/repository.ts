@@ -182,8 +182,10 @@ function twinSiteKey(url: string | null | undefined): string {
     return `${parsed.hostname.replace(/^www\./, '').toLowerCase()}${parsed.pathname.replace(/\/+$/, '').toLowerCase()}${query ? `?${query}` : ''}${hash}`;
   } catch { return ''; }
 }
-/** How long the warm-up's first tab search waits for other companies to share its search. */
-const TAB_BATCH_WINDOW_MS = 250;
+/** How long the warm-up's first tab search waits, after the latest company joined, for another to share its search. */
+const TAB_BATCH_QUIET_MS = 600;
+/** The longest a gathering combined search waits in all, however steadily companies keep joining. */
+const TAB_BATCH_MAX_WAIT_MS = 3_000;
 /** A combined search slower than this is dropped: its tabs need time left to extract and save. */
 const TAB_BATCH_DEADLINE_MS = 50_000;
 /** After this long waiting on a combined search, a company it missed fails now instead of searching late. */
@@ -195,6 +197,8 @@ type CompanyTabParts = ReturnType<typeof companyTabsParts>;
 interface TabBatch {
   members: Array<{ company: Company; marketName: string; done: (parts: CompanyTabParts | null) => void }>;
   started: boolean;
+  openedAt: number;
+  timer?: ReturnType<typeof setTimeout>;
 }
 /** The hydration-time logo is a gstatic favicon guess, not company art. The
  * asset lane (and only the asset lane, or the user) replaces it. */
@@ -3196,17 +3200,26 @@ export class GeminiRepository implements MarketIntelRepository {
     return started;
   }
 
-  /** Join the warm-up's gathering batch; it searches once TAB_BATCH_SIZE companies joined or the window closed. Never rejects. */
+  /**
+   * Join the warm-up's gathering batch; it searches once TAB_BATCH_SIZE companies joined, or no company has
+   * joined for TAB_BATCH_QUIET_MS (TAB_BATCH_MAX_WAIT_MS at most in all). The quiet period restarts at each
+   * joiner: companies started together reach this point a few hundred milliseconds apart on a busy page, and
+   * a fixed window from the first one split them into batches of one or two (a batch of one is refused, and
+   * its company then pays for two searches of its own). Never rejects.
+   */
   private joinTabBatch(company: Company, marketName: string): Promise<CompanyTabParts | null> {
     return new Promise((done) => {
       let batch = this.tabBatch;
       if (!batch) {
-        const opened: TabBatch = { members: [], started: false };
+        const opened: TabBatch = { members: [], started: false, openedAt: Date.now() };
         this.tabBatch = batch = opened;
-        setTimeout(() => this.runTabBatch(opened), TAB_BATCH_WINDOW_MS);
       }
       batch.members.push({ company, marketName, done });
-      if (batch.members.length >= TAB_BATCH_SIZE) this.runTabBatch(batch);
+      if (batch.members.length >= TAB_BATCH_SIZE) { this.runTabBatch(batch); return; }
+      clearTimeout(batch.timer);
+      const gathering = batch;
+      const wait = Math.min(TAB_BATCH_QUIET_MS, Math.max(0, TAB_BATCH_MAX_WAIT_MS - (Date.now() - gathering.openedAt)));
+      gathering.timer = setTimeout(() => this.runTabBatch(gathering), wait);
     });
   }
 
@@ -3231,6 +3244,7 @@ export class GeminiRepository implements MarketIntelRepository {
   private runTabBatch(batch: TabBatch): void {
     if (batch.started) return;
     batch.started = true;
+    clearTimeout(batch.timer);
     if (this.tabBatch === batch) this.tabBatch = null;
     const { members } = batch;
     // Alone, the company's own two searches are what it gets today: nothing to share.

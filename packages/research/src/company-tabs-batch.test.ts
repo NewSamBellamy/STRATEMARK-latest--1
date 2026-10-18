@@ -250,3 +250,47 @@ describe('dashboard warm-up with a combined tabs search', () => {
     expect(labels()).toEqual(['company_briefing:gamma']);
   });
 });
+
+describe('gathering companies for a combined tabs search', () => {
+  /** Reach the combined search's gate directly, as the warm-up does, a company at a time. */
+  function gathering() {
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    vi.useFakeTimers();
+    const { repo, labels, saved } = fixtureRepo(async (prompt) => prompt.includes('Write one section per company')
+      ? batchAnswer(NAMES.filter((name) => prompt.includes(JSON.stringify(name))).map(section)) : single());
+    const gate = repo as unknown as { joinTabBatch(company: unknown, marketName: string): Promise<unknown> };
+    const join = (id: string) => gate.joinTabBatch(saved().companies.find((company) => company.id === id), 'Robots');
+    const batches = () => labels().filter((label) => label === 'company_tabs_batch').length;
+    return { join, batches };
+  }
+
+  it('companies that reach it a few hundred milliseconds apart still share one search', async () => {
+    try {
+      const { join, batches } = gathering();
+      const parts = [join('acme')];
+      // The old fixed 250 ms window from the first company would have sent Acme alone by now.
+      await vi.advanceTimersByTimeAsync(400);
+      parts.push(join('beta'));
+      await vi.advanceTimersByTimeAsync(400);
+      parts.push(join('gamma'));
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(batches()).toBe(1);
+      const got = await Promise.all(parts);
+      expect(got.every((part) => part !== null)).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a company alone is released to search on its own after the quiet period, without a combined search', async () => {
+    try {
+      const { join, batches } = gathering();
+      const alone = join('acme');
+      let released = false;
+      void alone.then(() => { released = true; });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(released).toBe(false);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(await alone).toBeNull();
+      expect(batches()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+});
