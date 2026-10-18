@@ -94,7 +94,7 @@ export function companyNameKey(raw: string): string {
     .trim()
     .split(' ')
     .filter(Boolean);
-  while (words.length > 1 && /^(?:LLC|LLP|LP|INC|CORP|CORPORATION|CORPRATION|CO|LTD|PLC|COMPANY|LIMITED|HOLDINGS|GROUP|THE)$/.test(words[words.length - 1]!)) {
+  while (words.length > 1 && /^(?:LLC|LLP|LP|INC|CORP|CORPORATION|CORPRATION|CO|LTD|PLC|COMPANY|LIMITED|HOLDING|HOLDINGS|GROUP|THE)$/.test(words[words.length - 1]!)) {
     words.pop();
   }
   return words.join(' ');
