@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "repository": "https://github.com/lYlarufAhmed/STRATEMARK-latest-",
+  "repository": "https://github.com/NewSamBellamy/STRATEMARK-latest--1",
   "main": "dist/main.cjs",
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -23,8 +23,8 @@
     "icon": "build/icon.png",
     "publish": {
       "provider": "github",
-      "owner": "lYlarufAhmed",
-      "repo": "STRATEMARK-latest-"
+      "owner": "NewSamBellamy",
+      "repo": "STRATEMARK-latest--1"
     },
     "files": [
       "dist/**",
