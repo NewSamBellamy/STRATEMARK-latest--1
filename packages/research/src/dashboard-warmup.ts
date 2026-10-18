@@ -94,6 +94,14 @@ export interface DashboardWarmupDeps {
   afterCompany?(companyId: string): Promise<void>;
   /** Companies in flight at once. */
   concurrency: number;
+  /**
+   * Start companies in groups of up to this many (never more than `concurrency`;
+   * default 1: one at a time, as slots free). Companies that start together can
+   * share one combined tabs search; a company that starts alone pays for two of its
+   * own. A free slot therefore waits until a whole group of slots is free, unless
+   * fewer companies than that are left to start.
+   */
+  cohort?: number;
   /** Tabs of ONE company researched at once, after its Overview (default 1: strictly one at a time). */
   tabsInParallel?: number;
   now?: () => number;
@@ -196,24 +204,30 @@ export class DashboardWarmup {
 
   private pump(): void {
     if (this.stopped) return;
-    while (this.running < Math.max(1, this.deps.concurrency) && this.queue.length > 0) {
+    const slots = Math.max(1, this.deps.concurrency);
+    const cohort = Math.min(Math.max(1, Math.floor(this.deps.cohort ?? 1)), slots);
+    while (this.queue.length > 0) {
+      const free = slots - this.running;
+      // A group starts together or not at all: wait for a whole group of free slots, unless fewer are left to start.
+      if (free < Math.min(cohort, this.queue.length)) break;
       if (!this.deps.canRun()) {
         this.scheduleRetry();
         break;
       }
       this.queue.sort(compareEntries);
-      const next = this.queue.shift()!;
-      if (this.deps.wanted && !this.deps.wanted(next.companyId)) continue;
-      this.running += 1;
-      this.active.add(next.companyId);
-      void this.warmCompany(next)
-        .catch(() => { /* warm-up never surfaces errors; tabs research on open */ })
-        .finally(() => {
-          this.running -= 1;
-          this.active.delete(next.companyId);
-          this.pump();
-          this.settleIdle();
-        });
+      for (const next of this.queue.splice(0, Math.min(cohort, free))) {
+        if (this.deps.wanted && !this.deps.wanted(next.companyId)) continue;
+        this.running += 1;
+        this.active.add(next.companyId);
+        void this.warmCompany(next)
+          .catch(() => { /* warm-up never surfaces errors; tabs research on open */ })
+          .finally(() => {
+            this.running -= 1;
+            this.active.delete(next.companyId);
+            this.pump();
+            this.settleIdle();
+          });
+      }
     }
     this.settleIdle();
   }

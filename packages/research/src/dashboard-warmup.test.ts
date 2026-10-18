@@ -276,3 +276,72 @@ describe('tabs of one company in parallel', () => {
     expect(h.calls.map((call) => call.tab).sort()).toEqual([...WARM_TABS].sort());
   });
 });
+
+describe('DashboardWarmup cohorts', () => {
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  /** A warm-up whose research calls stay open until `finish(company)` completes all of that company's tabs. */
+  function gated(options: { concurrency: number; cohort?: number }) {
+    const gates = new Map<string, () => void>();
+    const cache = new Set<string>();
+    const started: string[] = [];
+    const warmup = new DashboardWarmup({
+      concurrency: options.concurrency, ...(options.cohort !== undefined ? { cohort: options.cohort } : {}),
+      canRun: () => true,
+      cached: (companyId, tab) => ({ state: cache.has(`${companyId}:${tab}`) ? 'filled' : 'missing' }),
+      attempts: () => ({}),
+      recordAttempt: () => {},
+      research: (companyId, tab) => new Promise<void>((resolve) => {
+        if (tab === 'overview') started.push(companyId);
+        gates.set(`${companyId}:${tab}`, () => { cache.add(`${companyId}:${tab}`); resolve(); });
+      }),
+    });
+    const finish = async (companyId: string) => {
+      for (const tab of WARM_TABS) { gates.get(`${companyId}:${tab}`)?.(); await tick(); }
+    };
+    const targets = (n: number) => Array.from({ length: n }, (_, i) => ({ companyId: `c${i}`, tier: 100 - i }));
+    return { warmup, started, finish, targets };
+  }
+
+  it('starts companies in groups and refills a whole group at a time, never one slot at a time', async () => {
+    const h = gated({ concurrency: 8, cohort: 4 });
+    h.warmup.enqueue(h.targets(16), 'creation');
+    await tick();
+    // Two groups of four start together.
+    expect(h.started).toEqual(['c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7']);
+    // Three companies finish: three slots are free, a group needs four, so nobody new starts.
+    for (const id of ['c0', 'c1', 'c2']) await h.finish(id);
+    expect(h.started).toHaveLength(8);
+    // The fourth finishes: the next four start in the same turn.
+    await h.finish('c3');
+    expect(h.started.slice(8)).toEqual(['c8', 'c9', 'c10', 'c11']);
+    // The last group is the rest of the queue: it starts once four slots are free again.
+    for (const id of ['c4', 'c5', 'c6']) await h.finish(id);
+    expect(h.started).toHaveLength(12);
+    await h.finish('c7');
+    expect(h.started.slice(12)).toEqual(['c12', 'c13', 'c14', 'c15']);
+  });
+
+  it('never waits for more slots than exist, and a short queue still starts', async () => {
+    // A group can never be bigger than the slots: two slots, groups of two.
+    const h = gated({ concurrency: 2, cohort: 4 });
+    h.warmup.enqueue(h.targets(5), 'creation');
+    await tick();
+    expect(h.started).toEqual(['c0', 'c1']);
+    await h.finish('c0');
+    expect(h.started).toHaveLength(2);
+    await h.finish('c1');
+    expect(h.started.slice(2)).toEqual(['c2', 'c3']);
+    // One company is left, fewer than a group: it starts as soon as one slot frees.
+    await h.finish('c2');
+    expect(h.started.slice(4)).toEqual(['c4']);
+  });
+
+  it('without a cohort a freed slot starts the next company at once (the old behaviour)', async () => {
+    const h = gated({ concurrency: 3 });
+    h.warmup.enqueue(h.targets(5), 'creation');
+    await tick();
+    expect(h.started).toEqual(['c0', 'c1', 'c2']);
+    await h.finish('c0');
+    expect(h.started.slice(3)).toEqual(['c3']);
+  });
+});
