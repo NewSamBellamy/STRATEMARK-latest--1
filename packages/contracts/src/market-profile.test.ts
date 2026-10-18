@@ -45,6 +45,18 @@ describe('market profile classification', () => {
     expect(classifyMarketProfile({ name: 'Juniper Square', oneLiner: 'Investment management software used by private equity firms.' })).toBe('operating_company');
   });
 
+  it('does not read "human capital management" (HR and payroll software) as a capital manager', () => {
+    // ADP's real descriptor: it was filed as a financial firm, got an AUM slot and no market-cap hunt.
+    expect(classifyMarketProfile({ name: 'Automatic Data Processing, Inc. / ADP (RUN Powered by ADP)',
+      oneLiner: 'Automatic Data Processing, Inc. / ADP (RUN Powered by ADP) is a dominant global human capital management (HCM) and payroll incumbent offering dedicated small business solutions (RUN).' }))
+      .toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'Workday', oneLiner: 'Cloud applications for Human Capital Management and finance.' })).toBe('operating_company');
+    expect(classifyMarketProfile({ name: 'Treasury Co', oneLiner: 'Working capital management for mid-size firms.' })).toBe('operating_company');
+    // An actual capital manager still is one.
+    expect(classifyMarketProfile({ name: 'Acme Capital Management', oneLiner: 'Registered investment adviser based in Boston.' })).toBe('financial_firm');
+    expect(classifyMarketProfile({ name: 'Elm Park', oneLiner: 'An independent capital management firm for families and foundations.' })).toBe('financial_firm');
+  });
+
   it('keeps a manager a manager when it also serves clients', () => {
     // Cliffwater consults AND manages assets: it really is a financial firm.
     expect(classifyMarketProfile({ name: 'Cliffwater', oneLiner: 'alternative investment adviser and asset manager' })).toBe('financial_firm');
