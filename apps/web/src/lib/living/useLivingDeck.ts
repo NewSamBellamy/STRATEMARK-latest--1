@@ -36,6 +36,7 @@ import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { qk } from '@/lib/query/keys';
 import { traceAgent } from '@/lib/agentic/agentTrace';
 import { formatMetricValue } from '@/lib/format';
+import { batchRestKey, huntRestKey, isResting, startRest } from './ambientRest';
 import { useResearchControl } from './researchControl';
 import { runFaceSweep, selectFaceSweepTargets, type FaceSweepResult } from './faceSweep';
 import {
@@ -240,15 +241,17 @@ export function useLivingDeck(
     setEvents((prev) => [event, ...prev].slice(0, MAX_FEED_EVENTS));
   }, []);
 
-  /** The sweep. Joins an in-flight run for the same deck instead of doubling spend. */
-  const fillCardFaces = useCallback(async (): Promise<FaceSweepResult> => {
+  /** The sweep. Joins an in-flight run for the same deck instead of doubling spend. The automatic
+   * one skips a company that was searched automatically in the last few days (ambientRest): a page
+   * reload is a new session, and must not pay for the same searches again. */
+  const sweepFaces = useCallback(async (automatic: boolean): Promise<FaceSweepResult> => {
     const empty: FaceSweepResult = { targeted: 0, filledCompanies: 0, filledTypes: 0, failed: 0 };
     if (!deckId || !canSweep) return empty;
     let running = sweepsInFlight.get(repo);
     if (!running) { running = new Map(); sweepsInFlight.set(repo, running); }
     const existing = running.get(deckId);
     if (existing) return existing;
-    const cards = cardsRef.current;
+    const cards = automatic ? cardsRef.current.filter((c) => !c.company || !isResting(huntRestKey(c.company.id))) : cardsRef.current;
     const targets = selectFaceSweepTargets(cards).length;
     if (targets === 0) return empty;
     pushSweepEvent(`Filling card faces — ${targets} ${targets === 1 ? 'card has' : 'cards have'} empty slots`, null, 'hunting');
@@ -265,6 +268,7 @@ export function useLivingDeck(
           let ladder = huntAttempts.get(repo);
           if (!ladder) { ladder = new Map(); huntAttempts.set(repo, ladder); }
           ladder.set(target.companyId, { attempts: HUNT_ATTEMPTS_PER_SESSION, lastAt: Date.now() });
+          startRest(huntRestKey(target.companyId));
         }
         await invalidateMetricSurfaces(qc, target.companyId, outcome.filled > 0);
         pushSweepEvent(outcome.failed
@@ -278,8 +282,10 @@ export function useLivingDeck(
     running.set(deckId, run);
     return run;
   }, [deckId, canSweep, repo, qc, pushSweepEvent]);
-  const fillCardFacesRef = useRef(fillCardFaces);
-  fillCardFacesRef.current = fillCardFaces;
+  /** The button's sweep: every empty face, resting or not. (Not passed a click event as a flag.) */
+  const fillCardFaces = useCallback(() => sweepFaces(false), [sweepFaces]);
+  const sweepFacesRef = useRef(sweepFaces);
+  sweepFacesRef.current = sweepFaces;
 
   // Asset lane, once per company per session: a real logo from the company's
   // own site replaces a guessed favicon. One bounded raw read per page, zero
@@ -380,7 +386,7 @@ export function useLivingDeck(
         // hunt before anyone gets a second, and empty hunts escalate only
         // after the cooldown — never in the same breath as the failed one.
         const candidate = entityDesks(cardsRef.current)
-          .filter(c => hasCoreGap(c) && !exclude?.has(c.company!.id))
+          .filter(c => hasCoreGap(c) && !exclude?.has(c.company!.id) && !isResting(huntRestKey(c.company!.id)))
           .map(c => {
             const entry = hunts.get(c.company!.id);
             return {
@@ -411,9 +417,10 @@ export function useLivingDeck(
         if (canBatchFill && !batchFilledDecks.get(repo)?.has(deckId)) {
           const gapped = entityDesks(cardsRef.current)
             .filter((c) => hasCoreGap(c)).length;
-          if (gapped >= 2) {
+          if (gapped >= 2 && !isResting(batchRestKey(deckId))) {
             if (!batchFilledDecks.get(repo)) batchFilledDecks.set(repo, new Set());
             batchFilledDecks.get(repo)!.add(deckId);
+            startRest(batchRestKey(deckId));
             try {
               const batch = await repo.fillMissingMarketEstimates!(deckId);
               if (batch.filledTypes > 0) {
@@ -443,6 +450,7 @@ export function useLivingDeck(
         const prior = hunts.get(target.companyId) ?? { attempts: 0, lastAt: 0 };
         const escalation = prior.attempts;
         hunts.set(target.companyId, { attempts: prior.attempts + 1, lastAt: nowMs() });
+        startRest(huntRestKey(target.companyId));
         // Opportunistic asset fill: a company being researched for figures is
         // also due its once-per-session logo resolution.
         fillAssetsOnce(target.companyId);
@@ -627,7 +635,7 @@ export function useLivingDeck(
         return;
       }
       swept.add(deckId);
-      void fillCardFacesRef.current().catch(() => { /* faces stay honestly Unknown */ });
+      void sweepFacesRef.current(true).catch(() => { /* faces stay honestly Unknown */ });
     };
     if (autoFaceSweep) sweepTimer = setTimeout(() => { void autoSweep(); }, 1_000);
 
