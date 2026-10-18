@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import { completenessFixture } from './completeness-report.fixture';
-import { companyTabsBatchPrompt, companyTabsParts, companyTabsSections } from './company-tabs-batch';
+import { canonicalTabMarkers, companyTabsBatchPrompt, companyTabsParts, companyTabsSections } from './company-tabs-batch';
 import { companyStoryPart } from './company-team';
 import { GeminiRepository, type RepoSnapshot } from './repository';
 import type { LlmClient } from './types';
@@ -75,6 +75,50 @@ describe('one combined tabs search for several companies', () => {
     expect(prompt).not.toMatch(/^1\. "/m);
     expect(prompt).toMatch(/exactly COMPANY TEAM/);
     expect(prompt).toMatch(/exactly COMPANY STORY/);
+    // The marker words are literal: a model that reads COMPANY as a placeholder writes "Acme TEAM" instead.
+    expect(prompt).toMatch(/COMPANY TEAM \(the word COMPANY itself, never the company's name\)/);
+    expect(prompt).toMatch(/COMPANY STORY \(the word COMPANY itself, never the company's name\)/);
+  });
+});
+
+/** The answer with its part markers written in the given forms, in order ("Acme TEAM" for "COMPANY TEAM"). */
+function withMarkers(g: Ground, forms: string[]): Ground {
+  let n = 0;
+  const text = g.text.replace(/^COMPANY (TEAM|STORY)$/gm, () => forms[n++]!);
+  return { ...g, text, grounding: { ...g.grounding!, answerText: text } };
+}
+
+describe('part markers written with a company name', () => {
+  const roster = ['Acme Robotics', 'Gamma Shop'];
+  const forms = ['Acme Robotics TEAM', '**Acme Robotics STORY**', "### Gamma Shop's Team:", 'Company Story'];
+
+  it('reads "Acme Robotics TEAM" as COMPANY TEAM, so the company still gets its briefing and story', () => {
+    const named = withMarkers(batchAnswer([section('Acme Robotics'), section('Gamma Shop')]), forms);
+    // As written, the markers are not markers: nobody's tabs could be cut from this answer.
+    const raw = companyTabsParts(named, companyTabsSections(named.text, roster)?.get('Acme Robotics'), 'Acme Robotics', ['Gamma Shop']);
+    expect(raw).toEqual({ briefing: null, story: null });
+    const g = { ...named, text: canonicalTabMarkers(named.text, roster) };
+    const cut = companyTabsSections(g.text, roster)!;
+    for (const name of roster) {
+      const other = roster.filter((n) => n !== name);
+      const parts = companyTabsParts(g, cut.get(name), name, other);
+      expect(parts.briefing?.text).toContain(`${name} builds warehouse robots`);
+      expect(parts.briefing?.text).not.toContain('Pat Lee');
+      expect(parts.story).not.toBeNull();
+      expect(companyStoryPart(parts.story!, 'team')?.text).toContain('Pat Lee currently serves');
+      expect(companyStoryPart(parts.story!, 'story')?.text).toContain(`${name} was founded in 2014`);
+    }
+  });
+
+  it('knows a company by its short name too, and changes no heading or content line', () => {
+    const adp = 'Automatic Data Processing, Inc. (ADP)';
+    expect(canonicalTabMarkers('ADP TEAM\nADP Story:\nautomatic data processing team', [adp, 'Gusto']))
+      .toBe('COMPANY TEAM\nCOMPANY STORY\nCOMPANY TEAM');
+    const untouched = ['### Acme Robotics', 'The Acme Robotics team is hiring.', 'Our team', 'Initech TEAM', 'Acme Robotics builds a team.',
+      `${'Acme Robotics is a long sentence about the team that goes on '.repeat(3)}TEAM`].join('\n');
+    expect(canonicalTabMarkers(untouched, roster)).toBe(untouched);
+    // A company that is itself called "... Story" keeps its own heading.
+    expect(canonicalTabMarkers('### Acme Story\nx', ['Acme Story', 'Gamma Shop'])).toBe('### Acme Story\nx');
   });
 });
 
@@ -173,6 +217,21 @@ describe('dashboard warm-up with a combined tabs search', () => {
     expect(gamma).toEqual(expect.arrayContaining(['company_briefing', 'company_story']));
     expect(saved().dashboards.gamma?.overview).toBeDefined();
     expect(saved().dashboards.gamma?.team_org).toBeDefined();
+  });
+
+  it('a combined answer that writes "Gamma Shop TEAM" for COMPANY TEAM is still shared, not searched again per company', async () => {
+    vi.stubGlobal('fetch', async () => { throw new Error('offline'); });
+    const { repo, labels, saved } = fixtureRepo(async (prompt) => {
+      if (!prompt.includes('Write one section per company')) return single();
+      const asked = NAMES.filter((name) => prompt.includes(JSON.stringify(name)));
+      return withMarkers(batchAnswer(asked.map(section)), asked.flatMap((name) => [`${name} TEAM`, `${name} STORY`]));
+    });
+    repo.warmDeckDashboards('deck_fx', 'creation');
+    await repo.waitForDashboardWarmup();
+    expect(labels().filter((label) => label === 'company_tabs_batch')).toHaveLength(1);
+    expect(labels().filter((label) => /^company_(briefing|story)/.test(label)).sort()).toEqual(['company_briefing:acme', 'company_story:acme']);
+    const gamma = (saved().researchEvidence ?? []).filter((row) => row.companyId === 'gamma').map((row) => row.topic);
+    expect(gamma).toEqual(expect.arrayContaining(['company_briefing', 'company_story']));
   });
 
   it('a failed combined search falls back to each company\'s own searches', async () => {

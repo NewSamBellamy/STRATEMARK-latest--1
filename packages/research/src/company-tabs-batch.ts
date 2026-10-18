@@ -3,6 +3,7 @@ import { companyAliases, mentionsCompany } from './company-aliases';
 import { companyStoryPart } from './company-team';
 import { companyNameKey } from './market-quote';
 import { namesRosterRival } from './reported-metrics';
+import { nameTokens } from './registries/shared';
 import type { LlmClient } from './types';
 
 type GroundResult = Awaited<ReturnType<LlmClient['ground']>>;
@@ -45,10 +46,38 @@ In each section, in this order:
 1. A short paragraph of plain sentences on what the company does, its market positioning, and its customers and distribution, naming the company in each sentence and no other company; give no financial figures, user counts or rankings there (they are supplied separately).
 2. Its current products, brands, models and services, and its announced product plans: official product/catalog/docs pages and dated company announcements first, then reputable reporting for gaps; up to 12 main products, one product per sentence, each naming the company and the product together and saying it is the company's product (for example: "SpaceX operates Starlink, a satellite internet service."). No headings, name-only bullets, or comparisons with competitors' products. State a lifecycle (available/launched, beta, discontinued) only where a source states it; distinguish current status from planned or historical availability; for plans, preserve the exact announcement and any explicit date.
 3. In a separate paragraph, up to 8 current customers, suppliers (including manufacturing and cloud providers) and partners that the company, its filings or reputable reporting name, one relationship per sentence naming both companies and the relationship (for example: "Pfizer is a customer of Anthropic."); omit it when sources name none, and never list a relationship described as former, rumoured or under discussion.
-4. A line that reads exactly COMPANY TEAM, then its current leadership and team from official team/about pages and recent company announcements first, then reputable reporting: the founders and the leadership team (executives, heads of major functions, board chair), up to 20 people, one person per plain, complete sentence naming the person, exact current role, current status and the company together (for example: "Sam Altman currently serves as Chief Executive Officer of OpenAI."). No name-only or role-only bullets. Exclude former, departed and future roles from this part.
-5. A line that reads exactly COMPANY STORY, then in separate paragraphs: the founding story as a short readable narrative; dated milestones from inception to today (every major product and model release, funding round, leadership change, pivot, stumble and partnership; month-level dates such as "2026 Mar" for the most recent 18 months where coverage supports it; 12-20 milestones for an established company); then 3-6 notable verbatim quotes said by named people (founders, executives, investors) with where and when they said them.
+4. A line that reads exactly COMPANY TEAM (the word COMPANY itself, never the company's name), then its current leadership and team from official team/about pages and recent company announcements first, then reputable reporting: the founders and the leadership team (executives, heads of major functions, board chair), up to 20 people, one person per plain, complete sentence naming the person, exact current role, current status and the company together (for example: "Sam Altman currently serves as Chief Executive Officer of OpenAI."). No name-only or role-only bullets. Exclude former, departed and future roles from this part.
+5. A line that reads exactly COMPANY STORY (the word COMPANY itself, never the company's name), then in separate paragraphs: the founding story as a short readable narrative; dated milestones from inception to today (every major product and model release, funding round, leadership change, pivot, stumble and partnership; month-level dates such as "2026 Mar" for the most recent 18 months where coverage supports it; 12-20 milestones for an established company); then 3-6 notable verbatim quotes said by named people (founders, executives, investors) with where and when they said them.
 
 Include a legal entity or brand alias only when a source explicitly links it to the company; do not assume similarly named affiliates. Return direct original-page URLs as discovery leads; provider grounding passages are reported evidence, not original-page verification. Never infer users, revenue, ranking, or unsupported dates. Cite sources.`;
+}
+
+/** A part marker the model personalised with a company name: "Gusto TEAM", "### Gusto's Story:", "Company Team". */
+const NAMED_MARKER = /^[ \t#*_]*(.*?\S)[ \t]+(TEAM|STORY)[ \t]*:?[ \t*_]*$/i;
+
+/**
+ * The answer with each part marker line written the way the cut reads it. A model told to write
+ * "COMPANY TEAM" for several companies at once often reads COMPANY as a placeholder and writes
+ * "Gusto TEAM" and "Gusto STORY" instead; left alone, that line is no marker, and the company's whole
+ * story would be searched a second time. Only a line that is nothing but a roster company's name and
+ * TEAM or STORY is rewritten; a company heading and every content line stay as they were.
+ */
+export function canonicalTabMarkers(text: string, names: readonly string[]): string {
+  const rosterKeys = new Set(names.map(headingCompanyKey));
+  // A marker line is no evidence, so every part of a stored name may name its company here, "(ADP)" included.
+  const aliases = names.flatMap((name) => [...companyAliases(name), ...name.split(/[/(),]/).map((part) => nameTokens(part).join(' '))])
+    .filter((alias) => alias.replace(/\s/g, '').length >= 3);
+  return text.split('\n').map((line) => {
+    if (line.length > 120) return line;
+    const m = NAMED_MARKER.exec(line.trimEnd());
+    if (!m) return line;
+    const kind = m[2]!.toUpperCase();
+    const prefix = m[1]!.replace(/[*_`]/g, '').replace(/['\u2019]s$/i, '').trim();
+    if (/^company$/i.test(prefix)) return `COMPANY ${kind}`;
+    // A heading that names a roster company is its section, even when the company is called "Acme Story".
+    if (rosterKeys.has(headingCompanyKey(line.replace(/^[ \t#]+/, '')))) return line;
+    return mentionsCompany(prefix, aliases) ? `COMPANY ${kind}` : line;
+  }).join('\n');
 }
 
 /** A heading's roster key, also when the model numbered it ("1. Acme", "**2) Acme**", "Company 3: Acme"). */

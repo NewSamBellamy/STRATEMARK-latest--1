@@ -221,7 +221,7 @@ import { buildCompanyTopicReport } from './company-report';
 import { projectedCompanyFacts } from './displayed-facts';
 import { companySourceTargets } from './source-policy';
 import { companyBriefingPrompt, renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
-import { companyTabsBatchPrompt, companyTabsParts, companyTabsSections, headingCompanyKey, TAB_BATCH_SIZE } from './company-tabs-batch';
+import { canonicalTabMarkers, companyTabsBatchPrompt, companyTabsParts, companyTabsSections, headingCompanyKey, TAB_BATCH_SIZE } from './company-tabs-batch';
 import { companyStoryPart, companyStoryPrompt, renderCompanyTeamOrg, teamOrgOriginalAttempts, teamOrgSupportReferences, type TeamOrgSelections } from './company-team';
 
 interface CachedTab {
@@ -3240,10 +3240,12 @@ export class GeminiRepository implements MarketIntelRepository {
     // A provider that ignores the abort must not hold its companies: they are released at the deadline.
     const timer = setTimeout(() => { deadline.abort(); for (const member of members) member.done(null); }, TAB_BATCH_DEADLINE_MS);
     void this.client.ground(companyTabsBatchPrompt(members.map((member) => ({ ...member, focus: this.companyFocus(member.company) }))), { system: GROUNDED_SYSTEM, signal: deadline.signal, label: 'company_tabs_batch' })
-      .then(async (g) => {
+      .then(async (raw) => {
         // An answer after the deadline is for nobody: its companies were released and search on their own.
         if (deadline.signal.aborted) return;
         const evidence: ResearchEvidence[] = [];
+        // "Gusto TEAM" for "COMPANY TEAM": the model's own spelling of a part marker is read as the marker.
+        const g = { ...raw, text: canonicalTabMarkers(raw.text, names) };
         const sections = companyTabsSections(g.text, names);
         for (const member of members) {
           const { company } = member;
