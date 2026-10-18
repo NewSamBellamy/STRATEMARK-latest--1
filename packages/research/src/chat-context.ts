@@ -6,7 +6,7 @@
  * it came from. Unknown figures are stated as Unknown (never a number), so the
  * model has nothing to "round up" from. Pure functions — no I/O.
  */
-import { METRIC_TYPE_LABELS, MONEY_METRIC_TYPES, usableCitations, type CompanyMetric, type MetricType } from '@mi/contracts';
+import { METRIC_TYPE_LABELS, metricDefinitionLabel, MONEY_METRIC_TYPES, usableCitations, type CompanyMetric, type MetricType } from '@mi/contracts';
 
 export interface ChatTurn {
   role: 'user' | 'assistant';
@@ -44,9 +44,18 @@ function isStatable(m: CompanyMetric): m is CompanyMetric & { value: number } {
   return m.confidence === 'user_verified' || usableCitations(m.citations ?? []).length > 0;
 }
 
+/**
+ * What the figure actually measures, as the card shows it: the stored 'arr' row of a public company
+ * is its filed annual revenue, not ARR, and 'users' may be customers. The slot's type name alone
+ * would tell the chat model (and the user) the wrong thing.
+ */
+function figureLabel(m: CompanyMetric): string {
+  return metricDefinitionLabel(m) ?? METRIC_TYPE_LABELS[m.metricType] ?? m.metricType;
+}
+
 /** One line per metric. Unknown / unsourced figures never carry a number. */
 export function formatMetricLine(m: CompanyMetric): string {
-  const label = METRIC_TYPE_LABELS[m.metricType] ?? m.metricType;
+  const label = figureLabel(m);
   if (!isStatable(m)) return `- ${label}: Unknown (not in this deck's research)`;
   const asOf = metricAsOf(m);
   const sources = usableCitations(m.citations ?? []);
@@ -63,20 +72,25 @@ export function formatMetricLine(m: CompanyMetric): string {
  * ranking never depends on which companies survived the length budget.
  */
 export function formatDeckRankings(companies: ReadonlyArray<{ name: string; metrics: readonly CompanyMetric[] }>): string {
-  const byType = new Map<MetricType, Array<{ name: string; metric: CompanyMetric & { value: number } }>>();
+  // One ranking per measured thing, not per slot: annual revenue and ARR share the 'arr' slot but are
+  // different measurements, and ranking one company's revenue against another's ARR misleads.
+  const byGroup = new Map<string, { type: MetricType; label: string; rows: Array<{ name: string; metric: CompanyMetric & { value: number } }> }>();
+  const coveredBy = new Map<MetricType, Set<string>>();
   for (const company of companies) {
     for (const metric of company.metrics) {
       if (!isStatable(metric)) continue;
-      const rows = byType.get(metric.metricType) ?? [];
-      rows.push({ name: company.name, metric });
-      byType.set(metric.metricType, rows);
+      const label = figureLabel(metric);
+      const group = byGroup.get(`${metric.metricType}|${label}`) ?? { type: metric.metricType, label, rows: [] };
+      group.rows.push({ name: company.name, metric });
+      byGroup.set(`${metric.metricType}|${label}`, group);
+      coveredBy.set(metric.metricType, (coveredBy.get(metric.metricType) ?? new Set<string>()).add(company.name));
     }
   }
   const lines: string[] = [];
-  for (const [type, rows] of byType) {
+  for (const { type, label, rows } of byGroup.values()) {
     rows.sort((a, b) => b.metric.value - a.metric.value);
-    const missing = companies.length - rows.length;
-    lines.push(`${METRIC_TYPE_LABELS[type] ?? type} (highest first): ${rows.map(({ name, metric }) => {
+    const missing = companies.length - (coveredBy.get(type)?.size ?? rows.length);
+    lines.push(`${label} (highest first): ${rows.map(({ name, metric }) => {
       const asOf = metricAsOf(metric);
       return `${name} ${formatMetricValue(type, metric.value)} [${metric.confidence}${asOf ? `, as of ${asOf}` : ''}]`;
     }).join('; ')}${missing > 0 ? `; ${missing} compan${missing === 1 ? 'y has' : 'ies have'} no sourced figure` : ''}`);
