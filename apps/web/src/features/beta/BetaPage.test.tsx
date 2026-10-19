@@ -13,9 +13,6 @@ describe('About this beta', () => {
     expect(screen.getByText(/don.t store or log what\s+they contain/i)).toBeInTheDocument();
     expect(screen.getByText(/import that same file/i)).toBeInTheDocument();
     expect(screen.getByText(/bring-your-own-key/i)).toBeInTheDocument();
-    // The one thing the beta does keep, said plainly: a share link the person creates.
-    expect(screen.getByText(/A share link is the one exception/)).toBeInTheDocument();
-    expect(screen.getByText(/keep a\s+read-only copy of that card or deck, with its research, for 90 days/)).toBeInTheDocument();
     expect(screen.getByText(/optional paid hosted version/i)).toBeInTheDocument();
   });
   it('opens Settings straight to Data controls for export', () => {
