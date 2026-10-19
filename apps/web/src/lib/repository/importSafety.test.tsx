@@ -51,11 +51,11 @@ describe('an imported file cannot plant a crash that survives a reload', () => {
 
   it('a deck named by an object is left out of the import and the app starts', async () => {
     const { plan, text, unmount } = await importThenOpen({ a: 1 }, market('m2', 'Real market'));
-    expect(plan).toBe(1);
-    expect(JSON.parse((await readBrowserResearchData()).current!).markets.map((m: { name: string }) => m.name)).toEqual(['Real market']);
     expect(text).not.toMatch(/failed to start|This view crashed/);
     expect(text).toContain('Real market');
     expect(text).toContain('Settings');
+    expect(plan).toBe(1);
+    expect(JSON.parse((await readBrowserResearchData()).current!).markets.map((m: { name: string }) => m.name)).toEqual(['Real market']);
     unmount();
   });
 
@@ -129,8 +129,8 @@ describe('an imported file cannot start research', () => {
 
   it('importing a file with an unfinished warm-up makes no model call', async () => {
     await installBrowserResearch(JSON.stringify(unfinishedWarmup()));
-    expect((await openBrowserResearchStore()).read()!.deckWarmup).toBeUndefined();
     expect(await callsAfterBoot()).toBe(0);
+    expect((await openBrowserResearchStore()).read()!.deckWarmup).toBeUndefined();
   });
 
   it('the same warm-up saved by this browser itself still resumes after a reload', async () => {
