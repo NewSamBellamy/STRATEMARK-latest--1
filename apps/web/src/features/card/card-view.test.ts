@@ -302,18 +302,21 @@ describe('collectible card evidence model', () => {
       id, cardId: card.id, claimText, sourceTitle: 'Source', sourceUrl, capturedAt: '2026-10-01T00:00:00.000Z',
     });
     const vice = { ...card, cardType: 'vice' as const, title: null, summary: null, citations: [], keyPoints: [] };
+    // Whatever the face draws for a risk (its description and its findings), the unsourced claims are in none of it.
+    const drawn = (result: ReturnType<typeof buildCardView>) => [result.description, result.frontDescription, result.frontFinding].filter(Boolean).join(' | ');
     const mixed = buildCardView({ card: vice, company, metrics: [], viceClaims: [
       claim('v1', 'An unsourced rumour about the company.', ''),
       claim('v2', 'A script link is not a source.', 'javascript:alert(1)'),
       claim('v3', 'A regulator opened a documented inquiry.', 'https://regulator.example.gov/filing'),
     ] });
-    expect(mixed.frontDescription).toBe('A regulator opened a documented inquiry.');
-    expect(mixed.frontFinding).toBeNull();
+    expect(drawn(mixed)).toContain('A regulator opened a documented inquiry.');
+    expect(drawn(mixed)).not.toContain('unsourced rumour');
+    expect(drawn(mixed)).not.toContain('script link');
     expect(mixed.sourceCount).toBe(1);
 
     const unsourced = buildCardView({ card: vice, company, metrics: [], viceClaims: [claim('v1', 'An unsourced rumour about the company.', '')] });
     expect(unsourced.description).toBeNull();
-    expect(unsourced.frontDescription).toBeNull();
+    expect(drawn(unsourced)).not.toContain('unsourced rumour');
     expect(unsourced.sourceCount).toBe(0);
   });
 
