@@ -216,10 +216,15 @@ export function csvCell(v: string | number | null | undefined): string {
 
 export const CSV_HEADER = [
   'market', 'company', 'metric', 'value', 'value_display', 'confidence', 'as_of', 'captured_at',
-  'source_title', 'source_url', 'other_source_urls', 'method_note',
+  'source_title', 'source_url', 'other_source_urls', 'method_note', 'source_link',
 ] as const;
 
-/** One row per company x metric. Unknown figures are written as blank value + "Unknown". */
+/**
+ * One row per company x metric. Unknown figures are written as blank value + "Unknown".
+ * `source_link` says what `source_url` is: "page" when it is the publisher's own address, "search" when the research kept only the
+ * publisher's name (an expiring redirect) and the link is a search for it, blank when there is no source. It is the last column, so
+ * a reader of the columns before it is unaffected.
+ */
 export function metricsToCsv(market: string | null, companies: readonly ExportCompany[]): string {
   const lines: string[] = [CSV_HEADER.join(',')];
   for (const co of companies) {
@@ -229,7 +234,7 @@ export function metricsToCsv(market: string | null, companies: readonly ExportCo
         [
           market, co.name, r.label, r.value, r.valueText, r.confidence,
           r.asOf, r.capturedAt ? r.capturedAt.slice(0, 10) : '', first?.title ?? '', first?.url ?? '',
-          rest.map((s) => s.url).join(' | '), r.note,
+          rest.map((s) => s.url).join(' | '), r.note, first ? (first.direct ? 'page' : 'search') : '',
         ].map(csvCell).join(','),
       );
     }

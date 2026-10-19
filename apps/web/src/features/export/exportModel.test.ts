@@ -37,6 +37,14 @@ describe('export model', () => {
     const viaRedirect = m({ ...sourced, citations: [{ title: 'reuters.com', url: redirect }] });
     const csv = metricsToCsv('Widgets', [co([viaRedirect])]);
     expect(csv).not.toContain('vertexaisearch');
+    // A search link is labelled as one; a publisher's own page is labelled as a page; no source is blank.
+    const lines = (text: string) => text.replace('﻿', '').trim().split('\r\n');
+    const rows = lines(csv);
+    expect(rows[0]!.split(',').at(-1)).toBe('source_link');
+    expect(rows.find((l) => l.includes(',ARR,'))!.split(',').at(-1)).toBe('search');
+    const direct = lines(metricsToCsv('Widgets', [co([sourced])]));
+    expect(direct.find((l) => l.includes(',ARR,'))!.split(',').at(-1)).toBe('page');
+    expect(direct.find((l) => l.includes(',Employees,'))!.split(',').at(-1)).toBe('');
     const report = buildReportModel({ title: 'Widgets', kind: 'deck', companies: [co([viaRedirect])] });
     expect(report.companies[0]!.footnotes.every((f) => !f.url.includes('vertexaisearch') && f.direct === false)).toBe(true);
   });
