@@ -11,6 +11,7 @@ import { isRedirectCitation, publisherOf, usableCitations, type ThreadMessage } 
 import { Logo } from '@/features/card/Logo';
 import { splitFollowUps } from '@/features/deepdive/followUps';
 import type { ReportModel } from './exportModel';
+import type { FullReportCompany, FullReportModel, ReportSource, SignalBlock } from './fullReportModel';
 import type { ReportImage, TopicReportModel } from './topicReportModel';
 import type { DailyReportModel } from './dailyReportModel';
 import type { PersonReportModel } from './personReportModel';
@@ -19,6 +20,7 @@ import './print.css';
 
 export type PrintJob =
   | { kind: 'report'; model: ReportModel }
+  | { kind: 'marketReport'; model: FullReportModel }
   | { kind: 'topicReport'; model: TopicReportModel }
   | { kind: 'dailyReport'; model: DailyReportModel }
   | { kind: 'personReport'; model: PersonReportModel }
@@ -80,7 +82,7 @@ function ReportBody({ model }: { model: ReportModel }) {
 
       {model.companies.map((c, i) => (
         <section key={c.id} id={`sm-co-${c.id}`} className="sm-company">
-          <header className="sm-company-head">
+          <div className="sm-company-head">
             <Logo name={c.name} website={c.website} logoUrl={c.logoUrl} className="sm-logo" />
             <div>
               <h2 className="sm-h2">
@@ -89,7 +91,7 @@ function ReportBody({ model }: { model: ReportModel }) {
               </h2>
               {c.hq && <p className="sm-sub">{c.hq}</p>}
             </div>
-          </header>
+          </div>
           {c.oneLiner && <p className="sm-lede">{c.oneLiner}</p>}
 
           <table className="sm-table">
@@ -133,6 +135,191 @@ function ReportBody({ model }: { model: ReportModel }) {
                 .join(' · ')}
             </p>
           )}
+        </section>
+      ))}
+    </>
+  );
+}
+
+
+/** "Sources: reuters.com, ft.com": publishers only, as a quiet line. */
+function SourceLine({ sources }: { sources: readonly ReportSource[] }) {
+  const names = [...new Set(sources.map((s) => s.title))];
+  return names.length > 0 ? <p className="sm-srcline">Sources: {names.join(', ')}</p> : null;
+}
+
+function SignalList({ title, blocks }: { title: string; blocks: readonly SignalBlock[] }) {
+  if (blocks.length === 0) return null;
+  return (
+    <div className="sm-signal-group">
+      <h3 className="sm-h3">{title}</h3>
+      {blocks.map((b) => (
+        <article key={b.title} className="sm-signal">
+          <p className="sm-signal-title">{b.title}</p>
+          {b.summary && <p>{b.summary}</p>}
+          {b.points.length > 0 && <ul>{b.points.map((p) => <li key={p}>{p}</li>)}</ul>}
+          <SourceLine sources={b.sources} />
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ProfileBlocks({ c }: { c: FullReportCompany }) {
+  return (
+    <>
+      {c.overview.length > 0 && (
+        <div className="sm-block">
+          <h3 className="sm-h3">Overview</h3>
+          {c.overview.map((p) => <p key={p}>{p}</p>)}
+        </div>
+      )}
+      {c.products.length > 0 && (
+        <div className="sm-block">
+          <h3 className="sm-h3">Products</h3>
+          <ul>{c.products.map((p) => <li key={p.name}><strong>{p.name}</strong>{p.description ? <> &mdash; {p.description}</> : null}</li>)}</ul>
+        </div>
+      )}
+      {c.leaders.length > 0 && (
+        <div className="sm-block">
+          <h3 className="sm-h3">Leadership</h3>
+          <ul className="sm-cols">{c.leaders.map((l) => <li key={`${l.name}-${l.role}`}><strong>{l.name}</strong>, {l.role}</li>)}</ul>
+        </div>
+      )}
+      {c.timeline.length > 0 && (
+        <div className="sm-block">
+          <h3 className="sm-h3">History</h3>
+          <ul className="sm-timeline">{c.timeline.map((e) => <li key={`${e.date}-${e.title}`}><span className="sm-when">{e.date}</span> {e.title}</li>)}</ul>
+        </div>
+      )}
+      {c.news.length > 0 && (
+        <div className="sm-block">
+          <h3 className="sm-h3">Recent news</h3>
+          <ul>{c.news.map((n) => {
+            const by = [n.publisher, n.date].filter(Boolean).join(', ');
+            return <li key={n.url}>{n.title}{by ? <span className="sm-muted"> ({by})</span> : null}</li>;
+          })}</ul>
+        </div>
+      )}
+      {(c.risks.length > 0 || c.culture) && (
+        <div className="sm-block">
+          <h3 className="sm-h3">Risks and culture</h3>
+          {c.risks.length > 0 && (
+            <ul>{c.risks.map((r) => <li key={r.text}>{r.text}{r.source ? <span className="sm-muted"> ({r.source.title})</span> : null}</li>)}</ul>
+          )}
+          {c.culture && (
+            <p>
+              <strong>Culture.</strong> {c.culture.note}
+              {c.culture.sources.length > 0 ? <span className="sm-muted"> ({[...new Set(c.culture.sources.map((s) => s.title))].join(', ')})</span> : null}
+            </p>
+          )}
+          {c.risks.length > 0 && <p className="sm-methods">Each risk is attributed to the source that reports it and is not asserted as established fact.</p>}
+        </div>
+      )}
+    </>
+  );
+}
+
+function MarketReportBody({ model }: { model: FullReportModel }) {
+  const n = model.companies.length;
+  const hasSignals = model.barriers.length > 0 || model.insights.length > 0 || model.companies.some((c) => c.risks.length > 0 || c.culture);
+  return (
+    <>
+      <Cover
+        eyebrow="Stratemark · Market report"
+        title={model.title}
+        meta={[
+          model.dateText,
+          `${n} ${n === 1 ? 'company' : 'companies'}${model.signalCount > 0 ? ` · ${model.signalCount} market signals` : ''}`,
+          `${model.figureCount} sourced figures · ${model.unknownCount} marked Unknown`,
+        ]}
+      />
+
+      <section className="sm-toc">
+        <h2 className="sm-h2">Contents</h2>
+        <ol>
+          <li><a href="#sm-glance"><span className="sm-toc-n">&middot;</span><span className="sm-toc-name">The market at a glance</span><span className="sm-toc-meta" /></a></li>
+          {hasSignals && <li><a href="#sm-signals"><span className="sm-toc-n">&middot;</span><span className="sm-toc-name">Market signals</span><span className="sm-toc-meta">barriers, insights, risks, culture</span></a></li>}
+          {model.companies.map((c, i) => (
+            <li key={c.id}>
+              <a href={`#sm-co-${c.id}`}>
+                <span className="sm-toc-n">{String(i + 1).padStart(2, '0')}</span>
+                <span className="sm-toc-name">{c.name}</span>
+                <span className="sm-toc-meta">{c.hq ?? ''}</span>
+              </a>
+            </li>
+          ))}
+        </ol>
+        <p className="sm-toc-note">Sources appear as numbered footnotes beneath each company&apos;s figures, and as publishers beneath each finding.</p>
+      </section>
+
+      <section id="sm-glance" className="sm-glance">
+        <h2 className="sm-h2">The market at a glance</h2>
+        <table className="sm-table sm-glance-table">
+          <thead><tr><th>Company</th><th>Based in</th><th>Key figures</th></tr></thead>
+          <tbody>
+            {model.companies.map((c) => (
+              <tr key={c.id}>
+                <td><strong>{c.name}</strong><br /><span className="sm-muted">{c.role}</span></td>
+                <td>{c.hq ?? '—'}</td>
+                <td>{c.keyFigures.length > 0 ? c.keyFigures.map((f) => `${f.display} ${f.label.split(' ').map((w) => (/^[A-Z]{2,}$/.test(w) ? w : w.toLowerCase())).join(' ')}`).join(' · ') : <span className="sm-muted">No sourced figure yet</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="sm-methods">Figures are the four strongest sourced ones each card shows. &ldquo;Estimated&rdquo; figures were reported by a source and have not been checked against the original document.</p>
+      </section>
+
+      {hasSignals && (
+        <section id="sm-signals" className="sm-signals">
+          <h2 className="sm-h2">Market signals</h2>
+          <SignalList title="Barriers to entry" blocks={model.barriers} />
+          <SignalList title="Insights" blocks={model.insights} />
+        </section>
+      )}
+
+      {model.companies.map((c, i) => (
+        <section key={c.id} id={`sm-co-${c.id}`} className="sm-company sm-profile">
+          <div className="sm-company-head">
+            <Logo name={c.name} website={c.website} logoUrl={c.logoUrl} className="sm-logo" />
+            <div>
+              <h2 className="sm-h2"><span className="sm-h2-n">{String(i + 1).padStart(2, '0')}</span>{c.name}</h2>
+              <p className="sm-sub">{[c.hq, c.ownership, c.founded ? `Founded ${c.founded}` : null, c.role].filter(Boolean).join(' · ')}</p>
+            </div>
+          </div>
+          {c.oneLiner && <p className="sm-lede">{c.oneLiner}</p>}
+          <ProfileBlocks c={c} />
+
+          <div className="sm-block">
+            <h3 className="sm-h3">Figures</h3>
+            <table className="sm-table">
+              <thead><tr><th>Metric</th><th>Value</th><th>Confidence</th><th>As of</th><th>Source</th></tr></thead>
+              <tbody>
+                {c.rows.map((r) => (
+                  <tr key={r.type} className={r.unknown ? 'sm-unknown' : undefined}>
+                    <td>{r.label}</td>
+                    <td className="sm-num">{r.unknown ? 'Unknown' : r.valueText}</td>
+                    <td>{r.unknown ? 'No sourced figure' : r.confidence.replace('_', ' ')}</td>
+                    <td>{r.asOf ?? (r.unknown ? '—' : 'not stated')}</td>
+                    <td>{r.footnotes.length ? r.footnotes.map((k) => <sup key={k}>[{k}]</sup>) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {c.footnotes.length > 0 && (
+              <ol className="sm-notes">
+                {c.footnotes.map((f) => (
+                  <li key={f.n} value={f.n}>
+                    <span className="sm-note-title">{f.title}</span>
+                    {f.direct && <> <span className="sm-note-url">{f.url}</span></>}
+                  </li>
+                ))}
+              </ol>
+            )}
+            {c.rows.some((r) => r.note) && (
+              <p className="sm-methods">{c.rows.filter((r) => r.note && !r.unknown).map((r) => `${r.label}: ${r.note}`).join(' · ')}</p>
+            )}
+          </div>
         </section>
       ))}
     </>
@@ -513,7 +700,7 @@ function TranscriptBody({ job }: { job: Extract<PrintJob, { kind: 'transcript' }
 export function PrintDocument({ job }: { job: PrintJob }) {
   return (
     <div className="sm-print-doc" aria-hidden>
-      {job.kind === 'report' ? <ReportBody model={job.model} /> : job.kind === 'topicReport' ? <TopicReportBody model={job.model} /> : job.kind === 'dailyReport' ? <DailyReportBody model={job.model} /> : job.kind === 'personReport' ? <PersonReportBody model={job.model} /> : job.kind === 'productReport' ? <ProductReportBody model={job.model} /> : <TranscriptBody job={job} />}
+      {job.kind === 'marketReport' ? <MarketReportBody model={job.model} /> : job.kind === 'report' ? <ReportBody model={job.model} /> : job.kind === 'topicReport' ? <TopicReportBody model={job.model} /> : job.kind === 'dailyReport' ? <DailyReportBody model={job.model} /> : job.kind === 'personReport' ? <PersonReportBody model={job.model} /> : job.kind === 'productReport' ? <ProductReportBody model={job.model} /> : <TranscriptBody job={job} />}
     </div>
   );
 }

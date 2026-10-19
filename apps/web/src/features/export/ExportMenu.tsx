@@ -20,7 +20,7 @@ import type { CardWithCompany, ThreadMessage } from '@mi/contracts';
 import { cn } from '@/lib/cn';
 import { usePopoverSide } from '@/lib/usePopoverSide';
 import { useGenerateReport } from '@/hooks/data';
-import { useSupports } from '@/lib/repository/RepositoryProvider';
+import { useRepository, useSupports } from '@/lib/repository/RepositoryProvider';
 import { ShareDialog } from '@/features/share/ShareDialog';
 import { ReportBuilderDialog } from '@/features/reports/ReportBuilderDialog';
 import { useCompanyReportRun } from '@/features/reports/useCompanyReportRun';
@@ -28,6 +28,7 @@ import type { SharePayload } from '@/lib/share/codec';
 import { exportDeckPptx } from '@/features/reports/pptx';
 import type { PrintJob } from './PrintDocument';
 import { usePrintJob } from './usePrintJob';
+import { buildFullReport } from './fullReportModel';
 import {
   buildReportModel,
   companiesFromCards,
@@ -40,7 +41,8 @@ import {
 } from './exportModel';
 
 export interface ExportMenuProps {
-  deck?: { title: string; cards: readonly CardWithCompany[] };
+  /** `id` lets the PDF carry what the deck has stored beyond its cards (profiles, history, news). */
+  deck?: { id?: string; title: string; cards: readonly CardWithCompany[] };
   company?: ExportCompany;
   transcript?: { title: string; scopeLabel?: string | null; messages: readonly ThreadMessage[] };
   className?: string;
@@ -93,6 +95,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
   const generateReport = useGenerateReport();
   const runCompanyReport = useCompanyReportRun();
   const canGenerate = useSupports('generateReport');
+  const repo = useRepository();
 
   useEffect(() => {
     if (!open) return;
@@ -120,12 +123,24 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
   const deckCompanies = deck ? companiesFromCards(deck.cards) : [];
   const date = localDate();
 
-  const deckReport = () =>
-    deck &&
-    print(
-      { kind: 'report', model: buildReportModel({ title: deck.title, kind: 'deck', companies: deckCompanies }) },
-      `${deck.title} - Stratemark market report`,
-    );
+  const deckReport = async () => {
+    if (!deck) return;
+    const fileTitle = `${deck.title} - Stratemark market report`;
+    const short = () => print({ kind: 'report', model: buildReportModel({ title: deck.title, kind: 'deck', companies: deckCompanies }) }, fileTitle);
+    if (!deck.id || !repo.exportShareSnapshot) return short();
+    // The full report is built from what the deck has already stored (profiles, history, news, signals): no research.
+    setOpen(false);
+    setBusy('report');
+    setError(null);
+    try {
+      const snapshot = await repo.exportShareSnapshot({ deckId: deck.id });
+      print({ kind: 'marketReport', model: buildFullReport({ title: deck.title, cards: deck.cards, tabs: snapshot.dashboards }) }, fileTitle);
+    } catch {
+      short();
+    } finally {
+      setBusy(null);
+    }
+  };
   const companyReport = () =>
     company &&
     print(
@@ -277,9 +292,9 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
           })}
           {deck && (
             <>
-              <button role="menuitem" type="button" className={ITEM} disabled={deckCompanies.length === 0} onClick={deckReport}>
+              <button role="menuitem" type="button" className={ITEM} disabled={deckCompanies.length === 0} onClick={() => void deckReport()}>
                 <Printer className="h-4 w-4 text-muted" />
-                <span>Deck report (PDF)<span className="block text-[11px] text-faint">Cover, contents, every company, sources</span></span>
+                <span>Deck report (PDF)<span className="block text-[11px] text-faint">Full report: signals, every company, sources</span></span>
               </button>
               <button role="menuitem" type="button" className={ITEM} disabled={deckCompanies.length === 0} onClick={csv}>
                 <FileSpreadsheet className="h-4 w-4 text-muted" />
