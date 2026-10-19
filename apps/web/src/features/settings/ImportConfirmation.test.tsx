@@ -79,3 +79,36 @@ describe('importing a research file from Settings', () => {
     expect(reload).not.toHaveBeenCalled();
   });
 });
+
+describe('importing a research file in the desktop app', () => {
+  const importResearch = vi.fn(async (_json: string) => undefined);
+  beforeEach(() => {
+    importResearch.mockClear();
+    vi.stubEnv('VITE_DESKTOP', '1');
+    (window as unknown as { miSecure: unknown }).miSecure = { getResearchStorageInfo: async () => ({ marketCount: 0, sizeBytes: 0, hasBackup: false }), importResearch };
+  });
+  afterEach(() => { delete (window as unknown as { miSecure?: unknown }).miSecure; vi.unstubAllEnvs(); });
+
+  it('asks with the same counts before the desktop replaces anything, and sends nothing on no', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await chooseFile(file(() => undefined));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(confirm.mock.calls[0]![0]).toContain('This brings in 1 deck and 3 companies. 2 items in the file could not be read, so they are left out.');
+    expect(importResearch).not.toHaveBeenCalled();
+  });
+
+  it('sends the file on yes and reloads', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await chooseFile(file(() => undefined));
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    expect(importResearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a file with too many companies in plain words, without asking', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await chooseFile(file((s) => { s.companies = Array.from({ length: 1001 }, (_, n) => company(`c${n}`)); }));
+    expect(await screen.findByText(/1,001 companies, more than the 1,000 an import can bring in/)).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(importResearch).not.toHaveBeenCalled();
+  });
+});

@@ -17,7 +17,7 @@ import {
   Trash2,
   Key,
 } from 'lucide-react';
-import { createGeminiClient } from '@mi/research';
+import { createGeminiClient, ImportRefusedError } from '@mi/research';
 import { exportSnapshot, marketCountOf } from '@/lib/repository/vault';
 import { importQuestion } from '@/lib/repository/importSummary';
 import { OPEN_SOURCE_LAUNCH } from '@/lib/beta';
@@ -410,14 +410,18 @@ function DesktopDataPanel() {
     } catch { setMessage('Export failed. Your saved research has not been changed.'); }
   };
   const importData = async (file: File) => {
-    if (!window.confirm('Replace this workspace with the selected research export? The current workspace will be backed up.')) return;
     setBusy(true);
     try {
       if (file.size > 50 * 1024 * 1024) throw new Error('Export exceeds 50 MB.');
-      await window.miSecure!.importResearch(await file.text());
+      const text = await file.text();
+      // The same reading the import itself does, run here only to say what it will bring in and leave out.
+      const plan = planResearchImport(text);
+      if (!window.confirm(importQuestion(plan, 'the selected research export'))) return;
+      await window.miSecure!.importResearch(text);
       window.location.reload();
-    } catch { setMessage('Import failed. Choose a valid Stratemark export and finish or cancel active research first.'); }
-    finally { setBusy(false); }
+    } catch (error) {
+      setMessage(error instanceof ImportRefusedError ? error.message : 'Import failed. Choose a valid Stratemark export and finish or cancel active research first.');
+    } finally { setBusy(false); }
   };
   return <div className="space-y-4"><h2 className="font-display text-lg">Data safety</h2><p className="text-sm text-muted">Research is saved on your disk with atomic writes and a last-good backup. Exports contain research, not your API key. Exported files are not encrypted; store them somewhere safe. Note: retained original page texts and generated images live outside this export and stay on this machine.</p>{info && <p className="text-sm">{info.marketCount} decks · {Math.round(info.sizeBytes / 1024)} KB{info.hasBackup ? ' · backup available' : ''}</p>}<div className="flex gap-2"><button className="btn-ghost" type="button" onClick={() => void exportData()}><Download className="h-4 w-4" />Export my research</button><button className="btn-ghost" type="button" disabled={busy} onClick={() => fileRef.current?.click()}><Upload className="h-4 w-4" />Import</button></div><input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importData(file); event.target.value = ''; }} />{message && <p role="alert" className="text-sm text-negative">{message}</p>}</div>;
 }
