@@ -6,7 +6,7 @@
  * to null (the friendly error page), never to garbage data.
  */
 import { describe, expect, it } from 'vitest';
-import type { CardWithCompany } from '@mi/contracts';
+import { ownershipLabel, type CardWithCompany } from '@mi/contracts';
 import { buildCardView } from '@/features/card/card-view';
 import {
   buildReportShare,
@@ -142,7 +142,7 @@ describe('share codec round-trip', () => {
         citations: [{ title: 'reuters.com', url: 'https://reuters.com/gobble' }, { title: 'x.com', url: 'https://x.com/y' }], methodNote: 'long note' } } as CardWithCompany['company'];
     const decoded = (await decodeSharePayload(await encodeSharePayload(buildCardShare(live, null))))!;
     const shared = sharedToCardWithCompany(decoded.cards[0]!, 0, decoded.sharedAt);
-    expect(buildCardView(shared).ownershipLabel ?? shared.company?.ownership?.acquirer).toContain('Forbes Intelligent Foods');
+    expect(ownershipLabel(shared.company?.ownership)).toContain('Forbes Intelligent Foods');
     expect(shared.company?.ownership?.citations).toHaveLength(1);
   });
 
