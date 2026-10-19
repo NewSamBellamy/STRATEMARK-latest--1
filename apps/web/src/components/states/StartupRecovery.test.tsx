@@ -163,7 +163,8 @@ describe('when the app fails to start', () => {
     render(<RepositoryProvider><p>app</p></RepositoryProvider>);
     expect(await screen.findByText('Your existing research has not been deleted.')).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: /start fresh/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /download my research/i })).toBeInTheDocument();
+    // The download button waits for the saved research to be read; "start fresh" does not.
+    expect(await screen.findByRole('button', { name: /download my research/i })).toBeInTheDocument();
     useApiKey.setState({ apiKey: '', hasKey: false } as never);
   });
 });

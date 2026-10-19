@@ -299,7 +299,7 @@ describe('acknowledged browser research storage', () => {
     expect(JSON.parse(saved.current!)).toEqual(large);
     expect(JSON.parse(saved.backup!)).toEqual(data());
     await expect(store.write(data())).rejects.toThrow(/another window/i);
-  });
+  }, 30_000); // a 6 MB workspace: quick on its own, but this suite runs beside others and the default 5 s has been missed under load
 
   it('rejects malformed and future imports without changing either saved revision', async () => {
     const store = await openBrowserResearchStore();
