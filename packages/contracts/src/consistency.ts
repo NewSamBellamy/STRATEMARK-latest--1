@@ -58,6 +58,8 @@ export const SHARE_SUM_WARNING_PCT = 100.5;
 export const SHARE_SUM_CRITICAL_PCT = 110;
 /** NVIDIA peaks near ~$4.5M revenue/employee; $15M+ is a data error, not a business. */
 export const MAX_PLAUSIBLE_ARR_PER_EMPLOYEE_USD = 15_000_000;
+/** Revenue this many times a market cap is a unit slip, not a cheap stock. */
+export const MARKET_CAP_UNIT_SLIP_FACTOR = 10;
 /** More users than humans is not a growth story. */
 export const WORLD_POPULATION_CEILING = 8_300_000_000;
 
@@ -118,7 +120,8 @@ export function auditDeckConsistency(
 
   for (const company of companies) {
     const arr = metricOf(company, 'arr');
-    const valuation = metricOf(company, 'valuation') ?? metricOf(company, 'market_cap');
+    const valuation = metricOf(company, 'valuation');
+    const marketCap = metricOf(company, 'market_cap');
     const employees = metricOf(company, 'employees');
     const users = metricOf(company, 'users');
 
@@ -130,6 +133,17 @@ export function auditDeckConsistency(
         message: `${company.name} is stored with ${fmtUsd(arr.value)} ARR but only ${fmtUsd(valuation.value)} valuation — revenue above valuation almost always means one figure is wrong.`,
         companyIds: [company.companyId],
         metricTypes: ['arr', 'valuation'],
+      });
+    } else if (arr && !valuation && marketCap && marketCap.value * MARKET_CAP_UNIT_SLIP_FACTOR < arr.value) {
+      // A listed company's market cap can sit below its revenue (Sunrun: $3B revenue, $1.8B market cap), so only a gap
+      // the size of a unit slip is an error. A plain "below" here re-verified such companies every half hour, at a
+      // cost, and told the reader a correct figure was wrong.
+      findings.push({
+        code: 'valuation_below_arr',
+        severity: 'critical',
+        message: `${company.name} is stored with ${fmtUsd(arr.value)} ARR but only ${fmtUsd(marketCap.value)} market cap — a gap this large almost always means one figure is wrong.`,
+        companyIds: [company.companyId],
+        metricTypes: ['arr', 'market_cap'],
       });
     }
 

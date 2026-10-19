@@ -121,14 +121,27 @@ describe('auditDeckConsistency', () => {
     expect(auditDeckConsistency(deck)).toEqual([]);
   });
 
-  it('uses market_cap when valuation is absent (public companies)', () => {
-    const deck = [
+  it('uses market_cap when valuation is absent, but only for a unit-sized gap', () => {
+    const slip = [
       company('p', 'PublicCo', [
-        { metricType: 'arr', value: 10_000_000_000 },
+        { metricType: 'arr', value: 60_000_000_000 },
         { metricType: 'market_cap', value: 5_000_000_000 },
       ]),
     ];
-    expect(auditDeckConsistency(deck)[0]?.code).toBe('valuation_below_arr');
+    const findings = auditDeckConsistency(slip);
+    expect(findings[0]?.code).toBe('valuation_below_arr');
+    expect(findings[0]?.metricTypes).toEqual(['arr', 'market_cap']);
+  });
+
+  it('does not call a listed company with revenue above its market cap an error (Sunrun: $3.0B revenue, $1.8B market cap)', () => {
+    const deck = [
+      company('s', 'Sunrun Inc.', [
+        { metricType: 'arr', value: 3_000_000_000 },
+        { metricType: 'market_cap', value: 1_800_000_000 },
+      ]),
+    ];
+    expect(auditDeckConsistency(deck)).toEqual([]);
+    expect(verificationTargetsFrom(auditDeckConsistency(deck))).toEqual([]);
   });
 });
 
