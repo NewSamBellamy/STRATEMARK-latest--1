@@ -4,7 +4,7 @@ import { Link, Navigate, NavLink, useNavigate, useParams, useSearchParams } from
 import { useQuery, useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { lookupFoundedYear } from '@/lib/media/wikidataFounded';
 import { ArrowLeft, CalendarDays, ChevronDown, FileText, Globe, MapPin, Search } from 'lucide-react';
-import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, ownershipLabel, type DashboardTab } from '@mi/contracts';
+import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, ownershipLabel, usableCitations, type DashboardTab } from '@mi/contracts';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 import { useCompany, useCompanyMetrics, useReports, useRerunDashboardTab } from '@/hooks/data';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
@@ -456,7 +456,9 @@ export default function DashboardPage() {
                 {ownershipLabel(c.ownership) && (
                   <SafeLink
                     className="chip border-border bg-surface text-muted"
-                    href={c.ownership!.citations[0]?.url}
+                    // The label can stand on a human check alone, so the first stored
+                    // citation may be one the label ignored; link only a usable one.
+                    href={usableCitations(c.ownership!.citations)[0]?.url}
                     title={c.ownership!.methodNote ?? undefined}
                     data-testid="ownership-label"
                   >

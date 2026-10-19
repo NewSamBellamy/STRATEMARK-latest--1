@@ -46,16 +46,18 @@ describe('PersonProfile', () => {
   });
 
   it('quotes a source without linking it when its address is not a web page', () => {
-    const hostile: OrgNode[] = [
-      { id: 'a', name: 'Ada Lovelace', role: 'CEO', group: 'exec', parentId: null, bio: '',
-        supportingQuote: 'Built the lab.', sourceUrl: 'javascript:alert(1)' },
-    ];
-    renderWithProviders(
-      <PersonProfile people={hostile} selectedId="a" onSelect={vi.fn()} company={company} onAsk={vi.fn()} />,
-      { repository: makeRepo() },
-    );
-    expect(screen.getByText(/Built the lab\./)).toBeInTheDocument();
-    expect(document.querySelector('a[href^="javascript"]')).toBeNull();
+    for (const sourceUrl of ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>']) {
+      const hostile: OrgNode[] = [
+        { id: 'a', name: 'Ada Lovelace', role: 'CEO', group: 'exec', parentId: null, bio: '', supportingQuote: 'Built the lab.', sourceUrl },
+      ];
+      const { unmount } = renderWithProviders(
+        <PersonProfile people={hostile} selectedId="a" onSelect={vi.fn()} company={company} onAsk={vi.fn()} />,
+        { repository: makeRepo() },
+      );
+      expect(screen.getByText(/Built the lab\./)).toBeInTheDocument();
+      expect(document.querySelector('a[target="_blank"][href^="javascript"], a[target="_blank"][href^="data"]')).toBeNull();
+      unmount();
+    }
   });
 
   it('hands the person to Ask when asked', async () => {
