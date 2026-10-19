@@ -515,3 +515,150 @@ describe('a sentence is not ended by an abbreviation', () => {
     expect(lines.frontFinding).toBe('A ruling is expected.');
   });
 });
+
+describe('fitFaceLine: faces that stopped in the wrong place (red-team findings)', () => {
+  const after = (text: string, line: string) => text.slice(line.replace(/…$/, '').length).trim();
+  const endsOnHalfAnEmoji = (line: string) => { const code = line.charCodeAt(line.length - 1); return code >= 0xd800 && code <= 0xdbff; };
+
+  describe('an abbreviation does not end a sentence', () => {
+    it.each(['Gov.', 'Sen.', 'Rep.', 'Dr.', 'Mr.', 'Mrs.', 'Ms.', 'St.', 'Inc.', 'Corp.', 'Co.', 'Ltd.', 'U.S.', 'U.K.', 'e.g.', 'i.e.', 'vs.', 'No.', 'approx.'])('%s', (abbreviation) => {
+      const text = `The investigation was led by ${abbreviation} Greg Abbott, who signed the sweeping consumer protection bill into law on Friday.`;
+      const line = fitFaceLine(text, 60)!;
+      expect(line).not.toBe(`The investigation was led by ${abbreviation}`);
+      expect(line.endsWith(abbreviation)).toBe(false);
+      expect(line.endsWith('…')).toBe(true);
+    });
+
+    it('keeps "Texas Gov. Greg Abbott signed the bill." as one sentence on a card face', () => {
+      const lines = buildCardView({
+        card: { ...card, cardType: 'insight', companyId: null, summary: 'Texas Gov. Greg Abbott signed the bill. It takes effect next year.', keyPoints: [] },
+        company: null, metrics: [], viceClaims: [],
+      });
+      expect(lines.frontDescription).toBe('Texas Gov. Greg Abbott signed the bill.');
+      expect(lines.frontFinding).toBe('It takes effect next year.');
+    });
+
+    it('does not stop a long sentence on a dangling title or "v."', () => {
+      const text = 'The suit was brought against the company and its chief executive by the attorney general, Gov. Greg Abbott and the state legislature in Texas.';
+      const at = text.indexOf('Gov.') + 'Gov.'.length;
+      const line = fitFaceLine(text, at + 3)!;
+      expect(line).not.toMatch(/\b(?:Gov|Sen|Rep|Dr|Mr|v|vs)\.…?$/);
+      expect(fitFaceLine('The case was reported as The New York Times v. Microsoft and OpenAI over training data used without a licence.', 'The case was reported as The New York Times v.'.length + 3)).not.toMatch(/v\.…?$/);
+    });
+  });
+
+  describe('a cut does not drop the clause that answers what it keeps', () => {
+    const text = 'The company was fined by the regulator for misleading discount claims during 2022 and 2023, but the fines were overturned on appeal and no wrongdoing was found.';
+
+    it('at no width: not before "but ...", and not in the middle of "2022 and 2023"', () => {
+      let shown = 0;
+      for (let max = 30; max < text.length; max++) {
+        const line = fitFaceLine(text, max);
+        if (line === null) continue;
+        shown++;
+        expect(line.length).toBeLessThanOrEqual(max);
+        expect(after(text, line), `max ${max}: ${line}`).not.toMatch(/^[,;:—-]*\s*(?:and\s+)?(?:but|although|though|however|despite|unless)\b/i);
+        expect(after(text, line), `max ${max}: ${line}`).not.toMatch(/^[,;]?\s*(?:and|or|to|through)\s+(?:in\s+)?\d/);
+      }
+      expect(shown).toBeGreaterThan(0);
+    });
+
+    it('backs up to before the clause that starts the claim when its answer cannot fit', () => {
+      expect(fitFaceLine(text, 100)).toBe('The company was fined by the regulator for misleading discount claims…');
+      const noComma = 'The company was fined by the regulator for misleading discount claims during 2022 and 2023 but the fines were later overturned on appeal.';
+      expect(fitFaceLine(noComma, 110)).toBe('The company was fined by the regulator for misleading discount claims…');
+    });
+
+    it('keeps the answer once enough of it fits', () => {
+      const line = fitFaceLine(text, 130)!;
+      expect(line).toContain('during 2022 and 2023, but the fines were overturned');
+      expect(line.length).toBeLessThanOrEqual(130);
+    });
+
+    it('keeps a claim away from the sentence that answers it ("However, ...")', () => {
+      const earlier = 'Acme opened a new plant in Ohio last spring. The company was fined $5 million in 2022. However, the fine was overturned on appeal after review.';
+      expect(fitFaceLine(earlier, 100)).toBe('Acme opened a new plant in Ohio last spring.');
+      const only = 'The company was fined $5 million in 2022. However, the fine was overturned on appeal after a full review of the evidence.';
+      expect(fitFaceLine(only, 60)).toBeNull();
+    });
+
+    it('cuts a date list whole or before it, never inside it', () => {
+      const list = 'The regulator fined the company for misleading discount claims made in 2021, 2022 and 2023 across its retail stores nationwide.';
+      for (let max = 40; max < list.length; max++) {
+        const line = fitFaceLine(list, max);
+        if (line === null) continue;
+        expect(after(list, line), `max ${max}: ${line}`).not.toMatch(/^[,;]?\s*(?:and|or|to|through)\s+\d|^,\s*\d/);
+      }
+    });
+  });
+
+  describe('a number is not cut from its unit', () => {
+    it.each([['roughly 4,200', 'people'], ['about 12', 'percent'], ['$5', 'million'], ['over 3,000', 'stores'], ['approximately $1.2', 'billion'], ['nearly 900', 'employees']])('never ends on "%s"', (quantity, unit) => {
+      const text = `Acme reports that the company currently has ${quantity} ${unit} across its operations in the United States and Canada.`;
+      const max = text.indexOf(unit) + 2;
+      const line = fitFaceLine(text, max)!;
+      expect(line.length).toBeLessThanOrEqual(max);
+      expect(line).not.toMatch(/\d…?$/);
+      expect(line).not.toMatch(/\b(?:about|roughly|approximately|over|under|nearly)…?$/i);
+    });
+
+    it('keeps a whole amount and a date, which carry their own unit', () => {
+      expect(fitFaceLine('The company was fined $4.2 billion by the regulator over misleading claims about its products and services in several states.', 40)).toBe('The company was fined $4.2 billion…');
+      expect(fitFaceLine('The company was fined by the regulator in March 2024 over misleading claims about its products in several states.', 60)).toBe('The company was fined by the regulator in March 2024…');
+      // A month is not cut from its year.
+      expect(fitFaceLine('The company was fined by the regulator in March 2024 over misleading claims about its products in several states.', 52)).toBe('The company was fined by the regulator…');
+    });
+  });
+
+  describe('the line never exceeds max and never ends on half an emoji', () => {
+    it('counts the ellipsis, for text with no spaces too', () => {
+      const unbroken = fitFaceLine('x'.repeat(300), 200)!;
+      expect(unbroken.length).toBe(200);
+      expect(unbroken.endsWith('…')).toBe(true);
+      for (const text of ['x'.repeat(300), 'word '.repeat(80), 'https://example.com/' + 'path'.repeat(80), 'a' + '\u{1F600}'.repeat(150)]) {
+        for (const max of [1, 2, 3, 5, 10, 50, 120, 135, 199, 200, 201]) {
+          const line = fitFaceLine(text, max);
+          if (line === null) continue;
+          expect(line.length, `max ${max}`).toBeLessThanOrEqual(max);
+        }
+      }
+    });
+
+    it('never leaves a lone high surrogate, at any width', () => {
+      const text = 'a' + '\u{1F600}'.repeat(150);
+      for (let max = 1; max <= 250; max++) {
+        const line = fitFaceLine(text, max);
+        if (line === null) continue;
+        expect(endsOnHalfAnEmoji(line), `max ${max}`).toBe(false);
+        expect(endsOnHalfAnEmoji(line.replace(/…$/, '')), `max ${max}`).toBe(false);
+      }
+    });
+  });
+
+  it('never returns a lone ellipsis', () => {
+    expect(fitFaceLine('(((', 2)).toBe('((');
+    for (const text of ['(((', '((((((((((((', '— — — — — —', ' ( ( ( ( ( (']) {
+      for (let max = 1; max <= 20; max++) {
+        const line = fitFaceLine(text, max);
+        expect(line, `${text} at ${max}`).not.toBe('…');
+        if (line !== null) {
+          expect(line.length).toBeLessThanOrEqual(max);
+          expect(line).not.toMatch(/^[(\s—…]*…$/);
+        }
+      }
+    }
+  });
+
+  it('is linear on a long chain of "Inc." pieces, on the face and on a card built from it', () => {
+    const chain = 'Inc. '.repeat(60_000);
+    const started = performance.now();
+    const line = fitFaceLine(chain, 200);
+    const result = buildCardView({
+      card: { ...card, cardType: 'insight', companyId: null, summary: chain, keyPoints: [] },
+      company: null, metrics: [], viceClaims: [],
+    });
+    expect(performance.now() - started).toBeLessThan(250);
+    expect(line!.length).toBeLessThanOrEqual(200);
+    expect(result.frontDescription!.length).toBeLessThanOrEqual(120);
+  });
+});
