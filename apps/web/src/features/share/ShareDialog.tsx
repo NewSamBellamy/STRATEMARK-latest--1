@@ -32,6 +32,7 @@ import { Modal } from '@/components/ui/Modal';
 import { encodeSharePayload, shareUrlFor, type SharePayload } from '@/lib/share/codec';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
 import { SharePageSection } from './SharePageSection';
+import { longLinkNote } from './linkLimits';
 
 /** Clipboard with the sandbox-proof fallback chain. */
 async function copyText(text: string, input: HTMLInputElement | null): Promise<boolean> {
@@ -377,7 +378,7 @@ export function ShareDialog({
                     <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
                       This snapshot is large{shortUrl ? '' : ' and a short link couldn\u2019t be made from here'} — some
                       one-tap buttons are hidden because those platforms reject long links. Copy the
-                      link instead and paste it anywhere; it always works.
+                      link instead and paste it into email, notes or a browser.
                     </p>
                   )}
                 </>
@@ -395,11 +396,17 @@ export function ShareDialog({
               </button>
             )}
 
-            <p className="text-[11px] leading-relaxed text-faint">
-              For Discord or Slack: copy the link and paste it into the chat. The whole snapshot
-              travels inside the link — the recipient opens a clean, read-only display of the
-              research, no account needed.
-            </p>
+            {longLinkNote((bestLink ?? url)?.length ?? 0) ? (
+              <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
+                {longLinkNote((bestLink ?? url)?.length ?? 0)}
+              </p>
+            ) : (
+              <p className="text-[11px] leading-relaxed text-faint">
+                For Discord or Slack: copy the link and paste it into the chat. The whole snapshot
+                travels inside the link — the recipient opens a clean, read-only display of the
+                research, no account needed.
+              </p>
+            )}
           </>
         )}
 

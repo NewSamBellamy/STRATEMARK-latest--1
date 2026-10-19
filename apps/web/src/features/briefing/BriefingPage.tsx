@@ -193,7 +193,7 @@ export default function BriefingPage() {
             {generate.isPending ? 'Searching the latest news…' : 'Create today’s briefing'}
           </button>
           <p className="mt-3 text-[11px] text-faint">
-            Uses two Gemini calls on your key (usually well under a cent).
+            Uses two Gemini calls on your key, one of them a Google search: usually around 10 cents.
           </p>
           {generate.isError && (
             <p className="mt-3 text-[12px] text-negative">
