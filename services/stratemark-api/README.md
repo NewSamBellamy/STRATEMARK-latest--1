@@ -75,7 +75,7 @@ npx wrangler secret put GEMINI_API_KEY   # the hosted research key
 npx wrangler secret put SERPER_API_KEY   # optional: hosted web search
 ```
 
-1. In `wrangler.toml`, set `ALLOWED_ORIGINS` to the address the beta app is served from (for example
+1. In `wrangler.toml`, set `ALLOWED_ORIGINS` to the address the beta app is served from (the default is `getstratemark.com` and its subdomains only; a shared-host name such as `stratemark.pages.dev` is left out on purpose until you own it) (for example
    `https://stratemark.web.app`). Share links are created from that origin and the viewer must be on it.
    Never add a shared-hosting wildcard such as `*.pages.dev` or `*.web.app`: anyone could host a page there.
 2. `npx wrangler deploy`. The first deploy applies migrations `v2` (the two share classes) and `v3` (the reader
