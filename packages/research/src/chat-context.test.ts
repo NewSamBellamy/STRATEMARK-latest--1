@@ -56,6 +56,32 @@ describe('chat context', () => {
     expect(ctx).toMatch(/\d+ more companies omitted/);
   });
 
+  it('names what a figure measures, as the card does: a public company\'s "arr" slot holds annual revenue', () => {
+    const cite = [{ title: 'sec.gov', url: 'https://www.sec.gov/x' }];
+    const revenue = metric({ value: 21_950_000_000, confidence: 'verified', citations: cite,
+      passageSupport: { definition: 'annual_revenue', asOf: '2026-06-30' } as CompanyMetric['passageSupport'] });
+    const arr = metric({ value: 1_000_000_000, confidence: 'estimated', citations: cite,
+      reportedSupport: { definition: 'arr', asOf: '2026-04-30' } as CompanyMetric['reportedSupport'] });
+    expect(formatMetricLine(revenue)).toMatch(/^- Annual revenue: \$21\.95B \[verified\]/);
+    expect(formatMetricLine(revenue)).not.toContain('ARR');
+    expect(formatMetricLine(arr)).toMatch(/^- ARR: \$1B \[estimated\]/);
+    // A figure with no stated definition keeps its slot name, as before.
+    expect(formatMetricLine(metric({ value: 5e8, confidence: 'estimated', citations: cite }))).toMatch(/^- ARR: \$500M/);
+  });
+
+  it('ranks annual revenue and ARR separately, and counts gaps per slot, not per measurement', () => {
+    const cite = [{ title: 'r', url: 'https://r.com/a' }];
+    const text = formatDeckRankings([
+      { name: 'ADP', metrics: [metric({ value: 21.95e9, confidence: 'verified', citations: cite, passageSupport: { definition: 'annual_revenue' } as CompanyMetric['passageSupport'] })] },
+      { name: 'Rippling', metrics: [metric({ value: 1e9, confidence: 'estimated', citations: cite, reportedSupport: { definition: 'arr' } as CompanyMetric['reportedSupport'] })] },
+      { name: 'Gusto', metrics: [metric({ value: 1e9, confidence: 'estimated', citations: cite, reportedSupport: { definition: 'annual_revenue' } as CompanyMetric['reportedSupport'] })] },
+      { name: 'Ghost', metrics: [] },
+    ]);
+    const lines = text.split('\n');
+    expect(lines).toContain('Annual revenue (highest first): ADP $21.95B [verified]; Gusto $1B [estimated]; 1 company has no sourced figure');
+    expect(lines).toContain('ARR (highest first): Rippling $1B [estimated]; 1 company has no sourced figure');
+  });
+
   it('sends the whole multi-turn history and puts the new question last', () => {
     const prompt = buildChatPrompt({
       dataBlocks: ['DECK DATA'],
