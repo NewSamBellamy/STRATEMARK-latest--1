@@ -12,7 +12,13 @@
  * Integrity (AGENTS.md Rule 9): nothing here is written by this file. Every sentence is a stored one (an overview
  * paragraph, a product line, a timeline event, a headline, a claim), every figure comes through the same card-face
  * and export gates as everywhere else, a section with nothing stored is left out rather than padded, and a risk
- * claim keeps the source that reports it.
+ * claim is printed only with the usable source that reports it (an unsourced one is dropped, like an unsourced
+ * culture note).
+ *
+ * Free prose is not a source-checked figure. A money amount, headcount, user or customer count or market share
+ * stated in an overview paragraph, a product line, a timeline event or a one-liner never reaches the page: such a
+ * sentence is left out (see `hasProseFigure`), so the PDF cannot state "$5B valuation" beside a valuation row that
+ * says Unknown. The sentences around it are kept as stored.
  */
 import {
   historyContentSchema,
@@ -54,7 +60,9 @@ export interface FullReportCompany extends ReportCompany {
   leaders: Array<{ name: string; role: string }>;
   timeline: Array<{ date: string; title: string }>;
   news: Array<{ title: string; publisher: string | null; date: string | null; url: string }>;
-  risks: Array<{ text: string; source: ReportSource | null }>;
+  risks: Array<{ text: string; source: ReportSource }>;
+  /** How many risk (vice) cards the printed risks come from: cards, not claims. */
+  riskCards: number;
   culture: { note: string; sources: ReportSource[] } | null;
   /** The kind of card the company sits under (Company, Infrastructure, Distribution). */
   role: string;
@@ -64,7 +72,7 @@ export interface FullReportModel extends Omit<ReportModel, 'companies'> {
   companies: FullReportCompany[];
   barriers: SignalBlock[];
   insights: SignalBlock[];
-  /** How many of each signal kind the deck holds, for the cover and the contents. */
+  /** How many signal CARDS the report prints: barriers, insights, risk cards with a printed risk, culture notes. */
   signalCount: number;
   /** True when no company has anything beyond its figures: the report is then the short form. */
   thin: boolean;
@@ -80,16 +88,46 @@ const once = (seen: Set<string>, text: string | null | undefined): string | null
   return t;
 };
 
-/** Plain paragraphs of a stored overview: no headings, tables, bullets or figure lines, links reduced to their words. */
+/**
+ * A money amount, headcount, user or customer count or market share stated in free prose. Fail closed: a sentence
+ * that merely looks like one ("3M", "workforce reductions in 2023") is left out too, because a missing sentence is
+ * honest and a wrong figure is not. Years, quarters, round names and counts of things other than people are not
+ * figures.
+ */
+const PROSE_FIGURE = new RegExp([
+  String.raw`[$€£¥]\s?\d`,
+  String.raw`\b(?:usd|eur|gbp|us\$)\s?\d`,
+  String.raw`\d[\d,.]*\s?(?:trillion|billion|million|thousand|tn|bn|mn|dollars|euros|pounds)\b`,
+  String.raw`\b\d[\d,.]*(?:bn|mn|[mb])\b`,
+  String.raw`\d[\d,]*\+?\s+(?:full[- ]time\s+|part[- ]time\s+)?(?:employees|staff|people|workers|engineers|developers|researchers|team members|associates)\b`,
+  String.raw`\b(?:employs|employing|headcount|workforce|team of|staff of)\b[^.]{0,30}?\d`,
+  String.raw`\d[\d,.]*\s?[kmb]?\+?\s+(?:(?:monthly|daily|weekly|active|paying|registered)\s+)*(?:users|customers|subscribers|members|downloads|installs)\b`,
+  String.raw`\d[\d.]*\s?%\s+(?:of\s+(?:the\s+)?)?(?:market|share)\b`,
+  String.raw`\bmarket share\b[^.]{0,30}\d`,
+].join('|'), 'i');
+
+/** True when the text states a figure nobody source-checked (see {@link PROSE_FIGURE}). */
+export const hasProseFigure = (text: string | null | undefined): boolean => PROSE_FIGURE.test(text ?? '');
+
+/** The sentences of `text` that state no such figure, as stored; null when none is left. */
+export function withoutProseFigures(text: string | null | undefined): string | null {
+  const kept = (text ?? '').split(/(?<=[.!?])\s+(?=[A-Z“"‘'(])/u).map((sentence) => sentence.trim())
+    .filter((sentence) => sentence && !PROSE_FIGURE.test(sentence));
+  return kept.length > 0 ? kept.join(' ') : null;
+}
+
+/** Plain paragraphs of a stored overview: no headings, tables, bullets, figure lines or sentences stating an unchecked figure, links reduced to their words. */
 export function overviewParagraphs(markdown: string | null | undefined, max = 3): string[] {
   const out: string[] = [];
   for (const block of (markdown ?? '').split(/\n\s*\n/)) {
     const text = block.trim();
     if (!text || /^(#|\||>|[-*+]\s|\d+[.)]\s|!\[)/.test(text) || /\n\s*[-*+|]/.test(text)) continue;
     const plain = text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[*_`]+/g, '').replace(/\s+/g, ' ').trim();
+    // A sentence that states an unchecked money or headcount figure is left out; the rest of the paragraph stays.
+    const prose = withoutProseFigures(plain);
     // The stored placeholders and "not found" lines are not an overview.
-    if (plain.length < 60 || /needs an evidence-backed refresh|No source-backed company snapshot|no paid refresh was started/i.test(plain)) continue;
-    out.push(fitFaceLine(plain, 650) ?? plain);
+    if (!prose || prose.length < 60 || /needs an evidence-backed refresh|No source-backed company snapshot|no paid refresh was started/i.test(plain)) continue;
+    out.push(fitFaceLine(prose, 650) ?? prose);
     if (out.length >= max) break;
   }
   return out;
@@ -114,10 +152,15 @@ function profileOf(card: CardWithCompany, tabs: StoredTabs, base: ReportCompany,
 
   const mine = signalCards.filter((c) => c.company?.id === company.id);
   const seenRisk = new Set<string>();
-  const risks = mine.filter((c) => c.card.cardType === 'vice').flatMap((c) => c.viceClaims).flatMap((claim) => {
-    const text = once(seenRisk, claim.claimText);
-    return text ? [{ text, source: claim.sourceUrl ? source({ url: claim.sourceUrl, title: claim.sourceTitle ?? '' }) : null }] : [];
-  }).slice(0, 4);
+  // A risk with no usable http(s) source is dropped, the same as an unsourced culture note below: a vice claim is
+  // shown only with the source that reports it. The source is checked before the repeat test, so an unsourced claim
+  // can never hide a sourced one that says the same thing.
+  const printedRisks = mine.filter((c) => c.card.cardType === 'vice').flatMap((c) => c.viceClaims.flatMap((claim) => {
+    const cited = usableCitations(claim.sourceUrl ? [{ url: claim.sourceUrl, title: claim.sourceTitle ?? '' }] : [])[0];
+    const text = cited ? once(seenRisk, claim.claimText) : null;
+    return cited && text ? [{ cardId: c.card.id, text, source: source(cited) }] : [];
+  })).slice(0, 4);
+  const risks = printedRisks.map((r) => ({ text: r.text, source: r.source }));
   // A culture note with no usable source is left out, the same as an unsourced risk claim.
   const cultureCard = mine.find((c) => c.card.cardType === 'culture' && c.card.summary?.trim() && usableCitations(c.card.citations ?? []).length > 0);
 
@@ -126,7 +169,8 @@ function profileOf(card: CardWithCompany, tabs: StoredTabs, base: ReportCompany,
     .sort((a, b) => Number(b.group === 'exec') - Number(a.group === 'exec'))
     .slice(0, 8).map((n) => ({ name: n.name.trim(), role: n.role.trim() }));
 
-  const events = [...(history?.timeline ?? [])].filter((e) => e.date && e.title).sort((a, b) => dateKey(a.date).localeCompare(dateKey(b.date)));
+  // History events carry no source of their own, so one that states a money or headcount figure is left out.
+  const events = [...(history?.timeline ?? [])].filter((e) => e.date && e.title && !hasProseFigure(e.title)).sort((a, b) => dateKey(a.date).localeCompare(dateKey(b.date)));
   const timeline = (events.length > 8 ? [...events.slice(0, 2), ...events.slice(-6)] : events).map((e) => ({ date: e.date, title: e.title.trim() }));
 
   const news = (intel?.items ?? []).filter((i) => !i.stale && i.title.trim())
@@ -135,16 +179,18 @@ function profileOf(card: CardWithCompany, tabs: StoredTabs, base: ReportCompany,
 
   return {
     ...base,
+    oneLiner: withoutProseFigures(base.oneLiner),
     ownership: ownershipLabel(company.ownership),
     founded: company.founded?.year ? String(company.founded.year) : null,
     overview: overviewParagraphs(overview?.markdown),
     keyFigures: view.faceMetrics.filter((m) => m.metric?.value != null || m.metric?.reportedBand != null).map((m) => ({ label: m.label, display: m.display })),
     products: (products?.products ?? []).filter((p) => p.name.trim()).slice(0, 8)
-      .map((p) => ({ name: p.name.trim(), description: fitFaceLine(p.description, 200) })),
+      .map((p) => ({ name: p.name.trim(), description: fitFaceLine(withoutProseFigures(p.description), 200) })),
     leaders,
     timeline,
     news,
     risks,
+    riskCards: new Set(printedRisks.map((r) => r.cardId)).size,
     culture: cultureCard ? { note: cultureCard.card.summary!.trim(), sources: usableCitations(cultureCard.card.citations ?? []).slice(0, 3).map(source) } : null,
     role: view.type,
   };
@@ -184,7 +230,8 @@ export function buildFullReport(args: {
   const signals = (type: 'barrier' | 'insight') => args.cards.filter((c) => c.card.cardType === type).map(signalBlock);
   const barriers = signals('barrier');
   const insights = signals('insight');
-  const riskCount = profiles.reduce((n, c) => n + c.risks.length, 0);
+  // Cards, not claims: a risk card with three printed claims is one signal.
+  const riskCount = profiles.reduce((n, c) => n + c.riskCards, 0);
   const cultureCount = profiles.filter((c) => c.culture).length;
   return {
     ...base,

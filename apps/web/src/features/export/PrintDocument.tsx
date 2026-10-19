@@ -205,7 +205,7 @@ function ProfileBlocks({ c }: { c: FullReportCompany }) {
         <div className="sm-block">
           <h3 className="sm-h3">Risks and culture</h3>
           {c.risks.length > 0 && (
-            <ul>{c.risks.map((r) => <li key={r.text}>{r.text}{r.source ? <span className="sm-muted"> ({r.source.title})</span> : null}</li>)}</ul>
+            <ul>{c.risks.map((r) => <li key={r.text}>{r.text}<span className="sm-muted"> ({r.source.title})</span></li>)}</ul>
           )}
           {c.culture && (
             <p>
