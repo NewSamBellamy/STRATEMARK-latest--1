@@ -2,23 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { knownCompanyDomain, knownCompanyLogoUrl } from '@mi/research';
 import { cn } from '@/lib/cn';
 import { initials } from '@/lib/format';
-
-/** Extract a clean root domain from a URL/host. */
-function domainOf(website: string | null | undefined): string | null {
-  if (!website) return null;
-  try {
-    const host = website.includes('://') ? new URL(website).hostname : website.trim();
-    const domain = host.replace(/^www\./, '').toLowerCase();
-    // RFC 2606 reserved domains are placeholders (used by the demo dataset) —
-    // icon services serve generic globes for them, so treat as "no site".
-    if (/(^|\.)example\.(com|org|net)$/.test(domain) || domain.endsWith('.test') || domain.endsWith('.invalid')) {
-      return null;
-    }
-    return domain || null;
-  } catch {
-    return null;
-  }
-}
+import { logoDomainOf, safeLogoUrl } from './logoSources';
 
 /**
  * Hero-logo quality thresholds.
@@ -161,11 +145,14 @@ export function Logo({
     const q = (sep: string) => (bust ? `${sep}${bust}` : '');
     // Pre-resolved art wins: it was chosen at research time from a trusted
     // source and is usually vector, so there's nothing better to look for.
-    const preferredLogo = knownCompanyLogoUrl(name) ?? logoUrl;
+    // The stored URL is data someone else may have written (a shared link
+    // carries it), so only an https address on a public host, or an embedded
+    // image, is requested; anything else drops to the letter avatar.
+    const preferredLogo = safeLogoUrl(knownCompanyLogoUrl(name)) ?? safeLogoUrl(logoUrl);
     const preferred = preferredLogo ? [preferredLogo + (bust && !preferredLogo.startsWith('data:') ? (preferredLogo.includes('?') ? `&${bust}` : `?${bust}`) : '')] : [];
     // A reviewed alias beats a model-researched URL. The latter may point at a
     // product, regional site, or similarly named company and return the wrong mark.
-    const domain = knownCompanyDomain(name) ?? domainOf(website);
+    const domain = knownCompanyDomain(name) ?? logoDomainOf(website);
     if (!domain) return preferred;
     // NOTE: icon.horse is deliberately absent (it serves its own grey
     // placeholder). Every source here is probed IN PARALLEL and the largest
