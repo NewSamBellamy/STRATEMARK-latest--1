@@ -25,7 +25,8 @@ import {
 } from '@/features/export/productReportModel';
 import { useStoredLiveIntel } from '@/hooks/today';
 import { qk } from '@/lib/query/keys';
-import { sourceHref } from '@/lib/sourceHref';
+import { safeHttpUrl, sourceHref } from '@/lib/sourceHref';
+import { SafeLink } from '@/components/SafeLink';
 import { useRepository, useSupports } from '@/lib/repository/RepositoryProvider';
 import { cn } from '@/lib/cn';
 
@@ -57,7 +58,7 @@ export function ProductPage({
   const metrics = metricRows(product, brief);
   const timeline = productTimeline(brief, planned);
   const tally = sentimentTally(stories);
-  const hasUrl = !!product.url && /^https?:\/\//.test(product.url);
+  const officialPage = safeHttpUrl(product.url);
 
   const report = () => {
     const model = buildProductReportModel({
@@ -84,8 +85,8 @@ export function ProductPage({
               </button>
             )}
           </div>
-          {hasUrl && (
-            <a href={product.url!} target="_blank" rel="noopener noreferrer" className="btn-ghost"><ExternalLink className="h-4 w-4" /> Official page</a>
+          {officialPage && (
+            <a href={officialPage} target="_blank" rel="noopener noreferrer" className="btn-ghost"><ExternalLink className="h-4 w-4" /> Official page</a>
           )}
         </div>
         {research.isError && <p role="alert" className="text-[13px] text-negative">{research.error instanceof Error ? research.error.message : 'The research did not finish.'}</p>}
@@ -154,7 +155,7 @@ export function ProductPage({
                 {stories.map((s) => (
                   <li key={s.url} className="flex items-start gap-2 text-[13px]">
                     <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', SENTIMENT_DOT[s.sentiment])} aria-label={s.sentiment} role="img" />
-                    <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-content hover:text-primary-ink hover:underline">{s.title}</a>
+                    <SafeLink href={s.url} className="text-content hover:text-primary-ink hover:underline">{s.title}</SafeLink>
                     <span className="shrink-0 text-[11px] text-faint">{s.publisher ?? publisherOf(s.url, null)}</span>
                   </li>
                 ))}
@@ -173,7 +174,7 @@ export function ProductPage({
                   <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">{t.date ?? 'Undated'}{t.origin === 'roadmap' ? ' · planned' : ''}</p>
                   <p className="text-[14px] font-medium text-content">{t.title}</p>
                   {t.detail && <p className="text-[13px] leading-snug text-muted">{t.detail}</p>}
-                  {t.sourceUrl && <a href={t.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-primary-ink hover:underline">{publisherOf(t.sourceUrl, null)}</a>}
+                  {t.sourceUrl && <SafeLink href={t.sourceUrl} className="text-[11px] text-primary-ink hover:underline">{publisherOf(t.sourceUrl, null)}</SafeLink>}
                 </li>
               ))}
             </ol>

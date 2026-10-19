@@ -5,6 +5,7 @@ import {
   type CardWithCompany, type Company, type CompanyMetric, type MetricType, type Ownership,
 } from '@mi/contracts';
 import { quotedSupportHolds, reportedBandCitations, reportedSupportCitations } from '@mi/research';
+import { safeHttpUrl } from '@/lib/sourceHref';
 import type { OvrBreakdown } from './rating';
 
 const LABELS: Record<MetricType, string> = {
@@ -17,11 +18,243 @@ const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFra
 function sentences(value: string | null | undefined): string[] {
   const normalized = value?.replace(/\s+/g, ' ').trim();
   if (!normalized) return [];
-  // Decimal prices, ratios and domain names are not sentence boundaries.
-  return normalized.split(/(?<=[.!?])\s+(?=[A-Z“"‘'])/u)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
+  // Decimal prices, ratios and domain names are not sentence boundaries, and neither is the full stop of an abbreviation:
+  // "The U.S. Department of Justice" is one sentence, not "The U.S." (a card face once read exactly that), and
+  // "The New York Times v. Microsoft" is not cut at "v.".
+  const pieces = normalized.split(/(?<=[.!?])\s+(?=[A-Z“"‘'])/u).map((sentence) => sentence.trim()).filter(Boolean);
+  // A merged sentence ends the way its last piece does, so each piece is tested on its own and a run is joined once: a long
+  // chain of "Inc." pieces used to re-test and re-copy the growing sentence every time, which is quadratic.
+  const out: string[] = [];
+  let run: string[] = [];
+  let last = '';
+  for (const piece of pieces) {
+    if (run.length > 0 && ABBREVIATION_END.test(last)) run.push(piece);
+    else {
+      if (run.length > 0) out.push(run.join(' '));
+      run = [piece];
+    }
+    last = piece;
+  }
+  if (run.length > 0) out.push(run.join(' '));
+  return out;
 }
+
+/** Titles, connectives and notations that go with the word after them: a line that stops on one has stopped mid-phrase. */
+const OPEN_ABBREVIATIONS = String.raw`Gov|Sen|Rep|Dr|Mr|Mrs|Ms|Prof|Hon|Gen|Lt|Col|Sgt|Capt|Rev|St|Mt|No|Fig|vs|v|[Aa]pprox|e\.g|i\.e`;
+/** Company forms and name suffixes: they can end a name, so they do not end a sentence either, but a cut after one is whole. */
+const CLOSED_ABBREVIATIONS = 'Inc|Corp|Co|Ltd|LLC|PLC|Jr|Sr|Dept';
+/** A piece that ends in one of these did not end a sentence: initials ("U.S.", "U.K.", "J."), "v.", titles ("Gov.", "Dr."), company forms, "e.g.". */
+const ABBREVIATION_END = new RegExp(String.raw`(?:\b(?:[A-Z]\.){1,3}|\b(?:${OPEN_ABBREVIATIONS}|${CLOSED_ABBREVIATIONS})\.)$`);
+
+/** Where a long sentence can stop and still be a whole thought: just before a phrase that is added on to it. */
+const SOFT_BREAK = /,?\s+(?=(?:while|whereas|which|(?:that|who) (?:provides?|offers?|delivers?|develops?|designs?|makes?|sells?|operates?)|providing|offering|delivering|developing|and (?:leading|the|a|an)|supported by|guided by|driven by|backed by|including|as well as|along with|with (?:a|an|the)|by (?:providing|offering|delivering|operating)|focused on|centered on)\s)/gi;
+
+/**
+ * A face line is at most ~200 characters, so only the first few thousand characters of any text are ever scanned. Text
+ * past that cannot reach the line, and scanning it made pathological input slow.
+ */
+const FACE_SCAN_CAP = 4000;
+/** A qualifying clause that has said less than this when a word cut stops inside it has not said anything yet. */
+const MIN_QUALIFIER_CLAUSE = 24;
+
+const MONTH = String.raw`(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)`;
+const QUANTITY_LEAD = String.raw`(?:about|roughly|approximately|approx\.?|around|over|under|nearly|almost|circa|some|more than|less than|fewer than|up to|at least|at most|close to)\s+`;
+/** A number, a currency amount, or "about"/"roughly"/"over"/... plus a number, at the very end of a stretch of text. */
+const TRAILING_QUANTITY = new RegExp(String.raw`(?<=[\s(\[])((?:${QUANTITY_LEAD})?([$£€¥]\s?)?(\d[\d,]*(?:\.\d+)?))$`, 'i');
+const MONTH_WORD = new RegExp(String.raw`^${MONTH}\.?$`);
+const DATE_WORD = /^(?:in|since|by|during|from|until|till|through|before|after|between|and|or|to|of|for|late|early|mid|year|fiscal|FY|[HQ][1-4])$/i;
+/** A line may not end on a bare title or initial ("Gov.", "J.") or a connective ("and", "during") that leads into the next word. */
+const DANGLING_ABBREVIATION = new RegExp(String.raw`(?<=\s)(?:${OPEN_ABBREVIATIONS}|[A-Z])\.$`);
+const DANGLING_WORD = /(?<=\s)(?:and|or|but|nor|of|to|by|for|from|with|than|the|a|an|in|on|at|as|about|around|over|under|nearly|roughly|approximately|almost|during|since|until|between|after|before|across|within|into|upon|per|via|against|among|amid|throughout|because|when|where|while|that|which|who|whose)$/;
+const TRAILING_JUNK = /[\s,;:—–\-(]/;
+
+/** A clause that qualifies or answers what came before it: dropping it can reverse the meaning of what is kept. */
+const QUALIFIER = String.raw`(?:but|although|though|however|despite|unless|except|yet|nevertheless|nonetheless|notwithstanding|even (?:though|if|so)|in spite of|that said|save (?:for|that))`;
+const QUALIFIER_AHEAD = new RegExp(String.raw`^[\s,;:—–(\-]*(?:(?:and|or)\s+)?${QUALIFIER}\b`, 'i');
+const DANGLING_QUALIFIER = new RegExp(String.raw`(?<=\s)${QUALIFIER}$`, 'i');
+/** The last qualifying clause in a stretch of text that is still open (no clause punctuation after it); group 1 is what it has said so far. */
+const OPEN_QUALIFIER = new RegExp(String.raw`^[\s\S]*(?<!\w)${QUALIFIER}\b,?([^,;—.!?]*)$`, 'i');
+/** A date or number at the end of what is kept, and more of the same list in what is dropped ("during 2022 | and 2023"). */
+const LIST_END = new RegExp(String.raw`(?:\d|\b${MONTH}\.?)$`);
+const LIST_CONTINUES = new RegExp(String.raw`^\s*[,;]?\s*(?:(?:and|or|and/or|&|to|through|thru|until|till|[–—-])\s*)?(?:(?:in|during|on|by|from|of)\s+)?(?:[$£€¥]?\d|${MONTH}\b)`);
+
+const isHighSurrogate = (code: number): boolean => code >= 0xd800 && code <= 0xdbff;
+const hasContent = (value: string): boolean => /[\p{L}\p{N}]/u.test(value);
+
+/** The last `n` characters of `text`, from a word start and led by a space, so a pattern never matches the tail of a longer word. */
+function tailOf(text: string, n: number): string {
+  if (text.length <= n) return ` ${text}`;
+  const tail = text.slice(-n);
+  const gap = tail.indexOf(' ');
+  return gap < 0 ? '' : tail.slice(gap);
+}
+
+/** `text` cut to `n` characters, never leaving half of an emoji. */
+function clip(text: string, n: number): string {
+  const cut = text.slice(0, n);
+  return cut && isHighSurrogate(cut.charCodeAt(cut.length - 1)) ? cut.slice(0, -1) : cut;
+}
+
+/**
+ * Where a quantity phrase at the very end of `text` begins ("roughly 4,200", "$5", "over 12"), or -1. A number with its
+ * unit cut off is a different figure ("$5" for "$5 million"), so a line never ends on one. A date is not a quantity.
+ */
+function bareQuantityStart(text: string): number {
+  const tail = tailOf(text, 64);
+  const match = TRAILING_QUANTITY.exec(tail);
+  if (!match) return -1;
+  if (match[1] === match[3]) {
+    const word = /(\S+)\s*$/.exec(tail.slice(0, match.index))?.[1] ?? '';
+    if (MONTH_WORD.test(word) || (/^(?:19|20)\d{2}$/.test(match[3]!) && DATE_WORD.test(word))) return -1;
+  }
+  return text.length - (tail.length - match.index);
+}
+
+/**
+ * Where a cut at `end` really ends: backed up over whatever may not close a line. Half an emoji, trailing punctuation, an
+ * unclosed parenthesis ("(Lara v. Sunrun Inc.…"), a number or amount cut from its unit, a title like "Gov." and a connective
+ * like "and" all stop mid-thought, and backing up over one can expose another, so this repeats until the end is stable.
+ */
+function settleCut(text: string, end: number, max: number): number {
+  let e = Math.min(end, text.length);
+  for (let pass = 0; pass < 16 && e > 0; pass++) {
+    const was = e;
+    if (isHighSurrogate(text.charCodeAt(e - 1))) e -= 1;
+    const open = text.lastIndexOf('(', e - 1);
+    if (open >= max * 0.35 && open > text.lastIndexOf(')', e - 1)) e = open;
+    while (e > 0 && TRAILING_JUNK.test(text[e - 1]!)) e -= 1;
+    const kept = text.slice(0, e);
+    const quantity = bareQuantityStart(kept);
+    if (quantity >= 0) e = quantity;
+    else {
+      const tail = tailOf(kept, 40);
+      const dangling = DANGLING_ABBREVIATION.exec(tail) ?? DANGLING_WORD.exec(tail) ?? DANGLING_QUALIFIER.exec(tail);
+      if (dangling) e -= tail.length - dangling.index;
+    }
+    if (e === was) break;
+  }
+  return e;
+}
+
+/**
+ * Whether stopping at `end` would leave the line misleading. A "qualifier" hazard: what is dropped begins with a "but /
+ * although / however / despite / unless" clause that answers what is kept (a word cut may also not stop where such a clause
+ * has barely begun, since half of one says nothing). A "list" hazard: what is dropped is the rest of a date or number list
+ * ("fined during 2022 | and 2023").
+ */
+function cutHazard(text: string, end: number, midClause: boolean): 'qualifier' | 'list' | null {
+  const rest = text.slice(end, end + 160);
+  if (QUALIFIER_AHEAD.test(rest)) return 'qualifier';
+  const tail = tailOf(text.slice(0, end), 120);
+  if (midClause) {
+    const open = OPEN_QUALIFIER.exec(tail);
+    if (open && open[1]!.trim().length < MIN_QUALIFIER_CLAUSE) return 'qualifier';
+  }
+  return LIST_END.test(tail.slice(-24)) && LIST_CONTINUES.test(rest) ? 'list' : null;
+}
+
+/**
+ * A line for the face of a card: the whole sentences that fit, else one long sentence cut at its last clause, else at a
+ * word. Never mid-word and never mid-thought where a thought ends sooner. The face used to clip with CSS, which cut a
+ * sentence wherever the box ended ("... The New York Times v.").
+ *
+ * The result is never longer than `max` UTF-16 units, ellipsis included, and never ends on half an emoji. A cut is not
+ * made where it would strand an abbreviation ("Gov."), a number without its unit ("roughly 4,200") or half a date list;
+ * and it does not stop just before a "but ..." / "however ..." clause that answers what is kept: it backs up to before the
+ * clause that starts it, or to the previous whole sentence. A claim whose answer is the next sentence, and which cannot be
+ * shown with it, is not shown alone: the result is the sentences before it, or null.
+ */
+export function fitFaceLine(text: string | null | undefined, max: number): string | null {
+  const limit = Math.floor(max);
+  const t = (text ?? '').replace(/\s+/g, ' ').trim();
+  if (!t || !(limit >= 1)) return null;
+  if (t.length <= limit) return t;
+  const scan = t.slice(0, Math.max(FACE_SCAN_CAP, limit * 2));
+  const parts = sentences(scan);
+  let count = 0;
+  let used = 0;
+  while (count < parts.length) {
+    const next = used === 0 ? parts[count]!.length : used + 1 + parts[count]!.length;
+    if (next > limit) break;
+    used = next;
+    count++;
+  }
+  // A sentence that opens "However, ..." or "But ..." answers the one before it: stopping between the two would leave the claim
+  // without its answer, so the claim goes too.
+  let answered = false;
+  while (count > 0 && count < parts.length && QUALIFIER_AHEAD.test(parts[count]!)) {
+    count--;
+    answered = true;
+  }
+  const whole = parts.slice(0, count).join(' ');
+  if (whole.length >= Math.min(60, limit * 0.4)) return whole;
+  // The sentences that fit were claims whose answer does not: any shorter piece of them is no better, so show what came before.
+  if (answered) return whole || null;
+
+  const head = scan.slice(0, limit);
+  let hazard = false;
+  // Every cut is at most limit - 1 characters so the ellipsis still fits inside `max`.
+  const attempt = (cut: number, kind: 'break' | 'word' | 'hard'): string | null => {
+    const end = settleCut(scan, cut, limit);
+    if (end <= 0 || !hasContent(scan.slice(0, end))) return null;
+    if (kind !== 'hard' && cutHazard(scan, end, kind === 'word')) {
+      hazard = true;
+      return null;
+    }
+    return `${scan.slice(0, end)}…`;
+  };
+  // One long sentence: stop where the first added-on phrase begins ("..., while fostering ...", "..., supported by ..."), which
+  // leaves a whole thought, rather than at the last comma, which is often inside a list ("locally generated, affordable...").
+  for (const m of scan.slice(0, limit + 24).matchAll(SOFT_BREAK)) {
+    if (m.index >= limit) break;
+    if (m.index < limit * 0.35) continue;
+    const line = attempt(m.index, 'break');
+    if (line) return line;
+  }
+  const clauseCuts = (floor: number): number[] => {
+    const cuts = new Set<number>();
+    for (const sep of ['; ', ', ', ' — ', ' (']) {
+      for (let i = head.indexOf(sep); i >= 0; i = head.indexOf(sep, i + 1)) if (i >= floor) cuts.add(i);
+    }
+    return [...cuts].sort((a, b) => b - a);
+  };
+  for (const cut of clauseCuts(limit * 0.5)) {
+    const line = attempt(cut, 'break');
+    if (line) return line;
+  }
+  if (hazard) {
+    // The latest cuts would have dropped a qualifying clause or half a list: stop before the clause that starts it, or at the
+    // previous whole sentence, however short, ahead of any cut that falls inside a clause.
+    for (const cut of clauseCuts(limit * 0.25)) {
+      const line = attempt(cut, 'break');
+      if (line) return line;
+    }
+    if (whole) return whole;
+  }
+  let space = head.lastIndexOf(' ');
+  if (space < 0) {
+    // One unbroken token (a URL, text with no spaces): cut it, leaving room for the ellipsis.
+    const line = attempt(limit - 1, 'hard');
+    if (line) return line;
+  }
+  for (; space > 0; space = head.lastIndexOf(' ', space - 1)) {
+    const line = attempt(space, 'word');
+    if (line) return line;
+  }
+  if (whole) return whole;
+  // Nothing but punctuation: show the text itself, trimmed, never a lone ellipsis.
+  return hasContent(scan) ? null : clip(scan, limit).trim() || null;
+}
+
+/**
+ * How much a signal card's face can hold without the box clipping it. Measured on a live deck: the narrowest card (a
+ * phone-width reader, 247 px) fits about 125 characters in the three-line description and about 135 in the four-line
+ * finding, and text past that was cut mid-sentence by CSS. The full text is always in the reader.
+ */
+const FACE_DESCRIPTION_MAX = 120;
+const FACE_FINDING_MAX = 135;
+
+const PENDING_SNAPSHOT = 'No source-backed company snapshot is ready yet.';
 
 function uniqueLines(values: Array<string | null | undefined>): string[] {
   const seen = new Set<string>();
@@ -392,29 +625,38 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
     (m.citations.length > 0 || m.metric?.confidence === 'user_verified')).length;
   const position = signal ? 'Market signal' : data.card.cardType !== 'company' ? 'Entity profile' :
     faceMetrics.length ? `${faceSourced}/${faceMetrics.length} figures sourced` : 'Research pending';
-  const viceCitations = data.viceClaims.flatMap((claim) => sourceUrl(claim.sourceUrl)
-    ? [{ url: claim.sourceUrl, title: claim.sourceTitle || 'Source' }]
-    : []);
+  // An allegation with no clickable source is not shown anywhere on the card (the repository drops it too).
+  const viceClaims = data.viceClaims.filter((claim) => sourceUrl(claim.sourceUrl));
+  const viceCitations = viceClaims.map((claim) => ({ url: claim.sourceUrl, title: claim.sourceTitle || 'Source' }));
   const citations = usableCitations([
     ...(data.card.citations ?? []).filter((c) => sourceUrl(c.url)),
     ...viceCitations,
     ...metrics.flatMap((m) => m.citations),
   ], signal ? null : data.company?.websiteUrl);
-  const signalLines = signal ? uniqueLines([
-    data.card.summary,
-    ...data.viceClaims.map((claim) => claim.claimText),
-    ...data.card.keyPoints,
-  ]) : [];
+  // A risk card leads with what the sources report: its stored summary is sometimes only a description of the company
+  // (live: a risk card whose face read "provides a point-of-sale financing platform"), and the claims are the risk.
+  const claimLines = viceClaims.map((claim) => claim.claimText);
+  const signalLines = signal ? uniqueLines(data.card.cardType === 'vice' && claimLines.length > 0
+    ? [...claimLines, data.card.summary, ...data.card.keyPoints]
+    : [data.card.summary, ...claimLines, ...data.card.keyPoints]) : [];
   const description = signal
-    ? data.card.summary ?? data.viceClaims[0]?.claimText ?? data.card.keyPoints[0] ?? null
+    ? data.card.summary ?? viceClaims[0]?.claimText ?? data.card.keyPoints[0] ?? null
     : data.company?.oneLiner;
   const title = data.company?.name ?? data.card.title ?? 'Research card';
   return {
     title,
     frontTitle: signal ? frontTitle(title) : data.company?.name ? companyFrontName(data.company.name) : title,
     description,
-    frontDescription: signal ? signalLines[0] ?? null : description,
-    frontFinding: signal ? signalLines[1] ?? null : null,
+    // A risk or culture card is about a company: what the company is, then the finding in one or two whole sentences. A
+    // barrier or insight card has no company: its one-line summary, then the first point behind it.
+    frontDescription: !signal ? description
+      : data.company
+        ? fitFaceLine(data.company.oneLiner?.trim() === PENDING_SNAPSHOT ? null : sentences(data.company.oneLiner)[0], FACE_DESCRIPTION_MAX)
+        : fitFaceLine(signalLines[0], FACE_DESCRIPTION_MAX),
+    frontFinding: !signal ? null
+      : data.company
+        ? fitFaceLine(signalLines.slice(0, 3).join(' '), FACE_FINDING_MAX)
+        : fitFaceLine(signalLines[1], FACE_FINDING_MAX),
     type: CARD_TYPE_LABELS[data.card.cardType], signal, maturity, rating, position, metrics,
     profileMetrics, faceMetrics, knownCount, sourcedCount,
     // A source count is evidence DEPTH, not retrieved-item volume: the same
@@ -437,12 +679,9 @@ export function companyFace(company: Company, metrics: readonly CompanyMetric[])
   return buildCardView({ card, company, metrics: [...metrics], viceClaims: [] }).faceMetrics;
 }
 
+/** For callers that want null rather than undefined; the rule itself lives in safeHttpUrl. */
 export function sourceUrl(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value.trim());
-    return ['https:', 'http:'].includes(url.protocol) ? url.href : null;
-  } catch { return null; }
+  return safeHttpUrl(value) ?? null;
 }
 
 function displayValue(metric: CompanyMetric): string {

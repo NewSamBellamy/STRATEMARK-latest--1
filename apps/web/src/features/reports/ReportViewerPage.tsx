@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 import { isDirectSource, sourceHref } from '@/lib/sourceHref';
 import { Link, useParams } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { SafeMarkdown } from '@/components/ResearchMarkdown';
 import { ArrowDown, ArrowLeft, ArrowUp, ExternalLink } from 'lucide-react';
 import { publisherOf, type CardWithCompany } from '@mi/contracts';
 import { buildCardView } from '@/features/card/card-view';
@@ -260,9 +259,9 @@ export default function ReportViewerPage() {
                 reads like one (red team #10). */}
             <div className="markdown mx-auto max-w-[70ch] text-[15px] leading-[1.75]">
               {/* Strip a leading H1 if the model repeated the title — the header above owns it. */}
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <SafeMarkdown>
                 {markdown.replace(/^#\s[^\n]*\n+/, '')}
-              </ReactMarkdown>
+              </SafeMarkdown>
             </div>
 
             {citations.length > 0 && (

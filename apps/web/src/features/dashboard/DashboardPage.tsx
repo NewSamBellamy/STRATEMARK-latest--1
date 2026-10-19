@@ -4,7 +4,7 @@ import { Link, Navigate, NavLink, useNavigate, useParams, useSearchParams } from
 import { useQuery, useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { lookupFoundedYear } from '@/lib/media/wikidataFounded';
 import { ArrowLeft, CalendarDays, ChevronDown, FileText, Globe, MapPin, Search } from 'lucide-react';
-import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, ownershipLabel, type DashboardTab } from '@mi/contracts';
+import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, ownershipLabel, usableCitations, type DashboardTab } from '@mi/contracts';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 import { useCompany, useCompanyMetrics, useReports, useRerunDashboardTab } from '@/hooks/data';
 import { useAgentTrace } from '@/lib/agentic/agentTrace';
@@ -36,6 +36,7 @@ import { MissionGovernanceTab } from './tabs/MissionGovernanceTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { ProductsRoadmapTab } from './tabs/ProductsRoadmapTab';
 import NotFoundPage from '@/features/NotFoundPage';
+import { SafeLink } from '@/components/SafeLink';
 
 /**
  * "You're already halfway there" — free-text grounded research from inside the
@@ -453,16 +454,16 @@ export default function DashboardPage() {
               <div className="min-w-[14rem] flex-1 basis-[60%]">
                 <h1 className="font-display text-2xl font-semibold text-content">{c.name}</h1>
                 {ownershipLabel(c.ownership) && (
-                  <a
+                  <SafeLink
                     className="chip border-border bg-surface text-muted"
-                    href={c.ownership!.citations[0]?.url}
-                    target="_blank"
-                    rel="noreferrer"
+                    // The label can stand on a human check alone, so the first stored
+                    // citation may be one the label ignored; link only a usable one.
+                    href={usableCitations(c.ownership!.citations)[0]?.url}
                     title={c.ownership!.methodNote ?? undefined}
                     data-testid="ownership-label"
                   >
                     {ownershipLabel(c.ownership)}
-                  </a>
+                  </SafeLink>
                 )}
                 {headerSubtitle && !restatesHq(headerSubtitle, c.hqLocation) && <p className="text-sm text-muted">{headerSubtitle}</p>}
                 <KeyFacts

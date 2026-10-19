@@ -4,13 +4,28 @@
  */
 import type PptxGenJS from 'pptxgenjs';
 import { isEntityCardType, publisherOf, type CardWithCompany, type MetricType } from '@mi/contracts';
-import { sourceHref } from '@/lib/sourceHref';
+import { safeHttpUrl, sourceHref } from '@/lib/sourceHref';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 import { exportCompanyOf, figureRows, type MetricRow } from '@/features/export/exportModel';
 
 const INK = '18181B';
 const MUTED = '6B6B72';
 const ACCENT = 'F15A24';
+
+/** What XML 1.0 cannot carry in text: control characters other than tab, line
+ * feed and carriage return, U+FFFE and U+FFFF, and unpaired surrogates (which
+ * are not valid UTF-8 once written). One of these anywhere in a slide makes
+ * PowerPoint refuse the whole file ("needs repair"), and text pasted from a
+ * PDF routinely carries a form feed. */
+// eslint-disable-next-line no-control-regex
+const NOT_XML = /[\u0000-\u0008\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/** Text safe to hand to pptxgenjs, which escapes markup but not these. A
+ * vertical tab or form feed separates words, so it becomes a space rather than
+ * gluing them together; the rest are dropped. */
+export function xmlSafe(value: string): string {
+  return value.replace(/[\v\f]/g, ' ').replace(NOT_XML, '');
+}
 
 /** One company's figures, read the way its card face reads them (own rows, same gates, same display). */
 type Figures = ReadonlyMap<MetricType, MetricRow>;
@@ -19,7 +34,7 @@ const figuresOf = (c: CardWithCompany): Figures => figureRows(exportCompanyOf(c)
 /** A figure only appears when it is sourced (Rule 9); otherwise an honest Unknown. */
 function metric(f: Figures, type: MetricType): string {
   const row = f.get(type);
-  return !row || row.unknown ? 'Unknown' : row.valueText;
+  return !row || row.unknown ? 'Unknown' : xmlSafe(row.valueText);
 }
 
 function valuation(f: Figures): string {
@@ -40,7 +55,7 @@ export async function exportDeckPptx(args: {
   // 1) Title slide
   const title = pptx.addSlide();
   title.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.35, fill: { color: ACCENT } });
-  title.addText(args.marketName, {
+  title.addText(xmlSafe(args.marketName), {
     x: 0.6, y: 1.6, w: 9, h: 1.2, fontSize: 34, bold: true, color: INK, fontFace: 'Arial',
   });
   title.addText('Competitive intelligence deck · grounded research with cited sources', {
@@ -67,8 +82,8 @@ export async function exportDeckPptx(args: {
   for (const c of companies.slice(0, 14)) {
     const figures = figuresOf(c);
     rows.push([
-      { text: c.company!.name, options: { fontSize: 11, bold: true, color: INK } },
-      { text: c.company!.hqLocation?.trim() || '—', options: { fontSize: 10, color: MUTED } },
+      { text: xmlSafe(c.company!.name), options: { fontSize: 11, bold: true, color: INK } },
+      { text: xmlSafe(c.company!.hqLocation?.trim() || '—'), options: { fontSize: 10, color: MUTED } },
       { text: metric(figures, 'market_share'), options: { fontSize: 11, color: INK } },
       { text: metric(figures, 'arr'), options: { fontSize: 11, color: INK } },
       { text: valuation(figures), options: { fontSize: 11, color: INK } },
@@ -83,7 +98,7 @@ export async function exportDeckPptx(args: {
   if (args.thesis) {
     const s = pptx.addSlide();
     s.addText('Where the gap is', { x: 0.5, y: 0.3, w: 9, h: 0.5, fontSize: 22, bold: true, color: INK });
-    s.addText(args.thesis.replace(/[#*_`]/g, '').slice(0, 1800), {
+    s.addText(xmlSafe(args.thesis.replace(/[#*_`]/g, '').slice(0, 1800)), {
       x: 0.5, y: 1.0, w: 9, h: 4.2, fontSize: 12, color: INK, valign: 'top',
     });
   }
@@ -94,13 +109,13 @@ export async function exportDeckPptx(args: {
     const s = pptx.addSlide();
     const brand = (c.company!.brandTheme?.primary ?? '#F15A24').replace('#', '');
     s.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.25, fill: { color: brand } });
-    s.addText(c.company!.name, { x: 0.5, y: 0.5, w: 9, h: 0.6, fontSize: 26, bold: true, color: INK });
+    s.addText(xmlSafe(c.company!.name), { x: 0.5, y: 0.5, w: 9, h: 0.6, fontSize: 26, bold: true, color: INK });
     s.addText(
-      c.company!.hqLocation?.trim() || 'Location unknown',
+      xmlSafe(c.company!.hqLocation?.trim() || 'Location unknown'),
       { x: 0.5, y: 1.1, w: 9, h: 0.4, fontSize: 12, color: MUTED },
     );
     if (c.company!.oneLiner && c.company!.oneLiner !== UNSUPPORTED_COMPANY_SUMMARY) {
-      s.addText(c.company!.oneLiner, { x: 0.5, y: 1.6, w: 9, h: 0.8, fontSize: 13, color: INK });
+      s.addText(xmlSafe(c.company!.oneLiner), { x: 0.5, y: 1.6, w: 9, h: 0.8, fontSize: 13, color: INK });
     }
     const figures = figuresOf(c);
     const facts = [
@@ -122,7 +137,12 @@ export async function exportDeckPptx(args: {
     if (sources.length) {
       s.addText([
         { text: 'Sources', options: { bold: true, fontSize: 10, color: MUTED, breakLine: true } },
-        ...sources.map((src) => ({ text: publisherOf(src.url, src.title), options: { fontSize: 9, color: MUTED, hyperlink: { url: sourceHref(src.url, src.title) }, breakLine: true } })),
+        ...sources.map((src) => {
+          // Normalised, so a control character in the address is percent-encoded
+          // instead of being written raw into the slide's relationships.
+          const link = safeHttpUrl(sourceHref(src.url, src.title));
+          return { text: xmlSafe(publisherOf(src.url, src.title)), options: { fontSize: 9, color: MUTED, ...(link ? { hyperlink: { url: link } } : {}), breakLine: true } };
+        }),
       ], { x: 6.2, y: 2.6, w: 3.3, h: 2.4, valign: 'top' });
     }
   }

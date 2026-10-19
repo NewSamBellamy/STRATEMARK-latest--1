@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { ExternalLink } from 'lucide-react';
+import { SafeLink } from '@/components/SafeLink';
 import { lookupCompanyFilings } from '@/lib/ownership/secMajorShareholders';
 
 const SHOWN = 8;
@@ -23,10 +24,8 @@ export function SecFilings({ companyName }: { companyName: string | null | undef
       <ul className="panel divide-y divide-border overflow-hidden">
         {filings.slice(0, SHOWN).map((filing) => (
           <li key={filing.url}>
-            <a
+            <SafeLink
               href={filing.url}
-              target="_blank"
-              rel="noopener noreferrer"
               className="flex items-start gap-4 px-4 py-3 transition-colors hover:bg-surface-2/60"
               title="Open the filed document on sec.gov"
             >
@@ -39,7 +38,7 @@ export function SecFilings({ companyName }: { companyName: string | null | undef
                 {filing.events.length > 0 && <span className="mt-0.5 block text-sm text-muted">{filing.events.join(' · ')}</span>}
               </span>
               <ExternalLink className="mt-1 h-3 w-3 shrink-0 text-faint" aria-hidden />
-            </a>
+            </SafeLink>
           </li>
         ))}
       </ul>
