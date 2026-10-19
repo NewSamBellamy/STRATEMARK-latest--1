@@ -129,6 +129,51 @@ describe('researchLiveIntel', () => {
     expect(client.ground).toHaveBeenCalledTimes(1);
   });
 
+  describe('namesakes in the free feed', () => {
+    const rippling = company({ id: 'cmp_r', name: 'Rippling', oneLiner: 'Rippling is a workforce management platform for HR, payroll and IT.', websiteUrl: 'https://www.rippling.com' });
+    const story = (title: string, url: string) => ({ url, title, snippet: `${title}. Rippling.`, published: '2026-10-10' });
+    const labelling = (labels: unknown[] | Error) => vi.fn().mockImplementation(async (prompt: string) => {
+      if (prompt.startsWith('Label the sentiment')) { if (labels instanceof Error) throw labels; return { labels }; }
+      return { items: [] };
+    });
+
+    it('drops a story the labelling says is about something else that shares the name, and shows the model what the company is', async () => {
+      const structure = labelling([{ i: 0, sentiment: 'positive', about: true }, { i: 1, sentiment: 'neutral', about: false }]);
+      const client = { ground: vi.fn().mockResolvedValue({ text: 'n', citations: [], queries: [] }), structure } as unknown as LlmClient;
+      const newsSearch = vi.fn().mockResolvedValue([
+        story('Rippling expands its New York City presence', 'https://news.example/rippling-nyc'),
+        story("The Rippling Skin on a Cat's Back and When Vets Worry", 'https://pets.example/cat-skin'),
+      ]);
+      const { content } = await researchLiveIntel({ company: rippling, context: 'Rippling', client, newsSearch });
+      expect(content.items.map((i) => i.title)).toEqual(['Rippling expands its New York City presence']);
+      const prompt = String(structure.mock.calls.find(([p]) => String(p).startsWith('Label the sentiment'))![0]);
+      expect(prompt).toContain('workforce management platform');
+    });
+
+    it('keeps every story when the model gives no verdict or the call fails', async () => {
+      const newsSearch = vi.fn().mockResolvedValue([story('Rippling hires a CFO', 'https://news.example/a'), story('Rippling raises funding', 'https://news.example/b')]);
+      for (const structure of [labelling([{ i: 0, sentiment: 'positive' }]), labelling(new Error('quota'))]) {
+        const client = { ground: vi.fn().mockResolvedValue({ text: 'n', citations: [], queries: [] }), structure } as unknown as LlmClient;
+        const { content } = await researchLiveIntel({ company: rippling, context: 'Rippling', client, newsSearch });
+        expect(content.items).toHaveLength(2);
+      }
+    });
+
+    it('counts only real stories toward skipping the paid search', async () => {
+      const rows = (n: number) => Array.from({ length: n }, (_, i) => story(`Rippling story ${i}`, `https://news.example/r-${i}`));
+      const run = async (count: number, namesakes: number[]) => {
+        const structure = labelling(namesakes.map((i) => ({ i, sentiment: 'neutral', about: false })));
+        const client = { ground: vi.fn().mockResolvedValue({ text: 'n', citations: [], queries: [] }), structure } as unknown as LlmClient;
+        await researchLiveIntel({ company: rippling, context: 'Rippling', client, newsSearch: vi.fn().mockResolvedValue(rows(count)) });
+        return client.ground as unknown as ReturnType<typeof vi.fn>;
+      };
+      // Five in the feed, one a namesake: only four are real, so the paid lane still runs.
+      expect(await run(5, [2])).toHaveBeenCalledTimes(1);
+      // Six in the feed, one a namesake: five are real, enough to skip it.
+      expect(await run(6, [2])).not.toHaveBeenCalled();
+    });
+  });
+
   it('reports an outage instead of an empty tab when no lane can run', async () => {
     const client = { ground: vi.fn().mockRejectedValue(new Error('quota')), structure: vi.fn() } as unknown as LlmClient;
     await expect(researchLiveIntel({ company: company(), context: 'Anthropic', client })).rejects.toThrow(/unavailable/);
