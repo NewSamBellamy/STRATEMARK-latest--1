@@ -33,6 +33,9 @@ function sentences(value: string | null | undefined): string[] {
 /** A piece that ends in one of these did not end a sentence: initials ("U.S.", "J."), "v.", titles, company forms, "e.g.". */
 const ABBREVIATION_END = /(?:\b(?:[A-Z]\.){1,3}|\b(?:v|vs|Inc|Corp|Co|Ltd|LLC|PLC|Mr|Mrs|Ms|Dr|St|No|Jr|Sr|Mt|Fig|e\.g|i\.e)\.)$/;
 
+/** Where a long sentence can stop and still be a whole thought: just before a phrase that is added on to it. */
+const SOFT_BREAK = /,?\s+(?=(?:while|whereas|which|supported by|guided by|driven by|backed by|including|as well as|along with|with (?:a|an|the)|by (?:providing|offering|delivering|operating)|focused on|centered on)\s)/gi;
+
 /**
  * A line for the face of a card: the whole sentences that fit, else one long sentence cut at its last clause, else at a
  * word. Never mid-word and never mid-thought where a thought ends sooner. The face used to clip with CSS, which cut a
@@ -48,6 +51,11 @@ export function fitFaceLine(text: string | null | undefined, max: number): strin
     whole = `${whole} ${sentence}`.trim();
   }
   if (whole.length >= Math.min(60, max * 0.4)) return whole;
+  // One long sentence: stop where the first added-on phrase begins ("..., while fostering ...", "..., supported by ..."), which
+  // leaves a whole thought, rather than at the last comma, which is often inside a list ("locally generated, affordable...").
+  let soft = -1;
+  for (const m of t.slice(0, max + 24).matchAll(SOFT_BREAK)) if (m.index <= max && m.index >= max * 0.35) { soft = m.index; break; }
+  if (soft > 0) return `${t.slice(0, soft).replace(/[\s,;—(]+$/, '')}…`;
   const head = t.slice(0, max);
   const clause = Math.max(head.lastIndexOf('; '), head.lastIndexOf(', '), head.lastIndexOf(' — '), head.lastIndexOf(' ('));
   if (clause >= max * 0.5) return `${head.slice(0, clause).replace(/[\s,;—(]+$/, '')}…`;

@@ -416,6 +416,17 @@ describe('fitFaceLine: card-face text that never stops mid-thought', () => {
     expect(noClause.slice(0, -1).endsWith(' ')).toBe(false);
   });
 
+  it('stops a run-on sentence where an added-on phrase begins, not inside a list (live culture findings)', () => {
+    const sunrun = 'Sunrun Inc. states its core mission is "to create a planet run by the sun" by providing locally generated, affordable, and reliable renewable energy while fostering a workplace culture centered on sustainability, diversity, and community volunteerism.';
+    expect(fitFaceLine(sunrun, 200)).toBe('Sunrun Inc. states its core mission is "to create a planet run by the sun"…');
+    const goodleap = 'GoodLeap, LLC states its mission is "to connect a world in which everyone can live sustainably," supported by corporate values focused on financial technology innovation, contractor vetting and customer service.';
+    expect(fitFaceLine(goodleap, 200)).toBe('GoodLeap, LLC states its mission is "to connect a world in which everyone can live sustainably,"…');
+    const momentum = 'Momentum Solar states its mission is to enable customers to take control of rising electricity costs and achieve freedom from fossil fuels through clean energy, while building an energetic and mission-driven culture.';
+    expect(fitFaceLine(momentum, 200)).toBe('Momentum Solar states its mission is to enable customers to take control of rising electricity costs and achieve freedom from fossil fuels through clean energy…');
+    // Nothing to break on: the old rule still applies.
+    expect(fitFaceLine('Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega', 60)!.endsWith('…')).toBe(true);
+  });
+
   it('does not treat a decimal price or a domain as the end of a sentence', () => {
     expect(fitFaceLine('Tokens cost $0.97/M with a 3.5 month lag. More follows after that for readers who want it.', 60)).toBe('Tokens cost $0.97/M with a 3.5 month lag.');
   });
