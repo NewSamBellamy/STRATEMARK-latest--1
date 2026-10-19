@@ -61,7 +61,7 @@ describe('acknowledged browser research storage', () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Full', 'QuotaExceededError'); });
     await store.write(original);
     expect((await openBrowserResearchStore()).read()).toEqual(original);
-  });
+  }, 30_000); // a 6 MB workspace: quick alone, but the default 5 s has been missed inside a loaded full run
 
   it('saves the workspace compressed, far under the browser per-record limit a twenty-deck workspace passed', async () => {
     // Chromium refuses one IndexedDB value over 133,169,152 bytes; a 66.6M-character JSON string (UTF-16) is 133.3M.
