@@ -599,9 +599,9 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
     (m.citations.length > 0 || m.metric?.confidence === 'user_verified')).length;
   const position = signal ? 'Market signal' : data.card.cardType !== 'company' ? 'Entity profile' :
     faceMetrics.length ? `${faceSourced}/${faceMetrics.length} figures sourced` : 'Research pending';
-  const viceCitations = data.viceClaims.flatMap((claim) => sourceUrl(claim.sourceUrl)
-    ? [{ url: claim.sourceUrl, title: claim.sourceTitle || 'Source' }]
-    : []);
+  // An allegation with no clickable source is not shown anywhere on the card (the repository drops it too).
+  const viceClaims = data.viceClaims.filter((claim) => sourceUrl(claim.sourceUrl));
+  const viceCitations = viceClaims.map((claim) => ({ url: claim.sourceUrl, title: claim.sourceTitle || 'Source' }));
   const citations = usableCitations([
     ...(data.card.citations ?? []).filter((c) => sourceUrl(c.url)),
     ...viceCitations,
@@ -609,12 +609,12 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
   ], signal ? null : data.company?.websiteUrl);
   // A risk card leads with what the sources report: its stored summary is sometimes only a description of the company
   // (live: a risk card whose face read "provides a point-of-sale financing platform"), and the claims are the risk.
-  const claimLines = data.viceClaims.map((claim) => claim.claimText);
+  const claimLines = viceClaims.map((claim) => claim.claimText);
   const signalLines = signal ? uniqueLines(data.card.cardType === 'vice' && claimLines.length > 0
     ? [...claimLines, data.card.summary, ...data.card.keyPoints]
     : [data.card.summary, ...claimLines, ...data.card.keyPoints]) : [];
   const description = signal
-    ? data.card.summary ?? data.viceClaims[0]?.claimText ?? data.card.keyPoints[0] ?? null
+    ? data.card.summary ?? viceClaims[0]?.claimText ?? data.card.keyPoints[0] ?? null
     : data.company?.oneLiner;
   const title = data.company?.name ?? data.card.title ?? 'Research card';
   return {

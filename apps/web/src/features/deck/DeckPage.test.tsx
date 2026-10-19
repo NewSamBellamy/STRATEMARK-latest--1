@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
+import { useApiKey } from '@/lib/settings/apiKey';
 import DeckPage from './DeckPage';
 
 describe('DeckPage for a deck that no longer exists', () => {
@@ -53,5 +54,31 @@ describe('DeckPage header', () => {
     await user.click(within(bar).getByRole('button', { name: 'More actions' }));
     expect(screen.getByRole('link', { name: /daily briefing/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /past chats/i })).toBeInTheDocument();
+  });
+});
+
+describe('an empty market-signal tab', () => {
+  afterEach(() => { useApiKey.setState({ apiKey: '', hasKey: false }); });
+
+  it('searches for the missing cards through the deck, not as a hunt for new companies', async () => {
+    useApiKey.setState({ apiKey: 'test-placeholder', hasKey: true });
+    const repository = makeRepo();
+    const [market] = await repository.listMarkets();
+    const deck = (await repository.getDeckByMarket(market!.id))!;
+    const all = await repository.listCards(deck.id);
+    vi.spyOn(repository, 'listCards').mockResolvedValue(all.filter((c) => c.card.cardType !== 'vice'));
+    const ensure = vi.fn().mockResolvedValue({ added: { barrier: 0, insight: 0, vice: 2, culture: 0 }, failed: false });
+    const expandDeck = vi.spyOn(repository, 'expandDeck');
+    Object.assign(repository, { ensureSignalCards: ensure });
+    const { user } = renderWithProviders(
+      <Routes>
+        <Route path="/markets/:marketId/deck" element={<DeckPage />} />
+      </Routes>,
+      { route: `/markets/${market!.id}/deck?type=vice`, repository },
+    );
+    await user.click(await screen.findByRole('button', { name: /hunt for .* in this market/i }));
+    expect(ensure).toHaveBeenCalledWith(deck.id, { force: true });
+    expect(expandDeck).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Found 2 new cards/)).toBeInTheDocument();
   });
 });

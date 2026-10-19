@@ -298,6 +298,29 @@ describe('collectible card evidence model', () => {
     expect(result.sourceCount).toBe(1);
   });
 
+  it('never shows an allegation that has no clickable source', () => {
+    const claim = (id: string, claimText: string, sourceUrl: string) => ({
+      id, cardId: card.id, claimText, sourceTitle: 'Source', sourceUrl, capturedAt: '2026-10-01T00:00:00.000Z',
+    });
+    const vice = { ...card, cardType: 'vice' as const, title: null, summary: null, citations: [], keyPoints: [] };
+    // Whatever the face draws for a risk (its description and its findings), the unsourced claims are in none of it.
+    const drawn = (result: ReturnType<typeof buildCardView>) => [result.description, result.frontDescription, result.frontFinding].filter(Boolean).join(' | ');
+    const mixed = buildCardView({ card: vice, company, metrics: [], viceClaims: [
+      claim('v1', 'An unsourced rumour about the company.', ''),
+      claim('v2', 'A script link is not a source.', 'javascript:alert(1)'),
+      claim('v3', 'A regulator opened a documented inquiry.', 'https://regulator.example.gov/filing'),
+    ] });
+    expect(drawn(mixed)).toContain('A regulator opened a documented inquiry.');
+    expect(drawn(mixed)).not.toContain('unsourced rumour');
+    expect(drawn(mixed)).not.toContain('script link');
+    expect(mixed.sourceCount).toBe(1);
+
+    const unsourced = buildCardView({ card: vice, company, metrics: [], viceClaims: [claim('v1', 'An unsourced rumour about the company.', '')] });
+    expect(unsourced.description).toBeNull();
+    expect(drawn(unsourced)).not.toContain('unsourced rumour');
+    expect(unsourced.sourceCount).toBe(0);
+  });
+
   it('keeps parenthetical detail in the report while using a complete short card headline', () => {
     const title = 'Bifurcation of Token Economics (The Sub-$1 Commodity Floor vs. High-End Inflation)';
     const result = buildCardView({
