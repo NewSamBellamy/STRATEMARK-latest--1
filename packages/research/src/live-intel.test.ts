@@ -129,6 +129,29 @@ describe('researchLiveIntel', () => {
     expect(client.ground).toHaveBeenCalledTimes(1);
   });
 
+  it('a thin feed whose paid search failed is an outage, not an empty tab stored as "no news"', async () => {
+    const down = { ground: vi.fn().mockRejectedValue(new Error('503')), structure: vi.fn().mockResolvedValue({ labels: [] }) } as unknown as LlmClient;
+    const newsSearch = vi.fn().mockResolvedValue([]);
+    await expect(researchLiveIntel({ company: company(), context: 'Anthropic', client: down, newsSearch })).rejects.toThrow(/unavailable/);
+    // A paid search that ran and found nothing is an honest empty answer.
+    const quiet = { ground: vi.fn().mockResolvedValue({ text: 'nothing', citations: [], queries: [] }), structure: vi.fn().mockResolvedValue({ labels: [], items: [] }) } as unknown as LlmClient;
+    expect((await researchLiveIntel({ company: company(), context: 'Anthropic', client: quiet, newsSearch })).content.items).toEqual([]);
+  });
+
+  it('a conversion that fails once is tried again, so a paid search is not lost to one bad answer', async () => {
+    let tries = 0;
+    const client = { ground: vi.fn().mockResolvedValue({ text: 'notes', citations: [{ title: 'reuters.com', url: 'https://www.reuters.com/x' }], queries: [] }),
+      structure: vi.fn().mockImplementation(async (prompt: string) => {
+        if (prompt.startsWith('Label the sentiment')) return { labels: [] };
+        tries += 1;
+        if (tries === 1) throw new Error('invalid JSON');
+        return { items: [{ source: 'news', title: 'Anthropic raises $13 billion', url: 'https://www.reuters.com/x', summary: 's', detail: null, publishedDate: '2026-10-09', sentiment: 'positive' }] };
+      }) } as unknown as LlmClient;
+    const { content } = await researchLiveIntel({ company: company(), context: 'Anthropic', client, newsSearch: vi.fn().mockResolvedValue([]) });
+    expect(tries).toBe(2);
+    expect(content.items.map((i) => i.title)).toEqual(['Anthropic raises $13 billion']);
+  });
+
   describe('namesakes in the free feed', () => {
     const rippling = company({ id: 'cmp_r', name: 'Rippling', oneLiner: 'Rippling is a workforce management platform for HR, payroll and IT.', websiteUrl: 'https://www.rippling.com' });
     const story = (title: string, url: string) => ({ url, title, snippet: `${title}. Rippling.`, published: '2026-10-10' });
