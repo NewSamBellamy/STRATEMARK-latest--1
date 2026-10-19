@@ -187,14 +187,6 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                             key={p.name}
                             className="panel group flex cursor-pointer flex-col overflow-hidden transition-colors hover:border-primary/40"
                             onClick={() => setOpenProduct(p)}
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                setOpenProduct(p);
-                              }
-                            }}
                             title="Open this product — source disclosure and research"
                           >
                             {/* The card art, in miniature — generated, never a CAPTCHA. */}
@@ -210,7 +202,10 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                             </span>
                             <div className="flex flex-1 flex-col p-4">
                               <div className="flex items-start justify-between gap-2">
-                                <h4 className="font-medium text-content">{p.name}</h4>
+                                {/* The card opens on a click anywhere; the name is the real button for keyboards and screen readers. */}
+                                <h4 className="font-medium text-content">
+                                  <button type="button" className="text-left" onClick={(e) => { e.stopPropagation(); setOpenProduct(p); }}>{p.name}</button>
+                                </h4>
                                 {p.status && (
                                   <span className={cn('chip shrink-0 py-0.5 text-[11px]', STATUS_STYLE[p.status])}>
                                     {STATUS_LABEL[p.status]}

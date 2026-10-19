@@ -125,15 +125,23 @@ export default function OpportunityPage() {
                   }}
                 />
                 <Scatter data={points} isAnimationActive={false} shape={(props: { cx?: number; cy?: number; payload?: Point }) => (
-                  <circle
-                    cx={props.cx}
-                    cy={props.cy}
-                    r={props.payload?.arr != null ? Math.max(6, Math.min(22, Math.sqrt(props.payload.arr / 1e6) * 1.6)) : 6}
-                    fill={METRIC_COLORS.market_share}
-                    fillOpacity={0.75}
-                    stroke="#fff"
-                    strokeWidth={1.5}
-                  />
+                  <>
+                    {/* The chart wraps each bubble in role="img": the title is its text alternative. */}
+                    {props.payload && (
+                      <title>
+                        {`${props.payload.name}: ${formatMetricValue('employees', props.payload.team)} people, share ${props.payload.share}%${props.payload.arr != null ? `, revenue ${formatUsd(props.payload.arr)}` : ''}`}
+                      </title>
+                    )}
+                    <circle
+                      cx={props.cx}
+                      cy={props.cy}
+                      r={props.payload?.arr != null ? Math.max(6, Math.min(22, Math.sqrt(props.payload.arr / 1e6) * 1.6)) : 6}
+                      fill={METRIC_COLORS.market_share}
+                      fillOpacity={0.75}
+                      stroke="#fff"
+                      strokeWidth={1.5}
+                    />
+                  </>
                 )} />
               </ScatterChart>
             </ResponsiveContainer>

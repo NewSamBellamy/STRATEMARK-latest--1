@@ -34,7 +34,7 @@
   --c-faint: 104 113 111;      /* #68716F tertiary — AA on surface + canvas */
   --c-primary: 15 118 110;     /* #0F766E Deep Teal — accent only */
   --c-primary-fg: 255 255 255;
-  --c-primary-ink: 15 118 110; /* #0F766E same teal for links */
+  --c-primary-ink: 14 115 107; /* #0E736B the accent teal, a shade deeper so links and chips clear AA (4.5:1) on the accent's own tint */
   --c-ink: 23 26 25;           /* #171A19 charcoal button pill */
   --c-ink-fg: 255 255 255;
   --c-ink-hover: 42 48 46;     /* #2A302E */
