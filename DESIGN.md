@@ -56,4 +56,6 @@ flat grey card grid (forgettable).
 Horizontal card tiles with a corner logo · every card sharing one neutral frame · brand color behind
 the logo · light text on light brand bands · cartoon elemental icons or glossy plastic bevels ·
 rainbow default chart palettes · charts implying precision the data lacks · foil behind body text ·
-big bare numbers in empty white boxes.
+big bare numbers in empty white boxes · **sparkle or magic-wand icons anywhere** (lucide `Sparkles`,
+`Sparkle`, `WandSparkles`, `Wand`; they read as AI-generated filler; the owner has banned them and
+`eslint.config.js` fails the build on them. Use a plain icon that says what the button does, or none).

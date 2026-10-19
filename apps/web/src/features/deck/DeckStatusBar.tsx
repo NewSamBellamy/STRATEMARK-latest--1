@@ -16,7 +16,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Check, ChevronDown, Info, Pause, Play, RefreshCw, Sparkles } from 'lucide-react';
+import { Check, ChevronDown, Info, Pause, Play, RefreshCw, Search } from 'lucide-react';
 import { isEntityCardType, type CardWithCompany, type ResearchJob } from '@mi/contracts';
 import { cn } from '@/lib/cn';
 import { buildCardView } from '@/features/card/card-view';
@@ -282,7 +282,7 @@ export function DeckStatusBar({
           {canFill && (
             <button type="button" className="btn-ghost h-7 px-2 text-[12px]" disabled={filling} onClick={fill}
               title="Look for a sourced figure for every card-face place that still shows Unknown.">
-              <Sparkles className={cn('h-3.5 w-3.5', filling && 'animate-pulse')} />
+              <Search className={cn('h-3.5 w-3.5', filling && 'animate-pulse')} />
               {filling ? 'Searching…' : 'Find missing figures'}
             </button>
           )}
