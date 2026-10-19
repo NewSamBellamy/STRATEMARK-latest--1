@@ -26,7 +26,11 @@ export type MarketProfile = 'operating_company' | 'financial_firm';
 // card and no Form ADV lane — while Churchill and Antares, whose descriptors
 // happened to say "asset management"/"private credit", got both.
 const FINANCIAL_FIRM_PATTERN =
-  /\b(?:venture capital|venture firm|vc firm|private equity|asset management|asset managers?|hedge fund|investment bank|investment banking|family office|wealth management|private credit|growth equity|fund manager|capital management|merchant bank|private debt|direct lend(?:er|ers|ing)|middle[- ]market lend(?:er|ers|ing)|credit (?:manager|investment (?:firm|manager)|asset manager|fund manager)|alternative (?:asset|investment) (?:manager|management|firm)s?|investment (?:manager|management firm|firm)s?|business development compan(?:y|ies)|investment partners)\b/i;
+  /\b(?:venture capital|venture firm|vc firm|private equity|asset management|asset managers?|hedge fund|investment bank|investment banking|family office|wealth management|private credit|growth equity|fund manager|(?<!\b(?:human|working)\s)capital management|merchant bank|private debt|direct lend(?:er|ers|ing)|middle[- ]market lend(?:er|ers|ing)|credit (?:manager|investment (?:firm|manager)|asset manager|fund manager)|alternative (?:asset|investment) (?:manager|management|firm)s?|investment (?:manager|management firm|firm)s?|business development compan(?:y|ies)|investment partners)\b/i;
+
+// "Human capital management" (HCM, the HR and payroll software category) and "working capital
+// management" are not capital managers: ADP's descriptor said "human capital management" and gave
+// it an AUM slot and no market-cap hunt.
 
 // "Platform for private equity" serves the industry; it is not itself the fund.
 // "Financing for private equity-backed companies" is a lender's business, not a
