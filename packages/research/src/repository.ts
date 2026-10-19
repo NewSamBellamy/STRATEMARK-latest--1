@@ -510,6 +510,8 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
     concurrency?: number;
     /** Tabs of one company researched at once after its Overview; defaults to 2 on a 60/min key, else 1. */
     tabsInParallel?: number;
+    /** Companies started together so they can share one combined tabs search; defaults to the combined search's size (4), capped at `concurrency`. */
+    cohort?: number;
     /** Spend gate checked before every tab (spending cap, user pause). */
     allowed?: () => boolean;
     /** Warm STORED decks too: on start (after `startupDelayMs`) and when a deck is
@@ -745,6 +747,10 @@ export class GeminiRepository implements MarketIntelRepository {
       this.warmup = new DashboardWarmup({
         concurrency: Math.max(1, Math.floor(warm.concurrency ?? warmupConcurrency(options.groundedRpm ?? DEFAULT_GROUNDED_RPM))),
         tabsInParallel: warm.tabsInParallel ?? warmupTabsInParallel(options.groundedRpm ?? DEFAULT_GROUNDED_RPM),
+        // Companies start in groups of four, the size of one combined tabs search: a company that
+        // started alone (the second wave of a big deck, one slot at a time) paid for two searches
+        // of its own, about five times the share it costs in a group.
+        cohort: warm.cohort ?? TAB_BATCH_SIZE,
         // Deck builds own the model slots; the warm-up waits for them, and for
         // the user's spending cap / pause switch, before every tab.
         canRun: () => !this.persistenceError && this.activeBackgroundJobs.size === 0 && (warm.allowed?.() ?? true),
