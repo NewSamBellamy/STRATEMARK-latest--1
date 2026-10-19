@@ -35,6 +35,7 @@ import {
   type Company,
   type ViceClaim,
 } from '@mi/contracts';
+import { claimSupportCitations } from './claim-support';
 import { marketCardsOutSchema } from './schemas';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import { slugify, throwIfAborted } from './util';
@@ -43,6 +44,7 @@ import type {
   LlmClient,
   MarketPlan,
   OnResearchEvent,
+  ProviderGrounding,
   ResearchCoverage,
 } from './types';
 
@@ -952,15 +954,22 @@ export async function researchMarketSignals(
       priority: 'urgent',
     });
 
-    return { out, citations: grounded.citations };
+    return { out, citations: grounded.citations, grounding: grounded.grounding };
   };
 
   const firstPass = await runGroundedPass('both');
   // Count only items that will survive the citation gate below: an answer whose
   // items all lack a usable source used to look "complete" here, skip the
   // fallback, and leave the deck with zero insight/barrier cards.
-  const sourced = (items: Array<{ sourceIndex?: number | null; sourceIndexes?: number[] | null }> | undefined) =>
-    (items ?? []).filter((item) => resolveClaimCitations(item.sourceIndex, item.sourceIndexes, firstPass.citations).length > 0).length;
+  // A card's source is the one the structuring step named, or else the one the search engine itself attached to the answer's
+  // sentences the card is built from (claimSupportCitations): the step often names none for a well-sourced answer.
+  type RawClaim = { title: string; summary?: string; keyPoints?: string[]; sourceIndex?: number | null; sourceIndexes?: number[] | null };
+  const claimCitations = (item: RawClaim, indexed: readonly Citation[], grounding: ProviderGrounding | undefined): Citation[] => {
+    const named = resolveClaimCitations(item.sourceIndex, item.sourceIndexes, indexed);
+    return named.length > 0 ? named : claimSupportCitations([item.title, item.summary ?? '', ...(item.keyPoints ?? [])].join(' '), grounding);
+  };
+  const sourced = (items: RawClaim[] | undefined) =>
+    (items ?? []).filter((item) => claimCitations(item, firstPass.citations, firstPass.grounding).length > 0).length;
   const firstBarrierCount = sourced(firstPass.out.barriers);
   const firstInsightCount = sourced(firstPass.out.insights);
 
@@ -968,6 +977,7 @@ export async function researchMarketSignals(
   let secondPass: {
     out: z.infer<typeof marketCardsOutSchema>;
     citations: Citation[];
+    grounding: ProviderGrounding | undefined;
   } | null = null;
 
   if (firstBarrierCount < minBarriers || firstInsightCount < minInsights) {
@@ -1004,6 +1014,11 @@ export async function researchMarketSignals(
     ),
   ];
 
+  // The supports of both passes, for a claim whose own pass named no source.
+  const allGrounding: ProviderGrounding | undefined = firstPass.grounding || secondPass?.grounding
+    ? { provider: 'google-search', answerText: '', supports: [...(firstPass.grounding?.supports ?? []), ...(secondPass?.grounding?.supports ?? [])] }
+    : undefined;
+
   // 4. Deduplicate Claims
   const deduplicatedBarriers = deduplicateClaims(rawBarriers, 10);
   const deduplicatedInsights = deduplicateClaims(rawInsights, 10);
@@ -1012,14 +1027,14 @@ export async function researchMarketSignals(
   const assembledCards: CardWithCompany[] = [];
 
   for (const barrier of deduplicatedBarriers) {
-    const claimCitations = resolveClaimCitations(barrier.sourceIndex, barrier.sourceIndexes, allCitations);
-    if (claimCitations.length === 0) continue; // Grounding contract: drop unsourced cards
+    const cited = claimCitations(barrier, allCitations, allGrounding);
+    if (cited.length === 0) continue; // Grounding contract: drop unsourced cards
 
     assembledCards.push(
       createBarrierCard(
         barrier.title,
         barrier.summary,
-        claimCitations,
+        cited,
         barrier.keyPoints,
         deckId,
       ),
@@ -1027,14 +1042,14 @@ export async function researchMarketSignals(
   }
 
   for (const insight of deduplicatedInsights) {
-    const claimCitations = resolveClaimCitations(insight.sourceIndex, insight.sourceIndexes, allCitations);
-    if (claimCitations.length === 0) continue; // Grounding contract: drop unsourced cards
+    const cited = claimCitations(insight, allCitations, allGrounding);
+    if (cited.length === 0) continue; // Grounding contract: drop unsourced cards
 
     assembledCards.push(
       createInsightCard(
         insight.title,
         insight.summary,
-        claimCitations,
+        cited,
         insight.keyPoints,
         deckId,
       ),

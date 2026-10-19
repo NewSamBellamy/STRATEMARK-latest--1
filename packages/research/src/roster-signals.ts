@@ -17,11 +17,12 @@
  */
 import { z } from 'zod';
 import type { CardWithCompany, Company } from '@mi/contracts';
+import { claimSupportCitations } from './claim-support';
 import { companyAliases, mentionsCompany } from './company-aliases';
 import { companyNameKey } from './market-quote';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import { namesRosterRival } from './reported-metrics';
-import { createCultureCard, createViceCard, extractSourcedViceClaims, resolveClaimCitations } from './signal-agents';
+import { createCultureCard, createViceCard, extractSourcedViceClaims, resolveClaimCitations, type RawViceClaimInput } from './signal-agents';
 import type { LlmClient, MarketPlan } from './types';
 import { throwIfAborted } from './util';
 
@@ -141,7 +142,7 @@ export async function researchRosterSignals(
   const culture: CardWithCompany[] = [];
 
   if (want.vice) {
-    const byCompany = new Map<string, { company: Company; raw: Array<{ text: string; sourceIndex: number | null }> }>();
+    const byCompany = new Map<string, { company: Company; raw: RawViceClaimInput[] }>();
     for (const risk of out.risks) {
       const company = companyNamed(risk.company, roster);
       const text = risk.text.replace(/\s+/g, ' ').trim();
@@ -149,9 +150,12 @@ export async function researchRosterSignals(
       if (text.length < SENTENCE_MIN || text.length > SENTENCE_MAX) continue;
       if (!mentionsCompany(text, companyAliases(company.name, company.websiteUrl))) continue;
       if (namesRosterRival(text, company.name, names)) continue;
-      if (resolveClaimCitations(risk.sourceIndex, null, citations).length === 0) continue;
+      // The source the structuring step named, or else the one the search attached to the sentence itself.
+      const named = resolveClaimCitations(risk.sourceIndex, null, citations)[0];
+      const source = named ?? claimSupportCitations(text, grounded.grounding, 1)[0];
+      if (!source) continue;
       const entry = byCompany.get(company.id) ?? { company, raw: [] };
-      if (entry.raw.length < MAX_CLAIMS_PER_COMPANY && !entry.raw.some((r) => r.text === text)) entry.raw.push({ text, sourceIndex: risk.sourceIndex });
+      if (entry.raw.length < MAX_CLAIMS_PER_COMPANY && !entry.raw.some((r) => r.text === text)) entry.raw.push({ text, sourceUrl: source.url, sourceTitle: source.title });
       byCompany.set(company.id, entry);
     }
     for (const { company, raw } of byCompany.values()) {
@@ -170,7 +174,8 @@ export async function researchRosterSignals(
       const note = cultureNote(item.note);
       if (!note || !mentionsCompany(note, companyAliases(company.name, company.websiteUrl))) continue;
       if (namesRosterRival(note, company.name, names)) continue;
-      const cited = resolveClaimCitations(item.sourceIndex, null, citations);
+      const named = resolveClaimCitations(item.sourceIndex, null, citations);
+      const cited = named.length > 0 ? named : claimSupportCitations(note, grounded.grounding);
       if (cited.length === 0) continue;
       seen.add(company.id);
       culture.push(createCultureCard(company, note, cited, deckId));
