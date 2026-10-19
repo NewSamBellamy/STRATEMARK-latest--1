@@ -888,17 +888,47 @@ export function hasUntraceableFigure(text: string, allowed: AllowedFigures): boo
   return figureTokens(text).some((t) => !t.keys.some((k) => allowed.has(k)) && !(t.bareSmall && t.noun !== null && COUNT_NOUNS.has(t.noun)));
 }
 
+/** Bracketed text that may itself hold one level of brackets, as Markdown allows. */
+const BRACKETED = String.raw`\[(?:[^\[\]]|\[[^\]]*\])*\]`;
+/** A parenthesised link target that may hold balanced parentheses. */
+const TARGET = String.raw`\((?:[^)(]|\([^)]*\))*\)`;
+const IMAGE = new RegExp(`!${BRACKETED}(?:${TARGET}|\\[[^\\]]*\\])?`, 'g');
+const INLINE_LINK = new RegExp(String.raw`\[((?:[^\[\]]|\[[^\]]*\])+)\]` + TARGET, 'g');
+/** `[words][ref]` and `[words][]`: with the definitions gone these can only show as stray brackets. */
+const REFERENCE_LINK = /\[([^\]]*[A-Za-z][^\]]*)\]\[[^\]]*\]/g;
+/**
+ * A link reference definition (`[ref]: //host/x "title"`), alone on its line or
+ * with the target on the next one, even inside a quote or list item. These are
+ * the other half of `![a][ref]`: the image itself names no host, so dropping
+ * only inline syntax lets a hostile section still load `//host/p.png`. Footnote
+ * definitions (`[^1]: text`) are not link definitions and are left alone.
+ */
+const REFERENCE_DEFINITION = new RegExp(
+  String.raw`^[ \t>]*(?:(?:[-*+]|\d+[.)])[ \t]+)*\[(?!\^)[^\]\n]+\]:[ \t]*(?:\r?\n[ \t>]*)?(?:<[^>\n]*>|\S+)` +
+  String.raw`(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\))|[ \t]*\r?\n[ \t>]*(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*$`,
+  'gm',
+);
+
 /**
  * Strip what a section is told never to contain: images, links and raw URLs
  * (the viewer lists the section's citations itself) and any HTML the model
- * put in. The words of a link are kept.
+ * put in. The words of a link are kept. Every spelling of an image goes —
+ * inline, reference-style, collapsed and shortcut — whatever its target, not
+ * just `https://` ones: a protocol-relative `//host/p.png` resolves against the
+ * page's own scheme and is fetched like any other.
  */
 export function sanitizeSectionMarkdown(markdown: string): string {
   return markdown
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-    .replace(/\[([^\]]+)\]\((?:[^)(]|\([^)]*\))*\)/g, '$1')
+    .replace(REFERENCE_DEFINITION, '')
+    .replace(IMAGE, '')
+    // An unbalanced `![` can still open an image once a later `]` turns up.
+    .replace(/!(?=\[)/g, '')
+    .replace(INLINE_LINK, '$1')
+    .replace(REFERENCE_LINK, '$1')
     .replace(/<\/?[a-z][^>\n]*>/gi, '')
     .replace(/https?:\/\/\S+/gi, '')
+    // GFM turns a bare `www.host/x` into a link.
+    .replace(/\bwww\.\S+/gi, '')
     .replace(/[ \t]+$/gm, '');
 }
 

@@ -8,8 +8,6 @@
 import { sourceHref } from '@/lib/sourceHref';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { ExternalLink, Layers, Link2Off, MapPin } from 'lucide-react';
 import {
   METRIC_TYPE_LABELS,
@@ -24,6 +22,7 @@ import { Logo } from '@/features/card/Logo';
 import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
 import { Modal } from '@/components/ui/Modal';
 import { SafeLink } from '@/components/SafeLink';
+import { SafeMarkdown } from '@/components/ResearchMarkdown';
 import { FullPageLoader } from '@/components/states/FullPageLoader';
 import { formatMetricValue } from '@/lib/format';
 import { siteUrl } from '@/lib/siteUrl';
@@ -301,9 +300,9 @@ function SharedReportView({
 
           <div className="markdown">
             {/* Strip a leading H1 if the model repeated the title — the masthead owns it. */}
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <SafeMarkdown>
               {r.md.replace(/^#\s[^\n]*\n+/, '')}
-            </ReactMarkdown>
+            </SafeMarkdown>
           </div>
 
           {r.c.length > 0 && (

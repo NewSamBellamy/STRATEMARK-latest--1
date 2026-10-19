@@ -10,8 +10,7 @@
  *     spend the key), cached per item for the session, with citations.
  */
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { SafeMarkdown } from '@/components/ResearchMarkdown';
 import {
   CalendarDays,
   ExternalLink,
@@ -151,7 +150,7 @@ export function InsightReader({
           {expansion ? (
             <>
               <div className="markdown text-sm leading-relaxed text-content/90">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{expansion.markdown}</ReactMarkdown>
+                <SafeMarkdown>{expansion.markdown}</SafeMarkdown>
               </div>
               {expansion.citations.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 border-t border-border pt-2.5">
