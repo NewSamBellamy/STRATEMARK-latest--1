@@ -141,6 +141,12 @@ export function wikidataWebsites(text: string | null): string[] {
     c?.rank !== 'deprecated' && typeof c?.mainsnak?.datavalue?.value === 'string' ? [c.mainsnak.datavalue.value] : []);
 }
 
+/** The company's own name before any product or second name: "Intuit (QuickBooks Payroll)" gives "Intuit"; null when the name has no such part. */
+export function primaryCompanyName(name: string): string | null {
+  const first = name.split(/\s*[/(]\s*/)[0]!.replace(/[,\s]+$/, '').trim();
+  return first.length >= 3 && first !== name.trim() ? first : null;
+}
+
 export interface ListedIdentityResult {
   identity: ListedIdentity | null;
   /** The registrant profile, when the alias path read the submissions feed. */
@@ -159,12 +165,24 @@ type Decision = { identity: ListedIdentity; profile: SubmissionsProfile | null }
  * re-derives from the ledger exactly as it was first accepted.
  */
 function* identitySteps(company: { name: string; websiteUrl?: string | null }): Generator<string, Decision, string | null> {
-  const named = tickerSliceMatches(yield `${secTickerMapUrl()}?lookup=${encodeURIComponent(company.name)}`);
+  let named = tickerSliceMatches(yield `${secTickerMapUrl()}?lookup=${encodeURIComponent(company.name)}`);
   // Unreadable is unknown, not "no registrant"; an exact-name tie stays a tie.
   if (named === null) return null;
+  let matchedName = company.name;
+  if (named.length === 0) {
+    // A stored name often carries a product or a second name ("Automatic Data Processing, Inc. /
+    // ADP (RUN Powered by ADP)", "Intuit (QuickBooks Payroll)"): its first part is the name the
+    // registrant files under. The same exact, suffix-insensitive match, never a looser one. An
+    // unreadable answer here (or no retained read, replaying older evidence) just moves on to the alias path.
+    const primary = primaryCompanyName(company.name);
+    if (primary && companyNameKey(primary) !== companyNameKey(company.name)) {
+      const again = tickerSliceMatches(yield `${secTickerMapUrl()}?lookup=${encodeURIComponent(primary)}`);
+      if (again && again.length > 0) { named = again; matchedName = primary; }
+    }
+  }
   if (named.length > 0) {
     const issuer = singleIssuer(named);
-    return issuer ? { identity: { ...issuer, via: 'name', issuerName: company.name }, profile: null } : null;
+    return issuer ? { identity: { ...issuer, via: 'name', issuerName: matchedName }, profile: null } : null;
   }
 
   // Alias path: only with a website to anchor the company to.
@@ -232,7 +250,9 @@ export function replayListedIdentity(company: { name: string; websiteUrl?: strin
 export function secIssuerName(company: { name: string; websiteUrl?: string | null }, originals: readonly OriginalSourceReceipt[], cik: string | null): string {
   if (!cik) return company.name;
   const identity = replayListedIdentity(company, originals);
-  return identity?.via === 'alias' && padCik(identity.cik) === padCik(cik) ? identity.issuerName : company.name;
+  // issuerName is the registrant title on the alias path, the first part of a compound name when that matched,
+  // and the company's own name otherwise.
+  return identity && padCik(identity.cik) === padCik(cik) ? identity.issuerName : company.name;
 }
 
 /** The registrant profile of an ESTABLISHED identity's CIK; null unless the

@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { OriginalSourceReceipt } from './original-source';
 import { secTickerSliceUrl, selectTickerMapSlice, selectTickerRowsSlice, singleIssuer, tickerLookupSymbols } from './market-quote';
-import { nameRelatesToTitle, resolveListedIdentity, sameSite, topListedEquity, wikidataCikSearchUrl, wikidataWebsiteClaimsUrl } from './sec-identity';
+import { nameRelatesToTitle, primaryCompanyName, replayListedIdentity, resolveListedIdentity, sameSite, topListedEquity, wikidataCikSearchUrl, wikidataWebsiteClaimsUrl } from './sec-identity';
 import { secSubmissionsUrl, selectScheduleFilingIndex } from './sec-ownership';
 import { parseSubmissionsProfile, secHeadquartersPlace } from './sec-profile';
 
@@ -22,6 +22,10 @@ const TICKER_MAP = JSON.stringify({
   7: { cik_str: 2030954, ticker: 'XHLD', title: 'TEN Holdings, Inc.' },
   8: { cik_str: 900001, ticker: 'ACME', title: 'Acme Corp' },
   9: { cik_str: 900002, ticker: 'ACMB', title: 'Acme, Inc.' },
+  10: { cik_str: 1591698, ticker: 'PCTY', title: 'Paylocity Holding Corp' },
+  11: { cik_str: 8670, ticker: 'ADP', title: 'AUTOMATIC DATA PROCESSING INC' },
+  12: { cik_str: 896878, ticker: 'INTU', title: 'INTUIT INC.' },
+  13: { cik_str: 1015922, ticker: 'CHKP', title: 'CHECK POINT SOFTWARE TECHNOLOGIES LTD' },
 });
 
 const address = (city: string, state: string) => ({ street1: '1 MAIN ST', city, stateOrCountry: state, zipCode: '10504', stateOrCountryDescription: state });
@@ -192,6 +196,55 @@ describe('listed identity: everyday name vs SEC registrant title', () => {
     try {
       expect((await resolveListedIdentity({ name: 'IBM', websiteUrl: 'https://www.ibm.com' }, reader())).identity).toBeNull();
     } finally { FEEDS['0000051143'] = saved; }
+  });
+});
+
+describe('registrant names with a holding-company tail or a product beside the name', () => {
+  const ADP_NAME = 'Automatic Data Processing, Inc. / ADP (RUN Powered by ADP)';
+
+  it('matches "Paylocity" to "Paylocity Holding Corp" by name, with no alias reads', async () => {
+    const read = reader();
+    const result = await resolveListedIdentity({ name: 'Paylocity', websiteUrl: 'https://www.paylocity.com' }, read);
+    expect(result.identity).toMatchObject({ cik: '1591698', ticker: 'PCTY', via: 'name', issuerName: 'Paylocity' });
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads the first part of a compound stored name (ADP, Intuit) with the same exact match', async () => {
+    const read = reader();
+    const adp = await resolveListedIdentity({ name: ADP_NAME, websiteUrl: 'https://www.adp.com' }, read);
+    expect(adp.identity).toMatchObject({ cik: '8670', ticker: 'ADP', via: 'name', issuerName: 'Automatic Data Processing, Inc.' });
+    // The full name found nothing; its first part found the registrant. No alias reads.
+    expect(read).toHaveBeenCalledTimes(2);
+    const intuit = await resolveListedIdentity({ name: 'Intuit (QuickBooks Payroll)', websiteUrl: 'https://www.intuit.com' }, reader());
+    expect(intuit.identity).toMatchObject({ cik: '896878', ticker: 'INTU', via: 'name', issuerName: 'Intuit' });
+  });
+
+  it('never stretches a first part into a different registrant', async () => {
+    // "Check" is not Check Point Software Technologies: only the whole registrant name counts.
+    const check = await resolveListedIdentity({ name: 'Check (Check Technologies)', websiteUrl: 'https://checkhq.com' }, reader());
+    expect(check.identity).toBeNull();
+    // A tie on the first part stays a tie: no pick, no alias fallthrough.
+    const read = reader();
+    const acme = await resolveListedIdentity({ name: 'Acme (Smart Widgets)', websiteUrl: 'https://acme.example' }, read);
+    expect(acme.identity).toBeNull();
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it('replays a compound-name identity from its retained reads, and older evidence without the second read decides nothing wrong', async () => {
+    const company = { name: ADP_NAME, websiteUrl: 'https://www.adp.com' };
+    const live = await resolveListedIdentity(company, reader());
+    const retained = live.receipts;
+    expect(replayListedIdentity(company, retained)).toEqual(live.identity);
+    // Evidence retained before the second read existed: the alias path decides, here to no identity, never a crash.
+    expect(replayListedIdentity(company, retained.slice(0, 1))).toBeNull();
+  });
+
+  it('finds the first part of a name only when there is one', () => {
+    expect(primaryCompanyName('Intuit (QuickBooks Payroll)')).toBe('Intuit');
+    expect(primaryCompanyName('Automatic Data Processing, Inc. / ADP (RUN Powered by ADP)')).toBe('Automatic Data Processing, Inc.');
+    expect(primaryCompanyName('Paychex, Inc.')).toBeNull();
+    expect(primaryCompanyName('Gusto')).toBeNull();
+    expect(primaryCompanyName('(Gusto)')).toBeNull();
   });
 });
 

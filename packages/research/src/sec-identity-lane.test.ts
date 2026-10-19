@@ -18,7 +18,14 @@ const PERIOD = { start: iso(END - 364 * DAY), end: iso(END), filed: iso(END + 30
 const TICKER_MAP = JSON.stringify({
   0: { cik_str: 51143, ticker: 'IBM', title: 'INTERNATIONAL BUSINESS MACHINES CORP' },
   1: { cik_str: 1166663, ticker: 'TEN', title: 'TSAKOS ENERGY NAVIGATION LTD' },
+  2: { cik_str: 1591698, ticker: 'PCTY', title: 'Paylocity Holding Corp' },
+  3: { cik_str: 8670, ticker: 'ADP', title: 'AUTOMATIC DATA PROCESSING INC' },
 });
+/** Filed annual revenue (XBRL) of the exact-name companies, by zero-padded CIK. */
+const NAMED_REVENUE: Record<string, { cik: number; entityName: string; val: number }> = {
+  '0001591698': { cik: 1591698, entityName: 'Paylocity Holding Corp', val: 1651362000 },
+  '0000008670': { cik: 8670, entityName: 'AUTOMATIC DATA PROCESSING INC', val: 20560000000 },
+};
 const FEED = JSON.stringify({
   cik: '0000051143', name: 'INTERNATIONAL BUSINESS MACHINES CORP', tickers: ['IBM'], website: '', investorWebsite: '',
   addresses: { business: { street1: '1 NEW ORCHARD ROAD', city: 'ARMONK', stateOrCountry: 'NY', zipCode: '10504', stateOrCountryDescription: 'NY' } },
@@ -65,6 +72,13 @@ const reader = () => vi.fn(async (url: string): Promise<OriginalSourceReceipt> =
       tag: 'RevenueFromContractWithCustomerExcludingAssessedTax', units: { USD: [{ start: PERIOD.start, end: PERIOD.end,
         val: 62753000000, accn: '0000051143-26-000012', form: '10-K', filed: PERIOD.filed, fp: 'FY' }] } }), { format: 'sec-companyconcept' });
   }
+  const concept = /\/companyconcept\/CIK(\d{10})\/us-gaap\/RevenueFromContractWithCustomerExcludingAssessedTax\.json$/.exec(parsed.pathname + '');
+  const named = concept ? NAMED_REVENUE[concept[1]!] : undefined;
+  if (named) {
+    return ok(JSON.stringify({ cik: named.cik, entityName: named.entityName, taxonomy: 'us-gaap',
+      tag: 'RevenueFromContractWithCustomerExcludingAssessedTax', units: { USD: [{ start: PERIOD.start, end: PERIOD.end,
+        val: named.val, accn: `${concept![1]}-26-000012`, form: '10-K', filed: PERIOD.filed, fp: 'FY' }] } }), { format: 'sec-companyconcept' });
+  }
   return { requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'No fixture' };
 });
 
@@ -88,6 +102,17 @@ it('fills an alias-resolved listed company\'s SEC revenue and filed headquarters
   expect(retained.some((u) => u.includes('query1.finance.yahoo.com/v1/finance/search'))).toBe(true);
   expect(retained.some((u) => u.includes('wikidata.org'))).toBe(true);
   expect(retained).toContain('https://data.sec.gov/submissions/CIK0000051143.json');
+});
+
+it.each([
+  ['Paylocity', 'https://www.paylocity.com', 1651362000],
+  ['Automatic Data Processing, Inc. / ADP (RUN Powered by ADP)', 'https://www.adp.com', 20560000000],
+])('fills a listed company stored as "%s" with its filed annual revenue (the registrant files under a shorter or longer name)', async (name, website, revenue) => {
+  const store = memoryStore(snapshot(name, website));
+  const repo = new GeminiRepository({ apiKey: 'k', store, client, originalSourceReader: reader() });
+  const result = await repo.huntCompanyMetrics('cmp_1');
+  expect(result.filledTypes).toContain('arr');
+  expect((await repo.getCompanyFacts('cmp_1')).find((m) => m.metricType === 'arr')).toMatchObject({ value: revenue, confidence: 'verified' });
 });
 
 it('leaves a same-named company on another domain with nothing from SEC', async () => {
