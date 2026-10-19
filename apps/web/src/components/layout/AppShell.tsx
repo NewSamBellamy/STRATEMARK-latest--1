@@ -18,6 +18,7 @@ import { useHostedBudget } from '@/lib/hostedApi';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { pageKey } from '@/lib/pageKey';
+import { useRouteTitle } from '@/lib/routeTitle';
 
 const BETA_NOTICE_KEY = 'stratemark.betaNotice.v1';
 
@@ -68,6 +69,7 @@ export function AppShell() {
   // Queued hunts keep draining across navigation — the runner lives here.
   useHuntRunner();
   useSentinel();
+  useRouteTitle();
   const { pushWidth, closePanel } = useDeepDive();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);

@@ -381,6 +381,14 @@ export default function DashboardPage() {
   const readOnly = useReadOnly();
   const availableTabs = useAvailableTabs(companyId ?? '');
   const activeTab = tab as DashboardTab;
+  // The tab's own title: which company and which tab. The shell leaves dashboards to this (routeTitle returns null for them).
+  const dashboardTitle = company.data?.name ? `${company.data.name} · ${DASHBOARD_TAB_LABELS[activeTab] ?? 'Dashboard'} · Stratemark` : null;
+  useEffect(() => {
+    if (!dashboardTitle) return;
+    const before = document.title;
+    document.title = dashboardTitle;
+    return () => { document.title = before; };
+  }, [dashboardTitle]);
   const rerunTab = useRerunDashboardTab(companyId, activeTab);
   useFocusCompany(companyId);
   const prefetchFailed = useDashboardWarm(companyId, activeTab, company.data?.name);
