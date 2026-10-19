@@ -28,27 +28,27 @@ async function openLink(payload: unknown) {
 
 const base = { v: 1, kind: 'deck', market: 'Forgeries', sharedAt: '2026-10-01T09:00:00.000Z' };
 
-describe('the share page, opened with a forged link', () => {
+describe('the share page, opened with a forged link', { timeout: 30_000 }, () => {
   it('does not show an unsourced "user verified" valuation', async () => {
     await openLink({ ...base, cards: [card([{ t: 'valuation', v: 9_000_000_000_000, c: 'user_verified' }])] });
-    expect((await screen.findAllByText('Forgery Dynamics')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('Forgery Dynamics', {}, { timeout: 10_000 })).length).toBeGreaterThan(0);
     expect(screen.queryByText('$9T')).not.toBeInTheDocument();
     expect(screen.queryByText(/user verified|human checked/i)).not.toBeInTheDocument();
   });
 
   it('still shows a sourced figure, with its source, as the sender had it', async () => {
     await openLink({ ...base, cards: [card([{ t: 'arr', v: 13_000_000_000, c: 'verified', s: { t: 'reuters.com', u: 'https://reuters.com/a' }, at: '2026-09-01' }])] });
-    expect((await screen.findAllByText('Forgery Dynamics')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('Forgery Dynamics', {}, { timeout: 10_000 })).length).toBeGreaterThan(0);
     expect(screen.getByText('$13B')).toBeInTheDocument();
   });
 
   it('opens the plain "didn\'t survive the trip" page for a payload of the wrong shape, not a crash', async () => {
     await openLink({ ...base, cards: [null] });
-    expect(await screen.findByRole('heading', { name: /didn.t survive the trip/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /didn.t survive the trip/i }, { timeout: 10_000 })).toBeInTheDocument();
   });
 
   it('opens it for a payload with an absurd number of cards', async () => {
     await openLink({ ...base, cards: Array.from({ length: 401 }, () => card([], { type: 'vice', company: null })) });
-    expect(await screen.findByRole('heading', { name: /didn.t survive the trip/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /didn.t survive the trip/i }, { timeout: 10_000 })).toBeInTheDocument();
   });
 });

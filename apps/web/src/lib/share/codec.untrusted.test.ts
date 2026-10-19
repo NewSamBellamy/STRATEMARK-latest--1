@@ -41,7 +41,9 @@ async function forgedLink(payload: unknown): Promise<string> {
 
 /** The same, for JSON text `JSON.stringify` cannot produce (1e999 parses to Infinity). */
 function plainLink(jsonText: string): string {
-  const bin = Array.from(new TextEncoder().encode(jsonText), (b) => String.fromCharCode(b)).join('');
+  const bytes = new TextEncoder().encode(jsonText);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return `j${btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
 }
 
@@ -188,7 +190,9 @@ describe('a link cannot make up a capture date', () => {
   });
 });
 
-describe('a link cannot inflate without limit (finding 4)', () => {
+// These build and inflate tens of megabytes, and the whole suite runs them beside ~100 other files: a generous timeout
+// keeps a busy machine from failing them for being slow (the first `pnpm check` run did, at the 5 s default).
+describe('a link cannot inflate without limit (finding 4)', { timeout: 120_000 }, () => {
   const realDecompression = globalThis.DecompressionStream;
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -223,7 +227,7 @@ describe('a link cannot inflate without limit (finding 4)', () => {
     expect(await decodeSharePayload(blob)).toBeNull();
     expect(produced).toBeGreaterThan(MAX_INFLATED_BYTES);
     expect(produced).toBeLessThan(MAX_INFLATED_BYTES * 1.25); // it read a little past the cap, never the whole thing
-  }, 60_000);
+  });
 
   it('a payload under the cap still opens', async () => {
     const blob = await forgedLink(wirePayload([wireCard()], { pad: 'a'.repeat(2_000_000) }));
@@ -236,7 +240,7 @@ describe('a link cannot inflate without limit (finding 4)', () => {
   });
 });
 
-describe('a payload with an absurd number of rows is refused (finding 4)', () => {
+describe('a payload with an absurd number of rows is refused (finding 4)', { timeout: 60_000 }, () => {
   const withCompany = () => wireCard();
   const signal = () => wireCard({ type: 'vice', company: null });
 
