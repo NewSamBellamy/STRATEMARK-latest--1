@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFil
 import path from 'node:path';
 import { z } from 'zod';
 import { marketSchema, deckSchema, companySchema, companyMetricSchema, cardSchema, viceClaimSchema } from '@mi/contracts';
-import { migrateSnapshot, REPO_SCHEMA_VERSION, type RepoSnapshot, type ResearchStore } from '@mi/research';
+import { migrateSnapshot, prepareImportedSnapshot, REPO_SCHEMA_VERSION, type RepoSnapshot, type ResearchStore } from '@mi/research';
 
 const snapshotSchema = z.object({
   schemaVersion: z.number().int().min(1).max(REPO_SCHEMA_VERSION).optional(),
@@ -24,6 +24,15 @@ export function parseResearchExport(json: string): RepoSnapshot {
     if (raw[field] !== undefined && !Array.isArray(raw[field])) throw new Error(`Invalid ${field} in research export.`);
   }
   return migrateSnapshot(raw as unknown as RepoSnapshot).snapshot;
+}
+
+/**
+ * A file the person picked, ready to become the workspace. Unlike a read of the
+ * saved workspace (parseResearchExport), it carries no process state: a warm-up
+ * or research job recorded in someone else's file is not this machine's to resume.
+ */
+export function parseResearchImport(json: string): RepoSnapshot {
+  return prepareImportedSnapshot(parseResearchExport(json)).snapshot;
 }
 
 /** Atomic replacement with a last-good backup. Persistence failures are visible. */

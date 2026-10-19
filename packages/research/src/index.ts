@@ -20,6 +20,7 @@ export * from './web-search';
 export { originalSupportReferences, selectOriginalSourceAttempts, validatedOriginalSupport, normalizeSourceText } from './original-source';
 export type { OriginalSourceQuery } from './original-source';
 export * from './repository';
+export { MAX_IMPORTED_COMPANIES, prepareImportedSnapshot, type ImportPlan } from './import-snapshot';
 export { METRIC_GATE_VERSION, revalidateStoredMetrics, type RevalidationGate, type RevalidationOutcome, type RevalidatedMetric, type RelabelledMetric } from './revalidate-stored';
 export * from './source-policy';
 export * from './research-evidence';

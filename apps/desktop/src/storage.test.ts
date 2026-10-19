@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sample from '../../web/src/sample/frontier-snapshot.json';
-import { createFileStore, parseResearchExport } from './storage';
+import { createFileStore, parseResearchExport, parseResearchImport } from './storage';
 
 const directories: string[] = [];
 const makeStore = () => {
@@ -51,5 +51,20 @@ describe('desktop research persistence', () => {
   });
   it('rejects malformed optional collections', () => {
     expect(() => parseResearchExport(JSON.stringify({ ...sample, reports: 'invalid' }))).toThrow(/reports/);
+  });
+});
+
+describe('importing a research file on the desktop', () => {
+  const hostile = JSON.stringify({ ...sample, deckWarmup: { [sample.decks[0]!.id]: { startedAt: '2026-01-01T00:00:00Z' } }, deckRun: {}, dashboardWarmup: {} });
+  it('keeps the real sample whole', () => {
+    const imported = parseResearchImport(JSON.stringify(sample));
+    const read = parseResearchExport(JSON.stringify(sample));
+    expect(imported.markets).toEqual(read.markets);
+    expect(imported.companies).toEqual(read.companies);
+    expect(imported.metrics).toEqual(read.metrics);
+  });
+  it('does not carry an unfinished warm-up that would start paid research on launch, while reading the saved workspace still does', () => {
+    expect(parseResearchImport(hostile).deckWarmup).toBeUndefined();
+    expect(parseResearchExport(hostile).deckWarmup).toBeDefined();
   });
 });
