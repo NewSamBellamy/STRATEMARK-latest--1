@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type SettingsTab = 'general' | 'engine' | 'data' | 'usage' | 'pricing';
+export type SettingsTab = 'general' | 'engine' | 'data' | 'usage' | 'about';
 
 interface SettingsModalState {
   isOpen: boolean;
@@ -11,7 +11,7 @@ interface SettingsModalState {
   close: () => void;
 }
 
-const TABS: readonly SettingsTab[] = ['general', 'engine', 'data', 'usage', 'pricing'];
+const TABS: readonly SettingsTab[] = ['general', 'engine', 'data', 'usage', 'about'];
 
 export const useSettingsModal = create<SettingsModalState>((set) => ({
   isOpen: false,
