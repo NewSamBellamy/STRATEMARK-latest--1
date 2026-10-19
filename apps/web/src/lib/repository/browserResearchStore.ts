@@ -1,4 +1,4 @@
-import { migrateSnapshot, isOriginalSourceAttempt, REPO_SCHEMA_VERSION, type RepoSnapshot, type ResearchStore } from '@mi/research';
+import { migrateSnapshot, prepareImportedSnapshot, isOriginalSourceAttempt, REPO_SCHEMA_VERSION, type ImportPlan, type RepoSnapshot, type ResearchStore } from '@mi/research';
 
 const LEGACY = 'mi.repo.v1';
 const CURRENT = `${LEGACY}.committed`;
@@ -120,18 +120,33 @@ async function records(): Promise<Record<string, RecordValue | undefined>> {
   });
 }
 
-/** Prepared asynchronously; read is a detached, acknowledged snapshot only. */
-export async function openBrowserResearchStore(): Promise<ResearchStore> {
+/**
+ * Prepared asynchronously; read is a detached, acknowledged snapshot only.
+ *
+ * `recovering` is for replacing a workspace that cannot be read: it opens one
+ * anyway, as empty, and the unreadable record becomes the backup on the next
+ * save instead of blocking it. Only the restore on the start-up recovery screen
+ * asks for it.
+ */
+export async function openBrowserResearchStore(options: { recovering?: boolean } = {}): Promise<ResearchStore> {
   const found = await records();
   const saved = found[CURRENT];
   if (saved && (!Number.isSafeInteger(saved.revision) || saved.revision < 1)) {
     throw new Error('Your saved research is unreadable. Nothing has been overwritten.');
   }
   let revision = saved?.revision ?? 0;
-  let committed = (await jsonOf(saved)) ?? localStorage.getItem(LEGACY) ?? (await jsonOf(found[LEGACY])) ?? null;
+  let committed: string | null;
+  let initial: RepoSnapshot | null;
+  try {
+    committed = (await jsonOf(saved)) ?? localStorage.getItem(LEGACY) ?? (await jsonOf(found[LEGACY])) ?? null;
+    initial = committed ? parseResearchSnapshot(committed) : null;
+  } catch (cause) {
+    if (!options.recovering) throw cause;
+    committed = null;
+    initial = null;
+  }
   // The committed revision is stored uncompressed (saved before compression, or not yet in IndexedDB at all).
   let plainOnDisk = !saved?.gz;
-  const initial = committed ? parseResearchSnapshot(committed) : null;
   const future = (initial?.schemaVersion ?? 1) > REPO_SCHEMA_VERSION;
   let queue = Promise.resolve();
   // The newest valid write that has not started committing. A mutation burst
@@ -213,21 +228,73 @@ export async function openBrowserResearchStore(): Promise<ResearchStore> {
   };
 }
 
-export async function readBrowserResearchData(): Promise<{ current: string | null; backup: string | null }> {
+/**
+ * The saved research and its backup, as the text they were saved as.
+ * `tolerateUnreadable` is for the recovery screen: a current workspace that
+ * cannot be opened reads as none, and says so, so the backup beside it can still be offered.
+ */
+export async function readBrowserResearchData(options: { tolerateUnreadable?: boolean } = {}): Promise<{ current: string | null; backup: string | null; unreadable?: boolean }> {
   const found = await records();
+  let current: string | null;
+  let unreadable = false;
+  try {
+    current = (await jsonOf(found[CURRENT])) ?? localStorage.getItem(LEGACY) ?? (await jsonOf(found[LEGACY])) ?? null;
+  } catch (cause) {
+    if (!options.tolerateUnreadable) throw cause;
+    current = null;
+    unreadable = true;
+  }
   return {
-    current: (await jsonOf(found[CURRENT])) ?? localStorage.getItem(LEGACY) ?? (await jsonOf(found[LEGACY])) ?? null,
+    current,
     // A damaged backup must not block viewing or exporting a healthy current workspace.
     backup: found[BACKUP] ? await jsonOf(found[BACKUP]).catch(() => null) : localStorage.getItem(`${LEGACY}.backup`),
+    ...(unreadable ? { unreadable } : {}),
   };
 }
 
-export async function installBrowserResearch(json: string): Promise<number> {
+/**
+ * What importing this file would do, worked out without writing anything: the
+ * workspace it would save, what it brings in, and what it leaves out. Throws a
+ * plain message when the file cannot be imported at all.
+ */
+export function planResearchImport(json: string): ImportPlan {
   const incoming = parseResearchSnapshot(json);
   if ((incoming.schemaVersion ?? 1) > REPO_SCHEMA_VERSION) throw new Error('This export requires a newer version of Stratemark.');
-  const store = await openBrowserResearchStore();
-  const active = store.read()?.researchJobs?.some((job) => job.status === 'running' || job.status === 'queued');
+  const plan = prepareImportedSnapshot(incoming);
+  return { ...plan, snapshot: migrateSnapshot(plan.snapshot).snapshot };
+}
+
+/** Saves a planned import as the workspace; the workspace it replaces becomes the backup. */
+export async function installResearchImport(plan: ImportPlan, options: { recovering?: boolean } = {}): Promise<void> {
+  const store = await openBrowserResearchStore(options);
+  // A crashed session leaves its jobs "running" for good, so the recovery screen cannot be held up by them.
+  const active = !options.recovering && store.read()?.researchJobs?.some((job) => job.status === 'running' || job.status === 'queued');
   if (active) throw new Error('Stop active research before replacing this workspace.');
-  await store.write(migrateSnapshot(incoming).snapshot);
-  return incoming.markets.length;
+  await store.write(plan.snapshot);
+}
+
+/** Imports a research file; returns how many decks it brought in. */
+export async function installBrowserResearch(json: string): Promise<number> {
+  const plan = planResearchImport(json);
+  await installResearchImport(plan);
+  return plan.decks;
+}
+
+/**
+ * Deletes the research saved in this browser, its backup included, and nothing
+ * else: the API key and settings stay. For the start-up recovery screen's
+ * "Start fresh", when the saved research cannot be opened at all.
+ */
+export async function clearBrowserResearch(): Promise<void> {
+  try {
+    localStorage.removeItem(LEGACY);
+    localStorage.removeItem(`${LEGACY}.backup`);
+  } catch { /* storage blocked: the IndexedDB copy is the one that matters */ }
+  if (typeof indexedDB === 'undefined') return;
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.deleteDatabase('stratemark.vault');
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(new Error('Saved research could not be deleted.', { cause: request.error }));
+    request.onblocked = () => reject(new Error('Close any other Stratemark windows, then try again.'));
+  });
 }

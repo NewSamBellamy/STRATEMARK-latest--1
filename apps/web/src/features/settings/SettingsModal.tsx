@@ -18,9 +18,10 @@ import {
   Key,
 } from 'lucide-react';
 import { createGeminiClient } from '@mi/research';
-import { exportSnapshot, importSnapshot, marketCountOf } from '@/lib/repository/vault';
+import { exportSnapshot, marketCountOf } from '@/lib/repository/vault';
+import { importQuestion } from '@/lib/repository/importSummary';
 import { OPEN_SOURCE_LAUNCH } from '@/lib/beta';
-import { readBrowserResearchData } from '@/lib/repository/browserResearchStore';
+import { installResearchImport, planResearchImport, readBrowserResearchData } from '@/lib/repository/browserResearchStore';
 import { clearAccess, getAccessProfile } from '@/lib/access';
 import {
   DAILY_REQUEST_CAP,
@@ -437,25 +438,28 @@ function DataSafetyPanel() {
   const backupMarkets = marketCountOf(backup);
   const sizeKb = current ? Math.round(current.length / 1024) : 0;
 
-  const restoreBackup = async () => {
-    if (!backup) return;
-    if (!window.confirm('Replace this workspace with the saved backup? Your current research will become the backup.')) return;
+  /** Works out what the import would do and asks with those numbers; only a yes replaces the workspace. */
+  const replaceWorkspace = async (json: string, what: string, failure: string) => {
     try {
-      await importSnapshot(backup, KEY);
+      const plan = planResearchImport(json);
+      if (!window.confirm(importQuestion(plan, what))) return;
+      await installResearchImport(plan);
       window.location.reload();
     } catch (error) {
-      setMsg(error instanceof Error ? error.message : 'Restore failed; previous saved research is intact.');
+      setMsg(error instanceof Error ? error.message : failure);
     }
   };
 
+  const restoreBackup = async () => {
+    if (!backup) return;
+    await replaceWorkspace(backup, 'the saved backup', 'Restore failed; previous saved research is intact.');
+  };
+
   const onImportFile = async (file: File) => {
-    if (!window.confirm('Replace this workspace with this export? Your current research will become the backup.')) return;
     try {
-      const text = await file.text();
-      await importSnapshot(text, KEY);
-      window.location.reload();
-    } catch (error) {
-      setMsg(error instanceof Error ? error.message : 'Import failed; previous saved research is intact.');
+      await replaceWorkspace(await file.text(), 'this export', 'Import failed; previous saved research is intact.');
+    } catch {
+      setMsg('That file could not be read. Previous saved research is intact.');
     }
   };
 
