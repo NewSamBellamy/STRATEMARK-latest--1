@@ -10,6 +10,7 @@ import { qk } from '@/lib/query/keys';
 import { RepositoryProvider } from '@/lib/repository/RepositoryProvider';
 import { useApiKey } from '@/lib/settings/apiKey';
 import * as usage from '@/lib/usage';
+import { AMBIENT_REST_MS, huntRestKey, isResting, startRest } from './ambientRest';
 import { useResearchControl } from './researchControl';
 import { useLivingDeck } from './useLivingDeck';
 
@@ -32,7 +33,7 @@ async function setup(types: CardType[] = ['company']) {
 }
 
 afterEach(() => {
-  vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs();
+  vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); localStorage.clear();
   useApiKey.setState({ apiKey: '', hasKey: false });
   act(() => useResearchControl.setState({ paused: false }));
 });
@@ -242,6 +243,46 @@ it('still lets the ladder hunt a company whose sweep failed', async () => {
   await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60_000); });
   expect(s.huntCompanyMetrics.mock.calls.filter((c) => !c[1])).toHaveLength(1);
   hook.unmount(); s.client.clear();
+});
+
+it('a company searched on its own rests across page reloads: the next session does not search it again', async () => {
+  const s = await setup();
+  const first = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+  expect(s.huntCompanyMetrics).toHaveBeenCalledTimes(1);
+  expect(isResting(huntRestKey('company-0'))).toBe(true);
+  first.unmount(); s.client.clear();
+  // A reload: a new repository handle, so no in-memory ledger, and the same browser storage.
+  const reloaded = await setup();
+  const second = renderHook(() => useLivingDeck('deck', reloaded.cards, { faceSweep: false }), { wrapper: reloaded.wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
+  expect(reloaded.huntCompanyMetrics).not.toHaveBeenCalled();
+  second.unmount(); reloaded.client.clear();
+  // Days later the company is due one more automatic search.
+  vi.setSystemTime(new Date(Date.now() + AMBIENT_REST_MS + 60_000));
+  const later = await setup();
+  const third = renderHook(() => useLivingDeck('deck', later.cards, { faceSweep: false }), { wrapper: later.wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
+  expect(later.huntCompanyMetrics).toHaveBeenCalledTimes(1);
+  third.unmount(); later.client.clear();
+});
+
+it('the automatic face sweep skips a resting company, a sweep starts its rest, and the button never skips', async () => {
+  const s = await setup();
+  startRest(huntRestKey('company-0'));
+  const hook = renderHook(() => useLivingDeck('deck', s.cards), { wrapper: s.wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60_000); });
+  expect(s.huntCompanyMetrics).not.toHaveBeenCalled();
+  await act(async () => { await hook.result.current.fillCardFaces(); });
+  expect(s.huntCompanyMetrics.mock.calls.length).toBeGreaterThan(0);
+  hook.unmount(); s.client.clear();
+  localStorage.clear();
+  const fresh = await setup();
+  const sweepOnly = renderHook(() => useLivingDeck('deck', fresh.cards), { wrapper: fresh.wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60_000); });
+  expect(fresh.huntCompanyMetrics).toHaveBeenCalled();
+  expect(isResting(huntRestKey('company-0'))).toBe(true);
+  sweepOnly.unmount(); fresh.client.clear();
 });
 
 it('invalidates real card, saved, metric and dashboard queries after recovery', async () => {

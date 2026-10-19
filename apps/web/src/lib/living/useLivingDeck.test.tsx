@@ -37,7 +37,33 @@ it('refreshes saved and individual card evidence after an inconclusive backgroun
   unmount(); client.clear();
 });
 
-afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.restoreAllMocks(); useApiKey.setState({ apiKey: '', hasKey: false }); act(() => useResearchControl.setState({ paused: false, storageError: null })); });
+it('a figure re-checked in one session is not re-checked at once after a page reload', async () => {
+  vi.useFakeTimers();
+  useResearchControl.setState({ paused: false });
+  const session = async () => {
+    const repository = new MockRepository({ seedSnapshot: sample as unknown as SeedSnapshot, latencyMs: 0 });
+    const cards = (await repository.listCards(sample.decks[0]!.id)).filter(c => c.company && c.card.cardType === 'company').slice(0, 1);
+    cards[0]!.metrics = cards[0]!.metrics.map(m => ({ ...m, confidence: 'estimated', lastVerifiedAt: null, lastVerificationAttemptAt: null }));
+    const verifyMetric = vi.fn().mockResolvedValue({ metric: cards[0]!.metrics[0]!, changed: false, verdict: 'unverified', citations: [] });
+    const client = createQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => <RepositoryProvider repository={Object.assign(repository, { verifyMetric })}>
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    </RepositoryProvider>;
+    const { unmount } = renderHook(() => useLivingDeck(sample.decks[0]!.id, cards), { wrapper });
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    unmount(); client.clear();
+    return verifyMetric.mock.calls.map(([input]) => `${(input as { companyId: string }).companyId}:${(input as { metricType: string }).metricType}`);
+  };
+  const first = await session();
+  expect(first).toHaveLength(1);
+  // A reload: new repository handle, same browser storage. Whatever else is due, this figure is not.
+  expect(await session()).not.toContain(first[0]);
+  // Half an hour on, the figure is due its check again.
+  vi.setSystemTime(new Date(Date.now() + 31 * 60_000));
+  expect(await session()).toContain(first[0]);
+});
+
+afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.restoreAllMocks(); localStorage.clear(); useApiKey.setState({ apiKey: '', hasKey: false }); act(() => useResearchControl.setState({ paused: false, storageError: null })); });
 describe('shared background research pause', () => {
   it('does not dispatch refreshes or briefings if pause happens during a scheduled read', async () => {
     vi.useFakeTimers();
