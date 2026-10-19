@@ -34,6 +34,7 @@ import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, reserveMicr
 import type { BudgetCounter } from './budget';
 import { previewFromHtml, type PagePreview } from './preview';
 import type { ShareQuota, ShareVault } from './share-vault';
+import { visitorAddress } from './visitor';
 import {
   SHARE_LIMITS_DEFAULT, SHARE_MAX_BODY_CHARS, SHARE_TTL_DAYS_DEFAULT, goneHtml, newShareId, parseShareCreate, randomToken, sha256Hex, sharePageHtml,
 } from './share-policy';
@@ -182,7 +183,7 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
 
   // Dollar budget: hold this call's worst-case cost before it runs, settle to
   // the real cost (from Google's usage report) after. Exact under bursts.
-  const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
+  const ip = visitorAddress(request.headers.get('cf-connecting-ip'));
   const day = new Date().toISOString().slice(0, 10);
   const grounded = /"google_?search"|"googleSearch"/.test(body);
   const held = reserveMicros(model, grounded, body.length);
@@ -471,7 +472,7 @@ async function shareCreate(request: Request, env: Env, origin: string): Promise<
   const input = parsed.value;
   const bytes = input.data.length + (input.og?.length ?? 0);
   const day = new Date().toISOString().slice(0, 10);
-  const visitor = (await sha256Hex(request.headers.get('cf-connecting-ip') ?? 'unknown')).slice(0, 24);
+  const visitor = (await sha256Hex(visitorAddress(request.headers.get('cf-connecting-ip')))).slice(0, 24);
   const quota = env.SHARE_QUOTA.get(env.SHARE_QUOTA.idFromName('global'));
   const taken = await quota.take(day, visitor, bytes, SHARE_LIMITS_DEFAULT);
   if (!taken.ok) {
@@ -522,7 +523,8 @@ async function shareRead(id: string, env: Env): Promise<Response> {
     v: 1, kind: meta.kind, title: meta.title, description: meta.description, createdAt: meta.createdAt, expiresAt: meta.expiresAt, data,
   }), {
     status: 200,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60', 'Access-Control-Allow-Origin': '*', ...SHARE_HEADERS },
+    // Never kept by a cache: a share its owner stopped must stop being served at once.
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*', ...SHARE_HEADERS },
   });
 }
 
@@ -548,7 +550,7 @@ async function sharePage(request: Request, id: string, env: Env): Promise<Respon
   return new Response(sharePageHtml({
     title: meta.title, description: meta.description, pageUrl: `${base}/s/${id}`,
     imageUrl: meta.hasOg ? `${base}/s/${id}/og.png` : null, viewerUrl: `${meta.viewer}?s=${id}`,
-  }), { status: 200, headers: { ...headers, 'Cache-Control': 'public, max-age=300' } });
+  }), { status: 200, headers: { ...headers, 'Cache-Control': 'no-cache' } });
 }
 
 /** GET /s/:id/og.png: the picture a chat app shows with the link. */
@@ -561,7 +563,7 @@ async function shareOg(id: string, env: Env): Promise<Response> {
   return new Response(bytes, {
     status: 200,
     headers: {
-      'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=3600', 'Content-Security-Policy': "default-src 'none'",
+      'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=300, must-revalidate', 'Content-Security-Policy': "default-src 'none'",
       'Cross-Origin-Resource-Policy': 'cross-origin', ...SHARE_HEADERS,
     },
   });

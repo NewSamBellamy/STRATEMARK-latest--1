@@ -18,6 +18,7 @@ interface DurableObjectStorage {
   put<T>(entries: Record<string, T>): Promise<void>;
   deleteAll(): Promise<void>;
   setAlarm(scheduledTime: number): Promise<void>;
+  deleteAlarm(): Promise<void>;
 }
 interface DurableObjectState { readonly storage: DurableObjectStorage }
 interface DurableObjectId { toString(): string }

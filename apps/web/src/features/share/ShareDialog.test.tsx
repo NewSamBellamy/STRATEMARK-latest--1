@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { useState, type ReactElement } from 'react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { MockRepository } from '@mi/mocks';
 import { renderWithProviders } from '@/test/test-utils';
 import { buildDeckShare } from '@/lib/share/codec';
@@ -86,6 +87,23 @@ describe('Share, where the Worker can store a link', () => {
     expect(screen.getByRole('link', { name: 'Telegram' })).toHaveAttribute('href', expect.stringContaining(encodeURIComponent(created.url)));
     // A short link fits every one-tap destination, which a 29,000-character link never did.
     for (const name of ['Email', 'Telegram', 'WhatsApp', 'Post on X']) expect(screen.getByRole('link', { name })).toBeInTheDocument();
+  });
+
+  it('remembers a link that was made after the dialog was closed, so it can still be stopped', async () => {
+    let release: (response: Response) => void = () => undefined;
+    fetchMock.mockImplementation(() => new Promise<Response>((resolve) => { release = resolve; }));
+    function Closable({ render }: { render: (open: boolean) => ReactElement }) {
+      const [open, setOpen] = useState(true);
+      return <><button type="button" onClick={() => setOpen(false)}>close it</button>{render(open)}</>;
+    }
+    const { repository, ui } = await setup();
+    const { user } = renderWithProviders(<Closable render={ui} />, { repository });
+    await user.click(await screen.findByRole('button', { name: 'Create link' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByText('close it'));
+    release(reply(201, created));
+    await waitFor(() => expect((JSON.parse(localStorage.getItem('mi.shares') ?? '[]') as Array<{ id: string; deleteToken: string }>)[0])
+      .toMatchObject({ id: created.id, deleteToken: created.deleteToken }));
   });
 
   it('reuses the link for research that has not changed, instead of uploading it again', async () => {

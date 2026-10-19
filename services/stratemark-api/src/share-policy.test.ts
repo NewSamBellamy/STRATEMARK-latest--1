@@ -7,7 +7,13 @@ import {
 const ORIGIN = 'https://app.getstratemark.com';
 const VIEWER = `${ORIGIN}/share.html`;
 const DATA = 'A'.repeat(200);
-const PNG = `iVBORw0KGgo${'A'.repeat(40)}`;
+/** A PNG's first bytes (signature and IHDR) at a size, padded: all the Worker looks at. */
+function pngOf(width: number, height: number, padding = 40): string {
+  const be = (n: number) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+  const bytes = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, ...be(width), ...be(height), ...Array(padding).fill(0)];
+  return btoa(String.fromCharCode(...bytes));
+}
+const PNG = pngOf(1200, 630);
 const body = (over: Record<string, unknown> = {}) => ({ v: 1, kind: 'deck', title: 'Meal kits', description: 'Ten companies', viewer: VIEWER, data: DATA, og: PNG, ...over });
 
 describe('what a share request may contain', () => {
@@ -26,7 +32,7 @@ describe('what a share request may contain', () => {
 
   it('refuses a snapshot or a picture that is too large with a plain 413', () => {
     expect(parseShareCreate(body({ data: 'A'.repeat(SHARE_MAX_DATA_CHARS + 1) }), ORIGIN)).toMatchObject({ ok: false, status: 413 });
-    expect(parseShareCreate(body({ og: `iVBORw0KGgo${'A'.repeat(SHARE_MAX_OG_CHARS)}` }), ORIGIN)).toMatchObject({ ok: false, status: 413 });
+    expect(parseShareCreate(body({ og: `${pngOf(1200, 630)}${'A'.repeat(SHARE_MAX_OG_CHARS)}` }), ORIGIN)).toMatchObject({ ok: false, status: 413 });
   });
 
   it('accepts a PNG picture only', () => {
@@ -34,6 +40,27 @@ describe('what a share request may contain', () => {
     expect(parseShareCreate(body({ og: '<script>alert(1)</script>' }), ORIGIN)).toMatchObject({ ok: false });
     expect(parseShareCreate(body({ og: 42 }), ORIGIN)).toMatchObject({ ok: false });
     expect(parseShareCreate(body({ og: undefined }), ORIGIN)).toMatchObject({ ok: true });
+  });
+
+  it('needs a real PNG header and a sane size, not just the first eight bytes', () => {
+    const signatureOnly = `iVBORw0KGgo${'A'.repeat(40)}`;
+    expect(parseShareCreate(body({ og: signatureOnly }), ORIGIN)).toMatchObject({ ok: false, status: 400 });
+    expect(parseShareCreate(body({ og: `iVBORw0KGgo${btoa('arbitrary bytes that are not an image header at all').slice(0, 60)}` }), ORIGIN)).toMatchObject({ ok: false });
+    expect(parseShareCreate(body({ og: pngOf(0, 630) }), ORIGIN)).toMatchObject({ ok: false });
+    expect(parseShareCreate(body({ og: pngOf(1200, 0) }), ORIGIN)).toMatchObject({ ok: false });
+    expect(parseShareCreate(body({ og: pngOf(60000, 60000) }), ORIGIN)).toMatchObject({ ok: false });
+    expect(parseShareCreate(body({ og: pngOf(1200, 630) }), ORIGIN)).toMatchObject({ ok: true });
+    expect(parseShareCreate(body({ og: pngOf(600, 315) }), ORIGIN)).toMatchObject({ ok: true });
+    expect(parseShareCreate(body({ og: 'iVBORw0KGgo' }), ORIGIN)).toMatchObject({ ok: false });
+  });
+
+  it('removes characters that draw nothing or reorder text, so a title cannot read as something it is not', () => {
+    const c = (...codes: number[]) => String.fromCharCode(...codes);
+    const flipped = `Invoice ${c(0x202e)}fdp.exe${c(0x202c)} from ${c(0x200b)}Strate${c(0x200d)}mark${c(0xfeff)}`;
+    expect(cleanText(flipped, 100)).toBe('Invoice fdp.exe from Stratemark');
+    expect(cleanText(`a${c(0x2066)}b${c(0x2069)}c${c(0xad)}d${c(0x2060)}e`, 20)).toBe('abcde');
+    const parsed = parseShareCreate(body({ title: `Deck${c(0x202e)}` }), ORIGIN);
+    expect(parsed.ok && parsed.value.title).toBe('Deck');
   });
 
   it('strips control characters and bounds the text that ends up in a page', () => {

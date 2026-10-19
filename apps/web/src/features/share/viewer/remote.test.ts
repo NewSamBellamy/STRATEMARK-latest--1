@@ -32,10 +32,34 @@ describe('loading a hosted share', () => {
   it('opens a share the Worker holds', async () => {
     const fetcher = vi.fn(async () => json(200, { v: 1, kind: 'deck', data: await packSnapshot(snapshot) }));
     const result = await loadRemoteShare(ID, 'https://api.example.workers.dev', fetcher as unknown as typeof fetch);
-    expect(result).toEqual({ ok: true, snapshot });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Opened as sent, apart from what the receiving gate normalises (a company without a logo gets none, a card its list of sources).
+      expect(result.snapshot).toMatchObject({ v: 1, kind: 'deck', markets: snapshot.markets, decks: snapshot.decks });
+      expect(result.snapshot.companies.map((c) => c.name)).toEqual(['HelloFresh']);
+      expect(result.snapshot.cards.map((c) => c.title)).toEqual(['HelloFresh']);
+    }
     const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe(`https://api.example.workers.dev/v1/share/${ID}`);
     expect(init.credentials).toBe('omit');
+  });
+
+  it('hands the page a sanitised snapshot: a forged "user verified" figure is not one, a script link is not a source', async () => {
+    const hostile = { ...snapshot, metrics: [{ id: 'm1', companyId: 'c1', metricType: 'valuation', value: 987_654_321_000, confidence: 'user_verified', citations: [], source: null }],
+      viceClaims: [{ id: 'v1', cardId: 'k1', claimText: 'Rumour.', sourceTitle: 's', sourceUrl: 'javascript:alert(1)', capturedAt: 'x' }] };
+    const fetcher = vi.fn(async () => json(200, { v: 1, kind: 'deck', data: await packSnapshot(hostile as unknown as ShareSnapshot) }));
+    const result = await loadRemoteShare(ID, 'https://a.example', fetcher as unknown as typeof fetch);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.metrics[0]!.confidence).toBe('estimated');
+      expect(result.snapshot.viceClaims).toEqual([]);
+    }
+  });
+
+  it('refuses a snapshot with more rows than a browser should build', async () => {
+    const huge = { ...snapshot, companies: Array.from({ length: 301 }, (_unused, i) => ({ id: `c${i}`, name: `Company ${i}` })) };
+    const fetcher = vi.fn(async () => json(200, { v: 1, kind: 'deck', data: await packSnapshot(huge as unknown as ShareSnapshot) }));
+    expect(await loadRemoteShare(ID, 'https://a.example', fetcher as unknown as typeof fetch)).toMatchObject({ ok: false, reason: 'unreadable' });
   });
 
   it('says a stopped or expired link is gone', async () => {

@@ -28,8 +28,8 @@ export function toBase64(bytes: Uint8Array): string {
   return btoa(bin);
 }
 
-/** Largest text we will try to inflate: far above any real snapshot, far below what could exhaust memory. */
-export const MAX_INFLATED_BYTES = 64 * 1024 * 1024;
+/** Largest text we will try to inflate: far above any real snapshot (about 3 MB for a deck), far below what could exhaust memory. */
+export const MAX_INFLATED_BYTES = 24 * 1024 * 1024;
 
 /**
  * Pump bytes through a (de)compression stream, reading while writing so backpressure cannot stall it, and stopping

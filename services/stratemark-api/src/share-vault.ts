@@ -36,15 +36,23 @@ export class ShareVault extends DurableObject {
   async put(input: { meta: ShareRecordMeta; data: string; og: string | null; tokenHash: string }): Promise<boolean> {
     if (await this.ctx.storage.get(META)) return false;
     const pieces = chunkText(input.data);
-    for (let i = 0; i < pieces.length; i += BATCH) {
-      const entries: Record<string, string> = {};
-      pieces.slice(i, i + BATCH).forEach((text, j) => { entries[piece(i + j)] = text; });
-      await this.ctx.storage.put(entries);
+    try {
+      // The alarm is set before anything else is written, so no failure can leave pieces that nothing will delete.
+      await this.ctx.storage.setAlarm(input.meta.expiresAt);
+      for (let i = 0; i < pieces.length; i += BATCH) {
+        const entries: Record<string, string> = {};
+        pieces.slice(i, i + BATCH).forEach((text, j) => { entries[piece(i + j)] = text; });
+        await this.ctx.storage.put(entries);
+      }
+      await this.ctx.storage.put({ [TOKEN]: input.tokenHash, ...(input.og ? { [OG]: input.og } : {}) });
+      // The record goes last: until it exists, the share does not.
+      await this.ctx.storage.put(META, { ...input.meta, chunks: pieces.length, hasOg: input.og !== null });
+    } catch (error) {
+      // A share that did not finish is removed whole, so a failed write never leaves research behind that no one can stop.
+      await this.ctx.storage.deleteAll().catch(() => undefined);
+      await this.ctx.storage.deleteAlarm?.().catch(() => undefined);
+      throw error;
     }
-    await this.ctx.storage.put({ [TOKEN]: input.tokenHash, ...(input.og ? { [OG]: input.og } : {}) });
-    // The record goes last: until it exists, the share does not.
-    await this.ctx.storage.put(META, { ...input.meta, chunks: pieces.length, hasOg: input.og !== null });
-    await this.ctx.storage.setAlarm(input.meta.expiresAt);
     return true;
   }
 

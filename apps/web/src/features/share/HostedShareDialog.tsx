@@ -84,8 +84,10 @@ export function HostedShareDialog({
       if (reusable) { setView({ step: 'done', share: reusable }); return; }
       setView({ step: 'working', stage: 'Making the link…' });
       const share = await createHostedShare(snapshot, { renderImage: drawPreview });
-      if (!current()) return;
+      // Remembered whether or not this dialog is still open: a copy on the Worker that no one holds the stop token for
+      // would break the promise that a link can always be stopped.
       rememberShare({ ...share, subject, fingerprint, title });
+      if (!current()) return;
       setView({ step: 'done', share });
     } catch (error) {
       if (current()) setView({ step: 'error', message: error instanceof Error ? error.message : 'The link could not be made.' });

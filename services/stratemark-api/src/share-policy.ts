@@ -46,11 +46,39 @@ export type ShareParse = { ok: true; value: ShareCreate } | { ok: false; error: 
 /** Control characters and the two Unicode line separators, built from code points so no source line carries them. */
 const CONTROL = new RegExp(`[${String.fromCharCode(0)}-${String.fromCharCode(31)}${String.fromCharCode(127)}-${String.fromCharCode(159)}${String.fromCharCode(0x2028)}${String.fromCharCode(0x2029)}]+`, 'g');
 
-/** Printable text only: no control characters, one line, bounded. */
+/**
+ * Characters that draw nothing or reorder what is around them: zero-width and word-joiner marks, the soft hyphen, the
+ * left-to-right and right-to-left marks and overrides and isolates, the byte-order mark. A title that carries them can
+ * read as something it is not (a right-to-left override flips a name), so they are removed, not replaced by a space.
+ */
+const INVISIBLE = new RegExp(`[${[[0xad, 0xad], [0x200b, 0x200f], [0x202a, 0x202e], [0x2060, 0x2064], [0x2066, 0x2069], [0xfeff, 0xfeff]]
+  .map(([from, to]) => `${String.fromCharCode(from!)}-${String.fromCharCode(to!)}`).join('')}]+`, 'g');
+
+/** Printable text only: no control or invisible characters, one line, bounded. */
 export function cleanText(value: unknown, max: number): string {
   if (typeof value !== 'string') return '';
-  const flat = value.replace(CONTROL, ' ').replace(/\s+/g, ' ').trim();
+  const flat = value.replace(INVISIBLE, '').replace(CONTROL, ' ').replace(/\s+/g, ' ').trim();
   return flat.length <= max ? flat : `${flat.slice(0, max - 1).trimEnd()}…`;
+}
+
+/** Largest preview picture, in pixels on a side: the drawn picture is 1200 x 630, so this leaves room and nothing silly. */
+const OG_MAX_SIDE = 2400;
+
+/**
+ * A PNG's size from the start of its base64: the 8-byte signature, then the IHDR chunk (length 13, name, width, height).
+ * Null when those 24 bytes are not a PNG header, so arbitrary bytes cannot be served as an image.
+ */
+export function pngDimensions(base64: string): { width: number; height: number } | null {
+  if (base64.length < 32) return null;
+  let bin: string;
+  try { bin = atob(base64.slice(0, 32)); } catch { return null; }
+  const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (!signature.every((byte, i) => bytes[i] === byte)) return null;
+  if (!(bytes[8] === 0 && bytes[9] === 0 && bytes[10] === 0 && bytes[11] === 13)) return null;
+  if (String.fromCharCode(bytes[12]!, bytes[13]!, bytes[14]!, bytes[15]!) !== 'IHDR') return null;
+  const be = (at: number) => (((bytes[at]! << 24) | (bytes[at + 1]! << 16) | (bytes[at + 2]! << 8) | bytes[at + 3]!) >>> 0);
+  return { width: be(16), height: be(20) };
 }
 
 /** The viewer is a static page named share.html, with no query or hash, on the origin that asked. */
@@ -78,8 +106,11 @@ export function parseShareCreate(body: unknown, requestOrigin: string): SharePar
   let og: string | null = null;
   if (b.og !== null && b.og !== undefined) {
     if (typeof b.og !== 'string' || b.og.length > SHARE_MAX_OG_CHARS) return { ok: false, error: 'The preview picture is too large.', status: 413 };
-    // "iVBORw0KGgo" is the base64 of the PNG signature: refuse anything that is not a PNG.
-    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b.og) || !b.og.startsWith('iVBORw0KGgo')) return { ok: false, error: 'The preview picture must be a PNG.', status: 400 };
+    // Refuse anything that is not a PNG with a real header and a sane size.
+    const size = /^[A-Za-z0-9+/]+={0,2}$/.test(b.og) ? pngDimensions(b.og) : null;
+    if (!size || size.width < 1 || size.height < 1 || size.width > OG_MAX_SIDE || size.height > OG_MAX_SIDE) {
+      return { ok: false, error: 'The preview picture must be a PNG.', status: 400 };
+    }
     og = b.og;
   }
   return { ok: true, value: { kind: b.kind, title, description: cleanText(b.description, 300), viewer, data, og } };

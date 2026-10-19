@@ -27,6 +27,7 @@ function fakeStorage() {
     },
     put: async (a: string | Record<string, unknown>, b?: unknown) => {
       const entries = typeof a === 'string' ? { [a]: b } : a;
+      if (storage.failOn && Object.keys(entries).some((key) => storage.failOn!(key))) throw new Error('storage failed');
       if (Object.keys(entries).length > 128) throw new Error('too many keys');
       for (const [k, v] of Object.entries(entries)) {
         if (typeof v === 'string' && v.length > 131_072) throw new Error('value too large');
@@ -34,6 +35,8 @@ function fakeStorage() {
       }
     },
     deleteAll: async () => { map.clear(); alarm = null; },
+    deleteAlarm: async () => { alarm = null; },
+    failOn: null as null | ((key: string) => boolean),
     setAlarm: async (t: number) => { alarm = t; },
     alarmAt: () => alarm,
   };
@@ -74,6 +77,26 @@ describe('ShareVault', () => {
     expect(await v.meta()).toBeNull();
     expect(await v.data()).toBeNull();
     expect(await v.og()).toBeNull();
+  });
+
+  it('leaves nothing behind when a write fails part-way, and the alarm was set first', async () => {
+    for (const failingKey of ['d3', 'token', 'meta']) {
+      const { storage, vault: v } = vault();
+      storage.failOn = (key) => key === failingKey;
+      await expect(v.put({ meta: META, data: 'z'.repeat(450_000), og: 'iVBORw0KGgoAAAA', tokenHash: 'h' })).rejects.toThrow('storage failed');
+      expect(storage.map.size, failingKey).toBe(0);
+      expect(storage.alarmAt(), failingKey).toBeNull();
+      expect(await v.meta()).toBeNull();
+    }
+    // The alarm is the first thing written: a share that fails after the alarm is deleted by it as well.
+    const { storage, vault: v } = vault();
+    const order: string[] = [];
+    const setAlarm = storage.setAlarm;
+    storage.setAlarm = async (t: number) => { order.push('alarm'); await setAlarm(t); };
+    const put = storage.put;
+    storage.put = (async (a: string | Record<string, unknown>, b?: unknown) => { order.push('put'); await put(a, b); }) as typeof storage.put;
+    await v.put({ meta: META, data: 'a'.repeat(100), og: null, tokenHash: 'h' });
+    expect(order[0]).toBe('alarm');
   });
 
   it('refuses to serve a share with a missing piece rather than a short one', async () => {

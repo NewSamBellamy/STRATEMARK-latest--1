@@ -44,6 +44,11 @@ one click away: "Use a private link instead".
   from the share Worker (the id's exact shape, `GET` only, nothing else the Worker serves). Pictures the page
   shows as images (page captures, publisher pictures, favicons) load from their public sources, which see the
   viewer's address as with any web page.
+- **A share is not trusted as it arrives.** Anyone can make one, so the viewer re-checks it: a figure keeps only the
+  verification its sources earn (a "user verified" claim from a share is never honoured), a risk with no clickable
+  source is dropped, links must be plain web addresses, the live-site embed is never offered, and a share with
+  hundreds of companies or thousands of figures is refused instead of built. The page also carries a content-security
+  policy that limits where it can call. (`lib/share/receive.ts`, `features/share/viewer/csp.ts`)
 - **A signal card (culture, risk, insight, barrier) never borrows a company**: no company name, figures or tabs
   travel with it, and its preview picture does not draw them.
 - **The preview picture shows what the card face shows**: a verified figure with a source, or one a person

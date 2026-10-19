@@ -30,10 +30,20 @@ sent on to the viewer (`share.html?s=<id>` on the app's own address), and the vi
 id. The owner can stop a share at any time from the Share dialog (the token stays in that browser).
 
 Limits, all in `src/share-policy.ts`: 2 MB of compressed research (a real 18-company deck is about 180 KB), a
-500 KB picture, 20 shares and 40 MB per visitor per UTC day, 3,000 shares per day in all. The viewer address
+500 KB picture (it must be a real PNG with a sane size), 20 shares and 40 MB per visitor per UTC day, 3,000
+shares per day in all. A visitor is an IPv4 address or an IPv6 /64 (`src/visitor.ts`), for these limits and for
+the dollar budget alike, because one machine on IPv6 can rotate through a whole /64 at will. Nothing a stopped
+share left behind is cached: the research and the link page are `no-store`/`no-cache`, the picture lives five
+minutes. Text a sender types is stripped of control and direction-changing characters. The viewer address
 must be a `share.html` on the same allowed origin that made the request, so a share cannot send a visitor
 somewhere else. Every sender-typed string is stripped of control characters and escaped in the one HTML page
 the Worker writes, which has no script and a locked-down content policy.
+
+What a visitor sees is not what the sender sent. The viewer holds a share to the same rules as the app's own research
+(`apps/web/src/lib/share/receive.ts`): a figure is only as verified as its sources make it, "user verified" is never
+honoured (no person on that machine checked it), an allegation with no clickable source is dropped, every link must be
+a plain web address, and the live-site embed is never offered. The share page also carries its own content-security
+policy (`features/share/viewer/csp.ts`): it may call only itself, the public reference sources and this Worker.
 
 Privacy: this is the one thing the Worker stores. It is created only when a person presses "Create link", the
 dialog says so, and the beta page says so. Everything else passes through and is never stored or logged.

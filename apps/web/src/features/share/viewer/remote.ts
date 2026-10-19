@@ -4,6 +4,7 @@
  * one GET, to the one address the page's guard allows, and nothing else.
  */
 import type { ShareSnapshot } from '@mi/contracts';
+import { receiveSnapshot } from '@/lib/share/receive';
 import { unpackSnapshotText } from '@/lib/share/wire';
 import { isShareSnapshot } from './embedded';
 
@@ -40,7 +41,7 @@ export async function loadRemoteShare(id: string, apiUrl: string, fetcher: typeo
     const body = await response.json() as { data?: unknown };
     const text = typeof body.data === 'string' ? await unpackSnapshotText(body.data) : null;
     const parsed: unknown = text === null ? null : JSON.parse(text);
-    if (isShareSnapshot(parsed)) return { ok: true, snapshot: parsed };
+    if (isShareSnapshot(parsed)) return { ok: true, snapshot: receiveSnapshot(parsed) };
   } catch {
     /* fall through to unreadable */
   }
