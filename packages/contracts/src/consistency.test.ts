@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   auditDeckConsistency,
   verificationTargetsFrom,
+  unitSlipFactor,
   SHARE_SUM_WARNING_PCT,
   type ConsistencyCompanyInput,
 } from './consistency';
@@ -159,10 +160,184 @@ describe('verificationTargetsFrom', () => {
     const targets = verificationTargetsFrom(auditDeckConsistency(deck));
     // Critical targets (share sum + valuation_below_arr) come before the warning.
     expect(targets[0]).toEqual({ companyId: 'a', metricType: 'market_share' });
+    // The warning (absurd revenue per head) names 'a:employees', but a warning never queues a paid re-check.
+    expect(targets.some((t) => t.metricType === 'employees')).toBe(false);
     // 'a:arr' appears exactly once even though two findings name it.
     expect(targets.filter((t) => t.companyId === 'a' && t.metricType === 'arr')).toHaveLength(1);
     // No duplicates at all.
     const keys = targets.map((t) => `${t.companyId}:${t.metricType}`);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe('a market cap against revenue, and against a second figure that should agree', () => {
+  it('does not call revenue far above a LISTED market cap an error: $47B revenue on a $1.4B cap is a note', () => {
+    const deck = [
+      company('d', 'Distressed Holdings', [
+        { metricType: 'arr', value: 47_000_000_000 },
+        { metricType: 'market_cap', value: 1_400_000_000 },
+      ]),
+    ];
+    const findings = auditDeckConsistency(deck);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ code: 'valuation_below_arr', severity: 'warning', metricTypes: ['arr', 'market_cap'] });
+    // A warning is shown, never re-checked at a cost.
+    expect(verificationTargetsFrom(findings)).toEqual([]);
+  });
+
+  it('is an error only above 1000x, a unit slip no business can be', () => {
+    const slip = auditDeckConsistency([
+      company('s', 'Slip Inc', [
+        { metricType: 'arr', value: 47_000_000_000 },
+        { metricType: 'market_cap', value: 40_000_000 },
+      ]),
+    ]);
+    expect(slip).toHaveLength(1);
+    expect(slip[0]).toMatchObject({ code: 'valuation_below_arr', severity: 'critical' });
+    expect(verificationTargetsFrom(slip)).toEqual([
+      { companyId: 's', metricType: 'arr' },
+      { companyId: 's', metricType: 'market_cap' },
+    ]);
+    // Exactly 1000x is not above it.
+    const edge = auditDeckConsistency([
+      company('e', 'Edge Inc', [
+        { metricType: 'arr', value: 40_000_000_000 },
+        { metricType: 'market_cap', value: 40_000_000 },
+      ]),
+    ]);
+    expect(edge[0]?.severity).toBe('warning');
+  });
+
+  it('notes a gap of exactly 10x, and says nothing below it', () => {
+    const tenfold = auditDeckConsistency([
+      company('t', 'Tenfold', [
+        { metricType: 'arr', value: 50_000_000_000 },
+        { metricType: 'market_cap', value: 5_000_000_000 },
+      ]),
+    ]);
+    expect(tenfold).toHaveLength(1);
+    expect(tenfold[0]).toMatchObject({ code: 'valuation_below_arr', severity: 'warning' });
+    const ninefold = auditDeckConsistency([
+      company('n', 'Ninefold', [
+        { metricType: 'arr', value: 45_000_000_000 },
+        { metricType: 'market_cap', value: 5_000_000_000 },
+      ]),
+    ]);
+    expect(ninefold).toEqual([]);
+  });
+
+  it('judges the market cap whether or not a valuation is also stored, and never divides by zero', () => {
+    const both = auditDeckConsistency([
+      company('b', 'Both', [
+        { metricType: 'arr', value: 47_000_000_000 },
+        { metricType: 'valuation', value: 60_000_000_000 },
+        { metricType: 'market_cap', value: 1_400_000_000 },
+      ]),
+    ]);
+    expect(both).toHaveLength(1);
+    expect(both[0]).toMatchObject({ code: 'valuation_below_arr', severity: 'warning', metricTypes: ['arr', 'market_cap'] });
+    const zero = auditDeckConsistency([
+      company('z', 'Zero', [
+        { metricType: 'arr', value: 1_000_000_000 },
+        { metricType: 'market_cap', value: 0 },
+      ]),
+    ]);
+    expect(zero).toEqual([]);
+  });
+
+  it.each([10, 100, 1000] as const)('flags a market cap and a valuation that differ by exactly %ix, whichever is larger', (factor) => {
+    for (const [cap, valuation] of [[7_000_000_000, 7_000_000_000 * factor], [7_000_000_000 * factor, 7_000_000_000]] as const) {
+      const findings = auditDeckConsistency([
+        company('m', 'Megacorp', [
+          { metricType: 'market_cap', value: cap },
+          { metricType: 'valuation', value: valuation },
+        ]),
+      ]);
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toMatchObject({ code: 'figures_differ_by_power_of_ten', severity: 'critical', metricTypes: ['valuation', 'market_cap'] });
+      expect(findings[0]?.message).toContain(`${factor}×`);
+      // A critical finding does queue the re-check that would settle which figure slipped.
+      expect(verificationTargetsFrom(findings)).toEqual([
+        { companyId: 'm', metricType: 'valuation' },
+        { companyId: 'm', metricType: 'market_cap' },
+      ]);
+    }
+  });
+
+  it('catches the 100x slip: a $70B market cap against a $700M valuation', () => {
+    const findings = auditDeckConsistency([
+      company('p', 'Public Co', [
+        { metricType: 'market_cap', value: 70_000_000_000 },
+        { metricType: 'valuation', value: 700_000_000 },
+      ]),
+    ]);
+    expect(findings.map((f) => f.code)).toEqual(['figures_differ_by_power_of_ten']);
+  });
+
+  it('catches a revenue stored two ways that differ by 100x: $2.2B ARR against $220B revenue on a $70B market cap', () => {
+    const findings = auditDeckConsistency([
+      company('r', 'Revenue Co', [
+        { metricType: 'arr', value: 2_200_000_000 },
+        { metricType: 'revenue', value: 220_000_000_000 },
+        { metricType: 'market_cap', value: 70_000_000_000 },
+      ]),
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ code: 'figures_differ_by_power_of_ten', severity: 'critical', metricTypes: ['arr', 'revenue'] });
+  });
+
+  it('allows 2% either side of a power of ten and nothing else', () => {
+    expect(unitSlipFactor(1, 10)).toBe(10);
+    expect(unitSlipFactor(10.2, 1)).toBe(10);
+    expect(unitSlipFactor(1, 9.8)).toBe(10);
+    expect(unitSlipFactor(1, 10.21)).toBeNull();
+    expect(unitSlipFactor(1, 9.79)).toBeNull();
+    expect(unitSlipFactor(3, 300)).toBe(100);
+    expect(unitSlipFactor(2, 2000)).toBe(1000);
+    for (const ratio of [1, 2, 5, 33.6, 50, 1500, 10_000]) expect(unitSlipFactor(1, ratio), `${ratio}`).toBeNull();
+    expect(unitSlipFactor(0, 10)).toBeNull();
+    expect(unitSlipFactor(-1, -10)).toBeNull();
+  });
+
+  it('reads a revenue figure stored as revenue the way it reads ARR', () => {
+    const findings = auditDeckConsistency([
+      company('v', 'Revenue Only', [
+        { metricType: 'revenue', value: 65_000_000_000 },
+        { metricType: 'valuation', value: 40_000_000_000 },
+      ]),
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ code: 'valuation_below_arr', severity: 'critical', metricTypes: ['revenue', 'valuation'] });
+  });
+});
+
+describe('a warning never queues a paid re-check', () => {
+  it('queues nothing for shares a little over 100% or for an implausible revenue per head', () => {
+    const shares = auditDeckConsistency([
+      company('a', 'Alpha', [{ metricType: 'market_share', value: 61.7 }]),
+      company('b', 'Beta', [{ metricType: 'market_share', value: 40 }]),
+    ]);
+    expect(shares.map((f) => f.severity)).toEqual(['warning']);
+    expect(verificationTargetsFrom(shares)).toEqual([]);
+    const perHead = auditDeckConsistency([
+      company('y', 'Ypsilon', [
+        { metricType: 'arr', value: 65_000_000_000 },
+        { metricType: 'employees', value: 3_000 },
+      ]),
+    ]);
+    expect(perHead.map((f) => f.severity)).toEqual(['warning']);
+    expect(verificationTargetsFrom(perHead)).toEqual([]);
+  });
+
+  it('queues only the critical findings from a mixed deck', () => {
+    const findings = auditDeckConsistency([
+      company('a', 'Alpha', [
+        { metricType: 'arr', value: 65_000_000_000 },
+        { metricType: 'employees', value: 100 },
+        { metricType: 'market_cap', value: 1_400_000_000 },
+      ]),
+    ]);
+    expect(findings.map((f) => f.severity).sort()).toEqual(['warning', 'warning']);
+    expect(verificationTargetsFrom(findings)).toEqual([]);
   });
 });
