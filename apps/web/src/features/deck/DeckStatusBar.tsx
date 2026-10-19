@@ -230,8 +230,15 @@ export function DeckStatusBar({
   };
 
   // ── The detail ──
+  // A shortfall noted when the deck was created is re-counted against the cards the deck holds now: signal cards are
+  // topped up after creation, and a note saying "found 2" beside a tab that shows 9 is wrong.
   const coverage = (job?.warnings ?? []).filter((warning) =>
-    /coverage shortfall|remained below|skipped \d+ results|no sourced barriers/i.test(warning));
+    /coverage shortfall|remained below|skipped \d+ results|no sourced barriers/i.test(warning)).flatMap((warning) => {
+    const match = /^Coverage shortfall for (\w+): found (\d+), minimum is (\d+)\./i.exec(warning);
+    if (!match) return [warning];
+    const now = Math.max(Number(match[2]), cards.filter((c) => c.card.cardType === match[1]!.toLowerCase()).length);
+    return now >= Number(match[3]) ? [] : [`Coverage shortfall for ${match[1]}: found ${now}, minimum is ${match[3]}.`];
+  });
   const activity: LogRow[] = phase === 'creating' && session?.running
     ? [...session.logLines].reverse().slice(0, 40).map((message, i) => ({ key: `s${i}`, message, at: null, repeats: 1 }))
     : living.events.slice(0, 30).map((e) => ({
