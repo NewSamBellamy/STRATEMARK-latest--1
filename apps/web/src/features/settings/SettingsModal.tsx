@@ -354,7 +354,7 @@ function EngineTab() {
             <span>Stratemark Cloud</span>
             {isPro && <span className="chip border-emerald-300 bg-emerald-50 text-emerald-700 text-[10px] py-0 px-1.5">Default (Pro)</span>}
           </div>
-          <p className="mt-2 text-xs text-muted leading-relaxed">
+          <p className={`mt-2 text-xs leading-relaxed ${engine === 'cloud' ? 'text-content/75' : 'text-muted'}`}>
             Research runs on our servers, so you don’t need your own key. Some features (briefings, reports, fact-checks) aren’t available here yet.
           </p>
         </button>
@@ -373,7 +373,7 @@ function EngineTab() {
             <Cpu className="h-4 w-4 text-muted" />
             <span>Local Engine</span>
           </div>
-          <p className="mt-2 text-xs text-muted leading-relaxed">
+          <p className={`mt-2 text-xs leading-relaxed ${engine === 'local' ? 'text-content/75' : 'text-muted'}`}>
             Runs grounded search directly in your local browser / desktop client using your connected Gemini API key.
           </p>
         </button>

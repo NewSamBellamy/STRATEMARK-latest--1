@@ -188,14 +188,6 @@ function IntelRow({
         item.stale && 'opacity-60',
       )}
       onClick={onOpen}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onOpen();
-        }
-      }}
     >
       <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
@@ -231,7 +223,11 @@ function IntelRow({
           {item.sentiment}
         </span>
       </div>
-      <p className="mt-1.5 font-medium text-content">{item.title}</p>
+      {/* The row opens on a click anywhere; keyboard and screen-reader users get the same through the headline,
+          a real button (a row that is itself a button cannot hold the source link). */}
+      <p className="mt-1.5 font-medium text-content">
+        <button type="button" className="text-left" onClick={(e) => { e.stopPropagation(); onOpen(); }}>{item.title}</button>
+      </p>
       {item.summary && <p className="mt-0.5 line-clamp-2 text-sm text-muted">{item.summary}</p>}
       {item.stale && (
         <p className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-700">
