@@ -164,10 +164,14 @@ const now = (): string => new Date().toISOString();
  * Normalizes claim titles to facilitate semantic deduplication.
  */
 export function normalizeClaimTitle(title: string): string {
+  // Letters and digits of any script count: stripping everything outside a-z turned every title written in Japanese,
+  // Arabic, Cyrillic or Greek into the empty key, and a card with an empty key is dropped (a whole market lost its cards).
+  // Accents are removed so "Café" and "Cafe" are one title.
   return title
+    .normalize('NFKD')
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
+    .replace(/[^\p{L}\p{N}]/gu, '');
 }
 
 /**

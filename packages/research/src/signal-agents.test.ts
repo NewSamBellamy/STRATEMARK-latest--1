@@ -175,6 +175,17 @@ describe('Signal Agents Deep Module', () => {
       expect(normalizeClaimTitle('')).toBe('');
     });
 
+    it('keeps titles written in any script, so a market in Japanese or Arabic does not lose every card', () => {
+      for (const title of ['参入障壁が高い', 'ارتفاع تكلفة الدخول', 'Высокие барьеры входа', 'Υψηλά εμπόδια εισόδου']) {
+        expect(normalizeClaimTitle(title), title).not.toBe('');
+      }
+      // Different titles stay different, and the same one with other case, punctuation or accents is one.
+      expect(normalizeClaimTitle('参入障壁が高い')).not.toBe(normalizeClaimTitle('規制が厳しい'));
+      expect(normalizeClaimTitle('Высокие барьеры входа!')).toBe(normalizeClaimTitle(' высокие  БАРЬЕРЫ входа '));
+      expect(normalizeClaimTitle('Café economics')).toBe(normalizeClaimTitle('Cafe Economics'));
+      expect(deduplicateClaims([{ title: '参入障壁が高い' }, { title: '規制が厳しい' }, { title: '参入障壁が高い。' }], 10).map((c) => c.title)).toEqual(['参入障壁が高い', '規制が厳しい']);
+    });
+
     it('deduplicates claims preserving order and capping at limit', () => {
       const claims = [
         { title: 'High Capital Intensity', summary: 'A' },
