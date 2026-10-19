@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { localGeminiPlugin } from '../../../local-gemini-plugin';
+import { isUndiciPauseAssertion, localGeminiPlugin } from '../../../local-gemini-plugin';
 
 describe('guarded development Gemini bridge', () => {
   async function run(action: (origin: string, upstream: ReturnType<typeof vi.fn>) => Promise<void>) {
@@ -42,4 +42,24 @@ describe('guarded development Gemini bridge', () => {
     expect((await fetch(`${origin}/__stratemark/gemini/arbitrary-host`, { method: 'POST', headers: headers(origin), body: '{}' })).status).toBe(404);
     expect(upstream).not.toHaveBeenCalled();
   }));
+});
+
+describe('a Node/undici socket assertion after an aborted request', () => {
+  const undici = () => Object.assign(new Error('The expression evaluated to a falsy value:\n\n  assert(!this.paused)\n'), {
+    name: 'AssertionError', stack: 'AssertionError [ERR_ASSERTION]: assert(!this.paused)\n    at Parser.finish (node:internal/deps/undici/undici:7380:9)' });
+
+  it('is recognised, and nothing else is', () => {
+    expect(isUndiciPauseAssertion(undici())).toBe(true);
+    expect(isUndiciPauseAssertion(new Error('assert(!this.paused)'))).toBe(false);
+    expect(isUndiciPauseAssertion(Object.assign(new Error('assert(!this.paused)'), { name: 'AssertionError', stack: 'at somewhereElse.ts:1' }))).toBe(false);
+    expect(isUndiciPauseAssertion(Object.assign(new Error('another assertion'), { name: 'AssertionError', stack: 'undici' }))).toBe(false);
+    expect(isUndiciPauseAssertion('assert(!this.paused)')).toBe(false);
+  });
+
+  it('is guarded once per process, however many times the plugin starts', () => {
+    const before = process.listenerCount('uncaughtException');
+    const start = () => (localGeminiPlugin().configureServer as (server: unknown) => void)({ middlewares: { use: () => undefined } });
+    start(); start(); start();
+    expect(process.listenerCount('uncaughtException') - before).toBeLessThanOrEqual(1);
+  });
 });
