@@ -34,7 +34,7 @@ function sentences(value: string | null | undefined): string[] {
 const ABBREVIATION_END = /(?:\b(?:[A-Z]\.){1,3}|\b(?:v|vs|Inc|Corp|Co|Ltd|LLC|PLC|Mr|Mrs|Ms|Dr|St|No|Jr|Sr|Mt|Fig|e\.g|i\.e)\.)$/;
 
 /** Where a long sentence can stop and still be a whole thought: just before a phrase that is added on to it. */
-const SOFT_BREAK = /,?\s+(?=(?:while|whereas|which|supported by|guided by|driven by|backed by|including|as well as|along with|with (?:a|an|the)|by (?:providing|offering|delivering|operating)|focused on|centered on)\s)/gi;
+const SOFT_BREAK = /,?\s+(?=(?:while|whereas|which|(?:that|who) (?:provides?|offers?|delivers?|develops?|designs?|makes?|sells?|operates?)|providing|offering|delivering|developing|and (?:leading|the|a|an)|supported by|guided by|driven by|backed by|including|as well as|along with|with (?:a|an|the)|by (?:providing|offering|delivering|operating)|focused on|centered on)\s)/gi;
 
 /**
  * A line for the face of a card: the whole sentences that fit, else one long sentence cut at its last clause, else at a

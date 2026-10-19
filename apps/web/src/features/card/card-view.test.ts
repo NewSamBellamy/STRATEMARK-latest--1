@@ -423,6 +423,10 @@ describe('fitFaceLine: card-face text that never stops mid-thought', () => {
     expect(fitFaceLine(goodleap, 200)).toBe('GoodLeap, LLC states its mission is "to connect a world in which everyone can live sustainably,"…');
     const momentum = 'Momentum Solar states its mission is to enable customers to take control of rising electricity costs and achieve freedom from fossil fuels through clean energy, while building an energetic and mission-driven culture.';
     expect(fitFaceLine(momentum, 200)).toBe('Momentum Solar states its mission is to enable customers to take control of rising electricity costs and achieve freedom from fossil fuels through clean energy…');
+    // The one-line description under the name, cut at 120 characters.
+    expect(fitFaceLine('Momentum Solar is a full-service residential solar contractor that provides direct-to-consumer design and installation of solar systems across the United States.', 120)).toBe('Momentum Solar is a full-service residential solar contractor…');
+    expect(fitFaceLine('GoodLeap is a leading fintech point-of-sale platform providing point-of-sale financing for residential solar and home improvement projects.', 120)).toBe('GoodLeap is a leading fintech point-of-sale platform…');
+    expect(fitFaceLine('Enphase Energy is a global energy technology company and leading North American supplier of microinverter-based solar and battery systems.', 120)).toBe('Enphase Energy is a global energy technology company…');
     // Nothing to break on: the old rule still applies.
     expect(fitFaceLine('Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega', 60)!.endsWith('…')).toBe(true);
   });
