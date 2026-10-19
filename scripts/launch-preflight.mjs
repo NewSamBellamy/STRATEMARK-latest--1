@@ -83,6 +83,14 @@ check('a real share is made, read back every way, stopped, and the refusals hold
 console.log(`\nApp  ${app}`);
 const index = await get(`${app}/`);
 check('the app\'s address serves the app', index.response?.status === 200 && /<div id="root"/.test(index.text), index.error ?? String(index.response?.status));
+// Headers the hosting is meant to send (firebase.json): warnings, not failures, since the app may be served by something else.
+if (index.response) {
+  const sent = (name) => index.response.headers.get(name) ?? '';
+  if (/nosniff/i.test(sent('x-content-type-options'))) ok('the app is served with X-Content-Type-Options: nosniff');
+  else warn('the app is not served with X-Content-Type-Options: nosniff', 'deploy firebase.json (hosting headers), or add it where the app is hosted');
+  if (/no-cache|no-store|max-age=0/i.test(sent('cache-control'))) ok('the app page is revalidated on every visit, so a fix reaches people at once');
+  else warn('the app page can be cached by a browser, so a fix may take up to an hour to reach people', `cache-control: ${sent('cache-control') || '(none)'}`);
+}
 const share = await get(`${app}/share.html`);
 check('the share viewer is deployed (share.html)', share.response?.status === 200 && /stratemark-share-data/.test(share.text), String(share.response?.status));
 check('the share viewer carries its content-security policy and may call this Worker', /http-equiv="Content-Security-Policy"/.test(share.text) && share.text.includes(new URL(worker).origin),
