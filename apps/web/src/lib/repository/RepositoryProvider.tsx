@@ -19,6 +19,7 @@ import { HOSTED_KEY } from '@/lib/hostedApi';
 import { IpcRepository, isElectron } from './ipc-repository';
 import { SentinelRepository } from './SentinelRepository';
 import { openBrowserResearchStore } from './browserResearchStore';
+import { RecoveryActions } from '@/components/states/StartupRecovery';
 import { QUOTA_PRESETS, useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
 import { currentWebSearch } from '@/lib/settings/searchKey';
@@ -176,7 +177,7 @@ export function RepositoryProvider({
       live = false;
     };
   }, [repository, apiKey, model, engine, quotaPreset, judgeModel, retry]);
-  if (error) return <div role="alert" className="m-8 space-y-3 text-content"><p>{error}</p><p>Your existing research has not been deleted.</p><button className="btn-ghost" onClick={() => setRetry((n) => n + 1)}>Retry</button></div>;
+  if (error) return <div role="alert" className="m-8 space-y-3 text-content"><p>{error}</p><p>Your existing research has not been deleted.</p><button className="btn-ghost" onClick={() => setRetry((n) => n + 1)}>Retry</button><RecoveryActions /></div>;
   if (!value) return <p role="status" className="m-8 text-muted">Opening your research…</p>;
   return (
     <RepositoryModeContext.Provider value={mode}>
