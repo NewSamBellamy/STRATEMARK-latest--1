@@ -27,6 +27,15 @@ class_name = "ShareQuota"
 tag = "v2"
 new_sqlite_classes = ["ShareVault", "ShareQuota"]
 
+# Per-visitor read limits: one object per visitor (named by a hash of its address), so no single object is a hotspot.
+[[durable_objects.bindings]]
+name = "READER_QUOTA"
+class_name = "ReaderQuota"
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["ReaderQuota"]
+
 [vars]
 # Browser origins allowed to call the API (full origins or *.host wildcards).
 # Never add a shared-hosting wildcard like *.pages.dev: anyone could host a page there.

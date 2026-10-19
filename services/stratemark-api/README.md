@@ -18,7 +18,25 @@ share links people create.
 | `GET /health` | status, budget and keys (shape only, never the key) |
 
 Everything except `GET /health`, `GET /s/...` and `GET /v1/share/<id>` requires a browser `Origin` on the
-allow-list (`ALLOWED_ORIGINS`). Origin is a courtesy, not authentication: the daily caps are what bound cost.
+allow-list (`ALLOWED_ORIGINS`); a picture shown by an `<img>` tag sends none, so for `GET /v1/image` the page's
+`Referer` stands in. Origin is a courtesy, not authentication: the daily caps are what bound cost.
+
+### What the budget meters
+
+A hosted Gemini call is parsed, not read as text (`src/gemini-request.ts`). Only what the research client sends is
+accepted: text turns, a system instruction, the Google Search tool, and a few generation settings. Media by address
+(`fileData`), other tools (`googleMaps`, retrieval variants, code execution, URL context), cached content, more than
+one candidate and any unknown field are refused with 400 before a cent is held. What Google receives is rebuilt from
+what was accepted, with the answer capped (32,768 tokens) and thinking capped (16,384). The hold taken before the call
+is one token per character of the prompt, plus the most the rebuilt request can answer, plus twelve searches if it
+is grounded; the call settles to what Google reports (a reply with no usage report is charged at the hold, and a reply
+that searched is charged the grounding rate whether or not it was asked to). A visitor is an IPv4 address or an IPv6
+/64. `DAILY_BUDGET_USD = "0"` is a kill switch: every hosted call is refused. A call that crosses UTC midnight adds
+its cost to the new day and wipes nothing. The ledger tracks at most 5,000 visitors a day.
+
+The readers (`/v1/source`, `/v1/asset-source`, `/v1/image`, `/v1/preview`, `/v1/news`, `/v1/search`) spend no Gemini
+money, so they are limited per visitor instead: 240 reads a minute and 6,000 a day (`src/reader-quota.ts`, one
+Durable Object per visitor). A deck of 18 companies makes a few hundred reads in three minutes.
 
 ## Share links
 
@@ -60,8 +78,8 @@ npx wrangler secret put SERPER_API_KEY   # optional: hosted web search
 1. In `wrangler.toml`, set `ALLOWED_ORIGINS` to the address the beta app is served from (for example
    `https://stratemark.web.app`). Share links are created from that origin and the viewer must be on it.
    Never add a shared-hosting wildcard such as `*.pages.dev` or `*.web.app`: anyone could host a page there.
-2. `npx wrangler deploy`. The first deploy after this change applies migration `v2` (the two share classes);
-   no other resource needs creating first.
+2. `npx wrangler deploy`. The first deploy applies migrations `v2` (the two share classes) and `v3` (the reader
+   limits); no other resource needs creating first.
 3. Build the app against the Worker and deploy it (`firebase.json` serves `apps/web/dist`, which holds
    `index.html` and `share.html`):
 

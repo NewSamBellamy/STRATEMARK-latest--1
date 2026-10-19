@@ -54,9 +54,10 @@ export function safePublicUrl(raw: unknown): URL | null {
 export function isPrivateIpv4(ip: string): boolean {
   const parts = ip.split('.').map(Number);
   if (parts.length !== 4 || !parts.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) return true;
-  const [a, b] = parts as [number, number, number, number];
+  const [a, b, c] = parts as [number, number, number, number];
   return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) ||
     (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
+    (a === 192 && b === 0 && (c === 0 || c === 2)) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113) ||
     (a === 198 && (b === 18 || b === 19)) || a >= 224;
 }
 
@@ -103,14 +104,30 @@ export function callCostMicros(model: string, usage: GeminiUsage | undefined, gr
 /**
  * Held before a call so concurrent calls can't jointly overshoot: the worst
  * plausible cost of one request (a long grounded prompt with a long answer).
+ * Input is held at one token per character (no tokenizer does worse on text; a request can only be text, see
+ * gemini-request.ts) and the answer at the most the forwarded request allows (answer and thinking together).
  */
-export function reserveMicros(model: string, grounded: boolean, bodyChars: number): number {
+export function reserveMicros(model: string, grounded: boolean, bodyChars: number, outputTokens = 16_000): number {
   const p = PRICE_PER_M[priceFamily(model)];
-  const inputTokens = Math.ceil(bodyChars / 3) + 20_000; // + grounding context Google adds
-  const outputTokens = 16_000;
-  const search = grounded ? Math.max(GROUNDED_PROMPT_USD, SEARCH_QUERY_USD * 6) * 1_000_000 : 0;
+  const inputTokens = bodyChars + 20_000; // + grounding context Google adds
+  // A grounded call can issue many searches; twelve is held (a real call is billed what it did, when it settles).
+  const search = grounded ? Math.max(GROUNDED_PROMPT_USD, SEARCH_QUERY_USD * 12) * 1_000_000 : 0;
   return Math.ceil(inputTokens * p.input + outputTokens * p.output + search);
 }
+
+/**
+ * A budget from configuration, in dollars. Unset or unreadable means the default; zero means zero (the kill switch:
+ * every hosted call is then refused). It used to read 0, empty and negative values as "use the default".
+ */
+export function parseBudgetUsd(raw: string | undefined, fallback: number): number {
+  const text = (raw ?? '').trim();
+  if (!text) return fallback;
+  const n = Number(text);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+/** Most visitors one day's ledger will track: past it, a new visitor is refused rather than the ledger growing without bound. */
+export const MAX_LEDGER_VISITORS = 5_000;
 
 export interface LedgerDay {
   day: string;
@@ -140,6 +157,7 @@ export function tryReserve(ledger: LedgerDay, day: string, ip: string, amount: n
   const current: LedgerDay = ledger.day === day ? ledger : { day, spentMicros: 0, heldMicros: 0, visitors: {} };
   if (current.spentMicros + current.heldMicros + amount > budgetMicros) return { ok: false, reason: 'global', ledger: current };
   const mine = current.visitors[ip] ?? 0;
+  if (!(ip in current.visitors) && Object.keys(current.visitors).length >= MAX_LEDGER_VISITORS) return { ok: false, reason: 'global', ledger: current };
   if (mine + amount > visitorBudgetMicros) return { ok: false, reason: 'visitor', ledger: current };
   return {
     ok: true,
@@ -150,7 +168,12 @@ export function tryReserve(ledger: LedgerDay, day: string, ip: string, amount: n
 /** Pure ledger step: swap a hold for the call's actual cost (0 if Google didn't bill it). */
 export function settle(ledger: LedgerDay, day: string, ip: string, held: number, actual: number): LedgerDay {
   if (ledger.day !== day) {
-    // The call straddled UTC midnight: charge it to the new day, nothing to release.
+    // The call straddled UTC midnight. Its hold was on the day that ended, so there is nothing to release; its real cost is
+    // charged to the day that has begun, added to that day's ledger. (It used to REPLACE the ledger with one holding only
+    // this call, wiping the day's spend and visitors: a call held open across midnight bought a second budget.)
+    if (ledger.day > day) {
+      return { ...ledger, spentMicros: ledger.spentMicros + actual, visitors: { ...ledger.visitors, [ip]: (ledger.visitors[ip] ?? 0) + actual } };
+    }
     return { day, spentMicros: actual, heldMicros: 0, visitors: { [ip]: actual } };
   }
   const mine = Math.max(0, (ledger.visitors[ip] ?? 0) - held + actual);

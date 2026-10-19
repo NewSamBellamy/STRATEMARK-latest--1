@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, priceFamily, reserveMicros, rollHistory, safePublicUrl, settle, tryReserve,
+  MAX_LEDGER_VISITORS, allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, parseBudgetUsd, priceFamily, reserveMicros, rollHistory, safePublicUrl, settle, tryReserve,
   type LedgerDay,
 } from './policy';
 
@@ -53,6 +53,10 @@ describe('page URL guard', () => {
     }
     expect(isPrivateIpv4('104.16.132.229')).toBe(false);
   });
+  it('flags the documentation ranges too, which are not on the public internet', () => {
+    for (const ip of ['192.0.2.1', '192.0.0.8', '198.51.100.7', '203.0.113.200']) expect(isPrivateIpv4(ip), ip).toBe(true);
+    for (const ip of ['192.0.3.1', '198.51.101.7', '203.0.114.1', '8.8.8.8']) expect(isPrivateIpv4(ip), ip).toBe(false);
+  });
 });
 
 describe('dollar budget', () => {
@@ -90,6 +94,49 @@ describe('dollar budget', () => {
     expect(tryReserve(l, day, 'x', 20, 1000, 50)).toMatchObject({ ok: false, reason: 'visitor' });
     expect(tryReserve(l, day, 'y', 20, 1000, 50).ok).toBe(true);
     expect(tryReserve(l, '2026-10-11', 'x', 20, 1000, 50).ok).toBe(true);
+  });
+});
+
+describe('the hold covers what a call can cost', () => {
+  it('grows with the prompt and with the answer a request may ask for, and covers a worst-case call', () => {
+    const small = reserveMicros('gemini-flash-lite-latest', false, 1_000, 1_000);
+    expect(reserveMicros('gemini-flash-lite-latest', false, 100_000, 1_000)).toBeGreaterThan(small);
+    expect(reserveMicros('gemini-flash-lite-latest', false, 1_000, 49_152)).toBeGreaterThan(small);
+    // A grounded flash call with a long prompt, the longest answer and full thinking, searching ten times.
+    const worst = callCostMicros('gemini-flash-latest', { promptTokenCount: 130_000, candidatesTokenCount: 32_768, thoughtsTokenCount: 16_384 }, true, 12);
+    expect(reserveMicros('gemini-flash-latest', true, 140_000, 32_768 + 16_384)).toBeGreaterThan(worst);
+  });
+});
+
+describe('a budget from configuration', () => {
+  it('reads zero as zero (the kill switch), and anything unreadable as the default', () => {
+    expect(parseBudgetUsd('0', 100)).toBe(0);
+    expect(parseBudgetUsd('0.0', 100)).toBe(0);
+    expect(parseBudgetUsd('25', 100)).toBe(25);
+    expect(parseBudgetUsd(' 7.5 ', 100)).toBe(7.5);
+    for (const bad of [undefined, '', '   ', 'abc', '-5', 'NaN', 'Infinity']) expect(parseBudgetUsd(bad, 100), String(bad)).toBe(100);
+  });
+});
+
+describe('the ledger across UTC midnight and under a flood of visitors', () => {
+  it('a call that straddles midnight adds its cost to the new day and wipes nothing', () => {
+    const yesterday = '2026-10-18';
+    const today = '2026-10-19';
+    let l = { day: today, spentMicros: 90_000_000, heldMicros: 5_000_000, visitors: { a: 60_000_000, b: 30_000_000, c: 5_000_000 } } as LedgerDay;
+    // The call was held on the day that ended, so there is no hold to release on today's ledger.
+    l = settle(l, yesterday, 'z', 7_000_000, 2_000_000);
+    expect(l).toMatchObject({ day: today, spentMicros: 92_000_000, heldMicros: 5_000_000 });
+    expect(l.visitors).toEqual({ a: 60_000_000, b: 30_000_000, c: 5_000_000, z: 2_000_000 });
+    // The day's budget is still spent: another $100 cannot be reserved.
+    expect(tryReserve(l, today, 'new', 10_000_000, 100_000_000, 20_000_000)).toMatchObject({ ok: false, reason: 'global' });
+  });
+
+  it('stops tracking new visitors past a ceiling instead of growing without bound, and keeps serving the ones it knows', () => {
+    const day = '2026-10-10';
+    const visitors = Object.fromEntries(Array.from({ length: MAX_LEDGER_VISITORS }, (_unused, i) => [`v${i}`, 1]));
+    const l = { day, spentMicros: 0, heldMicros: 0, visitors } as LedgerDay;
+    expect(tryReserve(l, day, 'a-new-one', 10, 1_000_000, 1_000_000)).toMatchObject({ ok: false, reason: 'global' });
+    expect(tryReserve(l, day, 'v7', 10, 1_000_000, 1_000_000).ok).toBe(true);
   });
 });
 

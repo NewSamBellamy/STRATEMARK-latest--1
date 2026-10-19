@@ -30,9 +30,12 @@
 import { Buffer } from 'node:buffer';
 import { retrieveOriginalSource, type SourceTransport } from '@mi/research/original-source-node';
 import type { OriginalSourceReceipt, OriginalSourceScope } from '@mi/research';
-import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, reserveMicros, safePublicUrl, type GeminiUsage } from './policy';
+import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, parseBudgetUsd, reserveMicros, safePublicUrl, type GeminiUsage } from './policy';
+import { inspectGeminiRequest } from './gemini-request';
+import { READER_LIMITS_DEFAULT } from './reader-quota';
 import type { BudgetCounter } from './budget';
 import { previewFromHtml, type PagePreview } from './preview';
+import type { ReaderQuota } from './reader-quota';
 import type { ShareQuota, ShareVault } from './share-vault';
 import { visitorAddress } from './visitor';
 import {
@@ -43,6 +46,7 @@ import { isPlausibleSearchKey, parseSearchRelayRequest, runProviderSearch, WebSe
 
 export { BudgetCounter } from './budget';
 export { ShareVault, ShareQuota } from './share-vault';
+export { ReaderQuota } from './reader-quota';
 
 export interface Env {
   GEMINI_API_KEY?: string;
@@ -53,6 +57,8 @@ export interface Env {
   SHARES: DurableObjectNamespace<ShareVault>;
   /** Today's share counts per visitor and in all. */
   SHARE_QUOTA: DurableObjectNamespace<ShareQuota>;
+  /** One object per visitor: how many page, image and search reads they have made. */
+  READER_QUOTA: DurableObjectNamespace<ReaderQuota>;
   /** Days a share lives (default 90, at most 365). */
   SHARE_TTL_DAYS?: string;
   /** Public address of this Worker's share links, if it is served from a custom domain (https, no trailing slash). */
@@ -139,12 +145,18 @@ const workerTransport: SourceTransport = {
   },
 };
 
+/** The body as text, or null when it is larger than `limit` bytes. Stops reading at the limit instead of buffering a huge upload. */
+async function readTextCapped(request: Request, limit: number): Promise<string | null> {
+  if (Number(request.headers.get('content-length') ?? 0) > limit) return null;
+  if (!request.body) return '';
+  const bytes = await readCapped(new Response(request.body), limit);
+  return bytes ? new TextDecoder().decode(bytes) : null;
+}
+
 async function readJson<T>(request: Request, limit = MAX_JSON_BODY): Promise<T | null> {
   if ((request.headers.get('content-type') ?? '').split(';')[0] !== 'application/json') return null;
-  const len = Number(request.headers.get('content-length') ?? 0);
-  if (len > limit) return null;
-  const text = await request.text();
-  if (text.length > limit) return null;
+  const text = await readTextCapped(request, limit);
+  if (text === null) return null;
   try { return JSON.parse(text) as T; } catch { return null; }
 }
 
@@ -162,11 +174,9 @@ export function keyShape(raw: string | undefined): { present: boolean; length: n
 const usd = (micros: number) => Math.round(micros / 10_000) / 100;
 
 function budgets(env: Env): { budget: number; visitor: number } {
-  const budget = Number(env.DAILY_BUDGET_USD ?? 100);
-  const visitor = Number(env.DAILY_VISITOR_BUDGET_USD ?? 20);
   return {
-    budget: Math.round((Number.isFinite(budget) && budget > 0 ? budget : 100) * 1_000_000),
-    visitor: Math.round((Number.isFinite(visitor) && visitor > 0 ? visitor : 20) * 1_000_000),
+    budget: Math.round(parseBudgetUsd(env.DAILY_BUDGET_USD, 100) * 1_000_000),
+    visitor: Math.round(parseBudgetUsd(env.DAILY_VISITOR_BUDGET_USD, 20) * 1_000_000),
   };
 }
 
@@ -178,15 +188,19 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
   const key = cleanKey(env.GEMINI_API_KEY);
   if (!key) return json({ error: 'Hosted research is not configured.' }, 503, origin);
   if (!allowedModel(model)) return json({ error: 'Model not allowed.' }, 400, origin);
-  const body = await request.text();
-  if (body.length > MAX_JSON_BODY) return json({ error: 'Request too large.' }, 413, origin);
+  const text = await readTextCapped(request, MAX_JSON_BODY);
+  if (text === null) return json({ error: 'Request too large.' }, 413, origin);
+  // The request is parsed and held to what the research client sends; Google gets a request rebuilt from what was accepted.
+  // Nothing is held, and nothing is sent, for a request that asks for anything else (gemini-request.ts).
+  const inspected = inspectGeminiRequest(text, model);
+  if (!inspected.ok) return json({ error: inspected.error }, 400, origin);
+  const { body, grounded, worstOutputTokens } = inspected.request;
 
   // Dollar budget: hold this call's worst-case cost before it runs, settle to
   // the real cost (from Google's usage report) after. Exact under bursts.
   const ip = visitorAddress(request.headers.get('cf-connecting-ip'));
   const day = new Date().toISOString().slice(0, 10);
-  const grounded = /"google_?search"|"googleSearch"/.test(body);
-  const held = reserveMicros(model, grounded, body.length);
+  const held = reserveMicros(model, grounded, body.length, worstOutputTokens);
   const caps = budgets(env);
   const counter = ledger(env);
   const reservation = await counter.reserve(day, ip, held, caps.budget, caps.visitor);
@@ -215,21 +229,26 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
     answered = true;
     // Pass Google's body and status through; never its headers (no key echo).
     // Buffered, not streamed: a streamed error body arrived empty at the browser.
-    const text = await upstream.text();
+    const answer = await upstream.text();
+    let text = answer;
     if (upstream.ok) {
       try {
-        const parsed = JSON.parse(text) as {
+        const parsed = JSON.parse(answer) as {
           usageMetadata?: GeminiUsage;
           candidates?: Array<{ groundingMetadata?: { webSearchQueries?: unknown[] } }>;
         };
         const queries = (parsed.candidates ?? []).reduce((n, c) => n + (c.groundingMetadata?.webSearchQueries?.length ?? 0), 0);
-        actual = callCostMicros(model, parsed.usageMetadata, grounded, queries);
+        // An answer with no usage report, or one that searched without being asked to, is charged at the worst case or the
+        // grounding rate: what Google reports is only trusted when it reports.
+        actual = parsed.usageMetadata ? callCostMicros(model, parsed.usageMetadata, grounded || queries > 0, queries) : held;
       } catch {
         actual = held; // unreadable usage: charge the worst case rather than nothing
       }
     } else {
       // Status only: Google's error text can quote the request, and we never log research content.
       console.log(`gemini ${model} -> ${upstream.status}`);
+      // An error body can name the owner's Google Cloud project; the visitor gets the error without the number.
+      text = answer.replace(/projects\/\d+/g, 'projects/0');
     }
     return new Response(text, {
       status: upstream.status,
@@ -569,6 +588,31 @@ async function shareOg(id: string, env: Env): Promise<Response> {
   });
 }
 
+// ---- Reader limits --------------------------------------------------------------------------------------------
+
+/** Routes that fetch an address a caller names (or relay a search): limited per visitor. They spend no Gemini money. */
+const METERED_READERS = /^\/v1\/(?:search|news|source|asset-source|image|preview)$/;
+
+/**
+ * A visitor who reads too fast gets 429 with when to come back. A limiter that cannot answer must not take the readers
+ * down with it, so an error lets the read through.
+ */
+async function readerGate(request: Request, env: Env, origin: string): Promise<Response | null> {
+  try {
+    const visitor = (await sha256Hex(visitorAddress(request.headers.get('cf-connecting-ip')))).slice(0, 24);
+    const taken = await env.READER_QUOTA.get(env.READER_QUOTA.idFromName(visitor)).take(Date.now(), READER_LIMITS_DEFAULT);
+    if (taken.ok) return null;
+    return json({ error: 'Too many requests. Try again shortly.' }, 429, origin, { 'Retry-After': String(taken.retryAfterSeconds) });
+  } catch {
+    return null;
+  }
+}
+
+/** The origin a page's own address names, for a request a browser makes without an Origin header (an image). */
+function refererOrigin(request: Request): string | null {
+  try { return new URL(request.headers.get('referer') ?? '').origin; } catch { return null; }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -594,12 +638,18 @@ export default {
       return new Response('The request failed.', { status: 500, headers: { 'Cache-Control': 'no-store' } });
     }
 
-    const origin = request.headers.get('origin');
+    // A picture shown by an <img> tag is requested without an Origin header, so the page that asked is read from its Referer
+    // (the same trust as Origin: a script can forge either; the limits below are what bound abuse).
+    const origin = request.headers.get('origin') ?? (request.method === 'GET' && url.pathname === '/v1/image' ? refererOrigin(request) : null);
     if (!allowedOrigin(origin, env.ALLOWED_ORIGINS ?? '', env.ALLOW_LOCALHOST === 'true')) {
       return json({ error: 'Origin not allowed.' }, 403, null);
     }
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(origin) });
     const allowed = origin!;
+    if (METERED_READERS.test(url.pathname)) {
+      const limited = await readerGate(request, env, allowed);
+      if (limited) return limited;
+    }
 
     try {
       const gemini = url.pathname.match(/^\/v1\/gemini\/([a-zA-Z0-9][a-zA-Z0-9._-]{0,119}):generateContent$/);
