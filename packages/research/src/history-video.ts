@@ -3,8 +3,11 @@
  *
  *   1. Candidates: two free web searches (the user's own key or the hosted
  *      relay; free news feeds are not used, they do not index video). One
- *      grounded search is the fallback only when no search lane exists or both
- *      came back empty. Only YouTube ids that parse strictly are kept (max 6).
+ *      grounded search is the fallback only when no search lane exists or none
+ *      could run (a lane that ran and found nothing is the answer: measured live
+ *      on 2026-10-18, 18 paid fallback searches after empty free ones found no
+ *      video, about $0.5 for a 16-company deck). Only YouTube ids that parse
+ *      strictly are kept (max 6).
  *   2. Existence: YouTube's keyless oEmbed endpoint. A video that is private,
  *      removed or has embedding switched off fails it and is dropped. The
  *      title and channel shown are oEmbed's, never anything a model wrote.
@@ -152,7 +155,7 @@ async function discover(args: HistoryVideoArgs): Promise<{ ids: string[]; search
     for (const row of batches.flatMap((b) => b?.rows ?? [] as WebSearchResult[])) add(parseYouTubeId(row.url));
     if (ids.length) break;
   }
-  if (!ids.length && args.grounded !== false) {
+  if (!ids.length && !searched && args.grounded !== false) {
     // One grounded search, only when the free path gave nothing. Google returns
     // redirect links for its sources, so ids are read from the answer's own text.
     throwIfAborted(args.signal);

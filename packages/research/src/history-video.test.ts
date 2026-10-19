@@ -169,6 +169,20 @@ describe('findHistoryVideo', () => {
     expect(off.client.ground).not.toHaveBeenCalled();
   });
 
+  it('a free lane that ran and found nothing is the answer: no paid grounded search after it', async () => {
+    const h = harness(videos, () => ({ verdicts: [] }));
+    const empty = vi.fn(async () => []);
+    const out = await findHistoryVideo({ company, client: h.client, fetchJson: h.fetchJson, searches: [empty], now });
+    expect(empty).toHaveBeenCalled();
+    expect(out).toMatchObject({ video: null, searched: true });
+    expect(h.client.ground).not.toHaveBeenCalled();
+    // A lane that could not run at all (every query failed) is not a search: the fallback still has its turn.
+    const failing = vi.fn(async () => { throw new Error('relay down'); });
+    const down = harness(videos, (c) => ({ verdicts: c.map((x) => ({ id: x.id, accept: true, score: 8, reason: 'ok' })) }));
+    expect((await findHistoryVideo({ company, client: down.client, fetchJson: down.fetchJson, searches: [failing], now })).video?.id).toBe(A);
+    expect(down.client.ground).toHaveBeenCalledTimes(1);
+  });
+
   it('chooses nothing without an oEmbed transport, and a model failure is an honest null', async () => {
     const h = harness(videos, () => { throw new Error('model down'); });
     expect((await findHistoryVideo({ company, client: h.client, searches: [h.search], now })).video).toBeNull();

@@ -84,6 +84,22 @@ describe('History video in the repository', () => {
     expect(videoOf(saved())?.id).toBe(ID);
   });
 
+  it('the dashboard warm-up looks for a video on the free lane only; a tab the user researches may also pay for one', async () => {
+    const down = vi.fn<WebSearchFn>(async () => { throw new Error('offline'); }); // no lane could run: only the paid search is left
+    const paidVideoSearches = (client: LlmClient) => (client.ground as ReturnType<typeof vi.fn>).mock.calls.filter((call) => String(call[0]).includes('YouTube videos')).length;
+    const research = async (warmup: boolean) => {
+      const { repo, client } = setup({ search: down });
+      (client as { structure: LlmClient['structure'] }).structure = (async (_prompt: string, schema: ZodType<unknown>) =>
+        schema.parse({ founderStory: 'Two engineers started it.', quotes: [], timeline: [{ date: '2014', title: 'Company founded', detail: 'Founded in Oakland.' }] })) as LlmClient['structure'];
+      (client.ground as ReturnType<typeof vi.fn>).mockResolvedValue({ text: 'Acme Robotics was founded in 2014 in Oakland.', citations: [{ title: 'Acme', url: 'https://acme.example/about' }], queries: [] });
+      await (repo as unknown as { researchDashboardTab: (...args: unknown[]) => Promise<unknown> }).researchDashboardTab('acme', 'history', true, warmup);
+      await repo.waitForDashboardWarmup();
+      return paidVideoSearches(client);
+    };
+    expect(await research(true)).toBe(0);
+    expect(await research(false)).toBe(1);
+  });
+
   it('stores nothing (absent, never a guess) when no lane finds a candidate, and a miss is not retried at once', async () => {
     const empty = vi.fn<WebSearchFn>(async () => []);
     const { repo, client, saved } = setup({ search: empty });
@@ -131,14 +147,17 @@ describe('History video: the miss window, modes and queueing', () => {
     await repo.fillHistoryVideo('acme', { grounded: false });
     expect(lane.mock.calls.length).toBe(afterMiss); // window holds for free-only...
     expect(client.ground).not.toHaveBeenCalled();
+    const beforeGrounded = lane.mock.calls.length;
     await repo.fillHistoryVideo('acme', { grounded: true });
-    expect(client.ground).toHaveBeenCalledTimes(1); // ...but a grounded run is a different question
+    expect(lane.mock.calls.length).toBeGreaterThan(beforeGrounded); // ...a grounded request is its own window and asks the free lane first...
+    expect(client.ground).not.toHaveBeenCalled(); // ...but a lane that ran and found nothing is the answer: no paid search after it
   });
 
   it('a forced or grounded request that arrives during a weaker run is queued after it, not dropped', async () => {
     let release: (rows: Array<{ url: string; title: string; snippet: string }>) => void = () => undefined;
     const gate = new Promise<Array<{ url: string; title: string; snippet: string }>>((resolve) => { release = resolve; });
-    const lane = vi.fn<WebSearchFn>(() => gate);
+    // The first (free) run is held at the gate; the queued run finds the lane down, so only the paid search is left.
+    const lane = vi.fn<WebSearchFn>(() => gate).mockImplementationOnce(() => gate).mockImplementation(async () => { throw new Error('offline'); });
     const { repo, client } = setup({ search: lane });
     const free = repo.fillHistoryVideo('acme', { grounded: false });
     const grounded = repo.fillHistoryVideo('acme', { grounded: true });
