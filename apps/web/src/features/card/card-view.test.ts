@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildDataset } from '@mi/mocks';
 import type { CardWithCompany, CompanyMetric } from '@mi/contracts';
-import { buildCardView, buildMetricViews, companyFrontName } from './card-view';
+import { buildCardView, fitFaceLine, buildMetricViews, companyFrontName } from './card-view';
 
 describe('card face company name', () => {
   it.each([
@@ -292,8 +292,9 @@ describe('collectible card evidence model', () => {
       }],
     });
 
-    expect(result.frontDescription).toBe('A regulator opened a documented inquiry.');
-    expect(result.frontFinding).toBeNull();
+    // The company is the subject; the finding is the claim, in full.
+    expect(result.frontDescription).toBe(company.oneLiner.split(/(?<=[.!?])\s/)[0]);
+    expect(result.frontFinding).toBe('A regulator opened a documented inquiry.');
     expect(result.sourceCount).toBe(1);
   });
 
@@ -386,5 +387,76 @@ describe('collectible card evidence model', () => {
     it('re-checked quoted figures also fill the fixed slot used by reports', () => {
       expect(view([quotedValuation]).profileMetrics[3]).toMatchObject({ label: 'Valuation', display: '$44B', confidence: 'Source reported' });
     });
+  });
+});
+
+describe('fitFaceLine: card-face text that never stops mid-thought', () => {
+  it('keeps a short line whole and gives nothing for an empty one', () => {
+    expect(fitFaceLine('A short line.', 100)).toBe('A short line.');
+    expect(fitFaceLine('   ', 100)).toBeNull();
+    expect(fitFaceLine(null, 100)).toBeNull();
+  });
+
+  it('takes the whole sentences that fit', () => {
+    const text = 'The regulator fined the company in 2024 over misleading discounts. It also opened an inquiry into cancellations. A third sentence that will not fit at all in the space.';
+    expect(fitFaceLine(text, 120)).toBe('The regulator fined the company in 2024 over misleading discounts. It also opened an inquiry into cancellations.');
+    expect(fitFaceLine(text, 80)).toBe('The regulator fined the company in 2024 over misleading discounts.');
+  });
+
+  it('cuts one long sentence at its last clause, then at a word, and never inside a word', () => {
+    const long = 'OpenAI faces consolidated class-action lawsuits and high-profile suits from media publishers and creators, including The New York Times v. Microsoft and OpenAI, over training data';
+    const clause = fitFaceLine(long, 130)!;
+    expect(clause.endsWith('…')).toBe(true);
+    expect(clause.length).toBeLessThanOrEqual(131);
+    expect(long.startsWith(clause.slice(0, -1))).toBe(true);
+    expect(clause).not.toMatch(/\b(The New York Times v|Times v)\.?…$/);
+    const noClause = fitFaceLine('Supercalifragilistic experiences without any punctuation continuing on and on for far too long to ever fit', 50)!;
+    expect(noClause.endsWith('…')).toBe(true);
+    expect('Supercalifragilistic experiences without any punctuation continuing on and on for far too long to ever fit'.startsWith(noClause.slice(0, -1))).toBe(true);
+    expect(noClause.slice(0, -1).endsWith(' ')).toBe(false);
+  });
+
+  it('does not treat a decimal price or a domain as the end of a sentence', () => {
+    expect(fitFaceLine('Tokens cost $0.97/M with a 3.5 month lag. More follows after that for readers who want it.', 60)).toBe('Tokens cost $0.97/M with a 3.5 month lag.');
+  });
+});
+
+describe('the face of a risk or culture card names the company, then says the finding in whole sentences', () => {
+  it('describes the company and quotes the claim, instead of showing the claim twice or a clipped fragment', () => {
+    const claim = 'A regulator opened a documented inquiry into the company and fined it over misleading discount claims in March 2024. It has appealed.';
+    const result = buildCardView({
+      card: { ...card, cardType: 'vice', title: null, summary: null, citations: [], keyPoints: [] },
+      company: { ...company, oneLiner: 'Acme builds warehouse robots for retailers. It was founded in 2014.' },
+      metrics: [],
+      viceClaims: [{ id: 'v1', cardId: card.id, claimText: claim, sourceTitle: 'Regulator', sourceUrl: 'https://regulator.example.gov/a', capturedAt: '2026-10-01T00:00:00.000Z' }],
+    });
+    expect(result.frontDescription).toBe('Acme builds warehouse robots for retailers.');
+    expect(result.frontFinding).toBe(claim);
+    const pending = buildCardView({
+      card: { ...card, cardType: 'culture', title: null, summary: 'Acme publishes a values charter.', citations: [], keyPoints: [] },
+      company: { ...company, oneLiner: 'No source-backed company snapshot is ready yet.' }, metrics: [], viceClaims: [],
+    });
+    expect(pending.frontDescription).toBeNull();
+    expect(pending.frontFinding).toBe('Acme publishes a values charter.');
+  });
+});
+
+describe('a sentence is not ended by an abbreviation', () => {
+  it('keeps "The U.S. Department of Justice ..." and "The New York Times v. Microsoft" whole on a card face', () => {
+    const doj = 'The U.S. Department of Justice opened an antitrust probe and issued subpoenas.';
+    const nyt = 'OpenAI faces suits from publishers, including The New York Times v. Microsoft and OpenAI. A ruling is expected.';
+    const result = buildCardView({
+      card: { ...card, cardType: 'vice', title: null, summary: null, citations: [], keyPoints: [] },
+      company: { ...company, oneLiner: 'NVIDIA Corp. designs graphics processors. It was founded in 1993.' }, metrics: [],
+      viceClaims: [
+        { id: 'a', cardId: card.id, claimText: doj, sourceTitle: 'qz.com', sourceUrl: 'https://qz.com/a', capturedAt: '2026-10-01T00:00:00.000Z' },
+        { id: 'b', cardId: card.id, claimText: nyt, sourceTitle: 'nyt.com', sourceUrl: 'https://nyt.com/b', capturedAt: '2026-10-01T00:00:00.000Z' }],
+    });
+    expect(result.frontDescription).toBe('NVIDIA Corp. designs graphics processors.');
+    expect(result.frontFinding).toContain(doj);
+    expect(result.frontFinding).not.toMatch(/Times v\.$/);
+    const lines = buildCardView({ ...{ card: { ...card, cardType: 'insight', companyId: null, summary: nyt, keyPoints: [] }, company: null, metrics: [], viceClaims: [] } });
+    expect(lines.frontDescription).toBe('OpenAI faces suits from publishers, including The New York Times v. Microsoft and OpenAI.');
+    expect(lines.frontFinding).toBe('A ruling is expected.');
   });
 });

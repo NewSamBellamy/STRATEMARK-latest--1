@@ -17,11 +17,45 @@ const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFra
 function sentences(value: string | null | undefined): string[] {
   const normalized = value?.replace(/\s+/g, ' ').trim();
   if (!normalized) return [];
-  // Decimal prices, ratios and domain names are not sentence boundaries.
-  return normalized.split(/(?<=[.!?])\s+(?=[A-Z“"‘'])/u)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
+  // Decimal prices, ratios and domain names are not sentence boundaries, and neither is the full stop of an abbreviation:
+  // "The U.S. Department of Justice" is one sentence, not "The U.S." (a card face once read exactly that), and
+  // "The New York Times v. Microsoft" is not cut at "v.".
+  const pieces = normalized.split(/(?<=[.!?])\s+(?=[A-Z“"‘'])/u).map((sentence) => sentence.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const piece of pieces) {
+    const before = out[out.length - 1];
+    if (before !== undefined && ABBREVIATION_END.test(before)) out[out.length - 1] = `${before} ${piece}`;
+    else out.push(piece);
+  }
+  return out;
 }
+
+/** A piece that ends in one of these did not end a sentence: initials ("U.S.", "J."), "v.", titles, company forms, "e.g.". */
+const ABBREVIATION_END = /(?:\b(?:[A-Z]\.){1,3}|\b(?:v|vs|Inc|Corp|Co|Ltd|LLC|PLC|Mr|Mrs|Ms|Dr|St|No|Jr|Sr|Mt|Fig|e\.g|i\.e)\.)$/;
+
+/**
+ * A line for the face of a card: the whole sentences that fit, else one long sentence cut at its last clause, else at a
+ * word. Never mid-word and never mid-thought where a thought ends sooner. The face used to clip with CSS, which cut a
+ * sentence wherever the box ended ("... The New York Times v.").
+ */
+export function fitFaceLine(text: string | null | undefined, max: number): string | null {
+  const t = (text ?? '').replace(/\s+/g, ' ').trim();
+  if (!t) return null;
+  if (t.length <= max) return t;
+  let whole = '';
+  for (const sentence of sentences(t)) {
+    if (`${whole} ${sentence}`.trim().length > max) break;
+    whole = `${whole} ${sentence}`.trim();
+  }
+  if (whole.length >= Math.min(60, max * 0.4)) return whole;
+  const head = t.slice(0, max);
+  const clause = Math.max(head.lastIndexOf('; '), head.lastIndexOf(', '), head.lastIndexOf(' — '), head.lastIndexOf(' ('));
+  if (clause >= max * 0.5) return `${head.slice(0, clause).replace(/[\s,;—(]+$/, '')}…`;
+  const word = head.lastIndexOf(' ');
+  return `${head.slice(0, word > 0 ? word : max).replace(/[\s,;:—(]+$/, '')}…`;
+}
+
+const PENDING_SNAPSHOT = 'No source-backed company snapshot is ready yet.';
 
 function uniqueLines(values: Array<string | null | undefined>): string[] {
   const seen = new Set<string>();
@@ -388,8 +422,16 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
     title,
     frontTitle: signal ? frontTitle(title) : data.company?.name ? companyFrontName(data.company.name) : title,
     description,
-    frontDescription: signal ? signalLines[0] ?? null : description,
-    frontFinding: signal ? signalLines[1] ?? null : null,
+    // A risk or culture card is about a company: what the company is, then the finding in one or two whole sentences. A
+    // barrier or insight card has no company: its one-line summary, then the first point behind it.
+    frontDescription: !signal ? description
+      : data.company
+        ? fitFaceLine(data.company.oneLiner?.trim() === PENDING_SNAPSHOT ? null : sentences(data.company.oneLiner)[0], 120)
+        : fitFaceLine(signalLines[0], 150),
+    frontFinding: !signal ? null
+      : data.company
+        ? fitFaceLine(signalLines.slice(0, 3).join(' '), 200)
+        : fitFaceLine(signalLines[1], 200),
     type: CARD_TYPE_LABELS[data.card.cardType], signal, maturity, rating, position, metrics,
     profileMetrics, faceMetrics, knownCount, sourcedCount,
     // A source count is evidence DEPTH, not retrieved-item volume: the same
