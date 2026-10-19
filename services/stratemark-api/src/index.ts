@@ -8,13 +8,20 @@
  *   POST /v1/asset-source  { url }           raw HTML for logo/headshot parsing
  *   GET  /v1/image?url=                      a public image with CORS (logos, real cover images)
  *   GET  /v1/preview?url=                    the real image a page publishes for link previews
+ *   POST /v1/share                           store a read-only share (made by the browser), answer its link and a stop-sharing token
+ *   GET  /v1/share/:id                       a share's compressed snapshot (public by link, any origin)
+ *   DELETE /v1/share/:id                     stop sharing (needs the token from creation)
+ *   GET  /s/:id, /s/:id/og.png               the link people paste: preview tags, a hand-off to the viewer, the preview picture
  *   GET  /health
  *
  * The Gemini key lives only in the GEMINI_API_KEY secret; it is never echoed,
  * logged or returned.
  *
  * Privacy (a beta promise, see the web app's "About this beta" page): request
- * and response bodies pass through and are never stored or logged. Invocation
+ * and response bodies pass through and are never stored or logged. The one
+ * exception is a share link the user chooses to create: that stores a read-only
+ * copy of the shared card or deck for a bounded time (90 days by default) until
+ * its owner stops sharing it. Invocation
  * logs (which record URLs) are off; the only logs are status codes. The budget
  * ledger keeps today's per-IP spend to enforce the free limit and replaces it
  * with a count each day. These routes replace the Vite dev-only /__stratemark
@@ -26,16 +33,29 @@ import type { OriginalSourceReceipt, OriginalSourceScope } from '@mi/research';
 import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, reserveMicros, safePublicUrl, type GeminiUsage } from './policy';
 import type { BudgetCounter } from './budget';
 import { previewFromHtml, type PagePreview } from './preview';
+import type { ShareQuota, ShareVault } from './share-vault';
+import {
+  SHARE_LIMITS_DEFAULT, SHARE_MAX_BODY_CHARS, SHARE_TTL_DAYS_DEFAULT, goneHtml, newShareId, parseShareCreate, randomToken, sha256Hex, sharePageHtml,
+} from './share-policy';
 import { parseNewsRelayRequest, runNewsSearch } from '@mi/research/news-search';
 import { isPlausibleSearchKey, parseSearchRelayRequest, runProviderSearch, WebSearchError, type SearchProvider, type SearchRelayRequest } from '@mi/research/web-search';
 
 export { BudgetCounter } from './budget';
+export { ShareVault, ShareQuota } from './share-vault';
 
 export interface Env {
   GEMINI_API_KEY?: string;
   /** Hosted web search for visitors without their own search key. */
   SERPER_API_KEY?: string;
   BUDGET: DurableObjectNamespace<BudgetCounter>;
+  /** One object per share, named by its id. */
+  SHARES: DurableObjectNamespace<ShareVault>;
+  /** Today's share counts per visitor and in all. */
+  SHARE_QUOTA: DurableObjectNamespace<ShareQuota>;
+  /** Days a share lives (default 90, at most 365). */
+  SHARE_TTL_DAYS?: string;
+  /** Public address of this Worker's share links, if it is served from a custom domain (https, no trailing slash). */
+  SHARE_PUBLIC_BASE?: string;
   ALLOWED_ORIGINS?: string;
   ALLOW_LOCALHOST?: string;
   /** Hard ceiling on hosted Gemini spend per UTC day, all visitors together. */
@@ -56,8 +76,8 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 function cors(origin: string | null): Record<string, string> {
   return origin ? {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Search-Key',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Search-Key, X-Share-Token',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   } : {};
@@ -118,12 +138,12 @@ const workerTransport: SourceTransport = {
   },
 };
 
-async function readJson<T>(request: Request): Promise<T | null> {
+async function readJson<T>(request: Request, limit = MAX_JSON_BODY): Promise<T | null> {
   if ((request.headers.get('content-type') ?? '').split(';')[0] !== 'application/json') return null;
   const len = Number(request.headers.get('content-length') ?? 0);
-  if (len > MAX_JSON_BODY) return null;
+  if (len > limit) return null;
   const text = await request.text();
-  if (text.length > MAX_JSON_BODY) return null;
+  if (text.length > limit) return null;
   try { return JSON.parse(text) as T; } catch { return null; }
 }
 
@@ -416,6 +436,133 @@ async function imageRead(request: Request, origin: string): Promise<Response> {
   return new Response(null, { status: 502, headers: cors(origin) });
 }
 
+
+// ---- Share links -------------------------------------------------------------
+
+const SHARE_HEADERS: Record<string, string> = {
+  'X-Robots-Tag': 'noindex, nofollow',
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+};
+
+function shareTtlMs(env: Env): number {
+  const days = Number(env.SHARE_TTL_DAYS ?? SHARE_TTL_DAYS_DEFAULT);
+  return (Number.isInteger(days) && days >= 1 && days <= 365 ? days : SHARE_TTL_DAYS_DEFAULT) * 86_400_000;
+}
+
+/** The address share links are published at: a configured custom domain, else wherever this request came in. */
+function shareBase(env: Env, request: Request): string {
+  const configured = (env.SHARE_PUBLIC_BASE ?? '').trim().replace(/\/+$/, '');
+  return /^https:\/\/[^\s/]+$/.test(configured) ? configured : new URL(request.url).origin;
+}
+
+function vaultFor(env: Env, id: string) {
+  return env.SHARES.get(env.SHARES.idFromName(id));
+}
+
+/** POST /v1/share: store a read-only copy and answer the link and the token that stops it. */
+async function shareCreate(request: Request, env: Env, origin: string): Promise<Response> {
+  const parsed = parseShareCreate(await readJson<unknown>(request, SHARE_MAX_BODY_CHARS), origin);
+  if (!parsed.ok) return json({ error: parsed.error }, parsed.status, origin);
+  const input = parsed.value;
+  const bytes = input.data.length + (input.og?.length ?? 0);
+  const day = new Date().toISOString().slice(0, 10);
+  const visitor = (await sha256Hex(request.headers.get('cf-connecting-ip') ?? 'unknown')).slice(0, 24);
+  const quota = env.SHARE_QUOTA.get(env.SHARE_QUOTA.idFromName('global'));
+  const taken = await quota.take(day, visitor, bytes, SHARE_LIMITS_DEFAULT);
+  if (!taken.ok) {
+    return json({
+      error: taken.reason === 'visitor'
+        ? 'You have made today’s share links. Try again tomorrow, or copy a private link instead.'
+        : 'Share links have reached today’s limit. Try again tomorrow, or copy a private link instead.',
+    }, 429, origin);
+  }
+  const now = Date.now();
+  const deleteToken = randomToken(18);
+  const tokenHash = await sha256Hex(deleteToken);
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const id = newShareId();
+      const stored = await vaultFor(env, id).put({
+        meta: {
+          kind: input.kind, title: input.title, description: input.description, viewer: input.viewer,
+          createdAt: now, expiresAt: now + shareTtlMs(env), chunks: 0, hasOg: false, bytes,
+        },
+        data: input.data, og: input.og, tokenHash,
+      });
+      if (!stored) continue; // an id collision, which 96 random bits make a bug rather than a risk
+      const base = shareBase(env, request);
+      return json({
+        id, url: `${base}/s/${id}`, imageUrl: input.og ? `${base}/s/${id}/og.png` : null,
+        expiresAt: now + shareTtlMs(env), deleteToken,
+      }, 201, origin);
+    }
+    throw new Error('no free share id');
+  } catch (cause) {
+    await quota.give(day, visitor, bytes).catch(() => undefined);
+    throw cause;
+  }
+}
+
+/** GET /v1/share/:id: the compressed snapshot. Public by link, so any origin may read it. */
+async function shareRead(id: string, env: Env): Promise<Response> {
+  const vault = vaultFor(env, id);
+  const meta = await vault.meta();
+  const data = meta ? await vault.data() : null;
+  if (!meta || data === null) {
+    return new Response(JSON.stringify({ error: 'This share is no longer available.' }), {
+      status: 404, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*', ...SHARE_HEADERS },
+    });
+  }
+  return new Response(JSON.stringify({
+    v: 1, kind: meta.kind, title: meta.title, description: meta.description, createdAt: meta.createdAt, expiresAt: meta.expiresAt, data,
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60', 'Access-Control-Allow-Origin': '*', ...SHARE_HEADERS },
+  });
+}
+
+/** DELETE /v1/share/:id: stop sharing. Only the token made at creation can. */
+async function shareRemove(request: Request, id: string, env: Env, origin: string): Promise<Response> {
+  const token = (request.headers.get('x-share-token') ?? '').trim();
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return json({ error: 'Missing share token.' }, 403, origin);
+  const result = await vaultFor(env, id).remove(await sha256Hex(token));
+  if (result === 'forbidden') return json({ error: 'That token does not stop this share.' }, 403, origin);
+  return json({ ok: true, removed: result === 'removed' }, result === 'missing' ? 404 : 200, origin);
+}
+
+/** GET /s/:id: the link people paste. Preview tags for a chat app, then a hand-off to the viewer. */
+async function sharePage(request: Request, id: string, env: Env): Promise<Response> {
+  const meta = await vaultFor(env, id).meta();
+  const headers = {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'",
+    ...SHARE_HEADERS,
+  };
+  if (!meta) return new Response(goneHtml(), { status: 404, headers: { ...headers, 'Cache-Control': 'no-store' } });
+  const base = shareBase(env, request);
+  return new Response(sharePageHtml({
+    title: meta.title, description: meta.description, pageUrl: `${base}/s/${id}`,
+    imageUrl: meta.hasOg ? `${base}/s/${id}/og.png` : null, viewerUrl: `${meta.viewer}?s=${id}`,
+  }), { status: 200, headers: { ...headers, 'Cache-Control': 'public, max-age=300' } });
+}
+
+/** GET /s/:id/og.png: the picture a chat app shows with the link. */
+async function shareOg(id: string, env: Env): Promise<Response> {
+  const encoded = await vaultFor(env, id).og();
+  if (!encoded) return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store', ...SHARE_HEADERS } });
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=3600', 'Content-Security-Policy': "default-src 'none'",
+      'Cross-Origin-Resource-Policy': 'cross-origin', ...SHARE_HEADERS,
+    },
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -428,6 +575,17 @@ export default {
         spentTodayUsd: status ? usd(status.spentMicros) : null, visitorsToday: status?.visitors ?? null,
         last7Days: status?.history ?? [],
       }, 200, null);
+    }
+
+    // Share links are opened by anyone, from chat apps and crawlers that send no Origin: they sit before the origin check.
+    const reading = request.method === 'GET' || request.method === 'HEAD';
+    const pasted = url.pathname.match(/^\/s\/([A-Za-z0-9_-]{16})(\/og\.png)?$/);
+    const shared = url.pathname.match(/^\/v1\/share\/([A-Za-z0-9_-]{16})$/);
+    try {
+      if (pasted && reading) return pasted[2] ? await shareOg(pasted[1]!, env) : await sharePage(request, pasted[1]!, env);
+      if (shared && reading) return await shareRead(shared[1]!, env);
+    } catch {
+      return new Response('The request failed.', { status: 500, headers: { 'Cache-Control': 'no-store' } });
     }
 
     const origin = request.headers.get('origin');
@@ -446,6 +604,8 @@ export default {
       if (url.pathname === '/v1/asset-source' && request.method === 'POST') return await assetRead(request, allowed);
       if (url.pathname === '/v1/image' && request.method === 'GET') return await imageRead(request, allowed);
       if (url.pathname === '/v1/preview' && request.method === 'GET') return await previewRead(request, allowed);
+      if (url.pathname === '/v1/share' && request.method === 'POST') return await shareCreate(request, env, allowed);
+      if (shared && request.method === 'DELETE') return await shareRemove(request, shared[1]!, env, allowed);
       return json({ error: 'Not found.' }, 404, origin);
     } catch {
       return json({ error: 'The request failed.' }, 500, origin);

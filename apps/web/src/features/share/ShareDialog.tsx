@@ -1,5 +1,7 @@
 /**
- * The share dialog — a Share button that actually goes somewhere.
+ * The share dialog: a Share button that actually goes somewhere. This file holds the private-link dialog (the whole
+ * snapshot inside the address, nothing uploaded) and the choice between it and the hosted "Create link"
+ * (HostedShareDialog.tsx).
  *
  * The old buttons relied on `navigator.share` / `navigator.clipboard`, both of
  * which silently don't exist in the sandboxed serving context (same failure
@@ -15,7 +17,7 @@
  *    plus a hint — they unfurl the pasted link.
  *  - The native share sheet appears as an extra option only where it exists.
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
@@ -23,46 +25,17 @@ import {
   Copy,
   Link2,
   Loader2,
-  Mail,
   RefreshCw,
-  Send,
   Share2,
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { encodeSharePayload, shareUrlFor, type SharePayload } from '@/lib/share/codec';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
+import { hasShareApi } from '@/lib/hostedApi';
+import { HostedShareDialog } from './HostedShareDialog';
 import { SharePageSection } from './SharePageSection';
+import { copyText, shareTargets, TargetGrid } from './ShareTargets';
 import { longLinkNote } from './linkLimits';
-
-/** Clipboard with the sandbox-proof fallback chain. */
-async function copyText(text: string, input: HTMLInputElement | null): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    /* clipboard API missing or blocked — fall through */
-  }
-  try {
-    if (input) {
-      input.focus();
-      input.select();
-      return document.execCommand('copy');
-    }
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand('copy');
-    ta.remove();
-    return ok;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Keyless short link (TinyURL first — real CORS headers — then is.gd).
@@ -102,41 +75,7 @@ async function shortenUrl(longUrl: string): Promise<string | null> {
   return null;
 }
 
-/** Practical intent-URL ceilings per destination (measured, conservative). */
-const TARGET_LIMITS = { email: 1900, telegram: 3800, whatsapp: 3800, x: 1900 } as const;
-
-function TargetLink({
-  href,
-  icon,
-  label,
-}: {
-  href: string;
-  icon: ReactNode;
-  label: string;
-}) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-    >
-      {icon}
-      {label}
-    </a>
-  );
-}
-
-/** Small inline "𝕏" mark (lucide dropped the Twitter bird). */
-function XMark({ className = 'h-3.5 w-3.5' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
-      <path d="M18.9 1.15h3.68l-8.04 9.2L24 22.85h-7.4l-5.8-7.58-6.64 7.58H.47l8.6-9.83L0 1.15h7.59l5.24 6.93 6.07-6.93Zm-1.29 19.5h2.04L6.49 3.24H4.3L17.6 20.66Z" />
-    </svg>
-  );
-}
-
-export function ShareDialog({
+function PrivateLinkDialog({
   open,
   onOpenChange,
   title,
@@ -340,43 +279,14 @@ export function ShareDialog({
               </div>
             )}
 
-            {/* One-tap destinations — plain links, LENGTH-GUARDED. Intent
-                endpoints reject over-long URLs with a Bad Request, so a
-                target only renders when its final URL fits. With the short
-                link, all of them fit. */}
             {(() => {
-              const link = bestLink ?? url;
-              const emailHref = `mailto:?subject=${encodeURIComponent(message)}&body=${encodeURIComponent(`${message}\n\n${link}`)}`;
-              const telegramHref = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(message)}`;
-              const whatsappHref = `https://wa.me/?text=${encodeURIComponent(`${message} ${link}`)}`;
-              const xHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(message)}&url=${encodeURIComponent(link)}`;
-              const targets = [
-                { key: 'email', href: emailHref, ok: emailHref.length <= TARGET_LIMITS.email, icon: <Mail className="h-3.5 w-3.5 text-muted" />, label: 'Email' },
-                { key: 'telegram', href: telegramHref, ok: telegramHref.length <= TARGET_LIMITS.telegram, icon: <Send className="h-3.5 w-3.5 text-muted" />, label: 'Telegram' },
-                { key: 'whatsapp', href: whatsappHref, ok: whatsappHref.length <= TARGET_LIMITS.whatsapp, icon: <Send className="h-3.5 w-3.5 rotate-45 text-muted" />, label: 'WhatsApp' },
-                { key: 'x', href: xHref, ok: xHref.length <= TARGET_LIMITS.x, icon: <XMark className="h-3 w-3 text-muted" />, label: 'Post on X' },
-              ];
-              const shown = targets.filter((t) => t.ok);
+              const targets = shareTargets(bestLink ?? url, message);
               return (
                 <>
-                  {shown.length > 0 && (
-                    <div
-                      className={
-                        shown.length >= 4
-                          ? 'grid grid-cols-2 gap-2 sm:grid-cols-4'
-                          : shown.length === 3
-                            ? 'grid grid-cols-2 gap-2 sm:grid-cols-3'
-                            : 'grid grid-cols-2 gap-2'
-                      }
-                    >
-                      {shown.map((t) => (
-                        <TargetLink key={t.key} href={t.href} icon={t.icon} label={t.label} />
-                      ))}
-                    </div>
-                  )}
-                  {shown.length < targets.length && !shortening && (
+                  <TargetGrid targets={targets} />
+                  {targets.some((t) => !t.ok) && !shortening && (
                     <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
-                      This snapshot is large{shortUrl ? '' : ' and a short link couldn\u2019t be made from here'} — some
+                      This snapshot is large{shortUrl ? '' : ' and a short link couldn\u2019t be made from here'} - some
                       one-tap buttons are hidden because those platforms reject long links. Copy the
                       link instead and paste it into email, notes or a browser.
                     </p>
@@ -414,4 +324,23 @@ export function ShareDialog({
       </div>
     </Modal>
   );
+}
+
+export type ShareDialogProps = Parameters<typeof PrivateLinkDialog>[0];
+
+/**
+ * Where a deck or a card has a Worker to store it, "Share" makes a short link that unfurls in chat apps. Anywhere
+ * else (the desktop app, a build with no Worker, a briefing or a report) it is the private link below: the whole
+ * snapshot travels inside the address, and nothing is uploaded.
+ */
+export function ShareDialog(props: ShareDialogProps) {
+  const canPage = useSupports('exportShareSnapshot') && !!props.page;
+  const [privateLink, setPrivateLink] = useState(false);
+  useEffect(() => {
+    if (!props.open) setPrivateLink(false);
+  }, [props.open]);
+  if (canPage && props.page && hasShareApi() && !privateLink) {
+    return <HostedShareDialog {...props} page={props.page} onPrivate={() => setPrivateLink(true)} />;
+  }
+  return <PrivateLinkDialog {...props} />;
 }
