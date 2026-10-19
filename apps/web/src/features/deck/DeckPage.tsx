@@ -1,4 +1,5 @@
 import { useMemo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -24,6 +25,7 @@ import {
   CARD_TYPE_LABELS,
   CARD_TYPE_ORDER,
   isEntityCardType,
+  isSignalCardType,
   type CardType,
   type CardWithCompany,
   type MaturityTier,
@@ -54,7 +56,7 @@ import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
 import { CardGrid } from './CardGrid';
 import { deckActionPolicy } from './deck-actions';
-import { useSupports } from '@/lib/repository/RepositoryProvider';
+import { useRepository, useSupports } from '@/lib/repository/RepositoryProvider';
 import { useFollowCompanies, useFollows } from '@/hooks/today';
 
 /** Human count noun per card type — fixes the old "20 company companies" bug. */
@@ -501,7 +503,7 @@ export default function DeckPage() {
                 {filtered.length > 0 ? (
                   <CardGrid cards={filtered} deckCards={all} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} />
                 ) : (
-                  <ExpandPrompt marketId={marketId} focus={{ cardType: typeParam }} label={`Hunt for ${cardCountNoun(typeParam, 2)} in this market`} />
+                  <ExpandPrompt marketId={marketId} deckId={deckId} focus={{ cardType: typeParam }} label={`Hunt for ${cardCountNoun(typeParam, 2)} in this market`} />
                 )}
               </section>
             );
@@ -562,6 +564,7 @@ export default function DeckPage() {
                   <div className="mt-6">
                     <ExpandPrompt
                       marketId={marketId}
+                      deckId={deckId}
                       focus={typeParam ? { cardType: typeParam } : {}}
                       label={
                         typeParam
@@ -575,6 +578,7 @@ export default function DeckPage() {
               ) : (
                 <ExpandPrompt
                   marketId={marketId}
+                  deckId={deckId}
                   focus={typeParam ? { cardType: typeParam } : {}}
                   label={
                     typeParam
@@ -812,13 +816,70 @@ function TypeNav({
  * into a hunt; in `compact` mode it sits under a full grid so the deck never
  * hard-stops at its initial company count — expanding is always one click.
  */
-function ExpandPrompt({
+function ExpandPrompt(props: {
+  marketId: string | undefined;
+  deckId?: string | undefined;
+  focus: { tier?: MaturityTier; cardType?: CardType };
+  label: string;
+  compact?: boolean;
+}) {
+  const repo = useRepository();
+  // Barrier, insight, vice and culture cards are searched for by the deck itself (ensureSignalCards), not hunted as new
+  // companies: a hunt for a "barrier" would go looking for companies.
+  if (props.focus.cardType && isSignalCardType(props.focus.cardType) && props.deckId && typeof repo.ensureSignalCards === 'function') {
+    return <SignalPrompt deckId={props.deckId} label={props.label} compact={props.compact} />;
+  }
+  return <HuntPrompt {...props} />;
+}
+
+/** The one search for a deck's missing market-signal cards, from the empty tab or under a full grid. */
+function SignalPrompt({ deckId, label, compact = false }: { deckId: string; label: string; compact?: boolean }) {
+  const hasKey = useApiKey((s) => s.hasKey);
+  const repo = useRepository();
+  const qc = useQueryClient();
+  const [state, setState] = useState<{ status: 'idle' | 'running' | 'done' | 'failed'; added: number }>({ status: 'idle', added: 0 });
+  if (!hasKey) {
+    if (compact) return null;
+    return <p className="py-3 text-sm text-muted">Nothing found here in the sample data. With a key connected, Stratemark can search for these.</p>;
+  }
+  const search = async () => {
+    setState({ status: 'running', added: 0 });
+    try {
+      const result = await repo.ensureSignalCards!(deckId, { force: true });
+      const added = Object.values(result.added).reduce((a, b) => a + b, 0);
+      setState({ status: result.failed && added === 0 ? 'failed' : 'done', added });
+      void qc.invalidateQueries({ queryKey: ['cards'] });
+    } catch {
+      setState({ status: 'failed', added: 0 });
+    }
+  };
+  return (
+    <div className={cn('flex flex-wrap items-center gap-3', compact ? 'justify-center py-1' : 'py-3')}>
+      {!compact && state.status === 'idle' && <p className="text-sm text-muted">Nothing found here yet.</p>}
+      <button
+        type="button"
+        className={cn('btn-ghost text-sm', state.status === 'running' && 'animate-pulse border-primary/60 bg-primary/5 text-primary-ink')}
+        disabled={state.status === 'running'}
+        onClick={() => void search()}
+      >
+        <Search className={`h-4 w-4 ${state.status === 'running' ? 'animate-pulse' : ''}`} />
+        {state.status === 'running' ? 'Searching this market…' : label}
+      </button>
+      {state.status === 'done' && state.added > 0 && <span className="text-xs text-muted">Found {state.added} new {state.added === 1 ? 'card' : 'cards'}.</span>}
+      {state.status === 'done' && state.added === 0 && <span className="text-xs text-muted">Search ran, and nothing credible turned up. Stratemark does not fill a gap with a guess.</span>}
+      {state.status === 'failed' && <span className="text-xs text-negative">The search failed. Try again.</span>}
+    </div>
+  );
+}
+
+function HuntPrompt({
   marketId,
   focus,
   label,
   compact = false,
 }: {
   marketId: string | undefined;
+  deckId?: string | undefined;
   focus: { tier?: MaturityTier; cardType?: CardType };
   label: string;
   compact?: boolean;

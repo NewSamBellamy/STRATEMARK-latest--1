@@ -2,6 +2,7 @@ import { ExternalLink } from 'lucide-react';
 import { publisherOf, type CardWithCompany } from '@mi/contracts';
 import { sourceHref } from '@/lib/sourceHref';
 import { ViceDisclaimer } from './CardDisclaimer';
+import { sourceUrl } from './card-view';
 
 export interface SignalReading {
   /** One readable paragraph: what the finding is. */
@@ -31,7 +32,8 @@ export function signalReading(data: CardWithCompany, citations: ReadonlyArray<{ 
   };
   const sources = [...new Map(citations.map((c) => [c.url, { url: c.url, title: c.title }])).values()];
   if (data.card.cardType === 'vice') {
-    const points = data.viceClaims.flatMap((claim) => {
+    // An allegation with no clickable source is never shown (Rule 9).
+    const points = data.viceClaims.filter((claim) => sourceUrl(claim.sourceUrl)).flatMap((claim) => {
       const text = once(claim.claimText);
       return text ? [{ text, source: claim.sourceUrl ? { url: claim.sourceUrl, title: claim.sourceTitle ?? '' } : null }] : [];
     }).slice(0, MAX_POINTS);

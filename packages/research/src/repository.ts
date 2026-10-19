@@ -109,7 +109,8 @@ import { isReachPage, ownSiteLeadUrls, ownSiteReachRows, pageTextBlocks, siteRea
 import { CARD_FACT_TYPES as CARD_FACT_HUNT_TYPES, namesRosterRival, reportedCompanyMetrics, reportedEmployeeBandRow, reportedMetricCitations } from './reported-metrics';
 import { businessDates, reportedAsOfNote, statedPeriodDate, storedDefinition } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
-import { researchMarketSignals } from './signal-agents';
+import { researchRosterSignals } from './roster-signals';
+import { normalizeClaimTitle, researchMarketSignals } from './signal-agents';
 import { AbortError, mapWithConcurrency, sleep, throwIfAborted, websiteUrlOf } from './util';
 import { classifyCompanyType, companyTypeFocus } from './company-type';
 import { IncrementalDeltaAgent } from './delta-agent';
@@ -242,6 +243,22 @@ interface CachedTab {
   teamOrgSelections?: TeamOrgSelections;
 }
 
+type SignalKind = 'barrier' | 'insight' | 'vice' | 'culture';
+const SIGNAL_KINDS: readonly SignalKind[] = ['barrier', 'insight', 'vice', 'culture'];
+/** What a signal-card search reports: cards filed per kind, and which kinds' searches errored (worth another try later). */
+export interface SignalRun { added: Record<SignalKind, number>; failed: boolean; failedKinds: SignalKind[] }
+
+/**
+ * A provider hiccup worth one more try: busy, rate-limited or slow. A rejected key, spent quota (402), a blocked
+ * prompt or structured output that never parsed would only fail again, and pay again.
+ */
+function isTransientProviderError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const status = (error as { status?: unknown }).status;
+  if (typeof status === 'number') return status === 429 || status >= 500;
+  return error.name === 'TimeoutError';
+}
+
 export interface RepoSnapshot {
   /**
    * Storage format version. Absent on snapshots written before migrations
@@ -307,6 +324,9 @@ export interface RepoSnapshot {
   /** Product pages researched on request (product-brief.ts): companyId -> normalized product name -> brief.
    * Additive and optional: absent on snapshots written before it existed; never part of a share export. */
   productBriefs?: Record<string, Record<string, ProductBrief>>;
+  /** deckId -> signal kind -> ISO time until which that kind is not searched for again on its own (ensureSignalCards).
+   * Written before a search starts (a reload or a second tab does not start another) and again when it ends. */
+  signalRest?: Record<string, Partial<Record<'barrier' | 'insight' | 'vice' | 'culture', string>>>;
 }
 
 export interface ResearchStore {
@@ -2271,6 +2291,9 @@ export class GeminiRepository implements MarketIntelRepository {
         // the background, highest tier first. Never awaited — the job is done.
         this.markDeckWarmupStarted(stubsResult.deck.id);
         this.warmDeckDashboards(stubsResult.deck.id, 'creation');
+        // Market signals: any of barrier, insight, vice and culture the first pass left short get a targeted second
+        // search now that the roster is complete. Never awaited, and it can never fail the job.
+        void this.ensureSignalCards(stubsResult.deck.id).catch(() => undefined);
       } catch (error) {
         if (!leadCardReadySettled) {
           leadCardReadySettled = true;
@@ -2632,8 +2655,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const metrics = card.companyId
       ? this.snap.metrics.filter((m) => m.companyId === card.companyId)
       : [];
-    const viceClaims =
-      card.cardType === 'vice' ? this.snap.viceClaims.filter((v) => v.cardId === card.id) : [];
+    const viceClaims = card.cardType === 'vice' ? this.sourcedViceClaims(card.id) : [];
     return { card, company: company ? savedCompanySummary(company, this.snap.researchEvidence ?? []) : null, metrics, viceClaims };
   }
 
@@ -2750,7 +2772,13 @@ export class GeminiRepository implements MarketIntelRepository {
     return pass;
   }
   getViceClaims(cardId: string): Promise<ViceClaim[]> {
-    return Promise.resolve(this.snap.viceClaims.filter((v) => v.cardId === cardId));
+    return Promise.resolve(this.sourcedViceClaims(cardId));
+  }
+
+  /** A vice claim leaves the repository only with a clickable source: an unsourced allegation is dropped, never displayed. */
+  private sourcedViceClaims(cardId: string): ViceClaim[] {
+    return this.snap.viceClaims.filter((v) => v.cardId === cardId
+      && usableCitations([{ url: v.sourceUrl, title: v.sourceTitle ?? '' }]).length > 0);
   }
 
   // Dashboard warm-up -------------------------------------------------------
@@ -5887,7 +5915,7 @@ export class GeminiRepository implements MarketIntelRepository {
       companies,
       metrics,
       cards: structuredClone(cards),
-      viceClaims: structuredClone(this.snap.viceClaims.filter((v) => cardIds.has(v.cardId))),
+      viceClaims: structuredClone([...cardIds].flatMap((cardId) => this.sourcedViceClaims(cardId))),
       dashboards,
     };
   }
@@ -6547,6 +6575,177 @@ ${references}`
     thread.updatedAt = new Date().toISOString();
     await this.persist();
     return report;
+  }
+
+  private readonly signalRuns = new Map<string, { force: boolean; promise: Promise<SignalRun> }>();
+
+  /** Fewer sourced cards of a kind than this and the deck is searched for more (the coverage minimum for all four kinds). */
+  private static readonly SIGNAL_MINIMUM = 4;
+  private static readonly SIGNAL_MAXIMUM = 10;
+  /** After a search for a kind, it is not repeated on its own for this long: a market that documents little stays little. */
+  private static readonly SIGNAL_REST_MS = 3 * 24 * 60 * 60 * 1000;
+  /** After a search that errored: worth another try, but not on every open. */
+  private static readonly SIGNAL_RETRY_MS = 30 * 60 * 1000;
+  /** While a search runs: a reload or a second tab does not start a second one. */
+  private static readonly SIGNAL_INFLIGHT_MS = 10 * 60 * 1000;
+
+  /**
+   * The deck's market plan: the one its creation job recorded, or one rebuilt from the market's stored scope (decks
+   * made before plans were kept, and imported decks, whose market may carry no scope at all).
+   */
+  private planForDeck(deck: Deck, market: Market): MarketPlan {
+    const recorded = this.snap.researchJobs.find((job) => job.deck?.id === deck.id)?.marketPlan;
+    if (recorded) return recorded;
+    const scope = market.scopeDefinition as Market['scopeDefinition'] | undefined;
+    return { marketName: market.name, vertical: scope?.vertical ?? market.name, geography: scope?.geography ?? null,
+      notes: null, searchThemes: [] };
+  }
+
+  /** A signal card counts only with a clickable source: a vice card by its claims, the others by their own citations. */
+  private signalCardSourced(card: Card): boolean {
+    if (card.cardType === 'vice') {
+      return this.snap.viceClaims.some((claim) => claim.cardId === card.id
+        && usableCitations([{ url: claim.sourceUrl, title: claim.sourceTitle ?? '' }]).length > 0);
+    }
+    return usableCitations(card.citations ?? []).length > 0;
+  }
+
+  ensureSignalCards(deckId: string, options: { force?: boolean; signal?: AbortSignal } = {}): Promise<SignalRun> {
+    const running = this.signalRuns.get(deckId);
+    // A second ask joins the search under way. A forced ask after an unforced one does not: it waits its turn and runs,
+    // or the button would report "nothing credible turned up" without having searched.
+    if (running && (!options.force || running.force)) return running.promise;
+    const entry = { force: Boolean(options.force), promise: undefined as unknown as Promise<SignalRun> };
+    const turn = running ? running.promise.then(() => undefined, () => undefined) : Promise.resolve();
+    entry.promise = turn.then(() => this.runSignalCards(deckId, options)).finally(() => {
+      if (this.signalRuns.get(deckId) === entry) this.signalRuns.delete(deckId);
+    });
+    this.signalRuns.set(deckId, entry);
+    return entry.promise;
+  }
+
+  private async runSignalCards(deckId: string, options: { force?: boolean; signal?: AbortSignal }): Promise<SignalRun> {
+    const added = { barrier: 0, insight: 0, vice: 0, culture: 0 };
+    const deck = this.snap.decks.find((d) => d.id === deckId);
+    const market = deck ? this.snap.markets.find((m) => m.id === deck.marketId) : undefined;
+    if (!deck || !market) return { added, failed: false, failedKinds: [] };
+    const { signal } = options;
+    const minimum = GeminiRepository.SIGNAL_MINIMUM;
+    const maximum = GeminiRepository.SIGNAL_MAXIMUM;
+    const cardsOf = () => this.snap.cards.filter((c) => c.deckId === deck.id);
+    const sourcedOf = (type: SignalKind) => cardsOf().filter((c) => c.cardType === type && this.signalCardSourced(c));
+    const countOf = (type: SignalKind) => sourcedOf(type).length;
+    const restingUntil = (kind: SignalKind) => Date.parse(this.snap.signalRest?.[deck.id]?.[kind] ?? '');
+    // A kind is searched for when it is short of SOURCED cards (a card with no source does not count: it would keep the
+    // deck from ever getting a real one) and has not just been searched, or when asked for; never past the maximum.
+    const needs = Object.fromEntries(SIGNAL_KINDS.map((kind) => [kind,
+      countOf(kind) < maximum && (Boolean(options.force) || (countOf(kind) < minimum && !(restingUntil(kind) > Date.now())))])) as Record<SignalKind, boolean>;
+    const wanted = SIGNAL_KINDS.filter((kind) => needs[kind]);
+    if (wanted.length === 0) return { added, failed: false, failedKinds: [] };
+
+    const plan = this.planForDeck(deck, market);
+    const addedCardIds: string[] = [];
+    const prunedCardIds: string[] = [];
+    const failedKinds: SignalKind[] = [];
+    const rest = (kinds: readonly SignalKind[], ms: number) => {
+      const until = new Date(Date.now() + ms).toISOString();
+      const mine = { ...this.snap.signalRest?.[deck.id] };
+      for (const kind of kinds) mine[kind] = until;
+      this.snap.signalRest = { ...this.snap.signalRest, [deck.id]: mine };
+    };
+    // A search that errors for a reason that can pass (the provider busy, rate-limited or slow) is tried once more. One
+    // that fails for any other reason would only fail again, and pay again. An empty answer is an answer.
+    const attempt = async <T,>(kinds: readonly SignalKind[], search: () => Promise<T>): Promise<T | null> => {
+      for (let tryNumber = 0; tryNumber < 2; tryNumber += 1) {
+        throwIfAborted(signal);
+        try { return await search(); } catch (error) {
+          if (signal?.aborted) throw error;
+          if (tryNumber === 0 && isTransientProviderError(error)) { await new Promise((resolve) => setTimeout(resolve, 2_000)); continue; }
+          break;
+        }
+      }
+      failedKinds.push(...kinds);
+      return null;
+    };
+    const file = (cards: CardWithCompany[]) => {
+      for (const card of cards) {
+        this.snap.cards.push(card.card);
+        if (card.viceClaims.length > 0) this.snap.viceClaims.push(...card.viceClaims);
+        addedCardIds.push(card.card.id);
+        added[card.card.cardType as SignalKind] += 1;
+      }
+      // A sourced card replaces the unsourced one it duplicates (same company, or same title for a market card), unless
+      // the user saved that one.
+      const saved = new Set(this.snap.savedCards.map((entry) => entry.cardId));
+      const drop = new Set<string>();
+      for (const card of cards) {
+        const key = normalizeClaimTitle(card.card.title ?? '');
+        for (const old of cardsOf()) {
+          if (old.id === card.card.id || old.cardType !== card.card.cardType || saved.has(old.id) || this.signalCardSourced(old)) continue;
+          if (card.card.companyId ? old.companyId === card.card.companyId : Boolean(key) && normalizeClaimTitle(old.title ?? '') === key) drop.add(old.id);
+        }
+      }
+      if (drop.size > 0) {
+        this.snap.cards = this.snap.cards.filter((c) => !drop.has(c.id));
+        this.snap.viceClaims = this.snap.viceClaims.filter((claim) => !drop.has(claim.cardId));
+        prunedCardIds.push(...drop);
+      }
+    };
+
+    // The rest is taken BEFORE the paid search, so a reload, a second tab or the deck's own creation does not start another.
+    rest(wanted, GeminiRepository.SIGNAL_INFLIGHT_MS);
+    try { await this.persist(); } catch { /* the search still runs; only the lock is lost */ }
+
+    try {
+      const marketKinds = wanted.filter((kind) => kind === 'barrier' || kind === 'insight');
+      if (marketKinds.length > 0) {
+        // The fallback pass is paid for only by a kind that is wanted.
+        const found = await attempt(marketKinds, () => researchMarketSignals(this.client, plan, deck.id, {
+          signal, coverage: this.coverage,
+          ...(needs.barrier ? {} : { minBarriers: 0 }), ...(needs.insight ? {} : { minInsights: 0 }),
+        }));
+        if (found) {
+          const have = (type: SignalKind) => new Set(sourcedOf(type).map((c) => normalizeClaimTitle(c.title ?? '')));
+          const kept: CardWithCompany[] = [];
+          for (const type of ['barrier', 'insight'] as const) {
+            if (!needs[type]) continue;
+            const seen = have(type);
+            let room = maximum - countOf(type);
+            for (const card of found.filter((c) => c.card.cardType === type)) {
+              const key = normalizeClaimTitle(card.card.title ?? '');
+              if (room <= 0 || !key || seen.has(key)) continue;
+              seen.add(key);
+              room -= 1;
+              kept.push(card);
+            }
+          }
+          file(kept);
+        }
+      }
+
+      const rosterKinds = wanted.filter((kind) => kind === 'vice' || kind === 'culture');
+      if (rosterKinds.length > 0) {
+        const entityCompanyIds = [...new Set(cardsOf().filter((c) => c.companyId && isEntityCardType(c.cardType)).map((c) => c.companyId!))];
+        const roster = entityCompanyIds.map((id) => this.snap.companies.find((c) => c.id === id)).filter((c): c is Company => Boolean(c));
+        const companiesWith = (type: SignalKind) => new Set(sourcedOf(type).filter((c) => c.companyId).map((c) => c.companyId!));
+        const found = await attempt(rosterKinds, () => researchRosterSignals(this.client, plan, deck.id, roster, {
+          signal, want: { vice: needs.vice, culture: needs.culture },
+          haveVice: companiesWith('vice'), haveCulture: companiesWith('culture'),
+          maxVice: maximum - countOf('vice'), maxCulture: maximum - countOf('culture'),
+        }));
+        if (found) file([...found.vice, ...found.culture]);
+      }
+    } finally {
+      // Whatever was found is kept and announced even when the run was cut short, and each searched kind rests: a long
+      // while when its search ran, a short one when it errored (the next open tries again, not every open).
+      rest(wanted.filter((kind) => !failedKinds.includes(kind)), GeminiRepository.SIGNAL_REST_MS);
+      rest(failedKinds, GeminiRepository.SIGNAL_RETRY_MS);
+      try { await this.persist(); } catch { /* kept in memory; the next save writes it */ }
+      if (addedCardIds.length > 0 || prunedCardIds.length > 0) {
+        this.emit({ marketId: market.id, deckId: deck.id, refreshedAt: new Date().toISOString(), addedCardIds, updatedCardIds: [], prunedCardIds });
+      }
+    }
+    return { added, failed: failedKinds.length > 0, failedKinds };
   }
 
   async expandDeck(

@@ -60,6 +60,21 @@ function folded(text: string): string {
     .replace(/\s+/g, ' ');
 }
 
+/**
+ * Where, in the folded text, each alias is named (start and end of the match, as whole words). Folding is the same as
+ * `mentionsCompany`, so positions from different aliases of the same text can be compared.
+ */
+export function aliasSpans(text: string, aliases: readonly string[]): Array<[number, number]> {
+  const hay = folded(text);
+  const spans: Array<[number, number]> = [];
+  for (const alias of aliases) {
+    if (!alias) continue;
+    const needle = ` ${alias} `;
+    for (let at = hay.indexOf(needle); at !== -1; at = hay.indexOf(needle, at + 1)) spans.push([at + 1, at + 1 + alias.length]);
+  }
+  return spans;
+}
+
 /** True when the text names the company by any of its aliases, as whole words. */
 export function mentionsCompany(text: string, aliases: readonly string[]): boolean {
   const hay = folded(text);
