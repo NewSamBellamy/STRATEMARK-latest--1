@@ -417,11 +417,12 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
     ...viceCitations,
     ...metrics.flatMap((m) => m.citations),
   ], signal ? null : data.company?.websiteUrl);
-  const signalLines = signal ? uniqueLines([
-    data.card.summary,
-    ...data.viceClaims.map((claim) => claim.claimText),
-    ...data.card.keyPoints,
-  ]) : [];
+  // A risk card leads with what the sources report: its stored summary is sometimes only a description of the company
+  // (live: a risk card whose face read "provides a point-of-sale financing platform"), and the claims are the risk.
+  const claimLines = data.viceClaims.map((claim) => claim.claimText);
+  const signalLines = signal ? uniqueLines(data.card.cardType === 'vice' && claimLines.length > 0
+    ? [...claimLines, data.card.summary, ...data.card.keyPoints]
+    : [data.card.summary, ...claimLines, ...data.card.keyPoints]) : [];
   const description = signal
     ? data.card.summary ?? data.viceClaims[0]?.claimText ?? data.card.keyPoints[0] ?? null
     : data.company?.oneLiner;

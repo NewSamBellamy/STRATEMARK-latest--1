@@ -456,6 +456,25 @@ describe('the face of a risk or culture card names the company, then says the fi
   });
 });
 
+describe('a risk card face leads with the claims, not a description of the company', () => {
+  it('shows the sourced claim even when the stored summary only describes the company', () => {
+    const description = 'Sunlight Financial LLC provides a point-of-sale financing platform that connects solar installers and homeowners.';
+    const claim = 'Sunlight Financial LLC was named in an enforcement complaint brought by the Minnesota Attorney General in 2024.';
+    const result = buildCardView({
+      card: { ...card, cardType: 'vice', title: null, summary: description, citations: [], keyPoints: [] },
+      company: { ...company, oneLiner: 'Sunlight Financial LLC is a lender.' }, metrics: [],
+      viceClaims: [{ id: 'v1', cardId: card.id, claimText: claim, sourceTitle: 'ag.state.mn.us', sourceUrl: 'https://ag.state.mn.us/a', capturedAt: '2026-10-01T00:00:00.000Z' }],
+    });
+    expect(result.frontFinding?.startsWith(claim)).toBe(true);
+    // A culture card still leads with its own summary.
+    const culture = buildCardView({
+      card: { ...card, cardType: 'culture', title: null, summary: 'Staff describe a flat structure.', citations: [], keyPoints: [] },
+      company, metrics: [], viceClaims: [],
+    });
+    expect(culture.frontFinding).toBe('Staff describe a flat structure.');
+  });
+});
+
 describe('a sentence is not ended by an abbreviation', () => {
   it('keeps "The U.S. Department of Justice ..." and "The New York Times v. Microsoft" whole on a card face', () => {
     const doj = 'The U.S. Department of Justice opened an antitrust probe and issued subpoenas.';
