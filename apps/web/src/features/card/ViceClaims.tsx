@@ -2,6 +2,7 @@ import { ExternalLink } from 'lucide-react';
 import { publisherOf, type ViceClaim } from '@mi/contracts';
 import { ViceDisclaimer } from './CardDisclaimer';
 import { FactCheck } from '@/features/factcheck/FactCheck';
+import { SafeLink } from '@/components/SafeLink';
 
 /** Vice claims: every claim MUST show a source citation (spec §4, §9). */
 export function ViceClaims({
@@ -24,15 +25,13 @@ export function ViceClaims({
           <li key={claim.id} className="rounded-lg border border-border bg-surface p-3 text-sm">
             <p className="text-content">{claim.claimText}</p>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
-              <a
+              <SafeLink
                 href={claim.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-primary-ink hover:underline"
               >
                 <ExternalLink className="h-3 w-3" />
                 {publisherOf(claim.sourceUrl, claim.sourceTitle)}
-              </a>
+              </SafeLink>
               <FactCheck claim={claim.claimText} companyName={companyName ?? null} />
             </div>
           </li>

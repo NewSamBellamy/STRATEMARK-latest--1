@@ -20,6 +20,7 @@ import { buildCardView, faceFigureStatus, sourceUrl } from './card-view';
 import { printScoped } from '@/lib/print';
 import { useReadOnly } from '@/lib/readOnly';
 import { sourceHref } from '@/lib/sourceHref';
+import { SafeLink } from '@/components/SafeLink';
 
 type Props = {
   data: CardWithCompany | null; open: boolean; onOpenChange: (open: boolean) => void;
@@ -201,9 +202,9 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
               <ul className="card-inspector__findings">
                 {viceClaims.slice(0, 2).map((claim) => <li key={claim.id}>
                   <p>{claim.claimText}</p>
-                  <a href={claim.sourceUrl} target="_blank" rel="noopener noreferrer">
+                  <SafeLink href={claim.sourceUrl}>
                     <ExternalLink size={10} aria-hidden="true" />{publisherOf(claim.sourceUrl, claim.sourceTitle)}
-                  </a>
+                  </SafeLink>
                 </li>)}
               </ul>
             </> : <>

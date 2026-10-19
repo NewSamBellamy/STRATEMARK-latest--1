@@ -38,6 +38,7 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { printScoped } from '@/lib/print';
 import { isDirectSource, sourceHref } from '@/lib/sourceHref';
 import { cn } from '@/lib/cn';
+import { SafeLink } from '@/components/SafeLink';
 
 const AREA_LABEL: Record<SiteAuditArea, string> = {
   value_proposition: 'Value proposition',
@@ -248,15 +249,13 @@ export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAu
               {audit.siteName}
             </h1>
             <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
-              <a
+              <SafeLink
                 href={audit.url}
-                target="_blank"
-                rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-primary-ink hover:underline"
               >
                 <Globe className="h-3.5 w-3.5" />
                 {audit.url.replace(/^https?:\/\//, '')}
-              </a>
+              </SafeLink>
               <span className="inline-flex items-center gap-1.5">
                 <CalendarDays className="h-3.5 w-3.5" />
                 {date}

@@ -23,6 +23,7 @@ import { BriefingReport, type BriefingView } from '@/features/briefing/BriefingR
 import { Logo } from '@/features/card/Logo';
 import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
 import { Modal } from '@/components/ui/Modal';
+import { SafeLink } from '@/components/SafeLink';
 import { FullPageLoader } from '@/components/states/FullPageLoader';
 import { formatMetricValue } from '@/lib/format';
 import { siteUrl } from '@/lib/siteUrl';
@@ -67,15 +68,13 @@ function SharedReader({
                   </span>
                 )}
                 {company.websiteUrl && (
-                  <a
-                    href={siteUrl(company.websiteUrl) ?? undefined}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <SafeLink
+                    href={siteUrl(company.websiteUrl)}
                     className="inline-flex items-center gap-1 text-primary-ink hover:underline"
                   >
                     <ExternalLink className="h-3 w-3" />
                     {company.websiteUrl.replace(/^https?:\/\//, '')}
-                  </a>
+                  </SafeLink>
                 )}
               </div>
             </div>
@@ -140,14 +139,12 @@ function SharedReader({
               {viceClaims.map((v) => (
                 <li key={v.id} className="text-sm leading-relaxed text-content">
                   {v.claimText}
-                  <a
+                  <SafeLink
                     href={v.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
                     className="ml-2 text-[11px] text-primary-ink hover:underline"
                   >
                     {publisherOf(v.sourceUrl, v.sourceTitle)}
-                  </a>
+                  </SafeLink>
                 </li>
               ))}
             </ul>
@@ -312,16 +309,14 @@ function SharedReportView({
           {r.c.length > 0 && (
             <div className="mt-6 flex flex-wrap gap-x-4 gap-y-1.5 border-t border-border pt-4">
               {r.c.map((c, i) => (
-                <a
+                <SafeLink
                   key={i}
                   href={c.u}
-                  target="_blank"
-                  rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"
                 >
                   <ExternalLink className="h-3 w-3" />
                   {publisherOf(c.u, c.t)}
-                </a>
+                </SafeLink>
               ))}
             </div>
           )}

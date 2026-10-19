@@ -45,6 +45,19 @@ describe('PersonProfile', () => {
     expect(screen.getByRole('link', { name: /wire/i })).toHaveAttribute('href', expect.stringContaining('wire.example'));
   });
 
+  it('quotes a source without linking it when its address is not a web page', () => {
+    const hostile: OrgNode[] = [
+      { id: 'a', name: 'Ada Lovelace', role: 'CEO', group: 'exec', parentId: null, bio: '',
+        supportingQuote: 'Built the lab.', sourceUrl: 'javascript:alert(1)' },
+    ];
+    renderWithProviders(
+      <PersonProfile people={hostile} selectedId="a" onSelect={vi.fn()} company={company} onAsk={vi.fn()} />,
+      { repository: makeRepo() },
+    );
+    expect(screen.getByText(/Built the lab\./)).toBeInTheDocument();
+    expect(document.querySelector('a[href^="javascript"]')).toBeNull();
+  });
+
   it('hands the person to Ask when asked', async () => {
     const onAsk = vi.fn();
     const { user } = renderWithProviders(

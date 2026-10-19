@@ -36,6 +36,7 @@ import { MissionGovernanceTab } from './tabs/MissionGovernanceTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { ProductsRoadmapTab } from './tabs/ProductsRoadmapTab';
 import NotFoundPage from '@/features/NotFoundPage';
+import { SafeLink } from '@/components/SafeLink';
 
 /**
  * "You're already halfway there" — free-text grounded research from inside the
@@ -453,16 +454,14 @@ export default function DashboardPage() {
               <div className="min-w-[14rem] flex-1 basis-[60%]">
                 <h1 className="font-display text-2xl font-semibold text-content">{c.name}</h1>
                 {ownershipLabel(c.ownership) && (
-                  <a
+                  <SafeLink
                     className="chip border-border bg-surface text-muted"
                     href={c.ownership!.citations[0]?.url}
-                    target="_blank"
-                    rel="noreferrer"
                     title={c.ownership!.methodNote ?? undefined}
                     data-testid="ownership-label"
                   >
                     {ownershipLabel(c.ownership)}
-                  </a>
+                  </SafeLink>
                 )}
                 {headerSubtitle && !restatesHq(headerSubtitle, c.hqLocation) && <p className="text-sm text-muted">{headerSubtitle}</p>}
                 <KeyFacts

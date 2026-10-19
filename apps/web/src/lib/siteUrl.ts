@@ -10,6 +10,8 @@ export function siteUrl(raw: string | null | undefined): string | null {
   const withScheme = /^https?:\/\//i.test(v) ? v : `https://${v.replace(/^\/+/, '')}`;
   try {
     const u = new URL(withScheme);
+    // A bare domain never carries credentials; `trusted.com@evil.example` is a disguise.
+    if (u.username || u.password) return null;
     return u.hostname.includes('.') ? u.href : null;
   } catch { return null; }
 }
