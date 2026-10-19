@@ -484,6 +484,7 @@ export default function DashboardPage() {
                     website: c.websiteUrl ?? null,
                     logoUrl: c.logoUrl ?? null,
                     tier: null,
+                    ownership: c.ownership ?? null,
                     metrics: metrics.data ?? [],
                   }}
                 />

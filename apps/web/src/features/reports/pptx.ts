@@ -6,21 +6,25 @@ import type PptxGenJS from 'pptxgenjs';
 import { isEntityCardType, publisherOf, type CardWithCompany, type MetricType } from '@mi/contracts';
 import { sourceHref } from '@/lib/sourceHref';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
-import { toMetricRow } from '@/features/export/exportModel';
+import { exportCompanyOf, figureRows, type MetricRow } from '@/features/export/exportModel';
 
 const INK = '18181B';
 const MUTED = '6B6B72';
 const ACCENT = 'F15A24';
 
+/** One company's figures, read the way its card face reads them (own rows, same gates, same display). */
+type Figures = ReadonlyMap<MetricType, MetricRow>;
+const figuresOf = (c: CardWithCompany): Figures => figureRows(exportCompanyOf(c)!);
+
 /** A figure only appears when it is sourced (Rule 9); otherwise an honest Unknown. */
-function metric(c: CardWithCompany, type: MetricType): string {
-  const row = toMetricRow(type, c.metrics.find((x) => x.metricType === type));
-  return row.unknown ? 'Unknown' : row.valueText;
+function metric(f: Figures, type: MetricType): string {
+  const row = f.get(type);
+  return !row || row.unknown ? 'Unknown' : row.valueText;
 }
 
-function valuation(c: CardWithCompany): string {
-  const v = metric(c, 'valuation');
-  return v !== 'Unknown' ? v : metric(c, 'market_cap');
+function valuation(f: Figures): string {
+  const v = metric(f, 'valuation');
+  return v !== 'Unknown' ? v : metric(f, 'market_cap');
 }
 
 export async function exportDeckPptx(args: {
@@ -61,13 +65,14 @@ export async function exportDeckPptx(args: {
     })),
   ];
   for (const c of companies.slice(0, 14)) {
+    const figures = figuresOf(c);
     rows.push([
       { text: c.company!.name, options: { fontSize: 11, bold: true, color: INK } },
       { text: c.company!.hqLocation?.trim() || '—', options: { fontSize: 10, color: MUTED } },
-      { text: metric(c, 'market_share'), options: { fontSize: 11, color: INK } },
-      { text: metric(c, 'arr'), options: { fontSize: 11, color: INK } },
-      { text: valuation(c), options: { fontSize: 11, color: INK } },
-      { text: metric(c, 'employees'), options: { fontSize: 11, color: INK } },
+      { text: metric(figures, 'market_share'), options: { fontSize: 11, color: INK } },
+      { text: metric(figures, 'arr'), options: { fontSize: 11, color: INK } },
+      { text: valuation(figures), options: { fontSize: 11, color: INK } },
+      { text: metric(figures, 'employees'), options: { fontSize: 11, color: INK } },
     ]);
   }
   const landscape = pptx.addSlide();
@@ -97,12 +102,13 @@ export async function exportDeckPptx(args: {
     if (c.company!.oneLiner && c.company!.oneLiner !== UNSUPPORTED_COMPANY_SUMMARY) {
       s.addText(c.company!.oneLiner, { x: 0.5, y: 1.6, w: 9, h: 0.8, fontSize: 13, color: INK });
     }
+    const figures = figuresOf(c);
     const facts = [
-      `Market share: ${metric(c, 'market_share')}`,
-      `ARR: ${metric(c, 'arr')}`,
-      `Valuation/Cap: ${valuation(c)}`,
-      `Team: ${metric(c, 'employees')}`,
-      `Users: ${metric(c, 'users')}`,
+      `Market share: ${metric(figures, 'market_share')}`,
+      `ARR: ${metric(figures, 'arr')}`,
+      `Valuation/Cap: ${valuation(figures)}`,
+      `Team: ${metric(figures, 'employees')}`,
+      `Users: ${metric(figures, 'users')}`,
     ];
     s.addText(facts.map((f) => ({ text: f, options: { bullet: true, fontSize: 13, color: INK } })), {
       x: 0.5, y: 2.6, w: 5.5, h: 2.4, valign: 'top',
@@ -110,7 +116,7 @@ export async function exportDeckPptx(args: {
     // The title slide promises cited sources; each company slide carries its own.
     const sources = [...new Map(
       (['market_share', 'arr', 'valuation', 'market_cap', 'employees', 'users'] as MetricType[])
-        .flatMap((type) => toMetricRow(type, c.metrics.find((x) => x.metricType === type)).sources)
+        .flatMap((type) => figures.get(type)?.sources ?? [])
         .map((src) => [src.url, src]),
     ).values()].slice(0, 4);
     if (sources.length) {

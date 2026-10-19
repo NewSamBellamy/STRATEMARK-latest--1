@@ -1,7 +1,7 @@
 import {
   CARD_TYPE_LABELS, CONFIDENCE_LABELS, TIER_LABELS, enforceMetricProvenance, currentMetricRevision,
   isSignalCardType, usableCitations, metricDefinitionLabel, classifyMarketProfile, PROFILE_CORE_SLOTS, MONEY_METRIC_TYPES,
-  CARD_FACE_SIZE, faceFamilyOf,
+  CARD_FACE_SIZE, faceFamilyOf, ACQUISITION_PRICE_NOTE, DEAL_TIME_VALUATION_NOTE,
   type CardWithCompany, type Company, type CompanyMetric, type MetricType, type Ownership,
 } from '@mi/contracts';
 import { quotedSupportHolds, reportedBandCitations, reportedSupportCitations } from '@mi/research';
@@ -107,6 +107,19 @@ function profileLabel(key: string, metric: CompanyMetric | undefined): string {
   return key;
 }
 
+/** What a figure the gate withheld says about why. Fixed text, never a stored model sentence. */
+const CONFLICT_NOTE = 'Conflicting stored figures have no unambiguous current revision. Confirm the figure before treating it as fact.';
+const ZERO_USERS_NOTE = 'A zero user count was not explicitly established by its source. Shown as unknown until confirmed.';
+const NO_SOURCE_NOTE = 'No clickable source was recorded. Treat this figure as an estimate until checked.';
+const INVALID_VALUE_NOTE = 'Invalid stored value, so it is not displayed.';
+/** The face's reason for an estimate that no longer holds up on its own evidence. */
+export const ESTIMATE_UNCONFIRMED_NOTE = 'An estimate exists in research, but no confirmed company figure is available.';
+/** The exact reasons the card gates give for withholding a figure, for surfaces that quote them. */
+export const FIGURE_GATE_NOTES: readonly string[] = [
+  CONFLICT_NOTE, ZERO_USERS_NOTE, NO_SOURCE_NOTE, INVALID_VALUE_NOTE, ESTIMATE_UNCONFIRMED_NOTE,
+  ACQUISITION_PRICE_NOTE, DEAL_TIME_VALUATION_NOTE,
+];
+
 /** Shared read-only evidence projection for cards, readers and quantitative dashboards. */
 export function buildMetricViews(input: readonly CompanyMetric[], officialWebsite?: string | null, ownership?: Ownership | null) {
   const groups = new Map<string, CompanyMetric[]>();
@@ -122,7 +135,7 @@ export function buildMetricViews(input: readonly CompanyMetric[], officialWebsit
     if (revision.ambiguous) {
       original = { ...original, value: null, confidence: 'unknown',
         citations: revision.tied.flatMap(m => m.citations),
-        methodNote: 'Conflicting stored figures have no unambiguous current revision. Confirm the figure before treating it as fact.' };
+        methodNote: CONFLICT_NOTE };
     }
     const legacy = sourceUrl(original.source);
     const citations = usableCitations([
@@ -133,16 +146,16 @@ export function buildMetricViews(input: readonly CompanyMetric[], officialWebsit
     let note = metric.methodNote;
     if (metric.metricType === 'users' && metric.value === 0 && metric.confidence !== 'user_verified') {
       metric = { ...metric, value: null, confidence: 'unknown' };
-      note = 'A zero user count was not explicitly established by its source. Shown as unknown until confirmed.';
+      note = ZERO_USERS_NOTE;
     }
     if (metric.confidence === 'verified' && citations.length === 0) {
       metric = { ...metric, confidence: 'estimated' };
-      note = 'No clickable source was recorded. Treat this figure as an estimate until checked.';
+      note = NO_SOURCE_NOTE;
     }
     if (metric.value != null && (!Number.isFinite(metric.value) || metric.value < 0 ||
       (metric.metricType === 'market_share' && metric.value > 100))) {
       metric = { ...metric, value: null, confidence: 'unknown' };
-      note = 'Invalid stored value, so it is not displayed.';
+      note = INVALID_VALUE_NOTE;
     }
     return {
       metric, label: metricDefinitionLabel(metric) ?? LABELS[metric.metricType], display: displayValue(metric),
@@ -151,7 +164,7 @@ export function buildMetricViews(input: readonly CompanyMetric[], officialWebsit
   });
 }
 
-type MetricView = ReturnType<typeof buildMetricViews>[number];
+export type MetricView = ReturnType<typeof buildMetricViews>[number];
 type ProfileSlot = {
   key: string; label: string; display: string; confidence: string; citations: MetricView['citations'];
   metric?: CompanyMetric; note?: string | null;
@@ -163,6 +176,18 @@ const FACE_IMPORTANCE: Record<'operating_company' | 'financial_firm', readonly M
   financial_firm: ['aum', 'valuation', 'market_cap', 'arr', 'revenue', 'employees', 'funding_total', 'last_round', 'users', 'distribution', 'market_share'],
 };
 const FACE_KEY: Partial<Record<MetricType, string>> = { arr: 'revenue', revenue: 'revenue', valuation: 'company_value', market_cap: 'company_value', users: 'reach', employees: 'employees', aum: 'aum' };
+
+/**
+ * Does an estimated figure still hold up on its own evidence? The card face
+ * re-checks this for every estimate it shows: a grounded-answer sentence that
+ * names this company and states this value, or a quote from a fetched page.
+ * An estimate with neither stays off the face, and out of every export.
+ */
+export function estimateHolds(company: Pick<Company, 'name' | 'websiteUrl'> | null | undefined, metric: CompanyMetric): boolean {
+  return !!company && (
+    (metric.reportedSupport != null && reportedSupportCitations(company.name, company.websiteUrl, metric).length > 0) ||
+    quotedSupportHolds(company.name, metric));
+}
 
 /**
  * The card face: the four strongest SOURCED figures this company has, whatever
@@ -189,9 +214,7 @@ function strongestFaceMetrics(metrics: readonly MetricView[], profile: readonly 
       if (strength < 0) continue;
       // Estimates must re-check here: a grounded-answer sentence or a quote from
       // a fetched page. An estimate with neither stays off the face.
-      if (strength === 2 && !(company && (
-        (metric.reportedSupport != null && reportedSupportCitations(company.name, company.websiteUrl, metric).length > 0) ||
-        quotedSupportHolds(company.name, metric)))) continue;
+      if (strength === 2 && !estimateHolds(company, metric)) continue;
       const label = FACE_KEY[type] ? profileLabel(key, metric) : (metricTypeLabel(metric) ?? LABELS[type]);
       candidates.push({ ...m, key, label, type, strength, confidence: strength === 2 ? 'Source reported' : m.confidence });
     } else if (type === 'employees' && metric.value === null && metric.confidence === 'estimated' && metric.reportedBand && company &&
@@ -264,7 +287,9 @@ export function faceFigureStatus(item: Pick<ProfileSlot, 'metric' | 'confidence'
 
 export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null = null) {
   const signal = isSignalCardType(data.card.cardType) || !data.company;
-  const metrics = buildMetricViews(signal ? [] : data.metrics, data.company?.websiteUrl, data.company?.ownership);
+  // Only this card's own company's figures: a rival's row in the same payload never shows here.
+  const own = signal ? [] : data.metrics.filter((m) => m.companyId === data.company?.id);
+  const metrics = buildMetricViews(own, data.company?.websiteUrl, data.company?.ownership);
   const knownCount = metrics.filter((m) => m.metric.value != null).length;
   const sourcedCount = metrics.filter((m) => m.metric.value != null && m.citations.length > 0).length;
   // The four front slots come from the market profile: an operating company
@@ -331,7 +356,7 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
             label: profileLabel(key, estimate.metric),
             display: 'Unknown',
             confidence: 'Unknown',
-            note: 'An estimate exists in research, but no confirmed company figure is available.',
+            note: ESTIMATE_UNCONFIRMED_NOTE,
             citations: [],
             metric: undefined,
           };

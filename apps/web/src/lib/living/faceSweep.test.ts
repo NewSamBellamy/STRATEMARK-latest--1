@@ -20,6 +20,9 @@ function deckCard(n: number, metrics: CompanyMetric[]): CardWithCompany {
     metrics: metrics.map((m) => ({ ...m, companyId: id })), viceClaims: [] };
 }
 const full = (n: number) => deckCard(n, [human('x', 'employees', 40), human('x', 'arr', 2e6), human('x', 'users', 900), human('x', 'valuation', 2e7)]);
+// A hunt answers with the hunted company's OWN rows. These mocks used to hand every company company 1's rows,
+// which the card face only accepted because it did not check whose rows they were.
+const ownFull = (id: string) => full(Number(id.split('_')[2])).metrics;
 
 describe('gapsByKind', () => {
   it('counts which kinds of figure are missing across companies, most common first, ignoring full faces', () => {
@@ -80,12 +83,12 @@ describe('face sweep run', () => {
     const cards = Array.from({ length: 10 }, (_, i) => deckCard(i + 10, []));
     cards.push(full(99));
     let active = 0, peak = 0;
-    const huntCompanyMetrics = vi.fn(async (_id: string, _options?: unknown) => {
+    const huntCompanyMetrics = vi.fn(async (id: string, _options?: unknown) => {
       active += 1; peak = Math.max(peak, active);
       await new Promise((r) => setTimeout(r, 5));
       active -= 1;
       // The pass fills the face, so no escalated retry follows.
-      return { filledTypes: ['employees' as const], metrics: full(1).metrics, retieredCardIds: [] };
+      return { filledTypes: ['employees' as const], metrics: ownFull(id), retieredCardIds: [] };
     });
     const recoverSavedCompanyMetrics = vi.fn(async () => ({ filledTypes: [], metrics: [], retieredCardIds: [] }));
     const done: string[] = [];
@@ -145,7 +148,7 @@ describe('face sweep run — batched', () => {
     const huntFaceSlotsBatch = vi.fn(async (ids: readonly string[]) => { order.push('batch');
       // Companies 1-5 come back full, 6-10 empty; 11 was left out (the caller hunts it alone).
       return Object.fromEntries(ids.filter((id) => id !== 'cmp_sweep_11').map((id) => [id, Number(id.split('_')[2]) <= 5
-        ? { filledTypes: ['employees' as const, 'arr' as const], metrics: full(1).metrics, retieredCardIds: [] } : none])); });
+        ? { filledTypes: ['employees' as const, 'arr' as const], metrics: ownFull(id), retieredCardIds: [] } : none])); });
     const huntCompanyMetrics = vi.fn(async (_id: string, _options?: unknown) => none);
     const result = await runFaceSweep(cards, { repo: { huntCompanyMetrics, recoverSavedCompanyMetrics, huntFaceSlotsBatch } });
     expect(huntFaceSlotsBatch).toHaveBeenCalledTimes(1);
@@ -211,7 +214,7 @@ describe('face sweep run — batched', () => {
       readonly calls: string[] = [];
       async recoverSavedCompanyMetrics(id: string) { this.calls.push(`recover:${id}`); return none; }
       async huntFaceSlotsBatch(ids: readonly string[]) { this.calls.push('batch');
-        return Object.fromEntries(ids.map((id) => [id, { filledTypes: ['employees' as const], metrics: full(1).metrics, retieredCardIds: [] }])); }
+        return Object.fromEntries(ids.map((id) => [id, { filledTypes: ['employees' as const], metrics: ownFull(id), retieredCardIds: [] }])); }
       async huntCompanyMetrics(id: string) { this.calls.push(`hunt:${id}`); return none; }
     }
     const repo = new Repo();
