@@ -59,11 +59,15 @@ npx wrangler secret put SERPER_API_KEY   # optional: hosted web search
    VITE_STRATEMARK_API_URL=https://stratemark-api.<account>.workers.dev pnpm --filter @mi/web build
    firebase deploy --only hosting
    ```
-4. Check it end to end, with a real share made and read back and stopped:
+4. Check the whole beta from the outside (the Worker, its key and budget, who may call it, a real share made and
+   stopped, the app and its share viewer, and what the build was built against). It spends nothing and exits
+   non-zero if something that must be true is not:
 
    ```bash
-   node scripts/share-smoke.mjs https://stratemark-api.<account>.workers.dev https://<the app origin>
+   node scripts/launch-preflight.mjs https://stratemark-api.<account>.workers.dev https://<the app address>
    ```
+
+   (`node services/stratemark-api/scripts/share-smoke.mjs <worker> <app origin>` runs just the share checks.)
 
 Optional: serve share links from your own domain (for example `share.getstratemark.com`) by adding a route
 to the Worker in the Cloudflare dashboard and setting `SHARE_PUBLIC_BASE = "https://share.getstratemark.com"`.
