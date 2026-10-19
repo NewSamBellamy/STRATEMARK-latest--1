@@ -69,6 +69,14 @@ export function fitFaceLine(text: string | null | undefined, max: number): strin
   return finish(head.slice(0, word > 0 ? word : max));
 }
 
+/**
+ * How much a signal card's face can hold without the box clipping it. Measured on a live deck: the narrowest card (a
+ * phone-width reader, 247 px) fits about 125 characters in the three-line description and about 135 in the four-line
+ * finding, and text past that was cut mid-sentence by CSS. The full text is always in the reader.
+ */
+const FACE_DESCRIPTION_MAX = 120;
+const FACE_FINDING_MAX = 135;
+
 const PENDING_SNAPSHOT = 'No source-backed company snapshot is ready yet.';
 
 function uniqueLines(values: Array<string | null | undefined>): string[] {
@@ -441,12 +449,12 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
     // barrier or insight card has no company: its one-line summary, then the first point behind it.
     frontDescription: !signal ? description
       : data.company
-        ? fitFaceLine(data.company.oneLiner?.trim() === PENDING_SNAPSHOT ? null : sentences(data.company.oneLiner)[0], 120)
-        : fitFaceLine(signalLines[0], 150),
+        ? fitFaceLine(data.company.oneLiner?.trim() === PENDING_SNAPSHOT ? null : sentences(data.company.oneLiner)[0], FACE_DESCRIPTION_MAX)
+        : fitFaceLine(signalLines[0], FACE_DESCRIPTION_MAX),
     frontFinding: !signal ? null
       : data.company
-        ? fitFaceLine(signalLines.slice(0, 3).join(' '), 200)
-        : fitFaceLine(signalLines[1], 200),
+        ? fitFaceLine(signalLines.slice(0, 3).join(' '), FACE_FINDING_MAX)
+        : fitFaceLine(signalLines[1], FACE_FINDING_MAX),
     type: CARD_TYPE_LABELS[data.card.cardType], signal, maturity, rating, position, metrics,
     profileMetrics, faceMetrics, knownCount, sourcedCount,
     // A source count is evidence DEPTH, not retrieved-item volume: the same

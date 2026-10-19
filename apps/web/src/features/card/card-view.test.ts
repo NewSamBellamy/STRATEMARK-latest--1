@@ -458,6 +458,25 @@ describe('the face of a risk or culture card names the company, then says the fi
   });
 });
 
+describe('a signal card face holds only what its box can show', () => {
+  it('keeps the description to 120 characters and the finding to 135, whatever the stored text', () => {
+    const long = 'State-level utility commission rulings have slashed export compensation rates, compressing the return on investment for pure solar systems across several large states and utilities.';
+    const barrier = buildCardView({
+      card: { ...card, cardType: 'barrier', companyId: null, title: 'Net metering', summary: long, keyPoints: [long.replace('State-level', 'Many state-level'), 'Another point about the same barrier that is also fairly long and keeps going for a while.'], citations: [] },
+      company: null, metrics: [], viceClaims: [],
+    });
+    expect(barrier.frontDescription!.length).toBeLessThanOrEqual(121);
+    expect(barrier.frontFinding!.length).toBeLessThanOrEqual(136);
+    const culture = buildCardView({
+      card: { ...card, cardType: 'culture', title: null, summary: 'GoodLeap, LLC states its mission is "to connect a world in which everyone can live sustainably," supported by corporate values focused on financial technology innovation, contractor vetting and customer service.', citations: [], keyPoints: [] },
+      company: { ...company, oneLiner: 'GoodLeap is a leading fintech point-of-sale platform providing point-of-sale financing for residential solar and home improvement projects across the United States.' },
+      metrics: [], viceClaims: [],
+    });
+    expect(culture.frontDescription!.length).toBeLessThanOrEqual(121);
+    expect(culture.frontFinding!.length).toBeLessThanOrEqual(136);
+  });
+});
+
 describe('a risk card face leads with the claims, not a description of the company', () => {
   it('shows the sourced claim even when the stored summary only describes the company', () => {
     const description = 'Sunlight Financial LLC provides a point-of-sale financing platform that connects solar installers and homeowners.';
