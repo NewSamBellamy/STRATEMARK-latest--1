@@ -462,6 +462,10 @@ function vaultFor(env: Env, id: string) {
 
 /** POST /v1/share: store a read-only copy and answer the link and the token that stops it. */
 async function shareCreate(request: Request, env: Env, origin: string): Promise<Response> {
+  // A body past the ceiling is refused on its declared size, before any of it is read.
+  if (Number(request.headers.get('content-length') ?? 0) > SHARE_MAX_BODY_CHARS) {
+    return json({ error: 'This share is too large to host. Share a single card, or use a private link.' }, 413, origin);
+  }
   const parsed = parseShareCreate(await readJson<unknown>(request, SHARE_MAX_BODY_CHARS), origin);
   if (!parsed.ok) return json({ error: parsed.error }, parsed.status, origin);
   const input = parsed.value;

@@ -62,7 +62,7 @@ check('a viewer address on another origin is refused', (await post({ ...good, vi
 check('a viewer address with a query is refused', (await post({ ...good, viewer: `${VIEWER}?x=1` })).status === 400);
 check('a picture that is not a PNG is refused', (await post({ ...good, og: 'R0lGODlhAQABAAAAACw=' })).status === 400);
 check('a body that is not JSON is refused', (await post('not json')).status === 400);
-check('an oversized snapshot is refused with 413', (await post({ ...good, data: 'A'.repeat(6_100_000) })).status === 413);
+check('an oversized snapshot is refused with 413', (await post({ ...good, data: 'A'.repeat(2_100_000) })).status === 413);
 
 const wrong = await fetch(`${API}/v1/share/${id}`, { method: 'DELETE', headers: { origin: ORIGIN, 'x-share-token': 'wrongtokenwrongtoken12' } });
 check('stopping a share with the wrong token is refused', wrong.status === 403, String(wrong.status));

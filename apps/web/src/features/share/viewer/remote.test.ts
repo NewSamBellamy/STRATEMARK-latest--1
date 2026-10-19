@@ -41,7 +41,7 @@ describe('loading a hosted share', () => {
   it('says a stopped or expired link is gone', async () => {
     const result = await loadRemoteShare(ID, 'https://a.example', (async () => json(404, { error: 'gone' })) as unknown as typeof fetch);
     expect(result).toMatchObject({ ok: false, reason: 'gone' });
-    expect(result.ok === false && result.message).toMatch(/no longer available/);
+    expect(result.ok === false && result.message).toMatch(/expires after a while/);
   });
 
   it('says so when the Worker cannot be reached, and never shows a server error body', async () => {

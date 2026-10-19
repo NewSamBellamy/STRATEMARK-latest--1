@@ -18,7 +18,7 @@ export type RemoteShareResult =
   | { ok: false; reason: 'gone' | 'unreachable' | 'unreadable'; message: string };
 
 const MESSAGES = {
-  gone: 'This link is no longer available. Shared research expires after a while, and its owner can stop sharing it. Ask whoever sent it for a fresh link.',
+  gone: 'Shared research expires after a while, and its owner can stop sharing it. Ask whoever sent it for a fresh link.',
   unreachable: 'The shared research could not be loaded. Check your connection and reload this page.',
   unreadable: 'This shared page could not be opened: its research is not in a form this page can read.',
 } as const;

@@ -16,9 +16,12 @@
 
 /** How long a share lives, in days, unless the Worker is configured otherwise. */
 export const SHARE_TTL_DAYS_DEFAULT = 90;
-/** Largest compressed snapshot, as base64url characters (about 4.5 MB of bytes). */
-export const SHARE_MAX_DATA_CHARS = 6_000_000;
-/** Largest preview picture, as base64 characters (about 375 KB of PNG). */
+/**
+ * Largest compressed snapshot, as base64url characters (about 1.5 MB of bytes). An 18-company deck measures about 180 KB, so
+ * this is more than ten times a real deck; it also keeps the Worker's work per request small (a free Workers plan allows 10 ms of CPU).
+ */
+export const SHARE_MAX_DATA_CHARS = 2_000_000;
+/** Largest preview picture, as base64 characters (about 375 KB of PNG; the real one measures about 240 KB). */
 export const SHARE_MAX_OG_CHARS = 500_000;
 /** Storage is written in pieces this size; one Durable Object value holds at most 128 KiB. */
 export const SHARE_CHUNK_CHARS = 100_000;

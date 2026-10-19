@@ -130,6 +130,12 @@ export function HostedShareDialog({
               <Link2 className="h-4 w-4" />
               Create link
             </button>
+            {page.cardId && (
+              <p className="text-[11.5px] leading-relaxed text-faint">
+                Before the link is made, any figure on this card that has not been verified is checked again, so the copy carries the reconciled figures. That can take a
+                minute and uses a few searches on your key.
+              </p>
+            )}
             <p className="text-[11.5px] leading-relaxed text-faint">
               To make the link work, Stratemark keeps a copy of this research on its servers for {ttlDays} days. Anyone who has the link can read it. You can stop
               sharing at any time, and nothing is uploaded until you press the button.
