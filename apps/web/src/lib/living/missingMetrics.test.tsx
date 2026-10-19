@@ -285,26 +285,36 @@ it('the automatic face sweep skips a resting company, a sweep starts its rest, a
   sweepOnly.unmount(); fresh.client.clear();
 });
 
-it('a deck short of signal cards is searched once for them; a clean search rests across reloads, an errored one tries again', async () => {
+it('an open deck is asked once to make sure it holds its signal cards, and the repository decides what is searched', async () => {
   const none = { barrier: 0, insight: 0, vice: 0, culture: 0 };
-  const session = async (result: { failed: boolean }) => {
+  const session = async () => {
     const s = await setup();
-    const ensure = vi.fn().mockResolvedValue({ added: none, ...result });
+    const ensure = vi.fn().mockResolvedValue({ added: none, failed: false, failedKinds: [] });
     Object.assign(s.repo, { ensureSignalCards: ensure });
     const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
-    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
     hook.unmount(); s.client.clear();
     return ensure;
   };
-  const first = await session({ failed: false });
+  const first = await session();
   expect(first).toHaveBeenCalledTimes(1);
   expect(first).toHaveBeenCalledWith('deck');
-  // A reload: the search found nothing more to add, so the deck rests.
-  expect(await session({ failed: false })).not.toHaveBeenCalled();
-  // A search that errored is not a rest: the next session tries again.
-  localStorage.clear();
-  expect(await session({ failed: true })).toHaveBeenCalledTimes(1);
-  expect(await session({ failed: false })).toHaveBeenCalledTimes(1);
+  // The rest lives with the deck in the repository, not in this browser's storage: every open asks, once.
+  expect(await session()).toHaveBeenCalledTimes(1);
+});
+
+it('does not ask for signal cards while research is paused', async () => {
+  const s = await setup();
+  const ensure = vi.fn().mockResolvedValue({ added: { barrier: 0, insight: 0, vice: 0, culture: 0 }, failed: false, failedKinds: [] });
+  Object.assign(s.repo, { ensureSignalCards: ensure });
+  act(() => useResearchControl.setState({ paused: true }));
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+  expect(ensure).not.toHaveBeenCalled();
+  act(() => useResearchControl.setState({ paused: false }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+  expect(ensure).toHaveBeenCalledTimes(1);
+  hook.unmount(); s.client.clear();
 });
 
 it('invalidates real card, saved, metric and dashboard queries after recovery', async () => {

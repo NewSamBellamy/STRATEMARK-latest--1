@@ -36,7 +36,7 @@ import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { qk } from '@/lib/query/keys';
 import { traceAgent } from '@/lib/agentic/agentTrace';
 import { formatMetricValue } from '@/lib/format';
-import { batchRestKey, endRest, huntRestKey, isResting, signalsRestKey, startRest, verifyRestKey } from './ambientRest';
+import { batchRestKey, endRest, huntRestKey, isResting, startRest, verifyRestKey } from './ambientRest';
 import { useResearchControl } from './researchControl';
 import { runFaceSweep, selectFaceSweepTargets, type FaceSweepResult } from './faceSweep';
 import {
@@ -649,26 +649,20 @@ export function useLivingDeck(
     };
     if (autoFaceSweep) sweepTimer = setTimeout(() => { void autoSweep(); }, 1_000);
 
-    // Market signals: a deck short of barrier, insight, vice or culture cards (a first-pass search that errored, or an
-    // older deck) gets one targeted search for what is missing, once the deck is no longer being created. A search that
-    // found nothing rests like the other automatic searches; one that errored does not, so the next open tries again.
+    // Market signals: once per open, when the deck is no longer being created, it is asked to make sure it holds its four
+    // kinds of signal card. The repository decides whether anything is searched for: it counts sourced cards only, rests a
+    // searched kind for days (the rest is stored with the deck, so a reload, a second tab or the deck's own creation does
+    // not search again) and rests a kind whose search errored for a short while.
     let signalTimer: ReturnType<typeof setTimeout> | null = null;
     let signalsCancelled = false;
-    const SIGNAL_KINDS = ['barrier', 'insight', 'vice', 'culture'] as const;
-    const SIGNAL_MINIMUM = 4;
     const autoSignals = async () => {
       signalTimer = null;
       if (signalsCancelled || !canEnsureSignals) return;
-      const have = (kind: string) => cardsRef.current.filter((c) => c.card.cardType === kind).length;
       if (cardsRef.current.length === 0) { signalTimer = setTimeout(() => { void autoSignals(); }, 5_000); return; }
-      if (!SIGNAL_KINDS.some((kind) => have(kind) < SIGNAL_MINIMUM) || isResting(signalsRestKey(deckId))) return;
       const blocked = isLowPower() || useResearchControl.getState().paused || await creationIsActive(repo, deckId);
       if (signalsCancelled) return;
       if (blocked) { signalTimer = setTimeout(() => { void autoSignals(); }, 5_000); return; }
-      try {
-        const result = await repo.ensureSignalCards!(deckId);
-        if (!result.failed) startRest(signalsRestKey(deckId));
-      } catch { /* the next open tries again */ }
+      try { await repo.ensureSignalCards!(deckId); } catch { /* the next open tries again */ }
     };
     signalTimer = setTimeout(() => { void autoSignals(); }, 3_000);
 

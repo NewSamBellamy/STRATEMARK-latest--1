@@ -49,8 +49,16 @@ function fakeClient(withProviderSupport = true): LlmClient {
   return {
     ground: vi.fn(async () => ({ text: withProviderSupport ? answer : 'grounded notes', citations, queries: ['q'],
       ...(withProviderSupport ? { grounding: { provider: 'google-search' as const, answerText: answer,
-        supports: claims.map((row, supportIndex) => ({ supportIndex, text: row.text,
-          sources: [{ chunkIndex: row.url === citations[0]!.url ? 0 : 1, url: row.url, title: 'Reported company results' }] })) } } : {}),
+        supports: [
+          ...claims.map((row, supportIndex) => ({ supportIndex, text: row.text,
+            sources: [{ chunkIndex: row.url === citations[0]!.url ? 0 : 1, url: row.url, title: 'Reported company results' }] })),
+          // The sentences the market-level cards are written from: a source the model names for a card counts only when
+          // the search attached it to a sentence about that card.
+          { supportIndex: claims.length, text: 'Capital intensity is a barrier because expensive plants and equipment make market entry costly.',
+            sources: [{ chunkIndex: 0, url: citations[0]!.url, title: 'Market structure' }] },
+          { supportIndex: claims.length + 1, text: 'Compute costs falling fast are shifting margins across providers this year.',
+            sources: [{ chunkIndex: 1, url: citations[1]!.url, title: 'Market margins' }] },
+        ] } } : {}),
     })),
     structure: (async (prompt: string, schema: ZodType<unknown>) => {
       let obj: unknown;
@@ -244,7 +252,7 @@ function fakeClient(withProviderSupport = true): LlmClient {
       } else if (prompt.includes('"barriers"')) {
         obj = {
           barriers: [
-            { title: 'Capital intensity', summary: 'Expensive to enter.', sourceIndex: 0 },
+            { title: 'Capital intensity', summary: 'Expensive to enter, with costly plants and equipment.', sourceIndex: 0 },
           ],
           insights: [
             {

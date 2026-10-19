@@ -367,9 +367,9 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
     (m.citations.length > 0 || m.metric?.confidence === 'user_verified')).length;
   const position = signal ? 'Market signal' : data.card.cardType !== 'company' ? 'Entity profile' :
     faceMetrics.length ? `${faceSourced}/${faceMetrics.length} figures sourced` : 'Research pending';
-  const viceCitations = data.viceClaims.flatMap((claim) => sourceUrl(claim.sourceUrl)
-    ? [{ url: claim.sourceUrl, title: claim.sourceTitle || 'Source' }]
-    : []);
+  // An allegation with no clickable source is not shown anywhere on the card (the repository drops it too).
+  const viceClaims = data.viceClaims.filter((claim) => sourceUrl(claim.sourceUrl));
+  const viceCitations = viceClaims.map((claim) => ({ url: claim.sourceUrl, title: claim.sourceTitle || 'Source' }));
   const citations = usableCitations([
     ...(data.card.citations ?? []).filter((c) => sourceUrl(c.url)),
     ...viceCitations,
@@ -377,11 +377,11 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
   ], signal ? null : data.company?.websiteUrl);
   const signalLines = signal ? uniqueLines([
     data.card.summary,
-    ...data.viceClaims.map((claim) => claim.claimText),
+    ...viceClaims.map((claim) => claim.claimText),
     ...data.card.keyPoints,
   ]) : [];
   const description = signal
-    ? data.card.summary ?? data.viceClaims[0]?.claimText ?? data.card.keyPoints[0] ?? null
+    ? data.card.summary ?? viceClaims[0]?.claimText ?? data.card.keyPoints[0] ?? null
     : data.company?.oneLiner;
   const title = data.company?.name ?? data.card.title ?? 'Research card';
   return {

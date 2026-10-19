@@ -35,7 +35,7 @@ import {
   type Company,
   type ViceClaim,
 } from '@mi/contracts';
-import { claimSupportCitations } from './claim-support';
+import { claimSupportCitations, sourceBacksClaim } from './claim-support';
 import { marketCardsOutSchema } from './schemas';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import { slugify, throwIfAborted } from './util';
@@ -185,6 +185,28 @@ export function deduplicateClaims<T extends { title: string }>(
     seen.add(key);
     out.push(claim);
     if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * Like deduplicateClaims, but when the same finding came from both passes the sourced copy wins over an unsourced one
+ * that happened to come first (the second pass exists because the first had no usable sources).
+ */
+export function deduplicatePreferSourced<T extends { title: string; cited: readonly unknown[] }>(claims: T[], limit = 10): T[] {
+  const positions = new Map<string, number>();
+  const out: T[] = [];
+  for (const claim of claims) {
+    const key = normalizeClaimTitle(claim.title);
+    if (!key) continue;
+    const at = positions.get(key);
+    if (at === undefined) {
+      if (out.length >= limit) continue;
+      positions.set(key, out.length);
+      out.push(claim);
+    } else if (out[at]!.cited.length === 0 && claim.cited.length > 0) {
+      out[at] = claim;
+    }
   }
   return out;
 }
@@ -965,8 +987,10 @@ export async function researchMarketSignals(
   // sentences the card is built from (claimSupportCitations): the step often names none for a well-sourced answer.
   type RawClaim = { title: string; summary?: string; keyPoints?: string[]; sourceIndex?: number | null; sourceIndexes?: number[] | null };
   const claimCitations = (item: RawClaim, indexed: readonly Citation[], grounding: ProviderGrounding | undefined): Citation[] => {
-    const named = resolveClaimCitations(item.sourceIndex, item.sourceIndexes, indexed);
-    return named.length > 0 ? named : claimSupportCitations([item.title, item.summary ?? '', ...(item.keyPoints ?? [])].join(' '), grounding);
+    const text = [item.title, item.summary ?? '', ...(item.keyPoints ?? [])].join(' ');
+    // A source number the model named counts only if the sentences that source is attached to are about this card.
+    const named = resolveClaimCitations(item.sourceIndex, item.sourceIndexes, indexed).filter((c) => sourceBacksClaim(c.url, text, grounding));
+    return named.length > 0 ? named : claimSupportCitations(text, grounding);
   };
   const sourced = (items: RawClaim[] | undefined) =>
     (items ?? []).filter((item) => claimCitations(item, firstPass.citations, firstPass.grounding).length > 0).length;
@@ -995,46 +1019,28 @@ export async function researchMarketSignals(
     }
   }
 
-  // 3. Reconcile Citations & Offset Indices
-  const allCitations = [...firstPass.citations, ...(secondPass?.citations ?? [])];
-
-  const rawBarriers = [
-    ...(firstPass.out.barriers ?? []),
-    ...offsetClaimSourceIndices(
-      secondPass?.out.barriers ?? [],
-      firstPass.citations.length,
-    ),
-  ];
-
-  const rawInsights = [
-    ...(firstPass.out.insights ?? []),
-    ...offsetClaimSourceIndices(
-      secondPass?.out.insights ?? [],
-      firstPass.citations.length,
-    ),
-  ];
-
-  // The supports of both passes, for a claim whose own pass named no source.
-  const allGrounding: ProviderGrounding | undefined = firstPass.grounding || secondPass?.grounding
-    ? { provider: 'google-search', answerText: '', supports: [...(firstPass.grounding?.supports ?? []), ...(secondPass?.grounding?.supports ?? [])] }
-    : undefined;
+  // 3. Resolve each item's sources against the pass that wrote it. A source number only means something next to the list
+  //    it indexes: joining the passes first and shifting the second pass's numbers made its "none" (-1) the first pass's
+  //    last source, and a first pass's out-of-range number a second-pass source.
+  type Resolved = NonNullable<z.infer<typeof marketCardsOutSchema>['barriers' | 'insights']>[number] & { cited: Citation[] };
+  const resolvedIn = (pass: typeof firstPass | null, kind: 'barriers' | 'insights'): Resolved[] =>
+    pass ? (pass.out[kind] ?? []).map((item) => ({ ...item, cited: claimCitations(item, pass.citations, pass.grounding) })) : [];
 
   // 4. Deduplicate Claims
-  const deduplicatedBarriers = deduplicateClaims(rawBarriers, 10);
-  const deduplicatedInsights = deduplicateClaims(rawInsights, 10);
+  const deduplicatedBarriers = deduplicatePreferSourced([...resolvedIn(firstPass, 'barriers'), ...resolvedIn(secondPass, 'barriers')], 10);
+  const deduplicatedInsights = deduplicatePreferSourced([...resolvedIn(firstPass, 'insights'), ...resolvedIn(secondPass, 'insights')], 10);
 
   // 5. Assemble Cards with Provenance Enforcement
   const assembledCards: CardWithCompany[] = [];
 
   for (const barrier of deduplicatedBarriers) {
-    const cited = claimCitations(barrier, allCitations, allGrounding);
-    if (cited.length === 0) continue; // Grounding contract: drop unsourced cards
+    if (barrier.cited.length === 0) continue; // Grounding contract: drop unsourced cards
 
     assembledCards.push(
       createBarrierCard(
         barrier.title,
         barrier.summary,
-        cited,
+        barrier.cited,
         barrier.keyPoints,
         deckId,
       ),
@@ -1042,14 +1048,13 @@ export async function researchMarketSignals(
   }
 
   for (const insight of deduplicatedInsights) {
-    const cited = claimCitations(insight, allCitations, allGrounding);
-    if (cited.length === 0) continue; // Grounding contract: drop unsourced cards
+    if (insight.cited.length === 0) continue; // Grounding contract: drop unsourced cards
 
     assembledCards.push(
       createInsightCard(
         insight.title,
         insight.summary,
-        cited,
+        insight.cited,
         insight.keyPoints,
         deckId,
       ),

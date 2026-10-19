@@ -81,7 +81,9 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
   deckView, position, total, onPrevious, onNext, onRestoreFocus }: Omit<Props, 'data' | 'returnFocusTo'> & {
   data: CardWithCompany; onRestoreFocus: (event: Event, cardId: string) => void;
 }) {
-  const { card, company, viceClaims } = data;
+  const { card, company } = data;
+  // An allegation with no clickable source is not shown.
+  const viceClaims = data.viceClaims.filter((claim) => sourceUrl(claim.sourceUrl));
   const view = buildCardView(data);
   const marketName = useMarket(marketId).data?.name ?? null;
   const repo = useRepository();
