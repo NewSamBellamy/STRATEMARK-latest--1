@@ -3463,7 +3463,8 @@ export class GeminiRepository implements MarketIntelRepository {
       };
       await this.persist();
       // After the timeline exists, never blocking the tab: find the video (free search first).
-      if (tab === 'history') void this.fillHistoryVideo(companyId, { force: Boolean(force), grounded: true }).catch(() => undefined);
+      // The warm-up looks only on the free search lane; a company the user opens may also get the paid search.
+      if (tab === 'history') void this.fillHistoryVideo(companyId, { force: Boolean(force), grounded: !warmup }).catch(() => undefined);
       return result;
     })();
     const run = Promise.race([work, deadline]);
