@@ -54,6 +54,17 @@ console.log(`      daily budget $${info.budgetUsd} in all, $${info.visitorBudget
 check('the daily budget is a sane number (1 to 1000 dollars)', info.budgetUsd >= 1 && info.budgetUsd <= 1000, String(info.budgetUsd));
 check('one visitor cannot spend the whole day (visitor budget below the daily budget)', info.visitorBudgetUsd > 0 && info.visitorBudgetUsd < info.budgetUsd, String(info.visitorBudgetUsd));
 
+// The dollar meter: a request for a feature it cannot see must be refused before anything is held or sent to Google
+// (a Maps tool request; an older Worker would have forwarded it). It spends nothing either way.
+if (info.hostedResearch === true) {
+  const maps = await get(`${worker}/v1/gemini/gemini-flash-lite-latest:generateContent`, {
+    method: 'POST', headers: { Origin: appOrigin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts: [{ text: 'preflight' }] }], tools: [{ googleMaps: {} }] }),
+  });
+  check('the Worker refuses a request for a billed feature its meter cannot see (it parses and rebuilds requests)', maps.response?.status === 400,
+    `got ${maps.response?.status}: deploy the spend-meter hardening (services/stratemark-api) before launch`);
+}
+
 const allowed = await get(`${worker}/v1/news`, { method: 'OPTIONS', headers: { Origin: appOrigin, 'Access-Control-Request-Method': 'POST' } });
 check('the app\'s address is allowed to call the Worker', allowed.response?.status === 204 && allowed.response.headers.get('access-control-allow-origin') === appOrigin,
   `got ${allowed.response?.status}: add ${appOrigin} to ALLOWED_ORIGINS in services/stratemark-api/wrangler.toml and deploy`);
@@ -74,6 +85,8 @@ const index = await get(`${app}/`);
 check('the app\'s address serves the app', index.response?.status === 200 && /<div id="root"/.test(index.text), index.error ?? String(index.response?.status));
 const share = await get(`${app}/share.html`);
 check('the share viewer is deployed (share.html)', share.response?.status === 200 && /stratemark-share-data/.test(share.text), String(share.response?.status));
+check('the share viewer carries its content-security policy and may call this Worker', /http-equiv="Content-Security-Policy"/.test(share.text) && share.text.includes(new URL(worker).origin),
+  'rebuild with VITE_STRATEMARK_API_URL=' + worker + ' (the policy is written in at build time)');
 const scripts = [...index.text.matchAll(/<script[^>]+src="([^"]+)"/g)].map((m) => new URL(m[1], `${app}/`).href);
 let bundle = '';
 for (const src of scripts.slice(0, 6)) bundle += (await get(src)).text;
