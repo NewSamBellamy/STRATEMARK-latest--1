@@ -427,6 +427,8 @@ describe('fitFaceLine: card-face text that never stops mid-thought', () => {
     expect(fitFaceLine('Momentum Solar is a full-service residential solar contractor that provides direct-to-consumer design and installation of solar systems across the United States.', 120)).toBe('Momentum Solar is a full-service residential solar contractor…');
     expect(fitFaceLine('GoodLeap is a leading fintech point-of-sale platform providing point-of-sale financing for residential solar and home improvement projects.', 120)).toBe('GoodLeap is a leading fintech point-of-sale platform…');
     expect(fitFaceLine('Enphase Energy is a global energy technology company and leading North American supplier of microinverter-based solar and battery systems.', 120)).toBe('Enphase Energy is a global energy technology company…');
+    // Never inside a parenthesis.
+    expect(fitFaceLine('Sunrun Inc. was named as a defendant in a consumer protection lawsuit filed in December 2024 (Lara v. Sunrun Inc., Case No. 2024-CV-001234) alleging that its sales agents misled homeowners about savings.', 150)).toBe('Sunrun Inc. was named as a defendant in a consumer protection lawsuit filed in December 2024…');
     // Nothing to break on: the old rule still applies.
     expect(fitFaceLine('Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega', 60)!.endsWith('…')).toBe(true);
   });

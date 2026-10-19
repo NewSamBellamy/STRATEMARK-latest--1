@@ -55,12 +55,18 @@ export function fitFaceLine(text: string | null | undefined, max: number): strin
   // leaves a whole thought, rather than at the last comma, which is often inside a list ("locally generated, affordable...").
   let soft = -1;
   for (const m of t.slice(0, max + 24).matchAll(SOFT_BREAK)) if (m.index <= max && m.index >= max * 0.35) { soft = m.index; break; }
-  if (soft > 0) return `${t.slice(0, soft).replace(/[\s,;—(]+$/, '')}…`;
+  // Whatever the cut, never stop inside a parenthesis ("(Lara v. Sunrun Inc.…"): back up to where it opened.
+  const finish = (cut: string): string => {
+    const open = cut.lastIndexOf('(');
+    const kept = open >= max * 0.35 && open > cut.lastIndexOf(')') ? cut.slice(0, open) : cut;
+    return `${kept.replace(/[\s,;:—(]+$/, '')}…`;
+  };
+  if (soft > 0) return finish(t.slice(0, soft));
   const head = t.slice(0, max);
   const clause = Math.max(head.lastIndexOf('; '), head.lastIndexOf(', '), head.lastIndexOf(' — '), head.lastIndexOf(' ('));
-  if (clause >= max * 0.5) return `${head.slice(0, clause).replace(/[\s,;—(]+$/, '')}…`;
+  if (clause >= max * 0.5) return finish(head.slice(0, clause));
   const word = head.lastIndexOf(' ');
-  return `${head.slice(0, word > 0 ? word : max).replace(/[\s,;:—(]+$/, '')}…`;
+  return finish(head.slice(0, word > 0 ? word : max));
 }
 
 const PENDING_SNAPSHOT = 'No source-backed company snapshot is ready yet.';
