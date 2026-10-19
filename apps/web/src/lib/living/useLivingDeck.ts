@@ -36,7 +36,7 @@ import { isCommunityDesktop } from '@/lib/settings/runtime';
 import { qk } from '@/lib/query/keys';
 import { traceAgent } from '@/lib/agentic/agentTrace';
 import { formatMetricValue } from '@/lib/format';
-import { batchRestKey, huntRestKey, isResting, startRest } from './ambientRest';
+import { batchRestKey, endRest, huntRestKey, isResting, startRest, verifyRestKey } from './ambientRest';
 import { useResearchControl } from './researchControl';
 import { runFaceSweep, selectFaceSweepTargets, type FaceSweepResult } from './faceSweep';
 import {
@@ -344,9 +344,19 @@ export function useLivingDeck(
     for (const desk of entityDesks(cardsRef.current)) {
       if (desk.company?.id) fillAssetsOnce(desk.company.id);
     }
+    // The slot's cooldown also survives a reload (ambientRest): a new page is not a reason to re-check at once.
     const verificationOpen = (target: VerificationTarget) => {
       const last = attemptedVerifications.get(`${target.companyId}:${target.metricType}`);
-      return last === undefined || nowMs() - last >= VERIFY_SLOT_COOLDOWN_MS;
+      return (last === undefined || nowMs() - last >= VERIFY_SLOT_COOLDOWN_MS)
+        && !isResting(verifyRestKey(target.companyId, target.metricType), nowMs(), VERIFY_SLOT_COOLDOWN_MS);
+    };
+    const markVerified = (companyId: string, metricType: string) => {
+      attemptedVerifications.set(`${companyId}:${metricType}`, nowMs());
+      startRest(verifyRestKey(companyId, metricType));
+    };
+    const reopenVerification = (companyId: string, metricType: string) => {
+      attemptedVerifications.delete(`${companyId}:${metricType}`);
+      endRest(verifyRestKey(companyId, metricType));
     };
 
     const nameOf = (companyId: string): string =>
@@ -512,7 +522,7 @@ export function useLivingDeck(
             // Reserve before the call: a thrown verification also spends the
             // slot's cooldown window, so a persistent failure cannot become
             // a hot retry loop.
-            attemptedVerifications.set(`${target.companyId}:${target.metricType}`, nowMs());
+            markVerified(target.companyId, target.metricType);
             // One batch action beats N per-metric actions: when a company has
             // several figures worth re-checking, one grounded pass verifies
             // them all (2 model calls instead of 2N) and promotes/demotes
@@ -523,9 +533,8 @@ export function useLivingDeck(
             if (canVerifyBatch && estimatedCount >= 2) {
               const batch = await repo.verifyCompanyMetrics!(target.companyId);
               for (const row of batch.results) {
-                const slot = `${target.companyId}:${row.metricType}`;
-                if (row.changed) attemptedVerifications.delete(slot);
-                else attemptedVerifications.set(slot, nowMs());
+                if (row.changed) reopenVerification(target.companyId, row.metricType);
+                else markVerified(target.companyId, row.metricType);
               }
               await invalidateMetricSurfaces(qc, target.companyId, batch.changedTypes.length > 0);
               const held = batch.results.filter((r) => r.verdict === 'supported' && !r.changed).length;
@@ -543,7 +552,7 @@ export function useLivingDeck(
             // A correction is new information: re-open the slot so the fresh
             // figure gets a consistency pass before its cooldown re-arms.
             if (result.changed) {
-              attemptedVerifications.delete(`${target.companyId}:${target.metricType}`);
+              reopenVerification(target.companyId, target.metricType);
             }
             await invalidateMetricSurfaces(qc, target.companyId, result.changed);
             const value = result.metric.value;

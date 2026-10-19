@@ -5,7 +5,7 @@
  * estimate fill, and one ladder hunt for every company still short of a core figure. Each of those was
  * limited per session, and a reload starts a new session, so reloading the page paid for them all again
  * (about $0.40 within a minute on a 16-company deck). A company that was searched automatically now rests
- * for a few days, across reloads and restarts. A figure two passes could not find is not found by a third
+ * for a few days, across reloads and restarts; a figure's automatic re-check rests for the half hour it always did. A figure two passes could not find is not found by a third
  * a minute later; the manual "Find missing figures" button stays unlimited, and the freshness checks on
  * figures already held are a separate lane that is not limited here.
  *
@@ -46,18 +46,28 @@ function write(ledger: Ledger): void {
 export const huntRestKey = (companyId: string): string => `hunt:${companyId}`;
 /** The key under which a deck's one automatic batched estimate fill rests. */
 export const batchRestKey = (deckId: string): string => `batch:${deckId}`;
+/** The key under which one figure's automatic re-check rests (its own, shorter window). */
+export const verifyRestKey = (companyId: string, metricType: string): string => `verify:${companyId}:${metricType}`;
 
-/** True while `key` was started less than AMBIENT_REST_MS ago. */
-export function isResting(key: string, now: number = Date.now()): boolean {
+/** True while `key` was started less than `restMs` ago (AMBIENT_REST_MS unless the caller names its own window). */
+export function isResting(key: string, now: number = Date.now(), restMs: number = AMBIENT_REST_MS): boolean {
   const startedAt = read()[key];
-  return startedAt !== undefined && startedAt <= now + CLOCK_SKEW_MS && now - startedAt < AMBIENT_REST_MS;
+  return startedAt !== undefined && startedAt <= now + CLOCK_SKEW_MS && now - startedAt < restMs;
 }
 
-/** Start `key`'s rest now, forgetting every rest that has run out. */
+/** Start `key`'s rest now, forgetting every rest that has run out of the longest window. */
 export function startRest(key: string, now: number = Date.now()): void {
   const ledger = read();
   ledger[key] = now;
   const live = Object.entries(ledger).filter(([, startedAt]) => now - startedAt < AMBIENT_REST_MS)
     .sort((a, b) => b[1] - a[1]).slice(0, MAX_ENTRIES);
   write(Object.fromEntries(live));
+}
+
+/** End `key`'s rest early (a corrected figure is new information, so its re-check opens at once). */
+export function endRest(key: string): void {
+  const ledger = read();
+  if (!(key in ledger)) return;
+  delete ledger[key];
+  write(ledger);
 }

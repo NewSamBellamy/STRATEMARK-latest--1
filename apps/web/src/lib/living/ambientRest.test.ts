@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AMBIENT_REST_MS, batchRestKey, huntRestKey, isResting, startRest } from './ambientRest';
+import { AMBIENT_REST_MS, batchRestKey, endRest, huntRestKey, isResting, startRest, verifyRestKey } from './ambientRest';
 
 afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
 
@@ -57,5 +57,20 @@ describe('rest for automatic paid searches', () => {
     expect(Object.keys(stored)).toHaveLength(600);
     expect(stored[huntRestKey('c649')]).toBeDefined();
     expect(stored[huntRestKey('c0')]).toBeUndefined();
+  });
+});
+
+describe('a window of its own and an early end', () => {
+  it('a re-check rests for the window the caller names, and a corrected figure ends it at once', () => {
+    const half = 30 * 60_000;
+    startRest(verifyRestKey('acme', 'employees'), T0);
+    expect(isResting(verifyRestKey('acme', 'employees'), T0 + half - 1, half)).toBe(true);
+    expect(isResting(verifyRestKey('acme', 'employees'), T0 + half, half)).toBe(false);
+    expect(isResting(verifyRestKey('acme', 'employees'), T0 + half)).toBe(true); // the default window is still the long one
+    startRest(verifyRestKey('acme', 'revenue'), T0);
+    endRest(verifyRestKey('acme', 'employees'));
+    expect(isResting(verifyRestKey('acme', 'employees'), T0 + 1_000, half)).toBe(false);
+    expect(isResting(verifyRestKey('acme', 'revenue'), T0 + 1_000, half)).toBe(true);
+    expect(() => endRest(verifyRestKey('nobody', 'employees'))).not.toThrow();
   });
 });
