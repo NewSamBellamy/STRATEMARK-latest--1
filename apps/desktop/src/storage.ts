@@ -16,10 +16,16 @@ const snapshotSchema = z.object({
   companyMarket: z.record(z.string()).default({}),
 }).passthrough();
 
+const MAX_EXPORT_BYTES = 50 * 1024 * 1024;
+
 /** Reject malformed or future-format files before touching existing research. */
 export function parseResearchExport(json: string): RepoSnapshot {
-  if (Buffer.byteLength(json, 'utf8') > 50 * 1024 * 1024) throw new Error('Research exports must be smaller than 50 MB.');
-  const raw = snapshotSchema.parse(JSON.parse(json));
+  if (Buffer.byteLength(json, 'utf8') > MAX_EXPORT_BYTES) throw new Error('Research exports must be smaller than 50 MB.');
+  return checkedExport(JSON.parse(json));
+}
+
+function checkedExport(parsed: unknown): RepoSnapshot {
+  const raw = snapshotSchema.parse(parsed);
   for (const field of ['reports', 'briefings', 'savedCards', 'threads', 'researchJobs']) {
     if (raw[field] !== undefined && !Array.isArray(raw[field])) throw new Error(`Invalid ${field} in research export.`);
   }
@@ -32,7 +38,10 @@ export function parseResearchExport(json: string): RepoSnapshot {
  * or research job recorded in someone else's file is not this machine's to resume.
  */
 export function parseResearchImport(json: string): RepoSnapshot {
-  return prepareImportedSnapshot(parseResearchExport(json)).snapshot;
+  if (Buffer.byteLength(json, 'utf8') > MAX_EXPORT_BYTES) throw new Error('Research exports must be smaller than 50 MB.');
+  // Rows are checked first, so one unreadable row is left out (as on the web) instead of refusing the whole file;
+  // the full check then runs on what is kept.
+  return checkedExport(prepareImportedSnapshot(JSON.parse(json) as RepoSnapshot).snapshot);
 }
 
 /** Atomic replacement with a last-good backup. Persistence failures are visible. */

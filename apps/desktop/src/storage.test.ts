@@ -63,6 +63,15 @@ describe('importing a research file on the desktop', () => {
     expect(imported.companies).toEqual(read.companies);
     expect(imported.metrics).toEqual(read.metrics);
   });
+  it('leaves out an unreadable row where reading the saved workspace would refuse the whole file', () => {
+    const damaged = JSON.stringify({ ...sample, markets: [...sample.markets, { ...sample.markets[0]!, id: 'mkt_bad', name: { a: 1 } }] });
+    expect(parseResearchImport(damaged).markets.map((market) => market.id)).toEqual(sample.markets.map((market) => market.id));
+    expect(() => parseResearchExport(damaged)).toThrow();
+  });
+  it('refuses something that is not a workspace instead of importing it as an empty one', () => {
+    expect(() => parseResearchImport('{"hello":1}')).toThrow(/not a Stratemark research export/);
+    expect(() => parseResearchImport('null')).toThrow(/not a Stratemark research export/);
+  });
   it('does not carry an unfinished warm-up that would start paid research on launch, while reading the saved workspace still does', () => {
     expect(parseResearchImport(hostile).deckWarmup).toBeUndefined();
     expect(parseResearchExport(hostile).deckWarmup).toBeDefined();

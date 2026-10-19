@@ -52,6 +52,12 @@ export interface ImportPlan {
   unfinishedResearch: number;
 }
 
+/** A file that cannot be imported at all. The message is plain English meant for the person. */
+export class ImportRefusedError extends Error {}
+
+/** The lists every export has, even an empty one. */
+const CORE_LISTS = ['markets', 'decks', 'companies', 'metrics', 'cards'] as const;
+
 type Row = Record<string, unknown>;
 const isRow = (value: unknown): value is Row => value !== null && typeof value === 'object' && !Array.isArray(value);
 /** The id a row is referred to by; numbers count because a number id becomes its string form below. */
@@ -122,9 +128,11 @@ function sift(rows: unknown, accept: (row: Row) => Row | null, tally: { skipped:
  */
 export function prepareImportedSnapshot(raw: RepoSnapshot): ImportPlan {
   const incoming = raw as unknown as Row;
+  // Not a workspace at all: refuse it rather than import it as an empty one.
+  if (!isRow(incoming) || !CORE_LISTS.every((field) => Array.isArray(incoming[field]))) throw new ImportRefusedError('This file is not a Stratemark research export.');
   const companyRows = Array.isArray(incoming.companies) ? incoming.companies.length : 0;
   if (companyRows > MAX_IMPORTED_COMPANIES) {
-    throw new Error(`This file holds ${companyRows.toLocaleString('en-US')} companies, more than the ${MAX_IMPORTED_COMPANIES.toLocaleString('en-US')} an import can bring in. It is probably not a Stratemark export.`);
+    throw new ImportRefusedError(`This file holds ${companyRows.toLocaleString('en-US')} companies, more than the ${MAX_IMPORTED_COMPANIES.toLocaleString('en-US')} an import can bring in. It is probably not a Stratemark export.`);
   }
 
   const tally = { skipped: 0 };

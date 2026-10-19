@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import { completenessFixture } from './completeness-report.fixture';
-import { MAX_IMPORTED_COMPANIES, prepareImportedSnapshot } from './import-snapshot';
+import { ImportRefusedError, MAX_IMPORTED_COMPANIES, prepareImportedSnapshot } from './import-snapshot';
 import { GeminiRepository, migrateSnapshot, type RepoSnapshot } from './repository';
 import type { LlmClient } from './types';
 
@@ -79,10 +79,16 @@ describe('prepareImportedSnapshot: what an import keeps', () => {
     expect(plan.skipped).toBe(1);
   });
 
+  it('refuses a file that is not a workspace rather than importing it as an empty one', () => {
+    for (const notAWorkspace of [null, 5, [], {}, { markets: [] }, { ...fixture(), cards: 'none' }]) {
+      expect(() => prepareImportedSnapshot(notAWorkspace as unknown as RepoSnapshot)).toThrow(ImportRefusedError);
+    }
+  });
+
   it('refuses a file with more companies than any real workspace holds, in plain words', () => {
     const big = fixture();
     big.companies = Array.from({ length: MAX_IMPORTED_COMPANIES + 1 }, (_, n) => ({ ...big.companies[0]!, id: `c${n}` }));
-    expect(() => prepareImportedSnapshot(big)).toThrow(/1,001 companies, more than the 1,000 an import can bring in/);
+    expect(() => prepareImportedSnapshot(big)).toThrow(new ImportRefusedError(`This file holds 1,001 companies, more than the 1,000 an import can bring in. It is probably not a Stratemark export.`));
     big.companies.pop();
     expect(prepareImportedSnapshot(big).companies).toBe(MAX_IMPORTED_COMPANIES);
   });
