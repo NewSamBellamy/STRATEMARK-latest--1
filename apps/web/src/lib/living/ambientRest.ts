@@ -44,6 +44,8 @@ function write(ledger: Ledger): void {
 
 /** The key under which one company's automatic hunt (the sweep's search or the ladder's) rests. */
 export const huntRestKey = (companyId: string): string => `hunt:${companyId}`;
+/** The key under which a deck's automatic search for its missing market-signal cards rests. */
+export const signalsRestKey = (deckId: string): string => `signals:${deckId}`;
 /** The key under which a deck's one automatic batched estimate fill rests. */
 export const batchRestKey = (deckId: string): string => `batch:${deckId}`;
 /** The key under which one figure's automatic re-check rests (its own, shorter window). */

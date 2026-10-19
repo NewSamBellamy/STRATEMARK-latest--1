@@ -285,6 +285,28 @@ it('the automatic face sweep skips a resting company, a sweep starts its rest, a
   sweepOnly.unmount(); fresh.client.clear();
 });
 
+it('a deck short of signal cards is searched once for them; a clean search rests across reloads, an errored one tries again', async () => {
+  const none = { barrier: 0, insight: 0, vice: 0, culture: 0 };
+  const session = async (result: { failed: boolean }) => {
+    const s = await setup();
+    const ensure = vi.fn().mockResolvedValue({ added: none, ...result });
+    Object.assign(s.repo, { ensureSignalCards: ensure });
+    const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    hook.unmount(); s.client.clear();
+    return ensure;
+  };
+  const first = await session({ failed: false });
+  expect(first).toHaveBeenCalledTimes(1);
+  expect(first).toHaveBeenCalledWith('deck');
+  // A reload: the search found nothing more to add, so the deck rests.
+  expect(await session({ failed: false })).not.toHaveBeenCalled();
+  // A search that errored is not a rest: the next session tries again.
+  localStorage.clear();
+  expect(await session({ failed: true })).toHaveBeenCalledTimes(1);
+  expect(await session({ failed: false })).toHaveBeenCalledTimes(1);
+});
+
 it('invalidates real card, saved, metric and dashboard queries after recovery', async () => {
   const s = await setup();
   s.huntCompanyMetrics.mockResolvedValue({ filledTypes: ['employees'], metrics: [], retieredCardIds: ['card-0'] });

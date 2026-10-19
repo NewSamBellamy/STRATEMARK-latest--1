@@ -109,7 +109,8 @@ import { isReachPage, ownSiteLeadUrls, ownSiteReachRows, pageTextBlocks, siteRea
 import { CARD_FACT_TYPES as CARD_FACT_HUNT_TYPES, namesRosterRival, reportedCompanyMetrics, reportedEmployeeBandRow, reportedMetricCitations } from './reported-metrics';
 import { businessDates, reportedAsOfNote, statedPeriodDate, storedDefinition } from './reported-metrics';
 import { enrichmentOutSchema } from './schemas';
-import { researchMarketSignals } from './signal-agents';
+import { researchRosterSignals } from './roster-signals';
+import { normalizeClaimTitle, researchMarketSignals } from './signal-agents';
 import { AbortError, mapWithConcurrency, sleep, throwIfAborted, websiteUrlOf } from './util';
 import { classifyCompanyType, companyTypeFocus } from './company-type';
 import { IncrementalDeltaAgent } from './delta-agent';
@@ -2271,6 +2272,9 @@ export class GeminiRepository implements MarketIntelRepository {
         // the background, highest tier first. Never awaited — the job is done.
         this.markDeckWarmupStarted(stubsResult.deck.id);
         this.warmDeckDashboards(stubsResult.deck.id, 'creation');
+        // Market signals: any of barrier, insight, vice and culture the first pass left short get a targeted second
+        // search now that the roster is complete. Never awaited, and it can never fail the job.
+        void this.ensureSignalCards(stubsResult.deck.id).catch(() => undefined);
       } catch (error) {
         if (!leadCardReadySettled) {
           leadCardReadySettled = true;
@@ -6547,6 +6551,113 @@ ${references}`
     thread.updatedAt = new Date().toISOString();
     await this.persist();
     return report;
+  }
+
+  private readonly signalRuns = new Map<string, Promise<{ added: Record<'barrier' | 'insight' | 'vice' | 'culture', number>; failed: boolean }>>();
+
+  /** Fewer cards of a kind than this and the deck is searched for more (the coverage minimum for all four kinds). */
+  private static readonly SIGNAL_MINIMUM = 4;
+
+  /**
+   * The deck's market plan: the one its creation job recorded, or one rebuilt from the market's stored scope (decks
+   * made before plans were kept, and imported decks).
+   */
+  private planForDeck(deck: Deck, market: Market): MarketPlan {
+    const recorded = this.snap.researchJobs.find((job) => job.deck?.id === deck.id)?.marketPlan;
+    if (recorded) return recorded;
+    return { marketName: market.name, vertical: market.scopeDefinition.vertical, geography: market.scopeDefinition.geography ?? null,
+      notes: null, searchThemes: [] };
+  }
+
+  ensureSignalCards(deckId: string, options: { force?: boolean; signal?: AbortSignal } = {}):
+    Promise<{ added: Record<'barrier' | 'insight' | 'vice' | 'culture', number>; failed: boolean }> {
+    const running = this.signalRuns.get(deckId);
+    if (running) return running;
+    const run = this.runSignalCards(deckId, options).finally(() => { this.signalRuns.delete(deckId); });
+    this.signalRuns.set(deckId, run);
+    return run;
+  }
+
+  private async runSignalCards(deckId: string, options: { force?: boolean; signal?: AbortSignal }):
+    Promise<{ added: Record<'barrier' | 'insight' | 'vice' | 'culture', number>; failed: boolean }> {
+    const added = { barrier: 0, insight: 0, vice: 0, culture: 0 };
+    const deck = this.snap.decks.find((d) => d.id === deckId);
+    const market = deck ? this.snap.markets.find((m) => m.id === deck.marketId) : undefined;
+    if (!deck || !market) return { added, failed: false };
+    const { signal } = options;
+    const minimum = GeminiRepository.SIGNAL_MINIMUM;
+    const cardsOf = () => this.snap.cards.filter((c) => c.deckId === deck.id);
+    const countOf = (type: CardType) => cardsOf().filter((c) => c.cardType === type).length;
+    const needs = {
+      barrier: options.force || countOf('barrier') < minimum,
+      insight: options.force || countOf('insight') < minimum,
+      vice: options.force || countOf('vice') < minimum,
+      culture: options.force || countOf('culture') < minimum,
+    };
+    if (!needs.barrier && !needs.insight && !needs.vice && !needs.culture) return { added, failed: false };
+
+    const plan = this.planForDeck(deck, market);
+    const addedCardIds: string[] = [];
+    let failed = false;
+    // A search that errors (a provider hiccup under load) is tried once more; an empty answer is an answer.
+    const attempt = async <T,>(search: () => Promise<T>): Promise<T | null> => {
+      for (let tryNumber = 0; tryNumber < 2; tryNumber += 1) {
+        throwIfAborted(signal);
+        try { return await search(); } catch (error) {
+          if (signal?.aborted) throw error;
+          if (tryNumber === 0) await new Promise((resolve) => setTimeout(resolve, 2_000));
+        }
+      }
+      failed = true;
+      return null;
+    };
+    const file = (cards: CardWithCompany[]) => {
+      for (const card of cards) {
+        this.snap.cards.push(card.card);
+        if (card.viceClaims.length > 0) this.snap.viceClaims.push(...card.viceClaims);
+        addedCardIds.push(card.card.id);
+        added[card.card.cardType as keyof typeof added] += 1;
+      }
+    };
+
+    if (needs.barrier || needs.insight) {
+      const found = await attempt(() => researchMarketSignals(this.client, plan, deck.id, { signal, coverage: this.coverage }));
+      if (found) {
+        const have = (type: CardType) => new Set(cardsOf().filter((c) => c.cardType === type).map((c) => normalizeClaimTitle(c.title ?? '')));
+        const kept: CardWithCompany[] = [];
+        for (const type of ['barrier', 'insight'] as const) {
+          if (!needs[type]) continue;
+          const seen = have(type);
+          let room = 10 - countOf(type);
+          for (const card of found.filter((c) => c.card.cardType === type)) {
+            const key = normalizeClaimTitle(card.card.title ?? '');
+            if (room <= 0 || !key || seen.has(key)) continue;
+            seen.add(key);
+            room -= 1;
+            kept.push(card);
+          }
+        }
+        file(kept);
+      }
+    }
+
+    if (needs.vice || needs.culture) {
+      const entityCompanyIds = [...new Set(cardsOf().filter((c) => c.companyId && isEntityCardType(c.cardType)).map((c) => c.companyId!))];
+      const roster = entityCompanyIds.map((id) => this.snap.companies.find((c) => c.id === id)).filter((c): c is Company => Boolean(c));
+      const companiesWith = (type: CardType) => new Set(cardsOf().filter((c) => c.cardType === type && c.companyId).map((c) => c.companyId!));
+      const found = await attempt(() => researchRosterSignals(this.client, plan, deck.id, roster, {
+        signal, want: { vice: needs.vice, culture: needs.culture },
+        haveVice: companiesWith('vice'), haveCulture: companiesWith('culture'),
+        maxVice: 10 - countOf('vice'), maxCulture: 10 - countOf('culture'),
+      }));
+      if (found) file([...found.vice, ...found.culture]);
+    }
+
+    if (addedCardIds.length > 0) {
+      await this.persist();
+      this.emit({ marketId: market.id, deckId: deck.id, refreshedAt: new Date().toISOString(), addedCardIds, updatedCardIds: [], prunedCardIds: [] });
+    }
+    return { added, failed };
   }
 
   async expandDeck(
