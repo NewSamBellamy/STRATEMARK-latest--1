@@ -148,27 +148,45 @@ describe('CardReader', () => {
     const cwc = hydrate((c) => c.cardType === 'culture');
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
     const dialog = within(screen.getByRole('dialog'));
-    expect(dialog.getByRole('region', { name: 'Research summary' })).toBeInTheDocument();
+    expect(dialog.getByRole('region', { name: 'Research finding' })).toBeInTheDocument();
     expect(dialog.queryByRole('region', { name: 'Core company figures' })).not.toBeInTheDocument();
     expect(dialog.getByRole('button', { name: /ask about this finding/i })).toBeInTheDocument();
     expect(dialog.queryByRole('link', { name: /open full company dashboard/i })).not.toBeInTheDocument();
   });
 
-  it('expands a signal into a sourced, printable report without inventing new claims', async () => {
-    const cwc = hydrate((c) => c.cardType === 'insight');
+  it('reads a signal as a paragraph and a plain list with its sources: no box, no extra step, nothing clamped', async () => {
+    const base = hydrate((c) => c.cardType === 'insight');
+    const points = Array.from({ length: 7 }, (_, i) => `Point ${i + 1}: the evidence behind the finding, in one full sentence that is never cut off.`);
+    const cwc = { ...base, card: { ...base.card, summary: 'Operators are shifting from cook-at-home kits to heat-and-eat meals as buyers pay for convenience.', keyPoints: points,
+      citations: [{ title: 'reuters.com', url: 'https://www.reuters.com/a' }, { title: 'ft.com', url: 'https://www.ft.com/b' }] } };
+    const print = vi.spyOn(window, 'print').mockImplementation(() => undefined);
     const { user } = renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
     const dialog = within(screen.getByRole('dialog'));
 
-    await user.click(dialog.getByRole('button', { name: /read full finding/i }));
-
-    expect(dialog.getByRole('region', { name: /full research finding/i })).toBeInTheDocument();
-    expect(screen.getByRole('dialog')).toHaveClass('card-inspector--report');
-    expect(dialog.queryByTestId('collectible-card-front')).not.toBeInTheDocument();
-    expect(dialog.getByRole('button', { name: /save as pdf/i })).toBeInTheDocument();
-    expect(dialog.getByRole('button', { name: /share report/i })).toBeInTheDocument();
-    expect(dialog.getByRole('button', { name: /ask ai about this finding/i })).toBeInTheDocument();
-    await user.click(dialog.getByRole('button', { name: /back to overview/i }));
+    const finding = dialog.getByRole('region', { name: 'Research finding' });
+    expect(within(finding).getByText(/shifting from cook-at-home kits/)).toBeInTheDocument();
+    // Every point shows in full, as a list item, however many there are (up to ten).
+    expect(within(finding).getAllByRole('listitem')).toHaveLength(7);
+    for (const point of points) expect(within(finding).getByText(point)).toBeInTheDocument();
+    expect(within(finding).getByRole('link', { name: /reuters\.com/ })).toHaveAttribute('href', 'https://www.reuters.com/a');
+    // There is no second "full finding" step any more, and the card stays on screen.
+    expect(dialog.queryByRole('button', { name: /read full finding/i })).not.toBeInTheDocument();
     expect(dialog.getByTestId('collectible-card-front')).toBeInTheDocument();
+    // The finding can still be saved as a PDF and shared from the same place.
+    await user.click(dialog.getByRole('button', { name: /save as pdf/i }));
+    expect(print).toHaveBeenCalledTimes(1);
+    expect(dialog.getByRole('button', { name: 'Share card' })).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: /ask about this finding/i })).toBeInTheDocument();
+    print.mockRestore();
+  });
+
+  it('says plainly when a signal card has no detail yet, instead of an empty box', () => {
+    const base = hydrate((c) => c.cardType === 'culture');
+    const cwc = { ...base, card: { ...base.card, summary: null, keyPoints: [], citations: [] }, viceClaims: [] };
+    renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
+    const finding = within(screen.getByRole('dialog')).getByRole('region', { name: 'Research finding' });
+    expect(finding).toHaveTextContent('The research recorded no further detail for this card.');
+    expect(finding).toHaveTextContent('No clickable source has been saved for this finding yet.');
   });
 
   it('keeps the card one-sided and preserves the selected card in its dashboard link', () => {
