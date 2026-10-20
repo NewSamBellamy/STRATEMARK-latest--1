@@ -34,6 +34,7 @@ import {
   teamOrgContentSchema,
   historyContentSchema,
   productBriefSchema,
+  signalBriefSchema,
   type Card,
   type CardType,
   type CardFilter,
@@ -63,6 +64,7 @@ import {
   type VerifyCompanyMetricsResult,
   type BatchMetricVerification,
   type ProductBrief,
+  type SignalBrief,
   type Report,
   type ShareSnapshot,
   type SourceActivity,
@@ -157,6 +159,7 @@ import { DashboardWarmup, warmupConcurrency, warmupTabsInParallel, type CachedTa
 import { foundedFromHistory, foundedFromWebsite, foundedFromWikidata, wikidataFoundedYear, type JsonFetcher } from './founded-year';
 import { findHistoryVideo, isStoredHistoryVideo } from './history-video';
 import { productKey, researchProductBrief } from './product-brief';
+import { researchSignalBrief as buildSignalBrief } from './signal-brief';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
  * persists per card and every provider call is deadline-bounded, so a job
@@ -309,6 +312,8 @@ export interface RepoSnapshot {
   /** Product pages researched on request (product-brief.ts): companyId -> normalized product name -> brief.
    * Additive and optional: absent on snapshots written before it existed; never part of a share export. */
   productBriefs?: Record<string, Record<string, ProductBrief>>;
+  /** The body behind each signal card, built when it is first opened (signal-brief.ts): cardId -> brief. Removed with its card. */
+  signalBriefs?: Record<string, SignalBrief>;
 }
 
 export interface ResearchStore {
@@ -546,6 +551,7 @@ const HISTORY_VIDEO_RETRY_MS = 6 * 60 * 60_000;
 const HISTORY_VIDEO_DEADLINE_MS = 60_000;
 /** One product brief is three grounded searches in parallel plus one structure call. */
 const PRODUCT_BRIEF_DEADLINE_MS = 240_000;
+const SIGNAL_BRIEF_DEADLINE_MS = 120_000;
 
 /** A running hunt already does what this request asks: at least as wide (a full
  * hunt covers a face-slot sweep) and at least as escalated (a higher escalation
@@ -657,6 +663,7 @@ export class GeminiRepository implements MarketIntelRepository {
   /** Red-team score of the video chosen this session (memory only; a stored video from an earlier session has none). */
   private readonly historyVideoScores = new Map<string, number>();
   private readonly productBriefRuns = new Map<string, Promise<ProductBrief>>();
+  private readonly signalBriefRuns = new Map<string, Promise<SignalBrief>>();
   /** Background tab warm-up (null when disabled). */
   private readonly warmup: DashboardWarmup | null = null;
   private readonly warmBackfill: boolean = false;
@@ -1316,9 +1323,13 @@ export class GeminiRepository implements MarketIntelRepository {
       productBriefs: prev.productBriefs
         ? Object.fromEntries(Object.entries(prev.productBriefs).filter(([companyId]) => !orphaned.has(companyId)))
         : prev.productBriefs,
+      signalBriefs: prev.signalBriefs
+        ? Object.fromEntries(Object.entries(prev.signalBriefs).filter(([cardId]) => !removedCardIds.has(cardId)))
+        : prev.signalBriefs,
     };
     if (prev.removedFromDeck === undefined) delete next.removedFromDeck;
     if (prev.productBriefs === undefined) delete next.productBriefs;
+    if (prev.signalBriefs === undefined) delete next.signalBriefs;
     for (const key of ['moves', 'follows', 'movesRefreshedAt', 'tabsRefreshedAt'] as const) if (prev[key] === undefined) delete next[key];
     this.snap = next;
     try {
@@ -2464,6 +2475,10 @@ export class GeminiRepository implements MarketIntelRepository {
       this.snap.cards = this.snap.cards.filter((c) => c.id !== cardId);
     }
     this.snap.savedCards = this.snap.savedCards.filter((s) => this.snap.cards.some((c) => c.id === s.cardId));
+    if (this.snap.signalBriefs) {
+      const kept = new Set(this.snap.cards.map((c) => c.id));
+      this.snap.signalBriefs = Object.fromEntries(Object.entries(this.snap.signalBriefs).filter(([id]) => kept.has(id)));
+    }
     await this.persist();
   }
   async getCard(cardId: string): Promise<CardWithCompany | null> {
@@ -2994,6 +3009,68 @@ export class GeminiRepository implements MarketIntelRepository {
       if (!this.snap.companies.some((c) => c.id === companyId)) throw new Error('Company not found for product research.');
       const byCompany = (this.snap.productBriefs ??= {});
       byCompany[companyId] = { ...byCompany[companyId], [key]: brief };
+      await this.persist();
+      return brief;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * The body behind a signal card (signal-brief.ts): one grounded search and one structure call, billed under label
+   * "signal_brief". Stored on `snap.signalBriefs` by card id and reused: a call without `force` returns the stored brief
+   * and spends nothing. Two requests for one card share one build; a failed build (or a card deleted meanwhile) stores
+   * nothing and keeps any earlier brief.
+   */
+  researchSignalBrief(input: { cardId: string; force?: boolean }): Promise<SignalBrief> {
+    const cardId = input.cardId;
+    const running = this.signalBriefRuns.get(cardId);
+    if (running) return running;
+    if (!input.force) {
+      const stored = this.storedSignalBrief(cardId);
+      if (stored) return Promise.resolve(stored);
+    }
+    const run = this.runSignalBrief(cardId).finally(() => {
+      if (this.signalBriefRuns.get(cardId) === run) this.signalBriefRuns.delete(cardId);
+    });
+    this.signalBriefRuns.set(cardId, run);
+    return run;
+  }
+
+  /** The stored brief only; never researches. */
+  async peekSignalBrief(cardId: string): Promise<SignalBrief | null> {
+    return this.storedSignalBrief(cardId);
+  }
+
+  private storedSignalBrief(cardId: string): SignalBrief | null {
+    if (!Object.hasOwn(this.snap.signalBriefs ?? {}, cardId) || !this.snap.cards.some((c) => c.id === cardId)) return null;
+    const parsed = signalBriefSchema.safeParse(this.snap.signalBriefs![cardId]);
+    return parsed.success && parsed.data.cardId === cardId ? parsed.data : null;
+  }
+
+  private async runSignalBrief(cardId: string): Promise<SignalBrief> {
+    const card = this.snap.cards.find((c) => c.id === cardId);
+    if (!card) throw new Error('Card not found for its brief.');
+    const company = card.companyId ? this.snap.companies.find((c) => c.id === card.companyId) ?? null : null;
+    const deck = this.snap.decks.find((d) => d.id === card.deckId);
+    const marketName = deck ? this.snap.markets.find((m) => m.id === deck.marketId)?.name ?? '' : '';
+    const deckCompanyIds = new Set(this.snap.cards.filter((c) => c.deckId === card.deckId && c.companyId).map((c) => c.companyId));
+    const roster = this.snap.companies.filter((c) => deckCompanyIds.has(c.id) || c.id === company?.id);
+    const claims = this.snap.viceClaims.filter((v) => v.cardId === cardId).map((v) => v.claimText);
+    const finding = {
+      headline: card.title ?? card.summary ?? claims[0] ?? company?.name ?? marketName,
+      details: [card.summary ?? '', ...card.keyPoints, ...claims].filter((t) => t && t !== card.title),
+    };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SIGNAL_BRIEF_DEADLINE_MS);
+    try {
+      const brief = await buildSignalBrief({
+        card, company, roster, marketName, finding, client: this.client, signal: controller.signal,
+        busy: () => this.activeBackgroundJobs.size > 0 || this.tabResearchInFlight.size > 0,
+      });
+      // Re-read: the card (or its deck) may have been deleted while the search ran.
+      if (!this.snap.cards.some((c) => c.id === cardId)) throw new Error('Card not found for its brief.');
+      (this.snap.signalBriefs ??= {})[cardId] = brief;
       await this.persist();
       return brief;
     } finally {
@@ -5897,6 +5974,9 @@ export class GeminiRepository implements MarketIntelRepository {
       cards: structuredClone(cards),
       viceClaims: structuredClone(this.snap.viceClaims.filter((v) => cardIds.has(v.cardId))),
       dashboards,
+      signalBriefs: Object.fromEntries(Object.entries(this.snap.signalBriefs ?? {})
+        .filter(([id]) => cardIds.has(id) && !isEntityCardType(this.snap.cards.find((c) => c.id === id)?.cardType ?? 'company'))
+        .map(([id, brief]) => [id, structuredClone(brief)])),
     };
   }
 
