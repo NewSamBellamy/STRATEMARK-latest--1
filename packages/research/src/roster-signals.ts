@@ -135,6 +135,9 @@ export function companyNamed(name: string, roster: readonly Company[]): Company 
   return aliased.length === 1 ? aliased[0]! : null;
 }
 
+/** A company's aliases, in the apostrophe-free, ampersand-free form the signal cards compare. */
+const aliasesOf = (company: Company): string[] => companyAliases(canon(company.name), company.websiteUrl);
+
 /** Words that may follow a company's name without making it a different name ("Acme Robotics Inc."). */
 const NAME_TAIL = new Set(['inc', 'corp', 'corporation', 'co', 'ltd', 'limited', 'llc', 'plc', 'gmbh', 'ag', 'sa', 'nv', 'bv', 'pbc', 'company', 'group', 'holdings']);
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -145,7 +148,7 @@ const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/
  * legal form or part of the company's own name, or it is another entity that merely starts with this one.
  */
 function followedByOtherName(text: string, company: Company): boolean {
-  const aliases = companyAliases(company.name, company.websiteUrl);
+  const aliases = aliasesOf(company);
   const own = new Set(aliases.flatMap((alias) => alias.split(' ')));
   const written = canon(text);
   let first: { start: number; end: number } | null = null;
@@ -169,14 +172,16 @@ function followedByOtherName(text: string, company: Company): boolean {
  * not as the front of a longer name, and names no other company of the deck, unless that other name is only part of a
  * longer mention of this one ("Gusto" inside "Gusto Pro" when the company is Gusto Pro).
  */
-export function aboutCompany(text: string, company: Company, roster: readonly Company[], early = true): boolean {
-  const own = aliasSpans(text, companyAliases(company.name, company.websiteUrl));
+export function aboutCompany(rawText: string, company: Company, roster: readonly Company[], early = true): boolean {
+  // Names and text are compared with apostrophes dropped and & read as "and": Wendys is Wendy's, Procter and Gamble is Procter & Gamble.
+  const text = canon(rawText);
+  const own = aliasSpans(text, aliasesOf(company));
   if (own.length === 0) return false;
   if (early && Math.min(...own.map(([start]) => start)) > SUBJECT_WITHIN) return false;
   if (followedByOtherName(text, company)) return false;
   for (const other of roster) {
     if (other.id === company.id) continue;
-    for (const [start, end] of aliasSpans(text, companyAliases(other.name, other.websiteUrl))) {
+    for (const [start, end] of aliasSpans(text, aliasesOf(other))) {
       if (!own.some(([ownStart, ownEnd]) => ownStart <= start && end <= ownEnd && ownEnd - ownStart > end - start)) return false;
     }
   }
@@ -185,7 +190,7 @@ export function aboutCompany(text: string, company: Company, roster: readonly Co
 
 /** What a claim about this company may be backed by: sentences about it, with its name not counted as a shared word. */
 function scopeFor(company: Company, roster: readonly Company[], oneSentence: boolean, risk = false): ClaimScope {
-  const ignore = new Set(companyAliases(company.name, company.websiteUrl).flatMap((alias) => alias.split(' ')));
+  const ignore = new Set(aliasesOf(company).flatMap((alias) => alias.split(' ')));
   return { about: (text) => aboutCompany(text, company, roster, false), ignore, oneSentence, ...(risk ? { reads: CONTROVERSY } : {}) };
 }
 
@@ -222,7 +227,7 @@ function publicWebAddress(url: string): boolean {
 /** A domain named after the company is its own site, even when no website is recorded for it. */
 function looksLikeOwnSite(domain: string, company: Company): boolean {
   const label = (domain.split('.')[0] ?? '').replace(/-/g, '');
-  return companyAliases(company.name, company.websiteUrl).some((alias) => {
+  return aliasesOf(company).some((alias) => {
     const compact = alias.replace(/\s+/g, '');
     return compact.length >= 5 && label.includes(compact);
   });

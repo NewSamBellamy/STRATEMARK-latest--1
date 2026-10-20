@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import type { Company } from '@mi/contracts';
 import { claimSupportCitations, sourceBacksClaim } from './claim-support';
-import { companyAliases } from './company-aliases';
+import { canon, companyAliases } from './company-aliases';
 import { aboutCompany, researchRosterSignals } from './roster-signals';
 import { researchMarketSignals } from './signal-agents';
 import type { LlmClient, MarketPlan, ProviderGrounding } from './types';
@@ -103,7 +103,8 @@ describe('who a sentence is about', () => {
     const ms = company('s', 'Marks & Spencer');
     expect(aboutCompany('Procter & Gamble and Marks and Spencer were fined by regulators over a joint recall in 2024.', pg, [pg, ms])).toBe(false);
     expect(aboutCompany('Procter and Gamble was fined by regulators over a product recall in 2024.', pg, [pg, ms])).toBe(true);
-    expect(companyAliases("McDonald's")).toContain('mcdonalds');
+    // The shared alias folding is left alone (other matching builds its own phrases from it); the signal cards canonicalise.
+    expect(companyAliases(canon("McDonald's"))).toContain('mcdonalds');
   });
 });
 

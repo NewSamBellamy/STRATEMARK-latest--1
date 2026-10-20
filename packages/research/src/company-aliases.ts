@@ -10,11 +10,15 @@ import { nameTokens, registrableDomain } from './registries/shared';
  */
 const EXTRA_SUFFIX = new Set(['pbc', 'group', 'holdings', 'holding', 'technologies', 'labs', 'lab', 'the']);
 
-/** "McDonald's" and "McDonalds" are one name, and "Procter & Gamble" is "Procter and Gamble". */
+/**
+ * "McDonald's" and "McDonalds" are one name, and "Procter & Gamble" is "Procter and Gamble". NOT applied by the shared
+ * alias matching below (other callers build their own phrases from the plain token folding and must keep matching them):
+ * the signal cards apply it to both the names and the text they compare.
+ */
 export const canon = (text: string): string => text.replace(/['\u2018\u2019`\u00b4]/g, '').replace(/&/g, ' and ');
 
 function phrase(raw: string, dropExtra: boolean): string {
-  const tokens = nameTokens(canon(raw));
+  const tokens = nameTokens(raw);
   const kept = dropExtra ? tokens.filter((t) => !EXTRA_SUFFIX.has(t)) : tokens;
   return (kept.length ? kept : tokens).join(' ');
 }
@@ -40,7 +44,7 @@ export function companyAliases(rawName: string, websiteUrl?: string | null): str
   // Dotted/slashed legal forms ("N.V.", "S.A.", "B.V.", "A/S") fold to their
   // suffix token ("nv", "sa", "bv", "as") so the suffix strip applies and the
   // "/" split does not cut "A/S" in half.
-  const name = canon(rawName).replace(/\b([a-z])\.\s?([a-z])\.(?:\s?([a-z])\.)?/gi, '$1$2$3').replace(/\b([a-z])\/([a-z])\b/gi, '$1$2');
+  const name = rawName.replace(/\b([a-z])\.\s?([a-z])\.(?:\s?([a-z])\.)?/gi, '$1$2$3').replace(/\b([a-z])\/([a-z])\b/gi, '$1$2');
   const [primary = name, ...secondary] = name.split(/[/()]|,\s*|\s+[–—-]\s+/).map((p) => p.trim()).filter(Boolean);
   const label = domainLabel(websiteUrl);
   const anchors = [...nameTokens(primary).filter((t) => !EXTRA_SUFFIX.has(t)), ...(label ? label.split(' ') : [])];
@@ -59,7 +63,7 @@ export function companyAliases(rawName: string, websiteUrl?: string | null): str
 
 /** Folded text for alias matching: lower case, diacritics and punctuation removed. */
 function folded(text: string): string {
-  return ` ${nameTokens(canon(text)).join(' ')} ` // nameTokens also drops legal suffixes; harmless for matching
+  return ` ${nameTokens(text).join(' ')} ` // nameTokens also drops legal suffixes; harmless for matching
     .replace(/\s+/g, ' ');
 }
 
