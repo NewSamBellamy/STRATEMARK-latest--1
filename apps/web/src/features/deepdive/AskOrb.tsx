@@ -1,9 +1,9 @@
 /**
  * The Ask orb: the Stratemark mark as a small floating button you can drag
  * anywhere and press to ask a question from whatever you are looking at. It
- * remembers where you left it, snaps to the nearest edge when released, stays
- * on screen when the window changes, and can be moved or pressed from the
- * keyboard (arrow keys move it, Enter or Space asks).
+ * stays exactly where you let it go (the middle of the screen stays the middle),
+ * remembers that place, stays on screen when the window changes, and can be moved
+ * or pressed from the keyboard (arrow keys move it, Enter or Space asks).
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import logoMark from '@/assets/logo-mark.svg';
@@ -15,20 +15,23 @@ const POS_KEY = 'stratemark.askOrb.pos';
 const DRAG_THRESHOLD = 5;
 
 export interface OrbPos {
-  /** Which side it rests on and how far down the window, 0..1: survives a window of another size. */
-  side: 'left' | 'right';
+  /** How far across and down the room it has to move, each 0..1: survives a window of another size. */
+  x: number;
   y: number;
 }
 
-const DEFAULT_POS: OrbPos = { side: 'right', y: 0.72 };
+const DEFAULT_POS: OrbPos = { x: 1, y: 0.72 };
+const unit = (n: number) => Math.min(1, Math.max(0, n));
 
 export function readOrbPos(): OrbPos {
   try {
     const raw = window.localStorage.getItem(POS_KEY);
     if (raw) {
-      const p = JSON.parse(raw) as Partial<OrbPos>;
-      if ((p.side === 'left' || p.side === 'right') && typeof p.y === 'number' && Number.isFinite(p.y)) {
-        return { side: p.side, y: Math.min(1, Math.max(0, p.y)) };
+      const p = JSON.parse(raw) as Partial<OrbPos> & { side?: unknown };
+      if (typeof p.y === 'number' && Number.isFinite(p.y)) {
+        if (typeof p.x === 'number' && Number.isFinite(p.x)) return { x: unit(p.x), y: unit(p.y) };
+        // An orb saved by the version that snapped to an edge: it keeps its side.
+        if (p.side === 'left' || p.side === 'right') return { x: p.side === 'left' ? 0 : 1, y: unit(p.y) };
       }
     }
   } catch { /* no storage: the default place */ }
@@ -42,18 +45,15 @@ function saveOrbPos(pos: OrbPos): void {
 /** Pixel position of the orb's top-left for a resting place in a window of this size. */
 export function orbPixels(pos: OrbPos, width: number, height: number): { left: number; top: number } {
   const top = EDGE + pos.y * Math.max(0, height - ORB_SIZE - EDGE * 2);
-  const left = pos.side === 'left' ? EDGE : Math.max(EDGE, width - ORB_SIZE - EDGE);
+  const left = EDGE + pos.x * Math.max(0, width - ORB_SIZE - EDGE * 2);
   return { left, top };
 }
 
-/** The resting place nearest to where the orb was let go. */
-export function snapOrb(left: number, top: number, width: number, height: number): OrbPos {
-  const centre = left + ORB_SIZE / 2;
-  const usable = Math.max(1, height - ORB_SIZE - EDGE * 2);
-  return {
-    side: centre < width / 2 ? 'left' : 'right',
-    y: Math.min(1, Math.max(0, (top - EDGE) / usable)),
-  };
+/** The resting place for where the orb was let go: exactly there, kept inside the window. */
+export function placeOrb(left: number, top: number, width: number, height: number): OrbPos {
+  const across = Math.max(1, width - ORB_SIZE - EDGE * 2);
+  const down = Math.max(1, height - ORB_SIZE - EDGE * 2);
+  return { x: unit((left - EDGE) / across), y: unit((top - EDGE) / down) };
 }
 
 export function AskOrb({ onAsk, hint }: { onAsk: () => void; hint?: string }) {
@@ -94,7 +94,7 @@ export function AskOrb({ onAsk, hint }: { onAsk: () => void; hint?: string }) {
     start.current = null;
     if (!s) return;
     if (s.moved && drag) {
-      const next = snapOrb(drag.left, drag.top, size.w, size.h);
+      const next = placeOrb(drag.left, drag.top, size.w, size.h);
       setPos(next);
       saveOrbPos(next);
       setDrag(null);
@@ -107,12 +107,12 @@ export function AskOrb({ onAsk, hint }: { onAsk: () => void; hint?: string }) {
     const step = 0.06;
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
-      const next = { ...pos, y: Math.min(1, Math.max(0, pos.y + (e.key === 'ArrowDown' ? step : -step))) };
+      const next = { ...pos, y: unit(pos.y + (e.key === 'ArrowDown' ? step : -step)) };
       setPos(next);
       saveOrbPos(next);
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();
-      const next: OrbPos = { ...pos, side: e.key === 'ArrowLeft' ? 'left' : 'right' };
+      const next: OrbPos = { ...pos, x: unit(pos.x + (e.key === 'ArrowRight' ? step : -step)) };
       setPos(next);
       saveOrbPos(next);
     }

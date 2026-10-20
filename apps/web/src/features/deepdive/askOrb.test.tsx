@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { AskOrb, ORB_SIZE, orbPixels, readOrbPos, snapOrb } from './AskOrb';
+import { AskOrb, ORB_SIZE, orbPixels, placeOrb, readOrbPos } from './AskOrb';
 import { resolveOrbScope } from './orbScope';
 import { DeepDiveProviderWithPanel, useDeepDive } from './DeepDive';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
@@ -21,25 +21,40 @@ afterEach(() => { window.localStorage.clear(); window.location.hash = ''; });
 
 describe('where the orb rests', () => {
   it('sits on the right, low on the screen, until you move it', () => {
-    expect(readOrbPos()).toEqual({ side: 'right', y: 0.72 });
+    expect(readOrbPos()).toEqual({ x: 1, y: 0.72 });
     const { left, top } = orbPixels(readOrbPos(), 1000, 800);
     expect(left).toBe(1000 - ORB_SIZE - 12);
     expect(top).toBeGreaterThan(400);
   });
 
-  it('snaps to the nearest edge and keeps its height', () => {
-    expect(snapOrb(100, 300, 1000, 800)).toMatchObject({ side: 'left' });
-    expect(snapOrb(700, 300, 1000, 800)).toMatchObject({ side: 'right' });
-    const pos = snapOrb(700, 12, 1000, 800);
-    expect(pos.y).toBe(0);
-    expect(snapOrb(700, 5000, 1000, 800).y).toBe(1);
+  it('stays exactly where it is let go, in the middle of the screen as much as at an edge', () => {
+    const middle = placeOrb((1000 - ORB_SIZE) / 2, (800 - ORB_SIZE) / 2, 1000, 800);
+    expect(middle.x).toBeCloseTo(0.5, 1);
+    expect(middle.y).toBeCloseTo(0.5, 1);
+    // ...and it comes back to the same pixels it was dropped on.
+    const dropped = { left: 431, top: 289 };
+    const back = orbPixels(placeOrb(dropped.left, dropped.top, 1000, 800), 1000, 800);
+    expect(back.left).toBeCloseTo(dropped.left, 5);
+    expect(back.top).toBeCloseTo(dropped.top, 5);
+  });
+
+  it('keeps a dropped place inside the window', () => {
+    expect(placeOrb(-300, -300, 1000, 800)).toEqual({ x: 0, y: 0 });
+    expect(placeOrb(9000, 5000, 1000, 800)).toEqual({ x: 1, y: 1 });
+  });
+
+  it('keeps the side of an orb saved by the version that snapped to an edge', () => {
+    window.localStorage.setItem(KEY, '{"side":"left","y":0.3}');
+    expect(readOrbPos()).toEqual({ x: 0, y: 0.3 });
+    window.localStorage.setItem(KEY, '{"side":"right","y":0.3}');
+    expect(readOrbPos()).toEqual({ x: 1, y: 0.3 });
   });
 
   it('ignores a damaged saved place', () => {
     window.localStorage.setItem(KEY, '{"side":"top","y":"x"}');
-    expect(readOrbPos()).toEqual({ side: 'right', y: 0.72 });
+    expect(readOrbPos()).toEqual({ x: 1, y: 0.72 });
     window.localStorage.setItem(KEY, 'not json');
-    expect(readOrbPos()).toEqual({ side: 'right', y: 0.72 });
+    expect(readOrbPos()).toEqual({ x: 1, y: 0.72 });
   });
 });
 
@@ -53,7 +68,7 @@ describe('the orb', () => {
     expect(onAsk).toHaveBeenCalledTimes(1);
   });
 
-  it('is dragged, not pressed, when it moves: it lands on the nearest edge and remembers', () => {
+  it('is dragged, not pressed, when it moves: it stays where it is let go and remembers', () => {
     const onAsk = vi.fn();
     render(<AskOrb onAsk={onAsk} />);
     const orb = screen.getByRole('button', { name: 'Ask Stratemark' });
@@ -61,15 +76,18 @@ describe('the orb', () => {
     fireEvent.pointerMove(orb, { clientX: 200, clientY: 300, pointerId: 1 });
     fireEvent.pointerUp(orb, { clientX: 200, clientY: 300, pointerId: 1 });
     expect(onAsk).not.toHaveBeenCalled();
-    const saved = JSON.parse(window.localStorage.getItem(KEY)!) as { side: string; y: number };
-    expect(saved.side).toBe('left');
-    expect(orb.style.left).toBe('12px');
+    const saved = JSON.parse(window.localStorage.getItem(KEY)!) as { x: number; y: number };
+    // Dropped in the middle of the window, not pushed to a side.
+    expect(saved.x).toBeGreaterThan(0.2);
+    expect(saved.x).toBeLessThan(0.8);
+    expect(parseInt(orb.style.left, 10)).toBeGreaterThan(100);
+    expect(parseInt(orb.style.left, 10)).toBeLessThan(800);
   });
 
   it('comes back where it was left on the next visit', () => {
-    window.localStorage.setItem(KEY, JSON.stringify({ side: 'left', y: 0.1 }));
+    window.localStorage.setItem(KEY, JSON.stringify({ x: 0.5, y: 0.1 }));
     render(<AskOrb onAsk={() => undefined} />);
-    expect(screen.getByRole('button', { name: 'Ask Stratemark' }).style.left).toBe('12px');
+    expect(screen.getByRole('button', { name: 'Ask Stratemark' }).style.left).toBe(`${orbPixels({ x: 0.5, y: 0.1 }, 1000, 800).left}px`);
   });
 
   it('can be moved and pressed from the keyboard', async () => {
@@ -77,7 +95,7 @@ describe('the orb', () => {
     render(<AskOrb onAsk={onAsk} />);
     const orb = screen.getByRole('button', { name: 'Ask Stratemark' });
     fireEvent.keyDown(orb, { key: 'ArrowLeft' });
-    expect(JSON.parse(window.localStorage.getItem(KEY)!).side).toBe('left');
+    expect(JSON.parse(window.localStorage.getItem(KEY)!).x).toBeLessThan(1);
     fireEvent.keyDown(orb, { key: 'ArrowUp' });
     expect(JSON.parse(window.localStorage.getItem(KEY)!).y).toBeLessThan(0.72);
     fireEvent.click(orb, { detail: 0 });
