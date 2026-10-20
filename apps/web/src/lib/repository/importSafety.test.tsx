@@ -78,7 +78,7 @@ describe('an imported file cannot plant a crash that survives a reload', () => {
     const question = importQuestion(plan, 'this export');
     expect(question).toContain('This brings in 1 deck and 0 companies.');
     expect(question).toContain('2 items in the file could not be read, so they are left out.');
-    expect(question).toContain('Your current research will become the backup.');
+    expect(question).toContain('kept as a separate copy from before the import');
   });
 
   it('reads a real researched deck without leaving anything out', () => {
@@ -151,8 +151,8 @@ describe('an imported file cannot start research', () => {
 
 describe('the import confirmation', () => {
   it('states what it brings in and leaves out in plain words', () => {
-    expect(importSummary({ decks: 1, companies: 1, skipped: 0, unfinishedResearch: 0 })).toBe('This brings in 1 deck and 1 company.');
-    expect(importSummary({ decks: 4, companies: 40, skipped: 1, unfinishedResearch: 2 })).toBe(
+    expect(importSummary({ decks: 1, companies: 1, skipped: 0, unfinishedResearch: 0, followsLeftOut: 0 })).toBe('This brings in 1 deck and 1 company.');
+    expect(importSummary({ decks: 4, companies: 40, skipped: 1, unfinishedResearch: 2, followsLeftOut: 0 })).toBe(
       'This brings in 4 decks and 40 companies. 1 item in the file could not be read, so it is left out. 2 research runs that were still going when the file was saved will not be started again.');
   });
 });

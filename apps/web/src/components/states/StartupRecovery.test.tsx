@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { migrateSnapshot, type RepoSnapshot } from '@mi/research';
 import { RepositoryProvider } from '@/lib/repository/RepositoryProvider';
-import { openBrowserResearchStore, readBrowserResearchData } from '@/lib/repository/browserResearchStore';
+import { installBrowserResearch, openBrowserResearchStore, readBrowserResearchData } from '@/lib/repository/browserResearchStore';
+import { deckNames, real } from '@/lib/repository/importTestKit';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { ErrorBoundary } from './ErrorBoundary';
 import { StartupFailure } from './StartupRecovery';
@@ -146,8 +147,34 @@ describe('when the app fails to start', () => {
     await user.click(await screen.findByRole('button', { name: /start fresh/i }));
     await waitFor(() => expect(reload).toHaveBeenCalled());
     expect(confirm.mock.calls[0]![0]).toMatch(/deletes the research saved in this browser, including its backup.*API key and settings are kept/s);
-    expect(await readBrowserResearchData()).toEqual({ current: null, backup: null });
+    expect(await readBrowserResearchData()).toEqual({ current: null, backup: null, beforeImport: null });
     expect(localStorage.getItem('mi.geminiApiKey')).toBe('kept-test-only');
+  });
+
+  it('offers the research from before an import only when an import has kept one, and restores it', async () => {
+    failedStart();
+    expect(await screen.findByRole('button', { name: /start fresh/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /from before the import/i })).toBeNull();
+    cleanup();
+
+    // The imported workspace is the poisoned one here; the person's own research was kept when it came in.
+    await (await openBrowserResearchStore()).write(workspace(market('m_mine', 'MY OWN RESEARCH')));
+    const hostile = real();
+    (hostile.markets[0] as unknown as { name: unknown }).name = 'Imported';
+    await installBrowserResearch(JSON.stringify(hostile));
+    // One save later, the backup is the import and only the kept copy still has the person's research.
+    const store = await openBrowserResearchStore();
+    await store.write(store.read()!);
+    expect(deckNames((await readBrowserResearchData()).backup)).toEqual(['Imported']);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    failedStart();
+    await user.click(await screen.findByRole('button', { name: 'Restore my research from before the import' }));
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    expect(confirm.mock.calls[0]![0]).toContain('Replace this workspace with your research from before the import?');
+    const saved = await readBrowserResearchData();
+    expect(deckNames(saved.current)).toEqual(['MY OWN RESEARCH']);
+    expect(saved.beforeImport).toBeNull();
   });
 
   it('offers no restore when there is no backup, and no download when nothing is stored', async () => {

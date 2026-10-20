@@ -296,7 +296,8 @@ describe('acknowledged browser research storage', () => {
     const large = { ...data(), reports: [{ id: 'paid', markdown: 'x'.repeat(6_000_000) }] } as ReturnType<typeof data>;
     await installBrowserResearch(JSON.stringify(large));
     const saved = await readBrowserResearchData();
-    expect(JSON.parse(saved.current!)).toEqual(large);
+    // The report row is synthetic and has no list of sources; an import gives every report one (the reports list counts them).
+    expect(JSON.parse(saved.current!)).toEqual({ ...large, reports: [{ ...large.reports[0], citations: [] }] });
     expect(JSON.parse(saved.backup!)).toEqual(data());
     await expect(store.write(data())).rejects.toThrow(/another window/i);
   }, 30_000); // a 6 MB workspace: quick on its own, but this suite runs beside others and the default 5 s has been missed under load

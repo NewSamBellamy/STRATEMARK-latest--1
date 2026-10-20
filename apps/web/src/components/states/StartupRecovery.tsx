@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { DatabaseBackup, Download, Trash2 } from 'lucide-react';
-import { clearBrowserResearch, installResearchImport, planResearchImport, readBrowserResearchData } from '@/lib/repository/browserResearchStore';
+import { clearBrowserResearch, installResearchImport, planResearchImport, readBrowserResearchData, type InstallKind } from '@/lib/repository/browserResearchStore';
 import { importQuestion } from '@/lib/repository/importSummary';
 import { exportSnapshot } from '@/lib/repository/vault';
 import { ErrorState } from './ErrorState';
@@ -17,7 +17,7 @@ import { ErrorState } from './ErrorState';
  * fail the same way.
  */
 export function RecoveryActions() {
-  const [saved, setSaved] = useState<{ current: boolean; backup: string | null } | null>(null);
+  const [saved, setSaved] = useState<{ current: boolean; backup: string | null; beforeImport: string | null } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -26,12 +26,12 @@ export function RecoveryActions() {
     readBrowserResearchData({ tolerateUnreadable: true })
       .then((data) => {
         if (!live) return;
-        setSaved({ current: data.current !== null, backup: data.backup });
+        setSaved({ current: data.current !== null, backup: data.backup, beforeImport: data.beforeImport });
         if (data.unreadable) setMessage('Your saved research could not be read, so it cannot be downloaded. The backup below, if there is one, is untouched.');
       })
       .catch(() => {
         if (!live) return;
-        setSaved({ current: false, backup: null });
+        setSaved({ current: false, backup: null, beforeImport: null });
         setMessage('Saved research could not be opened in this browser. Nothing has been deleted.');
       });
     return () => { live = false; };
@@ -63,15 +63,18 @@ export function RecoveryActions() {
     }
   };
 
-  const restore = () => run(async () => {
-    const plan = planResearchImport(saved!.backup!);
-    if (!window.confirm(importQuestion(plan, 'the last backup'))) return false;
-    await installResearchImport(plan, { recovering: true });
+  /** Restores one of the two saved copies after saying what it brings in. The recovery install works on a workspace that cannot be read. */
+  const restoreFrom = (json: string, what: string, kind: InstallKind) => run(async () => {
+    const plan = planResearchImport(json);
+    if (!window.confirm(importQuestion(plan, what, { kind }))) return false;
+    await installResearchImport(plan, { recovering: true, kind });
     return true;
-  }, 'The backup could not be restored. Nothing has been deleted.');
+  }, 'That copy could not be restored. Nothing has been deleted.');
+  const restore = () => restoreFrom(saved!.backup!, 'the last backup', 'backup');
+  const restoreBeforeImport = () => restoreFrom(saved!.beforeImport!, 'your research from before the import', 'before-import');
 
   const startFresh = () => run(async () => {
-    const sure = window.confirm('Start fresh?\n\nThis deletes the research saved in this browser, including its backup. Download it first if you want a copy. Your API key and settings are kept.');
+    const sure = window.confirm('Start fresh?\n\nThis deletes the research saved in this browser, including its backup and any copy kept from before an import. Download it first if you want a copy. Your API key and settings are kept.');
     if (!sure) return false;
     await clearBrowserResearch();
     return true;
@@ -90,6 +93,11 @@ export function RecoveryActions() {
         {saved?.backup && (
           <button type="button" className="btn-ghost border border-border" disabled={busy} onClick={() => void restore()}>
             <DatabaseBackup className="h-4 w-4" aria-hidden /> Restore the last backup
+          </button>
+        )}
+        {saved?.beforeImport && (
+          <button type="button" className="btn-ghost border border-border" disabled={busy} onClick={() => void restoreBeforeImport()}>
+            <DatabaseBackup className="h-4 w-4" aria-hidden /> Restore my research from before the import
           </button>
         )}
         <button type="button" className="btn-ghost border border-border" disabled={busy} onClick={() => void startFresh()}>

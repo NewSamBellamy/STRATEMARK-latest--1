@@ -3,12 +3,13 @@ import { IDBFactory } from 'fake-indexeddb';
 import { screen, waitFor } from '@testing-library/react';
 import { migrateSnapshot } from '@mi/research';
 import { renderWithProviders } from '@/test/test-utils';
-import { openBrowserResearchStore, readBrowserResearchData } from '@/lib/repository/browserResearchStore';
+import { deckNames, market as deck, real, workspace } from '@/lib/repository/importTestKit';
+import { installBrowserResearch, openBrowserResearchStore, readBrowserResearchData } from '@/lib/repository/browserResearchStore';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { SettingsModal } from './SettingsModal';
 
 const market = (id: string, name: unknown) => ({ id, name, scopeDefinition: { vertical: 'Test', geography: null, notes: null }, refreshCadence: 'weekly', createdAt: '2026-01-01T00:00:00Z' });
-const company = (id: string) => ({ id, name: `Company ${id}`, oneLiner: '', logoUrl: null, hqLocation: null, websiteUrl: null, brandTheme: null });
+const company = (id: string) => ({ id, name: ({ a: 'Acme Robotics', b: 'Beta Capital', c: 'Gamma Shop' } as Record<string, string>)[id] ?? `Firm ${id}`, oneLiner: '', logoUrl: null, hqLocation: null, websiteUrl: null, brandTheme: null });
 function file(mutate: (snapshot: Record<string, unknown>) => void): File {
   const snapshot = migrateSnapshot(null).snapshot as unknown as Record<string, unknown>;
   snapshot.markets = [market('m1', 'Real market'), market('m2', { a: 1 })];
@@ -48,7 +49,7 @@ describe('importing a research file from Settings', () => {
     const asked = confirm.mock.calls[0]![0] as string;
     expect(asked).toContain('This brings in 1 deck and 3 companies.');
     expect(asked).toContain('2 items in the file could not be read, so they are left out.');
-    expect(asked).toContain('Your current research will become the backup.');
+    expect(asked).toContain('Your current research is kept as a separate copy from before the import, and Settings can restore it until you import another file.');
     expect(await readBrowserResearchData()).toEqual(before);
     expect(reload).not.toHaveBeenCalled();
   });
@@ -77,6 +78,57 @@ describe('importing a research file from Settings', () => {
     expect(await screen.findByText(/1,001 companies, more than the 1,000 an import can bring in/)).toBeInTheDocument();
     expect(confirm).not.toHaveBeenCalled();
     expect(reload).not.toHaveBeenCalled();
+  });
+});
+
+describe('getting back the research an import replaced', () => {
+  const restoreButton = () => screen.queryByRole('button', { name: 'Restore my research from before the import' });
+  const mine = () => workspace(deck('m_mine', 'MY OWN RESEARCH'));
+
+  it('offers it only when an import has kept one', async () => {
+    useSettingsModal.setState({ isOpen: true, tab: 'data' });
+    renderWithProviders(<SettingsModal />);
+    await screen.findByRole('heading', { name: 'Data safety' });
+    expect(restoreButton()).toBeNull();
+  });
+
+  it('asks with what it brings back, then restores it and removes the kept copy', async () => {
+    await (await openBrowserResearchStore()).write(mine());
+    await installBrowserResearch(JSON.stringify(real()));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    useSettingsModal.setState({ isOpen: true, tab: 'data' });
+    const { user } = renderWithProviders(<SettingsModal />);
+    await user.click(await screen.findByRole('button', { name: 'Restore my research from before the import' }));
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    const asked = confirm.mock.calls[0]![0] as string;
+    expect(asked).toContain('Replace this workspace with your research from before the import?');
+    expect(asked).toContain('This brings in 1 deck and 0 companies.');
+    expect(asked).toContain('Your current research stays available as the backup until you next make a change.');
+    const saved = await readBrowserResearchData();
+    expect(deckNames(saved.current)).toEqual(['MY OWN RESEARCH']);
+    expect(saved.beforeImport).toBeNull();
+  });
+
+  it('says that a second import replaces the copy kept from the first', async () => {
+    await (await openBrowserResearchStore()).write(mine());
+    await installBrowserResearch(JSON.stringify(real()));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    useSettingsModal.setState({ isOpen: true, tab: 'data' });
+    const { user, container } = renderWithProviders(<SettingsModal />);
+    // The panel reads what is saved when it opens; the kept copy shows up as a count beside the buttons.
+    await screen.findByText(/from before the import:/);
+    await user.upload(container.ownerDocument.querySelector<HTMLInputElement>('input[type="file"]')!, file(() => undefined));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(confirm.mock.calls[0]![0]).toContain('That replaces the copy you kept from your last import.');
+  });
+
+  it('refuses a file larger than any workspace without reading it', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const huge = file(() => undefined);
+    Object.defineProperty(huge, 'size', { value: 150_000_001 });
+    await chooseFile(huge);
+    expect(await screen.findByText(/larger than the 150 MB an import can bring in/)).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
   });
 });
 
