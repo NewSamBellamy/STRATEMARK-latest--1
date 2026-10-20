@@ -38,7 +38,8 @@ export function reportStamp(
   }
   const card = cardId ? snap.cards.find((c) => c.id === cardId) : undefined;
   const deckId = request.kind === 'deck' ? request.subjectId : (threads.find((t) => t.scope.deckId)?.scope.deckId ?? card?.deckId ?? null);
-  const focusKind: 'all' | 'thread' | 'topic' = ids.length > 0 ? 'thread' : request.topics?.length || (request.focus ?? '').trim() ? 'topic' : 'all';
+  // One conversation is 'thread'; several (everything the card has) is 'all'; a typed topic or chosen sections with no conversation is 'topic'.
+  const focusKind: 'all' | 'thread' | 'topic' = ids.length === 1 ? 'thread' : ids.length > 1 ? 'all' : request.topics?.length || (request.focus ?? '').trim() ? 'topic' : 'all';
   return { cardId, deckId, threadIds: ids, focusKind };
 }
 

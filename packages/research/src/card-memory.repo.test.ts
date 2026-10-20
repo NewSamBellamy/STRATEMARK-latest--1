@@ -139,7 +139,8 @@ describe('card memory: reports', () => {
     expect(prompt).toContain('Thread thr_old');
     expect(report.threadIds).toEqual(['thr_old', 'thr_older']);
     expect(report.cardId).toBe('card_a');
-    expect(report.focusKind).toBe('thread');
+    // Several conversations is everything the card has, not one conversation.
+    expect(report.focusKind).toBe('all');
   });
 
   it('still accepts a single threadId, and marks a report with no thread as all', async () => {
