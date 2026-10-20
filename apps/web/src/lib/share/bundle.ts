@@ -8,6 +8,7 @@
  */
 import { CARD_TYPE_LABELS, METRIC_TYPE_LABELS, isEntityCardType, type Card, type CompanyMetric, type ShareSnapshot } from '@mi/contracts';
 import { formatMetricValue } from '@/lib/format';
+import { ogFaces, type OgFace } from './ogFace';
 
 export const SHARE_META_TOKEN = '<!--STRATEMARK_SHARE_META-->';
 export const SHARE_DATA_TOKEN = '__STRATEMARK_SHARE_DATA__';
@@ -153,6 +154,8 @@ export interface OgLayout {
   slots: OgSlot[];
   /** Company names for a deck: drawn as a small stack of cards. */
   names: string[];
+  /** The card faces the picture draws, built from the card's own face model: the shared card, or the first company cards of a deck. */
+  faces: OgFace[];
 }
 
 /** Only figures a source stands behind; unknown is never drawn as a number. */
@@ -182,6 +185,7 @@ export function ogLayout(snapshot: ShareSnapshot): OgLayout {
       subtitle: clip(oneLine(card?.summary ?? company?.oneLiner ?? ''), 150),
       slots: company ? faceSlots(snapshot.metrics.filter((m) => m.companyId === company.id)) : [],
       names: [],
+      faces: ogFaces(snapshot),
     };
   }
   const market = snapshot.markets[0];
@@ -191,5 +195,6 @@ export function ogLayout(snapshot: ShareSnapshot): OgLayout {
     subtitle: `${snapshot.companies.length} ${snapshot.companies.length === 1 ? 'company' : 'companies'}, every figure with its source`,
     slots: [],
     names: snapshot.companies.map((c) => c.name).slice(0, 3),
+    faces: ogFaces(snapshot),
   };
 }

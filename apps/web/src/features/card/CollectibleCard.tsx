@@ -7,7 +7,7 @@ import { Logo } from './Logo';
 import { DEFAULT_CARD_ART, MarketCardArt } from './MarketCardArt';
 import './collectible.css';
 
-const SIGNAL_FINDING_LABEL = {
+export const SIGNAL_FINDING_LABEL = {
   culture: 'Why it matters',
   vice: 'Risk signal',
   insight: 'Market evidence',
