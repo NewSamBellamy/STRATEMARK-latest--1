@@ -31,6 +31,18 @@ const ROSTER_ANSWER = {
   ],
 };
 
+/** A sentence of the answer and the source the search attributed it to (a risk is filed only on such a sentence). */
+const supportOf = (text: string, sourceIndex: number, supportIndex: number) => ({
+  supportIndex, text, sources: [{ chunkIndex: sourceIndex, url: SOURCES[sourceIndex]!.url, title: SOURCES[sourceIndex]!.title }],
+});
+/** What the search attributed, by the kind of question: the roster question's sentences, or the market's (each card's own words). */
+const ROSTER_GROUNDING = { provider: 'google-search' as const, answerText: 'notes', supports: [
+  ...ROSTER_ANSWER.risks.map((risk, i) => supportOf(risk.text, risk.sourceIndex, i)),
+  ...ROSTER_ANSWER.culture.map((item, i) => supportOf(item.note, item.sourceIndex, 20 + i)),
+] };
+const MARKET_GROUNDING = { provider: 'google-search' as const, answerText: 'notes', supports: [...MARKET_ANSWER.barriers, ...MARKET_ANSWER.insights]
+  .map((card, i) => supportOf(`${card.title}. ${card.summary} ${card.keyPoints.join(' ')}`, card.sourceIndex, i)) };
+
 const SIGNAL_TYPES = ['barrier', 'insight', 'vice', 'culture'];
 const DECK_CARDS = 'deck_fx';
 
@@ -61,9 +73,9 @@ function setup(options: SetupOptions = {}) {
   saved.savedCards = (options.savedCardIds ?? []).map((cardId) => ({ id: `sv_${cardId}`, cardId, savedAt: '2026-10-01T00:00:00.000Z' })) as unknown as RepoSnapshot['savedCards'];
   options.mutate?.(saved);
   let failures = options.groundFails ?? 0;
-  const ground = vi.fn(async (_prompt: string, _opts?: unknown) => {
+  const ground = vi.fn(async (prompt: string, _opts?: unknown): Promise<{ text: string; citations: typeof SOURCES; queries: string[]; grounding?: typeof ROSTER_GROUNDING }> => {
     if (failures > 0) { failures -= 1; throw (options.groundError ? options.groundError() : Object.assign(new Error('Gemini 503: request failed.'), { status: 503 })); }
-    return { text: 'notes', citations: SOURCES, queries: ['q'] };
+    return { text: 'notes', citations: SOURCES, queries: ['q'], grounding: /RISKS|CULTURE/.test(prompt) ? ROSTER_GROUNDING : MARKET_GROUNDING };
   });
   const structure = vi.fn(async (prompt: string, schema: ZodType<unknown>) =>
     schema.parse((options.structure ?? ((p: string) => (p.includes('"risks"') ? ROSTER_ANSWER : MARKET_ANSWER)))(prompt)));
@@ -310,5 +322,56 @@ describe('an allegation without a source never leaves the repository', () => {
     expect((await repo.getCard(card.id))!.viceClaims.map((claim) => claim.sourceUrl)).toEqual(['https://www.reuters.com/real']);
     const shared = await repo.exportShareSnapshot({ deckId: DECK_CARDS });
     expect(shared.viceClaims.map((claim) => claim.sourceUrl)).toEqual(['https://www.reuters.com/real']);
+  });
+});
+
+describe('a search is stopped, cut short or given odd data without leaving a mess', () => {
+  it('deleting a deck while its search runs leaves no card, claim or rest behind, even when the search ends afterwards', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+    const { repo, ground, saved } = setup();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const original = ground.getMockImplementation()!;
+    ground.mockImplementation(async (prompt: string, opts?: unknown) => { await gate; return original(prompt, opts); });
+    const running = repo.ensureSignalCards('deck_fx');
+    await vi.advanceTimersByTimeAsync(50);
+    expect(ground).toHaveBeenCalled();
+    const deleting = repo.deleteDeck('deck_fx');
+    // The delete waits a bounded while for the search, then goes ahead: the search is still hanging at this point.
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(await deleting).toBe(true);
+    release();
+    await running.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(saved().cards.filter((c) => c.deckId === 'deck_fx')).toEqual([]);
+    expect(saved().viceClaims).toEqual([]);
+    expect(saved().signalRest?.deck_fx).toBeUndefined();
+  });
+
+  it('a search stopped before it began does not rest the kinds it never searched', async () => {
+    const { repo, ground, countsOf } = setup();
+    const stopped = new AbortController();
+    stopped.abort();
+    await expect(repo.ensureSignalCards('deck_fx', { signal: stopped.signal })).rejects.toThrow();
+    expect(ground).not.toHaveBeenCalled();
+    // The next ask searches: nothing was rested.
+    const result = await repo.ensureSignalCards('deck_fx');
+    expect(result.added.barrier).toBe(5);
+    expect(countsOf().barrier).toBe(5);
+  });
+
+  it('a rest stored far in the future (a wrong clock, an imported file) is not honoured past the longest rest', async () => {
+    const future = { barrier: '2099-01-01T00:00:00.000Z', insight: '9999-12-31T00:00:00.000Z', vice: '2099-06-01T00:00:00.000Z', culture: '2200-01-01T00:00:00.000Z' };
+    const { repo, ground } = setup({ mutate: (snapshot) => { snapshot.signalRest = { deck_fx: future }; } });
+    await repo.ensureSignalCards('deck_fx');
+    expect(ground.mock.calls.length).toBe(2);
+  });
+
+  it('a recorded market plan that is not a plan is ignored, and the market’s own scope is used', async () => {
+    const { repo, ground } = setup({ mutate: (snapshot) => { snapshot.researchJobs = [{ id: 'job_odd', deck: { id: 'deck_fx' }, marketPlan: 'not a plan' }] as unknown as RepoSnapshot['researchJobs']; } });
+    await repo.ensureSignalCards('deck_fx');
+    const prompt = String(ground.mock.calls[0]![0]);
+    expect(prompt).toContain('Fixture Robotics');
+    expect(prompt).not.toContain('undefined');
   });
 });
