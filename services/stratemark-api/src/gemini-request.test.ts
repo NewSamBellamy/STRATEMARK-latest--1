@@ -132,3 +132,13 @@ describe('a response schema nested or large beyond what a request needs', () => 
     if (inspected.ok) expect(JSON.parse(inspected.request.body).generationConfig.responseSchema).toEqual(JSON.parse(real));
   });
 });
+
+describe('the rebuilt request reports its size in UTF-8 bytes', () => {
+  it('equals the characters for ASCII and counts three bytes for a private-use character', () => {
+    const asciiBody = ok(GROUNDED);
+    expect(asciiBody.bodyBytes).toBe(asciiBody.body.length);
+    const wide = ok({ contents: [{ parts: [{ text: String.fromCharCode(0xe000).repeat(1_000) }] }] });
+    expect(wide.bodyBytes).toBe(new TextEncoder().encode(wide.body).length);
+    expect(wide.bodyBytes).toBeGreaterThan(wide.body.length + 1_999);
+  });
+});

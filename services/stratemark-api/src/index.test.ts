@@ -394,3 +394,22 @@ describe('a response schema nested past what JSON.stringify can write', () => {
     expect(await budget.status(DAY)).toMatchObject({ spentMicros: 0, heldMicros: 0 });
   });
 });
+
+describe('the hold is taken at what the body can be billed as', () => {
+  it('holds a body of three-byte characters at one token per byte, not per character (R2-W7b)', async () => {
+    const { env, budget } = makeEnv();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    fetchMock.mockImplementation(async () => { await gate; return google.reply(); });
+    const text = String.fromCharCode(0xe000).repeat(300_000);
+    const sent = call(env, { contents: [{ parts: [{ text }] }] }, '203.0.113.9', 'gemini-3.1-pro-preview');
+    await vi.waitFor(async () => expect((await budget.status(DAY)).heldMicros).toBeGreaterThan(0));
+    const held = (await budget.status(DAY)).heldMicros;
+    const bytes = new TextEncoder().encode(JSON.stringify({ contents: [{ parts: [{ text }] }], generationConfig: { maxOutputTokens: 32_768 } })).length;
+    // Input alone, at one token per byte of a 900,000 byte body on the Pro rate, is $3.60; per character it was $1.20.
+    expect(held).toBeGreaterThanOrEqual(Math.ceil((bytes + 20_000) * 4.0));
+    release();
+    expect((await sent).status).toBe(200);
+    expect((await budget.status(DAY)).heldMicros).toBe(0);
+  });
+});

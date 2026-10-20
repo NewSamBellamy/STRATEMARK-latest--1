@@ -104,12 +104,15 @@ export function callCostMicros(model: string, usage: GeminiUsage | undefined, gr
 /**
  * Held before a call so concurrent calls can't jointly overshoot: the worst
  * plausible cost of one request (a long grounded prompt with a long answer).
- * Input is held at one token per character (no tokenizer does worse on text; a request can only be text, see
- * gemini-request.ts) and the answer at the most the forwarded request allows (answer and thinking together).
+ * Input is held at one token per UTF-8 BYTE of the forwarded body: no tokenizer emits more tokens than it was given bytes
+ * (the worst case is byte fallback, one token for each byte of a character it has no piece for), so this is an upper bound
+ * for any text. It was one token per UTF-16 unit, which is a third of that for a character of three bytes (a 300,000
+ * character body of private-use characters is 900,000 bytes); for ASCII, which the research prompts are, the two are the
+ * same. The answer is held at the most the forwarded request allows (answer and thinking together).
  */
-export function reserveMicros(model: string, grounded: boolean, bodyChars: number, outputTokens = 16_000): number {
+export function reserveMicros(model: string, grounded: boolean, bodyBytes: number, outputTokens = 16_000): number {
   const p = PRICE_PER_M[priceFamily(model)];
-  const inputTokens = bodyChars + 20_000; // + grounding context Google adds
+  const inputTokens = bodyBytes + 20_000; // + grounding context Google adds
   // A grounded call can issue many searches; twelve is held (a real call is billed what it did, when it settles).
   const search = grounded ? Math.max(GROUNDED_PROMPT_USD, SEARCH_QUERY_USD * 12) * 1_000_000 : 0;
   return Math.ceil(inputTokens * p.input + outputTokens * p.output + search);

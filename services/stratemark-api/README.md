@@ -28,7 +28,7 @@ accepted: text turns, a system instruction, the Google Search tool, and a few ge
 (`fileData`), other tools (`googleMaps`, retrieval variants, code execution, URL context), cached content, more than
 one candidate and any unknown field are refused with 400 before a cent is held. What Google receives is rebuilt from
 what was accepted, with the answer capped (32,768 tokens) and thinking capped (16,384). The hold taken before the call
-is one token per character of the prompt, plus the most the rebuilt request can answer, plus twelve searches if it
+is one token per UTF-8 byte of the rebuilt request (no tokenizer emits more tokens than bytes; for ASCII that is one per character), plus the most the rebuilt request can answer, plus twelve searches if it
 is grounded; the call settles to what Google reports (a reply with no usage report is charged at the hold, and a reply
 that searched is charged the grounding rate whether or not it was asked to). A visitor is an IPv4 address or an IPv6
 /64. `DAILY_BUDGET_USD = "0"` is a kill switch: every hosted call is refused. A budget setting that is set but is not a

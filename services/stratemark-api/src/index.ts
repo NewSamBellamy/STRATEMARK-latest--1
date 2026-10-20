@@ -234,13 +234,13 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
   // Nothing is held, and nothing is sent, for a request that asks for anything else (gemini-request.ts).
   const inspected = inspectGeminiRequest(text, model);
   if (!inspected.ok) return json({ error: inspected.error }, 400, origin);
-  const { body, grounded, worstOutputTokens } = inspected.request;
+  const { body, bodyBytes, grounded, worstOutputTokens } = inspected.request;
 
   // Dollar budget: hold this call's worst-case cost before it runs, settle to
   // the real cost (from Google's usage report) after. Exact under bursts.
   const ip = visitorAddress(request.headers.get('cf-connecting-ip'));
   const day = new Date().toISOString().slice(0, 10);
-  const held = reserveMicros(model, grounded, body.length, worstOutputTokens);
+  const held = reserveMicros(model, grounded, bodyBytes, worstOutputTokens);
   const caps = budgets(env);
   const counter = ledger(env);
   const reservation = await counter.reserve(day, ip, held, caps.budget, caps.visitor);

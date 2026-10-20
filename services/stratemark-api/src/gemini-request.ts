@@ -29,6 +29,8 @@ export const MAX_SCHEMA_NODES = 50_000;
 export interface GeminiRequest {
   /** The JSON to send to Google, rebuilt from what was accepted. */
   body: string;
+  /** The body's length in UTF-8 bytes, which is what bounds the input tokens it can be billed as. */
+  bodyBytes: number;
   /** Whether the call may ground on Google Search (and so owes the grounding charge). */
   grounded: boolean;
   /** Most output tokens the call can produce, answer and thinking together: what the hold is sized by. */
@@ -168,5 +170,5 @@ export function inspectGeminiRequest(text: string, model: string): GeminiInspect
 
   let body: string;
   try { body = JSON.stringify(out); } catch { return refuse('The request could not be rebuilt.'); }
-  return { ok: true, request: { body, grounded, worstOutputTokens: maxOutput + thinking } };
+  return { ok: true, request: { body, bodyBytes: new TextEncoder().encode(body).length, grounded, worstOutputTokens: maxOutput + thinking } };
 }

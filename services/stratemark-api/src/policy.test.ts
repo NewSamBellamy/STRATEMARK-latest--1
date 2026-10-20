@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MAX_BUDGET_USD, MAX_LEDGER_VISITORS, allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, parseBudgetUsd, priceFamily, readBudgetUsd, reserveMicros, rollHistory, safePublicUrl, settle, tryReserve,
+  MAX_BUDGET_USD, MAX_LEDGER_VISITORS, PRICE_PER_M, allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, parseBudgetUsd, priceFamily, readBudgetUsd, reserveMicros, rollHistory, safePublicUrl, settle, tryReserve,
   type LedgerDay,
 } from './policy';
 
@@ -255,5 +255,18 @@ describe('a request that carries a day older than the ledger day', () => {
     const ledger = { day: '2026-10-20', spentMicros: 99_999_000, heldMicros: 0, visitors: { a: 19_999_000 } } as LedgerDay;
     expect(tryReserve(ledger, '2026-10-19', 'b', 2_000, 100_000_000, 20_000_000)).toMatchObject({ ok: false, reason: 'global', ledger });
     expect(tryReserve(ledger, '2026-10-19', 'a', 2_000, 200_000_000, 20_000_000)).toMatchObject({ ok: false, reason: 'visitor', ledger });
+  });
+});
+
+describe('the hold is sized by bytes, which bound the tokens', () => {
+  it('is the same as before for ASCII and three times the input for a character of three bytes', () => {
+    const ascii = 'x'.repeat(30_000);
+    const privateUse = String.fromCharCode(0xe000).repeat(30_000); // 3 UTF-8 bytes each
+    const bytes = (text: string) => new TextEncoder().encode(text).length;
+    expect(bytes(ascii)).toBe(30_000);
+    expect(bytes(privateUse)).toBe(90_000);
+    const base = reserveMicros('gemini-3.1-pro-preview', false, 0, 0);
+    expect(reserveMicros('gemini-3.1-pro-preview', false, bytes(ascii), 0) - base).toBe(30_000 * PRICE_PER_M.pro.input);
+    expect(reserveMicros('gemini-3.1-pro-preview', false, bytes(privateUse), 0) - base).toBe(90_000 * PRICE_PER_M.pro.input);
   });
 });
