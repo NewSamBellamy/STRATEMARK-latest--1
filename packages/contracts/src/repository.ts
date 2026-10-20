@@ -371,6 +371,8 @@ export interface AskResearchInput {
    * audit or a metrics report becomes the context of a new conversation.
    */
   attachments?: { reportIds?: string[]; threadIds?: string[] };
+  /** Search again: skip the answer from research on file and run a fresh search. */
+  fresh?: boolean;
 }
 
 // ---------------------------------------------------------------------------
