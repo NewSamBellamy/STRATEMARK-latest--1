@@ -111,6 +111,14 @@ export function Sidebar() {
   );
 }
 
+/**
+ * How many decks the sidebar draws. It is the first thing on screen and the
+ * newest decks are the ones reached from it; a workspace with hundreds of decks
+ * made one navigation link each, which is time the first screen waits for. The
+ * rest are one click away under "View all" (All Decks).
+ */
+export const SIDEBAR_DECKS = 50;
+
 /** The inline deck history. A deck whose saved name or date is not text throws while drawing; the boundary around this keeps that out of the rest of the shell. */
 function RecentDecks() {
   const markets = useMarkets();
@@ -158,7 +166,7 @@ function RecentDecks() {
                 </NavLink>
               </li>
             )}
-            {recentDecks.map((m) => {
+            {recentDecks.slice(0, SIDEBAR_DECKS).map((m) => {
               const isRunning = (m as { status?: string }).status === 'running';
               return (
                 <li key={m.id}>

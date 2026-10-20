@@ -6830,7 +6830,8 @@ ${references}`
   }
 
   async getMarketOpportunity(marketId: string, force = false): Promise<DeepDiveResult> {
-    const cached = this.snap.opportunity[marketId];
+    // Own entries only: a market id in the address bar can be "constructor", and a plain read hands back Object itself.
+    const cached = Object.prototype.hasOwnProperty.call(this.snap.opportunity, marketId) ? this.snap.opportunity[marketId] : undefined;
     if (cached && !force) return { markdown: cached.markdown, citations: cached.citations };
     const market = this.snap.markets.find((m) => m.id === marketId);
     const deck = this.snap.decks.find((d) => d.marketId === marketId);
