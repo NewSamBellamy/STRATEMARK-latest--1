@@ -487,3 +487,28 @@ describe('reading share links is limited per visitor', () => {
     expect((await worker.fetch(new Request(`https://worker.example/s/${id}`, { method: 'HEAD', headers: { 'cf-connecting-ip': '198.51.100.8' } }), env)).status).toBe(200);
   });
 });
+
+describe('the preview picture of a share that was stopped', () => {
+  const PNG = `iVBORw0KGgoAAAANSUhEUgAABLAAAAJ2${'A'.repeat(60)}`; // a PNG header, 1200 x 630
+  const picture = (env: never, id: string) => worker.fetch(new Request(`https://worker.example/s/${id}/og.png`, { headers: { 'cf-connecting-ip': '198.51.100.7' } }), env);
+
+  it('is cached for a minute at most, and answers 404 at once when the share is stopped (R2-S2)', async () => {
+    const { env } = makeEnv();
+    const made = await worker.fetch(new Request('https://worker.example/v1/share', {
+      method: 'POST', headers: { origin: APP, 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.9' },
+      body: JSON.stringify({ v: 1, kind: 'deck', title: 'Meal kits', description: 'A line', viewer: `${APP}/share.html`, data: 'A'.repeat(200), og: PNG }),
+    }), env);
+    expect(made.status).toBe(201);
+    const { id, deleteToken } = await made.json() as { id: string; deleteToken: string };
+    const shown = await picture(env, id);
+    expect(shown.status).toBe(200);
+    const maxAge = Number(/max-age=(\d+)/.exec(shown.headers.get('cache-control') ?? '')?.[1]);
+    expect(maxAge).toBeGreaterThan(0);
+    expect(maxAge).toBeLessThanOrEqual(60);
+    const stopped = await worker.fetch(new Request(`https://worker.example/v1/share/${id}`, { method: 'DELETE', headers: { origin: APP, 'x-share-token': deleteToken, 'cf-connecting-ip': '203.0.113.9' } }), env);
+    expect(stopped.status).toBe(200);
+    const gone = await picture(env, id);
+    expect(gone.status).toBe(404);
+    expect(gone.headers.get('cache-control')).toBe('no-store');
+  });
+});

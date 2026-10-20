@@ -610,6 +610,13 @@ async function sharePage(request: Request, id: string, env: Env): Promise<Respon
   }), { status: 200, headers: { ...headers, 'Cache-Control': 'no-cache' } });
 }
 
+/**
+ * How long a browser or proxy may keep a share's preview picture. A share its owner stopped answers 404 at once, but a copy
+ * held by a cache is served until it expires, and the picture is the one part of a share that is cacheable at all; so it is
+ * a minute, not five. (A chat app keeps its own copy for as long as it likes: out of this Worker's hands.)
+ */
+const SHARE_OG_CACHE_SECONDS = 60;
+
 /** GET /s/:id/og.png: the picture a chat app shows with the link. */
 async function shareOg(id: string, env: Env): Promise<Response> {
   const encoded = await vaultFor(env, id).og();
@@ -620,7 +627,7 @@ async function shareOg(id: string, env: Env): Promise<Response> {
   return new Response(bytes, {
     status: 200,
     headers: {
-      'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=300, must-revalidate', 'Content-Security-Policy': "default-src 'none'",
+      'Content-Type': 'image/png', 'Cache-Control': `public, max-age=${SHARE_OG_CACHE_SECONDS}, must-revalidate`, 'Content-Security-Policy': "default-src 'none'",
       'Cross-Origin-Resource-Policy': 'cross-origin', ...SHARE_HEADERS,
     },
   });
