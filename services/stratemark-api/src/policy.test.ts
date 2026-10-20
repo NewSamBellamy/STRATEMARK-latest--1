@@ -227,3 +227,18 @@ describe('a visitor whose calls cost nothing takes no slot', () => {
     expect(tryReserve({ ...empty(), visitors: full }, day, 'new', 10, 1_000_000, 1_000_000)).toMatchObject({ ok: false, reason: 'global' });
   });
 });
+
+describe('a request that carries a day older than the ledger day', () => {
+  it('is accounted to the day in progress and wipes nothing (a spent $4 used to become $0)', () => {
+    const ledger = { day: '2026-10-20', spentMicros: 4_000_000, heldMicros: 0, visitors: { a: 4_000_000 } } as LedgerDay;
+    const late = tryReserve(ledger, '2026-10-19', 'b', 1_000, 100_000_000, 20_000_000);
+    expect(late.ok).toBe(true);
+    expect(late.ledger).toMatchObject({ day: '2026-10-20', spentMicros: 4_000_000, heldMicros: 1_000 });
+    expect(late.ledger.visitors).toEqual({ a: 4_000_000, b: 1_000 });
+  });
+  it('meets the budget of the day in progress and its visitor caps like any other request', () => {
+    const ledger = { day: '2026-10-20', spentMicros: 99_999_000, heldMicros: 0, visitors: { a: 19_999_000 } } as LedgerDay;
+    expect(tryReserve(ledger, '2026-10-19', 'b', 2_000, 100_000_000, 20_000_000)).toMatchObject({ ok: false, reason: 'global', ledger });
+    expect(tryReserve(ledger, '2026-10-19', 'a', 2_000, 200_000_000, 20_000_000)).toMatchObject({ ok: false, reason: 'visitor', ledger });
+  });
+});

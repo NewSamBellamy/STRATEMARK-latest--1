@@ -262,7 +262,7 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
     actual = answered || aborted ? held : 0;
     throw cause;
   } finally {
-    await counter.settle(day, ip, held, actual);
+    await counter.settle(reservation.day, ip, held, actual);
   }
 }
 
@@ -298,7 +298,7 @@ async function searchRelay(request: Request, env: Env, origin: string): Promise<
     actual = response.ok ? SEARCH_COST_MICROS : 0;
     return response;
   } finally {
-    await counter.settle(day, ip, SEARCH_COST_MICROS, actual);
+    await counter.settle(reservation.day, ip, SEARCH_COST_MICROS, actual);
   }
 }
 

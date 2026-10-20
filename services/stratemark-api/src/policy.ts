@@ -175,9 +175,15 @@ function withVisitor(visitors: Record<string, number>, ip: string, value: number
   return Object.fromEntries(value > 0 ? [...others, [ip, value]] : others);
 }
 
-/** Pure ledger step: may this call proceed under the global and per-visitor daily budgets? */
+/**
+ * Pure ledger step: may this call proceed under the global and per-visitor daily budgets? A request's day is read before it
+ * is sent, so one can arrive after midnight carrying the day that ended. It is accounted to the day in progress (the
+ * result's ledger says which); it used to REPLACE the newer ledger with an empty older one, and a spent $4 became $0
+ * (red team R2-W4).
+ */
 export function tryReserve(ledger: LedgerDay, day: string, ip: string, amount: number, budgetMicros: number, visitorBudgetMicros: number): ReserveResult {
-  const current: LedgerDay = ledger.day === day ? ledger : { day, spentMicros: 0, heldMicros: 0, visitors: {} };
+  const today = ledger.day > day ? ledger.day : day;
+  const current: LedgerDay = ledger.day === today ? ledger : { day: today, spentMicros: 0, heldMicros: 0, visitors: {} };
   if (current.spentMicros + current.heldMicros + amount > budgetMicros) return { ok: false, reason: 'global', ledger: current };
   let visitors = current.visitors;
   const mine = spentBy(visitors, ip);
