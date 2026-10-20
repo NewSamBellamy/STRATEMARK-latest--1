@@ -214,7 +214,13 @@ export interface LlmClient {
   ground(
     prompt: string,
     opts?: {
-      system?: string; signal?: AbortSignal; researchContext?: { companyId?: string; companyName?: string; topic: string };
+      system?: string; signal?: AbortSignal; researchContext?: {
+        companyId?: string; companyName?: string; topic: string;
+        /** The card the research is about; kept on the evidence record. */
+        cardId?: string;
+        /** Keep only the sentences the search attributed to a public source (never the whole answer). */
+        attributedOnly?: boolean;
+      };
       /** Live draft while the answer streams (clients that can stream); the returned text is authoritative. */
       onText?: (textSoFar: string) => void;
       /** Pacing lane; see CallPriority. Bulk work never sets it. */

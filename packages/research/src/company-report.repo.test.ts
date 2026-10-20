@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { REPORT_TOPICS, type Citation, type CompanyMetric, type ReportTopic } from '@mi/contracts';
 import { GeminiRepository, migrateSnapshot, type RepoSnapshot, type ResearchStore } from './repository';
 import { buildCompanyTopicReport, mapLimited, raceAbort, type CompanyReportDeps } from './company-report';
-import type { CallMetricsAggregate, LlmClient } from './types';
+import type { CallMetricsAggregate, LlmClient, ProviderGrounding } from './types';
 
 const DAY = 86_400_000;
 const iso = (daysAgo: number): string => new Date(Date.now() - daysAgo * DAY).toISOString();
@@ -70,7 +70,7 @@ interface Stub {
 /** A client that counts its calls like the real one does, and writes sections from a function of the prompt. */
 function stub(opts: {
   write?: (prompt: string, label?: string) => string;
-  found?: { text: string; citations: Citation[] };
+  found?: { text: string; citations: Citation[]; grounding?: ProviderGrounding };
   noMetrics?: boolean;
   failEverything?: boolean;
 } = {}): Stub {
@@ -174,9 +174,27 @@ describe('a topic with gaps', () => {
     expect(writer).toContain('Jane Doe, COO');
     // Calls: 1 grounded + 2 write-ups, 2 searches.
     expect(report.cost).toMatchObject({ calls: 3, searches: 2 });
-    // The stored dashboard and the evidence vault are untouched.
+    // The stored dashboard is untouched. The stub's answer carries no attribution, so nothing is kept as evidence either.
     expect(store.latest().dashboards.cmp_1!.team_org).toEqual(before);
     expect(store.latest().researchEvidence!.length).toBe(evidenceBefore);
+  });
+
+  it('keeps what the deeper pass found as evidence, but only the sentences the search attributed', async () => {
+    const attributed = 'Jane Doe was named chief operating officer of Acme by Bloomberg on 2026-09-01.';
+    const unattributed = 'Acme also employs several hundred engineers worldwide.';
+    const text = `${attributed} ${unattributed}`;
+    const s = stub({ found: { text, citations: [FOUND], grounding: { provider: 'google-search', answerText: text,
+      supports: [{ supportIndex: 0, text: attributed, sources: [{ chunkIndex: 0, url: FOUND.url, title: FOUND.title }] }] } } });
+    const snap = seed();
+    snap.dashboards.cmp_1!.team_org = { content: { nodes: [{ id: 'p1', name: 'A. Engineer', role: 'Engineer', group: 'ai', parentId: null, bio: '' }] }, citations: [SITE], lastRefreshedAt: iso(2) };
+    const { repo, store } = repoFor(snap, s);
+    await repo.generateReport(ask(['team_org', 'history']));
+    const added = store.latest().researchEvidence!.filter((e) => e.topic === 'report:team_org');
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({ companyId: 'cmp_1', text: attributed });
+    expect(added[0]!.text).not.toContain('several hundred engineers');
+    expect(added[0]!.citations.map((c) => c.url)).toEqual([FOUND.url]);
+    expect(store.latest().researchEvidence!.some((e) => e.topic === 'report:history')).toBe(false);
   });
 
   it('never grounds more than once per topic: eight thin topics cost at most eight grounded passes', async () => {
