@@ -306,3 +306,43 @@ describe('how many rows a list inside a share keeps', () => {
     }
   });
 });
+
+describe('a confidence or a date this page does not recognise', () => {
+  const ODD = ['USER_VERIFIED', 'human', 'user_verified ', 'verified​', 'Verified', 7, null, {}, [], true];
+
+  it('reads a confidence outside the four as unknown, with no number, and keeps the rest of the share', () => {
+    for (const confidence of ODD) {
+      const out = receiveSnapshot(snapshot({ metrics: [metric({ id: 'odd', value: 5, confidence }), metric({ id: 'fine', confidence: 'estimated' })] }));
+      const row = out.metrics.find((m) => m.id === 'odd')!;
+      expect(row.confidence).toBe('unknown');
+      expect(row.value).toBeNull();
+      expect(out.metrics.find((m) => m.id === 'fine')!.value).toBe(987_654_321_000);
+      expect(out.companies).toHaveLength(1);
+    }
+  });
+
+  it('does not let a source earn an unrecognised confidence anything', () => {
+    const [m] = metricsOf(snapshot({ metrics: [metric({ confidence: 'USER_VERIFIED', citations: [GOOD], source: GOOD.url })] }));
+    expect(m!.confidence).toBe('unknown');
+    expect(m!.value).toBeNull();
+  });
+
+  it('keeps the four confidences it knows', () => {
+    for (const confidence of ['estimated', 'verified', 'user_verified', 'unknown']) {
+      const [m] = metricsOf(snapshot({ metrics: [metric({ confidence, citations: [GOOD], source: GOOD.url, value: confidence === 'unknown' ? null : 5 })] }));
+      expect(m!.confidence).toBe(confidence === 'user_verified' ? 'verified' : confidence);
+    }
+  });
+
+  it('drops a capture or verification time that is not a time, and keeps one that is', () => {
+    const good = '2026-10-01T12:30:00.000Z';
+    const [kept] = metricsOf(snapshot({ metrics: [metric({ capturedAt: good, lastVerifiedAt: good, lastVerificationAttemptAt: '2026-10-02' })] }));
+    expect([kept!.capturedAt, kept!.lastVerifiedAt, kept!.lastVerificationAttemptAt]).toEqual([good, good, '2026-10-02']);
+    for (const bad of ['not a date', '', 7, null, {}, 'Jan 1 2020', '2026-13-45T00:00:00Z', '<script>']) {
+      const [m] = metricsOf(snapshot({ metrics: [metric({ capturedAt: bad, lastVerifiedAt: bad, lastVerificationAttemptAt: bad })] }));
+      expect(m!.capturedAt).toBe('');
+      expect(m!.lastVerifiedAt ?? null).toBeNull();
+      expect(m!.lastVerificationAttemptAt ?? null).toBeNull();
+    }
+  });
+});

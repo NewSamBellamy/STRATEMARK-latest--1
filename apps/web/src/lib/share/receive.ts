@@ -5,7 +5,8 @@
  * is a courtesy, not authentication). The viewer therefore never shows a snapshot as it came. It is held to the same
  * rules the app holds its own research to:
  *   - a figure is only as verified as its sources make it (a "verified" figure with no usable source is an estimate,
- *     and a figure no one here could have checked cannot claim a human checked it: "user verified" is not honoured);
+ *     and a figure no one here could have checked cannot claim a human checked it: "user verified" is not honoured,
+ *     and a confidence outside the four the app knows makes the figure unknown, with no number);
  *   - who owns a company and when it was founded are shown only with a source behind them (a status nothing states is
  *     dropped, as in a private link);
  *   - an allegation with no clickable source is dropped (Rule 9), and every source link must be a plain http(s) page;
@@ -18,7 +19,7 @@
  * Red-team findings 1, 2 and 4 against the hosted share viewer, and the second review's.
  */
 import {
-  DASHBOARD_TABS, companyFoundedSchema, enforceMetricProvenance, enforceOwnershipProvenance, ownershipSchema, usableCitations,
+  CONFIDENCE_LEVELS, DASHBOARD_TABS, companyFoundedSchema, enforceMetricProvenance, enforceOwnershipProvenance, ownershipSchema, usableCitations,
   type Card, type Company, type CompanyFounded, type CompanyMetric, type DashboardTab, type Ownership, type ShareSnapshot, type ViceClaim,
 } from '@mi/contracts';
 
@@ -90,14 +91,27 @@ function boundedSupport<T>(proof: T): T {
   return { ...proof, support: { ...proof.support, sources: rowsOf(proof.support.sources, ROW_LIMITS.sources) } } as T;
 }
 
+/** A moment written as an ISO date or timestamp, or null. */
+function isoMoment(value: unknown): string | null {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(value) && Number.isFinite(Date.parse(value)) ? value : null;
+}
+
 function receiveMetric(metric: CompanyMetric, company: Company | undefined): CompanyMetric | null {
   if (!isRecord(metric)) return null;
   if (metric.value !== null && metric.value !== undefined && !(typeof metric.value === 'number' && Number.isFinite(metric.value) && metric.value >= 0)) return null;
+  // A confidence this page does not know is not one (the capitals of "USER_VERIFIED" and a number are not a person's
+  // check): the figure is unknown and carries no number (Rule 9), and the rest of the share opens as usual.
+  const known = (CONFIDENCE_LEVELS as readonly unknown[]).includes(metric.confidence);
   // No person here checked anything: a human check cannot arrive in a share. The figure keeps whatever its sources earn it.
-  const claimed = metric.confidence === 'user_verified' ? { ...metric, confidence: 'verified' as const } : metric;
+  const claimed = !known ? { ...metric, confidence: 'unknown' as const, value: null }
+    : metric.confidence === 'user_verified' ? { ...metric, confidence: 'verified' as const } : metric;
   const bounded: CompanyMetric = {
     ...claimed,
     value: claimed.value ?? null,
+    // A moment that is not a date is no moment (a blank reads as unknown on the card, never as fresh).
+    capturedAt: isoMoment(claimed.capturedAt) ?? '',
+    ...('lastVerifiedAt' in claimed ? { lastVerifiedAt: isoMoment(claimed.lastVerifiedAt) } : {}),
+    ...('lastVerificationAttemptAt' in claimed ? { lastVerificationAttemptAt: isoMoment(claimed.lastVerificationAttemptAt) } : {}),
     citations: sourcesOf(claimed.citations),
     ...(claimed.reportedSupport ? { reportedSupport: boundedSupport(claimed.reportedSupport) } : {}),
     ...(claimed.reportedBand ? { reportedBand: boundedSupport(claimed.reportedBand) } : {}),
