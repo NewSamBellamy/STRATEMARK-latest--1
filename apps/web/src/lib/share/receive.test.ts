@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ownershipLabel, type ShareSnapshot } from '@mi/contracts';
 import { sharedToCardWithCompany, type SharedCard } from './codec';
-import { SNAPSHOT_LIMITS, receiveSnapshot, snapshotWithinLimits } from './receive';
+import { MARKDOWN_LIMITS, SNAPSHOT_LIMITS, receiveSnapshot, snapshotWithinLimits } from './receive';
 
 const GOOD = { title: 'Annual report', url: 'https://www.reuters.com/markets/acme-results', credibility: 'reputable_secondary' as const };
 const metric = (over: Record<string, unknown> = {}) => ({
@@ -153,5 +153,57 @@ describe('who owns a company, and when it was founded, in a share', () => {
     expect(ownershipLabel(viaLink?.ownership)).toBeNull();
     expect(ownershipLabel(viaHost.ownership)).toBeNull();
     expect(viaHost.ownership ?? null).toEqual(viaLink?.ownership ?? null);
+  });
+});
+
+describe('how much markdown a share may carry', () => {
+  const overview = (markdown: unknown) => ({ lastRefreshedAt: 'x', content: { markdown } });
+  const textOf = (s: ShareSnapshot, company = 'c1') => (s.dashboards[company]!.overview!.content as { markdown: string }).markdown;
+
+  it('cuts one field at its limit and keeps the start of it', () => {
+    const out = receiveSnapshot(snapshot({ dashboards: { c1: { overview: overview('*a'.repeat(80_000)) } } }));
+    expect(textOf(out)).toHaveLength(MARKDOWN_LIMITS.field);
+    expect(textOf(out).startsWith('*a*a*a')).toBe(true);
+  });
+
+  it('spends one allowance across the whole snapshot, in the order the companies come', () => {
+    const page = 'x'.repeat(MARKDOWN_LIMITS.field);
+    const ids = Array.from({ length: 300 }, (_unused, i) => `co${i}`);
+    const out = receiveSnapshot(snapshot({ dashboards: Object.fromEntries(ids.map((id) => [id, { overview: overview(page) }])) }));
+    const lengths = ids.map((id) => textOf(out, id).length);
+    expect(lengths.reduce((total, length) => total + length, 0)).toBeLessThanOrEqual(MARKDOWN_LIMITS.total);
+    expect(lengths[0]).toBe(MARKDOWN_LIMITS.field);
+    expect(lengths[299]).toBe(0);
+    expect(lengths).toEqual([...lengths].sort((a, b) => b - a));
+  });
+
+  it('covers every field a tab shows as markdown', () => {
+    const big = 'y'.repeat(MARKDOWN_LIMITS.field * 2);
+    const out = receiveSnapshot(snapshot({ dashboards: { c1: {
+      research: { lastRefreshedAt: 'x', content: { markdown: big } },
+      history: { lastRefreshedAt: 'x', content: { founderStory: big, timeline: [], quotes: [] } },
+      mission_governance: { lastRefreshedAt: 'x', content: { mission: big, ethos: big, governanceStructure: big, board: [] } },
+    } } }));
+    const tabs = out.dashboards.c1!;
+    expect((tabs.research!.content as { markdown: string }).markdown).toHaveLength(MARKDOWN_LIMITS.field);
+    expect((tabs.history!.content as { founderStory: string }).founderStory).toHaveLength(MARKDOWN_LIMITS.field);
+    for (const field of ['mission', 'ethos', 'governanceStructure']) expect((tabs.mission_governance!.content as Record<string, string>)[field]).toHaveLength(MARKDOWN_LIMITS.field);
+  });
+
+  it('keeps honest text exactly, and reads text that is not text as empty', () => {
+    const honest = 'Acme **grew** in 2025.\n\n- one\n- two';
+    expect(textOf(receiveSnapshot(snapshot({ dashboards: { c1: { overview: overview(honest) } } })))).toBe(honest);
+    for (const markdown of [7, null, { a: 1 }, ['x']]) expect(textOf(receiveSnapshot(snapshot({ dashboards: { c1: { overview: overview(markdown) } } })))).toBe('');
+  });
+
+  it('shows only tabs that are tabs, with content a screen can read', () => {
+    const out = receiveSnapshot(snapshot({ dashboards: { c1: {
+      overview: { lastRefreshedAt: 'x', content: 'just a string' },
+      metrics: { lastRefreshedAt: 'x', content: null },
+      secret_tab: { lastRefreshedAt: 'x', content: { markdown: 'hidden' } },
+      team_org: { lastRefreshedAt: 'x', content: [{ id: 'n1', name: 'Ada' }] },
+      history: { lastRefreshedAt: 'x', content: { founderStory: 'ok', timeline: [], quotes: [] } },
+    } } }));
+    expect(Object.keys(out.dashboards.c1!).sort()).toEqual(['history', 'team_org']);
   });
 });

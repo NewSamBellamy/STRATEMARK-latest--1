@@ -17,8 +17,8 @@
  * Red-team findings 1, 2 and 4 against the hosted share viewer.
  */
 import {
-  companyFoundedSchema, enforceMetricProvenance, enforceOwnershipProvenance, ownershipSchema, usableCitations,
-  type Card, type Company, type CompanyFounded, type CompanyMetric, type Ownership, type ShareSnapshot, type ViceClaim,
+  DASHBOARD_TABS, companyFoundedSchema, enforceMetricProvenance, enforceOwnershipProvenance, ownershipSchema, usableCitations,
+  type Card, type Company, type CompanyFounded, type CompanyMetric, type DashboardTab, type Ownership, type ShareSnapshot, type ViceClaim,
 } from '@mi/contracts';
 
 /** Far above any real deck (an 18-company deck has about 18 companies, 20 cards and 300 figures), far below hostile. */
@@ -99,18 +99,69 @@ function receiveClaim(claim: ViceClaim): ViceClaim | null {
   return url ? { ...claim, sourceUrl: url } : null;
 }
 
-/** Each stored dashboard tab is shown as sent, except a live site is never embedded. */
+/**
+ * The most markdown a share may carry, per field and across the whole snapshot. Honest research prose is a few
+ * thousand characters (the longest overview in the real sample deck is 3,400), so a deck of eighteen companies is
+ * about a hundred thousand in all. Text past these is cut off (never reordered), which is also what keeps a small
+ * file from handing the markdown parser a hundred thousand characters of a pattern it is slow on; the page's own
+ * markdown renderer holds the same line again (lib/boundedMarkdown).
+ */
+export const MARKDOWN_LIMITS = { field: 20_000, total: 300_000 } as const;
+
+/** The fields of each tab the page shows as markdown. */
+const MARKDOWN_FIELDS: Partial<Record<DashboardTab, readonly string[]>> = {
+  overview: ['markdown'],
+  research: ['markdown'],
+  history: ['founderStory'],
+  mission_governance: ['mission', 'ethos', 'governanceStructure'],
+};
+
+/** What is left of the snapshot's markdown allowance. */
+interface TextBudget { left: number }
+
+/** A markdown field as a visitor may have it: text only, within its own limit, and only while the snapshot's allowance lasts. */
+function receiveMarkdown(value: unknown, budget: TextBudget): string {
+  if (typeof value !== 'string') return '';
+  const room = Math.max(0, Math.min(MARKDOWN_LIMITS.field, budget.left));
+  let kept = value.length > room ? value.slice(0, room) : value;
+  if (kept.length < value.length && /[\ud800-\udbff]$/.test(kept)) kept = kept.slice(0, -1); // never half a character
+  budget.left -= kept.length;
+  return kept;
+}
+
+function isTab(name: string): name is DashboardTab {
+  return (DASHBOARD_TABS as readonly string[]).includes(name);
+}
+
+type StoredTab = NonNullable<ShareSnapshot['dashboards'][string][DashboardTab]>;
+
+/** One stored tab as a visitor may see it, or null when it is not a tab a screen can read. */
+function receiveTab(tab: DashboardTab, entry: Record<string, unknown>, budget: TextBudget): StoredTab | null {
+  const content = entry.content;
+  // Every tab reads its content as a record (the team list may also arrive as a bare list); anything else is not a tab.
+  if (!isRecord(content) && !(tab === 'team_org' && Array.isArray(content))) return null;
+  let kept: unknown = content;
+  if (isRecord(content)) {
+    const next: Record<string, unknown> = { ...content };
+    for (const field of MARKDOWN_FIELDS[tab] ?? []) if (field in next) next[field] = receiveMarkdown(next[field], budget);
+    // A live site is never embedded.
+    if (tab === 'live_landing') next.embeddable = false;
+    kept = next;
+  }
+  return { ...(entry as { lastRefreshedAt: string }), content: kept };
+}
+
+/** Each stored dashboard tab as a visitor may see it: a real tab, with its prose bounded and no live site embedded. */
 function receiveDashboards(dashboards: ShareSnapshot['dashboards']): ShareSnapshot['dashboards'] {
   const out: ShareSnapshot['dashboards'] = {};
+  const budget: TextBudget = { left: MARKDOWN_LIMITS.total };
   for (const [companyId, tabs] of Object.entries(dashboards)) {
     if (!isRecord(tabs)) continue;
     const kept: ShareSnapshot['dashboards'][string] = {};
-    for (const [tab, entry] of Object.entries(tabs)) {
-      if (!isRecord(entry)) continue;
-      const content = (entry as { content?: unknown }).content;
-      kept[tab as keyof typeof kept] = tab === 'live_landing' && isRecord(content)
-        ? { ...(entry as { lastRefreshedAt: string }), content: { ...content, embeddable: false } }
-        : (entry as { content: unknown; lastRefreshedAt: string });
+    for (const [name, entry] of Object.entries(tabs)) {
+      if (!isTab(name) || !isRecord(entry)) continue;
+      const tab = receiveTab(name, entry, budget);
+      if (tab) kept[name] = tab;
     }
     out[companyId] = kept;
   }
