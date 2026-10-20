@@ -79,7 +79,11 @@ describe('a risk is backed only by sentences about that company, saying that thi
         { company: 'Acme Robotics', text: 'Acme Robotics settled a class action lawsuit over unpaid overtime in 2023.', sourceIndex: 0 },
       ], culture: [],
     };
-    const { vice } = await researchRosterSignals(fake(out, { citations: [{ title: 'bbc.com', url: 'https://www.bbc.com/a' }] }).llm, plan, 'd', [acme]);
+    const attributed = grounding([
+      [`${base}, the agency said.`, 'https://www.bbc.com/a'],
+      ['Acme Robotics settled a class action lawsuit over unpaid overtime in 2023, court records show.', 'https://www.bbc.com/a'],
+    ]);
+    const { vice } = await researchRosterSignals(fake(out, { citations: [{ title: 'bbc.com', url: 'https://www.bbc.com/a' }], grounding: attributed }).llm, plan, 'd', [acme]);
     expect(vice[0]!.viceClaims).toHaveLength(2);
   });
 });
@@ -128,13 +132,16 @@ describe('a culture note is cut at a real sentence end', () => {
   it('does not treat a decimal or "U.S." as the end of a sentence, so a long note keeps whole sentences', async () => {
     const note = 'Acme Robotics was never a certified B Corporation despite 2.5 years of marketing that said so. Acme Robotics runs an employee share scheme according to its careers page. '
       + 'It also lists values on its careers page and publishes a charter. '.repeat(6);
-    const g = grounding([['Acme Robotics runs an employee share scheme according to its careers page.', 'https://www.reuters.com/acme-culture']]);
+    const g = grounding([
+      ['Acme Robotics was never a certified B Corporation despite 2.5 years of marketing that said so.', 'https://www.reuters.com/acme-culture'],
+      ['Acme Robotics runs an employee share scheme according to its careers page.', 'https://www.reuters.com/acme-culture'],
+    ]);
     const { culture } = await researchRosterSignals(fake({ risks: [], culture: [{ company: 'Acme Robotics', note, sourceIndex: null }] }, { grounding: g }).llm, plan, 'd', [acme, company('n', 'Nova Shop')]);
     expect(culture).toHaveLength(1);
     const summary = culture[0]!.card.summary ?? "";
-    expect(summary.length).toBeLessThanOrEqual(320);
-    expect(summary.startsWith('Acme Robotics was never a certified B Corporation despite 2.5 years of marketing that said so. Acme Robotics runs an employee share scheme according to its careers page.')).toBe(true);
-    expect(summary.endsWith('charter.')).toBe(true);
+    // Cut at real sentence ends ("2.5 years" is not one), and only the sentences a source backs are kept: the repeated
+    // sentence that does not name the company has no backing of its own.
+    expect(summary).toBe('Acme Robotics was never a certified B Corporation despite 2.5 years of marketing that said so. Acme Robotics runs an employee share scheme according to its careers page.');
   });
 
   it('does not cut after "U.S." or "Inc." either', async () => {
@@ -160,7 +167,9 @@ describe('claimSupportCitations and sourceBacksClaim, scoped', () => {
     expect(sourceBacksClaim('https://a.example/x', 'Acme Robotics won an award for design', g, scope)).toBe(false);
     expect(sourceBacksClaim('https://unattached.example/y', 'Acme Robotics breach affecting customers', g, scope)).toBe(true);
     expect(sourceBacksClaim('https://unattached.example/y', 'Acme Robotics breach affecting customers', g, scope, true)).toBe(false);
-    expect(sourceBacksClaim('https://a.example/x', 'anything at all', undefined, scope, true)).toBe(true);
+    // With nothing the search attributed, an allegation (strict) has nothing to be traced to; a note (not strict) keeps the model's number.
+    expect(sourceBacksClaim('https://a.example/x', 'anything at all', undefined, scope, true)).toBe(false);
+    expect(sourceBacksClaim('https://a.example/x', 'anything at all', undefined, scope)).toBe(true);
   });
 });
 

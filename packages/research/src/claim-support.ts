@@ -39,8 +39,9 @@ export interface ClaimScope {
   reads?: RegExp;
 }
 
+// Letters and digits of any script count (a claim written in Cyrillic or Greek has words too); accents are removed.
 const wordsOf = (text: string, ignore?: ReadonlySet<string>): Set<string> => new Set(
-  text.toLowerCase().normalize('NFKD').replace(/[^a-z0-9%$.]+/g, ' ').split(/\s+/)
+  text.toLowerCase().normalize('NFKD').replace(/\p{M}+/gu, '').replace(/[^\p{L}\p{N}%$.]+/gu, ' ').split(/\s+/)
     .map((word) => word.replace(/^[.$]+|[.]+$/g, ''))
     .filter((word) => word.length >= 4 && !STOP_WORDS.has(word) && !ignore?.has(word)),
 );
@@ -50,10 +51,33 @@ const SUPPORT_WORDS_MIN = 5;
 const SHARED_WORDS_MIN = 3;
 const SHARE_OF_SUPPORT_MIN = 0.6;
 /** Of a one-sentence claim, the share its words must have in common with the support. */
-const SHARE_OF_CLAIM_MIN = 0.5;
+const SHARE_OF_CLAIM_MIN = 0.7;
 /** A year or a figure is shared by unrelated sentences; real words must carry the match too. */
 const REAL_WORDS_MIN = 2;
-const isReal = (word: string) => /[a-z]{3}/.test(word);
+/** A source the model named must share at least this many real words with a sentence it is attached to. */
+const NAMED_REAL_WORDS_MIN = 3;
+const isReal = (word: string) => /\p{L}{3}/u.test(word);
+
+/** Stem of an event word, so "fined", "fines" and "fining" are one event and "recall" and "recalled" are one. */
+function eventRoot(word: string): string {
+  const w = word.toLowerCase().replace(/\p{M}+/gu, '');
+  if (/^fin(?:e|es|ed|ing)$/.test(w)) return 'fine';
+  if (/^su(?:e|es|ed|ing)$/.test(w) || /^lawsuits?$/.test(w) || /^suits?$/.test(w)) return 'lawsuit';
+  return w.slice(0, 5);
+}
+
+/**
+ * Whether every kind of event a claim states (a fine, a recall, an arrest, a fraud) is stated by the supporting sentence
+ * too. A word match alone lets a true sentence about a fine back a claim that also says the chief executive was arrested:
+ * the claim's extra event has no support. Only for claims that name events (a risk); other claims are not checked here.
+ */
+function eventsCovered(claim: string, support: string, reads: RegExp): boolean {
+  const events = (text: string) => new Set([...text.matchAll(new RegExp(reads.source, 'giu'))].map((m) => eventRoot(m[0])));
+  const wanted = events(claim);
+  if (wanted.size === 0) return true;
+  const have = events(support);
+  return [...wanted].every((root) => have.has(root));
+}
 
 /** The sources the search attributed to the answer's sentences that this claim is built from; empty when none fits. */
 export function claimSupportCitations(claim: string, grounding: ProviderGrounding | undefined, max = 2, scope?: ClaimScope): Citation[] {
@@ -64,6 +88,7 @@ export function claimSupportCitations(claim: string, grounding: ProviderGroundin
   for (const support of grounding.supports) {
     if (scope?.about && !scope.about(support.text)) continue;
     if (scope?.reads && !scope.reads.test(support.text)) continue;
+    if (scope?.reads && !eventsCovered(claim, support.text, scope.reads)) continue;
     const words = wordsOf(support.text, scope?.ignore);
     if (words.size < SUPPORT_WORDS_MIN) continue;
     const sharedWords = [...words].filter((word) => claimWords.has(word));
@@ -80,18 +105,23 @@ export function claimSupportCitations(claim: string, grounding: ProviderGroundin
 
 /**
  * Whether a source the structuring step named really stands behind the claim. A source attached to some of the answer's
- * sentences backs the claim only if one of those sentences is about it (and shares at least two real words with it).
- * With no supports at all there is nothing to check against, so the model's number stands, as it always did; a source
- * that the search never attached to any sentence cannot be checked, which `strict` (a risk) does not accept.
+ * sentences backs the claim only if one of those sentences is about it, shares at least three real words with it, and (for
+ * a one-sentence claim, a risk) accounts for most of the claim and states every event the claim states.
+ * With no supports at all there is nothing to check against: the model's number stands for a claim that is not an
+ * allegation (as it always did), and does not stand for `strict` (a risk), which must be traced to a sentence the search
+ * itself attributed. The same for a source the search never attached to any sentence.
  */
 export function sourceBacksClaim(url: string, claim: string, grounding: ProviderGrounding | undefined, scope?: ClaimScope, strict = false): boolean {
-  if (!grounding || grounding.supports.length === 0) return true;
+  if (!grounding || grounding.supports.length === 0) return !strict;
   const holders = grounding.supports.filter((support) => support.sources.some((source) => source.url === url));
   if (holders.length === 0) return !strict;
   const claimWords = wordsOf(claim, scope?.ignore);
   return holders.some((support) => {
     if (scope?.about && !scope.about(support.text)) return false;
     if (scope?.reads && !scope.reads.test(support.text)) return false;
-    return [...wordsOf(support.text, scope?.ignore)].filter((word) => claimWords.has(word) && isReal(word)).length >= REAL_WORDS_MIN;
+    if (scope?.reads && !eventsCovered(claim, support.text, scope.reads)) return false;
+    const shared = [...wordsOf(support.text, scope?.ignore)].filter((word) => claimWords.has(word));
+    if (shared.filter(isReal).length < NAMED_REAL_WORDS_MIN) return false;
+    return !(scope?.oneSentence && shared.length / Math.max(1, claimWords.size) < SHARE_OF_CLAIM_MIN);
   });
 }

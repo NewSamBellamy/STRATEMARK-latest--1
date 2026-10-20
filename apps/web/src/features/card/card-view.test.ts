@@ -321,6 +321,35 @@ describe('collectible card evidence model', () => {
     expect(unsourced.sourceCount).toBe(0);
   });
 
+  it('a risk card draws only what a source reports: its stored summary and key points are not allegations the face may repeat', () => {
+    const claim = (id: string, claimText: string, sourceUrl: string) => ({
+      id, cardId: card.id, claimText, sourceTitle: 'Source', sourceUrl, capturedAt: '2026-10-01T00:00:00.000Z',
+    });
+    const risk = { ...card, cardType: 'vice' as const, title: null, citations: [],
+      summary: 'The company defrauded its customers of $40 million.', keyPoints: ['A court found it guilty of fraud in 2024.'] };
+    const drawn = (result: ReturnType<typeof buildCardView>) => [result.description, result.frontDescription, result.frontFinding].filter(Boolean).join(' | ');
+    // No sourced claim at all: nothing on the face.
+    const none = buildCardView({ card: risk, company, metrics: [], viceClaims: [claim('v1', 'Another unsourced allegation.', '')] });
+    expect(drawn(none)).toBe('');
+    // One sourced claim: that claim, and not the unsourced summary or points after it.
+    const one = buildCardView({ card: risk, company, metrics: [], viceClaims: [claim('v2', 'A regulator opened a documented inquiry.', 'https://regulator.example.gov/filing')] });
+    expect(drawn(one)).toContain('A regulator opened a documented inquiry.');
+    expect(drawn(one)).not.toMatch(/defrauded|guilty|unsourced/i);
+  });
+
+  it('a name or title with a huge run of whitespace or brackets does not make the face quadratic', () => {
+    const time = (run: () => void) => { const start = performance.now(); run(); return performance.now() - start; };
+    const spaced = `a${' '.repeat(200_000)}b`;
+    const brackets = '( '.repeat(100_000);
+    expect(time(() => companyFrontName(spaced))).toBeLessThan(250);
+    expect(time(() => companyFrontName(`${'('.repeat(100_000)}x`))).toBeLessThan(250);
+    const awkward = { ...card, cardType: 'insight' as const, companyId: null, title: brackets, summary: 'Ordinary summary.', keyPoints: [] };
+    expect(time(() => buildCardView({ card: awkward, company: null, metrics: [], viceClaims: [] }))).toBeLessThan(250);
+    const named = buildCardView({ card, company: { ...company, name: spaced }, metrics: [], viceClaims: [] });
+    expect(named.frontTitle.length).toBeLessThanOrEqual(300);
+    expect(companyFrontName('Skydio,   Inc.')).toBe('Skydio');
+  });
+
   it('keeps parenthetical detail in the report while using a complete short card headline', () => {
     const title = 'Bifurcation of Token Economics (The Sub-$1 Commodity Floor vs. High-End Inflation)';
     const result = buildCardView({
