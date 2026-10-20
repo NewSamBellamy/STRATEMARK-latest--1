@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sample from '../../web/src/sample/frontier-snapshot.json';
-import { createFileStore, parseResearchExport, parseResearchImport } from './storage';
+import { createFileStore, keepBeforeImport, parseResearchExport, parseResearchImport } from './storage';
 
 const directories: string[] = [];
 const makeStore = () => {
@@ -51,6 +51,29 @@ describe('desktop research persistence', () => {
   });
   it('rejects malformed optional collections', () => {
     expect(() => parseResearchExport(JSON.stringify({ ...sample, reports: 'invalid' }))).toThrow(/reports/);
+  });
+});
+
+describe('the research an import replaces', () => {
+  it('is kept as an export file that no later save overwrites, and can be imported again', () => {
+    const { file, store } = makeStore();
+    const mine = parseResearchExport(JSON.stringify({ ...sample, markets: sample.markets.map((m) => ({ ...m, name: 'My own research' })) }));
+    store.write(mine);
+    expect(keepBeforeImport(store, file)).toBe(true);
+    store.write(parseResearchImport(JSON.stringify(sample)));
+    // Several saves in the imported workspace: the last-good backup is by now the import, the kept file is not.
+    store.write(store.read()!);
+    store.write(store.read()!);
+    expect(JSON.parse(readFileSync(`${file}.bak`, 'utf8')).markets[0].name).toBe(sample.markets[0]!.name);
+    const kept = readFileSync(path.join(path.dirname(file), 'repo.before-import.json'), 'utf8');
+    expect(JSON.parse(kept).markets[0].name).toBe('My own research');
+    expect(parseResearchImport(kept).markets[0]!.name).toBe('My own research');
+  });
+  it('is not written for a workspace with no decks, so it never replaces a kept copy with nothing', () => {
+    const { file, store } = makeStore();
+    expect(keepBeforeImport(store, file)).toBe(false);
+    store.write({ ...parseResearchExport(JSON.stringify(sample)), markets: [], decks: [], companies: [], cards: [], metrics: [], viceClaims: [] });
+    expect(keepBeforeImport(store, file)).toBe(false);
   });
 });
 

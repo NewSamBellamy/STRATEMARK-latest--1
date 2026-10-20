@@ -44,6 +44,25 @@ export function parseResearchImport(json: string): RepoSnapshot {
   return checkedExport(prepareImportedSnapshot(JSON.parse(json) as RepoSnapshot).snapshot);
 }
 
+/**
+ * Keeps the research an import is about to replace as a plain export file,
+ * `repo.before-import.json`, beside the research file. The last-good backup is
+ * only the revision before the latest save, so after one save in the imported
+ * workspace it would be the import itself. This file is written by an import and
+ * by nothing else, and the person can import it again to go back.
+ * Nothing is written for a workspace with no decks.
+ */
+export function keepBeforeImport(store: ResearchStore, file: string): boolean {
+  const current = store.read();
+  if (!current || current.markets.length === 0) return false;
+  const target = path.join(path.dirname(file), 'repo.before-import.json');
+  const temp = `${target}.tmp`;
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(temp, JSON.stringify(current), { mode: 0o600, flush: true });
+  renameSync(temp, target);
+  return true;
+}
+
 /** Atomic replacement with a last-good backup. Persistence failures are visible. */
 export function createFileStore(file: string): ResearchStore {
   const readFile = (target: string) => parseResearchExport(readFileSync(target, 'utf8'));

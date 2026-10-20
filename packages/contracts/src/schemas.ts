@@ -251,7 +251,7 @@ export const quotedSupportSchema = z.object({
   quote: z.string().min(1).max(600),
   asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   /** The figure as the source states it, before any USD conversion. */
-  value: z.number(),
+  value: z.number().finite(),
   unit: z.string().max(16),
 });
 export type QuotedSupport = z.infer<typeof quotedSupportSchema>;
@@ -260,7 +260,9 @@ export const companyMetricSchema = z.object({
   id: z.string(),
   companyId: z.string(),
   metricType: metricTypeSchema,
-  value: z.number().nullable(), // null iff confidence === 'unknown'
+  // null iff confidence === 'unknown'. Finite: JSON 1e999 reads as Infinity, which JSON.stringify
+  // saves as null, so a "verified" figure would come back as a null with a confidence.
+  value: z.number().finite().nullable(),
   confidence: confidenceSchema,
   source: z.string().nullable(), // primary citation URL (back-compat; mirrors citations[0])
   /**
@@ -306,7 +308,7 @@ export const companyMetricSchema = z.object({
         metricType: metricTypeSchema,
         observations: z.array(
           z.object({
-            value: z.number().nullable(),
+            value: z.number().finite().nullable(),
             confidence: confidenceSchema,
             source: z.string().nullable(),
             capturedAt: isoTimestamp,
