@@ -18,14 +18,16 @@
  * A market with nothing documented gets no card, and says so; it is never padded.
  */
 import { z } from 'zod';
-import { isJunkSource, type CardWithCompany, type Citation, type Company } from '@mi/contracts';
-import { claimSupportCitations, sourceBacksClaim, type ClaimScope } from './claim-support';
-import { aliasSpans, canon, companyAliases } from './company-aliases';
-import { registrableDomain } from './registries/shared';
+import type { CardWithCompany, Citation, Company } from '@mi/contracts';
+import { claimSupportCitations, resolveClaimCitations, sourceBacksClaim } from './claim-support';
+import { companyAliases } from './company-aliases';
 import { companyNameKey } from './market-quote';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
+import {
+  MAX_CLAIMS_PER_COMPANY, SENTENCE_MIN, aboutCompany, acceptedRiskClaim, claimKey, noteSentences, scopeFor, sourceIsFit,
+} from './risk-claims';
 import { namesRosterRival } from './reported-metrics';
-import { createCultureCard, createViceCard, extractSourcedViceClaims, resolveClaimCitations, type RawViceClaimInput } from './signal-agents';
+import { createCultureCard, createViceCard, extractSourcedViceClaims, type RawViceClaimInput } from './signal-agents';
 import type { LlmClient, MarketPlan } from './types';
 import { throwIfAborted } from './util';
 
@@ -42,6 +44,8 @@ const rosterSignalsOutSchema = z.object({
   })).default([]),
 });
 
+export { aboutCompany };
+
 export interface RosterSignalsOptions {
   signal?: AbortSignal;
   /** Which kinds are wanted: a deck that already has enough of one does not pay to search for it. */
@@ -56,17 +60,7 @@ export interface RosterSignalsOptions {
 
 /** The most companies one question names; a longer list dilutes the search. */
 const ROSTER_LIMIT = 20;
-const MAX_CLAIMS_PER_COMPANY = 3;
-const SENTENCE_MIN = 30;
-const SENTENCE_MAX = 420;
 const NOTE_MAX = 320;
-/** A claim is about its company when the company is named within this many characters of its start. */
-const SUBJECT_WITHIN = 30;
-/**
- * What a sentence that backs a RISK reads like. A support about an award or a launch shares a company's name and its
- * product nouns with a sentence about its recall, and must not back it.
- */
-const CONTROVERSY = /\b(?:fine[ds]?|fining|lawsuits?|sued|suing|settle[ds]?|settlements?|recall(?:ed|s)?|breach(?:ed|es)?|hack(?:ed)?|leak(?:ed)?|probe[ds]?|inquir\w*|investigat\w*|penalt\w*|violat\w*|class[- ]action|complaints?|alleg\w*|ruled|convict\w*|indict\w*|arrest\w*|jail\w*|prison\w*|imprison\w*|sentenc\w*|charged (?:with|over)|bankrupt\w*|insolven\w*|chapter\s?11|layoffs?|laid off|unsafe|fraud\w*|misleading|deceptive|injunction|sanction\w*|attorneys? general|fatal\w*|injur\w*|fire hazard|discriminat\w*|harass\w*|whistleblow\w*|scandal|controvers\w*|criticis\w*|criticiz\w*|banned|subpoena\w*|cease[- ]and[- ]desist|shut down|wrongful\w*|negligen\w*)\b/i;
 
 export function rosterSignalsPrompt(plan: MarketPlan, roster: readonly Pick<Company, 'name'>[], want: { vice: boolean; culture: boolean }): string {
   const where = plan.geography ? ` in ${plan.geography}` : '';
@@ -86,21 +80,6 @@ export function rosterSignalsPrompt(plan: MarketPlan, roster: readonly Pick<Comp
   }
   lines.push('Ground every point in what you actually find. Never speculate, and never pad the list: if a company has nothing credible, leave it out.');
   return lines.join('\n');
-}
-
-/** A piece that ends in one of these did not end a sentence: initials ("U.S."), titles, company forms. */
-const ABBREVIATION_END = /(?:\b(?:[A-Z]\.){1,3}|\b(?:v|vs|Inc|Corp|Co|Ltd|LLC|PLC|Mr|Mrs|Ms|Dr|St|No|Jr|Sr|Mt|Fig|e\.g|i\.e)\.)$/;
-
-/** Sentences of a note: a full stop followed by a capital opens the next one, except after an abbreviation ("U.S.", "Inc."). */
-function noteSentences(text: string): string[] {
-  const pieces = text.split(/(?<=[.!?])\s+(?=[A-Z“"‘'])/u).map((s) => s.trim()).filter(Boolean);
-  const out: string[] = [];
-  for (const piece of pieces) {
-    const before = out[out.length - 1];
-    if (before !== undefined && ABBREVIATION_END.test(before)) out[out.length - 1] = `${before} ${piece}`;
-    else out.push(piece);
-  }
-  return out;
 }
 
 /**
@@ -134,107 +113,6 @@ export function companyNamed(name: string, roster: readonly Company[]): Company 
   const aliased = roster.filter((company) => companyAliases(company.name, company.websiteUrl).some((alias) => companyNameKey(alias) === asked));
   return aliased.length === 1 ? aliased[0]! : null;
 }
-
-/** A company's aliases, in the apostrophe-free, ampersand-free form the signal cards compare. */
-const aliasesOf = (company: Company): string[] => companyAliases(canon(company.name), company.websiteUrl);
-
-/** Words that may follow a company's name without making it a different name ("Acme Robotics Inc."). */
-const NAME_TAIL = new Set(['inc', 'corp', 'corporation', 'co', 'ltd', 'limited', 'llc', 'plc', 'gmbh', 'ag', 'sa', 'nv', 'bv', 'pbc', 'company', 'group', 'holdings']);
-const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/**
- * Whether the company's first mention in the text is the front of a longer proper noun that is not its own name: "Check
- * Point Software" for the company Check, "Square Enix" for Square. The capitalised word right after the mention must be a
- * legal form or part of the company's own name, or it is another entity that merely starts with this one.
- */
-function followedByOtherName(text: string, company: Company): boolean {
-  const aliases = aliasesOf(company);
-  const own = new Set(aliases.flatMap((alias) => alias.split(' ')));
-  const written = canon(text);
-  let first: { start: number; end: number } | null = null;
-  for (const alias of aliases) {
-    const words = alias.split(' ').filter(Boolean);
-    if (words.length === 0) continue;
-    const found = new RegExp(`(?<![\\p{L}\\p{N}])${words.map(escapeRegExp).join('[^\\p{L}\\p{N}]+')}(?![\\p{L}\\p{N}])`, 'iu').exec(written);
-    if (!found) continue;
-    const end = found.index + found[0].length;
-    if (!first || found.index < first.start || (found.index === first.start && end > first.end)) first = { start: found.index, end };
-  }
-  if (!first) return false;
-  const next = /^[ \t]+(\p{Lu}[\p{L}\p{N}-]*)/u.exec(written.slice(first.end));
-  if (!next) return false;
-  const word = next[1]!.toLowerCase();
-  return !(NAME_TAIL.has(word) || own.has(word));
-}
-
-/**
- * Whether a sentence is about this company: it names the company (by any alias, any case) near its start, as itself and
- * not as the front of a longer name, and names no other company of the deck, unless that other name is only part of a
- * longer mention of this one ("Gusto" inside "Gusto Pro" when the company is Gusto Pro).
- */
-export function aboutCompany(rawText: string, company: Company, roster: readonly Company[], early = true): boolean {
-  // Names and text are compared with apostrophes dropped and & read as "and": Wendys is Wendy's, Procter and Gamble is Procter & Gamble.
-  const text = canon(rawText);
-  const own = aliasSpans(text, aliasesOf(company));
-  if (own.length === 0) return false;
-  if (early && Math.min(...own.map(([start]) => start)) > SUBJECT_WITHIN) return false;
-  if (followedByOtherName(text, company)) return false;
-  for (const other of roster) {
-    if (other.id === company.id) continue;
-    for (const [start, end] of aliasSpans(text, aliasesOf(other))) {
-      if (!own.some(([ownStart, ownEnd]) => ownStart <= start && end <= ownEnd && ownEnd - ownStart > end - start)) return false;
-    }
-  }
-  return true;
-}
-
-/** What a claim about this company may be backed by: sentences about it, with its name not counted as a shared word. */
-function scopeFor(company: Company, roster: readonly Company[], oneSentence: boolean, risk = false): ClaimScope {
-  const ignore = new Set(aliasesOf(company).flatMap((alias) => alias.split(' ')));
-  return { about: (text) => aboutCompany(text, company, roster, false), ignore, oneSentence, ...(risk ? { reads: CONTROVERSY } : {}) };
-}
-
-/** The registrable domain a source sits on: of its address, or, for a redirect, of the publisher name it is titled with. */
-function sourceDomain(source: { title: string; url: string }): string | null {
-  const direct = registrableDomain(source.url);
-  if (direct && !/(^|\.)google\.com$/.test(direct)) return direct;
-  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(source.title.trim()) ? registrableDomain(`https://${source.title.trim()}`) : null;
-}
-
-/**
- * Whether a source can stand behind a claim about this company. A company's own website is not evidence of a controversy about
- * it (and, for either kind of claim, a rival's own website is not evidence about this company).
- */
-function sourceIsFit(source: { title: string; url: string }, company: Company, roster: readonly Company[], risk: boolean): boolean {
-  if (isJunkSource(source.url, source.title) || !publicWebAddress(source.url)) return false;
-  const domain = sourceDomain(source);
-  if (!domain) return true;
-  if (risk && (registrableDomain(company.websiteUrl) === domain || looksLikeOwnSite(domain, company))) return false;
-  return !roster.some((other) => other.id !== company.id && registrableDomain(other.websiteUrl) === domain);
-}
-
-/** A page on the public web: a real host, not localhost, an address, or a name only a private network resolves. */
-function publicWebAddress(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return host.includes('.') && !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) && !host.startsWith('[')
-      && !/(?:^|\.)(?:localhost|local|internal|lan|home|corp|test|invalid)$/.test(host);
-  } catch {
-    return false;
-  }
-}
-
-/** A domain named after the company is its own site, even when no website is recorded for it. */
-function looksLikeOwnSite(domain: string, company: Company): boolean {
-  const label = (domain.split('.')[0] ?? '').replace(/-/g, '');
-  return aliasesOf(company).some((alias) => {
-    const compact = alias.replace(/\s+/g, '');
-    return compact.length >= 5 && label.includes(compact);
-  });
-}
-
-/** A claim's identity for de-duplication: case, punctuation and a final full stop do not make a different claim. */
-const claimKey = (text: string): string => text.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
 
 export async function researchRosterSignals(
   client: LlmClient,
@@ -278,28 +156,18 @@ export async function researchRosterSignals(
     const byCompany = new Map<string, { company: Company; raw: RawViceClaimInput[] }>();
     for (const risk of out.risks) {
       const company = companyNamed(risk.company, roster);
-      const text = risk.text.replace(/\s+/g, ' ').trim();
       if (!company || options.haveVice?.has(company.id)) continue;
-      if (text.length < SENTENCE_MIN || text.length > SENTENCE_MAX) continue;
-      // One sentence, one claim: a second sentence or a clause after a semicolon is a second claim that no source was
-      // looked up for, and would ride on the first one's source.
-      if (noteSentences(text).length > 1 || text.includes(';')) continue;
-      if (!aboutCompany(text, company, roster)) continue;
-      if (namesRosterRival(text, company.name, names)) continue;
-      // The source the structuring step named, if the sentences it is attached to are about this company and say this; else the
-      // one the search attached to the sentence itself. A risk is never filed on a source that cannot be checked against it.
-      const scope = scopeFor(company, roster, true, true);
-      const named = resolveClaimCitations(risk.sourceIndex, null, citations)
-        .filter((c) => sourceIsFit(c, company, roster, true) && sourceBacksClaim(c.url, text, grounded.grounding, scope, true))[0];
-      const source = named ?? claimSupportCitations(text, grounded.grounding, 3, scope).filter((c) => sourceIsFit(c, company, roster, true))[0];
-      if (!source) continue;
+      // The same rule the company's own search applies (risk-claims): one sentence about this company, one fit source the
+      // search itself attributed to a sentence that reads the event. A risk is never filed on a source that cannot be checked.
+      const accepted = acceptedRiskClaim(risk, company, roster, { citations, grounding: grounded.grounding });
+      if (!accepted) continue;
       const entry = byCompany.get(company.id) ?? { company, raw: [] };
-      if (entry.raw.length < MAX_CLAIMS_PER_COMPANY && !entry.raw.some((r) => claimKey(r.text) === claimKey(text))) entry.raw.push({ text, sourceUrl: source.url, sourceTitle: source.title });
+      if (entry.raw.length < MAX_CLAIMS_PER_COMPANY && !entry.raw.some((r) => claimKey(r.text) === claimKey(accepted.text))) entry.raw.push(accepted);
       byCompany.set(company.id, entry);
     }
     for (const { company, raw } of byCompany.values()) {
       if (vice.length >= (options.maxVice ?? 8)) break;
-      const claims = extractSourcedViceClaims(raw, citations, company.id);
+      const claims = extractSourcedViceClaims(raw, company.id);
       if (claims.length > 0) vice.push(createViceCard(company, claims, deckId));
     }
   }
