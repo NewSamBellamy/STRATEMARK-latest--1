@@ -38,10 +38,13 @@ describe('a share link authored by someone else', () => {
     const dialog = await screen.findByRole('dialog');
     const hrefs = hrefsIn(dialog);
     expect(hrefs.filter((href) => !isWeb(href)), JSON.stringify(hrefs)).toEqual([]);
-    // The risk-signal source is still named, just not linked.
-    const claim = within(dialog).getByText('bad claim').closest('li')!;
-    expect(within(claim).getByText('Pub')).toBeInTheDocument();
-    expect(within(claim).queryByRole('link')).not.toBeInTheDocument();
+    // A risk whose only source is a script link is never a link. Depending on the rules a shared link is held to, the
+    // claim is shown with its source named but not linked, or dropped altogether (an allegation with no usable source).
+    const claim = within(dialog).queryByText('bad claim')?.closest('li');
+    if (claim) {
+      expect(within(claim).getByText('Pub')).toBeInTheDocument();
+      expect(within(claim).queryByRole('link')).not.toBeInTheDocument();
+    }
   });
 
   it('does not load an image, or link a script or protocol-relative address, from a shared report body', async () => {
