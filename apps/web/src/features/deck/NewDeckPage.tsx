@@ -31,6 +31,7 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice, type EngineChoice } from '@/lib/settings/engine';
 import { cn } from '@/lib/cn';
 import logoMark from '@/assets/logo-mark.svg';
+import { LivingMark } from '@/components/brand/LivingMark';
 import wordmark from '@/assets/wordmark.svg';
 import { MicButton } from '@/components/ui/MicButton';
 import { NotificationToast } from '@/components/ui/NotificationToast';
@@ -653,7 +654,7 @@ export default function NewDeckPage() {
           <div className="w-full max-w-2xl pb-32">
             <div className="mb-6">
               <div className="flex items-center gap-2.5">
-                <img src={logoMark} alt="Stratemark" className="h-8 w-8" />
+                <LivingMark label="Stratemark" className="h-8 w-8" />
                 <span className="font-display text-lg font-bold tracking-tight text-content">
                   Stratemark
                 </span>

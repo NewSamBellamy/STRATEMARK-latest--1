@@ -1,0 +1,64 @@
+/*
+ * The mark's two shapes are each the other turned half a circle about (37.3, 43.5) in the mark's own coordinates (a view-box origin
+ * is measured from the coordinate origin, not from the box's corner). A whole or half turn of both therefore ends exactly where they
+ * began, so every move below finishes in the resting picture and the component simply stops playing it. Transform only.
+ */
+.living-mark {
+  overflow: visible;
+}
+.living-mark__fish {
+  transform-box: view-box;
+  transform-origin: 37.3px 43.5px;
+}
+
+/* Half a circle: the two swap places. */
+.living-mark[data-move='turn'] .living-mark__fish {
+  animation: living-mark-turn 1.9s cubic-bezier(0.65, 0, 0.25, 1) both;
+}
+@keyframes living-mark-turn {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(90deg) scale(0.88); }
+  100% { transform: rotate(180deg) scale(1); }
+}
+
+/* A whole circle, one fish a beat behind the other, on a tighter ring while they swim. */
+.living-mark[data-move='swim'] .living-mark__fish {
+  animation: living-mark-swim 2.8s cubic-bezier(0.45, 0, 0.25, 1) both;
+}
+.living-mark[data-move='swim'] .living-mark__fish--b {
+  animation-delay: 0.14s;
+}
+@keyframes living-mark-swim {
+  0% { transform: rotate(0deg) scale(1); }
+  30% { transform: rotate(120deg) scale(0.82); }
+  70% { transform: rotate(250deg) scale(0.82); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+/* A sway: each shape leans one way and the other, in opposite time, and settles. */
+.living-mark[data-move='wag'] .living-mark__fish--a {
+  animation: living-mark-wag-a 1.7s ease-in-out both;
+}
+.living-mark[data-move='wag'] .living-mark__fish--b {
+  animation: living-mark-wag-b 1.7s ease-in-out both;
+}
+@keyframes living-mark-wag-a {
+  0% { transform: rotate(0deg); }
+  25% { transform: rotate(-9deg); }
+  50% { transform: rotate(7deg); }
+  75% { transform: rotate(-4deg); }
+  100% { transform: rotate(0deg); }
+}
+@keyframes living-mark-wag-b {
+  0% { transform: rotate(0deg); }
+  25% { transform: rotate(9deg); }
+  50% { transform: rotate(-7deg); }
+  75% { transform: rotate(4deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .living-mark[data-move] .living-mark__fish {
+    animation: none;
+  }
+}
