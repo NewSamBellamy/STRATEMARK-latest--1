@@ -7,6 +7,7 @@ import { isEntityCardType, publisherOf, type CardWithCompany, type MetricType } 
 import { safeHttpUrl, sourceHref } from '@/lib/sourceHref';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 import { exportCompanyOf, figureRows, type MetricRow } from '@/features/export/exportModel';
+import { withoutProseFigures } from '@/features/export/proseFigures';
 
 const INK = '18181B';
 const MUTED = '6B6B72';
@@ -40,6 +41,21 @@ function metric(f: Figures, type: MetricType): string {
 function valuation(f: Figures): string {
   const v = metric(f, 'valuation');
   return v !== 'Unknown' ? v : metric(f, 'market_cap');
+}
+
+/** What the card face calls the figure a row holds (a "Paying customers" row is not printed as "Users"). */
+const labelOf = (f: Figures, type: MetricType, fallback: string): string => xmlSafe(f.get(type)?.label ?? fallback);
+
+/** The valuation line names the figure it shows: "Valuation" or "Market cap", and the pair only when neither is known. */
+function valuationLabel(f: Figures): string {
+  if (!f.get('valuation')?.unknown && f.get('valuation')) return labelOf(f, 'valuation', 'Valuation');
+  if (f.get('market_cap') && !f.get('market_cap')!.unknown) return labelOf(f, 'market_cap', 'Market cap');
+  return 'Valuation/Cap';
+}
+
+/** A brand colour only when it is a six-digit hex string; stored data is not trusted to be one. */
+function brandColor(primary: unknown): string {
+  return typeof primary === 'string' && /^#?[0-9a-f]{6}$/i.test(primary.trim()) ? primary.trim().replace('#', '') : ACCENT;
 }
 
 export async function exportDeckPptx(args: {
@@ -107,23 +123,25 @@ export async function exportDeckPptx(args: {
   const top = companies.slice(0, 16);
   for (const c of top) {
     const s = pptx.addSlide();
-    const brand = (c.company!.brandTheme?.primary ?? '#F15A24').replace('#', '');
+    const brand = brandColor(c.company!.brandTheme?.primary);
     s.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.25, fill: { color: brand } });
     s.addText(xmlSafe(c.company!.name), { x: 0.5, y: 0.5, w: 9, h: 0.6, fontSize: 26, bold: true, color: INK });
     s.addText(
       xmlSafe(c.company!.hqLocation?.trim() || 'Location unknown'),
       { x: 0.5, y: 1.1, w: 9, h: 0.4, fontSize: 12, color: MUTED },
     );
-    if (c.company!.oneLiner && c.company!.oneLiner !== UNSUPPORTED_COMPANY_SUMMARY) {
-      s.addText(xmlSafe(c.company!.oneLiner), { x: 0.5, y: 1.6, w: 9, h: 0.8, fontSize: 13, color: INK });
+    // Stored prose carries no figure gate: a sentence stating a money or headcount figure is not printed.
+    const oneLiner = c.company!.oneLiner === UNSUPPORTED_COMPANY_SUMMARY ? null : withoutProseFigures(c.company!.oneLiner);
+    if (oneLiner) {
+      s.addText(xmlSafe(oneLiner), { x: 0.5, y: 1.6, w: 9, h: 0.8, fontSize: 13, color: INK });
     }
     const figures = figuresOf(c);
     const facts = [
-      `Market share: ${metric(figures, 'market_share')}`,
-      `ARR: ${metric(figures, 'arr')}`,
-      `Valuation/Cap: ${valuation(figures)}`,
-      `Team: ${metric(figures, 'employees')}`,
-      `Users: ${metric(figures, 'users')}`,
+      `${labelOf(figures, 'market_share', 'Market share')}: ${metric(figures, 'market_share')}`,
+      `${labelOf(figures, 'arr', 'ARR')}: ${metric(figures, 'arr')}`,
+      `${valuationLabel(figures)}: ${valuation(figures)}`,
+      `${labelOf(figures, 'employees', 'Team')}: ${metric(figures, 'employees')}`,
+      `${labelOf(figures, 'users', 'Users')}: ${metric(figures, 'users')}`,
     ];
     s.addText(facts.map((f) => ({ text: f, options: { bullet: true, fontSize: 13, color: INK } })), {
       x: 0.5, y: 2.6, w: 5.5, h: 2.4, valign: 'top',

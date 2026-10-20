@@ -15,8 +15,8 @@
  *  - nothing is imputed, zero-filled or rounded up.
  */
 import {
-  METRIC_TYPE_LABELS,
   TIER_LABELS,
+  isSignalCardType,
   publisherOf,
   usableCitations,
   type CardWithCompany,
@@ -28,8 +28,10 @@ import {
   type ThreadMessage,
 } from '@mi/contracts';
 import {
-  ESTIMATE_UNCONFIRMED_NOTE, FIGURE_GATE_NOTES, buildMetricViews, estimateHolds, type MetricView,
+  ESTIMATE_UNCONFIRMED_NOTE, FIGURE_GATE_NOTES, SLOT_LEVEL_LABELS, buildMetricViews, defaultFaceLabel, estimateHolds, faceLabel,
+  type MetricView,
 } from '@/features/card/card-view';
+import { withoutProseFigures } from './proseFigures';
 import { isDirectSource, sourceHref } from '@/lib/sourceHref';
 import { splitFollowUps } from '@/features/deepdive/followUps';
 
@@ -77,9 +79,19 @@ export function metricAsOf(m: CompanyMetric): string | null {
   return m.passageSupport?.asOf || m.reportedSupport?.asOf || null;
 }
 
-function unknownRow(type: MetricType, capturedAt: string | null, note: string | null): MetricRow {
+/**
+ * What an export row is called: what the card face calls this figure ("Paying customers", "GitHub stars",
+ * "Stockists"), and never less exactly. A face SLOT that can hold several kinds of figure ("Revenue / ARR") names
+ * none of them, so a row that is exactly one kind says so with its type's own name.
+ */
+function rowLabel(type: MetricType, metric?: CompanyMetric): string {
+  const named = metric ? faceLabel(metric) : null;
+  return named && !SLOT_LEVEL_LABELS.includes(named) ? named : defaultFaceLabel(type);
+}
+
+function unknownRow(type: MetricType, label: string, capturedAt: string | null, note: string | null): MetricRow {
   return {
-    type, label: METRIC_TYPE_LABELS[type] ?? type, valueText: 'Unknown', value: null, confidence: 'unknown', unknown: true,
+    type, label, valueText: 'Unknown', value: null, confidence: 'unknown', unknown: true,
     asOf: null, capturedAt, sources: [], note,
   };
 }
@@ -99,7 +111,8 @@ function rowFromView(view: MetricView, co: FigureSource, recorded: boolean): Met
   const m = view.metric;
   const type = m.metricType;
   const capturedAt = m.capturedAt ?? null;
-  const withheld = (note: string | null) => unknownRow(type, capturedAt, recorded ? note : null);
+  const label = rowLabel(type, m);
+  const withheld = (note: string | null) => unknownRow(type, label, capturedAt, recorded ? note : null);
   if (m.value == null || !Number.isFinite(m.value) || m.confidence === 'unknown') {
     return withheld(view.note && FIGURE_GATE_NOTES.includes(view.note) ? view.note : WITHHELD_NOTE);
   }
@@ -111,7 +124,7 @@ function rowFromView(view: MetricView, co: FigureSource, recorded: boolean): Met
   }
   return {
     type,
-    label: METRIC_TYPE_LABELS[type] ?? type,
+    label,
     valueText: view.display,
     value: m.value,
     confidence: m.confidence,
@@ -147,7 +160,7 @@ export function figureRows(co: FigureSource): Map<MetricType, MetricRow> {
 export function metricRowsFor(company: FigureSource): MetricRow[] {
   const byType = figureRows(company);
   const rows: MetricRow[] = [];
-  for (const t of CORE) rows.push(byType.get(t) ?? unknownRow(t, null, null));
+  for (const t of CORE) rows.push(byType.get(t) ?? unknownRow(t, defaultFaceLabel(t), null, null));
   for (const t of OPTIONAL) {
     const row = byType.get(t);
     if (row && !row.unknown) rows.push(row);
@@ -176,7 +189,8 @@ export function companiesFromCards(cards: readonly CardWithCompany[]): ExportCom
   const seen = new Set<string>();
   const out: ExportCompany[] = [];
   const entities = cards
-    .filter((c) => c.company && c.card.cardType !== 'culture' && c.card.cardType !== 'vice' && c.card.cardType !== 'insight')
+    // A signal card (culture, risk, insight, barrier) annotates a company; it is never one, and adds none.
+    .filter((c) => c.company && !isSignalCardType(c.card.cardType))
     .sort((a, b) => a.company!.name.localeCompare(b.company!.name));
   for (const c of entities) {
     const co = c.company!;
@@ -244,7 +258,9 @@ export function buildReportModel(args: {
       else figureCount += 1;
       return { ...r, footnotes: fns };
     });
-    return { ...co, rows, footnotes, unknownCount: rows.filter((r) => r.unknown).length };
+    // The one-liner is stored prose with no figure gate: a sentence stating a figure is not printed beside rows that
+    // may say Unknown (see proseFigures.ts).
+    return { ...co, oneLiner: withoutProseFigures(co.oneLiner), rows, footnotes, unknownCount: rows.filter((r) => r.unknown).length };
   });
   return {
     title: args.title,

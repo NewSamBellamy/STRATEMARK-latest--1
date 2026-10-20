@@ -274,6 +274,75 @@ describe('export matches the card face', () => {
   });
 });
 
+// -- Labels, prose and signal cards ---------------------------------------------------------------------------------
+
+const proof = (definition: NonNullable<CompanyMetric['passageSupport']>['definition'], basis: CompanyMetric['metricType'], quote = 'q') => ({
+  sourceUrl: 'https://reuters.com/acme', quote, asOf: '2025-03-01', basis, unit: 'count' as const, definition,
+});
+
+describe('export labels are the card face\'s labels', () => {
+  it.each([
+    ['users', 12_000, { passageSupport: proof('paying_customers', 'users') }, 'Paying customers'],
+    ['users', 12_000, { passageSupport: proof('monthly_active_users', 'users') }, 'Monthly active users'],
+    ['users', 12_000, { methodNote: 'GitHub stars on the main repository' }, 'GitHub stars'],
+    ['users', 12_000, { methodNote: 'App installs and downloads' }, 'Installs / downloads'],
+    ['distribution', 600, { methodNote: 'Sold through 600 stockists' }, 'Stockists'],
+    ['distribution', 40, { methodNote: 'Available in 40 countries' }, 'Countries'],
+    ['arr', 9_000_000, { passageSupport: proof('annual_revenue', 'arr') }, 'Annual revenue'],
+  ] as const)('a %s figure of %d is labelled by what its source measures', (type, value, patch, label) => {
+    const x = both([verifiedRow({ metricType: type, value, ...patch })]);
+    // What the card face prints for this figure...
+    expect(x.face.faceMetrics.find((s) => s.metric?.metricType === type)!.label).toBe(label);
+    // ...is what every export prints.
+    expect(x.row(type).label).toBe(label);
+    expect(x.csvLine(label)).toContain(`,${value},`);
+    expect(x.pdf.companies[0]!.rows.find((r) => r.type === type)!.label).toBe(label);
+  });
+
+  it('keeps the type\'s own name when the face only has a slot-level label, and for a figure nobody reports', () => {
+    // The face calls an undefined ARR figure "Revenue / ARR" (the slot's name); the export row IS ARR.
+    const x = both([verifiedRow({ metricType: 'arr', value: 9_000_000 }), verifiedRow({ id: 'u', metricType: 'users', value: 500 })]);
+    expect(x.row('arr').label).toBe('ARR');
+    expect(x.row('users').label).toBe('Users');
+    expect(x.row('employees').label).toBe('Employees');
+    expect(x.row('market_share').label).toBe('Market share');
+  });
+});
+
+describe('the company one-liner in exports', () => {
+  const liner = (oneLiner: string | null) => ({ ...co([]), oneLiner });
+
+  it('does not print a figure nobody source-checked, beside rows that say Unknown', () => {
+    const model = buildReportModel({ title: 'Mkt', kind: 'deck', companies: [
+      liner('Acme is a $5B robotics company with 12,000 employees and 3 million users.'),
+    ] });
+    expect(model.companies[0]!.oneLiner).toBeNull();
+    expect(model.companies[0]!.rows.find((r) => r.type === 'valuation')).toMatchObject({ unknown: true, valueText: 'Unknown' });
+  });
+
+  it('keeps the sentences that state no figure, as stored', () => {
+    const model = buildReportModel({ title: 'Mkt', kind: 'company', companies: [liner('Acme builds warehouse robots. It has 12,000 employees.')] });
+    expect(model.companies[0]!.oneLiner).toBe('Acme builds warehouse robots.');
+    expect(buildReportModel({ title: 'Mkt', kind: 'company', companies: [liner(null)] }).companies[0]!.oneLiner).toBeNull();
+  });
+});
+
+describe('signal cards never add a company to an export', () => {
+  const entity = cardOf([verifiedRow({ metricType: 'employees', value: 40 })]);
+  const rival = { ...acmeCompany, id: 'rival-co', name: 'Rival Corp' };
+  const signal = (cardType: 'barrier' | 'insight' | 'vice' | 'culture') => ({
+    ...entity,
+    card: { ...entity.card, id: `sig_${cardType}`, cardType, companyId: 'rival-co' },
+    company: rival,
+    metrics: [],
+  }) as CardWithCompany;
+
+  it.each(['barrier', 'insight', 'vice', 'culture'] as const)('a company-bearing %s card adds no company', (cardType) => {
+    const subjects = companiesFromCards([entity, signal(cardType)]);
+    expect(subjects.map((c) => c.name)).toEqual(['Acme, Inc.']);
+  });
+});
+
 describe('splitFollowUps', () => {
   it('extracts up to three chips', () => {
     const r = splitFollowUps('Answer.\n\nFollow-ups: One thing? | Two thing? | Three thing? | Four thing?');

@@ -403,6 +403,22 @@ type ProfileSlot = {
   metric?: CompanyMetric; note?: string | null;
 };
 
+/**
+ * What the card face calls this figure: the measurement its own source names ("Paying customers", "GitHub stars",
+ * "Stockists"), not the slot's default. Exports print this too, so a row is never labelled less exactly than the card.
+ */
+export function faceLabel(metric: CompanyMetric): string {
+  const key = FACE_KEY[metric.metricType];
+  return key ? profileLabel(key, metric) : (metricTypeLabel(metric) ?? LABELS[metric.metricType]);
+}
+
+/** The face's name for a metric type when no source names the measurement more closely. */
+export const defaultFaceLabel = (type: MetricType): string => LABELS[type];
+
+/** Labels of a face SLOT that can hold more than one kind of figure. They name no figure in particular, so a row that
+ * is exactly one kind of figure (ARR, Users) says so with its type's own name instead. */
+export const SLOT_LEVEL_LABELS: readonly string[] = ['Revenue / ARR', 'Users / customers', 'Valuation / market cap'];
+
 /** Most useful first when two figures are equally well sourced. */
 const FACE_IMPORTANCE: Record<'operating_company' | 'financial_firm', readonly MetricType[]> = {
   operating_company: ['arr', 'revenue', 'valuation', 'market_cap', 'employees', 'users', 'funding_total', 'last_round', 'distribution', 'aum', 'market_share'],
@@ -448,7 +464,7 @@ function strongestFaceMetrics(metrics: readonly MetricView[], profile: readonly 
       // Estimates must re-check here: a grounded-answer sentence or a quote from
       // a fetched page. An estimate with neither stays off the face.
       if (strength === 2 && !estimateHolds(company, metric)) continue;
-      const label = FACE_KEY[type] ? profileLabel(key, metric) : (metricTypeLabel(metric) ?? LABELS[type]);
+      const label = faceLabel(metric);
       candidates.push({ ...m, key, label, type, strength, confidence: strength === 2 ? 'Source reported' : m.confidence });
     } else if (type === 'employees' && metric.value === null && metric.confidence === 'estimated' && metric.reportedBand && company &&
       reportedBandCitations(company.name, company.websiteUrl, metric).length > 0) {
