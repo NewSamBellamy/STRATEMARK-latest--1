@@ -28,7 +28,9 @@ export class BudgetCounter extends DurableObject {
     const current = await this.load();
     await this.rollover(current, day);
     const result = tryReserve(current, day, ip, amount, budgetMicros, visitorBudgetMicros);
-    await this.ctx.storage.put(KEY, result.ledger);
+    // A refused call changes nothing, so it writes nothing (a flood of refused calls used to rewrite the whole ledger each time).
+    // The first call of a new day does change the ledger, refused or not: it starts that day's.
+    if (result.ledger !== current) await this.ctx.storage.put(KEY, result.ledger);
     // `day` is the day the hold was put on, which is the ledger's day when the caller's was older: settle on that one.
     return result.ok ? { ok: true as const, day: result.ledger.day } : { ok: false as const, reason: result.reason };
   }

@@ -288,3 +288,12 @@ describe('calls that cost nothing do not fill the visitor ledger', () => {
     expect((await call(env, GROUNDED, '198.51.100.77')).status).toBe(200);
   });
 });
+
+describe('a refused hosted call is cheap for the ledger', () => {
+  it('rewrites the ledger for none of twenty refused calls (R2-W10)', async () => {
+    const { env, budgetStorage } = makeEnv({ DAILY_VISITOR_BUDGET_USD: '0' });
+    for (let i = 0; i < 20; i += 1) expect((await call(env, GROUNDED, `198.51.100.${i}`)).status).toBe(402);
+    // One write starts the day's ledger; the other nineteen refusals write nothing.
+    expect(budgetStorage.counters.puts).toBe(1);
+  });
+});

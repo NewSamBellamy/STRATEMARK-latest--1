@@ -71,3 +71,31 @@ describe('a call that carries a day older than the ledger\'s', () => {
     expect((await counter.status('2026-10-20')).history).toEqual([{ day: '2026-10-19', spentUsd: 4, visitors: 1 }]);
   });
 });
+
+describe('a refused call', () => {
+  it('writes nothing: a flood of refused calls is not a flood of ledger rewrites', async () => {
+    const { counter, storage } = makeCounter();
+    expect(await counter.reserve('2026-10-20', 'a', 5_000_000, BUDGET, VISITOR)).toEqual({ ok: true, day: '2026-10-20' });
+    const before = storage.counters.puts;
+    for (let i = 0; i < 25; i += 1) expect(await counter.reserve('2026-10-20', 'a', 50_000_000, BUDGET, VISITOR)).toEqual({ ok: false, reason: 'visitor' });
+    for (let i = 0; i < 25; i += 1) expect(await counter.reserve('2026-10-20', `b${i}`, 150_000_000, BUDGET, BUDGET)).toEqual({ ok: false, reason: 'global' });
+    expect(storage.counters.puts - before).toBe(0);
+    // Nothing the refusals touched changed.
+    expect(await counter.status('2026-10-20')).toMatchObject({ spentMicros: 0, heldMicros: 5_000_000, visitors: 1 });
+  });
+
+  it('still starts the new day\'s ledger when the first call of the day is the one refused, and only once', async () => {
+    const { counter, storage } = makeCounter();
+    for (let i = 0; i < 5; i += 1) await counter.reserve('2026-10-20', `b${i}`, 150_000_000, BUDGET, BUDGET);
+    expect((storage.map.get('ledger') as { day: string }).day).toBe('2026-10-20');
+    expect(storage.counters.puts).toBe(1);
+  });
+
+  it('a settle is still written: it changes the ledger', async () => {
+    const { counter, storage } = makeCounter();
+    await counter.reserve('2026-10-20', 'a', 5_000_000, BUDGET, VISITOR);
+    const before = storage.counters.puts;
+    await counter.settle('2026-10-20', 'a', 5_000_000, 1_000_000);
+    expect(storage.counters.puts - before).toBe(1);
+  });
+});
