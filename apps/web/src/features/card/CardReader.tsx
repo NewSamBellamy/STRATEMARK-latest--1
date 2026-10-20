@@ -9,7 +9,7 @@ import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { buildCardShare, buildReportShare } from '@/lib/share/codec';
 import { verifyCardForShare } from '@/lib/share/preflight';
 import { ShareDialog } from '@/features/share/ShareDialog';
-import { ReportBuilderDialog } from '@/features/reports/ReportBuilderDialog';
+import { ReportWizard } from '@/features/reports/ReportWizard';
 import { useCompanyReportRun } from '@/features/reports/useCompanyReportRun';
 import { FollowTodayButton } from '@/features/today/FollowTodayButton';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
@@ -328,8 +328,9 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
         </div>
       </div>
       {canReport && company && dashboardUrl && (
-        <ReportBuilderDialog open={reportOpen} onOpenChange={setReportOpen} companyName={company.name}
-          onStart={({ topics, focus }) => { void runCompanyReport({ companyId: company.id, companyName: company.name, topics, focus }); }} />
+        <ReportWizard open={reportOpen} onOpenChange={setReportOpen} companyId={company.id} companyName={company.name}
+          cardId={card.id} deckId={card.deckId}
+          onStart={(input) => { void runCompanyReport({ companyId: company.id, companyName: company.name, ...input }); }} />
       )}
       <ShareDialog open={shareOpen} onOpenChange={setShareOpen} title={view.title}
         page={fullFinding ? undefined : { deckId: card.deckId, cardId: card.id }}
