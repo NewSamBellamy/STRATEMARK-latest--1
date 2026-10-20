@@ -36,6 +36,15 @@ describe('the share page, opened with a forged link', { timeout: 30_000 }, () =>
     expect(screen.queryByText(/user verified|human checked/i)).not.toBeInTheDocument();
   });
 
+  it('counts companies, not cards: a company with a risk card and a culture card is one company', async () => {
+    const other = { name: 'Honest Industries', oneLiner: 'Does one thing.', website: 'https://honest.example', hq: null, logo: null };
+    await openLink({ ...base, cards: [
+      card([]), card([], { type: 'vice' }), card([], { type: 'culture' }),
+      card([], { company: other }), card([], { company: other, type: 'vice' }),
+    ] });
+    expect(await screen.findByText(/2 companies/, {}, { timeout: 10_000 })).toBeInTheDocument();
+  });
+
   it('still shows a sourced figure, with its source, as the sender had it', async () => {
     await openLink({ ...base, cards: [card([{ t: 'arr', v: 13_000_000_000, c: 'verified', s: { t: 'reuters.com', u: 'https://reuters.com/a' }, at: '2026-09-01' }])] });
     expect((await screen.findAllByText('Forgery Dynamics', {}, { timeout: 10_000 })).length).toBeGreaterThan(0);
