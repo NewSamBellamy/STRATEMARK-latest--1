@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, ExternalLink, FilePlus2, Printer, Share2 } from 'lucide-react';
 import { publisherOf, type CardWithCompany } from '@mi/contracts';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/Modal';
@@ -88,6 +89,18 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
   const repo = useRepository();
   const { chat } = useDeepDive();
   const readOnly = useReadOnly();
+  // What the card already has: read from storage, free, never a model call.
+  const memory = useQuery({
+    queryKey: ['cardMemory', card.id],
+    queryFn: () => repo.getCardMemory!(card.id),
+    enabled: typeof repo.getCardMemory === 'function' && !readOnly,
+  });
+  const chatCount = memory.data?.threads.length ?? 0;
+  const reportCount = memory.data?.reports.length ?? 0;
+  const memoryLine = [
+    `${chatCount} ${chatCount === 1 ? 'chat' : 'chats'}`,
+    reportCount > 0 ? `${reportCount} ${reportCount === 1 ? 'report' : 'reports'}` : null,
+  ].filter(Boolean).join(' \u00b7 ');
   const [shareOpen, setShareOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const runCompanyReport = useCompanyReportRun();
@@ -292,9 +305,13 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
             <span>Open full company dashboard</span><ArrowUpRight size={17} />
           </Link> : !fullFinding && !readOnly && <button type="button" className="card-inspector__cta" onClick={() => {
             onOpenChange(false);
+            // With history the button resumes the latest conversation (no question); with none it starts one.
             chat({ kind: 'cards', deckId: card.deckId, cardIds: [card.id], subject: card.title },
-              { seed: `Dig into "${card.title}" — what's the full picture?` });
-          }}>Ask about this finding <ArrowUpRight size={17} /></button>}
+              chatCount > 0 ? undefined : { seed: `Dig into "${card.title}" — what's the full picture?` });
+          }}>{chatCount > 0 ? <span className="flex flex-col items-start text-left">
+              <span>Continue conversation ({chatCount})</span>
+              <span className="text-[11px] font-normal opacity-80">{memoryLine}</span>
+            </span> : 'Ask about this finding'} <ArrowUpRight size={17} /></button>}
           <div className="card-inspector__actions">
             {readOnly ? <span /> : <div className="flex items-center gap-1"><SaveCardButton cardId={card.id} />
               {company && !view.signal && <FollowTodayButton companyId={company.id} companyName={company.name} />}
