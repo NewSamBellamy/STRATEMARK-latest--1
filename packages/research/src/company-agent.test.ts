@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import type { CompanyMetric } from '@mi/contracts';
-import type { CompanyCandidate, LlmClient, MarketPlan } from './types';
+import type { CompanyCandidate, LlmClient, MarketPlan, ProviderGrounding } from './types';
 import type { EnrichmentOut } from './schemas';
 import {
   CompanyCardHydrator,
@@ -15,10 +15,18 @@ import {
   primaryEntityType,
 } from './company-agent';
 
+/** What the search attributed to which page: the sentences a stored risk must be traced to. */
+const attributed = (...supports: Array<[string, string]>): ProviderGrounding => ({
+  provider: 'google-search',
+  answerText: supports.map(([text]) => text).join(' '),
+  supports: supports.map(([text, url], index) => ({ supportIndex: index, text, sources: [{ chunkIndex: index, url, title: new URL(url).hostname }] })),
+});
+
 function fakeClient(mockOverrides?: {
   enrichment?: Record<string, unknown>;
   groundedText?: string;
   citations?: Array<{ title: string; url: string }>;
+  grounding?: ProviderGrounding;
 }): LlmClient {
   const citations = mockOverrides?.citations ?? [
     { title: 'techcrunch.com', url: 'https://techcrunch.example/article' },
@@ -30,6 +38,7 @@ function fakeClient(mockOverrides?: {
       text: mockOverrides?.groundedText ?? 'Grounded company research notes',
       citations,
       queries: ['query'],
+      ...(mockOverrides?.grounding ? { grounding: mockOverrides.grounding } : {}),
     })),
     structure: vi.fn(async (_prompt: string, schema: ZodType<unknown>) => {
       const enrichment = mockOverrides?.enrichment ?? {
@@ -415,11 +424,13 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
           market_share: { value: 5, confidence: 'estimated', sourceIndex: 0, method: 'market estimate' },
         },
         viceClaims: [
-          { text: 'Named in 2026 IP lawsuit regarding training data', sourceIndex: 0 },
+          { text: 'DevAgent Labs was named in a 2026 IP lawsuit over its training data.', sourceIndex: 0 },
           { text: 'Unverified blog rumor', sourceIndex: null }, // Dropped
         ],
         cultureNote: 'Hosts weekly open-source hackathons for students.',
       },
+      // The search itself attached the lawsuit sentence to the TechCrunch page.
+      grounding: attributed(['DevAgent Labs was named in a 2026 IP lawsuit over its training data, court filings show.', 'https://techcrunch.example/article']),
     });
 
     const result = await hydrateCompanyCard({
@@ -459,7 +470,7 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
 
     // 5. Sourced vice claims (1 kept, 1 dropped)
     expect(viceCard.viceClaims).toHaveLength(1);
-    expect(viceCard.viceClaims[0]!.claimText).toBe('Named in 2026 IP lawsuit regarding training data');
+    expect(viceCard.viceClaims[0]!.claimText).toBe('DevAgent Labs was named in a 2026 IP lawsuit over its training data.');
     expect(viceCard.viceClaims[0]!.sourceUrl).toBe('https://techcrunch.example/article');
 
     // 6. Culture note
@@ -543,10 +554,11 @@ describe('Company Agent — hydrateCompanyCard Full Orchestration', () => {
         metrics: {},
         facts: {},
         viceClaims: [
-          { text: 'Under regulatory inquiry for content licensing in 2025', sourceIndex: 0 },
+          { text: 'Model Hub Dist is under a regulatory inquiry over content licensing in 2025.', sourceIndex: 0 },
         ],
         cultureNote: 'Commits 2% of equity to open source AI foundations.',
       },
+      grounding: attributed(['Model Hub Dist is under a regulatory inquiry over content licensing in 2025, officials said.', 'https://techcrunch.example/article']),
     });
 
     const candidate: CompanyCandidate = {
