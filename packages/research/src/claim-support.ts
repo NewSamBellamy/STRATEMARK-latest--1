@@ -18,7 +18,7 @@
  * than years, and for a one-sentence claim the support must account for most of the claim as well as the other way round.
  * The model's own source number is accepted only if the sentences that source is attached to are about the claim.
  */
-import { usableCitations, type Citation } from '@mi/contracts';
+import { classifySource, usableCitations, type Citation } from '@mi/contracts';
 import type { ProviderGrounding } from './types';
 
 const STOP_WORDS = new Set([
@@ -124,4 +124,40 @@ export function sourceBacksClaim(url: string, claim: string, grounding: Provider
     if (shared.filter(isReal).length < NAMED_REAL_WORDS_MIN) return false;
     return !(scope?.oneSentence && shared.length / Math.max(1, claimWords.size) < SHARE_OF_CLAIM_MIN);
   });
+}
+
+/** Resolves all distinct, valid receipts attached to one finding. */
+export function resolveClaimCitations(
+  sourceIndex: number | null | undefined,
+  sourceIndexes: readonly number[] | null | undefined,
+  citations: readonly Citation[],
+): Citation[] {
+  const indices = Array.from(new Set([
+    ...(sourceIndex == null ? [] : [sourceIndex]),
+    ...(sourceIndexes ?? []),
+  ]));
+  return usableCitations(indices.flatMap((index) => resolveClaimCitation(index, citations)));
+}
+
+/**
+ * Resolves and validates citations attached to a claim index.
+ */
+export function resolveClaimCitation(
+  sourceIndex: number | null | undefined,
+  citations: readonly Citation[],
+): Citation[] {
+  if (sourceIndex == null || sourceIndex < 0 || sourceIndex >= citations.length) {
+    return [];
+  }
+  const cite = citations[sourceIndex];
+  if (!cite || !cite.url || !/^https?:\/\//i.test(cite.url.trim())) {
+    return [];
+  }
+  return [
+    {
+      title: cite.title || 'Source',
+      url: cite.url.trim(),
+      credibility: cite.credibility ?? classifySource(cite.url, cite.title),
+    },
+  ];
 }
