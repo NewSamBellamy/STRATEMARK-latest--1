@@ -130,3 +130,33 @@ describe('lists in a hosted share written to freeze the viewer', () => {
     expect(view.container.textContent).not.toMatch(/Product 100/);
   }, 90_000);
 });
+
+describe('a hosted share does not start the living deck', () => {
+  it('opens a deck without creating a background worker (the share page forbids workers, and nothing here researches)', async () => {
+    const snapshot = await deckSnapshot();
+    let workers = 0;
+    class CountingWorker {
+      onmessage: unknown = null;
+      onerror: unknown = null;
+      constructor() { workers += 1; }
+      postMessage() { /* a ticker that never ticks */ }
+      terminate() { /* nothing to stop */ }
+    }
+    const urls = URL as unknown as { createObjectURL?: unknown };
+    const hadObjectUrl = 'createObjectURL' in urls;
+    const savedWorker = (globalThis as { Worker?: unknown }).Worker;
+    const savedObjectUrl = urls.createObjectURL;
+    (globalThis as { Worker?: unknown }).Worker = CountingWorker;
+    urls.createObjectURL = () => 'blob:stub';
+    try {
+      await openDeck(snapshot);
+      // Give the desks the time the runtime needs to schedule its first turn, were it running.
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      expect(workers).toBe(0);
+    } finally {
+      (globalThis as { Worker?: unknown }).Worker = savedWorker;
+      if (hadObjectUrl) urls.createObjectURL = savedObjectUrl;
+      else delete urls.createObjectURL;
+    }
+  }, 30_000);
+});
