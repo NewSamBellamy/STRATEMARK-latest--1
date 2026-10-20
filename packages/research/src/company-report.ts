@@ -21,8 +21,9 @@
  * tabs) + N grounded passes + N write-ups; the best case is N write-ups.
  *
  * What a report does and does not change:
- *   - Findings from the focused grounded pass live in the report only. They are
- *     never written back to the stored tabs or the evidence vault.
+ *   - Findings from the focused grounded pass are written to the evidence vault
+ *     (topic `report:<topic>`), but only the sentences the search itself attributed
+ *     to a public source; the stored tabs are not touched.
  *   - A never-researched tab that goes through the lane IS written to the
  *     dashboard, exactly as opening that tab would have done. That is intended:
  *     the free-first lane fills the dashboard like a click would.
@@ -321,7 +322,8 @@ export async function buildCompanyTopicReport(
         try {
           const g = await client.ground(
             deeperResearchPrompt({ companyName: company.name, websiteUrl: company.websiteUrl, hqLocation: company.hqLocation, topic, gaps: view.gaps, today, focus }),
-            { system: GROUNDED_SYSTEM, label: `company_report:${topic}`, signal: sig },
+            { system: GROUNDED_SYSTEM, label: `company_report:${topic}`, signal: sig,
+              researchContext: { companyId: company.id, companyName: company.name, topic: `report:${topic}`, attributedOnly: true } },
           );
           const cited = cleanCitations(g.citations, company.websiteUrl).filter(isSourcedFinding);
           // Findings nothing credible stands behind are dropped, not displayed.
