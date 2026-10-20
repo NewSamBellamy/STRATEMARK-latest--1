@@ -53,6 +53,7 @@
   .sm-h2 { font-size: 17pt; font-weight: 700; letter-spacing: -0.01em; }
   .sm-h2-n { color: #0f766e; margin-right: 3mm; font-variant-numeric: tabular-nums; }
   .sm-company { break-inside: avoid; page-break-inside: avoid; margin: 0 0 12mm; padding-top: 2mm; }
+  /* A div, never a <header>: index.css hides every header element in print, which took the company names with it. */
   .sm-company-head { display: flex; align-items: center; gap: 4mm; break-after: avoid; margin-bottom: 3mm; }
   .sm-logo { width: 12mm; height: 12mm; border: 1px solid #dce8e5; border-radius: 2mm; overflow: hidden; flex: none; }
   .sm-sub { margin: 1mm 0 0; font-size: 9pt; color: #68716f; }
@@ -119,4 +120,27 @@
   .sm-quote { margin: 5mm 0 0; padding: 0 0 0 4mm; border-left: 2px solid #0f766e; font-size: 10pt; color: #3d4543; break-inside: avoid; }
   .sm-quote p { margin: 0 0 1.5mm; }
   .sm-quote cite { display: block; font-style: normal; font-size: 7.5pt; color: #68716f; word-break: break-all; }
+
+  /* Market report: signals, glance table and the per-company profile blocks */
+  .sm-h3 { font-family: Parkinsans, "Google Sans Flex", ui-sans-serif, sans-serif; font-size: 8.5pt; letter-spacing: 0.16em; text-transform: uppercase; color: #0f766e; font-weight: 700; margin: 0 0 1.8mm; break-after: avoid; }
+  .sm-glance { break-after: page; }
+  .sm-glance .sm-h2 { margin-bottom: 4mm; }
+  .sm-glance-table td { font-size: 9pt; }
+  .sm-muted { color: #68716f; }
+  .sm-signals { margin: 0 0 8mm; }
+  .sm-signals .sm-h2 { margin-bottom: 4mm; }
+  .sm-signal-group { margin: 0 0 6mm; }
+  .sm-signal { break-inside: avoid; page-break-inside: avoid; margin: 0 0 4mm; padding-left: 3mm; border-left: 2px solid #dce8e5; }
+  .sm-signal p { margin: 0 0 1mm; }
+  .sm-signal-title { font-weight: 700; font-size: 10.5pt; }
+  .sm-signal ul, .sm-block ul { margin: 0 0 1mm; padding-left: 5mm; list-style: disc; }
+  .sm-signal li, .sm-block li { margin: 0.8mm 0; }
+  .sm-srcline { font-size: 8pt; color: #68716f; }
+  .sm-profile { break-before: page; break-inside: auto; page-break-inside: auto; }
+  .sm-block { margin: 0 0 5mm; }
+  .sm-block p { margin: 0 0 1.6mm; }
+  .sm-cols { columns: 2; column-gap: 8mm; }
+  .sm-cols li { break-inside: avoid; }
+  .sm-timeline { list-style: none !important; padding-left: 0 !important; }
+  .sm-when { display: inline-block; min-width: 18mm; color: #0f766e; font-weight: 700; font-variant-numeric: tabular-nums; }
 }
