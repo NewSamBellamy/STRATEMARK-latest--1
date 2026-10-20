@@ -11,6 +11,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Play, X } from 'lucide-react';
 import type { CompanyVideo } from '@mi/contracts';
 import { Modal } from '@/components/ui/Modal';
+import { SafeLink } from '@/components/SafeLink';
 import { hasHostedApi, hostedUrl } from '@/lib/hostedApi';
 import { getRealCover } from '@/lib/media/realCover';
 import { cn } from '@/lib/cn';
@@ -145,9 +146,9 @@ export function VideoPlayer({ video, onClose }: { video: CompanyVideo; onClose: 
         <a href={`https://www.youtube.com/watch?v=${video.id}`} target="_blank" rel="noopener noreferrer" className="hover:text-primary-ink hover:underline">
           Open on YouTube
         </a>
-        <a href={video.channelUrl} target="_blank" rel="noopener noreferrer" className="hover:text-primary-ink hover:underline">
+        <SafeLink href={video.channelUrl} className="hover:text-primary-ink hover:underline">
           Company channel
-        </a>
+        </SafeLink>
       </div>
     </Modal>
   );

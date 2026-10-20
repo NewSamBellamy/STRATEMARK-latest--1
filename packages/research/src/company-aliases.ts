@@ -10,6 +10,13 @@ import { nameTokens, registrableDomain } from './registries/shared';
  */
 const EXTRA_SUFFIX = new Set(['pbc', 'group', 'holdings', 'holding', 'technologies', 'labs', 'lab', 'the']);
 
+/**
+ * "McDonald's" and "McDonalds" are one name, and "Procter & Gamble" is "Procter and Gamble". NOT applied by the shared
+ * alias matching below (other callers build their own phrases from the plain token folding and must keep matching them):
+ * the signal cards apply it to both the names and the text they compare.
+ */
+export const canon = (text: string): string => text.replace(/['\u2018\u2019`\u00b4]/g, '').replace(/&/g, ' and ');
+
 function phrase(raw: string, dropExtra: boolean): string {
   const tokens = nameTokens(raw);
   const kept = dropExtra ? tokens.filter((t) => !EXTRA_SUFFIX.has(t)) : tokens;

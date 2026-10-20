@@ -1246,11 +1246,13 @@ export class GeminiRepository implements MarketIntelRepository {
     const initialDeckIds = deckIdsFor(this.snap);
     const jobIds = new Set(jobsFor(this.snap, initialDeckIds).map((job) => job.id));
     for (const id of jobIds) this.jobControllers.get(id)?.abort();
+    for (const id of initialDeckIds) this.signalRuns.get(id)?.controller.abort();
     const deckCompanyIds = new Set(this.snap.cards
       .filter((card) => initialDeckIds.has(card.deckId) && card.companyId)
       .map((card) => card.companyId!));
     const inFlight: Array<Promise<unknown> | undefined> = [
       ...[...jobIds].flatMap((id) => [this.detachedDiscovery.get(id), this.activeBackgroundJobs.get(id)]),
+      ...[...initialDeckIds].map((id) => this.signalRuns.get(id)?.promise),
       ...[...deckCompanyIds].flatMap((id) => [this.hunts.get(id)?.result, this.sourceBindings.get(id)]),
     ];
     const pending = inFlight.filter((p): p is Promise<unknown> => p !== undefined).map((p) => p.catch(() => undefined));
@@ -1329,6 +1331,7 @@ export class GeminiRepository implements MarketIntelRepository {
       metrics: prev.metrics.filter((metric) => !orphaned.has(metric.companyId)),
       dashboards,
       sourceChecks,
+      signalRest: prev.signalRest ? Object.fromEntries(Object.entries(prev.signalRest).filter(([deckId]) => !deckIds.has(deckId))) : prev.signalRest,
       researchEvidence: prev.researchEvidence?.filter((row) => !(row.companyId && orphaned.has(row.companyId))),
       originalSourceAttempts: prev.originalSourceAttempts?.filter((row) => !orphaned.has(row.companyId)),
       productBriefs: prev.productBriefs
@@ -1337,6 +1340,7 @@ export class GeminiRepository implements MarketIntelRepository {
     };
     if (prev.removedFromDeck === undefined) delete next.removedFromDeck;
     if (prev.productBriefs === undefined) delete next.productBriefs;
+    if (prev.signalRest === undefined) delete next.signalRest;
     for (const key of ['moves', 'follows', 'movesRefreshedAt', 'tabsRefreshedAt'] as const) if (prev[key] === undefined) delete next[key];
     this.snap = next;
     try {
@@ -6577,7 +6581,7 @@ ${references}`
     return report;
   }
 
-  private readonly signalRuns = new Map<string, { force: boolean; promise: Promise<SignalRun> }>();
+  private readonly signalRuns = new Map<string, { force: boolean; promise: Promise<SignalRun>; controller: AbortController }>();
 
   /** Fewer sourced cards of a kind than this and the deck is searched for more (the coverage minimum for all four kinds). */
   private static readonly SIGNAL_MINIMUM = 4;
@@ -6595,7 +6599,7 @@ ${references}`
    */
   private planForDeck(deck: Deck, market: Market): MarketPlan {
     const recorded = this.snap.researchJobs.find((job) => job.deck?.id === deck.id)?.marketPlan;
-    if (recorded) return recorded;
+    if (recorded && typeof recorded === 'object' && typeof recorded.marketName === 'string' && typeof recorded.vertical === 'string') return recorded;
     const scope = market.scopeDefinition as Market['scopeDefinition'] | undefined;
     return { marketName: market.name, vertical: scope?.vertical ?? market.name, geography: scope?.geography ?? null,
       notes: null, searchThemes: [] };
@@ -6615,9 +6619,11 @@ ${references}`
     // A second ask joins the search under way. A forced ask after an unforced one does not: it waits its turn and runs,
     // or the button would report "nothing credible turned up" without having searched.
     if (running && (!options.force || running.force)) return running.promise;
-    const entry = { force: Boolean(options.force), promise: undefined as unknown as Promise<SignalRun> };
+    // One controller per run: deleting the deck stops the search instead of letting it file cards for a deck that is gone.
+    const entry = { force: Boolean(options.force), promise: undefined as unknown as Promise<SignalRun>, controller: new AbortController() };
+    const signal = options.signal ? AbortSignal.any([options.signal, entry.controller.signal]) : entry.controller.signal;
     const turn = running ? running.promise.then(() => undefined, () => undefined) : Promise.resolve();
-    entry.promise = turn.then(() => this.runSignalCards(deckId, options)).finally(() => {
+    entry.promise = turn.then(() => this.runSignalCards(deckId, { ...options, signal })).finally(() => {
       if (this.signalRuns.get(deckId) === entry) this.signalRuns.delete(deckId);
     });
     this.signalRuns.set(deckId, entry);
@@ -6635,7 +6641,12 @@ ${references}`
     const cardsOf = () => this.snap.cards.filter((c) => c.deckId === deck.id);
     const sourcedOf = (type: SignalKind) => cardsOf().filter((c) => c.cardType === type && this.signalCardSourced(c));
     const countOf = (type: SignalKind) => sourcedOf(type).length;
-    const restingUntil = (kind: SignalKind) => Date.parse(this.snap.signalRest?.[deck.id]?.[kind] ?? '');
+    // A rest granted at any past moment ends within the longest rest from now. One that ends later than that was not granted
+    // by this code (a wrong clock, an imported file) and is ignored: it would otherwise stop the kind from ever being searched.
+    const restingUntil = (kind: SignalKind) => {
+      const until = Date.parse(this.snap.signalRest?.[deck.id]?.[kind] ?? '');
+      return until > Date.now() + GeminiRepository.SIGNAL_REST_MS + 60_000 ? Number.NaN : until;
+    };
     // A kind is searched for when it is short of SOURCED cards (a card with no source does not count: it would keep the
     // deck from ever getting a real one) and has not just been searched, or when asked for; never past the maximum.
     const needs = Object.fromEntries(SIGNAL_KINDS.map((kind) => [kind,
@@ -6647,6 +6658,7 @@ ${references}`
     const addedCardIds: string[] = [];
     const prunedCardIds: string[] = [];
     const failedKinds: SignalKind[] = [];
+    const searched = new Set<SignalKind>();
     const rest = (kinds: readonly SignalKind[], ms: number) => {
       const until = new Date(Date.now() + ms).toISOString();
       const mine = { ...this.snap.signalRest?.[deck.id] };
@@ -6667,7 +6679,14 @@ ${references}`
       failedKinds.push(...kinds);
       return null;
     };
+    const unrest = (kinds: readonly SignalKind[]) => {
+      const mine = { ...this.snap.signalRest?.[deck.id] };
+      for (const kind of kinds) delete mine[kind];
+      this.snap.signalRest = { ...this.snap.signalRest, [deck.id]: mine };
+    };
+    const deckExists = () => this.snap.decks.some((d) => d.id === deck.id);
     const file = (cards: CardWithCompany[]) => {
+      if (!deckExists()) return;
       for (const card of cards) {
         this.snap.cards.push(card.card);
         if (card.viceClaims.length > 0) this.snap.viceClaims.push(...card.viceClaims);
@@ -6704,6 +6723,7 @@ ${references}`
           signal, coverage: this.coverage,
           ...(needs.barrier ? {} : { minBarriers: 0 }), ...(needs.insight ? {} : { minInsights: 0 }),
         }));
+        marketKinds.forEach((kind) => searched.add(kind));
         if (found) {
           const have = (type: SignalKind) => new Set(sourcedOf(type).map((c) => normalizeClaimTitle(c.title ?? '')));
           const kept: CardWithCompany[] = [];
@@ -6733,16 +6753,22 @@ ${references}`
           haveVice: companiesWith('vice'), haveCulture: companiesWith('culture'),
           maxVice: maximum - countOf('vice'), maxCulture: maximum - countOf('culture'),
         }));
+        rosterKinds.forEach((kind) => searched.add(kind));
         if (found) file([...found.vice, ...found.culture]);
       }
     } finally {
       // Whatever was found is kept and announced even when the run was cut short, and each searched kind rests: a long
       // while when its search ran, a short one when it errored (the next open tries again, not every open).
-      rest(wanted.filter((kind) => !failedKinds.includes(kind)), GeminiRepository.SIGNAL_REST_MS);
-      rest(failedKinds, GeminiRepository.SIGNAL_RETRY_MS);
-      try { await this.persist(); } catch { /* kept in memory; the next save writes it */ }
-      if (addedCardIds.length > 0 || prunedCardIds.length > 0) {
-        this.emit({ marketId: market.id, deckId: deck.id, refreshedAt: new Date().toISOString(), addedCardIds, updatedCardIds: [], prunedCardIds });
+      // A deck deleted while the search ran has nothing to rest, save or announce.
+      if (deckExists()) {
+        rest(wanted.filter((kind) => searched.has(kind) && !failedKinds.includes(kind)), GeminiRepository.SIGNAL_REST_MS);
+        rest(failedKinds, GeminiRepository.SIGNAL_RETRY_MS);
+        // A kind the run never got to (it was stopped first) is not rested: it is searched next time.
+        unrest(wanted.filter((kind) => !searched.has(kind) && !failedKinds.includes(kind)));
+        try { await this.persist(); } catch { /* kept in memory; the next save writes it */ }
+        if (addedCardIds.length > 0 || prunedCardIds.length > 0) {
+          this.emit({ marketId: market.id, deckId: deck.id, refreshedAt: new Date().toISOString(), addedCardIds, updatedCardIds: [], prunedCardIds });
+        }
       }
     }
     return { added, failed: failedKinds.length > 0, failedKinds };

@@ -13,10 +13,13 @@ const sources = [
   { title: 'ft.com', url: 'https://www.ft.com/blue-apron' },
 ];
 
-/** A client whose search answered with `sources` and whose structuring step returned `out`. */
-function client(out: unknown, citations = sources) {
+/** A sentence of the answer, and the source the search attributed it to. */
+const supportOf = (text: string, url: string, supportIndex = 0) => ({ supportIndex, text, sources: [{ chunkIndex: 0, url, title: new URL(url).hostname }] });
+
+/** A client whose search answered with `sources` (and the sentences it attributed to them) and whose structuring step returned `out`. */
+function client(out: unknown, citations = sources, supports: Array<ReturnType<typeof supportOf>> = []) {
   const structure = vi.fn(async (_prompt: string, schema: ZodType<unknown>) => schema.parse(out));
-  const ground = vi.fn(async () => ({ text: 'notes', citations, queries: ['q'] }));
+  const ground = vi.fn(async () => ({ text: 'notes', citations, queries: ['q'], ...(supports.length > 0 ? { grounding: { provider: 'google-search' as const, answerText: 'notes', supports } } : {}) }));
   return { llm: { ground, structure } as unknown as LlmClient, ground, structure };
 }
 
@@ -28,7 +31,11 @@ describe('risk and culture cards for the companies a deck holds', () => {
         { company: 'HelloFresh', text: 'HelloFresh settled a state attorney general inquiry into subscription cancellations in 2023.', sourceIndex: 0 },
       ],
       culture: [{ company: 'Gousto', note: 'Gousto describes a mission of making home cooking easier and has a published employee values charter.', sourceIndex: 1 }],
-    });
+    }, sources, [
+      supportOf('HelloFresh was fined by the UK advertising regulator in 2024 over misleading discount claims.', 'https://www.reuters.com/hf-ruling', 0),
+      supportOf('HelloFresh settled a state attorney general inquiry into subscription cancellations in 2023.', 'https://www.reuters.com/hf-ruling', 1),
+      supportOf('Gousto describes a mission of making home cooking easier and has a published employee values charter.', 'https://www.bbc.com/gousto-culture', 2),
+    ]);
     const { vice, culture } = await researchRosterSignals(llm, plan, 'dck_1', roster);
     expect(vice).toHaveLength(1);
     expect(vice[0]!.card).toMatchObject({ cardType: 'vice', companyId: 'c1', deckId: 'dck_1' });
