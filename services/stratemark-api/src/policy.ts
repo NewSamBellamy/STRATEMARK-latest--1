@@ -126,7 +126,12 @@ export function parseBudgetUsd(raw: string | undefined, fallback: number): numbe
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
-/** Most visitors one day's ledger will track: past it, a new visitor is refused rather than the ledger growing without bound. */
+/**
+ * Most visitors one day's ledger will track: past it, a new visitor is refused rather than the ledger growing without bound.
+ * A slot belongs to a visitor who has spent or holds something. One that spent nothing (Google rejected the call, the call
+ * never reached it) takes none, so a flood of addresses whose requests cost nothing cannot fill the ledger and lock every
+ * genuine visitor out for the day (red team R2-W3).
+ */
 export const MAX_LEDGER_VISITORS = 5_000;
 
 export interface LedgerDay {
@@ -161,22 +166,31 @@ function spentBy(visitors: Record<string, number>, ip: string): number {
   return Object.prototype.hasOwnProperty.call(visitors, ip) ? visitors[ip]! : 0;
 }
 
-/** A copy of the ledger's visitors with this one's entry set. Built with fromEntries, which defines own properties, so "__proto__" is an entry like any other. */
+/**
+ * A copy of the ledger's visitors with this one's entry set, or removed when it is nothing (no spend, no hold). Built with
+ * fromEntries, which defines own properties, so "__proto__" is an entry like any other.
+ */
 function withVisitor(visitors: Record<string, number>, ip: string, value: number): Record<string, number> {
-  return Object.fromEntries([...Object.entries(visitors).filter(([key]) => key !== ip), [ip, value]]);
+  const others = Object.entries(visitors).filter(([key]) => key !== ip);
+  return Object.fromEntries(value > 0 ? [...others, [ip, value]] : others);
 }
 
 /** Pure ledger step: may this call proceed under the global and per-visitor daily budgets? */
 export function tryReserve(ledger: LedgerDay, day: string, ip: string, amount: number, budgetMicros: number, visitorBudgetMicros: number): ReserveResult {
   const current: LedgerDay = ledger.day === day ? ledger : { day, spentMicros: 0, heldMicros: 0, visitors: {} };
   if (current.spentMicros + current.heldMicros + amount > budgetMicros) return { ok: false, reason: 'global', ledger: current };
-  const mine = spentBy(current.visitors, ip);
-  const known = Object.prototype.hasOwnProperty.call(current.visitors, ip);
-  if (!known && Object.keys(current.visitors).length >= MAX_LEDGER_VISITORS) return { ok: false, reason: 'global', ledger: current };
+  let visitors = current.visitors;
+  const mine = spentBy(visitors, ip);
+  if (!Object.prototype.hasOwnProperty.call(visitors, ip) && Object.keys(visitors).length >= MAX_LEDGER_VISITORS) {
+    // Before a new visitor is refused, take back the slots of visitors who spent nothing (a ledger written before they were
+    // dropped can still hold them). Visitors who spent or hold something keep their slot and their cap.
+    visitors = Object.fromEntries(Object.entries(visitors).filter(([, value]) => value > 0));
+    if (Object.keys(visitors).length >= MAX_LEDGER_VISITORS) return { ok: false, reason: 'global', ledger: current };
+  }
   if (mine + amount > visitorBudgetMicros) return { ok: false, reason: 'visitor', ledger: current };
   return {
     ok: true,
-    ledger: { ...current, heldMicros: current.heldMicros + amount, visitors: withVisitor(current.visitors, ip, mine + amount) },
+    ledger: { ...current, heldMicros: current.heldMicros + amount, visitors: withVisitor(visitors, ip, mine + amount) },
   };
 }
 

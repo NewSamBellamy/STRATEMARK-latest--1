@@ -277,3 +277,14 @@ describe('a visitor whose address is a name every object has', () => {
     expect(statuses).toEqual([200, 402, 200, 402]);
   });
 });
+
+describe('calls that cost nothing do not fill the visitor ledger', () => {
+  it('leaves no visitors behind when Google rejects every call, and a genuine visitor is still served (R2-W3)', async () => {
+    const { env, budget } = makeEnv();
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ error: { code: 404, message: 'model not found' } }), { status: 404 }));
+    for (let i = 0; i < 120; i += 1) expect((await call(env, GROUNDED, `10.0.${i >> 8}.${i & 255}`)).status).toBe(404);
+    expect(await budget.status(DAY)).toMatchObject({ spentMicros: 0, heldMicros: 0, visitors: 0 });
+    fetchMock.mockImplementation(async () => google.reply());
+    expect((await call(env, GROUNDED, '198.51.100.77')).status).toBe(200);
+  });
+});

@@ -173,3 +173,57 @@ describe('visitor names that Object.prototype also has', () => {
     for (const name of ['constructor', '__proto__']) expect(tryReserve(empty(), day, name, 60, 1_000, 50), name).toMatchObject({ ok: false, reason: 'visitor' });
   });
 });
+
+describe('a visitor whose calls cost nothing takes no slot', () => {
+  const day = '2026-10-10';
+  const empty = (): LedgerDay => ({ day, spentMicros: 0, heldMicros: 0, visitors: {} });
+
+  it('leaves no entry when the hold is released and nothing was spent (Google rejected the call)', () => {
+    const held = tryReserve(empty(), day, 'a', 40, 1_000, 50);
+    expect(held.ok).toBe(true);
+    const settled = settle(held.ledger, day, 'a', 40, 0);
+    expect(settled.visitors).toEqual({});
+    expect(settled).toMatchObject({ spentMicros: 0, heldMicros: 0 });
+  });
+
+  it('keeps the entry, and the cap, of a visitor who spent something', () => {
+    const settled = settle(tryReserve(empty(), day, 'a', 40, 1_000, 50).ledger, day, 'a', 40, 30);
+    expect(settled.visitors).toEqual({ a: 30 });
+    expect(tryReserve(settled, day, 'a', 30, 1_000, 50)).toMatchObject({ ok: false, reason: 'visitor' });
+  });
+
+  it('a hold still in flight is a slot; releasing it at zero frees it', () => {
+    const inFlight = tryReserve(empty(), day, 'a', 40, 1_000, 50).ledger;
+    expect(inFlight.visitors).toEqual({ a: 40 });
+    expect(settle(inFlight, day, 'a', 40, 0).visitors).toEqual({});
+  });
+
+  it('a straddling call that cost nothing adds no visitor to the new day', () => {
+    const today = { day: '2026-10-11', spentMicros: 5, heldMicros: 0, visitors: { a: 5 } } as LedgerDay;
+    expect(settle(today, day, 'z', 40, 0).visitors).toEqual({ a: 5 });
+  });
+
+  it('5,000 addresses whose calls Google rejects do not lock every later visitor out for the day', () => {
+    let ledger = empty();
+    for (let i = 0; i < MAX_LEDGER_VISITORS; i += 1) {
+      const reserved = tryReserve(ledger, day, `10.0.${i >> 8}.${i & 255}`, 40, 1_000_000, 1_000_000);
+      expect(reserved.ok).toBe(true);
+      ledger = settle(reserved.ledger, day, `10.0.${i >> 8}.${i & 255}`, 40, 0);
+    }
+    expect(Object.keys(ledger.visitors)).toHaveLength(0);
+    expect(tryReserve(ledger, day, '198.51.100.77', 40, 1_000_000, 1_000_000).ok).toBe(true);
+  });
+
+  it('takes back the slots of visitors at zero before refusing a new one, and still refuses once real spenders fill the ceiling', () => {
+    const idle = Object.fromEntries(Array.from({ length: MAX_LEDGER_VISITORS }, (_unused, i) => [`v${i}`, 0]));
+    expect(tryReserve({ ...empty(), visitors: idle }, day, 'new', 10, 1_000_000, 1_000_000).ok).toBe(true);
+    const mixed = { ...idle, ...Object.fromEntries(Array.from({ length: MAX_LEDGER_VISITORS - 1 }, (_unused, i) => [`s${i}`, 5])) };
+    const admitted = tryReserve({ ...empty(), visitors: mixed }, day, 'new', 10, 1_000_000, 1_000_000);
+    expect(admitted.ok).toBe(true);
+    // The visitors who spent kept their entries.
+    expect(Object.keys(admitted.ledger.visitors)).toHaveLength(MAX_LEDGER_VISITORS);
+    expect(admitted.ledger.visitors['s0']).toBe(5);
+    const full = Object.fromEntries(Array.from({ length: MAX_LEDGER_VISITORS }, (_unused, i) => [`s${i}`, 5]));
+    expect(tryReserve({ ...empty(), visitors: full }, day, 'new', 10, 1_000_000, 1_000_000)).toMatchObject({ ok: false, reason: 'global' });
+  });
+});
