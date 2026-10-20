@@ -328,11 +328,13 @@ describe('collectible card evidence model', () => {
     const risk = { ...card, cardType: 'vice' as const, title: null, citations: [],
       summary: 'The company defrauded its customers of $40 million.', keyPoints: ['A court found it guilty of fraud in 2024.'] };
     const drawn = (result: ReturnType<typeof buildCardView>) => [result.description, result.frontDescription, result.frontFinding].filter(Boolean).join(' | ');
+    // The company's own one-liner is what a company-bearing face leads with; it is not a finding, so it is left out here.
+    const bare = { ...company, oneLiner: '' };
     // No sourced claim at all: nothing on the face.
-    const none = buildCardView({ card: risk, company, metrics: [], viceClaims: [claim('v1', 'Another unsourced allegation.', '')] });
+    const none = buildCardView({ card: risk, company: bare, metrics: [], viceClaims: [claim('v1', 'Another unsourced allegation.', '')] });
     expect(drawn(none)).toBe('');
     // One sourced claim: that claim, and not the unsourced summary or points after it.
-    const one = buildCardView({ card: risk, company, metrics: [], viceClaims: [claim('v2', 'A regulator opened a documented inquiry.', 'https://regulator.example.gov/filing')] });
+    const one = buildCardView({ card: risk, company: bare, metrics: [], viceClaims: [claim('v2', 'A regulator opened a documented inquiry.', 'https://regulator.example.gov/filing')] });
     expect(drawn(one)).toContain('A regulator opened a documented inquiry.');
     expect(drawn(one)).not.toMatch(/defrauded|guilty|unsourced/i);
   });
