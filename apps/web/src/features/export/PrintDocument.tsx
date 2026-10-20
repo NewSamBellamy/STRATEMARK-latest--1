@@ -5,6 +5,7 @@
  * "Save as PDF" always produces this layout regardless of the page the user
  * was on. Styling lives in print.css.
  */
+import type { ReactNode } from 'react';
 import { SafeMarkdown } from '@/components/ResearchMarkdown';
 import { isRedirectCitation, publisherOf, usableCitations, type ThreadMessage } from '@mi/contracts';
 import { Logo } from '@/features/card/Logo';
@@ -164,56 +165,82 @@ function SignalList({ title, blocks }: { title: string; blocks: readonly SignalB
   );
 }
 
+/** One printed row of a running-head table: a block that may break across pages between rows. */
+function Row({ children, className }: { children: ReactNode; className?: string }) {
+  return <tr><td className={className}>{children}</td></tr>;
+}
+
+/** Rule 9: an item the stored profile holds without a source says so, rather than looking sourced by sitting on a sourced page. */
+export const UNSOURCED_PROFILE_NOTE = 'From the stored company profile; no source was attached to this item.';
+function UnsourcedNote({ items }: { items: ReadonlyArray<{ sourced: boolean }> }) {
+  return items.some((i) => !i.sourced) ? <p className="sm-methods sm-unsourced">{UNSOURCED_PROFILE_NOTE}</p> : null;
+}
+
 function ProfileBlocks({ c }: { c: FullReportCompany }) {
   return (
     <>
       {c.overview.length > 0 && (
-        <div className="sm-block">
-          <h3 className="sm-h3">Overview</h3>
-          {c.overview.map((p) => <p key={p}>{p}</p>)}
-        </div>
+        <Row>
+          <div className="sm-block">
+            <h3 className="sm-h3">Overview</h3>
+            {c.overview.map((p) => <p key={p}>{p}</p>)}
+          </div>
+        </Row>
       )}
       {c.products.length > 0 && (
-        <div className="sm-block">
-          <h3 className="sm-h3">Products</h3>
-          <ul>{c.products.map((p) => <li key={p.name}><strong>{p.name}</strong>{p.description ? <> &mdash; {p.description}</> : null}</li>)}</ul>
-        </div>
+        <Row>
+          <div className="sm-block">
+            <h3 className="sm-h3">Products</h3>
+            <ul>{c.products.map((p) => <li key={p.name}><strong>{p.name}</strong>{p.description ? <> &mdash; {p.description}</> : null}</li>)}</ul>
+            <UnsourcedNote items={c.products} />
+          </div>
+        </Row>
       )}
       {c.leaders.length > 0 && (
-        <div className="sm-block">
-          <h3 className="sm-h3">Leadership</h3>
-          <ul className="sm-cols">{c.leaders.map((l) => <li key={`${l.name}-${l.role}`}><strong>{l.name}</strong>, {l.role}</li>)}</ul>
-        </div>
+        <Row>
+          <div className="sm-block">
+            <h3 className="sm-h3">Leadership</h3>
+            <ul className="sm-cols">{c.leaders.map((l) => <li key={`${l.name}-${l.role}`}><strong>{l.name}</strong>, {l.role}</li>)}</ul>
+            <UnsourcedNote items={c.leaders} />
+          </div>
+        </Row>
       )}
       {c.timeline.length > 0 && (
-        <div className="sm-block">
-          <h3 className="sm-h3">History</h3>
-          <ul className="sm-timeline">{c.timeline.map((e) => <li key={`${e.date}-${e.title}`}><span className="sm-when">{e.date}</span> {e.title}</li>)}</ul>
-        </div>
+        <Row>
+          <div className="sm-block">
+            <h3 className="sm-h3">History</h3>
+            <ul className="sm-timeline">{c.timeline.map((e) => <li key={`${e.date}-${e.title}`}><span className="sm-when">{e.date}</span> {e.title}</li>)}</ul>
+            <UnsourcedNote items={c.timeline} />
+          </div>
+        </Row>
       )}
       {c.news.length > 0 && (
-        <div className="sm-block">
-          <h3 className="sm-h3">Recent news</h3>
-          <ul>{c.news.map((n) => {
-            const by = [n.publisher, n.date].filter(Boolean).join(', ');
-            return <li key={n.url}>{n.title}{by ? <span className="sm-muted"> ({by})</span> : null}</li>;
-          })}</ul>
-        </div>
+        <Row>
+          <div className="sm-block">
+            <h3 className="sm-h3">Recent news</h3>
+            <ul>{c.news.map((n) => {
+              const by = [n.publisher, n.date].filter(Boolean).join(', ');
+              return <li key={n.url}>{n.title}{by ? <span className="sm-muted"> ({by})</span> : null}</li>;
+            })}</ul>
+          </div>
+        </Row>
       )}
       {(c.risks.length > 0 || c.culture) && (
-        <div className="sm-block">
-          <h3 className="sm-h3">Risks and culture</h3>
-          {c.risks.length > 0 && (
-            <ul>{c.risks.map((r) => <li key={r.text}>{r.text}<span className="sm-muted"> ({r.source.title})</span></li>)}</ul>
-          )}
-          {c.culture && (
-            <p>
-              <strong>Culture.</strong> {c.culture.note}
-              {c.culture.sources.length > 0 ? <span className="sm-muted"> ({[...new Set(c.culture.sources.map((s) => s.title))].join(', ')})</span> : null}
-            </p>
-          )}
-          {c.risks.length > 0 && <p className="sm-methods">Each risk is attributed to the source that reports it and is not asserted as established fact.</p>}
-        </div>
+        <Row>
+          <div className="sm-block">
+            <h3 className="sm-h3">Risks and culture</h3>
+            {c.risks.length > 0 && (
+              <ul>{c.risks.map((r) => <li key={r.text}>{r.text}<span className="sm-muted"> ({r.source.title})</span></li>)}</ul>
+            )}
+            {c.culture && (
+              <p>
+                <strong>Culture.</strong> {c.culture.note}
+                {c.culture.sources.length > 0 ? <span className="sm-muted"> ({[...new Set(c.culture.sources.map((s) => s.title))].join(', ')})</span> : null}
+              </p>
+            )}
+            {c.risks.length > 0 && <p className="sm-methods">Each risk is attributed to the source that reports it and is not asserted as established fact.</p>}
+          </div>
+        </Row>
       )}
     </>
   );
@@ -221,7 +248,8 @@ function ProfileBlocks({ c }: { c: FullReportCompany }) {
 
 function MarketReportBody({ model }: { model: FullReportModel }) {
   const n = model.companies.length;
-  const hasSignals = model.barriers.length > 0 || model.insights.length > 0 || model.companies.some((c) => c.risks.length > 0 || c.culture);
+  // Exactly what the section prints: risks and culture notes print inside each company's profile, not here.
+  const hasSignals = model.marketSignalCount > 0;
   return (
     <>
       <Cover
@@ -229,7 +257,7 @@ function MarketReportBody({ model }: { model: FullReportModel }) {
         title={model.title}
         meta={[
           model.dateText,
-          `${n} ${n === 1 ? 'company' : 'companies'}${model.signalCount > 0 ? ` · ${model.signalCount} market signals` : ''}`,
+          `${n} ${n === 1 ? 'company' : 'companies'}${model.marketSignalCount > 0 ? ` · ${model.marketSignalCount} market signals` : ''}`,
           `${model.figureCount} sourced figures · ${model.unknownCount} marked Unknown`,
         ]}
       />
@@ -238,7 +266,7 @@ function MarketReportBody({ model }: { model: FullReportModel }) {
         <h2 className="sm-h2">Contents</h2>
         <ol>
           <li><a href="#sm-glance"><span className="sm-toc-n">&middot;</span><span className="sm-toc-name">The market at a glance</span><span className="sm-toc-meta" /></a></li>
-          {hasSignals && <li><a href="#sm-signals"><span className="sm-toc-n">&middot;</span><span className="sm-toc-name">Market signals</span><span className="sm-toc-meta">barriers, insights, risks, culture</span></a></li>}
+          {hasSignals && <li><a href="#sm-signals"><span className="sm-toc-n">&middot;</span><span className="sm-toc-name">Market signals</span><span className="sm-toc-meta">barriers and insights</span></a></li>}
           {model.companies.map((c, i) => (
             <li key={c.id}>
               <a href={`#sm-co-${c.id}`}>
@@ -271,24 +299,38 @@ function MarketReportBody({ model }: { model: FullReportModel }) {
 
       {hasSignals && (
         <section id="sm-signals" className="sm-signals">
-          <h2 className="sm-h2">Market signals</h2>
-          <SignalList title="Barriers to entry" blocks={model.barriers} />
-          <SignalList title="Insights" blocks={model.insights} />
+          {/* A running head: the heading repeats on every printed page of the section. A table, not a <header>, which print styles hide. */}
+          <table className="sm-run">
+            <thead><tr><th><h2 className="sm-h2">Market signals</h2></th></tr></thead>
+            <tbody>
+              <Row><SignalList title="Barriers to entry" blocks={model.barriers} /></Row>
+              <Row><SignalList title="Insights" blocks={model.insights} /></Row>
+            </tbody>
+          </table>
         </section>
       )}
 
       {model.companies.map((c, i) => (
         <section key={c.id} id={`sm-co-${c.id}`} className="sm-company sm-profile">
-          <div className="sm-company-head">
-            <Logo name={c.name} website={c.website} logoUrl={c.logoUrl} className="sm-logo" />
-            <div>
-              <h2 className="sm-h2"><span className="sm-h2-n">{String(i + 1).padStart(2, '0')}</span>{c.name}</h2>
-              <p className="sm-sub">{[c.hq, c.ownership, c.founded ? `Founded ${c.founded}` : null, c.role].filter(Boolean).join(' · ')}</p>
-            </div>
-          </div>
-          {c.oneLiner && <p className="sm-lede">{c.oneLiner}</p>}
-          <ProfileBlocks c={c} />
-
+          {/* A running head: the company heading is the table head, so it repeats on every printed page of the profile. */}
+          <table className="sm-run">
+            <thead>
+              <tr>
+                <th>
+                  <div className="sm-company-head">
+                    <Logo name={c.name} website={c.website} logoUrl={c.logoUrl} className="sm-logo" />
+                    <div>
+                      <h2 className="sm-h2"><span className="sm-h2-n">{String(i + 1).padStart(2, '0')}</span>{c.name}</h2>
+                      <p className="sm-sub">{[c.hq, c.ownership, c.founded ? `Founded ${c.founded}` : null, c.role].filter(Boolean).join(' · ')}</p>
+                    </div>
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {c.oneLiner && <Row><p className="sm-lede">{c.oneLiner}</p></Row>}
+              <ProfileBlocks c={c} />
+              <Row>
           <div className="sm-block">
             <h3 className="sm-h3">Figures</h3>
             <table className="sm-table">
@@ -319,6 +361,9 @@ function MarketReportBody({ model }: { model: FullReportModel }) {
               <p className="sm-methods">{c.rows.filter((r) => r.note && !r.unknown).map((r) => `${r.label}: ${r.note}`).join(' · ')}</p>
             )}
           </div>
+              </Row>
+            </tbody>
+          </table>
         </section>
       ))}
     </>
@@ -698,7 +743,7 @@ function TranscriptBody({ job }: { job: Extract<PrintJob, { kind: 'transcript' }
 
 export function PrintDocument({ job }: { job: PrintJob }) {
   return (
-    <div className="sm-print-doc" aria-hidden>
+    <div className={job.kind === 'personReport' || job.kind === 'productReport' ? 'sm-print-doc sm-rowheads' : 'sm-print-doc'} aria-hidden>
       {job.kind === 'marketReport' ? <MarketReportBody model={job.model} /> : job.kind === 'report' ? <ReportBody model={job.model} /> : job.kind === 'topicReport' ? <TopicReportBody model={job.model} /> : job.kind === 'dailyReport' ? <DailyReportBody model={job.model} /> : job.kind === 'personReport' ? <PersonReportBody model={job.model} /> : job.kind === 'productReport' ? <ProductReportBody model={job.model} /> : <TranscriptBody job={job} />}
     </div>
   );

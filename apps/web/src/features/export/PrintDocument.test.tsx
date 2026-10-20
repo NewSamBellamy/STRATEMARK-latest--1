@@ -48,4 +48,61 @@ describe('the printed market report', () => {
     // A date with no year goes last rather than first.
     expect(dateKey('Today')).toBe('9999-0');
   });
+  it('prints no Market signals heading, and counts none on the cover, when every signal card is unsourced', async () => {
+    const { market, cards: stored, tabs } = await sampleDeck();
+    // Drop every citation: nothing a signal section could print is attributable.
+    const bare = stored.map((c) => ['barrier', 'insight'].includes(c.card.cardType) ? { ...c, card: { ...c.card, citations: [] } } : c);
+    const model = buildFullReport({ title: market.name, cards: bare, tabs });
+    expect(model.marketSignalCount).toBe(0);
+    const { container } = render(<PrintDocument job={{ kind: 'marketReport', model }} />);
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('Market signals');
+    expect(container.querySelector('#sm-signals')).toBeNull();
+    expect(text).not.toMatch(/\d+ market signals/);
+  });
+
+  it('counts on the cover, and lists in the contents, exactly the signals the section prints', async () => {
+    const { market, cards: stored, tabs } = await sampleDeck();
+    const cards = stored.map((c, i) => ['barrier', 'insight'].includes(c.card.cardType)
+      ? { ...c, card: { ...c.card, citations: i % 2 === 0 ? [{ title: 'reuters.com', url: `https://reuters.com/${c.card.id}` }] : [] } } : c);
+    const model = buildFullReport({ title: market.name, cards, tabs });
+    const printed = model.barriers.length + model.insights.length;
+    expect(printed).toBeGreaterThan(0);
+    const { container } = render(<PrintDocument job={{ kind: 'marketReport', model }} />);
+    expect(container.querySelectorAll('#sm-signals .sm-signal')).toHaveLength(printed);
+    expect(container.querySelector('.sm-cover-meta')?.textContent).toContain(`${printed} market signals`);
+  });
+
+  it('repeats a running head with the company name through every company profile and the signal section', async () => {
+    const { market, cards: stored, tabs } = await sampleDeck();
+    const cards = stored.map((c) => c.card.cardType === 'barrier'
+      ? { ...c, card: { ...c.card, citations: [{ title: 'reuters.com', url: `https://reuters.com/${c.card.id}` }] } } : c);
+    const model = buildFullReport({ title: market.name, cards, tabs });
+    const { container } = render(<PrintDocument job={{ kind: 'marketReport', model }} />);
+    const profiles = [...container.querySelectorAll('.sm-profile')];
+    expect(profiles).toHaveLength(model.companies.length);
+    profiles.forEach((p, i) => {
+      expect(p.querySelector('table.sm-run > thead .sm-company-head h2')?.textContent).toContain(model.companies[i]!.name);
+    });
+    expect(container.querySelector('#sm-signals table.sm-run > thead')?.textContent).toBe('Market signals');
+    expect(container.querySelectorAll('header, aside')).toHaveLength(0);
+  });
+
+  it('labels history, products and leaders that carry no source, and only those', async () => {
+    const { market, cards, tabs } = await sampleDeck();
+    const model = buildFullReport({ title: market.name, cards, tabs });
+    const NOTE = 'From the stored company profile; no source was attached to this item.';
+    const withHistory = model.companies.filter((c) => c.timeline.length > 0).length;
+    const { container, unmount } = render(<PrintDocument job={{ kind: 'marketReport', model }} />);
+    expect(withHistory).toBeGreaterThan(0);
+    const labelled = (blockTitle: string) => [...container.querySelectorAll('.sm-block')].filter((b) => b.querySelector('.sm-h3')?.textContent === blockTitle && (b.textContent ?? '').includes(NOTE)).length;
+    expect(labelled('History')).toBe(withHistory);
+    expect(labelled('Products')).toBe(model.companies.filter((c) => c.products.length > 0).length);
+    expect(labelled('Overview')).toBe(0);
+    unmount();
+    // A block whose every item is sourced carries no label.
+    const sourced = { ...model, companies: model.companies.map((c) => ({ ...c, products: c.products.map((p) => ({ ...p, sourced: true })), leaders: c.leaders.map((l) => ({ ...l, sourced: true })), timeline: c.timeline.map((t) => ({ ...t, sourced: true })) })) };
+    const again = render(<PrintDocument job={{ kind: 'marketReport', model: sourced }} />);
+    expect(again.container.textContent ?? '').not.toContain(NOTE);
+  });
 });

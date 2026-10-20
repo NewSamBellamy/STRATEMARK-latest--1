@@ -61,9 +61,10 @@ export interface FullReportCompany extends ReportCompany {
   overview: string[];
   /** The four strongest sourced figures, as the card face shows them ("Not found yet" slots left out). */
   keyFigures: Array<{ label: string; display: string }>;
-  products: Array<{ name: string; description: string | null }>;
-  leaders: Array<{ name: string; role: string }>;
-  timeline: Array<{ date: string; title: string }>;
+  /** `sourced` is false when the stored item carries no source of its own (a product line, a history event). */
+  products: Array<{ name: string; description: string | null; sourced: boolean }>;
+  leaders: Array<{ name: string; role: string; sourced: boolean }>;
+  timeline: Array<{ date: string; title: string; sourced: boolean }>;
   news: Array<{ title: string; publisher: string | null; date: string | null; url: string }>;
   risks: Array<{ text: string; source: ReportSource }>;
   /** How many risk (vice) cards the printed risks come from: cards, not claims. */
@@ -77,8 +78,10 @@ export interface FullReportModel extends Omit<ReportModel, 'companies'> {
   companies: FullReportCompany[];
   barriers: SignalBlock[];
   insights: SignalBlock[];
-  /** How many signal CARDS the report prints: barriers, insights, risk cards with a printed risk, culture notes. */
+  /** How many signal cards the whole report prints, counting the risks and culture notes that sit inside company profiles. The "Market signals" section itself prints only barriers and insights: see marketSignalCount. */
   signalCount: number;
+  /** What the "Market signals" section prints: the barriers and insights with a usable source. */
+  marketSignalCount: number;
   /** True when no company has anything beyond its figures: the report is then the short form. */
   thin: boolean;
 }
@@ -144,11 +147,11 @@ function profileOf(card: CardWithCompany, tabs: StoredTabs, base: ReportCompany,
   const leaders = (team?.nodes ?? [])
     .filter((n) => n.name.trim() && n.role.trim())
     .sort((a, b) => Number(b.group === 'exec') - Number(a.group === 'exec'))
-    .slice(0, 8).map((n) => ({ name: n.name.trim(), role: n.role.trim() }));
+    .slice(0, 8).map((n) => ({ name: n.name.trim(), role: n.role.trim(), sourced: usableCitations(n.sourceUrl ? [{ url: n.sourceUrl, title: '' }] : []).length > 0 }));
 
   // History events carry no source of their own, so one that states a money or headcount figure is left out.
   const events = [...(history?.timeline ?? [])].filter((e) => e.date && e.title && !hasProseFigure(e.title)).sort((a, b) => dateKey(a.date).localeCompare(dateKey(b.date)));
-  const timeline = (events.length > 8 ? [...events.slice(0, 2), ...events.slice(-6)] : events).map((e) => ({ date: e.date, title: e.title.trim() }));
+  const timeline = (events.length > 8 ? [...events.slice(0, 2), ...events.slice(-6)] : events).map((e) => ({ date: e.date, title: e.title.trim(), sourced: false }));
 
   const news = (intel?.items ?? []).filter((i) => !i.stale && i.title.trim())
     .sort((a, b) => (b.publishedDate ?? '').localeCompare(a.publishedDate ?? '')).slice(0, 5)
@@ -162,7 +165,7 @@ function profileOf(card: CardWithCompany, tabs: StoredTabs, base: ReportCompany,
     overview: overviewParagraphs(overview?.markdown),
     keyFigures: view.faceMetrics.filter((m) => m.metric?.value != null || m.metric?.reportedBand != null).map((m) => ({ label: m.label, display: m.display })),
     products: (products?.products ?? []).filter((p) => p.name.trim()).slice(0, 8)
-      .map((p) => ({ name: p.name.trim(), description: fitFaceLine(withoutProseFigures(p.description), 200) })),
+      .map((p) => ({ name: p.name.trim(), description: fitFaceLine(withoutProseFigures(p.description), 200), sourced: false })),
     leaders,
     timeline,
     news,
@@ -218,6 +221,7 @@ export function buildFullReport(args: {
     companies: profiles,
     barriers,
     insights,
+    marketSignalCount: barriers.length + insights.length,
     signalCount: barriers.length + insights.length + riskCount + cultureCount,
     thin: profiles.every((c) => c.overview.length === 0 && c.products.length === 0 && c.leaders.length === 0 && c.timeline.length === 0 && c.news.length === 0),
   };

@@ -116,7 +116,8 @@
   .sm-portrait { margin: 0 0 6mm; width: 52mm; }
   .sm-portrait img { display: block; width: 52mm; height: 52mm; object-fit: cover; border-radius: 3mm; border: 1px solid #dce8e5; }
   .sm-portrait figcaption { margin-top: 1mm; font-size: 7pt; color: #68716f; }
-  .sm-table th { width: 32mm; text-align: left; font-size: 8pt; letter-spacing: 0.1em; text-transform: uppercase; color: #68716f; border-bottom: 1px solid #dce8e5; vertical-align: top; }
+  /* Row-header tables belong to the person and product reports only: unscoped, this overrode every other table's header rule. */
+  .sm-rowheads .sm-table th { width: 32mm; text-align: left; font-size: 8pt; letter-spacing: 0.1em; text-transform: uppercase; color: #68716f; border-bottom: 1px solid #dce8e5; vertical-align: top; }
   .sm-quote { margin: 5mm 0 0; padding: 0 0 0 4mm; border-left: 2px solid #0f766e; font-size: 10pt; color: #3d4543; break-inside: avoid; }
   .sm-quote p { margin: 0 0 1.5mm; }
   .sm-quote cite { display: block; font-style: normal; font-size: 7.5pt; color: #68716f; word-break: break-all; }
@@ -142,5 +143,16 @@
   .sm-cols { columns: 2; column-gap: 8mm; }
   .sm-cols li { break-inside: avoid; }
   .sm-timeline { list-style: none !important; padding-left: 0 !important; }
-  .sm-when { display: inline-block; min-width: 18mm; color: #0f766e; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .sm-timeline li { display: flex; align-items: baseline; gap: 2.5mm; }
+  /* The date column sizes to its content, never narrower than 18mm and never wider than 34mm; a longer date wraps. */
+  .sm-when { flex: 0 1 auto; min-width: 18mm; max-width: 34mm; color: #0f766e; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .sm-unsourced { margin-top: 1.5mm; }
+
+  /* Running head: a table whose <thead> holds the section heading, which Chromium repeats on every printed page.
+     Rows may break between blocks; figures and table rows keep their own break-inside: avoid. */
+  .sm-run { width: 100%; border-collapse: collapse; }
+  .sm-run > thead { display: table-header-group; }
+  .sm-run > thead > tr > th { padding: 0 0 3mm; text-align: left; font-weight: inherit; font-size: inherit; letter-spacing: normal; text-transform: none; color: inherit; border: 0; break-after: avoid; }
+  .sm-run > tbody > tr > td { padding: 0; vertical-align: top; }
+  .sm-run .sm-h2, .sm-run .sm-h3 { break-after: avoid; }
 }
