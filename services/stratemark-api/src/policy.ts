@@ -152,16 +152,31 @@ export function rollHistory(history: readonly DaySummary[], finished: LedgerDay,
 
 export type ReserveResult = { ok: true; ledger: LedgerDay } | { ok: false; reason: 'global' | 'visitor'; ledger: LedgerDay };
 
+/**
+ * What a visitor has spent and holds today. Only an entry of the visitor's own counts: "constructor", "toString" and
+ * "__proto__" are on every plain object through Object.prototype, so reading them straight off the ledger returned a
+ * function (and `in` said the visitor was known), and the per-visitor cap never applied to a visitor of that name.
+ */
+function spentBy(visitors: Record<string, number>, ip: string): number {
+  return Object.prototype.hasOwnProperty.call(visitors, ip) ? visitors[ip]! : 0;
+}
+
+/** A copy of the ledger's visitors with this one's entry set. Built with fromEntries, which defines own properties, so "__proto__" is an entry like any other. */
+function withVisitor(visitors: Record<string, number>, ip: string, value: number): Record<string, number> {
+  return Object.fromEntries([...Object.entries(visitors).filter(([key]) => key !== ip), [ip, value]]);
+}
+
 /** Pure ledger step: may this call proceed under the global and per-visitor daily budgets? */
 export function tryReserve(ledger: LedgerDay, day: string, ip: string, amount: number, budgetMicros: number, visitorBudgetMicros: number): ReserveResult {
   const current: LedgerDay = ledger.day === day ? ledger : { day, spentMicros: 0, heldMicros: 0, visitors: {} };
   if (current.spentMicros + current.heldMicros + amount > budgetMicros) return { ok: false, reason: 'global', ledger: current };
-  const mine = current.visitors[ip] ?? 0;
-  if (!(ip in current.visitors) && Object.keys(current.visitors).length >= MAX_LEDGER_VISITORS) return { ok: false, reason: 'global', ledger: current };
+  const mine = spentBy(current.visitors, ip);
+  const known = Object.prototype.hasOwnProperty.call(current.visitors, ip);
+  if (!known && Object.keys(current.visitors).length >= MAX_LEDGER_VISITORS) return { ok: false, reason: 'global', ledger: current };
   if (mine + amount > visitorBudgetMicros) return { ok: false, reason: 'visitor', ledger: current };
   return {
     ok: true,
-    ledger: { ...current, heldMicros: current.heldMicros + amount, visitors: { ...current.visitors, [ip]: mine + amount } },
+    ledger: { ...current, heldMicros: current.heldMicros + amount, visitors: withVisitor(current.visitors, ip, mine + amount) },
   };
 }
 
@@ -172,16 +187,16 @@ export function settle(ledger: LedgerDay, day: string, ip: string, held: number,
     // charged to the day that has begun, added to that day's ledger. (It used to REPLACE the ledger with one holding only
     // this call, wiping the day's spend and visitors: a call held open across midnight bought a second budget.)
     if (ledger.day > day) {
-      return { ...ledger, spentMicros: ledger.spentMicros + actual, visitors: { ...ledger.visitors, [ip]: (ledger.visitors[ip] ?? 0) + actual } };
+      return { ...ledger, spentMicros: ledger.spentMicros + actual, visitors: withVisitor(ledger.visitors, ip, spentBy(ledger.visitors, ip) + actual) };
     }
-    return { day, spentMicros: actual, heldMicros: 0, visitors: { [ip]: actual } };
+    return { day, spentMicros: actual, heldMicros: 0, visitors: withVisitor({}, ip, actual) };
   }
-  const mine = Math.max(0, (ledger.visitors[ip] ?? 0) - held + actual);
+  const mine = Math.max(0, spentBy(ledger.visitors, ip) - held + actual);
   return {
     ...ledger,
     spentMicros: ledger.spentMicros + actual,
     heldMicros: Math.max(0, ledger.heldMicros - held),
-    visitors: { ...ledger.visitors, [ip]: mine },
+    visitors: withVisitor(ledger.visitors, ip, mine),
   };
 }
 

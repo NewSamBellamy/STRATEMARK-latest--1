@@ -152,3 +152,24 @@ describe('spend history', () => {
     expect(JSON.stringify(h)).not.toContain('1.1.1.1');
   });
 });
+
+describe('visitor names that Object.prototype also has', () => {
+  const day = '2026-10-10';
+  const empty = (): LedgerDay => ({ day, spentMicros: 0, heldMicros: 0, visitors: {} });
+
+  it('are held to the per-visitor cap like any other visitor (they used to read a function off the ledger and never meet it)', () => {
+    for (const name of ['constructor', 'toString', 'hasOwnProperty', 'valueOf', '__proto__']) {
+      const first = tryReserve(empty(), day, name, 40, 1_000, 50);
+      expect(first.ok, name).toBe(true);
+      expect(Object.keys(first.ledger.visitors), name).toEqual([name]);
+      expect(Object.values(first.ledger.visitors), name).toEqual([40]);
+      expect(tryReserve(first.ledger, day, name, 20, 1_000, 50), name).toMatchObject({ ok: false, reason: 'visitor' });
+      const settled = settle(first.ledger, day, name, 40, 40);
+      expect(tryReserve(settled, day, name, 20, 1_000, 50), name).toMatchObject({ ok: false, reason: 'visitor' });
+    }
+  });
+
+  it('a first reservation larger than the cap is refused outright', () => {
+    for (const name of ['constructor', '__proto__']) expect(tryReserve(empty(), day, name, 60, 1_000, 50), name).toMatchObject({ ok: false, reason: 'visitor' });
+  });
+});

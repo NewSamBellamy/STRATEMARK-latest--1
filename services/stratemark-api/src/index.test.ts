@@ -268,3 +268,12 @@ describe('the hosted search relay counts visitors the way every other route does
     expect(statuses.filter((status) => status === 402)).toHaveLength(4);
   });
 });
+
+describe('a visitor whose address is a name every object has', () => {
+  it('is held to the per-visitor cap through the real handler', async () => {
+    const { env } = makeEnv({ DAILY_VISITOR_BUDGET_USD: '0.27' }); // one grounded Flash-Lite call is held at about $0.256
+    const statuses: number[] = [];
+    for (const ip of ['constructor', 'constructor', '__proto__', '__proto__']) statuses.push((await call(env, GROUNDED, ip)).status);
+    expect(statuses).toEqual([200, 402, 200, 402]);
+  });
+});
