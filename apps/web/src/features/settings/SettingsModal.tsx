@@ -464,7 +464,7 @@ function DataSafetyPanel() {
       <div>
         <h2 className="font-display text-lg text-content">Data safety</h2>
         <p className="mt-1 text-sm text-muted">
-          Your research is saved only in this browser. We don’t keep a copy and can’t see it. The export is one file with every deck, card, sourced figure, report and AI conversation, and it imports into the open-source version of Stratemark when it launches at {OPEN_SOURCE_LAUNCH}. Clearing browser data deletes your research, so export a copy now and then. Generated cover images aren’t included; they’re recreated when needed.
+          Your research is saved only in this browser. We don’t keep a copy and can’t see it. The export is one file with every deck, card, sourced figure, report and AI conversation, and it imports into the open-source version of Stratemark when it launches on {OPEN_SOURCE_LAUNCH}. Clearing browser data deletes your research, so export a copy now and then. Generated cover images aren’t included; they’re recreated when needed.
         </p>
       </div>
 
