@@ -285,7 +285,8 @@ async function searchRelay(request: Request, env: Env, origin: string): Promise<
   }
   const hostedKey = cleanKey(env.SERPER_API_KEY);
   if (!hostedKey) return json({ error: 'Hosted search is not configured.' }, 503, origin);
-  const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
+  // The same visitor as every other route: an IPv4 address, or the /64 an IPv6 address belongs to (it used to be the raw address here).
+  const ip = visitorAddress(request.headers.get('cf-connecting-ip'));
   const day = new Date().toISOString().slice(0, 10);
   const caps = budgets(env);
   const counter = ledger(env);

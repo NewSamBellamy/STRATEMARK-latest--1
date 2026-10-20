@@ -17,6 +17,7 @@ vi.mock('cloudflare:workers', () => ({
 const { default: worker } = await import('./index');
 const { BudgetCounter } = await import('./budget');
 const { ReaderQuota } = await import('./reader-quota');
+const { ShareVault, ShareQuota } = await import('./share-vault');
 const { callCostMicros } = await import('./policy');
 
 const APP = 'https://app.example';
@@ -26,7 +27,19 @@ const DAY = new Date().toISOString().slice(0, 10);
 
 function memoryStorage() {
   const map = new Map<string, unknown>();
-  return { get: async (key: string) => map.get(key), put: async (key: string, value: unknown) => { map.set(key, value); }, setAlarm: async () => undefined, deleteAll: async () => map.clear() };
+  const counters = { gets: 0, puts: 0 };
+  return {
+    map, counters,
+    get: async (keys: string | string[]) => {
+      counters.gets += 1;
+      return Array.isArray(keys) ? new Map(keys.filter((key) => map.has(key)).map((key) => [key, map.get(key)])) : map.get(keys);
+    },
+    put: async (a: string | Record<string, unknown>, b?: unknown) => {
+      counters.puts += 1;
+      for (const [key, value] of Object.entries(typeof a === 'string' ? { [a]: b } : a)) map.set(key, structuredClone(value));
+    },
+    setAlarm: async () => undefined, deleteAlarm: async () => undefined, deleteAll: async () => map.clear(),
+  };
 }
 
 /** A Durable Object answers one call at a time (its input gate); a plain object does not, so this queues the calls. */
@@ -46,18 +59,26 @@ function oneAtATime<T extends object>(target: T): T {
 }
 
 function makeEnv(vars: Record<string, string> = {}) {
-  const budget = oneAtATime(new BudgetCounter({ storage: memoryStorage() } as never, {} as never));
+  const budgetStorage = memoryStorage();
+  const budget = oneAtATime(new BudgetCounter({ storage: budgetStorage } as never, {} as never));
   const readers = new Map<string, InstanceType<typeof ReaderQuota>>();
+  const vaults = new Map<string, unknown>();
+  const shareQuota = oneAtATime(new ShareQuota({ storage: memoryStorage() } as never, {} as never));
   const env = {
-    GEMINI_API_KEY: KEY, ALLOWED_ORIGINS: APP, ALLOW_LOCALHOST: 'false',
+    GEMINI_API_KEY: KEY, SERPER_API_KEY: 'serper-placeholder-key', ALLOWED_ORIGINS: APP, ALLOW_LOCALHOST: 'false',
     BUDGET: { idFromName: () => 'global', get: () => budget },
+    SHARE_QUOTA: { idFromName: () => 'global', get: () => shareQuota },
+    SHARES: {
+      idFromName: (name: string) => name,
+      get: (name: string) => { if (!vaults.has(name)) vaults.set(name, oneAtATime(new ShareVault({ storage: memoryStorage() } as never, {} as never))); return vaults.get(name); },
+    },
     READER_QUOTA: {
       idFromName: (name: string) => name,
       get: (name: string) => { if (!readers.has(name)) readers.set(name, oneAtATime(new ReaderQuota({ storage: memoryStorage() } as never, {} as never))); return readers.get(name); },
     },
     ...vars,
   };
-  return { env: env as never, budget };
+  return { env: env as never, budget, budgetStorage, vaults };
 }
 
 const GROUNDED = { contents: [{ parts: [{ text: 'research the meal kit market' }] }], tools: [{ google_search: {} }], generationConfig: { temperature: 0.2 } };
@@ -218,5 +239,32 @@ describe('the readers are limited per visitor', () => {
     expect((await image({ referer: `${APP}/#/markets/x/deck` })).status).toBe(200);
     expect((await image({ referer: 'https://evil.example/page' })).status).toBe(403);
     expect((await image({})).status).toBe(403);
+  });
+});
+
+describe('the hosted search relay counts visitors the way every other route does', () => {
+  const serper = async (url: string) => (String(url).includes('serper') ? new Response(JSON.stringify({ organic: [] }), { status: 200 }) : google.reply());
+  const search = (env: never, ip: string) => worker.fetch(new Request('https://worker.example/v1/search', {
+    method: 'POST', headers: { origin: APP, 'content-type': 'application/json', 'cf-connecting-ip': ip }, body: JSON.stringify({ provider: 'serper', query: 'meal kits' }),
+  }), env);
+
+  it('counts every address in one IPv6 /64 as one visitor (it used to count each address, so rotating addresses bought a fresh limit)', async () => {
+    const { env, budget } = makeEnv();
+    fetchMock.mockImplementation(serper);
+    for (let i = 0; i < 40; i += 1) expect((await search(env, `2001:db8:abcd:12:${i.toString(16)}::1`)).status).toBe(200);
+    expect((await budget.status(DAY)).visitors).toBe(1);
+    // A different /64 is a different visitor.
+    expect((await search(env, '2001:db8:abcd:99::1')).status).toBe(200);
+    expect((await budget.status(DAY)).visitors).toBe(2);
+  });
+
+  it('meets the per-visitor cap by /64 too: rotating through a /64 does not buy more searches', async () => {
+    // $0.01 a visitor is ten hosted searches at 1,000 micro-dollars each.
+    const { env } = makeEnv({ DAILY_VISITOR_BUDGET_USD: '0.01' });
+    fetchMock.mockImplementation(serper);
+    const statuses: number[] = [];
+    for (let i = 0; i < 14; i += 1) statuses.push((await search(env, `2001:db8:abcd:12:${i.toString(16)}::1`)).status);
+    expect(statuses.filter((status) => status === 200)).toHaveLength(10);
+    expect(statuses.filter((status) => status === 402)).toHaveLength(4);
   });
 });
