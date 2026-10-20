@@ -58,6 +58,11 @@ function fakeClient(withProviderSupport = true): LlmClient {
             sources: [{ chunkIndex: 0, url: citations[0]!.url, title: 'Market structure' }] },
           { supportIndex: claims.length + 1, text: 'Compute costs falling fast are shifting margins across providers this year.',
             sources: [{ chunkIndex: 1, url: citations[1]!.url, title: 'Market margins' }] },
+          // The sentences a company's risk findings are written from: a risk is stored only on a source the search attached to it.
+          { supportIndex: claims.length + 2, text: 'Gamma Media was named in a 2026 copyright lawsuit over user-uploaded models, court filings show.',
+            sources: [{ chunkIndex: 0, url: citations[0]!.url, title: 'Court coverage' }] },
+          { supportIndex: claims.length + 3, text: 'Beta LLC was sued over unpaid contractor wages in 2025, court records show.',
+            sources: [{ chunkIndex: 0, url: citations[0]!.url, title: 'Court coverage' }] },
         ] } } : {}),
     })),
     structure: (async (prompt: string, schema: ZodType<unknown>) => {
@@ -223,7 +228,7 @@ function fakeClient(withProviderSupport = true): LlmClient {
             },
             employees: { value: 30, confidence: 'verified', sourceIndex: 0, method: null },
           },
-          viceClaims: [{ text: 'Named in a 2026 copyright suit', sourceIndex: 0 }],
+          viceClaims: [{ text: 'Gamma Media was named in a 2026 copyright lawsuit over user-uploaded models.', sourceIndex: 0 }],
           cultureNote: null,
         };
       } else if (prompt.includes('Convert the research notes on "Beta LLC"')) {
@@ -244,7 +249,7 @@ function fakeClient(withProviderSupport = true): LlmClient {
             users: { value: 1_000, confidence: 'estimated', sourceIndex: 0, method: 'followers' },
           },
           viceClaims: [
-            { text: 'Sued in 2025', sourceIndex: 0 },
+            { text: 'Beta LLC was sued over unpaid contractor wages in 2025.', sourceIndex: 0 },
             { text: 'Unsourced rumor', sourceIndex: null }, // must be dropped
           ],
           cultureNote: null,
@@ -591,6 +596,25 @@ describe('resumable research (Slice B)', () => {
 });
 
 describe('GeminiRepository (fake client + in-memory store)', () => {
+  it('stores a risk found while researching a company on the page the search attributed it to, and reads it back through the same gate', async () => {
+    let snapshot: RepoSnapshot | null = null;
+    const store: ResearchStore = { read: () => snapshot, write: next => { snapshot = next; } };
+    const repo = new GeminiRepository({ apiKey: 'fixture', client: fakeClient(), coverage: testCoverage,
+      catalogMax: 3, catalogPasses: 0, store });
+    const { deck } = await repo.createResearchedDeck({ prompt: 'test market', region: 'CA' });
+    await repo.waitForBackgroundJobs();
+    const vice = (await repo.listCards(deck.id)).filter(entry => entry.card.cardType === 'vice');
+    expect(vice.map(entry => entry.company?.name).sort()).toEqual(['Beta LLC', 'Gamma Media']);
+    for (const entry of vice) {
+      // Stored with the page the search attributed the sentence to (never a number the model chose), and the reader returns it.
+      const stored = snapshot!.viceClaims.filter(claim => claim.cardId === entry.card.id);
+      expect(stored.map(claim => claim.sourceUrl)).toEqual(['https://tc.example/a']);
+      expect(await repo.getViceClaims(entry.card.id)).toEqual(stored);
+      expect((await repo.getCard(entry.card.id))!.viceClaims).toEqual(stored);
+      expect(entry.metrics).toEqual([]);
+    }
+  }, 20000);
+
   it('does not replace an older deck company identity when researching the same names again', async () => {
     let snapshot: RepoSnapshot | null = null;
     const store: ResearchStore = { read: () => snapshot, write: next => { snapshot = next; } };
