@@ -144,3 +144,41 @@ describe('keyless desktop browsing', () => {
     expect(start).not.toHaveBeenCalled();
   });
 });
+
+describe('the consistency audit judges what the card face shows', () => {
+  const run = async (ownership: unknown) => {
+    vi.useFakeTimers();
+    useResearchControl.setState({ paused: false });
+    const repository = new MockRepository({ seedSnapshot: sample as unknown as SeedSnapshot, latencyMs: 0 });
+    const cards = (await repository.listCards(sample.decks[0]!.id)).filter(c => c.company && c.card.cardType === 'company').slice(0, 1);
+    const base = cards[0]!.metrics[0]!;
+    const now = new Date().toISOString();
+    const row = (metricType: string, value: number) => ({
+      ...base, id: `fixture_${metricType}`, metricType, value, confidence: 'verified', capturedAt: now, lastVerifiedAt: now,
+      lastVerificationAttemptAt: now, staleAfterSeconds: null, passageSupport: null, reportedSupport: null, quotedSupport: null, methodNote: null,
+    });
+    // Revenue 1500x the valuation is a unit slip, unless the face withholds that valuation.
+    cards[0] = { ...cards[0]!, company: { ...cards[0]!.company!, ownership }, metrics: [row('arr', 300e9), row('valuation', 200e6)] } as never;
+    const verifyMetric = vi.fn().mockResolvedValue({ metric: row('arr', 300e9), changed: false, verdict: 'unverified', citations: [] });
+    const client = createQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => <RepositoryProvider repository={Object.assign(repository, { verifyMetric })}>
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    </RepositoryProvider>;
+    const { unmount } = renderHook(() => useLivingDeck(sample.decks[0]!.id, cards), { wrapper });
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    unmount(); client.clear();
+    return verifyMetric;
+  };
+
+  it('queues no paid check for an acquired company\'s valuation, which the face shows as Unknown', async () => {
+    const acquired = {
+      status: 'acquired', acquirer: 'PepsiCo', announcedOn: '2025-03-17', closedOn: '2025-05-27', price: { value: 200e6, currency: 'USD' },
+      citations: [{ url: 'https://www.pepsico.com/newsroom/press-releases/2025/pepsico-completes-acquisition-of-poppi', title: 'PepsiCo' }], confidence: 'verified',
+    };
+    expect(await run(acquired)).not.toHaveBeenCalled();
+  });
+
+  it('still queues the paid check when the same figures stand on the face', async () => {
+    expect(await run(null)).toHaveBeenCalled();
+  });
+});
