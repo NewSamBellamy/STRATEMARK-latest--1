@@ -297,3 +297,46 @@ describe('a refused hosted call is cheap for the ledger', () => {
     expect(budgetStorage.counters.puts).toBe(1);
   });
 });
+
+describe('the public /health route does not read the ledger on every hit', () => {
+  const health = (env: never) => worker.fetch(new Request('https://worker.example/health'), env);
+
+  it('reads it once for twenty hits, and still answers every field the launch preflight reads', async () => {
+    const { env, budgetStorage } = makeEnv();
+    await call(env, GROUNDED);
+    const getsBefore = budgetStorage.counters.gets;
+    let body: Record<string, unknown> = {};
+    for (let i = 0; i < 20; i += 1) {
+      const res = await health(env);
+      expect(res.status).toBe(200);
+      body = await res.json() as Record<string, unknown>;
+    }
+    // One read of the ledger and one of its history, for all twenty hits (it was two reads for each hit).
+    expect(budgetStorage.counters.gets - getsBefore).toBeLessThanOrEqual(2);
+    expect(body).toMatchObject({
+      ok: true, hostedResearch: true, keyLooksValid: true, budgetUsd: 100, visitorBudgetUsd: 20, visitorsToday: 1,
+    });
+    expect(Number(body.spentTodayUsd)).toBeGreaterThan(0);
+    expect(Array.isArray(body.last7Days)).toBe(true);
+  });
+
+  it('reads it again once the numbers are ten seconds old', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(`${DAY}T10:00:00.000Z`));
+      const { env, budgetStorage } = makeEnv();
+      await health(env);
+      const afterFirst = budgetStorage.counters.gets;
+      vi.setSystemTime(new Date(`${DAY}T10:00:09.000Z`));
+      await health(env);
+      expect(budgetStorage.counters.gets).toBe(afterFirst);
+      await call(env, GROUNDED);
+      vi.setSystemTime(new Date(`${DAY}T10:00:11.000Z`));
+      const fresh = await (await health(env)).json() as { spentTodayUsd: number; visitorsToday: number };
+      expect(fresh.visitorsToday).toBe(1);
+      expect(fresh.spentTodayUsd).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

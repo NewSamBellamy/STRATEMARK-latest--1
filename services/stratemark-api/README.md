@@ -15,7 +15,7 @@ share links people create.
 | `GET /v1/share/<id>` | a share's compressed research, readable by any origin once you hold the id |
 | `DELETE /v1/share/<id>` | stop sharing (needs the token from creation) |
 | `GET /s/<id>` and `GET /s/<id>/og.png` | the link people paste: preview tags and a hand-off to the viewer, and the preview picture |
-| `GET /health` | status, budget and keys (shape only, never the key) |
+| `GET /health` | status, budget and keys (shape only, never the key); the day's spend and visitor count are read at most once every 10 seconds per isolate |
 
 Everything except `GET /health`, `GET /s/...` and `GET /v1/share/<id>` requires a browser `Origin` on the
 allow-list (`ALLOWED_ORIGINS`); a picture shown by an `<img>` tag sends none, so for `GET /v1/image` the page's

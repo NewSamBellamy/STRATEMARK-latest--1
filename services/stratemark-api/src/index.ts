@@ -184,6 +184,24 @@ function ledger(env: Env) {
   return env.BUDGET.get(env.BUDGET.idFromName('global'));
 }
 
+/**
+ * /health is public and needs no Origin, and every hit used to read the whole ledger (up to 5,000 visitors) from the one
+ * object every hosted call goes through. The numbers it shows are now read once in HEALTH_CACHE_MS per isolate and shared by
+ * every hit in between; the launch preflight and the owner only need them to be recent. The isolate keeps the same `env`
+ * between requests, so the cache is keyed by the budget binding (and the UTC day) rather than held for ever.
+ */
+const HEALTH_CACHE_MS = 10_000;
+type LedgerStatus = Awaited<ReturnType<BudgetCounter['status']>>;
+let healthCache: { binding: unknown; day: string; at: number; status: LedgerStatus | null } | null = null;
+
+async function ledgerStatus(env: Env, day: string): Promise<LedgerStatus | null> {
+  const now = Date.now();
+  if (healthCache && healthCache.binding === env.BUDGET && healthCache.day === day && now - healthCache.at < HEALTH_CACHE_MS) return healthCache.status;
+  const status = await ledger(env).status(day).catch(() => null);
+  healthCache = { binding: env.BUDGET, day, at: now, status };
+  return status;
+}
+
 async function geminiProxy(request: Request, env: Env, model: string, origin: string): Promise<Response> {
   const key = cleanKey(env.GEMINI_API_KEY);
   if (!key) return json({ error: 'Hosted research is not configured.' }, 503, origin);
@@ -619,7 +637,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
       const shape = keyShape(env.GEMINI_API_KEY);
-      const status = await ledger(env).status(new Date().toISOString().slice(0, 10)).catch(() => null);
+      const status = await ledgerStatus(env, new Date().toISOString().slice(0, 10));
       return json({
         ok: true, hostedResearch: shape.present, keyLength: shape.length, keyLooksValid: shape.looksValid,
         budgetUsd: usd(budgets(env).budget), visitorBudgetUsd: usd(budgets(env).visitor),
