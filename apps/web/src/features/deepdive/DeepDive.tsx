@@ -36,6 +36,8 @@ import { Logo } from '@/features/card/Logo';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { ExportMenu } from '@/features/export/ExportMenu';
+import { ReportWizard } from '@/features/reports/ReportWizard';
+import { useCompanyReportRun } from '@/features/reports/useCompanyReportRun';
 import { splitFollowUps } from './followUps';
 import { AskOrb } from './AskOrb';
 import { CardThumbStrip } from './CardThumbs';
@@ -278,9 +280,9 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     queryFn: () => repo.listResearchThreads!(),
     enabled: attachOpen && typeof repo.listResearchThreads === 'function',
   });
-  const [savingReport, setSavingReport] = useState(false);
-  const [reportFocus, setReportFocus] = useState('');
-  const [showReportForm, setShowReportForm] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const runCompanyReport = useCompanyReportRun();
+  const reportCompanyName = useCompany(thread?.scope.companyId ?? undefined).data?.name ?? thread?.scope.subject ?? 'this company';
 
   // ── Layout preferences (persisted) ──
   const isDesktop = useIsDesktop();
@@ -347,8 +349,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
   const reset = () => {
     setThread(null);
     setError(null);
-    setShowReportForm(false);
-    setReportFocus('');
+    setWizardOpen(false);
     setDraft('');
     setPending(null);
     setFailed(null);
@@ -487,19 +488,18 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     void ask(q, scope, thread && thread.id !== 'oneshot' ? thread.id : undefined);
   };
 
+  // "Save this chat as a report": a company chat opens the report wizard with this conversation chosen;
+  // a deck-wide chat has no company sections to pick, so it is saved straight away.
   const saveReport = async () => {
     if (!repo.saveThreadAsReport || !thread || thread.id === 'oneshot') return;
-    setSavingReport(true);
+    if (thread.scope.companyId) { setWizardOpen(true); return; }
     setError(null);
     try {
-      const report = await repo.saveThreadAsReport(thread.id, reportFocus.trim() || null);
+      const report = await repo.saveThreadAsReport(thread.id, null);
       setThread({ ...thread, reportId: report.id });
-      setShowReportForm(false);
       void qc.invalidateQueries({ queryKey: ['reports'] });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSavingReport(false);
     }
   };
 
@@ -606,7 +606,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                 variant="icon"
                 transcript={{ title: thread.title ?? scopeLabel, scopeLabel, messages: thread.messages }}
                 report={canConverse && canSaveReport && !thread.reportId
-                  ? { label: 'Save this chat as a report', onClick: () => setShowReportForm(true) }
+                  ? { label: 'Save this chat as a report', onClick: () => void saveReport() }
                   : undefined}
               />
             )}
@@ -633,24 +633,26 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
         {/* In-context reference chips — shows exactly what the chat is anchored to. */}
         {scope && <ContextChips scope={scope} />}
 
-        {showReportForm && (
-          <div className="border-b border-border bg-surface-2 px-4 py-2.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted" htmlFor="report-focus">
-              Report focus
-            </label>
-            <div className="mt-1 flex gap-2">
-              <input
-                id="report-focus"
-                className="input flex-1 py-1.5 text-[13px]"
-                placeholder={thread?.title ?? 'e.g. who is winning enterprise'}
-                value={reportFocus}
-                onChange={(e) => setReportFocus(e.target.value)}
-              />
-              <button type="button" className="btn-primary px-2.5 py-1 text-[11px]" onClick={() => void saveReport()} disabled={savingReport}>
-                {savingReport ? 'Saving…' : 'Create'}
-              </button>
-            </div>
-          </div>
+        {wizardOpen && thread && thread.id !== 'oneshot' && thread.scope.companyId && (
+          <ReportWizard
+            open
+            onOpenChange={setWizardOpen}
+            companyId={thread.scope.companyId}
+            companyName={reportCompanyName}
+            cardId={thread.scope.cardIds?.length === 1 ? thread.scope.cardIds[0] : null}
+            deckId={thread.scope.deckId}
+            thread={thread}
+            onStart={(input) => {
+              const threadId = thread.id;
+              void runCompanyReport({
+                companyId: thread.scope.companyId as string,
+                companyName: reportCompanyName,
+                ...input,
+              }).then((reportId) => {
+                if (reportId) setThread((prev) => (prev && prev.id === threadId ? { ...prev, reportId } : prev));
+              });
+            }}
+          />
         )}
 
         {/* Conversation */}
