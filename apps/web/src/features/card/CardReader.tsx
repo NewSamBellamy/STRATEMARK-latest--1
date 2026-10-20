@@ -16,6 +16,7 @@ import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { CardStage } from './CardStage';
 import { SaveCardButton } from './GameCard';
 import { ViceDisclaimer } from './CardDisclaimer';
+import { SignalBriefBody, sourcedPoints, useSignalBrief } from './SignalFinding';
 import { buildCardView, faceFigureStatus, sourceUrl } from './card-view';
 import { printScoped } from '@/lib/print';
 import { useReadOnly } from '@/lib/readOnly';
@@ -92,6 +93,8 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
   const runCompanyReport = useCompanyReportRun();
   const canReport = useSupports('generateReport');
   const [fullFinding, setFullFinding] = useState(false);
+  const briefControls = useSignalBrief(card.id, view.signal);
+  const briefShown = briefControls.state.status === 'ready' && sourcedPoints(briefControls.state.brief).length > 0;
   const canRemove = useSupports('removeCard');
   const removeCard = useRemoveCard();
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -196,8 +199,12 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
           </section>}
 
           {view.signal && !fullFinding && <section className="card-inspector__signals" aria-label="Finding and sources">
-            {card.cardType === 'vice' && viceClaims.length > 0 ? <>
+            {briefShown ? <>
+              {card.cardType === 'vice' && <ViceDisclaimer />}
+              <SignalBriefBody controls={briefControls} />
+            </> : card.cardType === 'vice' && viceClaims.length > 0 ? <>
               <ViceDisclaimer />
+              <SignalBriefBody controls={briefControls} />
               <ul className="card-inspector__findings">
                 {viceClaims.slice(0, 2).map((claim) => <li key={claim.id}>
                   <p>{claim.claimText}</p>
@@ -207,6 +214,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                 </li>)}
               </ul>
             </> : <>
+              <SignalBriefBody controls={briefControls} />
               {previewPoints.slice(0, 2).length > 0 && <ul className="card-inspector__findings">
                 {previewPoints.slice(0, 2).map((point, i) => <li key={i}><p>{point}</p></li>)}
               </ul>}
@@ -239,7 +247,10 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                 onClick={() => setFullFinding(false)}>Back to overview</button>
             </div>
             {summary && <p className="mt-3 text-[13px] leading-relaxed text-content">{summary}</p>}
-            {findingPoints.length > 0 && <div className="mt-4">
+            {briefShown ? <div className="mt-4">
+              <p className="text-[9px] font-semibold uppercase tracking-widest text-muted">What the research shows</p>
+              <div className="mt-2"><SignalBriefBody controls={briefControls} /></div>
+            </div> : findingPoints.length > 0 && <div className="mt-4">
               <p className="text-[9px] font-semibold uppercase tracking-widest text-muted">What the research shows</p>
               <ul className="card-inspector__findings mt-2">
                 {findingPoints.map((point, index) => <li key={`${index}-${point}`}><p>{point}</p></li>)}
