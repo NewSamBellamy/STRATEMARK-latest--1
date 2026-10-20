@@ -28,7 +28,7 @@ import type { SharePayload } from '@/lib/share/codec';
 import { exportDeckPptx } from '@/features/reports/pptx';
 import type { PrintJob } from './PrintDocument';
 import { usePrintJob } from './usePrintJob';
-import { buildFullReport } from './fullReportModel';
+import { buildFullReport, type SignalBriefsInput } from './fullReportModel';
 import {
   buildReportModel,
   companiesFromCards,
@@ -134,7 +134,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
     setError(null);
     try {
       const snapshot = await repo.exportShareSnapshot({ deckId: deck.id });
-      print({ kind: 'marketReport', model: buildFullReport({ title: deck.title, cards: deck.cards, tabs: snapshot.dashboards }) }, fileTitle);
+      print({ kind: 'marketReport', model: buildFullReport({ title: deck.title, cards: deck.cards, tabs: snapshot.dashboards, signalBriefs: (snapshot as { signalBriefs?: SignalBriefsInput }).signalBriefs }) }, fileTitle);
     } catch {
       short();
     } finally {

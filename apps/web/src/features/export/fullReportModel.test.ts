@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MockRepository } from '@mi/mocks';
 import type { CardWithCompany } from '@mi/contracts';
+import { buildCardView } from '@/features/card/card-view';
 import { buildFullReport, hasProseFigure, overviewParagraphs, withoutProseFigures } from './fullReportModel';
 
 /** Gives every barrier and insight card a usable source (the sample deck's carry none). */
@@ -337,5 +338,153 @@ describe('prose figures the first recogniser let through', () => {
     expect(overview).toContain('industrial widgets');
     expect(overview).toContain('large retailers and carriers');
     for (const phrase of phrases) expect(overview).not.toContain(phrase);
+  });
+});
+
+// -- The report model for the redesigned PDF ----------------------------------------------------------------------------
+
+const cite = (id: string) => ({ title: 'reuters.com', url: `https://reuters.com/${id}` });
+const signalOf = (base: CardWithCompany, id: string, cardType: 'barrier' | 'insight' | 'culture', over: Record<string, unknown> = {}): CardWithCompany => ({
+  ...base,
+  company: null,
+  metrics: [],
+  card: { ...base.card, id, cardType, title: `Title ${id}`, summary: `Summary of ${id}.`, keyPoints: [`Point of ${id}.`], citations: [], ...over },
+  viceClaims: [],
+} as unknown as CardWithCompany);
+
+describe('report model: cards, figures and charts', () => {
+  it('carries the same card object for each company, and the overview prints only the face display', async () => {
+    const { market, cards, tabs } = await sampleDeck();
+    const report = buildFullReport({ title: market.name, cards, tabs });
+    for (const c of report.companies) {
+      expect(cards).toContain(c.card);
+      const faceDisplays = buildCardView(c.card).faceMetrics.map((m) => m.display);
+      for (const s of report.overview) {
+        const e = s.entries.find((x) => x.companyId === c.id)!;
+        if (e.display !== null) expect(faceDisplays).toContain(e.display);
+      }
+    }
+  });
+
+  it('keeps an unknown as null, lists it, and leaves it out of the charted values', async () => {
+    const { market, cards, tabs } = await sampleDeck();
+    const report = buildFullReport({ title: market.name, cards, tabs });
+    for (const s of report.overview) {
+      for (const e of s.entries.filter((x) => x.status === 'unknown')) {
+        expect(e.value).toBeNull();
+        expect(e.display).toBeNull();
+        expect(e.note).toBeNull();
+        expect(s.unknown).toContain(e.name);
+      }
+      for (const e of s.entries.filter((x) => x.status === 'sourced')) expect(e.value).not.toBeNull();
+      expect(s.unknown).toHaveLength(s.entries.filter((x) => x.status === 'unknown').length);
+    }
+  });
+
+  it('is chartable only with at least two sourced values', async () => {
+    const { market, cards, tabs } = await sampleDeck();
+    const firstCompany = cards.find((c) => c.card.cardType === 'company')!;
+    const solo = buildFullReport({ title: market.name, cards: [firstCompany], tabs });
+    expect(solo.companies).toHaveLength(1);
+    for (const s of solo.overview) expect(s.chartable).toBe(false);
+    const full = buildFullReport({ title: market.name, cards, tabs });
+    for (const s of full.overview) expect(s.chartable).toBe(s.entries.filter((e) => e.status === 'sourced').length >= 2);
+  });
+
+  it('adds up the methods counts', async () => {
+    const { market, cards, tabs } = await sampleDeck();
+    const report = buildFullReport({ title: market.name, cards: withSources(cards), tabs });
+    const m = report.methods;
+    expect(m.verified + m.estimated + m.unknown).toBe(report.figureCount + report.unknownCount);
+    expect(m.unknown).toBe(report.unknownCount);
+    expect(m.signalsPrinted + m.signalsHeldBack).toBe(report.signals.length);
+    expect(m.signalsHeldBack).toBe(report.signalTally.heldBack);
+    expect(m.unsourcedProfileItems).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('report model: signals', () => {
+  it('holds back an unsourced risk, counts it, and its text appears nowhere in the model', async () => {
+    const { market, cards, tabs, company } = await plainDeck();
+    const secret = 'Acme hid a defect from regulators in a way nobody can verify.';
+    const risk = viceCard(company, 'vice_secret', [{ claimText: secret, sourceUrl: '' }]);
+    const report = buildFullReport({ title: market.name, cards: [...cards, risk], tabs });
+    const entry = report.signals.find((s) => s.cardId === 'vice_secret')!;
+    expect(entry.printable).toBe(false);
+    expect(entry.card).toBeNull();
+    expect(report.signalTally.heldBackByKind.risk).toBeGreaterThanOrEqual(1);
+    expect(report.methods.signalsHeldBack).toBeGreaterThanOrEqual(1);
+    expect(JSON.stringify({ ...report, companies: report.companies.map(({ card: _c, ...rest }) => rest) })).not.toContain(secret);
+  });
+
+  it('prints a sourced risk with its claims and never carries the company metrics', async () => {
+    const { market, cards, tabs, company } = await plainDeck();
+    const risk = viceCard(company, 'vice_ok', sourced(['Acme was fined by a regulator.']));
+    const report = buildFullReport({ title: market.name, cards: [...cards, risk], tabs });
+    const entry = report.signals.find((s) => s.cardId === 'vice_ok')!;
+    expect(entry.printable).toBe(true);
+    expect(entry.card!.metrics).toEqual([]);
+    expect(entry.stored!.points).toEqual(['Acme was fined by a regulator.']);
+    expect(company.metrics.length).toBeGreaterThan(0);
+    for (const e of report.signals.filter((s) => s.printable)) expect(e.card!.metrics).toEqual([]);
+  });
+
+  it('never lets a brief point without a source into the model, and holds back a brief with no sourced point', async () => {
+    const { market, cards, tabs } = await sampleDeck();
+    const base = cards[0]!;
+    const good = signalOf(base, 'sig_good', 'insight');
+    const bad = signalOf(base, 'sig_bad', 'barrier');
+    const briefs = {
+      sig_good: { lead: 'Lead sentence.', sources: [cite('lead')], points: [
+        { text: 'A sourced point.', sources: [cite('p1')] },
+        { text: 'An unsourced point that must not print.', sources: [] },
+        { text: 'A point with a bad link.', sources: [{ title: 'x', url: 'javascript:alert(1)' }] },
+      ] },
+      sig_bad: { lead: 'Lead nobody can check.', sources: [cite('lead2')], points: [{ text: 'Unsourced.', sources: [] }] },
+    };
+    const report = buildFullReport({ title: market.name, cards: [...cards, good, bad], tabs, signalBriefs: briefs });
+    const g = report.signals.find((s) => s.cardId === 'sig_good')!;
+    expect(g.printable).toBe(true);
+    expect(g.brief!.lead).toBe('Lead sentence.');
+    expect(g.brief!.points.map((p) => p.text)).toEqual(['A sourced point.']);
+    expect(g.brief!.points[0]!.notes).toHaveLength(1);
+    const b = report.signals.find((s) => s.cardId === 'sig_bad')!;
+    expect(b.printable).toBe(false);
+    const text = JSON.stringify(report.signals);
+    expect(text).not.toContain('must not print');
+    expect(text).not.toContain('bad link');
+    expect(text).not.toContain('Lead nobody can check');
+    expect(text).not.toContain('Summary of sig_bad');
+  });
+
+  it('prints a barrier with usable citations and no brief from its stored text', async () => {
+    const { market, cards, tabs } = await sampleDeck();
+    const s = signalOf(cards[0]!, 'sig_cited', 'barrier', { citations: [cite('c1')] });
+    const report = buildFullReport({ title: market.name, cards: [...cards, s], tabs });
+    const e = report.signals.find((x) => x.cardId === 'sig_cited')!;
+    expect(e.printable).toBe(true);
+    expect(e.brief).toBeNull();
+    expect(e.stored!.summary).toBe('Summary of sig_cited.');
+  });
+});
+
+describe('report model: sources and notes', () => {
+  it('deduplicates by address, numbers from 1, and is stable across builds', async () => {
+    const { market, cards, tabs } = await sampleDeck();
+    const s1 = signalOf(cards[0]!, 'dup1', 'insight', { citations: [cite('same')] });
+    const s2 = signalOf(cards[0]!, 'dup2', 'barrier', { citations: [{ title: 'Reuters', url: 'https://www.reuters.com/same/' }] });
+    const a = buildFullReport({ title: market.name, cards: [...cards, s1, s2], tabs });
+    const b = buildFullReport({ title: market.name, cards: [...cards, s1, s2], tabs });
+    expect(a.sources).toEqual(b.sources);
+    expect(a.sources.map((s) => s.n)).toEqual(a.sources.map((_, i) => i + 1));
+    const keys = a.sources.map((s) => s.url.toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, ''));
+    expect(new Set(keys).size).toBe(keys.length);
+    const n1 = a.signals.find((e) => e.cardId === 'dup1')!.stored!.notes[0];
+    expect(a.signals.find((e) => e.cardId === 'dup2')!.stored!.notes[0]).toBe(n1);
+    for (const c of a.companies) {
+      expect(c.deckNotes).toHaveLength(c.footnotes.length);
+      c.footnotes.forEach((f, i) => expect(a.sources[c.deckNotes[i]! - 1]!.url).toBe(f.url));
+    }
+    for (const s of a.overview) for (const e of s.entries) if (e.note !== null) expect(a.sources[e.note - 1]).toBeDefined();
   });
 });
