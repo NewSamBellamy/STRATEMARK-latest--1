@@ -92,9 +92,27 @@ test('the PDF is the browser print of a report with contents and every company, 
   expect(printed.text).toMatch(/Contents/);
   expect(printed.text).toMatch(/Anthropic/);
   expect(printed.text).toMatch(/never guessed or filled in/);
+  // A full report, not a table per company: the market at a glance, what each company is, and its figures.
+  expect(printed.text).toMatch(/The market at a glance/);
+  expect(printed.text).toMatch(/Overview/);
+  expect(printed.text).toMatch(/Figures/);
   // Afterwards the page is itself again: title restored, report gone.
   await expect(page.locator('.sm-print-doc')).toHaveCount(0);
   await expect(page).toHaveTitle(/^(?!.*market report)/);
+});
+
+test('the PDF runs to many pages: a profile per company, not one summary table', async ({ page }) => {
+  // Hold the print open (no afterprint) so the browser's own PDF of the print layout can be measured.
+  await page.addInitScript(() => {
+    (window as unknown as { print: () => void }).print = () => { (window as unknown as { __printing?: boolean }).__printing = true; };
+  });
+  await openExportMenu(page);
+  await page.getByRole('menuitem', { name: /Deck report \(PDF\)/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __printing?: boolean }).__printing === true);
+  const pdf = await page.pdf({ format: 'A4', preferCSSPageSize: true, printBackground: true });
+  const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+  // Cover, contents, at a glance, signals, then a page or more for every one of the deck's companies.
+  expect(pages).toBeGreaterThanOrEqual(12);
 });
 
 test('the share link is one address that opens a read-only copy', async ({ page, browser }) => {
