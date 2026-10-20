@@ -1,0 +1,166 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { IDBFactory } from 'fake-indexeddb';
+import { screen, waitFor } from '@testing-library/react';
+import { migrateSnapshot } from '@mi/research';
+import { renderWithProviders } from '@/test/test-utils';
+import { deckNames, market as deck, real, workspace } from '@/lib/repository/importTestKit';
+import { installBrowserResearch, openBrowserResearchStore, readBrowserResearchData } from '@/lib/repository/browserResearchStore';
+import { useSettingsModal } from '@/lib/settings/settingsModal';
+import { SettingsModal } from './SettingsModal';
+
+const market = (id: string, name: unknown) => ({ id, name, scopeDefinition: { vertical: 'Test', geography: null, notes: null }, refreshCadence: 'weekly', createdAt: '2026-01-01T00:00:00Z' });
+const company = (id: string) => ({ id, name: ({ a: 'Acme Robotics', b: 'Beta Capital', c: 'Gamma Shop' } as Record<string, string>)[id] ?? `Firm ${id}`, oneLiner: '', logoUrl: null, hqLocation: null, websiteUrl: null, brandTheme: null });
+function file(mutate: (snapshot: Record<string, unknown>) => void): File {
+  const snapshot = migrateSnapshot(null).snapshot as unknown as Record<string, unknown>;
+  snapshot.markets = [market('m1', 'Real market'), market('m2', { a: 1 })];
+  // The unreadable market's deck goes with it: two rows left out, one deck kept.
+  snapshot.decks = [{ id: 'd1', marketId: 'm1', createdAt: '2026-01-01T00:00:00Z', lastRefreshedAt: null }, { id: 'd2', marketId: 'm2', createdAt: '2026-01-01T00:00:00Z', lastRefreshedAt: null }];
+  snapshot.companies = [company('a'), company('b'), company('c')];
+  mutate(snapshot);
+  return new File([JSON.stringify(snapshot)], 'research.json', { type: 'application/json' });
+}
+
+const reload = vi.fn();
+beforeEach(() => {
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  localStorage.clear();
+  reload.mockReset();
+  vi.stubGlobal('location', { ...window.location, reload });
+});
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); useSettingsModal.setState({ isOpen: false, tab: null }); });
+
+/** Settings open on Data safety, and a file chosen through its Import button. */
+async function chooseFile(chosen: File) {
+  useSettingsModal.setState({ isOpen: true, tab: 'data' });
+  const { user, container } = renderWithProviders(<SettingsModal />);
+  await screen.findByRole('heading', { name: 'Data safety' });
+  const input = container.ownerDocument.querySelector<HTMLInputElement>('input[type="file"]')!;
+  await user.upload(input, chosen);
+}
+
+describe('importing a research file from Settings', () => {
+  it('asks with what the file brings in and what it leaves out, and replaces nothing on no', async () => {
+    const store = await openBrowserResearchStore();
+    await store.write(migrateSnapshot(null).snapshot);
+    const before = await readBrowserResearchData();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await chooseFile(file(() => undefined));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    const asked = confirm.mock.calls[0]![0] as string;
+    expect(asked).toContain('This brings in 1 deck and 3 companies.');
+    expect(asked).toContain('2 items in the file could not be read, so they are left out.');
+    expect(asked).toContain('Your current research is kept as a separate copy from before the import, and Settings can restore it until you import another file.');
+    expect(await readBrowserResearchData()).toEqual(before);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('says it will not restart research the file recorded as running', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await chooseFile(file((s) => {
+      s.researchJobs = [{ id: 'j', status: 'running', stage: 'metrics', createdAt: 'x', updatedAt: 'x', catalogNames: [], completedEntityNames: [], warnings: [], error: null }];
+    }));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(confirm.mock.calls[0]![0]).toContain('1 research run that was still going when the file was saved will not be started again.');
+  });
+
+  it('saves the readable rows on yes', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await chooseFile(file(() => undefined));
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    const saved = JSON.parse((await readBrowserResearchData()).current!);
+    expect(saved.markets.map((m: { name: string }) => m.name)).toEqual(['Real market']);
+    expect(saved.companies).toHaveLength(3);
+  });
+
+  it('refuses a file with too many companies in plain words, without asking to replace anything', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await chooseFile(file((s) => { s.companies = Array.from({ length: 1001 }, (_, n) => company(`c${n}`)); }));
+    expect(await screen.findByText(/1,001 companies, more than the 1,000 an import can bring in/)).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+  });
+});
+
+describe('getting back the research an import replaced', () => {
+  const restoreButton = () => screen.queryByRole('button', { name: 'Restore my research from before the import' });
+  const mine = () => workspace(deck('m_mine', 'MY OWN RESEARCH'));
+
+  it('offers it only when an import has kept one', async () => {
+    useSettingsModal.setState({ isOpen: true, tab: 'data' });
+    renderWithProviders(<SettingsModal />);
+    await screen.findByRole('heading', { name: 'Data safety' });
+    expect(restoreButton()).toBeNull();
+  });
+
+  it('asks with what it brings back, then restores it and removes the kept copy', async () => {
+    await (await openBrowserResearchStore()).write(mine());
+    await installBrowserResearch(JSON.stringify(real()));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    useSettingsModal.setState({ isOpen: true, tab: 'data' });
+    const { user } = renderWithProviders(<SettingsModal />);
+    await user.click(await screen.findByRole('button', { name: 'Restore my research from before the import' }));
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    const asked = confirm.mock.calls[0]![0] as string;
+    expect(asked).toContain('Replace this workspace with your research from before the import?');
+    expect(asked).toContain('This brings in 1 deck and 0 companies.');
+    expect(asked).toContain('Your current research stays available as the backup until you next make a change.');
+    const saved = await readBrowserResearchData();
+    expect(deckNames(saved.current)).toEqual(['MY OWN RESEARCH']);
+    expect(saved.beforeImport).toBeNull();
+  });
+
+  it('says that a second import replaces the copy kept from the first', async () => {
+    await (await openBrowserResearchStore()).write(mine());
+    await installBrowserResearch(JSON.stringify(real()));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    useSettingsModal.setState({ isOpen: true, tab: 'data' });
+    const { user, container } = renderWithProviders(<SettingsModal />);
+    // The panel reads what is saved when it opens; the kept copy shows up as a count beside the buttons.
+    await screen.findByText(/from before the import:/);
+    await user.upload(container.ownerDocument.querySelector<HTMLInputElement>('input[type="file"]')!, file(() => undefined));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(confirm.mock.calls[0]![0]).toContain('That replaces the copy you kept from your last import.');
+  });
+
+  it('refuses a file larger than any workspace without reading it', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const huge = file(() => undefined);
+    Object.defineProperty(huge, 'size', { value: 150_000_001 });
+    await chooseFile(huge);
+    expect(await screen.findByText(/larger than the 150 MB an import can bring in/)).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+});
+
+describe('importing a research file in the desktop app', () => {
+  const importResearch = vi.fn(async (_json: string) => undefined);
+  beforeEach(() => {
+    importResearch.mockClear();
+    vi.stubEnv('VITE_DESKTOP', '1');
+    (window as unknown as { miSecure: unknown }).miSecure = { getResearchStorageInfo: async () => ({ marketCount: 0, sizeBytes: 0, hasBackup: false }), importResearch };
+  });
+  afterEach(() => { delete (window as unknown as { miSecure?: unknown }).miSecure; vi.unstubAllEnvs(); });
+
+  it('asks with the same counts before the desktop replaces anything, and sends nothing on no', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await chooseFile(file(() => undefined));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(confirm.mock.calls[0]![0]).toContain('This brings in 1 deck and 3 companies. 2 items in the file could not be read, so they are left out.');
+    expect(importResearch).not.toHaveBeenCalled();
+  });
+
+  it('sends the file on yes and reloads', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await chooseFile(file(() => undefined));
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    expect(importResearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a file with too many companies in plain words, without asking', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await chooseFile(file((s) => { s.companies = Array.from({ length: 1001 }, (_, n) => company(`c${n}`)); }));
+    expect(await screen.findByText(/1,001 companies, more than the 1,000 an import can bring in/)).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(importResearch).not.toHaveBeenCalled();
+  });
+});

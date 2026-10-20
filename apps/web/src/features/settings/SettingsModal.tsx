@@ -17,10 +17,11 @@ import {
   Trash2,
   Key,
 } from 'lucide-react';
-import { createGeminiClient } from '@mi/research';
-import { exportSnapshot, importSnapshot, marketCountOf } from '@/lib/repository/vault';
+import { createGeminiClient, ImportRefusedError, MAX_IMPORT_CHARS } from '@mi/research';
+import { exportSnapshot, marketCountOf } from '@/lib/repository/vault';
+import { importQuestion } from '@/lib/repository/importSummary';
 import { OPEN_SOURCE_LAUNCH } from '@/lib/beta';
-import { readBrowserResearchData } from '@/lib/repository/browserResearchStore';
+import { installResearchImport, planResearchImport, readBrowserResearchData, type InstallKind } from '@/lib/repository/browserResearchStore';
 import { clearAccess, getAccessProfile } from '@/lib/access';
 import {
   DAILY_REQUEST_CAP,
@@ -409,14 +410,18 @@ function DesktopDataPanel() {
     } catch { setMessage('Export failed. Your saved research has not been changed.'); }
   };
   const importData = async (file: File) => {
-    if (!window.confirm('Replace this workspace with the selected research export? The current workspace will be backed up.')) return;
     setBusy(true);
     try {
       if (file.size > 50 * 1024 * 1024) throw new Error('Export exceeds 50 MB.');
-      await window.miSecure!.importResearch(await file.text());
+      const text = await file.text();
+      // The same reading the import itself does, run here only to say what it will bring in and leave out.
+      const plan = planResearchImport(text);
+      if (!window.confirm(importQuestion(plan, 'the selected research export', { where: 'desktop' }))) return;
+      await window.miSecure!.importResearch(text);
       window.location.reload();
-    } catch { setMessage('Import failed. Choose a valid Stratemark export and finish or cancel active research first.'); }
-    finally { setBusy(false); }
+    } catch (error) {
+      setMessage(error instanceof ImportRefusedError ? error.message : 'Import failed. Choose a valid Stratemark export and finish or cancel active research first.');
+    } finally { setBusy(false); }
   };
   return <div className="space-y-4"><h2 className="font-display text-lg">Data safety</h2><p className="text-sm text-muted">Research is saved on your disk with atomic writes and a last-good backup. Exports contain research, not your API key. Exported files are not encrypted; store them somewhere safe. Note: retained original page texts and generated images live outside this export and stay on this machine.</p>{info && <p className="text-sm">{info.marketCount} decks · {Math.round(info.sizeBytes / 1024)} KB{info.hasBackup ? ' · backup available' : ''}</p>}<div className="flex gap-2"><button className="btn-ghost" type="button" onClick={() => void exportData()}><Download className="h-4 w-4" />Export my research</button><button className="btn-ghost" type="button" disabled={busy} onClick={() => fileRef.current?.click()}><Upload className="h-4 w-4" />Import</button></div><input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importData(file); event.target.value = ''; }} />{message && <p role="alert" className="text-sm text-negative">{message}</p>}</div>;
 }
@@ -425,37 +430,48 @@ function DataSafetyPanel() {
   const KEY = 'mi.repo.v1';
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [data, setData] = useState<{ current: string | null; backup: string | null }>({ current: null, backup: null });
+  const [data, setData] = useState<{ current: string | null; backup: string | null; beforeImport: string | null }>({ current: null, backup: null, beforeImport: null });
   useEffect(() => {
     let live = true;
     void readBrowserResearchData().then((saved) => { if (live) setData(saved); })
       .catch((error: unknown) => { if (live) setMsg(error instanceof Error ? error.message : 'Storage could not be read.'); });
     return () => { live = false; };
   }, []);
-  const { current, backup } = data;
+  const { current, backup, beforeImport } = data;
   const currentMarkets = marketCountOf(current);
   const backupMarkets = marketCountOf(backup);
+  const beforeImportMarkets = marketCountOf(beforeImport);
   const sizeKb = current ? Math.round(current.length / 1024) : 0;
 
-  const restoreBackup = async () => {
-    if (!backup) return;
-    if (!window.confirm('Replace this workspace with the saved backup? Your current research will become the backup.')) return;
+  /** Works out what the import would do and asks with those numbers; only a yes replaces the workspace. */
+  const replaceWorkspace = async (json: string, what: string, failure: string, kind: InstallKind) => {
     try {
-      await importSnapshot(backup, KEY);
+      const plan = planResearchImport(json);
+      if (!window.confirm(importQuestion(plan, what, { kind, replacesEarlierCopy: kind === 'import' && beforeImportMarkets > 0 }))) return;
+      await installResearchImport(plan, { kind });
       window.location.reload();
     } catch (error) {
-      setMsg(error instanceof Error ? error.message : 'Restore failed; previous saved research is intact.');
+      setMsg(error instanceof Error ? error.message : failure);
     }
   };
 
+  const restoreBackup = async () => {
+    if (!backup) return;
+    await replaceWorkspace(backup, 'the saved backup', 'Restore failed; previous saved research is intact.', 'backup');
+  };
+
+  const restoreBeforeImport = async () => {
+    if (!beforeImport) return;
+    await replaceWorkspace(beforeImport, 'your research from before the import', 'Restore failed; previous saved research is intact.', 'before-import');
+  };
+
   const onImportFile = async (file: File) => {
-    if (!window.confirm('Replace this workspace with this export? Your current research will become the backup.')) return;
     try {
-      const text = await file.text();
-      await importSnapshot(text, KEY);
-      window.location.reload();
+      if (file.size > MAX_IMPORT_CHARS) throw new ImportRefusedError(`This file is larger than the ${Math.round(MAX_IMPORT_CHARS / 1_000_000)} MB an import can bring in. It is probably not a Stratemark export.`);
+      await replaceWorkspace(await file.text(), 'this export', 'Import failed; previous saved research is intact.', 'import');
     } catch (error) {
-      setMsg(error instanceof Error ? error.message : 'Import failed; previous saved research is intact.');
+      if (error instanceof ImportRefusedError) { setMsg(error.message); return; }
+      setMsg('That file could not be read. Previous saved research is intact.');
     }
   };
 
@@ -477,6 +493,11 @@ function DataSafetyPanel() {
         {backupMarkets > 0 && (
           <span className="text-muted">
             backup: <span className="tabular-nums">{backupMarkets}</span> deck{backupMarkets === 1 ? '' : 's'}
+          </span>
+        )}
+        {beforeImportMarkets > 0 && (
+          <span className="text-muted">
+            from before the import: <span className="tabular-nums">{beforeImportMarkets}</span> deck{beforeImportMarkets === 1 ? '' : 's'}
           </span>
         )}
       </div>
@@ -508,6 +529,15 @@ function DataSafetyPanel() {
             onClick={restoreBackup}
           >
             <DatabaseBackup className="h-4 w-4" /> Restore {backupMarkets} decks
+          </button>
+        )}
+        {beforeImport && (
+          <button
+            type="button"
+            className="btn-ghost text-sm border border-border"
+            onClick={() => void restoreBeforeImport()}
+          >
+            <DatabaseBackup className="h-4 w-4" /> Restore my research from before the import
           </button>
         )}
         <input

@@ -96,6 +96,14 @@ import { storedWebsiteFoundedFails } from './founded-year';
  */
 export const METRIC_GATE_VERSION = 11;
 
+/**
+ * The text a saved research note holds. A note whose text is missing or not text
+ * (a file that was edited, or an older build) contributes nothing; it must not
+ * stop every start, which is what reading its length did.
+ */
+const evidenceTexts = (note: { text?: unknown; grounding?: { answerText?: unknown } | null }): string[] =>
+  [note.text, note.grounding?.answerText].filter((t): t is string => typeof t === 'string' && t.length > 0);
+
 export type RevalidationGate = 'parent_or_acquisition' | 'stale_share_count' | 'sec_revenue_sub_line'
   | 'acquired_deal_valuation' | 'non_subscription_arr' | ScaleGate;
 
@@ -261,7 +269,7 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
     let found = answersByCompany.get(companyId);
     if (!found) {
       found = (snapshot.researchEvidence ?? []).filter((e) => e.companyId === companyId)
-        .flatMap((e) => [e.text, e.grounding?.answerText ?? ''].filter((t) => t.length > 0));
+        .flatMap(evidenceTexts);
       answersByCompany.set(companyId, found);
     }
     return found;
@@ -298,8 +306,7 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
   });
   // Snapshot-level scale gate: needs every company's headcount and the deck's
   // other holders of the same figure, so it runs over the per-row result.
-  const answers = [...new Set((snapshot.researchEvidence ?? []).flatMap((e) => [e.text, e.grounding?.answerText ?? '']))]
-    .filter((t) => t.length > 0);
+  const answers = [...new Set((snapshot.researchEvidence ?? []).flatMap(evidenceTexts))];
   const scale = new Map(implausibleScaleFigures({ companies: snapshot.companies, metrics: snapshot.metrics,
     scopes: figureScopes(snapshot), answers }).map((f) => [f.metricId, f]));
   if (scale.size) {
@@ -330,7 +337,7 @@ export function revalidateStoredMetrics(snapshot: RevalidatableSnapshot): Revali
     let next = company;
     let hq = company.hqLocation?.trim() ? canonicalHqLocation(company.hqLocation) : null;
     if (hq) {
-      const evidence = (snapshot.researchEvidence ?? []).filter((item) => item.companyId === company.id).map((item) => item.text).join(' ');
+      const evidence = (snapshot.researchEvidence ?? []).filter((item) => item.companyId === company.id).map((item) => typeof item.text === 'string' ? item.text : '').join(' ');
       hq = hqGroundedInEvidence(hq, evidence);
     }
     if (hq && hq !== company.hqLocation) {

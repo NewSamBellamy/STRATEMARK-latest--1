@@ -50,7 +50,7 @@ process.on('unhandledRejection', (reason) => {
   console.error('Unhandled rejection in the main process:', reason);
 });
 import sampleSnapshot from '../../web/src/sample/frontier-snapshot.json';
-import { createFileStore, parseResearchExport } from './storage.js';
+import { createFileStore, keepBeforeImport, parseResearchImport } from './storage.js';
 import { createSqliteStore } from './sqlite.js';
 import { createOriginalSourceServices } from './original-sources.js';
 import { performGoogleOAuthFlow, loadDesktopEnv, type OAuthUser } from './oauth.js';
@@ -514,7 +514,11 @@ function registerIpc(): void {
   ipcMain.handle(SECURE_CHANNELS.importResearch, async (_e, json: unknown) => {
     const jobs = await repository.listResearchJobs?.() ?? [];
     if (jobs.some((job) => job.status === 'running' || job.status === 'queued')) throw new Error('Finish or cancel active research before importing.');
-    researchStore().write(parseResearchExport(z.string().max(50 * 1024 * 1024).parse(json)));
+    // Read and checked first: a file that cannot be imported replaces nothing and keeps nothing.
+    const incoming = parseResearchImport(z.string().max(50 * 1024 * 1024).parse(json));
+    const store = researchStore();
+    keepBeforeImport(store, researchFile());
+    store.write(incoming);
     swapRepository();
   });
 

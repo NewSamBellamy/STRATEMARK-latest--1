@@ -15,6 +15,7 @@ import { isHostedBeta } from '@/lib/beta';
 import { cn } from '@/lib/cn';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useMarkets } from '@/hooks/data';
+import { ErrorBoundary } from '@/components/states/ErrorBoundary';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
 import { useResearchSession } from '@/features/deck/research-session';
 import wordmark from '@/assets/wordmark.svg';
@@ -43,19 +44,6 @@ export function Sidebar() {
   const hasKey = useApiKey((s) => s.hasKey);
   const [collapsed, setCollapsed] = useState(false);
   const hasToday = useSupports('listMoves');
-  const markets = useMarkets();
-  // A deck being researched RIGHT NOW belongs in this list already —
-  // "I started it, where is it?" should never have an empty answer.
-  const session = useResearchSession((s) => s.session);
-  const researching = session?.running ? session.query : null;
-
-  // Most-recent decks first — the sidebar becomes the deck history itself.
-  const recentDecks = useMemo(() => {
-    const list = (markets.data ?? []).filter((m) => !m.archivedAt);
-    return [...list].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
-  }, [markets.data]);
 
   return (
     <aside className={cn(
@@ -94,74 +82,12 @@ export function Sidebar() {
         {isHostedBeta() && <SidebarLink to="/beta" icon={Info} label="About this beta" collapsed={collapsed} />}
       </nav>
 
-      {/* Recent decks — inline history (expanded only) */}
+      {/* Recent decks — inline history (expanded only). It draws saved text, so it
+          fails alone: the rest of the app (Settings included) must stay reachable. */}
       {!collapsed && (
-        <div className="mt-6 flex min-h-0 flex-1 flex-col">
-          <div className="mb-2 flex items-center justify-between px-3">
-            <p className="text-[10px] font-medium text-faint">Recent Decks</p>
-            {recentDecks.length > 0 && (
-              <NavLink to="/history" className="text-[10px] font-medium text-faint transition-colors hover:text-content">
-                View all
-              </NavLink>
-            )}
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {markets.isLoading ? (
-              <p className="px-3 py-1 text-[12px] text-faint">Loading…</p>
-            ) : recentDecks.length === 0 && !researching ? (
-              <p className="px-3 py-1 text-[12px] leading-snug text-faint">
-                No decks yet. Start one above.
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-0.5">
-                {researching && (
-                  <li>
-                    <NavLink
-                      to="/"
-                      title={`Researching now: ${researching}`}
-                      className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-content"
-                    >
-                      <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" />
-                      <span className="min-w-0 flex-1 truncate italic">{researching}</span>
-                    </NavLink>
-                  </li>
-                )}
-                {recentDecks.map((m) => {
-                  const isRunning = (m as { status?: string }).status === 'running';
-                  return (
-                    <li key={m.id}>
-                      <NavLink
-                        to={`/markets/${m.id}/deck`}
-                        title={isRunning ? `Researching: ${m.name}` : m.name}
-                        className={({ isActive }) => cn(
-                          'flex items-center justify-between truncate rounded-lg px-3 py-1.5 text-[13px] transition-colors',
-                          isActive
-                            ? 'bg-primary/8 font-medium text-primary'
-                            : 'text-muted hover:bg-surface-2 hover:text-content',
-                        )}
-                      >
-                        {/* Red team #19: same-name decks must be distinguishable —
-                            creation date is the identity the sidebar can always give. */}
-                        <span className="min-w-0">
-                          <span className="block truncate">{m.name}</span>
-                          <span className="block text-[10px] text-faint">
-                            {new Date(m.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                          </span>
-                        </span>
-                        {isRunning && (
-                          <span
-                            className="ml-1.5 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary"
-                            title="Research in progress"
-                          />
-                        )}
-                      </NavLink>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </div>
+        <ErrorBoundary fallback={({ reset }) => <RecentDecksFailed onRetry={reset} />}>
+          <RecentDecks />
+        </ErrorBoundary>
       )}
       {collapsed && <div className="flex-1" />}
 
@@ -182,6 +108,112 @@ export function Sidebar() {
         </div>
       )}
     </aside>
+  );
+}
+
+/**
+ * How many decks the sidebar draws. It is the first thing on screen and the
+ * newest decks are the ones reached from it; a workspace with hundreds of decks
+ * made one navigation link each, which is time the first screen waits for. The
+ * rest are one click away under "View all" (All Decks).
+ */
+export const SIDEBAR_DECKS = 50;
+
+/** The inline deck history. A deck whose saved name or date is not text throws while drawing; the boundary around this keeps that out of the rest of the shell. */
+function RecentDecks() {
+  const markets = useMarkets();
+  // A deck being researched RIGHT NOW belongs in this list already —
+  // "I started it, where is it?" should never have an empty answer.
+  const session = useResearchSession((s) => s.session);
+  const researching = session?.running ? session.query : null;
+
+  // Most-recent decks first — the sidebar becomes the deck history itself.
+  const recentDecks = useMemo(() => {
+    const list = (markets.data ?? []).filter((m) => !m.archivedAt);
+    return [...list].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  }, [markets.data]);
+
+  return (
+    <div className="mt-6 flex min-h-0 flex-1 flex-col">
+      <div className="mb-2 flex items-center justify-between px-3">
+        <p className="text-[10px] font-medium text-faint">Recent Decks</p>
+        {recentDecks.length > 0 && (
+          <NavLink to="/history" className="text-[10px] font-medium text-faint transition-colors hover:text-content">
+            View all
+          </NavLink>
+        )}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {markets.isLoading ? (
+          <p className="px-3 py-1 text-[12px] text-faint">Loading…</p>
+        ) : recentDecks.length === 0 && !researching ? (
+          <p className="px-3 py-1 text-[12px] leading-snug text-faint">
+            No decks yet. Start one above.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-0.5">
+            {researching && (
+              <li>
+                <NavLink
+                  to="/"
+                  title={`Researching now: ${researching}`}
+                  className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-content"
+                >
+                  <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" />
+                  <span className="min-w-0 flex-1 truncate italic">{researching}</span>
+                </NavLink>
+              </li>
+            )}
+            {recentDecks.slice(0, SIDEBAR_DECKS).map((m) => {
+              const isRunning = (m as { status?: string }).status === 'running';
+              return (
+                <li key={m.id}>
+                  <NavLink
+                    to={`/markets/${m.id}/deck`}
+                    title={isRunning ? `Researching: ${m.name}` : m.name}
+                    className={({ isActive }) => cn(
+                      'flex items-center justify-between truncate rounded-lg px-3 py-1.5 text-[13px] transition-colors',
+                      isActive
+                        ? 'bg-primary/8 font-medium text-primary'
+                        : 'text-muted hover:bg-surface-2 hover:text-content',
+                    )}
+                  >
+                    {/* Red team #19: same-name decks must be distinguishable —
+                        creation date is the identity the sidebar can always give. */}
+                    <span className="min-w-0">
+                      <span className="block truncate">{m.name}</span>
+                      <span className="block text-[10px] text-faint">
+                        {new Date(m.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                      </span>
+                    </span>
+                    {isRunning && (
+                      <span
+                        className="ml-1.5 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary"
+                        title="Research in progress"
+                      />
+                    )}
+                  </NavLink>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RecentDecksFailed({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div role="alert" className="mt-6 flex-1 px-3 text-[12px] leading-snug text-faint">
+      <p>Your deck list could not be shown.</p>
+      <p className="mt-1">
+        Your research is still saved. <SettingsLink tab="data" className="font-medium text-muted underline hover:text-content">Settings</SettingsLink> can export or restore it.
+      </p>
+      <button type="button" onClick={onRetry} className="mt-2 font-medium text-muted underline hover:text-content">Try again</button>
+    </div>
   );
 }
 
