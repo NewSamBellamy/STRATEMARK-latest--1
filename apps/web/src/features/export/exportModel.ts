@@ -41,13 +41,13 @@ export interface ExportCompany {
   website: string | null;
   logoUrl: string | null;
   tier: number | null;
-  /** Stored ownership. The card withholds an acquired company's deal-time valuation, so every export does too. */
-  ownership?: Ownership | null;
+  /** Stored ownership record (named apart from the PDF model's printed ownership label). The card withholds an acquired company's deal-time valuation, so every export does too. */
+  ownershipRecord?: Ownership | null;
   metrics: readonly CompanyMetric[];
 }
 
 /** What {@link figureRows} needs: enough of a company to read its figures the way the card face does. */
-export type FigureSource = Pick<ExportCompany, 'id' | 'name' | 'website' | 'ownership' | 'metrics'>;
+export type FigureSource = Pick<ExportCompany, 'id' | 'name' | 'website' | 'ownershipRecord' | 'metrics'>;
 
 export interface MetricRow {
   type: MetricType;
@@ -137,7 +137,7 @@ export function figureRows(co: FigureSource): Map<MetricType, MetricRow> {
   const own = co.metrics.filter((m) => m.companyId === co.id);
   const recorded = new Set(own.filter((m) => m.value != null).map((m) => m.metricType));
   const out = new Map<MetricType, MetricRow>();
-  for (const view of buildMetricViews(own, co.website, co.ownership)) {
+  for (const view of buildMetricViews(own, co.website, co.ownershipRecord)) {
     out.set(view.metric.metricType, rowFromView(view, co, recorded.has(view.metric.metricType)));
   }
   return out;
@@ -167,7 +167,7 @@ export function exportCompanyOf(c: CardWithCompany): ExportCompany | null {
     website: co.websiteUrl ?? null,
     logoUrl: co.logoUrl ?? null,
     tier: c.card.tier ?? null,
-    ownership: co.ownership ?? null,
+    ownershipRecord: co.ownership ?? null,
     metrics: c.metrics,
   };
 }
