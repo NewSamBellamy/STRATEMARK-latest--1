@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { PrintDocument, type PrintJob } from './PrintDocument';
+import { printPageCss, printTitleOf } from './print/pageStyle';
 
 const CEILING_MS = 4000;
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -40,9 +41,15 @@ export function usePrintJob(): { print: (doc: PrintJob, fileTitle: string) => vo
     if (!job) return;
     let cancelled = false;
     const prevTitle = document.title;
+    // @page cannot be set from a class: the job's paper size and footer live in a style element for the length of the job.
+    const pageStyle = document.createElement('style');
+    pageStyle.setAttribute('data-sm-print-page', '');
+    pageStyle.textContent = printPageCss({ locale: typeof navigator === 'undefined' ? null : navigator.language, title: printTitleOf(job.doc) });
+    document.head.appendChild(pageStyle);
     const cleanup = () => {
       document.body.classList.remove('sm-exporting');
       document.title = prevTitle;
+      pageStyle.remove();
       window.removeEventListener('afterprint', cleanup);
       if (!cancelled) setJob(null);
     };
@@ -64,6 +71,7 @@ export function usePrintJob(): { print: (doc: PrintJob, fileTitle: string) => vo
       cancelled = true;
       document.body.classList.remove('sm-exporting');
       document.title = prevTitle;
+      pageStyle.remove();
       window.removeEventListener('afterprint', cleanup);
     };
   }, [job]);

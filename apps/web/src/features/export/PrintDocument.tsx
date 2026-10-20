@@ -19,6 +19,7 @@ import { DailyReportBody } from './print/DailyReportBody';
 import { PersonReportBody } from './print/PersonReportBody';
 import { ProductReportBody } from './print/ProductReportBody';
 import { TranscriptBody } from './print/TranscriptBody';
+import './print/tokens.css';
 import './print.css';
 
 export type PrintJob =

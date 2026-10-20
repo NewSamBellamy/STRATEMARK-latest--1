@@ -92,7 +92,7 @@ async function main() {
     browser = await chromium.launch();
     const context = await browser.newContext({
       viewport: { width: 1400, height: 900 },
-      ...(args.letter ? { locale: 'en-US' } : {}),
+      locale: args.letter ? 'en-US' : 'en-GB',
     });
     const page = await context.newPage();
     if (args.offline) await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());

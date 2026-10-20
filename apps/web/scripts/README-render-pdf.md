@@ -10,7 +10,7 @@ Output: `apps/web/pdf-shots/<kind>/page-01.png ...` (about 110 dpi) plus `report
 
 - Starts its own vite dev server (`VITE_OPEN_ACCESS=true`, first free port from `--port`) and stops it by process id when done.
 - `--offline` blocks Google Fonts so the fallback fonts are visible.
-- `--letter` sets the browser locale to en-US (US Letter-style formatting).
+- The browser locale is en-GB (A4 paper); `--letter` sets en-US (US Letter paper and formatting).
 - `--kind company` opens OpenAI's company dashboard and exports "Company report".
 
 Gotchas
