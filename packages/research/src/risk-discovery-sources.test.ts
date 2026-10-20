@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import { hydrateCompanyCard, hydrateCompanyCardsBatch } from './company-agent';
 import { ViceAgent } from './signal-agents';
+import { claimKey } from './risk-claims';
 import type { CompanyCandidate, LlmClient, MarketPlan, ProviderGrounding } from './types';
 
 const plan: MarketPlan = { marketName: 'Warehouse Robotics', vertical: 'Robotics', geography: null, notes: null, searchThemes: [] };
@@ -217,5 +218,15 @@ describe('the dedicated per-company risk search (ViceAgent) obeys the same rule'
     expect(await ViceAgent.research(agentClient([{ text: RECALL, sourceIndex: 0 }], [cite(REUTERS)]), company, plan, 'dck')).toBeNull();
     expect(await ViceAgent.research(agentClient([{ text: `${RECALL} Its chief executive resigned afterwards.`, sourceIndex: 0 }], [cite(REUTERS)], grounding([[RECALL_NOTE, REUTERS]])), company, plan, 'dck')).toBeNull();
     expect(await ViceAgent.research(agentClient([{ text: RECALL, sourceIndex: 0 }], [cite(OWN_SITE)], grounding([[RECALL_NOTE, OWN_SITE]])), company, plan, 'dck')).toBeNull();
+  });
+});
+
+describe('the key that collapses repeated risks', () => {
+  it('tells apart two claims written in a script other than Latin', () => {
+    // Before, every character outside a-z was dropped, so any two Cyrillic or Greek claims had the same (empty) key and the
+    // second one was thrown away as a duplicate of the first.
+    expect(claimKey('Компания оштрафована регулятором.')).not.toBe(claimKey('Завод компании закрыт после аварии.'));
+    expect(claimKey('Компания оштрафована регулятором.')).toBe(claimKey('компания оштрафована регулятором'));
+    expect(claimKey('Η εταιρεία πρόστιμο.')).not.toBe('');
   });
 });

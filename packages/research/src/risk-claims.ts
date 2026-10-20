@@ -149,7 +149,7 @@ function looksLikeOwnSite(domain: string, company: Company): boolean {
 }
 
 /** A claim's identity for de-duplication: case, punctuation and a final full stop do not make a different claim. */
-export const claimKey = (text: string): string => text.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
+export const claimKey = (text: string): string => text.toLowerCase().normalize('NFKD').replace(/\p{M}+/gu, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 /** A risk as the structuring step wrote it: a sentence and the number of the source it says supports it. */
 export interface ModelRiskFinding {
