@@ -11,13 +11,14 @@
  *
  * Integrity (AGENTS.md Rule 9): nothing here is written by this file. Every sentence is a stored one (an overview
  * paragraph, a product line, a timeline event, a headline, a claim), every figure comes through the same card-face
- * and export gates as everywhere else, a section with nothing stored is left out rather than padded, and a risk
+ * and export gates as everywhere else, a section with nothing stored is left out rather than padded, a barrier or
+ * insight with no usable source is left out, and a risk
  * claim is printed only with the usable source that reports it (an unsourced one is dropped, like an unsourced
  * culture note).
  *
  * Free prose is not a source-checked figure. A money amount, headcount, user or customer count or market share
  * stated in an overview paragraph, a product line, a timeline event or a one-liner never reaches the page: such a
- * sentence is left out (see `hasProseFigure`), so the PDF cannot state "$5B valuation" beside a valuation row that
+ * sentence is left out (see proseFigures.ts), so the PDF cannot state "$5B valuation" beside a valuation row that
  * says Unknown. The sentences around it are kept as stored.
  */
 import {
@@ -36,6 +37,10 @@ import {
 import { buildCardView, fitFaceLine } from '@/features/card/card-view';
 import { buildReportModel, companiesFromCards, type ReportCompany, type ReportModel } from './exportModel';
 import { isDirectSource, sourceHref } from '@/lib/sourceHref';
+import { hasProseFigure, withoutProseFigures } from './proseFigures';
+
+// The recogniser is shared with every other export (CSV, PDF, PowerPoint): see proseFigures.ts.
+export { hasProseFigure, withoutProseFigures };
 
 type StoredTabs = Record<string, Partial<Record<DashboardTab, { content: unknown; lastRefreshedAt?: string }>> | undefined>;
 
@@ -87,34 +92,6 @@ const once = (seen: Set<string>, text: string | null | undefined): string | null
   seen.add(key);
   return t;
 };
-
-/**
- * A money amount, headcount, user or customer count or market share stated in free prose. Fail closed: a sentence
- * that merely looks like one ("3M", "workforce reductions in 2023") is left out too, because a missing sentence is
- * honest and a wrong figure is not. Years, quarters, round names and counts of things other than people are not
- * figures.
- */
-const PROSE_FIGURE = new RegExp([
-  String.raw`[$€£¥]\s?\d`,
-  String.raw`\b(?:usd|eur|gbp|us\$)\s?\d`,
-  String.raw`\d[\d,.]*\s?(?:trillion|billion|million|thousand|tn|bn|mn|dollars|euros|pounds)\b`,
-  String.raw`\b\d[\d,.]*(?:bn|mn|[mb])\b`,
-  String.raw`\d[\d,]*\+?\s+(?:full[- ]time\s+|part[- ]time\s+)?(?:employees|staff|people|workers|engineers|developers|researchers|team members|associates)\b`,
-  String.raw`\b(?:employs|employing|headcount|workforce|team of|staff of)\b[^.]{0,30}?\d`,
-  String.raw`\d[\d,.]*\s?[kmb]?\+?\s+(?:(?:monthly|daily|weekly|active|paying|registered)\s+)*(?:users|customers|subscribers|members|downloads|installs)\b`,
-  String.raw`\d[\d.]*\s?%\s+(?:of\s+(?:the\s+)?)?(?:market|share)\b`,
-  String.raw`\bmarket share\b[^.]{0,30}\d`,
-].join('|'), 'i');
-
-/** True when the text states a figure nobody source-checked (see {@link PROSE_FIGURE}). */
-export const hasProseFigure = (text: string | null | undefined): boolean => PROSE_FIGURE.test(text ?? '');
-
-/** The sentences of `text` that state no such figure, as stored; null when none is left. */
-export function withoutProseFigures(text: string | null | undefined): string | null {
-  const kept = (text ?? '').split(/(?<=[.!?])\s+(?=[A-Z“"‘'(])/u).map((sentence) => sentence.trim())
-    .filter((sentence) => sentence && !PROSE_FIGURE.test(sentence));
-  return kept.length > 0 ? kept.join(' ') : null;
-}
 
 /** Plain paragraphs of a stored overview: no headings, tables, bullets, figure lines or sentences stating an unchecked figure, links reduced to their words. */
 export function overviewParagraphs(markdown: string | null | undefined, max = 3): string[] {
@@ -227,7 +204,10 @@ export function buildFullReport(args: {
     const card = byCompany.get(c.id);
     return card ? [profileOf(card, args.tabs, c, args.cards)] : [];
   });
-  const signals = (type: 'barrier' | 'insight') => args.cards.filter((c) => c.card.cardType === type).map(signalBlock);
+  // A barrier or insight with no usable source is dropped, like an unsourced risk or culture note: the PDF never
+  // prints a finding it cannot attribute, and the cover never counts one.
+  const signals = (type: 'barrier' | 'insight') => args.cards
+    .filter((c) => c.card.cardType === type && usableCitations(c.card.citations ?? []).length > 0).map(signalBlock);
   const barriers = signals('barrier');
   const insights = signals('insight');
   // Cards, not claims: a risk card with three printed claims is one signal.

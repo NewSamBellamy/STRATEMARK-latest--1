@@ -3,6 +3,11 @@ import { MockRepository } from '@mi/mocks';
 import type { CardWithCompany } from '@mi/contracts';
 import { buildFullReport, hasProseFigure, overviewParagraphs, withoutProseFigures } from './fullReportModel';
 
+/** Gives every barrier and insight card a usable source (the sample deck's carry none). */
+const withSources = (cards: CardWithCompany[]): CardWithCompany[] => cards.map((c) =>
+  ['barrier', 'insight'].includes(c.card.cardType)
+    ? { ...c, card: { ...c.card, citations: [{ title: 'reuters.com', url: `https://reuters.com/${c.card.id}` }] } } : c);
+
 async function sampleDeck() {
   const repo = new MockRepository({ latencyMs: 0 });
   const [market] = await repo.listMarkets();
@@ -77,7 +82,8 @@ describe('buildFullReport', () => {
   });
 
   it('carries each market signal with its own sources and no company metrics', async () => {
-    const { market, cards, tabs } = await sampleDeck();
+    const { market, cards: stored, tabs } = await sampleDeck();
+    const cards = withSources(stored);
     const report = buildFullReport({ title: market.name, cards, tabs });
     const barrierCards = cards.filter((c) => c.card.cardType === 'barrier');
     const insightCards = cards.filter((c) => c.card.cardType === 'insight');
@@ -213,7 +219,7 @@ describe('free prose in the printed profiles', () => {
       'Its market share rose to 12.5% last year.', 'A 500M Series C.', 'A team of 50 engineers built it.',
     ]) expect(hasProseFigure(text), text).toBe(true);
     for (const text of [
-      'Founded in 2015 in Austin, Texas.', 'It closed its Series C in Q1 2021.', 'ISO 9001 certified plants in three states.',
+      'Founded in 2015 in Austin, Texas.', 'It closed its Series C in Q1 2021.', 'ISO-certified plants in three states.',
       'It launched a GPT-4 based assistant.', 'It opened offices in 12 countries.', 'It was founded by three engineers.', '',
     ]) expect(hasProseFigure(text), text).toBe(false);
     expect(hasProseFigure(null)).toBe(false);
@@ -273,5 +279,63 @@ describe('free prose in the printed profiles', () => {
         expect(hasProseFigure(text), `${c.name}: ${text}`).toBe(false);
       }
     }
+  });
+});
+
+describe('findings the printed report cannot attribute', () => {
+  const finding = (base: CardWithCompany, id: string, cardType: 'barrier' | 'insight', title: string, citations: Array<{ title: string; url: string }>): CardWithCompany => ({
+    ...base,
+    card: { ...base.card, id, cardType, title, summary: `${title} is a stored finding.`, keyPoints: [], citations },
+    company: null,
+    metrics: [],
+    viceClaims: [],
+  }) as unknown as CardWithCompany;
+
+  it('drops a barrier or insight with no usable source, and does not count it', async () => {
+    const { market, cards, tabs, company } = await plainDeck();
+    const entities = cards.filter((c) => !['barrier', 'insight'].includes(c.card.cardType));
+    const baseline = buildFullReport({ title: market.name, cards: entities, tabs }).signalCount;
+    const source = [{ title: 'reuters.com', url: 'https://reuters.com/finding' }];
+    const added = [
+      finding(company, 'b_ok', 'barrier', 'Sourced barrier', source),
+      finding(company, 'b_none', 'barrier', 'Barrier with no source', []),
+      finding(company, 'b_junk', 'barrier', 'Barrier with an unusable source', [{ title: 'x', url: 'not a url' }]),
+      finding(company, 'i_ok', 'insight', 'Sourced insight', source),
+      finding(company, 'i_none', 'insight', 'Insight with no source', []),
+      finding(company, 'i_junk', 'insight', 'Insight with a script source', [{ title: 'x', url: 'javascript:alert(1)' }]),
+    ];
+    const report = buildFullReport({ title: market.name, cards: [...entities, ...added], tabs });
+    expect(report.barriers.map((b) => b.title)).toEqual(['Sourced barrier']);
+    expect(report.insights.map((b) => b.title)).toEqual(['Sourced insight']);
+    expect(report.barriers[0]!.sources).toHaveLength(1);
+    // Two printed findings are two signals; the four dropped ones are none.
+    expect(report.signalCount).toBe(baseline + 2);
+  });
+});
+
+describe('prose figures the first recogniser let through', () => {
+  const phrases = [
+    '1,200 enterprise customers', '3,000 clients', '40,000 merchants', '2,500 professionals', '400 FTEs', 'a 400-person company',
+    'twelve thousand people', '30 percent of the market', 'a third of the market', 'five billion dollars', 'half a billion',
+    '1,200,000 monthly active accounts',
+  ];
+
+  it.each(phrases)('treats "%s" as stating a figure', (phrase) => {
+    expect(hasProseFigure(`Acme is notable for ${phrase}.`)).toBe(true);
+  });
+
+  it('keeps all of them out of a printed overview, and keeps the sentences around them', async () => {
+    const { market, cards, tabs, company } = await plainDeck();
+    const id = company.company!.id;
+    const markdown = phrases.map((phrase) => [
+      'Acme makes industrial widgets for the logistics sector across North America and Europe.',
+      `It is known for ${phrase}.`,
+      'Its customers include several large retailers and carriers.',
+    ].join(' ')).join('\n\n');
+    const report = buildFullReport({ title: market.name, cards, tabs: { ...tabs, [id]: { ...tabs[id], overview: { content: { markdown } } } }, now: new Date('2026-01-01') });
+    const overview = report.companies.find((c) => c.id === id)!.overview.join(' ');
+    expect(overview).toContain('industrial widgets');
+    expect(overview).toContain('large retailers and carriers');
+    for (const phrase of phrases) expect(overview).not.toContain(phrase);
   });
 });

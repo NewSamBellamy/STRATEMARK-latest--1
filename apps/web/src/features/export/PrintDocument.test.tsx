@@ -16,7 +16,10 @@ async function sampleDeck() {
 
 describe('the printed market report', () => {
   it('prints every company with its name, and never as a <header>, which print styles hide', async () => {
-    const { market, cards, tabs } = await sampleDeck();
+    const { market, cards: stored, tabs } = await sampleDeck();
+    // The sample deck's barriers carry no source, and a finding the report cannot attribute is not printed.
+    const cards = stored.map((c) => c.card.cardType === 'barrier'
+      ? { ...c, card: { ...c.card, citations: [{ title: 'reuters.com', url: `https://reuters.com/${c.card.id}` }] } } : c);
     const model = buildFullReport({ title: market.name, cards, tabs });
     const { container } = render(<PrintDocument job={{ kind: 'marketReport', model }} />);
     // index.css hides every header element when printing; a company heading in one prints as a blank gap.
