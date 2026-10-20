@@ -28,3 +28,6 @@ apps/web/shots/
 
 # Isolated desktop-preview profile: personal research and OS-encrypted keys.
 work/preview-profile/
+
+# PDF render harness output
+apps/web/pdf-shots/
