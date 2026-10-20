@@ -12,9 +12,10 @@
  *   - a number must be a real, non-negative number;
  *   - the live-site embed is never offered (a share could point it at any page, and a visitor would see it inside
  *     Stratemark's own frame);
- *   - and its size is bounded, so a small file cannot make a visitor's browser build millions of objects.
+ *   - and its size is bounded, so a small file cannot make a visitor's browser build millions of objects: the lists
+ *     of the snapshot (SNAPSHOT_LIMITS), the lists inside each row and tab (ROW_LIMITS), and the prose (MARKDOWN_LIMITS).
  *
- * Red-team findings 1, 2 and 4 against the hosted share viewer.
+ * Red-team findings 1, 2 and 4 against the hosted share viewer, and the second review's.
  */
 import {
   DASHBOARD_TABS, companyFoundedSchema, enforceMetricProvenance, enforceOwnershipProvenance, ownershipSchema, usableCitations,
@@ -54,12 +55,55 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * The most rows a share keeps in any one list inside a row or a tab. Each is well above what research produces (a team
+ * is capped at 80 people, a news feed at 24 items, products at 16, a timeline runs to about 20 milestones, and a
+ * figure has a handful of sources) and far below what a screen can draw: 5,000 news items were 90,000 page elements,
+ * 2,000 people 130,000, and 20,000 people froze the tab for over a minute. A list past its limit loses its tail;
+ * nothing is reordered.
+ */
+export const ROW_LIMITS = {
+  citations: 100, keyPoints: 100, conflicts: 20, observations: 20, sources: 50,
+  newsItems: 100, videos: 50, people: 200, seriesPoints: 200, capTable: 100,
+  board: 50, notes: 50, fundingRounds: 100, leadInvestors: 30, investors: 100,
+  timeline: 200, quotes: 100, products: 100, roadmap: 50, relationships: 50,
+} as const;
+
+/** The first `max` rows of a list that are records; a list that is not one is empty. */
+function rowsOf(value: unknown, max: number): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter(isRecord).slice(0, max) : [];
+}
+
+/** The first `max` entries of a list that are text; a list that is not one is empty. */
+function textsOf(value: unknown, max: number): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string').slice(0, max) : [];
+}
+
+/** At most `max` raw source rows, looked at before any is judged (so what is shown is what confidence was judged on). */
+function sourcesOf<T>(value: T[] | undefined, max: number = ROW_LIMITS.citations): T[] {
+  return Array.isArray(value) ? value.slice(0, max) : [];
+}
+
+/** A figure's proof of support lists the sources it was read from; a share keeps the first few. */
+function boundedSupport<T>(proof: T): T {
+  if (!isRecord(proof) || !isRecord(proof.support)) return proof;
+  return { ...proof, support: { ...proof.support, sources: rowsOf(proof.support.sources, ROW_LIMITS.sources) } } as T;
+}
+
 function receiveMetric(metric: CompanyMetric, company: Company | undefined): CompanyMetric | null {
   if (!isRecord(metric)) return null;
   if (metric.value !== null && metric.value !== undefined && !(typeof metric.value === 'number' && Number.isFinite(metric.value) && metric.value >= 0)) return null;
   // No person here checked anything: a human check cannot arrive in a share. The figure keeps whatever its sources earn it.
   const claimed = metric.confidence === 'user_verified' ? { ...metric, confidence: 'verified' as const } : metric;
-  return enforceMetricProvenance({ ...claimed, value: claimed.value ?? null }, company?.websiteUrl, company?.ownership);
+  const bounded: CompanyMetric = {
+    ...claimed,
+    value: claimed.value ?? null,
+    citations: sourcesOf(claimed.citations),
+    ...(claimed.reportedSupport ? { reportedSupport: boundedSupport(claimed.reportedSupport) } : {}),
+    ...(claimed.reportedBand ? { reportedBand: boundedSupport(claimed.reportedBand) } : {}),
+    ...(claimed.conflicts ? { conflicts: rowsOf(claimed.conflicts, ROW_LIMITS.conflicts).map((conflict) => ({ ...conflict, observations: rowsOf(conflict.observations, ROW_LIMITS.observations) })) as CompanyMetric['conflicts'] } : {}),
+  };
+  return enforceMetricProvenance(bounded, company?.websiteUrl, company?.ownership);
 }
 
 /**
@@ -70,7 +114,7 @@ function receiveMetric(metric: CompanyMetric, company: Company | undefined): Com
 function receiveOwnership(value: unknown): Ownership | null {
   if (value === null || value === undefined) return null;
   const parsed = ownershipSchema.safeParse(value);
-  return parsed.success ? enforceOwnershipProvenance(parsed.data, true) : null;
+  return parsed.success ? enforceOwnershipProvenance({ ...parsed.data, citations: sourcesOf(parsed.data.citations) }, true) : null;
 }
 
 /** A founding year is shown only with a source behind it (the contract requires one); anything else is not shown. */
@@ -78,7 +122,7 @@ function receiveFounded(value: unknown): CompanyFounded | null {
   if (value === null || value === undefined) return null;
   const parsed = companyFoundedSchema.safeParse(value);
   if (!parsed.success) return null;
-  const citations = usableCitations(parsed.data.citations);
+  const citations = usableCitations(sourcesOf(parsed.data.citations));
   return citations.length > 0 ? { ...parsed.data, citations } : null;
 }
 
@@ -91,10 +135,15 @@ function receiveCompany(company: Company): Company {
 }
 
 function receiveCard(card: Card): Card {
-  return { ...card, citations: usableCitations(card.citations) };
+  return {
+    ...card,
+    citations: usableCitations(sourcesOf(card.citations)),
+    ...('keyPoints' in card ? { keyPoints: textsOf(card.keyPoints, ROW_LIMITS.keyPoints) } : {}),
+  };
 }
 
 function receiveClaim(claim: ViceClaim): ViceClaim | null {
+  if (!isRecord(claim)) return null;
   const url = webUrl(claim.sourceUrl);
   return url ? { ...claim, sourceUrl: url } : null;
 }
@@ -133,22 +182,46 @@ function isTab(name: string): name is DashboardTab {
   return (DASHBOARD_TABS as readonly string[]).includes(name);
 }
 
+/** The lists of rows in each tab, and how many rows of each a share keeps. */
+const TAB_ROWS: Partial<Record<DashboardTab, Record<string, number>>> = {
+  live_intel: { items: ROW_LIMITS.newsItems, videos: ROW_LIMITS.videos },
+  team_org: { nodes: ROW_LIMITS.people },
+  metrics: {
+    revenue: ROW_LIMITS.seriesPoints, revenueQuarterly: ROW_LIMITS.seriesPoints, users: ROW_LIMITS.seriesPoints,
+    churn: ROW_LIMITS.seriesPoints, nps: ROW_LIMITS.seriesPoints, capTable: ROW_LIMITS.capTable,
+  },
+  mission_governance: { board: ROW_LIMITS.board, fundingRounds: ROW_LIMITS.fundingRounds, investors: ROW_LIMITS.investors },
+  history: { timeline: ROW_LIMITS.timeline, quotes: ROW_LIMITS.quotes },
+  products_roadmap: { products: ROW_LIMITS.products, roadmap: ROW_LIMITS.roadmap, relationships: ROW_LIMITS.relationships },
+};
+
+/** The lists of plain text in each tab, and how many entries of each a share keeps. */
+const TAB_TEXTS: Partial<Record<DashboardTab, Record<string, number>>> = {
+  mission_governance: { positives: ROW_LIMITS.notes, negatives: ROW_LIMITS.notes },
+};
+
 type StoredTab = NonNullable<ShareSnapshot['dashboards'][string][DashboardTab]>;
 
 /** One stored tab as a visitor may see it, or null when it is not a tab a screen can read. */
 function receiveTab(tab: DashboardTab, entry: Record<string, unknown>, budget: TextBudget): StoredTab | null {
   const content = entry.content;
-  // Every tab reads its content as a record (the team list may also arrive as a bare list); anything else is not a tab.
-  if (!isRecord(content) && !(tab === 'team_org' && Array.isArray(content))) return null;
-  let kept: unknown = content;
-  if (isRecord(content)) {
-    const next: Record<string, unknown> = { ...content };
-    for (const field of MARKDOWN_FIELDS[tab] ?? []) if (field in next) next[field] = receiveMarkdown(next[field], budget);
-    // A live site is never embedded.
-    if (tab === 'live_landing') next.embeddable = false;
-    kept = next;
+  const stored = entry as { lastRefreshedAt: string };
+  // The team list may arrive as a bare list of people.
+  if (tab === 'team_org' && Array.isArray(content)) return { ...stored, content: rowsOf(content, ROW_LIMITS.people) };
+  // Every other tab reads its content as a record; anything else is not a tab.
+  if (!isRecord(content)) return null;
+  const next: Record<string, unknown> = { ...content };
+  for (const field of MARKDOWN_FIELDS[tab] ?? []) if (field in next) next[field] = receiveMarkdown(next[field], budget);
+  // A list that is not a list is empty, a row that is not a row is dropped, and a list past its limit loses its tail.
+  for (const [field, max] of Object.entries(TAB_ROWS[tab] ?? {})) if (field in next) next[field] = rowsOf(next[field], max);
+  for (const [field, max] of Object.entries(TAB_TEXTS[tab] ?? {})) if (field in next) next[field] = textsOf(next[field], max);
+  if (tab === 'mission_governance' && Array.isArray(next.fundingRounds)) {
+    next.fundingRounds = (next.fundingRounds as Array<Record<string, unknown>>)
+      .map((round) => ('leadInvestors' in round ? { ...round, leadInvestors: textsOf(round.leadInvestors, ROW_LIMITS.leadInvestors) } : round));
   }
-  return { ...(entry as { lastRefreshedAt: string }), content: kept };
+  // A live site is never embedded.
+  if (tab === 'live_landing') next.embeddable = false;
+  return { ...stored, content: next };
 }
 
 /** Each stored dashboard tab as a visitor may see it: a real tab, with its prose bounded and no live site embedded. */
@@ -170,7 +243,7 @@ function receiveDashboards(dashboards: ShareSnapshot['dashboards']): ShareSnapsh
 
 /** The snapshot as a visitor may see it. The input has already passed `isShareSnapshot` (shape and size). */
 export function receiveSnapshot(snapshot: ShareSnapshot): ShareSnapshot {
-  const companies = snapshot.companies.map(receiveCompany);
+  const companies = snapshot.companies.filter(isRecord).map(receiveCompany);
   // A figure is judged against the company as it will be shown: a forged "acquired" status must not withhold its valuation.
   const byId = new Map(companies.map((company) => [company.id, company] as const));
   return {
@@ -180,7 +253,7 @@ export function receiveSnapshot(snapshot: ShareSnapshot): ShareSnapshot {
       const kept = receiveMetric(metric, byId.get(metric?.companyId));
       return kept ? [kept] : [];
     }),
-    cards: snapshot.cards.map(receiveCard),
+    cards: snapshot.cards.filter(isRecord).map(receiveCard),
     viceClaims: snapshot.viceClaims.flatMap((claim) => {
       const kept = receiveClaim(claim);
       return kept ? [kept] : [];

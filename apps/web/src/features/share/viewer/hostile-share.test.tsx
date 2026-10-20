@@ -82,3 +82,51 @@ describe('markdown in a hosted share written to freeze the viewer', () => {
     expect(view.container.textContent).toMatch(/Founded/);
   }, 60_000);
 });
+
+const NOW = '2026-10-19T10:00:00.000Z';
+const newsItem = (i: number) => ({
+  id: `i${i}`, source: 'news', title: `Story ${i}`, url: 'https://news.example/story', summary: 'A short summary.', detail: 'Some detail.', publishedDate: '2026-10-01',
+  sentiment: 'positive', publishedAt: NOW, stale: false, publisher: 'Pub', imageUrl: null,
+});
+const person = (i: number) => ({ id: `n${i}`, name: `Person ${i}`, role: 'Engineer', group: 'exec', parentId: i === 0 ? null : `n${Math.floor((i - 1) / 3)}`, bio: 'Works on things.' });
+
+describe('lists in a hosted share written to freeze the viewer', () => {
+  it('opens a news feed of five thousand items showing the first hundred, at once', async () => {
+    // Five thousand items were about ninety thousand page elements before.
+    const { view, started } = await openTab(await deckSnapshot(), 'live_intel', { items: Array.from({ length: 5_000 }, (_unused, i) => newsItem(i)), lastRefreshedAt: NOW, cadence: 'weekly' });
+    await waitFor(() => expect(view.container.textContent).toMatch(/Story 0/), { timeout: 30_000 });
+    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(document.querySelectorAll('*').length).toBeLessThan(8_000);
+    expect(view.container.textContent).not.toMatch(/Story 100/);
+  }, 90_000);
+
+  it('opens a team of twenty thousand people showing the first two hundred, at once', async () => {
+    // Twenty thousand froze the tab for more than a minute before.
+    const { view, started } = await openTab(await deckSnapshot(), 'team_org', { nodes: Array.from({ length: 20_000 }, (_unused, i) => person(i)) });
+    await waitFor(() => expect(view.container.textContent).toMatch(/Person 0/), { timeout: 30_000 });
+    expect(performance.now() - started).toBeLessThan(8_000);
+    expect(document.querySelectorAll('*').length).toBeLessThan(30_000);
+    expect(view.container.textContent).not.toMatch(/Person 200/);
+  }, 90_000);
+
+  it('opens a history of twenty thousand milestones and quotes showing the first of each, at once', async () => {
+    const timeline = Array.from({ length: 20_000 }, (_unused, i) => ({ date: '2020', title: `Milestone ${i}`, detail: 'It happened.' }));
+    const quotes = Array.from({ length: 20_000 }, (_unused, i) => ({ text: `Quote ${i}`, attribution: 'Someone' }));
+    const { view, started } = await openTab(await deckSnapshot(), 'history', { founderStory: 'It began.', timeline, quotes });
+    await waitFor(() => expect(view.container.textContent).toMatch(/Milestone 0/), { timeout: 30_000 });
+    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(document.querySelectorAll('*').length).toBeLessThan(15_000);
+    expect(view.container.textContent).not.toMatch(/Milestone 200/);
+  }, 90_000);
+
+  it('opens products, roadmap items and relationships by the thousand showing the first of each, at once', async () => {
+    const products = Array.from({ length: 5_000 }, (_unused, i) => ({ name: `Product ${i}`, description: 'It does things.', revenueNote: 'Not disclosed', url: null, status: 'live' }));
+    const roadmap = Array.from({ length: 5_000 }, (_unused, i) => ({ title: `Roadmap ${i}`, horizon: 'now', detail: 'Soon.', date: null }));
+    const relationships = Array.from({ length: 5_000 }, (_unused, i) => ({ name: `Partner ${i}`, kind: 'partner', quote: 'They work together.', sourceUrl: null, sourceTitle: null }));
+    const { view, started } = await openTab(await deckSnapshot(), 'products_roadmap', { products, roadmap, relationships });
+    await waitFor(() => expect(view.container.textContent).toMatch(/Product 0/), { timeout: 30_000 });
+    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(document.querySelectorAll('*').length).toBeLessThan(15_000);
+    expect(view.container.textContent).not.toMatch(/Product 100/);
+  }, 90_000);
+});
