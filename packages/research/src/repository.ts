@@ -83,6 +83,7 @@ import {
   type ResearchStage,
   type AskResearchInput,
   type ResearchScope,
+  type CardMemory,
   type ResearchThread,
   type Unsubscribe,
   type ViceClaim,
@@ -120,6 +121,7 @@ import {
 } from './semantic-memory';
 import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest, reachHuntRequest, FIGURE_DATE_RULE } from './prompts';
 import type { ResearchPassage } from '@mi/contracts';
+import { cardIdsForThread, cardMemory, reportStamp, requestThreadIds } from './card-memory';
 import type { Ownership } from '@mi/contracts';
 import { findOwnership, metricOwnershipEvidence, preferOwnership, receiptOwnershipEvidence } from './ownership';
 import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
@@ -5773,15 +5775,20 @@ export class GeminiRepository implements MarketIntelRepository {
    * The sourced half of a research conversation, for folding into a topic report: every question the analyst
    * asked, but only the answers that carried at least one usable source (an unsourced answer is not evidence).
    */
-  private reportConversation(threadId: string | null | undefined): { text: string; citations: Citation[] } | null {
-    const thread = threadId ? this.snap.threads.find((t) => t.id === threadId) : null;
-    if (!thread) return null;
-    const kept = thread.messages.filter((m) => m.role === 'user' || usableCitations(m.citations ?? []).length > 0);
-    if (!kept.some((m) => m.role === 'assistant')) return null;
-    return {
-      text: kept.map((m) => `${m.role === 'user' ? 'ANALYST ASKED' : 'RESEARCH FOUND'}: ${m.text}`).join('\n'),
-      citations: usableCitations(kept.flatMap((m) => m.citations ?? [])),
-    };
+  private reportConversation(threadIds: string[]): { text: string; citations: Citation[] } | null {
+    const parts: string[] = [];
+    const citations: Citation[] = [];
+    for (const threadId of threadIds) {
+      const thread = this.snap.threads.find((t) => t.id === threadId);
+      if (!thread) continue;
+      const kept = thread.messages.filter((m) => m.role === 'user' || usableCitations(m.citations ?? []).length > 0);
+      if (!kept.some((m) => m.role === 'assistant')) continue;
+      const lines = kept.map((m) => `${m.role === 'user' ? 'ANALYST ASKED' : 'RESEARCH FOUND'}: ${m.text}`).join('\n');
+      parts.push(threadIds.length > 1 ? `CONVERSATION "${thread.title}":\n${lines}` : lines);
+      citations.push(...kept.flatMap((m) => m.citations ?? []));
+    }
+    if (parts.length === 0) return null;
+    return { text: parts.join('\n\n').slice(0, 8000), citations: usableCitations(citations) };
   }
 
   /**
@@ -5814,7 +5821,7 @@ export class GeminiRepository implements MarketIntelRepository {
       // The usage counters are global: while a deck job or a tab lane runs beside the report they cannot be attributed to it.
       busy: () => this.activeBackgroundJobs.size > 0 || this.tabResearchInFlight.size > 0,
       tabCitations: () => Object.values(this.snap.dashboards[company.id] ?? {}).flatMap((tab) => tab?.citations ?? []),
-    }, request.topics ?? [], signal, { focus: request.focus ?? null, conversation: this.reportConversation(request.threadId) });
+    }, request.topics ?? [], signal, { focus: request.focus ?? null, conversation: this.reportConversation(requestThreadIds(request)) });
     // A cancel that landed after the last write-up must not be saved as a finished report.
     throwIfAborted(signal);
     const report: Report = {
@@ -5829,6 +5836,7 @@ export class GeminiRepository implements MarketIntelRepository {
       topics: result.topics,
       sections: result.sections,
       cost: result.cost,
+      ...reportStamp(request, this.snap),
       createdAt: new Date().toISOString(),
     };
     this.snap.reports = [report, ...this.snap.reports];
@@ -5905,7 +5913,7 @@ export class GeminiRepository implements MarketIntelRepository {
       // half-researched deck would launder skeletons into prose. A report written from a conversation is about what that
       // conversation found, so it does not wait for the deck: it digests only the cards that have finished forming, never
       // a skeleton, and the conversation carries the rest.
-      const fromConversation = Boolean(request.threadId);
+      const fromConversation = requestThreadIds(request).length > 0;
       if (!fromConversation) this.assertDeckSettled(deck.id, 'report');
       title = `${market.name} — Market Report`;
       const cards = this.snap.cards
@@ -5964,15 +5972,16 @@ export class GeminiRepository implements MarketIntelRepository {
     }
 
     const focus = (request.focus ?? '').trim();
-    const thread = request.threadId
-      ? this.snap.threads.find((t) => t.id === request.threadId)
-      : null;
-    const conversation = thread
-      ? thread.messages
-          .map((m) => `${m.role === 'user' ? 'ANALYST ASKED' : 'RESEARCH FOUND'}: ${m.text}`)
-          .join('\n')
-          .slice(0, 6000)
-      : '';
+    const conversationThreads = requestThreadIds(request)
+      .map((id) => this.snap.threads.find((t) => t.id === id))
+      .filter((t): t is ResearchThread => Boolean(t));
+    const conversation = conversationThreads
+      .map((thread) => {
+        const lines = thread.messages.map((m) => `${m.role === 'user' ? 'ANALYST ASKED' : 'RESEARCH FOUND'}: ${m.text}`).join('\n');
+        return conversationThreads.length > 1 ? `CONVERSATION "${thread.title}":\n${lines}` : lines;
+      })
+      .join('\n\n')
+      .slice(0, 8000);
 
     const g = await this.client.ground(
       [
@@ -6008,6 +6017,7 @@ export class GeminiRepository implements MarketIntelRepository {
       citations: g.citations,
       evidenceDigest: digest,
       evidenceCitations,
+      ...reportStamp(request, this.snap),
       createdAt: new Date().toISOString(),
     };
     this.snap.reports = [report, ...this.snap.reports];
@@ -6396,6 +6406,9 @@ export class GeminiRepository implements MarketIntelRepository {
         createdAt: now,
         updatedAt: now,
       };
+      // Name the cards explicitly (a company thread names its company's cards) so the link no longer depends on inference.
+      const named = cardIdsForThread(thread, this.snap);
+      if (named.length > 0) thread.scope.cardIds = named;
       this.snap.threads = [thread, ...this.snap.threads];
     }
 
@@ -6518,12 +6531,18 @@ ${references}`
     return structuredClone(thread);
   }
 
-  listResearchThreads(filter?: { deckId?: string; companyId?: string }): Promise<ResearchThread[]> {
+  listResearchThreads(filter?: { deckId?: string; companyId?: string; cardId?: string }): Promise<ResearchThread[]> {
     const out = this.snap.threads
+      .filter((t) => (filter?.cardId ? cardIdsForThread(t, this.snap).includes(filter.cardId) : true))
       .filter((t) => (filter?.deckId ? t.scope.deckId === filter.deckId : true))
       .filter((t) => (filter?.companyId ? t.scope.companyId === filter.companyId : true))
       .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
     return Promise.resolve(structuredClone(out));
+  }
+
+  /** A card's conversations, reports and brief. Read-only: never researches and never calls the model. */
+  getCardMemory(cardId: string): Promise<CardMemory> {
+    return Promise.resolve(cardMemory(this.snap, cardId));
   }
 
   getResearchThread(id: string): Promise<ResearchThread | null> {
