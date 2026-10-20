@@ -8,7 +8,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 export function MethodsPage({ model }: { model: Pick<FullReportModel, 'methods'> }) {
   const m = model.methods;
   return (
-    <Section id="sm-methods" className="sm-methods" head={<div><p className="sm-eyebrow">Method</p><h2 className="sm-signals-title">How to read this report</h2></div>}>
+    <Section id="sm-methods" className="sm-methodspage" head={<div><p className="sm-sig-eyebrow">Method</p><h2 className="sm-signals-title">How to read this report</h2></div>}>
       <Row>
         <p className="sm-methods__rule">Nothing in this report is invented. A figure appears only with the source that states it.</p>
         <dl className="sm-methods__defs">

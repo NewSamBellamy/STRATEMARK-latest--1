@@ -6,7 +6,7 @@ import './signals.css';
 export function SourcesList({ sources }: { sources: readonly DeckSource[] }) {
   if (sources.length === 0) return null;
   return (
-    <Section id="sm-sources" className="sm-sources" head={<div><p className="sm-eyebrow">References</p><h2 className="sm-signals-title">Sources</h2></div>}>
+    <Section id="sm-sources" className="sm-sources" head={<div className="sm-signals-head"><p className="sm-sig-eyebrow">References</p><h2 className="sm-signals-title sm-signals-title--run">Sources</h2></div>}>
       <Row>
         <ol className="sm-sources__list" data-testid="sources-list">
           {sources.map((s) => (

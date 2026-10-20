@@ -55,13 +55,13 @@ describe('SignalCard', () => {
     const m = await mixed();
     const e = entry(m, 'sig_brief');
     const { container } = renderWithProviders(<SignalCard entry={e} />);
-    const t = text(container.querySelector('.sm-signal__body')!);
+    const t = text(container.querySelector('.sm-sigcard__body')!);
     expect(t).toContain('The brief lead sentence.');
     expect(t).toContain('First sourced brief point.');
     expect(t).toContain('Second sourced brief point.');
     expect(t).not.toContain('Summary of sig_brief');
     expect(t).not.toContain('Point of sig_brief');
-    const refs = Array.from(container.querySelectorAll('.sm-signal__points li [data-testid="note-refs"]')).map((n) => n.textContent);
+    const refs = Array.from(container.querySelectorAll('.sm-sigcard__points li [data-testid="note-refs"]')).map((n) => n.textContent);
     expect(refs).toEqual(e.brief!.points.map((p) => p.notes.join(', ')));
     expect(e.brief!.points[1]!.notes).toHaveLength(2);
     expect(container.querySelector('[data-testid="print-card-face"]')).not.toBeNull();
@@ -71,7 +71,7 @@ describe('SignalCard', () => {
     const m = await mixed();
     const e = entry(m, 'sig_stored');
     const { container } = renderWithProviders(<SignalCard entry={e} />);
-    const t = text(container.querySelector('.sm-signal__body')!);
+    const t = text(container.querySelector('.sm-sigcard__body')!);
     expect(t).toContain('Summary of sig_stored.');
     expect(t).toContain('Point of sig_stored.');
     expect(container.querySelector('[data-testid="note-refs"]')!.textContent).toBe(e.stored!.notes.join(', '));
@@ -95,8 +95,8 @@ describe('SignalCard', () => {
     const arts = Array.from(container.querySelectorAll('[data-testid="signal-card"]'));
     expect(arts.map((a) => a.getAttribute('data-kind')).sort()).toEqual(['barrier', 'insight']);
     for (const a of arts) {
-      expect(a.className).toContain(`sm-signal--${a.getAttribute('data-kind')}`);
-      expect(a.querySelector('.sm-signal__kind')!.textContent).toMatch(/Barrier to entry|Insight/);
+      expect(a.className).toContain(`sm-sigcard--${a.getAttribute('data-kind')}`);
+      expect(a.querySelector('.sm-sigcard__kind')!.textContent).toMatch(/Barrier to entry|Insight/);
     }
     const group = Array.from(container.querySelectorAll('.sm-signals-group')).map((h) => h.textContent);
     expect(group).toEqual(['Barriers to entry', 'Insights']);
@@ -115,7 +115,7 @@ describe('SignalSection', () => {
     const m = await mixed();
     const { container } = renderWithProviders(<SignalSection model={m} />);
     expect(container.querySelector('h2')!.textContent).toBe('Signals');
-    expect(container.querySelector('thead .sm-signals-line')).not.toBeNull();
+    expect(container.querySelector('tbody .sm-signals-line')).not.toBeNull();
   });
 });
 
