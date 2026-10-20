@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_OUTPUT_TOKENS, MAX_THINKING_BUDGET, inspectGeminiRequest } from './gemini-request';
+import { MAX_OUTPUT_TOKENS, MAX_SCHEMA_DEPTH, MAX_SCHEMA_NODES, MAX_THINKING_BUDGET, inspectGeminiRequest } from './gemini-request';
 
 const GROUNDED = { contents: [{ parts: [{ text: 'research this market' }] }], tools: [{ google_search: {} }], generationConfig: { temperature: 0.2 } };
 const STRUCTURED = { contents: [{ parts: [{ text: 'make json' }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0 }, systemInstruction: { parts: [{ text: 'be exact' }] } };
@@ -103,5 +103,32 @@ describe('what the answer may cost is bounded by what is forwarded', () => {
     refused({ ...STRUCTURED, generationConfig: { topP: 2 } });
     refused({ ...STRUCTURED, generationConfig: { topK: 0 } });
     refused({ ...STRUCTURED, generationConfig: { responseMimeType: 'image/png' } });
+  });
+});
+
+describe('a response schema nested or large beyond what a request needs', () => {
+  const MODEL = 'gemini-flash-lite-latest';
+  const withSchema = (schema: string) => `{"contents":[{"parts":[{"text":"x"}]}],"generationConfig":{"responseMimeType":"application/json","responseSchema":${schema}}}`;
+  const nest = (depth: number) => '{"a":'.repeat(depth) + '1' + '}'.repeat(depth);
+
+  it('is refused with a reason, not thrown (a schema 120,000 levels deep passes JSON.parse and used to overflow JSON.stringify)', () => {
+    const inspected = inspectGeminiRequest(withSchema(nest(120_000)), MODEL);
+    expect(inspected).toEqual({ ok: false, error: expect.stringContaining('responseSchema') });
+  });
+
+  it('is refused by depth just past the limit and allowed at it', () => {
+    expect(inspectGeminiRequest(withSchema(nest(MAX_SCHEMA_DEPTH)), MODEL).ok).toBe(true);
+    expect(inspectGeminiRequest(withSchema(nest(MAX_SCHEMA_DEPTH + 1)), MODEL).ok).toBe(false);
+    // Arrays count as levels too.
+    expect(inspectGeminiRequest(withSchema('['.repeat(MAX_SCHEMA_DEPTH + 1) + ']'.repeat(MAX_SCHEMA_DEPTH + 1)), MODEL).ok).toBe(false);
+  });
+
+  it('is refused by the number of nodes, and a real-sized schema passes untouched', () => {
+    const wide = `{"properties":[${Array.from({ length: MAX_SCHEMA_NODES + 1 }, () => '{}').join(',')}]}`;
+    expect(inspectGeminiRequest(withSchema(wide), MODEL).ok).toBe(false);
+    const real = JSON.stringify({ type: 'OBJECT', properties: { name: { type: 'STRING' }, rounds: { type: 'ARRAY', items: { type: 'OBJECT', properties: { amount: { type: 'NUMBER', nullable: true }, kind: { type: 'STRING', enum: ['seed', 'a', 'b'] } } } } }, required: ['name'] });
+    const inspected = inspectGeminiRequest(withSchema(real), MODEL);
+    expect(inspected.ok).toBe(true);
+    if (inspected.ok) expect(JSON.parse(inspected.request.body).generationConfig.responseSchema).toEqual(JSON.parse(real));
   });
 });

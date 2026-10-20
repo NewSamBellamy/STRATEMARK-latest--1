@@ -382,3 +382,15 @@ describe('a budget that is set to something unusable fails closed', () => {
     expect(fine.budgetMisconfigured).toEqual([]);
   });
 });
+
+describe('a response schema nested past what JSON.stringify can write', () => {
+  it('is a 400 through the real handler, with nothing held and nothing sent to Google (it used to end as a 500)', async () => {
+    const { env, budget } = makeEnv();
+    const depth = 120_000;
+    const body = `{"contents":[{"parts":[{"text":"x"}]}],"generationConfig":{"responseSchema":${'{"a":'.repeat(depth)}1${'}'.repeat(depth)}}}`;
+    const res = await call(env, body);
+    expect(res.status).toBe(400);
+    expect(googleCalls()).toHaveLength(0);
+    expect(await budget.status(DAY)).toMatchObject({ spentMicros: 0, heldMicros: 0 });
+  });
+});

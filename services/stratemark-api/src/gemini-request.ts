@@ -18,6 +18,13 @@ export const MAX_OUTPUT_TOKENS = 32_768;
 export const MAX_THINKING_BUDGET = 16_384;
 const MAX_TURNS = 40;
 const MAX_PARTS = 64;
+/**
+ * Deepest and largest a response schema may be. The research client's are about ten levels deep; the schema is the one thing
+ * forwarded as sent, and one nested a hundred thousand levels deep is valid JSON that JSON.stringify then overflows the stack
+ * on, which ended as a 500 (red team R2-W1). Refused as a 400 before anything is built or held.
+ */
+export const MAX_SCHEMA_DEPTH = 64;
+export const MAX_SCHEMA_NODES = 50_000;
 
 export interface GeminiRequest {
   /** The JSON to send to Google, rebuilt from what was accepted. */
@@ -47,6 +54,19 @@ function textParts(value: unknown): Array<{ text: string }> | null {
     out.push({ text: part.text });
   }
   return out;
+}
+
+/** True when a parsed JSON value is no deeper than MAX_SCHEMA_DEPTH and has no more than MAX_SCHEMA_NODES objects and arrays. Stops at the limit, so it never recurses further than the limit. */
+function withinSchemaLimits(value: unknown): boolean {
+  let nodes = 0;
+  const walk = (node: unknown, depth: number): boolean => {
+    if (typeof node !== 'object' || node === null) return true;
+    nodes += 1;
+    if (depth > MAX_SCHEMA_DEPTH || nodes > MAX_SCHEMA_NODES) return false;
+    for (const child of Array.isArray(node) ? node : Object.values(node)) if (!walk(child, depth + 1)) return false;
+    return true;
+  };
+  return walk(value, 1);
 }
 
 function boundedNumber(value: unknown, min: number, max: number, integer = false): number | null {
@@ -117,6 +137,7 @@ export function inspectGeminiRequest(text: string, model: string): GeminiInspect
     }
     if (asked.responseSchema !== undefined) {
       if (!isObject(asked.responseSchema)) return refuse('responseSchema must be an object.');
+      if (!withinSchemaLimits(asked.responseSchema)) return refuse('responseSchema is nested or large beyond what a request needs.');
       config.responseSchema = asked.responseSchema;
     }
     if (asked.maxOutputTokens !== undefined) {
@@ -145,5 +166,7 @@ export function inspectGeminiRequest(text: string, model: string): GeminiInspect
   config.maxOutputTokens = maxOutput;
   out.generationConfig = config;
 
-  return { ok: true, request: { body: JSON.stringify(out), grounded, worstOutputTokens: maxOutput + thinking } };
+  let body: string;
+  try { body = JSON.stringify(out); } catch { return refuse('The request could not be rebuilt.'); }
+  return { ok: true, request: { body, grounded, worstOutputTokens: maxOutput + thinking } };
 }
