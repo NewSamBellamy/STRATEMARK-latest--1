@@ -4,7 +4,8 @@ Sharing is one button. **Share & export → Share link → Create link** (or the
 short link, like `https://<worker>/s/Udd5ybWrx30g9ZXs`, to a read-only copy of that card or deck with its
 research. Paste it into Telegram, Slack, Discord, WhatsApp, iMessage or email and it shows the title, a line
 of description and a picture of the card or the deck. Anyone can open it on a phone or a laptop with no
-account; nothing new is researched when it is opened; every figure keeps its source. A quiet "Want to
+account; nothing new is researched when it is opened; every figure keeps its source link, which the page
+shows and does not re-check (the page says it was shared by someone else). A quiet "Want to
 research more companies? Sign up" sits at the bottom.
 
 ## What happens
