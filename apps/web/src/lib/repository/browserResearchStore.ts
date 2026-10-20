@@ -1,4 +1,4 @@
-import { migrateSnapshot, isOriginalSourceAttempt, REPO_SCHEMA_VERSION, type RepoSnapshot, type ResearchStore } from '@mi/research';
+import { migrateSnapshot, isOriginalSourceAttempt, siftSignalBriefs, REPO_SCHEMA_VERSION, type RepoSnapshot, type ResearchStore } from '@mi/research';
 
 const LEGACY = 'mi.repo.v1';
 const CURRENT = `${LEGACY}.committed`;
@@ -79,7 +79,10 @@ function openDatabase(): Promise<IDBDatabase> {
 
 export function parseResearchSnapshot(json: string): RepoSnapshot {
   try {
-    return validResearchSnapshot(JSON.parse(json) as RepoSnapshot);
+    const snapshot = validResearchSnapshot(JSON.parse(json) as RepoSnapshot);
+    // Briefs of signal cards are untrusted rows: keep the well-formed ones, drop the rest (never a reason to refuse the workspace).
+    if (snapshot.signalBriefs !== undefined) snapshot.signalBriefs = siftSignalBriefs(snapshot.signalBriefs);
+    return snapshot;
   } catch (cause) {
     throw new Error('Your saved research is unreadable. Export or recover it before continuing; nothing has been overwritten.', { cause });
   }
