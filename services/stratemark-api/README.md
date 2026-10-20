@@ -54,7 +54,7 @@ Limits, all in `src/share-policy.ts`: 2 MB of compressed research (a real 18-com
 shares per day in all. A visitor is an IPv4 address or an IPv6 /64 (`src/visitor.ts`), for these limits and for
 the dollar budget alike, because one machine on IPv6 can rotate through a whole /64 at will. Nothing a stopped
 share left behind is cached: the research and the link page are `no-store`/`no-cache`, the picture lives five
-minutes. Text a sender types is stripped of control and direction-changing characters. The viewer address
+minutes. Text a sender types is stripped of control, invisible (every default-ignorable and format character, tag characters included) and direction-changing characters. The viewer address
 must be a `share.html` on the same allowed origin that made the request, so a share cannot send a visitor
 somewhere else. Every sender-typed string is stripped of control characters and escaped in the one HTML page
 the Worker writes, which has no script and a locked-down content policy.

@@ -413,3 +413,20 @@ describe('the hold is taken at what the body can be billed as', () => {
     expect((await budget.status(DAY)).heldMicros).toBe(0);
   });
 });
+
+describe('the link page a chat app reads carries no hidden text', () => {
+  it('serves og:title and og:description with the invisible characters of a stored share removed (R2-S1)', async () => {
+    const { env } = makeEnv();
+    const hidden = String.fromCodePoint(0x061c, 0x180e, 0x2800, 0x3164, 0xffa0, 0x034f, 0x17b5, 0xfe0f, 0xe0041, 0xe0042, 0xe007f);
+    const made = await worker.fetch(new Request('https://worker.example/v1/share', {
+      method: 'POST', headers: { origin: APP, 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.9' },
+      body: JSON.stringify({ v: 1, kind: 'deck', title: `Meal kits${hidden}`, description: `A short line${hidden}`, viewer: `${APP}/share.html`, data: 'A'.repeat(200), og: null }),
+    }), env);
+    expect(made.status).toBe(201);
+    const { id } = await made.json() as { id: string };
+    const html = await (await worker.fetch(new Request(`https://worker.example/s/${id}`), env)).text();
+    expect(html).toContain('<meta property="og:title" content="Meal kits" />');
+    expect(html).toContain('<meta property="og:description" content="A short line" />');
+    for (const ch of hidden) expect(html.includes(ch), `U+${ch.codePointAt(0)!.toString(16)}`).toBe(false);
+  });
+});
