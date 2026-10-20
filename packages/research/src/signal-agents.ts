@@ -29,13 +29,13 @@
 import { z } from 'zod';
 import {
   classifySource,
-  usableCitations,
   type Card,
   type CardWithCompany,
   type Company,
   type ViceClaim,
 } from '@mi/contracts';
-import { claimSupportCitations, sourceBacksClaim } from './claim-support';
+import { claimSupportCitations, resolveClaimCitation, resolveClaimCitations, sourceBacksClaim } from './claim-support';
+import { acceptedRiskClaims, type ModelRiskFinding } from './risk-claims';
 import { marketCardsOutSchema } from './schemas';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import { slugify, throwIfAborted } from './util';
@@ -103,11 +103,24 @@ export interface MarketSignalsResult {
   citations: Citation[];
 }
 
+/**
+ * A risk that names its own source. It is built only from a claim that passed the risk rule (risk-claims), never from the
+ * source number a model wrote: that number is not evidence, and a claim carrying only one has no source here.
+ */
 export interface RawViceClaimInput {
   text: string;
-  sourceIndex?: number | null;
   sourceUrl?: string | null;
   sourceTitle?: string | null;
+}
+
+/** What a company's own search must supply to turn its risk findings into stored claims. */
+export interface ViceEvidence {
+  /** The sources of the answer, in the order the structuring step numbered them. */
+  citations: readonly Citation[];
+  /** What the search attributed to which source: a risk is stored only on a source the search attached to its sentence. */
+  grounding: ProviderGrounding | undefined;
+  /** Names of the deck's other companies, when known: a sentence naming one is not about this company. */
+  others?: readonly string[];
 }
 
 // Zod schemas for dedicated agent structured passes
@@ -229,41 +242,8 @@ export function offsetClaimSourceIndices<T extends { sourceIndex: number | null;
   }));
 }
 
-/** Resolves all distinct, valid receipts attached to one finding. */
-export function resolveClaimCitations(
-  sourceIndex: number | null | undefined,
-  sourceIndexes: readonly number[] | null | undefined,
-  citations: readonly Citation[],
-): Citation[] {
-  const indices = Array.from(new Set([
-    ...(sourceIndex == null ? [] : [sourceIndex]),
-    ...(sourceIndexes ?? []),
-  ]));
-  return usableCitations(indices.flatMap((index) => resolveClaimCitation(index, citations)));
-}
-
-/**
- * Resolves and validates citations attached to a claim index.
- */
-export function resolveClaimCitation(
-  sourceIndex: number | null | undefined,
-  citations: readonly Citation[],
-): Citation[] {
-  if (sourceIndex == null || sourceIndex < 0 || sourceIndex >= citations.length) {
-    return [];
-  }
-  const cite = citations[sourceIndex];
-  if (!cite || !cite.url || !/^https?:\/\//i.test(cite.url.trim())) {
-    return [];
-  }
-  return [
-    {
-      title: cite.title || 'Source',
-      url: cite.url.trim(),
-      credibility: cite.credibility ?? classifySource(cite.url, cite.title),
-    },
-  ];
-}
+// Resolving a finding's source number lives in claim-support (a module the risk rule can import without a cycle).
+export { resolveClaimCitation, resolveClaimCitations };
 
 // ============================================================================
 // 3. Card Factory Constructors
@@ -430,31 +410,20 @@ export function createViceCard(
 }
 
 /**
- * Filters and validates vice claims ensuring only verified, clickable sources survive.
+ * Turns claims that already name a clickable source into stored vice claims, dropping any that do not. It does not decide
+ * whether a source backs a claim: that is `acceptedRiskClaims` (risk-claims), which every finding of a model goes through
+ * first. A bare source number from a model is not accepted here.
  */
 export function extractSourcedViceClaims(
   rawClaims: readonly RawViceClaimInput[],
-  citations: readonly Citation[],
   companyId: string,
 ): ViceClaim[] {
   const out: ViceClaim[] = [];
   rawClaims.forEach((vc, index) => {
-    let sourceUrl: string | null = null;
-    let sourceTitle: string | null = null;
-
-    if (vc.sourceIndex != null && citations[vc.sourceIndex]) {
-      const cite = citations[vc.sourceIndex]!;
-      if (cite.url && /^https?:\/\//i.test(cite.url.trim())) {
-        sourceUrl = cite.url.trim();
-        sourceTitle = cite.title?.trim() || null;
-      }
-    } else if (vc.sourceUrl && /^https?:\/\//i.test(vc.sourceUrl.trim())) {
-      sourceUrl = vc.sourceUrl.trim();
-      sourceTitle = vc.sourceTitle?.trim() || null;
-    }
-
     // Grounding discipline: strictly drop unsourced vice claims
+    const sourceUrl = vc.sourceUrl && /^https?:\/\//i.test(vc.sourceUrl.trim()) ? vc.sourceUrl.trim() : null;
     if (!sourceUrl) return;
+    const sourceTitle = vc.sourceTitle?.trim() || null;
 
     out.push({
       id: uid('vcl', `${companyId}-${index}`),
@@ -466,6 +435,19 @@ export function extractSourcedViceClaims(
     });
   });
   return out;
+}
+
+/**
+ * The stored risk claims among the findings of one company's own search, under the same rule as the roster path: one sentence
+ * about this company, backed by one fit source (public, not the company's own site) that the search itself attributed to a
+ * sentence that reads the event. A finding that fails is dropped, whatever source number the model gave it.
+ */
+export function extractGroundedViceClaims(
+  company: Company,
+  findings: readonly ModelRiskFinding[],
+  evidence: ViceEvidence,
+): ViceClaim[] {
+  return extractSourcedViceClaims(acceptedRiskClaims(findings, company, evidence.others ?? [], evidence), company.id);
 }
 
 /**
@@ -829,8 +811,9 @@ export class ViceAgent {
     return [
       `Convert the research notes into JSON: { "viceClaims": [ { "text": string, "sourceIndex": number | null } ] }.`,
       `Rules:`,
-      `- Every claim MUST have a sourceIndex pointing to a listed source in SOURCES.`,
-      `- Each claim is one plain-language sentence (maximum 180 characters) that names the concrete risk or event.`,
+      `- "sourceIndex" is the 0-based index of the listed source that supports the claim, or null if none of them does.`,
+      `- Each claim is one plain-language sentence (maximum 180 characters) taken from the notes that begins with the company's name, says what happened and when, and names no other company.`,
+      `- A claim is kept only when the search itself attributed that sentence to a listed source.`,
       `- Drop any rumor or unverified assertion.`,
       ``,
       `SOURCES:`,
@@ -863,31 +846,31 @@ export class ViceAgent {
       { system: STRUCTURE_SYSTEM, signal: options.signal },
     );
 
-    const claims = extractSourcedViceClaims(
-      structured.viceClaims ?? [],
-      grounded.citations,
-      company.id,
-    );
+    // The model's source number is only a hint: a risk is stored on a source the search attached to its sentence.
+    const claims = extractGroundedViceClaims(company, structured.viceClaims ?? [], {
+      citations: grounded.citations,
+      grounding: grounded.grounding,
+    });
 
     if (claims.length === 0) return null;
     return createViceCard(company, claims, deckId);
   }
 
   static extractClaims(
-    rawClaims: readonly RawViceClaimInput[],
-    citations: readonly Citation[],
-    companyId: string,
+    company: Company,
+    findings: readonly ModelRiskFinding[],
+    evidence: ViceEvidence,
   ): ViceClaim[] {
-    return extractSourcedViceClaims(rawClaims, citations, companyId);
+    return extractGroundedViceClaims(company, findings, evidence);
   }
 
   static extract(
     company: Company,
-    rawClaims: readonly RawViceClaimInput[],
-    citations: readonly Citation[] = [],
+    findings: readonly ModelRiskFinding[],
+    evidence: ViceEvidence,
     deckId = '',
   ): CardWithCompany | null {
-    const claims = extractSourcedViceClaims(rawClaims, citations, company.id);
+    const claims = extractGroundedViceClaims(company, findings, evidence);
     if (claims.length === 0) return null;
     return createViceCard(company, claims, deckId);
   }

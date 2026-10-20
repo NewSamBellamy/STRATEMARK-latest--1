@@ -54,7 +54,7 @@ import {
 } from './prompts';
 import { faviconUrl } from './logos';
 import { rootDomain, slugify, throwIfAborted, websiteUrlOf } from './util';
-import { ViceAgent, extractCultureNote } from './signal-agents';
+import { extractCultureNote, extractGroundedViceClaims } from './signal-agents';
 import {
   estimateArrFromHeadcount,
   estimateArrFromPricingAndFootprint,
@@ -708,12 +708,14 @@ async function hydrateFromGrounded(
     { nudge: options.nudge, nudgeReason: options.nudgeReason },
   );
 
-  // 6. Sourced Signal Extraction
-  const sourcedViceClaims: ViceClaim[] = ViceAgent.extractClaims(
-    enrichment.viceClaims ?? [],
-    grounded.citations,
-    company.id,
-  );
+  // 6. Sourced Signal Extraction. A risk is stored under the same rule as on the roster path (risk-claims): one sentence about
+  // this company, on a fit source the search itself attributed to it. The model's source number is only a hint, and a run
+  // whose answer carried no attribution stores no risk.
+  const sourcedViceClaims: ViceClaim[] = extractGroundedViceClaims(company, enrichment.viceClaims ?? [], {
+    citations: grounded.citations,
+    grounding: grounded.grounding,
+    others: options.otherCompanies,
+  });
 
   const cultureNote = extractCultureNote(enrichment.cultureNote);
 
