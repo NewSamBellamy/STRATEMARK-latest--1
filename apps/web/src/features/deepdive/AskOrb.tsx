@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import logoMark from '@/assets/logo-mark.svg';
+import './askOrb.css';
 import { cn } from '@/lib/cn';
 
 export const ORB_SIZE = 52;
@@ -129,14 +130,15 @@ export function AskOrb({ onAsk, hint }: { onAsk: () => void; hint?: string }) {
       onPointerCancel={() => { start.current = null; setDrag(null); }}
       onKeyDown={key}
       onClick={(e) => { if (e.detail === 0) onAsk(); /* Enter or Space: pointer presses are handled above */ }}
+      data-dragging={drag ? 'true' : 'false'}
       className={cn(
-        'fixed z-30 grid touch-none select-none place-items-center rounded-full border border-border bg-surface shadow-card',
+        'ask-orb fixed z-30 grid touch-none select-none place-items-center rounded-full border border-border bg-surface shadow-card',
         'cursor-grab active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
         drag ? 'scale-105' : 'transition-[left,top,transform] duration-200 ease-out hover:scale-105',
       )}
       style={{ left: at.left, top: at.top, width: ORB_SIZE, height: ORB_SIZE }}
     >
-      <img src={logoMark} alt="" draggable={false} className="h-7 w-7 select-none" />
+      <img src={logoMark} alt="" draggable={false} className="ask-orb__mark h-7 w-7 select-none" />
     </button>
   );
 }

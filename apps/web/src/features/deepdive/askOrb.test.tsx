@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AskOrb, ORB_SIZE, orbPixels, placeOrb, readOrbPos } from './AskOrb';
@@ -110,6 +112,51 @@ describe('the orb', () => {
     const orb = screen.getByRole('button', { name: 'Ask Stratemark' });
     expect(parseInt(orb.style.left, 10)).toBeLessThanOrEqual(400 - ORB_SIZE);
     expect(parseInt(orb.style.top, 10)).toBeLessThanOrEqual(500 - ORB_SIZE);
+  });
+});
+
+describe('the orb is quietly alive', () => {
+  const css = readFileSync(resolve(__dirname, 'askOrb.css'), 'utf8');
+
+  it('breathes with the classes the stylesheet targets, and says when it is being dragged', () => {
+    render(<AskOrb onAsk={() => undefined} />);
+    const orb = screen.getByRole('button', { name: 'Ask Stratemark' });
+    expect(orb.className).toContain('ask-orb');
+    expect(orb.querySelector('.ask-orb__mark')).not.toBeNull();
+    expect(orb.getAttribute('data-dragging')).toBe('false');
+    fireEvent.pointerDown(orb, { clientX: 900, clientY: 600, pointerId: 1 });
+    fireEvent.pointerMove(orb, { clientX: 700, clientY: 400, pointerId: 1 });
+    expect(orb.getAttribute('data-dragging')).toBe('true');
+    fireEvent.pointerUp(orb, { clientX: 700, clientY: 400, pointerId: 1 });
+    expect(orb.getAttribute('data-dragging')).toBe('false');
+  });
+
+  it('moves only transform and opacity, is slow, and stops for dragging, pointing and reduced motion', () => {
+    const keyframes = (source: string) => {
+      const out: string[] = [];
+      let at = source.indexOf('@keyframes');
+      while (at !== -1) {
+        const open = source.indexOf('{', at);
+        let depth = 0;
+        let end = open;
+        for (; end < source.length; end++) {
+          if (source[end] === '{') depth++;
+          else if (source[end] === '}' && --depth === 0) break;
+        }
+        out.push(source.slice(open, end + 1));
+        at = source.indexOf('@keyframes', end);
+      }
+      return out.join(' ');
+    };
+    const frames = keyframes(css);
+    const properties = new Set([...frames.matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]));
+    expect([...properties].sort()).toEqual(['opacity', 'transform']);
+    expect(Number(/--ask-orb-breath:\s*([\d.]+)s/.exec(css)?.[1])).toBeGreaterThanOrEqual(5);
+    expect(css).toMatch(/\.ask-orb\[data-dragging='true'\]::after/);
+    expect(css).toMatch(/\.ask-orb:hover::after/);
+    const reduced = /@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*)\}/.exec(css)?.[1] ?? '';
+    expect(reduced).toMatch(/\.ask-orb::after/);
+    expect(reduced).toMatch(/animation:\s*none/);
   });
 });
 
