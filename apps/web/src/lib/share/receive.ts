@@ -6,6 +6,8 @@
  * rules the app holds its own research to:
  *   - a figure is only as verified as its sources make it (a "verified" figure with no usable source is an estimate,
  *     and a figure no one here could have checked cannot claim a human checked it: "user verified" is not honoured);
+ *   - who owns a company and when it was founded are shown only with a source behind them (a status nothing states is
+ *     dropped, as in a private link);
  *   - an allegation with no clickable source is dropped (Rule 9), and every source link must be a plain http(s) page;
  *   - a number must be a real, non-negative number;
  *   - the live-site embed is never offered (a share could point it at any page, and a visitor would see it inside
@@ -14,7 +16,10 @@
  *
  * Red-team findings 1, 2 and 4 against the hosted share viewer.
  */
-import { enforceMetricProvenance, usableCitations, type Card, type Company, type CompanyMetric, type ShareSnapshot, type ViceClaim } from '@mi/contracts';
+import {
+  companyFoundedSchema, enforceMetricProvenance, enforceOwnershipProvenance, ownershipSchema, usableCitations,
+  type Card, type Company, type CompanyFounded, type CompanyMetric, type Ownership, type ShareSnapshot, type ViceClaim,
+} from '@mi/contracts';
 
 /** Far above any real deck (an 18-company deck has about 18 companies, 20 cards and 300 figures), far below hostile. */
 export const SNAPSHOT_LIMITS = {
@@ -57,11 +62,32 @@ function receiveMetric(metric: CompanyMetric, company: Company | undefined): Com
   return enforceMetricProvenance({ ...claimed, value: claimed.value ?? null }, company?.websiteUrl, company?.ownership);
 }
 
+/**
+ * The ownership a share may show: a record that parses (a field of the wrong type drops it, as in a private link),
+ * held to the rules the app holds its own research to. A status with no usable source is not shown, and a human's
+ * say-so cannot arrive in a share, so "user verified" is read as what the sources earn.
+ */
+function receiveOwnership(value: unknown): Ownership | null {
+  if (value === null || value === undefined) return null;
+  const parsed = ownershipSchema.safeParse(value);
+  return parsed.success ? enforceOwnershipProvenance(parsed.data, true) : null;
+}
+
+/** A founding year is shown only with a source behind it (the contract requires one); anything else is not shown. */
+function receiveFounded(value: unknown): CompanyFounded | null {
+  if (value === null || value === undefined) return null;
+  const parsed = companyFoundedSchema.safeParse(value);
+  if (!parsed.success) return null;
+  const citations = usableCitations(parsed.data.citations);
+  return citations.length > 0 ? { ...parsed.data, citations } : null;
+}
+
 /** The signal-card and company text a stranger can reach through a link must be a link only if it is a web page. */
 function receiveCompany(company: Company): Company {
-  const logo = webUrl(company.logoUrl);
-  const site = webUrl(company.websiteUrl);
-  return { ...company, logoUrl: logo, websiteUrl: site };
+  const { ownership, founded, ...rest } = company;
+  const kept = receiveOwnership(ownership);
+  const year = receiveFounded(founded);
+  return { ...rest, logoUrl: webUrl(company.logoUrl), websiteUrl: webUrl(company.websiteUrl), ...(kept ? { ownership: kept } : {}), ...(year ? { founded: year } : {}) };
 }
 
 function receiveCard(card: Card): Card {
@@ -93,10 +119,12 @@ function receiveDashboards(dashboards: ShareSnapshot['dashboards']): ShareSnapsh
 
 /** The snapshot as a visitor may see it. The input has already passed `isShareSnapshot` (shape and size). */
 export function receiveSnapshot(snapshot: ShareSnapshot): ShareSnapshot {
-  const byId = new Map(snapshot.companies.map((company) => [company.id, company] as const));
+  const companies = snapshot.companies.map(receiveCompany);
+  // A figure is judged against the company as it will be shown: a forged "acquired" status must not withhold its valuation.
+  const byId = new Map(companies.map((company) => [company.id, company] as const));
   return {
     ...snapshot,
-    companies: snapshot.companies.map(receiveCompany),
+    companies,
     metrics: snapshot.metrics.flatMap((metric) => {
       const kept = receiveMetric(metric, byId.get(metric?.companyId));
       return kept ? [kept] : [];
