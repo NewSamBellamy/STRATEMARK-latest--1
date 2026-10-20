@@ -115,15 +115,36 @@ export function reserveMicros(model: string, grounded: boolean, bodyChars: numbe
   return Math.ceil(inputTokens * p.input + outputTokens * p.output + search);
 }
 
+/** Largest budget a deployment may configure, in dollars: past it a value is a typo (a stray zero, or "1e308"), not a budget. */
+export const MAX_BUDGET_USD = 10_000;
+
+export interface BudgetSetting {
+  /** The budget in dollars: what was configured, the default when nothing was, or 0 when what was configured is not usable. */
+  usd: number;
+  /** Why the configured value is not usable (never the value itself), or null. */
+  problem: string | null;
+}
+
+const DECIMAL = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
+
 /**
- * A budget from configuration, in dollars. Unset or unreadable means the default; zero means zero (the kill switch:
- * every hosted call is then refused). It used to read 0, empty and negative values as "use the default".
+ * A budget from configuration, in dollars. Unset or empty is the default, and zero is the kill switch (every hosted call is
+ * refused). Anything else that is set must be a decimal number up to MAX_BUDGET_USD and at least a micro-dollar. A value
+ * that is not is a misconfiguration and fails CLOSED: the budget is 0 and `problem` says why. A budget is a spending
+ * ceiling, so a typo must never open it. It used to fall back to the default ("-1" and "abc" quietly meant $100) and
+ * "1e308" became Infinity once priced in micro-dollars, which is no ceiling at all (red team R2-W6).
  */
-export function parseBudgetUsd(raw: string | undefined, fallback: number): number {
+export function readBudgetUsd(raw: string | undefined, fallback: number): BudgetSetting {
   const text = (raw ?? '').trim();
-  if (!text) return fallback;
-  const n = Number(text);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
+  if (!text) return { usd: fallback, problem: null };
+  const n = DECIMAL.test(text) ? Number(text) : Number.NaN;
+  if (!Number.isFinite(n) || n < 0 || n > MAX_BUDGET_USD) return { usd: 0, problem: `is not a number from 0 to ${MAX_BUDGET_USD} dollars` };
+  if (n > 0 && Math.round(n * 1_000_000) < 1) return { usd: 0, problem: 'is smaller than a millionth of a dollar' };
+  return { usd: n, problem: null };
+}
+
+export function parseBudgetUsd(raw: string | undefined, fallback: number): number {
+  return readBudgetUsd(raw, fallback).usd;
 }
 
 /**

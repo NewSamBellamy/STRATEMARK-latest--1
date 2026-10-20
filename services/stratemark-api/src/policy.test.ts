@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MAX_LEDGER_VISITORS, allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, parseBudgetUsd, priceFamily, reserveMicros, rollHistory, safePublicUrl, settle, tryReserve,
+  MAX_BUDGET_USD, MAX_LEDGER_VISITORS, allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, parseBudgetUsd, priceFamily, readBudgetUsd, reserveMicros, rollHistory, safePublicUrl, settle, tryReserve,
   type LedgerDay,
 } from './policy';
 
@@ -109,12 +109,27 @@ describe('the hold covers what a call can cost', () => {
 });
 
 describe('a budget from configuration', () => {
-  it('reads zero as zero (the kill switch), and anything unreadable as the default', () => {
-    expect(parseBudgetUsd('0', 100)).toBe(0);
+  it('reads nothing set as the default, zero as zero (the kill switch) and a number as itself', () => {
+    for (const unset of [undefined, '', '   ']) expect(readBudgetUsd(unset, 100), String(unset)).toEqual({ usd: 100, problem: null });
+    expect(readBudgetUsd('0', 100)).toEqual({ usd: 0, problem: null });
     expect(parseBudgetUsd('0.0', 100)).toBe(0);
     expect(parseBudgetUsd('25', 100)).toBe(25);
     expect(parseBudgetUsd(' 7.5 ', 100)).toBe(7.5);
-    for (const bad of [undefined, '', '   ', 'abc', '-5', 'NaN', 'Infinity']) expect(parseBudgetUsd(bad, 100), String(bad)).toBe(100);
+    expect(parseBudgetUsd('.5', 100)).toBe(0.5);
+    expect(parseBudgetUsd('1e3', 100)).toBe(1_000);
+    expect(parseBudgetUsd(String(MAX_BUDGET_USD), 100)).toBe(MAX_BUDGET_USD);
+    expect(parseBudgetUsd('0.000001', 100)).toBe(0.000001);
+  });
+
+  it('fails CLOSED on anything set that is not a sane number, and says so: it never falls back to the default', () => {
+    // "-1" and "abc" used to mean the default $100; "1e308" became Infinity once priced in micro-dollars; "0.0000001" became 0 silently.
+    for (const bad of ['-1', '-5', '-0.5', 'abc', 'NaN', 'Infinity', '-Infinity', '1e308', '1e400', '10001', '1e5', '0x10', '1_000', '$100', '100usd', '1,000', '0.0000001', '1e-7']) {
+      const read = readBudgetUsd(bad, 100);
+      expect(read.usd, bad).toBe(0);
+      expect(read.problem, bad).toEqual(expect.any(String));
+      expect(read.problem, bad).not.toContain(bad); // names the problem, never the value
+      expect(parseBudgetUsd(bad, 100), bad).toBe(0);
+    }
   });
 });
 

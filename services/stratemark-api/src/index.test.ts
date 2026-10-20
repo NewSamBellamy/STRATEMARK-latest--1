@@ -340,3 +340,45 @@ describe('the public /health route does not read the ledger on every hit', () =>
     }
   });
 });
+
+describe('a budget that is set to something unusable fails closed', () => {
+  it('refuses every hosted call with a 402 that names the setting, for values that used to leave the budget open', async () => {
+    // "-1" used to mean the default; "1e308" became an infinite ceiling.
+    for (const bad of ['-1', '1e308', 'abc', '0.0000001']) {
+      const { env } = makeEnv({ DAILY_BUDGET_USD: bad });
+      const res = await call(env, GROUNDED);
+      expect(res.status, bad).toBe(402);
+      const body = await res.json() as { budget: string; reason: string; misconfigured?: string[]; error: string };
+      expect(body.budget, bad).toBe('exhausted');
+      expect(body.reason, bad).toBe('global'); // the web app reads only this
+      expect(body.misconfigured, bad).toEqual([expect.stringContaining('DAILY_BUDGET_USD')]);
+      expect(JSON.stringify(body), bad).not.toContain(bad);
+      expect(googleCalls()).toHaveLength(0);
+    }
+  });
+
+  it('does the same for an unusable per-visitor budget and for the hosted search relay', async () => {
+    const { env } = makeEnv({ DAILY_VISITOR_BUDGET_USD: '-3' });
+    const gemini = await call(env, GROUNDED);
+    expect(gemini.status).toBe(402);
+    expect(await gemini.json()).toMatchObject({ reason: 'visitor', misconfigured: [expect.stringContaining('DAILY_VISITOR_BUDGET_USD')] });
+    const search = await worker.fetch(new Request('https://worker.example/v1/search', {
+      method: 'POST', headers: { origin: APP, 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.9' }, body: JSON.stringify({ provider: 'serper', query: 'meal kits' }),
+    }), env);
+    expect(search.status).toBe(402);
+    expect(await search.json()).toMatchObject({ misconfigured: [expect.stringContaining('DAILY_VISITOR_BUDGET_USD')] });
+  });
+
+  it('leaves a budget that is fine, unset or zero unchanged, and /health reports a misconfiguration', async () => {
+    expect((await call(makeEnv().env, GROUNDED)).status).toBe(200);
+    expect((await call(makeEnv({ DAILY_BUDGET_USD: '25' }).env, GROUNDED)).status).toBe(200);
+    const kill = await call(makeEnv({ DAILY_BUDGET_USD: '0' }).env, GROUNDED);
+    expect(kill.status).toBe(402);
+    expect(await kill.json()).not.toHaveProperty('misconfigured');
+    const health = await (await worker.fetch(new Request('https://worker.example/health'), makeEnv({ DAILY_BUDGET_USD: '1e308' }).env)).json() as { budgetUsd: number; budgetMisconfigured: string[] };
+    expect(health.budgetUsd).toBe(0);
+    expect(health.budgetMisconfigured).toEqual([expect.stringContaining('DAILY_BUDGET_USD')]);
+    const fine = await (await worker.fetch(new Request('https://worker.example/health'), makeEnv().env)).json() as { budgetMisconfigured: string[] };
+    expect(fine.budgetMisconfigured).toEqual([]);
+  });
+});

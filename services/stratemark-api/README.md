@@ -31,7 +31,9 @@ what was accepted, with the answer capped (32,768 tokens) and thinking capped (1
 is one token per character of the prompt, plus the most the rebuilt request can answer, plus twelve searches if it
 is grounded; the call settles to what Google reports (a reply with no usage report is charged at the hold, and a reply
 that searched is charged the grounding rate whether or not it was asked to). A visitor is an IPv4 address or an IPv6
-/64. `DAILY_BUDGET_USD = "0"` is a kill switch: every hosted call is refused. A call that crosses UTC midnight adds
+/64. `DAILY_BUDGET_USD = "0"` is a kill switch: every hosted call is refused. A budget setting that is set but is not a
+number from 0 to 10,000 (a typo, a negative, `1e308`) fails closed the same way, and the 402 and `/health` (`budgetMisconfigured`)
+say which setting; an unset one is the default. A call that crosses UTC midnight adds
 its cost to the new day and wipes nothing. The ledger tracks at most 5,000 visitors a day.
 
 The readers (`/v1/source`, `/v1/asset-source`, `/v1/image`, `/v1/preview`, `/v1/news`, `/v1/search`) spend no Gemini

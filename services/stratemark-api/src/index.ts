@@ -30,7 +30,7 @@
 import { Buffer } from 'node:buffer';
 import { retrieveOriginalSource, type SourceTransport } from '@mi/research/original-source-node';
 import type { OriginalSourceReceipt, OriginalSourceScope } from '@mi/research';
-import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, parseBudgetUsd, reserveMicros, safePublicUrl, type GeminiUsage } from './policy';
+import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, readBudgetUsd, reserveMicros, safePublicUrl, type GeminiUsage } from './policy';
 import { inspectGeminiRequest } from './gemini-request';
 import { READER_LIMITS_DEFAULT } from './reader-quota';
 import type { BudgetCounter } from './budget';
@@ -173,11 +173,33 @@ export function keyShape(raw: string | undefined): { present: boolean; length: n
 
 const usd = (micros: number) => Math.round(micros / 10_000) / 100;
 
-function budgets(env: Env): { budget: number; visitor: number } {
+/**
+ * The two ceilings in micro-dollars. A setting that is not usable is 0 (fail closed, see readBudgetUsd) and is named in
+ * `problems`, so the refusal and /health can say the budget is misconfigured rather than spent.
+ */
+function budgets(env: Env): { budget: number; visitor: number; problems: string[] } {
+  const total = readBudgetUsd(env.DAILY_BUDGET_USD, 100);
+  const each = readBudgetUsd(env.DAILY_VISITOR_BUDGET_USD, 20);
   return {
-    budget: Math.round(parseBudgetUsd(env.DAILY_BUDGET_USD, 100) * 1_000_000),
-    visitor: Math.round(parseBudgetUsd(env.DAILY_VISITOR_BUDGET_USD, 20) * 1_000_000),
+    budget: Math.round(total.usd * 1_000_000),
+    visitor: Math.round(each.usd * 1_000_000),
+    problems: [
+      ...(total.problem ? [`DAILY_BUDGET_USD ${total.problem}`] : []),
+      ...(each.problem ? [`DAILY_VISITOR_BUDGET_USD ${each.problem}`] : []),
+    ],
   };
+}
+
+/** The 402 for a refused reservation. A misconfigured budget says so (names the setting, never its value) and is logged. */
+function budgetRefusal(reason: 'global' | 'visitor', problems: string[], spentText: string, origin: string): Response {
+  if (problems.length > 0) console.log(`budget misconfigured: ${problems.join('; ')}`);
+  return json({
+    budget: 'exhausted', reason,
+    ...(problems.length > 0 ? { misconfigured: problems } : {}),
+    error: problems.length > 0
+      ? 'Free research is switched off because the hosted budget is not set up correctly. Add your own Gemini key in Settings to keep going.'
+      : spentText,
+  }, 402, origin);
 }
 
 function ledger(env: Env) {
@@ -225,12 +247,9 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
   if (!reservation.ok) {
     // 402, not 429: a spent budget must not look like a transient rate limit
     // (clients retry 429s). The web app shows a banner and stops asking.
-    return json({
-      budget: 'exhausted', reason: reservation.reason,
-      error: reservation.reason === 'global'
-        ? 'Free research has reached today’s budget. It resets at midnight UTC, or add your own Gemini key in Settings to keep going.'
-        : 'You’ve used today’s free research. It resets at midnight UTC, or add your own Gemini key in Settings to keep going.',
-    }, 402, origin);
+    return budgetRefusal(reservation.reason, caps.problems, reservation.reason === 'global'
+      ? 'Free research has reached today’s budget. It resets at midnight UTC, or add your own Gemini key in Settings to keep going.'
+      : 'You’ve used today’s free research. It resets at midnight UTC, or add your own Gemini key in Settings to keep going.', origin);
   }
 
   let actual = 0;
@@ -309,7 +328,7 @@ async function searchRelay(request: Request, env: Env, origin: string): Promise<
   const caps = budgets(env);
   const counter = ledger(env);
   const reservation = await counter.reserve(day, ip, SEARCH_COST_MICROS, caps.budget, caps.visitor);
-  if (!reservation.ok) return json({ budget: 'exhausted', reason: reservation.reason, error: 'Free search has reached today’s budget.' }, 402, origin);
+  if (!reservation.ok) return budgetRefusal(reservation.reason, caps.problems, 'Free search has reached today’s budget.', origin);
   let actual = 0;
   try {
     const response = await runSearch('serper', hostedKey, input, origin);
@@ -640,7 +659,7 @@ export default {
       const status = await ledgerStatus(env, new Date().toISOString().slice(0, 10));
       return json({
         ok: true, hostedResearch: shape.present, keyLength: shape.length, keyLooksValid: shape.looksValid,
-        budgetUsd: usd(budgets(env).budget), visitorBudgetUsd: usd(budgets(env).visitor),
+        budgetUsd: usd(budgets(env).budget), visitorBudgetUsd: usd(budgets(env).visitor), budgetMisconfigured: budgets(env).problems,
         spentTodayUsd: status ? usd(status.spentMicros) : null, visitorsToday: status?.visitors ?? null,
         last7Days: status?.history ?? [],
       }, 200, null);
