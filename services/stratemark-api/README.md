@@ -38,7 +38,9 @@ its cost to the new day and wipes nothing. The ledger tracks at most 5,000 visit
 
 The readers (`/v1/source`, `/v1/asset-source`, `/v1/image`, `/v1/preview`, `/v1/news`, `/v1/search`) spend no Gemini
 money, so they are limited per visitor instead: 240 reads a minute and 6,000 a day (`src/reader-quota.ts`, one
-Durable Object per visitor). A deck of 18 companies makes a few hundred reads in three minutes.
+Durable Object per visitor). A deck of 18 companies makes a few hundred reads in three minutes. Reading a share link
+(`GET /s/<id>`, `/s/<id>/og.png`, `GET /v1/share/<id>`) counts against the same limit, so a loop over made-up ids makes at most
+240 Durable Objects a minute from one visitor (an honest viewer makes two reads; a chat app's crawlers arrive from many addresses).
 
 ## Share links
 

@@ -430,3 +430,60 @@ describe('the link page a chat app reads carries no hidden text', () => {
     for (const ch of hidden) expect(html.includes(ch), `U+${ch.codePointAt(0)!.toString(16)}`).toBe(false);
   });
 });
+
+describe('reading share links is limited per visitor', () => {
+  // A fixed clock, so the limits' one-minute window cannot roll over in the middle of a test.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(`${DAY}T10:00:01.000Z`)); });
+  afterEach(() => { vi.useRealTimers(); });
+  const unknownId = (i: number) => i.toString().padStart(16, 'x');
+  const page = (env: never, id: string, ip: string) => worker.fetch(new Request(`https://worker.example/s/${id}`, { headers: { 'cf-connecting-ip': ip } }), env);
+  const data = (env: never, id: string, ip: string) => worker.fetch(new Request(`https://worker.example/v1/share/${id}`, { headers: { 'cf-connecting-ip': ip } }), env);
+
+  it('says when to come back after 240 link pages in a minute, and no more than 240 objects are made for ids nobody made (R2-S2)', async () => {
+    const { env, vaults } = makeEnv();
+    const statuses: number[] = [];
+    for (let i = 0; i < 250; i += 1) statuses.push((await page(env, unknownId(i), '203.0.113.60')).status);
+    expect(statuses.slice(0, 240).every((status) => status === 404)).toBe(true);
+    expect(statuses.slice(240).every((status) => status === 429)).toBe(true);
+    expect(vaults.size).toBe(240); // it was one for every id asked, however many
+    const refused = await page(env, unknownId(999), '203.0.113.60');
+    expect(Number(refused.headers.get('retry-after'))).toBeGreaterThan(0);
+    // Another visitor is not affected.
+    expect((await page(env, unknownId(1), '203.0.113.61')).status).toBe(404);
+  });
+
+  it('limits the research read the same way, and its refusal can be read by the viewer page on another origin', async () => {
+    const { env, vaults } = makeEnv();
+    for (let i = 0; i < 240; i += 1) expect((await data(env, unknownId(i), '203.0.113.62')).status).toBe(404);
+    const refused = await data(env, unknownId(240), '203.0.113.62');
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get('access-control-allow-origin')).toBe('*');
+    expect(refused.headers.get('cache-control')).toBe('no-store');
+    expect(vaults.size).toBe(240);
+  });
+
+  it('counts the pages and the research of one visitor together, and every address in one /64 as one visitor', async () => {
+    const { env } = makeEnv();
+    for (let i = 0; i < 120; i += 1) await page(env, unknownId(i), `2001:db8:abcd:12:${i.toString(16)}::1`);
+    for (let i = 0; i < 120; i += 1) await data(env, unknownId(i), `2001:db8:abcd:12:${(i + 200).toString(16)}::1`);
+    expect((await page(env, unknownId(500), '2001:db8:abcd:12:ffff::1')).status).toBe(429);
+    expect((await page(env, unknownId(500), '2001:db8:abcd:99::1')).status).toBe(404); // another /64
+  });
+
+  it('does not touch an honest viewer, nor a chat app\'s crawlers from many addresses', async () => {
+    const { env } = makeEnv();
+    const made = await worker.fetch(new Request('https://worker.example/v1/share', {
+      method: 'POST', headers: { origin: APP, 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.9' },
+      body: JSON.stringify({ v: 1, kind: 'deck', title: 'Meal kits', description: 'A line', viewer: `${APP}/share.html`, data: 'A'.repeat(200), og: null }),
+    }), env);
+    const { id } = await made.json() as { id: string };
+    // One person: the link page, then the research the viewer fetches, a few times over.
+    for (let i = 0; i < 10; i += 1) {
+      expect((await page(env, id, '198.51.100.7')).status).toBe(200);
+      expect((await data(env, id, '198.51.100.7')).status).toBe(200);
+    }
+    // A link pasted in a busy chat: many crawlers, one request each.
+    for (let i = 0; i < 100; i += 1) expect((await page(env, id, `192.0.2.${i}`)).status).toBe(200);
+    expect((await worker.fetch(new Request(`https://worker.example/s/${id}`, { method: 'HEAD', headers: { 'cf-connecting-ip': '198.51.100.8' } }), env)).status).toBe(200);
+  });
+});

@@ -628,19 +628,19 @@ async function shareOg(id: string, env: Env): Promise<Response> {
 
 // ---- Reader limits --------------------------------------------------------------------------------------------
 
-/** Routes that fetch an address a caller names (or relay a search): limited per visitor. They spend no Gemini money. */
+/** Routes that fetch an address a caller names (or relay a search): limited per visitor. They spend no Gemini money. (A share link's own reads are limited the same way, below.) */
 const METERED_READERS = /^\/v1\/(?:search|news|source|asset-source|image|preview)$/;
 
 /**
  * A visitor who reads too fast gets 429 with when to come back. A limiter that cannot answer must not take the readers
- * down with it, so an error lets the read through.
+ * down with it, so an error lets the read through. `extra` is added to a refusal (a share read answers every origin).
  */
-async function readerGate(request: Request, env: Env, origin: string): Promise<Response | null> {
+async function readerGate(request: Request, env: Env, origin: string | null, extra: Record<string, string> = {}): Promise<Response | null> {
   try {
     const visitor = (await sha256Hex(visitorAddress(request.headers.get('cf-connecting-ip')))).slice(0, 24);
     const taken = await env.READER_QUOTA.get(env.READER_QUOTA.idFromName(visitor)).take(Date.now(), READER_LIMITS_DEFAULT);
     if (taken.ok) return null;
-    return json({ error: 'Too many requests. Try again shortly.' }, 429, origin, { 'Retry-After': String(taken.retryAfterSeconds) });
+    return json({ error: 'Too many requests. Try again shortly.' }, 429, origin, { 'Retry-After': String(taken.retryAfterSeconds), ...extra });
   } catch {
     return null;
   }
@@ -670,6 +670,14 @@ export default {
     const pasted = url.pathname.match(/^\/s\/([A-Za-z0-9_-]{16})(\/og\.png)?$/);
     const shared = url.pathname.match(/^\/v1\/share\/([A-Za-z0-9_-]{16})$/);
     try {
+      if ((pasted || shared) && reading) {
+        // Anyone may ask for any id, and each id asked for reaches its own Durable Object, so a loop over made-up ids made one
+        // object per id. The same per-visitor limit as the other readers (an IPv6 /64 is one visitor) stands in front: 240 a
+        // minute is far past an honest viewer (a page and its research are two reads) and past a chat app's unfurl of one link
+        // (each app's crawlers arrive from many addresses, each asking a few times).
+        const limited = await readerGate(request, env, null, shared ? { 'Access-Control-Allow-Origin': '*', ...SHARE_HEADERS } : SHARE_HEADERS);
+        if (limited) return limited;
+      }
       if (pasted && reading) return pasted[2] ? await shareOg(pasted[1]!, env) : await sharePage(request, pasted[1]!, env);
       if (shared && reading) return await shareRead(shared[1]!, env);
     } catch {
