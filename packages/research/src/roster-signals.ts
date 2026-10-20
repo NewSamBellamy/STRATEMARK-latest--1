@@ -18,9 +18,9 @@
  * A market with nothing documented gets no card, and says so; it is never padded.
  */
 import { z } from 'zod';
-import { isJunkSource, type CardWithCompany, type Company } from '@mi/contracts';
+import { isJunkSource, type CardWithCompany, type Citation, type Company } from '@mi/contracts';
 import { claimSupportCitations, sourceBacksClaim, type ClaimScope } from './claim-support';
-import { aliasSpans, companyAliases } from './company-aliases';
+import { aliasSpans, canon, companyAliases } from './company-aliases';
 import { registrableDomain } from './registries/shared';
 import { companyNameKey } from './market-quote';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
@@ -66,7 +66,7 @@ const SUBJECT_WITHIN = 30;
  * What a sentence that backs a RISK reads like. A support about an award or a launch shares a company's name and its
  * product nouns with a sentence about its recall, and must not back it.
  */
-const CONTROVERSY = /\b(?:fine[ds]?|fining|lawsuits?|sued|suing|suits?|settle[ds]?|settlements?|recall(?:ed|s)?|breach(?:ed|es)?|hack(?:ed)?|leak(?:ed)?|probes?|investigat\w*|penalt\w*|violat\w*|class[- ]action|complaints?|alleg\w*|ruling|ruled|convict\w*|indict\w*|charged|bankrupt\w*|insolven\w*|chapter\s?11|layoffs?|laid off|strikes?|unsafe|safety|fraud\w*|misleading|deceptive|injunction|sanction\w*|regulators?|attorneys? general|fatal\w*|injur\w*|fire hazard|discriminat\w*|harass\w*|whistleblow\w*|scandal|controvers\w*|criticis\w*|criticiz\w*|banned|subpoena\w*|cease[- ]and[- ]desist|shut down|wrongful\w*|negligen\w*)\b/i;
+const CONTROVERSY = /\b(?:fine[ds]?|fining|lawsuits?|sued|suing|settle[ds]?|settlements?|recall(?:ed|s)?|breach(?:ed|es)?|hack(?:ed)?|leak(?:ed)?|probe[ds]?|inquir\w*|investigat\w*|penalt\w*|violat\w*|class[- ]action|complaints?|alleg\w*|ruled|convict\w*|indict\w*|arrest\w*|jail\w*|prison\w*|imprison\w*|sentenc\w*|charged (?:with|over)|bankrupt\w*|insolven\w*|chapter\s?11|layoffs?|laid off|unsafe|fraud\w*|misleading|deceptive|injunction|sanction\w*|attorneys? general|fatal\w*|injur\w*|fire hazard|discriminat\w*|harass\w*|whistleblow\w*|scandal|controvers\w*|criticis\w*|criticiz\w*|banned|subpoena\w*|cease[- ]and[- ]desist|shut down|wrongful\w*|negligen\w*)\b/i;
 
 export function rosterSignalsPrompt(plan: MarketPlan, roster: readonly Pick<Company, 'name'>[], want: { vice: boolean; culture: boolean }): string {
   const where = plan.geography ? ` in ${plan.geography}` : '';
@@ -135,15 +135,45 @@ export function companyNamed(name: string, roster: readonly Company[]): Company 
   return aliased.length === 1 ? aliased[0]! : null;
 }
 
+/** Words that may follow a company's name without making it a different name ("Acme Robotics Inc."). */
+const NAME_TAIL = new Set(['inc', 'corp', 'corporation', 'co', 'ltd', 'limited', 'llc', 'plc', 'gmbh', 'ag', 'sa', 'nv', 'bv', 'pbc', 'company', 'group', 'holdings']);
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
- * Whether a sentence is about this company: it names the company (by any alias, any case) near its start, and names no
- * other company of the deck, unless that other name is only part of a longer mention of this one ("Gusto" inside "Gusto
- * Pro" when the company is Gusto Pro).
+ * Whether the company's first mention in the text is the front of a longer proper noun that is not its own name: "Check
+ * Point Software" for the company Check, "Square Enix" for Square. The capitalised word right after the mention must be a
+ * legal form or part of the company's own name, or it is another entity that merely starts with this one.
+ */
+function followedByOtherName(text: string, company: Company): boolean {
+  const aliases = companyAliases(company.name, company.websiteUrl);
+  const own = new Set(aliases.flatMap((alias) => alias.split(' ')));
+  const written = canon(text);
+  let first: { start: number; end: number } | null = null;
+  for (const alias of aliases) {
+    const words = alias.split(' ').filter(Boolean);
+    if (words.length === 0) continue;
+    const found = new RegExp(`(?<![\\p{L}\\p{N}])${words.map(escapeRegExp).join('[^\\p{L}\\p{N}]+')}(?![\\p{L}\\p{N}])`, 'iu').exec(written);
+    if (!found) continue;
+    const end = found.index + found[0].length;
+    if (!first || found.index < first.start || (found.index === first.start && end > first.end)) first = { start: found.index, end };
+  }
+  if (!first) return false;
+  const next = /^[ \t]+(\p{Lu}[\p{L}\p{N}-]*)/u.exec(written.slice(first.end));
+  if (!next) return false;
+  const word = next[1]!.toLowerCase();
+  return !(NAME_TAIL.has(word) || own.has(word));
+}
+
+/**
+ * Whether a sentence is about this company: it names the company (by any alias, any case) near its start, as itself and
+ * not as the front of a longer name, and names no other company of the deck, unless that other name is only part of a
+ * longer mention of this one ("Gusto" inside "Gusto Pro" when the company is Gusto Pro).
  */
 export function aboutCompany(text: string, company: Company, roster: readonly Company[], early = true): boolean {
   const own = aliasSpans(text, companyAliases(company.name, company.websiteUrl));
   if (own.length === 0) return false;
   if (early && Math.min(...own.map(([start]) => start)) > SUBJECT_WITHIN) return false;
+  if (followedByOtherName(text, company)) return false;
   for (const other of roster) {
     if (other.id === company.id) continue;
     for (const [start, end] of aliasSpans(text, companyAliases(other.name, other.websiteUrl))) {
@@ -171,11 +201,31 @@ function sourceDomain(source: { title: string; url: string }): string | null {
  * it (and, for either kind of claim, a rival's own website is not evidence about this company).
  */
 function sourceIsFit(source: { title: string; url: string }, company: Company, roster: readonly Company[], risk: boolean): boolean {
-  if (isJunkSource(source.url, source.title)) return false;
+  if (isJunkSource(source.url, source.title) || !publicWebAddress(source.url)) return false;
   const domain = sourceDomain(source);
   if (!domain) return true;
-  if (risk && registrableDomain(company.websiteUrl) === domain) return false;
+  if (risk && (registrableDomain(company.websiteUrl) === domain || looksLikeOwnSite(domain, company))) return false;
   return !roster.some((other) => other.id !== company.id && registrableDomain(other.websiteUrl) === domain);
+}
+
+/** A page on the public web: a real host, not localhost, an address, or a name only a private network resolves. */
+function publicWebAddress(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host.includes('.') && !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) && !host.startsWith('[')
+      && !/(?:^|\.)(?:localhost|local|internal|lan|home|corp|test|invalid)$/.test(host);
+  } catch {
+    return false;
+  }
+}
+
+/** A domain named after the company is its own site, even when no website is recorded for it. */
+function looksLikeOwnSite(domain: string, company: Company): boolean {
+  const label = (domain.split('.')[0] ?? '').replace(/-/g, '');
+  return companyAliases(company.name, company.websiteUrl).some((alias) => {
+    const compact = alias.replace(/\s+/g, '');
+    return compact.length >= 5 && label.includes(compact);
+  });
 }
 
 /** A claim's identity for de-duplication: case, punctuation and a final full stop do not make a different claim. */
@@ -226,6 +276,9 @@ export async function researchRosterSignals(
       const text = risk.text.replace(/\s+/g, ' ').trim();
       if (!company || options.haveVice?.has(company.id)) continue;
       if (text.length < SENTENCE_MIN || text.length > SENTENCE_MAX) continue;
+      // One sentence, one claim: a second sentence or a clause after a semicolon is a second claim that no source was
+      // looked up for, and would ride on the first one's source.
+      if (noteSentences(text).length > 1 || text.includes(';')) continue;
       if (!aboutCompany(text, company, roster)) continue;
       if (namesRosterRival(text, company.name, names)) continue;
       // The source the structuring step named, if the sentences it is attached to are about this company and say this; else the
@@ -252,16 +305,26 @@ export async function researchRosterSignals(
       if (culture.length >= (options.maxCulture ?? 8)) break;
       const company = companyNamed(item.company, roster);
       if (!company || seen.has(company.id) || options.haveCulture?.has(company.id)) continue;
-      const note = cultureNote(item.note);
-      if (!note || !aboutCompany(note, company, roster)) continue;
-      if (namesRosterRival(note, company.name, names)) continue;
+      const whole = cultureNote(item.note);
+      if (!whole || !aboutCompany(whole, company, roster)) continue;
+      if (namesRosterRival(whole, company.name, names)) continue;
       const scope = scopeFor(company, roster, false);
-      const named = resolveClaimCitations(item.sourceIndex, null, citations)
-        .filter((c) => sourceIsFit(c, company, roster, false) && sourceBacksClaim(c.url, note, grounded.grounding, scope));
-      const cited = named.length > 0 ? named : claimSupportCitations(note, grounded.grounding, 2, scope).filter((c) => sourceIsFit(c, company, roster, false));
-      if (cited.length === 0) continue;
+      // Each sentence of the note needs its own backing: the ones nothing backs are left out, never carried along on the
+      // source of the one that is.
+      const kept: string[] = [];
+      const cited: Citation[] = [];
+      for (const part of noteSentences(whole)) {
+        const named = resolveClaimCitations(item.sourceIndex, null, citations)
+          .filter((c) => sourceIsFit(c, company, roster, false) && sourceBacksClaim(c.url, part, grounded.grounding, scope));
+        const found = named.length > 0 ? named : claimSupportCitations(part, grounded.grounding, 2, scope).filter((c) => sourceIsFit(c, company, roster, false));
+        if (found.length === 0) continue;
+        kept.push(part);
+        for (const c of found) if (!cited.some((have) => have.url === c.url)) cited.push(c);
+      }
+      const note = kept.join(' ');
+      if (kept.length === 0 || note.length < SENTENCE_MIN || !aboutCompany(note, company, roster)) continue;
       seen.add(company.id);
-      culture.push(createCultureCard(company, note, cited, deckId));
+      culture.push(createCultureCard(company, note, cited.slice(0, 2), deckId));
     }
   }
   return { vice, culture };
