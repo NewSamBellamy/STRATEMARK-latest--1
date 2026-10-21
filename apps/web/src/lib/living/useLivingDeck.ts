@@ -479,6 +479,8 @@ export function useLivingDeck(
             companyId: c.company!.id,
             name: c.company!.name,
             metrics: c.metrics,
+            // The audit judges what the face shows: it drops an acquired company's deal-time valuation, as the face does.
+            ownership: c.company!.ownership ?? null,
           })),
         );
         const freshFindings = audit
