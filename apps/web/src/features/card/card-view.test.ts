@@ -100,6 +100,21 @@ describe('collectible card evidence model', () => {
     expect(projected.find(m => m.metric.companyId === human.companyId)!.metric.value).toBe(123);
     expect(projected.find(m => m.metric.companyId === 'other-company')!.metric.value).toBe(789);
   });
+  it('never shows a rival company\'s verified figure on this company\'s card', () => {
+    const rival = metric({ id: 'rival', companyId: 'rival-co', metricType: 'valuation', value: 90_000_000_000 });
+    const result = view([rival]);
+    expect(result.metrics).toHaveLength(0);
+    expect(result.knownCount).toBe(0);
+    expect(result.profileMetrics.find((m) => m.key === 'company_value')!.display).toBe('Unknown');
+    expect(result.faceMetrics.some((m) => m.display.includes('90B') || m.metric?.value === rival.value)).toBe(false);
+    expect(result.citations).toEqual([]);
+    // Beside the company's own figure, the rival's never replaces it, even when it is newer.
+    const own = metric({ id: 'own', metricType: 'valuation', value: 5_000_000_000, capturedAt: '2026-01-01T00:00:00Z' });
+    const mixed = view([{ ...rival, capturedAt: '2026-09-01T00:00:00Z' }, own]);
+    expect(mixed.profileMetrics.find((m) => m.key === 'company_value')!.display).toBe('$5B');
+    expect(mixed.metrics.map((m) => m.metric.id)).toEqual(['own']);
+    expect(rival.confidence).toBe('verified'); // the stored rows are not touched
+  });
   it('keeps unrecognized or forged authority unknown on both card and reader profiles', () => {
     const input = metric({ citations: [{ title: 'Reuters annual report', url: 'https://reuters.com.attacker.test/report', credibility: 'primary' }] });
     const result = view([input]);
