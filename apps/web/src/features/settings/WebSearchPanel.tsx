@@ -16,6 +16,7 @@ import {
   useSearchKey,
 } from '@/lib/settings/searchKey';
 import { cn } from '@/lib/cn';
+import { isHostedBeta } from '@/lib/beta';
 
 type TestState = { status: 'idle' | 'testing' | 'ok' | 'fail'; detail?: string };
 
@@ -75,7 +76,7 @@ export function WebSearchPanel() {
               {p.name}
               {i === 0 && <span className="chip border-emerald-300 bg-emerald-50 px-1.5 py-0 text-[10px] text-emerald-700">Recommended</span>}
             </span>
-            <span className="mt-1 text-xs text-muted">{p.freeTier}{p.noCard ? ' · no card needed' : ''}</span>
+            <span className="mt-1 text-xs text-muted">{isHostedBeta() ? (p.noCard ? 'No card needed' : 'Card required') : `${p.freeTier}${p.noCard ? ' · no card needed' : ''}`}</span>
           </button>
         ))}
       </div>
@@ -92,7 +93,7 @@ export function WebSearchPanel() {
         spellCheck={false}
       />
       <p className="mt-2 text-xs text-muted">
-        Get a free key at{' '}
+        {isHostedBeta() ? 'Get a key at' : 'Get a free key at'}{' '}
         <a href={info.signupUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary-ink hover:underline">
           {info.signupUrl.replace(/^https:\/\//, '')} <ExternalLink className="h-3 w-3" />
         </a>
