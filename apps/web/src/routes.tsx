@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
+import { FullPageLoader } from '@/components/states/FullPageLoader';
 import { RequireAuth } from '@/lib/auth/RequireAuth';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { lazyRoute } from '@/lib/lazyRoute';
@@ -52,7 +53,9 @@ export function AppRoutes() {
     <Routes>
       {/* Shared-research links render OUTSIDE the app shell: recipients get a
           clean read-only snapshot — no sidebar, no auth, no AI layer. */}
-      <Route path="/share/:blob" element={<SharePage />} />
+      {/* Outside the shell, so outside its Suspense boundary: without its own, opening a share link from inside a running
+          app (pasting it into the address bar) suspends with nowhere to wait and the whole app fails to start. */}
+      <Route path="/share/:blob" element={<Suspense fallback={<FullPageLoader />}><SharePage /></Suspense>} />
       <Route
         path="/"
         element={
