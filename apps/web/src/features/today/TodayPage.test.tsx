@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
-import type { CompanyFollow, CompanyMove, MarketIntelRepository } from '@mi/contracts';
+import type { CompanyFollow, CompanyMove, MarketIntelRepository, MovesRefreshResult } from '@mi/contracts';
 import { AppRoutes } from '@/routes';
 import { RepositoryProvider } from '@/lib/repository/RepositoryProvider';
 import { AuthProvider } from '@/lib/auth/AuthContext';
@@ -25,7 +25,7 @@ function todayRepo(follows: CompanyFollow[], moves: CompanyMove[]) {
   const repo = Object.assign(makeRepo(), {
     listFollows: vi.fn(async () => state.follows),
     listMoves: vi.fn(async () => [...state.moves].sort((a, b) => Number(Boolean(a.readAt)) - Number(Boolean(b.readAt)))),
-    refreshMoves: vi.fn(async (_options?: { force?: boolean }) => ({ added: 0, refreshed: 1, refreshedAt: new Date().toISOString() })),
+    refreshMoves: vi.fn(async (_options?: { force?: boolean }): Promise<MovesRefreshResult> => ({ added: 0, refreshed: 1, refreshedAt: new Date().toISOString() })),
     markMoveRead: vi.fn(async (id: string, read: boolean) => {
       state.moves = state.moves.map((m) => (m.id === id ? { ...m, readAt: read ? new Date().toISOString() : null } : m));
     }),
