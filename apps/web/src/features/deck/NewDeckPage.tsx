@@ -41,6 +41,7 @@ import { qk } from '@/lib/query/keys';
 import { useMarkets } from '@/hooks/data';
 import { findSimilarMarket } from '@/features/markets/deck-library';
 import { isHostedBeta } from '@/lib/beta';
+import { AddFromLink } from './AddFromLink';
 
 const SUGGESTION_SETS = [
   [
@@ -450,14 +451,25 @@ export default function NewDeckPage() {
   const [duplicate, setDuplicate] = useState<{ query: string; id: string; name: string } | null>(null);
   const [dupConfirmed, setDupConfirmed] = useState<string | null>(null);
 
+  /** Put the new deck's company on Today (the person asked for it with the link). */
+  const followInDeck = async (marketId: string, name: string) => {
+    try {
+      const deck = await repo.getDeckByMarket(marketId);
+      const cards = deck ? await repo.listCards(deck.id) : [];
+      const key = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '');
+      const match = cards.find((c) => c.company && key(c.company.name) === key(name));
+      if (match?.company) await repo.followCompanies?.([match.company.id]);
+      void qc.invalidateQueries({ queryKey: qk.follows });
+      void qc.invalidateQueries({ queryKey: qk.moves });
+    } catch {
+      /* the deck is built; Today can be added from the card */
+    }
+  };
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const q = prompt.trim();
     if (!q || session?.running) return;
-    const restoreSubmittedRequest = () => {
-      setPrompt(q);
-      setRegion(region);
-    };
 
     if (engine !== 'cloud' && !hasKey) {
       setDemoGate(true);
@@ -471,7 +483,15 @@ export default function NewDeckPage() {
     }
     setDuplicate(null);
 
-    const regionStr = region.trim();
+    await startResearch(q, region.trim());
+  };
+
+  /** Everything after the checks: run the research for `q` and land on the deck. `named` limits it to one company the person confirmed from a link. */
+  const startResearch = async (q: string, regionStr: string, named?: { name: string; followAfter: boolean }) => {
+    const restoreSubmittedRequest = () => {
+      setPrompt(q);
+      setRegion(region);
+    };
     const userText = [q, regionStr].filter(Boolean).join(' — ');
 
     startSession(userText, timeLabel());
@@ -548,6 +568,7 @@ export default function NewDeckPage() {
         {
           prompt: q,
           region: regionStr || null,
+          ...(named ? { companyScope: { mode: 'selected_only' as const, names: [named.name] } } : {}),
         },
         {
           onProgress: (p) => {
@@ -581,6 +602,7 @@ export default function NewDeckPage() {
       setPrompt('');
       setRegion('');
       finish(`/markets/${market.id}/deck`, cardCount);
+      if (named?.followAfter) void followInDeck(market.id, named.name);
       // Belt & braces: the finished deck must be in every list before we land on it.
       void qc.invalidateQueries({ queryKey: qk.markets });
       navigate(`/markets/${market.id}/deck`);
@@ -702,6 +724,10 @@ export default function NewDeckPage() {
                 <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.7} />
               </button>
             </div>
+            <AddFromLink
+              onStartDeck={(name, followAfter) =>
+                void startResearch(`Research ${name} only`, '', { name, followAfter })}
+            />
             {isHostedBeta() && (
               <p className="mt-6 text-[12px] text-faint">
                 Free beta: we cover the AI costs. Your decks stay in this browser. AI requests pass through our server to Google and are not stored.{' '}

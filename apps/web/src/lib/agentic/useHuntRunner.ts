@@ -8,9 +8,30 @@ import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { useAgentTrace } from './agentTrace';
+import { qk } from '@/lib/query/keys';
 import { isLowPower } from '@/lib/usage';
 
 let lowPowerAnnounced = false;
+
+/** Put a company the person confirmed from a link on Today, once it is a card in the deck. */
+async function followNamedCompany(
+  repo: ReturnType<typeof useRepository>,
+  marketId: string,
+  named: { name: string; domain?: string | null },
+  qc: ReturnType<typeof useQueryClient>,
+): Promise<void> {
+  try {
+    const deck = await repo.getDeckByMarket(marketId);
+    const cards = deck ? await repo.listCards(deck.id) : [];
+    const key = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const match = cards.find((c) => c.company && key(c.company.name) === key(named.name));
+    if (!match?.company || !repo.followCompanies) return;
+    await repo.followCompanies([match.company.id]);
+    await Promise.all([qc.invalidateQueries({ queryKey: qk.follows }), qc.invalidateQueries({ queryKey: qk.moves })]);
+  } catch (err) {
+    useAgentTrace.getState().trace('Hunt agent', `Could not add ${named.name} to Today`, err instanceof Error ? err.message : null);
+  }
+}
 
 export function useHuntRunner(): void {
   const repo = useRepository();
@@ -54,6 +75,7 @@ export function useHuntRunner(): void {
               : `Nothing credible found — ${next.label} (that's honest)`,
           );
         qc.invalidateQueries({ queryKey: ['cards'] });
+        if (next.followAfter && next.focus.company) void followNamedCompany(repo, next.marketId, next.focus.company, qc);
       })
       .catch((err: unknown) => {
         useAgentTrace.getState().updateJob(next.id, { status: 'failed' });

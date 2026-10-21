@@ -27,6 +27,8 @@ export interface TraceEvent {
 export interface HuntFocus {
   tier?: MaturityTier;
   cardType?: CardType;
+  /** One company the person confirmed from a link, instead of a hunt for unknown ones. */
+  company?: { name: string; domain?: string | null; descriptor?: string | null };
 }
 
 export interface HuntJob {
@@ -36,6 +38,8 @@ export interface HuntJob {
   label: string;
   status: 'queued' | 'running' | 'done' | 'failed';
   added: number | null;
+  /** Put the named company on Today once it is in the deck. */
+  followAfter?: boolean;
 }
 
 /** Where the presence bubble's "chat with the AI" should anchor. */
@@ -51,7 +55,7 @@ interface AgentTraceStore {
   trace: (agent: string, action: string, detail?: string | null) => void;
 
   jobs: HuntJob[];
-  enqueueHunt: (job: { marketId: string; focus: HuntFocus; label: string }) => void;
+  enqueueHunt: (job: { marketId: string; focus: HuntFocus; label: string; followAfter?: boolean }) => void;
   updateJob: (id: string, patch: Partial<Pick<HuntJob, 'status' | 'added'>>) => void;
   /** Drop finished jobs (keeps the queue list readable). */
   pruneJobs: () => void;
@@ -75,7 +79,7 @@ export const useAgentTrace = create<AgentTraceStore>((set) => ({
     })),
 
   jobs: [],
-  enqueueHunt: ({ marketId, focus, label }) =>
+  enqueueHunt: ({ marketId, focus, label, followAfter }) =>
     set((s) => {
       // The same hunt queued twice while pending is a double-click, not intent.
       const dupe = s.jobs.some(
@@ -83,7 +87,8 @@ export const useAgentTrace = create<AgentTraceStore>((set) => ({
           (j.status === 'queued' || j.status === 'running') &&
           j.marketId === marketId &&
           j.focus.tier === focus.tier &&
-          j.focus.cardType === focus.cardType,
+          j.focus.cardType === focus.cardType &&
+          j.focus.company?.name.toLowerCase() === focus.company?.name.toLowerCase(),
       );
       if (dupe) return s;
       return {
@@ -96,6 +101,7 @@ export const useAgentTrace = create<AgentTraceStore>((set) => ({
             label,
             status: 'queued' as const,
             added: null,
+            ...(followAfter ? { followAfter } : {}),
           },
         ],
       };
