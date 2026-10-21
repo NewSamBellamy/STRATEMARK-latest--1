@@ -204,6 +204,13 @@ export default function DeckPage() {
     setParams(p);
   };
 
+  // The reader's "Next lane": the next lane after this one that has cards.
+  const nextLaneFrom = (current: CardType): (() => void) | undefined => {
+    const next = CARD_TYPE_ORDER.slice(CARD_TYPE_ORDER.indexOf(current) + 1)
+      .find((t) => (countByType.get(t) ?? 0) > 0);
+    return next ? () => setSplit({ type: next }) : undefined;
+  };
+
   // A missing deck is a dead end, not a deck: none of the deck chrome (title,
   // live actions, demo/progress banners) may imply there is research here.
   if (deckMissing) {
@@ -314,6 +321,8 @@ export default function DeckPage() {
               <SquareMousePointer className="h-3.5 w-3.5" />
               {compare ? 'Cancel' : 'Compare'}
             </button>}
+            {/* Kept together so the "..." never wraps onto a line of its own on phones. */}
+            <div className="flex items-center gap-1.5">
             <ExportMenu
               deck={{ ...(deckId ? { id: deckId } : {}), title: market.data?.name ?? 'Market deck', cards: all }}
               share={all.length === 0 ? undefined : {
@@ -356,6 +365,7 @@ export default function DeckPage() {
                 </>
               )}
             />
+            </div>
           </div>}
         </div>
 
@@ -520,7 +530,7 @@ export default function DeckPage() {
                 </h2>
                 <p className="mb-3 text-[12px] text-faint">{CARD_TYPE_DESCRIPTIONS[typeParam]}</p>
                 {filtered.length > 0 ? (
-                  <CardGrid cards={filtered} deckCards={all} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} />
+                  <CardGrid cards={filtered} deckCards={all} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} onNextLane={nextLaneFrom(typeParam)} />
                 ) : (
                   <ExpandPrompt marketId={marketId} deckId={deckId} focus={{ cardType: typeParam }} label={`Hunt for ${cardCountNoun(typeParam, 2)} in this market`} />
                 )}
@@ -580,6 +590,7 @@ export default function DeckPage() {
                     deckUserValues={userValues}
                     marketId={marketId}
                     deckStatus={deckStatus}
+                    onNextLane={nextLaneFrom(defaultType)}
                     selectable={compare}
                     selected={selected}
                     onToggle={toggleSelected}
@@ -818,7 +829,9 @@ function TypeNav({
     <div className="mb-5 flex flex-wrap items-center justify-between gap-2 border-b border-border">
       <nav
         data-testid="type-nav"
-        className="flex items-center gap-1 overflow-x-auto"
+        // Phones: the strip scrolls, so the right edge fades out as a "more this way" hint
+        // (padding keeps the last tab clear of the fade once scrolled to the end).
+        className="flex items-center gap-1 overflow-x-auto pr-8 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] sm:pr-0 sm:[mask-image:none]"
         aria-label="Filter deck by card type"
       >
         {present.map((t) => (

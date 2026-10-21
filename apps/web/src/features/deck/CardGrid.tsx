@@ -29,7 +29,10 @@ export function CardGrid({
   selectable = false,
   selected,
   onToggle,
+  onNextLane,
 }: {
+  /** Offered in the reader at the last card; closes the reader and opens the next lane. */
+  onNextLane?: () => void;
   cards: CardWithCompany[];
   /** The whole deck, when `cards` is a filtered slice. */
   deckCards?: CardWithCompany[];
@@ -125,6 +128,7 @@ export function CardGrid({
         total={cards.length}
         onPrevious={activeIndex > 0 ? () => setActiveId(cards[activeIndex - 1]!.card.id) : undefined}
         onNext={activeIndex >= 0 && activeIndex < cards.length - 1 ? () => setActiveId(cards[activeIndex + 1]!.card.id) : undefined}
+        onNextLane={activeIndex === cards.length - 1 ? onNextLane : undefined}
       />
     </>
   );
