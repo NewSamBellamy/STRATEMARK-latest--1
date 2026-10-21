@@ -1,9 +1,6 @@
 import { useState } from 'react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useCompany, useDashboardTab } from '@/hooks/data';
-import { siteUrl } from '@/lib/siteUrl';
-import { useRealCover } from '@/lib/media/realCover';
-import { imageReferrerPolicy } from '@/lib/hostedApi';
 import { FundingChart } from './FundingChart';
 import { formatUsdCompact, roundsNewestFirst } from '../snapshot';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
@@ -35,30 +32,6 @@ function ProseBlock({ label, text, missing }: { label: string; text: string; mis
         <div className="markdown mt-1.5 text-sm leading-relaxed text-content/90"><ResearchMarkdown text={text} /></div>
       ) : (
         <p className="mt-1.5 text-sm text-faint">{missing}</p>
-      )}
-    </div>
-  );
-}
-
-/** The image the company's own site publishes (og:image), credited. No image → nothing; never generated art. */
-function IdentityCover({ url, name }: { url: string | null; name: string }) {
-  const real = useRealCover(url);
-  const [broken, setBroken] = useState(false);
-  if (real.status !== 'ready' || !real.src || broken) return null;
-  return (
-    <div className="relative h-[96px] overflow-hidden rounded-xl border border-border bg-surface-2">
-      <img
-        src={real.src}
-        alt={`${name} — image published by the company's site`}
-        loading="lazy"
-        referrerPolicy={imageReferrerPolicy(real.src)}
-        onError={() => setBroken(true)}
-        className="h-full w-full object-cover"
-      />
-      {real.publisher && (
-        <span className="absolute bottom-0.5 right-1.5 max-w-[90%] truncate text-[9px] text-white/85 [text-shadow:0_1px_2px_rgba(0,0,0,.6)]">
-          Image: {real.publisher}
-        </span>
       )}
     </div>
   );
@@ -138,7 +111,6 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                       <p className="mt-3 text-sm text-muted">No board members surfaced yet.</p>
                     )}
                   </div>
-                  <IdentityCover url={siteUrl(companyQ?.websiteUrl)} name={name} />
                 </div>
               </div>
             </section>
