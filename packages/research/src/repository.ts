@@ -3021,6 +3021,41 @@ export class GeminiRepository implements MarketIntelRepository {
     return run;
   }
 
+  /** At most this many brief builds run at once per workspace; the rest wait in order. */
+  private static readonly SIGNAL_BRIEF_SLOTS = 2;
+  private signalBriefActive = 0;
+  private readonly signalBriefWaiting: Array<{ start: () => void }> = [];
+
+  /** A build waits for a free slot; a card closed meanwhile (its signal aborted) is dropped before it pays for anything. */
+  private queueSignalBrief(cardId: string, signal?: AbortSignal): Promise<SignalBrief> {
+    return new Promise<SignalBrief>((resolve, reject) => {
+      const cancelled = () => new Error('The card was closed before its report was started.');
+      const entry = {
+        start: () => {
+          signal?.removeEventListener('abort', onAbort);
+          if (signal?.aborted) { reject(cancelled()); return; }
+          this.signalBriefActive += 1;
+          this.runSignalBrief(cardId).then(resolve, reject).finally(() => {
+            this.signalBriefActive -= 1;
+            this.pumpSignalBriefs();
+          });
+        },
+      };
+      const onAbort = () => {
+        const at = this.signalBriefWaiting.indexOf(entry);
+        if (at >= 0) { this.signalBriefWaiting.splice(at, 1); reject(cancelled()); }
+      };
+      if (signal?.aborted) { reject(cancelled()); return; }
+      if (this.signalBriefActive < GeminiRepository.SIGNAL_BRIEF_SLOTS) { entry.start(); return; }
+      signal?.addEventListener('abort', onAbort, { once: true });
+      this.signalBriefWaiting.push(entry);
+    });
+  }
+
+  private pumpSignalBriefs(): void {
+    while (this.signalBriefActive < GeminiRepository.SIGNAL_BRIEF_SLOTS && this.signalBriefWaiting.length > 0) this.signalBriefWaiting.shift()!.start();
+  }
+
   /** The stored brief only; never researches. */
   async peekProductBrief(companyId: string, productName: string): Promise<ProductBrief | null> {
     return this.storedProductBrief(companyId, productKey(productName ?? ''));
@@ -3056,7 +3091,7 @@ export class GeminiRepository implements MarketIntelRepository {
    * and spends nothing. Two requests for one card share one build; a failed build (or a card deleted meanwhile) stores
    * nothing and keeps any earlier brief.
    */
-  researchSignalBrief(input: { cardId: string; force?: boolean }): Promise<SignalBrief> {
+  researchSignalBrief(input: { cardId: string; force?: boolean; signal?: AbortSignal }): Promise<SignalBrief> {
     const cardId = input.cardId;
     const running = this.signalBriefRuns.get(cardId);
     if (running) return running;
@@ -3064,7 +3099,7 @@ export class GeminiRepository implements MarketIntelRepository {
       const stored = this.storedSignalBrief(cardId);
       if (stored) return Promise.resolve(stored);
     }
-    const run = this.runSignalBrief(cardId).finally(() => {
+    const run = this.queueSignalBrief(cardId, input.signal).finally(() => {
       if (this.signalBriefRuns.get(cardId) === run) this.signalBriefRuns.delete(cardId);
     });
     this.signalBriefRuns.set(cardId, run);
