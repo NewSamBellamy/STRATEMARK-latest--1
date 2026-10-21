@@ -5933,10 +5933,11 @@ export class GeminiRepository implements MarketIntelRepository {
       const lines = kept.map((m) => `${m.role === 'user' ? 'ANALYST ASKED' : 'RESEARCH FOUND'}: ${m.text}`).join('\n');
       parts.push(threadIds.length > 1 ? `CONVERSATION "${thread.title}":\n${lines}` : lines);
       citations.push(...kept.flatMap((m) => m.citations ?? []));
-      found.push(...kept.filter((m) => m.role !== 'user').map((m) => m.text));
+      const answers = kept.filter((m) => m.role !== 'user').map((m) => m.text).join('\n');
+      found.push(threadIds.length > 1 ? `CONVERSATION "${thread.title}":\n${answers}` : answers);
     }
     if (parts.length === 0) return null;
-    return { text: parts.join('\n\n').slice(0, 8000), citations: usableCitations(citations), found: found.join('\n').slice(0, 8000) };
+    return { text: parts.join('\n\n').slice(0, 8000), citations: usableCitations(citations), found: found.join('\n\n').slice(0, 8000) };
   }
 
   /**
