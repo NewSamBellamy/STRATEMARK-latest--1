@@ -29,12 +29,13 @@
 import { z } from 'zod';
 import {
   classifySource,
-  usableCitations,
   type Card,
   type CardWithCompany,
   type Company,
   type ViceClaim,
 } from '@mi/contracts';
+import { claimSupportCitations, resolveClaimCitation, resolveClaimCitations, sourceBacksClaim } from './claim-support';
+import { acceptedRiskClaims, type ModelRiskFinding } from './risk-claims';
 import { marketCardsOutSchema } from './schemas';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import { slugify, throwIfAborted } from './util';
@@ -43,6 +44,7 @@ import type {
   LlmClient,
   MarketPlan,
   OnResearchEvent,
+  ProviderGrounding,
   ResearchCoverage,
 } from './types';
 
@@ -101,11 +103,24 @@ export interface MarketSignalsResult {
   citations: Citation[];
 }
 
+/**
+ * A risk that names its own source. It is built only from a claim that passed the risk rule (risk-claims), never from the
+ * source number a model wrote: that number is not evidence, and a claim carrying only one has no source here.
+ */
 export interface RawViceClaimInput {
   text: string;
-  sourceIndex?: number | null;
   sourceUrl?: string | null;
   sourceTitle?: string | null;
+}
+
+/** What a company's own search must supply to turn its risk findings into stored claims. */
+export interface ViceEvidence {
+  /** The sources of the answer, in the order the structuring step numbered them. */
+  citations: readonly Citation[];
+  /** What the search attributed to which source: a risk is stored only on a source the search attached to its sentence. */
+  grounding: ProviderGrounding | undefined;
+  /** Names of the deck's other companies, when known: a sentence naming one is not about this company. */
+  others?: readonly string[];
 }
 
 // Zod schemas for dedicated agent structured passes
@@ -162,10 +177,14 @@ const now = (): string => new Date().toISOString();
  * Normalizes claim titles to facilitate semantic deduplication.
  */
 export function normalizeClaimTitle(title: string): string {
+  // Letters and digits of any script count: stripping everything outside a-z turned every title written in Japanese,
+  // Arabic, Cyrillic or Greek into the empty key, and a card with an empty key is dropped (a whole market lost its cards).
+  // Accents are removed so "Café" and "Cafe" are one title.
   return title
+    .normalize('NFKD')
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
+    .replace(/[^\p{L}\p{N}]/gu, '');
 }
 
 /**
@@ -188,6 +207,28 @@ export function deduplicateClaims<T extends { title: string }>(
 }
 
 /**
+ * Like deduplicateClaims, but when the same finding came from both passes the sourced copy wins over an unsourced one
+ * that happened to come first (the second pass exists because the first had no usable sources).
+ */
+export function deduplicatePreferSourced<T extends { title: string; cited: readonly unknown[] }>(claims: T[], limit = 10): T[] {
+  const positions = new Map<string, number>();
+  const out: T[] = [];
+  for (const claim of claims) {
+    const key = normalizeClaimTitle(claim.title);
+    if (!key) continue;
+    const at = positions.get(key);
+    if (at === undefined) {
+      if (out.length >= limit) continue;
+      positions.set(key, out.length);
+      out.push(claim);
+    } else if (out[at]!.cited.length === 0 && claim.cited.length > 0) {
+      out[at] = claim;
+    }
+  }
+  return out;
+}
+
+/**
  * Adjusts sourceIndex values when chaining multiple research passes.
  */
 export function offsetClaimSourceIndices<T extends { sourceIndex: number | null; sourceIndexes?: number[] }>(
@@ -201,41 +242,8 @@ export function offsetClaimSourceIndices<T extends { sourceIndex: number | null;
   }));
 }
 
-/** Resolves all distinct, valid receipts attached to one finding. */
-export function resolveClaimCitations(
-  sourceIndex: number | null | undefined,
-  sourceIndexes: readonly number[] | null | undefined,
-  citations: readonly Citation[],
-): Citation[] {
-  const indices = Array.from(new Set([
-    ...(sourceIndex == null ? [] : [sourceIndex]),
-    ...(sourceIndexes ?? []),
-  ]));
-  return usableCitations(indices.flatMap((index) => resolveClaimCitation(index, citations)));
-}
-
-/**
- * Resolves and validates citations attached to a claim index.
- */
-export function resolveClaimCitation(
-  sourceIndex: number | null | undefined,
-  citations: readonly Citation[],
-): Citation[] {
-  if (sourceIndex == null || sourceIndex < 0 || sourceIndex >= citations.length) {
-    return [];
-  }
-  const cite = citations[sourceIndex];
-  if (!cite || !cite.url || !/^https?:\/\//i.test(cite.url.trim())) {
-    return [];
-  }
-  return [
-    {
-      title: cite.title || 'Source',
-      url: cite.url.trim(),
-      credibility: cite.credibility ?? classifySource(cite.url, cite.title),
-    },
-  ];
-}
+// Resolving a finding's source number lives in claim-support (a module the risk rule can import without a cycle).
+export { resolveClaimCitation, resolveClaimCitations };
 
 // ============================================================================
 // 3. Card Factory Constructors
@@ -402,31 +410,20 @@ export function createViceCard(
 }
 
 /**
- * Filters and validates vice claims ensuring only verified, clickable sources survive.
+ * Turns claims that already name a clickable source into stored vice claims, dropping any that do not. It does not decide
+ * whether a source backs a claim: that is `acceptedRiskClaims` (risk-claims), which every finding of a model goes through
+ * first. A bare source number from a model is not accepted here.
  */
 export function extractSourcedViceClaims(
   rawClaims: readonly RawViceClaimInput[],
-  citations: readonly Citation[],
   companyId: string,
 ): ViceClaim[] {
   const out: ViceClaim[] = [];
   rawClaims.forEach((vc, index) => {
-    let sourceUrl: string | null = null;
-    let sourceTitle: string | null = null;
-
-    if (vc.sourceIndex != null && citations[vc.sourceIndex]) {
-      const cite = citations[vc.sourceIndex]!;
-      if (cite.url && /^https?:\/\//i.test(cite.url.trim())) {
-        sourceUrl = cite.url.trim();
-        sourceTitle = cite.title?.trim() || null;
-      }
-    } else if (vc.sourceUrl && /^https?:\/\//i.test(vc.sourceUrl.trim())) {
-      sourceUrl = vc.sourceUrl.trim();
-      sourceTitle = vc.sourceTitle?.trim() || null;
-    }
-
     // Grounding discipline: strictly drop unsourced vice claims
+    const sourceUrl = vc.sourceUrl && /^https?:\/\//i.test(vc.sourceUrl.trim()) ? vc.sourceUrl.trim() : null;
     if (!sourceUrl) return;
+    const sourceTitle = vc.sourceTitle?.trim() || null;
 
     out.push({
       id: uid('vcl', `${companyId}-${index}`),
@@ -438,6 +435,19 @@ export function extractSourcedViceClaims(
     });
   });
   return out;
+}
+
+/**
+ * The stored risk claims among the findings of one company's own search, under the same rule as the roster path: one sentence
+ * about this company, backed by one fit source (public, not the company's own site) that the search itself attributed to a
+ * sentence that reads the event. A finding that fails is dropped, whatever source number the model gave it.
+ */
+export function extractGroundedViceClaims(
+  company: Company,
+  findings: readonly ModelRiskFinding[],
+  evidence: ViceEvidence,
+): ViceClaim[] {
+  return extractSourcedViceClaims(acceptedRiskClaims(findings, company, evidence.others ?? [], evidence), company.id);
 }
 
 /**
@@ -801,8 +811,9 @@ export class ViceAgent {
     return [
       `Convert the research notes into JSON: { "viceClaims": [ { "text": string, "sourceIndex": number | null } ] }.`,
       `Rules:`,
-      `- Every claim MUST have a sourceIndex pointing to a listed source in SOURCES.`,
-      `- Each claim is one plain-language sentence (maximum 180 characters) that names the concrete risk or event.`,
+      `- "sourceIndex" is the 0-based index of the listed source that supports the claim, or null if none of them does.`,
+      `- Each claim is one plain-language sentence (maximum 180 characters) taken from the notes that begins with the company's name, says what happened and when, and names no other company.`,
+      `- A claim is kept only when the search itself attributed that sentence to a listed source.`,
       `- Drop any rumor or unverified assertion.`,
       ``,
       `SOURCES:`,
@@ -835,31 +846,31 @@ export class ViceAgent {
       { system: STRUCTURE_SYSTEM, signal: options.signal },
     );
 
-    const claims = extractSourcedViceClaims(
-      structured.viceClaims ?? [],
-      grounded.citations,
-      company.id,
-    );
+    // The model's source number is only a hint: a risk is stored on a source the search attached to its sentence.
+    const claims = extractGroundedViceClaims(company, structured.viceClaims ?? [], {
+      citations: grounded.citations,
+      grounding: grounded.grounding,
+    });
 
     if (claims.length === 0) return null;
     return createViceCard(company, claims, deckId);
   }
 
   static extractClaims(
-    rawClaims: readonly RawViceClaimInput[],
-    citations: readonly Citation[],
-    companyId: string,
+    company: Company,
+    findings: readonly ModelRiskFinding[],
+    evidence: ViceEvidence,
   ): ViceClaim[] {
-    return extractSourcedViceClaims(rawClaims, citations, companyId);
+    return extractGroundedViceClaims(company, findings, evidence);
   }
 
   static extract(
     company: Company,
-    rawClaims: readonly RawViceClaimInput[],
-    citations: readonly Citation[] = [],
+    findings: readonly ModelRiskFinding[],
+    evidence: ViceEvidence,
     deckId = '',
   ): CardWithCompany | null {
-    const claims = extractSourcedViceClaims(rawClaims, citations, company.id);
+    const claims = extractGroundedViceClaims(company, findings, evidence);
     if (claims.length === 0) return null;
     return createViceCard(company, claims, deckId);
   }
@@ -952,15 +963,24 @@ export async function researchMarketSignals(
       priority: 'urgent',
     });
 
-    return { out, citations: grounded.citations };
+    return { out, citations: grounded.citations, grounding: grounded.grounding };
   };
 
   const firstPass = await runGroundedPass('both');
   // Count only items that will survive the citation gate below: an answer whose
   // items all lack a usable source used to look "complete" here, skip the
   // fallback, and leave the deck with zero insight/barrier cards.
-  const sourced = (items: Array<{ sourceIndex?: number | null; sourceIndexes?: number[] | null }> | undefined) =>
-    (items ?? []).filter((item) => resolveClaimCitations(item.sourceIndex, item.sourceIndexes, firstPass.citations).length > 0).length;
+  // A card's source is the one the structuring step named, or else the one the search engine itself attached to the answer's
+  // sentences the card is built from (claimSupportCitations): the step often names none for a well-sourced answer.
+  type RawClaim = { title: string; summary?: string; keyPoints?: string[]; sourceIndex?: number | null; sourceIndexes?: number[] | null };
+  const claimCitations = (item: RawClaim, indexed: readonly Citation[], grounding: ProviderGrounding | undefined): Citation[] => {
+    const text = [item.title, item.summary ?? '', ...(item.keyPoints ?? [])].join(' ');
+    // A source number the model named counts only if the sentences that source is attached to are about this card.
+    const named = resolveClaimCitations(item.sourceIndex, item.sourceIndexes, indexed).filter((c) => sourceBacksClaim(c.url, text, grounding));
+    return named.length > 0 ? named : claimSupportCitations(text, grounding);
+  };
+  const sourced = (items: RawClaim[] | undefined) =>
+    (items ?? []).filter((item) => claimCitations(item, firstPass.citations, firstPass.grounding).length > 0).length;
   const firstBarrierCount = sourced(firstPass.out.barriers);
   const firstInsightCount = sourced(firstPass.out.insights);
 
@@ -968,6 +988,7 @@ export async function researchMarketSignals(
   let secondPass: {
     out: z.infer<typeof marketCardsOutSchema>;
     citations: Citation[];
+    grounding: ProviderGrounding | undefined;
   } | null = null;
 
   if (firstBarrierCount < minBarriers || firstInsightCount < minInsights) {
@@ -985,41 +1006,28 @@ export async function researchMarketSignals(
     }
   }
 
-  // 3. Reconcile Citations & Offset Indices
-  const allCitations = [...firstPass.citations, ...(secondPass?.citations ?? [])];
-
-  const rawBarriers = [
-    ...(firstPass.out.barriers ?? []),
-    ...offsetClaimSourceIndices(
-      secondPass?.out.barriers ?? [],
-      firstPass.citations.length,
-    ),
-  ];
-
-  const rawInsights = [
-    ...(firstPass.out.insights ?? []),
-    ...offsetClaimSourceIndices(
-      secondPass?.out.insights ?? [],
-      firstPass.citations.length,
-    ),
-  ];
+  // 3. Resolve each item's sources against the pass that wrote it. A source number only means something next to the list
+  //    it indexes: joining the passes first and shifting the second pass's numbers made its "none" (-1) the first pass's
+  //    last source, and a first pass's out-of-range number a second-pass source.
+  type Resolved = NonNullable<z.infer<typeof marketCardsOutSchema>['barriers' | 'insights']>[number] & { cited: Citation[] };
+  const resolvedIn = (pass: typeof firstPass | null, kind: 'barriers' | 'insights'): Resolved[] =>
+    pass ? (pass.out[kind] ?? []).map((item) => ({ ...item, cited: claimCitations(item, pass.citations, pass.grounding) })) : [];
 
   // 4. Deduplicate Claims
-  const deduplicatedBarriers = deduplicateClaims(rawBarriers, 10);
-  const deduplicatedInsights = deduplicateClaims(rawInsights, 10);
+  const deduplicatedBarriers = deduplicatePreferSourced([...resolvedIn(firstPass, 'barriers'), ...resolvedIn(secondPass, 'barriers')], 10);
+  const deduplicatedInsights = deduplicatePreferSourced([...resolvedIn(firstPass, 'insights'), ...resolvedIn(secondPass, 'insights')], 10);
 
   // 5. Assemble Cards with Provenance Enforcement
   const assembledCards: CardWithCompany[] = [];
 
   for (const barrier of deduplicatedBarriers) {
-    const claimCitations = resolveClaimCitations(barrier.sourceIndex, barrier.sourceIndexes, allCitations);
-    if (claimCitations.length === 0) continue; // Grounding contract: drop unsourced cards
+    if (barrier.cited.length === 0) continue; // Grounding contract: drop unsourced cards
 
     assembledCards.push(
       createBarrierCard(
         barrier.title,
         barrier.summary,
-        claimCitations,
+        barrier.cited,
         barrier.keyPoints,
         deckId,
       ),
@@ -1027,14 +1035,13 @@ export async function researchMarketSignals(
   }
 
   for (const insight of deduplicatedInsights) {
-    const claimCitations = resolveClaimCitations(insight.sourceIndex, insight.sourceIndexes, allCitations);
-    if (claimCitations.length === 0) continue; // Grounding contract: drop unsourced cards
+    if (insight.cited.length === 0) continue; // Grounding contract: drop unsourced cards
 
     assembledCards.push(
       createInsightCard(
         insight.title,
         insight.summary,
-        claimCitations,
+        insight.cited,
         insight.keyPoints,
         deckId,
       ),

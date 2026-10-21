@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import type { Company, Citation } from '@mi/contracts';
-import type { LlmClient, MarketPlan } from './types';
+import type { LlmClient, MarketPlan, ProviderGrounding } from './types';
 import {
   BarrierToEntryAgent,
   CultureAgent,
@@ -58,10 +58,20 @@ const sampleCitations: Citation[] = [
   { title: 'bloomberg.com', url: 'https://bloomberg.com/news/articles/antitrust-probe' },
 ];
 
+/** What the search attributed to which page: the sentences a stored risk must be traced to. */
+const attributed = (...supports: Array<[string, string]>): ProviderGrounding => ({
+  provider: 'google-search',
+  answerText: supports.map(([text]) => text).join(' '),
+  supports: supports.map(([text, url], index) => ({ supportIndex: index, text, sources: [{ chunkIndex: index, url, title: new URL(url).hostname }] })),
+});
+
+const BLOOMBERG = 'https://bloomberg.com/news/articles/antitrust-probe';
+
 function createMockLlmClient(responses: {
   groundText?: string;
   citations?: Citation[];
   structureData?: Record<string, unknown>;
+  grounding?: ProviderGrounding;
 }): LlmClient {
   const citations = responses.citations ?? sampleCitations;
   const text = responses.groundText ?? 'Sample grounded research text with verified findings.';
@@ -71,6 +81,7 @@ function createMockLlmClient(responses: {
       text,
       citations,
       queries: ['query 1', 'query 2'],
+      ...(responses.grounding ? { grounding: responses.grounding } : {}),
     })),
     structure: vi.fn(async (prompt: string, schema: ZodType<unknown>) => {
       if (responses.structureData) {
@@ -144,7 +155,7 @@ function createMockLlmClient(responses: {
         return schema.parse({
           viceClaims: [
             {
-              text: 'Named as defendant in high-profile copyright infringement lawsuit.',
+              text: 'Anthropic was named as defendant in a high-profile copyright infringement lawsuit.',
               sourceIndex: 3,
             },
             {
@@ -173,6 +184,17 @@ describe('Signal Agents Deep Module', () => {
         'regulatoryeuaiact2026',
       );
       expect(normalizeClaimTitle('')).toBe('');
+    });
+
+    it('keeps titles written in any script, so a market in Japanese or Arabic does not lose every card', () => {
+      for (const title of ['参入障壁が高い', 'ارتفاع تكلفة الدخول', 'Высокие барьеры входа', 'Υψηλά εμπόδια εισόδου']) {
+        expect(normalizeClaimTitle(title), title).not.toBe('');
+      }
+      // Different titles stay different, and the same one with other case, punctuation or accents is one.
+      expect(normalizeClaimTitle('参入障壁が高い')).not.toBe(normalizeClaimTitle('規制が厳しい'));
+      expect(normalizeClaimTitle('Высокие барьеры входа!')).toBe(normalizeClaimTitle(' высокие  БАРЬЕРЫ входа '));
+      expect(normalizeClaimTitle('Café economics')).toBe(normalizeClaimTitle('Cafe Economics'));
+      expect(deduplicateClaims([{ title: '参入障壁が高い' }, { title: '規制が厳しい' }, { title: '参入障壁が高い。' }], 10).map((c) => c.title)).toEqual(['参入障壁が高い', '規制が厳しい']);
     });
 
     it('deduplicates claims preserving order and capping at limit', () => {
@@ -227,12 +249,14 @@ describe('Signal Agents Deep Module', () => {
 
     it('extracts sourced vice claims dropping unsourced claims', () => {
       const raw = [
-        { text: 'Sourced lawsuit', sourceIndex: 3 },
-        { text: 'Unsourced rumor', sourceIndex: null },
+        { text: 'Sourced lawsuit', sourceUrl: BLOOMBERG, sourceTitle: 'bloomberg.com' },
+        { text: 'Unsourced rumor', sourceUrl: null },
         { text: 'Direct URL claim', sourceUrl: 'https://apnews.com/article/probe' },
         { text: 'Invalid URL claim', sourceUrl: 'ftp://invalid-url' },
+        // A model's bare source number is not a source: only a claim that passed the risk rule carries a URL.
+        { text: 'Numbered by the model only', sourceIndex: 3 },
       ];
-      const claims = extractSourcedViceClaims(raw, sampleCitations, 'cmp_test');
+      const claims = extractSourcedViceClaims(raw, 'cmp_test');
       expect(claims).toHaveLength(2);
       expect(claims[0]!.claimText).toBe('Sourced lawsuit');
       expect(claims[0]!.sourceUrl).toBe('https://bloomberg.com/news/articles/antitrust-probe');
@@ -313,8 +337,7 @@ describe('Signal Agents Deep Module', () => {
 
     it('creates vice cards without borrowing company metrics', () => {
       const claims = extractSourcedViceClaims(
-        [{ text: 'Federal antitrust investigation', sourceIndex: 3 }],
-        sampleCitations,
+        [{ text: 'Federal antitrust investigation', sourceUrl: BLOOMBERG, sourceTitle: 'bloomberg.com' }],
         sampleCompany.id,
       );
       const cardWithCompany = createViceCard(sampleCompany, claims, 'dck_test_123');
@@ -473,34 +496,43 @@ describe('Signal Agents Deep Module', () => {
   });
 
   describe('ViceAgent', () => {
+    const doj = 'Anthropic is the subject of a DOJ antitrust lawsuit filed in 2026.';
+    const dojReport = 'Anthropic is the subject of a DOJ antitrust lawsuit filed in 2026, Bloomberg reported.';
+
     it('extracts vice cards containing only sourced claims', () => {
       const raw = [
-        { text: 'DOJ Antitrust Lawsuit', sourceIndex: 3 },
-        { text: 'Unverified blog rumor', sourceIndex: null },
+        { text: doj, sourceIndex: 3 },
+        { text: 'Anthropic is rumoured to face a regulatory inquiry over a blog post.', sourceIndex: null },
       ];
-      const card = ViceAgent.extract(sampleCompany, raw, sampleCitations, 'dck_1');
+      const card = ViceAgent.extract(sampleCompany, raw, { citations: sampleCitations, grounding: attributed([dojReport, BLOOMBERG]) }, 'dck_1');
 
       expect(card).not.toBeNull();
       expect(card!.card.cardType).toBe('vice');
       expect(card!.viceClaims).toHaveLength(1);
-      expect(card!.viceClaims[0]!.claimText).toBe('DOJ Antitrust Lawsuit');
+      expect(card!.viceClaims[0]!.claimText).toBe(doj);
+      expect(card!.viceClaims[0]!.sourceUrl).toBe(BLOOMBERG);
       expect(card!.metrics).toEqual([]);
     });
 
     it('returns null and avoids minting empty vice cards when claims are empty or unsourced', () => {
-      expect(ViceAgent.extract(sampleCompany, [], sampleCitations, 'dck_1')).toBeNull();
+      const evidence = { citations: sampleCitations, grounding: attributed([dojReport, BLOOMBERG]) };
+      expect(ViceAgent.extract(sampleCompany, [], evidence, 'dck_1')).toBeNull();
       expect(
         ViceAgent.extract(
           sampleCompany,
-          [{ text: 'Unsourced rumor', sourceIndex: null }],
-          sampleCitations,
+          [{ text: 'Anthropic is rumoured to face a regulatory inquiry over a blog post.', sourceIndex: null }],
+          evidence,
           'dck_1',
         ),
       ).toBeNull();
+      // A source number the search never attributed to the sentence is not a source.
+      expect(ViceAgent.extract(sampleCompany, [{ text: doj, sourceIndex: 3 }], { citations: sampleCitations, grounding: undefined }, 'dck_1')).toBeNull();
     });
 
     it('researches company controversies autonomously with grounded search', async () => {
-      const client = createMockLlmClient({});
+      const client = createMockLlmClient({
+        grounding: attributed(['Anthropic was named as defendant in a high-profile copyright infringement lawsuit, court filings show.', BLOOMBERG]),
+      });
       const card = await ViceAgent.research(client, sampleCompany, samplePlan, 'dck_1');
 
       expect(client.ground).toHaveBeenCalledOnce();
@@ -512,7 +544,9 @@ describe('Signal Agents Deep Module', () => {
     });
 
     it('supports functional export researchCompanyVice', async () => {
-      const client = createMockLlmClient({});
+      const client = createMockLlmClient({
+        grounding: attributed(['Anthropic was named as defendant in a high-profile copyright infringement lawsuit, court filings show.', BLOOMBERG]),
+      });
       const card = await researchCompanyVice(client, sampleCompany, samplePlan, 'dck_1');
       expect(card).not.toBeNull();
       expect(card!.card.cardType).toBe('vice');

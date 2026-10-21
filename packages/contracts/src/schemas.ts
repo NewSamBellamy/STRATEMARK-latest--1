@@ -705,7 +705,30 @@ export const threadMessageSchema = z.object({
   role: z.enum(['user', 'assistant']),
   text: z.string(),
   citations: z.array(citationSchema).default([]),
+  origin: z.enum(['memory', 'fresh']).optional(),
   at: isoTimestamp,
+});
+
+const reportCostSchema = z.object({
+  estUsd: z.number().finite().nullable(),
+  calls: z.number().finite().nullable(),
+  searches: z.number().finite().nullable(),
+});
+
+/** A signal card's brief. Every point carries at least one source; a point without one does not parse. */
+export const signalBriefPointSchema = z.object({
+  text: z.string().min(1),
+  sources: z.array(citationSchema).min(1),
+});
+
+export const signalBriefSchema = z.object({
+  cardId: z.string(),
+  cardType: cardTypeSchema,
+  builtAt: isoTimestamp,
+  lead: z.string(),
+  points: z.array(signalBriefPointSchema).max(8),
+  sources: z.array(citationSchema),
+  cost: reportCostSchema,
 });
 
 export const researchThreadSchema = z.object({

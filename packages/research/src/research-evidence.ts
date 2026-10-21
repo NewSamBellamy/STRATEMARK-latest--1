@@ -1,6 +1,7 @@
 import { usableCitations, type Citation } from '@mi/contracts';
 import type { LlmClient, ProviderGrounding } from './types';
 import { copyProviderGrounding } from './grounding-support';
+import { attributedSentences } from './chat-writeback';
 import { isOriginalSourceAttempt, type OriginalSourceAttempt } from './original-source';
 
 function queryTerms(query: string | undefined): string[] {
@@ -50,6 +51,8 @@ export interface ResearchEvidence {
   id: string;
   companyId?: string;
   companyName?: string;
+  /** The card this note is about (signal cards), when known. */
+  cardId?: string;
   topic: string;
   capturedAt: string;
   text: string;
@@ -68,14 +71,18 @@ export function recordResearchEvidence(
     structure: client.structure.bind(client),
     async ground(prompt, opts) {
       const result = await client.ground(prompt, opts);
-      const citations = usableCitations(result.citations);
+      const { attributedOnly, ...context } = opts?.researchContext ?? { topic: '' };
+      // attributedOnly: keep just the sentences the search attributed to a public source, with those sources.
+      const kept = attributedOnly ? attributedSentences(result.grounding) : null;
+      const citations = kept ? usableCitations(kept.flatMap((s) => s.sources)) : usableCitations(result.citations);
+      const text = kept ? kept.map((s) => s.text).join(' ') : result.text;
       // Unscoped discovery/chat output must not enter a company's evidence vault.
-      if (opts?.researchContext && result.text.trim() && citations.length) {
+      if (opts?.researchContext && text.trim() && citations.length) {
         await record({
           id: `ev_${globalThis.crypto.randomUUID()}`,
-          ...opts.researchContext,
+          ...context,
           capturedAt: new Date().toISOString(),
-          text: result.text,
+          text,
           citations,
           queries: [...result.queries],
           ...(result.grounding ? { grounding: copyProviderGrounding(result.grounding) } : {}),

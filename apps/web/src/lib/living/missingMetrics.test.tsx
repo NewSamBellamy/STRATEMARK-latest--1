@@ -285,6 +285,38 @@ it('the automatic face sweep skips a resting company, a sweep starts its rest, a
   sweepOnly.unmount(); fresh.client.clear();
 });
 
+it('an open deck is asked once to make sure it holds its signal cards, and the repository decides what is searched', async () => {
+  const none = { barrier: 0, insight: 0, vice: 0, culture: 0 };
+  const session = async () => {
+    const s = await setup();
+    const ensure = vi.fn().mockResolvedValue({ added: none, failed: false, failedKinds: [] });
+    Object.assign(s.repo, { ensureSignalCards: ensure });
+    const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    hook.unmount(); s.client.clear();
+    return ensure;
+  };
+  const first = await session();
+  expect(first).toHaveBeenCalledTimes(1);
+  expect(first).toHaveBeenCalledWith('deck');
+  // The rest lives with the deck in the repository, not in this browser's storage: every open asks, once.
+  expect(await session()).toHaveBeenCalledTimes(1);
+});
+
+it('does not ask for signal cards while research is paused', async () => {
+  const s = await setup();
+  const ensure = vi.fn().mockResolvedValue({ added: { barrier: 0, insight: 0, vice: 0, culture: 0 }, failed: false, failedKinds: [] });
+  Object.assign(s.repo, { ensureSignalCards: ensure });
+  act(() => useResearchControl.setState({ paused: true }));
+  const hook = renderHook(() => useLivingDeck('deck', s.cards, { faceSweep: false }), { wrapper: s.wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+  expect(ensure).not.toHaveBeenCalled();
+  act(() => useResearchControl.setState({ paused: false }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+  expect(ensure).toHaveBeenCalledTimes(1);
+  hook.unmount(); s.client.clear();
+});
+
 it('invalidates real card, saved, metric and dashboard queries after recovery', async () => {
   const s = await setup();
   s.huntCompanyMetrics.mockResolvedValue({ filledTypes: ['employees'], metrics: [], retieredCardIds: ['card-0'] });

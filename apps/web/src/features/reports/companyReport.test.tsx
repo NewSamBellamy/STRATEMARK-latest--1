@@ -27,7 +27,9 @@ describe('creating a company report', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Share & export' }));
     await user.click(screen.getByRole('menuitem', { name: /create report/i }));
-    await user.click(screen.getByRole('button', { name: 'Create report' }));
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    await user.click(screen.getByRole('button', { name: /Start report/ }));
     expect(await screen.findByText(`Report: ${company.name}`)).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Open report' })).toHaveAttribute('href', expect.stringMatching(/^\/reports\/rpt_/));
   });
@@ -45,7 +47,9 @@ describe('creating a company report', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Share & export' }));
     await user.click(screen.getByRole('menuitem', { name: /create report/i }));
-    await user.click(screen.getByRole('button', { name: 'Create report' }));
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    await user.click(screen.getByRole('button', { name: /Start report/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Add a Gemini key to research the gaps.');
   });
 
@@ -58,8 +62,9 @@ describe('creating a company report', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Share & export' }));
     await user.click(screen.getByRole('menuitem', { name: /create report/i }));
+    await user.click(screen.getByRole('button', { name: /Next/ }));
     for (const box of screen.getAllByRole('checkbox')) if ((box as HTMLInputElement).checked) await user.click(box);
-    expect(screen.getByRole('button', { name: 'Create report' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Next/ })).toBeDisabled();
     expect(screen.getByText('Pick at least one section.')).toBeInTheDocument();
   });
 });

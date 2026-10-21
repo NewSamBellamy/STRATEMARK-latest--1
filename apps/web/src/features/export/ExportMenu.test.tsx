@@ -63,14 +63,19 @@ describe('the Share & export menu', () => {
     await user.click(screen.getByRole('button', { name: 'Share & export' }));
     await user.click(screen.getByRole('menuitem', { name: /create report/i }));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    // Everything but the bare source list is ticked; untick one and add a focus.
-    await user.click(screen.getByRole('checkbox', { name: /history/i }));
-    await user.type(screen.getByLabelText(/focus/i), 'pricing');
-    await user.click(screen.getByRole('button', { name: 'Create report' }));
+    // Step 1 focus, then step 2: sections are preselected from the topic.
+    await user.click(screen.getByRole('radio', { name: /A topic/ }));
+    await user.type(screen.getByRole('textbox', { name: 'Topic' }), 'pricing');
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    expect(screen.getByRole('checkbox', { name: /Products/i })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /history/i })).not.toBeChecked();
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    await user.click(screen.getByRole('button', { name: /Start report/ }));
     await waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
     const request = generate.mock.calls[0]![0];
     expect(request).toMatchObject({ kind: 'company', subjectId: 'co_1', focus: 'pricing' });
     expect(request.topics).toContain('overview');
+    expect(request.topics).toContain('products_roadmap');
     expect(request.topics).not.toContain('history');
     expect(request.topics).not.toContain('sources');
   });
