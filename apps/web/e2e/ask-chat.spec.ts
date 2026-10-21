@@ -15,7 +15,7 @@ test('compare: the cards you pick show up as thumbnails in a chat that starts at
   const grid = page.getByTestId('card-grid');
   await grid.locator('[data-card-id]').nth(0).click();
   await grid.locator('[data-card-id]').nth(1).click();
-  await page.getByRole('button', { name: /Ask about these/ }).click();
+  await page.getByRole('button', { name: /^Compare \(2\)/ }).click();
 
   const panel = page.getByRole('dialog', { name: 'AI Research' });
   const strip = panel.getByLabel('Cards in this conversation');

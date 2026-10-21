@@ -107,8 +107,8 @@ function DeckStack({ row }: { row: DeckRow }) {
       />
       <span className="absolute inset-0 overflow-hidden rounded-2xl shadow-card transition-all duration-300 ease-out group-hover:-translate-y-1.5 group-hover:shadow-card-hover motion-reduce:transition-none motion-reduce:group-hover:translate-y-0">
         <DeckCover name={market.name} seed={market.id} className="absolute inset-0 h-full w-full" />
-        <span className="absolute inset-x-0 bottom-0 px-5 pb-9 pt-4 text-center">
-          <span className="line-clamp-3 block font-display text-[17px] font-semibold leading-snug text-[#f1ead2] [text-wrap:balance]">
+        <span className="absolute inset-x-0 bottom-0 px-5 pb-8 pt-4 text-center">
+          <span className="line-clamp-3 block font-display text-[15px] font-semibold leading-tight text-[#f1ead2] [text-wrap:balance]">
             {market.name}
           </span>
           {count != null && (
@@ -258,10 +258,10 @@ function DeckTile({
       </button>
       <div className="mt-5 flex items-start justify-between gap-2 px-1">
         <div className="min-w-0">
-          <p className="truncate font-display text-[15px] font-semibold text-content">
+          <p className="line-clamp-2 font-display text-[15px] font-semibold text-content">
             {market.name}
           </p>
-          <p className="mt-0.5 truncate text-[12px] text-muted">{market.scopeDefinition.vertical}</p>
+          <p className="mt-0.5 line-clamp-2 text-[12px] text-muted">{market.scopeDefinition.vertical}</p>
         </div>
         <OverflowMenu market={market} onOpen={onOpen} onArchive={onArchive} onDelete={onDelete} />
       </div>

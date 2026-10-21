@@ -163,13 +163,13 @@ test('7b. About this beta names December 1, 2026', async ({ page }) => {
   await expect(page.getByText(LAUNCH).first()).toBeVisible();
 });
 
-test('8. Compare mode: two cards, Ask about these opens the Ask panel', async ({ page }) => {
+test('8. Compare mode: two cards, Compare (2) opens the Ask panel', async ({ page }) => {
   await openDeck(page);
   await page.getByRole('button', { name: 'Compare', exact: true }).click();
   const cards = page.getByTestId('card-grid').getByRole('button', { name: / — Company card/ });
   await cards.nth(0).click();
   await cards.nth(1).click();
   await expect(page.getByText('2 cards selected')).toBeVisible();
-  await page.getByRole('button', { name: 'Ask about these' }).click();
+  await page.getByRole('button', { name: 'Compare (2)' }).click();
   await expect(page.getByPlaceholder(/Ask a follow-up about these/)).toBeVisible();
 });

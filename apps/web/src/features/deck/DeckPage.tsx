@@ -639,11 +639,11 @@ export default function DeckPage() {
           <button
             type="button"
             className="btn-primary px-3.5 py-1.5 text-sm"
-            disabled={selected.size === 0}
+            disabled={selected.size < 2}
             onClick={askSelected}
           >
             <MessagesSquare className="h-4 w-4" />
-            Ask about these
+            Compare ({selected.size})
           </button>
           <button
             type="button"
