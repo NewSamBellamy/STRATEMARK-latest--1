@@ -95,6 +95,44 @@ function ProductsFromResearch({ companyId }: { companyId: string }) {
   );
 }
 
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/**
+ * End of the period a stated target covers ("2026-03-15", "March 2026",
+ * "Q3 2026", "2026 H2", "2026"), or null when the text is not a date we can
+ * read with confidence. Unreadable text is never guessed at.
+ */
+export function targetEnd(date: string | null | undefined): Date | null {
+  const s = (date ?? '').trim();
+  if (!s) return null;
+  let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59);
+  m = /^(?:Q([1-4])\s+(\d{4})|(\d{4})\s+Q([1-4]))$/i.exec(s);
+  if (m) {
+    const q = Number(m[1] ?? m[4]);
+    return new Date(Number(m[2] ?? m[3]), q * 3, 0, 23, 59, 59);
+  }
+  m = /^(?:H([12])\s+(\d{4})|(\d{4})\s+H([12]))$/i.exec(s);
+  if (m) {
+    const h = Number(m[1] ?? m[4]);
+    return new Date(Number(m[2] ?? m[3]), h * 6, 0, 23, 59, 59);
+  }
+  m = /^([A-Za-z]{3,9})\.?\s+(\d{4})$/.exec(s);
+  if (m) {
+    const mi = MONTHS.indexOf(m[1]!.slice(0, 3).toLowerCase());
+    if (mi >= 0) return new Date(Number(m[2]), mi + 1, 0, 23, 59, 59);
+  }
+  m = /^(\d{4})$/.exec(s);
+  if (m) return new Date(Number(m[1]), 12, 0, 23, 59, 59);
+  return null;
+}
+
+/** True only when a readable stated target date is already behind us. */
+export function isPastDue(date: string | null | undefined, now: Date): boolean {
+  const end = targetEnd(date);
+  return end !== null && end.getTime() < now.getTime();
+}
+
 /** Dense one-line-per-product view: name, description, status, source. */
 function ProductTable({ products, onOpen }: { products: Product[]; onOpen: (p: Product) => void }) {
   return (
@@ -170,6 +208,10 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
           if (p.status) acc[p.status] = (acc[p.status] ?? 0) + 1;
           return acc;
         }, {});
+        // The tab's own recorded research capture date; null stamps nothing.
+        const statedOn = result.lastRefreshedAt
+          ? new Date(result.lastRefreshedAt).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
+          : null;
         // Dense table by default for a long lineup; the reader can switch.
         const viewMode = view ?? (c.products.length > 8 ? 'table' : 'cards');
         const products = c.products.filter(
@@ -354,13 +396,26 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                               >
                                 <div className="flex items-baseline justify-between gap-2">
                                   <span className="text-sm font-medium text-content">{r.title}</span>
-                                  {r.date && (
+                                  {r.date ? (
                                     <span className="shrink-0 text-[10px] font-semibold tabular-nums text-primary-ink">
                                       {r.date}
                                     </span>
+                                  ) : (
+                                    <span className="shrink-0 text-[10px] text-faint">No date reported</span>
                                   )}
                                 </div>
                                 <div className="line-clamp-2 text-xs text-muted">{r.detail}</div>
+                                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10.5px] text-faint">
+                                  {statedOn && <span>stated {statedOn}</span>}
+                                  {isPastDue(r.date, new Date()) && (
+                                    <span
+                                      className="rounded border border-amber-300 bg-amber-50 px-1 text-amber-700"
+                                      title="The stated target date has passed; this research does not confirm whether it shipped."
+                                    >
+                                      past due
+                                    </span>
+                                  )}
+                                </div>
                               </button>
                             </li>
                           ))}

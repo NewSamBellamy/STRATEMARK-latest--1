@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { BusinessRelationship, Product } from '@mi/contracts';
-import { ProductsRoadmapTab } from './ProductsRoadmapTab';
+import type { BusinessRelationship, Product, RoadmapItem } from '@mi/contracts';
+import { ProductsRoadmapTab, isPastDue, targetEnd } from './ProductsRoadmapTab';
 
-const state = vi.hoisted(() => ({ products: [] as Product[], relationships: undefined as BusinessRelationship[] | undefined, cached: {} as Record<string, unknown> }));
+const state = vi.hoisted(() => ({ products: [] as Product[], roadmap: [] as RoadmapItem[], refreshedAt: null as string | null, relationships: undefined as BusinessRelationship[] | undefined, cached: {} as Record<string, unknown> }));
 vi.mock('@/hooks/data', () => ({ useCompany: () => ({ data: { name: 'Acme' } }), useDashboardTab: () => ({
-  isPending: false, isError: false, data: { content: { products: state.products, roadmap: [], relationships: state.relationships } },
+  isPending: false, isError: false, data: { lastRefreshedAt: state.refreshedAt, content: { products: state.products, roadmap: state.roadmap, relationships: state.relationships } },
 }) }));
 vi.mock('../useCachedTab', () => ({ useCachedDashboardTab: (_id: string, tab: string) => ({ data: state.cached[tab] }) }));
 vi.mock('@/components/media/AiCover', () => ({ AiCover: () => null }));
 vi.mock('./ProductPage', () => ({ ProductPage: ({ product }: { product: Product }) => <a href={product.url ?? undefined}>Official page</a> }));
 vi.mock('@/features/deepdive/DeepDive', () => ({ DigDeeper: () => null, DigDeeperMenu: () => null }));
-beforeEach(() => { state.products = []; state.relationships = undefined; state.cached = {}; });
+beforeEach(() => { state.products = []; state.roadmap = []; state.refreshedAt = null; state.relationships = undefined; state.cached = {}; });
 
 describe('product evidence wording in the existing view', () => {
   it('does not promise a revenue ranking or silently treat empty research as complete', () => {
@@ -96,6 +96,36 @@ describe('product evidence wording in the existing view', () => {
     state.products = [{ name: 'Atlas', status: 'live', description: 'x', revenueNote: '', url: null }];
     render(<ProductsRoadmapTab companyId="cmp" />);
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+  it('stamps roadmap items with the research date, flags past-due targets, and never invents a date', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-21T12:00:00Z'));
+    state.refreshedAt = '2026-03-02T10:00:00Z';
+    state.roadmap = [
+      { title: 'Old promise', horizon: 'now', detail: 'd', date: 'Q1 2026' },
+      { title: 'Future plan', horizon: 'next', detail: 'd', date: '2027 H1' },
+      { title: 'Undated plan', horizon: 'later', detail: 'd', date: null },
+    ];
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    vi.useRealTimers();
+    expect(screen.getAllByText(/^stated .*2026/)).toHaveLength(3);
+    expect(screen.getAllByText('past due')).toHaveLength(1);
+    expect(screen.getAllByText('No date reported')).toHaveLength(1);
+  });
+  it('stamps nothing when no capture date was recorded', () => {
+    state.roadmap = [{ title: 'Plan', horizon: 'next', detail: 'd', date: '2030' }];
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.queryByText(/^stated /)).not.toBeInTheDocument();
+  });
+  it('reads only dates it is sure of', () => {
+    const now = new Date('2026-10-21T12:00:00Z');
+    expect(isPastDue('2026-03-15', now)).toBe(true);
+    expect(isPastDue('March 2026', now)).toBe(true);
+    expect(isPastDue('2026 H2', now)).toBe(false);
+    expect(isPastDue('Q3 2026', now)).toBe(true);
+    expect(isPastDue('soon', now)).toBe(false);
+    expect(targetEnd('later this year')).toBeNull();
+    expect(isPastDue(null, now)).toBe(false);
   });
   it('lists named relationships by kind with their reported sentence and source, and shows nothing when none are reported', () => {
     const { unmount } = render(<ProductsRoadmapTab companyId="cmp" />);
