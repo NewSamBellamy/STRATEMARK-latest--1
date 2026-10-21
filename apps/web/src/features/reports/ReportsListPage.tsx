@@ -30,18 +30,19 @@ export default function ReportsListPage() {
           </p>
         </div>
         {markets.isSuccess && (
-          <Link to={latest ? `/markets/${latest.id}/deck` : '/history'} className="btn-primary shrink-0">
+          <Link
+            to={latest ? `/markets/${latest.id}/deck` : '/history'}
+            className="btn-primary shrink-0"
+            title={
+              latest
+                ? `Opens ${latest.name}, your most recent deck. Choose Share & export, then Create report.`
+                : 'You need a deck first. Open All Decks to pick one, or start a new deck.'
+            }
+          >
             Create a report
           </Link>
         )}
       </div>
-      {markets.isSuccess && (
-        <p className="mt-2 text-xs text-faint">
-          {latest
-            ? `Opens ${latest.name}, your most recent deck. Choose Share & export, then Create report.`
-            : 'You need a deck first. Open All Decks to pick one, or start a new deck.'}
-        </p>
-      )}
 
       <div className="mt-6">
         <QueryBoundary
