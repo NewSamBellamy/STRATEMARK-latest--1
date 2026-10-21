@@ -6,14 +6,17 @@ export function EmptyState({
   description,
   action,
   icon,
+  compact = false,
 }: {
   title: string;
   description?: string;
   action?: ReactNode;
   icon?: ReactNode;
+  /** Tighter padding for a list that sits among other content rather than being the whole page. */
+  compact?: boolean;
 }) {
   return (
-    <div className="panel flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+    <div className={`panel flex flex-col items-center justify-center gap-3 px-6 text-center ${compact ? 'py-10' : 'py-16'}`}>
       <div className="rounded-full bg-surface-2 p-3 text-muted">
         {icon ?? <Inbox className="h-6 w-6" aria-hidden />}
       </div>

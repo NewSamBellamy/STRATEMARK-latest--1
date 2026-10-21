@@ -143,9 +143,9 @@ export default function TodayPage() {
 
   return (
     <div className={cn('mx-auto', selected ? 'max-w-6xl' : 'max-w-3xl')}>
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-[28px] font-bold tracking-tight text-content">Today</h1>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-content">Today</h1>
           {/* One company's page has its own counts and its own check; the all-companies summary would be about other companies. */}
           {!selected && <p className="mt-1 text-sm text-muted">
             {followCount
@@ -171,7 +171,7 @@ export default function TodayPage() {
       </div>
 
       {followCount > 0 && (
-        <nav className="mb-5 flex flex-wrap gap-1.5" aria-label="Companies on Today">
+        <nav className="mb-4 flex flex-wrap gap-1.5" aria-label="Companies on Today">
           <button type="button" aria-current={!selected ? 'page' : undefined}
             className={cn('rounded-full border px-3 py-1 text-xs font-medium transition-colors',
               !selected ? 'border-primary bg-primary/8 text-primary' : 'border-border text-muted hover:bg-surface-2 hover:text-content')}
@@ -216,21 +216,30 @@ export default function TodayPage() {
           description="Press the sun icon on a company’s card (or choose More → Follow on Today in a deck). Today checks those companies when you open it, and about once a day while it stays open, and lists what they did: funding, launches, hires, deals and filings, each dated and linked to its source."
           icon={<Sun weight="duotone" size={24} />}
           action={<Link to="/history" className="btn-primary">Open a deck</Link>}
+          compact
         />
       ) : selected ? (
         <TodayCompanyView key={selected} companyId={selected} since={since} />
       ) : (
         <>
           {all.length > 0 && (
-            <div className="mb-4 flex flex-wrap gap-1.5" role="tablist" aria-label="Filter moves">
-              {FILTERS.map((option) => (
-                <button key={option.id} type="button" role="tab" aria-selected={filter === option.id}
-                  className={cn('rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-                    filter === option.id ? 'border-primary bg-primary/8 text-primary' : 'border-border text-muted hover:bg-surface-2 hover:text-content')}
-                  onClick={() => setFilter(option.id)}>
-                  {option.label}
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+              <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter moves">
+                {FILTERS.map((option) => (
+                  <button key={option.id} type="button" role="tab" aria-selected={filter === option.id}
+                    className={cn('rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                      filter === option.id ? 'border-primary bg-primary/8 text-primary' : 'border-border text-muted hover:bg-surface-2 hover:text-content')}
+                    onClick={() => setFilter(option.id)}>
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              {shownUnread.length > 0 && (
+                <button type="button" className="btn-ghost text-sm" disabled={markAll.isPending}
+                  onClick={() => markAll.mutate(shownUnread.map((move) => move.id))}>
+                  Mark all read
                 </button>
-              ))}
+              )}
             </div>
           )}
           {moves.isSuccess && all.length === 0 && !refresh.isPending && (
@@ -240,17 +249,10 @@ export default function TodayPage() {
                 ? 'Some of the news and filings could not be reached, so this is not a full answer yet. Today tries those companies again later.'
                 : 'Nothing dated in the last week from the news feed or SEC filings for the companies you follow. Today looks again when you next open it, and about once a day while it stays open.'}
               icon={<Sun weight="duotone" size={24} />}
+              compact
             />
           )}
           {all.length > 0 && shown.length === 0 && <p className="py-8 text-center text-sm text-muted">No moves of this kind.</p>}
-          {shownUnread.length > 0 && (
-            <div className="mb-3 flex justify-end">
-              <button type="button" className="btn-ghost text-sm" disabled={markAll.isPending}
-                onClick={() => markAll.mutate(shownUnread.map((move) => move.id))}>
-                Mark all read
-              </button>
-            </div>
-          )}
           {groups.map((group) => (
             <section key={group.bucket} className="mb-6" aria-label={BUCKET_LABEL[group.bucket]}>
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-faint">{BUCKET_LABEL[group.bucket]}</h2>
