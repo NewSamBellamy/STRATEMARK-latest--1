@@ -32,6 +32,23 @@ const key = (name: string) => normalizeSourceText(name).toLocaleLowerCase();
 const contains = (text: string, phrase: string) => normalizeSourceText(text).toLocaleLowerCase().includes(normalizeSourceText(phrase).toLocaleLowerCase());
 const slug = (name: string) => `move-${key(name).replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60)}`;
 
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+const KIND_WORDING: Record<(typeof KINDS)[number], RegExp> = {
+  joined: /\b(?:joined|joins|joining|hired|hires|appointed|named|welcomed|taps|tapped)\b/i,
+  promoted: /\b(?:promoted|promotes|promotion|elevated|named|appointed)\b/i,
+  role_change: /\b(?:role|move[sd]?|shifts?|shifted|transition(?:s|ed)?|becomes?|became|named|appointed|steps? into|stepped into|now)\b/i,
+  departed: /\b(?:depart(?:s|ed|ure)?|left|leaves|leaving|resign(?:s|ed)?|stepped down|steps down|exit(?:s|ed)?|retire[sd]?|no longer)\b/i,
+};
+
+/** True when the quote names the date's month (in words) and year. */
+function quoteStatesDate(quote: string, date: string): boolean {
+  const match = /^(\d{4})-(\d{2})/.exec(date);
+  const month = match ? MONTHS[Number(match[2]) - 1] : undefined;
+  if (!match || !month) return false;
+  const text = normalizeSourceText(quote).toLocaleLowerCase();
+  return new RegExp(`\\b(?:${month}|${month.slice(0, 3)}\\.?)\\b[^.]{0,12}\\b${match[1]}\\b|\\b${match[1]}\\b[^.]{0,6}\\b(?:${month}|${month.slice(0, 3)})\\b`).test(text);
+}
+
 /** True for an ISO month/day that is not in the future and not older than 12 months. */
 export function withinTwelveMonths(date: string, now: Date): boolean {
   const match = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(date);
@@ -68,6 +85,8 @@ export function acceptMoves(company: Company, proposals: readonly unknown[], not
     if (!validUrl || !allowed.has(sourceUrl)) continue;
     if (!withinTwelveMonths(date, now)) continue;
     if (!contains(notes, quote) || !contains(quote, name) || !mentionsCompany(quote, aliases)) continue;
+    // The quote itself must state the month and year, and wording for the kind.
+    if (!quoteStatesDate(quote, date) || !KIND_WORDING[kind].test(quote)) continue;
     const node = orgNodeSchema.safeParse({
       id: slug(name), name, role, group: orgGroupFor(role, row.data.group), parentId: null, bio: quote,
       tenure: null, priorCompany: null, notableProject: null,
