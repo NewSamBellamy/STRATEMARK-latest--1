@@ -58,6 +58,8 @@ const PART_MONTH: Record<string, number> = { early: 0, mid: 5, late: 9, spring: 
  */
 export function eventDateIndex(raw: string): number | null {
   const text = raw.trim();
+  const iso = /^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(text);
+  if (iso) return Number(iso[2]) >= 1 && Number(iso[2]) <= 12 ? Number(iso[1]) * 12 + Number(iso[2]) - 1 : null;
   const years = text.match(/\b(?:1[5-9]\d{2}|20\d{2}|21\d{2})\b/g) ?? [];
   if (years.length !== 1) return null;
   const year = Number(years[0]);
