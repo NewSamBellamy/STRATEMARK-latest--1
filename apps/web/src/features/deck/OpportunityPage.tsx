@@ -24,6 +24,8 @@ import { ContextRerun } from '@/components/ui/ContextRerun';
 import { FullPageLoader } from '@/components/states/FullPageLoader';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { formatMetricValue, formatUsd } from '@/lib/format';
+import { figureCurrency } from '@/features/dashboard/figureCurrency';
+import { assessedMetrics } from '@/features/dashboard/figureSet';
 import { METRIC_COLORS } from '@/lib/theme';
 
 interface Point {
@@ -51,7 +53,13 @@ export default function OpportunityPage() {
     return (cards.data ?? [])
       .filter((c) => c.card.cardType === 'company' && c.company)
       .flatMap((c) => {
-        const find = (t: string) => c.metrics.find((m) => m.metricType === t && m.value != null && m.value > 0)?.value ?? null;
+        // The same read-time facts the card, the tiles and the compare table read: an estimate the card calls
+        // "Not found yet" does not size a bubble. A figure reported in another currency is not a dollar size.
+        const own = assessedMetrics(c.metrics.filter((m) => m.companyId === c.company!.id), c.company);
+        const find = (t: string) => {
+          const m = own.find((x) => x.metricType === t && x.value != null && x.value > 0 && x.confidence !== 'unknown');
+          return m && !figureCurrency(m) ? m.value : null;
+        };
         const share = find('market_share');
         const team = find('employees');
         if (share == null || team == null) return [];

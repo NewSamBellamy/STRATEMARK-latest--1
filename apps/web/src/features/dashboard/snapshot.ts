@@ -4,7 +4,9 @@
  * already retained: nothing is summed, ranked by guesswork or filled in.
  */
 import type { CompanyMetric, HistoryContent, LiveIntelItem, MetricType, MissionGovernanceContent, OrgNode } from '@mi/contracts';
-import { comparableKnown, type PeerEntry } from './dashboardModel';
+import { shownKnown, type PeerEntry } from './dashboardModel';
+import { figureCurrency } from './figureCurrency';
+import { figureDisplay } from './figureSet';
 import { rankRole, sortByRank } from './tabs/orgRank';
 
 type Round = NonNullable<MissionGovernanceContent['fundingRounds']>[number];
@@ -100,12 +102,22 @@ export function newsMood(items: readonly Pick<LiveIntelItem, 'sentiment' | 'stal
   return mood;
 }
 
-export interface PeerCell { value: number; confidence: CompanyMetric['confidence'] }
+export interface PeerCell {
+  value: number;
+  confidence: CompanyMetric['confidence'];
+  /** The figure as reported: compact, in its own currency, never converted. */
+  display: string;
+  /** Currency code when the figure was reported in something other than US dollars (shown, but not ranked). */
+  currency: string | null;
+  /** The stored number is a USD conversion the research states it made (the rate date is not recorded). */
+  converted: boolean;
+}
 export interface PeerRow { companyId: string; name: string; logoUrl?: string | null; websiteUrl?: string | null; isSelf: boolean; cells: Array<PeerCell | null> }
 
 /**
  * The deck laid side by side on a few headline figures. Only known, same-basis
- * figures appear (an unknown is a dash, never a zero); biggest first on the
+ * figures appear (an unknown is a dash, never a zero); a figure reported in
+ * another currency is shown as reported but left out of the ordering. Biggest first on the
  * first column that has a value. Null when fewer than two companies have
  * anything to compare.
  */
@@ -113,13 +125,18 @@ export function peerTable(selfId: string, entries: readonly PeerEntry[], types: 
   const rows = entries.map((entry): PeerRow => ({
     companyId: entry.companyId, name: entry.name, logoUrl: entry.logoUrl, websiteUrl: entry.websiteUrl, isSelf: entry.companyId === selfId,
     cells: types.map((type) => {
-      const metric = comparableKnown(entry, type);
-      return metric ? { value: metric.value as number, confidence: metric.confidence } : null;
+      const metric = shownKnown(entry, type);
+      if (!metric) return null;
+      const currency = figureCurrency(metric);
+      // A figure in another currency (or one stated as converted) is shown as reported, but takes no place in the ordering.
+      return { value: metric.value as number, confidence: metric.confidence, display: figureDisplay(metric), currency: currency?.code ?? null, converted: currency?.converted ?? false };
     }),
   }));
   if (rows.filter((row) => row.cells.some(Boolean)).length < 2) return null;
-  const lead = types.findIndex((_, i) => rows.some((row) => row.cells[i]));
-  return rows.sort((a, b) => (b.cells[lead]?.value ?? -1) - (a.cells[lead]?.value ?? -1) || a.name.localeCompare(b.name));
+  // Comparable dollar figures by size, then a figure shown in another currency (placed by no number), then nothing.
+  const ranked = (cell: PeerCell | null | undefined) => (!cell ? -1 : cell.currency ? 0 : cell.value);
+  const lead = types.findIndex((_, i) => rows.some((row) => row.cells[i] && !row.cells[i]!.currency));
+  return rows.sort((a, b) => ranked(b.cells[lead]) - ranked(a.cells[lead]) || a.name.localeCompare(b.name));
 }
 
 const FOUNDING = /\b(?:founded|co-?founded|incorporated|established|launched (?:as|the company)|was (?:started|formed|created)|started operations)\b/i;

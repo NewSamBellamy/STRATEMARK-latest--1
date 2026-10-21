@@ -6,7 +6,6 @@ import { cn } from '@/lib/cn';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { Section, useTabHref } from '../dashboardKit';
 import { fundingSnapshot, leadershipSnapshot, newsMood, formatUsdCompact, peerTable } from '../snapshot';
-import { formatMetricValue } from '@/lib/format';
 import { shortCompanyName } from '../companyNames';
 import { UnknownInline } from '@/features/card/UnknownValue';
 import { Logo } from '@/features/card/Logo';
@@ -174,7 +173,7 @@ export function MarketPeers({ companyId }: { companyId: string }) {
   };
   if (table) {
     return (
-      <Section title="How they compare" hint="This deck on three headline figures. A dash means no sourced figure yet, never zero.">
+      <Section title="How they compare" hint="This deck on three headline figures. A dash means no sourced figure yet, never zero. A figure in another currency is shown as reported and left out of the order.">
         <div className="panel overflow-x-auto">
           <table className="w-full min-w-[420px] border-collapse text-[13px]">
             <caption className="sr-only">Companies in this deck compared on valuation, revenue and employees</caption>
@@ -195,7 +194,13 @@ export function MarketPeers({ companyId }: { companyId: string }) {
                   {row.cells.map((cell, i) => (
                     <td key={PEER_COLUMNS[i]![0]} className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
                       {cell
-                        ? <>{formatMetricValue(PEER_COLUMNS[i]![0], cell.value)}{cell.confidence === 'estimated' && <span className="ml-1 text-[10px] text-faint">est.</span>}</>
+                        ? <>{cell.display}
+                          {cell.confidence === 'estimated' && <span className="ml-1 text-[10px] text-faint">est.</span>}
+                          {cell.currency && (
+                            <abbr className="ml-1 text-[10px] text-faint no-underline" title={cell.converted ? `Converted from ${cell.currency}; rate date not recorded. Not ranked.` : `Reported in ${cell.currency}; not converted to US dollars. Not ranked.`}>
+                              {cell.converted ? `from ${cell.currency}` : cell.currency}
+                            </abbr>
+                          )}</>
                         : <span className="text-faint" aria-label="not found yet">—</span>}
                     </td>
                   ))}

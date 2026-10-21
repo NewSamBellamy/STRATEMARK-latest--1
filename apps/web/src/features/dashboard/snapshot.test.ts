@@ -90,7 +90,21 @@ describe('peer table', () => {
     ], ['valuation', 'arr', 'employees'])!;
     expect(rows.map((r) => r.name)).toEqual(['Beta', 'Alpha', 'Gamma']);
     expect(rows[0]).toMatchObject({ isSelf: true, cells: [{ value: 20e9 }, null, null] });
-    expect(rows[1]!.cells).toEqual([{ value: 5e9, confidence: 'estimated' }, null, { value: 1200, confidence: 'estimated' }]);
+    expect(rows[1]!.cells).toEqual([
+      { value: 5e9, confidence: 'estimated', display: '$5.0B', currency: null, converted: false }, null,
+      { value: 1200, confidence: 'estimated', display: '1.2K', currency: null, converted: false }]);
+  });
+
+  it('shows a figure reported in another currency as reported, unranked, instead of a dash', () => {
+    const euro = { ...metric('m', 'valuation', 11.7e9, 'verified'), methodNote: 'Series C round valuation reported in euros' };
+    const rows = peerTable('b', [
+      entry('m', 'Mistral', [euro]),
+      entry('b', 'Beta', [metric('b', 'valuation', 2e9)]),
+      entry('a', 'Alpha', [metric('a', 'valuation', 9e9)]),
+    ], ['valuation'])!;
+    // Ranked by the comparable dollar figures only; the euro figure follows them, never ahead on a number that is not comparable.
+    expect(rows.map((r) => r.name)).toEqual(['Alpha', 'Beta', 'Mistral']);
+    expect(rows[2]!.cells[0]).toMatchObject({ value: 11.7e9, display: '€11.7B', currency: 'EUR', converted: false });
   });
 
   it('is absent when fewer than two companies have anything to compare', () => {

@@ -2,6 +2,7 @@ import { useSearchParams } from 'react-router-dom';
 import { isSignalCardType } from '@mi/contracts';
 import { useCards, useDeckByMarket } from '@/hooks/data';
 import type { PeerEntry } from './dashboardModel';
+import { assessedMetrics } from './figureSet';
 
 export type PeerState =
   | { status: 'no_deck'; peers: PeerEntry[] }
@@ -27,7 +28,9 @@ export function usePeers(): PeerState {
     seen.add(c.company.id);
     peers.push({
       companyId: c.company.id, name: c.company.name, logoUrl: c.company.logoUrl,
-      websiteUrl: c.company.websiteUrl, metrics: c.metrics,
+      websiteUrl: c.company.websiteUrl,
+      // The same read-time facts the card and this company's own tiles read.
+      metrics: assessedMetrics(c.metrics.filter((m) => m.companyId === c.company!.id), c.company),
     });
   }
   return { status: 'ready', peers };

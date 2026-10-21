@@ -34,6 +34,7 @@ import {
   barPercent,
   isKnown,
   rankInDeck,
+  shownKnown,
   sortMetricRows,
   type PeerEntry,
   type PeerRanking,
@@ -42,6 +43,7 @@ import {
 import { Section, metricLabel } from '../dashboardKit';
 import { buildFigureSet, currencyCaptionFor, dropRestatedRevenue, figureDates, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
 import { figureCaveats, rowDates, type FigureCaveats } from '../figureCaveats';
+import { figureCurrency } from '../figureCurrency';
 import { shortCompanyName } from '../companyNames';
 import { SourceCheck } from '../SourceCheck';
 import { usePeers, type PeerState } from '../usePeers';
@@ -238,7 +240,14 @@ function PeerComparison({
   const max = ranking.points[0]?.value ?? 0;
   const shown = all ? ranking.points : ranking.points.slice(0, 8);
   const knownIds = new Set(ranking.points.map((p) => p.companyId));
-  const unknownNames = peers.filter((p) => !knownIds.has(p.companyId) && p.companyId !== selfId).map((p) => shortCompanyName(p.name));
+  // A figure we hold in another currency is known: shown as reported, never charted against dollars, never "unknown".
+  const otherCurrency = peers.filter((p) => !knownIds.has(p.companyId)).flatMap((p) => {
+    const m = shownKnown(p, ranking.metricType);
+    const currency = m ? figureCurrency(m) : null;
+    return m && currency ? [{ id: p.companyId, text: `${shortCompanyName(p.name)} ${figureDisplay(m)}${currency.converted ? ` (converted from ${currency.code})` : ` (${currency.code})`}` }] : [];
+  });
+  const otherCurrencyIds = new Set(otherCurrency.map((o) => o.id));
+  const unknownNames = peers.filter((p) => !knownIds.has(p.companyId) && !otherCurrencyIds.has(p.companyId) && p.companyId !== selfId).map((p) => shortCompanyName(p.name));
   return (
     <div>
       <h4 className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
@@ -306,6 +315,12 @@ function PeerComparison({
             </button>
           )}
         </>
+      )}
+      {peerStatus === 'ready' && otherCurrency.length > 0 && (
+        <p className="mt-2 text-[11.5px] leading-snug text-faint">
+          <span className="font-medium text-muted">Not charted, reported in another currency: </span>
+          {otherCurrency.map((o) => o.text).join(', ')}. Shown as reported, not converted to US dollars.
+        </p>
       )}
       {peerStatus === 'ready' && unknownNames.length > 0 && (
         <p className="mt-2 text-[11.5px] leading-snug text-faint">
