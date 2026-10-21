@@ -64,6 +64,15 @@ export function HostedBudgetBanner() {
       </div>
     );
   }
+  if (exhausted === 'allowance-full') {
+    return (
+      <div role="status" className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-[12.5px] text-amber-900 md:px-6">
+        Free research is at capacity for the beta right now. Your decks are safe and everything already researched still works.
+        You can keep going by{' '}
+        <SettingsLink tab="engine" className="font-semibold underline">adding your own Gemini key</SettingsLink>.
+      </div>
+    );
+  }
   return (
     <div role="status" className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-[12.5px] text-amber-900 md:px-6">
       {exhausted === 'visitor'

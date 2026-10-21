@@ -35,6 +35,16 @@ describe('the hosted research refusals, as the person sees them', () => {
     expect(screen.getByRole('status')).toHaveTextContent(`$${COVERED_USAGE_USD.toFixed(2)} of the $${COVERED_USAGE_USD.toFixed(2)}`);
   });
 
+  it('says the beta is at capacity, not that a day’s budget resets, when the Worker has no room for a new visitor', () => {
+    noteHostedAnswer(402, { reason: 'allowance-full' }, new Headers());
+    renderWithProviders(<HostedBudgetBanner />);
+    const note = screen.getByRole('status');
+    expect(note).toHaveTextContent('Free research is at capacity for the beta right now');
+    expect(note).not.toHaveTextContent(/midnight|today/i);
+    fireEvent.click(screen.getByRole('button', { name: 'adding your own Gemini key' }));
+    expect(useSettingsModal.getState()).toMatchObject({ isOpen: true, tab: 'engine' });
+  });
+
   it('leaves the daily-limit messages as they were', () => {
     noteHostedAnswer(402, { reason: 'visitor' }, new Headers());
     const { unmount } = renderWithProviders(<HostedBudgetBanner />);

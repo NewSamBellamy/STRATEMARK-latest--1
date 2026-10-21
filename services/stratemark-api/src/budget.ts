@@ -41,12 +41,12 @@ export class BudgetCounter extends DurableObject {
     await this.rollover(current, day);
     const result = tryReserve(current, day, ip, amount, budgetMicros, visitorBudgetMicros);
     let life: { record: LifetimeRecord; known: boolean } | null = null;
-    let refusal: { ok: false; reason: 'global' | 'visitor' } | { ok: false; reason: 'allowance'; usedMicros: number } | null = result.ok ? null : { ok: false, reason: result.reason };
+    let refusal: { ok: false; reason: 'global' | 'visitor' | 'allowance-full' } | { ok: false; reason: 'allowance'; usedMicros: number } | null = result.ok ? null : { ok: false, reason: result.reason };
     if (allowance && (result.ok || result.reason === 'visitor')) {
       const existing = await this.ctx.storage.get<LifetimeRecord>(LIFE + allowance.id);
       const count = (await this.ctx.storage.get<number>(LIFE_COUNT)) ?? 0;
       if (!existing && count >= MAX_ALLOWANCE_VISITORS) {
-        refusal = { ok: false, reason: 'global' }; // table full: fail closed, as the day's ledger does
+        refusal = { ok: false, reason: 'allowance-full' }; // table full: fail closed, as the day's ledger does, with its own wording
       } else {
         const step = reserveAllowance(existing, amount, allowance.micros, Date.now());
         if (!step.ok) refusal = { ok: false, reason: 'allowance', usedMicros: step.usedMicros };
@@ -72,11 +72,13 @@ export class BudgetCounter extends DurableObject {
   async settle(day: string, ip: string, held: number, actual: number, allowanceId?: string): Promise<void> {
     const current = await this.load();
     await this.rollover(current, day); // a call that straddled midnight
-    await this.ctx.storage.put(KEY, settle(current, day, ip, held, actual));
-    if (!allowanceId) return;
+    const settled = settle(current, day, ip, held, actual);
+    if (!allowanceId) { await this.ctx.storage.put(KEY, settled); return; }
     const existing = await this.ctx.storage.get<LifetimeRecord>(LIFE + allowanceId);
     const next = settleAllowance(existing, held, actual, Date.now());
-    if (next) { await this.ctx.storage.put(LIFE + allowanceId, next); return; }
+    // One multi-key put, so a crash cannot leave the day's ledger and the allowance record out of step.
+    if (next) { await this.ctx.storage.put({ [KEY]: settled, [LIFE + allowanceId]: next }); return; }
+    await this.ctx.storage.put(KEY, settled);
     // Nothing spent and nothing held: no record (a visitor whose calls cost nothing takes no slot).
     if (existing) {
       await this.ctx.storage.delete(LIFE + allowanceId);

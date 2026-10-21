@@ -205,7 +205,7 @@ function budgets(env: Env): { budget: number; visitor: number; allowance: number
 }
 
 /** The 402 for a refused reservation. A misconfigured budget says so (names the setting, never its value) and is logged. */
-function budgetRefusal(reason: 'global' | 'visitor' | 'allowance', problems: string[], spentText: string, origin: string, allowance?: { usedUsd: number; allowanceUsd: number }): Response {
+function budgetRefusal(reason: 'global' | 'visitor' | 'allowance' | 'allowance-full', problems: string[], spentText: string, origin: string, allowance?: { usedUsd: number; allowanceUsd: number }): Response {
   if (problems.length > 0) console.log(`budget misconfigured: ${problems.join('; ')}`);
   return json({
     budget: 'exhausted', reason,
@@ -224,6 +224,11 @@ function allowanceRefusal(caps: { allowance: number; problems: string[] }, usedM
   return budgetRefusal('allowance', caps.problems,
     `You’ve used $${usedUsd.toFixed(2)} of the $${allowanceUsd.toFixed(2)} of research we cover for the beta. Add your own Gemini key in Settings to keep going.`,
     origin, { usedUsd, allowanceUsd });
+}
+
+/** The 402 when the table of allowances is full and this visitor is new: not a daily budget (it does not reset at midnight), and no numbers. */
+function allowanceFullRefusal(origin: string): Response {
+  return budgetRefusal('allowance-full', [], 'Free research is at capacity for the beta right now. You can keep going by adding your own Gemini key in Settings.', origin);
 }
 
 function ledger(env: Env) {
@@ -271,6 +276,7 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
   const allowanceId = await allowanceIdentity(request);
   const reservation = await counter.reserve(day, ip, held, caps.budget, caps.visitor, { id: allowanceId, micros: caps.allowance });
   if (!reservation.ok) {
+    if (reservation.reason === 'allowance-full') return allowanceFullRefusal(origin);
     if (reservation.reason === 'allowance') return allowanceRefusal(caps, reservation.usedMicros, origin);
     // 402, not 429: a spent budget must not look like a transient rate limit
     // (clients retry 429s). The web app shows a banner and stops asking.
@@ -361,6 +367,7 @@ async function searchRelay(request: Request, env: Env, origin: string): Promise<
   const allowanceId = await allowanceIdentity(request);
   const reservation = await counter.reserve(day, ip, SEARCH_COST_MICROS, caps.budget, caps.visitor, { id: allowanceId, micros: caps.allowance });
   if (!reservation.ok) {
+    if (reservation.reason === 'allowance-full') return allowanceFullRefusal(origin);
     if (reservation.reason === 'allowance') return allowanceRefusal(caps, reservation.usedMicros, origin);
     return budgetRefusal(reservation.reason, caps.problems, 'Free search has reached today’s budget.', origin);
   }

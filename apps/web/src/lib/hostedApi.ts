@@ -14,7 +14,7 @@ import { create } from 'zustand';
 
 /** What the hosted Worker has said about the covered research: why it refused (HTTP 402), and how much of the beta allowance this person has used. */
 export interface HostedAllowance { usedUsd: number; allowanceUsd: number }
-export type HostedExhausted = null | 'global' | 'visitor' | 'allowance';
+export type HostedExhausted = null | 'global' | 'visitor' | 'allowance' | 'allowance-full';
 export const useHostedBudget = create<{ exhausted: HostedExhausted; allowance: HostedAllowance | null }>(() => ({ exhausted: null, allowance: null }));
 
 /** Record a hosted answer's refusal or allowance headers. Only changes the store when something differs (no needless re-render). */
@@ -22,7 +22,7 @@ export function noteHostedAnswer(status: number, body: { reason?: unknown; usedU
   const number = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null);
   const state = useHostedBudget.getState();
   if (status === 402) {
-    const reason = body?.reason === 'allowance' || body?.reason === 'visitor' ? body.reason : 'global';
+    const reason = body?.reason === 'allowance' || body?.reason === 'visitor' || body?.reason === 'allowance-full' ? body.reason : 'global';
     const used = number(body?.usedUsd);
     const cap = number(body?.allowanceUsd);
     useHostedBudget.setState({ exhausted: reason, ...(reason === 'allowance' && used !== null && cap !== null ? { allowance: { usedUsd: used, allowanceUsd: cap } } : {}) });

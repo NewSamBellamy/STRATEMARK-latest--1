@@ -613,7 +613,14 @@ describe('the lifetime allowance for covered research', () => {
     budgetStorage.map.set('lifeCount', MAX_ALLOWANCE_VISITORS);
     const stranger = await call(env, GROUNDED, '203.0.113.9');
     expect(stranger.status).toBe(402);
-    expect(await stranger.json()).toMatchObject({ budget: 'exhausted', reason: 'global' });
+    const body = await stranger.json() as { reason: string; error: string };
+    expect(body).toMatchObject({ budget: 'exhausted', reason: 'allowance-full' });
+    expect(body.error).toContain('at capacity');
+    expect(body.error).not.toContain('midnight');
+    expect(body).not.toHaveProperty('usedUsd');
+    const stranger2 = await search(env, '203.0.113.77');
+    expect(stranger2.status).toBe(402);
+    expect(await stranger2.json()).toMatchObject({ reason: 'allowance-full' });
     expect(googleCalls()).toHaveLength(0);
     expect((await call(env, GROUNDED, '203.0.113.50')).status).toBe(200);
   });
