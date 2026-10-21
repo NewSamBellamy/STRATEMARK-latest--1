@@ -37,6 +37,23 @@ describe('OverviewTab executive summary', () => {
     await user.click(screen.getByRole('tab', { name: 'Where they stand' }));
     expect(screen.getByRole('tabpanel', { name: 'Where they stand' })).toHaveTextContent('leading share');
   });
+  it.each([['stale', 'Stale'], ['aging', 'Aging'], ['current', 'Current']] as const)('marks a %s figure with its freshness word', async (status, word) => {
+    render([{ ...seed, metricType: 'employees', value: 250, confidence: 'verified', source: 'https://sec.gov/x',
+      citations: [{ title: 'SEC filing', url: 'https://sec.gov/x', credibility: 'primary' }],
+      passageSupport: null, reportedSupport: null, capturedAt: '2026-05-04T00:00:00Z',
+      assessment: { currency: { status, ageMonths: 14, horizonMonths: 12, basis: 'publishedDate', date: '2025-03' },
+        authority: { tier: 'primary', reason: 'SEC filing' }, purpose: 'regulatory_filing', independentSources: 1,
+        companyReportedOnly: false, grade: 'adequate', plainEnglish: ['x', 'y'] } }]);
+    const tile = await screen.findByRole('article', { name: 'Employees: 250' });
+    expect(within(tile).getByText(word)).toHaveAttribute('data-freshness', status);
+  });
+  it('shows no freshness word for a figure that was never assessed', async () => {
+    render([{ ...seed, metricType: 'employees', value: 250, confidence: 'verified', source: 'https://sec.gov/x',
+      citations: [{ title: 'SEC filing', url: 'https://sec.gov/x', credibility: 'primary' }],
+      passageSupport: null, reportedSupport: null, assessment: undefined }]);
+    const tile = await screen.findByRole('article', { name: 'Employees: 250' });
+    expect(tile.querySelector('[data-freshness]')).toBeNull();
+  });
   it('never shows an unsourced estimate as a figure, matching the card face', async () => {
     render([{ ...seed, metricType: 'employees', value: 250, confidence: 'estimated', source: null, citations: [],
       passageSupport: null, reportedSupport: null }]);

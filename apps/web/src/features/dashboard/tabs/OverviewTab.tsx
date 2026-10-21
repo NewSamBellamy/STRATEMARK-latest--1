@@ -19,6 +19,7 @@ import {
   type PeerRanking,
 } from '../dashboardModel';
 import { KpiTileSkeleton, Section, useTabHref } from '../dashboardKit';
+import { FreshnessMark, figureCurrency } from '../SourceCheck';
 import { usePeers } from '../usePeers';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { ArticleReader, TopStories } from './LiveIntelTab';
@@ -156,6 +157,7 @@ function FaceTile({ item, ranking, href }: { item: FaceItem; ranking: PeerRankin
       </p>
       <p className="mt-0.5 text-[11px] text-faint">
         {faceFigureStatus(item).replace(' · not verified', '')}{when ? ` · ${when}` : ''}
+        {item.metric && figureCurrency(item.metric) && <>{' · '}<FreshnessMark metric={item.metric} /></>}
       </p>
       {ranking?.rank != null && ranking.of > 1 && (
         <Link to={href} className="mt-2 text-[11px] text-faint hover:text-primary-ink">
