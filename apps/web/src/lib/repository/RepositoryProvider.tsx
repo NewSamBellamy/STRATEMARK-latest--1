@@ -12,7 +12,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import type { MarketIntelRepository } from '@mi/contracts';
 import { MockRepository, type SeedSnapshot } from '@mi/mocks';
 import { loadSampleSnapshot } from '@/sample/loadSampleSnapshot';
-import { GeminiRepository, type ResearchStore } from '@mi/research';
+import { GeminiRepository, assessFacts, type ResearchStore } from '@mi/research';
 import { readAssetSource, readPreviewSource, supportsPreviewSource } from './local-source-reader';
 import { previewGeminiFetch } from './local-gemini-fetch';
 import { HOSTED_KEY } from '@/lib/hostedApi';
@@ -54,7 +54,7 @@ export function storedDeckWarmupEnabled(storage: Pick<Storage, 'getItem'> | null
 }
 
 export function selectRepository(apiKey: string, model: string, engine?: string, store?: ResearchStore,
-  quotaPreset: 'free' | 'paid' = 'free', judgeModel = '', sample?: SeedSnapshot): MarketIntelRepository {
+  quotaPreset: 'free' | 'paid' = 'free', judgeModel = '', sample?: SeedSnapshot, clock: () => Date = () => new Date()): MarketIntelRepository {
   if (isElectron() && window.mi) {
     return new IpcRepository(window.mi);
   }
@@ -126,6 +126,9 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
     // Zero-state: a REAL researched deck (Frontier AI, live-baked with citations
     // and confidence tags intact) so first launch shows the finished product.
     seedSnapshot: sample,
+    // The sample figures get the same read-time Source check as every other path (assessed afresh
+    // against the real clock, so the 2026-07-30 captures read as old once they are).
+    assessFacts: ({ company, metrics, rivalWebsites }) => assessFacts(metrics, { company, rivalWebsites, now: clock() }),
   });
 }
 

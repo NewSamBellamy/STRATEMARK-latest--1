@@ -60,6 +60,14 @@ export interface MockRepositoryOptions {
    * RepoSnapshot; typed loosely here to avoid a package cycle.
    */
   seedSnapshot?: SeedSnapshot | null;
+  /**
+   * The read-time source assessment (@mi/research assessFacts), injected by the app because
+   * this package cannot import research. When set, getCompanyFacts returns every figure
+   * assessed afresh through it (any assessment already on a row is the assessor's to discard);
+   * unset, facts are served as stored. `rivalWebsites` are the other companies' sites in the
+   * company's deck.
+   */
+  assessFacts?: (input: { company: Company; metrics: CompanyMetric[]; rivalWebsites: string[] }) => CompanyMetric[];
   /** Start from empty and hold ONLY the seed snapshot (a share link's viewer): no demo companies. */
   seedOnly?: boolean;
 }
@@ -159,6 +167,7 @@ export class MockRepository implements MarketIntelRepository {
   private readonly latency: number;
   /** A share's figures were already source-bound by the engine that exported them: do not re-judge them without that context. */
   private readonly trustSeedMetrics: boolean;
+  private readonly assessFacts: MockRepositoryOptions['assessFacts'];
   private markets: Market[];
   private decks: Deck[];
   private companies: Company[];
@@ -172,6 +181,7 @@ export class MockRepository implements MarketIntelRepository {
   constructor(options: MockRepositoryOptions = {}) {
     this.latency = options.latencyMs ?? 0;
     this.trustSeedMetrics = options.seedOnly === true;
+    this.assessFacts = options.assessFacts;
     const data = options.dataset ?? buildDataset();
     this.markets = [data.market];
     this.decks = [data.deck];
@@ -457,9 +467,23 @@ export class MockRepository implements MarketIntelRepository {
     return this.delay(this.companies.find((c) => c.id === companyId) ?? null);
   }
 
-  // Explicit demo data only; production repositories revalidate original evidence.
-  getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
-    return this.getCompanyMetrics(companyId);
+  // Explicit demo data only; production repositories revalidate original evidence. The injected
+  // read-time assessment (the same one every other read path runs) is applied to the served copy.
+  async getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
+    const metrics = await this.getCompanyMetrics(companyId);
+    const company = this.companies.find((c) => c.id === companyId);
+    if (!this.assessFacts || !company) return metrics;
+    return this.assessFacts({ company, metrics: structuredClone(metrics), rivalWebsites: this.rivalWebsites(company) });
+  }
+
+  /** Websites of the other companies sharing a deck with this one (one deck is one market). */
+  private rivalWebsites(company: Company): string[] {
+    const decks = new Set(this.cards.filter((c) => c.companyId === company.id).map((c) => c.deckId));
+    const ids = new Set(this.cards
+      .filter((c) => decks.has(c.deckId) && isEntityCardType(c.cardType) && c.companyId && c.companyId !== company.id)
+      .map((c) => c.companyId));
+    const sites = this.companies.filter((c) => ids.has(c.id) && c.websiteUrl).map((c) => c.websiteUrl as string);
+    return [...new Set(sites)];
   }
 
   getCompanyMetrics(companyId: string): Promise<CompanyMetric[]> {
