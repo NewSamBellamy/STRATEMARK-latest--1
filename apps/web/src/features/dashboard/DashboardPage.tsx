@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { lookupFoundedYear } from '@/lib/media/wikidataFounded';
-import { ArrowLeft, CalendarDays, ChevronDown, FileText, Globe, MapPin, Search } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronDown, ChevronRight, FileText, Globe, MapPin, Search } from 'lucide-react';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, ownershipLabel, usableCitations, type DashboardTab } from '@mi/contracts';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 import { useCompany, useCompanyMetrics, useReports, useRerunDashboardTab } from '@/hooks/data';
@@ -170,18 +170,21 @@ const VISIBLE_TAB_COUNT = 5;
 /** From this width every tab fits in the bar, so nothing is tucked under "More". */
 const WIDE_TAB_BAR_QUERY = '(min-width: 1280px)';
 
-function useWideTabBar(): boolean {
-  const read = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.(WIDE_TAB_BAR_QUERY).matches);
-  const [wide, setWide] = useState(read);
+/** On a phone the bar scrolls sideways instead (a dropdown would be clipped by the scroller). */
+const PHONE_TAB_BAR_QUERY = '(max-width: 767px)';
+
+function useMediaMatch(query: string): boolean {
+  const read = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.(query).matches);
+  const [matches, setMatches] = useState(read);
   useEffect(() => {
-    const mq = window.matchMedia?.(WIDE_TAB_BAR_QUERY);
+    const mq = window.matchMedia?.(query);
     if (!mq) return;
-    const onChange = () => setWide(mq.matches);
+    const onChange = () => setMatches(mq.matches);
     onChange();
     mq.addEventListener?.('change', onChange);
     return () => mq.removeEventListener?.('change', onChange);
-  }, []);
-  return wide;
+  }, [query]);
+  return matches;
 }
 
 /**
@@ -269,7 +272,18 @@ export function DashboardTabNav({
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const [edges, setEdges] = useState({ start: false, end: false });
   const assembly = useDashboardAssembly(companyId);
+
+  // Phone: show a fade where more tabs wait, and keep the active tab in view.
+  const syncEdges = () => {
+    const el = navRef.current;
+    if (!el) return;
+    const start = el.scrollLeft > 1;
+    const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+    setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
+  };
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -283,17 +297,30 @@ export function DashboardTabNav({
   // A shared copy offers only the tabs that travelled with it.
   const available = useAvailableTabs(companyId);
   const navTabs = available ? NAV_TABS.filter((t) => available.includes(t)) : NAV_TABS;
-  const wide = useWideTabBar();
-  const visibleCount = wide ? navTabs.length : VISIBLE_TAB_COUNT;
+  const wide = useMediaMatch(WIDE_TAB_BAR_QUERY);
+  const phone = useMediaMatch(PHONE_TAB_BAR_QUERY);
+  const visibleCount = wide || phone ? navTabs.length : VISIBLE_TAB_COUNT;
   const visibleTabs = navTabs.slice(0, visibleCount);
   const overflowTabs = navTabs.slice(visibleCount);
   const activeInOverflow = overflowTabs.includes(activeTab);
 
+  useEffect(() => {
+    const el = navRef.current;
+    const active = el?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (el && active && el.scrollWidth > el.clientWidth) {
+      el.scrollLeft = Math.max(0, active.offsetLeft - (el.clientWidth - active.offsetWidth) / 2);
+    }
+    syncEdges();
+  }, [activeTab, phone, visibleCount]);
+
   const qs = fromMarketId ? `?${new URLSearchParams({ deck: fromMarketId, ...(fromCardId ? { card: fromCardId } : {}), ...(fromDeckView ? { view: fromDeckView } : {}) })}` : '';
 
   return (
+    <div className="relative mb-6">
     <nav
-      className="mb-6 flex items-center gap-1 border-b border-border"
+      ref={navRef}
+      onScroll={syncEdges}
+      className="flex items-center gap-1 border-b border-border max-md:overflow-x-auto max-md:[scrollbar-width:none] max-md:[&::-webkit-scrollbar]:hidden"
       aria-label="Company dashboard tabs"
     >
       {visibleTabs.map((t) => (
@@ -302,7 +329,7 @@ export function DashboardTabNav({
           to={`/company/${companyId}/dashboard/${t}${qs}`}
           className={({ isActive }) =>
             cn(
-              'inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-[13px] font-medium transition-colors',
+              'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-[13px] font-medium transition-colors',
               isActive
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted hover:text-content',
@@ -354,6 +381,15 @@ export function DashboardTabNav({
       )}
       <AgentWorkingPill companyId={companyId} assembly={assembly} />
     </nav>
+    {edges.start && (
+      <span aria-hidden data-testid="tabs-fade-start" className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-bg to-transparent md:hidden" />
+    )}
+    {edges.end && (
+      <span aria-hidden data-testid="tabs-fade-end" className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end bg-gradient-to-l from-bg via-bg/80 to-transparent md:hidden">
+        <ChevronRight className="h-4 w-4 text-muted" />
+      </span>
+    )}
+    </div>
   );
 }
 
