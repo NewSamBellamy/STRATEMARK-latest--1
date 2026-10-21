@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildDataset } from '@mi/mocks';
 import type { CardWithCompany, CompanyMetric } from '@mi/contracts';
-import { buildCardView, fitFaceLine, buildMetricViews, companyFrontName } from './card-view';
+import { buildCardView, fitFaceFinding, fitFaceLine, buildMetricViews, companyFrontName } from './card-view';
 
 describe('card face company name', () => {
   it.each([
@@ -729,5 +729,42 @@ describe('fitFaceLine: faces that stopped in the wrong place (red-team findings)
     expect(performance.now() - started).toBeLessThan(250);
     expect(line!.length).toBeLessThanOrEqual(200);
     expect(result.frontDescription!.length).toBeLessThanOrEqual(120);
+  });
+});
+
+describe('a signal card face shows a whole sentence of the card rather than one cut short', () => {
+  const long = 'The U.S. Department of Justice opened an antitrust probe into the company and issued subpoenas to investigate potential anticompetitive conduct across its data center business in 2024.';
+  const short = 'A court fined the company $2 million for misleading customers in March 2024.';
+
+  it('prefers a later sentence that fits whole over cutting the first with an ellipsis', () => {
+    expect(fitFaceLine(long, 135)!.endsWith('…')).toBe(true);
+    expect(fitFaceFinding(long, [short], 135)).toBe(short);
+  });
+
+  it('leaves a first line that fits, or has no better choice, as it was', () => {
+    expect(fitFaceFinding(short, [long], 135)).toBe(short);
+    expect(fitFaceFinding(long, [long + ' Again.'], 135)).toBe(fitFaceLine(long, 135));
+    expect(fitFaceFinding(null, [short], 135)).toBeNull();
+  });
+
+  it('skips a later sentence that leans on the one before it, answers it, is too short, or is itself too long', () => {
+    for (const later of [
+      'It denies any wrongdoing and says it will appeal the ruling next year.',
+      'However, the company says the fine will not affect its operations at all.',
+      'Also, regulators in Europe opened a separate inquiry into the same conduct.',
+      'It has appealed.',
+      long,
+    ]) expect(fitFaceFinding(long, [later], 135)).toBe(fitFaceLine(long, 135));
+  });
+
+  it('changes nothing in the words: the face shows a sentence of the card exactly as written', () => {
+    const view = buildCardView({
+      card: { ...card, cardType: 'vice', title: null, summary: null, citations: [], keyPoints: [] },
+      company: { ...company, oneLiner: 'Acme builds warehouse robots for retailers.' }, metrics: [],
+      viceClaims: [
+        { id: 'a', cardId: card.id, claimText: long, sourceTitle: 'qz.com', sourceUrl: 'https://qz.com/a', capturedAt: '2026-10-01T00:00:00.000Z' },
+        { id: 'b', cardId: card.id, claimText: short, sourceTitle: 'nyt.com', sourceUrl: 'https://nyt.com/b', capturedAt: '2026-10-01T00:00:00.000Z' }],
+    });
+    expect(view.frontFinding).toBe(short);
   });
 });

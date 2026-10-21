@@ -246,6 +246,25 @@ export function fitFaceLine(text: string | null | undefined, max: number): strin
   return hasContent(scan) ? null : clip(scan, limit).trim() || null;
 }
 
+/** A later sentence this short is not a finding on its own. */
+const MIN_FACE_SENTENCE = 40;
+/** A sentence that leans on the one before it ("It denies this.", "Also, ..."): shown alone it would point at nothing. */
+const LEANS_ON_PREVIOUS = /^[\s("'“]*(?:it|its|this|that|these|those|they|their|he|she|his|her|also|additionally|furthermore|moreover|separately|meanwhile|likewise|such|both|the latter|the former)\b/i;
+
+/**
+ * The finding on a signal card's face: `fitFaceLine` of the first text. When that had to be cut short (one sentence longer than
+ * the face holds), a later sentence of the card that fits whole is shown instead of a sentence ending in an ellipsis: each is a
+ * claim of its own with its own source. Only when none fits is the first one cut. Nothing is rewritten or shortened.
+ */
+export function fitFaceFinding(first: string | null | undefined, later: readonly string[], max: number): string | null {
+  const line = fitFaceLine(first, max);
+  if (!line || !line.endsWith('…')) return line;
+  const whole = later
+    .map((text) => text.replace(/\s+/g, ' ').trim())
+    .find((text) => text.length >= MIN_FACE_SENTENCE && text.length <= max && !QUALIFIER_AHEAD.test(text) && !LEANS_ON_PREVIOUS.test(text));
+  return whole ?? line;
+}
+
 /**
  * How much a signal card's face can hold without the box clipping it. Measured on a live deck: the narrowest card (a
  * phone-width reader, 247 px) fits about 125 characters in the three-line description and about 135 in the four-line
@@ -678,8 +697,8 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
         : fitFaceLine(signalLines[0], FACE_DESCRIPTION_MAX),
     frontFinding: !signal ? null
       : data.company
-        ? fitFaceLine(signalLines.slice(0, 3).join(' '), FACE_FINDING_MAX)
-        : fitFaceLine(signalLines[1], FACE_FINDING_MAX),
+        ? fitFaceFinding(signalLines.slice(0, 3).join(' '), signalLines.slice(1), FACE_FINDING_MAX)
+        : fitFaceFinding(signalLines[1], signalLines.slice(2), FACE_FINDING_MAX),
     type: CARD_TYPE_LABELS[data.card.cardType], signal, maturity, rating, position, metrics,
     profileMetrics, faceMetrics, knownCount, sourcedCount,
     // A source count is evidence DEPTH, not retrieved-item volume: the same
