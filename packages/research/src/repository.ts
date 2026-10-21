@@ -5030,6 +5030,7 @@ export class GeminiRepository implements MarketIntelRepository {
           ...softTypes.map((t) => METRIC_TYPE_LABELS[t]),
           ...(profile === 'financial_firm' ? ['assets under management Form ADV'] : []),
           ...(escalation > 0 ? ['regulatory filing disclosure'] : []),
+          `latest ${new Date().getFullYear()}`,
         ].join(' '))
       : await this.client.ground(
       [
@@ -5044,6 +5045,7 @@ export class GeminiRepository implements MarketIntelRepository {
         ...(escalation > 0 && profile === 'financial_firm' ? ['For this firm, regulatory assets under management appear in SEC Form ADV filings (adviserinfo.sec.gov), fund disclosures and the firm\'s own publications; a press AUM figure is usable only when it names its as-of date.'] : []),
         ...(priorTargets.length ? ['Previously retrieved URLs are leads only. Check for the latest reporting period and actual disclosure:', ...priorTargets.map(source => source.url)] : []),
         `Company: ${company.name} — ${company.oneLiner}`,
+        `LATEST FIRST: look for the latest reporting period (${new Date().getFullYear()}, then the most recent fiscal year or quarter) before any older one. Report an older figure only when nothing newer exists, and say how old it is.`,
         `Use Google Search. For each figure name the value, its as-of date, and the source. Prefer primary sources and recent reputable coverage. If no reliable current figure exists for a metric, say so plainly for that metric. Never guess.`,
         `MEASUREMENT BASIS: every figure must describe the WHOLE legal company — for a conglomerate, total company revenue/valuation/headcount, never a division's figure presented as the company's.`,
         `UNITS: Market Share in percent of its primary market (0-100); Users, Employees and Distribution (countries or doors) as plain counts; Valuation, Market Cap, ARR, Revenue, Funding and AUM (assets under management) in the currency the source reports (${CURRENCY_UNIT_LIST}).`,

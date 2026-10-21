@@ -130,17 +130,31 @@ describe('relayWebSearch', () => {
 describe('huntSearchQueries', () => {
   it('asks one focused query per missing family, at most three', () => {
     expect(huntSearchQueries('Ramp', ['arr', 'valuation'], { year: 2026 })).toEqual([
-      { query: '"Ramp" raises funding round valuation', news: true },
-      { query: '"Ramp" revenue ARR million announced', news: true },
+      { query: '"Ramp" raises funding round valuation latest 2026', news: true },
+      { query: '"Ramp" revenue ARR million announced latest 2026', news: true },
     ]);
     expect(huntSearchQueries('Ramp', ['arr', 'valuation', 'aum', 'employees'], { year: 2026 })).toHaveLength(3);
+  });
+
+  it('asks for the latest period first: every family query carries "latest" and the year, with no extra queries', () => {
+    const queries = huntSearchQueries('Ramp', ['arr', 'valuation', 'employees'], { year: 2026 });
+    expect(queries).toHaveLength(3);
+    for (const q of queries) expect(q.query).toMatch(/ latest 2026$/);
+    // The year defaults to the current one, so a stale hard-coded year cannot creep in.
+    expect(huntSearchQueries('Ramp', ['arr'])[0]!.query).toContain(`latest ${new Date().getFullYear()}`);
+  });
+
+  it('leaves the filing-oriented queries as they are', () => {
+    const queries = huntSearchQueries('Acme', ['employees'], { escalation: 1, financialFirm: true, year: 2026 });
+    expect(queries.map((q) => q.query)).toContain('"Acme" annual report filing disclosure');
+    expect(queries.map((q) => q.query)).toContain('"Acme" assets under management Form ADV');
   });
 
   it('leads with filings on escalation and Form ADV for financial firms', () => {
     expect(huntSearchQueries('Acme "Capital"', ['employees'], { escalation: 1, financialFirm: true, year: 2026 })).toEqual([
       { query: '"Acme Capital" annual report filing disclosure', news: false },
       { query: '"Acme Capital" assets under management Form ADV', news: false },
-      { query: '"Acme Capital" employees customers stores countries company says', news: true },
+      { query: '"Acme Capital" employees customers stores countries company says latest 2026', news: true },
     ]);
   });
 });

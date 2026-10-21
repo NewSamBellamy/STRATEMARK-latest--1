@@ -308,7 +308,8 @@ export function huntSearchQueries(companyName: string, missing: readonly string[
   const name = `"${companyName.replace(/"/g, '').trim()}"`;
   const queries: HuntQuery[] = QUERY_FAMILIES
     .filter((family) => family.types.some((t) => missing.includes(t)))
-    .map((family) => ({ query: `${name} ${family.terms}`, news: family.news }));
+    // Latest period first: the current year and "latest" steer the engine to the newest reporting.
+    .map((family) => ({ query: `${name} ${family.terms} latest ${year}`, news: family.news }));
   if (options.financialFirm && !queries.some((q) => q.query.includes('assets under management'))) {
     queries.unshift({ query: `${name} assets under management Form ADV`, news: false });
   }
