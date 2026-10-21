@@ -24,7 +24,8 @@ test('a news story opens from the keyboard, and from a click on the row', async 
 
 test('a product opens from the keyboard', async ({ page }) => {
   await page.goto('/#/company/cmp_openai_5sz16/dashboard/products_roadmap');
-  const name = page.locator('ul.grid > li').first().getByRole('button').first();
+  // The lineup opens as a table; the product name in its first row is the real button.
+  const name = page.getByRole('table').getByRole('row').nth(1).getByRole('button').first();
   await expect(name).toBeVisible();
   await name.focus();
   await page.keyboard.press('Enter');
