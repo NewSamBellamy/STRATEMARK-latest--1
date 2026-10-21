@@ -82,6 +82,16 @@ describe('product evidence wording in the existing view', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Table' }));
     expect(screen.getByRole('table')).toBeInTheDocument();
   });
+  it('hides the status chips with one status and shows them with two', () => {
+    const mk = (name: string, status: 'live' | 'beta') => ({ name, status, description: 'd', revenueNote: '', url: null });
+    state.products = [mk('A', 'live'), mk('B', 'live'), mk('C', 'live'), mk('D', 'live')];
+    const { unmount } = render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.queryByRole('group', { name: 'Filter by status' })).not.toBeInTheDocument();
+    unmount();
+    state.products = [mk('A', 'live'), mk('B', 'beta')];
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.getByRole('group', { name: 'Filter by status' })).toBeInTheDocument();
+  });
   it('keeps cards by default for a short lineup', () => {
     state.products = [{ name: 'Atlas', status: 'live', description: 'x', revenueNote: '', url: null }];
     render(<ProductsRoadmapTab companyId="cmp" />);

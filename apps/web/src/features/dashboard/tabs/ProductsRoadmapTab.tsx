@@ -219,6 +219,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                           className="w-full sm:w-56"
                         />
                       )}
+                      {Object.keys(statusCounts).length > 1 && (
                       <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by status">
                         <FilterChip active={status === 'all'} onClick={() => setStatus('all')} count={c.products.length}>
                           All
@@ -231,6 +232,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                             </FilterChip>
                           ))}
                       </div>
+                      )}
                       <div className="ml-auto flex items-center gap-1.5" role="group" aria-label="Product layout">
                         <FilterChip active={viewMode === 'cards'} onClick={() => setView('cards')}>Cards</FilterChip>
                         <FilterChip active={viewMode === 'table'} onClick={() => setView('table')}>Table</FilterChip>
