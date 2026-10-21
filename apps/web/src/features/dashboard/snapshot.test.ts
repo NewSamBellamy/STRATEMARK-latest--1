@@ -46,12 +46,20 @@ describe('funding snapshot', () => {
 });
 
 describe('leadership snapshot', () => {
-  it('puts the CEO, then founders, then the other chiefs first', () => {
+  it('puts founders first, then the CEO, then the other chiefs', () => {
     const names = leadershipSnapshot([
       person('Pat', 'Chief Financial Officer'), person('Lee', 'Co-founder & CTO'), person('Sam', 'Chief Executive Officer'),
       person('Kim', 'Head of Design', 'design'), person('Ana', 'President'), person('Zed', 'VP Sales'),
     ]).map((p) => p.name);
-    expect(names).toEqual(['Sam', 'Lee', 'Ana', 'Pat']);
+    expect(names).toEqual(['Lee', 'Sam', 'Ana', 'Pat']);
+  });
+
+  it('lists a co-founder filed under another function ahead of the other executives', () => {
+    const names = leadershipSnapshot([
+      person('Vee', 'VP of Finance'), person('Cai', 'Chief of Staff to the CEO'),
+      person('Gus', 'Co-founder & Chief Scientist', 'ai'), person('Arlo', 'Co-founder & Chief Executive Officer'),
+    ]).map((p) => p.name);
+    expect(names).toEqual(['Arlo', 'Gus', 'Cai', 'Vee']);
   });
 
   it('uses the top of the reported org when nobody is grouped as an executive', () => {

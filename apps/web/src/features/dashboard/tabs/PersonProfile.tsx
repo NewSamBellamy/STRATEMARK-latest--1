@@ -20,6 +20,7 @@ import { sourceHref } from '@/lib/sourceHref';
 import { SafeLink } from '@/components/SafeLink';
 import { initialsOf, photoCredit, useWikiHeadshot } from './LeaderGrid';
 import { companyAccent, type ProfileCompany } from './ProfileCard';
+import { footnoteMark, moveNote, NO_SOURCE_NOTE, personSources, reported } from './personFacts';
 
 const GROUP_LABEL: Record<OrgNode['group'], string> = { exec: 'Executive', ai: 'AI & research', product: 'Product', design: 'Design', other: 'Board & other' };
 
@@ -39,24 +40,33 @@ function Portrait({ person, company, accent }: { person: OrgNode; company: Profi
   );
 }
 
-function Row({ label, value }: { label: string; value: string | null | undefined }) {
-  const text = value?.trim();
+function Row({ label, value, footnote }: { label: string; value: string | null | undefined; footnote?: number }) {
+  const text = reported(value);
   return (
     <div className="grid gap-x-4 gap-y-0.5 border-b border-border py-2.5 last:border-b-0 sm:grid-cols-[120px_minmax(0,1fr)]">
       <dt className="pt-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">{label}</dt>
-      <dd className={cn('text-[14px] leading-snug', text ? 'text-content' : 'text-faint')}>{text || 'Not reported'}</dd>
+      <dd className={cn('text-[14px] leading-snug', text ? 'text-content' : 'text-faint')}>
+        {text || 'Not reported'}
+        {text && footnote && (
+          <sup className="ml-0.5 text-[11px] font-semibold text-primary-ink" title={`Source ${footnote}, listed below`}>
+            {footnoteMark(footnote)}<span className="sr-only"> (source {footnote}, listed below)</span>
+          </sup>
+        )}
+      </dd>
     </div>
   );
 }
 
 export function PersonProfile({
-  people, selectedId, onSelect, company, onAsk,
+  people, selectedId, onSelect, company, onAsk, showHeading = true,
 }: {
   people: readonly OrgNode[];
   selectedId: string;
   onSelect: (id: string) => void;
   company: ProfileCompany;
   onAsk: (person: OrgNode) => void;
+  /** False when the host (the modal) already shows the name and role as its own title. */
+  showHeading?: boolean;
 }) {
   const repo = useRepository();
   const canResearch = useSupports('deepDive');
@@ -68,6 +78,7 @@ export function PersonProfile({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mine = deeper[person.id] ?? null;
+  const sources = useMemo(() => personSources(person), [person]);
   const ordered = useMemo(() => [...people], [people]);
 
   const research = async () => {
@@ -119,9 +130,13 @@ export function PersonProfile({
         <header className="flex items-start gap-4">
           <Portrait person={person} company={company} accent={accent} />
           <div className="min-w-0">
-            <h2 className="font-display text-xl font-semibold text-content">{person.name}</h2>
-            <p className="mt-0.5 text-[14px] text-content">{person.role || 'Role not reported'}</p>
-            <p className="mt-1 text-[12px] text-muted">{GROUP_LABEL[person.group]} · <span className="font-medium text-content">{company.name}</span></p>
+            {showHeading && (
+              <>
+                <h2 className="font-display text-xl font-semibold text-content">{person.name}</h2>
+                <p className="mt-0.5 text-[14px] text-content">{person.role || 'Role not reported'}</p>
+              </>
+            )}
+            <p className={cn('text-[12px] text-muted', showHeading && 'mt-1')}>{GROUP_LABEL[person.group]} · <span className="font-medium text-content">{company.name}</span></p>
             <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" className="btn-primary" onClick={report}>
                 <FileText className="h-4 w-4" /> Download report (PDF)
@@ -137,22 +152,33 @@ export function PersonProfile({
           <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-faint">Resume, as reported</h3>
           <dl className="panel px-4">
             <Row label="Now" value={person.role ? `${person.role}, ${company.name}` : null} />
-            <Row label="Tenure" value={person.tenure} />
-            <Row label="Previously" value={person.priorCompany} />
-            <Row label="Known for" value={person.notableProject} />
+            <Row label="Tenure" value={person.tenure} footnote={1} />
+            {reported(person.startedAt) && <Row label="Started" value={person.startedAt} footnote={1} />}
+            <Row label="Previously" value={person.priorCompany} footnote={1} />
+            <Row label="Known for" value={person.notableProject} footnote={1} />
+            {moveNote(person) && <Row label="Reported move" value={moveNote(person)} footnote={sources.length > 1 ? 2 : 1} />}
             <Row label="About" value={person.bio} />
           </dl>
-          {person.sourceUrl && person.supportingQuote && (
-            <blockquote className="mt-3 border-l-2 border-primary/40 pl-3 text-[13px] leading-relaxed text-content/90">
-              &ldquo;{person.supportingQuote}&rdquo;
-              <footer className="mt-1 text-[11px] text-faint">
-                <SafeLink href={person.sourceUrl} className="text-primary-ink hover:underline">
-                  {publisherOf(person.sourceUrl, null)}
-                </SafeLink>
-                {person.sourceRetrievedAt ? ` · retrieved ${person.sourceRetrievedAt.slice(0, 10)}` : ''}
-              </footer>
-            </blockquote>
-          )}
+          <div className="mt-3" role="group" aria-label="Sources">
+            <h4 className="text-[11px] font-semibold uppercase tracking-widest text-faint">Sources</h4>
+            <ol className="mt-1.5 space-y-2">
+              {sources.map((s) => (
+                <li key={s.n} className="border-l-2 border-primary/40 pl-3 text-[13px] leading-relaxed text-content/90">
+                  <span className="mr-1 font-semibold text-primary-ink">{s.n}.</span>
+                  {s.url ? (
+                    <>
+                      {s.about && <span className="mr-1 text-muted">{s.about}:</span>}
+                      <SafeLink href={s.url} className="font-medium text-primary-ink hover:underline">{s.host}</SafeLink>
+                      {s.retrieved && <span className="text-[11px] text-faint"> · retrieved {s.retrieved}</span>}
+                    </>
+                  ) : (
+                    <span className="text-muted">{NO_SOURCE_NOTE}</span>
+                  )}
+                  {s.quote && <blockquote className="mt-0.5 italic">&ldquo;{s.quote}&rdquo;</blockquote>}
+                </li>
+              ))}
+            </ol>
+          </div>
           <p className="mt-3 text-[11px] leading-relaxed text-faint">
             Not reported means the current research did not surface a credible detail. It is not an inference.
           </p>

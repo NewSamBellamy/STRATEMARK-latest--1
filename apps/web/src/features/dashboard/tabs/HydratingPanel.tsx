@@ -17,8 +17,9 @@ export function HydratingPanel({
   label?: string;
   /** `compact` = status banner + a few text skeletons, for use inside a layout
    * whose other regions (KPI tiles, peer block) are already rendering. `table`
-   * = banner + a table-shaped skeleton for the Metrics tab. */
-  variant?: 'default' | 'compact' | 'table';
+   * = banner + a table-shaped skeleton for the Metrics tab. `banner` = the
+   * status banner alone, for a tab that draws its own skeleton. */
+  variant?: 'default' | 'compact' | 'table' | 'banner';
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {

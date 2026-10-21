@@ -423,3 +423,19 @@
 @media (prefers-reduced-motion: reduce) {
   .cascade > * { animation: none; }
 }
+
+/* Team board: cards pin-drop on first render, then the strings draw in.
+   `backwards` (not `both`) so the resting hover lift is not pinned by the animation. */
+@keyframes sm-pin-drop {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes sm-string-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+.sm-pin-drop { animation: sm-pin-drop 260ms ease-out backwards; }
+.sm-string { stroke-dasharray: 1; animation: sm-string-draw 300ms ease-out 400ms backwards; }
+@media (prefers-reduced-motion: reduce) {
+  .sm-pin-drop, .sm-string { animation: none; }
+}
