@@ -3,12 +3,28 @@
  * (the cloud engine) answer with empty lists and never refresh.
  */
 import { useCallback, useState } from 'react';
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { isAnotherWindowError } from '@mi/research';
 import type { CardWithCompany, CompanyFollow, CompanyMove, LiveIntelContent, MovesRefreshResult } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { qk } from '@/lib/query/keys';
 
-export function useMoves(): UseQueryResult<CompanyMove[]> {
+const ANOTHER_WINDOW_KEY = ['today', 'anotherWindow'] as const;
+
+/** True once a write was refused because another window saved research first; Today then offers a reload. */
+export function useAnotherWindow(): boolean {
+  return useQuery({ queryKey: ANOTHER_WINDOW_KEY, queryFn: () => false, initialData: false, staleTime: Infinity }).data;
+}
+
+/** A "written in another window" refusal is not an error to throw: note it (the list refetches, the page offers a reload). Anything else still throws. */
+async function absorbAnotherWindow(qc: QueryClient, write: () => Promise<void>): Promise<void> {
+  try { await write(); } catch (error) {
+    if (!isAnotherWindowError(error)) throw error;
+    qc.setQueryData(ANOTHER_WINDOW_KEY, true);
+  }
+}
+
+export function useMoves():UseQueryResult<CompanyMove[]> {
   const repo = useRepository();
   return useQuery({ queryKey: qk.moves, queryFn: () => repo.listMoves?.() ?? Promise.resolve([]) });
 }
@@ -19,14 +35,15 @@ export function useFollows(): UseQueryResult<CompanyFollow[]> {
 }
 
 /** Look for new moves; the engine skips companies it looked at in the last day unless forced. */
-export function useRefreshMoves() {
+export function useRefreshMoves(onProgress?: (done: number, total: number) => void) {
   const repo = useRepository();
   const qc = useQueryClient();
   return useMutation({
     // `companyIds` limits the look to those companies (one company's page); without it every followed company is looked at.
+    // `onProgress` ("12 of 104") is reported by engines that run in this window; others never call it.
     mutationFn: (ask: boolean | { force: boolean; companyIds?: readonly string[] }): Promise<MovesRefreshResult> => {
       if (!repo.refreshMoves) return Promise.reject(new Error('Today isn’t available on this engine.'));
-      return repo.refreshMoves(typeof ask === 'boolean' ? { force: ask } : ask);
+      return repo.refreshMoves({ ...(typeof ask === 'boolean' ? { force: ask } : ask), ...(onProgress ? { onProgress } : {}) });
     },
     // Not returned: a mutation waits for what onSettled returns, and the list refresh that follows the check can be slow
     // (a busy store, another tab). The page said "checking now" for as long as it took, though the check had finished.
@@ -38,7 +55,7 @@ export function useMarkMoveRead() {
   const repo = useRepository();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, read }: { id: string; read: boolean }) => repo.markMoveRead?.(id, read) ?? Promise.resolve(),
+    mutationFn: ({ id, read }: { id: string; read: boolean }) => absorbAnotherWindow(qc, async () => { await repo.markMoveRead?.(id, read); }),
     onMutate: ({ id, read }) => {
       qc.setQueryData<CompanyMove[]>(qk.moves, (moves) =>
         moves?.map((move) => (move.id === id ? { ...move, readAt: read ? new Date().toISOString() : null } : move)));
@@ -53,8 +70,10 @@ export function useMarkMovesRead() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (ids: readonly string[]) => {
-      if (repo.markMovesRead) await repo.markMovesRead(ids);
-      else for (const id of ids) await repo.markMoveRead?.(id, true);
+      await absorbAnotherWindow(qc, async () => {
+        if (repo.markMovesRead) await repo.markMovesRead(ids);
+        else for (const id of ids) await repo.markMoveRead?.(id, true);
+      });
     },
     onMutate: (ids) => {
       const set = new Set(ids);
@@ -69,7 +88,7 @@ export function useFollowCompanies() {
   const repo = useRepository();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (companyIds: readonly string[]) => repo.followCompanies?.(companyIds) ?? Promise.resolve(),
+    mutationFn: (companyIds: readonly string[]) => absorbAnotherWindow(qc, async () => { await repo.followCompanies?.(companyIds); }),
     onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: qk.follows }), qc.invalidateQueries({ queryKey: qk.moves })]),
   });
 }

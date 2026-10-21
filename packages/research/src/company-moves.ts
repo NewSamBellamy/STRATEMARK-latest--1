@@ -122,7 +122,9 @@ const labelSchema = z.object({ labels: z.array(z.object({
  */
 export async function classifyMoves(client: LlmClient, candidates: readonly MoveCandidate[], signal?: AbortSignal,
   /** Collects the companies whose headlines went unsorted, so their next refresh looks back over them again. */
-  unsorted?: Set<string>): Promise<MoveCandidate[]> {
+  unsorted?: Set<string>,
+  /** Collects the headlines the model judged not to be a move of the company, so they are not sorted again. */
+  rejected?: MoveCandidate[]): Promise<MoveCandidate[]> {
   const news = candidates.filter((c) => c.source === 'news');
   const kept: MoveCandidate[] = candidates.filter((c) => c.source !== 'news');
   for (let start = 0; start < news.length; start += MOVE_CLASSIFY_BATCH) {
@@ -134,7 +136,9 @@ export async function classifyMoves(client: LlmClient, candidates: readonly Move
       const byIndex = new Map(out.labels.map((label) => [label.i, label]));
       chunk.forEach((candidate, i) => {
         const label = byIndex.get(i);
-        if (!label || !label.about || label.kind === 'other') return;
+        // No label at all is not a verdict: it is sorted again next time.
+        if (!label) return;
+        if (!label.about || label.kind === 'other') { rejected?.push(candidate); return; }
         kept.push({ ...candidate, kind: label.kind, importance: label.importance });
       });
     } catch {
@@ -155,10 +159,15 @@ export function moveId(companyId: string, url: string): string {
 const titleKey = (m: { companyId: string; title: string }) => `${m.companyId}|${m.title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 90)}`;
 
 /** Headlines not filed yet: what is already stored is not sent to be sorted again. */
-export function unfiledCandidates(existing: readonly CompanyMove[], candidates: readonly MoveCandidate[]): MoveCandidate[] {
+export function unfiledCandidates(existing: readonly CompanyMove[], candidates: readonly MoveCandidate[],
+  /** Move ids the model already rejected (id → when); they are not sorted again. */
+  rejectedIds?: Readonly<Record<string, string>>): MoveCandidate[] {
   const ids = new Set(existing.map((move) => move.id));
   const titles = new Set(existing.filter((move) => move.source === 'news').map(titleKey));
-  return candidates.filter((c) => !ids.has(moveId(c.companyId, c.url)) && !(c.source === 'news' && titles.has(titleKey(c))));
+  return candidates.filter((c) => {
+    const id = moveId(c.companyId, c.url);
+    return !ids.has(id) && !(c.source === 'news' && titles.has(titleKey(c))) && !(rejectedIds && Object.hasOwn(rejectedIds, id));
+  });
 }
 
 /** New moves join the stored ones (read state kept); one per company and address, and one news story per company and headline

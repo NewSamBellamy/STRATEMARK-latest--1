@@ -6,8 +6,8 @@ import { EmptyState } from '@/components/states/EmptyState';
 import { cn } from '@/lib/cn';
 import { formatRelative } from '@/lib/format';
 import { safeHttpUrl } from '@/lib/sourceHref';
-import { MOVE_STALE_DAYS, moveAgeDays, moveDayBucket, type MoveDayBucket } from '@mi/research';
-import { useFollows, useMarkMoveRead, useMarkMovesRead, useMoves, useRefreshMoves, useUnfollowCompany } from '@/hooks/today';
+import { isAnotherWindowError, MOVE_STALE_DAYS, moveAgeDays, moveDayBucket, type MoveDayBucket } from '@mi/research';
+import { useAnotherWindow, useFollows, useMarkMoveRead, useMarkMovesRead, useMoves, useRefreshMoves, useUnfollowCompany } from '@/hooks/today';
 import { TodayCompanyView } from './TodayCompanyView';
 
 const KIND_LABEL: Record<MoveKind, string> = {
@@ -63,7 +63,11 @@ export default function TodayPage() {
   const since = useLastVisit();
   const follows = useFollows();
   const moves = useMoves();
-  const refresh = useRefreshMoves();
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const refresh = useRefreshMoves((done, total) => setProgress({ done, total }));
+  useEffect(() => { if (!refresh.isPending) setProgress(null); }, [refresh.isPending]);
+  const noted = useAnotherWindow();
+  const anotherWindow = noted || (refresh.isError && isAnotherWindowError(refresh.error));
   const markRead = useMarkMoveRead();
   const markAll = useMarkMovesRead();
   const unfollow = useUnfollowCompany();
@@ -159,7 +163,9 @@ export default function TodayPage() {
           <button type="button" className="btn-ghost text-sm" disabled={refresh.isPending}
             title="Look again now, even for companies checked today."
             onClick={() => refresh.mutate(true)}>
-            {refresh.isPending ? 'Checking…' : 'Check now'}
+            {refresh.isPending
+              ? (progress && progress.total > 1 ? `Checking ${progress.done} of ${progress.total}…` : 'Checking…')
+              : 'Check now'}
           </button>
         )}
       </div>
@@ -187,7 +193,13 @@ export default function TodayPage() {
         </nav>
       )}
 
-      {refresh.isError && !selected && (
+      {anotherWindow && (
+        <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
+          <span>Another window changed your research. Reload to see it.</span>
+          <button type="button" className="btn-ghost text-sm" onClick={() => window.location.reload()}>Reload</button>
+        </div>
+      )}
+      {refresh.isError && !selected && !anotherWindow && (
         <p role="alert" className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
           The check didn’t finish: {(refresh.error instanceof Error ? refresh.error.message : 'unknown error').replace(/[.\s]+$/, '')}. Stored moves are still shown.
         </p>

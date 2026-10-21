@@ -93,7 +93,7 @@ describe('a company on Today', () => {
     const { user } = renderWithProviders(view(), { repository, route: `/today?company=${company.id}` });
     await screen.findByLabelText(`${company.name} updates`);
     await user.click(screen.getByRole('button', { name: /Check news now/ }));
-    expect(repository.refreshMoves).toHaveBeenLastCalledWith({ force: true, companyIds: [company.id] });
+    expect(repository.refreshMoves).toHaveBeenLastCalledWith(expect.objectContaining({ force: true, companyIds: [company.id] }));
   });
 
   it('marks a move read through the engine and a social item read on this device', async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import { completenessFixture } from './completeness-report.fixture';
-import { GeminiRepository, type RepoSnapshot } from './repository';
+import { AnotherWindowError, GeminiRepository, type RepoSnapshot } from './repository';
 import type { LlmClient } from './types';
 import type { WebSearchFn } from './web-search';
 
@@ -237,5 +237,83 @@ describe('Today in the workspace', () => {
     expect(saved().follows ?? []).toEqual([]);
     expect(saved().moves ?? []).toEqual([]);
     expect(saved().movesRefreshedAt ?? {}).toEqual({});
+  });
+
+  it('remembers a rejected headline and does not send it for sorting again', async () => {
+    const { repo, structure, saved } = movesRepo(feed);
+    await repo.followCompanies(['acme']);
+    await repo.refreshMoves();
+    expect(Object.keys(saved().rejectedMoveIds ?? {})).toHaveLength(1);
+    await repo.refreshMoves({ force: true });
+    await repo.refreshMoves({ force: true });
+    // The rival story and the stored funding story are both known: no second sorting call.
+    expect(structure).toHaveBeenCalledTimes(1);
+    expect(await repo.listMoves()).toHaveLength(1);
+  });
+
+  it('forgets a rejection after 14 days, and old snapshots without the field still refresh', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const { repo, structure, saved } = movesRepo(async (query) => (query.includes('Acme Robotics') ? [
+        { url: 'https://news.example/acme-rival', title: 'Acme Robotics rival opens a plant', snippet: '', published: new Date(Date.now() - 2 * HOUR).toISOString() }] : []));
+      expect(saved().rejectedMoveIds).toBeUndefined();
+      await repo.followCompanies(['acme']);
+      await repo.refreshMoves();
+      expect(structure).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(Date.now() + 15 * 24 * HOUR);
+      await repo.refreshMoves({ force: true });
+      expect(structure).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a sorting failure is not a rejection: the headline is sorted again next time', async () => {
+    const { repo, structure, saved } = movesRepo(feed);
+    await repo.followCompanies(['acme']);
+    structure.mockRejectedValueOnce(new Error('model down'));
+    await repo.refreshMoves();
+    expect(saved().rejectedMoveIds).toBeUndefined();
+    await repo.refreshMoves({ force: true });
+    expect(structure).toHaveBeenCalledTimes(2);
+  });
+
+  describe('a second window', () => {
+    /** A store that refuses the next write once with the given failure. */
+    function flaky(failure: Error) {
+      let saved = { ...completenessFixture(), viceClaims: [], reports: [], briefings: [], savedCards: [],
+        opportunity: {}, researchJobs: [], threads: [] } as unknown as RepoSnapshot;
+      let refuse = false;
+      const repo = new GeminiRepository({ apiKey: 'test', client: { structure: vi.fn(), ground: vi.fn() } as unknown as LlmClient,
+        store: { read: () => structuredClone(saved), write: async (next) => { if (refuse) { refuse = false; throw failure; } saved = structuredClone(next); } } });
+      return { repo, refuseNext: () => { refuse = true; }, saved: () => saved };
+    }
+
+    it('a refused follow is not the sticky error: the workspace keeps working once the store accepts writes', async () => {
+      const { repo, refuseNext, saved } = flaky(new AnotherWindowError());
+      refuseNext();
+      await expect(repo.followCompanies(['acme'])).rejects.toBeInstanceOf(AnotherWindowError);
+      // Nothing was kept in memory from the refused write.
+      expect(await repo.listFollows()).toEqual([]);
+      await repo.followCompanies(['acme']);
+      expect((await repo.listFollows()).map((f) => f.companyId)).toEqual(['acme']);
+      expect(saved().follows).toHaveLength(1);
+    });
+
+    it('any other save failure is still sticky', async () => {
+      const { repo, refuseNext } = flaky(new Error('disk full'));
+      refuseNext();
+      await expect(repo.followCompanies(['acme'])).rejects.toThrow(/could not be saved/);
+      await expect(repo.followCompanies(['gamma'])).rejects.toThrow(/could not be saved/);
+    });
+  });
+
+  it('reports progress as companies are looked at, ending at all of them', async () => {
+    const { repo } = movesRepo(feed);
+    await repo.followCompanies(['acme', 'beta', 'gamma']);
+    const seen: Array<[number, number]> = [];
+    await repo.refreshMoves({ onProgress: (done, total) => seen.push([done, total]) });
+    expect(seen[0]).toEqual([0, 3]);
+    expect(seen.at(-1)).toEqual([3, 3]);
+    // A listener that throws does not stop the check.
+    expect(await repo.refreshMoves({ force: true, onProgress: () => { throw new Error('ui gone'); } })).toMatchObject({ refreshed: 3 });
   });
 });

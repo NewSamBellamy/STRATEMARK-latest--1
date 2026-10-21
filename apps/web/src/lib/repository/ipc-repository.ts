@@ -131,9 +131,10 @@ export class IpcRepository implements MarketIntelRepository {
   listMoves(): Promise<CompanyMove[]> {
     return this.api.listMoves?.() ?? Promise.resolve([]);
   }
-  refreshMoves(options?: { force?: boolean }): Promise<MovesRefreshResult> {
+  refreshMoves(options?: { force?: boolean; companyIds?: readonly string[]; onProgress?: (done: number, total: number) => void }): Promise<MovesRefreshResult> {
     if (!this.api.refreshMoves) return Promise.reject(new Error('Update the desktop shell to use Today.'));
-    return this.api.refreshMoves(options);
+    // A function cannot cross the IPC boundary; progress is for in-process engines.
+    return this.api.refreshMoves(options && { force: options.force, companyIds: options.companyIds });
   }
   async markMoveRead(moveId: string, read: boolean): Promise<void> {
     await this.api.markMoveRead?.(moveId, read);

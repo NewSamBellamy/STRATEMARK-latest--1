@@ -1,4 +1,4 @@
-import { migrateSnapshot, isOriginalSourceAttempt, siftSignalBriefs, REPO_SCHEMA_VERSION, type RepoSnapshot, type ResearchStore } from '@mi/research';
+import { AnotherWindowError, migrateSnapshot, isOriginalSourceAttempt, siftSignalBriefs, REPO_SCHEMA_VERSION, type RepoSnapshot, type ResearchStore } from '@mi/research';
 
 const LEGACY = 'mi.repo.v1';
 const CURRENT = `${LEGACY}.committed`;
@@ -165,7 +165,7 @@ export async function openBrowserResearchStore(): Promise<ResearchStore> {
       current.onsuccess = () => {
         const previous = current.result as RecordValue | undefined;
         if ((previous?.revision ?? 0) !== revision) {
-          failure = new Error('Research was updated in another window. Reload before making changes.');
+          failure = new AnotherWindowError();
           tx.abort();
           return;
         }

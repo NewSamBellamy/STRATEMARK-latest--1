@@ -866,6 +866,8 @@ export interface MarketIntelRepository {
     force?: boolean;
     /** Look only at these followed companies (a single company's "Check news now"); omitted = every followed company. */
     companyIds?: readonly string[];
+    /** Optional: called as companies are looked at ("12 of 104"). In-process engines only; never sent over IPC. */
+    onProgress?: (done: number, total: number) => void;
   }): Promise<MovesRefreshResult>;
   markMoveRead?(moveId: string, read: boolean): Promise<void>;
   /** Mark several moves read in one write ("Mark all read"). Unknown ids are ignored. */
