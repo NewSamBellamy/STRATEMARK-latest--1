@@ -129,7 +129,7 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                   count={events.length > 0 ? `${events.length} event${events.length === 1 ? '' : 's'}${years0 && years.length > 1 ? ` · ${years0}` : ''}` : undefined}
                   description={
                     events.length > 0
-                      ? 'Dated milestones from retained research, newest first. Open one for its full description; sources are not yet listed per event.'
+                      ? 'Dated milestones from retained research, newest first. Open one for its full description. Types are read from each event’s own wording to help you filter, and sources are not yet listed per event.'
                       : undefined
                   }
                   actions={
@@ -196,11 +196,6 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                         </button>
                       )}
                     </div>
-                    {events.length > 6 && (
-                      <p className="-mt-2 mb-3 text-[11px] text-faint">
-                        Event types are read from each event&apos;s own wording to help you filter; they are not sourced facts.
-                      </p>
-                    )}
                     {noRoundAmounts && (
                       <p className="-mt-2 mb-3 text-[11px] text-faint">No amounts are recorded for these funding rounds.</p>
                     )}
