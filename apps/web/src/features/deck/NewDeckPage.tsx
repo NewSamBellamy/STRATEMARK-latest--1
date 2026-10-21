@@ -492,13 +492,19 @@ export default function NewDeckPage() {
       setPrompt(q);
       setRegion(region);
     };
+    // One named company runs on this device's engine under the same key gate as a typed request:
+    // the cloud deck researches a whole market, not the single company the person confirmed.
+    if (named && !hasKey) {
+      setDemoGate(true);
+      return;
+    }
     const userText = [q, regionStr].filter(Boolean).join(' — ');
 
     startSession(userText, timeLabel());
     setPrompt('');
     setRegion('');
 
-    if (engine === 'cloud') {
+    if (engine === 'cloud' && !named) {
       try {
         let targetCompanies = 10;
         try {
