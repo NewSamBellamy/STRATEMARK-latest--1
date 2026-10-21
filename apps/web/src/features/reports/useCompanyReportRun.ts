@@ -15,6 +15,10 @@ export interface CompanyReportRequest {
   companyName: string;
   topics: ReportTopic[];
   focus: string | null;
+  /** The card the report is about, so it is kept with that card's memory. */
+  cardId?: string | null;
+  /** The conversations to fold in: all of the card's, one, or none. */
+  threadIds?: string[];
 }
 
 export function useCompanyReportRun() {
@@ -28,7 +32,14 @@ export function useCompanyReportRun() {
       const taskId = tasks?.startTask('report', `Report: ${request.companyName}`, { indeterminate: true }) ?? null;
       if (taskId) tasks?.appendLog(taskId, 'Reading the research already stored', 'step');
       return repo
-        .generateReport({ kind: 'company', subjectId: request.companyId, focus: request.focus, topics: request.topics })
+        .generateReport({
+          kind: 'company',
+          subjectId: request.companyId,
+          focus: request.focus,
+          topics: request.topics,
+          ...(request.cardId !== undefined ? { cardId: request.cardId } : {}),
+          ...(request.threadIds !== undefined ? { threadIds: request.threadIds } : {}),
+        })
         .then((report) => {
           void qc.invalidateQueries({ queryKey: ['reports'] });
           if (taskId) tasks?.completeTask(taskId, { message: 'Your report is ready.', link: `/reports/${report.id}` });

@@ -23,7 +23,7 @@ import { useGenerateReport } from '@/hooks/data';
 import { useCompanyCard } from '@/hooks/today';
 import { useRepository, useSupports } from '@/lib/repository/RepositoryProvider';
 import { ShareDialog } from '@/features/share/ShareDialog';
-import { ReportBuilderDialog } from '@/features/reports/ReportBuilderDialog';
+import { ReportWizard } from '@/features/reports/ReportWizard';
 import { useCompanyReportRun } from '@/features/reports/useCompanyReportRun';
 import type { SharePayload } from '@/lib/share/codec';
 import { exportDeckPptx } from '@/features/reports/pptx';
@@ -62,7 +62,7 @@ export interface ExportMenuProps {
    */
   report?:
     | { kind: 'deck'; subjectId: string | undefined }
-    | { kind: 'company'; subjectId: string | undefined; name: string }
+    | { kind: 'company'; subjectId: string | undefined; name: string; cardId?: string | null; deckId?: string | null }
     | { label: string; onClick: () => void };
   /** Extra Download entries a host owns (a report page's own PDF or Markdown). */
   downloads?: readonly ExportDownload[];
@@ -365,12 +365,15 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
         <ShareDialog open={shareOpen} onOpenChange={setShareOpen} title={share.title} subtitle={share.subtitle} build={share.build} page={share.page} />
       )}
       {report && 'kind' in report && report.kind === 'company' && report.subjectId && (
-        <ReportBuilderDialog
+        <ReportWizard
           open={builderOpen}
           onOpenChange={setBuilderOpen}
+          companyId={report.subjectId}
           companyName={report.name}
-          onStart={({ topics, focus: chosenFocus }) => {
-            void runCompanyReport({ companyId: report.subjectId as string, companyName: report.name, topics, focus: chosenFocus });
+          cardId={report.cardId}
+          deckId={report.deckId}
+          onStart={(input) => {
+            void runCompanyReport({ companyId: report.subjectId as string, companyName: report.name, ...input });
           }}
         />
       )}

@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, ArrowUpRight, ExternalLink, FilePlus2, Printer, Share2 } from 'lucide-react';
 import { publisherOf, type CardWithCompany } from '@mi/contracts';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/Modal';
@@ -9,13 +10,14 @@ import { useRepository } from '@/lib/repository/RepositoryProvider';
 import { buildCardShare } from '@/lib/share/codec';
 import { verifyCardForShare } from '@/lib/share/preflight';
 import { ShareDialog } from '@/features/share/ShareDialog';
-import { ReportBuilderDialog } from '@/features/reports/ReportBuilderDialog';
+import { ReportWizard } from '@/features/reports/ReportWizard';
 import { useCompanyReportRun } from '@/features/reports/useCompanyReportRun';
 import { FollowTodayButton } from '@/features/today/FollowTodayButton';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { CardStage } from './CardStage';
 import { SaveCardButton } from './GameCard';
 import { SignalFinding } from './SignalFinding';
+import { SignalBriefBody, sourcedPoints, useSignalBrief } from './SignalBriefView';
 import { buildCardView, faceFigureStatus, sourceUrl } from './card-view';
 import { printScoped } from '@/lib/print';
 import { useReadOnly } from '@/lib/readOnly';
@@ -87,10 +89,24 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
   const repo = useRepository();
   const { chat } = useDeepDive();
   const readOnly = useReadOnly();
+  // What the card already has: read from storage, free, never a model call.
+  const memory = useQuery({
+    queryKey: ['cardMemory', card.id],
+    queryFn: () => repo.getCardMemory!(card.id),
+    enabled: typeof repo.getCardMemory === 'function' && !readOnly,
+  });
+  const chatCount = memory.data?.threads.length ?? 0;
+  const reportCount = memory.data?.reports.length ?? 0;
+  const memoryLine = [
+    `${chatCount} ${chatCount === 1 ? 'chat' : 'chats'}`,
+    reportCount > 0 ? `${reportCount} ${reportCount === 1 ? 'report' : 'reports'}` : null,
+  ].filter(Boolean).join(' \u00b7 ');
   const [shareOpen, setShareOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const runCompanyReport = useCompanyReportRun();
   const canReport = useSupports('generateReport');
+  const briefControls = useSignalBrief(card.id, view.signal);
+  const briefShown = briefControls.state.status === 'ready' && sourcedPoints(briefControls.state.brief).length > 0;
   const canRemove = useSupports('removeCard');
   const removeCard = useRemoveCard();
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -119,7 +135,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
           <h2 className="mt-3 font-display text-2xl font-semibold leading-tight text-content">{view.title}</h2>
           {company?.hqLocation && <p className="mt-1 text-[11px] text-muted">{company.hqLocation}</p>}
 
-          {view.signal ? <SignalFinding data={data} citations={view.citations} /> : <section className="card-inspector__summary" aria-label="Research summary">
+          {view.signal ? <>{briefShown ? <SignalBriefBody controls={briefControls} /> : <><SignalFinding data={data} citations={view.citations} /><SignalBriefBody controls={briefControls} /></>}</> : <section className="card-inspector__summary" aria-label="Research summary">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">Company snapshot</p>
             <p className="card-inspector__summary-text text-[13px] leading-relaxed text-content">
               {summary || 'No concise research summary has been recorded for this card.'}
@@ -181,9 +197,13 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
             <span>Open full company dashboard</span><ArrowUpRight size={17} />
           </Link> : !readOnly && <button type="button" className="card-inspector__cta" onClick={() => {
             onOpenChange(false);
+            // With history the button resumes the latest conversation (no question); with none it starts one.
             chat({ kind: 'cards', deckId: card.deckId, cardIds: [card.id], subject: card.title },
-              { seed: `Dig into "${card.title}" — what's the full picture?` });
-          }}>Ask about this finding <ArrowUpRight size={17} /></button>}
+              chatCount > 0 ? undefined : { seed: `Dig into "${card.title}" — what's the full picture?` });
+          }}>{chatCount > 0 ? <span className="flex flex-col items-start text-left">
+              <span>Continue conversation ({chatCount})</span>
+              <span className="text-[11px] font-normal opacity-80">{memoryLine}</span>
+            </span> : 'Ask about this finding'} <ArrowUpRight size={17} /></button>}
           <div className="card-inspector__actions">
             {readOnly ? <span /> : <div className="flex items-center gap-1"><SaveCardButton cardId={card.id} />
               {company && !view.signal && <FollowTodayButton companyId={company.id} companyName={company.name} />}
@@ -218,8 +238,9 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
         </div>
       </div>
       {canReport && company && dashboardUrl && (
-        <ReportBuilderDialog open={reportOpen} onOpenChange={setReportOpen} companyName={company.name}
-          onStart={({ topics, focus }) => { void runCompanyReport({ companyId: company.id, companyName: company.name, topics, focus }); }} />
+        <ReportWizard open={reportOpen} onOpenChange={setReportOpen} companyId={company.id} companyName={company.name}
+          cardId={card.id} deckId={card.deckId}
+          onStart={(input) => { void runCompanyReport({ companyId: company.id, companyName: company.name, ...input }); }} />
       )}
       <ShareDialog open={shareOpen} onOpenChange={setShareOpen} title={view.title}
         page={{ deckId: card.deckId, cardId: card.id }}

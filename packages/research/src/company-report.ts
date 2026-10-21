@@ -21,8 +21,9 @@
  * tabs) + N grounded passes + N write-ups; the best case is N write-ups.
  *
  * What a report does and does not change:
- *   - Findings from the focused grounded pass live in the report only. They are
- *     never written back to the stored tabs or the evidence vault.
+ *   - Findings from the focused grounded pass are written to the evidence vault
+ *     (topic `report:<topic>`), but only the sentences the search itself attributed
+ *     to a public source; the stored tabs are not touched.
  *   - A never-researched tab that goes through the lane IS written to the
  *     dashboard, exactly as opening that tab would have done. That is intended:
  *     the free-first lane fills the dashboard like a click would.
@@ -104,7 +105,7 @@ export interface CompanyReportDeps {
 export interface CompanyReportOptions {
   focus?: string | null;
   /** The analyst's earlier research session: its sourced findings, already filtered to turns with usable sources. */
-  conversation?: { text: string; citations: Citation[] } | null;
+  conversation?: { text: string; citations: Citation[]; /** Only the sourced findings (no analyst questions): the text a figure may be traced to. Defaults to `text`. */ found?: string } | null;
 }
 
 export interface CompanyReportResult {
@@ -256,6 +257,8 @@ export async function buildCompanyTopicReport(
     const today = nowDate().toISOString().slice(0, 10);
     const focus = (options.focus ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
     const conversation = options.conversation?.text.trim().slice(0, CONVERSATION_PROMPT_CHARS) ?? '';
+    // An analyst's own question is not research: a figure typed into one does not license the writer to state it.
+    const conversationFound = (options.conversation?.found ?? options.conversation?.text ?? '').trim().slice(0, CONVERSATION_PROMPT_CHARS);
     const conversationCitations = cleanCitations(options.conversation?.citations, company.websiteUrl);
     const baseMetrics = client.metrics?.();
     const base = baseMetrics ? snapshotAggregate(baseMetrics) : undefined;
@@ -321,7 +324,8 @@ export async function buildCompanyTopicReport(
         try {
           const g = await client.ground(
             deeperResearchPrompt({ companyName: company.name, websiteUrl: company.websiteUrl, hqLocation: company.hqLocation, topic, gaps: view.gaps, today, focus }),
-            { system: GROUNDED_SYSTEM, label: `company_report:${topic}`, signal: sig },
+            { system: GROUNDED_SYSTEM, label: `company_report:${topic}`, signal: sig,
+              researchContext: { companyId: company.id, companyName: company.name, topic: `report:${topic}`, attributedOnly: true } },
           );
           const cited = cleanCitations(g.citations, company.websiteUrl).filter(isSourcedFinding);
           // Findings nothing credible stands behind are dropped, not displayed.
@@ -374,7 +378,7 @@ export async function buildCompanyTopicReport(
         } else {
           // The guard: a statement carrying a figure the digest, the findings and the conversation cannot account for does not ship.
           // The gaps text and the dates inside the digest are deliberately NOT allowed to license free-standing numbers.
-          const allowed = allowedFigures(state.digest, state.findings, conversation, company.name, label, today.slice(0, 4));
+          const allowed = allowedFigures(state.digest, state.findings, conversationFound, company.name, label, today.slice(0, 4));
           const guarded = dropUntraceableFigures(sanitizeSectionMarkdown(drafted), allowed);
           if (guarded.removed > 0) {
             gaps.push(`${guarded.removed} statement${guarded.removed === 1 ? ' was' : 's were'} left out because a figure in ${guarded.removed === 1 ? 'it' : 'them'} could not be traced to the research`);

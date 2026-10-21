@@ -147,16 +147,71 @@ export function formatConversation(history: readonly ChatTurn[], opts?: { maxTur
     .join('\n\n');
 }
 
+/** How long an answer should be. A small question gets a small answer; a request for the whole picture gets one. */
+export type AnswerSize = 'brief' | 'standard' | 'deep';
+
+export const ANSWER_WORD_LIMITS: Record<AnswerSize, number> = { brief: 60, standard: 250, deep: 700 };
+
+const GREETING_OPENER = /^(?:hi|hey|hello|yo|hiya|sup|good (?:morning|afternoon|evening)|thanks|thank you|thx|ok|okay|cool|great|nice)\b[\s,!.]*/i;
+const SMALL_TALK = /^(?:what'?s up|whats up|how are you|how'?s it going|hows it going|how is it going|there|again|team|stratemark|you|friend|man|mate|bud|all)?[\s,!.?]*$/i;
+
+/** A greeting or a thank-you: nothing in it is a question about a company, so it never starts a search. */
+export function isGreeting(question: string): boolean {
+  const text = question.trim();
+  if (!text || text.split(/\s+/).length > 7) return false;
+  const rest = text.replace(GREETING_OPENER, '');
+  if (rest.length === text.length) return /^(?:what'?s up|whats up|how are you|how'?s it going)[\s!.?]*$/i.test(text);
+  return SMALL_TALK.test(rest);
+}
+
+const DEEP_ASK = /\b(?:full picture|deep dive|in[- ]depth|report|everything (?:you know|about|on)|complete (?:analysis|overview)|walk me through|big picture)\b/i;
+const ONE_FIGURE = /^(?:what(?:'s| is| was| are)|how (?:much|many|big|old|large)|who(?:'s| is| are| founded| runs| owns)|when|where)\b/i;
+
+/**
+ * Chooses the answer length from the question itself, by fixed rules (no model call): greetings and short one-figure questions are
+ * brief; asking for the full picture, a deep dive or a report, or comparing three or more cards, is deep; everything else is standard.
+ */
+export function answerSize(question: string, scope?: { cardIds?: readonly string[] | null } | null): AnswerSize {
+  const text = question.trim();
+  if (isGreeting(text)) return 'brief';
+  if (DEEP_ASK.test(text) || (scope?.cardIds?.length ?? 0) >= 3) return 'deep';
+  if (text.split(/\s+/).length <= 8 && ONE_FIGURE.test(text) && !/\b(?:compare|versus|vs\.?|and)\b/i.test(text)) return 'brief';
+  return 'standard';
+}
+
+/** What was said last time on this card, kept short: the previous conversation's gist and the titles of the three most recent. */
+export interface LastTime {
+  summary?: string | null;
+  titles?: readonly string[];
+}
+
+export const LAST_TIME_MAX_CHARS = 600;
+
+export function formatLastTime(last: LastTime | null | undefined): string {
+  if (!last) return '';
+  const titles = (last.titles ?? []).filter(Boolean).slice(0, 3).map((t) => `"${t}"`);
+  const body = [last.summary?.trim() ? last.summary.trim() : '', titles.length ? `Recent conversations: ${titles.join(', ')}.` : ''].filter(Boolean).join(' ');
+  if (!body) return '';
+  const clipped = body.length > LAST_TIME_MAX_CHARS ? `${body.slice(0, LAST_TIME_MAX_CHARS - 1).trimEnd()}…` : body;
+  return `LAST TIME (the previous conversation about this, for continuity: pick up from it, never recite it back, and never treat it as a source):\n${clipped}`;
+}
+
 /** The final user-facing prompt: data first, conversation next, the ask LAST and unmissable. */
 export function buildChatPrompt(parts: {
   dataBlocks: readonly string[];
   history: readonly ChatTurn[];
   question: string;
+  /** How long to answer; chosen from the question when not given. */
+  size?: AnswerSize;
+  lastTime?: LastTime | null;
 }): string {
   const convo = formatConversation(parts.history);
+  const size = parts.size ?? answerSize(parts.question);
   return [
     ...parts.dataBlocks.filter(Boolean),
+    formatLastTime(parts.lastTime),
     convo ? `CONVERSATION SO FAR (oldest first):\n${convo}` : '',
+    `ANSWER LENGTH: ${size}, at most ${ANSWER_WORD_LIMITS[size]} words. ${size === 'brief' ? 'Answer in a sentence or two; a greeting gets a warm line and a question about what to dig into.' : size === 'deep' ? 'Take the room this needs, organised with short headings, and still lead with the answer.' : 'Lead with the answer, then the one or two details that matter.'}`,
     `THE USER'S NEW MESSAGE — reply to exactly this, directly and conversationally, using the conversation above for context (follow-ups like "and them?" or "why?" refer to it):\n${parts.question}`,
   ]
     .filter(Boolean)

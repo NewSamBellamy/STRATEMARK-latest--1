@@ -283,6 +283,10 @@ export interface ReportRequest {
   focus?: string | null;
   /** Fold a research conversation's findings into the report. */
   threadId?: string | null;
+  /** Fold several conversations of one card into the report (the card's memory). `threadId` is kept for older callers. */
+  threadIds?: string[];
+  /** The card the report is about, so it is kept with that card's memory. */
+  cardId?: string | null;
   /**
    * Company reports only: the sections to include, mirroring the dashboard
    * tabs. When given, the report runs the four-step flow (read what is stored,
@@ -318,6 +322,8 @@ export interface ThreadMessage {
   text: string;
   /** Grounded sources behind an assistant turn. Always [] for user turns. */
   citations: Citation[];
+  /** Where an assistant turn came from: research already on file for the card, or a fresh search. Absent on older turns. */
+  origin?: 'memory' | 'fresh';
   at: string;
 }
 
@@ -365,6 +371,8 @@ export interface AskResearchInput {
    * audit or a metrics report becomes the context of a new conversation.
    */
   attachments?: { reportIds?: string[]; threadIds?: string[] };
+  /** Search again: skip the answer from research on file and run a fresh search. */
+  fresh?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -499,7 +507,45 @@ export interface Report {
   topics?: ReportTopic[];
   sections?: ReportSection[];
   cost?: ReportCost;
+  /** The card, deck and conversations this report belongs to, so a card's memory can list it. Absent on older reports. */
+  cardId?: string | null;
+  deckId?: string | null;
+  threadIds?: string[];
+  /** What the report was asked to concentrate on: everything on the card, one conversation, or a topic. */
+  focusKind?: 'all' | 'thread' | 'topic';
   createdAt: string;
+}
+
+/** One sourced point of a signal card's brief. A point with no source is never kept. */
+export interface SignalBriefPoint {
+  text: string;
+  /** Pages the search itself attributed this point to; at least one. */
+  sources: Citation[];
+}
+
+/**
+ * The body behind a signal card (risk, culture, barrier, insight): a short, sourced mini-report built when the card is first
+ * opened and then kept with the card. `lead` is one sentence; `points` is at most eight, none padded.
+ */
+export interface SignalBrief {
+  cardId: string;
+  cardType: CardType;
+  builtAt: string;
+  lead: string;
+  points: SignalBriefPoint[];
+  /** Every distinct source behind the points. */
+  sources: Citation[];
+  cost: ReportCost;
+}
+
+/** What the app remembers about one card: its conversations, its reports and its brief. Read-only; never researches. */
+export interface CardMemory {
+  cardId: string;
+  /** Newest first. */
+  threads: ResearchThread[];
+  /** Newest first. */
+  reports: Report[];
+  brief: SignalBrief | null;
 }
 
 /**
@@ -533,6 +579,8 @@ export interface ShareSnapshot {
   viceClaims: ViceClaim[];
   /** Stored dashboard tabs per company, exactly as the dashboard shows them. */
   dashboards: Record<string, Partial<Record<DashboardTab, { content: unknown; lastRefreshedAt: string }>>>;
+  /** Briefs of the signal cards in this share, by card id. Absent in shares made before briefs existed. */
+  signalBriefs?: Record<string, SignalBrief>;
 }
 
 /** Targeted micro-research to fill a gap in an existing deck (intelligent empty states). */
@@ -995,7 +1043,13 @@ export interface MarketIntelRepository {
   /** Ask a grounded question in a new or existing research thread. */
   askResearch?(input: AskResearchInput, handlers?: ResearchHandlers): Promise<ResearchThread>;
   /** Threads anchored to a deck and/or company, newest first. */
-  listResearchThreads?(filter?: { deckId?: string; companyId?: string }): Promise<ResearchThread[]>;
+  listResearchThreads?(filter?: { deckId?: string; companyId?: string; cardId?: string }): Promise<ResearchThread[]>;
+  /** A stored signal-card brief, or null when none was built. Never researches. OPTIONAL — engines holding research locally. */
+  peekSignalBrief?(cardId: string): Promise<SignalBrief | null>;
+  /** Build (or, with `force`, rebuild) a signal card's sourced brief and keep it. Spends research credits, so only on request. OPTIONAL. */
+  researchSignalBrief?(input: { cardId: string; force?: boolean; /** Aborted when the card is closed: a build still waiting for a slot (or not yet started) is dropped; one already paid for finishes. */ signal?: AbortSignal }): Promise<SignalBrief>;
+  /** A card's conversations, reports and brief in one read. Never researches. OPTIONAL. */
+  getCardMemory?(cardId: string): Promise<CardMemory>;
   getResearchThread?(id: string): Promise<ResearchThread | null>;
   /** Durable research-job controls used by Electron and future orchestration agents. */
   listResearchJobs?(): Promise<ResearchJob[]>;
