@@ -91,7 +91,7 @@ function TabButton({ id, active, onClick, icon: Icon, label }: { id: TabId, acti
       aria-pressed={isActive}
       onClick={() => onClick(id)}
       className={cn(
-        'flex w-full shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors',
+        'flex shrink-0 items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors sm:w-full',
         isActive ? 'bg-surface-2 text-content' : 'text-muted hover:bg-surface-2 hover:text-content'
       )}
     >

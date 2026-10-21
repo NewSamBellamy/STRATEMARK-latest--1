@@ -258,7 +258,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
         {variant === 'icon' ? null : busy ? 'Exporting…' : 'Share & export'}
       </button>
       {open && (
-        <div role="menu" className={cn('absolute top-full z-50 mt-1 w-72 rounded-xl border border-border bg-surface p-1 shadow-card', side === 'left' ? 'left-0' : 'right-0')}>
+        <div role="menu" className={cn('absolute top-full z-50 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-surface p-1 shadow-card', side === 'left' ? 'left-0' : 'right-0')}>
           {reportEntry && (
             <>
               <p className={GROUP}>Create</p>
