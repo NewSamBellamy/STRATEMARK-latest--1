@@ -28,7 +28,7 @@ export function useHuntRunner(): void {
         lowPowerAnnounced = true;
         useAgentTrace
           .getState()
-          .trace('Sentinel', 'Low power mode — spending cap reached; queued hunts are paused', 'Raise or clear the cap in Settings → Usage & billing to resume.');
+          .trace('Sentinel', 'Low power mode — spending cap reached; queued hunts are paused', 'Raise or clear the cap in Settings → Usage to resume.');
       }
       return;
     }

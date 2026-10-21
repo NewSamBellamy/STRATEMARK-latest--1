@@ -13,7 +13,8 @@ describe('About this beta', () => {
     expect(screen.getByText(/don.t store or log what\s+they contain/i)).toBeInTheDocument();
     expect(screen.getByText(/import that same file/i)).toBeInTheDocument();
     expect(screen.getByText(/bring-your-own-key/i)).toBeInTheDocument();
-    expect(screen.getByText(/optional paid hosted version/i)).toBeInTheDocument();
+    // Nothing about paid plans for now: that comes later.
+    expect(screen.queryByText(/paid|subscription|per month/i)).not.toBeInTheDocument();
   });
   it('opens Settings straight to Data controls for export', () => {
     renderWithProviders(<BetaPage />);
