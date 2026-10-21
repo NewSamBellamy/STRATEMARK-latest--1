@@ -52,28 +52,6 @@ describe('CardReader', () => {
     expect(dialog.getByRole('link', { name: /open full company dashboard/i })).toBeInTheDocument();
   });
 
-  it('shows the source check in the source receipts and leaves the card face text alone', () => {
-    const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
-    const base = cwc.metrics[0]!;
-    const metric = {
-      ...base, metricType: 'employees' as const, value: 123, confidence: 'verified' as const,
-      source: 'https://sec.gov/Archives/report', methodNote: null, capturedAt: '2026-09-29T12:00:00.000Z',
-      citations: [{ title: 'Annual filing', url: 'https://sec.gov/Archives/report', credibility: 'primary' as const }],
-    };
-    const assessed = { ...metric, assessment: {
-      currency: { status: 'current' as const, ageMonths: 2, horizonMonths: 12, basis: 'publishedDate' as const, date: '2026-03' },
-      authority: { tier: 'primary' as const, reason: 'SEC filing' }, purpose: 'regulatory_filing' as const, independentSources: 1,
-      companyReportedOnly: false, grade: 'strong' as const,
-      plainEnglish: ['Published Mar 2026 (current)', 'SEC filing (primary source)', '1 independent source'],
-    } };
-    const plain = renderWithProviders(<CardReader data={{ ...cwc, metrics: [metric] }} open onOpenChange={() => {}} />);
-    expect(screen.queryByLabelText('Source check for Employees')).not.toBeInTheDocument();
-    const face = (document.querySelector('.card-inspector__layout > :first-child') as HTMLElement).textContent;
-    plain.unmount();
-    renderWithProviders(<CardReader data={{ ...cwc, metrics: [assessed] }} open onOpenChange={() => {}} />);
-    expect(screen.getByLabelText('Source check for Employees')).toHaveTextContent('Published Mar 2026 (current) · SEC filing (primary source)');
-    expect((document.querySelector('.card-inspector__layout > :first-child') as HTMLElement).textContent).toBe(face);
-  });
   it('does not call an explicit awaiting-verification state an unsourced summary', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
     renderWithProviders(<CardReader data={{

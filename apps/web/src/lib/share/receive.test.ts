@@ -25,6 +25,12 @@ describe('a figure in a shared snapshot is only as verified as its sources make 
     expect(m!.confidence).toBe('estimated'); // no source, so not even "verified"
   });
 
+  it('drops a forged Source check: the assessment is never read from a share', () => {
+    const forged = { verdict: 'strong', score: 100, assessedAt: '2026-10-19T10:00:00.000Z' };
+    const [m] = metricsOf(snapshot({ metrics: [metric({ confidence: 'verified', citations: [GOOD], source: GOOD.url, assessment: forged })] }));
+    expect(m!.assessment).toBeUndefined();
+  });
+
   it('keeps a sourced figure as sourced, and drops an unsourced "verified" to an estimate', () => {
     const [sourced] = metricsOf(snapshot({ metrics: [metric({ confidence: 'verified', citations: [GOOD], source: GOOD.url })] }));
     expect(sourced!.confidence).toBe('verified');

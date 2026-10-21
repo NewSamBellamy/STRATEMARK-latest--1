@@ -37,13 +37,15 @@ describe('OverviewTab executive summary', () => {
     await user.click(screen.getByRole('tab', { name: 'Where they stand' }));
     expect(screen.getByRole('tabpanel', { name: 'Where they stand' })).toHaveTextContent('leading share');
   });
-  it.each([['stale', 'Stale'], ['aging', 'Aging'], ['current', 'Current']] as const)('marks a %s figure with its freshness word', async (status, word) => {
+  it.each([['stale', 'Out of date'], ['aging', 'Aging'], ['current', 'Current']] as const)('marks a %s figure with its freshness word', async (status, word) => {
     render([{ ...seed, metricType: 'employees', value: 250, confidence: 'verified', source: 'https://sec.gov/x',
       citations: [{ title: 'SEC filing', url: 'https://sec.gov/x', credibility: 'primary' }],
       passageSupport: null, reportedSupport: null, capturedAt: '2026-05-04T00:00:00Z',
-      assessment: { currency: { status, ageMonths: 14, horizonMonths: 12, basis: 'publishedDate', date: '2025-03' },
-        authority: { tier: 'primary', reason: 'SEC filing' }, purpose: 'regulatory_filing', independentSources: 1,
-        companyReportedOnly: false, grade: 'adequate', plainEnglish: ['x', 'y'] } }]);
+      assessment: { version: 1, assessedAt: '2026-10-20T12:00:00.000Z',
+        currency: { asOf: '2025-03-01', asOfSource: 'figure', notAfter: null, notAfterSource: null, ageDays: 600, state: status, freshDays: 365, staleDays: 548 },
+        relevance: { definition: 'employees', period: 'point_in_time', issues: [] }, authority: { tier: 1, publisher: 'SEC filing', level: 'strong' },
+        accuracy: { support: 'original_passage', independentSources: 1, corroboration: 'single', plausibility: 'ok', newerObservation: null },
+        purpose: { kind: 'regulatory_filing', reportedBy: 'regulator' }, score: 70, verdict: 'fair', effect: 'none', summary: 'x' } }]);
     const tile = await screen.findByRole('article', { name: 'Employees: 250' });
     expect(within(tile).getByText(word)).toHaveAttribute('data-freshness', status);
   });

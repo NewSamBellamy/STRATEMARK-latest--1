@@ -7,6 +7,7 @@
  */
 import {
   comparableMetricBasis,
+  figureAsOf,
   type CompanyMetric,
   type MetricType,
 } from '@mi/contracts';
@@ -71,8 +72,8 @@ export function orderMetrics<T extends { metricType: MetricType }>(metrics: read
 
 /** The date a figure refers to, with its honest provenance. */
 export function metricAsOf(m: CompanyMetric): { iso: string | null; kind: 'as_of' | 'verified' | 'captured' } {
-  const proof = m.passageSupport ?? m.reportedSupport;
-  if (proof?.asOf) return { iso: proof.asOf, kind: 'as_of' };
+  const own = figureAsOf(m).asOf;
+  if (own) return { iso: own, kind: 'as_of' };
   if (m.lastVerifiedAt) return { iso: m.lastVerifiedAt, kind: 'verified' };
   return { iso: m.capturedAt ?? null, kind: 'captured' };
 }

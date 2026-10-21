@@ -2,7 +2,7 @@ import { sourceHref } from '@/lib/sourceHref';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ExternalLink, SearchX } from 'lucide-react';
-import { publisherOf, type MetricType } from '@mi/contracts';
+import { figureAsOf, publisherOf, type MetricType } from '@mi/contracts';
 import { useCompany, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
 import { companyFace, faceFigureStatus, type CardView } from '@/features/card/card-view';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
@@ -125,7 +125,7 @@ function FaceTile({ item, ranking, href }: { item: FaceItem; ranking: PeerRankin
   const known = item.metric !== undefined;
   const type = item.metric?.metricType ?? SLOT_TYPE[item.key] ?? 'valuation';
   const citation = item.citations[0];
-  const dated = item.metric?.reportedSupport?.asOf ?? item.metric?.quotedSupport?.asOf ?? item.metric?.reportedBand?.asOf ?? null;
+  const dated = item.metric ? figureAsOf(item.metric).asOf : null;
   const when = dated ? shortDate(dated) ?? dated : null;
   if (!known) {
     return (
