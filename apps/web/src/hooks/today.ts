@@ -24,7 +24,7 @@ async function absorbAnotherWindow(qc: QueryClient, write: () => Promise<void>):
   }
 }
 
-export function useMoves():UseQueryResult<CompanyMove[]> {
+export function useMoves(): UseQueryResult<CompanyMove[]> {
   const repo = useRepository();
   return useQuery({ queryKey: qk.moves, queryFn: () => repo.listMoves?.() ?? Promise.resolve([]) });
 }
