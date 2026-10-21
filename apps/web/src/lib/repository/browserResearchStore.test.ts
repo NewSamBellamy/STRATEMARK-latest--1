@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
 import { GeminiRepository, migrateSnapshot, type LlmClient } from '@mi/research';
-import { installBrowserResearch, openBrowserResearchStore, readBrowserResearchData } from './browserResearchStore';
+import {
+  DAMAGED_BACKUP_PREFIX, DAMAGED_MESSAGE, DamagedResearchError, installBrowserResearch, openBrowserResearchStore,
+  readBrowserResearchData, readDamagedResearch, setDamagedResearchAside,
+} from './browserResearchStore';
 
 const KEY = 'mi.repo.v1';
 const data = () => migrateSnapshot(null).snapshot;
@@ -328,5 +331,72 @@ describe('acknowledged browser research storage', () => {
       await expect(installBrowserResearch(JSON.stringify({ ...data(), ...patch }))).rejects.toThrow(/unreadable/i);
       expect(await readBrowserResearchData()).toEqual(before);
     }
+  });
+
+  describe('a damaged workspace', () => {
+    const DAMAGED = '{"markets":[{"id":"mkt_precious"';
+    const damagedKeys = async () => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('stratemark.vault', 2);
+        request.onupgradeneeded = () => { request.result.createObjectStore('snapshots'); request.result.createObjectStore('images'); };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      return new Promise<string[]>((resolve) => {
+        const request = db.transaction('snapshots', 'readonly').objectStore('snapshots').getAllKeys();
+        request.onsuccess = () => { db.close(); resolve((request.result as string[]).filter((k) => k.includes('damaged-backup'))); };
+      });
+    };
+
+    it('opens with a typed error that says what happened in one plain sentence, and changes nothing on open', async () => {
+      localStorage.setItem(KEY, DAMAGED);
+      const failure = await openBrowserResearchStore().catch((e: unknown) => e);
+      expect(failure).toBeInstanceOf(DamagedResearchError);
+      expect((failure as Error).message).toBe(DAMAGED_MESSAGE);
+      expect(DAMAGED_MESSAGE).not.toMatch(/[.!?]\s/);
+      expect(localStorage.getItem(KEY)).toBe(DAMAGED);
+      expect(await damagedKeys()).toEqual([]);
+    });
+
+    it('offers the stored text intact, from the browser store or from the older local copy', async () => {
+      localStorage.setItem(KEY, DAMAGED);
+      expect(await readDamagedResearch()).toEqual({ text: DAMAGED, bytes: null });
+      localStorage.clear();
+      await putRaw(`${KEY}.committed`, { json: DAMAGED, revision: 3, at: 1 });
+      expect(await readDamagedResearch()).toEqual({ text: DAMAGED, bytes: null });
+      const bytes = new Uint8Array([1, 2, 3]);
+      await putRaw(`${KEY}.committed`, { gz: bytes.buffer, revision: 3, at: 1 });
+      expect(await readDamagedResearch()).toEqual({ text: null, bytes });
+    });
+
+    it('offers nothing when there is no saved workspace', async () => {
+      expect(await readDamagedResearch()).toBeNull();
+    });
+
+    it('sets the damaged text aside under a named backup key and leaves an empty, usable workspace', async () => {
+      localStorage.setItem(KEY, DAMAGED);
+      const stamp = await setDamagedResearchAside(Date.UTC(2026, 0, 2, 3, 4, 5));
+      expect(stamp.startsWith(DAMAGED_BACKUP_PREFIX)).toBe(true);
+      expect(localStorage.getItem(`${stamp}.localStorage`)).toBe(DAMAGED);
+      expect(localStorage.getItem(KEY)).toBeNull();
+      const store = await openBrowserResearchStore();
+      expect(store.read()).toBeNull();
+      await store.write(data());
+      expect((await openBrowserResearchStore()).read()).toEqual(data());
+      expect(localStorage.getItem(`${stamp}.localStorage`)).toBe(DAMAGED);
+    });
+
+    it('sets a damaged browser-store record aside byte for byte, keeping an older backup too', async () => {
+      const record = { gz: new Uint8Array([9, 8, 7]).buffer, revision: 4, at: 1 };
+      const older = { json: JSON.stringify(data()), revision: 3, at: 1 };
+      await putRaw(`${KEY}.committed`, record);
+      await putRaw(`${KEY}.committed.backup`, older);
+      await expect(openBrowserResearchStore()).rejects.toBeInstanceOf(DamagedResearchError);
+      const stamp = await setDamagedResearchAside();
+      expect(await rawRecord(`${KEY}.committed`)).toBeUndefined();
+      expect(new Uint8Array((await rawRecord(`${stamp}.${KEY}.committed`))!.gz as ArrayBuffer)).toEqual(new Uint8Array([9, 8, 7]));
+      expect(await rawRecord(`${stamp}.${KEY}.committed.backup`)).toEqual(older);
+      expect((await openBrowserResearchStore()).read()).toBeNull();
+    });
   });
 });

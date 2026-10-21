@@ -13,6 +13,17 @@ const BACKUP = `${CURRENT}.backup`;
  */
 type RecordValue = { json?: string; gz?: ArrayBuffer; revision: number; at: number };
 
+/** One plain sentence for a workspace the browser cannot read; the recovery controls explain the rest. */
+export const DAMAGED_MESSAGE = 'Your saved research is unreadable, so it was not opened.';
+
+/** The saved workspace is damaged. Distinct from a refused or failed save, so the screen can offer a copy and a fresh start. */
+export class DamagedResearchError extends Error {
+  constructor(options?: { cause?: unknown }) {
+    super(DAMAGED_MESSAGE, options);
+    this.name = 'DamagedResearchError';
+  }
+}
+
 const compressed = () => typeof CompressionStream === 'function' && typeof DecompressionStream === 'function';
 
 async function drain(stream: ReadableStream<Uint8Array>, chunk: (bytes: Uint8Array) => void): Promise<void> {
@@ -38,7 +49,7 @@ async function encode(json: string, revision: number): Promise<RecordValue> {
 /** The JSON a saved record holds; throws when the record is damaged, never returns an empty workspace for it. */
 async function decode(record: RecordValue): Promise<string> {
   if (typeof record.json === 'string') return record.json;
-  if (Object.prototype.toString.call(record.gz) !== '[object ArrayBuffer]') throw new Error('Your saved research is unreadable. Nothing has been overwritten.');
+  if (Object.prototype.toString.call(record.gz) !== '[object ArrayBuffer]') throw new DamagedResearchError();
   if (!compressed()) throw new Error('This browser cannot open compressed research. Update it to continue; nothing has been overwritten.');
   try {
     const gunzip = new DecompressionStream('gzip');
@@ -50,7 +61,7 @@ async function decode(record: RecordValue): Promise<string> {
     text.push(decoder.decode());
     return text.join('');
   } catch (cause) {
-    throw new Error('Your saved research is unreadable. Nothing has been overwritten.', { cause });
+    throw new DamagedResearchError({ cause });
   }
 }
 
@@ -84,7 +95,7 @@ export function parseResearchSnapshot(json: string): RepoSnapshot {
     if (snapshot.signalBriefs !== undefined) snapshot.signalBriefs = siftSignalBriefs(snapshot.signalBriefs);
     return snapshot;
   } catch (cause) {
-    throw new Error('Your saved research is unreadable. Export or recover it before continuing; nothing has been overwritten.', { cause });
+    throw new DamagedResearchError({ cause });
   }
 }
 
@@ -128,7 +139,7 @@ export async function openBrowserResearchStore(): Promise<ResearchStore> {
   const found = await records();
   const saved = found[CURRENT];
   if (saved && (!Number.isSafeInteger(saved.revision) || saved.revision < 1)) {
-    throw new Error('Your saved research is unreadable. Nothing has been overwritten.');
+    throw new DamagedResearchError();
   }
   let revision = saved?.revision ?? 0;
   let committed = (await jsonOf(saved)) ?? localStorage.getItem(LEGACY) ?? (await jsonOf(found[LEGACY])) ?? null;
@@ -190,7 +201,7 @@ export async function openBrowserResearchStore(): Promise<ResearchStore> {
       const refusal = future || version > REPO_SCHEMA_VERSION
         ? new Error('This research uses a newer version of Stratemark. Update before saving.')
         : invalid !== undefined
-          ? new Error('Your saved research is unreadable. Export or recover it before continuing; nothing has been overwritten.', { cause: invalid })
+          ? new DamagedResearchError({ cause: invalid })
           : null;
       if (refusal) {
         // A refused write keeps its own place in the queue and never merges with a valid one.
@@ -223,6 +234,64 @@ export async function readBrowserResearchData(): Promise<{ current: string | nul
     // A damaged backup must not block viewing or exporting a healthy current workspace.
     backup: found[BACKUP] ? await jsonOf(found[BACKUP]).catch(() => null) : localStorage.getItem(`${LEGACY}.backup`),
   };
+}
+
+/** What is stored for a damaged workspace, exactly as stored: its text, or its raw bytes when even the compression is broken. */
+export type DamagedResearch = { text: string | null; bytes: Uint8Array | null };
+
+async function rawOf(record: RecordValue): Promise<DamagedResearch> {
+  if (typeof record.json === 'string') return { text: record.json, bytes: null };
+  if (Object.prototype.toString.call(record.gz) === '[object ArrayBuffer]') {
+    try { return { text: await decode(record), bytes: null }; } catch { return { text: null, bytes: new Uint8Array(record.gz!) }; }
+  }
+  try { return { text: JSON.stringify(record) ?? null, bytes: null }; } catch { return { text: null, bytes: null }; }
+}
+
+/** The stored data the app would have opened (the same order as openBrowserResearchStore). Read only: nothing is changed. */
+export async function readDamagedResearch(): Promise<DamagedResearch | null> {
+  const found = await records();
+  if (found[CURRENT]) return rawOf(found[CURRENT]);
+  const legacy = localStorage.getItem(LEGACY);
+  if (legacy !== null) return { text: legacy, bytes: null };
+  return found[LEGACY] ? rawOf(found[LEGACY]) : null;
+}
+
+/** Where a damaged workspace is kept when the person starts over. Never read by the app, never deleted by it. */
+export const DAMAGED_BACKUP_PREFIX = `${LEGACY}.damaged-backup`;
+
+/**
+ * Moves the damaged workspace to backup keys and leaves no saved workspace, so the next open is empty.
+ * Every copy is written and checked before anything is removed; a failure leaves the original in place.
+ * Only ever called from an explicit, confirmed click.
+ */
+export async function setDamagedResearchAside(now: number = Date.now()): Promise<string> {
+  const stamp = `${DAMAGED_BACKUP_PREFIX}.${new Date(now).toISOString().replace(/[:.]/g, '-')}`;
+  const legacy = localStorage.getItem(LEGACY);
+  if (legacy !== null) {
+    localStorage.setItem(`${stamp}.localStorage`, legacy);
+    if (localStorage.getItem(`${stamp}.localStorage`) !== legacy) throw new Error('The copy could not be saved, so nothing was changed.');
+  }
+  const db = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('snapshots', 'readwrite');
+      const store = tx.objectStore('snapshots');
+      for (const key of [CURRENT, BACKUP, LEGACY]) {
+        const request = store.get(key);
+        request.onsuccess = () => {
+          if (request.result === undefined) return;
+          store.put(request.result, `${stamp}.${key}`);
+          store.delete(key);
+        };
+      }
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(new Error('The copy could not be saved, so nothing was changed.', { cause: tx.error }));
+    });
+  } finally {
+    db.close();
+  }
+  if (legacy !== null) localStorage.removeItem(LEGACY);
+  return stamp;
 }
 
 export async function installBrowserResearch(json: string): Promise<number> {
