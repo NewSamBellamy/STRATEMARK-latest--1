@@ -79,6 +79,15 @@ describe('DeckStatusBar', () => {
     expect(state.fillCardFaces).toHaveBeenCalledTimes(1);
   });
 
+  it('opens the existing list of missing figures from the "not found yet" text', async () => {
+    const { user } = renderWithProviders(
+      <DeckStatusBar deckId="deck_1" marketName="Test" cards={[full(1), half(2)]} living={living()} />,
+    );
+    expect(screen.queryByRole('region', { name: 'Figures still missing' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '2 figures not found yet' }));
+    expect(screen.getByRole('region', { name: 'Figures still missing' })).toBeInTheDocument();
+  });
+
   it('shows live filling while background research runs', () => {
     renderWithProviders(<DeckStatusBar deckId="deck_1" marketName="Test" cards={[full(1), half(2)]} living={living({ status: 'running' })} />);
     expect(screen.getByRole('status')).toHaveTextContent('Filling cards · 1 of 2 complete · 2 figures to find');

@@ -56,6 +56,7 @@ import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
 import { CardGrid } from './CardGrid';
 import { deckActionPolicy } from './deck-actions';
+import { orderLane } from './lane-order';
 import { useRepository, useSupports } from '@/lib/repository/RepositoryProvider';
 import { useFollowCompanies, useFollows } from '@/hooks/today';
 
@@ -504,7 +505,7 @@ export default function DeckPage() {
         {(list) => {
           // Level 1 leaf — a specific non-company sub-deck's cards.
           if (split === 'types' && typeParam) {
-            const filtered = list.filter((c) => c.card.cardType === typeParam);
+            const filtered = orderLane(list.filter((c) => c.card.cardType === typeParam));
             return (
               <section>
                 <TypeNav
@@ -551,7 +552,7 @@ export default function DeckPage() {
             list.some((card) => card.card.cardType === type),
           );
           const defaultType: CardType = typeParam ?? firstPopulatedType ?? 'company';
-          const filtered = list.filter((c) => c.card.cardType === defaultType);
+          const filtered = orderLane(list.filter((c) => c.card.cardType === defaultType));
           return (
             <section>
               <TypeNav
