@@ -5,6 +5,7 @@ import type { CompanyMove, MoveKind } from '@mi/contracts';
 import { EmptyState } from '@/components/states/EmptyState';
 import { cn } from '@/lib/cn';
 import { formatRelative } from '@/lib/format';
+import { safeHttpUrl } from '@/lib/sourceHref';
 import { useFollows, useMarkMoveRead, useMoves, useRefreshMoves, useUnfollowCompany } from '@/hooks/today';
 import { TodayCompanyView } from './TodayCompanyView';
 
@@ -39,8 +40,6 @@ function sourceName(move: CompanyMove): string {
   if (move.publisher) return move.publisher;
   try { return new URL(move.url).hostname.replace(/^www\./, ''); } catch { return 'Source'; }
 }
-
-const safeHref = (url: string) => (/^https?:\/\//i.test(url) ? url : undefined);
 
 export default function TodayPage() {
   const since = useLastVisit();
@@ -166,7 +165,7 @@ export default function TodayPage() {
                     {move.importance === 3 && <span className="rounded-full bg-primary/8 px-2 py-0.5 font-medium text-primary">Major</span>}
                     {isNew(move) && <span className="font-semibold text-primary">New</span>}
                   </div>
-                  <a href={safeHref(move.url)} target="_blank" rel="noopener noreferrer"
+                  <a href={safeHttpUrl(move.url)} target="_blank" rel="noopener noreferrer"
                     className={cn('mt-1 block text-[15px] leading-snug text-content hover:text-primary hover:underline', !move.readAt && 'font-semibold')}
                     onClick={() => { if (!move.readAt) markRead.mutate({ id: move.id, read: true }); }}>
                     {move.title}

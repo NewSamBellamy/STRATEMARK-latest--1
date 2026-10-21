@@ -20,6 +20,7 @@
 import { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useRealCover } from '@/lib/media/realCover';
+import { imageReferrerPolicy } from '@/lib/hostedApi';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useAiCover, type CoverAspect } from '@/lib/ai/aiCover';
 import { EditorialCover } from './EditorialCover';
@@ -61,7 +62,7 @@ export function AiCover({
           src={real.src!}
           alt=""
           loading="lazy"
-          referrerPolicy="no-referrer"
+          referrerPolicy={imageReferrerPolicy(real.src!)}
           onError={() => setRealBroken(true)}
           className="h-full w-full object-cover"
         />

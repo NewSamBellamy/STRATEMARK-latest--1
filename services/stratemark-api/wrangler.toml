@@ -27,10 +27,22 @@ class_name = "ShareQuota"
 tag = "v2"
 new_sqlite_classes = ["ShareVault", "ShareQuota"]
 
+# Per-visitor read limits: one object per visitor (named by a hash of its address), so no single object is a hotspot.
+[[durable_objects.bindings]]
+name = "READER_QUOTA"
+class_name = "ReaderQuota"
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["ReaderQuota"]
+
 [vars]
 # Browser origins allowed to call the API (full origins or *.host wildcards).
 # Never add a shared-hosting wildcard like *.pages.dev: anyone could host a page there.
-ALLOWED_ORIGINS = "https://getstratemark.com,https://*.getstratemark.com,https://stratemark.pages.dev,https://*.stratemark.pages.dev"
+# Only origins the owner controls. A name on a shared host (stratemark.pages.dev) is not listed: whoever claims it first could then
+# make share links whose viewer is their own page, behind this Worker's address. Add the beta address when it is yours; the
+# launch preflight says if the app's address is not allowed.
+ALLOWED_ORIGINS = "https://getstratemark.com,https://*.getstratemark.com"
 ALLOW_LOCALHOST = "false"
 # Hosted Gemini spend ceiling per UTC day (USD), all visitors together, and
 # each visitor's (IP's) share of it. Costs are metered at the highest current

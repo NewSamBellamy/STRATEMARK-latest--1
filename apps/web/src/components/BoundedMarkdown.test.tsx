@@ -90,6 +90,6 @@ describe('honest research text is still formatted', () => {
 
   it('keeps links to web pages only, as before', () => {
     const view = render(<ReadOnlyProvider><ResearchMarkdown text="[ok](https://www.acme.example) and [bad](javascript:alert(1))" /></ReadOnlyProvider>);
-    expect(Array.from(view.container.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual(['https://www.acme.example']);
+    expect(Array.from(view.container.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual(['https://www.acme.example/']); // the address as the one safe-link check writes it
   });
 });

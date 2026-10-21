@@ -22,6 +22,15 @@ describe('recent SEC filings on Live Intel', () => {
     expect(screen.getByRole('link', { name: /Quarterly report/ })).toHaveAttribute('href', state.filings[1]!.url);
   });
 
+  it('does not link a filing whose address is not a web page', async () => {
+    state.filings = [
+      { form: '8-K', filingDate: '2026-08-17', reportDate: '2026-08-17', title: 'Current report', events: [], url: 'javascript:alert(1)' },
+    ];
+    renderWithProviders(<SecFilings companyName="NVIDIA" />);
+    expect(await screen.findByText('Current report')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
   it('shows nothing for a company with no SEC filings', async () => {
     state.filings = null;
     const { container } = renderWithProviders(<SecFilings companyName="Anthropic" />);

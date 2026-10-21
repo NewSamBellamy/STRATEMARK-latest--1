@@ -17,6 +17,7 @@ import { useRepository, useSupports } from '@/lib/repository/RepositoryProvider'
 import { cn } from '@/lib/cn';
 import { publisherOf } from '@mi/contracts';
 import { sourceHref } from '@/lib/sourceHref';
+import { SafeLink } from '@/components/SafeLink';
 import { initialsOf, photoCredit, useWikiHeadshot } from './LeaderGrid';
 import { companyAccent, type ProfileCompany } from './ProfileCard';
 
@@ -145,9 +146,9 @@ export function PersonProfile({
             <blockquote className="mt-3 border-l-2 border-primary/40 pl-3 text-[13px] leading-relaxed text-content/90">
               &ldquo;{person.supportingQuote}&rdquo;
               <footer className="mt-1 text-[11px] text-faint">
-                <a href={person.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-primary-ink hover:underline">
+                <SafeLink href={person.sourceUrl} className="text-primary-ink hover:underline">
                   {publisherOf(person.sourceUrl, null)}
-                </a>
+                </SafeLink>
                 {person.sourceRetrievedAt ? ` · retrieved ${person.sourceRetrievedAt.slice(0, 10)}` : ''}
               </footer>
             </blockquote>

@@ -47,12 +47,16 @@ export type ShareParse = { ok: true; value: ShareCreate } | { ok: false; error: 
 const CONTROL = new RegExp(`[${String.fromCharCode(0)}-${String.fromCharCode(31)}${String.fromCharCode(127)}-${String.fromCharCode(159)}${String.fromCharCode(0x2028)}${String.fromCharCode(0x2029)}]+`, 'g');
 
 /**
- * Characters that draw nothing or reorder what is around them: zero-width and word-joiner marks, the soft hyphen, the
- * left-to-right and right-to-left marks and overrides and isolates, the byte-order mark. A title that carries them can
- * read as something it is not (a right-to-left override flips a name), so they are removed, not replaced by a space.
+ * Characters that draw nothing or reorder what is around them: every Unicode default-ignorable code point (the soft hyphen,
+ * the combining grapheme joiner, the Arabic letter mark, the Hangul and Khmer fillers, the Mongolian vowel separator,
+ * zero-width, word-joiner and direction marks, overrides and isolates, variation selectors, the byte-order mark, and the tag
+ * characters U+E0000 to U+E007F that spell ASCII nobody can see), every other format character, and the braille blank. A
+ * title that carries them can read as something it is not (a right-to-left override flips a name), and a chat app's link
+ * unfurler, often a language model, reads hidden text the reader never sees in og:title and og:description (red team R2-S1).
+ * They are removed, not replaced by a space. The zero-width joiner and variation selector 16 go with them, so an emoji
+ * sequence falls back to its parts (it already did for the joiner); the emoji themselves stay.
  */
-const INVISIBLE = new RegExp(`[${[[0xad, 0xad], [0x200b, 0x200f], [0x202a, 0x202e], [0x2060, 0x2064], [0x2066, 0x2069], [0xfeff, 0xfeff]]
-  .map(([from, to]) => `${String.fromCharCode(from!)}-${String.fromCharCode(to!)}`).join('')}]+`, 'g');
+const INVISIBLE = /[\p{Default_Ignorable_Code_Point}\p{Cf}\u2800]+/gu;
 
 /** Printable text only: no control or invisible characters, one line, bounded. */
 export function cleanText(value: unknown, max: number): string {

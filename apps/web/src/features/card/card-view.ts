@@ -5,6 +5,7 @@ import {
   type CardWithCompany, type Company, type CompanyMetric, type MetricType, type Ownership,
 } from '@mi/contracts';
 import { quotedSupportHolds, reportedBandCitations, reportedSupportCitations } from '@mi/research';
+import { safeHttpUrl } from '@/lib/sourceHref';
 import type { OvrBreakdown } from './rating';
 
 const LABELS: Record<MetricType, string> = {
@@ -660,12 +661,9 @@ export function companyFace(company: Company, metrics: readonly CompanyMetric[])
   return buildCardView({ card, company, metrics: [...metrics], viceClaims: [] }).faceMetrics;
 }
 
+/** For callers that want null rather than undefined; the rule itself lives in safeHttpUrl. */
 export function sourceUrl(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value.trim());
-    return ['https:', 'http:'].includes(url.protocol) ? url.href : null;
-  } catch { return null; }
+  return safeHttpUrl(value) ?? null;
 }
 
 function displayValue(metric: CompanyMetric): string {

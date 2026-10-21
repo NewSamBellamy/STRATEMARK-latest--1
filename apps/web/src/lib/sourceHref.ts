@@ -19,3 +19,27 @@ export function sourceHref(url: string, title?: string | null): string {
 export function isDirectSource(url: string): boolean {
   return /^https?:\/\//i.test(url) && !isGroundingRedirect(url);
 }
+
+/**
+ * The one gate between data we did not write (model output, imported
+ * snapshots, shared links) and an `href`. Returns the normalised URL only for
+ * http(s) with a real hostname and no embedded credentials; anything else
+ * (`javascript:`, `data:`, protocol-relative `//host`, a bare path) comes back
+ * `undefined` so the caller renders plain text instead of a link. A browser
+ * runs `javascript:` on click even with `rel="noopener"`, so this has to be
+ * checked at the link rather than trusted from the field's type.
+ */
+export function safeHttpUrl(value: string | null | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
+    // `https://trusted.com@evil.example` reads as the first host to a person.
+    if (!url.hostname || url.username || url.password) return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}

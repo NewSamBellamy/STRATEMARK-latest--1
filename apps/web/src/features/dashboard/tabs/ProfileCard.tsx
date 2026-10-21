@@ -14,6 +14,7 @@ import { ArrowUpRight, RotateCcw } from 'lucide-react';
 import type { OrgNode } from '@mi/contracts';
 import { deriveTriad } from '@/lib/brand';
 import { cn } from '@/lib/cn';
+import { safeHttpUrl } from '@/lib/sourceHref';
 import { Logo } from '@/features/card/Logo';
 import { initialsOf, photoCredit, useWikiHeadshot } from './LeaderGrid';
 
@@ -144,8 +145,8 @@ export function ProfileCard({
             </dl>
             {person.bio?.trim() && <p className="mt-2 line-clamp-3 text-[10.5px] leading-snug text-[#4d554f]">{person.bio.trim()}</p>}
             <div className="mt-auto flex items-center justify-between gap-2 pt-2">
-              {person.sourceUrl ? (
-                <a href={person.sourceUrl} target="_blank" rel="noopener noreferrer" tabIndex={flipped ? 0 : -1} className="truncate text-[10px] underline-offset-2 hover:underline" style={{ color: accent }}>
+              {safeHttpUrl(person.sourceUrl) ? (
+                <a href={safeHttpUrl(person.sourceUrl)} target="_blank" rel="noopener noreferrer" tabIndex={flipped ? 0 : -1} className="truncate text-[10px] underline-offset-2 hover:underline" style={{ color: accent }}>
                   Source
                 </a>
               ) : <span className="text-[10px] text-[#9a9684]">No source link</span>}

@@ -5,8 +5,7 @@
  * "Save as PDF" always produces this layout regardless of the page the user
  * was on. Styling lives in print.css.
  */
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { SafeMarkdown } from '@/components/ResearchMarkdown';
 import { isRedirectCitation, publisherOf, usableCitations, type ThreadMessage } from '@mi/contracts';
 import { Logo } from '@/features/card/Logo';
 import { splitFollowUps } from '@/features/deepdive/followUps';
@@ -396,7 +395,7 @@ function TopicReportBody({ model }: { model: TopicReportModel }) {
             </div>
           )}
           <div className="sm-md">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{s.markdown}</ReactMarkdown>
+            <SafeMarkdown>{s.markdown}</SafeMarkdown>
           </div>
           {s.gaps.length > 0 && (
             <p className="sm-gap">
@@ -635,7 +634,7 @@ function PersonReportBody({ model }: { model: PersonReportModel }) {
         <section className="sm-topic">
           <h2 className="sm-h2">Deeper research</h2>
           <div className="sm-md">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{model.deeper.markdown}</ReactMarkdown>
+            <SafeMarkdown>{model.deeper.markdown}</SafeMarkdown>
           </div>
           {model.deeper.footnotes.length > 0 && (
             <ol className="sm-notes">
@@ -676,7 +675,7 @@ function TranscriptBody({ job }: { job: Extract<PrintJob, { kind: 'transcript' }
             <div key={m.id} className="sm-turn">
               <p className="sm-who">Stratemark</p>
               <div className="sm-md">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{splitFollowUps(m.text).body}</ReactMarkdown>
+                <SafeMarkdown>{splitFollowUps(m.text).body}</SafeMarkdown>
               </div>
               {cites.length > 0 && (
                 <ol className="sm-notes">
