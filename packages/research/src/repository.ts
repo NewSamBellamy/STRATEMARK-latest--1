@@ -1433,7 +1433,15 @@ export class GeminiRepository implements MarketIntelRepository {
   async resumeResearchJob(id: string): Promise<ResearchJob | null> {
     const job = this.snap.researchJobs.find((candidate) => candidate.id === id);
     if (!job) return null;
-    if (job.status === 'running' || job.status === 'completed') return job;
+    if (job.status === 'running') return job;
+    // A job marked completed can still hold roster companies that never got researched (a
+    // permanent hydration failure, or the stall watchdog's forced completion). Those decks read
+    // "partial"; resuming re-hydrates only the stranded companies, so it must be allowed.
+    if (job.status === 'completed') {
+      const rostered = new Set(job.catalogNames.map(companyKey));
+      const done = new Set(job.completedEntityNames.map(companyKey));
+      if (![...rostered].some((key) => !done.has(key))) return job;
+    }
     if (!job.marketPlan || !job.market || !job.deck || !job.catalog) return job;
     const controller = new AbortController();
     this.jobControllers.set(id, controller);
@@ -1481,6 +1489,13 @@ export class GeminiRepository implements MarketIntelRepository {
       await this.persist();
       this.jobControllers.delete(id);
       await this.ingest(result);
+      // A resumed deck finishes the way a created one does: its dashboard tabs warm in the
+      // background (highest tier first) and any signal lane the first pass left short gets its
+      // targeted search. Without this a deck that was interrupted once stayed without tabs or
+      // vice/culture cards until the user happened to open it. Never awaited; neither can fail the job.
+      this.markDeckWarmupStarted(result.deck.id);
+      this.warmDeckDashboards(result.deck.id, 'creation');
+      void this.ensureSignalCards(result.deck.id).catch(() => undefined);
       return job;
     } catch (error) {
       job.status = controller.signal.aborted ? 'cancelled' : 'failed';

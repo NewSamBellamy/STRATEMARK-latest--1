@@ -291,6 +291,17 @@ export function useRefreshDeck() {
   });
 }
 
+/** A completed job that still has roster companies without a researched card (a "partial" deck). */
+function hasUnfinishedRoster(job: {
+  status: string;
+  catalogNames?: string[];
+  completedEntityNames?: string[];
+}): boolean {
+  if (job.status !== 'completed') return false;
+  const done = new Set((job.completedEntityNames ?? []).map((name) => name.toLowerCase().trim()));
+  return (job.catalogNames ?? []).some((name) => !done.has(name.toLowerCase().trim()));
+}
+
 /** Resumable failed/partial creation job for a deck, when the engine keeps them. */
 export function useResumableJob(marketId: string | undefined) {
   const repo = useRepository();
@@ -302,7 +313,7 @@ export function useResumableJob(marketId: string | undefined) {
       const jobs = await repo.listResearchJobs!();
       return jobs
         .filter((job) => job.deck?.marketId === marketId &&
-          (job.status === 'failed' || job.status === 'cancelled') &&
+          (job.status === 'failed' || job.status === 'cancelled' || hasUnfinishedRoster(job)) &&
           job.marketPlan && job.market && job.deck && job.catalog)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
     },
