@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { BusinessRelationship, Product, RoadmapItem } from '@mi/contracts';
-import { ProductsRoadmapTab, isPastDue, targetEnd } from './ProductsRoadmapTab';
+import { ProductsRoadmapTab, isPastDue, targetEnd, uniformProductStatus } from './ProductsRoadmapTab';
 
 const state = vi.hoisted(() => ({ products: [] as Product[], roadmap: [] as RoadmapItem[], refreshedAt: null as string | null, relationships: undefined as BusinessRelationship[] | undefined, cached: {} as Record<string, unknown> }));
 vi.mock('@/hooks/data', () => ({ useCompany: () => ({ data: { name: 'Acme' } }), useDashboardTab: () => ({
@@ -42,6 +42,22 @@ describe('product evidence wording in the existing view', () => {
     expect(screen.getByText(/Revenue contribution is not established/)).toBeInTheDocument();
     expect(screen.queryByText('Revenue role not disclosed')).not.toBeInTheDocument();
     expect(screen.getByText('Reported as 12% of 2025 sales.')).toBeInTheDocument();
+  });
+  it('says a status shared by every product once in the header and keeps a differing one on its card', () => {
+    const prod = (name: string, status: Product['status']): Product => ({ name, status, description: 'Company-reported: ' + name, revenueNote: '', url: null });
+    expect(uniformProductStatus([prod('A', 'live'), prod('B', 'live')])).toBe('live');
+    expect(uniformProductStatus([prod('A', 'live')])).toBeNull();
+    expect(uniformProductStatus([prod('A', 'live'), prod('B', null)])).toBeNull();
+    expect(uniformProductStatus([prod('A', 'live'), prod('B', 'beta')])).toBeNull();
+    state.products = [prod('Atlas', 'live'), prod('Beacon', 'live')];
+    const { unmount } = render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.getByText(/All 2 are live\./)).toBeInTheDocument();
+    expect(screen.queryByText('Live')).not.toBeInTheDocument();
+    unmount();
+    state.products = [prod('Atlas', 'live'), prod('Beacon', 'beta')];
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.queryByText(/All 2 are/)).not.toBeInTheDocument();
+    expect(screen.getAllByText('Live').length).toBeGreaterThan(0);
   });
   it('shows a search-reported claim itself, with one small marker instead of the long wrapper', () => {
     state.products = [{ name: 'T380AMR', status: null, revenueNote: '', url: null,

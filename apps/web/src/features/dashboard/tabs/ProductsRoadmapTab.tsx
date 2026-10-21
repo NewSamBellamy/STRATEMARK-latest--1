@@ -146,7 +146,13 @@ const hasHttpUrl = (url: string | null | undefined) => !!url && /^https?:\/\//.t
 // One column per populated group, never a hollow one; 1-3 columns by count.
 const GROUP_COLS: Record<number, string> = { 1: '', 2: 'md:grid-cols-2', 3: 'md:grid-cols-3' };
 
-function ProductTable({ products, onOpen }: { products: Product[]; onOpen: (p: Product) => void }) {
+/** The one status every product shares ("live" for all 21), or null when they differ or any has none. */
+export function uniformProductStatus(products: readonly Product[]): ProductStatus | null {
+  const first = products[0]?.status;
+  return products.length >= 2 && first && products.every((p) => p.status === first) ? first : null;
+}
+
+function ProductTable({ products, onOpen, showStatus = true }: { products: Product[]; onOpen: (p: Product) => void; showStatus?: boolean }) {
   // A column that says "Source not recorded" on every row is noise: omit it when no row has a link.
   const showSource = products.some((p) => hasHttpUrl(p.url));
   return (
@@ -156,7 +162,7 @@ function ProductTable({ products, onOpen }: { products: Product[]; onOpen: (p: P
           <tr className="border-b border-border bg-surface-2/60 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-faint">
             <th className="px-3 py-2">Product</th>
             <th className="hidden px-3 py-2 md:table-cell">Description</th>
-            <th className="px-3 py-2">Status</th>
+            {showStatus && <th className="px-3 py-2">Status</th>}
             {showSource && <th className="px-3 py-2">Source</th>}
           </tr>
         </thead>
@@ -172,6 +178,7 @@ function ProductTable({ products, onOpen }: { products: Product[]; onOpen: (p: P
                 <td className="hidden max-w-0 px-3 py-1.5 text-muted md:table-cell md:w-full">
                   <span className="block truncate" title={desc || undefined}>{desc || 'No description retained.'}</span>
                 </td>
+                {showStatus && (
                 <td className="whitespace-nowrap px-3 py-1.5">
                   {p.status ? (
                     <span className={cn('chip py-0.5 text-[11px]', STATUS_STYLE[p.status])}>{STATUS_LABEL[p.status]}</span>
@@ -179,6 +186,7 @@ function ProductTable({ products, onOpen }: { products: Product[]; onOpen: (p: P
                     <span className="text-faint">-</span>
                   )}
                 </td>
+                )}
                 {showSource && (
                   <td className="whitespace-nowrap px-3 py-1.5">
                     {hasUrl ? (
@@ -224,6 +232,8 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
           if (p.status) acc[p.status] = (acc[p.status] ?? 0) + 1;
           return acc;
         }, {});
+        // Said once in the header when every product has the same status; a pill per item adds nothing then.
+        const sharedStatus = uniformProductStatus(c.products);
         // The tab's own recorded research capture date; null stamps nothing.
         const statedOn = result.lastRefreshedAt
           ? formatDate(result.lastRefreshedAt)
@@ -244,7 +254,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                 count={c.products.length > 0 ? c.products.length : undefined}
                 description={
                   c.products.length
-                    ? 'Company-reported product disclosures, not a revenue ranking. Revenue contribution is not established.'
+                    ? `Company-reported product disclosures, not a revenue ranking. Revenue contribution is not established.${sharedStatus ? ` All ${c.products.length} are ${STATUS_LABEL[sharedStatus].toLowerCase()}.` : ''}`
                     : (result.lastRefreshedAt
                       ? `Last researched ${formatDate(result.lastRefreshedAt)}.`
                       : 'No original-backed product details are available yet. Refresh research to check official sources; earlier notes remain saved.')
@@ -304,7 +314,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                     </EmptyNote>
                   ) : (
                     viewMode === 'table' ? (
-                    <ProductTable products={products} onOpen={setOpenProduct} />
+                    <ProductTable products={products} onOpen={setOpenProduct} showStatus={!sharedStatus} />
                     ) : (
                     <ul className={cn('grid gap-3', products.length > 1 && 'md:grid-cols-2')}>
                       {products.map((p) => {
@@ -322,7 +332,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                                 <h4 className="font-medium text-content">
                                   <button type="button" className="text-left" onClick={(e) => { e.stopPropagation(); setOpenProduct(p); }}>{p.name}</button>
                                 </h4>
-                                {p.status && (
+                                {p.status && !sharedStatus && (
                                   <span className={cn('chip shrink-0 py-0.5 text-[11px]', STATUS_STYLE[p.status])}>
                                     {STATUS_LABEL[p.status]}
                                   </span>

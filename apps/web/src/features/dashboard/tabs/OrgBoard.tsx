@@ -195,9 +195,11 @@ export interface OrgBoardProps {
   company: ProfileCompany;
   board: readonly BoardMember[];
   onOpen: (id: string) => void;
+  /** False when the page says "no career details reported" once for everyone, so no card repeats it. */
+  careerNote?: boolean;
 }
 
-export function OrgBoard({ people, parentOf, company, board, onOpen }: OrgBoardProps) {
+export function OrgBoard({ people, parentOf, company, board, onOpen, careerNote = true }: OrgBoardProps) {
   const narrow = useIsNarrow();
   const wide = useIsWide();
   const [flipped, setFlipped] = useState<ReadonlySet<string>>(new Set());
@@ -343,6 +345,7 @@ export function OrgBoard({ people, parentOf, company, board, onOpen }: OrgBoardP
         flipped={flipped.has(p.id)}
         onFlip={() => toggleFlip(p.id)}
         onOpenProfile={() => onOpen(p.id)}
+        careerNote={careerNote}
         // Cards stay opaque so the strings behind them never show through; the strings dim instead.
         dim={false}
         reportsTo={parentOf.has(p.id) ? nameById.get(parentOf.get(p.id)!) ?? null : null}

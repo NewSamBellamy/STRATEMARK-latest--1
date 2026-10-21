@@ -352,6 +352,8 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
             : undefined;
         const total = result.content.nodes.length;
         const nothingShown = filtered.length === 0 && shownBoard.length === 0;
+        // True of every person, so it is said once above the board and not on each card.
+        const noCareer = total >= 2 && result.content.nodes.every((p) => statLines(p).length === 0);
         return (
           <div className="cascade">
             <SectionHeader
@@ -441,13 +443,17 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
                 {nothingShown ? (
                   <NoMatches search={search} onClear={clearFilters} />
                 ) : (
+                  <>
+                  {noCareer && <p className="text-[12px] text-faint">No career details were reported for these people.</p>}
                   <OrgBoard
+                    careerNote={!noCareer}
                     people={filtered}
                     parentOf={parentOf}
                     company={profileCompany}
                     board={shownBoard}
                     onOpen={setSelectedPersonId}
                   />
+                  </>
                 )}
               </div>
             ) : visible.length === 0 ? (
