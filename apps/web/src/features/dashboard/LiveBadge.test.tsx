@@ -18,6 +18,14 @@ describe('LiveBadge honesty', () => {
   });
 });
 
+describe('LiveBadge unparseable date', () => {
+  it('never prints Invalid Date', () => {
+    render(<LiveBadge lastRefreshedAt="not a date" now={NOW} />);
+    expect(screen.getByText(/^Last checked/)).toBeInTheDocument();
+    expect(screen.queryByText(/Invalid/)).toBeNull();
+  });
+});
+
 describe('featuredStories', () => {
   it('takes the first four fresh stories, so the list below can leave them out', () => {
     const mk = (id: string, stale = false) => ({ id, stale }) as LiveIntelItem;
