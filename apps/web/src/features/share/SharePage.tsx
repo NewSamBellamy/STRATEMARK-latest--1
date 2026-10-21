@@ -425,7 +425,8 @@ export default function SharePage() {
     );
   }
 
-  const companyCount = payload.cards.filter((c) => c.company).length;
+  // Companies, not cards: a company with a risk card and a culture card is still one company.
+  const companyCount = new Set(payload.cards.flatMap((c) => (c.company ? [c.company.name.trim().toLowerCase()] : []))).size;
   const sharedDate = new Date(payload.sharedAt).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',

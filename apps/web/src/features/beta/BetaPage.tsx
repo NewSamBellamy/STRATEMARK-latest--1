@@ -45,8 +45,13 @@ export default function BetaPage() {
           <p>
             To cover the AI cost, research requests pass through our server on their way to Google&apos;s Gemini API, and
             company websites are fetched through it too. We pass them straight through and don&apos;t store or log what
-            they contain. The only thing we keep is a running total of today&apos;s AI spend (counted per IP address, to
-            enforce the free limit), which resets every day.
+            they contain. Apart from a share link you create (below), the only thing we keep is a running total of
+            today&apos;s AI spend (counted per IP address, to enforce the free limit), which resets every day.
+          </p>
+          <p>
+            A share link is the one exception, and only when you press Create link: so the link works, we keep a
+            read-only copy of that card or deck, with its research, for 90 days. Anyone who has the link can read it. You
+            can stop sharing at any time from the Share dialog, which deletes the copy.
           </p>
         </Point>
         <Point icon={<Download className="h-4 w-4" />} title="Export everything, any time">

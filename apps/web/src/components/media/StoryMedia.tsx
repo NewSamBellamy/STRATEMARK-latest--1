@@ -12,7 +12,7 @@ import { Play, X } from 'lucide-react';
 import type { CompanyVideo } from '@mi/contracts';
 import { Modal } from '@/components/ui/Modal';
 import { SafeLink } from '@/components/SafeLink';
-import { hasHostedApi, hostedUrl } from '@/lib/hostedApi';
+import { hasHostedApi, hostedUrl, imageReferrerPolicy } from '@/lib/hostedApi';
 import { getRealCover } from '@/lib/media/realCover';
 import { cn } from '@/lib/cn';
 
@@ -86,7 +86,7 @@ export function StoryImage({ pageUrl, imageUrl, publisher, className, fallback =
             alt=""
             loading="lazy"
             decoding="async"
-            referrerPolicy="no-referrer"
+            referrerPolicy={imageReferrerPolicy(picture.src)}
             onLoad={() => setLoaded(true)}
             onError={() => setBroken(true)}
             className={cn('absolute inset-0 h-full w-full object-cover transition-opacity duration-500', loaded ? 'opacity-100' : 'opacity-0')}

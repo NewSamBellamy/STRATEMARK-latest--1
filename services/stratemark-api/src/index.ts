@@ -8,13 +8,20 @@
  *   POST /v1/asset-source  { url }           raw HTML for logo/headshot parsing
  *   GET  /v1/image?url=                      a public image with CORS (logos, real cover images)
  *   GET  /v1/preview?url=                    the real image a page publishes for link previews
+ *   POST /v1/share                           store a read-only share (made by the browser), answer its link and a stop-sharing token
+ *   GET  /v1/share/:id                       a share's compressed snapshot (public by link, any origin)
+ *   DELETE /v1/share/:id                     stop sharing (needs the token from creation)
+ *   GET  /s/:id, /s/:id/og.png               the link people paste: preview tags, a hand-off to the viewer, the preview picture
  *   GET  /health
  *
  * The Gemini key lives only in the GEMINI_API_KEY secret; it is never echoed,
  * logged or returned.
  *
  * Privacy (a beta promise, see the web app's "About this beta" page): request
- * and response bodies pass through and are never stored or logged. Invocation
+ * and response bodies pass through and are never stored or logged. The one
+ * exception is a share link the user chooses to create: that stores a read-only
+ * copy of the shared card or deck for a bounded time (90 days by default) until
+ * its owner stops sharing it. Invocation
  * logs (which record URLs) are off; the only logs are status codes. The budget
  * ledger keeps today's per-IP spend to enforce the free limit and replaces it
  * with a count each day. These routes replace the Vite dev-only /__stratemark
@@ -23,19 +30,39 @@
 import { Buffer } from 'node:buffer';
 import { retrieveOriginalSource, type SourceTransport } from '@mi/research/original-source-node';
 import type { OriginalSourceReceipt, OriginalSourceScope } from '@mi/research';
-import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, reserveMicros, safePublicUrl, type GeminiUsage } from './policy';
+import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, readBudgetUsd, reserveMicros, safePublicUrl, type GeminiUsage } from './policy';
+import { inspectGeminiRequest } from './gemini-request';
+import { READER_LIMITS_DEFAULT } from './reader-quota';
 import type { BudgetCounter } from './budget';
 import { previewFromHtml, type PagePreview } from './preview';
+import type { ReaderQuota } from './reader-quota';
+import type { ShareQuota, ShareVault } from './share-vault';
+import { visitorAddress } from './visitor';
+import {
+  SHARE_LIMITS_DEFAULT, SHARE_MAX_BODY_CHARS, SHARE_TTL_DAYS_DEFAULT, goneHtml, newShareId, parseShareCreate, randomToken, sha256Hex, sharePageHtml,
+} from './share-policy';
 import { parseNewsRelayRequest, runNewsSearch } from '@mi/research/news-search';
 import { isPlausibleSearchKey, parseSearchRelayRequest, runProviderSearch, WebSearchError, type SearchProvider, type SearchRelayRequest } from '@mi/research/web-search';
 
 export { BudgetCounter } from './budget';
+export { ShareVault, ShareQuota } from './share-vault';
+export { ReaderQuota } from './reader-quota';
 
 export interface Env {
   GEMINI_API_KEY?: string;
   /** Hosted web search for visitors without their own search key. */
   SERPER_API_KEY?: string;
   BUDGET: DurableObjectNamespace<BudgetCounter>;
+  /** One object per share, named by its id. */
+  SHARES: DurableObjectNamespace<ShareVault>;
+  /** Today's share counts per visitor and in all. */
+  SHARE_QUOTA: DurableObjectNamespace<ShareQuota>;
+  /** One object per visitor: how many page, image and search reads they have made. */
+  READER_QUOTA: DurableObjectNamespace<ReaderQuota>;
+  /** Days a share lives (default 90, at most 365). */
+  SHARE_TTL_DAYS?: string;
+  /** Public address of this Worker's share links, if it is served from a custom domain (https, no trailing slash). */
+  SHARE_PUBLIC_BASE?: string;
   ALLOWED_ORIGINS?: string;
   ALLOW_LOCALHOST?: string;
   /** Hard ceiling on hosted Gemini spend per UTC day, all visitors together. */
@@ -56,8 +83,8 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 function cors(origin: string | null): Record<string, string> {
   return origin ? {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Search-Key',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Search-Key, X-Share-Token',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   } : {};
@@ -118,12 +145,18 @@ const workerTransport: SourceTransport = {
   },
 };
 
-async function readJson<T>(request: Request): Promise<T | null> {
+/** The body as text, or null when it is larger than `limit` bytes. Stops reading at the limit instead of buffering a huge upload. */
+async function readTextCapped(request: Request, limit: number): Promise<string | null> {
+  if (Number(request.headers.get('content-length') ?? 0) > limit) return null;
+  if (!request.body) return '';
+  const bytes = await readCapped(new Response(request.body), limit);
+  return bytes ? new TextDecoder().decode(bytes) : null;
+}
+
+async function readJson<T>(request: Request, limit = MAX_JSON_BODY): Promise<T | null> {
   if ((request.headers.get('content-type') ?? '').split(';')[0] !== 'application/json') return null;
-  const len = Number(request.headers.get('content-length') ?? 0);
-  if (len > MAX_JSON_BODY) return null;
-  const text = await request.text();
-  if (text.length > MAX_JSON_BODY) return null;
+  const text = await readTextCapped(request, limit);
+  if (text === null) return null;
   try { return JSON.parse(text) as T; } catch { return null; }
 }
 
@@ -140,44 +173,83 @@ export function keyShape(raw: string | undefined): { present: boolean; length: n
 
 const usd = (micros: number) => Math.round(micros / 10_000) / 100;
 
-function budgets(env: Env): { budget: number; visitor: number } {
-  const budget = Number(env.DAILY_BUDGET_USD ?? 100);
-  const visitor = Number(env.DAILY_VISITOR_BUDGET_USD ?? 20);
+/**
+ * The two ceilings in micro-dollars. A setting that is not usable is 0 (fail closed, see readBudgetUsd) and is named in
+ * `problems`, so the refusal and /health can say the budget is misconfigured rather than spent.
+ */
+function budgets(env: Env): { budget: number; visitor: number; problems: string[] } {
+  const total = readBudgetUsd(env.DAILY_BUDGET_USD, 100);
+  const each = readBudgetUsd(env.DAILY_VISITOR_BUDGET_USD, 20);
   return {
-    budget: Math.round((Number.isFinite(budget) && budget > 0 ? budget : 100) * 1_000_000),
-    visitor: Math.round((Number.isFinite(visitor) && visitor > 0 ? visitor : 20) * 1_000_000),
+    budget: Math.round(total.usd * 1_000_000),
+    visitor: Math.round(each.usd * 1_000_000),
+    problems: [
+      ...(total.problem ? [`DAILY_BUDGET_USD ${total.problem}`] : []),
+      ...(each.problem ? [`DAILY_VISITOR_BUDGET_USD ${each.problem}`] : []),
+    ],
   };
+}
+
+/** The 402 for a refused reservation. A misconfigured budget says so (names the setting, never its value) and is logged. */
+function budgetRefusal(reason: 'global' | 'visitor', problems: string[], spentText: string, origin: string): Response {
+  if (problems.length > 0) console.log(`budget misconfigured: ${problems.join('; ')}`);
+  return json({
+    budget: 'exhausted', reason,
+    ...(problems.length > 0 ? { misconfigured: problems } : {}),
+    error: problems.length > 0
+      ? 'Free research is switched off because the hosted budget is not set up correctly. Add your own Gemini key in Settings to keep going.'
+      : spentText,
+  }, 402, origin);
 }
 
 function ledger(env: Env) {
   return env.BUDGET.get(env.BUDGET.idFromName('global'));
 }
 
+/**
+ * /health is public and needs no Origin, and every hit used to read the whole ledger (up to 5,000 visitors) from the one
+ * object every hosted call goes through. The numbers it shows are now read once in HEALTH_CACHE_MS per isolate and shared by
+ * every hit in between; the launch preflight and the owner only need them to be recent. The isolate keeps the same `env`
+ * between requests, so the cache is keyed by the budget binding (and the UTC day) rather than held for ever.
+ */
+const HEALTH_CACHE_MS = 10_000;
+type LedgerStatus = Awaited<ReturnType<BudgetCounter['status']>>;
+let healthCache: { binding: unknown; day: string; at: number; status: LedgerStatus | null } | null = null;
+
+async function ledgerStatus(env: Env, day: string): Promise<LedgerStatus | null> {
+  const now = Date.now();
+  if (healthCache && healthCache.binding === env.BUDGET && healthCache.day === day && now - healthCache.at < HEALTH_CACHE_MS) return healthCache.status;
+  const status = await ledger(env).status(day).catch(() => null);
+  healthCache = { binding: env.BUDGET, day, at: now, status };
+  return status;
+}
+
 async function geminiProxy(request: Request, env: Env, model: string, origin: string): Promise<Response> {
   const key = cleanKey(env.GEMINI_API_KEY);
   if (!key) return json({ error: 'Hosted research is not configured.' }, 503, origin);
   if (!allowedModel(model)) return json({ error: 'Model not allowed.' }, 400, origin);
-  const body = await request.text();
-  if (body.length > MAX_JSON_BODY) return json({ error: 'Request too large.' }, 413, origin);
+  const text = await readTextCapped(request, MAX_JSON_BODY);
+  if (text === null) return json({ error: 'Request too large.' }, 413, origin);
+  // The request is parsed and held to what the research client sends; Google gets a request rebuilt from what was accepted.
+  // Nothing is held, and nothing is sent, for a request that asks for anything else (gemini-request.ts).
+  const inspected = inspectGeminiRequest(text, model);
+  if (!inspected.ok) return json({ error: inspected.error }, 400, origin);
+  const { body, bodyBytes, grounded, worstOutputTokens } = inspected.request;
 
   // Dollar budget: hold this call's worst-case cost before it runs, settle to
   // the real cost (from Google's usage report) after. Exact under bursts.
-  const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
+  const ip = visitorAddress(request.headers.get('cf-connecting-ip'));
   const day = new Date().toISOString().slice(0, 10);
-  const grounded = /"google_?search"|"googleSearch"/.test(body);
-  const held = reserveMicros(model, grounded, body.length);
+  const held = reserveMicros(model, grounded, bodyBytes, worstOutputTokens);
   const caps = budgets(env);
   const counter = ledger(env);
   const reservation = await counter.reserve(day, ip, held, caps.budget, caps.visitor);
   if (!reservation.ok) {
     // 402, not 429: a spent budget must not look like a transient rate limit
     // (clients retry 429s). The web app shows a banner and stops asking.
-    return json({
-      budget: 'exhausted', reason: reservation.reason,
-      error: reservation.reason === 'global'
-        ? 'Free research has reached today’s budget. It resets at midnight UTC, or add your own Gemini key in Settings to keep going.'
-        : 'You’ve used today’s free research. It resets at midnight UTC, or add your own Gemini key in Settings to keep going.',
-    }, 402, origin);
+    return budgetRefusal(reservation.reason, caps.problems, reservation.reason === 'global'
+      ? 'Free research has reached today’s budget. It resets at midnight UTC, or add your own Gemini key in Settings to keep going.'
+      : 'You’ve used today’s free research. It resets at midnight UTC, or add your own Gemini key in Settings to keep going.', origin);
   }
 
   let actual = 0;
@@ -194,21 +266,26 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
     answered = true;
     // Pass Google's body and status through; never its headers (no key echo).
     // Buffered, not streamed: a streamed error body arrived empty at the browser.
-    const text = await upstream.text();
+    const answer = await upstream.text();
+    let text = answer;
     if (upstream.ok) {
       try {
-        const parsed = JSON.parse(text) as {
+        const parsed = JSON.parse(answer) as {
           usageMetadata?: GeminiUsage;
           candidates?: Array<{ groundingMetadata?: { webSearchQueries?: unknown[] } }>;
         };
         const queries = (parsed.candidates ?? []).reduce((n, c) => n + (c.groundingMetadata?.webSearchQueries?.length ?? 0), 0);
-        actual = callCostMicros(model, parsed.usageMetadata, grounded, queries);
+        // An answer with no usage report, or one that searched without being asked to, is charged at the worst case or the
+        // grounding rate: what Google reports is only trusted when it reports.
+        actual = parsed.usageMetadata ? callCostMicros(model, parsed.usageMetadata, grounded || queries > 0, queries) : held;
       } catch {
         actual = held; // unreadable usage: charge the worst case rather than nothing
       }
     } else {
       // Status only: Google's error text can quote the request, and we never log research content.
       console.log(`gemini ${model} -> ${upstream.status}`);
+      // An error body can name the owner's Google Cloud project; the visitor gets the error without the number.
+      text = answer.replace(/projects\/\d+/g, 'projects/0');
     }
     return new Response(text, {
       status: upstream.status,
@@ -222,7 +299,7 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
     actual = answered || aborted ? held : 0;
     throw cause;
   } finally {
-    await counter.settle(day, ip, held, actual);
+    await counter.settle(reservation.day, ip, held, actual);
   }
 }
 
@@ -245,19 +322,20 @@ async function searchRelay(request: Request, env: Env, origin: string): Promise<
   }
   const hostedKey = cleanKey(env.SERPER_API_KEY);
   if (!hostedKey) return json({ error: 'Hosted search is not configured.' }, 503, origin);
-  const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
+  // The same visitor as every other route: an IPv4 address, or the /64 an IPv6 address belongs to (it used to be the raw address here).
+  const ip = visitorAddress(request.headers.get('cf-connecting-ip'));
   const day = new Date().toISOString().slice(0, 10);
   const caps = budgets(env);
   const counter = ledger(env);
   const reservation = await counter.reserve(day, ip, SEARCH_COST_MICROS, caps.budget, caps.visitor);
-  if (!reservation.ok) return json({ budget: 'exhausted', reason: reservation.reason, error: 'Free search has reached today’s budget.' }, 402, origin);
+  if (!reservation.ok) return budgetRefusal(reservation.reason, caps.problems, 'Free search has reached today’s budget.', origin);
   let actual = 0;
   try {
     const response = await runSearch('serper', hostedKey, input, origin);
     actual = response.ok ? SEARCH_COST_MICROS : 0;
     return response;
   } finally {
-    await counter.settle(day, ip, SEARCH_COST_MICROS, actual);
+    await counter.settle(reservation.day, ip, SEARCH_COST_MICROS, actual);
   }
 }
 
@@ -416,26 +494,215 @@ async function imageRead(request: Request, origin: string): Promise<Response> {
   return new Response(null, { status: 502, headers: cors(origin) });
 }
 
+
+// ---- Share links -------------------------------------------------------------
+
+const SHARE_HEADERS: Record<string, string> = {
+  'X-Robots-Tag': 'noindex, nofollow',
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+};
+
+function shareTtlMs(env: Env): number {
+  const days = Number(env.SHARE_TTL_DAYS ?? SHARE_TTL_DAYS_DEFAULT);
+  return (Number.isInteger(days) && days >= 1 && days <= 365 ? days : SHARE_TTL_DAYS_DEFAULT) * 86_400_000;
+}
+
+/** The address share links are published at: a configured custom domain, else wherever this request came in. */
+function shareBase(env: Env, request: Request): string {
+  const configured = (env.SHARE_PUBLIC_BASE ?? '').trim().replace(/\/+$/, '');
+  return /^https:\/\/[^\s/]+$/.test(configured) ? configured : new URL(request.url).origin;
+}
+
+function vaultFor(env: Env, id: string) {
+  return env.SHARES.get(env.SHARES.idFromName(id));
+}
+
+/** POST /v1/share: store a read-only copy and answer the link and the token that stops it. */
+async function shareCreate(request: Request, env: Env, origin: string): Promise<Response> {
+  // A body past the ceiling is refused on its declared size, before any of it is read.
+  if (Number(request.headers.get('content-length') ?? 0) > SHARE_MAX_BODY_CHARS) {
+    return json({ error: 'This share is too large to host. Share a single card, or use a private link.' }, 413, origin);
+  }
+  const parsed = parseShareCreate(await readJson<unknown>(request, SHARE_MAX_BODY_CHARS), origin);
+  if (!parsed.ok) return json({ error: parsed.error }, parsed.status, origin);
+  const input = parsed.value;
+  const bytes = input.data.length + (input.og?.length ?? 0);
+  const day = new Date().toISOString().slice(0, 10);
+  const visitor = (await sha256Hex(visitorAddress(request.headers.get('cf-connecting-ip')))).slice(0, 24);
+  const quota = env.SHARE_QUOTA.get(env.SHARE_QUOTA.idFromName('global'));
+  const taken = await quota.take(day, visitor, bytes, SHARE_LIMITS_DEFAULT);
+  if (!taken.ok) {
+    return json({
+      error: taken.reason === 'visitor'
+        ? 'You have made today’s share links. Try again tomorrow, or copy a private link instead.'
+        : 'Share links have reached today’s limit. Try again tomorrow, or copy a private link instead.',
+    }, 429, origin);
+  }
+  const now = Date.now();
+  const deleteToken = randomToken(18);
+  const tokenHash = await sha256Hex(deleteToken);
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const id = newShareId();
+      const stored = await vaultFor(env, id).put({
+        meta: {
+          kind: input.kind, title: input.title, description: input.description, viewer: input.viewer,
+          createdAt: now, expiresAt: now + shareTtlMs(env), chunks: 0, hasOg: false, bytes,
+        },
+        data: input.data, og: input.og, tokenHash,
+      });
+      if (!stored) continue; // an id collision, which 96 random bits make a bug rather than a risk
+      const base = shareBase(env, request);
+      return json({
+        id, url: `${base}/s/${id}`, imageUrl: input.og ? `${base}/s/${id}/og.png` : null,
+        expiresAt: now + shareTtlMs(env), deleteToken,
+      }, 201, origin);
+    }
+    throw new Error('no free share id');
+  } catch (cause) {
+    await quota.give(day, visitor, bytes).catch(() => undefined);
+    throw cause;
+  }
+}
+
+/** GET /v1/share/:id: the compressed snapshot. Public by link, so any origin may read it. */
+async function shareRead(id: string, env: Env): Promise<Response> {
+  const vault = vaultFor(env, id);
+  const meta = await vault.meta();
+  const data = meta ? await vault.data() : null;
+  if (!meta || data === null) {
+    return new Response(JSON.stringify({ error: 'This share is no longer available.' }), {
+      status: 404, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*', ...SHARE_HEADERS },
+    });
+  }
+  return new Response(JSON.stringify({
+    v: 1, kind: meta.kind, title: meta.title, description: meta.description, createdAt: meta.createdAt, expiresAt: meta.expiresAt, data,
+  }), {
+    status: 200,
+    // Never kept by a cache: a share its owner stopped must stop being served at once.
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*', ...SHARE_HEADERS },
+  });
+}
+
+/** DELETE /v1/share/:id: stop sharing. Only the token made at creation can. */
+async function shareRemove(request: Request, id: string, env: Env, origin: string): Promise<Response> {
+  const token = (request.headers.get('x-share-token') ?? '').trim();
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return json({ error: 'Missing share token.' }, 403, origin);
+  const result = await vaultFor(env, id).remove(await sha256Hex(token));
+  if (result === 'forbidden') return json({ error: 'That token does not stop this share.' }, 403, origin);
+  return json({ ok: true, removed: result === 'removed' }, result === 'missing' ? 404 : 200, origin);
+}
+
+/** GET /s/:id: the link people paste. Preview tags for a chat app, then a hand-off to the viewer. */
+async function sharePage(request: Request, id: string, env: Env): Promise<Response> {
+  const meta = await vaultFor(env, id).meta();
+  const headers = {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'",
+    ...SHARE_HEADERS,
+  };
+  if (!meta) return new Response(goneHtml(), { status: 404, headers: { ...headers, 'Cache-Control': 'no-store' } });
+  const base = shareBase(env, request);
+  return new Response(sharePageHtml({
+    title: meta.title, description: meta.description, pageUrl: `${base}/s/${id}`,
+    imageUrl: meta.hasOg ? `${base}/s/${id}/og.png` : null, viewerUrl: `${meta.viewer}?s=${id}`,
+  }), { status: 200, headers: { ...headers, 'Cache-Control': 'no-cache' } });
+}
+
+/**
+ * How long a browser or proxy may keep a share's preview picture. A share its owner stopped answers 404 at once, but a copy
+ * held by a cache is served until it expires, and the picture is the one part of a share that is cacheable at all; so it is
+ * a minute, not five. (A chat app keeps its own copy for as long as it likes: out of this Worker's hands.)
+ */
+const SHARE_OG_CACHE_SECONDS = 60;
+
+/** GET /s/:id/og.png: the picture a chat app shows with the link. */
+async function shareOg(id: string, env: Env): Promise<Response> {
+  const encoded = await vaultFor(env, id).og();
+  if (!encoded) return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store', ...SHARE_HEADERS } });
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      'Content-Type': 'image/png', 'Cache-Control': `public, max-age=${SHARE_OG_CACHE_SECONDS}, must-revalidate`, 'Content-Security-Policy': "default-src 'none'",
+      'Cross-Origin-Resource-Policy': 'cross-origin', ...SHARE_HEADERS,
+    },
+  });
+}
+
+// ---- Reader limits --------------------------------------------------------------------------------------------
+
+/** Routes that fetch an address a caller names (or relay a search): limited per visitor. They spend no Gemini money. (A share link's own reads are limited the same way, below.) */
+const METERED_READERS = /^\/v1\/(?:search|news|source|asset-source|image|preview)$/;
+
+/**
+ * A visitor who reads too fast gets 429 with when to come back. A limiter that cannot answer must not take the readers
+ * down with it, so an error lets the read through. `extra` is added to a refusal (a share read answers every origin).
+ */
+async function readerGate(request: Request, env: Env, origin: string | null, extra: Record<string, string> = {}): Promise<Response | null> {
+  try {
+    const visitor = (await sha256Hex(visitorAddress(request.headers.get('cf-connecting-ip')))).slice(0, 24);
+    const taken = await env.READER_QUOTA.get(env.READER_QUOTA.idFromName(visitor)).take(Date.now(), READER_LIMITS_DEFAULT);
+    if (taken.ok) return null;
+    return json({ error: 'Too many requests. Try again shortly.' }, 429, origin, { 'Retry-After': String(taken.retryAfterSeconds), ...extra });
+  } catch {
+    return null;
+  }
+}
+
+/** The origin a page's own address names, for a request a browser makes without an Origin header (an image). */
+function refererOrigin(request: Request): string | null {
+  try { return new URL(request.headers.get('referer') ?? '').origin; } catch { return null; }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
       const shape = keyShape(env.GEMINI_API_KEY);
-      const status = await ledger(env).status(new Date().toISOString().slice(0, 10)).catch(() => null);
+      const status = await ledgerStatus(env, new Date().toISOString().slice(0, 10));
       return json({
         ok: true, hostedResearch: shape.present, keyLength: shape.length, keyLooksValid: shape.looksValid,
-        budgetUsd: usd(budgets(env).budget), visitorBudgetUsd: usd(budgets(env).visitor),
+        budgetUsd: usd(budgets(env).budget), visitorBudgetUsd: usd(budgets(env).visitor), budgetMisconfigured: budgets(env).problems,
         spentTodayUsd: status ? usd(status.spentMicros) : null, visitorsToday: status?.visitors ?? null,
         last7Days: status?.history ?? [],
       }, 200, null);
     }
 
-    const origin = request.headers.get('origin');
+    // Share links are opened by anyone, from chat apps and crawlers that send no Origin: they sit before the origin check.
+    const reading = request.method === 'GET' || request.method === 'HEAD';
+    const pasted = url.pathname.match(/^\/s\/([A-Za-z0-9_-]{16})(\/og\.png)?$/);
+    const shared = url.pathname.match(/^\/v1\/share\/([A-Za-z0-9_-]{16})$/);
+    try {
+      if ((pasted || shared) && reading) {
+        // Anyone may ask for any id, and each id asked for reaches its own Durable Object, so a loop over made-up ids made one
+        // object per id. The same per-visitor limit as the other readers (an IPv6 /64 is one visitor) stands in front: 240 a
+        // minute is far past an honest viewer (a page and its research are two reads) and past a chat app's unfurl of one link
+        // (each app's crawlers arrive from many addresses, each asking a few times).
+        const limited = await readerGate(request, env, null, shared ? { 'Access-Control-Allow-Origin': '*', ...SHARE_HEADERS } : SHARE_HEADERS);
+        if (limited) return limited;
+      }
+      if (pasted && reading) return pasted[2] ? await shareOg(pasted[1]!, env) : await sharePage(request, pasted[1]!, env);
+      if (shared && reading) return await shareRead(shared[1]!, env);
+    } catch {
+      return new Response('The request failed.', { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    }
+
+    // A picture shown by an <img> tag is requested without an Origin header, so the page that asked is read from its Referer
+    // (the same trust as Origin: a script can forge either; the limits below are what bound abuse).
+    const origin = request.headers.get('origin') ?? (request.method === 'GET' && url.pathname === '/v1/image' ? refererOrigin(request) : null);
     if (!allowedOrigin(origin, env.ALLOWED_ORIGINS ?? '', env.ALLOW_LOCALHOST === 'true')) {
       return json({ error: 'Origin not allowed.' }, 403, null);
     }
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(origin) });
     const allowed = origin!;
+    if (METERED_READERS.test(url.pathname)) {
+      const limited = await readerGate(request, env, allowed);
+      if (limited) return limited;
+    }
 
     try {
       const gemini = url.pathname.match(/^\/v1\/gemini\/([a-zA-Z0-9][a-zA-Z0-9._-]{0,119}):generateContent$/);
@@ -446,6 +713,8 @@ export default {
       if (url.pathname === '/v1/asset-source' && request.method === 'POST') return await assetRead(request, allowed);
       if (url.pathname === '/v1/image' && request.method === 'GET') return await imageRead(request, allowed);
       if (url.pathname === '/v1/preview' && request.method === 'GET') return await previewRead(request, allowed);
+      if (url.pathname === '/v1/share' && request.method === 'POST') return await shareCreate(request, env, allowed);
+      if (shared && request.method === 'DELETE') return await shareRemove(request, shared[1]!, env, allowed);
       return json({ error: 'Not found.' }, 404, origin);
     } catch {
       return json({ error: 'The request failed.' }, 500, origin);
