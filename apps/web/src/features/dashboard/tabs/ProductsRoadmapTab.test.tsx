@@ -64,10 +64,18 @@ describe('product evidence wording in the existing view', () => {
     expect(container.querySelector('img')).toBeNull();
     expect(screen.queryByText(/^source$/i)).not.toBeInTheDocument();
   });
-  it('says "Source not recorded" plainly when a product has no url', () => {
-    state.products = [{ name: 'Atlas', status: 'live', description: 'Atlas is available.', revenueNote: '', url: null }];
+  it('says "Source not recorded" plainly only where some other product has a source', () => {
+    state.products = [
+      { name: 'Atlas', status: 'live', description: 'Atlas is available.', revenueNote: '', url: null },
+      { name: 'Beacon', status: 'live', description: 'Beacon ships.', revenueNote: '', url: 'https://acme.com/beacon' },
+    ];
     render(<ProductsRoadmapTab companyId="cmp" />);
     expect(screen.getByText('Source not recorded')).toBeInTheDocument();
+  });
+  it('drops the repeated "Source not recorded" when no product has a source', () => {
+    state.products = [{ name: 'Atlas', status: 'live', description: 'Atlas is available.', revenueNote: '', url: null }];
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.queryByText('Source not recorded')).not.toBeInTheDocument();
   });
   it('defaults to a dense table for 21 products and can switch to cards and back', () => {
     state.products = Array.from({ length: 21 }, (_, i) => ({
@@ -110,7 +118,7 @@ describe('product evidence wording in the existing view', () => {
     vi.useRealTimers();
     expect(screen.getAllByText(/^stated .*2026/)).toHaveLength(3);
     expect(screen.getAllByText('past due')).toHaveLength(1);
-    expect(screen.getAllByText('No date reported')).toHaveLength(1);
+    expect(screen.queryByText('No date reported')).not.toBeInTheDocument();
   });
   it('stamps nothing when no capture date was recorded', () => {
     state.roadmap = [{ title: 'Plan', horizon: 'next', detail: 'd', date: '2030' }];
@@ -145,6 +153,6 @@ describe('product evidence wording in the existing view', () => {
     expect(screen.getByText('Globex')).toBeInTheDocument();
     expect(screen.getByText('“Globex is a customer of Acme.”')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Reuters' })).toHaveAttribute('href', 'https://reuters.com/acme');
-    expect(screen.getAllByText('None reported.')).toHaveLength(2);
+    expect(screen.queryByText('None reported.')).not.toBeInTheDocument();
   });
 });

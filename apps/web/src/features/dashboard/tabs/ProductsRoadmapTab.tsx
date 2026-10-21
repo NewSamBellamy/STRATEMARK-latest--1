@@ -140,7 +140,14 @@ export function isPastDue(date: string | null | undefined, now: Date): boolean {
 }
 
 /** Dense one-line-per-product view: name, description, status, source. */
+const hasHttpUrl = (url: string | null | undefined) => !!url && /^https?:\/\//.test(url);
+
+// One column per populated group, never a hollow one; 1-3 columns by count.
+const GROUP_COLS: Record<number, string> = { 1: '', 2: 'md:grid-cols-2', 3: 'md:grid-cols-3' };
+
 function ProductTable({ products, onOpen }: { products: Product[]; onOpen: (p: Product) => void }) {
+  // A column that says "Source not recorded" on every row is noise: omit it when no row has a link.
+  const showSource = products.some((p) => hasHttpUrl(p.url));
   return (
     <div className="panel overflow-x-auto p-0">
       <table className="w-full text-left text-[13px]">
@@ -149,7 +156,7 @@ function ProductTable({ products, onOpen }: { products: Product[]; onOpen: (p: P
             <th className="px-3 py-2">Product</th>
             <th className="hidden px-3 py-2 md:table-cell">Description</th>
             <th className="px-3 py-2">Status</th>
-            <th className="px-3 py-2">Source</th>
+            {showSource && <th className="px-3 py-2">Source</th>}
           </tr>
         </thead>
         <tbody>
@@ -171,22 +178,24 @@ function ProductTable({ products, onOpen }: { products: Product[]; onOpen: (p: P
                     <span className="text-faint">-</span>
                   )}
                 </td>
-                <td className="whitespace-nowrap px-3 py-1.5">
-                  {hasUrl ? (
-                    <a
-                      href={p.url!}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      {hostOf(p.url!) ?? 'Source'}
-                    </a>
-                  ) : (
-                    <span className="text-[11px] text-faint">Source not recorded</span>
-                  )}
-                </td>
+                {showSource && (
+                  <td className="whitespace-nowrap px-3 py-1.5">
+                    {hasUrl ? (
+                      <a
+                        href={p.url!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        {hostOf(p.url!) ?? 'Source'}
+                      </a>
+                    ) : (
+                      <span className="text-[11px] text-faint">Source not recorded</span>
+                    )}
+                  </td>
+                )}
               </tr>
             );
           })}
@@ -219,6 +228,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
           ? new Date(result.lastRefreshedAt).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
           : null;
         // Dense table by default for a long lineup; the reader can switch.
+        const anySource = c.products.some((p) => hasHttpUrl(p.url));
         const viewMode = view ?? (c.products.length > 8 ? 'table' : 'cards');
         const products = c.products.filter(
           (p) =>
@@ -349,9 +359,9 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                                     <ExternalLink className="h-3 w-3" />
                                     {hostOf(p.url!) ?? 'Source'}
                                   </a>
-                                ) : (
+                                ) : anySource ? (
                                   <span className="shrink-0 text-[11px] text-faint">Source not recorded</span>
-                                )}
+                                ) : null}
                               </div>
                             </div>
                           </li>
@@ -376,9 +386,10 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                   Rumours and guesses are not retained.
                 </EmptyNote>
               ) : (
-                <div className="grid gap-3 md:grid-cols-3">
+                <div className={cn('grid gap-3', GROUP_COLS[HORIZONS.filter(({ key }) => c.roadmap.some((r) => r.horizon === key)).length])}>
                   {HORIZONS.map(({ key, label, dot }) => {
                     const items = c.roadmap.filter((r) => r.horizon === key);
+                    if (items.length === 0) return null;
                     return (
                       <div key={key} className="panel overflow-hidden p-0">
                         <div className="flex items-center gap-2 border-b border-border bg-surface-2/60 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-content">
@@ -406,9 +417,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                                     <span className="shrink-0 text-[10px] font-semibold tabular-nums text-primary-ink">
                                       {r.date}
                                     </span>
-                                  ) : (
-                                    <span className="shrink-0 text-[10px] text-faint">No date reported</span>
-                                  )}
+                                  ) : null}
                                 </div>
                                 <div className="line-clamp-2 text-xs text-muted">{r.detail}</div>
                                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10.5px] text-faint">
@@ -425,9 +434,6 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                               </button>
                             </li>
                           ))}
-                          {items.length === 0 && (
-                            <li className="py-1 text-xs text-faint">Nothing source-backed for this horizon.</li>
-                          )}
                         </ul>
                       </div>
                     );
@@ -443,9 +449,10 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                   count={relationships.length}
                   description="Named only where a reported sentence states the relationship; each links to where it was reported."
                 />
-                <div className="grid gap-3 md:grid-cols-3">
+                <div className={cn('grid gap-3', GROUP_COLS[RELATIONSHIP_KINDS.filter(({ key }) => relationships.some((r) => r.kind === key)).length])}>
                   {RELATIONSHIP_KINDS.map(({ key, label, dot }) => {
                     const items = relationships.filter((r) => r.kind === key);
+                    if (items.length === 0) return null;
                     return (
                       <div key={key} className="panel overflow-hidden p-0">
                         <div className="flex items-center gap-2 border-b border-border bg-surface-2/60 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-content">
@@ -473,9 +480,6 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                               <div className="line-clamp-2 text-xs text-muted" title={r.quote}>“{r.quote}”</div>
                             </li>
                           ))}
-                          {items.length === 0 && (
-                            <li className="py-1 text-xs text-faint">None reported.</li>
-                          )}
                         </ul>
                       </div>
                     );
