@@ -127,6 +127,14 @@ describe('product evidence wording in the existing view', () => {
     expect(targetEnd('later this year')).toBeNull();
     expect(isPastDue(null, now)).toBe(false);
   });
+  it('does not guess a month from a longer word or a date that rolls over', () => {
+    expect(targetEnd('Marketing 2026')).toBeNull();
+    expect(targetEnd('Mayhem 2026')).toBeNull();
+    expect(targetEnd('2026-13-45')).toBeNull();
+    expect(targetEnd('2026-02-31')).toBeNull();
+    expect(targetEnd('Sept 2026')).not.toBeNull();
+    expect(targetEnd('September 2026')).not.toBeNull();
+  });
   it('lists named relationships by kind with their reported sentence and source, and shows nothing when none are reported', () => {
     const { unmount } = render(<ProductsRoadmapTab companyId="cmp" />);
     expect(screen.queryByRole('region', { name: 'Customers, suppliers and partners' })).not.toBeInTheDocument();

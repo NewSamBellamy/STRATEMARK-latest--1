@@ -96,6 +96,7 @@ function ProductsFromResearch({ companyId }: { companyId: string }) {
 }
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const FULL_MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
 /**
  * End of the period a stated target covers ("2026-03-15", "March 2026",
@@ -106,7 +107,11 @@ export function targetEnd(date: string | null | undefined): Date | null {
   const s = (date ?? '').trim();
   if (!s) return null;
   let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59);
+  if (m) {
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59);
+    // A date that rolled over (month 13, Feb 31) was not a real date.
+    return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? d : null;
+  }
   m = /^(?:Q([1-4])\s+(\d{4})|(\d{4})\s+Q([1-4]))$/i.exec(s);
   if (m) {
     const q = Number(m[1] ?? m[4]);
@@ -119,7 +124,8 @@ export function targetEnd(date: string | null | undefined): Date | null {
   }
   m = /^([A-Za-z]{3,9})\.?\s+(\d{4})$/.exec(s);
   if (m) {
-    const mi = MONTHS.indexOf(m[1]!.slice(0, 3).toLowerCase());
+    const word = m[1]!.toLowerCase();
+    const mi = MONTHS.findIndex((mo) => word === mo || FULL_MONTHS[MONTHS.indexOf(mo)] === word || (word === 'sept' && mo === 'sep'));
     if (mi >= 0) return new Date(Number(m[2]), mi + 1, 0, 23, 59, 59);
   }
   m = /^(\d{4})$/.exec(s);
