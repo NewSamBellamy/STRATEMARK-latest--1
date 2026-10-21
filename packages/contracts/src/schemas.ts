@@ -126,6 +126,48 @@ export const citationSchema = z.object({
 });
 
 /**
+ * CRAAP source assessment (currency, relevance, authority, accuracy, purpose):
+ * a deterministic read of how fresh, how authoritative and how independent the
+ * sources behind one figure are (research/source-assessment.ts has the rules).
+ * Additive and optional; NOT yet part of any stored snapshot. It never holds a
+ * figure's value, only what the evidence behind it looks like.
+ */
+export const CURRENCY_STATUSES = ['current', 'aging', 'stale', 'undated'] as const;
+export const SOURCE_AUTHORITY_TIERS = ['primary', 'strong', 'reference', 'aggregator', 'weak'] as const;
+export const SOURCE_PURPOSES = [
+  'regulatory_filing', 'company_press_release', 'company_site', 'sponsored', 'advocacy', 'independent_reporting', 'unknown',
+] as const;
+export const ASSESSMENT_GRADES = ['strong', 'adequate', 'weak'] as const;
+export const sourceAssessmentSchema = z.object({
+  currency: z.object({
+    status: z.enum(CURRENCY_STATUSES),
+    /** Null exactly when status is 'undated'. */
+    ageMonths: z.number().nonnegative().nullable(),
+    horizonMonths: z.number().int().positive(),
+    /** Which date was used: the stated period (asOf) or the publication date. Never the capture time. */
+    basis: z.enum(['asOf', 'publishedDate', 'none']),
+    /** The date as stated (YYYY, YYYY-MM or YYYY-MM-DD), null when undated. */
+    date: z.string().nullable(),
+  }),
+  authority: z.object({
+    tier: z.enum(SOURCE_AUTHORITY_TIERS),
+    reason: z.string().max(200),
+  }),
+  purpose: z.enum(SOURCE_PURPOSES),
+  independentSources: z.number().int().nonnegative(),
+  /** True when every cited source was issued by the company (or is sponsored). */
+  companyReportedOnly: z.boolean(),
+  grade: z.enum(ASSESSMENT_GRADES),
+  plainEnglish: z.array(z.string().max(200)).max(12),
+  assessedAt: isoTimestamp.optional(),
+});
+export type SourceAssessment = z.infer<typeof sourceAssessmentSchema>;
+export type CurrencyStatus = (typeof CURRENCY_STATUSES)[number];
+export type SourceAuthorityTier = (typeof SOURCE_AUTHORITY_TIERS)[number];
+export type SourcePurpose = (typeof SOURCE_PURPOSES)[number];
+export type AssessmentGrade = (typeof ASSESSMENT_GRADES)[number];
+
+/**
  * The year a company was founded, stored once with where it came from so the
  * header is stable and the completeness scoreboard can measure it. Never a
  * guess: 'wikidata' is the company's own item (matched by its official
