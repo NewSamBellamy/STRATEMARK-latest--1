@@ -26,14 +26,19 @@ async function openDeck(page: Page) {
 }
 
 test('1. New Deck page: prompt box, suggestion chips, beta bar', async ({ page }) => {
+  // Generous waits: under a parallel run the first paint of the page can be slow.
+  const slow = { timeout: 30_000 };
   await page.goto('/#/');
-  await expect(page.getByPlaceholder('Describe a market…')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Research this market' })).toBeVisible();
+  await expect(page.getByPlaceholder('Describe a market…')).toBeVisible(slow);
+  await expect(page.getByRole('button', { name: 'Research this market' })).toBeVisible(slow);
   // Six suggestion chips from one of the four sets (the page picks the set at random).
-  const chip = page.getByRole('button', {
-    name: /Christian apparel companies|Space infrastructure companies|AI code-review startups|Independent game studios|Climate-risk software|Private credit platforms|Robotics foundation models|Sustainable packaging companies|AI-native accounting software/,
-  });
-  await expect(chip.first()).toBeVisible();
+  // Wait for the refresh button, which sits after the chips, then count them by
+  // position so the check does not depend on which set was drawn.
+  const refresh = page.getByRole('button', { name: 'Show different suggestions' });
+  await expect(refresh).toBeVisible(slow);
+  const chips = refresh.locator('xpath=preceding-sibling::button');
+  await expect(chips).toHaveCount(6, slow);
+  await expect(chips.first()).toBeVisible(slow);
   // The beta bar only exists in the hosted build; the bare preview has no hosted API.
   const bar = page.getByRole('note');
   if (await bar.count()) {
