@@ -56,6 +56,18 @@ describe('governance and funding stay inside what the research stated', () => {
     ] }), NOTES);
     expect(out.board.map((b) => b.name)).toEqual(['Bret Taylor', 'Dana Lee']);
   });
+
+  it('keeps a board affiliation only when the notes state it beside the member, else blank', () => {
+    const notes = `${NOTES}\nDana Lee is also the Chief Executive Officer of Globex Robotics.`;
+    const out = groundGovernanceInNotes(base({ board: [
+      { name: 'Dana Lee', affiliation: 'Chief Executive Officer of Globex Robotics' },
+      { name: 'Bret Taylor', affiliation: 'CEO of Sierra' },
+    ] }), notes);
+    expect(out.board).toEqual([
+      { name: 'Dana Lee', affiliation: 'Chief Executive Officer of Globex Robotics' },
+      { name: 'Bret Taylor', affiliation: '' },
+    ]);
+  });
 });
 
 const STORY = [

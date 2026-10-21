@@ -53,8 +53,31 @@ export function groundGovernanceInNotes(content: MissionGovernanceContent, notes
     ...content,
     fundingRounds,
     investors: (content.investors ?? []).filter((investor) => named(notes, investor.name, 'organisation')),
-    board: (content.board ?? []).filter((member) => named(notes, member.name, 'person')),
+    board: (content.board ?? []).filter((member) => named(notes, member.name, 'person'))
+      .map((member) => ({ ...member, affiliation: affiliationNearName(notes, member.name, member.affiliation) })),
   };
+}
+
+/**
+ * An affiliation is kept only when the notes state it beside the member's name
+ * (within a short window around the surname). Otherwise it is blank ("not
+ * reported"), never filled from the model's memory about a well-known figure.
+ */
+function affiliationNearName(notes: string, name: string, affiliation: string | null | undefined): string {
+  const text = (affiliation ?? '').trim();
+  if (!text) return '';
+  const words = flatten(text).split(' ').filter((word) => word.length >= 4 && !GENERIC.test(word));
+  if (words.length === 0) return '';
+  const surname = distinctiveWords(name).at(-1);
+  if (!surname) return '';
+  const flatNotes = flatten(notes);
+  const flatSurname = flatten(surname);
+  for (let at = flatNotes.indexOf(flatSurname); at !== -1; at = flatNotes.indexOf(flatSurname, at + 1)) {
+    const window = flatNotes.slice(Math.max(0, at - 250), at + flatSurname.length + 250);
+    const hits = words.filter((word) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(word)}`, 'u').test(window)).length;
+    if (hits >= Math.ceil(words.length / 2)) return text;
+  }
+  return '';
 }
 
 /** Letters and digits only, lower-cased: quotes survive whitespace, smart quotes and dashes. */
