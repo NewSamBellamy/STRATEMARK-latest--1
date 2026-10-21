@@ -143,7 +143,7 @@ import { readRegistrantProfile, resolveListedIdentity, type ListedIdentityResult
 import { secHeadquartersPlace } from './sec-profile';
 import { findCompanyFilings, secSubmissionsUrl } from './sec-ownership';
 import type { CompanyFiling } from './sec-filings';
-import { classifyMoves, filingMoveCandidates, mergeMoves, moveSince, newsMoveCandidates, rankMoves, unfiledCandidates, type MoveCandidate } from './company-moves';
+import { classifyMoves, filingMoveCandidates, mergeMoves, moveId, moveSince, newsMoveCandidates, rankMoves, unfiledCandidates, type MoveCandidate } from './company-moves';
 import { findFormDLastRound } from './sec-form-d';
 import { computeCompanyCompleteness } from './completeness';
 import { getSearxngLane, type DiscoveryNotes } from './searxng';
@@ -216,6 +216,8 @@ const SEC_READ_GAP_MS = 150;
 const MOVES_REFRESH_EVERY_MS = 20 * 60 * 60_000;
 /** Today: a company whose look failed (feed, SEC or sorting) is tried again after this long. */
 const MOVES_RETRY_MS = 2 * 60 * 60_000;
+const REJECTED_MOVES_KEPT = 2000;
+const REJECTED_MOVES_TTL_MS = 14 * 24 * 60 * 60_000;
 /** Followed companies looked at at once during a refresh. */
 const MOVES_REFRESH_LANES = 4;
 /** Concurrent IAPD (Form ADV) reads across a deck — see advRead. */
@@ -298,6 +300,8 @@ export interface RepoSnapshot {
   follows?: CompanyFollow[];
   /** companyId → when its moves were last looked for successfully. */
   movesRefreshedAt?: Record<string, string>;
+  /** Optional (absent in older snapshots): headline ids the model judged not to be a company move → when. Capped, pruned after 14 days; saves re-sorting them. */
+  rejectedMoveIds?: Record<string, string>;
   /** companyId → when the user last refreshed a deck holding it: a twin's tabs from before then are never lent. */
   tabsRefreshedAt?: Record<string, string>;
   /** marketId → cached whitespace analysis. */
@@ -2600,19 +2604,19 @@ export class GeminiRepository implements MarketIntelRepository {
    * filings, then ONE structure call that sorts every headline. No grounded
    * search runs here.
    */
-  refreshMoves(options?: { force?: boolean; companyIds?: readonly string[] }): Promise<MovesRefreshResult> {
+  refreshMoves(options?: { force?: boolean; companyIds?: readonly string[]; onProgress?: (done: number, total: number) => void }): Promise<MovesRefreshResult> {
     const running = this.movesRefresh;
     // A forced or single-company check asked while another runs goes next: the running one may have skipped companies.
     if (running && !options?.force && !options?.companyIds) return running;
     const only = options?.companyIds ? new Set(options.companyIds) : null;
     const run: Promise<MovesRefreshResult> = (running ? running.catch(() => undefined) : Promise.resolve())
-      .then(() => this.runMovesRefresh(Boolean(options?.force), only))
+      .then(() => this.runMovesRefresh(Boolean(options?.force), only, options?.onProgress))
       .finally(() => { if (this.movesRefresh === run) this.movesRefresh = null; });
     this.movesRefresh = run;
     return run;
   }
 
-  private async runMovesRefresh(force: boolean, only: ReadonlySet<string> | null = null): Promise<MovesRefreshResult> {
+  private async runMovesRefresh(force: boolean, only: ReadonlySet<string> | null = null, onProgress?: (done: number, total: number) => void): Promise<MovesRefreshResult> {
     const now = new Date();
     const last = this.snap.movesRefreshedAt ?? {};
     const due = (this.snap.follows ?? []).flatMap((follow) => {
@@ -2627,8 +2631,16 @@ export class GeminiRepository implements MarketIntelRepository {
     const failed = new Set<string>();
     const candidates: MoveCandidate[] = [];
     let next = 0;
+    let finished = 0;
+    const tell = () => { try { onProgress?.(finished, due.length); } catch { /* A broken listener must not stop the check. */ } };
+    tell();
     const lane = async (): Promise<void> => {
       for (let company = due[next++]; company; company = due[next++]) {
+        try { await look(company); } finally { finished += 1; tell(); }
+      }
+    };
+    const look = async (company: Company): Promise<void> => {
+      {
         const since = moveSince(now);
         if (news) {
           // A feed that fails is not "nothing new": the company is looked at again next time.
@@ -2652,8 +2664,10 @@ export class GeminiRepository implements MarketIntelRepository {
       }
     };
     await Promise.all(Array.from({ length: Math.min(MOVES_REFRESH_LANES, due.length) }, lane));
-    const sorted = await classifyMoves(this.client, unfiledCandidates(this.snap.moves ?? [], candidates), undefined, failed);
+    const rejected: MoveCandidate[] = [];
+    const sorted = await classifyMoves(this.client, unfiledCandidates(this.snap.moves ?? [], candidates, this.liveRejections(now)), undefined, failed, rejected);
     const foundAt = new Date().toISOString();
+    this.rememberRejected(rejected, now);
     const merged = mergeMoves(this.snap.moves ?? [], sorted, foundAt);
     const refreshedAt = { ...(this.snap.movesRefreshedAt ?? {}) };
     let refreshed = 0;
@@ -2681,6 +2695,22 @@ export class GeminiRepository implements MarketIntelRepository {
     await this.persist();
     const added = merged.moves.filter((move) => move.foundAt === foundAt && followed.has(move.companyId)).length;
     return { added, refreshed, refreshedAt: this.latestCheck(), failed: [...failed].filter((id) => followed.has(id)) };
+  }
+
+  /** Rejections still inside their 14 days (an entry with an unreadable date counts as expired). */
+  private liveRejections(now: Date): Record<string, string> {
+    const cutoff = now.getTime() - REJECTED_MOVES_TTL_MS;
+    return Object.fromEntries(Object.entries(this.snap.rejectedMoveIds ?? {}).filter(([, when]) => Date.parse(when) >= cutoff));
+  }
+
+  /** Remember headlines the model rejected (so they are not sorted again); entries older than 14 days go, and at most 2,000 stay. */
+  private rememberRejected(rejected: readonly MoveCandidate[], now: Date): void {
+    const at = now.toISOString();
+    const map = new Map(Object.entries(this.liveRejections(now)));
+    for (const c of rejected) map.set(moveId(c.companyId, c.url), at);
+    const newest = [...map].sort((a, b) => b[1].localeCompare(a[1])).slice(0, REJECTED_MOVES_KEPT);
+    if (newest.length) this.snap.rejectedMoveIds = Object.fromEntries(newest);
+    else delete this.snap.rejectedMoveIds;
   }
 
   /** One paced turn on the shared SEC queue (SEC refuses bursts). */

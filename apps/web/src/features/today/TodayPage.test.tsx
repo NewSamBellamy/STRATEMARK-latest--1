@@ -25,7 +25,7 @@ function todayRepo(follows: CompanyFollow[], moves: CompanyMove[]) {
   const repo = Object.assign(makeRepo(), {
     listFollows: vi.fn(async () => state.follows),
     listMoves: vi.fn(async () => [...state.moves].sort((a, b) => Number(Boolean(a.readAt)) - Number(Boolean(b.readAt)))),
-    refreshMoves: vi.fn(async (_options?: { force?: boolean }): Promise<MovesRefreshResult> => ({ added: 0, refreshed: 1, refreshedAt: new Date().toISOString() })),
+    refreshMoves: vi.fn(async (_options?: { force?: boolean; onProgress?: (done: number, total: number) => void }): Promise<MovesRefreshResult> => ({ added: 0, refreshed: 1, refreshedAt: new Date().toISOString() })),
     markMoveRead: vi.fn(async (id: string, read: boolean) => {
       state.moves = state.moves.map((m) => (m.id === id ? { ...m, readAt: read ? new Date().toISOString() : null } : m));
     }),
@@ -100,16 +100,29 @@ describe('Today', () => {
     expect(screen.getByText(/SEC EDGAR · Oct 14, 2026/)).toBeInTheDocument();
     expect(screen.getByText(/1 new since your last visit/)).toBeInTheDocument();
     await waitFor(() => expect(repo.refreshMoves).toHaveBeenCalledTimes(1));
-    expect(repo.refreshMoves).toHaveBeenCalledWith({ force: false });
+    expect(repo.refreshMoves).toHaveBeenCalledWith(expect.objectContaining({ force: false }));
 
     await user.click(within(first).getByRole('button', { name: 'Mark read' }));
     expect(repo.markMoveRead).toHaveBeenCalledWith('mv_1', true);
     await user.click(screen.getByRole('button', { name: 'Check now' }));
-    expect(repo.refreshMoves).toHaveBeenLastCalledWith({ force: true });
+    expect(repo.refreshMoves).toHaveBeenLastCalledWith(expect.objectContaining({ force: true }));
     await user.click(screen.getByRole('tab', { name: 'Filings' }));
     expect(screen.queryByText('Acme Robotics raises $40M Series B')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Unfollow Acme Robotics' }));
     expect(repo.unfollowCompany).toHaveBeenCalledWith('acme');
+  });
+
+  it('shows "12 of 104" progress as the Check button text while a look runs', async () => {
+    const repo = todayRepo([acmeFollow], [move({})]);
+    let finish: (r: MovesRefreshResult) => void = () => {};
+    repo.refreshMoves.mockImplementation((options?: { onProgress?: (done: number, total: number) => void }) => new Promise<MovesRefreshResult>((resolve) => {
+      options?.onProgress?.(12, 104);
+      finish = resolve;
+    }));
+    renderWithProviders(<TodayPage />, { repository: repo });
+    expect(await screen.findByRole('button', { name: 'Checking 12 of 104…' })).toBeDisabled();
+    await act(async () => { finish({ added: 0, refreshed: 1, refreshedAt: new Date().toISOString() }); });
+    expect(await screen.findByRole('button', { name: 'Check now' })).toBeEnabled();
   });
 
   it('with nothing followed it says how to follow and searches nothing', async () => {
@@ -239,7 +252,7 @@ describe('Today', () => {
       setVisibility('visible');
       await waitFor(() => expect(repo.refreshMoves).toHaveBeenCalledTimes(2));
       // Never forced: the engine's 20 hour rule bounds what each look reads.
-      expect(repo.refreshMoves).toHaveBeenLastCalledWith({ force: false });
+      expect(repo.refreshMoves).toHaveBeenLastCalledWith(expect.objectContaining({ force: false }));
     });
 
     it('checks hourly while open, and stops when Today is closed', async () => {

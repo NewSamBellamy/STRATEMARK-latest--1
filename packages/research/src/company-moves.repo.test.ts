@@ -238,4 +238,52 @@ describe('Today in the workspace', () => {
     expect(saved().moves ?? []).toEqual([]);
     expect(saved().movesRefreshedAt ?? {}).toEqual({});
   });
+
+  it('remembers a rejected headline and does not send it for sorting again', async () => {
+    const { repo, structure, saved } = movesRepo(feed);
+    await repo.followCompanies(['acme']);
+    await repo.refreshMoves();
+    expect(Object.keys(saved().rejectedMoveIds ?? {})).toHaveLength(1);
+    await repo.refreshMoves({ force: true });
+    await repo.refreshMoves({ force: true });
+    // The rival story and the stored funding story are both known: no second sorting call.
+    expect(structure).toHaveBeenCalledTimes(1);
+    expect(await repo.listMoves()).toHaveLength(1);
+  });
+
+  it('forgets a rejection after 14 days, and old snapshots without the field still refresh', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const { repo, structure, saved } = movesRepo(async (query) => (query.includes('Acme Robotics') ? [
+        { url: 'https://news.example/acme-rival', title: 'Acme Robotics rival opens a plant', snippet: '', published: new Date(Date.now() - 2 * HOUR).toISOString() }] : []));
+      expect(saved().rejectedMoveIds).toBeUndefined();
+      await repo.followCompanies(['acme']);
+      await repo.refreshMoves();
+      expect(structure).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(Date.now() + 15 * 24 * HOUR);
+      await repo.refreshMoves({ force: true });
+      expect(structure).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a sorting failure is not a rejection: the headline is sorted again next time', async () => {
+    const { repo, structure, saved } = movesRepo(feed);
+    await repo.followCompanies(['acme']);
+    structure.mockRejectedValueOnce(new Error('model down'));
+    await repo.refreshMoves();
+    expect(saved().rejectedMoveIds).toBeUndefined();
+    await repo.refreshMoves({ force: true });
+    expect(structure).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports progress as companies are looked at, ending at all of them', async () => {
+    const { repo } = movesRepo(feed);
+    await repo.followCompanies(['acme', 'beta', 'gamma']);
+    const seen: Array<[number, number]> = [];
+    await repo.refreshMoves({ onProgress: (done, total) => seen.push([done, total]) });
+    expect(seen[0]).toEqual([0, 3]);
+    expect(seen.at(-1)).toEqual([3, 3]);
+    // A listener that throws does not stop the check.
+    expect(await repo.refreshMoves({ force: true, onProgress: () => { throw new Error('ui gone'); } })).toMatchObject({ refreshed: 3 });
+  });
 });

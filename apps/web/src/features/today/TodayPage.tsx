@@ -63,7 +63,9 @@ export default function TodayPage() {
   const since = useLastVisit();
   const follows = useFollows();
   const moves = useMoves();
-  const refresh = useRefreshMoves();
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const refresh = useRefreshMoves((done, total) => setProgress({ done, total }));
+  useEffect(() => { if (!refresh.isPending) setProgress(null); }, [refresh.isPending]);
   const markRead = useMarkMoveRead();
   const markAll = useMarkMovesRead();
   const unfollow = useUnfollowCompany();
@@ -159,7 +161,9 @@ export default function TodayPage() {
           <button type="button" className="btn-ghost text-sm" disabled={refresh.isPending}
             title="Look again now, even for companies checked today."
             onClick={() => refresh.mutate(true)}>
-            {refresh.isPending ? 'Checking…' : 'Check now'}
+            {refresh.isPending
+              ? (progress && progress.total > 1 ? `Checking ${progress.done} of ${progress.total}…` : 'Checking…')
+              : 'Check now'}
           </button>
         )}
       </div>

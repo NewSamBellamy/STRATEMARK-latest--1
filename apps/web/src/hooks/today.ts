@@ -19,14 +19,15 @@ export function useFollows(): UseQueryResult<CompanyFollow[]> {
 }
 
 /** Look for new moves; the engine skips companies it looked at in the last day unless forced. */
-export function useRefreshMoves() {
+export function useRefreshMoves(onProgress?: (done: number, total: number) => void) {
   const repo = useRepository();
   const qc = useQueryClient();
   return useMutation({
     // `companyIds` limits the look to those companies (one company's page); without it every followed company is looked at.
+    // `onProgress` ("12 of 104") is reported by engines that run in this window; others never call it.
     mutationFn: (ask: boolean | { force: boolean; companyIds?: readonly string[] }): Promise<MovesRefreshResult> => {
       if (!repo.refreshMoves) return Promise.reject(new Error('Today isn’t available on this engine.'));
-      return repo.refreshMoves(typeof ask === 'boolean' ? { force: ask } : ask);
+      return repo.refreshMoves({ ...(typeof ask === 'boolean' ? { force: ask } : ask), ...(onProgress ? { onProgress } : {}) });
     },
     // Not returned: a mutation waits for what onSettled returns, and the list refresh that follows the check can be slow
     // (a busy store, another tab). The page said "checking now" for as long as it took, though the check had finished.
