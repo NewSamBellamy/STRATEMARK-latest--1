@@ -136,6 +136,20 @@ describe('product evidence wording in the existing view', () => {
     expect(screen.getAllByText('past due')).toHaveLength(1);
     expect(screen.queryByText('No date reported')).not.toBeInTheDocument();
   });
+  it('renders a sparse roadmap as one tagged list and a dense one as horizon columns', () => {
+    state.roadmap = [
+      { title: 'A', horizon: 'now', detail: 'd', date: null },
+      { title: 'B', horizon: 'next', detail: 'd', date: null },
+    ];
+    const { unmount } = render(<ProductsRoadmapTab companyId="cmp" />);
+    const list = screen.getByRole('list', { name: 'Roadmap items' });
+    expect(list).toHaveTextContent('Now');
+    expect(list).toHaveTextContent('Next');
+    unmount();
+    state.roadmap = ['1', '2', '3'].map((t) => ({ title: t, horizon: 'now' as const, detail: 'd', date: null }));
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.queryByRole('list', { name: 'Roadmap items' })).not.toBeInTheDocument();
+  });
   it('stamps nothing when no capture date was recorded', () => {
     state.roadmap = [{ title: 'Plan', horizon: 'next', detail: 'd', date: '2030' }];
     render(<ProductsRoadmapTab companyId="cmp" />);

@@ -397,6 +397,49 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                   Rumours and guesses are not retained.
                 </EmptyNote>
               ) : (
+                HORIZONS.every(({ key }) => c.roadmap.filter((r) => r.horizon === key).length <= 2) ? (
+                  /* Sparse roadmap: hollow one-item columns read as empty cards, so one
+                     list carries a Now / Next / Later tag per row instead. */
+                  <ul className="panel divide-y divide-border p-0" aria-label="Roadmap items">
+                    {HORIZONS.flatMap(({ key, label, dot }) =>
+                      c.roadmap.filter((r) => r.horizon === key).map((r, i) => (
+                        <li key={`${key}-${i}`}>
+                          <button
+                            type="button"
+                            className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2/70"
+                            title="Open this roadmap item — the full gist, plus grounded research"
+                            onClick={() => setOpenRoadmap(r)}
+                          >
+                            <span className="mt-0.5 inline-flex w-16 shrink-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                              <span className={cn('h-2 w-2 rounded-full', dot)} aria-hidden />
+                              {label}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-baseline justify-between gap-2">
+                                <span className="text-sm font-medium text-content">{r.title}</span>
+                                {r.date ? (
+                                  <span className="shrink-0 text-[10px] font-semibold tabular-nums text-primary-ink">{r.date}</span>
+                                ) : null}
+                              </span>
+                              {r.detail ? <span className="block text-xs text-muted">{r.detail}</span> : null}
+                              <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10.5px] text-faint">
+                                {statedOn && <span>stated {statedOn}</span>}
+                                {isPastDue(r.date, new Date()) && (
+                                  <span
+                                    className="rounded border border-amber-300 bg-amber-50 px-1 text-amber-700"
+                                    title="The stated target date has passed; this research does not confirm whether it shipped."
+                                  >
+                                    past due
+                                  </span>
+                                )}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      )),
+                    )}
+                  </ul>
+                ) : (
                 <div className={cn('grid gap-3', GROUP_COLS[HORIZONS.filter(({ key }) => c.roadmap.some((r) => r.horizon === key)).length])}>
                   {HORIZONS.map(({ key, label, dot }) => {
                     const items = c.roadmap.filter((r) => r.horizon === key);
@@ -430,7 +473,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                                     </span>
                                   ) : null}
                                 </div>
-                                <div className="line-clamp-2 text-xs text-muted">{r.detail}</div>
+                                <div className="text-xs text-muted">{r.detail}</div>
                                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10.5px] text-faint">
                                   {statedOn && <span>stated {statedOn}</span>}
                                   {isPastDue(r.date, new Date()) && (
@@ -450,6 +493,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                     );
                   })}
                 </div>
+                )
               )}
             </section>
 

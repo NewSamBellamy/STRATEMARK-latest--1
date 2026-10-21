@@ -261,7 +261,7 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                                           )}
                                         </span>
                                         {!dense && t.detail && (
-                                          <span className="mt-0.5 line-clamp-2 block text-sm text-muted">{t.detail}</span>
+                                          <span className="mt-0.5 block text-sm text-muted">{t.detail}</span>
                                         )}
                                       </button>
                                       {isFundingRoundEvent(t) && (() => {
@@ -310,7 +310,7 @@ export function HistoryTab({ companyId }: { companyId: string }) {
               <section
                 className={cn(
                   'panel p-5 lg:row-start-1',
-                  c.founderStory.trim().length > 0 ? 'lg:col-start-2' : 'lg:col-span-2',
+                  c.founderStory.trim().length > 0 ? 'lg:col-start-2 lg:self-start' : 'lg:col-span-2',
                 )}
                 aria-label="Notable quotes"
               >

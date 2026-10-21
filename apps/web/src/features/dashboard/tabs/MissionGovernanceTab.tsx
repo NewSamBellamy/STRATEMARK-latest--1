@@ -89,7 +89,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                   />
                 }
               />
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                 <div className="panel space-y-5 p-5">
                   <ProseBlock label="Mission" text={c.mission ?? ''} missing="No mission statement sourced yet." />
                   <ProseBlock label="Ethos" text={c.ethos ?? ''} missing="No stated values or ethos sourced yet." />
@@ -100,8 +100,8 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                   />
                 </div>
 
-                <div className="flex flex-col">
-                  <div className="panel p-5 lg:flex-1">
+                <div className="flex flex-col self-start">
+                  <div className="panel p-5">
                     <h3 className="font-display text-sm font-semibold text-content">
                       Board <span className="ml-1 text-xs font-normal tabular-nums text-muted">{board.length || ''}</span>
                     </h3>
@@ -194,7 +194,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                   </div>
                   </div>
 
-                  <div className="panel p-5">
+                  <div className="panel self-start p-5">
                     <div className="mb-3 flex flex-wrap items-center gap-1.5">
                       <FieldLabel>{investors.length > 0 ? `Investors · ${investors.length}` : 'Investors'}</FieldLabel>
                       {kinds.length > 1 && (

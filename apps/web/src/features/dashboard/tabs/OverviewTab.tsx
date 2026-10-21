@@ -284,7 +284,7 @@ function SiteGlance({ url }: { url: string }) {
         <span className="ml-2 truncate text-[11px] text-faint">{host}</span>
         <ExternalLink className="ml-auto h-3 w-3 text-faint group-hover:text-primary-ink" aria-hidden />
       </div>
-      <div className="relative aspect-[16/10] overflow-hidden bg-surface-2 lg:aspect-auto lg:min-h-[180px] lg:flex-1">
+      <div className="relative aspect-[16/10] overflow-hidden bg-surface-2 lg:aspect-auto lg:min-h-[180px] lg:flex-1 dark:ring-1 dark:ring-inset dark:ring-border">
         <div className="absolute inset-0"><SitePreview url={url} fallbackShot={null} quiet onFail={() => setFailed(true)} /></div>
       </div>
     </a>

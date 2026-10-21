@@ -15,8 +15,8 @@ export function DemoDeckBanner() {
   if (mode !== 'demo') return null;
   return (
     <div role="note" data-testid="demo-banner"
-      className="panel flex items-start gap-3 border-indigo-200 bg-indigo-50/60 px-4 py-2.5 text-[13px] leading-snug dark:border-indigo-900 dark:bg-indigo-950/30">
-      <FlaskConical className="h-4 w-4 shrink-0 text-indigo-500" />
+      className="panel flex items-start gap-3 border-primary/20 bg-primary/5 px-4 py-2.5 text-[13px] leading-snug">
+      <FlaskConical className="h-4 w-4 shrink-0 text-primary" />
       <p>
         <span className="font-medium text-content">Demo deck — sample research, not live.</span>{' '}
         <span className="text-muted">

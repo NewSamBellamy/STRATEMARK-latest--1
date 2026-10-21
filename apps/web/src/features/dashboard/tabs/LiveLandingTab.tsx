@@ -100,7 +100,7 @@ export function SitePreview({ url, fallbackShot, quiet = false, onFail }: { url:
       <img
         src={fallbackShot}
         alt="Site preview"
-        className="h-full w-full object-cover object-top"
+        className="h-full w-full object-cover object-top dark:opacity-80 dark:brightness-90"
       />
     );
   }
@@ -138,7 +138,7 @@ export function SitePreview({ url, fallbackShot, quiet = false, onFail }: { url:
         key={`${provider}:${attempt}`}
         src={provider === 'alt' ? pageShotUrlAlt(url) : pageShotUrl(url, attempt)}
         alt={`Live preview of ${url}`}
-        className="h-full w-full object-cover object-top"
+        className="h-full w-full object-cover object-top dark:opacity-80 dark:brightness-90"
         onLoad={(e) => {
           const w = (e.target as HTMLImageElement).naturalWidth;
           // Placeholder → the capture is still rendering server-side; retry.
