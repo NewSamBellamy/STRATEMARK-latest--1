@@ -113,6 +113,19 @@ function Empty({ title, text }: { title: string; text: string }) {
 
 // ---- Key figures: the same figure set the Metrics tab reads ----------------
 
+// Tiles divide the row evenly (never 3 + 2 with an empty slot): all in one row where there
+// is width (xl), three across for three or six, and a lone last tile in the 2-up grid spans it.
+const ORPHAN_SPAN = '[&>:last-child:nth-child(odd)]:col-span-2';
+const KPI_COLUMNS: Record<number, string> = {
+  0: 'lg:grid-cols-4',
+  1: 'lg:grid-cols-1 lg:[&>:last-child:nth-child(odd)]:col-span-1',
+  2: 'lg:grid-cols-2',
+  3: 'lg:grid-cols-3 lg:[&>:last-child:nth-child(odd)]:col-span-1',
+  4: 'xl:grid-cols-4',
+  5: 'xl:grid-cols-5 xl:[&>:last-child:nth-child(odd)]:col-span-1',
+  6: 'lg:grid-cols-3',
+};
+
 /**
  * One key figure. It reads the same figure set as Metrics, so a figure found
  * there is found here, an estimate keeps its "est." marker, and a figure that
@@ -166,7 +179,7 @@ function FigureTile({ metric, ranking, href }: { metric: CompanyMetric; ranking:
       {currency && <p className="mt-1 text-[11px] leading-snug text-muted">{currency}</p>}
       <SourceCheck metric={metric} label={label} className="mt-1" />
       {ranking?.rank != null && ranking.of > 1 && (
-        <Link to={href} className="mt-2 text-[11px] text-faint hover:text-primary-ink">
+        <Link to={href} className="mt-auto pt-2 text-[11px] text-faint hover:text-primary-ink">
           <span className="font-semibold tabular-nums text-content">#{ranking.rank}</span> of {ranking.of} companies with this figure
         </Link>
       )}
@@ -192,9 +205,9 @@ function Happening({ companyId, companyName, company }: { companyId: string; com
       action={items.length > 4 ? <Link to={href('live_intel')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All {items.length} stories <ArrowRight className="h-3 w-3" aria-hidden /></Link> : undefined}
     >
       {intel.isPending ? (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]" aria-label="Finding the latest stories">
-          <div className="panel aspect-[16/10] animate-pulse bg-surface-2" />
-          <div className="grid gap-3">{[0, 1, 2].map((i) => <div key={i} className="panel h-[104px] animate-pulse bg-surface-2" />)}</div>
+        <div className="grid gap-4" aria-label="Finding the latest stories">
+          <div className="panel h-[240px] animate-pulse bg-surface-2" />
+          <div className="grid gap-4 xl:grid-cols-3">{[0, 1, 2].map((i) => <div key={i} className="panel h-[104px] animate-pulse bg-surface-2" />)}</div>
         </div>
       ) : items.length > 0 ? (
         <TopStories items={items} onOpen={setOpenId} company={company} />
@@ -230,7 +243,7 @@ function Milestones({ companyId }: { companyId: string }) {
       title="Milestones"
       action={<Link to={href('history')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">Full history <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
     >
-      <ol className="panel relative space-y-3 px-5 py-4">
+      <ol className="panel relative space-y-3 p-5">
         {timeline.map((e, i) => (
           <li key={i} className="grid grid-cols-[96px_minmax(0,1fr)] gap-3 text-[13.5px] leading-snug">
             <span className="tabular-nums text-faint">
@@ -253,14 +266,15 @@ function SiteGlance({ url }: { url: string }) {
   let host = url;
   try { host = new URL(url).hostname.replace(/^www\./, ''); } catch { /* keep raw */ }
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" className="panel group block self-start overflow-hidden" title={`Open ${host}`}>
+    // Stretches to the summary's height beside it (no hole under a shorter capture); stacked, it keeps 16:10.
+    <a href={url} target="_blank" rel="noopener noreferrer" className="panel group flex flex-col overflow-hidden" title={`Open ${host}`}>
       <div className="flex items-center gap-1.5 border-b border-border bg-surface-muted px-3 py-1.5">
         <span className="h-2 w-2 rounded-full bg-border" /><span className="h-2 w-2 rounded-full bg-border" /><span className="h-2 w-2 rounded-full bg-border" />
         <span className="ml-2 truncate text-[11px] text-faint">{host}</span>
         <ExternalLink className="ml-auto h-3 w-3 text-faint group-hover:text-primary-ink" aria-hidden />
       </div>
-      <div className="aspect-[16/10] overflow-hidden bg-surface-2">
-        <SitePreview url={url} fallbackShot={null} quiet onFail={() => setFailed(true)} />
+      <div className="relative aspect-[16/10] overflow-hidden bg-surface-2 lg:aspect-auto lg:min-h-[180px] lg:flex-1">
+        <div className="absolute inset-0"><SitePreview url={url} fallbackShot={null} quiet onFail={() => setFailed(true)} /></div>
       </div>
     </a>
   );
@@ -307,12 +321,12 @@ export function OverviewTab({ companyId }: { companyId: string }) {
         action={<Link to={href('metrics')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All figures and peers <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
       >
         {metricsQ.isPending || !figures ? (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             {[0, 1, 2, 3].map((i) => <KpiTileSkeleton key={i} i={i} />)}
           </div>
         ) : (
           <>
-          <div className={cn('grid grid-cols-2 gap-3', keyFigures.length > 4 ? 'md:grid-cols-3' : 'md:grid-cols-4')}>
+          <div className={cn('grid grid-cols-2 gap-4', ORPHAN_SPAN, KPI_COLUMNS[Math.min(keyFigures.length, 6)])}>
             {keyFigures.map((metric) => {
               const ranking = isKnown(metric) && peerState.status === 'ready'
                 ? rankInDeck(companyId, metric.metricType, peerState.peers) : null;
@@ -353,7 +367,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
         </Section>
       ) : takeaways.length > 0 && (
         <Section title="Summary">
-          <div className={cn('grid gap-4', site && 'lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]')}>
+          <div className={cn('grid gap-4', site && 'lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]')}>
           <dl className="panel divide-y divide-border">
             {takeaways.slice(0, 4).map((t) => (
               <div key={t.section} className="grid gap-x-6 gap-y-1 px-5 py-4 sm:grid-cols-[132px_minmax(0,1fr)]">

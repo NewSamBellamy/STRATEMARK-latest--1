@@ -285,25 +285,31 @@ export function featuredStories(items: LiveIntelItem[]): LiveIntelItem[] {
   return items.filter((i) => !i.stale).slice(0, 4);
 }
 
+// One column per remaining story on wide desktop (stacked below it, full width, when narrower),
+// so the row is always full and no title is squeezed into a sliver.
+const REST_COLUMNS: Record<number, string> = { 1: 'xl:grid-cols-1', 2: 'xl:grid-cols-2', 3: 'xl:grid-cols-3' };
+
 export function TopStories({ items, onOpen, company }: { items: LiveIntelItem[]; onOpen: (id: string) => void; company?: StoryCompany }) {
   const [lead, ...rest] = featuredStories(items);
   if (!lead) return null;
   const plate = (item: LiveIntelItem) => (company ? <CompanyPlate company={company} /> : <PublisherPlate item={item} />);
   const subject = company ? { name: company.name, website: company.website } : undefined;
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+    <div className="grid gap-4">
+      {/* The lead is one wide card (picture beside its text) and the rest sit in a row under it,
+          so neither column can leave a hole beside a taller one. */}
       <button type="button" onClick={() => onOpen(lead.id)}
-        className="panel group overflow-hidden text-left transition-shadow hover:shadow-md">
+        className="panel group overflow-hidden text-left transition-shadow hover:shadow-md lg:grid lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
         <StoryImage pageUrl={lead.url} imageUrl={lead.imageUrl} publisher={lead.publisher} credit
-          className="aspect-[16/9] w-full" subject={subject} fallback={plate(lead)} />
-        <div className="space-y-1.5 p-4">
+          className="aspect-[16/9] w-full lg:aspect-auto lg:min-h-[240px]" subject={subject} fallback={plate(lead)} />
+        <div className="space-y-1.5 p-5 lg:flex lg:flex-col lg:justify-center">
           <StoryMeta item={lead} />
           <h3 className="text-[18px] font-semibold leading-snug text-content group-hover:text-primary-ink">{lead.title}</h3>
           {lead.summary && <p className="line-clamp-3 text-[13.5px] leading-relaxed text-muted">{lead.summary}</p>}
         </div>
       </button>
       {rest.length > 0 && (
-        <div className="grid content-start gap-3">
+        <div className={cn('grid gap-4', REST_COLUMNS[Math.min(rest.length, 3)])}>
           {rest.map((item) => (
             <button key={item.id} type="button" onClick={() => onOpen(item.id)}
               className="panel group flex gap-3 overflow-hidden p-2.5 text-left transition-shadow hover:shadow-md">
