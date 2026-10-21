@@ -25,6 +25,17 @@ function attempt(companyId = 'acme'): OriginalSourceAttempt {
 }
 
 describe('native original source artifacts', () => {
+  it('round-trips a receipt publishedAt and still parses legacy receipts without one', async () => {
+    const { store } = await setup();
+    const dated = attempt('acme');
+    dated.receipts[0]!.publishedAt = '2024-03-05';
+    const legacy = attempt('acme');
+    await store.save(dated);
+    await store.save(legacy);
+    const rows = await store.list({ companyId: 'acme', limit: 20 });
+    expect(rows.find(row => row.id === dated.id)?.receipts[0]?.publishedAt).toBe('2024-03-05');
+    expect(rows.find(row => row.id === legacy.id)?.receipts[0]).not.toHaveProperty('publishedAt');
+  });
   it('a company added again in a second deck borrows its twin\'s saved pages from the real page store', async () => {
     const { directory, store } = await setup();
     await store.save(attempt('acme'));

@@ -15,7 +15,9 @@ const receiptSchema = z.object({
   status: z.enum(['retrieved', 'blocked', 'unavailable']), retrievedAt: z.string().datetime(),
   httpStatus: z.number().int().min(100).max(599).optional(),
   contentHash: z.string().regex(/^[a-f0-9]{64}$/).optional(), text: z.string().max(MAX_SEC_CONCEPT_TEXT).optional(),
-  truncated: z.boolean().optional(), reason: z.string().max(256).optional(),
+  truncated: z.boolean().optional(),
+  // Page date: an upper bound on a figure's age, never a figure date. Dropped silently if absent here.
+  publishedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), reason: z.string().max(256).optional(),
   format: z.enum(['sec-companyconcept', 'sec-filing']).optional(),
   issuerName: z.string().max(256).optional(),
 }).superRefine((receipt, ctx) => {

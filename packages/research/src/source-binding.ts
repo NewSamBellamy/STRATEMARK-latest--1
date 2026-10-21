@@ -29,6 +29,8 @@ export interface SourceCheck {
   /** The page could be read at all. Unread pages are retried later, never counted as "not stated". */
   read: boolean;
   checkedAt: string;
+  /** The page's own date (YYYY-MM-DD): an upper bound on the figure's age, never a figure date. */
+  publishedAt?: string;
 }
 export type SourceChecks = Record<string, SourceCheck>;
 
@@ -118,6 +120,7 @@ export function checkFromReceipt(companyName: string, values: readonly number[],
     found: read && figureOnPage(companyName, values, receipt.text!, strictFor),
     read,
     checkedAt: now.toISOString(),
+    ...(read && receipt.publishedAt ? { publishedAt: receipt.publishedAt } : {}),
   };
 }
 
