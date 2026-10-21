@@ -194,6 +194,11 @@ export type CallPriority = 'normal' | 'urgent';
 export function createRateLimiter(requestsPerMinute: number): RateLimiter {
   const windowMs = 60_000;
   const limit = Math.max(1, requestsPerMinute);
+  // Headroom only an urgent call may use. Without it a burst of bulk calls fills the whole window and the
+  // person's question (a compare) waits for the oldest bulk call to leave it: up to a full minute, however
+  // urgent it is. Bulk work gives up about a tenth of the cap; the cap itself is never exceeded.
+  const reserve = limit >= 4 ? Math.max(1, Math.round(limit * 0.1)) : 0;
+  const bulkLimit = limit - reserve;
   const sent: number[] = [];
   // One queue, served in order (urgent first), so N callers never all wake
   // and burst through together.
@@ -201,12 +206,15 @@ export function createRateLimiter(requestsPerMinute: number): RateLimiter {
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   function pump(): void {
-    timer = null;
+    if (timer) { clearTimeout(timer); timer = null; }
     const now = Date.now();
     while (sent.length && now - sent[0]! >= windowMs) sent.shift();
-    while (waiting.length && sent.length < limit) {
+    for (;;) {
       const urgent = waiting.findIndex((w) => w.urgent);
-      const [next] = waiting.splice(urgent >= 0 ? urgent : 0, 1);
+      // An urgent call may use the whole cap; bulk calls stop short of the reserve.
+      const at = urgent >= 0 ? (sent.length < limit ? urgent : -1) : (waiting.length && sent.length < bulkLimit ? 0 : -1);
+      if (at < 0) break;
+      const [next] = waiting.splice(at, 1);
       sent.push(now);
       next!.grant();
     }
@@ -226,8 +234,8 @@ export function createRateLimiter(requestsPerMinute: number): RateLimiter {
         const entry = { urgent: priority === 'urgent', grant: () => { signal?.removeEventListener('abort', onAbort); resolve(); } };
         signal?.addEventListener('abort', onAbort, { once: true });
         waiting.push(entry);
-        // A pending timer means the window is full until it fires.
-        if (!timer) pump();
+        // A pending timer means the window is full for bulk work until it fires; an urgent call may still fit.
+        if (!timer || entry.urgent) pump();
       });
     },
   };
