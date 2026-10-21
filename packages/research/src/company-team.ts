@@ -6,6 +6,7 @@ import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { LlmClient, ProviderGrounding } from './types';
 import { dropPartialDuplicates, orgGroupFor } from './person-name';
 import { SENTENCE_END, widenSupportsToSentences } from './support-sentences';
+import { mergeMoves, researchTeamMoves } from './team-moves';
 import { throwIfAborted } from './util';
 
 const rowSchema = z.object({
@@ -254,9 +255,30 @@ export interface ResearchCompanyTeamArgs {
   originalSources?: OriginalSourceServices;
   originalAttempts?: OriginalSourceAttempt[];
   refreshOriginals?: boolean;
+  /** Also run the bounded sourced-moves pass (one grounded + one structuring call). Off by default: it spends Search-grounding quota. */
+  includeMoves?: boolean;
 }
 
+/**
+ * The current roster, plus (only when `includeMoves`) the bounded sourced-moves
+ * pass. The moves pass is optional: a failure there never hides the roster.
+ */
 export async function researchCompanyTeamOrg(args: ResearchCompanyTeamArgs) {
+  const roster = await researchRoster(args);
+  if (!args.includeMoves) return roster;
+  throwIfAborted(args.signal);
+  try {
+    const { moves, citations } = await researchTeamMoves({ company: args.company, client: args.client, signal: args.signal });
+    if (!moves.length) return roster;
+    return { ...roster, content: teamOrgContentSchema.parse({ ...roster.content, nodes: mergeMoves(roster.content.nodes, moves) }),
+      citations: usableCitations([...roster.citations, ...citations]) };
+  } catch {
+    throwIfAborted(args.signal);
+    return roster;
+  }
+}
+
+async function researchRoster(args: ResearchCompanyTeamArgs) {
   const attempts = args.originalSources
     ? await args.originalSources.list({ companyId: args.company.id, metricType: 'team_org', limit: 20 })
     : args.originalAttempts ?? [];
