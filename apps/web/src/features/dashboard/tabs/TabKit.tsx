@@ -86,7 +86,7 @@ export function FilterChip({
       )}
     >
       {children}
-      {count !== undefined && <span className={cn('tabular-nums', !active && 'opacity-70')}>{count}</span>}
+      {count !== undefined && <span className="tabular-nums">{count}</span>}
     </button>
   );
 }

@@ -156,7 +156,7 @@ function SourcesView({ sources, query }: { sources: LedgerSource[]; query: strin
                   <a href={sourceHref(s.url, s.title)} target="_blank" rel="noopener noreferrer" className="break-words text-sm text-primary-ink hover:underline">
                     {s.title === s.publisher ? 'Source page' : s.title}
                   </a>
-                  <span className="text-[11px] text-faint">
+                  <span className="text-[11px] text-muted">
                     {[SOURCE_STRENGTH_LABEL[s.strength], s.date, s.uses.join(', ')].filter(Boolean).join(' · ')}
                   </span>
                 </li>
