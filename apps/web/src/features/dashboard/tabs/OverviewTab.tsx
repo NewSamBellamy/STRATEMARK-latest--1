@@ -23,6 +23,7 @@ import { KpiTileSkeleton, Section, metricLabel, useTabHref } from '../dashboardK
 import { usePeers } from '../usePeers';
 import { buildFigureSet, currencyCaptionFor, figureDates, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
 import { useCachedDashboardTab } from '../useCachedTab';
+import { newestFirst, sourceCoverage, statedNote } from '../overviewTruth';
 import { ArticleReader, TopStories, type StoryCompany } from './LiveIntelTab';
 import { SitePreview } from './LiveLandingTab';
 import { VideoStrip } from '@/components/media/StoryMedia';
@@ -220,7 +221,7 @@ function Watch({ companyId }: { companyId: string }) {
 function Milestones({ companyId }: { companyId: string }) {
   const href = useTabHref(companyId);
   const history = useCachedDashboardTab(companyId, 'history').data;
-  const timeline = (history?.content.timeline ?? []).slice(-5).reverse();
+  const timeline = newestFirst(history?.content.timeline ?? []).slice(0, 5);
   if (!timeline.length) return null;
   return (
     <Section
@@ -230,7 +231,10 @@ function Milestones({ companyId }: { companyId: string }) {
       <ol className="panel relative space-y-3 px-5 py-4">
         {timeline.map((e, i) => (
           <li key={i} className="grid grid-cols-[96px_minmax(0,1fr)] gap-3 text-[13.5px] leading-snug">
-            <span className="tabular-nums text-faint">{e.date}</span>
+            <span className="tabular-nums text-faint">
+              {e.date}
+              {statedNote(e.date, history?.lastRefreshedAt) && <span className="block text-[11px]">{statedNote(e.date, history?.lastRefreshedAt)}</span>}
+            </span>
             <span className="text-content">{e.title}</span>
           </li>
         ))}
@@ -279,6 +283,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
     [companyQ.data, metrics, companyId],
   );
   const keyFigures = useMemo(() => (figures ? pickKpis(figures.all, 6, 4) : []), [figures]);
+  const coverage = useMemo(() => sourceCoverage(keyFigures.filter(isKnown)), [keyFigures]);
 
   const result = query.data;
   const parsed = useMemo(
@@ -304,6 +309,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
             {[0, 1, 2, 3].map((i) => <KpiTileSkeleton key={i} i={i} />)}
           </div>
         ) : (
+          <>
           <div className={cn('grid grid-cols-2 gap-3', keyFigures.length > 4 ? 'md:grid-cols-3' : 'md:grid-cols-4')}>
             {keyFigures.map((metric) => {
               const ranking = isKnown(metric) && peerState.status === 'ready'
@@ -312,6 +318,8 @@ export function OverviewTab({ companyId }: { companyId: string }) {
                 href={href('metrics', { metric: metric.metricType })} />;
             })}
           </div>
+          {coverage && <p className="mt-2 text-[11.5px] text-faint">{coverage}</p>}
+          </>
         )}
       </Section>
 
