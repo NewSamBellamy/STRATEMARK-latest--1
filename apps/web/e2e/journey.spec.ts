@@ -85,7 +85,8 @@ test('3. Lanes switch; company and signal readers show sourced content; Next/Pre
   await grid.getByRole('button', { name: /Culture card/i }).first().click();
   await expect(dialog.getByRole('region', { name: 'Research finding' })).toBeVisible();
   await expect(dialog.getByRole('heading').first()).toBeVisible();
-  await expect(dialog.locator('a[href^="http"]').first()).toBeVisible();
+  // This demo finding has no saved source: the reader must say so, not invent a link.
+  await expect(dialog.getByText('No clickable source has been saved for this finding yet.')).toBeVisible();
   await expect(dialog.getByRole('link', { name: /open full company dashboard/i })).toHaveCount(0);
 });
 
@@ -146,11 +147,12 @@ test('7. Reports, Settings (no pricing) and the beta page', async ({ page }) => 
   await expect(page.getByRole('heading', { name: 'Reports', exact: true })).toBeVisible();
   await expect(page.getByText('Frontier AI Ecosystem — Market Report').first()).toBeVisible();
 
-  await page.goto('/#/settings');
-  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-  const hosted = (await page.getByRole('note').count()) > 0;
-  test.skip(!hosted, 'Demo build is not in hosted-beta mode (no hosted API), so the hosted-only Settings copy is not under test.');
+  // The sidebar Settings button opens the Settings modal.
+  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Settings' }).click();
+  const sections = page.getByRole('navigation', { name: 'Settings sections' });
+  await expect(sections).toBeVisible();
   const text = await page.locator('body').innerText();
+  expect(text.length).toBeGreaterThan(20);
   expect(text).not.toContain('$');
   expect(text.toLowerCase()).not.toContain('free tier');
 });
