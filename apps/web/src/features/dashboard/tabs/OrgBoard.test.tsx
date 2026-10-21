@@ -37,9 +37,9 @@ const board = (people: OrgNode[], extra: Partial<React.ComponentProps<typeof Org
   <OrgBoard people={people} parentOf={parentMap(people)} company={company} board={[]} onOpen={vi.fn()} {...extra} />
 );
 
-function setNarrow(narrow: boolean) {
+function setNarrow(narrow: boolean, wide = false) {
   window.matchMedia = ((query: string) => ({
-    matches: narrow && query.includes('max-width: 767px'),
+    matches: (narrow && query.includes('max-width: 767px')) || (wide && query.includes('min-width: 1024px')),
     media: query, onchange: null, addListener: () => {}, removeListener: () => {},
     addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false,
   })) as unknown as typeof window.matchMedia;
@@ -100,12 +100,77 @@ describe('OrgBoard', () => {
   it('is reachable by keyboard: Tab lands on a card, Enter turns it over', async () => {
     const user = userEvent.setup();
     const { container } = render(board(team.slice(0, 3)));
-    await user.tab();
+    await user.tab(); // Open profile
+    await user.tab(); // the flip button
     const first = document.activeElement as HTMLElement;
     expect(first).toHaveAttribute('aria-pressed', 'false');
     await user.keyboard('{Enter}');
     expect(first).toHaveAttribute('aria-pressed', 'true');
     expect(container.querySelectorAll('[data-face="back"]:not([inert])')).toHaveLength(1);
+  });
+
+  describe('wide boards', () => {
+    const execs = Array.from({ length: 6 }, (_, i) => node(`x${i}`, `Exec ${i}`, 'Chief Operating Officer', 'exec'));
+
+    it('flows a column of more than four cards into two sub-columns in rank order', () => {
+      setNarrow(false, true);
+      const { container } = render(board(execs));
+      const split = container.querySelector('[data-split]')!;
+      expect(split).not.toBeNull();
+      const sides = [...split.children].map((side) => [...side.querySelectorAll('[data-person-id]')].map((c) => c.getAttribute('data-person-id')));
+      expect(sides).toEqual([['x0', 'x2', 'x4'], ['x1', 'x3', 'x5']]);
+    });
+
+    it('keeps a column of four or fewer as one stack, and a narrower window as one stack', () => {
+      setNarrow(false, true);
+      expect(render(board(execs.slice(0, 4))).container.querySelector('[data-split]')).toBeNull();
+      setNarrow(false, false);
+      expect(render(board(execs)).container.querySelector('[data-split]')).toBeNull();
+    });
+
+    it('gives the Board and Moves columns a narrower track than a card column', () => {
+      setNarrow(false, true);
+      const recent = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 7);
+      const withMove = execs.map((p, i) => (i === 0 ? { ...p, move: { kind: 'joined' as const, date: recent, sourceUrl: 'https://news.example/x' } } : p));
+      const { container } = render(board(withMove, { board: [{ name: 'Alex Rivera', affiliation: 'Founders Fund' }] }));
+      const tracks = (container.querySelector('.grid.items-start') as HTMLElement).style.gridTemplateColumns.match(/minmax\(\d+px, \d+px\)/g)!;
+      const min = (t: string) => Number(/\((\d+)px/.exec(t)![1]);
+      const [people, moves, boardTrack] = tracks.map(min);
+      expect(moves).toBeLessThan(people!);
+      expect(boardTrack).toBeLessThan(moves!);
+    });
+  });
+
+  describe('a manager with many direct reports', () => {
+    const ceo = node('ceo', 'Rowan Ellery', 'Chief Executive Officer', 'exec');
+    const ai = Array.from({ length: 5 }, (_, i) => node(`ai${i}`, `Researcher ${i}`, 'Head of Research', 'ai', 'ceo'));
+    const prod = Array.from({ length: 3 }, (_, i) => node(`pr${i}`, `Builder ${i}`, 'Head of Product', 'product', 'ceo'));
+    const lone = node('lone', 'Una Solo', 'Head of People', 'other', 'ceo');
+
+    it('draws one trunk per other column to its header pin instead of a string to every report', () => {
+      const people = [ceo, ...ai, ...prod];
+      const { container } = render(board(people));
+      const strings = [...container.querySelectorAll('path[data-string]')];
+      expect(strings).toHaveLength(2);
+      expect(strings.map((s) => s.getAttribute('data-to')).sort()).toEqual(['head:ai', 'head:product_design']);
+      expect(container.querySelectorAll('[data-pin-for="head:ai"]')).toHaveLength(1);
+    });
+
+    it('keeps a single report in a column as its own string', () => {
+      const { container } = render(board([ceo, ...ai, ...prod.slice(0, 1), lone]));
+      // 7 reports: 5 in AI hang from a trunk; the lone design report keeps its own string.
+      expect([...container.querySelectorAll('path[data-string]')].map((s) => s.getAttribute('data-to')).sort()).toEqual(['card:lone', 'card:pr0', 'head:ai']);
+      const few = render(board([ceo, ai[0]!, lone]));
+      expect(few.container.querySelectorAll('path[data-string]')).toHaveLength(2);
+      expect([...few.container.querySelectorAll('path[data-string]')].every((s) => s.getAttribute('data-to')!.startsWith('card:'))).toBe(true);
+    });
+
+    it('lights a trunk when one of the reports it stands for is hovered', async () => {
+      const user = userEvent.setup();
+      const { container } = render(board([ceo, ...ai, ...prod]));
+      await user.hover(container.querySelector('[data-person-id="ai2"]')!);
+      expect(container.querySelectorAll('path[data-string-lit]')).toHaveLength(1);
+    });
   });
 
   describe('a large team (60 people)', () => {

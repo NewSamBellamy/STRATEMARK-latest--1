@@ -22,7 +22,6 @@ import { Logo } from '@/features/card/Logo';
 import { initialsOf, photoCredit, useWikiHeadshot } from './LeaderGrid';
 import { GROUP_COLOR, GROUP_LABEL, recentMove } from './orgRank';
 import { footnoteMark, moveNote, NO_SOURCE_NOTE, personSources, reported, statLines } from './personFacts';
-
 export interface ProfileCompany {
   id: string;
   name: string;
@@ -138,61 +137,56 @@ export function ProfileCard({
         style={{ background: 'radial-gradient(circle at 35% 30%, #ff9a8d, #c62828 58%, #7f1d1d)', boxShadow: '0 1px 2px rgb(0 0 0 / 0.45)' }}
       />
       <div
-        className="grid min-h-[300px] transition-transform duration-[400ms] ease-out motion-reduce:transition-none"
+        className="grid min-h-[236px] transition-transform duration-[400ms] ease-out motion-reduce:transition-none"
         style={{ transformStyle: 'preserve-3d', transform: flipped ? 'rotateY(180deg)' : 'none' }}
       >
         {/* Front */}
         <div
           data-face="front"
           {...inert(flipped)}
-          className="relative flex flex-col rounded-2xl p-1.5 shadow-card"
+          className="relative flex flex-col rounded-xl p-[2px] shadow-card"
           style={{ ...frame, gridArea: '1 / 1', backfaceVisibility: 'hidden' }}
         >
-          <button
-            type="button"
-            aria-pressed={flipped}
-            aria-label={`${person.name}, ${person.role || 'role not reported'}. Press to turn the card over.`}
-            onClick={onFlip}
-            className="absolute inset-0 z-0 cursor-pointer rounded-2xl outline-none transition-shadow hover:shadow-card-hover focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-          />
-          <div className="pointer-events-none flex flex-1 flex-col rounded-xl bg-[#f6f3ea] p-2">
-            <div className="flex items-center justify-between gap-2 rounded-md px-2 py-1 text-white" style={{ background: groupColor }}>
+          {/* A mouse can press anywhere on the card; the keyboard and screen readers use the flip button below. */}
+          <div onClick={onFlip} className="absolute inset-0 z-0 cursor-pointer rounded-xl transition-shadow hover:shadow-card-hover" />
+          <div className="pointer-events-none flex flex-1 flex-col rounded-[10px] bg-[#f6f3ea] p-1.5">
+            <div className="flex items-center justify-between gap-2 rounded px-1.5 py-0.5 text-white" style={{ background: groupColor }}>
               <span className="text-[9px] font-semibold uppercase tracking-[0.16em]">{GROUP_LABEL[person.group]}</span>
               <span className="rounded bg-white/95 p-0.5" title={company.name}>
-                <Logo name={company.name} website={company.websiteUrl} logoUrl={company.logoUrl} className="h-4 w-4 rounded-sm text-[8px] [&>img]:p-0" />
+                <Logo name={company.name} website={company.websiteUrl} logoUrl={company.logoUrl} className="h-3.5 w-3.5 rounded-sm text-[8px] [&>img]:p-0" />
               </span>
             </div>
-            <div className="relative mt-2 grid place-items-center rounded-lg py-2" style={{ background: plate }}>
-              <div className="relative h-24 w-24 overflow-hidden rounded-lg bg-[#f6f3ea] shadow-sm ring-1 ring-black/10">
+            {ribbon && (
+              <span
+                data-move-ribbon
+                className="mt-1 block rounded bg-[#b4231a] px-1.5 py-0.5 text-center text-[8.5px] font-bold uppercase tracking-wide text-white"
+                title={`Reported move, sourced. ${ribbon.supportingQuote ?? ''}`.trim()}
+              >
+                <span className="sr-only">Moving: </span>{ribbon.label}
+              </span>
+            )}
+            <div className="mt-1.5 flex items-end justify-center gap-1.5 rounded-md py-1.5" style={{ background: plate }}>
+              <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md bg-[#f6f3ea] shadow-sm ring-1 ring-black/10">
                 {suppliedPhoto && !photoFailed ? (
                   <img src={suppliedPhoto} alt={person.name} loading="lazy" onError={() => setPhotoFailed(true)} className="h-full w-full object-cover" />
                 ) : shot ? (
                   <img src={shot.thumb} alt={person.name} title={photoCredit(shot)} loading="lazy" className="h-full w-full object-cover" />
                 ) : (
-                  <span className="grid h-full w-full place-items-center font-display text-4xl font-bold" style={{ color: `color-mix(in srgb, ${groupColor} 70%, #1c2b28)`, background: `color-mix(in srgb, ${groupColor} 12%, #f6f3ea)` }} aria-hidden>
+                  <span className="grid h-full w-full place-items-center font-display text-2xl font-bold" style={{ color: `color-mix(in srgb, ${groupColor} 70%, #1c2b28)`, background: `color-mix(in srgb, ${groupColor} 12%, #f6f3ea)` }} aria-hidden>
                     {initialsOf(person.name)}
                   </span>
                 )}
-                {!(suppliedPhoto && !photoFailed) && shot && (
-                  <span className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-px text-center text-[7.5px] text-white">{photoCredit(shot)}</span>
-                )}
               </div>
-              {ribbon && (
-                <span
-                  data-move-ribbon
-                  className="absolute right-1.5 top-1.5 rounded bg-[#b4231a] px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-white shadow-sm"
-                  title={`Reported move, sourced. ${ribbon.supportingQuote ?? ''}`.trim()}
-                >
-                  <span className="sr-only">Moving: </span>{ribbon.label}
-                </span>
+              {!(suppliedPhoto && !photoFailed) && shot && (
+                <span className="max-w-[56px] break-words text-[7.5px] leading-tight text-[#3f4742]">{photoCredit(shot)}</span>
               )}
             </div>
-            <div className="mt-2.5 min-w-0">
-              <p className="break-words font-display text-[15px] font-bold leading-tight text-[#14201d]">{person.name}</p>
-              <p className="mt-0.5 break-words text-[11.5px] leading-snug text-[#3f4742]">{person.role || 'Role not reported'}</p>
+            <div className="mt-2 min-w-0">
+              <p className="break-words font-display text-[14px] font-bold leading-tight text-[#14201d]">{person.name}</p>
+              <p className="mt-0.5 break-words text-[11px] leading-snug text-[#3f4742]">{person.role || 'Role not reported'}</p>
             </div>
-            {stats.length > 0 && (
-              <ul className="mt-2 space-y-1">
+            {stats.length > 0 ? (
+              <ul className="mt-1.5 space-y-0.5">
                 {stats.map((line) => (
                   <li key={line.key} data-stat={line.key} className="break-words text-[11px] leading-snug text-[#1c2b28]">
                     <span className="mr-1 text-[8.5px] font-semibold uppercase tracking-[0.12em] text-[#6b6757]">{line.label}</span>
@@ -203,11 +197,22 @@ export function ProfileCard({
                   </li>
                 ))}
               </ul>
+            ) : (
+              <p className="mt-1.5 text-[10px] italic leading-snug text-[#6b6757]">No career details reported</p>
             )}
-            <div className="pointer-events-auto relative z-10 mt-2 self-start">{openProfile(!flipped)}</div>
-            <div className="mt-auto flex items-center justify-between rounded-md px-2 py-1 text-[9.5px] font-medium" style={{ background: accent, color: onAccent(accent) }}>
-              <span>{stats.length > 0 ? 'Sources on the back' : 'No career details reported'}</span>
-              <RotateCcw className="ml-1.5 h-3 w-3 shrink-0 opacity-80" aria-hidden />
+            <div className="mt-auto flex items-center justify-between gap-2 pt-2">
+              <div className="pointer-events-auto relative z-10">{openProfile(!flipped)}</div>
+              <button
+                type="button"
+                aria-pressed={flipped}
+                aria-label={`${person.name}, ${person.role || 'role not reported'}. Press to turn the card over.`}
+                title={stats.length > 0 ? 'Turn over for sources' : 'Turn over for details'}
+                onClick={onFlip}
+                className="pointer-events-auto relative z-10 grid h-6 w-6 shrink-0 place-items-center rounded-full border border-black/15 text-[#3f4742] hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                style={{ outlineColor: ink }}
+              >
+                <RotateCcw className="h-3 w-3" aria-hidden />
+              </button>
             </div>
           </div>
         </div>
@@ -217,10 +222,10 @@ export function ProfileCard({
           id={faceId}
           data-face="back"
           {...inert(!flipped)}
-          className="relative flex flex-col rounded-2xl p-1.5 shadow-card [contain:size]"
+          className="relative flex flex-col rounded-xl p-[2px] shadow-card [contain:size]"
           style={{ ...frame, gridArea: '1 / 1', backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
         >
-          <div className="flex min-h-0 flex-1 flex-col rounded-xl bg-[#f6f3ea] p-3">
+          <div className="flex min-h-0 flex-1 flex-col rounded-[10px] bg-[#f6f3ea] p-2.5">
             <div className="flex items-start justify-between gap-2">
               <p className="break-words font-display text-[13px] font-bold leading-tight text-[#14201d]">{person.name}</p>
               <button type="button" onClick={onFlip} className="shrink-0 rounded p-1 text-[#3f4742] hover:bg-black/5 focus-visible:outline focus-visible:outline-2" aria-label={`Turn ${person.name}'s card back over`}>

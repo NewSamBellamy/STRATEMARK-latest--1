@@ -34,6 +34,14 @@ describe('ProfileCard', () => {
     expect(screen.getByRole('button', { name: /Ada Lovelace, CEO.*turn the card over/i, hidden: true })).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('flips from a small icon-only button that carries the accessible label', () => {
+    const { container } = render(card(person()));
+    const flip = front(container).getByRole('button', { name: /Ada Lovelace, CEO.*turn the card over/i });
+    expect(flip.textContent).toBe('');
+    expect(flip.querySelector('svg')).not.toBeNull();
+    expect(flip).toHaveClass('h-6', 'w-6');
+  });
+
   it('makes the hidden face inert rather than aria-hidden, and swaps it on flip', () => {
     const { container, rerender } = render(card(person()));
     expect(container.querySelector('[data-face="back"]')).toHaveAttribute('inert');
@@ -65,7 +73,11 @@ describe('ProfileCard', () => {
   it('shows no stat lines and an honest foot line when nothing was reported', () => {
     const { container } = render(card(person()));
     expect(container.querySelectorAll('[data-stat]')).toHaveLength(0);
-    expect(front(container).getByText('No career details reported')).toBeInTheDocument();
+    const empty = front(container).getByText('No career details reported');
+    // a quiet line of muted text, not a filled pill or a button
+    expect(empty.tagName).toBe('P');
+    expect(empty.closest('button')).toBeNull();
+    expect(empty.getAttribute('style')).toBeNull();
     expect(front(container).queryByText('Not reported')).not.toBeInTheDocument();
     // the company name is not used as filler
     expect(front(container).queryByText('Acme')).not.toBeInTheDocument();
