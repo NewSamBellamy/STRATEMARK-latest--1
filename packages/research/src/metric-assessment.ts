@@ -90,6 +90,14 @@ export function assessedForDisplay(metric: CompanyMetric, now: Date, companyDoma
   return row;
 }
 
+/** The metric types, among already-assessed facts, whose evidence is stale or undated (a human's figure never counts). */
+export function staleFigureTypes(facts: readonly CompanyMetric[]): Set<CompanyMetric['metricType']> {
+  return new Set(facts
+    .filter((m) => m.value != null && m.confidence !== 'user_verified' && m.confidence !== 'unknown' &&
+      (m.assessment?.currency.status === 'stale' || m.assessment?.currency.status === 'undated'))
+    .map((m) => m.metricType));
+}
+
 // Latest wins ---------------------------------------------------------------------------
 
 /** How many superseded figures a row remembers. */

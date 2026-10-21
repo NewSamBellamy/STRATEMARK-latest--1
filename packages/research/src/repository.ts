@@ -136,7 +136,7 @@ import type { ResearchNoteEntry, ReportedMetricSupport } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { searchEvidenceCorpus } from './retrieval';
 import { isFreshForMetric } from './capture-age';
-import { assessedForDisplay, companyDomainOf, resolveAgainstPrior, settleMetric as settleMetricEvidence } from './metric-assessment';
+import { assessedForDisplay, companyDomainOf, resolveAgainstPrior, settleMetric as settleMetricEvidence, staleFigureTypes } from './metric-assessment';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
 import { secAdvFirmCandidates, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
@@ -173,6 +173,8 @@ import { readCompanyLink } from './link-reader';
  * hung summary tail held a job 'running' for 13+ minutes with zero provider
  * activity while the deck was already rendered). */
 const JOB_STALL_MS = 8 * 60_000;
+/** A dashboard refresh re-hunts stale figures for at most this many companies. */
+const REFRESH_STALE_MAX_COMPANIES = 8;
 /** How long a company's shared Overview + Products search is reused (a warm-up finishes well inside it). */
 const COMPANY_BRIEFING_TTL_MS = 15 * 60_000;
 /** A twin's cached tab is reused in another deck while younger than this (Live Intel: one day). */
@@ -584,7 +586,8 @@ const SIGNAL_BRIEF_DEADLINE_MS = 120_000;
  * hunt covers a face-slot sweep) and at least as escalated (a higher escalation
  * asks for a different approach, so it must run on its own). */
 function huntCovers(running: HuntMetricsOptions | undefined, wanted: HuntMetricsOptions | undefined): boolean {
-  return (!running?.faceSlotsOnly || Boolean(wanted?.faceSlotsOnly)) && (running?.escalation ?? 0) >= (wanted?.escalation ?? 0);
+  return (!running?.faceSlotsOnly || Boolean(wanted?.faceSlotsOnly)) && (running?.escalation ?? 0) >= (wanted?.escalation ?? 0) &&
+    (Boolean(running?.refreshStale) || !wanted?.refreshStale);
 }
 
 /** One grounded search asking several companies' missing face figures. Each
@@ -2438,6 +2441,23 @@ export class GeminiRepository implements MarketIntelRepository {
       // A failed hunt never blocks the refresh — the update sweep stands.
     }
 
+    // 3. Figures whose evidence went stale or undated get one more look. Bounded
+    //    so a refresh cannot loop or overspend: at most REFRESH_STALE_MAX_COMPANIES
+    //    companies, one at a time, one hunt each (a hunt is one grounded pass),
+    //    once per refresh. A newer figure replaces the old only by the
+    //    latest-wins rule; otherwise the old one stays, labelled.
+    let looked = 0;
+    for (const companyId of deckCompanyIds) {
+      if (looked >= REFRESH_STALE_MAX_COMPANIES) break;
+      try {
+        if (this.staleTypesOf(companyId).size === 0) continue;
+        looked += 1;
+        await this.huntCompanyMetrics(companyId, { refreshStale: true });
+      } catch {
+        // A failed look never blocks the refresh; the figure stays, labelled stale.
+      }
+    }
+
     const nowIso = new Date().toISOString();
     const deckIdx = this.snap.decks.findIndex((d) => d.id === deck.id);
     if (deckIdx >= 0) {
@@ -2743,6 +2763,19 @@ export class GeminiRepository implements MarketIntelRepository {
     // Latest wins: a figure written over an existing one only stays when the
     // evidence says it should (false = the old row was put back untouched).
     return resolveAgainstPrior(metric, prior, now, domain);
+  }
+
+  /** The metric types whose stored figure (current revision, assessed now) has stale or undated evidence. */
+  private staleTypesOf(companyId: string): Set<MetricType> {
+    const company = this.snap.companies.find((c) => c.id === companyId);
+    const domain = companyDomainOf(company?.websiteUrl);
+    const now = new Date();
+    const rows = this.snap.metrics.filter((m) => m.companyId === companyId);
+    const current = METRIC_TYPES.flatMap((t) => {
+      const revision = currentMetricRevision(rows, companyId, t);
+      return revision && !revision.ambiguous ? [assessedForDisplay(revision.metric, now, domain)] : [];
+    });
+    return staleFigureTypes(current);
   }
 
   /** The facts as the evidence supports them, before source binding hides or relinks any. */
@@ -4853,12 +4886,15 @@ export class GeminiRepository implements MarketIntelRepository {
     // AUM, never to a search for an ARR figure that no partnership publishes.
     const profile = classifyMarketProfile(company);
     const profileTypes = profileHuntTypes(profile);
+    // The dashboard refresh also re-hunts figures whose evidence is stale or undated.
+    const staleTypes = options?.refreshStale ? this.staleTypesOf(companyId) : new Set<MetricType>();
     const softTypes: MetricType[] = profileTypes.filter((t) => {
       const current = currentMetricRevision(mine(), companyId, t);
       if (current?.ambiguous) return false;
       const m = current?.metric;
       if (!m) return true;
       if (m.confidence === 'user_verified') return false;
+      if (staleTypes.has(t)) return true;
       if (m.confidence === 'verified') return acceptedAtStart !== null && acceptedAtStart.get(t)?.confidence !== 'verified';
       return m.value == null || m.confidence === 'unknown' || m.confidence === 'estimated';
     });
@@ -4884,7 +4920,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const faceFull = shownFamilies.size >= CARD_FACE_SIZE;
     for (let i = softTypes.length - 1; i >= 0; i--) {
       const type = softTypes[i]!;
-      if (!CARD_FACT_HUNT_TYPES.includes(type)) continue;
+      if (!CARD_FACT_HUNT_TYPES.includes(type) || staleTypes.has(type)) continue;
       const slots = PROFILE_CORE_SLOTS[profile].filter((slot) => slot.includes(type));
       const familyShown = shownFamilies.has(faceFamilyOf(type));
       if (familyShown || (faceFull && slots.length > 0 && slots.every((slot) => slot.some(slotFilled)))) softTypes.splice(i, 1);

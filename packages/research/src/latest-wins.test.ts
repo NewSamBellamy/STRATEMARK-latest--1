@@ -32,7 +32,7 @@ const memoryStore = (initial: RepoSnapshot): ResearchStore => {
 };
 
 /** A hunt whose single original page states `value` employees as of `asOf`. */
-async function hunt(stored: Partial<CompanyMetric>, value: number, asOf: string) {
+async function hunt(stored: Partial<CompanyMetric>, value: number, asOf: string, options?: { refreshStale?: boolean }) {
   const quote = `OpenAI reported ${value} employees as of ${asOf}.`;
   const ground = vi.fn(async () => ({ text: 'Research', citations: [{ title: 'Reuters', url: URL_NEW }], queries: [] }));
   const structure = vi.fn(async (_prompt: string, schema: { parse: (v: unknown) => unknown }) => schema.parse({ figures: [{
@@ -41,7 +41,7 @@ async function hunt(stored: Partial<CompanyMetric>, value: number, asOf: string)
   const repo = new GeminiRepository({ apiKey: 'k', store: memoryStore(seed(stored)), client: { ground, structure },
     originalSourceReader: async (requestedUrl) => ({ requestedUrl, finalUrl: URL_NEW, status: 'retrieved', httpStatus: 200,
       text: quote, contentHash: 'a'.repeat(64), retrievedAt: '2026-10-06T00:00:00.000Z' }) });
-  const result = await repo.huntCompanyMetrics('cmp_1');
+  const result = await repo.huntCompanyMetrics('cmp_1', options);
   return { result, row: result.metrics.find((m) => m.metricType === 'employees')! };
 }
 
@@ -76,6 +76,23 @@ describe('latest wins in a hunt', () => {
     expect(row.value).toBe(3500);
     expect(row.methodNote).toMatch(/Two current sources disagree/);
     expect(row.priorFigures![0]).toMatchObject({ value: 3000, asOf: '2025-12-01' });
+  });
+});
+
+describe('refreshing a stale figure', () => {
+  it('re-hunts a verified figure whose evidence is undated, and a newer figure replaces it with history kept', async () => {
+    const { result, row } = await hunt({ confidence: 'verified', lastVerifiedAt: new Date().toISOString(), staleAfterSeconds: 86_400 }, 3500, '2026-10-01', { refreshStale: true });
+    expect(result.filledTypes).toEqual(['employees']);
+    expect(row).toMatchObject({ value: 3500, confidence: 'verified' });
+    expect(row.priorFigures).toHaveLength(1);
+    expect(row.priorFigures![0]).toMatchObject({ value: 3000, confidence: 'verified' });
+  });
+
+  it('records the old figure date in history when a stale figure is superseded', async () => {
+    const stored = quoted('2024-01-15');
+    const { result, row } = await hunt({ ...stored, confidence: 'verified' }, 3500, '2025-12-01', { refreshStale: true });
+    expect(result.filledTypes).toEqual(['employees']);
+    expect(row.priorFigures![0]!.asOf).toBe('2024-01-15');
   });
 });
 

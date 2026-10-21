@@ -268,6 +268,12 @@ export interface HuntMetricsOptions {
    * empty (PROFILE_CORE_SLOTS alternatives), nothing else from the profile.
    */
   faceSlotsOnly?: boolean;
+  /**
+   * Also re-hunt figures whose assessment says stale or undated (the dashboard
+   * refresh sets this). Such a figure is only replaced by a newer,
+   * at-least-as-authoritative one; otherwise it stays, labelled.
+   */
+  refreshStale?: boolean;
 }
 
 /** A saved research report composed by the AI from deck/company evidence. */
