@@ -301,10 +301,10 @@ export function relevantSearchResults<T extends { url: string; title: string; sn
   });
 }
 
-/** At most three engine queries for the missing metrics, most valuable family first. */
+/** At most three engine queries for the missing metrics, most valuable family first. No query carries a year
+ * (PLAN-CRAAP section 0); `year` is accepted for old callers and ignored. */
 export function huntSearchQueries(companyName: string, missing: readonly string[],
   options: { financialFirm?: boolean; escalation?: number; year?: number } = {}): HuntQuery[] {
-  const year = options.year ?? new Date().getFullYear();
   const name = `"${companyName.replace(/"/g, '').trim()}"`;
   const queries: HuntQuery[] = QUERY_FAMILIES
     .filter((family) => family.types.some((t) => missing.includes(t)))
@@ -313,7 +313,7 @@ export function huntSearchQueries(companyName: string, missing: readonly string[
     queries.unshift({ query: `${name} assets under management Form ADV`, news: false });
   }
   if ((options.escalation ?? 0) > 0) queries.unshift({ query: `${name} annual report filing disclosure`, news: false });
-  return (queries.length ? queries : [{ query: `${name} company overview ${year}`, news: false }]).slice(0, 3);
+  return (queries.length ? queries : [{ query: `${name} company overview`, news: false }]).slice(0, 3);
 }
 
 export interface CappedWebSearch extends WebSearchFn {

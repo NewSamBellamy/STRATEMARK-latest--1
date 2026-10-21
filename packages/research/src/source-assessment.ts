@@ -109,6 +109,8 @@ const SPONSORED_PATH = /\/(?:brandvoice|sponsored|partner-content|paid-post|adve
 const SPONSORED_TEXT = /\b(?:sponsored content|paid post|partner content|brandvoice)\b/i;
 /** A small explicit list only. */
 const ADVOCACY_HOSTS = ['greenpeace.org', 'sierraclub.org', 'foe.org', '350.org', 'stopthemoneypipeline.com'];
+/** Portals that republish press releases and wire copy under their own name. */
+const SYNDICATION_HOSTS = ['yahoo.com', 'msn.com', 'marketscreener.com', 'investing.com', 'tradingview.com', 'benzinga.com', 'seekingalpha.com'];
 const belongsTo = (host: string, domain: string): boolean => host === domain || host.endsWith(`.${domain}`);
 
 /** The URL the figure rests on, with a grounding redirect resolved through a bare-domain title. */
@@ -166,6 +168,17 @@ function purposeOf(url: string, text: string, tier: PublisherTier, ctx: AssessCo
   if (tier === 4) return 'industry_data';
   if (tier === 3) return 'neutral_reporting';
   return 'unknown';
+}
+
+const CORPORATE_SUFFIX = /(?:[\s,]+(?:inc|incorporated|corp|corporation|co|company|ltd|limited|llc|plc|group|holdings?|gmbh|ag|sa|nv))+\.?$/i;
+
+/** Whether a sentence names the parent as a whole word, so "Globex Corporation" matches a sentence that says "Globex" but "Globexton" does not. */
+function namesParent(text: string, acquirer: string): boolean {
+  const short = acquirer.replace(CORPORATE_SUFFIX, '').trim();
+  const name = short.length > 2 ? short : acquirer;
+  if (name.length <= 2) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(text);
 }
 
 const SELF_INTERESTED: readonly MetricType[] = ['users', 'market_share', 'valuation', 'distribution'];
@@ -229,12 +242,16 @@ export function assessFigure(metric: CompanyMetric, ctx: AssessContext): FigureA
   }
   if (!definition && !metric.quotedSupport && support !== 'none') definition = metric.metricType;
   const acquirer = ctx.ownership?.acquirer?.trim();
-  if (ctx.ownership && ctx.ownership.status !== 'independent' && acquirer && acquirer.length > 2 &&
-    text.toLowerCase().includes(acquirer.toLowerCase())) issues.push('entity_may_be_parent');
+  if (ctx.ownership && ctx.ownership.status !== 'independent' && acquirer && namesParent(text, acquirer)) issues.push('entity_may_be_parent');
   if (metric.confidence === 'estimated' && /\b(?:division|segment|business unit)\b/i.test(text)) issues.push('entity_may_be_division');
 
   const kind = metric.confidence === 'user_verified' ? 'unknown' as PurposeKind : purposeOf(primaryUrl, `${text} ${primary?.text ?? ''}`, tier ?? 5, ctx);
-  const keys = new Set(sources.map((s) => independenceKey(effectiveUrl(s.url, s.title), s.text || null, ctx.companyWebsite)));
+  const keyOf = (s: { url: string; title: string | null; text: string }) => independenceKey(effectiveUrl(s.url, s.title), s.text || null, ctx.companyWebsite);
+  const primaryKey = primary ? keyOf(primary) : null;
+  // A finance portal's copy that was never read (only the primary source keeps its text) republishes
+  // someone else's story, so it is that story's source again, never a second voice.
+  const keys = new Set(sources.map((s, i) => i > 0 && !s.text && primaryKey && SYNDICATION_HOSTS.some((d) => belongsTo(registryHost(effectiveUrl(s.url, s.title)) ?? '', d))
+    ? primaryKey : keyOf(s)));
   const contested = (metric.conflicts ?? []).some((c) => c.metricType === metric.metricType &&
     c.observations.some((o, i) => c.observations.slice(i + 1).some((p) => o.value != null && p.value != null && !within2pct(o.value, p.value))));
   const independentSources = keys.size;
