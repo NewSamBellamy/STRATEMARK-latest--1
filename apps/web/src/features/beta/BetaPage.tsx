@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom';
 import { Download, HeartHandshake, KeyRound, Lock, MessageSquareText, PackageOpen } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { SettingsLink } from '@/components/SettingsLink';
-import { FEEDBACK_URL, OPEN_SOURCE_LAUNCH } from '@/lib/beta';
+import { COVERED_USAGE_USD, FEEDBACK_URL, OPEN_SOURCE_LAUNCH } from '@/lib/beta';
+import { useHostedBudget } from '@/lib/hostedApi';
 
 function Point({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
@@ -18,6 +19,7 @@ function Point({ icon, title, children }: { icon: ReactNode; title: string; chil
 
 /** "About this beta": what we cover, what we never keep, and how you leave with everything. */
 export default function BetaPage() {
+  const allowance = useHostedBudget((s) => s.allowance);
   return (
     <div className="mx-auto max-w-2xl pb-10">
       <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary-ink">Stratemark beta</p>
@@ -36,6 +38,11 @@ export default function BetaPage() {
             or a card. There is a daily limit so the beta stays sustainable; if you reach it, you can add your own
             Gemini key in <SettingsLink className="font-medium text-primary-ink underline">Settings</SettingsLink> and keep going.
           </p>
+          <p>
+            We cover about ${COVERED_USAGE_USD} of research for each person. When that is used up, your own Gemini key
+            takes over.
+            {allowance && ` You’ve used about $${Math.min(allowance.usedUsd, allowance.allowanceUsd).toFixed(2)} of $${allowance.allowanceUsd.toFixed(2)} so far.`}
+          </p>
         </Point>
         <Point icon={<Lock className="h-4 w-4" />} title="Your research stays with you">
           <p>
@@ -46,7 +53,8 @@ export default function BetaPage() {
             To cover the AI cost, research requests pass through our server on their way to Google&apos;s Gemini API, and
             company websites are fetched through it too. We pass them straight through and don&apos;t store or log what
             they contain. Apart from a share link you create (below), the only thing we keep is a running total of
-            today&apos;s AI spend (counted per IP address, to enforce the free limit), which resets every day.
+            AI spend: today&apos;s (counted per IP address, and reset every day) and, to enforce the covered amount, a lifetime
+            total kept against a scrambled form of your address rather than the address itself.
           </p>
           <p>
             A share link is the one exception, and only when you press Create link: so the link works, we keep a

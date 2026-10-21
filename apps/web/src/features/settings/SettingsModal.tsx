@@ -168,7 +168,7 @@ function GeneralTab() {
         </div>
         <p className="text-sm text-muted mb-4">
           {hosted
-            ? 'You’re using Stratemark’s free research, which has a daily limit. Add your own Gemini key for unlimited research on your own quota.'
+            ? 'You’re using the research we cover during the beta, which has a limit. Add your own Gemini key to keep going on your own quota.'
             : 'Add your Gemini key to run live research. It’s stored in this browser and sent only to Google.'}
         </p>
 

@@ -1,5 +1,5 @@
 import { hasLocalSourceBridge } from './local-source-reader';
-import { HOSTED_KEY, hasHostedApi, hostedUrl, useHostedBudget } from '@/lib/hostedApi';
+import { HOSTED_KEY, hasHostedApi, hostedUrl, noteHostedAnswer } from '@/lib/hostedApi';
 
 /**
  * Gemini transport shim.
@@ -20,10 +20,8 @@ export const previewGeminiFetch: typeof fetch = (input, init) => {
     return fetch(hostedUrl(`gemini/${match[1]}:generateContent`), {
       ...init, headers, credentials: 'omit', redirect: 'error', cache: 'no-store',
     }).then(async (res) => {
-      if (res.status === 402) {
-        const body = await res.clone().json().catch(() => null) as { reason?: 'global' | 'visitor' } | null;
-        useHostedBudget.setState({ exhausted: body?.reason === 'visitor' ? 'visitor' : 'global' });
-      }
+      const body = res.status === 402 ? await res.clone().json().catch(() => null) as Record<string, unknown> | null : null;
+      noteHostedAnswer(res.status, body, res.headers);
       return res;
     });
   }
