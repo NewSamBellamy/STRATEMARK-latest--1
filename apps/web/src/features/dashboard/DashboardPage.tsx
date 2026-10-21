@@ -167,8 +167,8 @@ function TabView({ tab, companyId }: { tab: DashboardTab; companyId: string }) {
 }
 
 const VISIBLE_TAB_COUNT = 5;
-/** From this width every tab fits in the bar, so nothing is tucked under "More". */
-const WIDE_TAB_BAR_QUERY = '(min-width: 1280px)';
+/** From this width (nine tabs plus the sidebar need about 1310px) every tab fits in the bar, so nothing is tucked under "More". */
+const WIDE_TAB_BAR_QUERY = '(min-width: 1344px)';
 
 /** Below 1024px (phones, tablets beside the sidebar) the bar scrolls sideways instead (a dropdown would be clipped by the scroller). */
 const PHONE_TAB_BAR_QUERY = '(max-width: 1023px)';
@@ -596,7 +596,7 @@ export default function DashboardPage() {
                 disabled={!hasKey}
               >
                 <TabFreshness companyId={companyId} tab={activeTab} onRefresh={() => rerunTab.mutate()}
-                  refreshing={rerunTab.isPending} disabled={!hasKey} control={<BackgroundResearchControl />} />
+                  refreshing={rerunTab.isPending} disabled={!hasKey} control={(alone) => <BackgroundResearchControl showState={alone} />} />
                 <TabView tab={activeTab} companyId={companyId} />
               </ContextRerun>
             )}

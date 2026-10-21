@@ -29,9 +29,9 @@ test('1. New Deck page: prompt box, suggestion chips, beta bar', async ({ page }
   await page.goto('/#/');
   await expect(page.getByPlaceholder('Describe a market…')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Research this market' })).toBeVisible();
-  // Six suggestion chips from the first/any set.
+  // Six suggestion chips from one of the four sets (the page picks the set at random).
   const chip = page.getByRole('button', {
-    name: /Christian apparel companies|Space infrastructure companies|AI code-review startups|Independent game studios|Climate-risk software/,
+    name: /Christian apparel companies|Space infrastructure companies|AI code-review startups|Independent game studios|Climate-risk software|Private credit platforms|Robotics foundation models|Sustainable packaging companies|AI-native accounting software/,
   });
   await expect(chip.first()).toBeVisible();
   // The beta bar only exists in the hosted build; the bare preview has no hosted API.
@@ -163,13 +163,13 @@ test('7b. About this beta names December 1, 2026', async ({ page }) => {
   await expect(page.getByText(LAUNCH).first()).toBeVisible();
 });
 
-test('8. Compare mode: two cards, Ask about these opens the Ask panel', async ({ page }) => {
+test('8. Compare mode: two cards, Compare (2) opens the Ask panel', async ({ page }) => {
   await openDeck(page);
   await page.getByRole('button', { name: 'Compare', exact: true }).click();
   const cards = page.getByTestId('card-grid').getByRole('button', { name: / — Company card/ });
   await cards.nth(0).click();
   await cards.nth(1).click();
   await expect(page.getByText('2 cards selected')).toBeVisible();
-  await page.getByRole('button', { name: 'Ask about these' }).click();
+  await page.getByRole('button', { name: 'Compare (2)' }).click();
   await expect(page.getByPlaceholder(/Ask a follow-up about these/)).toBeVisible();
 });

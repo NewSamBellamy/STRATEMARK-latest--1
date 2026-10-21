@@ -130,7 +130,7 @@ export function ThreadHistoryButton({
       {open && (
         <div className={cn('absolute z-40 mt-2 w-80 rounded-xl border border-border bg-surface p-2 shadow-card', side === 'left' ? 'left-0' : 'right-0')}>
           <p className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-widest text-faint">
-            Research history
+            Chats
           </p>
           {list.length === 0 ? (
             <p className="px-2 pb-2 text-sm text-muted">

@@ -14,10 +14,9 @@ import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
 import { Modal } from '@/components/ui/Modal';
 import { StoryImage, VideoStrip } from '@/components/media/StoryMedia';
-import { Logo } from '@/features/card/Logo';
 import { LiveBadge } from '../LiveBadge';
 import { DigDeeper } from '@/features/deepdive/DeepDive';
-import { formatRelative } from '@/lib/format';
+import { formatDate, formatDateTime, formatRelative } from '@/lib/format';
 import { Favicon } from '@/components/media/Favicon';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
@@ -71,11 +70,7 @@ function newsOrder(items: LiveIntelItem[]): LiveIntelItem[] {
 function fmtPublishDate(raw: string): string {
   const t = Date.parse(raw);
   if (Number.isNaN(t)) return raw;
-  return new Date(t).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatDate(t);
 }
 
 /** The story, opened: capture, dated meta, reported paragraph with quotes. */
@@ -239,36 +234,15 @@ function IntelRow({
       )}
       </div>
       <StoryImage pageUrl={item.url} imageUrl={item.imageUrl} publisher={item.publisher}
-        className="hidden h-[72px] w-[112px] shrink-0 self-center rounded-lg sm:block" />
+        className="hidden h-20 w-[120px] shrink-0 self-center rounded-lg sm:block" />
     </li>
   );
 }
 
-/** Stand-in when a story has no picture: the publisher's mark on a quiet panel. */
+/** The company a story is about (a picture naming a different company is dropped). */
 export interface StoryCompany { name: string; website?: string | null; logoUrl?: string | null }
 
-/** No usable story picture: the company's own logo on a neutral plate (never a generated or unrelated image). */
-function CompanyPlate({ company }: { company: StoryCompany }) {
-  return (
-    <div className="absolute inset-0 flex items-center justify-center bg-surface-2 p-4" data-testid="company-plate">
-      <Logo name={company.name} website={company.website} logoUrl={company.logoUrl} bare className="h-12 w-12 object-contain" />
-    </div>
-  );
-}
-
-function PublisherPlate({ item }: { item: LiveIntelItem }) {
-  const publisher = item.publisher ?? publisherOf(item.url, null);
-  return (
-    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-surface-2 to-surface-muted">
-      <span className="inline-flex items-center gap-2 text-[13px] font-medium text-muted">
-        {/^https?:\/\//.test(item.url) && <Favicon url={item.url} className="h-5 w-5 rounded" />}
-        {publisher ?? SOURCE_LABEL[item.source]}
-      </span>
-    </div>
-  );
-}
-
-function StoryMeta({ item }: { item: LiveIntelItem }) {
+export function StoryMeta({ item }: { item: LiveIntelItem }) {
   const publisher = item.publisher ?? publisherOf(item.url, null);
   return (
     <p className="flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-muted">
@@ -285,33 +259,39 @@ export function featuredStories(items: LiveIntelItem[]): LiveIntelItem[] {
   return items.filter((i) => !i.stale).slice(0, 4);
 }
 
+// One column per remaining story on wide desktop (stacked below it, full width, when narrower),
+// so the row is always full and no title is squeezed into a sliver.
+const REST_COLUMNS: Record<number, string> = { 1: 'xl:grid-cols-1', 2: 'xl:grid-cols-2', 3: 'xl:grid-cols-3' };
+
 export function TopStories({ items, onOpen, company }: { items: LiveIntelItem[]; onOpen: (id: string) => void; company?: StoryCompany }) {
   const [lead, ...rest] = featuredStories(items);
   if (!lead) return null;
-  const plate = (item: LiveIntelItem) => (company ? <CompanyPlate company={company} /> : <PublisherPlate item={item} />);
   const subject = company ? { name: company.name, website: company.website } : undefined;
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+    <div className="grid gap-4">
+      {/* The lead is one wide card (picture beside its text) and the rest sit in a row under it,
+          so neither column can leave a hole beside a taller one. */}
       <button type="button" onClick={() => onOpen(lead.id)}
-        className="panel group overflow-hidden text-left transition-shadow hover:shadow-md">
+        className="panel group overflow-hidden text-left transition-shadow hover:shadow-md lg:grid lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:[&:has([data-story-empty])]:grid-cols-1">
+        {/* No picture means no picture block: the card collapses to its text. */}
         <StoryImage pageUrl={lead.url} imageUrl={lead.imageUrl} publisher={lead.publisher} credit
-          className="aspect-[16/9] w-full" subject={subject} fallback={plate(lead)} />
-        <div className="space-y-1.5 p-4">
+          className="aspect-[16/9] w-full lg:aspect-auto lg:min-h-[240px]" subject={subject} />
+        <div className="space-y-1.5 p-5 lg:flex lg:flex-col lg:justify-center">
           <StoryMeta item={lead} />
           <h3 className="text-[18px] font-semibold leading-snug text-content group-hover:text-primary-ink">{lead.title}</h3>
           {lead.summary && <p className="line-clamp-3 text-[13.5px] leading-relaxed text-muted">{lead.summary}</p>}
         </div>
       </button>
       {rest.length > 0 && (
-        <div className="grid content-start gap-3">
+        <div className={cn('grid gap-4', REST_COLUMNS[Math.min(rest.length, 3)])}>
           {rest.map((item) => (
             <button key={item.id} type="button" onClick={() => onOpen(item.id)}
               className="panel group flex gap-3 overflow-hidden p-2.5 text-left transition-shadow hover:shadow-md">
               <StoryImage pageUrl={item.url} imageUrl={item.imageUrl} publisher={item.publisher}
-                className="h-[84px] w-[128px] shrink-0 rounded-md" subject={subject} fallback={plate(item)} />
+                className="h-20 w-[120px] shrink-0 rounded-md" subject={subject} />
               <div className="min-w-0 space-y-1 py-0.5">
                 <StoryMeta item={item} />
-                <p className="line-clamp-3 text-[13.5px] font-medium leading-snug text-content group-hover:text-primary-ink">{item.title}</p>
+                <p className="line-clamp-4 text-[13.5px] font-medium leading-snug text-content group-hover:text-primary-ink">{item.title}</p>
               </div>
             </button>
           ))}
@@ -338,7 +318,7 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
         // Empty-state taxonomy (red team #16): "researched, nothing surfaced"
         // and "never searched" are different facts and must read differently.
         const researchedAt = r.lastRefreshedAt
-          ? new Date(r.lastRefreshedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+          ? formatDateTime(r.lastRefreshedAt)
           : null;
         return (
           <EmptyNote
@@ -413,10 +393,11 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
               )}
               <SecFilings companyName={companyNameRaw} />
             </div>
-            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted">
+            <h3 className="mb-3 flex items-baseline gap-2 font-display text-base font-semibold text-ink">
               {featuredIds.size > 0 ? 'More coverage' : 'All coverage'}
-            </h4>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-normal tabular-nums text-muted">{ordered.length}</span>
+            </h3>
+            <div className="mb-4 flex flex-wrap items-center gap-2">
               {all.length > 5 && (
                 <SearchBox
                   value={search}
@@ -463,7 +444,7 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
                 Clear the search or filters to see everything research retained.
               </EmptyNote>
             ) : (
-              <div className="space-y-5">
+              <div className="space-y-4">
                 {buckets.map(({ bucket, items }) => (
                   <section key={bucket} aria-label={RECENCY_LABEL[bucket]}>
                     <h4 className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-muted">

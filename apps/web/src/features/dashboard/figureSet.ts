@@ -10,8 +10,8 @@
  * selection (card-view.ts) and is not touched by anything here.
  */
 import { classifyMarketProfile, type Company, type CompanyMetric, type MetricType } from '@mi/contracts';
-import { buildMetricViews } from '@/features/card/card-view';
-import { formatMetricValue } from '@/lib/format';
+import { ESTIMATE_UNCONFIRMED_NOTE, buildMetricViews, estimateHolds } from '@/features/card/card-view';
+import { formatDate, formatMetricValue } from '@/lib/format';
 import { isKnown, metricAsOf, missingCoreTypes, orderMetrics } from './dashboardModel';
 import { currencyCaption, figureCurrency, withReportedCurrency } from './figureCurrency';
 
@@ -64,13 +64,31 @@ export interface FigureSet {
   real: CompanyMetric[];
 }
 
+type AssessCompany = Pick<Company, 'websiteUrl' | 'ownership'> & Partial<Company>;
+
+/**
+ * The facts every surface reads: one company's stored rows through the card's
+ * own read-time gates (revision choice, source and ownership gates, invalid
+ * values), and an estimate that does not hold up on its own evidence withheld
+ * exactly as the card face withholds it. So a figure the card calls "Not found
+ * yet" is not a number in a tile, a compare cell or a chart. Nothing is
+ * computed: a withheld figure keeps no value and no confidence it did not earn.
+ */
+export function assessedMetrics(metrics: readonly CompanyMetric[], company: AssessCompany | null | undefined): CompanyMetric[] {
+  const holder = company?.name ? { name: company.name, websiteUrl: company.websiteUrl ?? null } : null;
+  return buildMetricViews([...metrics], company?.websiteUrl, company?.ownership).map(({ metric }) =>
+    metric.confidence === 'estimated' && metric.value != null && !estimateHolds(holder, metric)
+      ? { ...metric, value: null, confidence: 'unknown' as const, methodNote: ESTIMATE_UNCONFIRMED_NOTE }
+      : metric);
+}
+
 export function buildFigureSet(
   metrics: readonly CompanyMetric[],
-  company: Pick<Company, 'websiteUrl' | 'ownership'> & Partial<Company> | null | undefined,
+  company: AssessCompany | null | undefined,
   companyId: string,
 ): FigureSet {
   const seen = new Set<MetricType>();
-  const projected = buildMetricViews([...metrics], company?.websiteUrl, company?.ownership).map(({ metric }) => metric);
+  const projected = assessedMetrics(metrics, company);
   const deduped = dropRestatedRevenue(orderMetrics(projected).filter((m) => !seen.has(m.metricType) && !!seen.add(m.metricType)));
   const financialFirm = company ? classifyMarketProfile(company as Company) === 'financial_firm' : false;
   const real = pruneRedundantGaps(deduped, financialFirm);
@@ -97,15 +115,12 @@ export function figureTrust(metric: CompanyMetric): 'Human checked' | 'Verified'
     : metric.confidence === 'verified' ? 'Verified' : linkedCitation(metric) ? 'Reported' : 'Estimated';
 }
 
-const dayFormat = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-const dayFormatUtc = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-
-/** "30 Jul 2026". A plain calendar date is never timezone-shifted; a timestamp reads in the viewer's calendar. */
+/** "30 Jul 2026" via the shared formatter (calendar day in UTC, so no date is timezone-shifted). */
 export function formatDay(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const at = new Date(iso);
   if (!Number.isFinite(at.getTime())) return null;
-  return (/T\d{2}:\d{2}/.test(iso) ? dayFormat : dayFormatUtc).format(at);
+  return formatDate(at);
 }
 
 /**

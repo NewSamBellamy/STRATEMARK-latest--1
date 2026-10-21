@@ -6,8 +6,11 @@
  * against the grounded notes it was given: what the notes do not say is
  * removed (an amount or date becomes "not reported", a name is dropped), and a
  * round survives only if the notes mention its name or its amount. Nothing is
- * added or corrected here: this can only withhold.
+ * corrected here, and nothing is added except what the already-checked data
+ * itself states (the investor list's derivations, a funding event's own
+ * stated amount and leads), each of which the notes must also carry.
  */
+import { deriveInvestors, isFundingWording, statedLeadInvestors, statedRoundAmount } from '@mi/contracts';
 import type { HistoryContent, MissionGovernanceContent } from '@mi/contracts';
 import { amountMatches, sameAmount } from './amounts';
 
@@ -28,7 +31,13 @@ function named(notes: string, name: string, kind: 'organisation' | 'person'): bo
   return kind === 'person' ? words.every((word) => wholeWord(notes, word)) : words.some((word) => wholeWord(notes, word));
 }
 
-export function groundGovernanceInNotes(content: MissionGovernanceContent, notes: string): MissionGovernanceContent {
+/**
+ * `companyName` keeps the company's own officers out of the derived investor
+ * list: besides what the notes name, the investor list gains the leads of the
+ * surviving rounds and the organisations of the surviving (sourced) board
+ * affiliations, as entries of unknown kind (see deriveInvestors).
+ */
+export function groundGovernanceInNotes(content: MissionGovernanceContent, notes: string, companyName?: string): MissionGovernanceContent {
   const amounts = amountMatches(notes);
   const amountStated = (value: number) => amounts.some((m) => sameAmount(m.value, value));
   const seen = new Set<string>();
@@ -49,12 +58,14 @@ export function groundGovernanceInNotes(content: MissionGovernanceContent, notes
       leadInvestors: (round.leadInvestors ?? []).filter((lead) => named(notes, lead, 'organisation')),
     }];
   });
+  const board = (content.board ?? []).filter((member) => named(notes, member.name, 'person'))
+    .map((member) => ({ ...member, affiliation: affiliationNearName(notes, member.name, member.affiliation) }));
+  const listed = (content.investors ?? []).filter((investor) => named(notes, investor.name, 'organisation'));
   return {
     ...content,
     fundingRounds,
-    investors: (content.investors ?? []).filter((investor) => named(notes, investor.name, 'organisation')),
-    board: (content.board ?? []).filter((member) => named(notes, member.name, 'person'))
-      .map((member) => ({ ...member, affiliation: affiliationNearName(notes, member.name, member.affiliation) })),
+    investors: deriveInvestors({ companyName, board, fundingRounds, investors: listed }),
+    board,
   };
 }
 
@@ -112,10 +123,19 @@ export function groundHistoryInNotes(content: HistoryContent, notes: string): Hi
       // Funding facts ride on the event only when the notes state them.
       const { amountUsd, investors, ...rest } = event;
       const amountOk = amountUsd != null && Number.isFinite(amountUsd) && amountUsd > 0 && amounts.some((m) => sameAmount(m.value, amountUsd));
-      const named_ = (investors ?? []).filter((who) => named(notes, who, 'organisation'));
+      let named_ = (investors ?? []).filter((who) => named(notes, who, 'organisation'));
+      let amountFinal = amountOk ? amountUsd : undefined;
+      if (isFundingWording(rest.title)) {
+        // The round's own description may state what the model left out: take it
+        // only when it is one unambiguous USD amount (or lead list) the notes carry too.
+        const text = `${rest.title}. ${rest.detail ?? ''}`;
+        const stated = statedRoundAmount(text);
+        if (amountFinal === undefined && stated?.currency === 'USD' && amounts.some((m) => sameAmount(m.value, stated.value))) amountFinal = stated.value;
+        if (named_.length === 0) named_ = statedLeadInvestors(text).filter((who) => named(notes, who, 'organisation'));
+      }
       return {
         ...rest,
-        ...(amountOk ? { amountUsd } : {}),
+        ...(amountFinal !== undefined ? { amountUsd: amountFinal } : {}),
         ...(named_.length > 0 ? { investors: named_ } : {}),
       };
     }),

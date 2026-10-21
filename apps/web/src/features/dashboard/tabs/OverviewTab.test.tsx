@@ -3,9 +3,13 @@ import { screen, within } from '@testing-library/react';
 import { buildDataset } from '@mi/mocks';
 import type { CompanyMetric } from '@mi/contracts';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
+import { reportedEstimate } from '@/test/reportedEstimate';
 import { OverviewTab } from './OverviewTab';
 
-const seed = buildDataset().metrics[0]!;
+const dataset = buildDataset();
+const seed = dataset.metrics[0]!;
+/** An estimate the card would also show: the dashboard reads the card's gate, so a fixture that must appear passes it. */
+const held = (m: CompanyMetric): CompanyMetric => reportedEstimate(m, dataset.companies.find((c) => c.id === seed.companyId)!.name);
 const markdown = [
   '## Source-reported background',
   'Acme builds industrial widgets for factories across Europe and Asia since 2012.',
@@ -57,24 +61,30 @@ describe('OverviewTab executive summary', () => {
     const tile = await screen.findByRole('article', { name: 'Employees: 250' });
     expect(within(tile).queryByLabelText(/Source check/)).toBeNull();
   });
-  it('shows an estimated figure with its est. marker and says it has no link, as Metrics does', async () => {
-    render([{ ...seed, metricType: 'employees', value: 250, confidence: 'estimated', source: null, citations: [],
-      passageSupport: null, reportedSupport: null }]);
+  it('shows an estimated figure with its est. marker and the source the card also holds', async () => {
+    render([held({ ...seed, metricType: 'employees', value: 250, confidence: 'estimated', source: null, citations: [],
+      passageSupport: null, reportedSupport: null })]);
     const tile = await screen.findByRole('article', { name: 'Employees: 250 (estimated)' });
     expect(within(tile).getByText('est.')).toBeInTheDocument();
-    expect(within(tile).getByText('No link recorded')).toBeInTheDocument();
-    expect(within(tile).getByText(/Period not reported/)).toBeInTheDocument();
+    expect(within(tile).getByRole('link', { name: /Annual report/ })).toHaveAttribute('href', 'https://sec.gov/Archives/report');
+  });
+  it('withholds an estimate nothing supports, exactly as the card face does, instead of showing it as a number', async () => {
+    render([{ ...seed, metricType: 'employees', value: 250, confidence: 'estimated', source: null, citations: [],
+      passageSupport: null, reportedSupport: null }]);
+    expect((await screen.findAllByText('Not found yet')).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('article', { name: /Employees: 250/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('250')).not.toBeInTheDocument();
   });
   it('shows every figure Metrics shows, including a fifth one, and counts them the same way', async () => {
     const row = (metricType: CompanyMetric['metricType'], value: number, confidence: CompanyMetric['confidence']) =>
-      ({ ...seed, id: `m_${metricType}`, metricType, value, confidence, source: null, citations: [], passageSupport: null, reportedSupport: null }) as CompanyMetric;
+      held({ ...seed, id: `m_${metricType}`, metricType, value, confidence, source: null, citations: [], passageSupport: null, reportedSupport: null } as CompanyMetric);
     render([row('valuation', 11.7e9, 'estimated'), row('arr', 4e8, 'estimated'), row('market_share', 2, 'estimated'), row('users', 450000, 'estimated'), row('employees', 350, 'estimated')]);
     expect(await screen.findByRole('article', { name: 'ARR: $400.0M (estimated)' })).toBeInTheDocument();
     expect(screen.getAllByRole('article').filter((a) => /\(estimated\)/.test(a.getAttribute('aria-label') ?? '')).length).toBe(5);
   });
   it('shows the currency a figure was reported in instead of silently calling it dollars', async () => {
-    render([{ ...seed, metricType: 'valuation', value: 11.7e9, confidence: 'estimated', source: null, citations: [],
-      methodNote: 'Series C round valuation reported in euros (~$13.8B USD)', passageSupport: null, reportedSupport: null }]);
+    render([held({ ...seed, metricType: 'valuation', value: 11.7e9, confidence: 'estimated', source: null, citations: [],
+      methodNote: 'Series C round valuation reported in euros (~$13.8B USD)', passageSupport: null, reportedSupport: null })]);
     const tile = await screen.findByRole('article', { name: /Valuation: €11\.7B/ });
     expect(within(tile).getByText(/Reported in euros \(EUR\); not converted to US dollars/)).toBeInTheDocument();
   });

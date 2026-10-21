@@ -82,23 +82,25 @@ export function CardGrid({
     ?.querySelector<HTMLElement>('.card-sleeve__open') ?? null, []);
   return (
     <>
-      <div
-        ref={gridRef}
-        className="card-grid"
-        data-testid="card-grid"
-      >
-        {cards.map((c) => (
-          <CardGridItem
-            key={c.card.id}
-            data={c}
-            deckUserValues={deckUserValues}
-            deckStatus={deckStatus}
-            selectable={selectable}
-            isSelected={selectable && (selected?.has(c.card.id) ?? false)}
-            onOpenCard={openCard}
-            onShareCard={setShareTarget}
-          />
-        ))}
+      <div className="card-grid-host">
+        <div
+          ref={gridRef}
+          className="card-grid"
+          data-testid="card-grid"
+        >
+          {cards.map((c) => (
+            <CardGridItem
+              key={c.card.id}
+              data={c}
+              deckUserValues={deckUserValues}
+              deckStatus={deckStatus}
+              selectable={selectable}
+              isSelected={selectable && (selected?.has(c.card.id) ?? false)}
+              onOpenCard={openCard}
+              onShareCard={setShareTarget}
+            />
+          ))}
+        </div>
       </div>
       {/* One share dialog for the whole grid — fact-checks the card first. */}
       <ShareDialog

@@ -10,7 +10,7 @@ import {
   type MetricType,
 } from '@mi/contracts';
 import { cn } from '@/lib/cn';
-import { formatMetricValue } from '@/lib/format';
+import { figureDisplay } from './figureSet';
 import { METRIC_COLORS } from '@/lib/theme';
 import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
 import { distributionLabel } from '@/features/card/card-view';
@@ -123,7 +123,7 @@ export function KpiTile({
       {known ? (
         <>
           <p className="mt-1.5 font-display text-[26px] font-semibold leading-none tabular-nums text-content">
-            {formatMetricValue(metric.metricType, metric.value)}
+            {figureDisplay(metric)}
           </p>
           <p className="mt-1.5 min-h-[16px] text-[11px] text-faint">{asOf ?? ''}</p>
           <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">

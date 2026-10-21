@@ -6,6 +6,7 @@
  * items carry the sentiment research tagged them with.
  */
 import { publisherOf } from '@mi/contracts';
+import { formatDate, formatDateLong } from '@/lib/format';
 import type { TodayUpdate } from '@/features/today/todayUpdates';
 import { KIND_LABEL } from '@/features/today/todayUpdates';
 import { exportSource } from './exportModel';
@@ -30,7 +31,6 @@ export interface DailyReportModel {
   counts: Array<{ label: string; count: number }>;
 }
 
-const SHORT = { month: 'short', day: 'numeric', year: 'numeric' } as const;
 
 export function buildDailyReportModel(
   company: ReportCompanyInfo,
@@ -39,7 +39,7 @@ export function buildDailyReportModel(
   now: Date = new Date(),
 ): DailyReportModel {
   const items = updates.map((u, i): DailyReportItem => {
-    const when = new Date(u.at).toLocaleDateString(undefined, SHORT);
+    const when = formatDate(u.at);
     return {
       n: i + 1,
       kindLabel: KIND_LABEL[u.kind],
@@ -56,7 +56,7 @@ export function buildDailyReportModel(
     .filter((c) => c.count > 0);
   return {
     company,
-    dateText: now.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+    dateText: formatDateLong(now, { weekday: true }),
     items,
     counts,
   };

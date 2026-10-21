@@ -19,13 +19,15 @@ import {
   splitAttribution,
   type PeerRanking,
 } from '../dashboardModel';
-import { KpiTileSkeleton, Section, metricLabel, useTabHref } from '../dashboardKit';
+import { KpiTileSkeleton, metricLabel, useTabHref } from '../dashboardKit';
+import { TabSection } from './TabKit';
 import { SourceCheck } from '../SourceCheck';
 import { usePeers } from '../usePeers';
-import { buildFigureSet, currencyCaptionFor, figureDates, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
+import { buildFigureSet, currencyCaptionFor, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
+import { figureCaveats, rowDates, type FigureCaveats } from '../figureCaveats';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { newestFirst, sourceCoverage, statedNote } from '../overviewTruth';
-import { ArticleReader, TopStories, type StoryCompany } from './LiveIntelTab';
+import { ArticleReader, StoryMeta } from './LiveIntelTab';
 import { SitePreview } from './LiveLandingTab';
 import { VideoStrip } from '@/components/media/StoryMedia';
 import { MarketPeers, OverviewSnapshot } from './OverviewSnapshot';
@@ -113,13 +115,26 @@ function Empty({ title, text }: { title: string; text: string }) {
 
 // ---- Key figures: the same figure set the Metrics tab reads ----------------
 
+// Tiles divide the row evenly (never 3 + 2 with an empty slot): all in one row where there
+// is width (xl), three across for three or six, and a lone last tile in the 2-up grid spans it.
+const ORPHAN_SPAN = '[&>:last-child:nth-child(odd)]:col-span-2';
+const KPI_COLUMNS: Record<number, string> = {
+  0: 'lg:grid-cols-4',
+  1: 'lg:grid-cols-1 lg:[&>:last-child:nth-child(odd)]:col-span-1',
+  2: 'lg:grid-cols-2',
+  3: 'lg:grid-cols-3 lg:[&>:last-child:nth-child(odd)]:col-span-1',
+  4: 'xl:grid-cols-4',
+  5: 'xl:grid-cols-5 xl:[&>:last-child:nth-child(odd)]:col-span-1',
+  6: 'lg:grid-cols-3',
+};
+
 /**
  * One key figure. It reads the same figure set as Metrics, so a figure found
  * there is found here, an estimate keeps its "est." marker, and a figure that
  * does not exist stays "Not found yet" (never imputed). The currency is shown
  * as reported; the card face and its figure counter are separate and untouched.
  */
-function FigureTile({ metric, ranking, href }: { metric: CompanyMetric; ranking: PeerRanking | null; href: string }) {
+function FigureTile({ metric, ranking, href, group }: { metric: CompanyMetric; ranking: PeerRanking | null; href: string; group: FigureCaveats }) {
   const type = metric.metricType;
   const label = metricLabel(metric);
   if (!isKnown(metric)) {
@@ -135,7 +150,7 @@ function FigureTile({ metric, ranking, href }: { metric: CompanyMetric; ranking:
     );
   }
   const citation = linkedCitation(metric);
-  const dates = figureDates(metric);
+  const dates = rowDates(metric, group);
   const currency = currencyCaptionFor(metric);
   const estimated = metric.confidence === 'estimated';
   const display = figureDisplay(metric);
@@ -160,13 +175,13 @@ function FigureTile({ metric, ranking, href }: { metric: CompanyMetric; ranking:
         ) : metric.confidence === 'user_verified' ? 'Your correction' : 'No link recorded'}
       </p>
       <p className="mt-0.5 text-[11px] text-faint">
-        {figureTrust(metric)} · {dates.period ? `For ${dates.period}` : 'Period not reported'}
+        {figureTrust(metric)}{dates.period ? ` · For ${dates.period}` : dates.notReported ? ' · Period not reported' : ''}
       </p>
       {dates.record && <p className="text-[11px] text-faint">{dates.record}</p>}
       {currency && <p className="mt-1 text-[11px] leading-snug text-muted">{currency}</p>}
-      <SourceCheck metric={metric} label={label} className="mt-1" />
+      <SourceCheck metric={metric} label={label} className="mt-1" groupedUndated={group.noPeriod} />
       {ranking?.rank != null && ranking.of > 1 && (
-        <Link to={href} className="mt-2 text-[11px] text-faint hover:text-primary-ink">
+        <Link to={href} className="mt-auto pt-2 text-[11px] text-faint hover:text-primary-ink">
           <span className="font-semibold tabular-nums text-content">#{ranking.rank}</span> of {ranking.of} companies with this figure
         </Link>
       )}
@@ -178,7 +193,9 @@ function FigureTile({ metric, ranking, href }: { metric: CompanyMetric; ranking:
 
 /** The scoop: today's stories with their pictures. Starts the news search if
  * this company has none yet (the same pass the Live Intel tab would run). */
-function Happening({ companyId, companyName, company }: { companyId: string; companyName: string; company?: StoryCompany }) {
+const HEADLINES = 3;
+
+function Happening({ companyId, companyName }: { companyId: string; companyName: string }) {
   const href = useTabHref(companyId);
   const intel = useDashboardTab(companyId, 'live_intel');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -187,24 +204,31 @@ function Happening({ companyId, companyName, company }: { companyId: string; com
     .sort((a, b) => (b.publishedDate ?? '').localeCompare(a.publishedDate ?? '')), [intel.data]);
   const open = openId ? items.find((i) => i.id === openId) ?? null : null;
   return (
-    <Section
+    <TabSection
       title="What's happening"
-      action={items.length > 4 ? <Link to={href('live_intel')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All {items.length} stories <ArrowRight className="h-3 w-3" aria-hidden /></Link> : undefined}
+      action={items.length > HEADLINES ? <Link to={href('live_intel')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All {items.length} stories <ArrowRight className="h-3 w-3" aria-hidden /></Link> : undefined}
     >
       {intel.isPending ? (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]" aria-label="Finding the latest stories">
-          <div className="panel aspect-[16/10] animate-pulse bg-surface-2" />
-          <div className="grid gap-3">{[0, 1, 2].map((i) => <div key={i} className="panel h-[104px] animate-pulse bg-surface-2" />)}</div>
-        </div>
+        <div className="panel h-[168px] animate-pulse bg-surface-2" aria-label="Finding the latest stories" />
       ) : items.length > 0 ? (
-        <TopStories items={items} onOpen={setOpenId} company={company} />
+        // Compact on purpose: Live Intel owns the lead story and picture block.
+        <ul className="panel divide-y divide-border">
+          {items.slice(0, HEADLINES).map((item) => (
+            <li key={item.id}>
+              <button type="button" onClick={() => setOpenId(item.id)} className="group block w-full space-y-1 px-5 py-3 text-left">
+                <StoryMeta item={item} />
+                <span className="block text-[14.5px] font-medium leading-snug text-content group-hover:text-primary-ink">{item.title}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
       ) : (
         <p className="panel px-4 py-4 text-[13px] leading-snug text-muted">
           No recent coverage found. <Link to={href('live_intel')} className="text-primary-ink hover:underline">Search again</Link>
         </p>
       )}
       {open && <ArticleReader item={open} companyId={companyId} companyName={companyName} onClose={() => setOpenId(null)} />}
-    </Section>
+    </TabSection>
   );
 }
 
@@ -213,9 +237,9 @@ function Watch({ companyId }: { companyId: string }) {
   const videos = useCachedDashboardTab(companyId, 'live_intel').data?.content.videos ?? [];
   if (!videos.length) return null;
   return (
-    <Section title="Watch">
+    <TabSection title="Watch">
       <VideoStrip videos={videos} />
-    </Section>
+    </TabSection>
   );
 }
 
@@ -226,11 +250,11 @@ function Milestones({ companyId }: { companyId: string }) {
   const timeline = newestFirst(history?.content.timeline ?? []).slice(0, 5);
   if (!timeline.length) return null;
   return (
-    <Section
+    <TabSection
       title="Milestones"
       action={<Link to={href('history')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">Full history <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
     >
-      <ol className="panel relative space-y-3 px-5 py-4">
+      <ol className="panel relative space-y-3 p-5">
         {timeline.map((e, i) => (
           <li key={i} className="grid grid-cols-[96px_minmax(0,1fr)] gap-3 text-[13.5px] leading-snug">
             <span className="tabular-nums text-faint">
@@ -241,7 +265,7 @@ function Milestones({ companyId }: { companyId: string }) {
           </li>
         ))}
       </ol>
-    </Section>
+    </TabSection>
   );
 }
 
@@ -253,14 +277,15 @@ function SiteGlance({ url }: { url: string }) {
   let host = url;
   try { host = new URL(url).hostname.replace(/^www\./, ''); } catch { /* keep raw */ }
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" className="panel group block self-start overflow-hidden" title={`Open ${host}`}>
+    // Stretches to the summary's height beside it (no hole under a shorter capture); stacked, it keeps 16:10.
+    <a href={url} target="_blank" rel="noopener noreferrer" className="panel group flex flex-col overflow-hidden" title={`Open ${host}`}>
       <div className="flex items-center gap-1.5 border-b border-border bg-surface-muted px-3 py-1.5">
         <span className="h-2 w-2 rounded-full bg-border" /><span className="h-2 w-2 rounded-full bg-border" /><span className="h-2 w-2 rounded-full bg-border" />
         <span className="ml-2 truncate text-[11px] text-faint">{host}</span>
         <ExternalLink className="ml-auto h-3 w-3 text-faint group-hover:text-primary-ink" aria-hidden />
       </div>
-      <div className="aspect-[16/10] overflow-hidden bg-surface-2">
-        <SitePreview url={url} fallbackShot={null} quiet onFail={() => setFailed(true)} />
+      <div className="relative aspect-[16/10] overflow-hidden bg-surface-2 lg:aspect-auto lg:min-h-[180px] lg:flex-1 dark:ring-1 dark:ring-inset dark:ring-border">
+        <div className="absolute inset-0"><SitePreview url={url} fallbackShot={null} quiet onFail={() => setFailed(true)} /></div>
       </div>
     </a>
   );
@@ -286,6 +311,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
   );
   const keyFigures = useMemo(() => (figures ? pickKpis(figures.all, 6, 4) : []), [figures]);
   const coverage = useMemo(() => sourceCoverage(keyFigures.filter(isKnown)), [keyFigures]);
+  const caveats = useMemo(() => figureCaveats(keyFigures), [keyFigures]);
 
   const result = query.data;
   const parsed = useMemo(
@@ -302,34 +328,36 @@ export function OverviewTab({ companyId }: { companyId: string }) {
 
   return (
     <div className="cascade space-y-8">
-      <Section
+      <TabSection
         title="Key figures"
         action={<Link to={href('metrics')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All figures and peers <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
       >
         {metricsQ.isPending || !figures ? (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             {[0, 1, 2, 3].map((i) => <KpiTileSkeleton key={i} i={i} />)}
           </div>
         ) : (
           <>
-          <div className={cn('grid grid-cols-2 gap-3', keyFigures.length > 4 ? 'md:grid-cols-3' : 'md:grid-cols-4')}>
+          <div className={cn('grid grid-cols-2 gap-4', ORPHAN_SPAN, KPI_COLUMNS[Math.min(keyFigures.length, 6)])}>
             {keyFigures.map((metric) => {
               const ranking = isKnown(metric) && peerState.status === 'ready'
                 ? rankInDeck(companyId, metric.metricType, peerState.peers) : null;
-              return <FigureTile key={metric.metricType} metric={metric} ranking={ranking}
+              return <FigureTile key={metric.metricType} metric={metric} ranking={ranking} group={caveats}
                 href={href('metrics', { metric: metric.metricType })} />;
             })}
           </div>
-          {coverage && <p className="mt-2 text-[11.5px] text-faint">{coverage}</p>}
+          {(coverage || caveats.line) && (
+            <p className="mt-2 text-[11.5px] text-faint">{[coverage, caveats.line].filter(Boolean).join(' · ')}</p>
+          )}
           </>
         )}
-      </Section>
+      </TabSection>
 
       {figures && (
         <OverviewCoverage companyId={companyId} figuresFound={figures.known.length} figureSlots={figures.all.length} />
       )}
 
-      <Happening companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} company={companyQ.data ? { name: companyQ.data.name, website: companyQ.data.websiteUrl, logoUrl: companyQ.data.logoUrl } : undefined} />
+      <Happening companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} />
 
       {query.isPending ? (
         <HydratingPanel label="Overview" variant="compact" />
@@ -340,20 +368,20 @@ export function OverviewTab({ companyId }: { companyId: string }) {
           onRetry={() => void query.refetch()}
         />
       ) : !result ? (
-        <Section title="Summary">
+        <TabSection title="Summary">
           <Empty title="Not researched yet" text="Use Research above to generate a sourced brief." />
-        </Section>
+        </TabSection>
       ) : !structured ? (
-        <Section title="Summary">
+        <TabSection title="Summary">
           <article className="markdown panel p-6">
             {result.content.markdown.trim()
               ? <ResearchMarkdown text={result.content.markdown} />
               : <p className="text-sm text-muted">No overview is available from the saved research yet.</p>}
           </article>
-        </Section>
+        </TabSection>
       ) : takeaways.length > 0 && (
-        <Section title="Summary">
-          <div className={cn('grid gap-4', site && 'lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]')}>
+        <TabSection title="Summary">
+          <div className={cn('grid gap-4', site && 'lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]')}>
           <dl className="panel divide-y divide-border">
             {takeaways.slice(0, 4).map((t) => (
               <div key={t.section} className="grid gap-x-6 gap-y-1 px-5 py-4 sm:grid-cols-[132px_minmax(0,1fr)]">
@@ -367,7 +395,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
           </dl>
           {site && <SiteGlance url={site} />}
           </div>
-        </Section>
+        </TabSection>
       )}
 
       <OverviewSnapshot companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} />

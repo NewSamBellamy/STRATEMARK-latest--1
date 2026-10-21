@@ -2,11 +2,24 @@
    part of the window, so viewport breakpoints put 230px cards in two columns
    at 768px and three at 1024px). A card face clips its figures and footer
    below ~260px, so columns never go narrower than that, and never more than
-   three across, which keeps wide screens exactly as before. */
+   three across, which keeps wide screens exactly as before.
+   A sleeve is never wider than 350px, so tracks stop there too and the spare
+   width goes BETWEEN the columns: the first card starts on the page's left
+   edge and the last ends on the right one, in line with the header and strips
+   above. A single column (phones) stays centred. */
+.card-grid-host {
+  container-type: inline-size;
+}
 .card-grid {
   display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, max(260px, calc((100% - 2rem) / 3))), 1fr));
+  gap: 1.25rem 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 350px));
+  justify-content: space-between;
+}
+@container (max-width: 535px) {
+  .card-grid {
+    justify-content: center;
+  }
 }
 
 .card-sleeve {
@@ -694,6 +707,12 @@
     padding: 4px;
     overflow: visible;
   }
+  /* The close button sits over the dark art panel on a phone: give it a surface so it can be seen. */
+  .card-inspector > button:last-child {
+    background: rgb(var(--c-surface));
+    opacity: 1;
+    box-shadow: 0 1px 4px #0000004d;
+  }
   .card-stage {
     padding: 20px;
   }
@@ -856,6 +875,7 @@
   gap: 16px;
   min-height: 0;
   margin-top: 14px;
+  margin-bottom: 14px;
   padding-right: 8px;
   overflow-y: auto;
 }

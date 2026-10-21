@@ -46,6 +46,15 @@ function show(tabs: DashboardTab[]) {
   return renderWithProviders(<Filled tabs={tabs} companyId="cmp_1" />, { repository });
 }
 
+describe('overview: section headers', () => {
+  it('uses the shared 16px header, not the 11px uppercase label', async () => {
+    show(['team_org', 'mission_governance', 'live_intel']);
+    const heading = await screen.findByRole('heading', { name: 'Leadership, funding & signals' });
+    expect(heading.className).toContain('text-base');
+    expect(heading.className).not.toContain('uppercase');
+  });
+});
+
 describe('overview: leadership, funding and signals', () => {
   it('shows who leads, the latest round and the mood of the coverage from the researched tabs', async () => {
     show(['team_org', 'mission_governance', 'live_intel']);

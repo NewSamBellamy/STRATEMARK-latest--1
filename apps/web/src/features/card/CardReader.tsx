@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { formatDate } from '@/lib/format';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, ArrowUpRight, ExternalLink, FilePlus2, Printer, Share2 } from 'lucide-react';
@@ -34,9 +35,7 @@ type Props = {
   returnFocusTo?: (cardId: string) => HTMLElement | null;
 };
 
-const capturedDate = new Intl.DateTimeFormat('en-US', {
-  month: 'short', day: 'numeric', year: 'numeric',
-});
+const capturedDate = { format: (d: Date) => formatDate(d) };
 const pendingCompanySnapshot = 'No source-backed company snapshot is ready yet.';
 
 export function CardReader({ data, open, returnFocusTo, ...props }: Props) {

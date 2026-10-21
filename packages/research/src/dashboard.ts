@@ -324,7 +324,7 @@ export async function researchDashboardTab<T extends DashboardTab>(
         structurePrompt(notes),
         missionGovernanceContentSchema,
         structSys,
-      ), notes), g.citations);
+      ), notes, args.company.name), g.citations);
       const blankAffiliations = firstPass.board.filter((b) => !b.affiliation?.trim()).length;
       const thin =
         firstPass.fundingRounds.length === 0 ||
@@ -339,7 +339,7 @@ export async function researchDashboardTab<T extends DashboardTab>(
         structurePrompt(notes),
         missionGovernanceContentSchema,
         structSys,
-      ), notes), [...g.citations, ...gapFill.citations]);
+      ), notes, args.company.name), [...g.citations, ...gapFill.citations]);
       return secondPass as DashboardContentMap[T];
     }
 

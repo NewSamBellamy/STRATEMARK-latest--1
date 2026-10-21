@@ -238,12 +238,13 @@ describe('OrgBoard', () => {
   });
 
   describe('on a phone', () => {
-    it('stacks function sections as swipe rows with no strings', () => {
+    it('stacks function sections as a wrapping grid (no sideways scroll) with no strings', () => {
       setNarrow(true);
       const { container } = render(board(team));
       expect(container.querySelector('svg[focusable="false"]')).toBeNull();
       expect(container.querySelectorAll('path[data-string]')).toHaveLength(0);
-      expect(container.querySelector('.snap-x')).not.toBeNull();
+      expect(container.querySelector('.snap-x')).toBeNull();
+      expect(container.querySelector('.overflow-x-auto')).toBeNull();
       expect(container.querySelectorAll('[data-person-id]')).toHaveLength(team.length);
     });
   });

@@ -5,6 +5,7 @@
  */
 import type { CardWithCompany, Market } from '@mi/contracts';
 import { buildCardView } from '@/features/card/card-view';
+import { formatDate } from '@/lib/format';
 
 /** Slots on every card face (PROFILE_CORE_SLOTS has four per profile). */
 export const FACE_SLOT_COUNT = 4;
@@ -141,11 +142,7 @@ export function formatUpdated(iso: string, now: number = Date.now()): string {
   if (days <= 0) return 'Today';
   if (days === 1) return 'Yesterday';
   if (days < 7) return `${days} days ago`;
-  return new Date(t).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: days > 300 ? 'numeric' : undefined,
-  });
+  return formatDate(t);
 }
 
 const MARKET_STOPWORDS = new Set([

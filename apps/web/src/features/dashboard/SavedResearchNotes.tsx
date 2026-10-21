@@ -1,5 +1,6 @@
 import { sourceHref } from '@/lib/sourceHref';
 import { useState } from 'react';
+import { formatDate } from '@/lib/format';
 import { usableCitations } from '@mi/contracts';
 import type { ResearchEvidence } from '@mi/research';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
@@ -20,7 +21,7 @@ export function SavedResearchNotes({ companyId }: { companyId: string }) {
     <p className="mt-3">Saved search output, not independently verified facts. Reviewing this evidence does not make an API call. Missing or rejected figures stay unknown.</p>
     {notes.length === 0 && <p className="mt-2">No saved search notes are available for this company.</p>}
     {notes.filter(note => note.companyId === companyId).map(note => <section key={note.id} className="mt-4 space-y-2 border-t border-border pt-3">
-      <p className="font-medium text-content">{note.topic.replace(/_/g, ' ')} · collected {note.capturedAt.slice(0, 10)}</p>
+      <p className="font-medium text-content">{note.topic.replace(/_/g, ' ')} · collected {formatDate(note.capturedAt)}</p>
       {note.grounding?.supports.length ? <>
         <p>Source-attributed passages — not independently verified.</p>
         {note.grounding.supports.slice(0, 20).map(support => <div key={support.supportIndex} className="space-y-2 border-l border-border pl-3">

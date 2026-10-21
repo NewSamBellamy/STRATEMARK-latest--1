@@ -74,8 +74,10 @@ function Field({ label, value }: { label: string; value: string | null | undefin
 }
 
 export function ProfileCard({
-  person, company, flipped, onFlip, onOpenProfile, dim = false, reportsTo = null, enterIndex,
+  person, company, flipped, onFlip, onOpenProfile, dim = false, reportsTo = null, enterIndex, careerNote = true,
 }: {
+  /** False when the board says "no career details reported" once for everyone, so the card does not repeat it. */
+  careerNote?: boolean;
   person: OrgNode;
   company: ProfileCompany;
   flipped: boolean;
@@ -197,7 +199,7 @@ export function ProfileCard({
                   </li>
                 ))}
               </ul>
-            ) : (
+            ) : careerNote && (
               <p className="mt-1.5 text-[10px] italic leading-snug text-[#6b6757]">No career details reported</p>
             )}
             <div className="mt-auto flex items-center justify-between gap-2 pt-2">

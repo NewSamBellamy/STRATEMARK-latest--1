@@ -69,6 +69,22 @@ export function AskOrb({ onAsk, hint }: { onAsk: () => void; hint?: string }) {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  // While any part of the page scrolls the orb steps back (translucent, a little smaller) so it never hides what is being read.
+  const [scrolling, setScrolling] = useState(false);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onScroll = () => {
+      setScrolling(true);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setScrolling(false), 700);
+    };
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener('scroll', onScroll, { capture: true });
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
   const rest = orbPixels(pos, size.w, size.h);
   const at = drag ?? rest;
 
@@ -131,10 +147,11 @@ export function AskOrb({ onAsk, hint }: { onAsk: () => void; hint?: string }) {
       onKeyDown={key}
       onClick={(e) => { if (e.detail === 0) onAsk(); /* Enter or Space: pointer presses are handled above */ }}
       data-dragging={drag ? 'true' : 'false'}
+      data-scrolling={scrolling && !drag ? 'true' : 'false'}
       className={cn(
         'ask-orb fixed z-30 grid touch-none select-none place-items-center rounded-full border border-border bg-surface shadow-card',
         'cursor-grab active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
-        drag ? 'scale-105' : 'transition-[left,top,transform] duration-200 ease-out hover:scale-105',
+        drag ? 'scale-105' : 'transition-[left,top,transform,opacity] duration-200 ease-out hover:scale-105',
       )}
       style={{ left: at.left, top: at.top, width: ORB_SIZE, height: ORB_SIZE }}
     >

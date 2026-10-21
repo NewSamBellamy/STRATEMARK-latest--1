@@ -14,6 +14,7 @@
  *  - only the company's own rows are read (a rival's row never lands here),
  *  - nothing is imputed, zero-filled or rounded up.
  */
+import { formatDateLong } from '@/lib/format';
 import {
   TIER_LABELS,
   isSignalCardType,
@@ -273,7 +274,7 @@ export function buildReportModel(args: {
   return {
     title: args.title,
     kind: args.kind,
-    dateText: (args.now ?? new Date()).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }),
+    dateText: formatDateLong(args.now ?? new Date()),
     companies,
     figureCount,
     unknownCount,

@@ -48,13 +48,11 @@ describe('team & org tab', () => {
     localStorage.removeItem('mi.teamOrgView');
   });
 
-  it('disables Moving with the reason when no sourced move exists, and says so when search finds no one', async () => {
+  it('hides the zero-count Moving chip when no sourced move exists, and says so when search finds no one', async () => {
     localStorage.removeItem('mi.teamOrgView');
     const { user } = renderWithProviders(<TeamOrgTab companyId="cmp" />, { repository: repoWith('team_org', { nodes: orgNodes }) });
     await screen.findByRole('group', { name: 'Org board' });
-    const moving = screen.getByRole('button', { name: /Moving/ });
-    expect(moving).toBeDisabled();
-    expect(moving.parentElement).toHaveAttribute('title', 'No sourced moves in this research');
+    expect(screen.queryByRole('button', { name: /Moving/ })).not.toBeInTheDocument();
     await user.type(screen.getByLabelText('Search people'), 'zzzz');
     expect(await screen.findByText(/No one matches/)).toBeInTheDocument();
     await user.click(screen.getAllByRole('button', { name: 'Clear search' }).at(-1)!);
@@ -98,6 +96,26 @@ describe('history tab', () => {
     const y19 = screen.getAllByText('2019')[0]!;
     expect(y24.compareDocumentPosition(y19) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText('No attributable quotes yet')).toBeInTheDocument();
+  });
+
+  it('never says "Amount not reported" under a description that states an amount', async () => {
+    renderWithProviders(<HistoryTab companyId="cmp" />, {
+      repository: repoWith('history', {
+        founderStory: '',
+        quotes: [],
+        timeline: [
+          { date: '2025', title: 'Series E funding', detail: 'Closes an oversubscribed $1.375 billion Series E round led by Zeta Ventures.' },
+          { date: '2024', title: 'Series C funding', detail: 'Raises $50 million plus a $20 million extension.' },
+          { date: '2023', title: 'Series D funding', detail: 'Announces a round.' },
+          { date: '2022', title: 'Seed funding', detail: 'Raises a €105M seed round.' },
+        ],
+      }),
+    });
+    expect(await screen.findByText(/\$1\.4B/)).toBeInTheDocument();
+    expect(screen.getByText(/Zeta Ventures/, { selector: 'p' })).toBeInTheDocument();
+    expect(screen.getByText('€105M')).toBeInTheDocument();
+    // Only the round whose text states nothing is called "not reported".
+    expect(screen.getAllByText('Amount not reported')).toHaveLength(1);
   });
 
   it('labels an empty timeline instead of leaving a blank panel', async () => {

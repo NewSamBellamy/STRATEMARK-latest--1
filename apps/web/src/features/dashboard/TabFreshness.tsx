@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { METRIC_TYPE_LABELS, type DashboardTab } from '@mi/contracts';
-import { formatRelative } from '@/lib/format';
+import { formatDateTime, formatRelative } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { useCompanyMetrics } from '@/hooks/data';
 import { figureCounts, statedMonth } from './SourceCheck';
@@ -24,7 +24,7 @@ export function TabFreshness({ companyId, tab, onRefresh, refreshing, disabled, 
   refreshing: boolean;
   disabled: boolean;
   /** Small controls that share this one row (the background-research pause icon). */
-  control?: ReactNode;
+  control?: ReactNode | ((withoutFreshness: boolean) => ReactNode);
   now?: number;
 }) {
   const refreshedAt = useCachedDashboardTab(companyId, tab).data?.lastRefreshedAt ?? null;
@@ -37,16 +37,19 @@ export function TabFreshness({ companyId, tab, onRefresh, refreshing, disabled, 
   const counts = tab === 'overview' && metrics ? figureCounts(metrics) : null;
   const assessed = counts ? counts.current + counts.outOfDate + counts.undated : 0;
   return (
-    <div className="mb-3 flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[11.5px] text-faint" data-testid="freshness-row">
+    <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-faint" data-testid="freshness-row">
       {showFreshness && refreshedAt && (
         <>
-          <span title={new Date(refreshedAt).toLocaleString()}>
+          <span title={formatDateTime(refreshedAt)}>
             Researched {formatRelative(refreshedAt, now)}
             {old && <span className="text-red-700 dark:text-negative"> · over a month old</span>}
           </span>
-          {counts && assessed > 0 && <span className={cn(counts.outOfDate > 0 ? 'text-red-700 dark:text-negative' : counts.undated > 0 && 'text-muted')}>
-            · Figures: {[`${counts.current} current`, counts.outOfDate > 0 && `${counts.outOfDate} out of date`, counts.undated > 0 && `${counts.undated} undated`]
-              .filter(Boolean).join(', ')}
+          {/* The separator dot is drawn, and hidden on narrow screens, so a wrapped line never starts with one. */}
+          {counts && assessed > 0 && <span className={cn('sm:before:mr-2 sm:before:content-["·"]', counts.outOfDate > 0 ? 'text-red-700 dark:text-negative' : counts.undated > 0 && 'text-muted')}>
+            {counts.current === 0 && counts.outOfDate === 0
+              ? `${counts.undated} ${counts.undated === 1 ? 'figure has' : 'figures have'} no stated date`
+              : `Figures: ${[`${counts.current} current`, counts.outOfDate > 0 && `${counts.outOfDate} out of date`, counts.undated > 0 && `${counts.undated} undated`]
+                .filter(Boolean).join(', ')}`}
             {counts.outOfDate > 0 && counts.oldest && ` · oldest: ${METRIC_TYPE_LABELS[counts.oldest.label]}, ${statedMonth(counts.oldest.asOf)}`}
           </span>}
           <button
@@ -61,7 +64,7 @@ export function TabFreshness({ companyId, tab, onRefresh, refreshing, disabled, 
           </button>
         </>
       )}
-      {control}
+      {typeof control === 'function' ? control(!showFreshness) : control}
     </div>
   );
 }

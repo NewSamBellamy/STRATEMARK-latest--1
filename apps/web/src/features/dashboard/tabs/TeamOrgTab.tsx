@@ -17,7 +17,7 @@ import { useCachedDashboardTab } from '../useCachedTab';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader, SourceLink } from './TabKit';
 import { COLUMN_COLOR, COLUMN_LABEL, GROUP_COLOR, GROUP_LABEL, columnOf, recentMove, type ColumnKey } from './orgRank';
 import { footnoteMark, reported, statLines } from './personFacts';
-import { buildOrgTree, filterOrgTree, matchesQuery, type OrgTreeNode } from './tabHelpers';
+import { boardOnly, buildOrgTree, filterOrgTree, matchesQuery, type OrgTreeNode } from './tabHelpers';
 
 const UNKNOWN = 'Unknown';
 const LIST_PAGE = 40;
@@ -157,7 +157,7 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
   const query = useDashboardTab(companyId, 'team_org');
   // The board of directors lives on Mission & governance; read it only if that tab is already researched.
   const governance = useCachedDashboardTab(companyId, 'mission_governance').data;
-  const boardMembers = useMemo(() => governance?.content.board ?? [], [governance]);
+  const governanceBoard = useMemo(() => governance?.content.board ?? [], [governance]);
   const companyQ = useCompany(companyId).data;
   const name = companyQ?.name ?? 'this company';
   const profileCompany: ProfileCompany = useMemo(() => ({
@@ -183,6 +183,8 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
   const nodes = query.data?.content.nodes;
   const people = useMemo(() => nodes ?? [], [nodes]);
   const forest = useMemo(() => buildOrgTree(people), [people]);
+  // A director who is already a card on the team is shown there, not a third time in the board column.
+  const boardMembers = useMemo(() => boardOnly(governanceBoard, people), [governanceBoard, people]);
   // The reporting lines that survived tolerant parsing (a missing manager or a cycle is no line).
   const parentOf = useMemo(() => {
     const map = new Map<string, string>();
@@ -305,24 +307,29 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
             {COLUMN_LABEL[k]}
           </FilterChip>
         ))}
-        {boardMembers.length > 0 && view === 'board' && (
-          <FilterChip active={functions.has('board')} onClick={() => toggleFunction('board')} count={boardMembers.length}>
-            <span className="h-1.5 w-1.5 rounded-full bg-slate-400" aria-hidden />
-            Board
-          </FilterChip>
-        )}
       </div>
+      {((boardMembers.length > 0 && view === 'board') || movingCount > 0 || withSource > 0) && (
+        <span className="hidden h-5 w-px bg-border lg:block" aria-hidden />
+      )}
       <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="More filters">
-        <span title={movingCount === 0 ? 'No sourced moves in this research' : undefined}>
-          <FilterChip active={moving} onClick={() => setMoving((m) => !m)} count={movingCount} disabled={movingCount === 0}>
+        {boardMembers.length > 0 && view === 'board' && (
+          <span title="Directors from Mission & governance who are not on the team list; the function chips already cover everyone else">
+            <FilterChip active={functions.has('board')} onClick={() => toggleFunction('board')} count={boardMembers.length}>
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" aria-hidden />
+              Board only
+            </FilterChip>
+          </span>
+        )}
+        {movingCount > 0 && (
+          <FilterChip active={moving} onClick={() => setMoving((m) => !m)} count={movingCount}>
             Moving
           </FilterChip>
-        </span>
-        <span title={withSource === 0 ? 'No source pages were retained in this research' : undefined}>
-          <FilterChip active={hasSource} onClick={() => setHasSource((s) => !s)} count={withSource} disabled={withSource === 0}>
+        )}
+        {withSource > 0 && (
+          <FilterChip active={hasSource} onClick={() => setHasSource((s) => !s)} count={withSource}>
             Has source
           </FilterChip>
-        </span>
+        )}
       </div>
     </>
   );
@@ -351,11 +358,13 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
             : undefined;
         const total = result.content.nodes.length;
         const nothingShown = filtered.length === 0 && shownBoard.length === 0;
+        // True of every person, so it is said once above the board and not on each card.
+        const noCareer = total >= 2 && result.content.nodes.every((p) => statLines(p).length === 0);
         return (
           <div className="cascade">
             <SectionHeader
               title="Team & organization"
-              count={`${total} ${total === 1 ? 'person' : 'people'} · ${withSource} with a source`}
+              count={`${total} ${total === 1 ? 'person' : 'people'}${withSource > 0 ? ` · ${withSource} with a source` : ''}`}
               description={
                 view === 'board'
                   ? hasLines
@@ -368,7 +377,9 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
               }
             />
 
-            <div className="mb-3 flex flex-wrap items-center gap-2">
+            {/* Toolbar: search and the view switch on one row; the filter chips sit on a row of their own beneath. */}
+            <div className="mb-4 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
               <SearchBox
                 value={search}
                 onChange={setSearch}
@@ -386,9 +397,7 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
                   <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
                   Filter{activeFilters > 0 ? ` (${activeFilters})` : ''}
                 </button>
-              ) : (
-                filterControls
-              )}
+              ) : null}
               <div className="ml-auto inline-flex rounded-lg border border-border bg-surface-2/60 p-0.5" role="group" aria-label="View">
                 {(['board', 'list'] as const).map((v) => (
                   <button
@@ -424,9 +433,12 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
                 </span>
               )}
             </div>
-            {narrow && filtersOpen && (
-              <div className="mb-3 space-y-2 rounded-xl border border-border bg-surface p-3">{filterControls}</div>
+            {narrow ? (
+              filtersOpen && <div className="space-y-2 rounded-xl border border-border bg-surface p-3">{filterControls}</div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">{filterControls}</div>
             )}
+            </div>
 
             {view === 'board' ? (
               <div className="space-y-4">
@@ -437,13 +449,17 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
                 {nothingShown ? (
                   <NoMatches search={search} onClear={clearFilters} />
                 ) : (
+                  <>
+                  {noCareer && <p className="text-[12px] text-faint">No career details were reported for these people.</p>}
                   <OrgBoard
+                    careerNote={!noCareer}
                     people={filtered}
                     parentOf={parentOf}
                     company={profileCompany}
                     board={shownBoard}
                     onOpen={setSelectedPersonId}
                   />
+                  </>
                 )}
               </div>
             ) : visible.length === 0 ? (

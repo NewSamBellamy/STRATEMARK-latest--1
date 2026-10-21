@@ -48,6 +48,21 @@ describe('governance and funding stay inside what the research stated', () => {
     expect(out.investors.map((i) => i.name)).toEqual(['Microsoft Corporation', 'Thrive Capital']);
   });
 
+  it('derives investors from round leads and sourced board affiliations, as kind other', () => {
+    const notes = `${NOTES}\nDana Lee is a partner at Thrive Capital.`;
+    const out = groundGovernanceInNotes(base({
+      fundingRounds: [round('Series C', '2025', 6.6e9, ['Thrive Capital'])],
+      board: [{ name: 'Dana Lee', affiliation: 'Thrive Capital' }, { name: 'Bret Taylor', affiliation: 'Acme (Chair)' }],
+    }), notes, 'Acme');
+    expect(out.investors).toEqual([{ name: 'Thrive Capital', kind: 'other', note: 'Led Series C (2025).' }]);
+  });
+
+  it('does not derive an investor from an affiliation the notes do not state beside the member', () => {
+    const out = groundGovernanceInNotes(base({ board: [{ name: 'Dana Lee', affiliation: 'Zorblax Ventures' }] }), NOTES, 'Acme');
+    expect(out.board[0]!.affiliation).toBe('');
+    expect(out.investors).toEqual([]);
+  });
+
   it('needs a person\'s whole name in the notes, so a shared surname does not vouch for them', () => {
     const out = groundGovernanceInNotes(base({ board: [
       { name: 'Bret Taylor', affiliation: 'Chair' },
@@ -126,6 +141,29 @@ describe('funding facts on history events', () => {
     ]), NOTES);
     expect(out.timeline[0]).toMatchObject({ amountUsd: 20e6, investors: ['Sequoia Capital'] });
     expect(out.timeline[1]!.amountUsd).toBeUndefined();
+  });
+  it('fills the amount and lead from the event own description when the notes carry them too', () => {
+    const out = groundHistoryInNotes(hist([
+      { date: '2025', title: 'Series C Financing', detail: 'Raises $6.6 billion in Series C funding at a $90 billion valuation led by Thrive Capital.' },
+    ]), NOTES);
+    expect(out.timeline[0]).toMatchObject({ amountUsd: 6.6e9, investors: ['Thrive Capital'] });
+  });
+  it('does not take a described amount the notes never state, nor an ambiguous or non-USD one', () => {
+    const out = groundHistoryInNotes(hist([
+      { date: '2025', title: 'Series C Financing', detail: 'Raises $9.9 billion in Series C funding led by Thrive Capital.' },
+      { date: '2022 Mar', title: 'Series A Financing', detail: 'Raises $20 million, then a further $6.6 billion.' },
+      { date: '2025', title: 'Series C Financing', detail: 'Raises €6.6 billion in a round.' },
+    ]), NOTES);
+    expect(out.timeline[0]!.amountUsd).toBeUndefined();
+    expect(out.timeline[0]!.investors).toEqual(['Thrive Capital']);
+    expect(out.timeline[1]!.amountUsd).toBeUndefined();
+    expect(out.timeline[2]!.amountUsd).toBeUndefined();
+  });
+  it('a non-funding event never gains an amount from its description', () => {
+    const out = groundHistoryInNotes(hist([
+      { date: '2025', title: 'Acme opens a data center', detail: 'Invests $6.6 billion in racks.' },
+    ]), `${NOTES}\nIn 2025 Acme opens a data center.`);
+    expect(out.timeline[0]!.amountUsd).toBeUndefined();
   });
   it('removes a sourceUrl that no citation carries', () => {
     const rows = [{ sourceUrl: 'https://made.up/x' }, { sourceUrl: 'https://real.test/a/' }];

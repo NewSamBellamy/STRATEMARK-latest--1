@@ -8,6 +8,7 @@
  * is simply rank 6.
  */
 import type { OrgNode } from '@mi/contracts';
+import { formatMonthYear } from '@/lib/format';
 import { safeHttpUrl } from '@/lib/sourceHref';
 
 export type OrgGroup = OrgNode['group'];
@@ -194,7 +195,7 @@ function readDate(value: string): ReadDate | null {
 
 /** "Mar 2026" in UTC, so a month the source named never slips a day across a timezone. */
 export function monthYear(ms: number): string {
-  return new Date(ms).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  return formatMonthYear(ms);
 }
 
 export interface RecentMove {

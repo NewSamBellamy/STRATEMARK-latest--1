@@ -153,10 +153,16 @@ export interface PeerRanking {
   includesEstimates: boolean;
 }
 
-export function comparableKnown(entry: PeerEntry, type: MetricType): CompanyMetric | undefined {
+/** A company's known, same-basis figure of one type, in whatever currency it was reported in. */
+export function shownKnown(entry: PeerEntry, type: MetricType): CompanyMetric | undefined {
   const m = entry.metrics.find((x) => x.metricType === type);
-  // A figure reported in another currency is never ranked against dollar figures.
-  return m && isKnown(m) && comparableMetricBasis(m) && !figureCurrency(m) ? m : undefined;
+  return m && isKnown(m) && comparableMetricBasis(m) ? m : undefined;
+}
+
+export function comparableKnown(entry: PeerEntry, type: MetricType): CompanyMetric | undefined {
+  const m = shownKnown(entry, type);
+  // A figure reported in another currency is shown as reported, but never ranked against dollar figures.
+  return m && !figureCurrency(m) ? m : undefined;
 }
 
 /**

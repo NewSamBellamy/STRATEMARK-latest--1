@@ -121,7 +121,7 @@ describe('CardReader', () => {
       'href', 'https://sec.gov/Archives/report',
     );
     expect(facts).toHaveTextContent('Primary source');
-    expect(facts).toHaveTextContent('Recorded Sep 29, 2026');
+    expect(facts).toHaveTextContent('Recorded 29 Sep 2026');
     expect(facts).not.toHaveTextContent('$40B');
     expect(facts).not.toHaveTextContent('$500B');
     expect(facts).toHaveTextContent('No source-backed figure');

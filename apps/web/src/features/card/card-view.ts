@@ -6,6 +6,7 @@ import {
 } from '@mi/contracts';
 import { quotedSupportHolds, reportedBandCitations, reportedSupportCitations } from '@mi/research';
 import { safeHttpUrl } from '@/lib/sourceHref';
+import { figureCurrency, withReportedCurrency } from '@/features/dashboard/figureCurrency';
 import type { OvrBreakdown } from './rating';
 
 const LABELS: Record<MetricType, string> = {
@@ -417,7 +418,7 @@ export function buildMetricViews(input: readonly CompanyMetric[], officialWebsit
       note = INVALID_VALUE_NOTE;
     }
     return {
-      metric, label: metricDefinitionLabel(metric) ?? LABELS[metric.metricType], display: displayValue(metric),
+      metric, label: metricDefinitionLabel(metric) ?? LABELS[metric.metricType], display: withReportedCurrency(displayValue(metric), figureCurrency(metric)),
       confidence: CONFIDENCE_LABELS[metric.confidence], note, citations,
     };
   });

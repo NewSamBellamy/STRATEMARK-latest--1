@@ -1,15 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { buildDataset } from '@mi/mocks';
 import type { CompanyMetric } from '@mi/contracts';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
 import { MetricsTab, dropRestatedRevenue } from './MetricsTab';
 import { OverviewTab } from './OverviewTab';
+import { reportedEstimate } from '@/test/reportedEstimate';
 
-const seed = buildDataset().metrics[0]!;
-function show(patch: Partial<CompanyMetric>, overview = false) {
-  const metric: CompanyMetric = { ...seed, metricType: 'employees', value: 123,
+const dataset = buildDataset();
+const seed = dataset.metrics[0]!;
+const seedName = dataset.companies.find((c) => c.id === seed.companyId)!.name;
+/** An estimate the card would also show: the dashboard reads the card's gate, so a fixture that must appear passes it. */
+const held = (m: CompanyMetric): CompanyMetric => reportedEstimate(m, seedName);
+function show(patch: Partial<CompanyMetric>, overview = false, { text, asOf }: { text?: string; asOf?: string | null } = {}) {
+  const base: CompanyMetric = { ...seed, metricType: 'employees', value: 123,
     confidence: 'verified', source: null, citations: [], ...patch };
+  // An estimate fixture passes the card's gate unless the test hands it its own support (or none, as a verified row has none).
+  const metric = patch.confidence === 'estimated' ? reportedEstimate(base, seedName, { text: text ?? patch.reportedSupport?.support.text, asOf }) : base;
   const repository = Object.assign(makeRepo(), {
     getCompanyMetrics: vi.fn().mockResolvedValue([metric]),
     getDashboardTab: vi.fn().mockResolvedValue(overview ? { companyId: metric.companyId, tab: 'overview', content: { markdown: 'Source-reported overview.' }, citations: [] } : null),
@@ -60,8 +67,11 @@ describe('dashboard metric evidence projection', () => {
     const metric = show({ source: 'https://reuters.com.attacker.test/figure',
       citations: [{ title: 'Reuters', url: 'https://reuters.com.attacker.test/figure', credibility: 'primary' }] });
     await screen.findByRole('button', { name: 'Correct Employees' });
+    // The card shows no number for it, so no surface does: it is an honest unknown, not an unevidenced "estimate".
     expect(screen.queryByText('Verified')).not.toBeInTheDocument();
-    expect(screen.getAllByText('Estimated').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Estimated')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Unknown').length).toBeGreaterThan(0);
+    expect(screen.queryByText('123')).not.toBeInTheDocument();
     expect(metric.confidence).toBe('verified');
   });
   it.each([
@@ -84,8 +94,8 @@ describe('dashboard metric evidence projection', () => {
   it('keeps missing figures out of the table and opens what would fill one when selected', async () => {
     const { user } = (() => {
       const metrics = [
-        { ...seed, id: 'm1', metricType: 'employees' as const, value: 120, confidence: 'estimated' as const, source: null, citations: [] },
-        { ...seed, id: 'm2', metricType: 'valuation' as const, value: 5e9, confidence: 'estimated' as const, source: null, citations: [] },
+        held({ ...seed, id: 'm1', metricType: 'employees' as const, value: 120, confidence: 'estimated' as const, source: null, citations: [] }),
+        held({ ...seed, id: 'm2', metricType: 'valuation' as const, value: 5e9, confidence: 'estimated' as const, source: null, citations: [] }),
       ];
       const repository = Object.assign(makeRepo(), {
         getCompanyMetrics: vi.fn().mockResolvedValue(metrics),
@@ -97,23 +107,56 @@ describe('dashboard metric evidence projection', () => {
     expect(within(table).getByText('Employees')).toBeInTheDocument();
     expect(within(table).queryByText('Unknown')).not.toBeInTheDocument();
     await user.click(within(table).getByText('Valuation'));
-    expect(screen.getByRole('complementary', { name: 'Valuation detail' })).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel', { name: 'Valuation detail' })).toBeInTheDocument();
     expect(screen.getByText(/Open this company from its deck to compare/)).toBeInTheDocument();
     const gap = screen.getByText('Not found yet:').parentElement!;
     await user.click(within(gap).getAllByRole('button')[0]!);
     expect(screen.getAllByText(/What would fill this/).length).toBeGreaterThan(0);
   });
+  it('draws the picked figure in exactly one detail panel, and the deck comparison once', async () => {
+    const ds = buildDataset();
+    const companyId = ds.companies[0]!.id;
+    const name = ds.companies[0]!.name;
+    const row = (metricType: 'employees' | 'valuation', value: number) =>
+      reportedEstimate({ ...seed, id: `m_${metricType}`, companyId, metricType, value, confidence: 'estimated', source: null, citations: [] }, name);
+    const own = [row('employees', 120), row('valuation', 5e9)];
+    const repository = Object.assign(makeRepo(), { getCompanyMetrics: vi.fn().mockResolvedValue(own) });
+    const pick = own[0]!;
+    const { user, container } = renderWithProviders(<MetricsTab companyId={companyId} />, { repository, route: `/?deck=${ds.market.id}&metric=${pick.metricType}` });
+    await screen.findByRole('table');
+    // One panel for the picked figure, whichever of the strip or the table picked it.
+    const panels = await screen.findAllByRole('tabpanel');
+    expect(panels).toHaveLength(1);
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+    // One deck comparison: the old second chart ("In this deck") is gone, and the heading appears once.
+    await waitFor(() => expect(screen.getAllByText('Versus this deck')).toHaveLength(1));
+    expect(screen.queryByText('In this deck')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('.recharts-bar')).toHaveLength(0);
+    // The value, the confidence badge and the sources list live in that panel, not twice on the page.
+    expect(within(panels[0]!).getAllByTestId('explorer-value')).toHaveLength(1);
+    expect(screen.getAllByTestId('explorer-value')).toHaveLength(1);
+    expect(within(panels[0]!).getByText('Sources')).toBeInTheDocument();
+    expect(screen.getAllByText('Sources')).toHaveLength(1);
+    // Picking another row in the table moves the same single panel.
+    const other = own.find((m) => m.metricType !== pick.metricType);
+    if (other) {
+      const table = screen.getByRole('table');
+      await user.click(within(table).getAllByRole('row').slice(1).find((r) => r.getAttribute('aria-selected') !== 'true')!);
+      expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
+      expect(screen.getAllByTestId('explorer-value')).toHaveLength(1);
+      expect(screen.getAllByText('Versus this deck')).toHaveLength(1);
+    }
+  });
   it('never claims a source for a figure that has no link', async () => {
-    show({ confidence: 'estimated' });
-    const table = await screen.findByRole('table');
-    expect(within(table).getAllByText('No link recorded').length).toBeGreaterThan(0);
-    expect(within(table).getByText('Estimated')).toBeInTheDocument();
-    expect(within(table).queryByText('Reported')).not.toBeInTheDocument();
+    // An estimate with no link is withheld exactly as the card withholds it: no number, no "Estimated" badge, no pretend source.
+    show({});
+    await screen.findByRole('button', { name: 'Correct Employees' });
+    expect(screen.queryByText('Estimated')).not.toBeInTheDocument();
+    expect(screen.queryByText('123')).not.toBeInTheDocument();
     expect(screen.queryByText(/each with its source/)).not.toBeInTheDocument();
-    expect(screen.getByText(/1 without a source link yet/)).toBeInTheDocument();
   });
   it('says "Period not reported" and shows the capture date as a separate, labelled date', async () => {
-    show({ confidence: 'estimated', capturedAt: '2026-07-30T15:11:40.256Z' });
+    show({ confidence: 'estimated', capturedAt: '2026-07-30T15:11:40.256Z' }, false, { asOf: null });
     const table = await screen.findByRole('table');
     expect(within(table).queryByText('Undated')).not.toBeInTheDocument();
     expect(within(table).getAllByText('Period not reported').length).toBeGreaterThan(0);
@@ -143,7 +186,7 @@ describe('dashboard metric evidence projection', () => {
   ])('charts quarterly revenue only from two or more filed quarters (%#)', async ({ quarters, shown }) => {
     const content = { revenue: [], users: [], churn: [], nps: [], capTable: [], ...(quarters ? { revenueQuarterly: quarters } : {}) };
     const repository = Object.assign(makeRepo(), {
-      getCompanyMetrics: vi.fn().mockResolvedValue([{ ...seed, metricType: 'employees', value: 120, confidence: 'estimated', source: null, citations: [] }]),
+      getCompanyMetrics: vi.fn().mockResolvedValue([held({ ...seed, metricType: 'employees', value: 120, confidence: 'estimated', source: null, citations: [] })]),
       getDashboardTab: vi.fn().mockResolvedValue({ companyId: seed.companyId, tab: 'metrics', content, citations: [] }),
     });
     renderWithProviders(<MetricsTab companyId={seed.companyId} />, { repository });
@@ -153,8 +196,8 @@ describe('dashboard metric evidence projection', () => {
   });
   it('sorts found figures by value when a header is clicked', async () => {
     const metrics = [
-      { ...seed, id: 'm1', metricType: 'employees' as const, value: 120, confidence: 'estimated' as const, source: null, citations: [] },
-      { ...seed, id: 'm2', metricType: 'valuation' as const, value: 5e9, confidence: 'estimated' as const, source: null, citations: [] },
+      held({ ...seed, id: 'm1', metricType: 'employees' as const, value: 120, confidence: 'estimated' as const, source: null, citations: [] }),
+      held({ ...seed, id: 'm2', metricType: 'valuation' as const, value: 5e9, confidence: 'estimated' as const, source: null, citations: [] }),
     ];
     const repository = Object.assign(makeRepo(), {
       getCompanyMetrics: vi.fn().mockResolvedValue(metrics),
@@ -209,7 +252,8 @@ describe('distribution rows say what they count', () => {
     expect(screen.queryByText('Distribution', { exact: true })).not.toBeInTheDocument();
   });
   it('keeps "Distribution" when the source never says what is counted', async () => {
-    show({ metricType: 'distribution', value: 21, confidence: 'estimated', source: 'https://investors.example.com/', methodNote: 'Source reported distribution.' });
+    show({ metricType: 'distribution', value: 21, confidence: 'estimated', source: 'https://investors.example.com/', methodNote: 'Source reported distribution.' },
+      false, { text: `${seedName} reports 21 distribution points as of 2026-08-31.` });
     expect((await screen.findAllByText('Distribution')).length).toBeGreaterThan(0);
   });
 });

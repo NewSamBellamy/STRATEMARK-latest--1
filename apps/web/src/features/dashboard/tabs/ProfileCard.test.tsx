@@ -23,6 +23,13 @@ const front = (c: HTMLElement) => within(c.querySelector<HTMLElement>('[data-fac
 const back = (c: HTMLElement) => within(c.querySelector<HTMLElement>('[data-face="back"]')!);
 
 describe('ProfileCard', () => {
+  it('shows the no-career note by default and omits it when the group says it once', () => {
+    const { container, rerender } = render(card(person()));
+    expect(container.textContent).toMatch(/No career details reported/);
+    rerender(<ProfileCard person={person()} company={company} flipped={false} onFlip={vi.fn()} onOpenProfile={vi.fn()} careerNote={false} />);
+    expect(container.textContent).not.toMatch(/No career details reported/);
+  });
+
   it('turns over on press and reflects the state in aria-pressed', async () => {
     const onFlip = vi.fn();
     const { rerender } = render(card(person(), { onFlip }));

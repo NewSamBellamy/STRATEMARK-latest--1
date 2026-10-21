@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { BusinessRelationship, Product, RoadmapItem } from '@mi/contracts';
-import { ProductsRoadmapTab, isPastDue, targetEnd } from './ProductsRoadmapTab';
+import { ProductsRoadmapTab, isPastDue, targetEnd, uniformProductStatus } from './ProductsRoadmapTab';
 
 const state = vi.hoisted(() => ({ products: [] as Product[], roadmap: [] as RoadmapItem[], refreshedAt: null as string | null, relationships: undefined as BusinessRelationship[] | undefined, cached: {} as Record<string, unknown> }));
 vi.mock('@/hooks/data', () => ({ useCompany: () => ({ data: { name: 'Acme' } }), useDashboardTab: () => ({
@@ -43,6 +43,22 @@ describe('product evidence wording in the existing view', () => {
     expect(screen.queryByText('Revenue role not disclosed')).not.toBeInTheDocument();
     expect(screen.getByText('Reported as 12% of 2025 sales.')).toBeInTheDocument();
   });
+  it('says a status shared by every product once in the header and keeps a differing one on its card', () => {
+    const prod = (name: string, status: Product['status']): Product => ({ name, status, description: 'Company-reported: ' + name, revenueNote: '', url: null });
+    expect(uniformProductStatus([prod('A', 'live'), prod('B', 'live')])).toBe('live');
+    expect(uniformProductStatus([prod('A', 'live')])).toBeNull();
+    expect(uniformProductStatus([prod('A', 'live'), prod('B', null)])).toBeNull();
+    expect(uniformProductStatus([prod('A', 'live'), prod('B', 'beta')])).toBeNull();
+    state.products = [prod('Atlas', 'live'), prod('Beacon', 'live')];
+    const { unmount } = render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.getByText(/All 2 are live\./)).toBeInTheDocument();
+    expect(screen.queryByText('Live')).not.toBeInTheDocument();
+    unmount();
+    state.products = [prod('Atlas', 'live'), prod('Beacon', 'beta')];
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.queryByText(/All 2 are/)).not.toBeInTheDocument();
+    expect(screen.getAllByText('Live').length).toBeGreaterThan(0);
+  });
   it('shows a search-reported claim itself, with one small marker instead of the long wrapper', () => {
     state.products = [{ name: 'T380AMR', status: null, revenueNote: '', url: null,
       description: 'Google Search reports (original page not retrieved): “Tennant operates the T380AMR, an autonomous robotic floor scrubber”' }];
@@ -64,10 +80,18 @@ describe('product evidence wording in the existing view', () => {
     expect(container.querySelector('img')).toBeNull();
     expect(screen.queryByText(/^source$/i)).not.toBeInTheDocument();
   });
-  it('says "Source not recorded" plainly when a product has no url', () => {
-    state.products = [{ name: 'Atlas', status: 'live', description: 'Atlas is available.', revenueNote: '', url: null }];
+  it('says "Source not recorded" plainly only where some other product has a source', () => {
+    state.products = [
+      { name: 'Atlas', status: 'live', description: 'Atlas is available.', revenueNote: '', url: null },
+      { name: 'Beacon', status: 'live', description: 'Beacon ships.', revenueNote: '', url: 'https://acme.com/beacon' },
+    ];
     render(<ProductsRoadmapTab companyId="cmp" />);
     expect(screen.getByText('Source not recorded')).toBeInTheDocument();
+  });
+  it('drops the repeated "Source not recorded" when no product has a source', () => {
+    state.products = [{ name: 'Atlas', status: 'live', description: 'Atlas is available.', revenueNote: '', url: null }];
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.queryByText('Source not recorded')).not.toBeInTheDocument();
   });
   it('defaults to a dense table for 21 products and can switch to cards and back', () => {
     state.products = Array.from({ length: 21 }, (_, i) => ({
@@ -110,7 +134,21 @@ describe('product evidence wording in the existing view', () => {
     vi.useRealTimers();
     expect(screen.getAllByText(/^stated .*2026/)).toHaveLength(3);
     expect(screen.getAllByText('past due')).toHaveLength(1);
-    expect(screen.getAllByText('No date reported')).toHaveLength(1);
+    expect(screen.queryByText('No date reported')).not.toBeInTheDocument();
+  });
+  it('renders a sparse roadmap as one tagged list and a dense one as horizon columns', () => {
+    state.roadmap = [
+      { title: 'A', horizon: 'now', detail: 'd', date: null },
+      { title: 'B', horizon: 'next', detail: 'd', date: null },
+    ];
+    const { unmount } = render(<ProductsRoadmapTab companyId="cmp" />);
+    const list = screen.getByRole('list', { name: 'Roadmap items' });
+    expect(list).toHaveTextContent('Now');
+    expect(list).toHaveTextContent('Next');
+    unmount();
+    state.roadmap = ['1', '2', '3'].map((t) => ({ title: t, horizon: 'now' as const, detail: 'd', date: null }));
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.queryByRole('list', { name: 'Roadmap items' })).not.toBeInTheDocument();
   });
   it('stamps nothing when no capture date was recorded', () => {
     state.roadmap = [{ title: 'Plan', horizon: 'next', detail: 'd', date: '2030' }];
@@ -145,6 +183,6 @@ describe('product evidence wording in the existing view', () => {
     expect(screen.getByText('Globex')).toBeInTheDocument();
     expect(screen.getByText('“Globex is a customer of Acme.”')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Reuters' })).toHaveAttribute('href', 'https://reuters.com/acme');
-    expect(screen.getAllByText('None reported.')).toHaveLength(2);
+    expect(screen.queryByText('None reported.')).not.toBeInTheDocument();
   });
 });

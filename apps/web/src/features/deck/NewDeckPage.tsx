@@ -6,6 +6,7 @@
  * "New Deck" — the running session is still here.
  */
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { formatClock } from '@/lib/format';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -400,7 +401,7 @@ function InputPill({
 // ── Main page ────────────────────────────────────────────────────────────────
 
 function timeLabel(): string {
-  return new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return formatClock();
 }
 
 export default function NewDeckPage() {
@@ -679,7 +680,7 @@ export default function NewDeckPage() {
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6">
         {!hasSession ? (
           /* ── Empty state ── */
-          <div className="w-full max-w-2xl pb-32">
+          <div className="w-full max-w-2xl pb-24">
             <div className="mb-6">
               <div className="flex items-center gap-2.5">
                 <LivingMark label="Stratemark" className="h-8 w-8" />
@@ -714,7 +715,7 @@ export default function NewDeckPage() {
                   key={ex}
                   type="button"
                   onClick={() => setPrompt(ex)}
-                  className="rounded-full border border-border bg-surface px-4 py-2 text-[13px] text-muted transition-colors hover:border-content/20 hover:bg-surface-2 hover:text-content"
+                  className="rounded-full border border-border bg-surface px-4 py-1.5 text-[13px] text-muted transition-colors hover:border-content/20 hover:bg-surface-2 hover:text-content"
                 >
                   {ex}
                 </button>

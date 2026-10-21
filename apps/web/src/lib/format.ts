@@ -47,7 +47,63 @@ export function formatRelative(iso: string | null | undefined, now: number = Dat
   if (hours < 24) return `${hours}h ago`;
   const days = Math.round(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return formatDate(iso);
+}
+
+// Fixed English names (not Intl) so the output is identical across engines, locales and ICU versions.
+const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTHS_SHORT = MONTHS_LONG.map((m) => m.slice(0, 3));
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DATE_FMT = { format: (d: Date) => `${d.getUTCDate()} ${MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}` };
+const DATE_LONG_FMT = { format: (d: Date) => `${d.getUTCDate()} ${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()}` };
+const DATE_LONG_WEEKDAY_FMT = { format: (d: Date) => `${WEEKDAYS[d.getUTCDay()]} ${DATE_LONG_FMT.format(d)}` };
+const MONTH_FMT = { format: (d: Date) => `${MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}` };
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const TIME_FMT = { format: (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}` };
+
+function toDate(value: string | number | Date | null | undefined): Date | null {
+  if (value == null || value === '') return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** The one absolute-date format: "30 Jul 2026". Returns `fallback` when the input is missing or invalid (never invents a date). */
+export function formatDate(value: string | number | Date | null | undefined, fallback = 'unknown'): string {
+  const d = toDate(value);
+  return d ? DATE_FMT.format(d) : fallback;
+}
+
+/** Long form for report headers and formal copy: "30 July 2026" (optionally with the weekday). */
+export function formatDateLong(value: string | number | Date | null | undefined, opts: { weekday?: boolean } = {}, fallback = 'unknown'): string {
+  const d = toDate(value);
+  if (!d) return fallback;
+  return (opts.weekday ? DATE_LONG_WEEKDAY_FMT : DATE_LONG_FMT).format(d);
+}
+
+/** A period: "Jul 2026". */
+export function formatMonthYear(value: string | number | Date | null | undefined, fallback = 'unknown'): string {
+  const d = toDate(value);
+  return d ? MONTH_FMT.format(d) : fallback;
+}
+
+/** Date plus clock time, local: "30 Jul 2026, 14:05". */
+export function formatDateTime(value: string | number | Date | null | undefined, fallback = 'unknown'): string {
+  const d = toDate(value);
+  if (!d) return fallback;
+  return `${DATE_FMT.format(d)}, ${TIME_FMT.format(d)}`;
+}
+
+/** Clock time only, local: "14:05". */
+export function formatClock(value: string | number | Date | null | undefined = new Date()): string {
+  const d = toDate(value);
+  return d ? TIME_FMT.format(d) : '';
+}
+
+/** A future moment: "Due now" once it has passed, otherwise the absolute date and time. */
+export function formatDue(value: string | number | Date | null | undefined, now: number = Date.now()): string {
+  const d = toDate(value);
+  if (!d) return 'unknown';
+  return d.getTime() <= now ? 'Due now' : formatDateTime(d);
 }
 
 /** Format a metric row's value according to its type. */

@@ -22,3 +22,4 @@ export * from './metric-verification';
 export * from './metric-definition';
 export * from './market-profile';
 export * from './event-date';
+export * from './funding-text';

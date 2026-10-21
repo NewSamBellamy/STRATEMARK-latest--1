@@ -9,6 +9,7 @@
  * primary rather than a borrowed casino palette.
  */
 import { useMemo, useState } from 'react';
+import { formatDateLong } from '@/lib/format';
 import { ArrowRight, CalendarDays, Newspaper } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import wordmark from '@/assets/wordmark.svg';
@@ -36,11 +37,7 @@ export function BriefingUnboxing({
   const [flipped, setFlipped] = useState(false);
   const date = useMemo(
     () =>
-      new Date(content.generatedAt).toLocaleDateString(undefined, {
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric',
-      }),
+      formatDateLong(content.generatedAt, { weekday: true }),
     [content.generatedAt],
   );
   const highs = content.highSignal.slice(0, 4);

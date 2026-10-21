@@ -24,7 +24,7 @@ import { Modal } from '@/components/ui/Modal';
 import { SafeLink } from '@/components/SafeLink';
 import { SafeMarkdown } from '@/components/ResearchMarkdown';
 import { FullPageLoader } from '@/components/states/FullPageLoader';
-import { formatMetricValue } from '@/lib/format';
+import { formatDate, formatMetricValue } from '@/lib/format';
 import { siteUrl } from '@/lib/siteUrl';
 
 /** Read-only card reader: evidence only, no AI actions. */
@@ -288,11 +288,7 @@ function SharedReportView({
             </h1>
             <p className="mt-1 text-xs text-muted">
               Generated{' '}
-              {new Date(r.at).toLocaleDateString(undefined, {
-                month: 'long',
-                day: 'numeric',
-                year: 'numeric',
-              })}
+              {formatDate(r.at)}
               {r.c.length > 0 && <> · {r.c.length} sources</>}
               {payload.market && <> · {payload.market}</>}
             </p>
@@ -427,11 +423,7 @@ export default function SharePage() {
 
   // Companies, not cards: a company with a risk card and a culture card is still one company.
   const companyCount = new Set(payload.cards.flatMap((c) => (c.company ? [c.company.name.trim().toLowerCase()] : []))).size;
-  const sharedDate = new Date(payload.sharedAt).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  const sharedDate = formatDate(payload.sharedAt);
 
   return (
     <div className="min-h-screen bg-bg">

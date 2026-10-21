@@ -1,5 +1,5 @@
 import { sourceHref } from '@/lib/sourceHref';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronsUpDown, ChevronUp, ExternalLink, Loader2, Pencil, Radar } from 'lucide-react';
 import {
@@ -26,7 +26,7 @@ import { UnknownSlot, UnknownInline, UNKNOWN_REASON } from '@/features/card/Unkn
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { FactCheck } from '@/features/factcheck/FactCheck';
 import { ChartPanel, CompositionDonut, Delta, ShareDonut, TrendArea, TrendBar, TrendLine } from './metricViz';
-import { MetricExplorer } from './MetricExplorer';
+import { ExplorerValue, History, MetricExplorer, historyFor, type ExplorerSeries } from './MetricExplorer';
 import {
   FAMILY_LABELS,
   FILL_HINT,
@@ -34,6 +34,7 @@ import {
   barPercent,
   isKnown,
   rankInDeck,
+  shownKnown,
   sortMetricRows,
   type PeerEntry,
   type PeerRanking,
@@ -41,6 +42,8 @@ import {
 } from '../dashboardModel';
 import { Section, metricLabel } from '../dashboardKit';
 import { buildFigureSet, currencyCaptionFor, dropRestatedRevenue, figureDates, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
+import { figureCaveats, rowDates, type FigureCaveats } from '../figureCaveats';
+import { figureCurrency } from '../figureCurrency';
 import { shortCompanyName } from '../companyNames';
 import { SourceCheck } from '../SourceCheck';
 import { usePeers, type PeerState } from '../usePeers';
@@ -153,7 +156,7 @@ function DetailHeader({
   const [editing, setEditing] = useState(false);
   const canCorrect = useSupports('overrideMetric');
   return (
-    <div className="flex items-start justify-between gap-3">
+    <div className="flex items-start gap-2">
       <div className="min-w-0">
         <p className="flex items-center gap-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
           <span className="h-2 w-2 rounded-full" style={{ background: METRIC_COLORS[metric.metricType] }} aria-hidden />
@@ -237,13 +240,23 @@ function PeerComparison({
   const max = ranking.points[0]?.value ?? 0;
   const shown = all ? ranking.points : ranking.points.slice(0, 8);
   const knownIds = new Set(ranking.points.map((p) => p.companyId));
-  const unknownNames = peers.filter((p) => !knownIds.has(p.companyId) && p.companyId !== selfId).map((p) => shortCompanyName(p.name));
+  // A figure we hold in another currency is known: shown as reported, never charted against dollars, never "unknown".
+  const otherCurrency = peers.filter((p) => !knownIds.has(p.companyId)).flatMap((p) => {
+    const m = shownKnown(p, ranking.metricType);
+    const currency = m ? figureCurrency(m) : null;
+    return m && currency ? [{ id: p.companyId, text: `${shortCompanyName(p.name)} ${figureDisplay(m)}${currency.converted ? ` (converted from ${currency.code})` : ` (${currency.code})`}` }] : [];
+  });
+  const otherCurrencyIds = new Set(otherCurrency.map((o) => o.id));
+  const unknownNames = peers.filter((p) => !knownIds.has(p.companyId) && !otherCurrencyIds.has(p.companyId) && p.companyId !== selfId).map((p) => shortCompanyName(p.name));
   return (
     <div>
-      <h4 className="mb-1.5 flex items-center justify-between text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
+      <h4 className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
         <span>Versus this deck</span>
-        {ranking.rank != null && ranking.of > 1 && (
-          <span className="normal-case tracking-normal text-faint tabular-nums">#{ranking.rank} of {ranking.of} companies with this figure</span>
+        {ranking.of > 1 && (
+          <span className="normal-case tracking-normal text-faint tabular-nums">
+            {ranking.rank != null ? `#${ranking.rank} of ${ranking.of} companies with this figure` : `${ranking.of} companies with this figure`}
+            {ranking.includesEstimates ? ' · includes estimates' : ''}
+          </span>
         )}
       </h4>
       {peerStatus === 'no_deck' ? (
@@ -303,6 +316,12 @@ function PeerComparison({
           )}
         </>
       )}
+      {peerStatus === 'ready' && otherCurrency.length > 0 && (
+        <p className="mt-2 text-[11.5px] leading-snug text-faint">
+          <span className="font-medium text-muted">Not charted, reported in another currency: </span>
+          {otherCurrency.map((o) => o.text).join(', ')}. Shown as reported, not converted to US dollars.
+        </p>
+      )}
       {peerStatus === 'ready' && unknownNames.length > 0 && (
         <p className="mt-2 text-[11.5px] leading-snug text-faint">
           <span className="font-medium text-muted">Unknown, not charted: </span>
@@ -314,7 +333,7 @@ function PeerComparison({
 }
 
 function MetricDetail({
-  metric, companyId, companyName, ranking, peers, highlight, hrefFor,
+  metric, companyId, companyName, ranking, peers, highlight, hrefFor, series,
 }: {
   metric: CompanyMetric;
   companyId: string;
@@ -323,15 +342,17 @@ function MetricDetail({
   peers: PeerState;
   highlight: boolean;
   hrefFor: (peerId: string, type: MetricType) => string;
+  series: ExplorerSeries | null;
 }) {
   const known = isKnown(metric);
   const dates = known ? figureDates(metric) : null;
   const currency = known ? currencyCaptionFor(metric) : null;
+  const history = known ? historyFor(metric.metricType, series) : [];
   return (
-    <aside
-      aria-label={`${metricLabel(metric)} detail`}
-      className={cn('panel space-y-5 p-5 lg:sticky lg:top-4', highlight && 'ring-2 ring-emerald-400/70')}
-    >
+    <>
+      {/* The one panel for the picked figure (the strip above and the table below both select it): the figure and its sources on the left, the one deck comparison on the right, so neither column leaves a hole. */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-x-10">
+      <div className="min-w-0 space-y-5">
       <DetailHeader metric={metric} companyName={companyName} highlight={highlight} />
       <MetricBody metric={metric} />
       {known ? (
@@ -360,10 +381,20 @@ function MetricDetail({
           </p>
         </div>
       )}
+      {known && <SourceCheck metric={metric} label={metricLabel(metric)} />}
       <SourceDrill metric={metric} />
-      <PeerComparison ranking={ranking} selfId={companyId} hrefFor={hrefFor} peerStatus={peers.status} peers={peers.peers} />
+      </div>
+      <div className="min-w-0">
+        <PeerComparison ranking={ranking} selfId={companyId} hrefFor={hrefFor} peerStatus={peers.status} peers={peers.peers} />
+      </div>
+      </div>
+      {known && history.length > 0 && (
+        <div className="mt-5 border-t border-border pt-5">
+          <History type={metric.metricType} history={history} />
+        </div>
+      )}
       {known && (
-        <div className="flex justify-end border-t border-border pt-3 empty:hidden">
+        <div className="mt-5 flex justify-end border-t border-border pt-3 empty:hidden">
           <FactCheck
             claim={`${companyName}'s ${metricLabel(metric)} is ${figureDisplay(metric)}`}
             hideWhenUnavailable
@@ -374,7 +405,7 @@ function MetricDetail({
           />
         </div>
       )}
-    </aside>
+    </>
   );
 }
 
@@ -398,8 +429,9 @@ function SortHeader({
 }
 
 function MetricTable({
-  rows, selected, onSelect, sort, onSort, peersReady,
+  rows, selected, onSelect, sort, onSort, peersReady, group,
 }: {
+  group: FigureCaveats;
   rows: Row[];
   selected: MetricType | null;
   onSelect: (t: MetricType) => void;
@@ -407,6 +439,9 @@ function MetricTable({
   onSort: (k: SortKey) => void;
   peersReady: boolean;
 }) {
+  // When no source gave a period and every figure was captured the same day, the Period column
+  // would be empty on every row: the group line above the table says it once instead.
+  const showPeriod = !(group.noPeriod && group.record);
   return (
     <div className="panel overflow-hidden">
       <table className="w-full border-collapse text-[13px]">
@@ -416,8 +451,8 @@ function MetricTable({
             <SortHeader label="Figure" k="metric" sort={sort} onSort={onSort} />
             <SortHeader label="Value" k="value" sort={sort} onSort={onSort} />
             <SortHeader label="Source" k="confidence" sort={sort} onSort={onSort} className="hidden sm:table-cell" />
-            <SortHeader label="Period" k="asof" sort={sort} onSort={onSort} className="hidden md:table-cell" />
-            <SortHeader label="In deck" k="rank" sort={sort} onSort={onSort} className="hidden sm:table-cell" />
+            {showPeriod && <SortHeader label="Period" k="asof" sort={sort} onSort={onSort} className="hidden md:table-cell" />}
+            <SortHeader label="In deck" k="rank" sort={sort} onSort={onSort} className="hidden whitespace-nowrap text-right sm:table-cell" />
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -426,9 +461,11 @@ function MetricTable({
             const isSel = selected === metric.metricType;
             const cite = linkedCitation(metric);
             const trust = figureTrust(metric);
-            const dates = known ? figureDates(metric) : null;
+            const dates = known ? rowDates(metric, group) : null;
             const currency = known ? currencyCaptionFor(metric) : null;
-            const periodLine = dates ? (dates.period ?? 'Period not reported') : null;
+            // Only what differs from the group line above the table; an empty string says nothing.
+            const periodLine = dates ? (dates.period ?? (dates.notReported ? 'Period not reported' : null)) : null;
+            const periodAndRecord = [periodLine, dates?.record].filter(Boolean).join(' · ');
             const rankTitle = `#${rank} of ${ranking.of} companies with this figure`;
             return (
               <tr
@@ -442,15 +479,15 @@ function MetricTable({
                   isSel && 'bg-primary/5 shadow-[inset_2px_0_0_rgb(var(--c-primary))]',
                 )}
               >
-                <td className="px-3 py-3">
-                  <span className="flex items-center gap-2 font-medium text-content">
+                <td className="px-3 py-2.5 align-top sm:align-middle">
+                  <span className="flex items-center gap-2 whitespace-nowrap font-medium text-content">
                     <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: METRIC_COLORS[metric.metricType] }} aria-hidden />
                     {metricLabel(metric)}
                   </span>
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-3 py-2.5 align-top sm:align-middle">
                   {known ? (
-                    <span className="font-display text-[15px] font-semibold tabular-nums text-content">
+                    <span className="whitespace-nowrap font-display text-[15px] font-semibold tabular-nums text-content">
                       {figureDisplay(metric)}
                     </span>
                   ) : (
@@ -465,43 +502,49 @@ function MetricTable({
                           {publisherOf(cite.url, cite.title)} ↗
                         </a>
                       ) : <span className="block">{metric.confidence === 'user_verified' ? 'Your correction' : 'No link recorded'}</span>}
-                      <span className="block">{trust} · {periodLine}</span>
-                      {dates?.record && <span className="block">{dates.record}</span>}
+                      <span className="block">{[trust, periodAndRecord].filter(Boolean).join(' · ')}</span>
                       {rank != null && ranking.of > 1 && <span className="block" title={rankTitle}>#{rank} of {ranking.of} companies with this figure</span>}
                       {currency && <span className="block text-muted">{currency}</span>}
                     </span>
                   )}
                   {/* The Source column is hidden on a phone, so the check sits under the value there. */}
-                  {known && <SourceCheck metric={metric} label={metricLabel(metric)} className="mt-0.5 max-w-[200px] sm:hidden" />}
+                  {known && <SourceCheck metric={metric} label={metricLabel(metric)} className="mt-0.5 max-w-[200px] sm:hidden" groupedUndated={group.noPeriod} />}
                 </td>
-                <td className="hidden max-w-[180px] px-3 py-3 sm:table-cell">
-                  {cite && known ? (
-                    <a
-                      href={sourceHref(cite.url, cite.title)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="block truncate text-[12.5px] text-primary-ink hover:underline"
-                      title={`Source: ${publisherOf(cite.url, cite.title)}`}
-                    >
-                      {publisherOf(cite.url, cite.title)} ↗
-                    </a>
-                  ) : known && <span className="text-[12px] text-muted">{metric.confidence === 'user_verified' ? 'Your correction' : 'No link recorded'}</span>}
-                  {known && <span className="block text-[11px] text-faint">{trust}</span>}
-                  {known && <span className="block text-[11px] text-faint md:hidden">{periodLine}{dates?.record ? ` · ${dates.record}` : ''}</span>}
-                  {currency && <span className="block text-[11px] text-muted">{currency}</span>}
-                  {known && <SourceCheck metric={metric} label={metricLabel(metric)} className="mt-0.5" />}
-                </td>
-                <td className="hidden px-3 py-3 text-[12px] text-muted md:table-cell">
-                  {/* Two different dates: the period the source reports, and when we captured it. */}
-                  {!known ? '—' : (
-                    <>
-                      <span className="block tabular-nums">{periodLine}</span>
-                      {dates?.record && <span className="block text-[11px] text-faint">{dates.record}</span>}
-                    </>
+                <td className="hidden px-3 py-2.5 sm:table-cell">
+                  {/* Publisher and trust word share one line; the caption and the source check follow, each on its own. */}
+                  {known && (
+                    <span className="flex items-baseline gap-x-2">
+                      {cite ? (
+                        <a
+                          href={sourceHref(cite.url, cite.title)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="min-w-0 max-w-[220px] truncate text-[12.5px] text-primary-ink hover:underline"
+                          title={`Source: ${publisherOf(cite.url, cite.title)}`}
+                        >
+                          {publisherOf(cite.url, cite.title)} ↗
+                        </a>
+                      ) : <span className="text-[12px] text-muted">{metric.confidence === 'user_verified' ? 'Your correction' : 'No link recorded'}</span>}
+                      <span className="shrink-0 text-[11px] text-faint">{trust}</span>
+                    </span>
                   )}
+                  {known && periodAndRecord && <span className="block text-[11px] text-faint md:hidden">{periodAndRecord}</span>}
+                  {currency && <span className="mt-0.5 block text-[11px] text-muted">{currency}</span>}
+                  {known && <SourceCheck metric={metric} label={metricLabel(metric)} className="mt-0.5" groupedUndated={group.noPeriod} />}
                 </td>
-                <td className="hidden px-3 py-3 sm:table-cell">
+                {showPeriod && (
+                  <td className="hidden whitespace-nowrap px-3 py-2.5 text-[12px] text-muted md:table-cell">
+                    {/* Two different dates: the period the source reports, and when we captured it. */}
+                    {!known ? '—' : (
+                      <>
+                        {periodLine && <span className="block tabular-nums">{periodLine}</span>}
+                        {dates?.record && <span className="block text-[11px] text-faint">{dates.record}</span>}
+                      </>
+                    )}
+                  </td>
+                )}
+                <td className="hidden whitespace-nowrap px-3 py-2.5 text-right sm:table-cell">
                   {rank != null && ranking.of > 1
                     ? <span className="text-[12px] tabular-nums text-muted" title={rankTitle}><span className="font-semibold text-content">#{rank}</span> of {ranking.of}</span>
                     : <span className="text-[12px] text-faint" title={peersReady ? 'Needs a known figure here and at least one known peer.' : 'Open from a deck to rank.'}>—</span>}
@@ -514,9 +557,9 @@ function MetricTable({
           )}
         </tbody>
       </table>
-      <p className="border-t border-border px-3 py-2 text-[11px] leading-snug text-faint">
+      <p className="border-t border-border px-3 py-2.5 text-[11px] leading-snug text-faint">
         In deck: rank among the companies in this deck that have a figure for that row, so the count differs by row.
-        Period is what the source says the figure is for; captured is when we recorded it.
+        {showPeriod && ' Period is what the source says the figure is for; captured is when we recorded it.'}
       </p>
     </div>
   );
@@ -545,11 +588,7 @@ function MetricBody({ metric }: { metric: CompanyMetric }) {
     );
   }
 
-  return (
-    <div className="font-display text-3xl font-semibold tabular-nums leading-none text-content">
-      {figureDisplay(metric)}
-    </div>
-  );
+  return <ExplorerValue key={metric.metricType} type={metric.metricType} value={metric.value} metric={metric} />;
 }
 
 /**
@@ -630,6 +669,12 @@ export function MetricsTab({ companyId }: { companyId: string }) {
   const [picked, setPicked] = useState<MetricType | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'metric', dir: 'asc' });
   const wanted = params.get('metric') as MetricType | null;
+  // The table sits below the one detail panel: picking a row brings the panel into view only if it is off screen.
+  const panelRef = useRef<HTMLDivElement>(null);
+  const pickFromList = (type: MetricType) => {
+    setPicked(type);
+    panelRef.current?.scrollIntoView?.({ block: 'nearest' });
+  };
 
   const peerHref = (peerId: string, type: MetricType) => {
     const next = new URLSearchParams(params);
@@ -659,6 +704,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
           missing.find((r) => !r.metric.id.startsWith('gap-')) ?? missing[0];
         const series = seriesQ.data?.content;
         const knownCount = sorted.length;
+        const caveats = figureCaveats(sorted.map((r) => r.metric));
         const unlinkedCount = sorted.filter((r) => r.metric.confidence !== 'user_verified' && !linkedCitation(r.metric)).length;
         // Older stored content predates the quarterly field.
         const quarterly = series?.revenueQuarterly ?? [];
@@ -666,8 +712,10 @@ export function MetricsTab({ companyId }: { companyId: string }) {
         const onSort = (k: SortKey) =>
           setSort((s) => (s.key === k ? { key: k, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: k === 'value' || k === 'asof' ? 'desc' : 'asc' }));
         return (
-          <div className="cascade space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="cascade space-y-8">
+            {/* The strip and the explorer read as one block; the table, the history charts are the next sections. */}
+            <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
               <p className="text-[13px] text-muted">
                 {knownCount > 0 ? <>
                   <span className="font-semibold text-content">{knownCount}</span> of {rows.length} figures found
@@ -689,21 +737,41 @@ export function MetricsTab({ companyId }: { companyId: string }) {
               </span>
             </div>
 
+            <div ref={panelRef} className="scroll-mt-4">
             <MetricExplorer
               rows={sorted}
               missing={missing.map((r) => r.metric)}
               selected={selectedRow?.metric.metricType ?? null}
               onSelect={setPicked}
-              series={series ? { revenue: series.revenue, revenueQuarterly: quarterly, users: series.users } : null}
-            />
+              highlight={!!selectedRow && justFilled.has(selectedRow.metric.metricType)}
+            >
+              {selectedRow && (
+                <MetricDetail
+                  key={selectedRow.metric.metricType}
+                  metric={selectedRow.metric}
+                  companyId={companyId}
+                  companyName={companyName}
+                  ranking={selectedRow.ranking}
+                  peers={peerState}
+                  highlight={justFilled.has(selectedRow.metric.metricType)}
+                  hrefFor={peerHref}
+                  series={series ? { revenue: series.revenue, revenueQuarterly: quarterly, users: series.users } : null}
+                />
+              )}
+            </MetricExplorer>
+            </div>
+            </div>
 
-            <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+            {/* The all-figures view: picking a row (or a "not found" chip) selects that figure in the one panel above. */}
+            <div className="space-y-4">
               <div className="min-w-0 space-y-3">
+                {caveats.line && <p className="text-[12px] text-faint">{caveats.line}</p>}
                 {sorted.length > 0 && (
                   <MetricTable
+                    group={caveats}
                     rows={sorted}
                     selected={selectedRow?.metric.metricType ?? null}
-                    onSelect={setPicked}
+                    onSelect={pickFromList}
                     sort={sort}
                     onSort={onSort}
                     peersReady={peerState.status === 'ready'}
@@ -717,7 +785,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
                         key={metric.metricType}
                         type="button"
                         aria-pressed={selectedRow?.metric.metricType === metric.metricType}
-                        onClick={() => setPicked(metric.metricType)}
+                        onClick={() => pickFromList(metric.metricType)}
                         className={cn(
                           'rounded-full border border-dashed px-2.5 py-0.5 transition-colors',
                           selectedRow?.metric.metricType === metric.metricType
@@ -731,23 +799,12 @@ export function MetricsTab({ companyId }: { companyId: string }) {
                   </div>
                 )}
               </div>
-              {selectedRow && (
-                <MetricDetail
-                  key={selectedRow.metric.metricType}
-                  metric={selectedRow.metric}
-                  companyId={companyId}
-                  companyName={companyName}
-                  ranking={selectedRow.ranking}
-                  peers={peerState}
-                  highlight={justFilled.has(selectedRow.metric.metricType)}
-                  hrefFor={peerHref}
-                />
-              )}
             </div>
 
             {hasSeries && series && (
               <Section title="Reported history" hint="Series the research found for this company. Charts only appear where real data points exist.">
-              <div className="grid gap-4 lg:grid-cols-2">
+              {/* An odd last chart spans the row instead of leaving an empty half. */}
+              <div className="grid gap-4 lg:grid-cols-2 lg:[&>*:last-child:nth-child(odd)]:col-span-2">
                 {series.revenue.length > 1 && (
                   <ChartPanel
                     title="Revenue trend"

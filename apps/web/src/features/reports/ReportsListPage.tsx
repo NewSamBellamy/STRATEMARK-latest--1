@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, FileText } from 'lucide-react';
+import { EmptyState } from '@/components/states/EmptyState';
 import { useMarkets, useReports } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { formatRelative } from '@/lib/format';
@@ -20,8 +21,8 @@ export default function ReportsListPage() {
     .filter((m) => !m.archivedAt)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
   return (
-    <div className="mx-auto max-w-4xl">
-      <div className="flex items-start justify-between gap-4">
+    <div className="mx-auto max-w-6xl">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-semibold text-content">Reports</h1>
           <p className="mt-1 text-sm text-muted">
@@ -47,13 +48,12 @@ export default function ReportsListPage() {
           query={reports}
           isEmpty={(list) => list.length === 0}
           empty={
-            <div className="panel px-6 py-14 text-center">
-              <h2 className="font-display text-lg text-content">No reports yet</h2>
-              <p className="mx-auto mt-2 max-w-md text-sm text-muted">
-                Open a deck or a company and choose Create a report. It is written from the research you already have, plus
-                fresh research for what you ask it to focus on.
-              </p>
-            </div>
+            <EmptyState
+              compact
+              title="No reports yet"
+              description="Open a deck or a company and choose Create a report. It is written from the research you already have, plus fresh research for what you ask it to focus on."
+              icon={<FileText className="h-6 w-6" aria-hidden />}
+            />
           }
         >
           {(list) => (
@@ -62,7 +62,7 @@ export default function ReportsListPage() {
                 <li key={r.id}>
                   <Link
                     to={`/reports/${r.id}`}
-                    className="group flex items-center gap-4 px-5 py-4 transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
+                    className="group flex items-center gap-4 px-5 py-3 transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
                   >
                     <div className="min-w-0 flex-1">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">

@@ -85,7 +85,7 @@ export function AddFromLink({ onStartDeck }: {
 
   if (step.kind === 'closed') {
     return (
-      <p className="mt-5 text-[13px] text-muted">
+      <p className="mt-6 text-[13px] text-muted">
         Heard about a company?{' '}
         <button type="button" className="underline hover:text-content" onClick={() => setStep({ kind: 'input' })}>
           Add one from a link
@@ -95,7 +95,7 @@ export function AddFromLink({ onStartDeck }: {
   }
 
   return (
-    <section aria-label="Add a company from a link" className="mt-5 rounded-xl border border-border bg-surface p-4">
+    <section aria-label="Add a company from a link" className="mt-6 rounded-xl border border-border bg-surface p-4">
       <h2 className="text-[14px] font-semibold text-content">Add a company from a link</h2>
 
       {(step.kind === 'input' || step.kind === 'reading') && (

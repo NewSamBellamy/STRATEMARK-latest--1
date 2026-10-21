@@ -39,6 +39,19 @@ describe('Source check', () => {
     expect(screen.getByText('A press release (company-reported)')).toBeInTheDocument();
     expect(screen.getByText('One source, no independent confirmation')).toBeInTheDocument();
   });
+  it('drops the repeated undated lead from the summary when the group says it once, keeping all five lines', () => {
+    const a = assessment({ currency: { asOf: null, asOfSource: 'none', ageDays: null, state: 'undated' } });
+    render(<SourceCheck metric={fig(a)} label="Revenue" groupedUndated />);
+    const box = screen.getByLabelText('Source check for Revenue');
+    expect(box.querySelector('summary')?.textContent).toBe('Source check');
+    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('The source gives no date for this figure');
+    expect(screen.getAllByRole('listitem')).toHaveLength(5);
+  });
+  it('still shows a different lead when grouped', () => {
+    const a = assessment({ currency: { asOf: '2025-01-10', ageDays: 648, state: 'stale' } });
+    render(<SourceCheck metric={fig(a)} label="Revenue" groupedUndated />);
+    expect(screen.getByLabelText('Source check for Revenue')).toHaveTextContent('Source check: As of Jan 2025');
+  });
   it('words an undated figure plainly', () => {
     const a = assessment({ currency: { asOf: null, asOfSource: 'none', ageDays: null, state: 'undated' } });
     expect(sourceCheckLines(fig(a), 'Revenue')[0]).toBe('The source gives no date for this figure');

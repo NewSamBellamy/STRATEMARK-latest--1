@@ -6,6 +6,7 @@
  * makes a PDF of the same updates with the pictures their sources published.
  */
 import { useMemo, useState } from 'react';
+import { formatDate } from '@/lib/format';
 import { Link } from 'react-router-dom';
 import { CheckCircle, Circle } from '@phosphor-icons/react';
 import { ArrowUpRight, FileText, Loader2, RefreshCw } from 'lucide-react';
@@ -47,7 +48,7 @@ const SENTIMENT_STYLE = {
 } as const;
 
 function dateText(update: TodayUpdate): string {
-  const when = new Date(update.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  const when = formatDate(update.at);
   return update.dateKind === 'found' ? `found ${when}` : when;
 }
 

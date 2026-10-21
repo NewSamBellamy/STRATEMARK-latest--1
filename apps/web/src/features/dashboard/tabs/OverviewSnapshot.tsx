@@ -4,10 +4,12 @@ import { useIsFetching } from '@tanstack/react-query';
 import { ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useCachedDashboardTab } from '../useCachedTab';
-import { Section, useTabHref } from '../dashboardKit';
+import { useTabHref } from '../dashboardKit';
+import { TabSection } from './TabKit';
 import { fundingSnapshot, leadershipSnapshot, newsMood, formatUsdCompact, peerTable } from '../snapshot';
-import { formatMetricValue } from '@/lib/format';
 import { shortCompanyName } from '../companyNames';
+import { deriveInvestors } from '@mi/contracts';
+import { unifyFunding } from '../funding';
 import { UnknownInline } from '@/features/card/UnknownValue';
 import { Logo } from '@/features/card/Logo';
 import { WikiAvatar } from './LeaderGrid';
@@ -21,8 +23,12 @@ import { storiesCaption } from '../overviewTruth';
  * until then a single line says where the rest lives.
  */
 
-// One column per panel, so two panels fill the row instead of leaving a gap.
+// One column per panel, so panels fill the row instead of leaving a gap. On wide screens, when
+// leadership sits with one other panel it takes two thirds (its list runs in two columns), which
+// matches the 2:1 split of the summary above and keeps the shorter signals panel from
+// floating beside a tall single-column list.
 const COLUMNS: Record<number, string> = { 1: 'md:grid-cols-1', 2: 'md:grid-cols-2', 3: 'md:grid-cols-3' };
+const LEADERS_WIDE = 'md:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]';
 
 function PanelHead({ title, to, label }: { title: string; to: string; label: string }) {
   return (
@@ -44,19 +50,27 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
   const intel = useCachedDashboardTab(companyId, 'live_intel').data;
 
   const leaders = useMemo(() => leadershipSnapshot(team?.content.nodes ?? []), [team]);
-  const funding = useMemo(
-    () => fundingSnapshot(governance?.content.fundingRounds ?? [], governance?.content.investors ?? []),
-    [governance],
-  );
+  const history = useCachedDashboardTab(companyId, 'history').data;
+  // The same rounds the Funding and History tabs list: governance rounds plus the timeline's funding events.
+  const funding = useMemo(() => {
+    const rounds = unifyFunding(governance?.content.fundingRounds, history?.content.timeline);
+    return fundingSnapshot(rounds, deriveInvestors({
+      companyName,
+      board: governance?.content.board,
+      fundingRounds: rounds,
+      investors: governance?.content.investors,
+    }));
+  }, [governance, history, companyName]);
   const mood = useMemo(() => newsMood(intel?.content.items ?? []), [intel]);
   const positive = governance?.content.positives?.[0];
   const concern = governance?.content.negatives?.[0];
   const hasSignals = mood.total > 0 || Boolean(positive || concern);
   const panels = [leaders.length > 0, Boolean(funding), hasSignals].filter(Boolean).length;
+  const leadersWide = leaders.length > 1 && panels === 2;
 
   if (leaders.length === 0 && !funding && !hasSignals) {
     return (
-      <Section title="Leadership, funding & signals">
+      <TabSection title="Leadership, funding & signals">
         <p className="panel px-4 py-3.5 text-[12.5px] leading-snug text-muted">
           {gathering
             ? `Gathering who runs ${companyName}, who funded it and what is being said about it from live sources. This fills in as each finishes.`
@@ -67,23 +81,23 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
               <Link to={href('mission_governance')} className="text-primary-ink hover:underline">Mission &amp; governance</Link>.
             </>}
         </p>
-      </Section>
+      </TabSection>
     );
   }
 
   return (
-    <Section title="Leadership, funding & signals">
-      <div className={cn('grid gap-3', COLUMNS[panels])}>
+    <TabSection title="Leadership, funding & signals">
+      <div className={cn('grid gap-4', leadersWide ? LEADERS_WIDE : COLUMNS[panels])}>
         {leaders.length > 0 && (
-          <div className="panel min-w-0 p-4">
+          <div className="panel min-w-0 p-5">
             <PanelHead title="Leadership" to={href('team_org')} label="Team & org" />
-            <ul className="space-y-2.5">
+            <ul className={cn('grid gap-x-6 gap-y-2.5', leadersWide && 'xl:grid-cols-2')}>
               {leaders.map((person) => (
                 <li key={person.id} className="flex min-w-0 items-center gap-2.5">
                   <WikiAvatar name={person.name} companyName={companyName} size="sm" />
                   <div className="min-w-0">
-                    <p className="truncate text-[13px] font-medium text-content">{person.name}</p>
-                    <p className="truncate text-[11.5px] text-muted">{person.role}</p>
+                    <p className="truncate text-[13px] font-medium text-content" title={person.name}>{person.name}</p>
+                    <p className="truncate text-[11.5px] text-muted" title={person.role}>{person.role}</p>
                   </div>
                 </li>
               ))}
@@ -92,10 +106,10 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
         )}
 
         {funding && (
-          <div className="panel min-w-0 p-4">
+          <div className="panel min-w-0 p-5">
             <PanelHead title="Funding" to={href('mission_governance')} label="All rounds" />
             <p className="font-display text-[22px] font-semibold leading-none tabular-nums text-content">
-              {funding.latest.amountUsd != null ? formatUsdCompact(funding.latest.amountUsd) : <UnknownInline />}
+              {funding.latest.amountUsd != null ? formatUsdCompact(funding.latest.amountUsd) : funding.latest.amountNote ?? <UnknownInline />}
             </p>
             <p className="mt-1.5 text-[12.5px] text-content">
               {funding.latest.round}
@@ -114,7 +128,7 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
         )}
 
         {hasSignals && (
-          <div className="panel min-w-0 p-4">
+          <div className="panel min-w-0 p-5">
             <PanelHead title="Signals" to={href(mood.total > 0 ? 'live_intel' : 'mission_governance')} label={mood.total > 0 ? 'Live intel' : 'Governance'} />
             {mood.total > 0 && (
               <div>
@@ -142,7 +156,7 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
           </div>
         )}
       </div>
-    </Section>
+    </TabSection>
   );
 }
 
@@ -169,7 +183,7 @@ export function MarketPeers({ companyId }: { companyId: string }) {
   };
   if (table) {
     return (
-      <Section title="How they compare" hint="This deck on three headline figures. A dash means no sourced figure yet, never zero.">
+      <TabSection title="How they compare" hint="This deck on three headline figures. A dash means no sourced figure yet, never zero. A figure in another currency is shown as reported and left out of the order.">
         <div className="panel overflow-x-auto">
           <table className="w-full min-w-[420px] border-collapse text-[13px]">
             <caption className="sr-only">Companies in this deck compared on valuation, revenue and employees</caption>
@@ -190,7 +204,13 @@ export function MarketPeers({ companyId }: { companyId: string }) {
                   {row.cells.map((cell, i) => (
                     <td key={PEER_COLUMNS[i]![0]} className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
                       {cell
-                        ? <>{formatMetricValue(PEER_COLUMNS[i]![0], cell.value)}{cell.confidence === 'estimated' && <span className="ml-1 text-[10px] text-faint">est.</span>}</>
+                        ? <>{cell.display}
+                          {cell.confidence === 'estimated' && <span className="ml-1 text-[10px] text-faint">est.</span>}
+                          {cell.currency && (
+                            <abbr className="ml-1 text-[10px] text-faint no-underline" title={cell.converted ? `Converted from ${cell.currency}; rate date not recorded. Not ranked.` : `Reported in ${cell.currency}; not converted to US dollars. Not ranked.`}>
+                              {cell.converted ? `from ${cell.currency}` : cell.currency}
+                            </abbr>
+                          )}</>
                         : <span className="text-faint" aria-label="not found yet">—</span>}
                     </td>
                   ))}
@@ -200,11 +220,11 @@ export function MarketPeers({ companyId }: { companyId: string }) {
           </table>
         </div>
         {table.length > 12 && <p className="mt-1.5 text-[11.5px] text-faint">Showing 12 of {table.length}. All figures and peers are on the Metrics tab.</p>}
-      </Section>
+      </TabSection>
     );
   }
   return (
-    <Section title="In this market" hint="The rest of this deck. Open one to see its dashboard.">
+    <TabSection title="In this market" hint="The rest of this deck. Open one to see its dashboard.">
       <ul className="flex flex-wrap gap-2">
         {others.slice(0, 12).map((peer) => (
           <li key={peer.companyId}>
@@ -216,6 +236,6 @@ export function MarketPeers({ companyId }: { companyId: string }) {
         ))}
         {others.length > 12 && <li className="self-center text-[11.5px] text-faint">+{others.length - 12} more</li>}
       </ul>
-    </Section>
+    </TabSection>
   );
 }

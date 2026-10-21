@@ -6,6 +6,7 @@
  * researched figure with no usable source is dropped, never shown bare.
  */
 import type { LiveIntelItem, Product, ProductBrief, RoadmapItem } from '@mi/contracts';
+import { formatDateLong } from '@/lib/format';
 import { exportSource } from './exportModel';
 import type { ReportCompanyInfo, ReportFootnote } from './topicReportModel';
 
@@ -147,7 +148,7 @@ export function buildProductReportModel(args: {
   return {
     company: args.company,
     product: { name: product.name, status: product.status ? STATUS_LABEL[product.status] : null, url: isWeb(product.url) ? product.url : null },
-    dateText: (args.now ?? new Date()).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }),
+    dateText: formatDateLong(args.now ?? new Date()),
     overview: { stored: product.description?.trim() || null, researched: brief?.overview.trim() || null },
     metrics,
     sentiment,

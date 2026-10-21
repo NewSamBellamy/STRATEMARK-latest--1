@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AskOrb, ORB_SIZE, orbPixels, placeOrb, readOrbPos } from './AskOrb';
 import { resolveOrbScope } from './orbScope';
 import { DeepDiveProviderWithPanel, useDeepDive } from './DeepDive';
@@ -20,6 +20,23 @@ beforeEach(() => {
   Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true });
 });
 afterEach(() => { window.localStorage.clear(); window.location.hash = ''; });
+
+describe('the orb while the page scrolls', () => {
+  it('steps back during a scroll and returns after, without moving', () => {
+    vi.useFakeTimers();
+    try {
+      render(<AskOrb onAsk={() => {}} />);
+      const orb = screen.getByRole('button', { name: 'Ask Stratemark' });
+      const before = orb.style.left;
+      expect(orb.dataset.scrolling).toBe('false');
+      fireEvent.scroll(document.body);
+      expect(orb.dataset.scrolling).toBe('true');
+      expect(orb.style.left).toBe(before);
+      act(() => { vi.advanceTimersByTime(800); });
+      expect(orb.dataset.scrolling).toBe('false');
+    } finally { vi.useRealTimers(); }
+  });
+});
 
 describe('where the orb rests', () => {
   it('sits on the right, low on the screen, until you move it', () => {

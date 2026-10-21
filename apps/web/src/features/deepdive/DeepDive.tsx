@@ -1203,13 +1203,13 @@ function DigDeeperInner({
         open({ topic, companyId, companyName, context: context ?? null });
       }}
       className={cn(
-        'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border bg-surface text-muted transition-colors hover:border-primary/50 hover:text-primary',
+        'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-surface text-muted transition-colors hover:border-primary/50 hover:text-primary',
         className,
       )}
       aria-label={label}
       title={label}
     >
-      <MessageCircle className="h-3 w-3" />
+      <MessageCircle className="h-3.5 w-3.5" />
     </button>
   );
 }

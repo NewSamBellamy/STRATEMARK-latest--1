@@ -79,7 +79,7 @@ export function StoryImage({ pageUrl, imageUrl, publisher, className, fallback =
   const [loaded, setLoaded] = useState(false);
   const wrongCompany = !!subject && !!picture && picture !== 'loading' && heroNamesOtherCompany(picture.src, imageAlt, subject);
   const failed = picture === null || broken || wrongCompany;
-  if (failed && fallback === null) return <div ref={ref} className="hidden" />;
+  if (failed && fallback === null) return <div ref={ref} className="hidden" data-story-empty="" />;
   return (
     <div ref={ref} className={cn('relative overflow-hidden bg-surface-2', className)}>
       {failed ? fallback : picture === 'loading' ? (

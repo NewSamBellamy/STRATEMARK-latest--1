@@ -83,6 +83,7 @@ describe('DeckPage Compare mode', () => {
     await user.click(within(slot).getAllByRole('button')[0]!);
     expect(slot).toHaveAttribute('data-selected', 'true');
     expect(screen.getByText('1 card selected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Compare (1)' })).toBeDisabled();
   });
 
   it('Escape exits Compare and clears the selection', async () => {

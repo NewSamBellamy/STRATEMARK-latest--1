@@ -1,32 +1,25 @@
 /**
- * The Metrics tab's lead: the company's major figures as tiles, and one hero
- * panel that changes with the one you pick. What the hero draws depends on
- * what is honestly known:
+ * The Metrics tab's lead: the company's major figures as a strip that selects
+ * one, and ONE detail panel for the figure picked (the caller passes it as
+ * children, so the figure, its sources and the deck ranking are drawn once).
+ * The table below selects into the same panel.
  *
- *  - a reported history (the series research found, such as filed revenue):
- *    an interactive chart you can switch between area, line and bars, with
- *    values on hover; points are only joined where real points exist;
- *  - otherwise, where the company stands among the deck's companies for that
- *    figure (bars you can hover, this company highlighted), because that is
- *    real, comparable data;
- *  - otherwise, the single sourced figure on its own, saying so.
- *
- * Nothing is imputed, interpolated or filled with zeros. A figure that is not
- * found stays a labelled gap.
+ * Also here: the reported history for a figure (the series research found,
+ * such as filed revenue), an interactive chart you can switch between area,
+ * line and bars. Nothing is imputed, interpolated or filled with zeros;
+ * points are only joined where real points exist. A figure that is not found
+ * stays a labelled gap.
  */
-import { useEffect, useRef, useState } from 'react';
-import { Bar, BarChart, Cell, CartesianGrid, Tooltip as ReTooltip, XAxis, YAxis } from 'recharts';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { CompanyMetric, MetricType, TimePoint } from '@mi/contracts';
-import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
 import { cn } from '@/lib/cn';
 import { formatMetricValue } from '@/lib/format';
 import { METRIC_COLORS } from '@/lib/theme';
-import { FILL_HINT, isKnown, type PeerRanking } from '../dashboardModel';
-import { currencyCaptionFor, figureDates, figureDisplay } from '../figureSet';
+import type { PeerRanking } from '../dashboardModel';
+import { figureDisplay } from '../figureSet';
 import { figureCurrency, withReportedCurrency } from '../figureCurrency';
-import { shortCompanyName } from '../companyNames';
 import { metricLabel } from '../dashboardKit';
-import { ChartPanel, Delta, TrendArea, TrendBar, TrendLine, tooltipStyle, useChartTheme, useWidth } from './metricViz';
+import { ChartPanel, Delta, TrendArea, TrendBar, TrendLine } from './metricViz';
 
 export interface ExplorerRow {
   metric: CompanyMetric;
@@ -79,7 +72,7 @@ function useCountUp(target: number | null): number | null {
 }
 
 /** The big figure. A new value for the same metric (a hunt just found it) counts up; picking another metric shows it at once. */
-function ExplorerValue({ type, value, metric }: { type: MetricType; value: number | null; metric: CompanyMetric }) {
+export function ExplorerValue({ type, value, metric }: { type: MetricType; value: number | null; metric: CompanyMetric }) {
   const shown = useCountUp(value);
   return (
     <p className="mt-1 font-display text-4xl font-semibold tabular-nums tracking-tight text-content" data-testid="explorer-value">
@@ -88,41 +81,7 @@ function ExplorerValue({ type, value, metric }: { type: MetricType; value: numbe
   );
 }
 
-function PeerBars({ ranking, type }: { ranking: PeerRanking; type: MetricType }) {
-  const c = useChartTheme();
-  const [ref, width] = useWidth();
-  const points = ranking.points.slice(0, 12).map((p) => ({ ...p, name: shortCompanyName(p.name) }));
-  const color = METRIC_COLORS[type];
-  return (
-    <div>
-      <div className="mb-2 flex items-baseline justify-between gap-2">
-        <h3 className="font-display text-sm font-semibold text-content">In this deck</h3>
-        <p className="text-[11px] text-faint">
-          {ranking.rank != null ? `#${ranking.rank} of ${ranking.of} companies with this figure` : `${ranking.of} companies with this figure`}
-          {ranking.includesEstimates ? ' · includes estimates' : ''}
-        </p>
-      </div>
-      <div ref={ref} className="w-full" style={{ height: Math.max(150, points.length * 26 + 24) }}>
-        {width > 0 && (
-          <BarChart width={width} height={Math.max(150, points.length * 26 + 24)} data={points} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 0 }}>
-            <CartesianGrid stroke={c.grid} strokeDasharray="3 3" horizontal={false} />
-            <XAxis type="number" stroke={c.axis} fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v: number) => formatMetricValue(type, v)} />
-            <YAxis type="category" dataKey="name" stroke={c.axis} fontSize={11} tickLine={false} axisLine={false} width={104}
-              tickFormatter={(name: string) => (name.length > 16 ? `${name.slice(0, 15)}…` : name)} />
-            <ReTooltip cursor={{ fill: 'rgba(120,130,125,0.08)' }} contentStyle={tooltipStyle(c)} formatter={(v: number) => formatMetricValue(type, v)} />
-            <Bar dataKey="value" radius={[0, 4, 4, 0]} isAnimationActive>
-              {points.map((p) => (
-                <Cell key={p.companyId} fill={color} fillOpacity={p.isSelf ? 1 : 0.35} stroke={p.isSelf ? color : 'none'} strokeDasharray={p.confidence === 'estimated' ? '4 3' : undefined} />
-              ))}
-            </Bar>
-          </BarChart>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function History({ type, history }: { type: MetricType; history: ReturnType<typeof historyFor> }) {
+export function History({ type, history }: { type: MetricType; history: ReturnType<typeof historyFor> }) {
   const [which, setWhich] = useState(history[0]?.key ?? '');
   const active = history.find((h) => h.key === which) ?? history[0]!;
   const color = METRIC_COLORS[type];
@@ -158,26 +117,24 @@ function History({ type, history }: { type: MetricType; history: ReturnType<type
 }
 
 export function MetricExplorer({
-  rows, missing, selected, onSelect, series,
+  rows, missing, selected, onSelect, highlight = false, children,
 }: {
   rows: readonly ExplorerRow[];
   missing: readonly CompanyMetric[];
   selected: MetricType | null;
   onSelect: (type: MetricType) => void;
-  series: ExplorerSeries | null | undefined;
+  /** Ring the panel when the selected figure was just filled from live sources. */
+  highlight?: boolean;
+  /** The one detail panel for the selected figure. */
+  children?: ReactNode;
 }) {
-  // A figure that was not found can be selected too: it shows what would fill it. It has no ranking.
-  const found = rows.find((r) => r.metric.metricType === selected);
-  const gap = found ? undefined : missing.find((m) => m.metricType === selected);
-  const first = rows[0] ?? (missing[0] ? { metric: missing[0], ranking: null } : null);
-  const current: { metric: CompanyMetric; ranking: PeerRanking | null } | null = found ?? (gap ? { metric: gap, ranking: null } : first);
+  // A figure that was not found can be selected too: the panel then shows what would fill it.
+  const current: CompanyMetric | null = rows.find((r) => r.metric.metricType === selected)?.metric
+    ?? missing.find((m) => m.metricType === selected) ?? rows[0]?.metric ?? missing[0] ?? null;
   if (!current) return null;
-  const known = isKnown(current.metric) ? current.metric : null;
-  const history = historyFor(current.metric.metricType, series);
-  const comparable = (current.ranking?.points.length ?? 0) >= 2;
-  const type = current.metric.metricType;
+  const type = current.metricType;
   return (
-    <section aria-label="Major metrics" className="panel overflow-hidden">
+    <section aria-label="Major metrics" className={cn('panel overflow-hidden', highlight && 'ring-2 ring-emerald-400/70')}>
       <div role="tablist" aria-label="Pick a metric" className="flex gap-px overflow-x-auto border-b border-border bg-border">
         {rows.map(({ metric }) => {
           const on = metric.metricType === type;
@@ -187,7 +144,7 @@ export function MetricExplorer({
               className={cn('min-w-[132px] flex-1 bg-surface px-4 py-3 text-left transition-colors', on ? 'bg-surface' : 'bg-surface-2/50 hover:bg-surface')}
               style={on ? { boxShadow: `inset 0 -2px 0 ${METRIC_COLORS[metric.metricType]}` } : undefined}>
               <span className="block text-[10.5px] font-semibold uppercase tracking-wider text-faint">{metricLabel(metric)}</span>
-              <span className={cn('mt-0.5 block font-display text-lg font-semibold tabular-nums', on ? 'text-content' : 'text-muted')}>
+              <span className={cn('mt-0.5 block whitespace-nowrap font-display text-lg font-semibold tabular-nums', on ? 'text-content' : 'text-muted')}>
                 {figureDisplay(metric)}
                 {metric.confidence === 'estimated' && <>{' '}<abbr title="Estimated" className="text-[10px] font-normal text-faint no-underline">est.</abbr></>}
               </span>
@@ -204,45 +161,10 @@ export function MetricExplorer({
         ))}
       </div>
 
-      {current && (
-        <div key={current.metric.metricType} className="grid gap-6 p-5 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)]" role="tabpanel" aria-label={`${metricLabel(current.metric)} chart`}>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-faint">{metricLabel(current.metric)}</p>
-            {known ? (
-              <>
-                <ExplorerValue key={known.metricType} type={known.metricType} value={known.value} metric={known} />
-                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                  <ConfidenceBadge reported={known.reportedSupport != null || known.reportedBand != null} confidence={known.confidence} note={known.methodNote}
-                    source={known.source} citations={known.citations} metricLabel={metricLabel(known)} />
-                  <span className="text-[12px] text-muted">
-                    {figureDates(known).period ? `For ${figureDates(known).period}` : 'Period not reported'}
-                    {figureDates(known).record && <span className="text-faint"> · {figureDates(known).record}</span>}
-                  </span>
-                  {currencyCaptionFor(known) && <p className="basis-full text-[12px] text-muted">{currencyCaptionFor(known)}</p>}
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="mt-1 font-display text-2xl font-semibold text-muted">Not found yet</p>
-                <p className="mt-2 rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2.5 text-[12.5px] leading-snug text-muted">
-                  <span className="font-medium text-content">What would fill this: </span>{FILL_HINT[current.metric.metricType]}
-                </p>
-              </>
-            )}
-          </div>
-          <div className="min-w-0">
-            {known && history.length > 0 ? (
-              <History type={known.metricType} history={history} />
-            ) : known && comparable && current.ranking ? (
-              <PeerBars ranking={current.ranking} type={known.metricType} />
-            ) : known ? (
-              <p className="rounded-lg border border-dashed border-border bg-surface-2/40 px-4 py-6 text-[13px] leading-snug text-muted">
-                One sourced figure so far. A chart appears when research finds a history for it, or when this company is opened from a deck with others to compare against. Nothing is drawn to fill the space.
-              </p>
-            ) : null}
-          </div>
-        </div>
-      )}
+      {/* The one detail panel: the figure, its sources and the deck ranking live in the caller's children. */}
+      <div key={type} role="tabpanel" aria-label={`${metricLabel(current)} detail`} className="p-5">
+        {children}
+      </div>
     </section>
   );
 }

@@ -14,6 +14,7 @@
  * everything else is hidden for the duration of window.print().
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { formatDateLong } from '@/lib/format';
 import { useNavigate } from 'react-router-dom';
 import { FilePlus2, FileSpreadsheet, FileText, Link2, MessageSquareText, Presentation, Printer, Share2 } from 'lucide-react';
 import type { CardWithCompany, ThreadMessage } from '@mi/contracts';
@@ -208,7 +209,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
         kind: 'transcript',
         title: transcript.title,
         scopeLabel: transcript.scopeLabel ?? null,
-        dateText: new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }),
+        dateText: formatDateLong(new Date()),
         messages: transcript.messages,
       },
       `${transcript.title} - Stratemark conversation`,
@@ -258,7 +259,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
         {variant === 'icon' ? null : busy ? 'Exporting…' : 'Share & export'}
       </button>
       {open && (
-        <div role="menu" className={cn('absolute top-full z-50 mt-1 w-72 rounded-xl border border-border bg-surface p-1 shadow-card', side === 'left' ? 'left-0' : 'right-0')}>
+        <div role="menu" className={cn('absolute top-full z-50 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-surface p-1 shadow-card', side === 'left' ? 'left-0' : 'right-0')}>
           {reportEntry && (
             <>
               <p className={GROUP}>Create</p>

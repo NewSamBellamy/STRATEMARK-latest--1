@@ -11,7 +11,7 @@ import { HistoryVideoHero } from './HistoryVideoHero';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { cn } from '@/lib/cn';
 import { useCachedDashboardTab } from '../useCachedTab';
-import { isFundingRoundEvent, unifyFunding, roundForEvent } from '../funding';
+import { isFundingRoundEvent, unifyFunding, roundForEvent, statedByEvent } from '../funding';
 import { formatUsdCompact } from '../snapshot';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader, SourceLink } from './TabKit';
 import {
@@ -81,6 +81,14 @@ export function HistoryTab({ companyId }: { companyId: string }) {
     [events, kind, search],
   );
   const groups = useMemo(() => groupByYear(shown), [shown]);
+  // True of every funding round on the timeline (two or more), so it is said once, not on each event.
+  const noRoundAmounts = useMemo(() => {
+    const funding = events.filter(isFundingRoundEvent);
+    return funding.length >= 2 && funding.every((e) => {
+      const r = roundForEvent(rounds, e);
+      return r?.amountUsd == null && !r?.amountNote;
+    });
+  }, [events, rounds]);
   const dense = detailMode === 'compact' || (detailMode === 'auto' && events.length > DENSE_AT);
   const filtering = kind !== 'all' || search.trim().length > 0;
 
@@ -92,11 +100,13 @@ export function HistoryTab({ companyId }: { companyId: string }) {
         const years = groups.filter((g) => g.year !== null);
         const years0 = years.length ? `${years[years.length - 1]!.label}–${years[0]!.label}` : null;
         return (
-          <div className="space-y-5 cascade">
+          <div className="space-y-8 cascade">
             {c.video && <HistoryVideoHero video={c.video} companyName={name} />}
+            {/* Story + quotes share one 2:1 row; the timeline spans both below. */}
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             {/* The one-pager: the company's story, written to be read. */}
             {c.founderStory.trim().length > 0 && (
-              <section className="panel p-6" aria-label="Company story">
+              <section className="panel p-6 lg:col-start-1 lg:row-start-1" aria-label="Company story">
                 <SectionHeader
                   title="The story"
                   actions={
@@ -107,14 +117,13 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                     />
                   }
                 />
-                <div className="markdown max-w-3xl text-[15px] leading-relaxed text-content/90">
+                <div className="markdown text-[15px] leading-relaxed text-content/90">
                   <ResearchMarkdown text={c.founderStory} />
                 </div>
               </section>
             )}
 
-            <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
-              <section className="panel p-5" aria-label="Timeline">
+              <section className="panel p-5 lg:col-span-2 lg:row-start-2" aria-label="Timeline">
                 <SectionHeader
                   title="Timeline"
                   count={events.length > 0 ? `${events.length} event${events.length === 1 ? '' : 's'}${years0 && years.length > 1 ? ` · ${years0}` : ''}` : undefined}
@@ -192,6 +201,9 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                         Event types are read from each event&apos;s own wording to help you filter; they are not sourced facts.
                       </p>
                     )}
+                    {noRoundAmounts && (
+                      <p className="-mt-2 mb-3 text-[11px] text-faint">No amounts are recorded for these funding rounds.</p>
+                    )}
 
                     {groups.length === 0 ? (
                       <EmptyNote compact title="No events match these filters">
@@ -249,16 +261,22 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                                           )}
                                         </span>
                                         {!dense && t.detail && (
-                                          <span className="mt-0.5 line-clamp-2 block text-sm text-muted">{t.detail}</span>
+                                          <span className="mt-0.5 block text-sm text-muted">{t.detail}</span>
                                         )}
                                       </button>
                                       {isFundingRoundEvent(t) && (() => {
                                         const r = roundForEvent(rounds, t);
                                         const leads = r?.leadInvestors ?? [];
+                                        // When no round has an amount the line above the timeline says so once.
+                                        // "Not reported" never sits under text that states an amount.
+                                        const amount = r?.amountUsd != null ? formatUsdCompact(r.amountUsd)
+                                          : r?.amountNote ? r.amountNote
+                                          : noRoundAmounts || statedByEvent(t).statesAmount ? null : 'Amount not reported';
+                                        if (!amount && leads.length === 0 && !r?.sourceUrl) return null;
                                         return (
                                           <p className="px-3 pb-1 text-xs text-muted">
-                                            {r?.amountUsd != null ? formatUsdCompact(r.amountUsd) : 'Amount not reported'}
-                                            {leads.length > 0 && ` · ${leads.join(', ')}`}
+                                            {amount}
+                                            {leads.length > 0 && `${amount ? ' · ' : ''}${leads.join(', ')}`}
                                             {r?.sourceUrl && <SourceLink url={r.sourceUrl} className="ml-2" />}
                                           </p>
                                         );
@@ -289,7 +307,13 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                 )}
               </section>
 
-              <section className="panel h-fit p-5" aria-label="Notable quotes">
+              <section
+                className={cn(
+                  'panel p-5 lg:row-start-1',
+                  c.founderStory.trim().length > 0 ? 'lg:col-start-2 lg:self-start' : 'lg:col-span-2',
+                )}
+                aria-label="Notable quotes"
+              >
                 <SectionHeader title="Notable quotes" count={c.quotes.length > 0 ? c.quotes.length : undefined} />
                 {c.quotes.length === 0 ? (
                   <EmptyNote compact title="No attributable quotes yet">

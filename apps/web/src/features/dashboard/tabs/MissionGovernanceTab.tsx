@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
+import { deriveInvestors } from '@mi/contracts';
 import { useCompany, useDashboardTab } from '@/hooks/data';
+import { cn } from '@/lib/cn';
 import { FundingChart } from './FundingChart';
 import { formatUsdCompact, roundsNewestFirst } from '../snapshot';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
@@ -57,7 +59,14 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
         const board = c.board ?? [];
         // Newest round first, the way every funding profile reads.
         const fundingRounds = roundsNewestFirst(unifyFunding(c.fundingRounds, historyTimeline));
-        const investors = c.investors ?? [];
+        // A column that is "not reported" on every row (two or more rounds) is said once above the table instead.
+        const noAmounts = fundingRounds.length >= 2 && fundingRounds.every((r) => r.amountUsd == null && !r.amountNote);
+        const noLeads = fundingRounds.length >= 2 && fundingRounds.every((r) => (r.leadInvestors ?? []).length === 0);
+        const roundsNote = noAmounts || noLeads
+          ? `No ${noAmounts && noLeads ? 'amounts or lead investors are' : noAmounts ? 'amounts are' : 'lead investors are'} recorded for these rounds.`
+          : null;
+        // Investors the research listed, plus the leads of these rounds and the organisations of the board's affiliations.
+        const investors = deriveInvestors({ companyName: companyQ?.name, board, fundingRounds, investors: c.investors });
         const positives = c.positives ?? [];
         const negatives = c.negatives ?? [];
         const kinds = [...new Set(investors.map((i) => i.kind))];
@@ -80,7 +89,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                   />
                 }
               />
-              <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                 <div className="panel space-y-5 p-5">
                   <ProseBlock label="Mission" text={c.mission ?? ''} missing="No mission statement sourced yet." />
                   <ProseBlock label="Ethos" text={c.ethos ?? ''} missing="No stated values or ethos sourced yet." />
@@ -91,7 +100,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                   />
                 </div>
 
-                <div className="space-y-4">
+                <div className="flex flex-col self-start">
                   <div className="panel p-5">
                     <h3 className="font-display text-sm font-semibold text-content">
                       Board <span className="ml-1 text-xs font-normal tabular-nums text-muted">{board.length || ''}</span>
@@ -130,12 +139,13 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                   companies often disclose little.
                 </EmptyNote>
               ) : (
-                <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+                <div className={`grid grid-cols-1 gap-4 ${investors.length > 0 ? 'lg:grid-cols-[minmax(0,1fr)_320px]' : ''}`}>
                   <div className="space-y-4">
                   <FundingChart rounds={fundingRounds} />
                   <div className="panel overflow-hidden">
-                    <div className="border-b border-border bg-surface-2/60 px-4 py-2">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 border-b border-border bg-surface-2/60 px-4 py-2">
                       <FieldLabel>Rounds · {fundingRounds.length}</FieldLabel>
+                      {roundsNote && <span className="text-[11px] text-faint">{roundsNote}</span>}
                     </div>
                     {fundingRounds.length > 0 ? (
                       <div className="overflow-x-auto">
@@ -143,9 +153,9 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                           <thead className="text-[11px] text-muted">
                             <tr className="border-b border-border">
                               <th scope="col" className="px-4 py-2 font-medium">Date</th>
-                              <th scope="col" className="px-2 py-2 font-medium">Round</th>
-                              <th scope="col" className="px-2 py-2 text-right font-medium">Amount</th>
-                              <th scope="col" className="px-4 py-2 font-medium">Led by</th>
+                              <th scope="col" className={cn('px-2 py-2 font-medium', noAmounts && noLeads && 'w-full')}>Round</th>
+                              {!noAmounts && <th scope="col" className="px-2 py-2 text-right font-medium">Amount</th>}
+                              {!noLeads && <th scope="col" className="px-4 py-2 font-medium">Led by</th>}
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
@@ -156,16 +166,22 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                                   <td className="whitespace-nowrap px-4 py-2.5 text-xs font-semibold tabular-nums text-primary-ink">
                                     {r.date || <span className="font-normal text-faint">Not reported</span>}
                                   </td>
-                                  <td className="px-2 py-2.5 font-medium text-content">
+                                  <td className="whitespace-nowrap px-2 py-2.5 font-medium text-content">
                                     {r.round}
                                     {r.sourceUrl && <SourceLink url={r.sourceUrl} className="ml-2" />}
                                   </td>
-                                  <td className="whitespace-nowrap px-2 py-2.5 text-right tabular-nums text-content">
-                                    {r.amountUsd != null ? formatUsdCompact(r.amountUsd) : <span className="text-xs font-normal text-faint">Amount not reported</span>}
-                                  </td>
-                                  <td className="px-4 py-2.5 text-muted">
-                                    {leads.length > 0 ? leads.join(', ') : <span className="text-faint">Not reported</span>}
-                                  </td>
+                                  {!noAmounts && (
+                                    <td className="whitespace-nowrap px-2 py-2.5 text-right tabular-nums text-content">
+                                      {r.amountUsd != null ? formatUsdCompact(r.amountUsd) : r.amountNote ? (
+                                        <span title="As the source states it; not converted to dollars">{r.amountNote}</span>
+                                      ) : <span className="text-xs font-normal text-faint">Amount not reported</span>}
+                                    </td>
+                                  )}
+                                  {!noLeads && (
+                                    <td className="px-4 py-2.5 text-muted">
+                                      {leads.length > 0 ? leads.join(', ') : <span className="text-faint">Not reported</span>}
+                                    </td>
+                                  )}
                                 </tr>
                               );
                             })}
@@ -178,9 +194,9 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                   </div>
                   </div>
 
-                  <div className="panel p-4">
+                  <div className="panel self-start p-5">
                     <div className="mb-3 flex flex-wrap items-center gap-1.5">
-                      <FieldLabel>Investors · {investors.length}</FieldLabel>
+                      <FieldLabel>{investors.length > 0 ? `Investors · ${investors.length}` : 'Investors'}</FieldLabel>
                       {kinds.length > 1 && (
                         <span className="ml-auto flex flex-wrap gap-1" role="group" aria-label="Filter investors by type">
                           <FilterChip active={kind === 'all'} onClick={() => setKind('all')}>All</FilterChip>
@@ -197,9 +213,9 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                         <li key={inv.name} className="flex items-start gap-2.5">
                           <WikiAvatar name={inv.name} companyName={name} size="sm" />
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-content">
+                            <p className="text-sm font-medium text-content [overflow-wrap:anywhere]">
                               {inv.name}
-                              <span className="ml-1.5 rounded bg-surface-2 px-1.5 py-px text-[10px] font-medium text-muted">
+                              <span className="ml-1.5 whitespace-nowrap rounded bg-surface-2 px-1.5 py-px text-[10px] font-medium text-muted">
                                 {INVESTOR_KIND_LABEL[inv.kind] ?? 'Investor'}
                               </span>
                             </p>
@@ -209,7 +225,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                       ))}
                     </ul>
                     {investors.length === 0 && (
-                      <p className="text-sm text-muted">No named investors surfaced yet.</p>
+                      <p className="text-sm text-muted">No investor list in the research.</p>
                     )}
                     {shownInvestors.length > 12 && (
                       <p className="mt-2 text-[11px] text-faint">Showing 12 of {shownInvestors.length}.</p>
