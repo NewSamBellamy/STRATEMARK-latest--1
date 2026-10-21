@@ -14,6 +14,21 @@ export type SignalBriefState =
 /** Builds in flight, per repository and card, so two openings of one card share one build (and one spend). */
 const builds = new WeakMap<object, Map<string, Promise<SignalBrief>>>();
 
+/** A build that failed is not started again by merely reopening the card for this long; an explicit "Try again" always may. */
+export const BUILD_BACKOFF_MS = 5 * 60 * 1000;
+const failures = new WeakMap<object, Map<string, { at: number; message: string }>>();
+
+function recentFailure(repo: MarketIntelRepository, cardId: string): string | null {
+  const found = failures.get(repo)?.get(cardId);
+  return found && Date.now() - found.at < BUILD_BACKOFF_MS ? found.message : null;
+}
+
+function noteFailure(repo: MarketIntelRepository, cardId: string, message: string): void {
+  let byCard = failures.get(repo);
+  if (!byCard) failures.set(repo, byCard = new Map());
+  byCard.set(cardId, { at: Date.now(), message });
+}
+
 function sharedBuild(repo: MarketIntelRepository, cardId: string, force: boolean): Promise<SignalBrief> {
   let byCard = builds.get(repo);
   if (!byCard) builds.set(repo, byCard = new Map());
@@ -41,18 +56,25 @@ export function useSignalBrief(cardId: string, enabled: boolean) {
   const [state, setState] = useState<SignalBriefState>({ status: 'idle' });
   const canBuild = !readOnly && typeof repo.researchSignalBrief === 'function';
 
-  const build = useCallback((force: boolean) => {
+  const build = useCallback((force: boolean, auto = false) => {
     if (!canBuild) return;
+    // Opening a card again must not pay again for a build that just failed.
+    const recent = auto ? recentFailure(repo, cardId) : null;
+    if (recent !== null) { setState({ status: 'failed', message: recent }); return; }
     setState({ status: 'building' });
     sharedBuild(repo, cardId, force).then(
       (brief) => setState({ status: 'ready', brief }),
-      (error: unknown) => setState({ status: 'failed', message: error instanceof Error && error.message ? error.message : 'The report could not be written.' }),
+      (error: unknown) => {
+        const message = error instanceof Error && error.message ? error.message : 'The report could not be written.';
+        noteFailure(repo, cardId, message);
+        setState({ status: 'failed', message });
+      },
     );
   }, [repo, cardId, canBuild]);
 
   useEffect(() => {
     if (!enabled || typeof repo.peekSignalBrief !== 'function') {
-      if (enabled && canBuild) build(false);
+      if (enabled && canBuild) build(false, true);
       return;
     }
     let live = true;
@@ -60,9 +82,9 @@ export function useSignalBrief(cardId: string, enabled: boolean) {
       (stored) => {
         if (!live) return;
         if (stored) setState({ status: 'ready', brief: stored });
-        else if (canBuild) build(false);
+        else if (canBuild) build(false, true);
       },
-      () => { if (live && canBuild) build(false); },
+      () => { if (live && canBuild) build(false, true); },
     );
     return () => { live = false; };
   }, [enabled, repo, cardId, canBuild, build]);

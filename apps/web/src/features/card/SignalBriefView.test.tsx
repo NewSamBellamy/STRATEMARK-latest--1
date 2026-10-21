@@ -134,6 +134,23 @@ describe('signal brief in the reader', () => {
     expect(build).toHaveBeenCalledTimes(2);
   });
 
+  it('does not pay again just because the card is reopened after a failed build', async () => {
+    const build = vi.fn<() => Promise<SignalBrief>>()
+      .mockRejectedValueOnce(new Error('Search is unavailable right now.'))
+      .mockResolvedValueOnce(briefFor(signal.card.id));
+    const repo = repoWith(null, build);
+    const first = open(repo);
+    expect(await screen.findByText('Search is unavailable right now.')).toBeInTheDocument();
+    first.unmount();
+    const second = open(repo);
+    expect(await screen.findByText('Search is unavailable right now.')).toBeInTheDocument();
+    expect(build).toHaveBeenCalledTimes(1);
+    // An explicit retry is still allowed.
+    await second.user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Acme bought Beta in 2025.')).toBeInTheDocument();
+    expect(build).toHaveBeenCalledTimes(2);
+  });
+
   it('says plainly when nothing more is documented', async () => {
     open(repoWith(briefFor(signal.card.id, { lead: '', points: [] })));
     expect(await screen.findByText('Nothing more is documented about this finding yet.')).toBeInTheDocument();
