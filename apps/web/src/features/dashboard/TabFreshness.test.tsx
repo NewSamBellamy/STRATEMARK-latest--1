@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
+import { BackgroundResearchControl } from '@/lib/living/BackgroundResearchControl';
 import type { DashboardTab } from '@mi/contracts';
 import { useDashboardTab } from '@/hooks/data';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
@@ -28,6 +29,35 @@ describe('tab freshness', () => {
     expect(await screen.findByText('Researched 3h ago')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Refresh/ }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('puts the freshness text, Refresh and the pause icon in one row', async () => {
+    const repository = Object.assign(makeRepo(), {
+      getDashboardTab: vi.fn(async () => ({ companyId: 'cmp_1', tab: 'overview' as const, content: { markdown: '' }, citations: [], lastRefreshedAt: '2026-08-01T00:00:00.000Z' })),
+    });
+    function WithControl() {
+      useDashboardTab('cmp_1', 'overview');
+      return <TabFreshness companyId="cmp_1" tab="overview" refreshing={false} disabled={false} onRefresh={vi.fn()} now={NOW}
+        control={<BackgroundResearchControl />} />;
+    }
+    renderWithProviders(<WithControl />, { repository });
+    await screen.findByText(/over a month old/);
+    const row = screen.getByTestId('freshness-row');
+    expect(screen.getAllByTestId('freshness-row')).toHaveLength(1);
+    expect(row).toHaveTextContent(/Researched .*over a month old/);
+    expect(within(row).getByRole('button', { name: /Refresh/ })).toBeInTheDocument();
+    const pause = within(row).getByRole('button', { name: 'Pause background research' });
+    expect(pause).toHaveAttribute('title', expect.stringContaining('Background research is on'));
+    expect(pause).not.toHaveTextContent(/\S/);
+  });
+
+  it('keeps the pause icon on a tab with no freshness line', async () => {
+    const repository = Object.assign(makeRepo(), { getDashboardTab: vi.fn(async () => null) });
+    renderWithProviders(<TabFreshness companyId="cmp_1" tab="live_intel" refreshing={false} disabled={false} onRefresh={vi.fn()}
+      control={<BackgroundResearchControl />} />, { repository });
+    const row = await screen.findByTestId('freshness-row');
+    expect(within(row).getByRole('button', { name: 'Pause background research' })).toBeInTheDocument();
+    expect(within(row).queryByText(/Researched/)).not.toBeInTheDocument();
   });
 
   it('names research over a month old', async () => {

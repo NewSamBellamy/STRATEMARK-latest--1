@@ -570,7 +570,6 @@ export default function DashboardPage() {
               fromCardId={fromCardId}
               fromDeckView={fromDeckView}
             />
-            {!readOnly && <BackgroundResearchControl />}
             {!readOnly && <GroundingQuotaNotice />}
             {!readOnly && prefetchFailed.length > 0 && (
               <div className="mb-3 rounded-lg border border-negative/30 bg-negative/5 px-3 py-2 text-[12px] text-negative">
@@ -595,7 +594,7 @@ export default function DashboardPage() {
                 disabled={!hasKey}
               >
                 <TabFreshness companyId={companyId} tab={activeTab} onRefresh={() => rerunTab.mutate()}
-                  refreshing={rerunTab.isPending} disabled={!hasKey} />
+                  refreshing={rerunTab.isPending} disabled={!hasKey} control={<BackgroundResearchControl />} />
                 <TabView tab={activeTab} companyId={companyId} />
               </ContextRerun>
             )}
