@@ -2802,6 +2802,32 @@ export class GeminiRepository implements MarketIntelRepository {
     return resolveWrite(metric, prior, this.assessContext(metric.companyId));
   }
 
+  /**
+   * Latest wins at a lane that used to fill only EMPTY slots (quoted, reported, recovery, reach,
+   * market batch): lay the incoming observation over the row, then let `settleAccepted` decide
+   * whether it stays. The old figure is never dropped (a replaced one goes to `priorFigures`, a
+   * newer-but-weaker one is recorded as `newerObservation`, a conflict is recorded, all capped);
+   * a human row is never touched. The row's evidence fields (its support objects and the
+   * verification stamps) are cleared first so the new figure carries only its own evidence; a
+   * put-back restores them exactly. 'confirmed' = the same figure for the same date was re-stated; the row is left exactly as it was.
+   * Callers have already checked the revision guard and skipped ambiguous rows.
+   */
+  private overwriteFigure(current: CompanyMetric, patch: Partial<CompanyMetric>): 'written' | 'confirmed' | 'kept' {
+    if (current.confidence === 'user_verified') return 'kept';
+    const prior = current.value != null && current.confidence !== 'unknown' ? structuredClone(current) : null;
+    const row = current as unknown as Record<string, unknown>;
+    for (const key of ['passageSupport', 'reportedSupport', 'quotedSupport', 'reportedBand', 'lastVerifiedAt', 'lastVerificationAttemptAt']) delete row[key];
+    Object.assign(current, patch);
+    if (!prior) return 'written';
+    if (!this.settleAccepted(current, prior)) return 'kept';
+    if (prior.value !== current.value || prior.confidence !== current.confidence || figureAsOf(prior).asOf !== figureAsOf(current).asOf) return 'written';
+    // The same figure for the same date, re-stated: nothing changed, so the row is left exactly as it was
+    // (a rewrite here would diverge from what was persisted, and a rerun would churn the row forever).
+    for (const key of Object.keys(current)) if (!(key in prior)) delete row[key];
+    Object.assign(current, prior);
+    return 'confirmed';
+  }
+
   /** The figures already held for these types, as the hunt prompt's "we already hold X as of D (source)" input. Stored rows only. */
   private heldFigures(companyId: string, types: readonly MetricType[]): HeldFigureLine[] {
     const rows = this.snap.metrics.filter((m) => m.companyId === companyId);
@@ -4492,8 +4518,9 @@ export class GeminiRepository implements MarketIntelRepository {
    * Pages come from receipts the pipeline already retained for the official
    * host; only when those state nothing does it read the homepage and up to
    * two of its own about / customers pages. A figure the pages state plainly
-   * lands as ESTIMATED with the page as its citation; an open slot only, never
-   * over a value, a verified row or a human edit. Every attempt that read a page
+   * lands as ESTIMATED with the page as its citation. Pages are only read for an
+   * open slot (that is a cost rule); a figure that arrives over a held one is
+   * settled by latest wins, and a human edit is never touched. Every attempt that read a page
    * is retained under the slot's own topic, so a company whose site states
    * nothing reads as "tried, nothing found", not "never targeted".
    */
@@ -4576,15 +4603,19 @@ export class GeminiRepository implements MarketIntelRepository {
       .filter((c) => c.id !== companyId && this.snap.companyMarket[c.id] === marketId).map((c) => c.name);
   }
 
-  /** Write gated own-site rows into open slots only. Returns the types written. */
+  /** Write gated own-site rows. An open slot is filled; a slot that filled while the pages were
+   * read is settled by latest wins (never a human edit, an ambiguous tie is left alone).
+   * Returns the types written. */
   private applyReachRows(companyId: string, rows: readonly CompanyMetric[], nowIso: string): MetricType[] {
     const written: MetricType[] = [];
     for (const row of rows) {
-      if (row.value == null || !this.reachSlotOpen(companyId, row.metricType)) continue;
-      const current = currentMetricRevision(this.snap.metrics.filter((m) => m.companyId === companyId), companyId, row.metricType)?.metric;
+      if (row.value == null) continue;
+      const revision = currentMetricRevision(this.snap.metrics.filter((m) => m.companyId === companyId), companyId, row.metricType);
+      if (revision?.ambiguous) continue;
+      const current = revision?.metric;
       const fields = { value: row.value, confidence: 'estimated' as const, source: row.source, citations: row.citations,
         passageSupport: null, reportedSupport: row.reportedSupport, quotedSupport: null, methodNote: row.methodNote, capturedAt: nowIso };
-      if (current) Object.assign(current, fields);
+      if (current) { if (this.overwriteFigure(current, fields) !== 'written') continue; }
       else this.snap.metrics.push({ ...row, id: `met_site_${Date.now().toString(36)}_${row.metricType}`, ...fields });
       written.push(row.metricType);
     }
@@ -4874,23 +4905,25 @@ export class GeminiRepository implements MarketIntelRepository {
         this.snap.metrics.filter((m) => m.companyId === target.company.id && m.metricType === estimate.metricType),
         target.company.id, estimate.metricType);
       if (current?.ambiguous) continue;
-      let metric = current?.metric;
-      if (metric?.confidence === 'user_verified' || metric?.confidence === 'verified') continue;
-      if (!metric) {
-        metric = {
+      const metric = current?.metric;
+      if (metric?.confidence === 'user_verified') continue;
+      const citations = support.sources.slice(0, 2).map((s) => ({ title: s.title, url: s.url }));
+      const fields = {
+        value: estimate.value, confidence: 'estimated' as const, reportedSupport, citations,
+        source: citations[0]?.url ?? null,
+        methodNote: `${estimate.methodNote} Provider-reported estimate (${reportedAsOfNote(reportedSupport.asOf, reportedSupport.support.text)}), not verified against an original.`,
+        capturedAt: nowIso,
+      };
+      if (metric) {
+        // Latest wins: a held figure (an older estimate, a stale verified row) is replaced only by a
+        // newer, at-least-as-authoritative one; a current verified row always stands.
+        if (this.overwriteFigure(metric, fields) !== 'written') continue;
+      } else {
+        this.snap.metrics.push({
           id: `met_batch_${Date.now().toString(36)}_${estimate.metricType}`,
-          companyId: target.company.id, metricType: estimate.metricType, value: null, confidence: 'unknown',
-          source: null, citations: [], methodNote: null, capturedAt: nowIso,
-        };
-        this.snap.metrics.push(metric);
+          companyId: target.company.id, metricType: estimate.metricType, ...fields,
+        });
       }
-      metric.value = estimate.value;
-      metric.confidence = 'estimated';
-      metric.reportedSupport = reportedSupport;
-      metric.citations = support.sources.slice(0, 2).map((s) => ({ title: s.title, url: s.url }));
-      metric.source = metric.citations[0]?.url ?? null;
-      metric.methodNote = `${estimate.methodNote} Provider-reported estimate (${reportedAsOfNote(reportedSupport.asOf, reportedSupport.support.text)}), not verified against an original.`;
-      metric.capturedAt = nowIso;
       touched.add(target.company.id);
       filledTypes += 1;
     }
@@ -5288,8 +5321,8 @@ export class GeminiRepository implements MarketIntelRepository {
 
     // Figures quoted word for word from a page we fetched, but phrased as
     // ordinary press/news prose the mechanical verified gate rejects, land as
-    // ESTIMATED with the page as citation (see quoted-estimate.ts). Open slots
-    // only: never overwrites a value, a verified row or a human edit.
+    // ESTIMATED with the page as citation (see quoted-estimate.ts). A held figure
+    // is settled by latest wins (never a human edit; nothing is dropped).
     if (this.originalSources) {
       for (const fig of out.figures) {
         if (filledTypes.includes(fig.metricType) || !softTypes.includes(fig.metricType) || !fig.passageSupport) continue;
@@ -5301,14 +5334,16 @@ export class GeminiRepository implements MarketIntelRepository {
         const revision = currentMetricRevision(mine(), companyId, fig.metricType);
         if (revision?.ambiguous) continue;
         const current = revision?.metric;
-        if (current && (current.value != null || current.confidence === 'user_verified' || current.confidence === 'verified')) continue;
+        if (current?.confidence === 'user_verified') continue;
         const row = { value: normalizeMetricToUsd(fig.metricType, fig.value, fig.passageSupport.unit), confidence: 'estimated' as const,
           source: citations[0]!.url, citations, passageSupport: null, reportedSupport: null,
           quotedSupport: { sourceUrl: fig.passageSupport.sourceUrl, quote: fig.passageSupport.quote, asOf: fig.passageSupport.asOf,
             value: fig.value!, unit: fig.passageSupport.unit },
           methodNote: `${quotedEstimateNote(fig.passageSupport, citations[0]!)} ${currencyConversionNote(fig.value, fig.passageSupport.unit)}`.trim(),
           capturedAt: nowIso };
-        if (current) Object.assign(current, row);
+        // Latest wins: a held figure is replaced only by a newer, at-least-as-authoritative one (the
+        // old value is kept dated); an older or weaker quote leaves it and is recorded beside it.
+        if (current) { if (this.overwriteFigure(current, row) !== 'written') continue; }
         else this.snap.metrics.push({ id: `met_hunt_${Date.now().toString(36)}_${fig.metricType}_q`, companyId, metricType: fig.metricType, ...row });
         filledTypes.push(fig.metricType);
       }
@@ -5347,8 +5382,9 @@ export class GeminiRepository implements MarketIntelRepository {
 
   /** Hunt reported-estimate lane: runs the grounded hunt answer through the SAME
    * reported-claim gate recovery uses and writes passing rows as `estimated`
-   * for slots that currently hold no value. Never overwrites a value, never
-   * touches verified/user rows, never invents; returns the types written. */
+   * for open slots; a slot already holding a figure is settled by latest wins
+   * (newer and at least as authoritative replaces, the old value kept dated;
+   * a human row is never touched). Never invents; returns the types written. */
   private async fillReportedHuntRows(
     company: Company, slots: MetricType[], g: { text: string; grounding?: ProviderGrounding },
     revisions: Map<MetricType, string>, peers: readonly string[] = [],
@@ -5370,12 +5406,15 @@ export class GeminiRepository implements MarketIntelRepository {
       const revision = currentMetricRevision(mine(), company.id, row.metricType);
       if (revision?.ambiguous) continue;
       const current = revision?.metric;
-      if (current && (current.value != null || current.confidence === 'user_verified' || current.confidence === 'verified')) continue;
+      if (current?.confidence === 'user_verified') continue;
       // reportedCompanyMetrics already stores the USD form of a native-currency figure.
       const value = row.value;
       if (current) {
-        Object.assign(current, { value, confidence: 'estimated', source: row.source, citations: row.citations,
+        // Latest wins: a held figure (an older estimate, a stale verified row) is replaced only by a
+        // newer, at-least-as-authoritative one; otherwise it stays and the newer reading is recorded.
+        const outcome = this.overwriteFigure(current, { value, confidence: 'estimated', source: row.source, citations: row.citations,
           passageSupport: null, reportedSupport: row.reportedSupport, methodNote: row.methodNote, capturedAt: nowIso });
+        if (outcome !== 'written') continue;
       } else {
         this.snap.metrics.push({ ...row, id: `met_hunt_${Date.now().toString(36)}_${row.metricType}`, value, capturedAt: nowIso });
       }
@@ -5391,8 +5430,10 @@ export class GeminiRepository implements MarketIntelRepository {
     return written;
   }
 
-  /** Write a gated employee BAND row into an open employees slot. Never
-   * overwrites a point value, a verified row or a human edit. */
+  /** Write a gated employee BAND row into an open employees slot. A band carries no point
+   * value, and latest wins never lets an empty result replace a figure (compareObservations:
+   * 'an empty result never replaces a figure'), so a held value, a verified row or a human
+   * edit always stands: this guard IS that decision, not a skipped one. */
   private writeEmployeeBand(companyId: string, band: CompanyMetric, nowIso: string): boolean {
     const revision = currentMetricRevision(this.snap.metrics.filter((m) => m.companyId === companyId), companyId, 'employees');
     if (revision?.ambiguous) return false;
@@ -5495,17 +5536,23 @@ export class GeminiRepository implements MarketIntelRepository {
       }
       const verified = originalCitations.length > 0;
       if (current) {
-        if (current.value != null || current.confidence === 'user_verified' || current.confidence === 'verified') continue;
-        current.value = row.value;
-        current.confidence = verified ? 'verified' : 'estimated';
-        current.source = verified ? originalCitations[0]!.url : row.source;
-        current.citations = verified ? originalCitations : row.citations;
-        current.passageSupport = row.passageSupport;
-        current.reportedSupport = verified ? null : row.reportedSupport;
-        current.methodNote = verified
-          ? `Verified against a retained original page recovered from saved research. ${currencyConversionNote(row.reportedSupport?.value ?? row.value, (row.passageSupport ?? row.reportedSupport)?.unit)}`.trim()
-          : row.methodNote;
-        current.capturedAt = nowIso;
+        if (current.confidence === 'user_verified') continue;
+        // Latest wins: saved research replaces a held figure only when it is newer and at least as
+        // authoritative (the old value is kept dated); otherwise the held figure stays.
+        const outcome = this.overwriteFigure(current, {
+          value: row.value,
+          confidence: verified ? 'verified' : 'estimated',
+          source: verified ? originalCitations[0]!.url : row.source,
+          citations: verified ? originalCitations : row.citations,
+          passageSupport: row.passageSupport,
+          reportedSupport: verified ? null : row.reportedSupport,
+          methodNote: verified
+            ? `Verified against a retained original page recovered from saved research. ${currencyConversionNote(row.reportedSupport?.value ?? row.value, (row.passageSupport ?? row.reportedSupport)?.unit)}`.trim()
+            : row.methodNote,
+          capturedAt: nowIso,
+        });
+        // 'confirmed' = the figure already held, re-stated: left exactly as it was, nothing to report.
+        if (outcome !== 'written') continue;
         if (current.confidence === 'verified') Object.assign(current, markVerified(current, nowIso));
       } else {
         const filled: CompanyMetric = { ...row, capturedAt: nowIso,

@@ -33,6 +33,8 @@ export interface ObservationComparison {
 
 export const PRIOR_FIGURES_MAX = 8;
 export const CONFLICTS_MAX = 8;
+/** Same 366-day window the read path uses to show a verified figure as an estimate. */
+const AGED_OUT_MS = 366 * 86_400_000;
 const LEVEL_RANK = { strong: 3, acceptable: 2, weak: 1 } as const;
 
 /** Displayed lane and publisher level of a stored figure, after the read-time demotions. */
@@ -40,7 +42,8 @@ function standing(metric: CompanyMetric, ctx: AssessContext): { lane: number; le
   const assessment = assessFigure(metric, ctx);
   const own = figureAsOf(metric);
   const reading = readCurrency({ metricType: metric.metricType, asOf: own.asOf, asOfSource: own.source, now: ctx.now });
-  const demoted = assessment?.effect === 'demoted_stale' || assessment?.effect === 'demoted_authority';
+  const demoted = assessment?.effect === 'demoted_stale' || assessment?.effect === 'demoted_authority'
+    || (metric.confidence === 'verified' && reading.asOf != null && ctx.now.getTime() - Date.parse(`${reading.asOf}T00:00:00.000Z`) > AGED_OUT_MS);
   const lane = demoted && laneRank(metric) === 3 ? 2 : laneRank(metric);
   const level = assessment?.authority.level ? LEVEL_RANK[assessment.authority.level] : 0;
   return { lane, level, asOf: reading.asOf };
