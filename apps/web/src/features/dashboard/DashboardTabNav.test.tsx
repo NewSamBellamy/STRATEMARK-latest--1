@@ -10,7 +10,7 @@ afterEach(() => { window.matchMedia = original; });
 /** A fake viewport: the tab bar only asks whether it is at least 1280 px wide. */
 function viewport(width: number) {
   window.matchMedia = ((query: string) => ({
-    matches: query.includes('min-width: 1280px') ? width >= 1280 : query.includes('max-width: 767px') ? width <= 767 : false,
+    matches: query.includes('min-width: 1280px') ? width >= 1280 : query.includes('max-width: 1023px') ? width <= 1023 : false,
     media: query,
     onchange: null,
     addListener: () => {},
@@ -46,7 +46,7 @@ describe('dashboard tab nav', () => {
     show('live_intel');
     expect(screen.queryByRole('button', { name: /More/ })).not.toBeInTheDocument();
     expect(screen.getAllByRole('link')).toHaveLength(9);
-    expect(screen.getByRole('navigation', { name: 'Company dashboard tabs' }).className).toContain('max-md:overflow-x-auto');
+    expect(screen.getByRole('navigation', { name: 'Company dashboard tabs' }).className).toContain('max-lg:overflow-x-auto');
   });
 
   it('shows every tab and no More button at 1280 px and wider', () => {

@@ -170,8 +170,8 @@ const VISIBLE_TAB_COUNT = 5;
 /** From this width every tab fits in the bar, so nothing is tucked under "More". */
 const WIDE_TAB_BAR_QUERY = '(min-width: 1280px)';
 
-/** On a phone the bar scrolls sideways instead (a dropdown would be clipped by the scroller). */
-const PHONE_TAB_BAR_QUERY = '(max-width: 767px)';
+/** Below 1024px (phones, tablets beside the sidebar) the bar scrolls sideways instead (a dropdown would be clipped by the scroller). */
+const PHONE_TAB_BAR_QUERY = '(max-width: 1023px)';
 
 function useMediaMatch(query: string): boolean {
   const read = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.(query).matches);
@@ -320,7 +320,7 @@ export function DashboardTabNav({
     <nav
       ref={navRef}
       onScroll={syncEdges}
-      className="flex items-center gap-1 border-b border-border max-md:overflow-x-auto max-md:[scrollbar-width:none] max-md:[&::-webkit-scrollbar]:hidden"
+      className="flex items-center gap-1 border-b border-border max-lg:overflow-x-auto max-lg:[scrollbar-width:none] max-lg:[&::-webkit-scrollbar]:hidden"
       aria-label="Company dashboard tabs"
     >
       {visibleTabs.map((t) => (
@@ -382,10 +382,10 @@ export function DashboardTabNav({
       <AgentWorkingPill companyId={companyId} assembly={assembly} />
     </nav>
     {edges.start && (
-      <span aria-hidden data-testid="tabs-fade-start" className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-bg to-transparent md:hidden" />
+      <span aria-hidden data-testid="tabs-fade-start" className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-bg to-transparent lg:hidden" />
     )}
     {edges.end && (
-      <span aria-hidden data-testid="tabs-fade-end" className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end bg-gradient-to-l from-bg via-bg/80 to-transparent md:hidden">
+      <span aria-hidden data-testid="tabs-fade-end" className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end bg-gradient-to-l from-bg via-bg/80 to-transparent lg:hidden">
         <ChevronRight className="h-4 w-4 text-muted" />
       </span>
     )}
@@ -467,7 +467,9 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl">
+    // One width and left edge for every tab. pb-20 clears the floating Stratemark
+    // button (h-12) so the last row and right-most figures are never under it.
+    <div className="mx-auto max-w-6xl pb-20" data-testid="dashboard-root">
       {/* Breadcrumbs: back to where you came from, and — always — a way home
           to the decks (audit 6:35: "it doesn't take you back to your decks"
           when a card was opened from Saved Cards or a report). */}
