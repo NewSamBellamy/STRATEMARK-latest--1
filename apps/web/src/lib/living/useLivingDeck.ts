@@ -61,7 +61,7 @@ const PREFETCH_TABS: Array<{ tab: DashboardTab; label: string }> = [
   { tab: 'history', label: 'History' },
   { tab: 'team_org', label: 'Team & Org Chart' },
   { tab: 'products_roadmap', label: 'Products & Roadmap' },
-  { tab: 'live_landing', label: 'Live Landing Page' },
+  { tab: 'live_landing', label: 'Website' },
 ];
 /** Warm EVERY company's core tabs — the deck is not "done" until all its
  * dashboards are populated. One company per tick keeps the pacing honest;

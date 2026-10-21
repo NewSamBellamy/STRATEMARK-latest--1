@@ -183,7 +183,7 @@ export const DASHBOARD_TAB_LABELS: Record<DashboardTab, string> = {
   research: 'Research & Sources',
   live_intel: 'Live Intel',
   team_org: 'Team & Org Chart',
-  live_landing: 'Live Landing Page',
+  live_landing: 'Website',
   metrics: 'Metrics',
   mission_governance: 'Mission & Governance',
   history: 'History',

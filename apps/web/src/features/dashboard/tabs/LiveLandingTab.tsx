@@ -173,14 +173,14 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
   const readOnly = useReadOnly();
 
   return (
-    <QueryBoundary query={query} loading={<HydratingPanel label="Live Landing Page" />}>
+    <QueryBoundary query={query} loading={<HydratingPanel label="Website" />}>
       {(result) => {
         const { url, screenshotUrl } = result.content;
         const embeddable = result.content.embeddable && !readOnly;
         if (!/^https?:\/\//.test(url)) {
           return (
             <EmptyNote title="No official website recorded">
-              Live Website shows a capture of the company’s own site. It fills in once research
+              The Website tab shows a capture of the company’s own site. It fills in once research
               identifies {name}’s official domain.
             </EmptyNote>
           );
@@ -188,7 +188,7 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
         return (
           <div className="cascade">
             <SectionHeader
-              title="Live website"
+              title="Website"
               description={`${name}’s own site as it looks right now, captured for a first-hand read of how they present themselves. Audit the messaging or open the site directly.`}
               actions={
               <div className="flex flex-wrap items-center gap-2">
