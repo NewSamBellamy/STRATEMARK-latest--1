@@ -9,7 +9,8 @@
  *                                    lastVerifiedAt null, dated note   (demoted_stale)
  *   verified, sponsored only (D5) .. ESTIMATED                          (demoted_authority)
  *   estimated, stale ............... unchanged, labelled with its date (labelled_stale)
- *   shown as aged-out estimate ..... unchanged (set by company-facts)   (shown_aged_out)
+ *   shown as aged-out estimate ..... unchanged; named by the projection's `shownAgedOut`
+ *                                    set, never by reading the row's note   (shown_aged_out)
  *
  * Hunt-target and readiness decisions read the facts BEFORE this step, so hunt cost
  * is unchanged: demoted_stale counts as verified and shown_aged_out as not shown.
@@ -17,13 +18,17 @@
  */
 import { auditDeckConsistency, type Company, type CompanyMetric, type MetricType } from '@mi/contracts';
 import { implausibleScaleFigures } from './scale-plausibility';
-import { assessFigure, staleNote } from './source-assessment';
+import { assessFigure, staleNote, type PageDates } from './source-assessment';
 
 export interface AssessFactsInput {
   company: Pick<Company, 'id' | 'name' | 'websiteUrl'> & { ownership?: Company['ownership'] };
   /** Websites of roster rivals (competitor purpose). */
   rivalWebsites?: readonly string[];
   now: Date;
+  /** Saved pages' own publication dates (pageDatesOf): an upper bound that can only make a figure look OLDER. */
+  pageDates?: PageDates;
+  /** Types whose row is shown only as an aged-out estimate (set by the projection, never read from a row's text). */
+  shownAgedOut?: ReadonlySet<MetricType>;
 }
 
 /** Metric types of THIS company that the existing plausibility rules doubt (once per company). */
@@ -53,7 +58,7 @@ export function assessFacts(facts: readonly CompanyMetric[], input: AssessFactsI
     if (row.value == null || row.confidence === 'unknown' || row.confidence === 'user_verified') return row;
     const assessment = assessFigure(row, {
       now: input.now, companyWebsite: input.company.websiteUrl, ownership: input.company.ownership ?? null,
-      rivalHosts, plausibilityFlagged: flagged,
+      rivalHosts, plausibilityFlagged: flagged, pageDates: input.pageDates, shownAgedOut: input.shownAgedOut,
     });
     if (!assessment) return row;
     if (assessment.effect === 'demoted_stale' || assessment.effect === 'demoted_authority') {

@@ -12,16 +12,45 @@ import {
   isWireHost, WIRE_DATELINE, horizonMonths, METRIC_TYPE_LABELS,
   type CompanyMetric, type FigureAssessment, type MetricType, type Ownership, type PeriodKind, type PublisherTier, type PurposeKind,
 } from '@mi/contracts';
+import type { OriginalSourceReceipt } from './original-source';
 
 /** D5 (default ON): a verified figure resting only on sponsored or contributor content shows as estimated. */
 export const DEMOTE_SPONSORED_VERIFIED: boolean = true;
 /** D4 (default OFF): a verified figure resting only on an aggregator weak for that metric shows as estimated. */
 export const DEMOTE_WEAK_AGGREGATOR_VERIFIED: boolean = false;
 
-/** Marks a displayed copy that was outside the 366-day window and is shown as a dated estimate (company-facts.ts). */
+/**
+ * The dated note a displayed aged-out estimate carries (company-facts.ts). DISPLAY TEXT
+ * ONLY: nothing may decide anything by reading it. Whether a row is shown as an aged-out
+ * estimate travels structurally (`AssessContext.shownAgedOut`, then `effect: 'shown_aged_out'`).
+ */
 export const AGED_OUT_NOTE_PREFIX = 'Outside the 366-day verified window: ';
-export const isAgedOutRow = (metric: Pick<CompanyMetric, 'confidence' | 'methodNote'>): boolean =>
-  metric.confidence === 'estimated' && (metric.methodNote ?? '').startsWith(AGED_OUT_NOTE_PREFIX);
+
+/** Saved pages' own publication dates (YYYY-MM-DD), keyed by `pageUrlKey`. An UPPER BOUND only. */
+export type PageDates = Readonly<Record<string, string>>;
+
+/** A page URL as a lookup key: no #fragment, no trailing slash. */
+export const pageUrlKey = (url: string): string => url.trim().replace(/#.*$/, '').replace(/\/+$/, '');
+
+/**
+ * The publication dates the saved receipts (and source-check ledger rows) recorded, by page
+ * URL (requested and final). Where one page has several dates the earliest is kept: it is
+ * the tightest upper bound on the figure's age. A date is never turned into a figure date.
+ */
+export function pageDatesOf(
+  receipts: ReadonlyArray<Pick<OriginalSourceReceipt, 'requestedUrl' | 'finalUrl' | 'publishedAt'>>,
+  checks: ReadonlyArray<{ finalUrl: string | null; publishedAt?: string }> = [],
+): PageDates {
+  const dates: Record<string, string> = {};
+  const note = (url: string | null | undefined, date: string | undefined) => {
+    if (!url || !date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date))) return;
+    const key = pageUrlKey(url);
+    if (!dates[key] || date < dates[key]!) dates[key] = date;
+  };
+  for (const r of receipts) { note(r.requestedUrl, r.publishedAt); note(r.finalUrl, r.publishedAt); }
+  for (const c of checks) note(c.finalUrl, c.publishedAt);
+  return dates;
+}
 
 export interface AssessContext {
   now: Date;
@@ -31,8 +60,10 @@ export interface AssessContext {
   rivalHosts?: readonly string[];
   /** Metric types a plausibility check flagged for this company (absent = not checked). */
   plausibilityFlagged?: ReadonlySet<MetricType> | null;
-  /** The saved page's own publication date, when a reader recorded one (WP2: not recorded yet). */
-  pageDate?: string | null;
+  /** Saved pages' own publication dates by URL: only ever an upper bound (`notAfter`), never a figure date. */
+  pageDates?: PageDates | null;
+  /** Metric types whose displayed row is a dated estimate shown only because it is outside the 366-day window. */
+  shownAgedOut?: ReadonlySet<MetricType> | null;
 }
 
 /** Every statement text kept for the figure, used only to read wording (period, purpose, parent). */
@@ -175,7 +206,7 @@ export function assessFigure(metric: CompanyMetric, ctx: AssessContext): FigureA
   const primaryUrl = primary ? effectiveUrl(primary.url, primary.title) : '';
   const own = figureAsOf(metric);
   const urlBound = notAfterFromUrl(primaryUrl);
-  const pageBound = ctx.pageDate ?? null;
+  const pageBound = (primary && ctx.pageDates ? ctx.pageDates[pageUrlKey(primaryUrl)] ?? ctx.pageDates[pageUrlKey(primary.url)] : null) ?? null;
   const notAfter = [pageBound, urlBound].filter((d): d is string => !!d).sort()[0] ?? null;
   const notAfterSource = notAfter == null ? null : notAfter === pageBound ? 'page' : 'url';
   const currency = readCurrency({ metricType: metric.metricType, asOf: own.asOf, asOfSource: own.source, notAfter, notAfterSource, now: ctx.now });
@@ -228,7 +259,7 @@ export function assessFigure(metric: CompanyMetric, ctx: AssessContext): FigureA
 
   let effect: FigureAssessment['effect'] = 'none';
   if (!human) {
-    if (isAgedOutRow(metric)) effect = 'shown_aged_out';
+    if (metric.confidence === 'estimated' && ctx.shownAgedOut?.has(metric.metricType)) effect = 'shown_aged_out';
     else if (metric.confidence === 'verified' && currency.state === 'stale') effect = 'demoted_stale';
     else if (metric.confidence === 'verified' && ((DEMOTE_SPONSORED_VERIFIED && kind === 'sponsored_or_contributor') ||
       (DEMOTE_WEAK_AGGREGATOR_VERIFIED && tier === 4 && level === 'weak'))) effect = 'demoted_authority';

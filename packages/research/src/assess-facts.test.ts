@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CompanyMetric, FigureAssessment } from '@mi/contracts';
 import { assessFacts } from './assess-facts';
-import { AGED_OUT_NOTE_PREFIX, assessFigure } from './source-assessment';
+import { AGED_OUT_NOTE_PREFIX, assessFigure, pageDatesOf } from './source-assessment';
 
 const NOW = new Date('2026-10-20T12:00:00Z');
 const company = { id: 'cmp', name: 'Acme Inc.', websiteUrl: 'https://acme.com' };
@@ -81,9 +81,15 @@ describe('effects on read', () => {
     expect(row).toMatchObject({ confidence: 'estimated', value: 45, methodNote: est.methodNote });
     expect(row.assessment!.effect).toBe('labelled_stale');
   });
-  it('shown_aged_out: a row flagged by the display path is reported as such', () => {
-    const row = one(passage({ confidence: 'estimated', lastVerifiedAt: null, methodNote: `${AGED_OUT_NOTE_PREFIX}as of 2025-01-10.` }));
+  it('shown_aged_out: a row the projection names is reported as such', () => {
+    const row = one(passage({ confidence: 'estimated', lastVerifiedAt: null }), { shownAgedOut: new Set(['employees']) });
     expect(row.assessment!.effect).toBe('shown_aged_out');
+  });
+  it('shown_aged_out is structural: the dated note text alone decides nothing', () => {
+    const row = one(passage({ confidence: 'estimated', lastVerifiedAt: null, methodNote: `${AGED_OUT_NOTE_PREFIX}as of 2025-01-10.` }));
+    expect(row.assessment!.effect).not.toBe('shown_aged_out');
+    expect(one(passage({ confidence: 'estimated', lastVerifiedAt: null }), { shownAgedOut: new Set(['revenue']) }).assessment!.effect)
+      .not.toBe('shown_aged_out');
   });
   it('demoted_authority: a sponsored page cannot verify a figure', () => {
     const url = 'https://www.forbes.com/sites/brandvoice/2026/10/01/acme-grows';
@@ -113,6 +119,39 @@ describe('effects on read', () => {
     const later = assessFacts([passage()], { company, now: new Date('2028-10-20T12:00:00Z') })[0]!;
     expect(later.assessment!.currency.state).toBe('stale');
     expect(later.confidence).toBe('estimated');
+  });
+});
+
+describe('page publication dates feed the assessment as an upper bound only', () => {
+  const page = 'https://example.com/post';
+  const undated = () => ({ ...passage(), passageSupport: null, source: page, citations: [{ title: 'example.com', url: page }],
+    confidence: 'estimated', lastVerifiedAt: null } as CompanyMetric);
+  it('an undated figure on an old page becomes stale (it is at least that old)', () => {
+    const row = one(undated(), { pageDates: pageDatesOf([{ requestedUrl: page, publishedAt: '2024-03-01' }]) });
+    expect(row.assessment!.currency).toMatchObject({ asOf: null, notAfter: '2024-03-01', notAfterSource: 'page', state: 'stale' });
+    expect(row.assessment!.effect).toBe('labelled_stale');
+  });
+  it('without a page date it stays undated', () => {
+    expect(one(undated()).assessment!.currency).toMatchObject({ state: 'undated', notAfter: null });
+  });
+  it('a newer page date never freshens an old figure date', () => {
+    const old = passage({ asOf: '2025-01-10' });
+    const row = one(old, { pageDates: pageDatesOf([{ requestedUrl: old.passageSupport!.sourceUrl, publishedAt: '2026-10-15' }]) });
+    expect(row.assessment!.currency).toMatchObject({ asOf: '2025-01-10', state: 'stale' });
+  });
+  it('a figure dated after its own page was published is dated by the page', () => {
+    const row = one(passage({ asOf: '2026-10-01' }), { pageDates: pageDatesOf([{ requestedUrl: 'https://www.sec.gov/Archives/acme', publishedAt: '2024-03-01' }]) });
+    expect(row.assessment!.currency).toMatchObject({ asOf: '2024-03-01', state: 'stale' });
+    expect(row.assessment!.relevance.issues).toContain('figure_date_after_page_date');
+  });
+  it('is matched by the page the figure rests on, ignoring a fragment or trailing slash', () => {
+    const dates = pageDatesOf([{ requestedUrl: `${page}/`, finalUrl: `${page}#top`, publishedAt: '2024-03-01' }, { requestedUrl: 'https://other.com/x', publishedAt: '2020-01-01' }]);
+    expect(one(undated(), { pageDates: dates }).assessment!.currency.notAfter).toBe('2024-03-01');
+    expect(dates).toEqual({ [page]: '2024-03-01', 'https://other.com/x': '2020-01-01' });
+  });
+  it('keeps the earliest date when a page has several, and ignores malformed ones', () => {
+    expect(pageDatesOf([{ requestedUrl: page, publishedAt: '2025-05-05' }, { requestedUrl: page, publishedAt: '2024-03-01' }, { requestedUrl: 'https://a.com/b', publishedAt: 'soon' }],
+      [{ finalUrl: page, publishedAt: '2023-01-01' }])).toEqual({ [page]: '2023-01-01' });
   });
 });
 

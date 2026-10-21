@@ -138,7 +138,6 @@ import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvi
 import { searchEvidenceCorpus } from './retrieval';
 import { HUNT_STALE_FIGURES, companyDomainOf, figurePublisher } from './metric-assessment';
 import { resolveWrite } from './compare-observations';
-import { assessFacts } from './assess-facts';
 import { assessFigure, type AssessContext } from './source-assessment';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
@@ -240,7 +239,7 @@ import { dropQuestionOnlyFigures, routeChat } from './chat-route';
 import { answerFromMemory, answerGreeting, compareArchive, gatherChatMemory, keepFreshEvidence } from './chat-memory';
 import { savedCompanySummary } from './saved-profile';
 import { buildCompanyTopicReport } from './company-report';
-import { projectedCompanyFacts } from './displayed-facts';
+import { displayedCompanyFacts, projectedCompanyFacts, type DisplayedFactsInput } from './displayed-facts';
 import { companySourceTargets } from './source-policy';
 import { companyBriefingPrompt, renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
 import { canonicalTabMarkers, companyTabsBatchPrompt, companyTabsParts, companyTabsSections, headingCompanyKey, TAB_BATCH_SIZE } from './company-tabs-batch';
@@ -2762,10 +2761,8 @@ export class GeminiRepository implements MarketIntelRepository {
   async getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
     // Assessed afresh at read time with the injected clock, never from storage (assess-facts.ts);
     // an old verified or quoted figure shows as a dated estimate rather than vanishing.
-    const company = this.snap.companies.find((c) => c.id === companyId);
-    if (!company) return [];
-    const shown = applySourceChecks(companyId, await this.projectedFacts(companyId, true), this.snap.sourceChecks);
-    return assessFacts(shown, { company, rivalWebsites: this.rivalWebsites(companyId), now: this.clock() });
+    const input = await this.factsInput(companyId);
+    return input ? displayedCompanyFacts(input) : [];
   }
 
   /** Websites of the other companies in this company's market: a source on one of them is a competitor's. */
@@ -2829,10 +2826,16 @@ export class GeminiRepository implements MarketIntelRepository {
   }
 
   /** The facts as the evidence supports them, before source binding hides or relinks any. */
-  private async projectedFacts(companyId: string, showAgedOut = false): Promise<CompanyMetric[]> {
+  private async projectedFacts(companyId: string): Promise<CompanyMetric[]> {
+    const input = await this.factsInput(companyId);
+    return input ? projectedCompanyFacts(input) : [];
+  }
+
+  /** What the shared read-time composition (displayed-facts.ts) needs for one company; null when it is unknown. */
+  private async factsInput(companyId: string): Promise<DisplayedFactsInput | null> {
     await this.ready();
     const company = this.snap.companies.find(row => row.id === companyId);
-    if (!company) return [];
+    if (!company) return null;
     const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20, support: originalSupportReferences(this.snap.metrics, companyId) });
     // The repair pass re-projects the retained profile evidence with the same
     // roster guard hydration used: market-scoped rivals, never the whole snap.
@@ -2840,8 +2843,8 @@ export class GeminiRepository implements MarketIntelRepository {
     const otherCompanies = marketId === undefined ? undefined : this.snap.companies
       .filter((row) => row.id !== companyId && this.snap.companyMarket[row.id] === marketId)
       .map((row) => row.name);
-    // One composition shared with the completeness report (displayed-facts.ts).
-    return projectedCompanyFacts({ company, metrics: this.snap.metrics, attempts, evidence: this.snap.researchEvidence ?? [], otherCompanies, now: this.clock() }, { showAgedOut });
+    return { company, metrics: this.snap.metrics, attempts, evidence: this.snap.researchEvidence ?? [], otherCompanies,
+      sourceChecks: this.snap.sourceChecks, rivalWebsites: this.rivalWebsites(companyId), now: this.clock() };
   }
 
   /**
@@ -3574,6 +3577,7 @@ export class GeminiRepository implements MarketIntelRepository {
       const result = await researchDashboardWithSources(tab, { company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
         storedMetrics: await this.getCompanyFacts(companyId), client: this.client,
+        now: this.clock(), rivalWebsites: this.rivalWebsites(companyId),
         originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20, support: originalSupportReferences(this.snap.metrics, companyId) }) });
       return { companyId, tab, ...result, lastRefreshedAt: null };
     }
@@ -3693,6 +3697,7 @@ export class GeminiRepository implements MarketIntelRepository {
         company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
         storedMetrics: await this.getCompanyFacts(companyId),
+        now: this.clock(), rivalWebsites: this.rivalWebsites(companyId),
         client: boundedClient,
         signal: controller.signal,
         refreshOriginals: Boolean(force),

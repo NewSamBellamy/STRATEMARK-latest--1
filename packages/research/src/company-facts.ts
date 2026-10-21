@@ -1,5 +1,5 @@
 import { METRIC_TYPES, companyMetricSchema, currentMetricRevision, metricPassageSupportSchema,
-  validMetricVerificationValue, isSignalCardType, type CardWithCompany, type Company, type CompanyMetric } from '@mi/contracts';
+  validMetricVerificationValue, type Company, type CompanyMetric, type MetricType } from '@mi/contracts';
 import { inspectMetricPassage } from './metric-support';
 import { reportedBandCitations, reportedRowNote, reportedStoredCitations } from './reported-metrics';
 import { quotedStoredCitations } from './quoted-estimate';
@@ -39,6 +39,8 @@ export interface ProjectOptions {
    * hunts and readiness leave this off, so they see the unknown they always saw.
    */
   showAgedOut?: boolean;
+  /** Filled with the metric types that came out as aged-out estimates: the structured marker (the note is display text only). */
+  agedOut?: Set<MetricType>;
 }
 
 const WINDOW_MS = 366 * 86_400_000;
@@ -58,11 +60,6 @@ function agedOutRow(metric: CompanyMetric, citations: CompanyMetric['citations']
 
 const olderThanWindow = (asOf: string, nowMs: number): boolean => nowMs - Date.parse(`${asOf}T00:00:00.000Z`) > WINDOW_MS;
 
-export function projectCompanyCardFacts(card: CardWithCompany, attempts: unknown): CardWithCompany {
-  return { ...structuredClone(card), metrics: card.company && !isSignalCardType(card.card.cardType)
-    ? projectCompanyFacts(card.company, card.metrics, attempts) : [] };
-}
-
 /** Method note on a fact withheld because current observations disagree. Later
  * passes (saved-profile repair) must keep it unknown, never pick a side. */
 export const CONFLICTING_OBSERVATIONS_NOTE = 'Conflicting current observations; confirm before displaying a fact.';
@@ -71,7 +68,10 @@ export const CONFLICTING_OBSERVATIONS_NOTE = 'Conflicting current observations; 
 export function projectCompanyFactsFromOriginals(company: Company, observations: readonly CompanyMetric[], originals: readonly OriginalSourceReceipt[], options: ProjectOptions = {}): CompanyMetric[] {
   const nowMs = options.nowMs ?? Date.now();
   const valid = observations.flatMap(row => {
-    const parsed = companyMetricSchema.safeParse(row);
+    // An incoming assessment is never trusted (it is recomputed on read), and a malformed one must not cost the figure.
+    const { assessment: _discarded, ...stored } = row;
+    void _discarded;
+    const parsed = companyMetricSchema.safeParse(stored);
     return parsed.success && parsed.data.companyId === company.id ? [parsed.data] : [];
   });
   return METRIC_TYPES.flatMap(type => {
@@ -102,7 +102,7 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
       const fetchedAt = options.showAgedOut ? retrievedAtMs(originals, q.sourceUrl) : null;
       if (fetchedAt != null && olderThanWindow(q.asOf, nowMs)) {
         const aged = quotedStoredCitations(company.name, metric, originals, fetchedAt);
-        if (aged.length) return [{ ...agedOutRow(metric, aged, q.asOf), passageSupport: null }];
+        if (aged.length) { options.agedOut?.add(type); return [{ ...agedOutRow(metric, aged, q.asOf), passageSupport: null }]; }
       }
     }
     // A computation from retained sources (the market-cap quote lane) keeps its
@@ -130,7 +130,7 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
       const fetchedAt = retrievedAtMs(originals, proof.data.sourceUrl);
       const rerun = fetchedAt == null ? null : inspectMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl,
         metricType: type, value: metric.value, support: proof.data, originals, nowMs: fetchedAt });
-      if (rerun?.citations.length) return [agedOutRow(metric, rerun.citations, proof.data.asOf)];
+      if (rerun?.citations.length) { options.agedOut?.add(type); return [agedOutRow(metric, rerun.citations, proof.data.asOf)]; }
     }
     if (citations.length) return [{ ...structuredClone(metric), citations, source: citations[0]!.url,
       methodNote: citations[0]!.title.startsWith('Issuer-reported')

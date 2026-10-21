@@ -29,7 +29,7 @@ import type { LlmClient } from './types';
 import { companySourceTargets } from './source-policy';
 import { originalSupportReferences, type OriginalSourceAttempt, type OriginalSourceServices } from './original-source';
 import { researchCompanyOverview, type OverviewNarrative, type OverviewSeed } from './company-overview';
-import { projectCompanyFacts } from './company-facts';
+import { displayedCompanyFacts } from './displayed-facts';
 import { secQuarterlyRevenueSeries, secRevenueCik, secRevenueSeries } from './sec-revenue';
 import { secIssuerName } from './sec-identity';
 import { attachQuoteSources, groundGovernanceInNotes, groundHistoryInNotes } from './notes-gate';
@@ -44,6 +44,10 @@ export interface TabResearchArgs {
   company: Company;
   marketName: string;
   storedMetrics: CompanyMetric[];
+  /** The clock for figure ages on the metrics tab: callers inject theirs (the repository passes its own). */
+  now?: Date;
+  /** Websites of the market's other companies (a source on one reads as a competitor's). */
+  rivalWebsites?: readonly string[];
   client: LlmClient;
   signal?: AbortSignal;
   originalSources?: OriginalSourceServices;
@@ -266,14 +270,19 @@ export async function researchDashboardTab<T extends DashboardTab>(
       const attempts = args.originalSources
         ? await args.originalSources.list({ companyId: args.company.id, limit: 20,
           support: originalSupportReferences(args.storedMetrics, args.company.id) }) : args.originalAttempts;
-      const facts = projectCompanyFacts(args.company, args.storedMetrics, attempts);
+      // The same read-time composition every facts path uses (any assessment on a stored row is discarded
+      // and recomputed): a verified figure gone stale reads as an estimate and so is not charted as current.
+      const facts = displayedCompanyFacts({ company: args.company, metrics: args.storedMetrics, attempts: attempts ?? [], evidence: [],
+        now: args.now ?? new Date(), rivalWebsites: args.rivalWebsites });
       // A multi-year revenue series from the SAME retained SEC receipts the
       // verification uses - real history, never invented. Without one, the
       // content stays the honest single current point (no chart renders).
       const receipts = (attempts ?? []).flatMap((attempt) => attempt.receipts);
       // A listed company known by a name other than its registrant title reads
       // its series under the title only when the retained identity establishes it.
-      const secArr = facts.find((m) => m.metricType === 'arr' && m.passageSupport?.format === 'sec-companyconcept');
+      // (A figure shown only as an aged-out estimate was unknown here before, so it names no issuer.)
+      const secArr = facts.find((m) => m.metricType === 'arr' && m.passageSupport?.format === 'sec-companyconcept' &&
+        m.assessment?.effect !== 'shown_aged_out');
       const issuer = secIssuerName(args.company, receipts, secRevenueCik(secArr?.passageSupport?.sourceUrl ?? ''));
       const secSeries = secRevenueSeries(issuer, receipts);
       return metricsFromStored(facts, args.company.id, args.company.websiteUrl, secSeries ?? undefined,

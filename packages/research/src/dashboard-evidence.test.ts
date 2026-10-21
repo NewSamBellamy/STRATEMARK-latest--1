@@ -21,7 +21,7 @@ function setup() {
     board: [], fundingRounds: [{ round: 'Seed' }], products: [{ name: 'Atlas', status: 'live', sourceUrl: url,
       quote: 'Atlas is now available for company research.' }], roadmap: [], timeline: [], items: [] });
   const client = { ground, structure } as unknown as LlmClient;
-  const repo = () => new GeminiRepository({ apiKey: 'test', client, store,
+  const repo = (now?: Date) => new GeminiRepository({ apiKey: 'test', client, store, ...(now ? { now: () => now } : {}),
     // These cases exercise SEARCH lineage. Make the direct homepage explicitly
     // unreadable so the fallback must discover the actual report selected below.
     originalSourceReader: async sourceUrl => sourceUrl === 'https://example.com'
@@ -195,6 +195,25 @@ describe('current dashboard metric points', () => {
     expect(ground).not.toHaveBeenCalled();
     expect(structure).not.toHaveBeenCalled();
     expect(store.read()!.dashboards.cmp!.metrics!.content).toHaveProperty('revenue.0.value', 666);
+  });
+  it('reads the metrics chart through the read-time assessment with the injected clock', async () => {
+    const { store, repo } = setup();
+    const snapshot = store.read()!;
+    snapshot.metrics = [{ ...row, confidence: 'estimated', value: 200, asOf: '2024-01-01', capturedAt: '2026-10-01T00:00:00.000Z' } as CompanyMetric];
+    await store.write(snapshot);
+    // An estimate is never charted as a fact, whatever the clock says.
+    expect((await repo(new Date('2026-10-20T12:00:00Z')).getDashboardTab('cmp', 'metrics'))!.content.revenue).toEqual([]);
+    expect((await repo(new Date('2028-01-01T00:00:00Z')).getDashboardTab('cmp', 'metrics'))!.content.revenue).toEqual([]);
+  });
+  it('keeps a human-entered figure on the chart whatever the clock says (humans are never aged out)', async () => {
+    const { store, repo } = setup();
+    const snapshot = store.read()!;
+    snapshot.metrics = [{ ...row, confidence: 'user_verified', value: 100, capturedAt: '2026-10-01T00:00:00.000Z' }];
+    await store.write(snapshot);
+    const fresh = (await repo(new Date('2026-10-20T12:00:00Z')).getDashboardTab('cmp', 'metrics'))!.content.revenue;
+    const later = (await repo(new Date('2030-01-01T00:00:00Z')).getDashboardTab('cmp', 'metrics'))!.content.revenue;
+    expect(fresh).toEqual([{ period: 'Current', value: 100 }]);
+    expect(later).toEqual([{ period: 'Current', value: 100 }]);
   });
   it.each(['ambiguous', 'estimated', 'invalid', 'zero-users'])('does not plot a %s figure as an established fact', async kind => {
     const { store, repo } = setup();
