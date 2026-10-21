@@ -92,11 +92,13 @@ export function HistoryTab({ companyId }: { companyId: string }) {
         const years = groups.filter((g) => g.year !== null);
         const years0 = years.length ? `${years[years.length - 1]!.label}–${years[0]!.label}` : null;
         return (
-          <div className="space-y-5 cascade">
+          <div className="space-y-8 cascade">
             {c.video && <HistoryVideoHero video={c.video} companyName={name} />}
+            {/* Story + quotes share one 2:1 row; the timeline spans both below. */}
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             {/* The one-pager: the company's story, written to be read. */}
             {c.founderStory.trim().length > 0 && (
-              <section className="panel p-6" aria-label="Company story">
+              <section className="panel p-6 lg:col-start-1 lg:row-start-1" aria-label="Company story">
                 <SectionHeader
                   title="The story"
                   actions={
@@ -107,14 +109,13 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                     />
                   }
                 />
-                <div className="markdown max-w-3xl text-[15px] leading-relaxed text-content/90">
+                <div className="markdown text-[15px] leading-relaxed text-content/90">
                   <ResearchMarkdown text={c.founderStory} />
                 </div>
               </section>
             )}
 
-            <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
-              <section className="panel p-5" aria-label="Timeline">
+              <section className="panel p-5 lg:col-span-2 lg:row-start-2" aria-label="Timeline">
                 <SectionHeader
                   title="Timeline"
                   count={events.length > 0 ? `${events.length} event${events.length === 1 ? '' : 's'}${years0 && years.length > 1 ? ` · ${years0}` : ''}` : undefined}
@@ -289,7 +290,13 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                 )}
               </section>
 
-              <section className="panel h-fit p-5" aria-label="Notable quotes">
+              <section
+                className={cn(
+                  'panel p-5 lg:row-start-1',
+                  c.founderStory.trim().length > 0 ? 'lg:col-start-2' : 'lg:col-span-2',
+                )}
+                aria-label="Notable quotes"
+              >
                 <SectionHeader title="Notable quotes" count={c.quotes.length > 0 ? c.quotes.length : undefined} />
                 {c.quotes.length === 0 ? (
                   <EmptyNote compact title="No attributable quotes yet">
