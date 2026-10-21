@@ -15,7 +15,7 @@ export function BackgroundResearchControl() {
     {paused && <span className="text-[11px]">Background research paused across this app. {NOTE}</span>}
     <button type="button" aria-label={label} title={`${paused ? 'Background research is paused' : 'Background research is on'}. ${NOTE}`}
       className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-content"
-      aria-pressed={paused} onClick={() => setPaused(!paused)}>
+      onClick={() => setPaused(!paused)}>
       {paused ? <Play className="h-3.5 w-3.5" aria-hidden /> : <Pause className="h-3.5 w-3.5" aria-hidden />}
     </button>
     {storageError && <p role="alert" className="basis-full text-right text-[11px]">{storageError}</p>}
