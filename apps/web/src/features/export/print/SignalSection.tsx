@@ -14,6 +14,8 @@ const GROUPS: ReadonlyArray<{ kind: SignalKind; title: string }> = [
 export function SignalSection({ model }: { model: Pick<FullReportModel, 'signals'> }) {
   const printable = model.signals.filter((s) => s.printable && s.card);
   if (printable.length === 0) return null;
+  // The opener line travels with the first group that has anything to print, in the order the groups appear.
+  const firstKind = GROUPS.find(({ kind }) => printable.some((s) => s.kind === kind))!.kind;
   return (
     <Section
       id="sm-signals"
@@ -25,10 +27,10 @@ export function SignalSection({ model }: { model: Pick<FullReportModel, 'signals
         </div>
       )}
     >
-      {GROUPS.flatMap(({ kind, title }, g) => printable.filter((s) => s.kind === kind).map((e, i) => (
+      {GROUPS.flatMap(({ kind, title }) => printable.filter((s) => s.kind === kind).map((e, i) => (
         // The group title and the opener line travel inside the first card's row, so they can never be stranded alone on a page.
         <Row key={e.cardId} className="sm-signals-row">
-          {g === GROUPS.findIndex(({ kind: k }) => k === printable[0]!.kind) && i === 0 && (
+          {kind === firstKind && i === 0 && (
             <p className="sm-signals-line">What the evidence says about this market beyond the figures. Each finding names its sources; a finding without one is left out.</p>
           )}
           {i === 0 && <h3 className={`sm-signals-group sm-signals-group--${kind}`}>{title}</h3>}

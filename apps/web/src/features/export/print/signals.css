@@ -4,12 +4,15 @@
 .sm-signals-line { margin: 2.5mm 0 0; max-width: 130mm; color: var(--sm-muted); font-size: 10pt; }
 .sm-signals-title--run { font-size: 20pt; }
 .sm-signals-sec, .sm-methodspage, .sm-sources { break-before: page; page-break-before: always; }
-.sm-signals-head { padding-bottom: 4mm; border-bottom: 0.3mm solid var(--sm-hairline); margin-bottom: 2mm; break-after: avoid; }
+.sm-signals-head { padding-bottom: 2mm; border-bottom: 0.3mm solid var(--sm-hairline); margin-bottom: 0; break-after: avoid; }
+.sm-signals-sec .sm-run > thead > tr > th { padding-bottom: 3mm; }
 
-.sm-signals-group { margin: 6mm 0 3mm; font-size: var(--sm-fs-h2); font-family: var(--sm-font-display); font-weight: 700; break-after: avoid; page-break-after: avoid; }
+.sm-signals-group { margin: 3mm 0 3mm; font-size: var(--sm-fs-h2); font-family: var(--sm-font-display); font-weight: 700; break-after: avoid; page-break-after: avoid; }
 .sm-signals-row { break-inside: avoid; page-break-inside: avoid; }
 
-.sm-sigcard { --accent: var(--sm-ink); display: flex; gap: 8mm; align-items: flex-start; margin: 0 0 8mm; break-inside: avoid; page-break-inside: avoid; }
+.sm-sigcard { --accent: var(--sm-ink); display: flex; gap: 8mm; align-items: flex-start; margin: 0 0 4mm; break-inside: avoid; page-break-inside: avoid; }
+/* The last signal of the section carries no trailing margin (a margin that no longer fits spills an empty page). */
+.sm-signals-sec .sm-run > tbody > tr:last-child .sm-sigcard { margin-bottom: 0; }
 .sm-sigcard--risk { --accent: var(--sm-risk); }
 .sm-sigcard--barrier { --accent: var(--sm-barrier); }
 .sm-sigcard--culture { --accent: var(--sm-culture); }

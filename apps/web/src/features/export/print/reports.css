@@ -162,7 +162,8 @@
   .sm-print-doc .sm-r-turn--user .sm-r-who { color: var(--sm-teal); }
 
   /* Contents (long reports) */
-  .sm-print-doc .sm-r-toc { break-after: page; page-break-after: always; }
+  /* No forced break after the contents: a short list leaves the page for the first section to start on (sections that must open a page, in the deck short form, carry their own break-before). */
+  .sm-print-doc .sm-r-toc { margin: 0 0 10mm; }
   .sm-print-doc .sm-r-toc ol { list-style: none; margin: 0; padding: 0; }
   .sm-print-doc .sm-r-toc li a { display: flex; align-items: baseline; gap: 4mm; padding: 2.4mm 0; border-bottom: 1px solid var(--sm-hairline); }
   .sm-print-doc .sm-r-toc-n { width: 8mm; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--sm-teal); }

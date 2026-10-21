@@ -40,21 +40,23 @@ function ProfileBlocks({ c }: { c: FullReportCompany }) {
           </div>
         </Row>
       )}
-      {c.leaders.length > 0 && (
+      {(c.leaders.length > 0 || c.timeline.length > 0) && (
         <Row>
-          <div className="sm-block">
-            <h3 className="sm-h3">Leadership</h3>
-            <ul className="sm-cols">{c.leaders.map((l) => <li key={`${l.name}-${l.role}`}><strong>{l.name}</strong>, {l.role}</li>)}</ul>
-            <UnsourcedNote items={c.leaders} />
-          </div>
-        </Row>
-      )}
-      {c.timeline.length > 0 && (
-        <Row>
-          <div className="sm-block">
-            <h3 className="sm-h3">History</h3>
-            <ul className="sm-timeline">{c.timeline.map((e) => <li key={`${e.date}-${e.title}`}><span className="sm-when">{e.date}</span> {e.title}</li>)}</ul>
-            <UnsourcedNote items={c.timeline} />
+          <div className={c.leaders.length > 0 && c.timeline.length > 0 ? 'sm-pair' : undefined}>
+            {c.leaders.length > 0 && (
+              <div className="sm-block">
+                <h3 className="sm-h3">Leadership</h3>
+                <ul className="sm-cols">{c.leaders.map((l) => <li key={`${l.name}-${l.role}`}><strong>{l.name}</strong>, {l.role}</li>)}</ul>
+                <UnsourcedNote items={c.leaders} />
+              </div>
+            )}
+            {c.timeline.length > 0 && (
+              <div className="sm-block">
+                <h3 className="sm-h3">History</h3>
+                <ul className="sm-timeline">{c.timeline.map((e) => <li key={`${e.date}-${e.title}`}><span className="sm-when">{e.date}</span> {e.title}</li>)}</ul>
+                <UnsourcedNote items={c.timeline} />
+              </div>
+            )}
           </div>
         </Row>
       )}
@@ -170,8 +172,8 @@ export function CompanySpread({ company: c, index, section = '02' }: { company: 
           </div>
         </div>
       </Row>
-      <ProfileBlocks c={c} />
       <Row><FiguresTable c={c} /></Row>
+      <ProfileBlocks c={c} />
     </Section>
   );
 }
