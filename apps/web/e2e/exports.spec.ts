@@ -91,7 +91,7 @@ test('the PDF is the browser print of a report with contents and every company, 
   expect(printed.exporting).toBe(true); // the print stylesheet shows only the report while it prints
   expect(printed.text).toMatch(/Contents/);
   expect(printed.text).toMatch(/Anthropic/);
-  expect(printed.text).toMatch(/never guessed or filled in/);
+  expect(printed.text).toMatch(/Every figure carries its source\. Where a source could not be found it says Unknown\./);
   // A full report, not a table per company: the market at a glance, what each company is, and its figures.
   expect(printed.text).toMatch(/The market at a glance/);
   expect(printed.text).toMatch(/Overview/);
