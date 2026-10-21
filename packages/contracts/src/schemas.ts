@@ -132,40 +132,65 @@ export const citationSchema = z.object({
  * Additive and optional; stored on a metric as `assessment`. It never holds a
  * figure's value, only what the evidence behind it looks like.
  */
-export const CURRENCY_STATUSES = ['current', 'aging', 'stale', 'undated'] as const;
-export const SOURCE_AUTHORITY_TIERS = ['primary', 'strong', 'reference', 'aggregator', 'weak'] as const;
-export const SOURCE_PURPOSES = [
-  'regulatory_filing', 'company_press_release', 'company_site', 'sponsored', 'advocacy', 'independent_reporting', 'unknown',
+export const CURRENCY_STATES = ['current', 'aging', 'stale', 'undated'] as const;
+export const PERIOD_KINDS = ['fiscal_year', 'ttm', 'run_rate', 'quarter', 'point_in_time', 'event', 'unstated'] as const;
+export const ACCURACY_SUPPORTS = ['human', 'original_passage', 'page_quote', 'computed', 'page_confirmed', 'search_attributed', 'none'] as const;
+export const CORROBORATIONS = ['single', 'corroborated', 'contested', 'none'] as const;
+export const PURPOSE_KINDS = [
+  'regulatory_filing', 'company_reported', 'press_release', 'sponsored_or_contributor', 'competitor', 'advocacy',
+  'neutral_reporting', 'industry_data', 'community', 'unknown',
 ] as const;
-export const ASSESSMENT_GRADES = ['strong', 'adequate', 'weak'] as const;
-export const sourceAssessmentSchema = z.object({
+export const ASSESSMENT_EFFECTS = ['none', 'labelled_stale', 'demoted_stale', 'shown_aged_out', 'demoted_authority'] as const;
+export const ASSESSMENT_VERDICTS = ['human_checked', 'strong', 'fair', 'weak', 'no_figure'] as const;
+export const figureAssessmentSchema = z.object({
+  version: z.literal(1),
+  assessedAt: isoTimestamp,
   currency: z.object({
-    status: z.enum(CURRENCY_STATUSES),
-    /** Null exactly when status is 'undated'. */
-    ageMonths: z.number().nonnegative().nullable(),
-    horizonMonths: z.number().int().positive(),
-    /** Which date was used: the stated period (asOf) or the publication date. Never the capture time. */
-    basis: z.enum(['asOf', 'publishedDate', 'none']),
-    /** The date as stated (YYYY, YYYY-MM or YYYY-MM-DD), null when undated. */
-    date: z.string().nullable(),
+    /** The figure's OWN date (YYYY-MM-DD), never a capture or retrieval time; null when undated. */
+    asOf: z.string().nullable(),
+    asOfSource: z.enum(['figure', 'filing', 'none']),
+    /** Upper bound from the page's publication date: it can make a figure older, never newer. */
+    notAfter: z.string().nullable(),
+    notAfterSource: z.enum(['page', 'url']).nullable(),
+    ageDays: z.number().int().nonnegative().nullable(),
+    state: z.enum(CURRENCY_STATES),
+    freshDays: z.number().int().positive(),
+    staleDays: z.number().int().positive(),
+  }),
+  relevance: z.object({
+    definition: z.string().nullable(),
+    period: z.enum(PERIOD_KINDS),
+    issues: z.array(z.string().max(60)).max(8),
   }),
   authority: z.object({
-    tier: z.enum(SOURCE_AUTHORITY_TIERS),
-    reason: z.string().max(200),
+    tier: z.number().int().min(1).max(5).nullable(),
+    publisher: z.string().nullable(),
+    level: z.enum(['strong', 'acceptable', 'weak']).nullable(),
   }),
-  purpose: z.enum(SOURCE_PURPOSES),
-  independentSources: z.number().int().nonnegative(),
-  /** True when every cited source was issued by the company (or is sponsored). */
-  companyReportedOnly: z.boolean(),
-  grade: z.enum(ASSESSMENT_GRADES),
-  plainEnglish: z.array(z.string().max(200)).max(12),
-  assessedAt: isoTimestamp.optional(),
+  accuracy: z.object({
+    support: z.enum(ACCURACY_SUPPORTS),
+    independentSources: z.number().int().nonnegative(),
+    corroboration: z.enum(CORROBORATIONS),
+    plausibility: z.enum(['ok', 'flagged', 'unchecked']),
+    newerObservation: z.object({
+      value: z.number().nullable(),
+      asOf: z.string().nullable(),
+      publisher: z.string().nullable(),
+    }).nullable(),
+  }),
+  purpose: z.object({
+    kind: z.enum(PURPOSE_KINDS),
+    reportedBy: z.enum(['regulator', 'company', 'independent', 'unknown']),
+  }),
+  score: z.number().int().min(0).max(100).nullable(),
+  verdict: z.enum(ASSESSMENT_VERDICTS),
+  effect: z.enum(ASSESSMENT_EFFECTS),
+  summary: z.string().max(240),
 });
-export type SourceAssessment = z.infer<typeof sourceAssessmentSchema>;
-export type CurrencyStatus = (typeof CURRENCY_STATUSES)[number];
-export type SourceAuthorityTier = (typeof SOURCE_AUTHORITY_TIERS)[number];
-export type SourcePurpose = (typeof SOURCE_PURPOSES)[number];
-export type AssessmentGrade = (typeof ASSESSMENT_GRADES)[number];
+export type FigureAssessment = z.infer<typeof figureAssessmentSchema>;
+export type PeriodKind = (typeof PERIOD_KINDS)[number];
+export type PurposeKind = (typeof PURPOSE_KINDS)[number];
+export type AssessmentEffect = (typeof ASSESSMENT_EFFECTS)[number];
 
 /**
  * The year a company was founded, stored once with where it came from so the
@@ -337,12 +362,23 @@ export const companyMetricSchema = z.object({
   /** Last completed check, including inconclusive attempts; not evidence of support. */
   lastVerificationAttemptAt: isoTimestamp.nullish(),
   /**
-   * CRAAP read of the evidence behind this figure (research/source-assessment.ts),
-   * written when the figure is accepted and recomputed at read time from the
-   * stored citations, so rows written before it existed still get one. Never
-   * holds a value; absent = not assessed yet.
+   * Source check of this figure (research/assess-facts.ts). Computed on READ with
+   * an injected clock and never stored as truth: any `assessment` arriving from
+   * storage, a share or transport is discarded and recomputed. Never holds a value.
    */
-  assessment: sourceAssessmentSchema.nullish(),
+  assessment: figureAssessmentSchema.nullish(),
+  /**
+   * A newer figure that was NOT allowed to replace this one because it is less
+   * authoritative (latest-wins keeps the stronger row and records the newer one).
+   */
+  newerObservation: z
+    .object({
+      value: z.number().nullable(),
+      asOf: z.string().nullable(),
+      publisher: z.string().nullable(),
+      capturedAt: isoTimestamp,
+    })
+    .nullish(),
   /**
    * Figures this row replaced because a newer, at-least-as-authoritative one
    * arrived (newest first, bounded). Kept with their own date, never deleted.
@@ -379,6 +415,8 @@ export const companyMetricSchema = z.object({
             source: z.string().nullable(),
             capturedAt: isoTimestamp,
             passageSupport: metricPassageSupportSchema.nullish(),
+            asOf: z.string().nullish(),
+            publisher: z.string().nullish(),
           }),
         ),
         detectedAt: isoTimestamp,

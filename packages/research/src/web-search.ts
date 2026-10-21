@@ -308,8 +308,7 @@ export function huntSearchQueries(companyName: string, missing: readonly string[
   const name = `"${companyName.replace(/"/g, '').trim()}"`;
   const queries: HuntQuery[] = QUERY_FAMILIES
     .filter((family) => family.types.some((t) => missing.includes(t)))
-    // Latest period first: the current year and "latest" steer the engine to the newest reporting.
-    .map((family) => ({ query: `${name} ${family.terms} latest ${year}`, news: family.news }));
+    .map((family) => ({ query: `${name} ${family.terms}`, news: family.news }));
   if (options.financialFirm && !queries.some((q) => q.query.includes('assets under management'))) {
     queries.unshift({ query: `${name} assets under management Form ADV`, news: false });
   }
@@ -359,6 +358,27 @@ export interface WebSearchLane {
   discover(queries: ReadonlyArray<string | HuntQuery>, scope?: { companyName: string; officialWebsite?: string | null }): Promise<DiscoveryNotes>;
 }
 
+const RELATIVE_AGE = /^(\d+)\s*(minute|hour|day|week|month|year)s?\s+ago$/i;
+const RELATIVE_MS: Record<string, number> = { minute: 60_000, hour: 3_600_000, day: 86_400_000, week: 7 * 86_400_000, month: 30 * 86_400_000, year: 365 * 86_400_000 };
+
+/** A provider's `published` text as a time, or null when it states none we can read ("2 days ago" counts). Never a guess. */
+export function publishedAtMs(published: string | undefined, now: Date): number | null {
+  const text = (published ?? '').trim();
+  if (!text) return null;
+  const relative = RELATIVE_AGE.exec(text);
+  if (relative) return now.getTime() - Number(relative[1]) * RELATIVE_MS[relative[2]!.toLowerCase()]!;
+  const at = Date.parse(text);
+  // A date in the future is not a publication date.
+  return Number.isFinite(at) && at <= now.getTime() + 86_400_000 ? at : null;
+}
+
+/** Newest first, undated last; ties and undated rows keep their provider order. Ordering only: the date is not stored (owner decision D9). */
+export function orderByPublished<T extends { published?: string }>(rows: readonly T[], now: Date = new Date()): T[] {
+  return rows.map((row, index) => ({ row, index, at: publishedAtMs(row.published, now) }))
+    .sort((a, b) => (a.at === null) !== (b.at === null) ? (a.at === null ? 1 : -1) : (b.at ?? 0) - (a.at ?? 0) || a.index - b.index)
+    .map((entry) => entry.row);
+}
+
 /** Wrap a search function as a hunt discovery lane. A failing query is skipped
  * (the caller falls back when nothing at all comes back). */
 export function webSearchLane(search: WebSearchFn, sinceDays = HUNT_SEARCH_SINCE_DAYS): WebSearchLane {
@@ -376,7 +396,9 @@ export function webSearchLane(search: WebSearchFn, sinceDays = HUNT_SEARCH_SINCE
           merged.push(row);
         }
       }
-      const kept = scope ? relevantSearchResults(merged, scope.companyName, scope.officialWebsite) : merged;
+      // Latest first: the newest dated result leads, undated last.
+      const ordered = orderByPublished(merged);
+      const kept = scope ? relevantSearchResults(ordered, scope.companyName, scope.officialWebsite) : ordered;
       const notes = searxngNotes(queries.map((q) => q.query).join(' | '), kept.map((r) => ({ ...r,
         snippet: r.published ? `${r.snippet} [published ${r.published}]` : r.snippet })));
       return { ...notes, queries: queries.map((q) => q.query) };

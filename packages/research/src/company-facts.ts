@@ -3,6 +3,7 @@ import { METRIC_TYPES, companyMetricSchema, currentMetricRevision, metricPassage
 import { inspectMetricPassage } from './metric-support';
 import { reportedBandCitations, reportedRowNote, reportedStoredCitations } from './reported-metrics';
 import { quotedStoredCitations } from './quoted-estimate';
+import { AGED_OUT_NOTE_PREFIX } from './source-assessment';
 import { isOriginalSourceAttempt, originalSupportReferences, selectOriginalSourceAttempts, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceQuery } from './original-source';
 
 /** Read adapter for the existing retained cloud verification ledger. Synthetic
@@ -24,9 +25,38 @@ export function companyOriginalReceipts(companyId: string, attempts: unknown, su
 
 /** The public facts lane. Raw observations remain separate, never rewritten.
  * A citation or a retained model proposal alone cannot establish a figure. */
-export function projectCompanyFacts(company: Company, observations: readonly CompanyMetric[], attempts: unknown): CompanyMetric[] {
-  return projectCompanyFactsFromOriginals(company, observations, companyOriginalReceipts(company.id, attempts, originalSupportReferences(observations, company.id)));
+export function projectCompanyFacts(company: Company, observations: readonly CompanyMetric[], attempts: unknown, options: ProjectOptions = {}): CompanyMetric[] {
+  return projectCompanyFactsFromOriginals(company, observations, companyOriginalReceipts(company.id, attempts, originalSupportReferences(observations, company.id)), options);
 }
+
+export interface ProjectOptions {
+  /** The clock for the 366-day evidence window; defaults to the present. */
+  nowMs?: number;
+  /**
+   * Show a verified/quoted figure outside the 366-day window as a dated ESTIMATE
+   * (shown_aged_out) instead of dropping it to unknown, when its passage passes
+   * every other check re-run as of its own receipt's retrievedAt. Display only:
+   * hunts and readiness leave this off, so they see the unknown they always saw.
+   */
+  showAgedOut?: boolean;
+}
+
+const WINDOW_MS = 366 * 86_400_000;
+
+/** When the retained page behind a source URL was fetched (latest receipt), or null. */
+function retrievedAtMs(originals: readonly OriginalSourceReceipt[], url: string): number | null {
+  const times = originals.filter((o) => o.status === 'retrieved' && (o.finalUrl === url || o.requestedUrl === url))
+    .map((o) => Date.parse(o.retrievedAt)).filter(Number.isFinite);
+  return times.length ? Math.max(...times) : null;
+}
+
+/** An estimate shown with its date because its figure is older than the verified window. */
+function agedOutRow(metric: CompanyMetric, citations: CompanyMetric['citations'], asOf: string): CompanyMetric {
+  return { ...structuredClone(metric), confidence: 'estimated', citations, source: citations[0]?.url ?? metric.source, lastVerifiedAt: null,
+    methodNote: `${AGED_OUT_NOTE_PREFIX}as of ${asOf}, shown as a dated estimate. ${metric.methodNote ?? ''}`.trim() };
+}
+
+const olderThanWindow = (asOf: string, nowMs: number): boolean => nowMs - Date.parse(`${asOf}T00:00:00.000Z`) > WINDOW_MS;
 
 export function projectCompanyCardFacts(card: CardWithCompany, attempts: unknown): CardWithCompany {
   return { ...structuredClone(card), metrics: card.company && !isSignalCardType(card.card.cardType)
@@ -38,7 +68,8 @@ export function projectCompanyCardFacts(card: CardWithCompany, attempts: unknown
 export const CONFLICTING_OBSERVATIONS_NOTE = 'Conflicting current observations; confirm before displaying a fact.';
 
 /** For callers that have already scoped original receipts to this company. */
-export function projectCompanyFactsFromOriginals(company: Company, observations: readonly CompanyMetric[], originals: readonly OriginalSourceReceipt[]): CompanyMetric[] {
+export function projectCompanyFactsFromOriginals(company: Company, observations: readonly CompanyMetric[], originals: readonly OriginalSourceReceipt[], options: ProjectOptions = {}): CompanyMetric[] {
+  const nowMs = options.nowMs ?? Date.now();
   const valid = observations.flatMap(row => {
     const parsed = companyMetricSchema.safeParse(row);
     return parsed.success && parsed.data.companyId === company.id ? [parsed.data] : [];
@@ -64,8 +95,15 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
     // A figure quoted word for word from a fetched page: re-run the whole lane
     // (quote, company, value, date, hedging, and presence on the retained page).
     if (!current.ambiguous && bounded && metric.quotedSupport) {
-      const quoted = quotedStoredCitations(company.name, metric, originals);
+      const quoted = quotedStoredCitations(company.name, metric, originals, options.nowMs);
       if (quoted.length) return [{ ...structuredClone(metric), citations: quoted, source: quoted[0]!.url, passageSupport: null, lastVerifiedAt: null }];
+      // Outside the window: shown as a dated estimate only if the lane passes as of the page's own retrieval.
+      const q = metric.quotedSupport;
+      const fetchedAt = options.showAgedOut ? retrievedAtMs(originals, q.sourceUrl) : null;
+      if (fetchedAt != null && olderThanWindow(q.asOf, nowMs)) {
+        const aged = quotedStoredCitations(company.name, metric, originals, fetchedAt);
+        if (aged.length) return [{ ...agedOutRow(metric, aged, q.asOf), passageSupport: null }];
+      }
     }
     // A computation from retained sources (the market-cap quote lane) keeps its
     // own two named citations — both are retained originals; the row's
@@ -81,14 +119,19 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
     const proof = metricPassageSupportSchema.safeParse(metric.passageSupport);
     // Market share needs a defined market/denominator/period contract. A dated
     // percentage in a sentence is not that contract; automatic shares wait.
-    // An original-backed figure whose evidence did not earn `verified` (stale, company-only,
-    // weak: metric-assessment.ts) is stored `estimated` with its passage and is re-checked
-    // by the same gate, then shown at its stored label.
-    const cappedOriginal = metric.confidence === 'estimated' && metric.assessment != null;
-    const assessment = !current.ambiguous && bounded && (metric.confidence === 'verified' || cappedOriginal) && proof.success && type !== 'market_share' &&
+    const assessment = !current.ambiguous && bounded && metric.confidence === 'verified' && proof.success && type !== 'market_share' &&
       !(type === 'users' && metric.value === 0)
-      ? inspectMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl, metricType: type, value: metric.value, support: proof.data, originals }) : null;
+      ? inspectMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl, metricType: type, value: metric.value, support: proof.data, originals, nowMs: options.nowMs }) : null;
     const citations = assessment?.citations ?? [];
+    // Verified, but outside the 366-day window: a dated estimate if the passage passes every other check as of its
+    // own retrieval (never when it does not: that stays unknown, as before).
+    if (!citations.length && options.showAgedOut && !current.ambiguous && bounded && metric.confidence === 'verified' && proof.success &&
+      type !== 'market_share' && !(type === 'users' && metric.value === 0) && olderThanWindow(proof.data.asOf, nowMs)) {
+      const fetchedAt = retrievedAtMs(originals, proof.data.sourceUrl);
+      const rerun = fetchedAt == null ? null : inspectMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl,
+        metricType: type, value: metric.value, support: proof.data, originals, nowMs: fetchedAt });
+      if (rerun?.citations.length) return [agedOutRow(metric, rerun.citations, proof.data.asOf)];
+    }
     if (citations.length) return [{ ...structuredClone(metric), citations, source: citations[0]!.url,
       methodNote: citations[0]!.title.startsWith('Issuer-reported')
         ? `Issuer-reported figure; original passage checked, not independently corroborated. ${metric.methodNote ?? ''}`.trim()

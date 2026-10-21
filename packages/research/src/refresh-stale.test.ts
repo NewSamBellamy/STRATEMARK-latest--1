@@ -28,14 +28,22 @@ function deckOf(companies: Array<{ id: string; fresh: boolean }>): RepoSnapshot 
   } as unknown as RepoSnapshot;
 }
 
-function repoFor(snap: RepoSnapshot) {
+function repoFor(snap: RepoSnapshot, huntStaleFigures = true) {
   const client = { ground: vi.fn().mockRejectedValue(new Error('offline')), structure: vi.fn().mockRejectedValue(new Error('offline')) } as unknown as LlmClient;
-  const repo = new GeminiRepository({ apiKey: 'k', store: { read: () => snap, write: () => undefined }, client });
+  const repo = new GeminiRepository({ apiKey: 'k', store: { read: () => snap, write: () => undefined }, client, huntStaleFigures });
   const hunt = vi.spyOn(repo, 'huntCompanyMetrics').mockResolvedValue({ filledTypes: [], metrics: [], retieredCardIds: [] });
   return { repo, hunt };
 }
 
-describe('refreshDeck re-hunts stale or undated figures', () => {
+describe('refreshDeck with HUNT_STALE_FIGURES off (the default)', () => {
+  it('adds no hunt at all', async () => {
+    const { repo, hunt } = repoFor(deckOf([{ id: 'stale', fresh: false }]), false);
+    await repo.refreshDeck('mkt_1');
+    expect(hunt.mock.calls.filter(([, options]) => options?.refreshStale)).toEqual([]);
+  });
+});
+
+describe('refreshDeck re-hunts stale or undated figures (HUNT_STALE_FIGURES on)', () => {
   it('asks for a fresh look at a company whose figure is undated, and skips one whose figure is current', async () => {
     const { repo, hunt } = repoFor(deckOf([{ id: 'stale', fresh: false }, { id: 'fresh', fresh: true }]));
     await repo.refreshDeck('mkt_1');

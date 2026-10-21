@@ -132,19 +132,19 @@ describe('supplementary company original-evidence publication', () => {
     snapshot.originalSourceAttempts = [vi.mocked(originals.save).mock.calls[0]![0]];
     const store: ResearchStore = { read: () => structuredClone(snapshot), write: async value => { snapshot = structuredClone(value); } };
     const overviewClient: LlmClient = { ground: vi.fn(), structure: vi.fn(async (_prompt, schema) => schema.parse({ excerpts: [] })) as LlmClient['structure'] };
-    const repository = new GeminiRepository({ apiKey: 'test', store, client: overviewClient });
+    const repository = new GeminiRepository({ apiKey: 'test', store, client: overviewClient, now: () => new Date('2026-10-20T12:00:00Z') });
     const result = await repository.getCompanyFacts(card.company!.id);
     expect(result.find(row => row.metricType === 'employees')).toMatchObject({ value: 45,
       confidence: 'verified', passageSupport: { asOf: '2026-10-01' } });
     expect(result.find(row => row.metricType === 'arr')!.value).toBeNull();
-    const reopened = new GeminiRepository({ apiKey: 'test', store, client: overviewClient });
+    const reopened = new GeminiRepository({ apiKey: 'test', store, client: overviewClient, now: () => new Date('2026-10-20T12:00:00Z') });
     expect(await reopened.getCompanyFacts(card.company!.id)).toEqual(result);
     expect(overviewClient.ground).not.toHaveBeenCalled();
     expect(overviewClient.structure).not.toHaveBeenCalled();
     // Loss of backing evidence after a saved overview must not resurrect its
     // cached financial prose. Historical originals/notes are not overwritten.
     snapshot.originalSourceAttempts = [];
-    const withoutEvidence = new GeminiRepository({ apiKey: 'test', store, client: overviewClient });
+    const withoutEvidence = new GeminiRepository({ apiKey: 'test', store, client: overviewClient, now: () => new Date('2026-10-20T12:00:00Z') });
     expect((await withoutEvidence.getCompanyFacts(card.company!.id)).find(row => row.metricType === 'employees')!.value).toBeNull();
     expect(overviewClient.structure).not.toHaveBeenCalled();
   });

@@ -347,9 +347,7 @@ describe('huntCompanyMetrics — one pass fills every soft figure', () => {
     const metrics = await repo.getCompanyMetrics('cmp_1');
     const byType = (t: string) => metrics.find((m) => m.metricType === t)!;
     expect(byType('valuation').value).toBe(500_000_000_000);
-    // The pass states no period for the figure, so its currency is unknown: kept, labelled, never verified.
-    expect(byType('valuation').confidence).toBe('estimated');
-    expect(byType('valuation').methodNote).toContain('Not verified');
+    expect(byType('valuation').confidence).toBe('verified');
     expect(byType('valuation').citations.length).toBeGreaterThan(0);
     expect(byType('employees').value).toBe(3_500);
     // Hard rows were never in the hunt and were not overwritten by the noise:

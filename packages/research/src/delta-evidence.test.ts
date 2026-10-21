@@ -42,7 +42,7 @@ function repository(failOn: 'notes' | 'cards' | null = null, proof = true) {
     if (failOn === 'cards' && next.cards.length) throw new Error('Disk full');
     saved = structuredClone(next);
   });
-  const options = { apiKey: 'test-placeholder', client, originalSources: originals,
+  const options = { apiKey: 'test-placeholder', client, originalSources: originals, now: () => new Date('2026-10-20T12:00:00Z'),
     store: { read: () => structuredClone(saved), write } };
   return { client, originals, options, write, snapshot: () => structuredClone(saved), repo: new GeminiRepository(options) };
 }

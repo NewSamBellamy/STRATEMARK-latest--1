@@ -5,6 +5,7 @@ import type { LlmClient } from './types';
 import { projectCompanyFacts } from './company-facts';
 import { overviewFigures } from './company-overview';
 
+const NOW = new Date('2026-10-20T12:00:00Z');
 const url = 'https://sec.gov/Archives/acme';
 const quote = 'Acme reported 45 employees as of 2026-10-01.';
 const employee: CompanyMetric = { id: 'employees', companyId: 'cmp', metricType: 'employees', value: 45, confidence: 'verified',
@@ -22,7 +23,7 @@ function setup() {
     receipts: [{ requestedUrl: url, finalUrl: url, status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: quote, retrievedAt: employee.capturedAt }] }];
   const store: ResearchStore = { read: () => structuredClone(snapshot), write: async value => { snapshot = structuredClone(value); } };
   const client = { ground: vi.fn().mockResolvedValue({ text: 'Answer', citations: [], queries: [] }), structure: vi.fn() } as unknown as LlmClient;
-  const repo = new GeminiRepository({ apiKey: 'test', store, client });
+  const repo = new GeminiRepository({ apiKey: 'test', store, client, now: () => NOW });
   return { repo, store, client };
 }
 const assertFacts = (rows: CompanyMetric[]) => {
@@ -37,7 +38,7 @@ describe('one current company facts projection', () => {
       companyId: 'cmp', metricType: 'arr', capturedAt: `2026-10-03T00:00:${String(index).padStart(2, '0')}.000Z`,
       receipts: [{ requestedUrl: url, status: 'unavailable', retrievedAt: '2026-10-03T00:00:00.000Z' }] });
     await store.write(snapshot);
-    const reopened = new GeminiRepository({ apiKey: 'test', store, client });
+    const reopened = new GeminiRepository({ apiKey: 'test', store, client, now: () => NOW });
     expect(await reopened.getOriginalSourceEvidence({ companyId: 'cmp', limit: 20 })).toHaveLength(20);
     expect((await reopened.getCompanyFacts('cmp')).find(row => row.metricType === 'employees')).toMatchObject({ value: 45, confidence: 'verified' });
     expect((await reopened.getCard('card'))!.metrics.find(row => row.metricType === 'employees')!.value).toBe(45);
@@ -58,7 +59,7 @@ describe('one current company facts projection', () => {
     ];
     snapshot.originalSourceAttempts![0]!.receipts[0]!.text = `${annual} ${reach}`;
     await store.write(snapshot);
-    const reopened = new GeminiRepository({ apiKey: 'test', store, client });
+    const reopened = new GeminiRepository({ apiKey: 'test', store, client, now: () => NOW });
     const facts = await reopened.getCompanyFacts('cmp');
     expect(facts.map(row => row.value)).toEqual([40_000_000, 120]);
     expect((await reopened.getCard('card'))!.metrics).toEqual(facts);
@@ -93,7 +94,7 @@ describe('one current company facts projection', () => {
       receipt.text = snapshot.metrics[0]!.passageSupport!.quote;
     }
     await store.write(snapshot);
-    const reopened = new GeminiRepository({ apiKey: 'test', store, client });
+    const reopened = new GeminiRepository({ apiKey: 'test', store, client, now: () => NOW });
     const fact = (await reopened.getCompanyFacts('cmp')).find(row => row.metricType === 'employees')!;
     expect(fact).toMatchObject({ value: null, confidence: 'unknown' });
     expect(fact.methodNote).toContain(reason);
@@ -113,7 +114,7 @@ describe('one current company facts projection', () => {
     snapshot.originalSourceAttempts![0]!.receipts[0] = { ...snapshot.originalSourceAttempts![0]!.receipts[0]!,
       requestedUrl: issuerUrl, finalUrl: issuerUrl, text: arrQuote };
     await store.write(snapshot);
-    const reopened = new GeminiRepository({ apiKey: 'test', store, client });
+    const reopened = new GeminiRepository({ apiKey: 'test', store, client, now: () => NOW });
     expect((await reopened.getDashboardTab('cmp', 'metrics'))!.content.revenue).toEqual([{ period: 'Current', value: 40_000_000 }]);
     expect((await reopened.getCompanyMetrics('cmp'))[0]!.value).toBe(40_000_000);
     expect(client.ground).not.toHaveBeenCalled();
@@ -131,7 +132,7 @@ describe('one current company facts projection', () => {
     snapshot.originalSourceAttempts![0]!.receipts[0]!.finalUrl = issuerUrl;
     snapshot.dashboards.cmp = { overview: { content: { markdown: 'Legacy notes' }, lastRefreshedAt: employee.capturedAt } };
     await store.write(snapshot);
-    const reopened = new GeminiRepository({ apiKey: 'test', store, client });
+    const reopened = new GeminiRepository({ apiKey: 'test', store, client, now: () => NOW });
     assertFacts(await reopened.getCompanyFacts('cmp'));
     assertFacts((await reopened.listCards('deck'))[0]!.metrics);
     assertFacts((await reopened.getCard('card'))!.metrics);
@@ -202,7 +203,7 @@ describe('one current company facts projection', () => {
       snapshot.metrics.push({ ...employee, id: `h${i}`, companyId: `co${i}`, value: 10 + i, confidence: 'user_verified', passageSupport: null, citations: [] });
     }
     await store.write(snapshot);
-    const repo = new GeminiRepository({ apiKey: 'test', store, client });
+    const repo = new GeminiRepository({ apiKey: 'test', store, client, now: () => NOW });
     await repo.askResearch({ scope: { kind: 'deck', deckId: 'deck' }, question: 'Which company has the most employees?' });
     const prompt = String(vi.mocked(client.ground).mock.calls[0]![0]);
     expect(prompt).toContain('DECK FIGURES BY METRIC');
@@ -215,8 +216,40 @@ describe('one current company facts projection', () => {
     const snapshot = store.read()!;
     snapshot.originalSourceAttempts = [];
     await store.write(snapshot);
-    const reopened = new GeminiRepository({ apiKey: 'test', store, client });
+    const reopened = new GeminiRepository({ apiKey: 'test', store, client, now: () => NOW });
     expect((await reopened.getCompanyFacts('cmp')).find(row => row.metricType === 'employees')!.value).toBeNull();
     expect((await reopened.getCompanyMetrics('cmp')).find(row => row.metricType === 'employees')!.value).toBe(45);
+  });
+  describe('a figure older than the 366-day verified window', () => {
+    const later = Date.parse('2028-01-01T00:00:00Z');
+    const project = (options: { showAgedOut?: boolean }) => {
+      const snapshot = setup().store.read()!;
+      return projectCompanyFacts(snapshot.companies[0]!, [employee], snapshot.originalSourceAttempts, { nowMs: later, ...options })
+        .find(row => row.metricType === 'employees')!;
+    };
+    it('is not shown by the decision path, so hunt targets and call counts are unchanged', () => {
+      expect(project({})).toMatchObject({ value: null, confidence: 'unknown' });
+    });
+    it('is shown by the display path as a dated estimate, with its value and citation kept', () => {
+      const shown = project({ showAgedOut: true });
+      expect(shown).toMatchObject({ value: 45, confidence: 'estimated', lastVerifiedAt: null });
+      expect(shown.methodNote).toContain('Outside the 366-day verified window: ');
+      expect(shown.citations.map(c => c.url)).toEqual([url]);
+    });
+    it('stays verified inside the window', () => {
+      const snapshot = setup().store.read()!;
+      const row = projectCompanyFacts(snapshot.companies[0]!, [employee], snapshot.originalSourceAttempts, { nowMs: Date.parse('2026-10-20T12:00:00Z'), showAgedOut: true })
+        .find(r => r.metricType === 'employees')!;
+      expect(row).toMatchObject({ value: 45, confidence: 'verified' });
+    });
+    it('is served through getCompanyFacts as shown_aged_out and left alone in storage', async () => {
+      const { repo, store, client } = setup();
+      const aged = new GeminiRepository({ apiKey: 'test', store, client, now: () => new Date(later) });
+      const shown = (await aged.getCompanyFacts('cmp')).find(row => row.metricType === 'employees')!;
+      expect(shown).toMatchObject({ value: 45, confidence: 'estimated' });
+      expect(shown.assessment!.effect).toBe('shown_aged_out');
+      expect((await repo.getCompanyMetrics('cmp')).find(row => row.metricType === 'employees')).toMatchObject({ confidence: 'verified' });
+      expect(client.ground).not.toHaveBeenCalled();
+    });
   });
 });

@@ -124,10 +124,11 @@ import {
   distillThreadMemory,
   buildPromptContext,
 } from './semantic-memory';
-import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest, reachHuntRequest, FIGURE_DATE_RULE } from './prompts';
+import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest, reachHuntRequest, FIGURE_DATE_RULE, LATEST_PERIOD_RULE, heldFigureLines, type HeldFigureLine } from './prompts';
 import type { ResearchPassage } from '@mi/contracts';
 import { cardIdsForThread, cardMemory, isReadableThread, reportStamp, requestThreadIds } from './card-memory';
 import type { Ownership } from '@mi/contracts';
+import { figureAsOf } from '@mi/contracts';
 import { findOwnership, metricOwnershipEvidence, preferOwnership, receiptOwnershipEvidence } from './ownership';
 import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { CallMetricsAggregate, LlmClient, ProviderGrounding, ResearchCoverage, RunResearchOptions } from './types';
@@ -135,8 +136,10 @@ import { applyMilestone, usageSince, type DeckRun, type DeckRunMilestone } from 
 import type { ResearchNoteEntry, ReportedMetricSupport } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { searchEvidenceCorpus } from './retrieval';
-import { isFreshForMetric } from './capture-age';
-import { assessedForDisplay, companyDomainOf, resolveAgainstPrior, settleMetric as settleMetricEvidence, staleFigureTypes } from './metric-assessment';
+import { HUNT_STALE_FIGURES, companyDomainOf, figurePublisher } from './metric-assessment';
+import { resolveWrite } from './compare-observations';
+import { assessFacts } from './assess-facts';
+import { assessFigure, type AssessContext } from './source-assessment';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
 import { secAdvFirmCandidates, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
@@ -237,7 +240,7 @@ import { dropQuestionOnlyFigures, routeChat } from './chat-route';
 import { answerFromMemory, answerGreeting, compareArchive, gatherChatMemory, keepFreshEvidence } from './chat-memory';
 import { savedCompanySummary } from './saved-profile';
 import { buildCompanyTopicReport } from './company-report';
-import { assessedFacts, projectedCompanyFacts } from './displayed-facts';
+import { projectedCompanyFacts } from './displayed-facts';
 import { companySourceTargets } from './source-policy';
 import { companyBriefingPrompt, renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
 import { canonicalTabMarkers, companyTabsBatchPrompt, companyTabsParts, companyTabsSections, headingCompanyKey, TAB_BATCH_SIZE } from './company-tabs-batch';
@@ -520,6 +523,10 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   catalogMax?: number;
   catalogPasses?: number;
   originalSources?: OriginalSourceServices;
+  /** Tests only: overrides HUNT_STALE_FIGURES (owner decision D6, default off). */
+  huntStaleFigures?: boolean;
+  /** The clock for figure ages and the verified window. Tests inject a fixed one; production reads the system clock. */
+  now?: () => Date;
   /** Reader capability only; this repository owns acknowledged local retention. */
   originalSourceReader?: (url: string, scope?: OriginalSourceScope) => Promise<OriginalSourceReceipt>;
   /** Optional preflight so unsupported leads do not consume the reader's bounded page budget. */
@@ -675,6 +682,8 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly catalogMax?: number;
   private readonly catalogPasses?: number;
   private readonly originalSources?: OriginalSourceServices;
+  private readonly huntStaleFigures: boolean;
+  private readonly clock: () => Date;
   /** True when saved pages live in the workspace snapshot (browser); false when a separate page store holds them (desktop). */
   private readonly originalsInSnapshot: boolean = false;
   private readonly assetSourceReader?: (url: string) => Promise<OriginalSourceReceipt>;
@@ -773,6 +782,8 @@ export class GeminiRepository implements MarketIntelRepository {
     this.coverage = options.coverage;
     this.catalogMax = options.catalogMax;
     this.catalogPasses = options.catalogPasses;
+    this.huntStaleFigures = options.huntStaleFigures ?? HUNT_STALE_FIGURES;
+    this.clock = options.now ?? (() => new Date());
     this.originalSources = options.originalSources ? observeOriginalSources(options.originalSources, this.sourceLog) : undefined;
     const assetSourceReader = options.assetSourceReader ? observeRead(options.assetSourceReader, this.sourceLog) : undefined;
     this.assetSourceReader = assetSourceReader;
@@ -2446,8 +2457,9 @@ export class GeminiRepository implements MarketIntelRepository {
     //    companies, one at a time, one hunt each (a hunt is one grounded pass),
     //    once per refresh. A newer figure replaces the old only by the
     //    latest-wins rule; otherwise the old one stays, labelled.
+    //    OFF by default (HUNT_STALE_FIGURES, owner decision D6): it adds model calls.
     let looked = 0;
-    for (const companyId of deckCompanyIds) {
+    for (const companyId of this.huntStaleFigures ? deckCompanyIds : []) {
       if (looked >= REFRESH_STALE_MAX_COMPANIES) break;
       try {
         if (this.staleTypesOf(companyId).size === 0) continue;
@@ -2748,38 +2760,76 @@ export class GeminiRepository implements MarketIntelRepository {
     return Promise.resolve(structuredClone(this.snap.metrics.filter((m) => m.companyId === companyId)));
   }
   async getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
-    // A reported figure links to the page that states it, or is not shown.
-    const facts = applySourceChecks(companyId, await this.projectedFacts(companyId), this.snap.sourceChecks);
-    // Assessed afresh at read time (displayed-facts.ts), the same as the completeness report sees them.
-    return assessedFacts(facts, this.snap.companies.find((c) => c.id === companyId) ?? { websiteUrl: null });
+    // Assessed afresh at read time with the injected clock, never from storage (assess-facts.ts);
+    // an old verified or quoted figure shows as a dated estimate rather than vanishing.
+    const company = this.snap.companies.find((c) => c.id === companyId);
+    if (!company) return [];
+    const shown = applySourceChecks(companyId, await this.projectedFacts(companyId, true), this.snap.sourceChecks);
+    return assessFacts(shown, { company, rivalWebsites: this.rivalWebsites(companyId), now: this.clock() });
   }
 
-  /** Assess a figure that was just accepted and store the assessment; a `verified` label its evidence does not support becomes `estimated`. */
-  private settleAccepted(metric: CompanyMetric, asOfHint?: string | null, prior: CompanyMetric | null = null): boolean {
-    const company = this.snap.companies.find((c) => c.id === metric.companyId);
-    const now = new Date();
-    const domain = companyDomainOf(company?.websiteUrl);
-    settleMetricEvidence(metric, now, domain, asOfHint);
-    // Latest wins: a figure written over an existing one only stays when the
-    // evidence says it should (false = the old row was put back untouched).
-    return resolveAgainstPrior(metric, prior, now, domain);
+  /** Websites of the other companies in this company's market: a source on one of them is a competitor's. */
+  private rivalWebsites(companyId: string): string[] {
+    const marketId = this.snap.companyMarket[companyId];
+    if (marketId === undefined) return [];
+    return this.snap.companies
+      .filter((row) => row.id !== companyId && this.snap.companyMarket[row.id] === marketId && row.websiteUrl)
+      .map((row) => row.websiteUrl as string);
+  }
+
+  /** What the write-time comparison (latest wins) and the hunt prompts assess against. */
+  private assessContext(companyId: string): AssessContext {
+    const company = this.snap.companies.find((c) => c.id === companyId);
+    return { now: this.clock(), companyWebsite: company?.websiteUrl ?? null, ownership: company?.ownership ?? null, rivalHosts: this.rivalWebsites(companyId).flatMap((site) => companyDomainOf(site) ?? []) };
+  }
+
+  /**
+   * The facts before any currency effect: what hunt-target and readiness decisions read.
+   * A verified figure that has gone stale shows as estimated (demoted_stale) but is still
+   * verified here, and a figure shown only as an aged-out estimate is still absent here, so
+   * which figures get hunted (and how many model calls that costs) is unchanged by the
+   * assessment (PLAN-CRAAP 1.2).
+   */
+  private async acceptedFacts(companyId: string): Promise<CompanyMetric[]> {
+    // A reported figure links to the page that states it, or is not shown.
+    return applySourceChecks(companyId, await this.projectedFacts(companyId), this.snap.sourceChecks);
+  }
+
+  /**
+   * Latest wins (PLAN-CRAAP 1.3): a figure written over an existing one only stays when
+   * the evidence and date say it should (false = the old row was put back as it was; a
+   * newer-but-weaker figure is recorded beside it, never silently dropped). Nothing is
+   * assessed or stored here: the assessment is computed on read.
+   */
+  private settleAccepted(metric: CompanyMetric, prior: CompanyMetric | null = null): boolean {
+    return resolveWrite(metric, prior, this.assessContext(metric.companyId));
+  }
+
+  /** The figures already held for these types, as the hunt prompt's "we already hold X as of D (source)" input. Stored rows only. */
+  private heldFigures(companyId: string, types: readonly MetricType[]): HeldFigureLine[] {
+    const rows = this.snap.metrics.filter((m) => m.companyId === companyId);
+    return types.flatMap((t) => {
+      const revision = currentMetricRevision(rows, companyId, t);
+      const m = revision && !revision.ambiguous ? revision.metric : null;
+      if (!m || m.value == null || m.confidence === 'unknown') return [];
+      return [{ label: METRIC_TYPE_LABELS[t], value: m.value, asOf: figureAsOf(m).asOf, publisher: figurePublisher(m) }];
+    });
   }
 
   /** The metric types whose stored figure (current revision, assessed now) has stale or undated evidence. */
   private staleTypesOf(companyId: string): Set<MetricType> {
-    const company = this.snap.companies.find((c) => c.id === companyId);
-    const domain = companyDomainOf(company?.websiteUrl);
-    const now = new Date();
+    const ctx = this.assessContext(companyId);
     const rows = this.snap.metrics.filter((m) => m.companyId === companyId);
-    const current = METRIC_TYPES.flatMap((t) => {
+    return new Set(METRIC_TYPES.filter((t) => {
       const revision = currentMetricRevision(rows, companyId, t);
-      return revision && !revision.ambiguous ? [assessedForDisplay(revision.metric, now, domain)] : [];
-    });
-    return staleFigureTypes(current);
+      if (!revision || revision.ambiguous) return false;
+      const state = assessFigure(revision.metric, ctx)?.currency.state;
+      return state === 'stale' || state === 'undated';
+    }));
   }
 
   /** The facts as the evidence supports them, before source binding hides or relinks any. */
-  private async projectedFacts(companyId: string): Promise<CompanyMetric[]> {
+  private async projectedFacts(companyId: string, showAgedOut = false): Promise<CompanyMetric[]> {
     await this.ready();
     const company = this.snap.companies.find(row => row.id === companyId);
     if (!company) return [];
@@ -2791,7 +2841,7 @@ export class GeminiRepository implements MarketIntelRepository {
       .filter((row) => row.id !== companyId && this.snap.companyMarket[row.id] === marketId)
       .map((row) => row.name);
     // One composition shared with the completeness report (displayed-facts.ts).
-    return projectedCompanyFacts({ company, metrics: this.snap.metrics, attempts, evidence: this.snap.researchEvidence ?? [], otherCompanies });
+    return projectedCompanyFacts({ company, metrics: this.snap.metrics, attempts, evidence: this.snap.researchEvidence ?? [], otherCompanies, now: this.clock() }, { showAgedOut });
   }
 
   /**
@@ -3986,14 +4036,18 @@ export class GeminiRepository implements MarketIntelRepository {
     }
 
     const listed = targets.map((t) => {
-      const asOf = t.metric.passageSupport?.asOf ? `, reported as of ${t.metric.passageSupport.asOf}` : '';
+      // The stored figure's own date and publisher, so the model checks for something newer rather than anchoring on a bare value.
+      const stated = figureAsOf(t.metric).asOf;
+      const asOf = stated ? `, as of ${stated}` : ', no stated date';
+      const publisher = figurePublisher(t.metric);
       const captured = t.metric.capturedAt?.slice(0, 10) ?? 'unknown date';
-      return `- ${METRIC_TYPE_LABELS[t.metricType]}: currently stored as ${t.metric.value} (estimated; captured ${captured}${asOf})`;
+      return `- ${METRIC_TYPE_LABELS[t.metricType]}: currently stored as ${t.metric.value} (estimated; captured ${captured}${asOf}${publisher ? `, from ${publisher}` : ''})`;
     }).join('\n');
     const g = await this.client.ground(
       [
         `For each figure below, re-check whether it is still the best-supported current value for ${company.name}:`,
         listed,
+        LATEST_PERIOD_RULE,
         `Company: ${company.name} — ${company.oneLiner}`,
         `Use Google Search. For each figure state whether the stored value HOLDS, is CONTRADICTED by better current evidence (name the better figure), or cannot be re-confirmed. Prefer primary sources and recent reputable coverage; name the value, its as-of date, and the source. Never guess.`,
         `MEASUREMENT BASIS: every figure must describe the WHOLE legal company, never a division's figure presented as the company's.`,
@@ -4209,7 +4263,7 @@ export class GeminiRepository implements MarketIntelRepository {
             metric.source = observed.citations[0]?.url ?? metric.source;
             metric.methodNote = observed.methodNote;
             metric.capturedAt = nowIso;
-            if (!this.settleAccepted(metric, null, priorFigure)) continue;
+            if (!this.settleAccepted(metric, priorFigure)) continue;
             if (metric.confidence === 'verified') Object.assign(metric, markVerified(metric, nowIso));
             filled.push(type);
           }
@@ -4293,7 +4347,7 @@ export class GeminiRepository implements MarketIntelRepository {
               row.source = observed.citations[0]?.url ?? null;
               row.methodNote = `Annual revenue reported in SEC XBRL for ${observed.passageSupport.periodStart} to ${observed.passageSupport.asOf}; not ARR or an independent audit.`;
               row.capturedAt = nowIso;
-              if (this.settleAccepted(row, null, priorFigure)) {
+              if (this.settleAccepted(row, priorFigure)) {
                 if (row.confidence === 'verified') Object.assign(row, markVerified(row, nowIso));
                 filled.push('arr');
               }
@@ -4877,7 +4931,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const mine = () => this.snap.metrics.filter((m) => m.companyId === companyId);
     const revisions = new Map(METRIC_TYPES.map(t => [t, JSON.stringify(mine().filter(m => m.metricType === t))]));
     const acceptedAtStart = this.originalSources
-      ? new Map((await this.getCompanyFacts(companyId)).map(metric => [metric.metricType, metric])) : null;
+      ? new Map((await this.acceptedFacts(companyId)).map(metric => [metric.metricType, metric])) : null;
 
     // A figure is a hunt target when we have nothing, an unknown, or a soft
     // estimate. Verified figures re-check via decay; user figures are law.
@@ -4887,7 +4941,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const profile = classifyMarketProfile(company);
     const profileTypes = profileHuntTypes(profile);
     // The dashboard refresh also re-hunts figures whose evidence is stale or undated.
-    const staleTypes = options?.refreshStale ? this.staleTypesOf(companyId) : new Set<MetricType>();
+    const staleTypes = options?.refreshStale && this.huntStaleFigures ? this.staleTypesOf(companyId) : new Set<MetricType>();
     const softTypes: MetricType[] = profileTypes.filter((t) => {
       const current = currentMetricRevision(mine(), companyId, t);
       if (current?.ambiguous) return false;
@@ -5067,7 +5121,6 @@ export class GeminiRepository implements MarketIntelRepository {
           ...softTypes.map((t) => METRIC_TYPE_LABELS[t]),
           ...(profile === 'financial_firm' ? ['assets under management Form ADV'] : []),
           ...(escalation > 0 ? ['regulatory filing disclosure'] : []),
-          `latest ${new Date().getFullYear()}`,
         ].join(' '))
       : await this.client.ground(
       [
@@ -5082,7 +5135,8 @@ export class GeminiRepository implements MarketIntelRepository {
         ...(escalation > 0 && profile === 'financial_firm' ? ['For this firm, regulatory assets under management appear in SEC Form ADV filings (adviserinfo.sec.gov), fund disclosures and the firm\'s own publications; a press AUM figure is usable only when it names its as-of date.'] : []),
         ...(priorTargets.length ? ['Previously retrieved URLs are leads only. Check for the latest reporting period and actual disclosure:', ...priorTargets.map(source => source.url)] : []),
         `Company: ${company.name} — ${company.oneLiner}`,
-        `LATEST FIRST: look for the latest reporting period (${new Date().getFullYear()}, then the most recent fiscal year or quarter) before any older one. Report an older figure only when nothing newer exists, and say how old it is.`,
+        LATEST_PERIOD_RULE,
+        ...heldFigureLines(this.heldFigures(company.id, softTypes)),
         `Use Google Search. For each figure name the value, its as-of date, and the source. Prefer primary sources and recent reputable coverage. If no reliable current figure exists for a metric, say so plainly for that metric. Never guess.`,
         `MEASUREMENT BASIS: every figure must describe the WHOLE legal company — for a conglomerate, total company revenue/valuation/headcount, never a division's figure presented as the company's.`,
         `UNITS: Market Share in percent of its primary market (0-100); Users, Employees and Distribution (countries or doors) as plain counts; Valuation, Market Cap, ARR, Revenue, Funding and AUM (assets under management) in the currency the source reports (${CURRENCY_UNIT_LIST}).`,
@@ -5174,7 +5228,7 @@ export class GeminiRepository implements MarketIntelRepository {
     // A legacy label is not accepted evidence. Recheck the public projection
     // after retrieval so newly supported facts and human edits stay protected.
     const acceptedAtWrite = this.originalSources
-      ? new Map((await this.getCompanyFacts(companyId)).map(metric => [metric.metricType, metric])) : null;
+      ? new Map((await this.acceptedFacts(companyId)).map(metric => [metric.metricType, metric])) : null;
 
     // Protected routes require support for EACH figure. A reputable link in
     // the pass is not evidence for every proposed value. No-reader legacy
@@ -5193,11 +5247,10 @@ export class GeminiRepository implements MarketIntelRepository {
         let metric = current?.metric;
         // Recheck after provider work: a human correction or another completed
         // verification may have hardened this row while the hunt was in flight.
-        // A verified row whose evidence has gone stale or undated reads as
-        // estimated, so it may be replaced by a newer figure (resolveAgainstPrior
-        // decides); a still-supported verified row is left alone.
+        // A verified row that has gone stale still counts as verified here (it only reads as
+        // estimated on display), so the hunt writes exactly where it always did.
         if (metric?.confidence === 'user_verified' || (metric?.confidence === 'verified' &&
-          (acceptedAtWrite?.get(fig.metricType)?.confidence ?? assessedForDisplay(metric, new Date(), companyDomainOf(company.websiteUrl)).confidence) === 'verified')) continue;
+          (acceptedAtWrite === null || acceptedAtWrite.get(fig.metricType)?.confidence === 'verified'))) continue;
         if (!metric) {
           metric = {
             id: `met_hunt_${Date.now().toString(36)}_${fig.metricType}`,
@@ -5222,7 +5275,7 @@ export class GeminiRepository implements MarketIntelRepository {
           ? `Original reported ${fig.metricType} as of ${fig.passageSupport!.asOf}. ${currencyConversionNote(fig.value, fig.passageSupport?.unit)}`.trim()
           : fig.methodNote ?? 'Filled by a targeted metrics hunt.';
         metric.capturedAt = nowIso;
-        if (!this.settleAccepted(metric, null, priorFigure)) continue;
+        if (!this.settleAccepted(metric, priorFigure)) continue;
         if (metric.confidence === 'verified') Object.assign(metric, markVerified(metric, nowIso));
         filledTypes.push(fig.metricType);
       }
@@ -5408,16 +5461,12 @@ export class GeminiRepository implements MarketIntelRepository {
       .flatMap((row) => row.receipts.filter((r) => r.status === 'retrieved' && r.text));
     for (const row of rows) {
       if (row.value == null || row.confidence === 'unknown') continue;
-      // Saved research older than this metric's horizon is dated context, not a
-      // current basis: it fills no slot, so the gap stays and a fresh lookup runs.
-      if (!isFreshForMetric(evidence.capturedAt, row.metricType, new Date())) continue;
       // Tied conflicting rows stay untouched: recovery never resolves an
       // ambiguity the evidence itself created.
       const revision = currentMetricRevision(mine(), companyId, row.metricType);
       if (revision?.ambiguous) continue;
       const current = revision?.metric;
       let originalCitations: Citation[] = [];
-      let originalAsOf: string | null = null;
       if (row.reportedSupport) {
         for (const receipt of retainedOriginals) {
           for (const sentence of (receipt.text ?? '').split(/(?<=[.!?])\s+/)) {
@@ -5434,7 +5483,7 @@ export class GeminiRepository implements MarketIntelRepository {
               },
               originals: retainedOriginals,
             });
-            if (citations.length) { originalCitations = citations; originalAsOf = businessDates(sentence)[0] ?? null; break; }
+            if (citations.length) { originalCitations = citations; break; }
           }
           if (originalCitations.length) break;
         }
@@ -5452,7 +5501,6 @@ export class GeminiRepository implements MarketIntelRepository {
           ? `Verified against a retained original page recovered from saved research. ${currencyConversionNote(row.reportedSupport?.value ?? row.value, (row.passageSupport ?? row.reportedSupport)?.unit)}`.trim()
           : row.methodNote;
         current.capturedAt = nowIso;
-        this.settleAccepted(current, originalAsOf ?? row.reportedSupport?.asOf);
         if (current.confidence === 'verified') Object.assign(current, markVerified(current, nowIso));
       } else {
         const filled: CompanyMetric = { ...row, capturedAt: nowIso,
@@ -5465,7 +5513,6 @@ export class GeminiRepository implements MarketIntelRepository {
           filled.reportedSupport = null;
           filled.methodNote = `Verified against a retained original page recovered from saved research. ${conversion}`.trim();
         }
-        this.settleAccepted(filled, originalAsOf ?? row.reportedSupport?.asOf);
         if (filled.confidence === 'verified') Object.assign(filled, markVerified(filled, nowIso));
         this.snap.metrics.push(filled);
       }
@@ -5564,7 +5611,7 @@ export class GeminiRepository implements MarketIntelRepository {
       // Readiness reads the accepted facts projection — the same source the
       // card face renders — never the raw observation ledger.
       const before = computeCompanyCompleteness({ companyId, name: company.name,
-        metrics: await this.getCompanyFacts(companyId), profile });
+        metrics: await this.acceptedFacts(companyId), profile });
       if (before.gaps.length > 0) {
         // A failed rung degrades to the next instead of consuming the batch;
         // on this transport every lane exists, so degradation happens on throw.
@@ -5574,7 +5621,7 @@ export class GeminiRepository implements MarketIntelRepository {
         try { await this.huntCompanyMetrics(companyId); acted = true; } catch { /* gaps stay honest */ }
         if (acted) researched.push(companyId);
         const after = computeCompanyCompleteness({ companyId, name: company.name,
-          metrics: await this.getCompanyFacts(companyId), profile });
+          metrics: await this.acceptedFacts(companyId), profile });
         reports.push(after);
         stillMissing += after.gaps.length;
       } else {

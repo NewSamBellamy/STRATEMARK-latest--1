@@ -117,6 +117,8 @@ function receiveMetric(metric: CompanyMetric, company: Company | undefined): Com
     ...(claimed.reportedBand ? { reportedBand: boundedSupport(claimed.reportedBand) } : {}),
     ...(claimed.conflicts ? { conflicts: rowsOf(claimed.conflicts, ROW_LIMITS.conflicts).map((conflict) => ({ ...conflict, observations: rowsOf(conflict.observations, ROW_LIMITS.observations) })) as CompanyMetric['conflicts'] } : {}),
   };
+  // A Source check is computed here from the evidence, never read from a share: a forged one is dropped.
+  delete bounded.assessment;
   return enforceMetricProvenance(bounded, company?.websiteUrl, company?.ownership);
 }
 

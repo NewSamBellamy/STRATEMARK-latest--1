@@ -17,8 +17,8 @@
  * which on desktop lives outside the snapshot).
  */
 import type { Company, CompanyMetric } from '@mi/contracts';
+import { assessFacts } from './assess-facts';
 import { projectCompanyFacts } from './company-facts';
-import { assessedForDisplay, companyDomainOf } from './metric-assessment';
 import type { OriginalSourceAttempt } from './original-source';
 import type { ResearchEvidence } from './research-evidence';
 import { savedCompanyProfile } from './saved-profile';
@@ -34,25 +34,32 @@ export interface DisplayedFactsInput {
   /** The market roster, excluding this company: enables roster-guarded profile recovery. */
   otherCompanies?: readonly string[];
   sourceChecks?: SourceChecks;
-  /** The clock for figure ages; defaults to the present. */
-  now?: Date;
+  /** The clock for figure ages and the 366-day window: injected, never read here. */
+  now: Date;
+  /** Websites of the market's other companies: a source on one of them reads as a competitor's. */
+  rivalWebsites?: readonly string[];
 }
 
 /** Facts before source binding hides or relinks any (the repository's projectedFacts). */
-export function projectedCompanyFacts(input: Omit<DisplayedFactsInput, 'sourceChecks'>): CompanyMetric[] {
-  const current = projectCompanyFacts(input.company, [...input.metrics], [...input.attempts]);
-  return savedCompanyProfile(input.company, current, input.evidence, input.otherCompanies, input.now).metrics;
+export function projectedCompanyFacts(input: Omit<DisplayedFactsInput, 'sourceChecks'>, options: { showAgedOut?: boolean } = {}): CompanyMetric[] {
+  const current = projectCompanyFacts(input.company, [...input.metrics], [...input.attempts], { nowMs: input.now.getTime(), showAgedOut: options.showAgedOut });
+  return savedCompanyProfile(input.company, current, input.evidence, input.otherCompanies).metrics;
 }
 
-/** Facts exactly as getCompanyFacts serves them. */
+/**
+ * The accepted facts BEFORE any currency effect: what hunt-target and readiness
+ * decisions read, so hunt cost does not change (assess-facts.ts).
+ */
+export function acceptedCompanyFacts(input: DisplayedFactsInput): CompanyMetric[] {
+  return applySourceChecks(input.company.id, projectedCompanyFacts(input), input.sourceChecks);
+}
+
+/**
+ * Facts exactly as getCompanyFacts serves them: accepted facts (an old verified or
+ * quoted figure shows as a dated estimate instead of vanishing), then assessed afresh
+ * with the effects applied. Any assessment already on a row is discarded.
+ */
 export function displayedCompanyFacts(input: DisplayedFactsInput): CompanyMetric[] {
-  return assessedFacts(applySourceChecks(input.company.id, projectedCompanyFacts(input), input.sourceChecks), input.company, input.now);
-}
-
-/** Every shown figure assessed afresh from its stored citations (so rows saved before
- * assessments existed get one), with a `verified` label its evidence no longer supports
- * lowered. Values are never changed or dropped. */
-export function assessedFacts(facts: readonly CompanyMetric[], company: Pick<Company, 'websiteUrl'>, now: Date = new Date()): CompanyMetric[] {
-  const domain = companyDomainOf(company.websiteUrl);
-  return facts.map((fact) => assessedForDisplay(fact, now, domain));
+  const shown = applySourceChecks(input.company.id, projectedCompanyFacts(input, { showAgedOut: true }), input.sourceChecks);
+  return assessFacts(shown, { company: input.company, rivalWebsites: input.rivalWebsites, now: input.now });
 }

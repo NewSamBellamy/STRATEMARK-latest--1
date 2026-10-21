@@ -376,7 +376,7 @@ function scoreCompany(company: Company, cardTypes: CardType[], snap: Required<Pi
   const otherCompanies = marketId === undefined ? undefined : snap.companies
     .filter((row) => row.id !== company.id && snap.companyMarket[row.id] === marketId).map((row) => row.name);
   const facts = displayedCompanyFacts({ company, metrics: ctx.rows, attempts: ctx.attempts, evidence: snap.researchEvidence,
-    otherCompanies, sourceChecks: snap.sourceChecks });
+    otherCompanies, sourceChecks: snap.sourceChecks, now: new Date() });
   // The company as getCompany serves it: a saved profile may replace a placeholder one-liner.
   const shown = savedCompanySummary(company, snap.researchEvidence);
   const profile = classifyMarketProfile(shown);

@@ -7,6 +7,7 @@ import {
   isPlausibleSearchKey,
   parseSearchRelayRequest,
   parseSearchResponse,
+  publishedAtMs,
   relayWebSearch,
   relevantSearchResults,
   runProviderSearch,
@@ -130,31 +131,22 @@ describe('relayWebSearch', () => {
 describe('huntSearchQueries', () => {
   it('asks one focused query per missing family, at most three', () => {
     expect(huntSearchQueries('Ramp', ['arr', 'valuation'], { year: 2026 })).toEqual([
-      { query: '"Ramp" raises funding round valuation latest 2026', news: true },
-      { query: '"Ramp" revenue ARR million announced latest 2026', news: true },
+      { query: '"Ramp" raises funding round valuation', news: true },
+      { query: '"Ramp" revenue ARR million announced', news: true },
     ]);
     expect(huntSearchQueries('Ramp', ['arr', 'valuation', 'aum', 'employees'], { year: 2026 })).toHaveLength(3);
   });
 
-  it('asks for the latest period first: every family query carries "latest" and the year, with no extra queries', () => {
+  it('puts no year token or "latest" in any family query (a live measurement showed they pull in other companies and undated aggregators)', () => {
     const queries = huntSearchQueries('Ramp', ['arr', 'valuation', 'employees'], { year: 2026 });
-    expect(queries).toHaveLength(3);
-    for (const q of queries) expect(q.query).toMatch(/ latest 2026$/);
-    // The year defaults to the current one, so a stale hard-coded year cannot creep in.
-    expect(huntSearchQueries('Ramp', ['arr'])[0]!.query).toContain(`latest ${new Date().getFullYear()}`);
-  });
-
-  it('leaves the filing-oriented queries as they are', () => {
-    const queries = huntSearchQueries('Acme', ['employees'], { escalation: 1, financialFirm: true, year: 2026 });
-    expect(queries.map((q) => q.query)).toContain('"Acme" annual report filing disclosure');
-    expect(queries.map((q) => q.query)).toContain('"Acme" assets under management Form ADV');
+    for (const q of queries) expect(q.query).not.toMatch(/\b(19|20)\d{2}\b|latest/i);
   });
 
   it('leads with filings on escalation and Form ADV for financial firms', () => {
     expect(huntSearchQueries('Acme "Capital"', ['employees'], { escalation: 1, financialFirm: true, year: 2026 })).toEqual([
       { query: '"Acme Capital" annual report filing disclosure', news: false },
       { query: '"Acme Capital" assets under management Form ADV', news: false },
-      { query: '"Acme Capital" employees customers stores countries company says latest 2026', news: true },
+      { query: '"Acme Capital" employees customers stores countries company says', news: true },
     ]);
   });
 });
@@ -207,6 +199,27 @@ describe('webSearchLane', () => {
     expect(notes.queries).toEqual(['one', 'two', 'bad']);
     expect(notes.text).toContain('[published 2026-03-01]');
     expect(notes.grounding).toBeUndefined();
+  });
+
+  it('orders results newest first by published date, undated last, keeping provider order for ties', async () => {
+    const search = async () => [
+      { url: 'https://undated-1.com/', title: 'U1', snippet: '' },
+      { url: 'https://old.com/', title: 'Old', snippet: '', published: '2024-01-05' },
+      { url: 'https://new.com/', title: 'New', snippet: '', published: '2026-10-01' },
+      { url: 'https://undated-2.com/', title: 'U2', snippet: '' },
+      { url: 'https://recent.com/', title: 'Recent', snippet: '', published: '2026-10-15' },
+    ];
+    const notes = await webSearchLane(search).discover(['q']);
+    expect(notes.citations.map((c) => c.url)).toEqual([
+      'https://recent.com/', 'https://new.com/', 'https://old.com/', 'https://undated-1.com/', 'https://undated-2.com/']);
+  });
+
+  it('reads relative ages against an injected clock and never treats a future date as a publication date', () => {
+    const now = new Date('2026-10-20T12:00:00Z');
+    expect(publishedAtMs('2 days ago', now)).toBe(Date.parse('2026-10-18T12:00:00Z'));
+    expect(publishedAtMs('2027-05-01', now)).toBeNull();
+    expect(publishedAtMs('yesterday-ish', now)).toBeNull();
+    expect(publishedAtMs(undefined, now)).toBeNull();
   });
 
   it('says plainly when nothing came back', async () => {
