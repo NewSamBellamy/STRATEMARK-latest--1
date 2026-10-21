@@ -76,6 +76,20 @@ export interface FullReportCompany extends ReportCompany {
   card: CardWithCompany;
   /** Deck-wide note number for each of this company's own footnotes (index n-1 of `footnotes`). */
   deckNotes: number[];
+  /** Exactly the figure slots the card face shows, in the face's order (an unsourced slot is status 'unknown'). */
+  faceFigures: FaceFigure[];
+  /** How many of those slots carry a sourced figure: the numerator of the face's own "n/4 figures sourced". */
+  faceSourced: number;
+}
+
+/** One slot of the card face, as the report prints it. */
+export interface FaceFigure {
+  label: string;
+  status: 'sourced' | 'range' | 'unknown';
+  display: string | null;
+  asOf: string | null;
+  note: number | null;
+  confidence: 'verified' | 'estimated' | null;
 }
 
 export interface FullReportModel extends Omit<ReportModel, 'companies'> {
@@ -145,6 +159,8 @@ export interface OverviewEntry {
   asOf: string | null;
   /** Deck-wide note number of the figure's first source. */
   note: number | null;
+  /** How the figure prints: verified (or human-checked) in solid ink, estimated in italics. Null when unknown. */
+  confidence: 'verified' | 'estimated' | null;
 }
 
 export interface OverviewSeries {
@@ -257,6 +273,8 @@ function profileOf(card: CardWithCompany, tabs: StoredTabs, base: ReportCompany,
     role: view.type,
     card,
     deckNotes: [],
+    faceFigures: [],
+    faceSourced: 0,
   };
 }
 
@@ -395,20 +413,27 @@ export function buildFullReport(args: {
   const heldBack = entries.filter((e) => !e.printable).length;
 
   // -- Overview series: only what each card face prints ---------------------------------------------------------------
+  type Face = ReturnType<typeof buildCardView>['faceMetrics'][number];
+  const sourcedFace = (face: Face | undefined): Face | undefined => (face && face.metric && (face.metric.value != null || face.metric.reportedBand != null)
+    && (face.citations.length > 0 || face.metric.confidence === 'user_verified') ? face : undefined);
+  const figureOf = (face: Face | undefined): Omit<OverviewEntry, 'companyId' | 'name' | 'label' | 'value'> & { label: string | null; value: number | null } => {
+    if (!face || !face.metric) return { status: 'unknown', display: null, label: null, value: null, asOf: null, note: null, confidence: null };
+    const first = face.citations[0];
+    const value = face.metric.value != null && Number.isFinite(face.metric.value) ? face.metric.value : null;
+    return {
+      status: value != null ? 'sourced' : 'range', display: face.display, label: face.label, value, asOf: metricAsOf(face.metric),
+      note: first ? registry.find(source(first).url) : null,
+      confidence: face.metric.confidence === 'estimated' ? 'estimated' : 'verified',
+    };
+  };
+  const faceFiguresOf = (c: FullReportCompany): FaceFigure[] => buildCardView(c.card).faceMetrics.map((face) => {
+    const f = figureOf(sourcedFace(face));
+    return { label: face.label, status: f.status, display: f.display, asOf: f.asOf, note: f.note, confidence: f.confidence };
+  });
   const overview: OverviewSeries[] = FACE_SERIES.map(({ key, label }) => {
-    const series: OverviewEntry[] = profiles.map((c): OverviewEntry => {
-      const face = buildCardView(c.card).faceMetrics.find((m) => m.key === key && (m.metric?.value != null || m.metric?.reportedBand != null)
-        && (m.citations.length > 0 || m.metric?.confidence === 'user_verified'));
-      if (!face || !face.metric) {
-        return { companyId: c.id, name: c.name, status: 'unknown', display: null, label: null, value: null, asOf: null, note: null };
-      }
-      const first = face.citations[0];
-      const value = face.metric.value != null && Number.isFinite(face.metric.value) ? face.metric.value : null;
-      return {
-        companyId: c.id, name: c.name, status: value != null ? 'sourced' : 'range', display: face.display, label: face.label, value,
-        asOf: metricAsOf(face.metric), note: first ? registry.find(source(first).url) : null,
-      };
-    });
+    const series: OverviewEntry[] = profiles.map((c): OverviewEntry => ({
+      companyId: c.id, name: c.name, ...figureOf(sourcedFace(buildCardView(c.card).faceMetrics.find((m) => m.key === key))),
+    }));
     return {
       key, label, entries: series,
       unknown: series.filter((e) => e.status === 'unknown').map((e) => e.name),
@@ -430,7 +455,10 @@ export function buildFullReport(args: {
 
   return {
     ...base,
-    companies: profiles.map((c) => ({ ...c, deckNotes: faceNotes.get(c.id) ?? [] })),
+    companies: profiles.map((c) => {
+      const faceFigures = faceFiguresOf(c);
+      return { ...c, deckNotes: faceNotes.get(c.id) ?? [], faceFigures, faceSourced: faceFigures.filter((f) => f.status !== 'unknown').length };
+    }),
     barriers,
     insights,
     marketSignalCount: barriers.length + insights.length,

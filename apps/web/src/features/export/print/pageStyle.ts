@@ -54,8 +54,16 @@ export function printTitleOf(job: PrintJob): string {
   }
 }
 
-export function printPageCss({ locale, title }: { locale?: string | null; title: string }): string {
+/** Full page height and width per paper, for a cover that fills the sheet (see `bleedCover`). */
+const SHEET = { A4: { w: '210mm', h: '297mm' }, Letter: { w: '8.5in', h: '11in' } } as const;
+
+/**
+ * `bleedCover` makes the first page full-bleed (margin 0, no footer) and publishes the sheet size as
+ * --sm-page-w / --sm-page-h so the cover can fill it. Only the market report asks for it.
+ */
+export function printPageCss({ locale, title, bleedCover = false }: { locale?: string | null; title: string; bleedCover?: boolean }): string {
   const m = PAGE_MARGIN_MM;
+  const sheet = SHEET[paperFor(locale)];
   const left = `"Stratemark \\00b7  ${cssString(title.trim())}"`;
   const box = `font: ${FOOTER_FONT}; color: ${FOOTER_COLOUR};`;
   return [
@@ -63,6 +71,7 @@ export function printPageCss({ locale, title }: { locale?: string | null; title:
     ` @bottom-left { content: ${left}; ${box} }`,
     ` @bottom-right { content: "Page " counter(page) " of " counter(pages); ${box} }`,
     `}`,
-    `@page :first { @bottom-left { content: ""; } @bottom-right { content: ""; } }`,
+    `@page :first { ${bleedCover ? 'margin: 0; ' : ''}@bottom-left { content: ""; } @bottom-right { content: ""; } }`,
+    ...(bleedCover ? [`:root { --sm-page-w: ${sheet.w}; --sm-page-h: ${sheet.h}; }`] : []),
   ].join('\n');
 }
