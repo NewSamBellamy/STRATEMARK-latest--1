@@ -6,6 +6,8 @@
  * - `memory`: one ungrounded call over what the card already knows. Its citations come only from the stored passages it names.
  */
 import { usableCitations, type Citation } from '@mi/contracts';
+import { wordsOf } from './claim-support';
+import { CONTROVERSY } from './risk-claims';
 import { allowedFigures, dropUntraceableFigures, sanitizeSectionMarkdown } from './report-topics';
 
 export type ChatRoute = 'greeting' | 'fresh' | 'memory';
@@ -84,6 +86,43 @@ export function fitPassages(passages: readonly StoredPassage[], maxChars = MEMOR
   return { block: lines.join('\n\n'), used };
 }
 
+/** Least distinctive words a sentence needs before it is held to the passages; a shorter one is a connective or a heading. */
+const CLAIM_WORDS_MIN = 3;
+const SHARED_WITH_PASSAGES_MIN = 2;
+const SHARE_OF_SENTENCE_MIN = 0.5;
+const LIST_PREFIX = /^(\s*(?:[-*+]|\d+[.)])\s+)(.*)$/;
+
+/**
+ * Drops every sentence the named passages do not account for. The passage ids only say where the sources come from: without
+ * this check a sentence about something the passages never mention (a lawsuit, another company's news) would be shown with
+ * the named passages' sources beside it. A sentence that reads like a controversy needs a passage that does too.
+ */
+export function dropUnsupportedSentences(markdown: string, passageTexts: readonly string[]): { markdown: string; removed: number } {
+  const known = new Set(passageTexts.flatMap((t) => [...wordsOf(t)]));
+  const controversial = passageTexts.some((t) => CONTROVERSY.test(t));
+  let removed = 0;
+  const supported = (sentence: string): boolean => {
+    const words = [...wordsOf(sentence)];
+    if (words.length < CLAIM_WORDS_MIN) return true;
+    if (CONTROVERSY.test(sentence) && !controversial) return false;
+    const shared = words.filter((w) => known.has(w)).length;
+    return shared >= SHARED_WITH_PASSAGES_MIN && shared / words.length >= SHARE_OF_SENTENCE_MIN;
+  };
+  const out: string[] = [];
+  for (const raw of markdown.split(/\r?\n/)) {
+    if (!raw.trim() || /^\s*(?:#{1,6}\s|\||```)/.test(raw)) { out.push(raw); continue; }
+    const list = LIST_PREFIX.exec(raw);
+    const prefix = list ? list[1]! : '';
+    const kept = (list ? list[2]! : raw).split(/(?<=[.!?])\s+(?=[A-Z0-9"“(*_])/).filter((s) => {
+      const ok = supported(s);
+      if (!ok) removed += 1;
+      return ok;
+    });
+    if (kept.length) out.push(`${prefix}${kept.join(' ')}`);
+  }
+  return { markdown: out.join('\n'), removed };
+}
+
 export interface MemoryReply {
   answerable?: boolean;
   answer?: string;
@@ -114,13 +153,14 @@ export function resolveMemoryAnswer(reply: MemoryReply | null | undefined, passa
   const body = m ? reply.answer.slice(0, m.index) : reply.answer;
   const tail = m ? reply.answer.slice(m.index).trim() : '';
   const guarded = dropUntraceableFigures(sanitizeSectionMarkdown(body), allowed);
-  const text = guarded.markdown.trim();
+  const supported = dropUnsupportedSentences(guarded.markdown, named.map((p) => p.text));
+  const text = supported.markdown.trim();
   if (!text) return null;
   const followUps = tail && !/\d/.test(tail) ? sanitizeSectionMarkdown(tail) : '';
   return {
     text: followUps ? `${text}\n\n${followUps}` : text,
     citations: usableCitations(named.flatMap((p) => p.citations.slice(0, 6).map((c) => ({ ...c })))),
     passageIds: named.map((p) => p.id),
-    removed: guarded.removed,
+    removed: guarded.removed + supported.removed,
   };
 }
