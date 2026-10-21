@@ -265,8 +265,8 @@ function leadSentences(text: string, maxChars: number): string {
     out += s;
     if (out.length >= maxChars * 0.5) break;
   }
-  out = out.trim();
-  return out.length > maxChars ? `${out.slice(0, maxChars - 1).trimEnd()}…` : out;
+  // Prose is never cut mid-word: a first sentence longer than maxChars is shown whole.
+  return out.trim();
 }
 
 /**
