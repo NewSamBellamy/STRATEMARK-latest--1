@@ -58,6 +58,12 @@ describe('product evidence wording in the existing view', () => {
     fireEvent.click(screen.getByRole('button', { name: /Atlas/ }));
     expect(await screen.findByRole('link', { name: 'Official page' })).toHaveAttribute('href', 'https://acme.com/blog/atlas');
   });
+  it('product cards carry no illustration hero and no SOURCE label', () => {
+    state.products = [{ name: 'Atlas', status: 'live', description: 'Atlas is available.', revenueNote: '', url: null }];
+    const { container } = render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.queryByText(/^source$/i)).not.toBeInTheDocument();
+  });
   it('lists named relationships by kind with their reported sentence and source, and shows nothing when none are reported', () => {
     const { unmount } = render(<ProductsRoadmapTab companyId="cmp" />);
     expect(screen.queryByRole('region', { name: 'Customers, suppliers and partners' })).not.toBeInTheDocument();

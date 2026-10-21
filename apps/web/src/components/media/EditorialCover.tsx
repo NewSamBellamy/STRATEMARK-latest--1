@@ -34,9 +34,10 @@ export function EditorialCover({
   compact?: boolean;
   className?: string;
 }) {
-  const publisher = publisherOf(url, null);
-  const art = DEFAULT_CARD_ART[ART_KEYS[hashCode(publisher || title) % ART_KEYS.length]!]!;
   const hasRealUrl = /^https?:\/\//.test(url) && !/vertexaisearch|grounding-api-redirect/i.test(url);
+  // With no real page behind it this is an illustration, never a "source".
+  const publisher = /^https?:\/\//.test(url) ? publisherOf(url, null) : 'Illustration';
+  const art = DEFAULT_CARD_ART[ART_KEYS[hashCode(publisher || title) % ART_KEYS.length]!]!;
 
   return (
     <div className={cn('relative flex h-full w-full flex-col justify-end overflow-hidden bg-[#e9e4d3]', className)} aria-hidden>

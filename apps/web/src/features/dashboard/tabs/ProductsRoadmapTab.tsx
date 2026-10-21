@@ -4,7 +4,6 @@ import type { BusinessRelationship, Product, RoadmapItem } from '@mi/contracts';
 import { useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
-import { AiCover } from '@/components/media/AiCover';
 import { InsightReader } from '@/components/reader/InsightReader';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { cn } from '@/lib/cn';
@@ -189,17 +188,6 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                             onClick={() => setOpenProduct(p)}
                             title="Open this product — source disclosure and research"
                           >
-                            {/* The card art, in miniature — generated, never a CAPTCHA. */}
-                            <span className="block h-[110px] overflow-hidden border-b border-border">
-                              <AiCover
-                                cacheKey={`product:${name}:${p.name}`}
-                                title={`${name} — ${p.name}`}
-                                context={`Product card art. ${p.description} Depict the essence of using this product — the experience, the interface mood, the domain — as premium collectible-card artwork.`}
-                                url={p.url ?? ''}
-                                source="news"
-                                compact
-                              />
-                            </span>
                             <div className="flex flex-1 flex-col p-4">
                               <div className="flex items-start justify-between gap-2">
                                 {/* The card opens on a click anywhere; the name is the real button for keyboards and screen readers. */}
