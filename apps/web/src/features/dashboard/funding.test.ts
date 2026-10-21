@@ -29,6 +29,13 @@ describe('one funding structure', () => {
     expect(richer[0]!.amountUsd).toBe(40e6);
   });
 
+  it('a Pre-seed event does not take the facts of a Seed round', () => {
+    const gov = [{ round: 'Seed', amountUsd: 5e6, date: '2021', leadInvestors: ['Zeta Ventures'] }];
+    const rounds = unifyFunding(gov, [{ date: '2021 Jan', title: 'Fakeco raises Pre-seed', detail: '' }]);
+    expect(rounds).toHaveLength(2);
+    expect(rounds[1]).toMatchObject({ round: 'Pre-seed', amountUsd: null, leadInvestors: [] });
+  });
+
   it('non-funding events are not rounds', () => {
     expect(isFundingRoundEvent(timeline[2]!)).toBe(false);
   });
