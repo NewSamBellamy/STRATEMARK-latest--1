@@ -167,6 +167,22 @@ function TabView({ tab, companyId }: { tab: DashboardTab; companyId: string }) {
 }
 
 const VISIBLE_TAB_COUNT = 5;
+/** From this width every tab fits in the bar, so nothing is tucked under "More". */
+const WIDE_TAB_BAR_QUERY = '(min-width: 1280px)';
+
+function useWideTabBar(): boolean {
+  const read = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.(WIDE_TAB_BAR_QUERY).matches);
+  const [wide, setWide] = useState(read);
+  useEffect(() => {
+    const mq = window.matchMedia?.(WIDE_TAB_BAR_QUERY);
+    if (!mq) return;
+    const onChange = () => setWide(mq.matches);
+    onChange();
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
+  return wide;
+}
 
 /**
  * Tab order shown in the nav. Every figure and sentence carries its own source
@@ -238,7 +254,7 @@ function SectionMarker({ assembly, tab }: { assembly: Assembly; tab: DashboardTa
   return null;
 }
 
-function DashboardTabNav({
+export function DashboardTabNav({
   companyId,
   activeTab,
   fromMarketId,
@@ -267,8 +283,10 @@ function DashboardTabNav({
   // A shared copy offers only the tabs that travelled with it.
   const available = useAvailableTabs(companyId);
   const navTabs = available ? NAV_TABS.filter((t) => available.includes(t)) : NAV_TABS;
-  const visibleTabs = navTabs.slice(0, VISIBLE_TAB_COUNT);
-  const overflowTabs = navTabs.slice(VISIBLE_TAB_COUNT);
+  const wide = useWideTabBar();
+  const visibleCount = wide ? navTabs.length : VISIBLE_TAB_COUNT;
+  const visibleTabs = navTabs.slice(0, visibleCount);
+  const overflowTabs = navTabs.slice(visibleCount);
   const activeInOverflow = overflowTabs.includes(activeTab);
 
   const qs = fromMarketId ? `?${new URLSearchParams({ deck: fromMarketId, ...(fromCardId ? { card: fromCardId } : {}), ...(fromDeckView ? { view: fromDeckView } : {}) })}` : '';
@@ -308,7 +326,7 @@ function DashboardTabNav({
                 : 'border-transparent text-muted hover:text-content',
             )}
           >
-            More
+            {activeInOverflow ? `More · ${DASHBOARD_TAB_LABELS[activeTab]}` : 'More'}
             <ChevronDown className={cn('h-3 w-3 transition-transform', moreOpen && 'rotate-180')} />
           </button>
           {moreOpen && (
