@@ -81,6 +81,8 @@ import {
   type ProviderCapabilities,
   type RefreshCadence,
   type ResearchHandlers,
+  type CompanyLinkInput,
+  type LinkCandidate,
   type ResearchJob,
   type ResearchStage,
   type AskResearchInput,
@@ -114,9 +116,9 @@ import { businessDates, reportedAsOfNote, statedPeriodDate, storedDefinition } f
 import { enrichmentOutSchema } from './schemas';
 import { researchRosterSignals } from './roster-signals';
 import { normalizeClaimTitle, researchMarketSignals } from './signal-agents';
-import { AbortError, mapWithConcurrency, sleep, throwIfAborted, websiteUrlOf } from './util';
+import { AbortError, mapWithConcurrency, rootDomain, sleep, throwIfAborted, websiteUrlOf } from './util';
 import { classifyCompanyType, companyTypeFocus } from './company-type';
-import { IncrementalDeltaAgent } from './delta-agent';
+import { IncrementalDeltaAgent, buildEntityIdentityKeys, type DeltaDiscovery } from './delta-agent';
 import {
   shouldDistillThread,
   distillThreadMemory,
@@ -161,6 +163,7 @@ import { foundedFromHistory, foundedFromWebsite, foundedFromWikidata, wikidataFo
 import { findHistoryVideo, isStoredHistoryVideo } from './history-video';
 import { productKey, researchProductBrief } from './product-brief';
 import { researchSignalBrief as buildSignalBrief } from './signal-brief';
+import { readCompanyLink } from './link-reader';
 
 /** Silence threshold for the research-job stall watchdog: every active stage
  * persists per card and every provider call is deadline-bounded, so a job
@@ -6968,11 +6971,17 @@ ${references}`
       marketName: market.name, vertical: market.scopeDefinition.vertical,
       geography: market.scopeDefinition.geography, deckId: deck.id, deckUserValues,
     });
-    const found = await agent.discoverDelta({
-      focus, target: 4, signal,
-      exclude: existingCompanies.map((c) => ({ name: c.name, domain: c.websiteUrl })),
-      onEvent: (evt) => { if (evt.type === 'status') progress(evt.message); },
-    });
+    const exclude = existingCompanies.map((c) => ({ name: c.name, domain: c.websiteUrl }));
+    // One company the person named and confirmed: no discovery call, only the
+    // research below. A company already in the deck is never added twice.
+    const named = focus.company;
+    const namedName = named?.name.trim();
+    const found = named && namedName
+      ? this.namedDiscovery(market, namedName, named.domain ?? null, named.descriptor ?? '', exclude)
+      : await agent.discoverDelta({
+        focus, target: 4, signal, exclude,
+        onEvent: (evt) => { if (evt.type === 'status') progress(evt.message); },
+      });
     throwIfAborted(signal);
     if (found.candidates.length === 0) return { added: 0 };
 
@@ -7116,6 +7125,26 @@ ${references}`
     throwIfAborted(signal);
     if (finished === 0 && firstFailure) throw firstFailure;
     return { added: stubs.length };
+  }
+
+  /** The discovery result for one named company (no search): the same shape a hunt returns, empty when the deck already has it. */
+  private namedDiscovery(market: Market, name: string, domain: string | null, descriptor: string,
+    exclude: ReadonlyArray<{ name: string; domain?: string | null }>): DeltaDiscovery {
+    const keys = new Set(exclude.flatMap((e) => buildEntityIdentityKeys(e.name, e.domain)));
+    const root = rootDomain(domain);
+    const known = buildEntityIdentityKeys(name, root).some((key) => keys.has(key));
+    const candidate: CompanyCandidate = { name, domain: root, descriptor, primaryRole: 'company', cardTypes: ['company'] };
+    return {
+      plan: { marketName: market.name, vertical: market.scopeDefinition.vertical, geography: market.scopeDefinition.geography ?? null, notes: null, searchThemes: [] },
+      translated: { focusPrompt: `Add ${name}` } as DeltaDiscovery['translated'],
+      candidates: known ? [] : [candidate], rejected: [], citations: [],
+      discoveredCount: 1, deduplicatedCount: 0, excludedCount: known ? 1 : 0,
+    };
+  }
+
+  /** Read a pasted link into a candidate company (see link-reader.ts). Saves nothing. */
+  identifyCompanyFromLink(input: CompanyLinkInput, handlers?: ResearchHandlers): Promise<LinkCandidate> {
+    return readCompanyLink(input, { client: this.client, readPage: this.assetSourceReader, signal: handlers?.signal });
   }
 
   /** Fold one hydrated company into the placeholder card a hunt already showed.
