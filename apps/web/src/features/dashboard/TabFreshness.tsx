@@ -2,6 +2,8 @@ import { RefreshCw } from 'lucide-react';
 import type { DashboardTab } from '@mi/contracts';
 import { formatRelative } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { useCompanyMetrics } from '@/hooks/data';
+import { staleFigureCount } from './SourceCheck';
 import { useCachedDashboardTab } from './useCachedTab';
 
 /** Tabs that are one grounded research pass; the rest are projections or have their own refresh. */
@@ -23,15 +25,21 @@ export function TabFreshness({ companyId, tab, onRefresh, refreshing, disabled, 
   now?: number;
 }) {
   const refreshedAt = useCachedDashboardTab(companyId, tab).data?.lastRefreshedAt ?? null;
+  // The overview refresh is what re-hunts stored figures, so only it names how many are old.
+  const metrics = useCompanyMetrics(tab === 'overview' ? companyId : undefined).data;
   if (!REFRESHABLE_TABS.includes(tab) || !refreshedAt) return null;
   const age = now - new Date(refreshedAt).getTime();
   const old = Number.isFinite(age) && age > MONTH_MS;
+  const stale = tab === 'overview' && metrics ? staleFigureCount(metrics) : 0;
   return (
     <div className="mb-3 flex items-center justify-end gap-2 text-[11.5px] text-faint">
       <span title={new Date(refreshedAt).toLocaleString()}>
         Researched {formatRelative(refreshedAt, now)}
         {old && <span className="text-red-700 dark:text-negative"> · over a month old</span>}
       </span>
+      {stale > 0 && <span className="text-red-700 dark:text-negative">
+        · {stale} {stale === 1 ? 'figure' : 'figures'} older than usual
+      </span>}
       <button
         type="button"
         className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-primary-ink hover:bg-surface-2 disabled:opacity-50"
