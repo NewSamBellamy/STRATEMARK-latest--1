@@ -60,14 +60,25 @@ export function wikidataQidFromUrl(url: string): string | null {
 
 export function extractOrganizationJsonLd(html: string): OrganizationJsonLd | null {
   if (!html) return null;
-  const re = /<script\b[^>]*type\s*=\s*["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script>/gi;
   const nodes: Record<string, unknown>[] = [];
-  for (let m = re.exec(html); m; m = re.exec(html)) {
+  // A linear scan, not one lazy regex: a hostile page full of unterminated <script tags
+  // must not make the reader quadratic.
+  const starts = /<script/gi;
+  const ends = /<\/script/gi;
+  for (let m = starts.exec(html); m; m = starts.exec(html)) {
+    const at = m.index;
+    const open = html.slice(at, at + 2001).indexOf('>');
+    if (open < 0) continue;
+    if (!/type\s*=\s*["']?application\/ld\+json/i.test(html.slice(at, at + open))) continue;
+    ends.lastIndex = at + open;
+    const close = ends.exec(html);
+    if (!close) break;
     try {
-      collectNodes(JSON.parse(m[1]!.trim()), nodes);
+      collectNodes(JSON.parse(html.slice(at + open + 1, close.index).trim()), nodes);
     } catch {
       /* malformed block — skip */
     }
+    starts.lastIndex = close.index;
   }
   const orgs = nodes.filter((n) => typesOf(n).some((t) => ORG_TYPE.test(t)));
   if (!orgs.length) return null;

@@ -587,6 +587,39 @@ export interface ShareSnapshot {
 export interface ExpandFocus {
   tier?: MaturityTier;
   cardType?: CardType;
+  /** Add this one named company (confirmed by the person) instead of hunting for unknown ones. */
+  company?: { name: string; domain?: string | null; descriptor?: string | null };
+}
+
+/** What kind of link was pasted. */
+export type CapturedLinkKind = 'x_post' | 'x_profile' | 'website' | 'article';
+
+/** Where a candidate company's identity came from; always shown with the candidate. */
+export interface LinkCandidateSource {
+  /** The pasted link, or a public page found by search. */
+  url: string;
+  title: string | null;
+  how: 'link_address' | 'page' | 'pasted_text' | 'search';
+}
+
+/** A link read into a candidate company. Never a guess: `unidentified` says why, and the person types the name. */
+export type LinkCandidate =
+  | {
+      status: 'identified';
+      kind: CapturedLinkKind;
+      name: string;
+      websiteUrl: string | null;
+      /** One plain line from a source, or null. */
+      descriptor: string | null;
+      /** At least one. */
+      sources: LinkCandidateSource[];
+    }
+  | { status: 'unidentified'; kind: CapturedLinkKind | null; reason: string };
+
+export interface CompanyLinkInput {
+  url: string;
+  /** Text the person pasted with the link (a post's wording, an article's headline). */
+  text?: string;
 }
 
 /** A conflicting observation retained when repeated research disagrees. */
@@ -1007,6 +1040,12 @@ export interface MarketIntelRepository {
    * Spends research credits, so only on request. OPTIONAL — live-research engines.
    */
   researchProductBrief?(input: { companyId: string; productName: string; force?: boolean }): Promise<ProductBrief>;
+  /**
+   * Read a pasted link (an X post or profile, a company site, an article) into a
+   * CANDIDATE company with its source. Spends at most one lite structure call and
+   * one grounded search, and nothing is saved. OPTIONAL — live-research engines.
+   */
+  identifyCompanyFromLink?(input: CompanyLinkInput, handlers?: ResearchHandlers): Promise<LinkCandidate>;
   /**
    * The websites research touched most recently, newest last, after `sinceId`.
    * Reported as they happen; nothing here is a forecast. OPTIONAL — live-research engines.
