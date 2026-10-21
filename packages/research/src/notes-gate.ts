@@ -79,17 +79,39 @@ function titleInNotes(title: string, flatNotes: string): boolean {
  */
 export function groundHistoryInNotes(content: HistoryContent, notes: string): HistoryContent {
   const flatNotes = flatten(notes);
+  const amounts = amountMatches(notes);
   return {
     ...content,
     timeline: (content.timeline ?? []).filter((event) => {
       const year = /\b((?:19|20)\d{2})\b/.exec(event.date ?? '')?.[1];
       return year !== undefined && notes.includes(year) && titleInNotes(event.title, flatNotes);
+    }).map((event) => {
+      // Funding facts ride on the event only when the notes state them.
+      const { amountUsd, investors, ...rest } = event;
+      const amountOk = amountUsd != null && Number.isFinite(amountUsd) && amountUsd > 0 && amounts.some((m) => sameAmount(m.value, amountUsd));
+      const named_ = (investors ?? []).filter((who) => named(notes, who, 'organisation'));
+      return {
+        ...rest,
+        ...(amountOk ? { amountUsd } : {}),
+        ...(named_.length > 0 ? { investors: named_ } : {}),
+      };
     }),
     quotes: (content.quotes ?? []).filter((quote) => quotedInNotes(quote.text, flatNotes)),
   };
 }
 
-const hostLabel = (url: string): string => {
+/** A sourceUrl survives only when it is one of the citations the search returned; a guessed link is removed. */
+export function keepCitedSourceUrls<T extends { sourceUrl?: string }>(rows: readonly T[], catalog: ReadonlyArray<{ url: string }>): T[] {
+  const cited = new Set(catalog.map((c) => c.url.replace(/\/$/, '')));
+  return rows.map((row) => {
+    if (!row.sourceUrl) return row;
+    if (cited.has(row.sourceUrl.replace(/\/$/, ''))) return row;
+    const { sourceUrl: _drop, ...rest } = row;
+    return rest as T;
+  });
+}
+
+const hostLabel =(url: string): string => {
   try { return new URL(url).hostname.replace(/^www\./, '').split('.').slice(-2, -1)[0] ?? ''; } catch { return ''; }
 };
 
