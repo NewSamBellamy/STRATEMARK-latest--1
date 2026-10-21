@@ -78,10 +78,18 @@ describe('every surface renders Markdown through the safe component', () => {
 
   it('has no other importer of react-markdown', () => {
     const offenders = Object.entries(sources)
-      .filter(([path]) => !/\.test\.tsx?$/.test(path) && !path.endsWith('/components/ResearchMarkdown.tsx'))
+      .filter(([path]) => !/\.test\.tsx?$/.test(path) && !path.endsWith('/components/ResearchMarkdown.tsx') && !path.endsWith('/components/BoundedMarkdown.tsx'))
       .filter(([, text]) => /from\s+['"]react-markdown['"]/.test(text))
       .map(([path]) => path);
     expect(Object.keys(sources).length).toBeGreaterThan(100);
     expect(offenders).toEqual([]);
+  });
+
+  it('keeps the bounded renderer behind the safe component, so no surface can use it with its own links and images', () => {
+    const importers = Object.entries(sources)
+      .filter(([path]) => !/\.test\.tsx?$/.test(path) && !path.endsWith('/components/BoundedMarkdown.tsx'))
+      .filter(([, text]) => /from\s+['"]@\/components\/BoundedMarkdown['"]/.test(text))
+      .map(([path]) => path);
+    expect(importers).toEqual(['/src/components/ResearchMarkdown.tsx']);
   });
 });

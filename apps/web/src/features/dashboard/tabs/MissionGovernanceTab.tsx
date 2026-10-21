@@ -3,6 +3,7 @@ import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useCompany, useDashboardTab } from '@/hooks/data';
 import { siteUrl } from '@/lib/siteUrl';
 import { useRealCover } from '@/lib/media/realCover';
+import { imageReferrerPolicy } from '@/lib/hostedApi';
 import { FundingChart } from './FundingChart';
 import { formatUsdCompact, roundsNewestFirst } from '../snapshot';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
@@ -50,7 +51,7 @@ function IdentityCover({ url, name }: { url: string | null; name: string }) {
         src={real.src}
         alt={`${name} — image published by the company's site`}
         loading="lazy"
-        referrerPolicy="no-referrer"
+        referrerPolicy={imageReferrerPolicy(real.src)}
         onError={() => setBroken(true)}
         className="h-full w-full object-cover"
       />
