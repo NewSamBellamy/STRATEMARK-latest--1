@@ -1,19 +1,29 @@
 import { Radio } from 'lucide-react';
 import { formatRelative } from '@/lib/format';
+import { isLiveFresh } from './tabs/tabHelpers';
 
 /**
  * Marks a tab whose data is refreshed live by the research pipeline (spec §8/§9).
  * In the front-end phase this documents the integration point; the cadence/last-
  * refreshed wiring is already in place via the repository.
  */
-export function LiveBadge({ lastRefreshedAt }: { lastRefreshedAt?: string | null }) {
+export function LiveBadge({ lastRefreshedAt, now = Date.now() }: { lastRefreshedAt?: string | null; now?: number }) {
+  // Older than a week is not "live": say when it was last checked, in a muted chip.
+  const stale = !!lastRefreshedAt && !isLiveFresh(lastRefreshedAt, now);
+  const validDate = !!lastRefreshedAt && !Number.isNaN(Date.parse(lastRefreshedAt));
   return (
     <span
-      className="chip border-primary/40 bg-primary/10 text-primary-ink"
-      title="Refreshed by the live research pipeline."
+      className={stale ? 'chip border-border bg-surface-2 text-muted' : 'chip border-primary/40 bg-primary/10 text-primary-ink'}
+      title={stale && validDate ? new Date(lastRefreshedAt ?? '').toLocaleString() : stale ? undefined : 'Refreshed by the live research pipeline.'}
     >
       <Radio className="h-3.5 w-3.5" />
-      {lastRefreshedAt ? `Live · updated ${formatRelative(lastRefreshedAt)}` : 'Live'}
+      {!lastRefreshedAt
+        ? 'Live'
+        : stale
+          ? validDate
+            ? `Last checked ${new Date(lastRefreshedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+            : 'Last checked'
+          : `Live · updated ${formatRelative(lastRefreshedAt, now)}`}
     </span>
   );
 }

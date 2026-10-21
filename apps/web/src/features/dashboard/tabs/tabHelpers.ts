@@ -126,7 +126,27 @@ export interface YearGroup<T> {
   items: T[];
 }
 
-/** Group by year, newest year first, undated last; item order within a year is kept. */
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/**
+ * Sort key inside a year: month (1-12) when the date names one, a quarter's
+ * last month for "Q3 2021", else 0 (year only, sorts after dated months).
+ * Only what the date text itself says; nothing is guessed.
+ */
+function eventMonth(date: string): number {
+  const iso = /\b(?:1[5-9]|20|21)\d{2}-(\d{1,2})\b/.exec(date);
+  if (iso) return Number(iso[1]);
+  const named = new RegExp(`\\b(${MONTHS.join('|')})[a-z]*\\b`, 'i').exec(date);
+  if (named) return MONTHS.indexOf(named[1]!.toLowerCase()) + 1;
+  const q = /\bQ([1-4])\b/i.exec(date);
+  return q ? Number(q[1]) * 3 : 0;
+}
+
+/**
+ * Group by year, newest year first, undated last. Within a year events are
+ * newest first by the month their date names; same-month or month-less events
+ * keep research order.
+ */
 export function groupByYear<T extends { date: string }>(items: T[]): YearGroup<T>[] {
   const map = new Map<number | null, T[]>();
   for (const it of items) {
@@ -137,7 +157,46 @@ export function groupByYear<T extends { date: string }>(items: T[]): YearGroup<T
   }
   return [...map.entries()]
     .sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : b - a))
-    .map(([year, list]) => ({ year, label: year === null ? 'Undated' : String(year), items: list }));
+    .map(([year, list]) => ({
+      year,
+      label: year === null ? 'Undated' : String(year),
+      // Array.sort is stable, so equal months keep research order.
+      items: year === null ? list : [...list].sort((a, b) => eventMonth(b.date) - eventMonth(a.date)),
+    }));
+}
+
+/**
+ * True when a quote's attribution names the organisation (the company itself
+ * or a generic "Mission Statement"), not a person: those get the company logo,
+ * never a person-initials avatar.
+ */
+export function isOrgAttribution(attribution: string, companyName: string): boolean {
+  const lead = (attribution.split(/[,(—–]/)[0] ?? '').trim().toLowerCase();
+  if (!lead) return false;
+  const company = companyName.trim().toLowerCase();
+  if (company && company !== 'this company' && lead.includes(company)) return true;
+  return /^(mission|vision|values?|company|official|about|our)\b|\b(mission|vision) statement\b|\bmanifesto\b|\bcharter\b/.test(lead);
+}
+
+// ── Live intel ──────────────────────────────────────────────────────────────
+
+const LIVE_FRESH_MS = 7 * 86_400_000;
+
+/** Data counts as "live" only within 7 days of its last refresh; older reads "Last checked". */
+export function isLiveFresh(lastRefreshedAt: string | null | undefined, now = Date.now()): boolean {
+  if (!lastRefreshedAt) return false;
+  const t = Date.parse(lastRefreshedAt);
+  return !Number.isNaN(t) && now - t <= LIVE_FRESH_MS;
+}
+
+/** "15 stories, dates not reported" / "9 stories · 4 without a reported date" / "3 stories". */
+export function storyCountText(items: { publishedDate?: string | null }[]): string {
+  const n = items.length;
+  const noun = n === 1 ? 'story' : 'stories';
+  const undated = items.filter((i) => recencyBucket(i.publishedDate) === 'undated').length;
+  if (n > 0 && undated === n) return `${n} ${noun}, dates not reported`;
+  if (undated > 0) return `${n} ${noun} · ${undated} without a reported date`;
+  return `${n} ${noun}`;
 }
 
 // ── Sources ─────────────────────────────────────────────────────────────────
