@@ -7,7 +7,8 @@
  * loaded straight from a publisher's host.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import { makeRepo, renderWithProviders } from '@/test/test-utils';
 import type * as RealCoverModule from '@/lib/media/realCover';
 
 // The build is configured with a Worker address before any module reads it.
@@ -22,6 +23,7 @@ vi.mock('@/lib/ownership/secMajorShareholders', () => ({ lookupMajorShareholders
 
 import { AiCover } from './AiCover';
 import { StoryImage } from './StoryMedia';
+import { MissionGovernanceTab } from '@/features/dashboard/tabs/MissionGovernanceTab';
 import { imageReferrerPolicy } from '@/lib/hostedApi';
 
 const WORKER_IMAGE = 'https://worker.example/v1/image?url=https%3A%2F%2Fcdn.example%2Fa.jpg';
