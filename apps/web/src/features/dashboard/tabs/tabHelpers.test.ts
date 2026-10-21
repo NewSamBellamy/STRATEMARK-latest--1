@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { OrgNode } from '@mi/contracts';
 import {
   buildOrgTree, classifyEvent, countByGroup, filterOrgTree, groupByHost, groupByYear,
-  hostOf, matchesQuery, orgInitials, parseEventYear, recencyBucket, sourceStrength, splitSearchReport, strengthMix,
+  hostOf, isLiveFresh, isOrgAttribution, storyCountText, matchesQuery, orgInitials, parseEventYear, recencyBucket, sourceStrength, splitSearchReport, strengthMix,
   type OrgTreeNode,
 } from './tabHelpers';
 
@@ -57,12 +57,38 @@ describe('timeline helpers', () => {
     expect(g.map((x) => x.label)).toEqual(['2024', '2020', 'Undated']);
     expect(g[1]!.items).toHaveLength(2);
   });
+  it('orders events newest first inside a year too, keeping research order on ties', () => {
+    const g = groupByYear([
+      { date: '2024 Mar', t: 'a' }, { date: '2024', t: 'b' }, { date: '2024-11-02', t: 'c' },
+      { date: 'Q3 2024', t: 'd' }, { date: '2024 Mar', t: 'e' },
+    ]);
+    expect(g[0]!.items.map((x) => x.t)).toEqual(['c', 'd', 'a', 'e', 'b']);
+  });
+  it('flags organisation attributions, not people', () => {
+    expect(isOrgAttribution('Mission Statement', 'Mistral AI')).toBe(true);
+    expect(isOrgAttribution('Mistral AI, 2024', 'Mistral AI')).toBe(true);
+    expect(isOrgAttribution('— Sam Altman, CEO (2024)', 'OpenAI')).toBe(false);
+  });
   it('classifies conservatively', () => {
     expect(classifyEvent('Series C', 'raised $50M')).toBe('funding');
     expect(classifyEvent('Launches Atlas')).toBe('product');
     expect(classifyEvent('Appoints new CFO')).toBe('leadership');
     expect(classifyEvent('Company founded')).toBe('corporate');
     expect(classifyEvent('Something happened')).toBe('other');
+  });
+});
+
+describe('live intel honesty helpers', () => {
+  const NOW = Date.parse('2026-10-21T12:00:00Z');
+  it('counts undated stories without calling them recent', () => {
+    expect(storyCountText([{ publishedDate: null }, { publishedDate: undefined }])).toBe('2 stories, dates not reported');
+    expect(storyCountText([{ publishedDate: '2026-10-01' }, { publishedDate: null }])).toBe('2 stories · 1 without a reported date');
+    expect(storyCountText([{ publishedDate: '2026-10-01' }])).toBe('1 story');
+  });
+  it('is live only within 7 days of the refresh', () => {
+    expect(isLiveFresh('2026-10-15T12:00:00Z', NOW)).toBe(true);
+    expect(isLiveFresh('2026-10-14T11:00:00Z', NOW)).toBe(false);
+    expect(isLiveFresh(null, NOW)).toBe(false);
   });
 });
 

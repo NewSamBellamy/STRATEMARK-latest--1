@@ -21,7 +21,7 @@ import { faviconUrl } from '@/lib/screenshot';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
 import { SecFilings } from './SecFilings';
-import { matchesQuery, RECENCY_LABEL, recencyBucket } from './tabHelpers';
+import { matchesQuery, RECENCY_LABEL, recencyBucket, storyCountText } from './tabHelpers';
 
 /**
  * A link the reader can ACTUALLY open. Grounding often returns opaque
@@ -210,14 +210,15 @@ function IntelRow({
             {SOURCE_LABEL[item.source]}
           </span>
         )}
-        <span aria-hidden>·</span>
-        {/* The honest date: the story's reported publish date when research
-            surfaced one; otherwise when WE found it — never a fake "just now". */}
-        <span title={item.publishedDate ? 'Reported publish date' : 'When our research surfaced this item'}>
-          {item.publishedDate
-            ? fmtPublishDate(item.publishedDate)
-            : `found ${formatRelative(item.publishedAt)}`}
-        </span>
+        {/* The reported publish date when research surfaced one. Undated rows
+            show nothing: "found <date>" is identical on every row, so it is
+            stated once on the "No reported date" group heading instead. */}
+        {item.publishedDate && (
+          <>
+            <span aria-hidden>·</span>
+            <span title="Reported publish date">{fmtPublishDate(item.publishedDate)}</span>
+          </>
+        )}
         <span className={cn('ml-auto inline-flex items-center gap-1.5 font-medium', SENTIMENT_STYLE[item.sentiment])}>
           <span className={cn('h-1.5 w-1.5 rounded-full', SENTIMENT_DOT[item.sentiment])} aria-hidden />
           {item.sentiment}
@@ -267,8 +268,13 @@ function StoryMeta({ item }: { item: LiveIntelItem }) {
 }
 
 /** The scoop: the newest story large with its picture, the next three beside it. */
+/** The stories the top block shows; the list below leaves them out. */
+export function featuredStories(items: LiveIntelItem[]): LiveIntelItem[] {
+  return items.filter((i) => !i.stale).slice(0, 4);
+}
+
 export function TopStories({ items, onOpen }: { items: LiveIntelItem[]; onOpen: (id: string) => void }) {
-  const [lead, ...rest] = items.filter((i) => !i.stale).slice(0, 4);
+  const [lead, ...rest] = featuredStories(items);
   if (!lead) return null;
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
@@ -346,8 +352,13 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
         const open = openId != null ? (all.find((i) => i.id === openId) ?? null) : null;
         const sourceCounts = all.reduce<Record<string, number>>((a, i) => ({ ...a, [i.source]: (a[i.source] ?? 0) + 1 }), {});
         const sentimentCounts = all.reduce<Record<string, number>>((a, i) => ({ ...a, [i.sentiment]: (a[i.sentiment] ?? 0) + 1 }), {});
+        // Featured stories already sit above; repeat them in the list only
+        // when a search or filter is narrowing it (so a search still finds them).
+        const narrowing = source !== 'all' || sentiment !== 'all' || search.trim().length > 0;
+        const featuredIds = new Set(narrowing ? [] : featuredStories(all).map((i) => i.id));
         const ordered = all.filter(
           (i) =>
+            !featuredIds.has(i.id) &&
             (source === 'all' || i.source === source) &&
             (sentiment === 'all' || i.sentiment === sentiment) &&
             matchesQuery(`${i.title} ${i.summary} ${publisherOf(i.url, null) ?? ''}`, search),
@@ -359,7 +370,7 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
           <div className="cascade">
             <SectionHeader
               title="Live intel"
-              count={`${all.length} ${all.length === 1 ? 'story' : 'stories'}`}
+              count={storyCountText(all)}
               description="Latest first. Dates are the reported publish date; items without one are grouped separately, never shown as recent. Open a story for the full picture."
               actions={
                 <>
@@ -387,7 +398,9 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
               )}
               <SecFilings companyName={companyNameRaw} />
             </div>
-            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted">All coverage</h4>
+            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted">
+              {featuredIds.size > 0 ? 'More coverage' : 'All coverage'}
+            </h4>
             <div className="mb-3 flex flex-wrap items-center gap-2">
               {all.length > 5 && (
                 <SearchBox
@@ -428,7 +441,9 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
                 </div>
               )}
             </div>
-            {buckets.length === 0 ? (
+            {buckets.length === 0 && featuredIds.size > 0 ? (
+              <p className="text-sm text-muted">Every story is featured above.</p>
+            ) : buckets.length === 0 ? (
               <EmptyNote compact title="No stories match these filters">
                 Clear the search or filters to see everything research retained.
               </EmptyNote>
@@ -439,6 +454,11 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
                     <h4 className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-muted">
                       {RECENCY_LABEL[bucket]}
                       <span className="font-normal tabular-nums text-faint">{items.length}</span>
+                      {bucket === 'undated' && (
+                        <span className="font-normal normal-case tracking-normal text-faint">
+                          · found by research {formatRelative(items.reduce((a, i) => (i.publishedAt > a ? i.publishedAt : a), items[0]!.publishedAt))}
+                        </span>
+                      )}
                     </h4>
                     <ul className="panel divide-y divide-border overflow-hidden">
                       {items.map((item) => (
