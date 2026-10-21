@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import { completenessFixture } from './completeness-report.fixture';
 import { AnotherWindowError, GeminiRepository, type RepoSnapshot } from './repository';
@@ -28,6 +28,13 @@ function movesRepo(news: WebSearchFn, sec: { down: boolean } = { down: false }, 
   return { repo, structure, newsSearch, saved: () => saved };
 }
 
+/** Ranking buckets by LOCAL calendar day, so a 5 h-old and a 2 h-old story straddle midnight before 05:00. Pin the clock to local noon. */
+function pinLocalNoon() {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  const noon = new Date(); noon.setHours(12, 0, 0, 0);
+  vi.setSystemTime(noon);
+}
+
 const recent = (hoursAgo: number) => new Date(Date.now() - hoursAgo * HOUR).toISOString();
 const feed: WebSearchFn = async (query) => query.includes('Acme Robotics')
   ? [{ url: 'https://news.example/acme-b', title: 'Acme Robotics raises $40M Series B', snippet: '', published: recent(5), publisher: 'Reuters' },
@@ -37,6 +44,8 @@ const feed: WebSearchFn = async (query) => query.includes('Acme Robotics')
     : [];
 
 describe('Today in the workspace', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
   it('follows only companies it knows, once each', async () => {
     const { repo } = movesRepo(feed);
     await repo.followCompanies(['acme', 'gamma', 'acme', 'nobody']);
@@ -46,6 +55,7 @@ describe('Today in the workspace', () => {
   });
 
   it('one refresh reads the free feed per company and sorts every headline in ONE call, ranked and dated', async () => {
+    pinLocalNoon();
     const { repo, structure, newsSearch } = movesRepo(feed);
     await repo.followCompanies(['acme', 'gamma']);
     const result = await repo.refreshMoves();
@@ -215,6 +225,7 @@ describe('Today in the workspace', () => {
   });
 
   it('read state persists, and moves of a company no longer followed are not shown', async () => {
+    pinLocalNoon();
     const { repo, saved } = movesRepo(feed);
     await repo.followCompanies(['acme', 'gamma']);
     await repo.refreshMoves();
