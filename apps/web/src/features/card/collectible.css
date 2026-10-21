@@ -513,7 +513,7 @@
 .card-inspector__summary-text {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 4;
   overflow: hidden;
 }
 .card-inspector__site {
@@ -846,4 +846,84 @@
     inset 0 -2px 3px #0000001f,
     0 0 0 1px #f3dc9a80,
     0 3px 8px -2px #7a5a1866;
+}
+
+/* A barrier, insight, risk or culture finding: a paragraph, then a plain list. It scrolls when it is long and never clips. */
+.signal-read {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  margin-top: 14px;
+  padding-right: 8px;
+  overflow-y: auto;
+}
+.signal-read__lead {
+  color: rgb(var(--c-content));
+  font-size: 15.5px;
+  line-height: 1.62;
+}
+.signal-read__heading {
+  margin-bottom: 8px;
+  color: rgb(var(--c-muted));
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.signal-read__points {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0 0 0 18px;
+  list-style: disc;
+}
+.signal-read__points li {
+  padding-left: 2px;
+  color: rgb(var(--c-content));
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.signal-read__points li::marker {
+  color: rgb(var(--c-primary-ink));
+}
+.signal-read__src {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  color: rgb(var(--c-primary-ink));
+  font-size: 11px;
+  white-space: nowrap;
+}
+.signal-read__sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  color: rgb(var(--c-muted));
+  font-size: 12px;
+  line-height: 1.6;
+}
+.signal-read__sources > span {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.signal-read__sources a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: rgb(var(--c-primary-ink));
+}
+.signal-read__src:hover,
+.signal-read__sources a:hover {
+  text-decoration: underline;
+}
+.signal-read__note {
+  color: rgb(var(--c-muted));
+  font-size: 11.5px;
+  line-height: 1.45;
 }
