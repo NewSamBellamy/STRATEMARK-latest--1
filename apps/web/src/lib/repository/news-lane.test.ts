@@ -11,6 +11,11 @@ async function lane(endpoint: { url: string; headers: Record<string, string> } |
   return (await import('./news-lane')).currentNewsSearch();
 }
 
+async function movesLane(endpoint: { url: string; headers: Record<string, string> } | null) {
+  vi.doMock('./local-source-reader', () => ({ relayEndpoint: () => endpoint }));
+  return (await import('./news-lane')).currentMovesNewsSearch();
+}
+
 describe('news lane', () => {
   it('is off when the build has no relay', async () => {
     expect(await lane(null)).toBeNull();
@@ -33,5 +38,36 @@ describe('news lane', () => {
     expect(await search('q1')).toEqual([]);
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
     expect(await search('q2')).toEqual([]);
+  });
+
+  it('Today lane throws on a refusing, failing or unreadable relay, and a failure is not cached', async () => {
+    const endpoint = { url: '/__stratemark/news', headers: {} };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{}', { status: 429 }))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(new Response('{"error":"x"}'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ results: [] })));
+    vi.stubGlobal('fetch', fetchMock);
+    const search = (await movesLane(endpoint))!;
+    await expect(search('q')).rejects.toThrow('429');
+    await expect(search('q')).rejects.toThrow('offline');
+    await expect(search('q')).rejects.toThrow('unreadable');
+    // An honest empty answer is still an answer (and is cached).
+    expect(await search('q')).toEqual([]);
+    expect(await search('q')).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('Today lane is off when the build has no relay', async () => {
+    expect(await movesLane(null)).toBeNull();
+  });
+
+  it('a failed hunt query is retried next time, not remembered as no leads', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response('{}', { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ results: [{ url: 'https://a.com/x', title: 'A', snippet: '' }] })));
+    vi.stubGlobal('fetch', fetchMock);
+    const search = (await lane({ url: '/__stratemark/news', headers: {} }))!;
+    expect(await search('q')).toEqual([]);
+    expect(await search('q')).toHaveLength(1);
   });
 });

@@ -29,7 +29,7 @@ export function useRefreshMoves() {
     },
     // Not returned: a mutation waits for what onSettled returns, and the list refresh that follows the check can be slow
     // (a busy store, another tab). The page said "checking now" for as long as it took, though the check had finished.
-    onSettled: () => { void qc.invalidateQueries({ queryKey: qk.moves }); },
+    onSettled: () => { void Promise.all([qc.invalidateQueries({ queryKey: qk.moves }), qc.invalidateQueries({ queryKey: qk.follows })]); },
   });
 }
 

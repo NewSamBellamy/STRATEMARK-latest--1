@@ -728,13 +728,20 @@ export interface CompanyFollow {
   followedAt: string;
   /** The company's name, for listing follows without loading each company. */
   companyName?: string;
+  /** When its moves were last looked for successfully (stored, so it survives a reload); absent or null when it has not been, or its last look failed. */
+  lastCheckedAt?: string | null;
+  /** Set while its last look failed (the news or SEC filings could not be reached) and it is waiting to be tried again. */
+  checkFailedAt?: string | null;
 }
 
 export interface MovesRefreshResult {
   added: number;
   /** Followed companies looked at successfully; 0 when every one was looked at in the last day. */
   refreshed: number;
+  /** The latest successful look across the followed companies (a failed look is never counted). */
   refreshedAt: string | null;
+  /** Companies this check could not fully reach and will try again within hours. */
+  failed?: string[];
 }
 
 

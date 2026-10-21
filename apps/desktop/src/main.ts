@@ -29,8 +29,8 @@ import {
   refreshCadenceSchema,
   dashboardTabSchema,
 } from './ipc-schemas.js';
-import { cachedWebSearch, GeminiRepository, migrateSnapshot, type RepoSnapshot } from '@mi/research';
-import { runNewsSearch } from '@mi/research/news-search';
+import { cachedWebSearch, GeminiRepository, migrateSnapshot, type RepoSnapshot, type WebSearchFn } from '@mi/research';
+import { fetchNewsSearch } from '@mi/research/news-search';
 
 // Unhandled main-process failures otherwise die silently (the Oct-6 audit:
 // only startup was protected). Surface the first one honestly and keep
@@ -225,7 +225,9 @@ const ipcMain = {
 };
 
 /** One cached news lane per app run: repeated queries minutes apart are answered from memory. */
-const desktopNews = cachedWebSearch((query) => runNewsSearch(query, fetch));
+const desktopNewsStrict = cachedWebSearch((query) => fetchNewsSearch(query, fetch));
+/** The hunt reads it tolerantly (a failure is no leads); Today reads desktopNewsStrict, where a failure retries the company. */
+const desktopNews: WebSearchFn = async (query, options) => { try { return await desktopNewsStrict(query, options); } catch { return []; } };
 
 function makeRepository(): MarketIntelRepository {
   const apiKey = loadApiKey();
@@ -249,6 +251,7 @@ function makeRepository(): MarketIntelRepository {
     dashboardWarmup: apiKey ? { backfill: false } : false,
     // The free dated news feed (no key): Today's moves, and leads for hunts and ownership, as on the web.
     newsSearch: () => desktopNews,
+    movesNewsSearch: () => desktopNewsStrict,
     // Founded year from the company's own Wikidata item (no provider calls).
     wikidataJson: async (url) => (await fetch(url, { signal: AbortSignal.timeout(8000) })).json(),
     // YouTube's public oEmbed answer, to confirm a History video exists and can be embedded.

@@ -534,6 +534,9 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   webSearch?: () => WebSearchFn | null;
   /** Free news lane (no key) adding dated news articles as hunt candidates. */
   newsSearch?: () => WebSearchFn | null;
+  /** Today's news lane: the same feed, but a failure THROWS (so the company is
+   * retried) instead of answering "no leads". Falls back to `newsSearch`. */
+  movesNewsSearch?: () => WebSearchFn | null;
   /** Fires when Google Search grounding is out of quota and research falls back to web pages. */
   onGroundingSpent?: () => void;
   /**
@@ -677,6 +680,7 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly hydrationFirstBatchMax?: number;
   private readonly webSearch?: () => WebSearchFn | null;
   private readonly newsSearch?: () => WebSearchFn | null;
+  private readonly movesNewsSearch?: () => WebSearchFn | null;
   private readonly wikidataJson?: JsonFetcher;
   private readonly videoJson?: JsonFetcher;
   /** History-video searches in flight (one per company) and when each last ran this session. */
@@ -778,6 +782,7 @@ export class GeminiRepository implements MarketIntelRepository {
       : undefined;
     this.webSearch = observeLane(options.webSearch);
     this.newsSearch = observeLane(options.newsSearch);
+    this.movesNewsSearch = observeLane(options.movesNewsSearch ?? options.newsSearch);
     this.wikidataJson = options.wikidataJson ? observeFetch(options.wikidataJson, this.sourceLog) : undefined;
     this.videoJson = options.videoJson ? observeFetch(options.videoJson, this.sourceLog) : undefined;
     if (options.dashboardWarmup !== false) {
@@ -2526,10 +2531,20 @@ export class GeminiRepository implements MarketIntelRepository {
   }
 
   async listFollows(): Promise<CompanyFollow[]> {
+    const checked = this.snap.movesRefreshedAt ?? {};
     return (this.snap.follows ?? []).map((follow) => {
       const name = this.snap.companies.find((company) => company.id === follow.companyId)?.name;
-      return name ? { ...follow, companyName: name } : { ...follow };
+      // A failed look parks a retry time in movesRefreshedAt; that is not a time anything was checked.
+      const lastCheckedAt = follow.checkFailedAt ? null : (checked[follow.companyId] ?? null);
+      return { ...follow, ...(name ? { companyName: name } : {}), lastCheckedAt };
     });
+  }
+
+  /** The latest time any followed company was actually looked at (failed looks excluded). */
+  private latestCheck(): string | null {
+    const failed = new Set((this.snap.follows ?? []).filter((follow) => follow.checkFailedAt).map((follow) => follow.companyId));
+    const times = Object.entries(this.snap.movesRefreshedAt ?? {}).filter(([id]) => !failed.has(id)).map(([, at]) => at).sort();
+    return times.at(-1) ?? null;
   }
 
   async followCompanies(companyIds: readonly string[]): Promise<void> {
@@ -2592,9 +2607,8 @@ export class GeminiRepository implements MarketIntelRepository {
       const at = last[follow.companyId] ? Date.parse(last[follow.companyId]!) : NaN;
       return company && (force || !Number.isFinite(at) || now.getTime() - at >= MOVES_REFRESH_EVERY_MS) ? [company] : [];
     });
-    const latest = () => Object.values(this.snap.movesRefreshedAt ?? {}).sort().at(-1) ?? null;
-    if (!due.length) return { added: 0, refreshed: 0, refreshedAt: latest() };
-    const news = this.newsSearch?.() ?? null;
+    if (!due.length) return { added: 0, refreshed: 0, refreshedAt: this.latestCheck(), failed: [] };
+    const news = this.movesNewsSearch?.() ?? null;
     const sources = this.originalSources;
     const failed = new Set<string>();
     const candidates: MoveCandidate[] = [];
@@ -2644,9 +2658,15 @@ export class GeminiRepository implements MarketIntelRepository {
     const followed = new Set((this.snap.follows ?? []).map((follow) => follow.companyId));
     this.snap.moves = merged.moves.filter((move) => followed.has(move.companyId));
     this.snap.movesRefreshedAt = refreshedAt;
+    const dueIds = new Set(due.map((company) => company.id));
+    this.snap.follows = (this.snap.follows ?? []).map((follow) => {
+      if (!dueIds.has(follow.companyId)) return follow;
+      const { checkFailedAt: _cleared, ...rest } = follow;
+      return failed.has(follow.companyId) ? { ...rest, checkFailedAt: foundAt } : rest;
+    });
     await this.persist();
     const added = merged.moves.filter((move) => move.foundAt === foundAt && followed.has(move.companyId)).length;
-    return { added, refreshed, refreshedAt: latest() };
+    return { added, refreshed, refreshedAt: this.latestCheck(), failed: [...failed].filter((id) => followed.has(id)) };
   }
 
   /** One paced turn on the shared SEC queue (SEC refuses bursts). */
