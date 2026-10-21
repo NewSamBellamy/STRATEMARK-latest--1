@@ -41,6 +41,17 @@
 .ask-orb:focus-visible .ask-orb__mark {
   animation: none;
 }
+/* On phones the orb is smaller so it covers less of the page; the position maths still leave it inside the window. */
+@media (max-width: 640px) {
+  .ask-orb {
+    width: 44px !important;
+    height: 44px !important;
+  }
+  .ask-orb__mark {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .ask-orb::after,
   .ask-orb__mark {
