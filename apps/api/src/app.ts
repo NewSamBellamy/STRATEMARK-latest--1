@@ -27,6 +27,7 @@ import {
   selectOriginalSourceCitations,
   acceptedMetricPassage,
   projectCompanyCardFacts,
+  deckRivalWebsites,
   retainedDiagnosticAttempts,
   mapWithConcurrency,
   huntMetricsOutSchema,
@@ -328,7 +329,8 @@ export function createApp(
     const deckId = c.req.query('deckId') || '';
     const d = deckId ? await cloudDeckService.getDeck(userId, deckId) : null;
     const attempts = [...(d?.companySourceAttempts ?? []), ...retainedDiagnosticAttempts(d?.originalSourceAttempts)];
-    return c.json({ cards: (d?.cards ?? []).map(card => projectCompanyCardFacts(card, attempts, { now: clock() })) });
+    const deckCards = d?.cards ?? [];
+    return c.json({ cards: deckCards.map(card => projectCompanyCardFacts(card, attempts, { now: clock(), rivalWebsites: deckRivalWebsites(card, deckCards) })) });
   });
   app.get('/api/cards/saved', async (c) => {
     const userId = await getUserId(c);
@@ -346,7 +348,7 @@ export function createApp(
       const deck = eligible.find(candidate => candidate?.cards.some(card => card.card.id === row.cardId));
       const card = deck?.cards.find(card => card.card.id === row.cardId);
       const attempts = [...(deck?.companySourceAttempts ?? []), ...retainedDiagnosticAttempts(deck?.originalSourceAttempts)];
-      return card && deck ? [{ ...projectCompanyCardFacts(card, attempts, { now: clock() }),
+      return card && deck ? [{ ...projectCompanyCardFacts(card, attempts, { now: clock(), rivalWebsites: deckRivalWebsites(card, deck.cards) }),
         companySourceAttempts: attempts.filter(attempt => attempt.companyId === card.company?.id)
           .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt)).slice(-20) }] : [];
     });
