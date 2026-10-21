@@ -40,6 +40,47 @@ const acmeFollow = { companyId: 'acme', companyName: 'Acme Robotics', followedAt
 describe('Today', () => {
   beforeEach(() => { localStorage.clear(); sessionStorage.clear(); });
 
+  describe('day groups and mark all read', () => {
+    // Only the date is faked, so the sample moves (mid October 2026) land in known groups.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-16T12:00:00.000Z'));
+    });
+    afterEach(() => { vi.useRealTimers(); });
+
+    const grouped = () => todayRepo([acmeFollow], [
+      move({ id: 'd_today', title: 'Today story', publishedAt: '2026-10-16T11:00:00.000Z' }),
+      move({ id: 'd_yest', title: 'Yesterday story', publishedAt: '2026-10-15T12:00:00.000Z' }),
+      move({ id: 'd_week', title: 'Week story', publishedAt: '2026-10-12T12:00:00.000Z' }),
+      move({ id: 'd_old', title: 'Older story', publishedAt: '2026-10-01T12:00:00.000Z' }),
+      move({ id: 'd_stale', title: 'Stale story', publishedAt: '2026-08-01T12:00:00.000Z' }),
+    ]);
+
+    it('headings come from each move’s publish day and stories over 30 days old fold under Older', async () => {
+      renderWithProviders(<TodayPage />, { repository: grouped() });
+      await screen.findByRole('link', { name: 'Today story' });
+      const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+      expect(headings.slice(0, 4)).toEqual(['Today', 'Yesterday', 'This week', 'Older']);
+      const week = screen.getByRole('region', { name: 'This week' });
+      expect(within(week).getByText('Week story')).toBeInTheDocument();
+      const older = screen.getByRole('region', { name: 'Older' });
+      expect(within(older).getByText('Older story')).toBeInTheDocument();
+      const fold = within(older).getByText(/1 from over 30 days ago/).closest('details')!;
+      expect(fold).not.toHaveAttribute('open');
+      expect(fold).toContainElement(within(older).getByText('Stale story'));
+    });
+
+    it('Mark all read marks every unread story in one batch call', async () => {
+      const repo = Object.assign(grouped(), { markMovesRead: vi.fn(async (_ids: string[]) => {}) });
+      const { user } = renderWithProviders(<TodayPage />, { repository: repo });
+      await screen.findByRole('link', { name: 'Today story' });
+      await user.click(screen.getByRole('button', { name: 'Mark all read' }));
+      expect(repo.markMovesRead).toHaveBeenCalledTimes(1);
+      expect([...repo.markMovesRead.mock.calls[0]![0]].sort()).toEqual(['d_old', 'd_stale', 'd_today', 'd_week', 'd_yest']);
+      expect(repo.markMoveRead).not.toHaveBeenCalled();
+    });
+  });
+
   it('lists followed companies’ moves with source and date, new since the last visit, and checks once on open', async () => {
     localStorage.setItem('mi.today.lastVisit', '2026-10-15T12:00:00.000Z');
     const repo = todayRepo([acmeFollow], [

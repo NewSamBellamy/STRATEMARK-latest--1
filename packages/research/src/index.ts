@@ -20,6 +20,7 @@ export * from './web-search';
 export { originalSupportReferences, selectOriginalSourceAttempts, validatedOriginalSupport, normalizeSourceText } from './original-source';
 export type { OriginalSourceQuery } from './original-source';
 export * from './repository';
+export { moveAgeDays, moveDayBucket, rankMoves, MOVE_STALE_DAYS, type MoveDayBucket } from './company-moves';
 export { METRIC_GATE_VERSION, revalidateStoredMetrics, type RevalidationGate, type RevalidationOutcome, type RevalidatedMetric, type RelabelledMetric } from './revalidate-stored';
 export * from './source-policy';
 export * from './research-evidence';

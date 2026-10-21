@@ -6,7 +6,8 @@ import { EmptyState } from '@/components/states/EmptyState';
 import { cn } from '@/lib/cn';
 import { formatRelative } from '@/lib/format';
 import { safeHttpUrl } from '@/lib/sourceHref';
-import { useFollows, useMarkMoveRead, useMoves, useRefreshMoves, useUnfollowCompany } from '@/hooks/today';
+import { MOVE_STALE_DAYS, moveAgeDays, moveDayBucket, type MoveDayBucket } from '@mi/research';
+import { useFollows, useMarkMoveRead, useMarkMovesRead, useMoves, useRefreshMoves, useUnfollowCompany } from '@/hooks/today';
 import { TodayCompanyView } from './TodayCompanyView';
 
 const KIND_LABEL: Record<MoveKind, string> = {
@@ -43,12 +44,28 @@ function sourceName(move: CompanyMove): string {
   try { return new URL(move.url).hostname.replace(/^www\./, ''); } catch { return 'Source'; }
 }
 
+const BUCKET_LABEL: Record<MoveDayBucket, string> = { today: 'Today', yesterday: 'Yesterday', week: 'This week', older: 'Older' };
+const BUCKETS: MoveDayBucket[] = ['today', 'yesterday', 'week', 'older'];
+
+/** The list (already in the engine's order) split by day of publication; stories over 30 days old are folded under Older. */
+function groupMoves(moves: readonly CompanyMove[], now: Date) {
+  return BUCKETS.map((bucket) => {
+    const inBucket = moves.filter((move) => moveDayBucket(move, now) === bucket);
+    return {
+      bucket,
+      recent: inBucket.filter((move) => moveAgeDays(move, now) <= MOVE_STALE_DAYS),
+      stale: inBucket.filter((move) => moveAgeDays(move, now) > MOVE_STALE_DAYS),
+    };
+  }).filter((group) => group.recent.length + group.stale.length > 0);
+}
+
 export default function TodayPage() {
   const since = useLastVisit();
   const follows = useFollows();
   const moves = useMoves();
   const refresh = useRefreshMoves();
   const markRead = useMarkMoveRead();
+  const markAll = useMarkMovesRead();
   const unfollow = useUnfollowCompany();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]['id']>('all');
   const [params, setParams] = useSearchParams();
@@ -82,6 +99,35 @@ export default function TodayPage() {
   const unreadCount = all.filter((move) => !move.readAt).length;
   const shown = useMemo(() => (moves.data ?? []).filter((move) =>
     filter === 'all' ? true : filter === 'unread' ? !move.readAt : move.kind === filter), [moves.data, filter]);
+  const shownUnread = shown.filter((move) => !move.readAt);
+  const groups = useMemo(() => groupMoves(shown, new Date()), [shown]);
+  const renderMove = (move: CompanyMove) => (
+    <li key={move.id} className={cn('panel flex items-start gap-3 p-4', move.readAt && 'opacity-70')}>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+          <Link to={`/today?company=${encodeURIComponent(move.companyId)}`} className="font-semibold text-content hover:text-primary hover:underline" title="Open this company on Today">
+            {move.companyName}
+          </Link>
+          <span className="rounded-full bg-surface-2 px-2 py-0.5 font-medium">{KIND_LABEL[move.kind]}</span>
+          {move.importance === 3 && <span className="rounded-full bg-primary/8 px-2 py-0.5 font-medium text-primary">Major</span>}
+          {isNew(move) && <span className="font-semibold text-primary">New</span>}
+        </div>
+        <a href={safeHttpUrl(move.url)} target="_blank" rel="noopener noreferrer"
+          className={cn('mt-1 block text-[15px] leading-snug text-content hover:text-primary hover:underline', !move.readAt && 'font-semibold')}
+          onClick={() => { if (!move.readAt) markRead.mutate({ id: move.id, read: true }); }}>
+          {move.title}
+        </a>
+        <div className="mt-1 text-xs text-faint">
+          {sourceName(move)} · {moveDate(move)}
+        </div>
+      </div>
+      <button type="button" className="btn-ghost px-2" aria-label={move.readAt ? 'Mark unread' : 'Mark read'}
+        title={move.readAt ? 'Mark unread' : 'Mark read'}
+        onClick={() => markRead.mutate({ id: move.id, read: !move.readAt })}>
+        {move.readAt ? <CheckCircle size={18} weight="fill" className="text-muted" /> : <Circle size={18} className="text-primary" />}
+      </button>
+    </li>
+  );
   // "Checked" comes from the times the engine stored, so it survives a reload; a failed look is never counted as one.
   const checkedAt = (follows.data ?? []).reduce<string | null>((latest, follow) =>
     follow.lastCheckedAt && (!latest || follow.lastCheckedAt > latest) ? follow.lastCheckedAt : latest, null) ?? refresh.data?.refreshedAt ?? null;
@@ -96,7 +142,8 @@ export default function TodayPage() {
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-[28px] font-bold tracking-tight text-content">Today</h1>
-          <p className="mt-1 text-sm text-muted">
+          {/* One company's page has its own counts and its own check; the all-companies summary would be about other companies. */}
+          {!selected && <p className="mt-1 text-sm text-muted">
             {followCount
               ? firstCheckRunning
                 ? 'Checking the companies you follow…'
@@ -106,9 +153,9 @@ export default function TodayPage() {
                     {checkedLabel ? ` · ${checkedLabel}` : ''}
                   </>
               : 'Funding, launches, hires, deals and filings of the companies you follow.'}
-          </p>
+          </p>}
         </div>
-        {followCount > 0 && (
+        {followCount > 0 && !selected && (
           <button type="button" className="btn-ghost text-sm" disabled={refresh.isPending}
             title="Look again now, even for companies checked today."
             onClick={() => refresh.mutate(true)}>
@@ -140,12 +187,12 @@ export default function TodayPage() {
         </nav>
       )}
 
-      {refresh.isError && (
+      {refresh.isError && !selected && (
         <p role="alert" className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
           The check didn’t finish: {(refresh.error instanceof Error ? refresh.error.message : 'unknown error').replace(/[.\s]+$/, '')}. Stored moves are still shown.
         </p>
       )}
-      {failedCount > 0 && !refresh.isPending && (
+      {failedCount > 0 && !refresh.isPending && !selected && (
         <p role="status" className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
           Couldn’t reach the news or filings for {failedCount} {failedCount === 1 ? 'company' : 'companies'}, trying again later.
         </p>
@@ -159,7 +206,7 @@ export default function TodayPage() {
           action={<Link to="/history" className="btn-primary">Open a deck</Link>}
         />
       ) : selected ? (
-        <TodayCompanyView key={selected} companyId={selected} />
+        <TodayCompanyView key={selected} companyId={selected} since={since} />
       ) : (
         <>
           {all.length > 0 && (
@@ -184,35 +231,29 @@ export default function TodayPage() {
             />
           )}
           {all.length > 0 && shown.length === 0 && <p className="py-8 text-center text-sm text-muted">No moves of this kind.</p>}
-          <ul className="space-y-2">
-            {shown.map((move) => (
-              <li key={move.id} className={cn('panel flex items-start gap-3 p-4', move.readAt && 'opacity-70')}>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                    <Link to={`/today?company=${encodeURIComponent(move.companyId)}`} className="font-semibold text-content hover:text-primary hover:underline" title="Open this company on Today">
-                      {move.companyName}
-                    </Link>
-                    <span className="rounded-full bg-surface-2 px-2 py-0.5 font-medium">{KIND_LABEL[move.kind]}</span>
-                    {move.importance === 3 && <span className="rounded-full bg-primary/8 px-2 py-0.5 font-medium text-primary">Major</span>}
-                    {isNew(move) && <span className="font-semibold text-primary">New</span>}
-                  </div>
-                  <a href={safeHttpUrl(move.url)} target="_blank" rel="noopener noreferrer"
-                    className={cn('mt-1 block text-[15px] leading-snug text-content hover:text-primary hover:underline', !move.readAt && 'font-semibold')}
-                    onClick={() => { if (!move.readAt) markRead.mutate({ id: move.id, read: true }); }}>
-                    {move.title}
-                  </a>
-                  <div className="mt-1 text-xs text-faint">
-                    {sourceName(move)} · {moveDate(move)}
-                  </div>
-                </div>
-                <button type="button" className="btn-ghost px-2" aria-label={move.readAt ? 'Mark unread' : 'Mark read'}
-                  title={move.readAt ? 'Mark unread' : 'Mark read'}
-                  onClick={() => markRead.mutate({ id: move.id, read: !move.readAt })}>
-                  {move.readAt ? <CheckCircle size={18} weight="fill" className="text-muted" /> : <Circle size={18} className="text-primary" />}
-                </button>
-              </li>
-            ))}
-          </ul>
+          {shownUnread.length > 0 && (
+            <div className="mb-3 flex justify-end">
+              <button type="button" className="btn-ghost text-sm" disabled={markAll.isPending}
+                onClick={() => markAll.mutate(shownUnread.map((move) => move.id))}>
+                Mark all read
+              </button>
+            </div>
+          )}
+          {groups.map((group) => (
+            <section key={group.bucket} className="mb-6" aria-label={BUCKET_LABEL[group.bucket]}>
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-faint">{BUCKET_LABEL[group.bucket]}</h2>
+              {/* Right padding on a phone keeps the Ask orb (bottom right) clear of the mark-read buttons. */}
+              <ul className="space-y-2 max-sm:pr-14">{group.recent.map(renderMove)}</ul>
+              {group.stale.length > 0 && (
+                <details className="mt-2 max-sm:pr-14">
+                  <summary className="cursor-pointer text-sm text-muted hover:text-content">
+                    {group.recent.length > 0 ? 'Show' : 'Show the'} {group.stale.length} from over {MOVE_STALE_DAYS} days ago
+                  </summary>
+                  <ul className="mt-2 space-y-2">{group.stale.map(renderMove)}</ul>
+                </details>
+              )}
+            </section>
+          ))}
           {followCount > 0 && (
             <section className="mt-8" aria-label="Following">
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-faint">Following {followCount}</h2>

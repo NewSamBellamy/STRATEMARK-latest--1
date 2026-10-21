@@ -23,9 +23,10 @@ export function useRefreshMoves() {
   const repo = useRepository();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (force: boolean): Promise<MovesRefreshResult> => {
+    // `companyIds` limits the look to those companies (one company's page); without it every followed company is looked at.
+    mutationFn: (ask: boolean | { force: boolean; companyIds?: readonly string[] }): Promise<MovesRefreshResult> => {
       if (!repo.refreshMoves) return Promise.reject(new Error('Today isn’t available on this engine.'));
-      return repo.refreshMoves({ force });
+      return repo.refreshMoves(typeof ask === 'boolean' ? { force: ask } : ask);
     },
     // Not returned: a mutation waits for what onSettled returns, and the list refresh that follows the check can be slow
     // (a busy store, another tab). The page said "checking now" for as long as it took, though the check had finished.
@@ -41,6 +42,24 @@ export function useMarkMoveRead() {
     onMutate: ({ id, read }) => {
       qc.setQueryData<CompanyMove[]>(qk.moves, (moves) =>
         moves?.map((move) => (move.id === id ? { ...move, readAt: read ? new Date().toISOString() : null } : move)));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.moves }),
+  });
+}
+
+/** Mark many moves read in one write (engines without the batch call mark them one by one). */
+export function useMarkMovesRead() {
+  const repo = useRepository();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: readonly string[]) => {
+      if (repo.markMovesRead) await repo.markMovesRead(ids);
+      else for (const id of ids) await repo.markMoveRead?.(id, true);
+    },
+    onMutate: (ids) => {
+      const set = new Set(ids);
+      const at = new Date().toISOString();
+      qc.setQueryData<CompanyMove[]>(qk.moves, (moves) => moves?.map((move) => (set.has(move.id) && !move.readAt ? { ...move, readAt: at } : move)));
     },
     onSettled: () => qc.invalidateQueries({ queryKey: qk.moves }),
   });

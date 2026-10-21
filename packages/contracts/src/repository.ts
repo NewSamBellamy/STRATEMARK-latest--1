@@ -862,8 +862,14 @@ export interface MarketIntelRepository {
   /** Today: moves of followed companies, unread first, then importance, then newest. */
   listMoves?(): Promise<CompanyMove[]>;
   /** Look for new moves (free sources + one classification call). At most once a day unless forced. */
-  refreshMoves?(options?: { force?: boolean }): Promise<MovesRefreshResult>;
+  refreshMoves?(options?: {
+    force?: boolean;
+    /** Look only at these followed companies (a single company's "Check news now"); omitted = every followed company. */
+    companyIds?: readonly string[];
+  }): Promise<MovesRefreshResult>;
   markMoveRead?(moveId: string, read: boolean): Promise<void>;
+  /** Mark several moves read in one write ("Mark all read"). Unknown ids are ignored. */
+  markMovesRead?(moveIds: readonly string[]): Promise<void>;
   listFollows?(): Promise<CompanyFollow[]>;
   followCompanies?(companyIds: readonly string[]): Promise<void>;
   unfollowCompany?(companyId: string): Promise<void>;

@@ -27,7 +27,16 @@ export interface TodayUpdate {
   sentiment: 'positive' | 'neutral' | 'negative' | null;
   importance: 1 | 2 | 3;
   readAt: string | null;
+  /** Moves only: the kind Today files it under (Funding, Launch, People, Deal, Filing), kept for the label. */
+  moveKind?: MoveKind;
+  /** Moves only: when Today found it, which decides "New". */
+  foundAt?: string;
 }
+
+/** The label of a move's own kind, as the main Today list shows it. */
+export const MOVE_KIND_LABEL: Record<MoveKind, string> = {
+  funding: 'Funding', launch: 'Launch', hire: 'People', deal: 'Deal', filing: 'Filing',
+};
 
 export const MAX_UPDATES = 10;
 export const MIN_WANTED = 5;
@@ -59,6 +68,8 @@ export function updatesFromMoves(moves: readonly CompanyMove[], companyId: strin
       sentiment: null,
       importance: m.importance,
       readAt: m.readAt,
+      moveKind: m.kind,
+      foundAt: m.foundAt,
     }));
 }
 

@@ -70,6 +70,32 @@ describe('a company on Today', () => {
     expect(within(updates).getByText(/3 updates · 3 unread/)).toBeInTheDocument();
   });
 
+  it('keeps each move’s own kind label and the New badge, and shows no all-companies header', async () => {
+    const { repository, company } = await setup();
+    localStorage.setItem('mi.today.lastVisit', daysAgo(0.5));
+    renderWithProviders(view(), { repository, route: `/today?company=${company.id}` });
+    const updates = await screen.findByLabelText(`${company.name} updates`);
+    const launch = (await within(updates).findByRole('link', { name: `${company.name} launches a new model` })).closest('li')!;
+    const raise = within(updates).getByRole('link', { name: `${company.name} raises money` }).closest('li')!;
+    expect(within(launch).getByText('Launch')).toBeInTheDocument();
+    expect(within(raise).getByText('Funding')).toBeInTheDocument();
+    expect(within(updates).queryByText('News')).not.toBeInTheDocument();
+    expect(within(updates).queryByText('Release')).not.toBeInTheDocument();
+    // Found today (after the last visit) is New; found 1 day ago (before it) is not.
+    expect(within(launch).getByText('New')).toBeInTheDocument();
+    expect(within(raise).queryByText('New')).not.toBeInTheDocument();
+    expect(screen.queryByText(/unread ·/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Check now' })).not.toBeInTheDocument();
+  });
+
+  it('Check news now looks only at this company', async () => {
+    const { repository, company } = await setup();
+    const { user } = renderWithProviders(view(), { repository, route: `/today?company=${company.id}` });
+    await screen.findByLabelText(`${company.name} updates`);
+    await user.click(screen.getByRole('button', { name: /Check news now/ }));
+    expect(repository.refreshMoves).toHaveBeenLastCalledWith({ force: true, companyIds: [company.id] });
+  });
+
   it('marks a move read through the engine and a social item read on this device', async () => {
     const { repository, company } = await setup();
     const { user } = renderWithProviders(view(), { repository, route: `/today?company=${company.id}` });

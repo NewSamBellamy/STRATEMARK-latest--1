@@ -2580,6 +2580,18 @@ export class GeminiRepository implements MarketIntelRepository {
     await this.persist();
   }
 
+  async markMovesRead(moveIds: readonly string[]): Promise<void> {
+    const ids = new Set(moveIds);
+    const readAt = new Date().toISOString();
+    let changed = false;
+    for (const move of this.snap.moves ?? []) {
+      if (!ids.has(move.id) || move.readAt) continue;
+      move.readAt = readAt;
+      changed = true;
+    }
+    if (changed) await this.persist();
+  }
+
   private movesRefresh: Promise<MovesRefreshResult> | null = null;
 
   /**
@@ -2588,21 +2600,23 @@ export class GeminiRepository implements MarketIntelRepository {
    * filings, then ONE structure call that sorts every headline. No grounded
    * search runs here.
    */
-  refreshMoves(options?: { force?: boolean }): Promise<MovesRefreshResult> {
+  refreshMoves(options?: { force?: boolean; companyIds?: readonly string[] }): Promise<MovesRefreshResult> {
     const running = this.movesRefresh;
-    // A forced check asked while another runs goes next: the running one may have skipped companies.
-    if (running && !options?.force) return running;
+    // A forced or single-company check asked while another runs goes next: the running one may have skipped companies.
+    if (running && !options?.force && !options?.companyIds) return running;
+    const only = options?.companyIds ? new Set(options.companyIds) : null;
     const run: Promise<MovesRefreshResult> = (running ? running.catch(() => undefined) : Promise.resolve())
-      .then(() => this.runMovesRefresh(Boolean(options?.force)))
+      .then(() => this.runMovesRefresh(Boolean(options?.force), only))
       .finally(() => { if (this.movesRefresh === run) this.movesRefresh = null; });
     this.movesRefresh = run;
     return run;
   }
 
-  private async runMovesRefresh(force: boolean): Promise<MovesRefreshResult> {
+  private async runMovesRefresh(force: boolean, only: ReadonlySet<string> | null = null): Promise<MovesRefreshResult> {
     const now = new Date();
     const last = this.snap.movesRefreshedAt ?? {};
     const due = (this.snap.follows ?? []).flatMap((follow) => {
+      if (only && !only.has(follow.companyId)) return [];
       const company = this.snap.companies.find((c) => c.id === follow.companyId);
       const at = last[follow.companyId] ? Date.parse(last[follow.companyId]!) : NaN;
       return company && (force || !Number.isFinite(at) || now.getTime() - at >= MOVES_REFRESH_EVERY_MS) ? [company] : [];

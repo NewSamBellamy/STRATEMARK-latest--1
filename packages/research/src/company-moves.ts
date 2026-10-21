@@ -180,9 +180,36 @@ export function mergeMoves(existing: readonly CompanyMove[], fresh: readonly Mov
   return { moves, added };
 }
 
-/** Today's order: unread first, then importance, then newest. */
-export function rankMoves(moves: readonly CompanyMove[]): CompanyMove[] {
+export type MoveDayBucket = 'today' | 'yesterday' | 'week' | 'older';
+/** Stored moves older than this many days are folded away on Today. */
+export const MOVE_STALE_DAYS = 30;
+
+/** The calendar day (as a day count) a move belongs to; a filing is dated by EDGAR's filing day, whatever the viewer's zone. */
+function moveDayNumber(move: Pick<CompanyMove, 'publishedAt' | 'source'>): number {
+  const at = new Date(move.publishedAt);
+  return move.source === 'sec_filing'
+    ? Math.round(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()) / DAY_MS)
+    : Math.round(Date.UTC(at.getFullYear(), at.getMonth(), at.getDate()) / DAY_MS);
+}
+
+/** Whole calendar days between a move's day and `now`'s day (never negative). */
+export function moveAgeDays(move: Pick<CompanyMove, 'publishedAt' | 'source'>, now: Date): number {
+  const today = Math.round(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / DAY_MS);
+  return Math.max(0, today - moveDayNumber(move));
+}
+
+/** Today / Yesterday / This week (the days before that, up to a week back) / Older. */
+export function moveDayBucket(move: Pick<CompanyMove, 'publishedAt' | 'source'>, now: Date): MoveDayBucket {
+  const age = moveAgeDays(move, now);
+  return age === 0 ? 'today' : age === 1 ? 'yesterday' : age <= 7 ? 'week' : 'older';
+}
+
+const BUCKET_ORDER: Record<MoveDayBucket, number> = { today: 0, yesterday: 1, week: 2, older: 3 };
+
+/** Today's order: unread first, then the day group (today, yesterday, this week, older), then importance, then newest. */
+export function rankMoves(moves: readonly CompanyMove[], now: Date = new Date()): CompanyMove[] {
   return [...moves].sort((a, b) => Number(Boolean(a.readAt)) - Number(Boolean(b.readAt))
+    || BUCKET_ORDER[moveDayBucket(a, now)] - BUCKET_ORDER[moveDayBucket(b, now)]
     || b.importance - a.importance || b.publishedAt.localeCompare(a.publishedAt));
 }
 

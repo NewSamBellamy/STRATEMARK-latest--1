@@ -545,6 +545,11 @@ export class MockRepository implements MarketIntelRepository {
     return this.delay(undefined);
   }
 
+  markMovesRead(moveIds: readonly string[]): Promise<void> {
+    for (const id of moveIds) this.readMoves.add(id);
+    return this.delay(undefined);
+  }
+
   /** The demo holds no researched product pages. */
   peekProductBrief(): Promise<null> {
     return Promise.resolve(null);

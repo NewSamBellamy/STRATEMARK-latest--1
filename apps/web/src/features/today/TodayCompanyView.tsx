@@ -32,6 +32,7 @@ import { localDate } from '@/features/export/exportModel';
 import {
   KIND_LABEL,
   MIN_WANTED,
+  MOVE_KIND_LABEL,
   pickTodayUpdates,
   unreadCount,
   updatesFromMoves,
@@ -50,7 +51,8 @@ function dateText(update: TodayUpdate): string {
   return update.dateKind === 'found' ? `found ${when}` : when;
 }
 
-export function TodayCompanyView({ companyId }: { companyId: string }) {
+/** `since`: when Today was last opened before this visit; moves found after it (and unread) are "New". */
+export function TodayCompanyView({ companyId, since = null }: { companyId: string; since?: string | null }) {
   const company = useCompany(companyId).data ?? null;
   const card = useCompanyCard(companyId).data ?? null;
   const moves = useMoves();
@@ -129,7 +131,7 @@ export function TodayCompanyView({ companyId }: { companyId: string }) {
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-ghost text-[13px]" disabled={refreshMoves.isPending}
               title="Look for new releases, news and filings now, even if they were checked today."
-              onClick={() => refreshMoves.mutate(true)}>
+              onClick={() => refreshMoves.mutate({ force: true, companyIds: [companyId] })}>
               {refreshMoves.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               Check news now
             </button>
@@ -142,6 +144,11 @@ export function TodayCompanyView({ companyId }: { companyId: string }) {
           </div>
         </div>
 
+        {refreshMoves.isError && (
+          <p role="alert" className="mb-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-[13px] text-muted">
+            The check didn’t finish: {(refreshMoves.error instanceof Error ? refreshMoves.error.message : 'unknown error').replace(/[.\s]+$/, '')}. Stored updates are still shown.
+          </p>
+        )}
         {refreshSentiment.isError && (
           <p role="alert" className="mb-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-[13px] text-muted">
             The sentiment check didn’t finish: {refreshSentiment.error instanceof Error ? refreshSentiment.error.message : 'unknown error'}.
@@ -157,13 +164,14 @@ export function TodayCompanyView({ companyId }: { companyId: string }) {
             <li key={update.id} className={cn('panel flex items-start gap-3 p-4', update.readAt && 'opacity-70')}>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                  <span className="rounded-full bg-surface-2 px-2 py-0.5 font-medium">{KIND_LABEL[update.kind]}</span>
+                  <span className="rounded-full bg-surface-2 px-2 py-0.5 font-medium">{update.moveKind ? MOVE_KIND_LABEL[update.moveKind] : KIND_LABEL[update.kind]}</span>
                   {update.sentiment && (
                     <span className={cn('rounded-full border px-2 py-0.5 font-medium', SENTIMENT_STYLE[update.sentiment])} title="The sentiment research tagged this item with">
                       {update.sentiment}
                     </span>
                   )}
                   {update.importance === 3 && <span className="rounded-full bg-primary/8 px-2 py-0.5 font-medium text-primary">Major</span>}
+                  {update.foundAt && !update.readAt && (!since || update.foundAt > since) && <span className="font-semibold text-primary">New</span>}
                 </div>
                 <a href={safeHttpUrl(update.url)} target="_blank" rel="noopener noreferrer"
                   className={cn('mt-1 block text-[15px] leading-snug text-content hover:text-primary hover:underline', !update.readAt && 'font-semibold')}
