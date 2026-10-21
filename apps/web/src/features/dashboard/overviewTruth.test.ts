@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { eventDateIndex, newestFirst, storiesCaption } from './overviewTruth';
+import { eventDateIndex, newestFirst, sourceCoverage, storiesCaption } from './overviewTruth';
+
+describe('sourceCoverage', () => {
+  const fig = (url: string | null) => ({ citations: url ? [{ url, title: 't' }] : [] });
+  it('counts distinct sites, not citations', () => {
+    expect(sourceCoverage([fig('https://www.forbes.com/a'), fig('https://forbes.com/b')])).toBe('Backed by 1 source');
+    expect(sourceCoverage([fig('https://forbes.com/a'), fig('https://reuters.com/b'), fig('https://sec.gov/c'), fig(null)])).toBe('Backed by 3 sources');
+  });
+  it('says nothing when no figure has a linked source', () => {
+    expect(sourceCoverage([fig(null)])).toBeNull();
+  });
+});
 
 describe('newestFirst', () => {
   it('orders mixed quarter, month and year dates newest first and keeps titles untouched', () => {

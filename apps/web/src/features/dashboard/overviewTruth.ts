@@ -26,6 +26,27 @@ export function storiesCaption(items: readonly Story[]): string | null {
   return `${live.length} ${noun} (${dated} with a reported date)`;
 }
 
+/**
+ * "Backed by 1 source": how many distinct publishers stand behind the figures
+ * shown, counted by site from linked citations only. A coverage signal; null
+ * when no figure has a linked source (nothing is implied).
+ */
+export function sourceCoverage(figures: ReadonlyArray<{ citations: ReadonlyArray<{ url: string; title?: string | null }> }>): string | null {
+  const sites = new Set<string>();
+  for (const figure of figures) {
+    const link = figure.citations.find((c) => /^https?:\/\//i.test(c.url));
+    if (!link) continue;
+    let site: string;
+    try {
+      site = new URL(link.url).hostname.replace(/^www\./, '').toLowerCase();
+    } catch { continue; }
+    // Search redirects hide the publisher: count by its recorded name instead.
+    if (/vertexaisearch|grounding-api-redirect/.test(site)) site = (link.title ?? '').trim().toLowerCase();
+    if (site) sites.add(site);
+  }
+  return sites.size === 0 ? null : `Backed by ${sites.size} ${sites.size === 1 ? 'source' : 'sources'}`;
+}
+
 const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 const PART_MONTH: Record<string, number> = { early: 0, mid: 5, late: 9, spring: 2, summer: 5, fall: 8, winter: 11 };
 
