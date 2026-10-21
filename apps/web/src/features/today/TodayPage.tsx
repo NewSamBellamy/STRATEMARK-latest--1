@@ -214,7 +214,7 @@ export default function TodayPage() {
           description="Press the sun icon on a company’s card (or choose More → Follow on Today in a deck). Today checks those companies when you open it, and about once a day while it stays open, and lists what they did: funding, launches, hires, deals and filings, each dated and linked to its source."
           icon={<Sun weight="duotone" size={24} />}
           action={<Link to="/history" className="btn-primary">Open a deck</Link>}
-          compact
+          page
         />
       ) : selected ? (
         <TodayCompanyView key={selected} companyId={selected} since={since} />
@@ -247,7 +247,7 @@ export default function TodayPage() {
                 ? 'Some of the news and filings could not be reached, so this is not a full answer yet. Today tries those companies again later.'
                 : 'Nothing dated in the last week from the news feed or SEC filings for the companies you follow. Today looks again when you next open it, and about once a day while it stays open.'}
               icon={<Sun weight="duotone" size={24} />}
-              compact
+              page
             />
           )}
           {all.length > 0 && shown.length === 0 && <p className="py-8 text-center text-sm text-muted">No moves of this kind.</p>}

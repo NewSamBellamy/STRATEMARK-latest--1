@@ -2,9 +2,9 @@ import { useMemo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { formatDateTime } from '@/lib/format';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { BackLink } from '@/components/ui/BackLink';
 import {
   AlertCircle,
-  ArrowLeft,
   ChevronRight,
   FileText,
   Layers,
@@ -253,10 +253,7 @@ export default function DeckPage() {
       <div className="mb-6">
         {/* Back link */}
         {!readOnly && (
-          <Link to="/history" className="inline-flex items-center gap-1 text-[12px] font-medium text-muted hover:text-primary-ink transition-colors">
-            <ArrowLeft className="h-3 w-3" />
-            Back
-          </Link>
+          <BackLink to="/history">Back to all decks</BackLink>
         )}
 
         {/* Title row */}
