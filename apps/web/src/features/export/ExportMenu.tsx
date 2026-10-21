@@ -20,7 +20,8 @@ import type { CardWithCompany, ThreadMessage } from '@mi/contracts';
 import { cn } from '@/lib/cn';
 import { usePopoverSide } from '@/lib/usePopoverSide';
 import { useGenerateReport } from '@/hooks/data';
-import { useSupports } from '@/lib/repository/RepositoryProvider';
+import { useCompanyCard } from '@/hooks/today';
+import { useRepository, useSupports } from '@/lib/repository/RepositoryProvider';
 import { ShareDialog } from '@/features/share/ShareDialog';
 import { ReportBuilderDialog } from '@/features/reports/ReportBuilderDialog';
 import { useCompanyReportRun } from '@/features/reports/useCompanyReportRun';
@@ -28,6 +29,7 @@ import type { SharePayload } from '@/lib/share/codec';
 import { exportDeckPptx } from '@/features/reports/pptx';
 import type { PrintJob } from './PrintDocument';
 import { usePrintJob } from './usePrintJob';
+import { buildFullReport, type SignalBriefsInput } from './fullReportModel';
 import {
   buildReportModel,
   companiesFromCards,
@@ -39,8 +41,13 @@ import {
   type ExportCompany,
 } from './exportModel';
 
+/** The stored dashboard sections a company report reads. */
+const PROFILE_TABS = ['overview', 'products_roadmap', 'team_org', 'history', 'live_intel'] as const;
+type StoredTabsInput = Record<string, Partial<Record<(typeof PROFILE_TABS)[number], { content: unknown; lastRefreshedAt?: string }>>>;
+
 export interface ExportMenuProps {
-  deck?: { title: string; cards: readonly CardWithCompany[] };
+  /** `id` lets the PDF carry what the deck has stored beyond its cards (profiles, history, news). */
+  deck?: { id?: string; title: string; cards: readonly CardWithCompany[] };
   company?: ExportCompany;
   transcript?: { title: string; scopeLabel?: string | null; messages: readonly ThreadMessage[] };
   className?: string;
@@ -93,6 +100,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
   const generateReport = useGenerateReport();
   const runCompanyReport = useCompanyReportRun();
   const canGenerate = useSupports('generateReport');
+  const repo = useRepository();
 
   useEffect(() => {
     if (!open) return;
@@ -120,18 +128,52 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
   const deckCompanies = deck ? companiesFromCards(deck.cards) : [];
   const date = localDate();
 
-  const deckReport = () =>
-    deck &&
-    print(
-      { kind: 'report', model: buildReportModel({ title: deck.title, kind: 'deck', companies: deckCompanies }) },
-      `${deck.title} - Stratemark market report`,
-    );
-  const companyReport = () =>
-    company &&
-    print(
-      { kind: 'report', model: buildReportModel({ title: company.name, kind: 'company', companies: [company] }) },
-      `${company.name} - Stratemark company report`,
-    );
+  const deckReport = async () => {
+    if (!deck) return;
+    const fileTitle = `${deck.title} - Stratemark market report`;
+    const short = () => print({ kind: 'report', model: buildReportModel({ title: deck.title, kind: 'deck', companies: deckCompanies }) }, fileTitle);
+    if (!deck.id || !repo.exportShareSnapshot) return short();
+    // The full report is built from what the deck has already stored (profiles, history, news, signals): no research.
+    setOpen(false);
+    setBusy('report');
+    setError(null);
+    try {
+      const snapshot = await repo.exportShareSnapshot({ deckId: deck.id });
+      print({ kind: 'marketReport', model: buildFullReport({ title: deck.title, cards: deck.cards, tabs: snapshot.dashboards, signalBriefs: (snapshot as { signalBriefs?: SignalBriefsInput }).signalBriefs }) }, fileTitle);
+    } catch {
+      short();
+    } finally {
+      setBusy(null);
+    }
+  };
+  const companyCard = useCompanyCard(company?.id);
+  const companyReport = async () => {
+    if (!company) return;
+    const fileTitle = `${company.name} - Stratemark company report`;
+    const figuresOnly = () =>
+      print({ kind: 'report', model: buildReportModel({ title: company.name, kind: 'company', companies: [company] }) }, fileTitle);
+    // Usually loaded already; when the click came first, wait for it rather than fall back to the figures alone.
+    const card = companyCard.data ?? (await companyCard.refetch().catch(() => null))?.data ?? null;
+    if (!card) return figuresOnly();
+    // The card face and the stored profile (overview, products, team, history, news) are read from what is already
+    // stored, at no research cost (a repository that cannot peek contributes none); a section never researched is left out.
+    setOpen(false);
+    setBusy('report');
+    setError(null);
+    try {
+      const stored: StoredTabsInput[string] = {};
+      for (const tab of PROFILE_TABS) {
+        const r = await repo.peekDashboardTab?.(company.id, tab);
+        if (r) stored[tab] = { content: r.content, ...(r.lastRefreshedAt ? { lastRefreshedAt: r.lastRefreshedAt } : {}) };
+      }
+      const full = buildFullReport({ title: company.name, cards: [card], tabs: { [company.id]: stored } });
+      print({ kind: 'report', model: { ...full, kind: 'company' } }, fileTitle);
+    } catch {
+      figuresOnly();
+    } finally {
+      setBusy(null);
+    }
+  };
   const csv = () => {
     setOpen(false);
     if (deck) downloadText(`${fileSlug(deck.title)}-metrics-${date}.csv`, metricsToCsv(deck.title, deckCompanies), 'text/csv');
@@ -277,9 +319,9 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
           })}
           {deck && (
             <>
-              <button role="menuitem" type="button" className={ITEM} disabled={deckCompanies.length === 0} onClick={deckReport}>
+              <button role="menuitem" type="button" className={ITEM} disabled={deckCompanies.length === 0} onClick={() => void deckReport()}>
                 <Printer className="h-4 w-4 text-muted" />
-                <span>Deck report (PDF)<span className="block text-[11px] text-faint">Cover, contents, every company, sources</span></span>
+                <span>Deck report (PDF)<span className="block text-[11px] text-faint">Full report: signals, every company, sources</span></span>
               </button>
               <button role="menuitem" type="button" className={ITEM} disabled={deckCompanies.length === 0} onClick={csv}>
                 <FileSpreadsheet className="h-4 w-4 text-muted" />
@@ -293,7 +335,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
           )}
           {company && (
             <>
-              <button role="menuitem" type="button" className={ITEM} onClick={companyReport}>
+              <button role="menuitem" type="button" className={ITEM} onClick={() => void companyReport()}>
                 <Printer className="h-4 w-4 text-muted" />
                 <span>Company report (PDF)<span className="block text-[11px] text-faint">Metrics table with source footnotes</span></span>
               </button>

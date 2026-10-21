@@ -296,7 +296,7 @@ export default function DeckPage() {
               {compare ? 'Cancel' : 'Compare'}
             </button>}
             <ExportMenu
-              deck={{ title: market.data?.name ?? 'Market deck', cards: all }}
+              deck={{ ...(deckId ? { id: deckId } : {}), title: market.data?.name ?? 'Market deck', cards: all }}
               share={all.length === 0 ? undefined : {
                 title: market.data?.name ?? 'Market deck',
                 subtitle: 'Full deck — research snapshot',
