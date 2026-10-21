@@ -35,6 +35,11 @@ describe('newestFirst', () => {
     const rows = [{ date: 'Soon', title: 'x' }, { date: '2020', title: 'y' }, { date: 'Later', title: 'z' }];
     expect(newestFirst(rows).map((r) => r.title)).toEqual(['y', 'x', 'z']);
   });
+  it('reads numeric ISO dates', () => {
+    expect(eventDateIndex('2026-03-04')).toBe(2026 * 12 + 2);
+    expect(eventDateIndex('2026-03')).toBe(2026 * 12 + 2);
+    expect(eventDateIndex('2026-13-04')).toBeNull();
+  });
   it('does not read a range as a date', () => {
     expect(eventDateIndex('2019-2021')).toBeNull();
   });
