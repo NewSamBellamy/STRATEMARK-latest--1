@@ -60,7 +60,8 @@ describe('the printed market report', () => {
     const { container } = render(<PrintDocument job={{ kind: 'marketReport', model }} />);
     const text = container.textContent ?? '';
     expect(text).not.toContain('Market signals');
-    expect(container.querySelector('#sm-signals')).toBeNull();
+    // Risk and culture signals with a source still print (the sample deck has them); the section holds exactly the printable ones.
+    expect(container.querySelectorAll('.sm-sigcard').length).toBe(model.signalTally.printable);
     expect(text).not.toMatch(/\d+ market signals/);
   });
 

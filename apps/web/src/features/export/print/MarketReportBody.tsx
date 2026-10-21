@@ -43,9 +43,9 @@ export function MarketReportBody({ model }: { model: FullReportModel }) {
 
       {model.companies.map((c, i) => <CompanySpread key={c.id} company={c} index={i} section={outline.companies} />)}
 
-      <div id={MARKET_ANCHORS.signals}><SignalSection model={model} /></div>
-      <div id={MARKET_ANCHORS.methods}><MethodsPage model={model} /></div>
-      <div id={MARKET_ANCHORS.sources}><SourcesList sources={model.sources} /></div>
+      <SignalSection model={model} />
+      <MethodsPage model={model} />
+      <SourcesList sources={model.sources} />
     </div>
   );
 }
