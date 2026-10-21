@@ -8,8 +8,8 @@ export default function NotFoundPage() {
       <p className="mt-2 text-sm text-muted">
         The view you were looking for doesn’t exist or has moved.
       </p>
-      <Link to="/" className="btn-primary mt-6 inline-flex">
-        Back to Markets
+      <Link to="/history" className="btn-primary mt-6 inline-flex">
+        Back to All Decks
       </Link>
     </div>
   );
