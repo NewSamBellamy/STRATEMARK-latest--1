@@ -72,6 +72,21 @@ export function eventDateIndex(raw: string): number | null {
 }
 
 /**
+ * "stated 5 Oct 2026" for a milestone dated after the research was captured:
+ * a forward-looking claim is a statement made on the capture date, not a
+ * fact on its own date. Null for past or unreadable dates, or when the
+ * capture date is unknown (never a guessed one).
+ */
+export function statedNote(eventDate: string, capturedAt: string | null | undefined): string | null {
+  const at = eventDateIndex(eventDate);
+  const captured = capturedAt ? new Date(capturedAt) : null;
+  if (at === null || !captured || !Number.isFinite(captured.getTime())) return null;
+  if (at <= captured.getUTCFullYear() * 12 + captured.getUTCMonth()) return null;
+  const day = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(captured);
+  return `stated ${day}`;
+}
+
+/**
  * Milestones newest first, in one consistent order. Dates that cannot be read
  * go last in the order research gave them; titles are passed through untouched.
  */

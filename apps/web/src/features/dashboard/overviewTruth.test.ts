@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { eventDateIndex, newestFirst, sourceCoverage, storiesCaption } from './overviewTruth';
+import { eventDateIndex, newestFirst, sourceCoverage, statedNote, storiesCaption } from './overviewTruth';
+
+describe('statedNote', () => {
+  it('stamps a future-dated item with the capture date', () => {
+    expect(statedNote('Q2 2027', '2026-10-05T10:00:00Z')).toBe('stated 5 Oct 2026');
+  });
+  it('says nothing for past dates, unreadable dates or an unknown capture date', () => {
+    expect(statedNote('March 2025', '2026-10-05T10:00:00Z')).toBeNull();
+    expect(statedNote('Soon', '2026-10-05T10:00:00Z')).toBeNull();
+    expect(statedNote('2030', null)).toBeNull();
+  });
+});
 
 describe('sourceCoverage', () => {
   const fig = (url: string | null) => ({ citations: url ? [{ url, title: 't' }] : [] });

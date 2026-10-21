@@ -23,7 +23,7 @@ import { KpiTileSkeleton, Section, metricLabel, useTabHref } from '../dashboardK
 import { usePeers } from '../usePeers';
 import { buildFigureSet, currencyCaptionFor, figureDates, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
 import { useCachedDashboardTab } from '../useCachedTab';
-import { newestFirst, sourceCoverage } from '../overviewTruth';
+import { newestFirst, sourceCoverage, statedNote } from '../overviewTruth';
 import { ArticleReader, TopStories } from './LiveIntelTab';
 import { SitePreview } from './LiveLandingTab';
 import { VideoStrip } from '@/components/media/StoryMedia';
@@ -231,7 +231,10 @@ function Milestones({ companyId }: { companyId: string }) {
       <ol className="panel relative space-y-3 px-5 py-4">
         {timeline.map((e, i) => (
           <li key={i} className="grid grid-cols-[96px_minmax(0,1fr)] gap-3 text-[13.5px] leading-snug">
-            <span className="tabular-nums text-faint">{e.date}</span>
+            <span className="tabular-nums text-faint">
+              {e.date}
+              {statedNote(e.date, history?.lastRefreshedAt) && <span className="block text-[11px]">{statedNote(e.date, history?.lastRefreshedAt)}</span>}
+            </span>
             <span className="text-content">{e.title}</span>
           </li>
         ))}
