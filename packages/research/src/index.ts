@@ -61,4 +61,6 @@ export * from './dashboard-warmup';
 export * from './founded-year';
 export * from './history-video';
 export * from './product-brief';
+export * from './signal-brief';
+export * from './signal-brief-sift';
 export * from './link-reader';

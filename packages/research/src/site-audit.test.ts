@@ -151,6 +151,36 @@ describe('generateReport — deck reports gate on a baked deck', () => {
     expect(ground).not.toHaveBeenCalled();
   });
 
+  it('does not make a report written from a conversation wait for the deck, and digests only cards that have formed', async () => {
+    const ground = vi.fn().mockResolvedValue({
+      text: '## Executive summary\nFrom the conversation.',
+      citations: [{ title: 'Reuters', url: 'https://reuters.com/x' }],
+      queries: [],
+    });
+    const structure = vi.fn();
+    const snap = snapshot({ formingCard: true });
+    snap.threads = [{
+      id: 'thr_1', scope: { kind: 'deck', deckId: 'deck_1' }, title: 'Who is winning', createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(), reportId: null,
+      messages: [
+        { id: 'm1', role: 'user', text: 'Who is winning?', citations: [], createdAt: new Date().toISOString() },
+        { id: 'm2', role: 'assistant', text: 'OpenAI leads on distribution.', citations: [{ title: 'Reuters', url: 'https://www.reuters.com/openai' }], createdAt: new Date().toISOString() },
+      ],
+    }] as unknown as RepoSnapshot['threads'];
+    const repo = repoWith({ ground, structure } as unknown as LlmClient, snap);
+
+    const report = await repo.saveThreadAsReport('thr_1', null);
+
+    expect(report.kind).toBe('deck');
+    // Every call that reached the model: the digest names the formed company and leaves out the one still forming.
+    const prompts = ground.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(prompts).toContain('OpenAI');
+    expect(prompts).toContain('OpenAI leads on distribution.');
+    expect(prompts).not.toMatch(/COMPANY \[tier \?\] Anthropic/);
+    // The same deck, asked for without a conversation, still waits.
+    await expect(repo.generateReport({ kind: 'deck', subjectId: 'deck_1' })).rejects.toThrow(/still forming/);
+  });
+
   it('composes normally once the deck is baked', async () => {
     const ground = vi.fn().mockResolvedValue({
       text: '## Executive summary\nAll good.',

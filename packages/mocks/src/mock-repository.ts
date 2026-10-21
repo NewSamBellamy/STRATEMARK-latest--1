@@ -810,10 +810,11 @@ export class MockRepository implements MarketIntelRepository {
     return this.delay({ ...thread, messages: [...thread.messages] });
   }
 
-  listResearchThreads(filter?: { deckId?: string; companyId?: string }): Promise<ResearchThread[]> {
+  listResearchThreads(filter?: { deckId?: string; companyId?: string; cardId?: string }): Promise<ResearchThread[]> {
     const out = this.threads
       .filter((t) => (filter?.deckId ? t.scope.deckId === filter.deckId : true))
-      .filter((t) => (filter?.companyId ? t.scope.companyId === filter.companyId : true));
+      .filter((t) => (filter?.companyId ? t.scope.companyId === filter.companyId : true))
+      .filter((t) => (filter?.cardId ? (t.scope.cardIds ?? []).includes(filter.cardId) : true));
     return this.delay(out.map((t) => ({ ...t, messages: [...t.messages] })));
   }
 

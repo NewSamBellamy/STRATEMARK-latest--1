@@ -26,6 +26,8 @@ import {
   X,
   Paperclip,
   MessagesSquare,
+  History,
+  Plus,
 } from 'lucide-react';
 import { publisherOf, type Citation, type DeepDiveInput, type ResearchScope, type ResearchThread } from '@mi/contracts';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
@@ -36,14 +38,40 @@ import { Logo } from '@/features/card/Logo';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { ExportMenu } from '@/features/export/ExportMenu';
+import { ReportWizard } from '@/features/reports/ReportWizard';
+import { useCompanyReportRun } from '@/features/reports/useCompanyReportRun';
 import { splitFollowUps } from './followUps';
 import { AskOrb } from './AskOrb';
 import { CardThumbStrip } from './CardThumbs';
 import { resolveOrbScope } from './orbScope';
+import { PanelHistory, sortThreadsNewest, type MemoryKey } from './PanelHistory';
 import logoMark from '@/assets/logo-mark.svg';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
 
 type PanelMode = 'locked' | 'floating';
+
+/** A question asked this soon after a conversation's last turn is added to it; later ones start a new conversation. */
+const CONTINUE_WITHIN_MS = 14 * 24 * 60 * 60 * 1000;
+
+function lastTurnAt(thread: ResearchThread): number {
+  const last = thread.messages[thread.messages.length - 1]?.at ?? thread.updatedAt;
+  const ms = Date.parse(last);
+  return Number.isFinite(ms) ? ms : Date.parse(thread.updatedAt);
+}
+
+/** Whether a question asked now still belongs to this conversation. */
+function isRecentThread(thread: ResearchThread, now = Date.now()): boolean {
+  const at = lastTurnAt(thread);
+  return Number.isFinite(at) && now - at <= CONTINUE_WITHIN_MS;
+}
+
+/** What a scope's conversations hang on: one card, or (for a company card) its company. Several cards or a deck have none. */
+function memoryKeyOf(s: ResearchScope | null): MemoryKey | null {
+  if (!s) return null;
+  if (s.cardIds?.length === 1) return { cardId: s.cardIds[0] };
+  if ((s.kind === 'company' || s.kind === 'datapoint') && s.companyId) return { companyId: s.companyId };
+  return null;
+}
 
 const WIDTH_MIN = 340;
 const WIDTH_MAX = 760;
@@ -159,6 +187,8 @@ interface ChatOptions {
   placeholder?: string;
   /** Prefills the box (editable) without sending — a ready question to start from. */
   draft?: string;
+  /** Start a new conversation on purpose instead of resuming the card's latest one. */
+  newChat?: boolean;
 }
 
 interface DeepDiveContextValue {
@@ -278,9 +308,14 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     queryFn: () => repo.listResearchThreads!(),
     enabled: attachOpen && typeof repo.listResearchThreads === 'function',
   });
-  const [savingReport, setSavingReport] = useState(false);
-  const [reportFocus, setReportFocus] = useState('');
-  const [showReportForm, setShowReportForm] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // Latest chat() call, so a slow lookup of the card's last conversation cannot land on a panel that moved on.
+  const runRef = useRef(0);
+  // A conversation picked from History on purpose keeps going whatever its age.
+  const pickedRef = useRef<string | null>(null);
+  const runCompanyReport = useCompanyReportRun();
+  const reportCompanyName = useCompany(thread?.scope.companyId ?? undefined).data?.name ?? thread?.scope.subject ?? 'this company';
 
   // ── Layout preferences (persisted) ──
   const isDesktop = useIsDesktop();
@@ -347,18 +382,19 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
   const reset = () => {
     setThread(null);
     setError(null);
-    setShowReportForm(false);
-    setReportFocus('');
+    setWizardOpen(false);
     setDraft('');
     setPending(null);
     setFailed(null);
     setAttachOpen(false);
     setAttachedReportIds([]);
     setAttachedThreadIds([]);
+    setHistoryOpen(false);
   };
 
-  const ask = async (question: string, forScope: ResearchScope | null, threadId?: string) => {
+  const ask = async (question: string, forScope: ResearchScope | null, threadId?: string, fresh?: boolean) => {
     if (!repo.askResearch) return;
+    setHistoryOpen(false);
     setBusy(true);
     setError(null);
     setFailed(null);
@@ -370,11 +406,12 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
           : undefined;
       const t = await repo.askResearch(
         threadId
-          ? { threadId, question, attachments }
-          : { scope: forScope ?? undefined, question, attachments },
+          ? { threadId, question, attachments, ...(fresh ? { fresh: true } : {}) }
+          : { scope: forScope ?? undefined, question, attachments, ...(fresh ? { fresh: true } : {}) },
       );
       setThread(t);
       void qc.invalidateQueries({ queryKey: ['researchThreads'] });
+      void qc.invalidateQueries({ queryKey: ['cardMemory'] });
     } catch (e) {
       setError(chatErrorMessage(e instanceof Error ? e.message : String(e), hasKey));
       setFailed({ question, scope: forScope, threadId });
@@ -396,15 +433,55 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
       return;
     }
     reset();
+    pickedRef.current = null;
+    const run = ++runRef.current;
     setScope(s);
     setPlaceholder(opts?.placeholder);
     if (opts?.draft) setDraft(opts.draft);
     setOpenState(true);
-    if (opts?.seed) void ask(opts.seed, s);
+    const key = memoryKeyOf(s);
+    if (!key || opts?.newChat || typeof repo.listResearchThreads !== 'function') {
+      if (opts?.seed) void ask(opts.seed, s);
+      return;
+    }
+    // A card remembers: reopen its latest conversation. A question asked soon after it is added to it; an older
+    // conversation stays in History and the question starts a new one. Nothing here calls a model.
+    void repo
+      .listResearchThreads(key)
+      .then((list) => {
+        if (run !== runRef.current) return;
+        const latest = sortThreadsNewest(list)[0];
+        if (!latest) {
+          if (opts?.seed) void ask(opts.seed, s);
+        } else if (!opts?.seed) {
+          setThread(latest);
+        } else if (isRecentThread(latest)) {
+          setThread(latest);
+          void ask(opts.seed, s, latest.id);
+        } else void ask(opts.seed, s);
+      })
+      .catch(() => {
+        if (run === runRef.current && opts?.seed) void ask(opts.seed, s);
+      });
   };
+
+  /** Start a fresh conversation about the same subject, on purpose. */
+  const newChat = () => {
+    const s = scope;
+    reset();
+    pickedRef.current = null;
+    runRef.current += 1;
+    setScope(s);
+  };
+
+  /** The conversation a typed question belongs to: the open one, unless it has gone cold (opened from History on purpose excepted). */
+  const threadIdFor = (t: ResearchThread | null): string | undefined =>
+    t && t.id !== 'oneshot' && (t.id === pickedRef.current || isRecentThread(t)) ? t.id : undefined;
 
   const openThread = (threadId: string) => {
     reset();
+    pickedRef.current = threadId;
+    runRef.current += 1;
     setOpenState(true);
     setBusy(true);
     void repo
@@ -484,22 +561,21 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     const q = draft.trim();
     if (!q || busy) return;
     setDraft('');
-    void ask(q, scope, thread && thread.id !== 'oneshot' ? thread.id : undefined);
+    void ask(q, scope, threadIdFor(thread));
   };
 
+  // "Save this chat as a report": a company chat opens the report wizard with this conversation chosen;
+  // a deck-wide chat has no company sections to pick, so it is saved straight away.
   const saveReport = async () => {
     if (!repo.saveThreadAsReport || !thread || thread.id === 'oneshot') return;
-    setSavingReport(true);
+    if (thread.scope.companyId) { setWizardOpen(true); return; }
     setError(null);
     try {
-      const report = await repo.saveThreadAsReport(thread.id, reportFocus.trim() || null);
+      const report = await repo.saveThreadAsReport(thread.id, null);
       setThread({ ...thread, reportId: report.id });
-      setShowReportForm(false);
       void qc.invalidateQueries({ queryKey: ['reports'] });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSavingReport(false);
     }
   };
 
@@ -592,6 +668,28 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
             </h2>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {conversational && thread && thread.id !== 'oneshot' && (
+              <button
+                type="button"
+                onClick={newChat}
+                className="inline-flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] font-medium text-muted hover:bg-surface-2 hover:text-content"
+                title="Start a new conversation"
+              >
+                <Plus className="h-3.5 w-3.5" /> New chat
+              </button>
+            )}
+            {conversational && typeof repo.listResearchThreads === 'function' && (
+              <button
+                type="button"
+                onClick={() => setHistoryOpen((v) => !v)}
+                aria-pressed={historyOpen}
+                className={cn('rounded-lg p-1 hover:bg-surface-2 hover:text-content', historyOpen ? 'bg-surface-2 text-content' : 'text-muted')}
+                aria-label="History"
+                title="Your conversations"
+              >
+                <History className="h-4 w-4" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setMode(mode === 'locked' ? 'floating' : 'locked')}
@@ -606,7 +704,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                 variant="icon"
                 transcript={{ title: thread.title ?? scopeLabel, scopeLabel, messages: thread.messages }}
                 report={canConverse && canSaveReport && !thread.reportId
-                  ? { label: 'Save this chat as a report', onClick: () => setShowReportForm(true) }
+                  ? { label: 'Save this chat as a report', onClick: () => void saveReport() }
                   : undefined}
               />
             )}
@@ -633,28 +731,40 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
         {/* In-context reference chips — shows exactly what the chat is anchored to. */}
         {scope && <ContextChips scope={scope} />}
 
-        {showReportForm && (
-          <div className="border-b border-border bg-surface-2 px-4 py-2.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted" htmlFor="report-focus">
-              Report focus
-            </label>
-            <div className="mt-1 flex gap-2">
-              <input
-                id="report-focus"
-                className="input flex-1 py-1.5 text-[13px]"
-                placeholder={thread?.title ?? 'e.g. who is winning enterprise'}
-                value={reportFocus}
-                onChange={(e) => setReportFocus(e.target.value)}
-              />
-              <button type="button" className="btn-primary px-2.5 py-1 text-[11px]" onClick={() => void saveReport()} disabled={savingReport}>
-                {savingReport ? 'Saving…' : 'Create'}
-              </button>
-            </div>
-          </div>
+        {wizardOpen && thread && thread.id !== 'oneshot' && thread.scope.companyId && (
+          <ReportWizard
+            open
+            onOpenChange={setWizardOpen}
+            companyId={thread.scope.companyId}
+            companyName={reportCompanyName}
+            cardId={thread.scope.cardIds?.length === 1 ? thread.scope.cardIds[0] : null}
+            deckId={thread.scope.deckId}
+            thread={thread}
+            onStart={(input) => {
+              const threadId = thread.id;
+              void runCompanyReport({
+                companyId: thread.scope.companyId as string,
+                companyName: reportCompanyName,
+                ...input,
+              }).then((reportId) => {
+                if (reportId) setThread((prev) => (prev && prev.id === threadId ? { ...prev, reportId } : prev));
+              });
+            }}
+          />
+        )}
+
+        {historyOpen && (
+          <PanelHistory
+            memoryKey={memoryKeyOf(scope)}
+            cardLabel={scope?.subject ?? null}
+            currentThreadId={thread?.id ?? null}
+            onOpenThread={openThread}
+            onOpenReport={close}
+          />
         )}
 
         {/* Conversation */}
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div ref={scrollRef} className={cn('min-h-0 flex-1 overflow-y-auto px-4 py-4', historyOpen && 'hidden')}>
           {(thread?.messages ?? []).length === 0 && !busy && !error && (
             <div className="flex flex-col gap-4 py-4 text-muted">
               {scope && <Greeting scope={scope} scopeLabel={scopeLabel} />}
@@ -698,6 +808,23 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                     </ReactMarkdown>
                   </article>
                   <SourceChips citations={m.citations} />
+                  {m.origin === 'memory' && (
+                    <p className="mt-1.5 text-[11px] text-faint">
+                      From your research on file
+                      {conversational && !busy && all[idx - 1]?.role === 'user' && (
+                        <>
+                          {' · '}
+                          <button
+                            type="button"
+                            className="underline hover:text-content"
+                            onClick={() => void ask(all[idx - 1]!.text, scope, thread && thread.id !== 'oneshot' ? thread.id : undefined, true)}
+                          >
+                            Search again
+                          </button>
+                        </>
+                      )}
+                    </p>
+                  )}
                   {isLast && !busy && conversational && parsed && parsed.followUps.length > 0 && (
                     <div className="mt-2.5 flex flex-wrap gap-1.5" aria-label="Suggested follow-up questions">
                       {parsed.followUps.map((q) => (
@@ -705,7 +832,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                           key={q}
                           type="button"
                           className="rounded-full border border-border bg-surface px-2.5 py-1 text-left text-[11.5px] text-muted transition-colors hover:border-primary/50 hover:text-primary-ink"
-                          onClick={() => void ask(q, scope, thread && thread.id !== 'oneshot' ? thread.id : undefined)}
+                          onClick={() => void ask(q, scope, threadIdFor(thread))}
                         >
                           {q}
                         </button>

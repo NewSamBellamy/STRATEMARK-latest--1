@@ -10,6 +10,13 @@ import { nameTokens, registrableDomain } from './registries/shared';
  */
 const EXTRA_SUFFIX = new Set(['pbc', 'group', 'holdings', 'holding', 'technologies', 'labs', 'lab', 'the']);
 
+/**
+ * "McDonald's" and "McDonalds" are one name, and "Procter & Gamble" is "Procter and Gamble". NOT applied by the shared
+ * alias matching below (other callers build their own phrases from the plain token folding and must keep matching them):
+ * the signal cards apply it to both the names and the text they compare.
+ */
+export const canon = (text: string): string => text.replace(/['\u2018\u2019`\u00b4]/g, '').replace(/&/g, ' and ');
+
 function phrase(raw: string, dropExtra: boolean): string {
   const tokens = nameTokens(raw);
   const kept = dropExtra ? tokens.filter((t) => !EXTRA_SUFFIX.has(t)) : tokens;
@@ -58,6 +65,21 @@ export function companyAliases(rawName: string, websiteUrl?: string | null): str
 function folded(text: string): string {
   return ` ${nameTokens(text).join(' ')} ` // nameTokens also drops legal suffixes; harmless for matching
     .replace(/\s+/g, ' ');
+}
+
+/**
+ * Where, in the folded text, each alias is named (start and end of the match, as whole words). Folding is the same as
+ * `mentionsCompany`, so positions from different aliases of the same text can be compared.
+ */
+export function aliasSpans(text: string, aliases: readonly string[]): Array<[number, number]> {
+  const hay = folded(text);
+  const spans: Array<[number, number]> = [];
+  for (const alias of aliases) {
+    if (!alias) continue;
+    const needle = ` ${alias} `;
+    for (let at = hay.indexOf(needle); at !== -1; at = hay.indexOf(needle, at + 1)) spans.push([at + 1, at + 1 + alias.length]);
+  }
+  return spans;
 }
 
 /** True when the text names the company by any of its aliases, as whole words. */

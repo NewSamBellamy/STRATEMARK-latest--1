@@ -48,7 +48,7 @@ test('culture and vice tabs open signal research instead of company dashboards',
   await cultureCard.click();
 
   let dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('region', { name: 'Research summary' })).toBeVisible();
+  await expect(dialog.getByRole('region', { name: 'Research finding' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: /ask about this finding/i })).toBeVisible();
   await expect(dialog.getByRole('region', { name: 'Core company figures' })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close' }).click();

@@ -112,6 +112,19 @@ describe('DeckStatusBar', () => {
     expect(activity).toHaveTextContent('Searching filings ×3');
   });
 
+  it('re-counts a creation-time coverage shortfall against the cards the deck holds now', async () => {
+    const repository = Object.assign(makeRepo(), {
+      listResearchJobs: async () => [job({ warnings: ['Coverage shortfall for vice: found 2, minimum is 4. More text', 'Coverage shortfall for culture: found 0, minimum is 4. More text'] })],
+    });
+    const cards = [full(1), ...[1, 2, 3, 4, 5].map((n) => deckCard(10 + n, [], 'vice')), ...[1, 2].map((n) => deckCard(20 + n, [], 'culture'))];
+    const { user } = renderWithProviders(<DeckStatusBar deckId="deck_1" marketName="Test" cards={cards} living={living()} />, { repository });
+    await user.click(await screen.findByRole('button', { name: /details/i }));
+    const notes = await screen.findByRole('region', { name: 'Coverage notes' });
+    // Five risk cards now: the old "found 2" note is gone. Two culture cards: the note says 2, not 0.
+    expect(notes).not.toHaveTextContent('risk and controversy');
+    expect(notes).toHaveTextContent('Found 2 sourced culture signals (aiming for 4)');
+  });
+
   it('turns a coverage shortfall into a plain sentence', () => {
     expect(plainCoverageNote('Coverage shortfall for vice: found 0, minimum is 4. More text'))
       .toBe('Found 0 sourced risk and controversy signals (aiming for 4). Only findings with a source are shown — nothing was made up to fill the gap.');

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CompanyMetric } from '@mi/contracts';
 import { CHAT_SYSTEM, NOT_IN_RESEARCH_PHRASE } from './prompts';
-import { buildChatPrompt, buildDeckChatContext, formatDeckRankings, formatMetricLine, formatConversation } from './chat-context';
+import { ANSWER_WORD_LIMITS, answerSize, buildChatPrompt, buildDeckChatContext, formatDeckRankings, formatLastTime, formatMetricLine, formatConversation, isGreeting, LAST_TIME_MAX_CHARS } from './chat-context';
 
 const base = {
   id: 'm1', companyId: 'c1', source: null, methodNote: null, capturedAt: '2026-01-01T00:00:00.000Z',
@@ -102,5 +102,62 @@ describe('chat context', () => {
     expect(CHAT_SYSTEM).toMatch(/NEVER invent or estimate a figure/);
     expect(CHAT_SYSTEM).toMatch(/NEVER answer from prior or training knowledge/);
     expect(CHAT_SYSTEM).toMatch(/Follow-ups:/);
+  });
+});
+
+describe('how long the answer should be', () => {
+  it('treats a greeting as small talk that never starts a search', () => {
+    for (const q of ['hey what\'s up', 'hi', 'Hello!', 'good morning', 'thanks!', 'hey there', 'what\'s up']) expect(isGreeting(q), q).toBe(true);
+    for (const q of ['hey, what is Sunrun\'s revenue?', 'hi can you compare Acme and Beta', 'thanks, now why is it falling', 'What do you think of OpenAI']) expect(isGreeting(q), q).toBe(false);
+  });
+
+  it('is brief for a greeting or a short one-figure question, deep for the whole picture, and standard otherwise', () => {
+    expect(answerSize('hey what\'s up')).toBe('brief');
+    expect(answerSize('What is Sunrun\'s revenue?')).toBe('brief');
+    expect(answerSize('how many employees does Acme have')).toBe('brief');
+    expect(answerSize('Give me the full picture on OpenAI')).toBe('deep');
+    expect(answerSize('write a report on the market')).toBe('deep');
+    expect(answerSize('deep dive on pricing')).toBe('deep');
+    expect(answerSize('Why is Acme losing share to Beta this year?')).toBe('standard');
+    // A comparison is not a one-figure question, even when short.
+    expect(answerSize('what is Acme vs Beta revenue')).toBe('standard');
+  });
+
+  it('is deep when three or more cards are being looked at together', () => {
+    expect(answerSize('who looks strongest', { cardIds: ['a', 'b', 'c'] })).toBe('deep');
+    expect(answerSize('who looks strongest', { cardIds: ['a', 'b'] })).toBe('standard');
+  });
+
+  it('puts the length and the last conversation into the prompt, with the question still last', () => {
+    const prompt = buildChatPrompt({
+      dataBlocks: ['DECK DATA'],
+      history: [],
+      question: 'hey what\'s up',
+      lastTime: { summary: 'We looked at the fine and why it mattered.', titles: ['About the fine', 'Their rivals', 'Margins', 'Older one'] },
+    });
+    expect(prompt).toContain(`ANSWER LENGTH: brief, at most ${ANSWER_WORD_LIMITS.brief} words`);
+    expect(prompt).toContain('LAST TIME');
+    expect(prompt).toContain('About the fine');
+    expect(prompt).not.toContain('Older one');
+    expect(prompt.trim().endsWith('hey what\'s up')).toBe(true);
+    expect(buildChatPrompt({ dataBlocks: [], history: [], question: 'full picture please' })).toContain(`deep, at most ${ANSWER_WORD_LIMITS.deep} words`);
+    expect(buildChatPrompt({ dataBlocks: [], history: [], question: 'x', size: 'deep' })).toContain('deep');
+  });
+
+  it('keeps the last-time memory short, and says nothing when there is none', () => {
+    expect(formatLastTime(null)).toBe('');
+    expect(formatLastTime({ summary: '  ', titles: [] })).toBe('');
+    const long = formatLastTime({ summary: 'word '.repeat(500) });
+    expect(long.length).toBeLessThan(LAST_TIME_MAX_CHARS + 200);
+    expect(long.endsWith('…')).toBe(true);
+  });
+
+  it('frames the assistant as a research partner who remembers and sizes its answers', () => {
+    expect(CHAT_SYSTEM).toMatch(/research partner and competitive-intelligence strategist/);
+    expect(CHAT_SYSTEM).toMatch(/LAST TIME/);
+    expect(CHAT_SYSTEM).toMatch(/ANSWER LENGTH/);
+    expect(CHAT_SYSTEM).toMatch(/research already on file or from this turn's fresh search/);
+    // The grounding rules are untouched.
+    expect(CHAT_SYSTEM).toContain(NOT_IN_RESEARCH_PHRASE);
   });
 });

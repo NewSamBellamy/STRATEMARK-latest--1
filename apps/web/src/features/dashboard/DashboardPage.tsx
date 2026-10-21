@@ -475,7 +475,7 @@ export default function DashboardPage() {
               {!readOnly && (
                 <ExportMenu
                   className="shrink-0"
-                  report={{ kind: 'company', subjectId: c.id, name: c.name }}
+                  report={{ kind: 'company', subjectId: c.id, name: c.name, cardId: fromCardId }}
                   company={{
                     id: c.id,
                     name: c.name,
