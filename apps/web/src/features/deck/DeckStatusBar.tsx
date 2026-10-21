@@ -266,7 +266,11 @@ export function DeckStatusBar({
         <p role="status" className="min-w-0 text-[12px] leading-snug">
           {phase === 'ready' && <Check className="mr-1 inline h-3.5 w-3.5 -translate-y-px text-positive" aria-hidden />}
           <span className="font-semibold text-content">{title}</span>
-          {meta.map((part) => <span key={part} className="text-muted"> · {part}</span>)}
+          {meta.map((part) => /not found yet$/.test(part) && gaps.length > 0
+            // The gap list already lives in Details ("Figures still missing"): this opens it.
+            ? <span key={part} className="text-muted"> · <button type="button" className="underline decoration-dotted underline-offset-2 hover:text-content"
+              aria-expanded={open} aria-controls="deck-status-detail" onClick={() => setOpen(true)}>{part}</button></span>
+            : <span key={part} className="text-muted"> · {part}</span>)}
           {!living.canVerify && phase !== 'creating' && (
             <span className="text-faint"> · live updates off{mode !== 'demo' && <> — <SettingsLink className="underline underline-offset-2 hover:text-content">add your key</SettingsLink></>}</span>
           )}

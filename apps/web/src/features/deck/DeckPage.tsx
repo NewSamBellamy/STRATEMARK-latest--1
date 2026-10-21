@@ -56,6 +56,7 @@ import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { EmptyState } from '@/components/states/EmptyState';
 import { CardGrid } from './CardGrid';
 import { deckActionPolicy } from './deck-actions';
+import { orderLane } from './lane-order';
 import { useRepository, useSupports } from '@/lib/repository/RepositoryProvider';
 import { useFollowCompanies, useFollows } from '@/hooks/today';
 
@@ -127,6 +128,24 @@ export default function DeckPage() {
     setCompare(false);
     setSelected(new Set());
   };
+  // Escape leaves Compare, and so does leaving the page (the selection is
+  // local state, so unmounting drops it; the effect also stops listening).
+  useEffect(() => {
+    if (!compare) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setCompare(false);
+        setSelected(new Set());
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [compare]);
+  // Navigating to another deck under the same mounted page also clears it.
+  useEffect(() => {
+    setCompare(false);
+    setSelected(new Set());
+  }, [marketId]);
   const askSelected = () => {
     if (!deckId || selected.size === 0) return;
     chat(
@@ -183,6 +202,13 @@ export default function DeckPage() {
     if (next.split) p.set('split', next.split);
     if (next.type) p.set('type', next.type);
     setParams(p);
+  };
+
+  // The reader's "Next lane": the next lane after this one that has cards.
+  const nextLaneFrom = (current: CardType): (() => void) | undefined => {
+    const next = CARD_TYPE_ORDER.slice(CARD_TYPE_ORDER.indexOf(current) + 1)
+      .find((t) => (countByType.get(t) ?? 0) > 0);
+    return next ? () => setSplit({ type: next }) : undefined;
   };
 
   // A missing deck is a dead end, not a deck: none of the deck chrome (title,
@@ -295,6 +321,8 @@ export default function DeckPage() {
               <SquareMousePointer className="h-3.5 w-3.5" />
               {compare ? 'Cancel' : 'Compare'}
             </button>}
+            {/* Kept together so the "..." never wraps onto a line of its own on phones. */}
+            <div className="flex items-center gap-1.5">
             <ExportMenu
               deck={{ ...(deckId ? { id: deckId } : {}), title: market.data?.name ?? 'Market deck', cards: all }}
               share={all.length === 0 ? undefined : {
@@ -337,6 +365,7 @@ export default function DeckPage() {
                 </>
               )}
             />
+            </div>
           </div>}
         </div>
 
@@ -486,7 +515,7 @@ export default function DeckPage() {
         {(list) => {
           // Level 1 leaf — a specific non-company sub-deck's cards.
           if (split === 'types' && typeParam) {
-            const filtered = list.filter((c) => c.card.cardType === typeParam);
+            const filtered = orderLane(list.filter((c) => c.card.cardType === typeParam));
             return (
               <section>
                 <TypeNav
@@ -501,7 +530,7 @@ export default function DeckPage() {
                 </h2>
                 <p className="mb-3 text-[12px] text-faint">{CARD_TYPE_DESCRIPTIONS[typeParam]}</p>
                 {filtered.length > 0 ? (
-                  <CardGrid cards={filtered} deckCards={all} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} />
+                  <CardGrid cards={filtered} deckCards={all} deckUserValues={userValues} marketId={marketId} deckStatus={deckStatus} onNextLane={nextLaneFrom(typeParam)} />
                 ) : (
                   <ExpandPrompt marketId={marketId} deckId={deckId} focus={{ cardType: typeParam }} label={`Hunt for ${cardCountNoun(typeParam, 2)} in this market`} />
                 )}
@@ -533,7 +562,7 @@ export default function DeckPage() {
             list.some((card) => card.card.cardType === type),
           );
           const defaultType: CardType = typeParam ?? firstPopulatedType ?? 'company';
-          const filtered = list.filter((c) => c.card.cardType === defaultType);
+          const filtered = orderLane(list.filter((c) => c.card.cardType === defaultType));
           return (
             <section>
               <TypeNav
@@ -542,6 +571,11 @@ export default function DeckPage() {
                 onSelect={(t) => setSplit(t ? { type: t } : {})}
                 split={split}
               />
+              {compare && actionPolicy.compare && (
+                <p data-testid="compare-instruction" role="status" className="mb-3 text-[12px] font-medium text-primary-ink">
+                  Pick 2 to 4 cards to compare
+                </p>
+              )}
               <div className="mb-4">
                 <p className="text-[12px] text-muted">
                   {filtered.length} {cardCountNoun(defaultType, filtered.length)}
@@ -556,6 +590,7 @@ export default function DeckPage() {
                     deckUserValues={userValues}
                     marketId={marketId}
                     deckStatus={deckStatus}
+                    onNextLane={nextLaneFrom(defaultType)}
                     selectable={compare}
                     selected={selected}
                     onToggle={toggleSelected}
@@ -794,7 +829,9 @@ function TypeNav({
     <div className="mb-5 flex flex-wrap items-center justify-between gap-2 border-b border-border">
       <nav
         data-testid="type-nav"
-        className="flex items-center gap-1 overflow-x-auto"
+        // Phones: the strip scrolls, so the right edge fades out as a "more this way" hint
+        // (padding keeps the last tab clear of the fade once scrolled to the end).
+        className="flex items-center gap-1 overflow-x-auto pr-8 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] sm:pr-0 sm:[mask-image:none]"
         aria-label="Filter deck by card type"
       >
         {present.map((t) => (

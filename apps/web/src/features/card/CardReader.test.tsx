@@ -36,6 +36,22 @@ describe('CardReader', () => {
     await user.keyboard('{Shift>}{ArrowRight}{/Shift}');
     expect(onNext).toHaveBeenCalledTimes(1);
   });
+  it('offers Next lane instead of a dead Next at the last card of a lane', async () => {
+    const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
+    const onNextLane = vi.fn();
+    const { user } = renderWithProviders(
+      <CardReader data={cwc} open onOpenChange={() => {}} onPrevious={() => {}} onNextLane={onNextLane} />,
+    );
+    expect(screen.queryByRole('button', { name: 'Next card' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Next lane' }));
+    expect(onNextLane).toHaveBeenCalledTimes(1);
+  });
+  it('keeps the plain Next card button while the lane has more cards', () => {
+    const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
+    renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} onNext={() => {}} onNextLane={() => {}} />);
+    expect(screen.queryByRole('button', { name: 'Next lane' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next card' })).toBeEnabled();
+  });
   it('shows one concise overview, the four core figures, and a clear dashboard action', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);

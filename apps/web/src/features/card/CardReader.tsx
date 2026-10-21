@@ -28,6 +28,8 @@ type Props = {
   marketId?: string; position?: number; total?: number;
   deckView?: string;
   onPrevious?: () => void; onNext?: () => void;
+  /** At the last card of a lane: moves on to the next lane instead of a dead Next. */
+  onNextLane?: () => void;
   /** The control that should regain focus when the reader closes on this card. */
   returnFocusTo?: (cardId: string) => HTMLElement | null;
 };
@@ -80,7 +82,7 @@ function browseWithArrows(onPrevious?: () => void, onNext?: () => void) {
 }
 
 function CardReaderBody({ data, open, onOpenChange, marketId,
-  deckView, position, total, onPrevious, onNext, onRestoreFocus }: Omit<Props, 'data' | 'returnFocusTo'> & {
+  deckView, position, total, onPrevious, onNext, onNextLane, onRestoreFocus }: Omit<Props, 'data' | 'returnFocusTo'> & {
   data: CardWithCompany; onRestoreFocus: (event: Event, cardId: string) => void;
 }) {
   const { card, company } = data;
@@ -230,9 +232,11 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                 Doesn’t belong here
               </button>
             ))}
-            {(onPrevious || onNext) && <div className="flex items-center gap-1">
+            {(onPrevious || onNext || onNextLane) && <div className="flex items-center gap-1">
               <button type="button" className="card-control" aria-label="Previous card" onClick={onPrevious} disabled={!onPrevious}><ArrowLeft size={15} /></button>
-              <button type="button" className="card-control" aria-label="Next card" onClick={onNext} disabled={!onNext}><ArrowRight size={15} /></button>
+              {!onNext && onNextLane
+                ? <button type="button" className="card-control w-auto gap-1 px-2 text-[11px]" aria-label="Next lane" onClick={onNextLane}>Next lane <ArrowRight size={15} /></button>
+                : <button type="button" className="card-control" aria-label="Next card" onClick={onNext} disabled={!onNext}><ArrowRight size={15} /></button>}
             </div>}
           </div>
         </div>

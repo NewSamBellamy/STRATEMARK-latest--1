@@ -57,6 +57,59 @@ describe('DeckPage header', () => {
   });
 });
 
+describe('DeckPage Compare mode', () => {
+  const mount = async () => {
+    const repository = makeRepo();
+    const [market] = await repository.listMarkets();
+    const view = renderWithProviders(
+      <Routes>
+        <Route path="/markets/:marketId/deck" element={<DeckPage />} />
+        <Route path="/elsewhere" element={<p>elsewhere</p>} />
+      </Routes>,
+      { route: `/markets/${market!.id}/deck`, repository },
+    );
+    return view;
+  };
+
+  it('shows the instruction line and a selection chip on every card, outside the card face', async () => {
+    const { user } = await mount();
+    await user.click(await screen.findByRole('button', { name: 'Compare' }));
+    expect(screen.getByTestId('compare-instruction')).toHaveTextContent('Pick 2 to 4 cards to compare');
+    const chips = await screen.findAllByTestId('select-chip');
+    expect(chips.length).toBeGreaterThan(0);
+    for (const chip of chips) expect(chip.closest('.card-sleeve')).toBeNull();
+    const slot = chips[0]!.closest<HTMLElement>('[data-card-id]')!;
+    expect(slot).toHaveAttribute('data-selected', 'false');
+    await user.click(within(slot).getAllByRole('button')[0]!);
+    expect(slot).toHaveAttribute('data-selected', 'true');
+    expect(screen.getByText('1 card selected')).toBeInTheDocument();
+  });
+
+  it('Escape exits Compare and clears the selection', async () => {
+    const { user } = await mount();
+    await user.click(await screen.findByRole('button', { name: 'Compare' }));
+    const chips = await screen.findAllByTestId('select-chip');
+    await user.click(within(chips[0]!.closest<HTMLElement>('[data-card-id]')!).getAllByRole('button')[0]!);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByTestId('compare-instruction')).not.toBeInTheDocument();
+    expect(screen.queryByText(/cards? selected/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Compare' }));
+    expect(screen.getByText('0 cards selected')).toBeInTheDocument();
+  });
+
+  it('leaving the deck page drops Compare; coming back starts clean', async () => {
+    const { user, unmount } = await mount();
+    await user.click(await screen.findByRole('button', { name: 'Compare' }));
+    expect(screen.getByTestId('compare-instruction')).toBeInTheDocument();
+    unmount();
+    const again = await mount();
+    await screen.findByRole('button', { name: 'Compare' });
+    expect(screen.queryByTestId('compare-instruction')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Compare' })).toHaveAttribute('aria-pressed', 'false');
+    again.unmount();
+  });
+});
+
 describe('an empty market-signal tab', () => {
   afterEach(() => { useApiKey.setState({ apiKey: '', hasKey: false }); });
 
