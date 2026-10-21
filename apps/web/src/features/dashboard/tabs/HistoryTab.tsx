@@ -81,6 +81,11 @@ export function HistoryTab({ companyId }: { companyId: string }) {
     [events, kind, search],
   );
   const groups = useMemo(() => groupByYear(shown), [shown]);
+  // True of every funding round on the timeline (two or more), so it is said once, not on each event.
+  const noRoundAmounts = useMemo(() => {
+    const funding = events.filter(isFundingRoundEvent);
+    return funding.length >= 2 && funding.every((e) => roundForEvent(rounds, e)?.amountUsd == null);
+  }, [events, rounds]);
   const dense = detailMode === 'compact' || (detailMode === 'auto' && events.length > DENSE_AT);
   const filtering = kind !== 'all' || search.trim().length > 0;
 
@@ -193,6 +198,9 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                         Event types are read from each event&apos;s own wording to help you filter; they are not sourced facts.
                       </p>
                     )}
+                    {noRoundAmounts && (
+                      <p className="-mt-2 mb-3 text-[11px] text-faint">No amounts are recorded for these funding rounds.</p>
+                    )}
 
                     {groups.length === 0 ? (
                       <EmptyNote compact title="No events match these filters">
@@ -256,10 +264,13 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                                       {isFundingRoundEvent(t) && (() => {
                                         const r = roundForEvent(rounds, t);
                                         const leads = r?.leadInvestors ?? [];
+                                        // When no round has an amount the line above the timeline says so once.
+                                        const amount = r?.amountUsd != null ? formatUsdCompact(r.amountUsd) : noRoundAmounts ? null : 'Amount not reported';
+                                        if (!amount && leads.length === 0 && !r?.sourceUrl) return null;
                                         return (
                                           <p className="px-3 pb-1 text-xs text-muted">
-                                            {r?.amountUsd != null ? formatUsdCompact(r.amountUsd) : 'Amount not reported'}
-                                            {leads.length > 0 && ` · ${leads.join(', ')}`}
+                                            {amount}
+                                            {leads.length > 0 && `${amount ? ' · ' : ''}${leads.join(', ')}`}
                                             {r?.sourceUrl && <SourceLink url={r.sourceUrl} className="ml-2" />}
                                           </p>
                                         );

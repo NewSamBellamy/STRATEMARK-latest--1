@@ -83,6 +83,30 @@ describe('mission & governance tab', () => {
     expect(document.querySelector('a[href="https://news.test/b"]')).not.toBeNull();
   });
 
+  it('says "no amounts or leads" once when every round lacks them, and keeps the rounds and links', async () => {
+    const tab = vi.fn().mockResolvedValue({
+      companyId: 'cmp',
+      tab: 'mission_governance',
+      content: {
+        mission: 'Fake mission.', ethos: '', governanceStructure: '', board: [], positives: [], negatives: [], investors: [],
+        fundingRounds: [
+          { round: 'Series A', amountUsd: null, date: '2022 Feb', leadInvestors: [], sourceUrl: 'https://news.test/a' },
+          { round: 'Series B', amountUsd: null, date: '2023 Feb', leadInvestors: [], sourceUrl: 'https://news.test/b' },
+        ],
+      },
+      lastRefreshedAt: '2026-10-01T00:00:00.000Z',
+    });
+    renderWithProviders(<MissionGovernanceTab companyId="cmp" />, {
+      repository: Object.assign(makeRepo(), { getDashboardTab: tab }),
+    });
+    expect(await screen.findByText('No amounts or lead investors are recorded for these rounds.')).toBeInTheDocument();
+    expect(screen.queryByText('Amount not reported')).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Amount' })).not.toBeInTheDocument();
+    expect(screen.getByText('Series A')).toBeInTheDocument();
+    expect(screen.getByText('Series B')).toBeInTheDocument();
+    expect(document.querySelector('a[href="https://news.test/b"]')).not.toBeNull();
+  });
+
   it('shows 5%+ holders from SEC filings, each citing its filing; an unstated percent is Unknown', async () => {
     vi.mocked(lookupMajorShareholders).mockResolvedValue([
       {
