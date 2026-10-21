@@ -18,7 +18,7 @@
 import { z } from 'zod';
 import type { Card, CardType, Citation, Company, SignalBrief, SignalBriefPoint } from '@mi/contracts';
 import { isEntityCardType } from '@mi/contracts';
-import { claimSupportCitations, sourceBacksClaim } from './claim-support';
+import { claimSupportCitations, sourceBacksClaim, type ClaimScope } from './claim-support';
 import { reportCost } from './company-report';
 import { snapshotAggregate } from './call-cost';
 import { figureStated } from './product-brief';
@@ -156,7 +156,8 @@ const publicSource = (c: Citation): boolean => /^https:\/\//i.test(c.url) && isC
 function sourcesFor(text: string, sourceIndex: number | null, gate: SignalBriefGate): Citation[] {
   const { company, roster, grounding } = gate;
   if (!grounding || grounding.supports.length === 0) return [];
-  const scope = gate.cardType === 'culture' && company ? scopeFor(company, roster, true) : undefined;
+  // A point is one sentence the search attributed: a barrier or insight point must be accounted for by its sentence too (not just share words with it).
+  const scope: ClaimScope = gate.cardType === 'culture' && company ? scopeFor(company, roster, true) : { oneSentence: true };
   const fit = (c: Citation): boolean =>
     publicSource(c) && (gate.cardType === 'culture' && company ? sourceIsFit(c, company, roster, false) : true);
   const found = claimSupportCitations(text, grounding, 2, scope).filter(fit);
