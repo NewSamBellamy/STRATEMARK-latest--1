@@ -34,7 +34,7 @@ describe('export model', () => {
     const redirect = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQabc';
     expect(exportSource({ url: redirect, title: 'techcrunch.com' })).toEqual({
       title: 'techcrunch.com', url: 'https://www.google.com/search?q=techcrunch.com', direct: false });
-    expect(exportSource({ url: redirect, title: '' }).title).toBe('Publisher not recorded');
+    expect(exportSource({ url: redirect, title: '' }).title).toBe('Source not named');
     expect(exportSource({ url: 'https://reuters.com/acme', title: '' })).toEqual({ title: 'reuters.com', url: 'https://reuters.com/acme', direct: true });
     const viaRedirect = m({ ...sourced, citations: [{ title: 'reuters.com', url: redirect }] });
     const csv = metricsToCsv('Widgets', [co([viaRedirect])]);

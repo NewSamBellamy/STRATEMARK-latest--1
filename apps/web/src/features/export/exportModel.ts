@@ -18,6 +18,7 @@ import {
   TIER_LABELS,
   isSignalCardType,
   publisherOf,
+  UNRECORDED_PUBLISHER,
   usableCitations,
   type CardWithCompany,
   type Citation,
@@ -222,6 +223,12 @@ export interface ReportModel {
   unknownCount: number;
 }
 
+/** The publisher's name for display; the data stays "unrecorded", only the wording is gentler than an error. */
+export function sourceLabel(url: string, title?: string | null): string {
+  const name = publisherOf(url, title);
+  return name === UNRECORDED_PUBLISHER ? 'Source not named' : name;
+}
+
 /**
  * How a source appears in an export: the publisher by name and a link that
  * still works. Grounding citations are vertexaisearch.cloud.google.com
@@ -229,7 +236,7 @@ export interface ReportModel {
  * false), and print layouts show the link text only for real publisher URLs.
  */
 export function exportSource(c: { url: string; title?: string | null }): { title: string; url: string; direct: boolean } {
-  return { title: publisherOf(c.url, c.title), url: sourceHref(c.url, c.title), direct: isDirectSource(c.url) };
+  return { title: sourceLabel(c.url, c.title), url: sourceHref(c.url, c.title), direct: isDirectSource(c.url) };
 }
 
 /** Footnotes restart per company so each section is self-contained on its page. */
