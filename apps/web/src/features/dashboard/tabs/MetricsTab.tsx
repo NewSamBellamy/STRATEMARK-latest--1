@@ -1,5 +1,5 @@
 import { sourceHref } from '@/lib/sourceHref';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronsUpDown, ChevronUp, ExternalLink, Loader2, Pencil, Radar } from 'lucide-react';
 import {
@@ -26,7 +26,7 @@ import { UnknownSlot, UnknownInline, UNKNOWN_REASON } from '@/features/card/Unkn
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { FactCheck } from '@/features/factcheck/FactCheck';
 import { ChartPanel, CompositionDonut, Delta, ShareDonut, TrendArea, TrendBar, TrendLine } from './metricViz';
-import { MetricExplorer } from './MetricExplorer';
+import { ExplorerValue, History, MetricExplorer, historyFor, type ExplorerSeries } from './MetricExplorer';
 import {
   FAMILY_LABELS,
   FILL_HINT,
@@ -240,10 +240,13 @@ function PeerComparison({
   const unknownNames = peers.filter((p) => !knownIds.has(p.companyId) && p.companyId !== selfId).map((p) => shortCompanyName(p.name));
   return (
     <div>
-      <h4 className="mb-1.5 flex items-center justify-between text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
+      <h4 className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
         <span>Versus this deck</span>
-        {ranking.rank != null && ranking.of > 1 && (
-          <span className="normal-case tracking-normal text-faint tabular-nums">#{ranking.rank} of {ranking.of} companies with this figure</span>
+        {ranking.of > 1 && (
+          <span className="normal-case tracking-normal text-faint tabular-nums">
+            {ranking.rank != null ? `#${ranking.rank} of ${ranking.of} companies with this figure` : `${ranking.of} companies with this figure`}
+            {ranking.includesEstimates ? ' · includes estimates' : ''}
+          </span>
         )}
       </h4>
       {peerStatus === 'no_deck' ? (
@@ -314,7 +317,7 @@ function PeerComparison({
 }
 
 function MetricDetail({
-  metric, companyId, companyName, ranking, peers, highlight, hrefFor,
+  metric, companyId, companyName, ranking, peers, highlight, hrefFor, series,
 }: {
   metric: CompanyMetric;
   companyId: string;
@@ -323,17 +326,16 @@ function MetricDetail({
   peers: PeerState;
   highlight: boolean;
   hrefFor: (peerId: string, type: MetricType) => string;
+  series: ExplorerSeries | null;
 }) {
   const known = isKnown(metric);
   const dates = known ? figureDates(metric) : null;
   const currency = known ? currencyCaptionFor(metric) : null;
+  const history = known ? historyFor(metric.metricType, series) : [];
   return (
-    <aside
-      aria-label={`${metricLabel(metric)} detail`}
-      className={cn('panel p-5', highlight && 'ring-2 ring-emerald-400/70')}
-    >
-      {/* Full width under the table: the figure and its sources on the left, the deck comparison on the right, so neither column leaves a hole. */}
-      <div className="grid gap-5 lg:grid-cols-2 lg:gap-x-10">
+    <>
+      {/* The one panel for the picked figure (the strip above and the table below both select it): the figure and its sources on the left, the one deck comparison on the right, so neither column leaves a hole. */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-x-10">
       <div className="min-w-0 space-y-5">
       <DetailHeader metric={metric} companyName={companyName} highlight={highlight} />
       <MetricBody metric={metric} />
@@ -363,12 +365,18 @@ function MetricDetail({
           </p>
         </div>
       )}
+      {known && <SourceCheck metric={metric} label={metricLabel(metric)} />}
       <SourceDrill metric={metric} />
       </div>
       <div className="min-w-0">
         <PeerComparison ranking={ranking} selfId={companyId} hrefFor={hrefFor} peerStatus={peers.status} peers={peers.peers} />
       </div>
       </div>
+      {known && history.length > 0 && (
+        <div className="mt-5 border-t border-border pt-5">
+          <History type={metric.metricType} history={history} />
+        </div>
+      )}
       {known && (
         <div className="mt-5 flex justify-end border-t border-border pt-3 empty:hidden">
           <FactCheck
@@ -381,7 +389,7 @@ function MetricDetail({
           />
         </div>
       )}
-    </aside>
+    </>
   );
 }
 
@@ -556,11 +564,7 @@ function MetricBody({ metric }: { metric: CompanyMetric }) {
     );
   }
 
-  return (
-    <div className="font-display text-3xl font-semibold tabular-nums leading-none text-content">
-      {figureDisplay(metric)}
-    </div>
-  );
+  return <ExplorerValue key={metric.metricType} type={metric.metricType} value={metric.value} metric={metric} />;
 }
 
 /**
@@ -641,6 +645,12 @@ export function MetricsTab({ companyId }: { companyId: string }) {
   const [picked, setPicked] = useState<MetricType | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'metric', dir: 'asc' });
   const wanted = params.get('metric') as MetricType | null;
+  // The table sits below the one detail panel: picking a row brings the panel into view only if it is off screen.
+  const panelRef = useRef<HTMLDivElement>(null);
+  const pickFromList = (type: MetricType) => {
+    setPicked(type);
+    panelRef.current?.scrollIntoView?.({ block: 'nearest' });
+  };
 
   const peerHref = (peerId: string, type: MetricType) => {
     const next = new URLSearchParams(params);
@@ -702,23 +712,39 @@ export function MetricsTab({ companyId }: { companyId: string }) {
               </span>
             </div>
 
+            <div ref={panelRef} className="scroll-mt-4">
             <MetricExplorer
               rows={sorted}
               missing={missing.map((r) => r.metric)}
               selected={selectedRow?.metric.metricType ?? null}
               onSelect={setPicked}
-              series={series ? { revenue: series.revenue, revenueQuarterly: quarterly, users: series.users } : null}
-            />
+              highlight={!!selectedRow && justFilled.has(selectedRow.metric.metricType)}
+            >
+              {selectedRow && (
+                <MetricDetail
+                  key={selectedRow.metric.metricType}
+                  metric={selectedRow.metric}
+                  companyId={companyId}
+                  companyName={companyName}
+                  ranking={selectedRow.ranking}
+                  peers={peerState}
+                  highlight={justFilled.has(selectedRow.metric.metricType)}
+                  hrefFor={peerHref}
+                  series={series ? { revenue: series.revenue, revenueQuarterly: quarterly, users: series.users } : null}
+                />
+              )}
+            </MetricExplorer>
+            </div>
             </div>
 
-            {/* One column: the table takes the full width so rows stay short, and the selected figure's detail sits right under it. */}
+            {/* The all-figures view: picking a row (or a "not found" chip) selects that figure in the one panel above. */}
             <div className="space-y-4">
               <div className="min-w-0 space-y-3">
                 {sorted.length > 0 && (
                   <MetricTable
                     rows={sorted}
                     selected={selectedRow?.metric.metricType ?? null}
-                    onSelect={setPicked}
+                    onSelect={pickFromList}
                     sort={sort}
                     onSort={onSort}
                     peersReady={peerState.status === 'ready'}
@@ -732,7 +758,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
                         key={metric.metricType}
                         type="button"
                         aria-pressed={selectedRow?.metric.metricType === metric.metricType}
-                        onClick={() => setPicked(metric.metricType)}
+                        onClick={() => pickFromList(metric.metricType)}
                         className={cn(
                           'rounded-full border border-dashed px-2.5 py-0.5 transition-colors',
                           selectedRow?.metric.metricType === metric.metricType
@@ -746,18 +772,6 @@ export function MetricsTab({ companyId }: { companyId: string }) {
                   </div>
                 )}
               </div>
-              {selectedRow && (
-                <MetricDetail
-                  key={selectedRow.metric.metricType}
-                  metric={selectedRow.metric}
-                  companyId={companyId}
-                  companyName={companyName}
-                  ranking={selectedRow.ranking}
-                  peers={peerState}
-                  highlight={justFilled.has(selectedRow.metric.metricType)}
-                  hrefFor={peerHref}
-                />
-              )}
             </div>
 
             {hasSeries && series && (

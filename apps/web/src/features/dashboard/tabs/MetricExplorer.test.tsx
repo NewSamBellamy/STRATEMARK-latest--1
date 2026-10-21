@@ -27,9 +27,14 @@ const SERIES: ExplorerSeries = {
   users: [],
 };
 
-function Harness({ rows, missing = [], series = null }: { rows: ExplorerRow[]; missing?: CompanyMetric[]; series?: ExplorerSeries | null }) {
+function Harness({ rows, missing = [] }: { rows: ExplorerRow[]; missing?: CompanyMetric[] }) {
   const [picked, setPicked] = useState<MetricType | null>(null);
-  return <MetricExplorer rows={rows} missing={missing} selected={picked} onSelect={setPicked} series={series} />;
+  const current = rows.find((r) => r.metric.metricType === picked)?.metric ?? missing.find((m) => m.metricType === picked) ?? rows[0]?.metric ?? missing[0];
+  return (
+    <MetricExplorer rows={rows} missing={missing} selected={picked} onSelect={setPicked}>
+      {current && <Detail metric={current} />}
+    </MetricExplorer>
+  );
 }
 
 describe('reported history for a figure', () => {
@@ -47,8 +52,13 @@ describe('reported history for a figure', () => {
   });
 });
 
+/** A stand-in for the one detail panel the Metrics tab passes in. */
+function Detail({ metric: m }: { metric: CompanyMetric }) {
+  return <p data-testid="detail">{`detail for ${m.metricType}`}</p>;
+}
+
 describe('the metric explorer', () => {
-  it('shows each major figure as a tile and changes the panel when another is picked', async () => {
+  it('shows each major figure as a tile and changes the one panel when another is picked', async () => {
     const rows = [
       row(metric('valuation', 852e9), [{ id: 'cmp_a', name: 'Acme', value: 852e9, self: true }, { id: 'cmp_b', name: 'Beta', value: 380e9 }]),
       row(metric('employees', 4500), [{ id: 'cmp_a', name: 'Acme', value: 4500, self: true }, { id: 'cmp_b', name: 'Beta', value: 900 }]),
@@ -56,42 +66,30 @@ describe('the metric explorer', () => {
     const { user } = renderWithProviders(<Harness rows={rows} />);
     const tabs = screen.getByRole('tablist', { name: 'Pick a metric' });
     expect(within(tabs).getAllByRole('tab')).toHaveLength(2);
-    const panel = () => screen.getByRole('tabpanel');
-    expect(panel()).toHaveAccessibleName('Valuation chart');
-    expect(within(panel()).getByText('In this deck')).toBeInTheDocument();
+    expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
+    expect(screen.getByRole('tabpanel')).toHaveAccessibleName('Valuation detail');
+    expect(screen.getByTestId('detail')).toHaveTextContent('detail for valuation');
     await user.click(within(tabs).getByRole('tab', { name: /Employees/ }));
-    expect(panel()).toHaveAccessibleName('Employees chart');
-    await waitFor(() => expect(within(panel()).getByTestId('explorer-value')).toHaveTextContent('4.5K'));
+    expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
+    expect(screen.getByRole('tabpanel')).toHaveAccessibleName('Employees detail');
+    await waitFor(() => expect(screen.getByTestId('detail')).toHaveTextContent('detail for employees'));
   });
 
-  it('draws the reported history, with a choice of how, when there is one', async () => {
-    const rows = [row(metric('arr', 5e9))];
-    const { user } = renderWithProviders(<Harness rows={rows} series={SERIES} />);
-    const panel = screen.getByRole('tabpanel');
-    expect(within(panel).getByRole('tab', { name: 'Annual revenue' })).toBeInTheDocument();
-    expect(within(panel).getByRole('tab', { name: 'Quarterly revenue' })).toBeInTheDocument();
-    await user.click(within(panel).getByRole('tab', { name: 'Quarterly revenue' }));
-    expect(within(panel).getByText(/Q1 2026 to Q2 2026/)).toBeInTheDocument();
-    expect(within(panel).getByRole('tab', { name: 'Line' })).toBeInTheDocument();
-  });
-
-  it('says so, and draws nothing, when there is one figure and nothing to compare it with', () => {
-    renderWithProviders(<Harness rows={[row(metric('employees', 4500), [{ id: 'cmp_a', name: 'Acme', value: 4500, self: true }])]} />);
-    expect(screen.getByText(/One sourced figure so far/)).toBeInTheDocument();
-    expect(screen.getByText(/Nothing is drawn to fill the space/)).toBeInTheDocument();
+  it('draws no chart of its own: the deck ranking and history belong to the detail panel', () => {
+    const rows = [row(metric('employees', 4500), [{ id: 'cmp_a', name: 'Acme', value: 4500, self: true }, { id: 'cmp_b', name: 'Beta', value: 900 }])];
+    const { container } = renderWithProviders(<Harness rows={rows} />);
     expect(screen.queryByText('In this deck')).not.toBeInTheDocument();
+    expect(container.querySelector('.recharts-wrapper')).toBeNull();
   });
 
-  it('keeps a figure that was not found as a labelled gap, with what would fill it, never as a number', async () => {
+  it('keeps a figure that was not found as a tab saying so, never as a number', async () => {
     const { user } = renderWithProviders(<Harness rows={[row(metric('employees', 4500))]} missing={[metric('valuation', null)]} />);
     const tabs = screen.getByRole('tablist', { name: 'Pick a metric' });
     const gap = within(tabs).getByRole('tab', { name: /Valuation/ });
     expect(gap).toHaveTextContent('Not found yet');
     await user.click(gap);
-    const panel = screen.getByRole('tabpanel');
-    expect(within(panel).getByText('Not found yet')).toBeInTheDocument();
-    expect(within(panel).getByText(/What would fill this/)).toBeInTheDocument();
-    expect(within(panel).queryByTestId('explorer-value')).not.toBeInTheDocument();
+    expect(screen.getByRole('tabpanel')).toHaveAccessibleName('Valuation detail');
+    expect(screen.getByTestId('detail')).toHaveTextContent('detail for valuation');
   });
 
   it('renders nothing when there is nothing at all', () => {

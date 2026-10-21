@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { buildDataset } from '@mi/mocks';
 import type { CompanyMetric } from '@mi/contracts';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
@@ -97,11 +97,41 @@ describe('dashboard metric evidence projection', () => {
     expect(within(table).getByText('Employees')).toBeInTheDocument();
     expect(within(table).queryByText('Unknown')).not.toBeInTheDocument();
     await user.click(within(table).getByText('Valuation'));
-    expect(screen.getByRole('complementary', { name: 'Valuation detail' })).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel', { name: 'Valuation detail' })).toBeInTheDocument();
     expect(screen.getByText(/Open this company from its deck to compare/)).toBeInTheDocument();
     const gap = screen.getByText('Not found yet:').parentElement!;
     await user.click(within(gap).getAllByRole('button')[0]!);
     expect(screen.getAllByText(/What would fill this/).length).toBeGreaterThan(0);
+  });
+  it('draws the picked figure in exactly one detail panel, and the deck comparison once', async () => {
+    const ds = buildDataset();
+    const companyId = ds.companies[0]!.id;
+    const own = ds.metrics.filter((m) => m.companyId === companyId && m.value != null && m.confidence !== 'unknown');
+    const pick = own.find((m) => m.metricType !== 'market_share')!;
+    const { user, container } = renderWithProviders(<MetricsTab companyId={companyId} />, { route: `/?deck=${ds.market.id}&metric=${pick.metricType}` });
+    await screen.findByRole('table');
+    // One panel for the picked figure, whichever of the strip or the table picked it.
+    const panels = await screen.findAllByRole('tabpanel');
+    expect(panels).toHaveLength(1);
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+    // One deck comparison: the old second chart ("In this deck") is gone, and the heading appears once.
+    await waitFor(() => expect(screen.getAllByText('Versus this deck')).toHaveLength(1));
+    expect(screen.queryByText('In this deck')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('.recharts-bar')).toHaveLength(0);
+    // The value, the confidence badge and the sources list live in that panel, not twice on the page.
+    expect(within(panels[0]!).getAllByTestId('explorer-value')).toHaveLength(1);
+    expect(screen.getAllByTestId('explorer-value')).toHaveLength(1);
+    expect(within(panels[0]!).getByText('Sources')).toBeInTheDocument();
+    expect(screen.getAllByText('Sources')).toHaveLength(1);
+    // Picking another row in the table moves the same single panel.
+    const other = own.find((m) => m.metricType !== pick.metricType);
+    if (other) {
+      const table = screen.getByRole('table');
+      await user.click(within(table).getAllByRole('row').slice(1).find((r) => r.getAttribute('aria-selected') !== 'true')!);
+      expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
+      expect(screen.getAllByTestId('explorer-value')).toHaveLength(1);
+      expect(screen.getAllByText('Versus this deck')).toHaveLength(1);
+    }
   });
   it('never claims a source for a figure that has no link', async () => {
     show({ confidence: 'estimated' });
