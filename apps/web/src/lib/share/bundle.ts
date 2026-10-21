@@ -6,7 +6,7 @@
  * Nothing here invents anything: the description is the card's own summary (or
  * the company's own one-liner), and the picture is drawn from the same figures.
  */
-import { METRIC_TYPE_LABELS, isEntityCardType, type CompanyMetric, type ShareSnapshot } from '@mi/contracts';
+import { CARD_TYPE_LABELS, METRIC_TYPE_LABELS, isEntityCardType, type Card, type CompanyMetric, type ShareSnapshot } from '@mi/contracts';
 import { formatMetricValue } from '@/lib/format';
 
 export const SHARE_META_TOKEN = '<!--STRATEMARK_SHARE_META-->';
@@ -22,6 +22,13 @@ export function newShareId(random: (n: number) => Uint8Array = (n) => crypto.get
 }
 
 const clip = (text: string, max: number): string => (text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`);
+/** Like clip, but never cuts a word in half. */
+const clipAtWord = (text: string, max: number): string => {
+  if (text.length <= max) return text;
+  const head = text.slice(0, max - 1);
+  const space = head.lastIndexOf(' ');
+  return `${(space > max * 0.5 ? head.slice(0, space) : head).trimEnd()}…`;
+};
 const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
 const escapeHtml = (s: string): string => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -30,9 +37,26 @@ export interface ShareMeta {
   description: string;
 }
 
+/**
+ * What a signal card (culture, risk, insight, barrier) is about, in a line. It never borrows a company, and a card made
+ * by the research often has no title of its own, so it falls back to the first sentence of its finding.
+ */
+function signalHeadline(card: Pick<Card, 'title' | 'summary' | 'keyPoints'>): string {
+  const own = oneLine(card.title ?? '');
+  if (own) return own;
+  const finding = oneLine(card.summary ?? card.keyPoints?.[0] ?? '');
+  return clipAtWord(finding.split(/(?<=[.!?])\s+(?=[A-Z])/)[0] ?? finding, 90);
+}
+
 export function shareMeta(snapshot: ShareSnapshot): ShareMeta {
   if (snapshot.kind === 'card') {
     const card = snapshot.cards.find((c) => c.id === snapshot.focusCardId) ?? snapshot.cards[0];
+    if (card && !isEntityCardType(card.cardType)) {
+      const headline = signalHeadline(card);
+      const finding = oneLine(card.summary ?? '');
+      const description = (finding && finding !== headline ? finding : oneLine(card.keyPoints?.[0] ?? '')) || `A sourced ${CARD_TYPE_LABELS[card.cardType].toLowerCase()} finding.`;
+      return { title: `${CARD_TYPE_LABELS[card.cardType]}: ${headline || 'a sourced finding'}`, description: clip(description, 200) };
+    }
     const company = card && isEntityCardType(card.cardType) ? snapshot.companies[0] : undefined;
     const name = company?.name ?? card?.title ?? 'A card';
     const description = oneLine(card?.summary ?? company?.oneLiner ?? '') || `Sourced research on ${name}.`;
@@ -154,7 +178,7 @@ export function ogLayout(snapshot: ShareSnapshot): OgLayout {
     const company = card && isEntityCardType(card.cardType) ? snapshot.companies[0] : undefined;
     return {
       eyebrow: card ? card.cardType.replace(/_/g, ' ').toUpperCase() : 'CARD',
-      title: company?.name ?? card?.title ?? 'Stratemark research',
+      title: company?.name ?? (card && !isEntityCardType(card.cardType) ? signalHeadline(card) : card?.title) ?? 'Stratemark research',
       subtitle: clip(oneLine(card?.summary ?? company?.oneLiner ?? ''), 150),
       slots: company ? faceSlots(snapshot.metrics.filter((m) => m.companyId === company.id)) : [],
       names: [],

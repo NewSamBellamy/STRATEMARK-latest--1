@@ -26,7 +26,7 @@ export default function BetaPage() {
       </h1>
       <p className="mt-3 text-[15px] leading-relaxed text-muted">
         Stratemark is being built open source and local-first. This beta is a free web version so you can try it
-        before the open-source release at {OPEN_SOURCE_LAUNCH}.
+        before the open-source release on {OPEN_SOURCE_LAUNCH}.
       </p>
 
       <div className="panel mt-6 px-5">
@@ -45,8 +45,13 @@ export default function BetaPage() {
           <p>
             To cover the AI cost, research requests pass through our server on their way to Google&apos;s Gemini API, and
             company websites are fetched through it too. We pass them straight through and don&apos;t store or log what
-            they contain. The only thing we keep is a running total of today&apos;s AI spend (counted per IP address, to
-            enforce the free limit), which resets every day.
+            they contain. Apart from a share link you create (below), the only thing we keep is a running total of
+            today&apos;s AI spend (counted per IP address, to enforce the free limit), which resets every day.
+          </p>
+          <p>
+            A share link is the one exception, and only when you press Create link: so the link works, we keep a
+            read-only copy of that card or deck, with its research, for 90 days. Anyone who has the link can read it. You
+            can stop sharing at any time from the Share dialog, which deletes the copy.
           </p>
         </Point>
         <Point icon={<Download className="h-4 w-4" />} title="Export everything, any time">
@@ -59,7 +64,7 @@ export default function BetaPage() {
         </Point>
         <Point icon={<PackageOpen className="h-4 w-4" />} title="Take your decks to the open-source version">
           <p>
-            When Stratemark launches open source at {OPEN_SOURCE_LAUNCH}, import that same file and carry on with
+            When Stratemark launches open source on {OPEN_SOURCE_LAUNCH}, import that same file and carry on with
             everything you built here.
           </p>
         </Point>
