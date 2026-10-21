@@ -152,7 +152,7 @@ function ProductTable({ products, onOpen }: { products: Product[]; onOpen: (p: P
             const desc = p.description ? splitSearchReport(p.description).text : '';
             return (
               <tr key={p.name} className="cursor-pointer border-b border-border last:border-b-0 hover:bg-surface-2/50" onClick={() => onOpen(p)}>
-                <td className="whitespace-nowrap px-3 py-1.5 font-medium text-content">
+                <td className="px-3 py-1.5 font-medium text-content md:whitespace-nowrap">
                   <button type="button" className="text-left" onClick={(e) => { e.stopPropagation(); onOpen(p); }}>{p.name}</button>
                 </td>
                 <td className="hidden max-w-0 px-3 py-1.5 text-muted md:table-cell md:w-full">
