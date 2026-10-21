@@ -33,7 +33,13 @@ function uniqueLines(values: Array<string | null | undefined>): string[] {
   });
 }
 
-function frontTitle(value: string): string {
+/** Longest name or title the face reasons about: a name is a few words, and a 200 KB one must not make the patterns below quadratic. */
+const FACE_TEXT_CAP = 300;
+/** Runs of whitespace collapse to one space and the text is capped, before any pattern sees it (linear, whatever the input). */
+const flatText = (value: string): string => value.replace(/\s+/g, ' ').trim().slice(0, FACE_TEXT_CAP);
+
+function frontTitle(raw: string): string {
+  const value = flatText(raw);
   if (value.length <= 64) return value;
   const withoutParenthetical = value.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
   if (withoutParenthetical.length > 0 && withoutParenthetical.length <= 64) return withoutParenthetical;
@@ -45,8 +51,9 @@ const LEGAL_SUFFIX = /,?\s+(?:Inc\.?|Incorporated|Corp\.?|Corporation|Co\.,?\s*L
 
 /** "SZ DJI Technology Co., Ltd. (DJI)" → "DJI"; "Skydio, Inc." → "Skydio".
  * Display only: the stored name stays the legal name research matched on. */
-export function companyFrontName(name: string): string {
-  let outer = name.trim();
+export function companyFrontName(raw: string): string {
+  const name = flatText(raw);
+  let outer = name;
   const paren = /^(.+?)\s*\(([^)]+)\)\s*$/.exec(outer);
   if (paren) {
     const inner = paren[2]!.trim();
@@ -367,21 +374,22 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
     (m.citations.length > 0 || m.metric?.confidence === 'user_verified')).length;
   const position = signal ? 'Market signal' : data.card.cardType !== 'company' ? 'Entity profile' :
     faceMetrics.length ? `${faceSourced}/${faceMetrics.length} figures sourced` : 'Research pending';
-  const viceCitations = data.viceClaims.flatMap((claim) => sourceUrl(claim.sourceUrl)
-    ? [{ url: claim.sourceUrl, title: claim.sourceTitle || 'Source' }]
-    : []);
+  // An allegation with no clickable source is not shown anywhere on the card (the repository drops it too).
+  const viceClaims = data.viceClaims.filter((claim) => sourceUrl(claim.sourceUrl));
+  const viceCitations = viceClaims.map((claim) => ({ url: claim.sourceUrl, title: claim.sourceTitle || 'Source' }));
   const citations = usableCitations([
     ...(data.card.citations ?? []).filter((c) => sourceUrl(c.url)),
     ...viceCitations,
     ...metrics.flatMap((m) => m.citations),
   ], signal ? null : data.company?.websiteUrl);
-  const signalLines = signal ? uniqueLines([
-    data.card.summary,
-    ...data.viceClaims.map((claim) => claim.claimText),
-    ...data.card.keyPoints,
-  ]) : [];
+  // A risk card says what its sources report and nothing else: its stored summary and key points are text no source was
+  // attached to, so an allegation can only reach the face through a claim that has one.
+  const risk = data.card.cardType === 'vice';
+  const signalLines = signal ? uniqueLines(risk
+    ? viceClaims.map((claim) => claim.claimText)
+    : [data.card.summary, ...viceClaims.map((claim) => claim.claimText), ...data.card.keyPoints]) : [];
   const description = signal
-    ? data.card.summary ?? data.viceClaims[0]?.claimText ?? data.card.keyPoints[0] ?? null
+    ? (risk ? viceClaims[0]?.claimText ?? null : data.card.summary ?? viceClaims[0]?.claimText ?? data.card.keyPoints[0] ?? null)
     : data.company?.oneLiner;
   const title = data.company?.name ?? data.card.title ?? 'Research card';
   return {

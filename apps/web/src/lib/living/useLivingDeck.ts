@@ -232,6 +232,7 @@ export function useLivingDeck(
   const canReuseEvidence = researchAvailable && typeof repo.reuseCompanyEvidence === 'function';
   const canFillAssets = researchAvailable && typeof repo.fillCompanyAssets === 'function';
   const canFillOwnership = researchAvailable && typeof repo.fillCompanyOwnership === 'function';
+  const canEnsureSignals = researchAvailable && typeof repo.ensureSignalCards === 'function';
 
   const canSweep = researchAvailable && (canHunt || canRecoverFree);
   const sweepEventId = useRef(0);
@@ -648,9 +649,28 @@ export function useLivingDeck(
     };
     if (autoFaceSweep) sweepTimer = setTimeout(() => { void autoSweep(); }, 1_000);
 
+    // Market signals: once per open, when the deck is no longer being created, it is asked to make sure it holds its four
+    // kinds of signal card. The repository decides whether anything is searched for: it counts sourced cards only, rests a
+    // searched kind for days (the rest is stored with the deck, so a reload, a second tab or the deck's own creation does
+    // not search again) and rests a kind whose search errored for a short while.
+    let signalTimer: ReturnType<typeof setTimeout> | null = null;
+    let signalsCancelled = false;
+    const autoSignals = async () => {
+      signalTimer = null;
+      if (signalsCancelled || !canEnsureSignals) return;
+      if (cardsRef.current.length === 0) { signalTimer = setTimeout(() => { void autoSignals(); }, 5_000); return; }
+      const blocked = isLowPower() || useResearchControl.getState().paused || await creationIsActive(repo, deckId);
+      if (signalsCancelled) return;
+      if (blocked) { signalTimer = setTimeout(() => { void autoSignals(); }, 5_000); return; }
+      try { await repo.ensureSignalCards!(deckId); } catch { /* the next open tries again */ }
+    };
+    signalTimer = setTimeout(() => { void autoSignals(); }, 3_000);
+
     return () => {
       sweepCancelled = true;
       if (sweepTimer) clearTimeout(sweepTimer);
+      signalsCancelled = true;
+      if (signalTimer) clearTimeout(signalTimer);
       unsubscribe();
       runtime.stop();
       runtimeRef.current = null;
