@@ -239,7 +239,7 @@ function IntelRow({
       )}
       </div>
       <StoryImage pageUrl={item.url} imageUrl={item.imageUrl} publisher={item.publisher}
-        className="hidden h-[72px] w-[112px] shrink-0 self-center rounded-lg sm:block" />
+        className="hidden h-20 w-[120px] shrink-0 self-center rounded-lg sm:block" />
     </li>
   );
 }
@@ -314,7 +314,7 @@ export function TopStories({ items, onOpen, company }: { items: LiveIntelItem[];
             <button key={item.id} type="button" onClick={() => onOpen(item.id)}
               className="panel group flex gap-3 overflow-hidden p-2.5 text-left transition-shadow hover:shadow-md">
               <StoryImage pageUrl={item.url} imageUrl={item.imageUrl} publisher={item.publisher}
-                className="h-[84px] w-[128px] shrink-0 rounded-md" subject={subject} fallback={plate(item)} />
+                className="h-20 w-[120px] shrink-0 rounded-md" subject={subject} fallback={plate(item)} />
               <div className="min-w-0 space-y-1 py-0.5">
                 <StoryMeta item={item} />
                 <p className="line-clamp-4 text-[13.5px] font-medium leading-snug text-content group-hover:text-primary-ink">{item.title}</p>
@@ -419,10 +419,11 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
               )}
               <SecFilings companyName={companyNameRaw} />
             </div>
-            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted">
+            <h3 className="mb-3 flex items-baseline gap-2 font-display text-base font-semibold text-ink">
               {featuredIds.size > 0 ? 'More coverage' : 'All coverage'}
-            </h4>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-normal tabular-nums text-muted">{ordered.length}</span>
+            </h3>
+            <div className="mb-4 flex flex-wrap items-center gap-2">
               {all.length > 5 && (
                 <SearchBox
                   value={search}
@@ -469,7 +470,7 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
                 Clear the search or filters to see everything research retained.
               </EmptyNote>
             ) : (
-              <div className="space-y-5">
+              <div className="space-y-4">
                 {buckets.map(({ bucket, items }) => (
                   <section key={bucket} aria-label={RECENCY_LABEL[bucket]}>
                     <h4 className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-muted">
