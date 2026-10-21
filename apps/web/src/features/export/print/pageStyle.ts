@@ -8,6 +8,9 @@ import type { PrintJob } from '../PrintDocument';
 
 export type PaperSize = 'A4' | 'Letter';
 
+/** Paper sizes in mm. */
+const PAGE_MM: Record<PaperSize, { w: number; h: number }> = { A4: { w: 210, h: 297 }, Letter: { w: 215.9, h: 279.4 } };
+
 /** Margins in mm, from the print design system: 20 top, 18 sides, 22 bottom. */
 export const PAGE_MARGIN_MM = { top: 20, side: 18, bottom: 22 } as const;
 
@@ -54,16 +57,9 @@ export function printTitleOf(job: PrintJob): string {
   }
 }
 
-/** Full page height and width per paper, for a cover that fills the sheet (see `bleedCover`). */
-const SHEET = { A4: { w: '210mm', h: '297mm' }, Letter: { w: '8.5in', h: '11in' } } as const;
-
-/**
- * `bleedCover` makes the first page full-bleed (margin 0, no footer) and publishes the sheet size as
- * --sm-page-w / --sm-page-h so the cover can fill it. Only the market report asks for it.
- */
-export function printPageCss({ locale, title, bleedCover = false }: { locale?: string | null; title: string; bleedCover?: boolean }): string {
+/** Every report opens on a full-bleed cover: margin 0 and no footer on page one, with the sheet size published to the cover. */
+export function printPageCss({ locale, title }: { locale?: string | null; title: string }): string {
   const m = PAGE_MARGIN_MM;
-  const sheet = SHEET[paperFor(locale)];
   const left = `"Stratemark \\00b7  ${cssString(title.trim())}"`;
   const box = `font: ${FOOTER_FONT}; color: ${FOOTER_COLOUR};`;
   return [
@@ -71,7 +67,9 @@ export function printPageCss({ locale, title, bleedCover = false }: { locale?: s
     ` @bottom-left { content: ${left}; ${box} }`,
     ` @bottom-right { content: "Page " counter(page) " of " counter(pages); ${box} }`,
     `}`,
-    `@page :first { ${bleedCover ? 'margin: 0; ' : ''}@bottom-left { content: ""; } @bottom-right { content: ""; } }`,
-    ...(bleedCover ? [`:root { --sm-page-w: ${sheet.w}; --sm-page-h: ${sheet.h}; }`] : []),
+    // Page one is the cover: no margin (it paints edge to edge) and no footer. The page size is also handed to the
+    // cover as custom properties, because a cover cannot read @page and Letter and A4 differ in height.
+    `@page :first { @bottom-left { content: ""; } @bottom-right { content: ""; } margin: 0; }` +
+      ` @media print { .sm-print-doc { --sm-page-w: ${PAGE_MM[paperFor(locale)].w}mm; --sm-page-h: ${PAGE_MM[paperFor(locale)].h}mm; } }`,
   ].join('\n');
 }

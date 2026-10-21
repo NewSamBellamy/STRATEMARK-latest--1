@@ -1,0 +1,171 @@
+/*
+ * Print styling for the company, topic, product, person, daily and transcript reports: the dark cover and the
+ * section furniture (running head, eyebrow, figures, notes). Everything is scoped under .sm-print-doc and the
+ * classes are new (sm-cv-*, sm-r-*), so it wins over print.css whatever the import order. Tokens: tokens.css.
+ * The market report has its own styling.
+ */
+@media print {
+  .sm-print-doc {
+    --sm-on-dark: #f4f1e6;
+    --sm-on-dark-soft: #c3d2ce;
+    --sm-on-dark-faint: #8fa8a2;
+    --sm-mark-teal: #18bfb2;
+  }
+
+  /* ---- Cover: one full-bleed dark page. Page one has no @page margin (pageStyle.ts), so the panel is the page. ---- */
+  .sm-print-doc .sm-cv {
+    box-sizing: border-box;
+    width: var(--sm-page-w, 210mm);
+    height: calc(var(--sm-page-h, 297mm) - 1mm);
+    overflow: hidden;
+    padding: 16mm 20mm 14mm;
+    display: flex;
+    flex-direction: column;
+    background: var(--sm-art-ground);
+    color: var(--sm-on-dark);
+    break-after: page;
+    page-break-after: always;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .sm-print-doc .sm-cv-brand { display: flex; align-items: center; justify-content: space-between; gap: 8mm; }
+  .sm-print-doc .sm-cv-word { display: inline-flex; align-items: center; gap: 2.4mm; font: 700 9pt/1 var(--sm-font-display); letter-spacing: 0.22em; text-transform: uppercase; color: var(--sm-on-dark); }
+  .sm-print-doc .sm-cv-kind { font-size: var(--sm-fs-eyebrow); letter-spacing: var(--sm-eyebrow-tracking); text-transform: uppercase; font-weight: 700; color: var(--sm-mark-teal); }
+  .sm-print-doc .sm-cv-main { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; padding: 6mm 0; }
+  .sm-print-doc .sm-cv-logo { width: 16mm; height: 16mm; margin: 0 0 7mm; padding: 1.5mm; box-sizing: border-box; background: #fff; border-radius: 3mm; overflow: hidden; }
+  .sm-print-doc .sm-cv-logo .sm-cv-logo-img { width: 100%; height: 100%; }
+  .sm-print-doc .sm-cv-title { font: 700 var(--sm-fs-cover)/1.08 var(--sm-font-display); letter-spacing: -0.02em; color: #fff; margin: 0; max-width: 165mm; overflow-wrap: anywhere; }
+  .sm-print-doc .sm-cv-title[data-long] { font-size: 30pt; }
+  .sm-print-doc .sm-cv-sub { margin: 4mm 0 0; max-width: 135mm; font-size: 12pt; line-height: 1.4; color: var(--sm-on-dark-soft); }
+  .sm-print-doc .sm-cv-bar { width: 30mm; height: 2.5px; background: var(--sm-mark-teal); margin: 8mm 0; flex: none; }
+  .sm-print-doc .sm-cv-stage { display: flex; gap: 10mm; min-height: 0; }
+  .sm-print-doc .sm-cv-stage--side { align-items: flex-end; }
+  .sm-print-doc .sm-cv-stage--stack { flex-direction: column; gap: 7mm; }
+  .sm-print-doc .sm-cv-hero { flex: none; min-width: 0; }
+  .sm-print-doc .sm-cv-stage--stack .sm-cv-hero { width: 100%; }
+  .sm-print-doc .sm-cv-meta { list-style: none; margin: 0; padding: 0 0 0 5mm; border-left: 2px solid var(--sm-mark-teal); font-size: 11pt; line-height: 1.5; color: var(--sm-on-dark-soft); }
+  .sm-print-doc .sm-cv-stage--side .sm-cv-meta { align-self: flex-end; }
+  .sm-print-doc .sm-cv-meta li { margin: 0 0 2mm; overflow-wrap: anywhere; }
+  .sm-print-doc .sm-cv-meta li:first-child { color: var(--sm-on-dark); font-weight: 600; }
+  .sm-print-doc .sm-cv-note { margin: 0; padding-top: 4mm; border-top: 1px solid rgba(255, 255, 255, 0.2); font-size: 8pt; line-height: 1.5; color: var(--sm-on-dark-faint); max-width: 140mm; }
+  .sm-print-doc .sm-cv-note span { display: block; }
+  .sm-print-doc .sm-cv-note span + span { margin-top: 1.5mm; }
+  .sm-print-doc .sm-r-logo { width: 12mm; height: 12mm; border: 1px solid var(--sm-hairline); border-radius: 2mm; overflow: hidden; flex: none; }
+  /* Pictures on the cover */
+  .sm-print-doc .sm-cv-pic { margin: 0; }
+  .sm-print-doc .sm-cv-pic img { display: block; width: 100%; max-height: 82mm; object-fit: cover; border-radius: 2mm; }
+  .sm-print-doc .sm-cv-pic--portrait { width: 52mm; }
+  .sm-print-doc .sm-cv-pic--portrait img { width: 52mm; height: 52mm; border-radius: 3mm; }
+  .sm-print-doc .sm-cv-pic figcaption { margin-top: 1.5mm; font-size: 7pt; color: var(--sm-on-dark-faint); }
+
+  /* ---- Section furniture ---- */
+  .sm-print-doc .sm-r-section { margin: 0 0 10mm; }
+  .sm-print-doc .sm-r-section + .sm-r-section { margin-top: 2mm; }
+  .sm-print-doc .sm-r-section--page { break-before: page; page-break-before: always; }
+  /* The running head: company or report name over the section title. A thead repeats on every page the section covers. */
+  .sm-print-doc .sm-r-head { display: block; padding: 0 0 2.5mm; margin: 0 0 4mm; border-bottom: 1.5px solid var(--sm-ink); break-after: avoid; }
+  .sm-print-doc .sm-r-eyebrow { margin: 0 0 1.2mm; font-size: var(--sm-fs-eyebrow); letter-spacing: var(--sm-eyebrow-tracking); text-transform: uppercase; font-weight: 700; color: var(--sm-teal); }
+  .sm-print-doc .sm-r-h2 { margin: 0; font: 700 var(--sm-fs-h2)/1.3 var(--sm-font-display); letter-spacing: -0.01em; color: var(--sm-ink); padding-top: 0.6mm; break-after: avoid; }
+  .sm-print-doc .sm-r-n { margin-right: 3mm; color: var(--sm-teal); font-variant-numeric: tabular-nums; }
+  .sm-print-doc .sm-r-h3 { margin: 0 0 1.8mm; font: 700 8.5pt/1.3 var(--sm-font-display); letter-spacing: var(--sm-eyebrow-tracking); text-transform: uppercase; color: var(--sm-teal); break-after: avoid; }
+  .sm-print-doc .sm-r-block { margin: 0 0 5mm; }
+  .sm-print-doc .sm-r-block p { margin: 0 0 1.6mm; }
+  .sm-print-doc .sm-r-block ul { margin: 0 0 1mm; padding-left: 5mm; list-style: disc; }
+  .sm-print-doc .sm-r-block li { margin: 0.8mm 0; break-inside: avoid; }
+  .sm-print-doc .sm-r-lede { margin: 0 0 4mm; font-size: 10.5pt; line-height: 1.5; color: var(--sm-ink); }
+  .sm-print-doc .sm-r-sub { margin: 0 0 3mm; font-size: 9pt; color: var(--sm-muted); }
+  .sm-print-doc .sm-r-muted { color: var(--sm-muted); }
+  .sm-print-doc .sm-r-when { display: inline-block; min-width: 18mm; max-width: 34mm; vertical-align: top; color: var(--sm-teal); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .sm-print-doc .sm-r-timeline { list-style: none !important; padding-left: 0 !important; }
+  .sm-print-doc .sm-r-timeline li { display: flex; align-items: baseline; gap: 2.5mm; }
+  .sm-print-doc .sm-r-cols { columns: 2; column-gap: 8mm; }
+
+  /* Notes: numbered, publisher in ink, address in muted text */
+  .sm-print-doc .sm-r-notes { margin: 3mm 0 0; padding: 0 0 0 5mm; list-style: decimal; font-size: var(--sm-fs-note); line-height: 1.45; color: var(--sm-ink-soft); break-inside: avoid; }
+  .sm-print-doc .sm-r-notes li { margin: 0.8mm 0; overflow-wrap: anywhere; }
+  .sm-print-doc .sm-r-note-title { font-weight: 600; }
+  .sm-print-doc .sm-r-note-url { color: var(--sm-muted); }
+  .sm-print-doc .sm-r-label { margin: 2mm 0 0; font-size: var(--sm-fs-note); line-height: 1.45; color: var(--sm-muted); font-style: italic; }
+  .sm-print-doc sup.sm-r-ref { color: var(--sm-teal); font-weight: 700; font-size: 6.5pt; line-height: 0; margin-left: 0.6mm; }
+
+  /* The four face figures: large numerals, two by two */
+  .sm-print-doc .sm-r-figs { display: grid; grid-template-columns: 1fr 1fr; column-gap: 8mm; row-gap: 2mm; margin: 0 0 7mm; }
+  .sm-print-doc .sm-r-fig { border-top: 1.5px solid var(--sm-ink); padding: 2.6mm 0 3.5mm; break-inside: avoid; page-break-inside: avoid; min-height: 24mm; }
+  .sm-print-doc .sm-r-fig-label { margin: 0 0 1.8mm; font-size: var(--sm-fs-eyebrow); letter-spacing: var(--sm-eyebrow-tracking); text-transform: uppercase; font-weight: 700; color: var(--sm-muted); }
+  .sm-print-doc .sm-r-fig-value { margin: 0; font: 700 var(--sm-fs-hero)/1.15 var(--sm-font-display); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; color: var(--sm-ink); }
+  .sm-print-doc .sm-r-fig--est .sm-r-fig-value { font-style: italic; font-weight: 600; }
+  .sm-print-doc .sm-r-fig--unknown .sm-r-fig-value { font-size: 14pt; font-weight: 500; color: var(--sm-muted); }
+  .sm-print-doc .sm-r-fig-status { margin: 1.6mm 0 0; font-size: 8pt; color: var(--sm-muted); }
+  .sm-print-doc .sm-r-est { font-style: italic; font-weight: 500; font-size: 0.5em; letter-spacing: 0.04em; color: var(--sm-muted); margin-left: 1mm; }
+
+  /* Tables: header rule, hairline rows, no split rows */
+  .sm-print-doc .sm-r-table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin: 0 0 3mm; }
+  .sm-print-doc .sm-r-table thead { display: table-header-group; }
+  .sm-print-doc .sm-r-table th { text-align: left; padding: 1.5mm 2mm; font-size: var(--sm-fs-eyebrow); letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; color: var(--sm-muted); border-bottom: 1.5px solid var(--sm-ink); }
+  .sm-print-doc .sm-r-table td { padding: 1.8mm 2mm; vertical-align: top; border-bottom: 1px solid var(--sm-hairline); }
+  .sm-print-doc .sm-r-table tr { break-inside: avoid; page-break-inside: avoid; }
+  .sm-print-doc .sm-r-table .sm-r-num { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .sm-print-doc .sm-r-table .sm-r-row--est .sm-r-num { font-style: italic; font-weight: 600; }
+  .sm-print-doc .sm-r-table .sm-r-row--unknown td { color: var(--sm-muted); }
+  .sm-print-doc .sm-r-table .sm-r-row--unknown .sm-r-num { font-weight: 500; }
+  /* Row-header tables (person and product facts): the label column is the first cell of each row. */
+  .sm-print-doc .sm-r-table--facts th { width: 34mm; padding: 1.8mm 2mm; border-bottom: 1px solid var(--sm-hairline); vertical-align: top; font-size: 8pt; letter-spacing: 0.1em; font-weight: 700; color: var(--sm-muted); }
+  .sm-print-doc .sm-r-table--facts tr:first-child th, .sm-print-doc .sm-r-table--facts tr:first-child td { border-top: 1.5px solid var(--sm-ink); }
+
+  /* "How to read this" */
+  .sm-print-doc .sm-r-how { margin: 5mm 0 0; padding: 3mm 4mm; background: var(--sm-teal-tint); border-left: 2px solid var(--sm-teal); font-size: 8.5pt; line-height: 1.5; color: var(--sm-ink-soft); break-inside: avoid; page-break-inside: avoid; }
+  .sm-print-doc .sm-r-how strong { color: var(--sm-ink); }
+
+  /* Markdown the research wrote: a heading scale under the section's H2 */
+  .sm-print-doc .sm-r-md { font-size: var(--sm-fs-body); line-height: var(--sm-lh-body); orphans: 3; widows: 3; }
+  .sm-print-doc .sm-r-md > * { margin: 0 0 2.4mm; }
+  .sm-print-doc .sm-r-md h1, .sm-print-doc .sm-r-md h2, .sm-print-doc .sm-r-md h3, .sm-print-doc .sm-r-md h4 { font-family: var(--sm-font-display); line-height: 1.25; color: var(--sm-ink); break-after: avoid; page-break-after: avoid; margin: 4mm 0 1.6mm; }
+  .sm-print-doc .sm-r-md h1, .sm-print-doc .sm-r-md h2 { font-size: 12pt; }
+  .sm-print-doc .sm-r-md h3 { font-size: 10.5pt; }
+  .sm-print-doc .sm-r-md h4 { font-size: 9.5pt; text-transform: uppercase; letter-spacing: 0.08em; color: var(--sm-teal); }
+  .sm-print-doc .sm-r-md li { break-inside: avoid; margin: 0.8mm 0; }
+  .sm-print-doc .sm-r-md table { width: 100%; border-collapse: collapse; font-size: 9pt; break-inside: avoid; }
+  .sm-print-doc .sm-r-md thead th { text-align: left; border-bottom: 1.5px solid var(--sm-ink); }
+  .sm-print-doc .sm-r-md th, .sm-print-doc .sm-r-md td { border: 0; border-bottom: 1px solid var(--sm-hairline); padding: 1.2mm 2mm; text-align: left; vertical-align: top; }
+  .sm-print-doc .sm-r-md tr { break-inside: avoid; }
+  .sm-print-doc .sm-r-md blockquote { margin: 0 0 2.4mm; padding-left: 4mm; border-left: 2px solid var(--sm-teal); color: var(--sm-ink-soft); }
+
+  /* Pictures in the body: always with a credit */
+  .sm-print-doc .sm-r-figures { display: grid; grid-template-columns: 1fr; gap: 4mm; margin: 0 0 5mm; }
+  .sm-print-doc .sm-r-figures--2 { grid-template-columns: 1fr 1fr; }
+  .sm-print-doc .sm-r-figure { margin: 0; break-inside: avoid; page-break-inside: avoid; }
+  .sm-print-doc .sm-r-figure img { display: block; width: 100%; max-height: 62mm; object-fit: cover; border: 1px solid var(--sm-hairline); border-radius: 2mm; }
+  .sm-print-doc .sm-r-figure figcaption { margin-top: 1.2mm; font-size: 7.5pt; color: var(--sm-muted); }
+
+  /* A callout for what was not found, and a quiet one for research done beyond the stored profile */
+  .sm-print-doc .sm-r-gap { margin: 3mm 0 0; padding: 2mm 3mm; border-left: 2px solid var(--sm-gap); background: var(--sm-gap-bg); font-size: 8.5pt; color: var(--sm-ink-soft); break-inside: avoid; }
+  .sm-print-doc .sm-r-gap--note { border-left-color: var(--sm-teal); background: var(--sm-teal-tint); }
+
+  /* One dated update (today report) or timeline entry (product report) */
+  .sm-print-doc .sm-r-update { break-inside: avoid; page-break-inside: avoid; padding: 0 0 5mm; margin: 0 0 5mm; border-bottom: 1px solid var(--sm-hairline); }
+  .sm-print-doc .sm-r-kind { margin: 0 0 1.5mm; font-size: var(--sm-fs-eyebrow); letter-spacing: var(--sm-eyebrow-tracking); text-transform: uppercase; font-weight: 700; color: var(--sm-teal); }
+  .sm-print-doc .sm-r-sentiment { color: var(--sm-muted); letter-spacing: 0.1em; }
+  .sm-print-doc .sm-r-update-title { margin: 0 0 1.5mm; font: 700 12pt/1.3 var(--sm-font-display); color: var(--sm-ink); break-after: avoid; }
+  .sm-print-doc .sm-r-byline { margin: 0 0 2mm; font-size: 8.5pt; color: var(--sm-muted); }
+  .sm-print-doc .sm-r-source { margin: 2mm 0 0; font-size: 8pt; line-height: 1.45; color: var(--sm-ink-soft); overflow-wrap: anywhere; }
+
+  /* Quote with its source (person report) */
+  .sm-print-doc .sm-r-quote { margin: 5mm 0 0; padding: 0 0 0 4mm; border-left: 2px solid var(--sm-teal); font-size: 10pt; color: var(--sm-ink-soft); break-inside: avoid; }
+  .sm-print-doc .sm-r-quote p { margin: 0 0 1.5mm; }
+  .sm-print-doc .sm-r-quote cite { display: block; font-style: normal; font-size: 7.5pt; color: var(--sm-muted); overflow-wrap: anywhere; }
+
+  /* Transcript turns */
+  .sm-print-doc .sm-r-turn { margin: 0 0 6mm; padding-left: 4mm; border-left: 2px solid var(--sm-hairline); }
+  .sm-print-doc .sm-r-turn--user { border-left-color: var(--sm-teal); break-inside: avoid; }
+  .sm-print-doc .sm-r-turn p { margin: 0 0 2mm; }
+  .sm-print-doc .sm-r-who { margin: 0 0 1.4mm; font-size: var(--sm-fs-eyebrow); letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: var(--sm-muted); break-after: avoid; }
+  .sm-print-doc .sm-r-turn--user .sm-r-who { color: var(--sm-teal); }
+
+  /* Contents (long reports) */
+  .sm-print-doc .sm-r-toc { break-after: page; page-break-after: always; }
+  .sm-print-doc .sm-r-toc ol { list-style: none; margin: 0; padding: 0; }
+  .sm-print-doc .sm-r-toc li a { display: flex; align-items: baseline; gap: 4mm; padding: 2.4mm 0; border-bottom: 1px solid var(--sm-hairline); }
+  .sm-print-doc .sm-r-toc-n { width: 8mm; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--sm-teal); }
+  .sm-print-doc .sm-r-toc-name { flex: 1; font-weight: 600; }
+  .sm-print-doc .sm-r-toc-meta { font-size: 8.5pt; color: var(--sm-muted); }
+}

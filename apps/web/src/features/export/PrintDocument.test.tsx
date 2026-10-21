@@ -37,7 +37,10 @@ describe('the printed market report', () => {
     const model = buildReportModel({ title: market.name, kind: 'deck', companies: companiesFromCards(cards) });
     const { container } = render(<PrintDocument job={{ kind: 'report', model }} />);
     expect(container.querySelectorAll('header')).toHaveLength(0);
-    expect(container.querySelectorAll('.sm-company-head h2').length).toBe(model.companies.length);
+    // Each company is a running-head section: its name is in the thead, which Chromium repeats on every page it covers.
+    const heads = [...container.querySelectorAll('table.sm-run > thead .sm-r-h2')].map((h) => h.textContent ?? '');
+    expect(heads).toHaveLength(model.companies.length);
+    for (const company of model.companies) expect(heads.some((h) => h.includes(company.name))).toBe(true);
   });
 
   it('puts a company history in time order, whatever way its dates are written', () => {

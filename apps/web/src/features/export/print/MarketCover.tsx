@@ -1,6 +1,6 @@
 /**
  * The market report's cover: one full-bleed page, dark panel, the title, the counts from the model and a fan of three
- * real card faces. The page is made full-bleed by the per-job @page rule (print/pageStyle.ts, `bleedCover`).
+ * real card faces. The page is made full-bleed by the per-job @page rule (print/pageStyle.ts).
  */
 import logoMark from '@/assets/logo-mark.svg';
 import type { FullReportModel } from '../fullReportModel';
