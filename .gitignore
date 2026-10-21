@@ -6,6 +6,7 @@ release/
 coverage/
 playwright-report/
 test-results/
+apps/web/e2e/layout-audit.results.json
 storybook-static/
 *.log
 .DS_Store
