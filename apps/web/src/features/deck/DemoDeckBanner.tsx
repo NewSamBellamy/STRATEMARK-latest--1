@@ -19,7 +19,7 @@ export function DemoDeckBanner() {
       <FlaskConical className="h-4 w-4 shrink-0 text-primary" />
       <p>
         <span className="font-medium text-content">Demo deck — sample research, not live.</span>{' '}
-        <span className="text-muted">
+        <span className="text-content/80">
         {hasKey
           ? 'Switch the engine in Settings to run real research on this market.'
           : 'Add your Gemini API key in Settings to run real research on any market.'}
