@@ -147,8 +147,12 @@ export function keepFreshEvidence(
       threadId: thread.id, answerText: answer.text, grounding: answer.grounding,
       companies, cardIdFor: cardFor, queries: answer.queries,
     });
-    if (records.length) snap.researchEvidence = [...(snap.researchEvidence ?? []), ...records];
-    return records;
+    // A sentence already kept for that company is not kept again: copies would pass for separate passages.
+    const key = (companyId: string | null | undefined, text: string) => `${companyId ?? ''}|${text.replace(/\s+/g, ' ').trim().toLowerCase()}`;
+    const have = new Set((snap.researchEvidence ?? []).filter((e) => e.topic.startsWith('chat:')).map((e) => key(e.companyId, e.text)));
+    const added = records.filter((r) => { const k = key(r.companyId, r.text); if (have.has(k)) return false; have.add(k); return true; });
+    if (added.length) snap.researchEvidence = [...(snap.researchEvidence ?? []), ...added];
+    return added;
   } catch {
     return [];
   }
