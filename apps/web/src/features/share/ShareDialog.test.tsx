@@ -56,8 +56,10 @@ describe('Share, where the Worker can store a link', () => {
     const { repository, ui } = await setup();
     renderWithProviders(ui(), { repository });
     expect(await screen.findByRole('button', { name: 'Create link' })).toBeInTheDocument();
-    expect(screen.getByText(/keeps a copy of this research on its servers for 90 days/)).toBeInTheDocument();
-    expect(screen.getByText(/stop\s+sharing at any time/)).toBeInTheDocument();
+    expect(screen.getByText(/kept for 90 days/)).toBeInTheDocument();
+    expect(screen.getByText(/stop it any time/)).toBeInTheDocument();
+    // One short line each, not a wall of legal text.
+    expect(screen.getByRole('dialog').textContent!.length).toBeLessThan(700);
     expect(screen.getByRole('button', { name: /Use a private link instead/ })).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -87,6 +89,52 @@ describe('Share, where the Worker can store a link', () => {
     expect(screen.getByRole('link', { name: 'Telegram' })).toHaveAttribute('href', expect.stringContaining(encodeURIComponent(created.url)));
     // A short link fits every one-tap destination, which a 29,000-character link never did.
     for (const name of ['Email', 'Telegram', 'WhatsApp', 'Post on X']) expect(screen.getByRole('link', { name })).toBeInTheDocument();
+  });
+
+  it('shares a card on its own by default, or together with the whole deck when asked', async () => {
+    fetchMock.mockImplementation(async () => reply(201, created));
+    const { repository, deck, market, build } = await setup();
+    const cards = await repository.listCards(deck.id);
+    const card = cards.find((c) => c.card.cardType === 'company')!.card;
+    const exportSpy = vi.spyOn(repository, 'exportShareSnapshot');
+    const ui = (
+      <ShareDialog open onOpenChange={() => undefined} title={card.title ?? market.name} subtitle="Company card" build={build} page={{ deckId: deck.id, cardId: card.id }} />
+    );
+    const { user } = renderWithProviders(ui, { repository });
+    // A card offers the choice, on the card by default.
+    const group = await screen.findByRole('radiogroup', { name: 'What to share' });
+    expect(within(group).getByRole('radio', { name: 'This card' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText(/shows this card as the preview/)).toBeInTheDocument();
+    await user.click(within(group).getByRole('radio', { name: 'The whole deck' }));
+    expect(within(group).getByRole('radio', { name: 'The whole deck' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText(/every card and all of the research to browse/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Create link' }));
+    await screen.findByLabelText('Share link');
+    // The whole deck: no card to fact-check first, and the snapshot is the deck's.
+    expect(build).not.toHaveBeenCalled();
+    expect(exportSpy).toHaveBeenCalledWith({ deckId: deck.id, cardId: null });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((JSON.parse(init.body as string) as { kind: string }).kind).toBe('deck');
+  });
+
+  it('keeps the card as the thing shared when the switch is left alone', async () => {
+    fetchMock.mockImplementation(async () => reply(201, created));
+    const { repository, deck, market, build } = await setup();
+    const cards = await repository.listCards(deck.id);
+    const card = cards.find((c) => c.card.cardType === 'company')!.card;
+    const exportSpy = vi.spyOn(repository, 'exportShareSnapshot');
+    const { user } = renderWithProviders(
+      <ShareDialog open onOpenChange={() => undefined} title={card.title ?? market.name} subtitle="Company card" build={build} page={{ deckId: deck.id, cardId: card.id }} />,
+      { repository },
+    );
+    await user.click(await screen.findByRole('button', { name: 'Create link' }));
+    await screen.findByLabelText('Share link');
+    expect(build).toHaveBeenCalledTimes(1);
+    expect(exportSpy).toHaveBeenCalledWith({ deckId: deck.id, cardId: card.id });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((JSON.parse(init.body as string) as { kind: string }).kind).toBe('card');
+    // The pre-filled message names the card and says what it is.
+    expect(screen.getByRole('link', { name: 'Telegram' }).getAttribute('href')).toContain(encodeURIComponent('a research card on Stratemark'));
   });
 
   it('remembers a link that was made after the dialog was closed, so it can still be stopped', async () => {

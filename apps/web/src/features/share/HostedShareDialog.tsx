@@ -1,8 +1,9 @@
 /**
  * "Create link": one tap makes a short link that opens a read-only copy of a
- * card or a whole deck, with every tab of its research, and that chat apps show
- * with a title and a picture. Nothing is uploaded until the person presses the
- * button, and the dialog says what is kept, for how long, and how to stop it.
+ * card, or of the whole deck it came from, with every tab of its research, and that
+ * chat apps show with the card itself as the picture. Nothing is uploaded until the
+ * person presses the button, and the dialog says in one line each what is kept, for
+ * how long, and how to stop it.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, Copy, Loader2, Link2, Share2, Trash2 } from 'lucide-react';
@@ -51,8 +52,13 @@ export function HostedShareDialog({
   const run = useRef(0);
   const input = useRef<HTMLInputElement>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const subject = `${page.cardId ? 'card' : 'deck'}:${page.deckId}${page.cardId ? `:${page.cardId}` : ''}`;
-  const message = subtitle ? `${title} · ${subtitle}` : title;
+  // A card can be shared on its own or together with the rest of its deck (everything researched, to browse).
+  const [scope, setScope] = useState<'card' | 'deck'>('card');
+  const cardId = page.cardId && scope === 'card' ? page.cardId : null;
+  const subject = `${cardId ? 'card' : 'deck'}:${page.deckId}${cardId ? `:${cardId}` : ''}`;
+  const message = cardId
+    ? `${title}: a research card on Stratemark, every figure with its source.`
+    : `${title}: a sourced market deck on Stratemark.`;
 
   useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current); }, []);
   useEffect(() => {
@@ -73,11 +79,12 @@ export function HostedShareDialog({
     setView({ step: 'working', stage: 'Preparing…' });
     try {
       if (!repo.exportShareSnapshot) throw new Error('This version of Stratemark cannot make a share link.');
-      // A card runs its fact-check pass first, so the figures it carries are the reconciled ones. A deck's call is instant.
-      await build((stage) => { if (current()) setView({ step: 'working', stage }); });
+      // A card on its own runs its fact-check pass first, so the figures it carries are the reconciled ones. A deck's call is instant.
+      // (Skipped only when a card's owner chose to share its whole deck instead.)
+      if (cardId || !page.cardId) await build((stage) => { if (current()) setView({ step: 'working', stage }); });
       if (!current()) return;
       setView({ step: 'working', stage: 'Gathering the research…' });
-      const snapshot = await repo.exportShareSnapshot({ deckId: page.deckId, cardId: page.cardId ?? null });
+      const snapshot = await repo.exportShareSnapshot({ deckId: page.deckId, cardId });
       if (!current()) return;
       const fingerprint = snapshotFingerprint(snapshot);
       const reusable = findReusableShare(subject, fingerprint);
@@ -92,7 +99,7 @@ export function HostedShareDialog({
     } catch (error) {
       if (current()) setView({ step: 'error', message: error instanceof Error ? error.message : 'The link could not be made.' });
     }
-  }, [build, page.cardId, page.deckId, repo, subject, title]);
+  }, [build, cardId, page.cardId, page.deckId, repo, subject, title]);
 
   const onCopy = async (url: string) => {
     const ok = await copyText(url, input.current);
@@ -124,23 +131,36 @@ export function HostedShareDialog({
 
         {view.step === 'ready' && (
           <div className="space-y-3">
+            {page.cardId && (
+              <div role="radiogroup" aria-label="What to share" className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-surface-2 p-1">
+                {([['card', 'This card'], ['deck', 'The whole deck']] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={scope === value}
+                    onClick={() => setScope(value)}
+                    className={`rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors ${scope === value ? 'bg-surface text-content shadow-sm' : 'text-muted hover:text-content'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             <p className="text-[13px] leading-relaxed text-content">
-              Make a link to a read-only copy of {page.cardId ? 'this card' : 'this deck'} with its research and sources. Anyone with the link can open it on a
-              phone or a laptop, with no account, and it shows a preview in chat apps.
+              {cardId
+                ? 'A link anyone can open on a phone or a laptop. It shows this card as the preview in chat apps.'
+                : page.cardId
+                  ? 'A link anyone can open, with every card and all of the research to browse. It shows this card as the preview in chat apps.'
+                  : 'A link anyone can open on a phone or a laptop, with every card and all of the research to browse.'}
             </p>
             <button type="button" className="btn-primary" onClick={() => void create()}>
               <Link2 className="h-4 w-4" />
               Create link
             </button>
-            {page.cardId && (
-              <p className="text-[11.5px] leading-relaxed text-faint">
-                Before the link is made, any figure on this card that has not been verified is checked again, so the copy carries the reconciled figures. That can take a
-                minute and uses a few searches on your key.
-              </p>
-            )}
             <p className="text-[11.5px] leading-relaxed text-faint">
-              To make the link work, Stratemark keeps a copy of this research on its servers for {ttlDays} days. Anyone who has the link can read it. You can stop
-              sharing at any time, and nothing is uploaded until you press the button.
+              Read-only, kept for {ttlDays} days, and you can stop it any time.
+              {cardId && ' Figures not yet verified are checked first: about a minute and a few searches on your key.'}
             </p>
             <button type="button" className="text-[12px] font-medium text-primary-ink underline-offset-2 hover:underline" onClick={onPrivate}>
               Use a private link instead (nothing is uploaded)
@@ -199,7 +219,7 @@ export function HostedShareDialog({
             {view.share.imageUrl && (
               <figure className="overflow-hidden rounded-xl border border-border bg-surface-2">
                 <img src={view.share.imageUrl} alt={`The preview chat apps show for ${title}`} className="block h-auto w-full" loading="lazy" referrerPolicy="no-referrer" />
-                <figcaption className="px-3 py-1.5 text-[11px] text-faint">This is the preview a chat app shows with the link.</figcaption>
+                <figcaption className="px-3 py-1.5 text-[11px] text-faint">The preview chat apps show.</figcaption>
               </figure>
             )}
 
@@ -216,15 +236,14 @@ export function HostedShareDialog({
             )}
 
             <p className="text-[11.5px] leading-relaxed text-faint">
-              Anyone with this link can read this copy until {new Date(view.share.expiresAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}.
-              It is read-only and nothing new is researched when it is opened.
+              Open to anyone with the link until {new Date(view.share.expiresAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}. Read-only.
             </p>
             <div className="border-t border-border pt-3">
               <button type="button" className="inline-flex items-center gap-1.5 text-[12px] font-medium text-negative hover:underline disabled:opacity-60" disabled={busyStop} onClick={() => void stop(view.share)}>
                 {busyStop ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                 Stop sharing
               </button>
-              <p className="mt-1 text-[11px] text-faint">The link stops working and the copy is deleted from Stratemark's servers.</p>
+              <p className="mt-1 text-[11px] text-faint">The link stops working and the copy is deleted.</p>
               {stopError && <p role="alert" className="mt-1 text-[12px] text-negative">{stopError}</p>}
             </div>
           </div>
