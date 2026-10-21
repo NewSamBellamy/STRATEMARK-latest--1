@@ -18,8 +18,8 @@ export default function SavedCardsPage() {
     [cards.data],
   );
   return (
-    <div className="mx-auto max-w-5xl">
-      <h1 className="mb-6 font-display text-[28px] font-bold tracking-tight text-content">
+    <div className="mx-auto max-w-6xl">
+      <h1 className="mb-6 font-display text-2xl font-semibold text-content">
         Saved Cards
       </h1>
       <QueryBoundary
