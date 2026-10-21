@@ -876,6 +876,18 @@ export interface MarketIntelRepository {
   huntCompanyMetrics?(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult>;
 
   /**
+   * Make sure the deck holds its four market-signal kinds (barrier, insight, vice, culture). Barrier and insight cards
+   * come from one market-level search; vice and culture cards from one search about the deck's own companies. Only the
+   * kinds the deck is short of are searched for, every card needs a clickable source, and a market with nothing
+   * documented gets no card (never padding). A kind counts its SOURCED cards only, searched kinds rest for a few days (the
+   * rest is stored with the deck), and a search that errored rests briefly. `failed` is true when a search errored (worth
+   * another try), not when it found nothing; `failedKinds` says which kinds. OPTIONAL; `force` searches for every kind
+   * that has room, whatever its rest. Additive in the contract.
+   */
+  ensureSignalCards?(deckId: string, options?: { force?: boolean; signal?: AbortSignal }):
+    Promise<{ added: Record<'barrier' | 'insight' | 'vice' | 'culture', number>; failed: boolean; failedKinds?: Array<'barrier' | 'insight' | 'vice' | 'culture'> }>;
+
+  /**
    * Face hunt for several companies in one grounded search, each company still
    * held to its own per-figure gates. Returns the companies it hunted; one it
    * left out or failed is absent, for the caller to hunt alone. OPTIONAL.

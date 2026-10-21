@@ -1,116 +1,81 @@
-import { useCallback, useEffect, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
-import { publisherOf, type MarketIntelRepository, type SignalBrief, type SignalBriefPoint } from '@mi/contracts';
-import { useRepository } from '@/lib/repository/RepositoryProvider';
-import { useReadOnly } from '@/lib/readOnly';
+import { publisherOf, type CardWithCompany } from '@mi/contracts';
 import { sourceHref } from '@/lib/sourceHref';
+import { ViceDisclaimer } from './CardDisclaimer';
+import { sourceUrl } from './card-view';
 
-export type SignalBriefState =
-  | { status: 'idle' }
-  | { status: 'building' }
-  | { status: 'ready'; brief: SignalBrief }
-  | { status: 'failed'; message: string };
-
-/** Builds in flight, per repository and card, so two openings of one card share one build (and one spend). */
-const builds = new WeakMap<object, Map<string, Promise<SignalBrief>>>();
-
-function sharedBuild(repo: MarketIntelRepository, cardId: string, force: boolean): Promise<SignalBrief> {
-  let byCard = builds.get(repo);
-  if (!byCard) builds.set(repo, byCard = new Map());
-  const running = byCard.get(cardId);
-  if (running) return running;
-  const run = repo.researchSignalBrief!({ cardId, ...(force ? { force: true } : {}) });
-  byCard.set(cardId, run);
-  const clear = () => { if (byCard.get(cardId) === run) byCard.delete(cardId); };
-  run.then(clear, clear);
-  return run;
+export interface SignalReading {
+  /** One readable paragraph: what the finding is. */
+  lead: string | null;
+  /** The sentences behind it (5 to 10 when the research has them), each with its own source where it has one. */
+  points: Array<{ text: string; source: { url: string; title: string } | null }>;
+  /** Every distinct source, once. */
+  sources: Array<{ url: string; title: string }>;
 }
 
-/** A point is shown only with a source behind it. */
-export function sourcedPoints(brief: SignalBrief): SignalBriefPoint[] {
-  return (brief.points ?? []).filter((point) => point.text?.trim() && Array.isArray(point.sources) && point.sources.length > 0);
-}
+const MAX_POINTS = 10;
+const key = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 /**
- * The brief behind a signal card. Reads a stored one for free; builds one once when none is stored, unless the view is a
- * shared copy (which never builds or spends). Rebuilding is only ever called from an explicit, confirmed click.
+ * What a barrier, insight, risk or culture card says, as something to read: a paragraph, then a punch list. The reader
+ * used to show the same finding in a clamped box, a second box of "findings" and a "Read full finding" step; the
+ * paragraph was cut at two lines and the list at two items. Nothing is added here: it is the card's own summary,
+ * key points and sourced claims, each shown once.
  */
-export function useSignalBrief(cardId: string, enabled: boolean) {
-  const repo = useRepository();
-  const readOnly = useReadOnly();
-  const [state, setState] = useState<SignalBriefState>({ status: 'idle' });
-  const canBuild = !readOnly && typeof repo.researchSignalBrief === 'function';
-
-  const build = useCallback((force: boolean) => {
-    if (!canBuild) return;
-    setState({ status: 'building' });
-    sharedBuild(repo, cardId, force).then(
-      (brief) => setState({ status: 'ready', brief }),
-      (error: unknown) => setState({ status: 'failed', message: error instanceof Error && error.message ? error.message : 'The report could not be written.' }),
-    );
-  }, [repo, cardId, canBuild]);
-
-  useEffect(() => {
-    if (!enabled || typeof repo.peekSignalBrief !== 'function') {
-      if (enabled && canBuild) build(false);
-      return;
-    }
-    let live = true;
-    repo.peekSignalBrief(cardId).then(
-      (stored) => {
-        if (!live) return;
-        if (stored) setState({ status: 'ready', brief: stored });
-        else if (canBuild) build(false);
-      },
-      () => { if (live && canBuild) build(false); },
-    );
-    return () => { live = false; };
-  }, [enabled, repo, cardId, canBuild, build]);
-
-  return { state, canBuild, retry: () => build(false), rebuild: () => build(true) };
+export function signalReading(data: CardWithCompany, citations: ReadonlyArray<{ url: string; title: string }>): SignalReading {
+  const seen = new Set<string>();
+  const once = (text: string | null | undefined): string | null => {
+    const t = (text ?? '').replace(/\s+/g, ' ').trim();
+    if (!t || seen.has(key(t))) return null;
+    seen.add(key(t));
+    return t;
+  };
+  const sources = [...new Map(citations.map((c) => [c.url, { url: c.url, title: c.title }])).values()];
+  if (data.card.cardType === 'vice') {
+    // An allegation with no clickable source is never shown (Rule 9).
+    const points = data.viceClaims.filter((claim) => sourceUrl(claim.sourceUrl)).flatMap((claim) => {
+      const text = once(claim.claimText);
+      return text ? [{ text, source: claim.sourceUrl ? { url: claim.sourceUrl, title: claim.sourceTitle ?? '' } : null }] : [];
+    }).slice(0, MAX_POINTS);
+    return { lead: null, points, sources };
+  }
+  const lead = once(data.card.summary);
+  const points = data.card.keyPoints.flatMap((point) => {
+    const text = once(point);
+    return text ? [{ text, source: null }] : [];
+  }).slice(0, MAX_POINTS);
+  return { lead, points, sources };
 }
 
-type Controls = ReturnType<typeof useSignalBrief>;
-
-/** The brief's lead and points, each with its own sources. Renders nothing until there is something sourced to show. */
-export function SignalBriefBody({ controls }: { controls: Controls }) {
-  const { state } = controls;
-  const [confirming, setConfirming] = useState(false);
-  if (state.status === 'idle') return null;
-  if (state.status === 'building') {
-    return <p className="card-inspector__trust-note min-h-[2.5rem]" role="status">Writing the full report on this finding…</p>;
-  }
-  if (state.status === 'failed') {
-    return <div className="card-inspector__trust-note min-h-[2.5rem]" role="alert">
-      <span>{state.message}</span>{' '}
-      <button type="button" className="font-semibold text-content hover:underline" onClick={controls.retry}>Try again</button>
-    </div>;
-  }
-  const points = sourcedPoints(state.brief);
-  const lead = state.brief.lead?.trim();
-  if (points.length === 0) {
-    return <p className="card-inspector__trust-note">Nothing more is documented about this finding yet.</p>;
-  }
-  return <div className="signal-brief" aria-label="Full report on this finding">
-    {lead && <p className="text-[13px] font-medium leading-relaxed text-content">{lead}</p>}
-    <ul className="card-inspector__findings mt-2">
-      {points.map((point, index) => <li key={`${index}-${point.text}`}>
-        <p>{point.text}</p>
-        <span className="card-inspector__source-list">
-          {point.sources.map((source) => <a key={source.url} href={sourceHref(source.url, source.title)}
-            target="_blank" rel="noopener noreferrer">
-            <ExternalLink size={10} aria-hidden="true" />{publisherOf(source.url, source.title)}
+/** The finding as a paragraph and a clean list, with its sources underneath. No boxes, nothing clipped. */
+export function SignalFinding({ data, citations }: { data: CardWithCompany; citations: ReadonlyArray<{ url: string; title: string }> }) {
+  const reading = signalReading(data, citations);
+  const vice = data.card.cardType === 'vice';
+  const empty = !reading.lead && reading.points.length === 0;
+  return (
+    <section className="brf-print-root signal-read" aria-label="Research finding">
+      {reading.lead && <p className="signal-read__lead">{reading.lead}</p>}
+      {reading.points.length > 0 && <div>
+        <h3 className="signal-read__heading">{vice ? 'What sources report' : 'What the research shows'}</h3>
+        {vice && <div className="mb-2"><ViceDisclaimer /></div>}
+        <ul className="signal-read__points">
+          {reading.points.map((point) => <li key={point.text}>
+            {point.text}
+            {point.source && <a className="signal-read__src" href={sourceHref(point.source.url, point.source.title)} target="_blank" rel="noopener noreferrer"
+              aria-label={`Source: ${publisherOf(point.source.url, point.source.title)}`}>
+              {publisherOf(point.source.url, point.source.title)} <ExternalLink size={10} aria-hidden="true" />
+            </a>}
+          </li>)}
+        </ul>
+      </div>}
+      {empty && <p className="signal-read__note">The research recorded no further detail for this card.</p>}
+      {reading.sources.length > 0
+        ? <p className="signal-read__sources"><span>Sources</span>
+          {reading.sources.slice(0, 8).map((source) => <a key={source.url} href={sourceHref(source.url, source.title)} target="_blank" rel="noopener noreferrer">
+            {publisherOf(source.url, source.title)} <ExternalLink size={10} aria-hidden="true" />
           </a>)}
-        </span>
-      </li>)}
-    </ul>
-    {controls.canBuild && <div className="brf-no-print mt-2 text-[11px] text-muted">
-      {confirming ? <span className="flex items-center gap-2">
-        <span>Rebuilding uses research credits.</span>
-        <button type="button" className="font-semibold text-content hover:underline"
-          onClick={() => { setConfirming(false); controls.rebuild(); }}>Rebuild now</button>
-        <button type="button" className="hover:underline" onClick={() => setConfirming(false)}>Cancel</button>
-      </span> : <button type="button" className="hover:underline" onClick={() => setConfirming(true)}>Rebuild</button>}
-    </div>}
-  </div>;
+        </p>
+        : <p className="signal-read__note">No clickable source has been saved for this finding yet.</p>}
+    </section>
+  );
 }

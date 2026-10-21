@@ -250,8 +250,10 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
   it('executes delta search, filters already-known entities, and hydrates new companies', async () => {
     const employeeReport = 'Novel AI Lab reported 30 employees as of 2026-10-01.';
     const userReport = 'Novel AI Lab reported 10,000 users as of 2026-10-01.';
+    // The search wrote this sentence and attached it to a source: a risk is stored only on a source it was attributed to.
+    const lawsuitReport = 'Novel AI Lab faces a pending lawsuit over copyright in its training dataset, court filings show.';
     const client = fakeClient({
-      profileText: `Novel AI Lab operates a research laboratory for AI products.\n${employeeReport}\n${userReport}`,
+      profileText: `Novel AI Lab operates a research laboratory for AI products.\n${employeeReport}\n${userReport}\n${lawsuitReport}`,
       discoveryCompanies: [
         {
           name: 'Existing Co Inc', // Should be excluded
@@ -284,7 +286,7 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
           users: reported(10_000, 'users', userReport),
         },
         viceClaims: [
-          { text: 'Litigation pending regarding training dataset copyright', sourceIndex: 0 },
+          { text: 'Novel AI Lab faces a pending lawsuit over copyright in its training dataset.', sourceIndex: 0 },
         ],
         cultureNote: 'Hosts monthly open AI safety roundtables.',
       },
@@ -330,7 +332,8 @@ describe('Incremental Delta Search Agent — Execution, Diffing & Hydration', ()
     const viceCard = result.cards.find((c) => c.card.cardType === 'vice');
     expect(viceCard).toBeDefined();
     expect(viceCard!.viceClaims.length).toBe(1);
-    expect(viceCard!.viceClaims[0]?.claimText).toContain('Litigation pending');
+    expect(viceCard!.viceClaims[0]?.claimText).toContain('pending lawsuit');
+    expect(viceCard!.viceClaims[0]?.sourceUrl).toBe('https://techcrunch.example/news/delta');
     expect(viceCard!.metrics).toEqual([]); // Zero borrowed metrics on signal cards per spec §4
 
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'status', step: 'discover' }));
