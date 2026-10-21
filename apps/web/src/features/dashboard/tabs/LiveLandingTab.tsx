@@ -191,10 +191,10 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
               title="Live website"
               description={`${name}’s own site as it looks right now, captured for a first-hand read of how they present themselves. Audit the messaging or open the site directly.`}
               actions={
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-2">
                 {!readOnly && <button
                   type="button"
-                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-surface-2 hover:text-content disabled:opacity-60"
+                  className="btn-ghost text-xs disabled:opacity-60"
                   title="A full review of this page: what works, what's missing and what to test, saved as a report with screenshots you can export as PDF. Uses one search on your key."
                   disabled={audit.isPending}
                   onClick={() =>
@@ -214,7 +214,7 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
                 {embeddable && (
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-surface-2 hover:text-content"
+                    className="btn-ghost text-xs"
                     onClick={() => setTryEmbed((v) => !v)}
                     title={
                       tryEmbed
@@ -230,7 +230,7 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
                   href={url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-surface-2 hover:text-content"
+                  className="btn-ghost text-xs"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                   Open site
@@ -253,7 +253,7 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
                   <span className="truncate">{url.replace(/^https?:\/\//, '')}</span>
                 </span>
               </div>
-              <div className="h-[520px] bg-white">
+              <div className="h-[380px] bg-white sm:h-[520px]">
                 {tryEmbed && embeddable ? (
                   <iframe
                     title={`Live site for ${companyId}`}

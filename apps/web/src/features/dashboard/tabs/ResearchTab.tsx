@@ -231,7 +231,7 @@ export function ResearchTab({ companyId }: { companyId: string }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <SectionHeader
         title="Research & sources"
         description={
