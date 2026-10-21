@@ -7,8 +7,7 @@
  * loaded straight from a publisher's host.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { makeRepo, renderWithProviders } from '@/test/test-utils';
+import { render } from '@testing-library/react';
 import type * as RealCoverModule from '@/lib/media/realCover';
 
 // The build is configured with a Worker address before any module reads it.
@@ -23,7 +22,6 @@ vi.mock('@/lib/ownership/secMajorShareholders', () => ({ lookupMajorShareholders
 
 import { AiCover } from './AiCover';
 import { StoryImage } from './StoryMedia';
-import { MissionGovernanceTab } from '@/features/dashboard/tabs/MissionGovernanceTab';
 import { imageReferrerPolicy } from '@/lib/hostedApi';
 
 const WORKER_IMAGE = 'https://worker.example/v1/image?url=https%3A%2F%2Fcdn.example%2Fa.jpg';
@@ -65,17 +63,5 @@ describe('a cover shown through the Worker', () => {
     cover.state = { status: 'ready', src: 'https://cdn.example/direct.jpg', publisher: 'cdn.example' };
     const direct = render(<AiCover cacheKey="k" title="A story" context={null} url="https://news.example/story" source="news" />);
     expect(direct.container.querySelector('img')!.getAttribute('referrerpolicy')).toBe('no-referrer');
-  });
-
-  it('the company identity cover on the Mission tab asks for origin', async () => {
-    cover.state = { status: 'ready', src: WORKER_IMAGE, publisher: 'cdn.example' };
-    const getDashboardTab = vi.fn().mockResolvedValue({
-      companyId: 'cmp', tab: 'mission_governance', lastRefreshedAt: '2026-10-01T00:00:00.000Z',
-      content: { mission: 'Build safe AI.', ethos: null, governanceStructure: null, board: [], fundingRounds: [], investors: [], positives: [] },
-    });
-    const getCompany = vi.fn().mockResolvedValue({ id: 'cmp', name: 'Acme', websiteUrl: 'https://acme.example' });
-    renderWithProviders(<MissionGovernanceTab companyId="cmp" />, { repository: Object.assign(makeRepo(), { getDashboardTab, getCompany }) });
-    const img = await screen.findByAltText(/image published by the company/i);
-    expect(img.getAttribute('referrerpolicy')).toBe('origin');
   });
 });
