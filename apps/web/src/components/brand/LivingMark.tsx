@@ -1,21 +1,23 @@
 /**
- * The Stratemark mark, quietly alive. The mark is two shapes, each the other turned half a circle about the middle, so any whole
- * or half turn of both leaves it looking exactly as it was. Now and then (never at once, never in a hurry) the two shapes move
- * like a pair of fish: they swim half a circle, swim a full circle chasing each other, or sway; then they settle back where they
- * were. It is one of three moves, chosen in turn, and it rests for a long while in between. It does nothing for anyone who has
- * asked for less motion, while the tab is hidden, or when it is not asked to.
+ * The Stratemark mark, quietly alive. Its two shapes are two fish, yin and yang. Now and then, after a long pause, they become fish
+ * and swim round each other the way a pair of koi do (a spine that bends round the circle with a wave running from head to tail, a
+ * forked fin that follows, an eye), then settle back into the logo exactly as it was. See `fishSwim.ts` for the motion.
+ *
+ * It moves only while a swim is playing: 4 to 6 seconds, then 28 to 52 seconds of rest. The shapes are redrawn each frame by setting
+ * path data directly (no React re-render per frame). It does nothing for anyone who has asked for less motion, in a hidden tab, or
+ * when asked to keep still.
  */
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef } from 'react';
+import { SWIMS, swimFrame, type SwimVariant } from './fishSwim';
+import { MARK_PATH_A, MARK_PATH_B } from './markPaths';
 import './livingMark.css';
 
-export type LivingMove = 'turn' | 'swim' | 'wag';
-const MOVES: readonly LivingMove[] = ['turn', 'swim', 'wag'];
+export type LivingMove = keyof typeof SWIMS;
+const MOVES: readonly LivingMove[] = ['orbit', 'chase', 'drift'];
 
-/** How long the mark waits before its first move, and between moves (milliseconds, a random time in the range). */
+/** How long the mark waits before its first swim, and between swims (milliseconds, a random time in the range). */
 export const FIRST_WAIT: readonly [number, number] = [6_000, 11_000];
 export const REST_WAIT: readonly [number, number] = [28_000, 52_000];
-/** A move that never reports its end (animation turned off) is cleared after this long. */
-const MOVE_CEILING_MS = 4_500;
 
 const between = ([low, high]: readonly [number, number]) => low + Math.random() * (high - low);
 
@@ -27,39 +29,80 @@ function prefersLessMotion(): boolean {
   }
 }
 
+const CENTRE = '37.3 43.5';
+
 export function LivingMark({ className, label, still = false }: { className?: string; label?: string; still?: boolean }) {
   const id = useId().replace(/:/g, '');
-  const [move, setMove] = useState<LivingMove | null>(null);
+  const svg = useRef<SVGSVGElement>(null);
+  const pathA = useRef<SVGPathElement>(null);
+  const pathB = useRef<SVGPathElement>(null);
+  const eyeA = useRef<SVGCircleElement>(null);
+  const eyeB = useRef<SVGCircleElement>(null);
+  const gradA = useRef<SVGLinearGradientElement>(null);
+  const gradB = useRef<SVGLinearGradientElement>(null);
   const next = useRef(Math.floor(Math.random() * MOVES.length));
-  const finish = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (still || prefersLessMotion()) return undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let ceiling: ReturnType<typeof setTimeout> | undefined;
+    let raf = 0;
     let stopped = false;
+
     const rest = (wait: readonly [number, number]) => {
       timer = setTimeout(() => {
         if (stopped) return;
-        // A hidden tab does not need to move; ask again later.
+        // A hidden tab does not need to swim; ask again later.
         if (document.visibilityState !== 'visible') { rest(REST_WAIT); return; }
-        const chosen = MOVES[next.current % MOVES.length]!;
+        const name = MOVES[next.current % MOVES.length]!;
         next.current += 1;
-        setMove(chosen);
-        ceiling = setTimeout(() => { if (!stopped) { setMove(null); rest(REST_WAIT); } }, MOVE_CEILING_MS);
+        swim(name, SWIMS[name]);
       }, between(wait));
     };
-    rest(FIRST_WAIT);
-    finish.current = () => {
-      if (ceiling) clearTimeout(ceiling);
-      setMove(null);
-      if (!stopped) rest(REST_WAIT);
+
+    const settle = () => {
+      pathA.current?.setAttribute('d', MARK_PATH_A);
+      pathB.current?.setAttribute('d', MARK_PATH_B);
+      eyeA.current?.setAttribute('r', '0');
+      eyeB.current?.setAttribute('r', '0');
+      gradA.current?.removeAttribute('gradientTransform');
+      gradB.current?.removeAttribute('gradientTransform');
+      svg.current?.setAttribute('data-move', 'none');
     };
+
+    const swim = (name: LivingMove, variant: SwimVariant) => {
+      svg.current?.setAttribute('data-move', name);
+      const started = performance.now();
+      const step = () => {
+        if (stopped) return;
+        const t = (performance.now() - started) / 1000;
+        if (t >= variant.seconds) {
+          settle();
+          rest(REST_WAIT);
+          return;
+        }
+        const frame = swimFrame(variant, t);
+        pathA.current?.setAttribute('d', frame.a);
+        pathB.current?.setAttribute('d', frame.b);
+        for (const [eye, at] of [[eyeA.current, frame.eyes[0]], [eyeB.current, frame.eyes[1]]] as const) {
+          eye?.setAttribute('cx', String(at.x));
+          eye?.setAttribute('cy', String(at.y));
+          eye?.setAttribute('r', String(at.r));
+        }
+        // The light stays on each fish as it turns, so its colour travels with it.
+        const turned = `rotate(${((-frame.turn * 180) / Math.PI).toFixed(2)} ${CENTRE})`;
+        gradA.current?.setAttribute('gradientTransform', turned);
+        gradB.current?.setAttribute('gradientTransform', turned);
+        raf = requestAnimationFrame(step);
+      };
+      raf = requestAnimationFrame(step);
+    };
+
+    rest(FIRST_WAIT);
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
-      if (ceiling) clearTimeout(ceiling);
-      finish.current = null;
+      if (raf) cancelAnimationFrame(raf);
+      settle();
     };
   }, [still]);
 
@@ -68,38 +111,26 @@ export function LivingMark({ className, label, still = false }: { className?: st
 
   return (
     <svg
+      ref={svg}
       className={`living-mark ${className ?? ''}`}
       viewBox="20 25 35 38"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      data-move={move ?? 'none'}
+      data-move="none"
       role={label ? 'img' : undefined}
       aria-label={label}
       aria-hidden={label ? undefined : true}
-      onAnimationEnd={(event) => { if (event.target instanceof Element && event.target.classList.contains('living-mark__fish--b')) finish.current?.(); }}
     >
-      <g className="living-mark__fish living-mark__fish--a">
-        <path
-          d="M38.2891 26.8369L41.0625 26.8477C42.1418 26.8519 46.5687 26.9759 48.0605 27.0186C48.2698 27.0245 48.4143 27.1486 48.4414 27.3018C48.5032 27.6535 48.4966 28.0707 48.2559 28.3604C43.9023 33.5976 39.4588 38.753 35.0605 43.959C34.8946 44.1554 34.5606 44.4575 34.1963 44.7646C33.8397 45.0653 33.4691 45.3578 33.2373 45.5371C31.9495 46.4239 30.2685 47.112 28.7305 47.3047C28.3579 47.3513 27.1055 47.4331 25.8838 47.4531C25.2738 47.4631 24.6783 47.4568 24.209 47.4248C23.9738 47.4088 23.7762 47.3871 23.627 47.3584C23.5526 47.3441 23.495 47.3291 23.4531 47.3145C23.4077 47.2986 23.396 47.2883 23.4004 47.292C23.389 47.2824 23.3553 47.2308 23.3281 47.1016C23.3038 46.9859 23.2949 46.8599 23.2871 46.7559C23.2059 45.6671 23.2841 44.5665 23.2793 43.4365C23.2689 40.9745 23.3711 38.9471 23.8896 37.0576C24.4066 35.1741 25.3418 33.4144 27.0156 31.5C29.4344 28.7336 33.1638 27.1186 36.8096 26.8623L36.8174 26.8613L36.8262 26.8604C36.9536 26.8427 37.2298 26.8354 37.5322 26.834L38.2891 26.8369Z"
-          fill={`url(#${gradientA})`}
-          stroke="#18BFB2"
-          strokeWidth="0.5"
-        />
-      </g>
-      <g className="living-mark__fish living-mark__fish--b">
-        <path
-          d="M36.3047 60.1631L33.5312 60.1523C32.452 60.1481 28.025 60.0241 26.5332 59.9814C26.324 59.9755 26.1795 59.8514 26.1523 59.6982C26.0906 59.3465 26.0971 58.9293 26.3379 58.6396C30.6914 53.4024 35.1349 48.247 39.5332 43.041C39.6992 42.8446 40.0332 42.5425 40.3975 42.2354C40.7541 41.9347 41.1246 41.6422 41.3564 41.4629C42.6443 40.5761 44.3253 39.888 45.8633 39.6953C46.2359 39.6487 47.4883 39.5669 48.71 39.5469C49.32 39.5369 49.9155 39.5432 50.3848 39.5752C50.6199 39.5912 50.8175 39.6129 50.9668 39.6416C51.0412 39.6559 51.0987 39.6709 51.1406 39.6855C51.186 39.7014 51.1977 39.7117 51.1934 39.708C51.2048 39.7176 51.2385 39.7692 51.2656 39.8984C51.2899 40.0141 51.2989 40.1401 51.3066 40.2441C51.3878 41.3329 51.3097 42.4335 51.3145 43.5635C51.3249 46.0255 51.2227 48.0529 50.7041 49.9424C50.1871 51.8259 49.2519 53.5856 47.5781 55.5C45.1594 58.2664 41.4299 59.8814 37.7842 60.1377L37.7764 60.1387L37.7676 60.1396C37.6401 60.1573 37.3639 60.1646 37.0615 60.166L36.3047 60.1631Z"
-          fill={`url(#${gradientB})`}
-          stroke="#18BFB2"
-          strokeWidth="0.5"
-        />
-      </g>
+      <path ref={pathA} d={MARK_PATH_A} fill={`url(#${gradientA})`} stroke="#18BFB2" strokeWidth="0.5" />
+      <path ref={pathB} d={MARK_PATH_B} fill={`url(#${gradientB})`} stroke="#18BFB2" strokeWidth="0.5" />
+      <circle ref={eyeA} r="0" fill="#e6fffb" />
+      <circle ref={eyeB} r="0" fill="#e6fffb" />
       <defs>
-        <linearGradient id={gradientA} x1="36.9447" y1="32.4629" x2="36.4227" y2="47.7264" gradientUnits="userSpaceOnUse">
+        <linearGradient ref={gradA} id={gradientA} x1="36.9447" y1="32.4629" x2="36.4227" y2="47.7264" gradientUnits="userSpaceOnUse">
           <stop stopColor="#0F766E" />
           <stop offset="1" stopColor="#1CDCCD" />
         </linearGradient>
-        <linearGradient id={gradientB} x1="37.6491" y1="54.5371" x2="38.171" y2="39.2736" gradientUnits="userSpaceOnUse">
+        <linearGradient ref={gradB} id={gradientB} x1="37.6491" y1="54.5371" x2="38.171" y2="39.2736" gradientUnits="userSpaceOnUse">
           <stop stopColor="#0F766E" />
           <stop offset="1" stopColor="#1CDCCD" />
         </linearGradient>

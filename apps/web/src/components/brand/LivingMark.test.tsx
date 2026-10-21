@@ -1,10 +1,12 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import { FIRST_WAIT, LivingMark, REST_WAIT } from './LivingMark';
+import { SWIMS } from './fishSwim';
+import { MARK_PATH_A, MARK_PATH_B } from './markPaths';
 
 const move = (container: HTMLElement) => container.querySelector('svg')!.getAttribute('data-move');
+const paths = (container: HTMLElement) => [...container.querySelectorAll('path')].map((p) => p.getAttribute('d'));
+const eyes = (container: HTMLElement) => [...container.querySelectorAll('circle')].map((c) => Number(c.getAttribute('r')));
 
 function setReducedMotion(on: boolean) {
   vi.stubGlobal('matchMedia', (query: string) => ({
@@ -20,57 +22,81 @@ function setReducedMotion(on: boolean) {
 }
 
 describe('the living mark', () => {
+  let now = 0;
+  let queued: FrameRequestCallback[] = [];
+  const cancelled = vi.fn();
+
+  /** Moves the clock on and draws one frame, the way the browser would. */
+  const frame = (ms: number) => act(() => {
+    now += ms;
+    const run = queued;
+    queued = [];
+    for (const callback of run) callback(now);
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
+    now = 0;
+    queued = [];
+    cancelled.mockReset();
     setReducedMotion(false);
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
-    // The shortest pause, and the first move is the first of the three: the timings below are exact.
+    // The shortest pause, and the first swim is the first of the three: the timings below are exact.
     vi.spyOn(Math, 'random').mockReturnValue(0);
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { queued.push(callback); return queued.length; });
+    vi.stubGlobal('cancelAnimationFrame', cancelled);
   });
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
-  it('is the two shapes of the mark, named only when it is the only thing saying "Stratemark"', () => {
+  it('is the logo: its two shapes exactly as drawn, with no eyes, named only when it is the only thing saying "Stratemark"', () => {
     const { container, rerender } = render(<LivingMark />);
-    expect(container.querySelectorAll('path')).toHaveLength(2);
+    expect(paths(container)).toEqual([MARK_PATH_A, MARK_PATH_B]);
+    expect(eyes(container)).toEqual([0, 0]);
     expect(container.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
     rerender(<LivingMark label="Stratemark" />);
     expect(container.querySelector('svg')!.getAttribute('role')).toBe('img');
     expect(container.querySelector('svg')!.getAttribute('aria-label')).toBe('Stratemark');
   });
 
-  it('keeps still at first, then makes one move after a pause, settles when it ends, and rests a long while before the next', () => {
+  it('keeps still at first, then swims after a pause, and is the logo again, exactly, when the swim ends', () => {
     const { container } = render(<LivingMark />);
     expect(move(container)).toBe('none');
     act(() => { vi.advanceTimersByTime(FIRST_WAIT[0] - 1); });
     expect(move(container)).toBe('none');
+    expect(queued).toHaveLength(0);
     act(() => { vi.advanceTimersByTime(1); });
-    expect(move(container)).toBe('turn');
-    act(() => { fireEvent.animationEnd(container.querySelector('.living-mark__fish--b')!); });
+    expect(move(container)).toBe('orbit');
+    expect(queued).toHaveLength(1);
+
+    // Halfway through, the shapes are fish: not the logo's outlines, with eyes open.
+    frame(SWIMS.orbit.seconds * 500);
+    expect(paths(container)).not.toEqual([MARK_PATH_A, MARK_PATH_B]);
+    expect(paths(container).every((d) => d !== null && !d.includes('NaN'))).toBe(true);
+    expect(eyes(container).every((r) => r > 0)).toBe(true);
+    expect(container.querySelector('linearGradient')!.getAttribute('gradientTransform')).toMatch(/^rotate\(/);
+
+    // The swim ends: the logo as drawn, the eyes shut, the gradients back to what they were.
+    frame(SWIMS.orbit.seconds * 500 + 1);
     expect(move(container)).toBe('none');
-    // It does not go again soon.
-    act(() => { vi.advanceTimersByTime(REST_WAIT[0] - 1); });
-    expect(move(container)).toBe('none');
-    act(() => { vi.advanceTimersByTime(1); });
-    expect(move(container)).toBe('swim');
+    expect(paths(container)).toEqual([MARK_PATH_A, MARK_PATH_B]);
+    expect(eyes(container)).toEqual([0, 0]);
+    expect(container.querySelector('linearGradient')!.hasAttribute('gradientTransform')).toBe(false);
   });
 
-  it('plays the three moves in turn, not the same one again and again', () => {
+  it('rests a long while between swims, and plays the three swims in turn', () => {
     const { container } = render(<LivingMark />);
     const seen: string[] = [];
-    for (let i = 0; i < 3; i += 1) {
-      act(() => { vi.advanceTimersByTime(i === 0 ? FIRST_WAIT[0] : REST_WAIT[0]); });
-      seen.push(move(container)!);
-      act(() => { fireEvent.animationEnd(container.querySelector('.living-mark__fish--b')!); });
-    }
-    expect(new Set(seen).size).toBe(3);
-  });
-
-  it('clears a move that never reports its end, so it cannot be stuck', () => {
-    const { container } = render(<LivingMark />);
     act(() => { vi.advanceTimersByTime(FIRST_WAIT[0]); });
-    expect(move(container)).toBe('turn');
-    act(() => { vi.advanceTimersByTime(5_000); });
-    expect(move(container)).toBe('none');
+    for (let i = 0; i < 3; i += 1) {
+      seen.push(move(container)!);
+      frame(SWIMS.orbit.seconds * 1000 + SWIMS.chase.seconds * 1000); // longer than any swim
+      expect(move(container)).toBe('none');
+      act(() => { vi.advanceTimersByTime(REST_WAIT[0] - 1); });
+      expect(move(container)).toBe('none');
+      act(() => { vi.advanceTimersByTime(1); });
+    }
+    expect(seen).toEqual(['orbit', 'chase', 'drift']);
   });
 
   it('does nothing in a hidden tab, when asked to keep still, or for someone who wants less motion', () => {
@@ -88,44 +114,16 @@ describe('the living mark', () => {
     const reduced = render(<LivingMark />);
     act(() => { vi.advanceTimersByTime(REST_WAIT[1] * 3); });
     expect(move(reduced.container)).toBe('none');
+    expect(queued).toHaveLength(0);
   });
 
-  it('stops its timers when it goes away', () => {
-    const { unmount } = render(<LivingMark />);
+  it('stops everything when it goes away mid-swim, leaving no timer behind', () => {
+    const { container, unmount } = render(<LivingMark />);
+    act(() => { vi.advanceTimersByTime(FIRST_WAIT[0]); });
+    frame(1000);
+    expect(move(container)).toBe('orbit');
     unmount();
+    expect(cancelled).toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
-  });
-});
-
-describe('the moves, as written', () => {
-  const css = readFileSync(resolve(__dirname, 'livingMark.css'), 'utf8');
-  const block = (name: string) => {
-    const at = css.indexOf(`@keyframes ${name}`);
-    const open = css.indexOf('{', at);
-    let depth = 0;
-    let end = open;
-    for (; end < css.length; end++) {
-      if (css[end] === '{') depth++;
-      else if (css[end] === '}' && --depth === 0) break;
-    }
-    return css.slice(open, end + 1);
-  };
-  const last = (name: string) => /100%\s*\{([^}]*)\}/.exec(block(name))![1]!;
-
-  it('each ends in the resting picture: a half turn, a whole turn or no turn, at full size', () => {
-    // The two shapes are each the other turned half a circle, so a multiple of 180 degrees looks exactly like the start.
-    const turn = last('living-mark-turn');
-    const swim = last('living-mark-swim');
-    expect(turn).toMatch(/rotate\(180deg\)\s*scale\(1\)/);
-    expect(swim).toMatch(/rotate\(360deg\)\s*scale\(1\)/);
-    expect(last('living-mark-wag-a')).toMatch(/rotate\(0deg\)/);
-    expect(last('living-mark-wag-b')).toMatch(/rotate\(0deg\)/);
-  });
-
-  it('move nothing but transform, about the middle of the two shapes, and stop for reduced motion', () => {
-    const frames = ['living-mark-turn', 'living-mark-swim', 'living-mark-wag-a', 'living-mark-wag-b'].map(block).join(' ');
-    expect(new Set([...frames.matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]))).toEqual(new Set(['transform']));
-    expect(css).toContain('transform-origin: 37.3px 43.5px');
-    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*animation:\s*none/);
   });
 });
