@@ -28,12 +28,15 @@ describe('the lifetime allowance steps', () => {
     expect(settleAllowance(held.ok ? held.record : undefined, 5_000_000, 0, NOW)).toBeUndefined();
   });
 
-  it('drops a hold that was never settled once it is stale, and not before', () => {
-    const leaked = { spent: 2_000_000, held: 14_000_000, at: NOW };
-    expect(reserveAllowance(leaked, 1_000_000, ALLOWANCE, NOW + STALE_HOLD_MS).ok).toBe(false);
-    expect(reserveAllowance(leaked, 1_000_000, ALLOWANCE, NOW + STALE_HOLD_MS + 1)).toEqual({
-      ok: true, record: { spent: 2_000_000, held: 1_000_000, at: NOW + STALE_HOLD_MS + 1 },
-    });
+  it('charges a hold that was never settled as spent once it is stale, and not before: a leaked hold is a call that may have been billed, never forgiven', () => {
+    const leaked = { spent: 2_000_000, held: 3_000_000, at: NOW };
+    // Not stale yet: still held, so still in the sum.
+    expect(reserveAllowance(leaked, 10_000_001, ALLOWANCE, NOW + STALE_HOLD_MS).ok).toBe(false);
+    expect(reserveAllowance(leaked, 10_000_000, ALLOWANCE, NOW + STALE_HOLD_MS).ok).toBe(true);
+    // Stale: the worst case it held becomes spent (a client that disconnected can leave Google's bill behind), so it is not freed.
+    const later = NOW + STALE_HOLD_MS + 1;
+    expect(reserveAllowance(leaked, 10_000_001, ALLOWANCE, later)).toMatchObject({ ok: false, usedMicros: 5_000_000 });
+    expect(reserveAllowance(leaked, 1_000_000, ALLOWANCE, later)).toEqual({ ok: true, record: { spent: 5_000_000, held: 1_000_000, at: later } });
   });
 });
 

@@ -641,3 +641,26 @@ describe('the lifetime allowance for covered research', () => {
     expect(JSON.parse(text)).toMatchObject({ visitorsWithAllowance: 1 });
   });
 });
+
+describe('the lifetime allowance, attacked', () => {
+  const lifeRecords = (map: Map<string, unknown>) => [...map.entries()].filter(([key]) => key.startsWith('life:')).map(([, value]) => value as { spent: number; held: number; at: number });
+
+  it('a parallel burst cannot pass a small allowance: the check and the hold are one step', async () => {
+    // $0.30 holds one call at a time (a grounded call is held about $0.26); the calls overlap because Google answers late.
+    const { env, budget } = makeEnv({ LIFETIME_VISITOR_BUDGET_USD: '0.3' });
+    fetchMock.mockImplementation(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); return google.reply(); });
+    const answers = await Promise.all(Array.from({ length: 12 }, () => call(env, GROUNDED)));
+    expect(answers.filter((res) => res.status === 200)).toHaveLength(1);
+    expect(googleCalls().length).toBeLessThanOrEqual(1);
+    expect(await budget.status(DAY)).toMatchObject({ heldMicros: 0 });
+  });
+
+  it('charges a call cut off mid-generation its whole hold against the allowance', async () => {
+    const { env, budgetStorage } = makeEnv();
+    fetchMock.mockImplementation(async () => { const gone = new Error('aborted'); gone.name = 'AbortError'; throw gone; });
+    await call(env, GROUNDED).catch(() => undefined);
+    const [record] = lifeRecords(budgetStorage.map);
+    expect(record!.held).toBe(0);
+    expect(record!.spent).toBeGreaterThan(100_000);
+  });
+});

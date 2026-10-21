@@ -28,9 +28,11 @@ export interface LifetimeRecord { spent: number; held: number; at: number }
 export const MAX_ALLOWANCE_VISITORS = 20_000;
 
 /**
- * A hold with no settlement for this long is a leak (a crash between reserve and settle; the longest honest call is the
- * 120 second upstream timeout). It is dropped on the visitor's next reservation, so a leaked hold cannot eat a lifetime
- * allowance for ever. The window is far past any real call.
+ * A hold with no settlement for this long is a leak (a crash, or a client that left, between reserve and settle; the longest
+ * honest call is the 120 second upstream timeout). On the visitor's next reservation it is CHARGED as spent, at the worst
+ * case it held, not forgiven: the call may well have run and been billed, and forgiving it let a visitor who disconnected
+ * on purpose spend past the allowance. It is a bounded cost (one call's hold), and the hold stops being counted twice.
+ * The window is far past any real call.
  */
 export const STALE_HOLD_MS = 10 * 60_000;
 
@@ -46,7 +48,7 @@ export type AllowanceReserve =
 
 /** Pure step: may this visitor's lifetime spend plus this hold stay within the allowance? A refused call changes nothing. */
 export function reserveAllowance(record: LifetimeRecord | undefined, amount: number, allowanceMicros: number, nowMs: number): AllowanceReserve {
-  const fresh = record && record.held > 0 && nowMs - record.at > STALE_HOLD_MS ? { ...record, held: 0 } : record;
+  const fresh = record && record.held > 0 && nowMs - record.at > STALE_HOLD_MS ? { ...record, spent: record.spent + record.held, held: 0 } : record;
   const spent = fresh?.spent ?? 0;
   const held = fresh?.held ?? 0;
   if (spent + held + amount > allowanceMicros) return { ok: false, record: fresh, usedMicros: spent + held };
