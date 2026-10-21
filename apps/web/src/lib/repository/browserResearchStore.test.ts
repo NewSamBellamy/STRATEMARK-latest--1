@@ -151,7 +151,8 @@ describe('acknowledged browser research storage', () => {
     const newer = data();
     newer.reports.push({ id: 'latest' } as typeof newer.reports[number]);
     await first.write(newer);
-    await expect(stale.write(data())).rejects.toThrow(/another window/i);
+    const refusal = await Promise.resolve(stale.write(data())).catch((error: unknown) => error);
+    expect(refusal).toMatchObject({ code: 'another_window', message: expect.stringMatching(/another window/i) });
     expect((await openBrowserResearchStore()).read()).toEqual(newer);
   });
 

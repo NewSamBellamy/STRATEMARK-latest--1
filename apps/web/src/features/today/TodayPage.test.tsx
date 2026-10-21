@@ -5,6 +5,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import type { CompanyFollow, CompanyMove, MarketIntelRepository, MovesRefreshResult } from '@mi/contracts';
+import { AnotherWindowError } from '@mi/research';
 import { AppRoutes } from '@/routes';
 import { RepositoryProvider } from '@/lib/repository/RepositoryProvider';
 import { AuthProvider } from '@/lib/auth/AuthContext';
@@ -216,6 +217,26 @@ describe('Today', () => {
       renderWithProviders(<TodayPage />, { repository: repo });
       expect(await screen.findByText('Couldn’t reach the news or filings for 1 company, trying again later.')).toBeInTheDocument();
       expect(screen.getByText(/not a full answer yet/)).toBeInTheDocument();
+    });
+
+    it('a write refused because of another window offers a reload instead of an error', async () => {
+      const repo = todayRepo([acmeFollow], [move({})]);
+      repo.markMoveRead.mockRejectedValueOnce(new AnotherWindowError());
+      const { user } = renderWithProviders(<TodayPage />, { repository: repo });
+      const headline = await screen.findByRole('link', { name: 'Acme Robotics raises $40M Series B' });
+      await user.click(within(headline.closest('li')!).getByRole('button', { name: 'Mark read' }));
+      expect(await screen.findByText('Another window changed your research. Reload to see it.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
+      expect(screen.queryByText(/The check didn’t finish/)).not.toBeInTheDocument();
+    });
+
+    it('a check refused because of another window says so, with a Reload button', async () => {
+      const repo = todayRepo([acmeFollow], [move({})]);
+      repo.refreshMoves.mockRejectedValue(new AnotherWindowError());
+      renderWithProviders(<TodayPage />, { repository: repo });
+      expect(await screen.findByText('Another window changed your research. Reload to see it.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
+      expect(screen.queryByText(/The check didn’t finish/)).not.toBeInTheDocument();
     });
 
     it('a failed check ends with a single full stop', async () => {

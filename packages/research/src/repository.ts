@@ -216,6 +216,17 @@ const SEC_READ_GAP_MS = 150;
 const MOVES_REFRESH_EVERY_MS = 20 * 60 * 60_000;
 /** Today: a company whose look failed (feed, SEC or sorting) is tried again after this long. */
 const MOVES_RETRY_MS = 2 * 60 * 60_000;
+/** A store refused a write because another window saved newer research first. Recoverable by reloading; never sticky. */
+export class AnotherWindowError extends Error {
+  readonly code = 'another_window';
+  constructor(message = 'Research was updated in another window. Reload before making changes.') {
+    super(message);
+    this.name = 'AnotherWindowError';
+  }
+}
+export function isAnotherWindowError(error: unknown): error is AnotherWindowError {
+  return error instanceof AnotherWindowError || (typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'another_window');
+}
 const REJECTED_MOVES_KEPT = 2000;
 const REJECTED_MOVES_TTL_MS = 14 * 24 * 60 * 60_000;
 /** Followed companies looked at at once during a refresh. */
@@ -980,6 +991,13 @@ export class GeminiRepository implements MarketIntelRepository {
     try {
       await this.store?.write(this.snap);
     } catch (cause) {
+      if (isAnotherWindowError(cause)) {
+        // Another window saved first. Nothing is lost (the store refused the write), and this is not a broken workspace:
+        // it is not kept as the sticky error. Only a running research job, whose own writes would keep failing, is stopped.
+        for (const controller of this.jobControllers.values()) controller.abort();
+        try { this.snap = migrateSnapshot(this.store?.read() ?? null).snapshot; } catch { /* Preserve the recovery material; never overwrite it. */ }
+        throw cause;
+      }
       // Never keep spending on a workspace that cannot retain its evidence.
       this.persistenceError ??= new Error(`Research could not be saved. Reopen the workspace before continuing. ${cause instanceof Error ? cause.message : 'Storage failed.'}`, { cause });
       for (const controller of this.jobControllers.values()) controller.abort();
