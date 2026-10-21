@@ -14,6 +14,7 @@ import { Modal } from '@/components/ui/Modal';
 import { SafeLink } from '@/components/SafeLink';
 import { hasHostedApi, hostedUrl, imageReferrerPolicy } from '@/lib/hostedApi';
 import { getRealCover } from '@/lib/media/realCover';
+import { heroNamesOtherCompany, type HeroSubject } from '@/lib/media/heroGuard';
 import { cn } from '@/lib/cn';
 
 /** True once the element has come near the viewport (then stays true). */
@@ -61,19 +62,23 @@ export function useStoryPicture(pageUrl: string | null | undefined, stored: stri
  * when the story has no picture (or it fails to load) `fallback` is rendered,
  * or nothing.
  */
-export function StoryImage({ pageUrl, imageUrl, publisher, className, fallback = null, credit = false }: {
+export function StoryImage({ pageUrl, imageUrl, publisher, className, fallback = null, credit = false, subject, imageAlt }: {
   pageUrl: string | null | undefined;
   imageUrl?: string | null;
   publisher?: string | null;
   className?: string;
   fallback?: ReactNode;
   credit?: boolean;
+  /** The company the story is about: a picture naming a different company is dropped (shows `fallback`). */
+  subject?: HeroSubject;
+  imageAlt?: string | null;
 }) {
   const [ref, inView] = useInView<HTMLDivElement>();
   const picture = useStoryPicture(pageUrl, imageUrl, publisher, inView);
   const [broken, setBroken] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const failed = picture === null || broken;
+  const wrongCompany = !!subject && !!picture && picture !== 'loading' && heroNamesOtherCompany(picture.src, imageAlt, subject);
+  const failed = picture === null || broken || wrongCompany;
   if (failed && fallback === null) return <div ref={ref} className="hidden" />;
   return (
     <div ref={ref} className={cn('relative overflow-hidden bg-surface-2', className)}>

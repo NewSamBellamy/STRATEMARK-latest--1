@@ -21,7 +21,7 @@ import {
 import { KpiTileSkeleton, Section, useTabHref } from '../dashboardKit';
 import { usePeers } from '../usePeers';
 import { useCachedDashboardTab } from '../useCachedTab';
-import { ArticleReader, TopStories } from './LiveIntelTab';
+import { ArticleReader, TopStories, type StoryCompany } from './LiveIntelTab';
 import { SitePreview } from './LiveLandingTab';
 import { VideoStrip } from '@/components/media/StoryMedia';
 import { MarketPeers, OverviewSnapshot } from './OverviewSnapshot';
@@ -170,7 +170,7 @@ function FaceTile({ item, ranking, href }: { item: FaceItem; ranking: PeerRankin
 
 /** The scoop: today's stories with their pictures. Starts the news search if
  * this company has none yet (the same pass the Live Intel tab would run). */
-function Happening({ companyId, companyName }: { companyId: string; companyName: string }) {
+function Happening({ companyId, companyName, company }: { companyId: string; companyName: string; company?: StoryCompany }) {
   const href = useTabHref(companyId);
   const intel = useDashboardTab(companyId, 'live_intel');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -189,7 +189,7 @@ function Happening({ companyId, companyName }: { companyId: string; companyName:
           <div className="grid gap-3">{[0, 1, 2].map((i) => <div key={i} className="panel h-[104px] animate-pulse bg-surface-2" />)}</div>
         </div>
       ) : items.length > 0 ? (
-        <TopStories items={items} onOpen={setOpenId} />
+        <TopStories items={items} onOpen={setOpenId} company={company} />
       ) : (
         <p className="panel px-4 py-4 text-[13px] leading-snug text-muted">
           No recent coverage found. <Link to={href('live_intel')} className="text-primary-ink hover:underline">Search again</Link>
@@ -314,7 +314,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
         <OverviewCoverage companyId={companyId} figuresFound={face.filter((i) => i.metric !== undefined).length} figureSlots={face.length} />
       )}
 
-      <Happening companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} />
+      <Happening companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} company={companyQ.data ? { name: companyQ.data.name, website: companyQ.data.websiteUrl, logoUrl: companyQ.data.logoUrl } : undefined} />
 
       {query.isPending ? (
         <HydratingPanel label="Overview" variant="compact" />
