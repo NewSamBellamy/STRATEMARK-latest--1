@@ -27,6 +27,8 @@ import { formatMetricValue, formatUsd } from '@/lib/format';
 import { figureCurrency } from '@/features/dashboard/figureCurrency';
 import { assessedMetrics } from '@/features/dashboard/figureSet';
 import { METRIC_COLORS } from '@/lib/theme';
+import { tidyOpportunityProse } from '@/lib/opportunityProse';
+import { shareAxis, teamAxis } from './positioningAxes';
 
 interface Point {
   name: string;
@@ -66,6 +68,12 @@ export default function OpportunityPage() {
         return [{ name: c.company!.name, team, share, arr: find('arr') ?? find('revenue') }];
       });
   }, [cards.data]);
+  // Axes are only built when there is something to plot (min/max of nothing is not a range).
+  const xAxis = useMemo(
+    () => (points.length ? teamAxis(Math.min(...points.map((p) => p.team)), Math.max(...points.map((p) => p.team))) : teamAxis(1, 1)),
+    [points],
+  );
+  const yAxis = useMemo(() => shareAxis(points.length ? Math.max(...points.map((p) => p.share)) : 1), [points]);
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -87,32 +95,36 @@ export default function OpportunityPage() {
       {/* Positioning map from real deck data (no LLM in the chart). */}
       <div className="panel mt-5 p-5">
         <h2 className="font-display text-sm font-semibold text-content">
-          Positioning map — team size vs. market share
-          <span className="ml-2 text-xs font-normal text-muted">bubble size = sourced revenue or ARR</span>
-        </h2>
+          Positioning map — team size vs. market share        </h2>
         {points.length > 0 ? (
           <div className="mt-2 h-[340px]" >
             <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 16, right: 24, bottom: 8, left: 4 }}>
+              <ScatterChart margin={{ top: 28, right: 56, bottom: 28, left: 8 }}>
                 <CartesianGrid stroke="#ECEAE4" strokeDasharray="3 3" />
                 <XAxis
                   type="number"
                   dataKey="team"
                   name="Team size"
                   scale="log"
-                  domain={['auto', 'auto']}
+                  domain={xAxis.domain}
+                  ticks={xAxis.ticks}
+                  allowDataOverflow
                   tickFormatter={(t: number) => formatMetricValue('employees', t)}
                   stroke="#9A9AA1"
                   fontSize={11}
+                  label={{ value: 'Team size (employees, log scale)', position: 'insideBottom', offset: -16, fontSize: 11, fill: '#6B6B73' }}
                 />
                 <YAxis
                   type="number"
                   dataKey="share"
                   name="Market share"
-                  unit="%"
+                  domain={yAxis.domain}
+                  ticks={yAxis.ticks}
+                  tickFormatter={(t: number) => `${t}%`}
                   stroke="#9A9AA1"
                   fontSize={11}
-                  width={44}
+                  width={64}
+                  label={{ value: 'Market share', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6B6B73', style: { textAnchor: 'middle' } }}
                 />
                                 <ReTooltip
                   cursor={{ strokeDasharray: '3 3' }}
@@ -148,11 +160,36 @@ export default function OpportunityPage() {
                       stroke="#fff"
                       strokeWidth={1.5}
                     />
+                    {props.payload && props.cx != null && props.cy != null && (
+                      <text
+                        x={props.cx}
+                        y={props.cy - (props.payload.arr != null ? Math.max(6, Math.min(22, Math.sqrt(props.payload.arr / 1e6) * 1.6)) : 6) - 6}
+                        textAnchor="middle"
+                        fontSize={11}
+                        fontWeight={600}
+                        fill="currentColor"
+                        className="text-content"
+                      >
+                        {props.payload.name}
+                      </text>
+                    )}
                   </>
                 )} />
               </ScatterChart>
             </ResponsiveContainer>
           </div>
+        ) : null}
+        {points.length > 0 ? (
+          <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-3 w-3 rounded-full" style={{ background: METRIC_COLORS.market_share, opacity: 0.75 }} />
+              Larger bubble = more sourced revenue or ARR
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: METRIC_COLORS.market_share, opacity: 0.75 }} />
+              Smallest bubble = none sourced
+            </span>
+          </p>
         ) : (
           <p className="mt-3 text-sm text-muted">
             Not enough companies with both sourced market share and team size to plot yet — the whitespace thesis below
@@ -188,7 +225,7 @@ export default function OpportunityPage() {
           {(o) => (
             <>
               <article className="markdown">
-                <SafeMarkdown>{o.markdown}</SafeMarkdown>
+                <SafeMarkdown>{tidyOpportunityProse(o.markdown)}</SafeMarkdown>
               </article>
               {o.citations.length > 0 && (
                 <footer className="mt-5 border-t border-border pt-3">
@@ -196,7 +233,7 @@ export default function OpportunityPage() {
                     Sources ({o.citations.length})
                   </h3>
                   <div className="flex flex-wrap gap-x-4 gap-y-1">
-                    {o.citations.slice(0, 8).map((c, i) => (
+                    {o.citations.map((c, i) => (
                       <a
                         key={i}
                         href={sourceHref(c.url, c.title)}
