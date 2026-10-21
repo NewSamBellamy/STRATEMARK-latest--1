@@ -49,7 +49,7 @@ export function FollowTodayButton({ companyId, companyName }: { companyId: strin
       className="card-control"
       aria-label={following ? `Following ${companyName} on Today. Press to stop.` : `Add ${companyName} to Today`}
       aria-pressed={following}
-      title={following ? 'On Today: its releases, news and social sentiment. Press to stop following.' : 'Add to Today: Today checks it when you open it and lists what it did, dated and sourced.'}
+      title={following ? 'On Today: its releases, news and social sentiment. Press to stop following.' : 'Follow on Today: Today checks it when you open it and lists what it did, dated and sourced.'}
       disabled={pending || follows.isLoading}
       onClick={toggle}
     >
