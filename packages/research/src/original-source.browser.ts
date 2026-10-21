@@ -1,4 +1,5 @@
 import type { OriginalSourceReceipt, OriginalSourceScope } from './original-source';
+import { pagePublishedAt } from './page-date';
 import { selectSourceExcerpt } from './source-excerpt';
 
 // Browser networking cannot pin DNS like the native transport. Only these
@@ -60,11 +61,13 @@ export async function retrieveBrowserOriginalSource(raw: string, fetchImpl: type
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
     const body = new TextDecoder().decode(bytes);
     if (/<meta\b(?=[^>]*\bname\s*=\s*["']?(?:robots|googlebot)\b)(?=[^>]*\bcontent\s*=\s*["'][^"']*(?:noarchive|nosnippet))[^>]*>/i.test(body)) return { ...resolved, status: 'blocked', reason: 'Source prohibits retained extracts' };
+    const publishedAt = type === 'text/html' ? pagePublishedAt(body, url.href, receipt.retrievedAt) : null;
     const plain = type === 'text/html' ? body.replace(/<!--[^]*?-->/g, ' ').replace(/<(script|style|noscript)\b[^>]*>[^]*?<\/\1\s*>/gi, ' ').replace(/<[^>]*>/g, ' ') : body;
     const text = plain.replace(/&(?:amp|lt|gt|quot|apos|nbsp);/g, entity => ({ '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'", '&nbsp;': ' ' })[entity] ?? entity).replace(/\s+/g, ' ').trim();
     if (!text) return { ...resolved, reason: 'No readable source text' };
     const hash = await globalThis.crypto.subtle.digest('SHA-256', bytes);
-    return { ...resolved, status: 'retrieved', contentHash: Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join(''), text: selectSourceExcerpt(text, scope), truncated: text.length > 4000 };
+    return { ...resolved, status: 'retrieved', contentHash: Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join(''), text: selectSourceExcerpt(text, scope), truncated: text.length > 4000,
+      ...(publishedAt ? { publishedAt } : {}) };
   };
   try {
     return await Promise.race([work(), new Promise<OriginalSourceReceipt>(resolve => {

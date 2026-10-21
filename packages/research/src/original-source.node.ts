@@ -43,6 +43,7 @@ import type { OriginalSourceReceipt, OriginalSourceScope } from './original-sour
 import { isSecAdvSearchUrl, secAdvCrd, selectSecAdvRetainedText, selectSecAdvSearchSlice } from './sec-adv';
 import { selectTickerMapSlice, selectTickerRowsSlice, tickerLookupSymbols } from './market-quote';
 import { isScheduleDocumentUrl, parseScheduleOwnershipXml, secSubmissionsCik, selectScheduleFilingIndex } from './sec-ownership';
+import { pagePublishedAt } from './page-date';
 import { getCrawl4aiLane } from './crawl4ai';
 import { parseFormDXml } from './sec-form-d';
 
@@ -361,6 +362,8 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
       }
       const filingDocument = type === 'text/html' && scope?.metricType === 'employees' ? secIndexDocument(body, url) : null;
       if (filingDocument && hop < 3) { target = filingDocument; continue; }
+      // The page's own date is read from the raw HTML, before pageText strips the tags.
+      const publishedAt = type === 'text/html' ? pagePublishedAt(body, url.href, receipt.retrievedAt) : null;
       const text = pageText(body, type === 'text/html');
       if (!text) return { ...receipt, reason: 'No readable source text' };
       const issuerName = type === 'text/html' ? secRegistrantName(body) : null;
@@ -373,7 +376,8 @@ export async function retrieveOriginalSource(raw: string, io: SourceTransport = 
           contentHash: createHash('sha256').update(response.body).digest('hex'),
           text: selectSourceExcerpt(text, excerptScope), truncated: false };
       }
-      return { ...receipt, status: 'retrieved', contentHash: createHash('sha256').update(response.body).digest('hex'), text: selectSourceExcerpt(text, scope), truncated: text.length > MAX_TEXT };
+      return { ...receipt, status: 'retrieved', contentHash: createHash('sha256').update(response.body).digest('hex'), text: selectSourceExcerpt(text, scope), truncated: text.length > MAX_TEXT,
+        ...(publishedAt ? { publishedAt } : {}) };
     }
     return receipt;
   };
