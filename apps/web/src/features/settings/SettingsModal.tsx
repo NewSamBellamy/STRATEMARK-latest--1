@@ -35,7 +35,6 @@ import { looksLikeGeminiKey, QUOTA_PRESETS, sanitizeApiKey, useApiKey } from '@/
 import { useEngineChoice } from '@/lib/settings/engine';
 import { isSentinelConfigured } from '@/lib/sentinelApi';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
-import { useAuth } from '@/lib/auth/AuthContext';
 import { Modal } from '@/components/ui/Modal';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { cn } from '@/lib/cn';
@@ -44,7 +43,7 @@ import { WebSearchPanel } from './WebSearchPanel';
 
 type TestState = { status: 'idle' | 'testing' | 'ok' | 'fail'; detail?: string };
 
-type TabId = 'general' | 'engine' | 'data' | 'usage' | 'pricing';
+type TabId = 'general' | 'engine' | 'data' | 'usage' | 'about';
 
 export function SettingsModal() {
   const { isOpen, close, tab: requestedTab } = useSettingsModal();
@@ -67,8 +66,8 @@ export function SettingsModal() {
           <TabButton id="general" active={activeTab} onClick={setActiveTab} icon={Key} label="General" />
           <TabButton id="engine" active={activeTab} onClick={setActiveTab} icon={Cpu} label="Engine" />
           <TabButton id="data" active={activeTab} onClick={setActiveTab} icon={DatabaseBackup} label="Data controls" />
-          <TabButton id="usage" active={activeTab} onClick={setActiveTab} icon={Gauge} label="Usage & billing" />
-          <TabButton id="pricing" active={activeTab} onClick={setActiveTab} icon={BadgeCheck} label={isCommunityDesktop() ? 'About' : 'Builder profile'} />
+          <TabButton id="usage" active={activeTab} onClick={setActiveTab} icon={Gauge} label="Usage" />
+          {isCommunityDesktop() && <TabButton id="about" active={activeTab} onClick={setActiveTab} icon={BadgeCheck} label="About" />}
         </nav>
 
         {/* Content Area */}
@@ -77,7 +76,7 @@ export function SettingsModal() {
           {activeTab === 'engine' && <EngineTab />}
           {activeTab === 'data' && (isCommunityDesktop() ? <DesktopDataPanel /> : <DataSafetyPanel />)}
           {activeTab === 'usage' && <UsageBillingPanel />}
-          {activeTab === 'pricing' && (isCommunityDesktop() ? <CommunityPanel /> : <PricingPanel />)}
+          {activeTab === 'about' && isCommunityDesktop() && <CommunityPanel />}
         </div>
       </div>
     </Modal>
@@ -321,9 +320,7 @@ function GeneralTab() {
 }
 
 function EngineTab() {
-  const { user } = useAuth();
   const { engine, setEngine } = useEngineChoice();
-  const isPro = user?.subscriptionTier === 'pro';
 
   if (isCommunityDesktop()) return <div className="space-y-3"><h2 className="font-display text-lg">Local Engine</h2><p className="text-sm text-muted">Research runs on this device with your Gemini key. Google handles the AI requests; no Stratemark account or hosted service is required.</p></div>;
 
@@ -352,7 +349,6 @@ function EngineTab() {
           <div className="flex items-center gap-2 font-medium text-content text-sm">
             <Cloud className="h-4 w-4 text-primary-ink" />
             <span>Stratemark Cloud</span>
-            {isPro && <span className="chip border-emerald-300 bg-emerald-50 text-emerald-700 text-[10px] py-0 px-1.5">Default (Pro)</span>}
           </div>
           <p className={`mt-2 text-xs leading-relaxed ${engine === 'cloud' ? 'text-content/75' : 'text-muted'}`}>
             Research runs on our servers, so you don’t need your own key. Some features (briefings, reports, fact-checks) aren’t available here yet.
@@ -564,7 +560,7 @@ function UsageBillingPanel() {
   return (
     <div className="space-y-6 pb-6">
       <div>
-        <h2 className="font-display text-lg text-content">Usage & billing</h2>
+        <h2 className="font-display text-lg text-content">Usage</h2>
       </div>
 
       {lowPower && (
@@ -656,107 +652,6 @@ function UsageBillingPanel() {
             }
           />
         </button>
-      </div>
-    </div>
-  );
-}
-
-function PricingPanel() {
-  const [oneTime, setOneTime] = useState(10);
-  const TIERS = [
-    { name: 'Starter', price: 19, blurb: 'Up to 10 decks a month, daily briefings, generated card art included.', highlight: false },
-    { name: 'Growth', price: 49, blurb: 'More room to run: 40 decks a month, everything in Starter, priority research lanes.', highlight: true },
-    { name: 'Max', price: 99, blurb: 'For teams living in the product: 150 decks a month and the full feature surface.', highlight: false },
-  ];
-  return (
-    <div className="space-y-6 pb-6">
-      <div>
-        <h2 className="font-display text-lg text-content">Pricing — three doors</h2>
-        <p className="mt-1 text-sm text-muted">
-          Research runs on your own Gemini key — we never see it. Pick how you want the app to arrive.
-        </p>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="relative rounded-xl border border-border bg-surface-2/60 p-4">
-          <p className="text-sm font-semibold text-content">Free</p>
-          <p className="text-[11px] font-medium text-faint">Demo & open source</p>
-          <p className="mt-1 font-display text-2xl font-bold tabular-nums text-content">$0</p>
-          <a
-            href="https://github.com/NewSamBellamy/STRATEMARK-latest--1"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-ghost mt-3 w-full justify-center py-1.5 text-[12px] border border-border"
-          >
-            <Github className="h-3.5 w-3.5" /> View on GitHub
-          </a>
-        </div>
-
-        <div className="relative rounded-xl border-2 border-primary bg-primary/5 p-4">
-          <span className="absolute -top-2.5 left-4 rounded-full bg-primary px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white">
-            Prefer not to build it?
-          </span>
-          <p className="text-sm font-semibold text-content">Easy install</p>
-          <p className="text-[11px] font-medium text-faint">One-time · you choose</p>
-          <p className="mt-1 font-display text-2xl font-bold tabular-nums text-content">
-            ${oneTime}
-            <span className="text-[11px] font-medium text-faint"> one-time</span>
-          </p>
-          <input
-            type="range"
-            min={1}
-            max={100}
-            value={oneTime}
-            onChange={(e) => setOneTime(Number(e.target.value))}
-            className="mt-2 w-full accent-primary"
-          />
-          <button
-            type="button"
-            className="btn-primary mt-3 w-full justify-center py-1.5 text-[12px] opacity-60"
-            disabled
-          >
-            Coming soon
-          </button>
-        </div>
-      </div>
-
-      <div className="border-t border-border pt-4">
-        <p className="text-sm font-semibold text-content">Stratemark Pro — subscription</p>
-        <p className="mt-1 text-[12px] leading-relaxed text-muted">
-          Planned: fully hosted, no API key to manage, usage included up to your plan's monthly cap. Not open yet during the beta.
-        </p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {TIERS.map((t) => (
-            <div
-              key={t.name}
-              className={
-                t.highlight
-                  ? 'relative rounded-xl border-2 border-primary bg-primary/5 p-4'
-                  : 'relative rounded-xl border border-border bg-surface-2/60 p-4'
-              }
-            >
-              {t.highlight && (
-                <span className="absolute -top-2.5 left-4 rounded-full bg-primary px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white">
-                  Popular
-                </span>
-              )}
-              <p className="text-sm font-semibold text-content">{t.name}</p>
-              <p className="mt-1 font-display text-2xl font-bold tabular-nums text-content">
-                ${t.price}
-                <span className="text-[11px] font-medium text-faint">/mo</span>
-              </p>
-              <p className="mt-2 text-[12px] leading-relaxed text-muted">{t.blurb}</p>
-              <button
-                type="button"
-                className="btn-primary mt-3 w-full justify-center py-1.5 text-[12px] opacity-60"
-                disabled
-                title="Paid plans aren't open yet during the beta."
-              >
-                Coming soon
-              </button>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );

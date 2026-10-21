@@ -23,13 +23,14 @@ test('Settings: every section opens and says what it holds, and the key field ne
   await section('Data controls').click();
   await expect(page.getByRole('heading', { name: 'Data safety' })).toBeVisible();
   await expect(page.getByText(/saved only in this browser/)).toBeVisible();
-  await section('Usage & billing').click();
-  await expect(page.getByRole('heading', { name: 'Usage & billing' })).toBeVisible();
+  await section('Usage').click();
+  await expect(page.getByRole('heading', { name: 'Usage', exact: true })).toBeVisible();
   await expect(page.getByText('This month on your key')).toBeVisible();
   await expect(page.getByText(/Estimates from published list prices, counted locally/)).toBeVisible();
   await expect(page.getByText('Monthly spending cap')).toBeVisible();
-  await section('Builder profile').click();
-  await expect(page.getByText('Pricing — three doors')).toBeVisible();
+  // No pricing, plans or payment anywhere in Settings for now.
+  await expect(page.getByRole('button', { name: /Builder profile|billing|pricing/i })).toHaveCount(0);
+  await expect(page.getByText(/Easy install|Stratemark Pro|Coming soon/)).toHaveCount(0);
 });
 
 test('Reports: the saved report is listed, opens, and is sourced like the deck it came from', async ({ page }) => {

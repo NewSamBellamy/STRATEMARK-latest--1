@@ -66,8 +66,6 @@ export default function BetaPage() {
         <Point icon={<KeyRound className="h-4 w-4" />} title="After the beta">
           <p>
             The open-source version is bring-your-own-key: free to run, with your own Gemini key and your own usage.
-            If you&apos;d rather not manage a key, there will be an optional paid hosted version, a monthly subscription
-            where we cover the AI and servers for you.
           </p>
         </Point>
         {FEEDBACK_URL && (
