@@ -64,6 +64,29 @@ describe('product evidence wording in the existing view', () => {
     expect(container.querySelector('img')).toBeNull();
     expect(screen.queryByText(/^source$/i)).not.toBeInTheDocument();
   });
+  it('says "Source not recorded" plainly when a product has no url', () => {
+    state.products = [{ name: 'Atlas', status: 'live', description: 'Atlas is available.', revenueNote: '', url: null }];
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.getByText('Source not recorded')).toBeInTheDocument();
+  });
+  it('defaults to a dense table for 21 products and can switch to cards and back', () => {
+    state.products = Array.from({ length: 21 }, (_, i) => ({
+      name: `Prod ${i}`, status: 'live' as const, description: `Does thing ${i}.`, revenueNote: '', url: i % 2 ? `https://acme.com/p${i}` : null,
+    }));
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.getAllByRole('row')).toHaveLength(22);
+    expect(screen.getAllByText('Source not recorded').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Cards' }));
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Table' }));
+    expect(screen.getByRole('table')).toBeInTheDocument();
+  });
+  it('keeps cards by default for a short lineup', () => {
+    state.products = [{ name: 'Atlas', status: 'live', description: 'x', revenueNote: '', url: null }];
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
   it('lists named relationships by kind with their reported sentence and source, and shows nothing when none are reported', () => {
     const { unmount } = render(<ProductsRoadmapTab companyId="cmp" />);
     expect(screen.queryByRole('region', { name: 'Customers, suppliers and partners' })).not.toBeInTheDocument();

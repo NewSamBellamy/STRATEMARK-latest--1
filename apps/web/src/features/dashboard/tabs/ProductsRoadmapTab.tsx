@@ -95,6 +95,63 @@ function ProductsFromResearch({ companyId }: { companyId: string }) {
   );
 }
 
+/** Dense one-line-per-product view: name, description, status, source. */
+function ProductTable({ products, onOpen }: { products: Product[]; onOpen: (p: Product) => void }) {
+  return (
+    <div className="panel overflow-x-auto p-0">
+      <table className="w-full text-left text-[13px]">
+        <thead>
+          <tr className="border-b border-border bg-surface-2/60 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-faint">
+            <th className="px-3 py-2">Product</th>
+            <th className="hidden px-3 py-2 md:table-cell">Description</th>
+            <th className="px-3 py-2">Status</th>
+            <th className="px-3 py-2">Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {products.map((p) => {
+            const hasUrl = !!p.url && /^https?:\/\//.test(p.url);
+            const desc = p.description ? splitSearchReport(p.description).text : '';
+            return (
+              <tr key={p.name} className="cursor-pointer border-b border-border last:border-b-0 hover:bg-surface-2/50" onClick={() => onOpen(p)}>
+                <td className="whitespace-nowrap px-3 py-1.5 font-medium text-content">
+                  <button type="button" className="text-left" onClick={(e) => { e.stopPropagation(); onOpen(p); }}>{p.name}</button>
+                </td>
+                <td className="hidden max-w-0 px-3 py-1.5 text-muted md:table-cell md:w-full">
+                  <span className="block truncate" title={desc || undefined}>{desc || 'No description retained.'}</span>
+                </td>
+                <td className="whitespace-nowrap px-3 py-1.5">
+                  {p.status ? (
+                    <span className={cn('chip py-0.5 text-[11px]', STATUS_STYLE[p.status])}>{STATUS_LABEL[p.status]}</span>
+                  ) : (
+                    <span className="text-faint">-</span>
+                  )}
+                </td>
+                <td className="whitespace-nowrap px-3 py-1.5">
+                  {hasUrl ? (
+                    <a
+                      href={p.url!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      {hostOf(p.url!) ?? 'Source'}
+                    </a>
+                  ) : (
+                    <span className="text-[11px] text-faint">Source not recorded</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
   const query = useDashboardTab(companyId, 'products_roadmap');
   const companyRecord = useCompany(companyId).data;
@@ -103,6 +160,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
   const [openRoadmap, setOpenRoadmap] = useState<RoadmapItem | null>(null);
   const [status, setStatus] = useState<ProductStatus | 'all'>('all');
   const [search, setSearch] = useState('');
+  const [view, setView] = useState<'cards' | 'table' | null>(null);
   return (
     <QueryBoundary query={query} loading={<HydratingPanel label="Products & Roadmap" />}>
       {(result) => {
@@ -112,6 +170,8 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
           if (p.status) acc[p.status] = (acc[p.status] ?? 0) + 1;
           return acc;
         }, {});
+        // Dense table by default for a long lineup; the reader can switch.
+        const viewMode = view ?? (c.products.length > 8 ? 'table' : 'cards');
         const products = c.products.filter(
           (p) =>
             (status === 'all' || p.status === status) &&
@@ -171,6 +231,10 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                             </FilterChip>
                           ))}
                       </div>
+                      <div className="ml-auto flex items-center gap-1.5" role="group" aria-label="Product layout">
+                        <FilterChip active={viewMode === 'cards'} onClick={() => setView('cards')}>Cards</FilterChip>
+                        <FilterChip active={viewMode === 'table'} onClick={() => setView('table')}>Table</FilterChip>
+                      </div>
                     </div>
                   )}
                   {products.length === 0 ? (
@@ -178,6 +242,9 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                       Clear the search or choose All.
                     </EmptyNote>
                   ) : (
+                    viewMode === 'table' ? (
+                    <ProductTable products={products} onOpen={setOpenProduct} />
+                    ) : (
                     <ul className={cn('grid gap-3', products.length > 1 && 'md:grid-cols-2')}>
                       {products.map((p) => {
                         const hasUrl = !!p.url && /^https?:\/\//.test(p.url);
@@ -221,7 +288,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                                   {/* Said once in the section header; a repeat on every card was noise. */}
                                   {p.revenueNote ? <span className="line-clamp-2">{p.revenueNote}</span> : null}
                                 </span>
-                                {hasUrl && (
+                                {hasUrl ? (
                                   <a
                                     href={p.url!}
                                     target="_blank"
@@ -232,6 +299,8 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                                     <ExternalLink className="h-3 w-3" />
                                     {hostOf(p.url!) ?? 'Source'}
                                   </a>
+                                ) : (
+                                  <span className="shrink-0 text-[11px] text-faint">Source not recorded</span>
                                 )}
                               </div>
                             </div>
@@ -239,6 +308,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                         );
                       })}
                     </ul>
+                    )
                   )}
                 </>
               )}
