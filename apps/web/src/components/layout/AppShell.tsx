@@ -103,10 +103,12 @@ export function AppShell() {
     closePanel();
     setMobileMenuOpen(false);
     // Settings is app-level, so leaving the page does not unmount it: close it
-    // here too. Not on the #/settings → home redirect that just opened it.
+    // here too. Not on the hop into #/settings (its route opens the window in
+    // an effect that runs before this one), nor the redirect out of it to home.
     const from = lastPathname.current;
     lastPathname.current = location.pathname;
-    if (from !== location.pathname && !from.startsWith('/settings')) closeSettings();
+    const settingsHop = from.startsWith('/settings') || location.pathname.startsWith('/settings');
+    if (from !== location.pathname && !settingsHop) closeSettings();
   }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard reach for the phone drawer: opening it moves focus inside, and
