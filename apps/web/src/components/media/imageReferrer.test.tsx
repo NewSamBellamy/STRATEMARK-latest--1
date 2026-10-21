@@ -67,7 +67,7 @@ describe('a cover shown through the Worker', () => {
     expect(direct.container.querySelector('img')!.getAttribute('referrerpolicy')).toBe('no-referrer');
   });
 
-  it('the company identity cover on the Mission tab asks for origin', async () => {
+  it('the Mission tab no longer shows a company-site picture at all (it is not governance evidence)', async () => {
     cover.state = { status: 'ready', src: WORKER_IMAGE, publisher: 'cdn.example' };
     const getDashboardTab = vi.fn().mockResolvedValue({
       companyId: 'cmp', tab: 'mission_governance', lastRefreshedAt: '2026-10-01T00:00:00.000Z',
@@ -75,7 +75,7 @@ describe('a cover shown through the Worker', () => {
     });
     const getCompany = vi.fn().mockResolvedValue({ id: 'cmp', name: 'Acme', websiteUrl: 'https://acme.example' });
     renderWithProviders(<MissionGovernanceTab companyId="cmp" />, { repository: Object.assign(makeRepo(), { getDashboardTab, getCompany }) });
-    const img = await screen.findByAltText(/image published by the company/i);
-    expect(img.getAttribute('referrerpolicy')).toBe('origin');
+    expect(await screen.findByText(/Build safe AI/)).toBeInTheDocument();
+    expect(screen.queryByAltText(/image published by the company/i)).toBeNull();
   });
 });
