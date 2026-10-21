@@ -8,7 +8,7 @@ import type { WebSearchFn } from './web-search';
 const HOUR = 60 * 60_000;
 
 /** A workspace with the fixture deck (Acme Robotics, Beta Capital, Gamma Shop), a news feed and one sorting model. */
-function movesRepo(news: WebSearchFn, sec: { down: boolean } = { down: false }) {
+function movesRepo(news: WebSearchFn, sec: { down: boolean } = { down: false }, movesNews?: WebSearchFn) {
   let saved = { ...completenessFixture(), viceClaims: [], reports: [], briefings: [], savedCards: [],
     opportunity: {}, researchJobs: [], threads: [] } as unknown as RepoSnapshot;
   const structure = vi.fn(async (prompt: string, schema: ZodType<unknown>) => {
@@ -19,6 +19,7 @@ function movesRepo(news: WebSearchFn, sec: { down: boolean } = { down: false }) 
   const newsSearch = vi.fn(news);
   const repo = new GeminiRepository({ apiKey: 'test', client: { structure, ground: vi.fn() } as unknown as LlmClient,
     newsSearch: () => newsSearch,
+    ...(movesNews ? { movesNewsSearch: () => movesNews } : {}),
     // SEC answers that none of the fixture companies is a registrant, unless it is down.
     originalSourceReader: async (url) => (sec.down || !url.includes('company_tickers')
       ? { requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'offline' }
@@ -87,6 +88,23 @@ describe('Today in the workspace', () => {
       expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 0 });
       vi.setSystemTime(Date.now() + 2 * HOUR + 1_000);
       expect(await repo.refreshMoves()).toMatchObject({ added: 1, refreshed: 1 });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('Today reads its own strict lane: a feed that is down is retried in 2 hours even when the hunt lane would answer "no leads"', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      let down = true;
+      const { repo, newsSearch } = movesRepo(async () => [], { down: false },
+        async (query) => { if (down) throw new Error('relay answered 429'); return feed(query); });
+      await repo.followCompanies(['acme']);
+      expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 0 });
+      // Not looked at again on the next open, but within hours.
+      expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 0 });
+      down = false;
+      vi.setSystemTime(Date.now() + 2 * HOUR + 1_000);
+      expect(await repo.refreshMoves()).toMatchObject({ added: 1, refreshed: 1 });
+      expect(newsSearch).not.toHaveBeenCalled();
     } finally { vi.useRealTimers(); }
   });
 

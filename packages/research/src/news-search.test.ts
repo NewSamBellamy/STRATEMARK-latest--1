@@ -1,6 +1,6 @@
 /** news-search — the free Bing News RSS lane. */
 import { describe, expect, it, vi } from 'vitest';
-import { bingNewsRssUrl, cleanPublisher, parseBingNewsRss, parseNewsRelayRequest, runNewsSearch } from './news-search';
+import { bingNewsRssUrl, cleanPublisher, fetchNewsSearch, NewsFeedError, parseBingNewsRss, parseNewsRelayRequest, runNewsSearch } from './news-search';
 import { cachedWebSearch } from './web-search';
 
 const wrap = (url: string) => `http://www.bing.com/news/apiclick.aspx?ref=FexRss&amp;aid=&amp;tid=x&amp;url=${encodeURIComponent(url)}&amp;c=1&amp;mkt=en-us`;
@@ -55,6 +55,18 @@ describe('runNewsSearch', () => {
     expect(await runNewsSearch('ramp', vi.fn(async () => new Response('', { status: 429 })) as unknown as typeof fetch)).toEqual([]);
     expect(await runNewsSearch('ramp', vi.fn(async () => { throw new Error('down'); }) as unknown as typeof fetch)).toEqual([]);
     expect(await runNewsSearch(' ', vi.fn() as unknown as typeof fetch)).toEqual([]);
+  });
+
+  it('the strict form throws on a refusing, failing or timing-out feed and returns [] only for an empty answer', async () => {
+    const asFetch = (fn: unknown) => fn as typeof fetch;
+    await expect(fetchNewsSearch('ramp', asFetch(vi.fn(async () => new Response('', { status: 429 }))))).rejects.toMatchObject({ name: 'NewsFeedError', status: 429 });
+    await expect(fetchNewsSearch('ramp', asFetch(vi.fn(async () => new Response('', { status: 503 }))))).rejects.toBeInstanceOf(NewsFeedError);
+    await expect(fetchNewsSearch('ramp', asFetch(vi.fn(async () => { throw new Error('down'); })))).rejects.toBeInstanceOf(NewsFeedError);
+    const hang = asFetch(vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init.signal!.addEventListener('abort', () => reject(new Error('aborted')));
+    })));
+    await expect(fetchNewsSearch('ramp', hang, 20)).rejects.toThrow('timed out');
+    expect(await fetchNewsSearch('ramp', asFetch(vi.fn(async () => new Response('<rss></rss>'))))).toEqual([]);
   });
 
   it('validates relay bodies', () => {

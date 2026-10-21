@@ -116,13 +116,17 @@ export function localSourcePlugin(): Plugin {
           },
         },
         {
-          // Free news lane: no key. Failures are an empty result, never an error.
+          // Free news lane: no key. 200 [] = the feed answered nothing; 502 = it could not be reached.
           path: '/__stratemark/news', maxBody: 1024,
           async handle(body) {
             const news = await server.ssrLoadModule(research('news-search.ts')) as typeof NewsSearchModule;
             const input = news.parseNewsRelayRequest(body);
             if (!input) return { status: 400, json: {} };
-            return { json: { results: await news.runNewsSearch(input.query, fetch) } };
+            try {
+              return { json: { results: await news.fetchNewsSearch(input.query, fetch) } };
+            } catch {
+              return { status: 502, json: { error: 'The news feed is unavailable right now.' } };
+            }
           },
         },
       ]);

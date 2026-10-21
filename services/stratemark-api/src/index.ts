@@ -42,7 +42,7 @@ import { allowanceIdentity } from './allowance';
 import {
   SHARE_LIMITS_DEFAULT, SHARE_MAX_BODY_CHARS, SHARE_TTL_DAYS_DEFAULT, goneHtml, newShareId, parseShareCreate, randomToken, sha256Hex, sharePageHtml,
 } from './share-policy';
-import { parseNewsRelayRequest, runNewsSearch } from '@mi/research/news-search';
+import { fetchNewsSearch, NewsFeedError, parseNewsRelayRequest } from '@mi/research/news-search';
 import { isPlausibleSearchKey, parseSearchRelayRequest, runProviderSearch, WebSearchError, type SearchProvider, type SearchRelayRequest } from '@mi/research/web-search';
 
 export { BudgetCounter } from './budget';
@@ -391,12 +391,18 @@ async function runSearch(provider: SearchProvider, key: string, input: SearchRel
   }
 }
 
-/** POST /v1/news { query } — the free news lane (no key, no budget). Any
- * upstream failure is an empty result: news only ever adds candidate articles. */
+/** POST /v1/news { query } — the free news lane (no key, no budget). 200 with
+ * `[]` only when the feed answered with nothing; an unreachable or refusing
+ * feed is 502 `{error}`, so a client never mistakes an outage for "no news". */
 async function newsRelay(request: Request, origin: string): Promise<Response> {
   const input = parseNewsRelayRequest(await readJson<unknown>(request));
   if (!input) return json({ error: 'Bad news request.' }, 400, origin);
-  return json({ results: await runNewsSearch(input.query, fetch) }, 200, origin);
+  try {
+    return json({ results: await fetchNewsSearch(input.query, fetch) }, 200, origin);
+  } catch (error) {
+    console.log(`news -> 502 ${error instanceof NewsFeedError ? error.status ?? 'unreachable' : 'error'}`);
+    return json({ error: 'The news feed is unavailable right now.' }, 502, origin);
+  }
 }
 
 async function sourceRead(request: Request, origin: string): Promise<Response> {

@@ -22,7 +22,7 @@ import { openBrowserResearchStore } from './browserResearchStore';
 import { QUOTA_PRESETS, useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
 import { currentWebSearch } from '@/lib/settings/searchKey';
-import { currentNewsSearch } from './news-lane';
+import { currentMovesNewsSearch, currentNewsSearch } from './news-lane';
 import { isLowPower, markGroundingSpent, recordCall, recordCallMetrics } from '@/lib/usage';
 import { useResearchControl } from '@/lib/living/researchControl';
 import { wikidataJson } from '@/lib/media/wikidataFounded';
@@ -91,6 +91,8 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       // Extra hunt candidates alongside grounded search: free dated news, and
       // the user's own search key when connected.
       newsSearch: currentNewsSearch,
+      // Today must tell a down feed from an empty one, so its lane throws on failure.
+      movesNewsSearch: currentMovesNewsSearch,
       webSearch: currentWebSearch,
       // Ownership registries (Wikidata, GLEIF) are CORS-open JSON APIs.
       ownershipFetch: globalThis.fetch.bind(globalThis),
