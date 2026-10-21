@@ -110,7 +110,7 @@ describe('a company on Today', () => {
     const doc = document.querySelector('.sm-print-doc')!;
     expect(doc.textContent).toContain(`${company.name} launches a new model`);
     expect(doc.textContent).toContain('Users are unhappy with the pricing change');
-    expect(doc.textContent).toContain('Stratemark · Today');
+    expect(doc.textContent).toContain('StratemarkToday');
     print.mockRestore();
   });
 
