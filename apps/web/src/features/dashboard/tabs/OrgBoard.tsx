@@ -31,42 +31,88 @@ export type BoardColumnKey = ColumnKey | 'board';
 const DOT_GRID =
   'bg-[radial-gradient(circle_at_1px_1px,rgb(var(--c-border))_1px,transparent_0)] [background-size:22px_22px]';
 
-/** True under 768px: the phone layout (no canvas, swipe rows). Safe where `matchMedia` is missing. */
-export function useIsNarrow(): boolean {
-  const query = '(max-width: 767px)';
-  const [narrow, setNarrow] = useState(() => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query).matches : false));
+/** Whether a media query matches. Safe where `matchMedia` is missing (false). */
+function useMedia(query: string): boolean {
+  const [matches, setMatches] = useState(() => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query).matches : false));
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return undefined;
     const mql = window.matchMedia(query);
-    const onChange = () => setNarrow(mql.matches);
+    const onChange = () => setMatches(mql.matches);
     onChange();
     mql.addEventListener?.('change', onChange);
     return () => mql.removeEventListener?.('change', onChange);
-  }, []);
-  return narrow;
+  }, [query]);
+  return matches;
 }
 
-interface Point { x: number; y: number }
-interface Edge { key: string; from: string; to: string }
+/** True under 768px: the phone layout (no canvas, swipe rows). */
+export function useIsNarrow(): boolean {
+  return useMedia('(max-width: 767px)');
+}
+
+/** From 1024px up a long column flows into two sub-columns; below that the board scrolls sideways instead. */
+const useIsWide = () => useMedia('(min-width: 1024px)');
+
+/** A column with more cards than this flows into two sub-columns at wide widths. */
+export const SPLIT_ABOVE = 4;
+/** A manager with more direct reports than this gets one trunk per column, not a string to every report. */
+export const FAN_LIMIT = 6;
+
+/** `hw`: half the width of the card the pin sits on, so a string can clear the card's edge. */
+interface Point { x: number; y: number; hw?: number }
+interface Edge {
+  key: string;
+  from: string;
+  to: string;
+  /** A trunk to a column header pin: lit with its manager and with any of the reports it stands for. */
+  reports?: readonly string[];
+}
 
 const cardKey = (id: string) => `card:${id}`;
 const moreKey = (col: string) => `more:${col}`;
+const headKey = (col: string) => `head:${col}`;
 
-/** A thread between two pins that sags a little under its own weight. */
+const n1 = (v: number) => v.toFixed(1);
+
+/**
+ * A thread between two pins, routed to stay in the gaps where it can:
+ * - pins in one column, one under the other: it loops out into the gutter beside the column, so it does not run down through the names;
+ * - pins at about the same height (neighbouring columns, or a column header): it arches over the tops of the cards;
+ * - anything else sags a little under its own weight.
+ */
 function threadPath(a: Point, b: Point): string {
-  const dist = Math.hypot(b.x - a.x, b.y - a.y);
-  const sag = Math.min(10 + dist * 0.08, 48);
+  const dx = Math.abs(b.x - a.x);
+  const dy = Math.abs(b.y - a.y);
+  if (dx < 40 && dy > 30) {
+    const reach = ((Math.min(a.hw ?? 70, b.hw ?? 70)) + 7) / 0.75;
+    const x = Math.min(a.x, b.x) - reach;
+    return `M ${n1(a.x)} ${n1(a.y)} C ${n1(x)} ${n1(a.y)} ${n1(x)} ${n1(b.y)} ${n1(b.x)} ${n1(b.y)}`;
+  }
   const mx = (a.x + b.x) / 2;
-  const my = (a.y + b.y) / 2 + sag * 2;
-  return `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+  if (dy < 60) {
+    const peak = Math.min(a.y, b.y) - 8;
+    return `M ${n1(a.x)} ${n1(a.y)} Q ${n1(mx)} ${n1(2 * peak - (a.y + b.y) / 2)} ${n1(b.x)} ${n1(b.y)}`;
+  }
+  const sag = Math.min(8 + Math.hypot(dx, dy) * 0.06, 34);
+  return `M ${n1(a.x)} ${n1(a.y)} Q ${n1(mx)} ${n1((a.y + b.y) / 2 + sag * 2)} ${n1(b.x)} ${n1(b.y)}`;
 }
 
-function ColumnHeader({ label, count, color }: { label: string; count: number; color?: string }) {
+/** `pinKey` hangs a pin on the header's rule: where a trunk string for a big team ties off. */
+function ColumnHeader({ label, count, color, pinKey }: { label: string; count: number; color?: string; pinKey?: string }) {
   return (
-    <h4 className="mb-3 flex items-center gap-2 border-b border-border pb-2 font-display text-[11px] font-semibold uppercase tracking-[0.14em] text-content">
+    <h4 className="relative mb-4 flex items-center gap-1.5 whitespace-nowrap border-b border-border pb-2 font-display text-[10.5px] font-semibold uppercase tracking-[0.08em] text-content">
       {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} aria-hidden />}
       {label}
       <span className="font-sans text-[11px] font-normal tabular-nums text-muted">{count}</span>
+      {pinKey && (
+        <span
+          data-pin-for={pinKey}
+          data-pin
+          aria-hidden
+          className="pointer-events-none absolute -bottom-px left-1/2 h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rounded-full"
+          style={{ background: 'radial-gradient(circle at 35% 30%, #ff9a8d, #c62828 58%, #7f1d1d)', boxShadow: '0 1px 2px rgb(0 0 0 / 0.45)' }}
+        />
+      )}
     </h4>
   );
 }
@@ -150,6 +196,7 @@ export interface OrgBoardProps {
 
 export function OrgBoard({ people, parentOf, company, board, onOpen }: OrgBoardProps) {
   const narrow = useIsNarrow();
+  const wide = useIsWide();
   const [flipped, setFlipped] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -183,19 +230,41 @@ export function OrgBoard({ people, parentOf, company, board, onOpen }: OrgBoardP
       const col = columnOfPerson.get(id);
       return col ? moreKey(col) : null;
     };
+    const reportsOf = new Map<string, string[]>();
+    for (const [personId, managerId] of parentOf) reportsOf.set(managerId, [...(reportsOf.get(managerId) ?? []), personId]);
     const out: Edge[] = [];
     const seen = new Set<string>();
-    for (const [personId, managerId] of parentOf) {
+    const add = (edge: Edge) => {
+      if (edge.from === edge.to || seen.has(edge.key)) return;
+      seen.add(edge.key);
+      out.push(edge);
+    };
+    for (const [managerId, reportIds] of reportsOf) {
       const from = resolve(managerId);
-      const to = resolve(personId);
-      if (!from || !to || from === to) continue;
-      const key = `${from}>${to}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ key, from, to });
+      if (!from) continue;
+      // A big team is not a fan of strings: the reports sharing another column hang from one trunk to that column's header.
+      const trunked = new Set<string>();
+      if (reportIds.length > FAN_LIMIT) {
+        const byColumn = new Map<string, string[]>();
+        for (const id of reportIds) {
+          const col = columnOfPerson.get(id);
+          if (col && col !== columnOfPerson.get(managerId)) byColumn.set(col, [...(byColumn.get(col) ?? []), id]);
+        }
+        for (const [col, ids] of byColumn) {
+          if (ids.length < 2) continue;
+          add({ key: `${from}>${headKey(col)}`, from, to: headKey(col), reports: ids });
+          for (const id of ids) trunked.add(id);
+        }
+      }
+      for (const id of reportIds) {
+        const to = trunked.has(id) ? null : resolve(id);
+        if (to) add({ key: `${from}>${to}`, from, to });
+      }
     }
     return out;
   }, [shownColumns, parentOf]);
+
+  const touches = (e: Edge, id: string) => e.from === cardKey(id) || e.to === cardKey(id) || (e.reports?.includes(id) ?? false);
 
   // Who is lit when a card is hovered or focused: itself, its manager and its reports.
   const related = useMemo(() => {
@@ -223,6 +292,7 @@ export function OrgBoard({ people, parentOf, company, board, onOpen }: OrgBoardP
       if (!key) continue;
       const r = pin.getBoundingClientRect();
       next[key] = { x: Math.round((r.left + r.width / 2 - origin.left) * 10) / 10, y: Math.round((r.top + r.height / 2 - origin.top) * 10) / 10 };
+      if (owner) next[key]!.hw = Math.round(owner.getBoundingClientRect().width / 2);
     }
     setPoints((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
     const scroller = scrollerRef.current;
@@ -243,7 +313,7 @@ export function OrgBoard({ people, parentOf, company, board, onOpen }: OrgBoardP
       ro.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [measure, narrow, shownColumns, showBoard, movers.length]);
+  }, [measure, narrow, wide, shownColumns, showBoard, movers.length]);
 
   const pathFor = (e: Edge) => threadPath(points[e.from] ?? { x: 0, y: 0 }, points[e.to] ?? { x: 0, y: 0 });
 
@@ -319,11 +389,17 @@ export function OrgBoard({ people, parentOf, company, board, onOpen }: OrgBoardP
     );
   }
 
+  const splits = (col: { shown: OrgNode[] }) => wide && col.shown.length > SPLIT_ABOVE;
+  // Card tracks are tight so the whole board fits a 1400px window; the Moves and Board notes need less than a card.
   const template = [
-    ...shownColumns.map(() => 'minmax(176px, 232px)'),
-    ...(movers.length > 0 ? ['minmax(150px, 200px)'] : []),
-    ...(showBoard ? ['minmax(136px, 192px)'] : []),
+    ...shownColumns.map((col) => (splits(col) ? 'minmax(308px, 464px)' : 'minmax(148px, 232px)')),
+    ...(movers.length > 0 ? ['minmax(124px, 168px)'] : []),
+    ...(showBoard ? ['minmax(112px, 156px)'] : []),
   ].join(' ');
+
+  // Endpoints that actually carry a string get a knot on the pin.
+  const ends = [...new Set(edges.flatMap((e) => [e.from, e.to]))].filter((k) => points[k]);
+  const drawn = activeId === null ? [] : edges.filter((e) => touches(e, activeId));
 
   return (
     <div className="panel relative overflow-hidden" role="group" aria-label="Org board">
@@ -333,8 +409,8 @@ export function OrgBoard({ people, parentOf, company, board, onOpen }: OrgBoardP
           className="relative grid items-start gap-x-3 px-4 pb-6 pt-6"
           style={{ gridTemplateColumns: template, justifyContent: 'safe center' }}
         >
-          {/* Every string, tucked behind the cards so the names stay readable. */}
-          <svg className="pointer-events-none absolute inset-0 z-0 h-full w-full overflow-visible" aria-hidden focusable="false">
+          {/* Every string, hung over the cards like thread on a pinboard: thin enough to read the names through. */}
+          <svg className="pointer-events-none absolute inset-0 z-20 h-full w-full overflow-visible" aria-hidden focusable="false">
             {edges.map((e) => (
               <path
                 key={e.key}
@@ -348,27 +424,39 @@ export function OrgBoard({ people, parentOf, company, board, onOpen }: OrgBoardP
                 stroke="rgb(var(--c-negative))"
                 strokeLinecap="round"
                 strokeWidth={1.5}
-                style={{ opacity: related ? 0.15 : 0.55, transition: 'opacity 150ms' }}
+                style={{ opacity: related ? 0.12 : 0.7, transition: 'opacity 150ms' }}
               />
             ))}
+            {ends.map((k) => (
+              <circle key={k} data-string-end={k} cx={points[k]!.x} cy={points[k]!.y} r={2.5} fill="#7f1d1d" style={{ opacity: related ? 0.3 : 1 }} />
+            ))}
           </svg>
-          {/* The hovered or focused card's own strings, drawn bolder (still behind the cards). */}
-          <svg className="pointer-events-none absolute inset-0 z-0 h-full w-full overflow-visible" aria-hidden focusable="false">
-            {edges
-              .filter((e) => activeId !== null && (e.from === cardKey(activeId) || e.to === cardKey(activeId)))
-              .map((e) => (
-                <path key={e.key} data-string-lit d={pathFor(e)} fill="none" stroke="rgb(var(--c-negative))" strokeLinecap="round" strokeWidth={2.5} />
-              ))}
+          {/* The hovered or focused card's own strings, drawn bolder. */}
+          <svg className="pointer-events-none absolute inset-0 z-20 h-full w-full overflow-visible" aria-hidden focusable="false">
+            {drawn.map((e) => (
+              <path key={e.key} data-string-lit d={pathFor(e)} fill="none" stroke="rgb(var(--c-negative))" strokeLinecap="round" strokeWidth={2.5} />
+            ))}
           </svg>
           {shownColumns.map((col) => (
             <section key={col.key} aria-label={col.label} className="relative z-10 min-w-0">
-              <ColumnHeader label={col.label} count={col.people.length} color={COLUMN_COLOR[col.key]} />
-              <div className="space-y-6">
-                {col.shown.map(card)}
-                {col.people.length > col.shown.length && (
+              <ColumnHeader label={col.label} count={col.people.length} color={COLUMN_COLOR[col.key]} pinKey={headKey(col.key)} />
+              {splits(col) ? (
+                // Two sub-columns, dealt out in rank order (1st left, 2nd right, 3rd left ...) so the top ranks sit side by side.
+                <div data-split className="grid grid-cols-2 items-start gap-x-3">
+                  {[0, 1].map((side) => (
+                    <div key={side} className="min-w-0 space-y-5">
+                      {col.shown.filter((_, i) => i % 2 === side).map(card)}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-5">{col.shown.map(card)}</div>
+              )}
+              {col.people.length > col.shown.length && (
+                <div className="mt-5">
                   <MorePin colKey={col.key} count={col.people.length - col.shown.length} label={col.label} onExpand={() => expand(col.key)} />
-                )}
-              </div>
+                </div>
+              )}
             </section>
           ))}
           {movers.length > 0 && (
