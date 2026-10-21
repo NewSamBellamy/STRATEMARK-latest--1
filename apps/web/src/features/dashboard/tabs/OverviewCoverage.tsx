@@ -40,7 +40,7 @@ export function coverageItems(figuresFound: number, figureSlots: number, stored:
   const events = count(history?.timeline);
   const stories = count(intel?.items);
   return [
-    { key: 'figures', label: 'Figures', tab: 'metrics', have: figuresFound > 0, detail: figureSlots > 0 ? `${figuresFound} of ${figureSlots} on the card` : null },
+    { key: 'figures', label: 'Figures', tab: 'metrics', have: figuresFound > 0, detail: figureSlots > 0 ? `${figuresFound} of ${figureSlots} found` : null },
     { key: 'brief', label: 'Research brief', tab: 'overview', have: Boolean(overview?.markdown?.trim()), detail: null },
     { key: 'team', label: 'Team & org', tab: 'team_org', have: nodes > 0, detail: nodes > 0 ? plural(nodes, 'person', 'people') : null },
     { key: 'products', label: 'Products & roadmap', tab: 'products_roadmap', have: productCount > 0, detail: productCount > 0 ? plural(productCount, 'product') : null },

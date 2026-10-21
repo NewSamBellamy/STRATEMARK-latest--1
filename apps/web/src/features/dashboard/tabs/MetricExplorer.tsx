@@ -21,7 +21,10 @@ import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
 import { cn } from '@/lib/cn';
 import { formatMetricValue } from '@/lib/format';
 import { METRIC_COLORS } from '@/lib/theme';
-import { FILL_HINT, formatAsOf, isKnown, type PeerRanking } from '../dashboardModel';
+import { FILL_HINT, isKnown, type PeerRanking } from '../dashboardModel';
+import { currencyCaptionFor, figureDates, figureDisplay } from '../figureSet';
+import { figureCurrency, withReportedCurrency } from '../figureCurrency';
+import { shortCompanyName } from '../companyNames';
 import { metricLabel } from '../dashboardKit';
 import { ChartPanel, Delta, TrendArea, TrendBar, TrendLine, tooltipStyle, useChartTheme, useWidth } from './metricViz';
 
@@ -76,11 +79,11 @@ function useCountUp(target: number | null): number | null {
 }
 
 /** The big figure. A new value for the same metric (a hunt just found it) counts up; picking another metric shows it at once. */
-function ExplorerValue({ type, value }: { type: MetricType; value: number | null }) {
+function ExplorerValue({ type, value, metric }: { type: MetricType; value: number | null; metric: CompanyMetric }) {
   const shown = useCountUp(value);
   return (
     <p className="mt-1 font-display text-4xl font-semibold tabular-nums tracking-tight text-content" data-testid="explorer-value">
-      {formatMetricValue(type, shown ?? value)}
+      {withReportedCurrency(formatMetricValue(type, shown ?? value), figureCurrency(metric))}
     </p>
   );
 }
@@ -88,14 +91,14 @@ function ExplorerValue({ type, value }: { type: MetricType; value: number | null
 function PeerBars({ ranking, type }: { ranking: PeerRanking; type: MetricType }) {
   const c = useChartTheme();
   const [ref, width] = useWidth();
-  const points = ranking.points.slice(0, 12);
+  const points = ranking.points.slice(0, 12).map((p) => ({ ...p, name: shortCompanyName(p.name) }));
   const color = METRIC_COLORS[type];
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <h3 className="font-display text-sm font-semibold text-content">In this deck</h3>
         <p className="text-[11px] text-faint">
-          {ranking.rank != null ? `#${ranking.rank} of ${ranking.of} with a figure` : `${ranking.of} with a figure`}
+          {ranking.rank != null ? `#${ranking.rank} of ${ranking.of} companies with this figure` : `${ranking.of} companies with this figure`}
           {ranking.includesEstimates ? ' · includes estimates' : ''}
         </p>
       </div>
@@ -185,7 +188,8 @@ export function MetricExplorer({
               style={on ? { boxShadow: `inset 0 -2px 0 ${METRIC_COLORS[metric.metricType]}` } : undefined}>
               <span className="block text-[10.5px] font-semibold uppercase tracking-wider text-faint">{metricLabel(metric)}</span>
               <span className={cn('mt-0.5 block font-display text-lg font-semibold tabular-nums', on ? 'text-content' : 'text-muted')}>
-                {formatMetricValue(metric.metricType, metric.value)}
+                {figureDisplay(metric)}
+                {metric.confidence === 'estimated' && <>{' '}<abbr title="Estimated" className="text-[10px] font-normal text-faint no-underline">est.</abbr></>}
               </span>
             </button>
           );
@@ -206,11 +210,15 @@ export function MetricExplorer({
             <p className="text-[11px] font-semibold uppercase tracking-widest text-faint">{metricLabel(current.metric)}</p>
             {known ? (
               <>
-                <ExplorerValue key={known.metricType} type={known.metricType} value={known.value} />
+                <ExplorerValue key={known.metricType} type={known.metricType} value={known.value} metric={known} />
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
                   <ConfidenceBadge reported={known.reportedSupport != null || known.reportedBand != null} confidence={known.confidence} note={known.methodNote}
                     source={known.source} citations={known.citations} metricLabel={metricLabel(known)} />
-                  {formatAsOf(known) && <span className="text-[12px] text-muted">{formatAsOf(known)}</span>}
+                  <span className="text-[12px] text-muted">
+                    {figureDates(known).period ? `For ${figureDates(known).period}` : 'Period not reported'}
+                    {figureDates(known).record && <span className="text-faint"> · {figureDates(known).record}</span>}
+                  </span>
+                  {currencyCaptionFor(known) && <p className="basis-full text-[12px] text-muted">{currencyCaptionFor(known)}</p>}
                 </div>
               </>
             ) : (

@@ -2,9 +2,8 @@ import { sourceHref } from '@/lib/sourceHref';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ExternalLink, SearchX } from 'lucide-react';
-import { publisherOf, type MetricType } from '@mi/contracts';
+import { publisherOf, type CompanyMetric } from '@mi/contracts';
 import { useCompany, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
-import { companyFace, faceFigureStatus, type CardView } from '@/features/card/card-view';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { ErrorState } from '@/components/states/ErrorState';
 import { cn } from '@/lib/cn';
@@ -13,13 +12,16 @@ import { HydratingPanel } from './HydratingPanel';
 import {
   FILL_HINT,
   extractTakeaways,
+  pickKpis,
+  isKnown,
   parseOverviewSections,
   rankInDeck,
   splitAttribution,
   type PeerRanking,
 } from '../dashboardModel';
-import { KpiTileSkeleton, Section, useTabHref } from '../dashboardKit';
+import { KpiTileSkeleton, Section, metricLabel, useTabHref } from '../dashboardKit';
 import { usePeers } from '../usePeers';
+import { buildFigureSet, currencyCaptionFor, figureDates, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { ArticleReader, TopStories } from './LiveIntelTab';
 import { SitePreview } from './LiveLandingTab';
@@ -107,59 +109,62 @@ function Empty({ title, text }: { title: string; text: string }) {
   );
 }
 
-// ---- At a glance: the card's own four figures -----------------------------
+// ---- Key figures: the same figure set the Metrics tab reads ----------------
 
-type FaceItem = CardView['faceMetrics'][number];
-const SLOT_TYPE: Record<string, MetricType> = {
-  employees: 'employees', revenue: 'revenue', reach: 'users', company_value: 'valuation', aum: 'aum',
-};
-const asOfFormat = new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
-const shortDate = (iso: string | null | undefined) => {
-  const d = iso ? new Date(iso) : null;
-  return d && Number.isFinite(d.getTime()) ? asOfFormat.format(d) : null;
-};
-
-/** Mirrors the card face exactly: same slots, same gates, same trust wording as the reader. */
-function FaceTile({ item, ranking, href }: { item: FaceItem; ranking: PeerRanking | null; href: string }) {
-  const known = item.metric !== undefined;
-  const type = item.metric?.metricType ?? SLOT_TYPE[item.key] ?? 'valuation';
-  const citation = item.citations[0];
-  const dated = item.metric?.reportedSupport?.asOf ?? item.metric?.quotedSupport?.asOf ?? item.metric?.reportedBand?.asOf ?? null;
-  const when = dated ? shortDate(dated) ?? dated : null;
-  if (!known) {
+/**
+ * One key figure. It reads the same figure set as Metrics, so a figure found
+ * there is found here, an estimate keeps its "est." marker, and a figure that
+ * does not exist stays "Not found yet" (never imputed). The currency is shown
+ * as reported; the card face and its figure counter are separate and untouched.
+ */
+function FigureTile({ metric, ranking, href }: { metric: CompanyMetric; ranking: PeerRanking | null; href: string }) {
+  const type = metric.metricType;
+  const label = metricLabel(metric);
+  if (!isKnown(metric)) {
     return (
-      <article className="flex min-w-0 flex-col rounded-xl border border-dashed border-border bg-surface-2/40 p-4" aria-label={`${item.label}: ${item.display}`}>
-        <h3 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">{item.label}</h3>
+      <article className="flex min-w-0 flex-col rounded-xl border border-dashed border-border bg-surface-2/40 p-4" aria-label={`${label}: Not found yet`}>
+        <h3 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">{label}</h3>
         <p className="mt-1.5 flex items-center gap-1.5 font-display text-lg font-semibold text-muted">
           <SearchX className="h-4 w-4" aria-hidden />
-          {item.display}
+          Not found yet
         </p>
         <p className="mt-1 text-[11.5px] leading-snug text-faint">{FILL_HINT[type]}</p>
       </article>
     );
   }
+  const citation = linkedCitation(metric);
+  const dates = figureDates(metric);
+  const currency = currencyCaptionFor(metric);
+  const estimated = metric.confidence === 'estimated';
+  const display = figureDisplay(metric);
   return (
     <article
       className="flex min-w-0 flex-col rounded-xl border border-border bg-surface p-4 shadow-soft"
       style={{ borderTopColor: METRIC_COLORS[type], borderTopWidth: 2 }}
-      aria-label={`${item.label}: ${item.display}`}
+      aria-label={`${label}: ${display}${estimated ? ' (estimated)' : ''}`}
     >
-      <h3 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">{item.label}</h3>
-      <p className="mt-1.5 font-display text-[26px] font-semibold leading-none tabular-nums text-content">{item.display}</p>
-      <p className="mt-2.5 truncate text-[11.5px] text-muted" title={faceFigureStatus(item)}>
+      <h3 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">{label}</h3>
+      <p className="mt-1.5 font-display text-[26px] font-semibold leading-none tabular-nums text-content">
+        {display}
+        {/* A real space, not margin: copy-paste and screen readers otherwise get "$8.0Best.". */}
+        {estimated && <>{' '}<abbr title="Estimated" className="text-[11px] font-normal text-faint no-underline">est.</abbr></>}
+      </p>
+      <p className="mt-2.5 truncate text-[11.5px] text-muted">
         {citation ? (
           <a href={sourceHref(citation.url, citation.title)} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-full items-center gap-1 text-primary-ink hover:underline">
             <span className="truncate">{publisherOf(citation.url, citation.title)}</span>
             <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
           </a>
-        ) : faceFigureStatus(item)}
+        ) : metric.confidence === 'user_verified' ? 'Your correction' : 'No link recorded'}
       </p>
       <p className="mt-0.5 text-[11px] text-faint">
-        {faceFigureStatus(item).replace(' · not verified', '')}{when ? ` · ${when}` : ''}
+        {figureTrust(metric)} · {dates.period ? `For ${dates.period}` : 'Period not reported'}
       </p>
+      {dates.record && <p className="text-[11px] text-faint">{dates.record}</p>}
+      {currency && <p className="mt-1 text-[11px] leading-snug text-muted">{currency}</p>}
       {ranking?.rank != null && ranking.of > 1 && (
         <Link to={href} className="mt-2 text-[11px] text-faint hover:text-primary-ink">
-          <span className="font-semibold tabular-nums text-content">#{ranking.rank}</span> of {ranking.of} in this deck
+          <span className="font-semibold tabular-nums text-content">#{ranking.rank}</span> of {ranking.of} companies with this figure
         </Link>
       )}
     </article>
@@ -265,15 +270,15 @@ export function OverviewTab({ companyId }: { companyId: string }) {
   const href = useTabHref(companyId);
   const [briefIdx, setBriefIdx] = useState(0);
 
-  // The card's own face, however the dashboard was opened (from a card or a
-  // link): the same four strongest sourced figures, from live metrics so a
-  // fresh correction shows at once.
+  // The same figure set the Metrics tab reads, from live metrics so a fresh
+  // correction shows at once. Estimates are included and marked.
   const companyQ = useCompany(companyId);
   const site = companyQ.data?.websiteUrl && /^https?:\/\//.test(companyQ.data.websiteUrl) ? companyQ.data.websiteUrl : null;
-  const face = useMemo(
-    () => (companyQ.data ? companyFace(companyQ.data, metrics) : null),
-    [companyQ.data, metrics],
+  const figures = useMemo(
+    () => (companyQ.data ? buildFigureSet(metrics, companyQ.data, companyId) : null),
+    [companyQ.data, metrics, companyId],
   );
+  const keyFigures = useMemo(() => (figures ? pickKpis(figures.all, 6, 4) : []), [figures]);
 
   const result = query.data;
   const parsed = useMemo(
@@ -294,24 +299,24 @@ export function OverviewTab({ companyId }: { companyId: string }) {
         title="Key figures"
         action={<Link to={href('metrics')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All figures and peers <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
       >
-        {metricsQ.isPending || !face ? (
+        {metricsQ.isPending || !figures ? (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {[0, 1, 2, 3].map((i) => <KpiTileSkeleton key={i} i={i} />)}
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            {face.map((item) => {
-              const ranking = item.metric && peerState.status === 'ready'
-                ? rankInDeck(companyId, item.metric.metricType, peerState.peers) : null;
-              return <FaceTile key={`${item.key}-${item.label}`} item={item} ranking={ranking}
-                href={href('metrics', { metric: item.metric?.metricType ?? SLOT_TYPE[item.key] ?? 'valuation' })} />;
+          <div className={cn('grid grid-cols-2 gap-3', keyFigures.length > 4 ? 'md:grid-cols-3' : 'md:grid-cols-4')}>
+            {keyFigures.map((metric) => {
+              const ranking = isKnown(metric) && peerState.status === 'ready'
+                ? rankInDeck(companyId, metric.metricType, peerState.peers) : null;
+              return <FigureTile key={metric.metricType} metric={metric} ranking={ranking}
+                href={href('metrics', { metric: metric.metricType })} />;
             })}
           </div>
         )}
       </Section>
 
-      {face && (
-        <OverviewCoverage companyId={companyId} figuresFound={face.filter((i) => i.metric !== undefined).length} figureSlots={face.length} />
+      {figures && (
+        <OverviewCoverage companyId={companyId} figuresFound={figures.known.length} figureSlots={figures.all.length} />
       )}
 
       <Happening companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} />

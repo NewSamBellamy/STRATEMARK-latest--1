@@ -16,7 +16,7 @@ describe('what has been researched, judged by real content', () => {
       live_intel: { items: [], cadence: 'weekly' },
     });
     const by = Object.fromEntries(items.map((i) => [i.key, i]));
-    expect(by.figures).toMatchObject({ have: true, detail: '2 of 4 on the card' });
+    expect(by.figures).toMatchObject({ have: true, detail: '2 of 4 found' });
     expect(by.brief!.have).toBe(false);
     expect(by.team).toMatchObject({ have: true, detail: '2 people' });
     expect(by.products!.have).toBe(false);
