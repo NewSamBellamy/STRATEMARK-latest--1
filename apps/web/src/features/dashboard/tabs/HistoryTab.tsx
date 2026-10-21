@@ -6,6 +6,7 @@ import { HydratingPanel } from './HydratingPanel';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { InsightReader } from '@/components/reader/InsightReader';
 import { WikiAvatar } from './LeaderGrid';
+import { Logo } from '@/features/card/Logo';
 import { HistoryVideoHero } from './HistoryVideoHero';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { cn } from '@/lib/cn';
@@ -14,6 +15,7 @@ import {
   classifyEvent,
   EVENT_KIND_LABEL,
   groupByYear,
+  isOrgAttribution,
   matchesQuery,
   type EventKind,
 } from './tabHelpers';
@@ -38,7 +40,8 @@ const DENSE_AT = 14;
 export function HistoryTab({ companyId }: { companyId: string }) {
   const expand = useRerunDashboardTab(companyId, 'history');
   const query = useDashboardTab(companyId, 'history');
-  const name = useCompany(companyId).data?.name ?? 'this company';
+  const company = useCompany(companyId).data;
+  const name = company?.name ?? 'this company';
   // Click a milestone → it opens as its own readable card with the whole gist.
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [allQuotes, setAllQuotes] = useState(false);
@@ -111,7 +114,7 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                   count={events.length > 0 ? `${events.length} event${events.length === 1 ? '' : 's'}${years0 && years.length > 1 ? ` · ${years0}` : ''}` : undefined}
                   description={
                     events.length > 0
-                      ? 'Dated milestones from retained research, newest year first. Open one for the full story and sources.'
+                      ? 'Dated milestones from retained research, newest first. Open one for its full description; sources are not yet listed per event.'
                       : undefined
                   }
                   actions={
@@ -279,19 +282,25 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                 ) : (
                   <ul className="space-y-4">
                     {(allQuotes ? c.quotes : c.quotes.slice(0, 2)).map((q, i) => {
-                      const speaker = q.attribution ? speakerNameOf(q.attribution) : null;
+                      const org = q.attribution ? isOrgAttribution(q.attribution, name) : false;
+                      const speaker = q.attribution && !org ? speakerNameOf(q.attribution) : null;
                       return (
                         <li key={i} className="text-sm">
                           <Quote className="h-4 w-4 text-muted" aria-hidden />
                           <p className="mt-1 italic text-content">{q.text}</p>
-                          {q.attribution && (
+                          {(q.attribution || q.date) && (
                             <span className="mt-2 flex items-center gap-2">
                               {/* The face behind the words — verified headshot or
-                                  clean initials, same honesty gate as leadership. */}
+                                  clean initials, same honesty gate as leadership.
+                                  An organisation speaks with its logo, not initials. */}
+                              {org && (
+                                <Logo name={company?.name ?? name} website={company?.websiteUrl} logoUrl={company?.logoUrl}
+                                  className="h-10 w-10 shrink-0 rounded-full border border-border" />
+                              )}
                               {speaker && <WikiAvatar name={speaker} companyName={name} size="sm" />}
                               <span className="text-xs text-muted">
-                                — {q.attribution}
-                                {q.date ? `, ${q.date}` : ''}
+                                {q.attribution ? `— ${q.attribution}` : ''}
+                                {q.date ? `${q.attribution ? ', ' : ''}${q.date}` : ''}
                               </span>
                             </span>
                           )}
