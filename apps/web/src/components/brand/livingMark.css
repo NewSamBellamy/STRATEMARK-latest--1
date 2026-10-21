@@ -1,0 +1,7 @@
+/*
+ * The mark's swim is drawn by script (fishSwim.ts sets the two outlines frame by frame), so there is nothing to animate here: the
+ * shapes may swing outside the mark's box while they circle, so the box does not clip them.
+ */
+.living-mark {
+  overflow: visible;
+}
