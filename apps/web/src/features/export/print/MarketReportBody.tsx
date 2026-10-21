@@ -11,6 +11,9 @@ import { MarketCover } from './MarketCover';
 import { MARKET_ANCHORS, marketOutline } from './marketOutline';
 import { Overview } from './Overview';
 import { SectionOpener } from './SectionOpener';
+import { SignalSection } from './SignalSection';
+import { MethodsPage } from './MethodsPage';
+import { SourcesList } from './SourcesList';
 import './market.css';
 
 export { UNSOURCED_PROFILE_NOTE } from './CompanySpread';
@@ -40,7 +43,9 @@ export function MarketReportBody({ model }: { model: FullReportModel }) {
 
       {model.companies.map((c, i) => <CompanySpread key={c.id} company={c} index={i} section={outline.companies} />)}
 
-      {/* B2: signals, methods, sources */}
+      <div id={MARKET_ANCHORS.signals}><SignalSection model={model} /></div>
+      <div id={MARKET_ANCHORS.methods}><MethodsPage model={model} /></div>
+      <div id={MARKET_ANCHORS.sources}><SourcesList sources={model.sources} /></div>
     </div>
   );
 }
