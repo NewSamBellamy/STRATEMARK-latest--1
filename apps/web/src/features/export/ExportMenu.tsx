@@ -20,6 +20,7 @@ import type { CardWithCompany, ThreadMessage } from '@mi/contracts';
 import { cn } from '@/lib/cn';
 import { usePopoverSide } from '@/lib/usePopoverSide';
 import { useGenerateReport } from '@/hooks/data';
+import { useCompanyCard } from '@/hooks/today';
 import { useRepository, useSupports } from '@/lib/repository/RepositoryProvider';
 import { ShareDialog } from '@/features/share/ShareDialog';
 import { ReportBuilderDialog } from '@/features/reports/ReportBuilderDialog';
@@ -39,6 +40,10 @@ import {
   transcriptToMarkdown,
   type ExportCompany,
 } from './exportModel';
+
+/** The stored dashboard sections a company report reads. */
+const PROFILE_TABS = ['overview', 'products_roadmap', 'team_org', 'history', 'live_intel'] as const;
+type StoredTabsInput = Record<string, Partial<Record<(typeof PROFILE_TABS)[number], { content: unknown; lastRefreshedAt?: string }>>>;
 
 export interface ExportMenuProps {
   /** `id` lets the PDF carry what the deck has stored beyond its cards (profiles, history, news). */
@@ -141,12 +146,34 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
       setBusy(null);
     }
   };
-  const companyReport = () =>
-    company &&
-    print(
-      { kind: 'report', model: buildReportModel({ title: company.name, kind: 'company', companies: [company] }) },
-      `${company.name} - Stratemark company report`,
-    );
+  const companyCard = useCompanyCard(company?.id);
+  const companyReport = async () => {
+    if (!company) return;
+    const fileTitle = `${company.name} - Stratemark company report`;
+    const figuresOnly = () =>
+      print({ kind: 'report', model: buildReportModel({ title: company.name, kind: 'company', companies: [company] }) }, fileTitle);
+    // Usually loaded already; when the click came first, wait for it rather than fall back to the figures alone.
+    const card = companyCard.data ?? (await companyCard.refetch().catch(() => null))?.data ?? null;
+    if (!card) return figuresOnly();
+    // The card face and the stored profile (overview, products, team, history, news) are read from what is already
+    // stored, at no research cost (a repository that cannot peek contributes none); a section never researched is left out.
+    setOpen(false);
+    setBusy('report');
+    setError(null);
+    try {
+      const stored: StoredTabsInput[string] = {};
+      for (const tab of PROFILE_TABS) {
+        const r = await repo.peekDashboardTab?.(company.id, tab);
+        if (r) stored[tab] = { content: r.content, ...(r.lastRefreshedAt ? { lastRefreshedAt: r.lastRefreshedAt } : {}) };
+      }
+      const full = buildFullReport({ title: company.name, cards: [card], tabs: { [company.id]: stored } });
+      print({ kind: 'report', model: { ...full, kind: 'company' } }, fileTitle);
+    } catch {
+      figuresOnly();
+    } finally {
+      setBusy(null);
+    }
+  };
   const csv = () => {
     setOpen(false);
     if (deck) downloadText(`${fileSlug(deck.title)}-metrics-${date}.csv`, metricsToCsv(deck.title, deckCompanies), 'text/csv');
@@ -308,7 +335,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
           )}
           {company && (
             <>
-              <button role="menuitem" type="button" className={ITEM} onClick={companyReport}>
+              <button role="menuitem" type="button" className={ITEM} onClick={() => void companyReport()}>
                 <Printer className="h-4 w-4 text-muted" />
                 <span>Company report (PDF)<span className="block text-[11px] text-faint">Metrics table with source footnotes</span></span>
               </button>

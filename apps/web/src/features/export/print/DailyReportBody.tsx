@@ -1,59 +1,48 @@
-/** The Today report: one block per dated update. */
+/** The Today report: dark cover, then one block per dated update, each with its source. */
 import { Logo } from '@/features/card/Logo';
 import type { DailyReportModel } from '../dailyReportModel';
-import { imageCaption } from './shared';
+import { Cover } from './Cover';
+import { Figures, ReportSection, Row } from './reportParts';
 
 export function DailyReportBody({ model }: { model: DailyReportModel }) {
+  const co = model.company;
   return (
     <>
-      <section className="sm-cover">
-        <div className="sm-cover-brand">
-          <Logo name={model.company.name} website={model.company.website} logoUrl={model.company.logoUrl} className="sm-cover-logo" />
-          <p className="sm-eyebrow">Stratemark · Today</p>
-        </div>
-        <h1 className="sm-cover-title">{model.company.name}</h1>
-        <div className="sm-rule" />
-        <ul className="sm-cover-meta">
-          <li>{model.dateText}</li>
-          <li>
-            {model.items.length} {model.items.length === 1 ? 'update' : 'updates'}
-            {model.counts.length > 0 && <> · {model.counts.map((c) => `${c.count} ${c.label.toLowerCase()}`).join(' · ')}</>}
-          </li>
-        </ul>
-        <p className="sm-cover-note">
-          Every update shows who reported it and when, and links to its source. Headlines are the publishers&apos; own. Social
-          items show the sentiment research tagged them with; nothing here is guessed.
-        </p>
-      </section>
+      <Cover
+        eyebrow="Today"
+        title={co.name}
+        logo={<Logo name={co.name} website={co.website} logoUrl={co.logoUrl} className="sm-cv-logo-img" />}
+        meta={[
+          model.dateText,
+          `${model.items.length} ${model.items.length === 1 ? 'update' : 'updates'}`,
+          ...(model.counts.length > 0 ? [model.counts.map((c) => `${c.count} ${c.label.toLowerCase()}`).join(' · ')] : []),
+        ]}
+        note="Every update shows who reported it and when, and links to its source. Headlines are the publishers' own. Social items show the sentiment research tagged them with; nothing here is guessed."
+      />
 
-      {model.items.map((item) => (
-        <section key={item.n} className="sm-topic sm-update">
-          <p className="sm-kind">
-            {item.kindLabel}
-            {item.sentiment && <span className="sm-sentiment"> · {item.sentiment}</span>}
-          </p>
-          <h2 className="sm-h2 sm-update-title">
-            <span className="sm-h2-n">{String(item.n).padStart(2, '0')}</span>
-            {item.title}
-          </h2>
-          <p className="sm-sub">{item.byline}</p>
-          {item.images.length > 0 && (
-            <div className="sm-figs">
-              {item.images.map((img) => (
-                <figure key={img.src} className="sm-fig">
-                  <img src={img.src} alt="" />
-                  <figcaption>{imageCaption(img)}</figcaption>
-                </figure>
-              ))}
-            </div>
-          )}
-          {item.summary && <p className="sm-lede">{item.summary}</p>}
-          <p className="sm-note-line">
-            <sup>[{item.n}]</sup> <span className="sm-note-title">{item.source.title}</span>
-            {item.source.direct && <> <span className="sm-note-url">{item.source.url}</span></>}
-          </p>
-        </section>
-      ))}
+      <ReportSection about={co.name} title="Updates">
+        {model.items.map((item) => (
+          <Row key={item.n}>
+            <article className="sm-r-update">
+              <p className="sm-r-kind">
+                {item.kindLabel}
+                {item.sentiment && <span className="sm-r-sentiment"> &middot; {item.sentiment}</span>}
+              </p>
+              <h3 className="sm-r-update-title">
+                <span className="sm-r-n">{String(item.n).padStart(2, '0')}</span>
+                {item.title}
+              </h3>
+              <p className="sm-r-byline">{item.byline}</p>
+              <Figures images={item.images} />
+              {item.summary && <p className="sm-r-lede" style={{ marginBottom: 0 }}>{item.summary}</p>}
+              <p className="sm-r-source">
+                <sup className="sm-r-ref">[{item.n}]</sup> <span className="sm-r-note-title">{item.source.title}</span>
+                {item.source.direct && <> <span className="sm-r-note-url">{item.source.url}</span></>}
+              </p>
+            </article>
+          </Row>
+        ))}
+      </ReportSection>
     </>
   );
 }

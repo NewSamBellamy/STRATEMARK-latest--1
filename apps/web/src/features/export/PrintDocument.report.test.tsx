@@ -10,7 +10,7 @@ const company = (oneLiner: string | null): ExportCompany => ({
 function printed(oneLiner: string | null, kind: 'deck' | 'company') {
   const model = buildReportModel({ title: 'Mkt', kind, companies: [company(oneLiner)] });
   const { container } = render(<PrintDocument job={{ kind: 'report', model }} />);
-  return { text: container.textContent ?? '', lede: container.querySelector('.sm-lede')?.textContent ?? null };
+  return { text: container.textContent ?? '', lede: container.querySelector('.sm-r-lede')?.textContent ?? null };
 }
 
 describe('the printed company report', () => {

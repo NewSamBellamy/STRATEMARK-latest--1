@@ -8,6 +8,9 @@ import type { PrintJob } from '../PrintDocument';
 
 export type PaperSize = 'A4' | 'Letter';
 
+/** Paper sizes in mm. */
+const PAGE_MM: Record<PaperSize, { w: number; h: number }> = { A4: { w: 210, h: 297 }, Letter: { w: 215.9, h: 279.4 } };
+
 /** Margins in mm, from the print design system: 20 top, 18 sides, 22 bottom. */
 export const PAGE_MARGIN_MM = { top: 20, side: 18, bottom: 22 } as const;
 
@@ -63,6 +66,9 @@ export function printPageCss({ locale, title }: { locale?: string | null; title:
     ` @bottom-left { content: ${left}; ${box} }`,
     ` @bottom-right { content: "Page " counter(page) " of " counter(pages); ${box} }`,
     `}`,
-    `@page :first { @bottom-left { content: ""; } @bottom-right { content: ""; } }`,
+    // Page one is the cover: no margin (it paints edge to edge) and no footer. The page size is also handed to the
+    // cover as custom properties, because a cover cannot read @page and Letter and A4 differ in height.
+    `@page :first { @bottom-left { content: ""; } @bottom-right { content: ""; } margin: 0; }` +
+      ` @media print { .sm-print-doc { --sm-page-w: ${PAGE_MM[paperFor(locale)].w}mm; --sm-page-h: ${PAGE_MM[paperFor(locale)].h}mm; } }`,
   ].join('\n');
 }
