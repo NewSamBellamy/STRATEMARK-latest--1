@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createServer, type Server } from 'node:http';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { deflateRawSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join } from 'node:path';
 import { unlockPreview } from './access';
@@ -173,5 +174,97 @@ test('a shared deck opens on the deck and walks deck -> card -> dashboard', asyn
   } finally {
     await phone.close();
     server.close();
+  }
+});
+
+/** A hosted link opens share.html?s=<id>, which reads its research from the share Worker by id. The Worker is stood in for here. */
+const HOSTED_ID = 'e2eshareidabcdefg'.slice(0, 16);
+
+async function packedCardShare(page: Page): Promise<string> {
+  await page.goto('/#/history');
+  await page.getByRole('button', { name: /Frontier AI Ecosystem/ }).first().click();
+  await expect(page.getByTestId('card-grid')).toBeVisible();
+  await page.getByTestId('card-grid').getByRole('button', { name: 'Share card' }).first().click();
+  await expect(page.getByRole('dialog', { name: /Share/ })).toBeVisible();
+  const share = await downloadShare(page);
+  const html = share.files.get(`${share.id}/index.html`)!.toString('utf8');
+  const embedded = /<script id="stratemark-share-data" type="application\/json">([\s\S]*?)<\/script>/.exec(html);
+  const { snapshot } = JSON.parse(embedded![1]!) as { snapshot: unknown };
+  // The wire format the app uploads: "z" + deflated JSON as URL-safe base64.
+  return `z${deflateRawSync(Buffer.from(JSON.stringify(snapshot))).toString('base64url')}`;
+}
+
+test('a hosted share link opens from its id with one read of its own research, then it is the same read-only app', async ({ page, browser, baseURL }) => {
+  const packed = await packedCardShare(page);
+  const phone = await browser.newContext({ baseURL: baseURL!, viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const viewer = await phone.newPage();
+  const outside: string[] = [];
+  const reads: string[] = [];
+  await viewer.addInitScript(() => {
+    localStorage.setItem('mi.geminiApiKey', 'SENTINEL-VISITOR-KEY');
+    localStorage.setItem('mi.apiKey', 'SENTINEL-VISITOR-KEY');
+  });
+  await viewer.route('**/*', (route) => {
+    const url = route.request().url();
+    if (url.startsWith(baseURL!) || url.startsWith('data:') || url.startsWith('blob:')) return route.continue();
+    outside.push(`${route.request().method()} ${url}`);
+    return route.abort();
+  });
+  await viewer.route(`**/v1/share/${HOSTED_ID}`, (route) => {
+    reads.push(route.request().method());
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ v: 1, kind: 'card', data: packed }) });
+  });
+  try {
+    await viewer.goto(`/share.html?s=${HOSTED_ID}`);
+    await expect(viewer.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(viewer.getByText('Want to research more companies?')).toBeVisible();
+    await expect(viewer.getByRole('button', { name: /ask|research|share|save/i })).toHaveCount(0);
+    await expect(viewer).toHaveTitle(/sourced research on Stratemark/);
+    await viewer.getByRole('link', { name: /View the full research/ }).click();
+    await expect(viewer.getByRole('heading', { name: 'Key figures' })).toBeVisible();
+    expect(await viewer.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+  } finally {
+    await phone.close();
+  }
+  expect(reads).toEqual(['GET']);
+  expect(outside.filter((r) => /generativelanguage|googleapis\.com\/v1beta|identitytoolkit|securetoken/i.test(r))).toEqual([]);
+});
+
+test('a hosted link that was stopped or has expired says so instead of showing an empty app', async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ baseURL: baseURL! });
+  const viewer = await context.newPage();
+  await viewer.route(`**/v1/share/${HOSTED_ID}`, (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"gone"}' }));
+  try {
+    await viewer.goto(`/share.html?s=${HOSTED_ID}`);
+    await expect(viewer.getByRole('alert')).toContainText('This link is no longer available');
+    await expect(viewer.getByRole('alert')).toContainText('Ask whoever sent it for a fresh link');
+    await expect(viewer.getByTestId('card-grid')).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
+test('a hosted link whose research is damaged says it cannot be opened', async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ baseURL: baseURL! });
+  const viewer = await context.newPage();
+  await viewer.route(`**/v1/share/${HOSTED_ID}`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ v: 1, kind: 'deck', data: 'zAAAA-not-a-share' }) }));
+  try {
+    await viewer.goto(`/share.html?s=${HOSTED_ID}`);
+    await expect(viewer.getByRole('alert')).toContainText('could not be opened');
+  } finally {
+    await context.close();
+  }
+});
+
+test('share.html with no id and no research says it has none', async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ baseURL: baseURL! });
+  const viewer = await context.newPage();
+  try {
+    await viewer.goto('/share.html');
+    await expect(viewer.getByRole('alert')).toContainText('no shared research');
+    await viewer.goto('/share.html?s=../../etc/passwd');
+    await expect(viewer.getByRole('alert')).toContainText('no shared research');
+  } finally {
+    await context.close();
   }
 });

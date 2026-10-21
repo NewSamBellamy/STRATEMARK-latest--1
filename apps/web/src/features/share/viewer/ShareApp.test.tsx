@@ -70,3 +70,13 @@ describe('the data inside a share page', () => {
     expect(isShareSnapshot(snapshot)).toBe(true);
   });
 });
+
+describe('what the share page says about its sources', () => {
+  it('says it is a copy shared by someone else whose sources are linked, not re-checked, and does not promise otherwise', async () => {
+    render(<ShareApp snapshot={await snapshotOf('card')} />);
+    await screen.findByRole('heading', { level: 1 });
+    const footer = screen.getByRole('contentinfo');
+    expect(footer).toHaveTextContent('A read-only copy shared by someone else. Its sources are linked, not re-checked here; nothing runs new research.');
+    expect(footer).not.toHaveTextContent(/every figure keeps its source/i);
+  });
+});
