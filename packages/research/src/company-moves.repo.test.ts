@@ -60,6 +60,17 @@ describe('Today in the workspace', () => {
       url: 'https://news.example/acme-b', source: 'news', readAt: null });
   });
 
+  it('a check scoped to one company reads only that company, even forced, with three followed', async () => {
+    const { repo, newsSearch } = movesRepo(feed);
+    await repo.followCompanies(['acme', 'beta', 'gamma']);
+    await repo.refreshMoves({ force: true, companyIds: ['gamma'] });
+    expect(newsSearch).toHaveBeenCalledTimes(1);
+    expect(newsSearch).toHaveBeenCalledWith(expect.stringContaining('Gamma Shop'));
+    const follows = await repo.listFollows();
+    expect(follows.find((f) => f.companyId === 'gamma')!.lastCheckedAt).toBeTruthy();
+    expect(follows.find((f) => f.companyId === 'acme')!.lastCheckedAt).toBeFalsy();
+  });
+
   it('marks several moves read in one write', async () => {
     const { repo, saved } = movesRepo(feed);
     await repo.followCompanies(['acme', 'gamma']);

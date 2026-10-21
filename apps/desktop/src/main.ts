@@ -330,7 +330,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.listMoves, () => repository.listMoves?.() ?? []);
   ipcMain.handle(IPC_CHANNELS.refreshMoves, (_e, options: unknown) => {
     if (!repository.refreshMoves) throw new Error('Today is unavailable.');
-    return repository.refreshMoves(z.object({ force: z.boolean().optional() }).optional().parse(options));
+    return repository.refreshMoves(z.object({ force: z.boolean().optional(), companyIds: z.array(z.string().min(1)).max(500).optional() }).optional().parse(options));
   });
   ipcMain.handle(IPC_CHANNELS.markMoveRead, (_e, moveId: unknown, read: unknown) =>
     repository.markMoveRead?.(z.string().min(1).parse(moveId), z.boolean().parse(read)));

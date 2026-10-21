@@ -142,7 +142,8 @@ export default function TodayPage() {
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-[28px] font-bold tracking-tight text-content">Today</h1>
-          <p className="mt-1 text-sm text-muted">
+          {/* One company's page has its own counts and its own check; the all-companies summary would be about other companies. */}
+          {!selected && <p className="mt-1 text-sm text-muted">
             {followCount
               ? firstCheckRunning
                 ? 'Checking the companies you follow…'
@@ -152,9 +153,9 @@ export default function TodayPage() {
                     {checkedLabel ? ` · ${checkedLabel}` : ''}
                   </>
               : 'Funding, launches, hires, deals and filings of the companies you follow.'}
-          </p>
+          </p>}
         </div>
-        {followCount > 0 && (
+        {followCount > 0 && !selected && (
           <button type="button" className="btn-ghost text-sm" disabled={refresh.isPending}
             title="Look again now, even for companies checked today."
             onClick={() => refresh.mutate(true)}>
@@ -186,12 +187,12 @@ export default function TodayPage() {
         </nav>
       )}
 
-      {refresh.isError && (
+      {refresh.isError && !selected && (
         <p role="alert" className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
           The check didn’t finish: {(refresh.error instanceof Error ? refresh.error.message : 'unknown error').replace(/[.\s]+$/, '')}. Stored moves are still shown.
         </p>
       )}
-      {failedCount > 0 && !refresh.isPending && (
+      {failedCount > 0 && !refresh.isPending && !selected && (
         <p role="status" className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
           Couldn’t reach the news or filings for {failedCount} {failedCount === 1 ? 'company' : 'companies'}, trying again later.
         </p>
@@ -205,7 +206,7 @@ export default function TodayPage() {
           action={<Link to="/history" className="btn-primary">Open a deck</Link>}
         />
       ) : selected ? (
-        <TodayCompanyView key={selected} companyId={selected} />
+        <TodayCompanyView key={selected} companyId={selected} since={since} />
       ) : (
         <>
           {all.length > 0 && (
