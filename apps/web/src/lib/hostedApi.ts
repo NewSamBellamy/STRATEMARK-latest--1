@@ -12,8 +12,29 @@
  */
 import { create } from 'zustand';
 
-/** Set when the hosted Worker says today's free budget is spent (HTTP 402). */
-export const useHostedBudget = create<{ exhausted: null | 'global' | 'visitor' }>(() => ({ exhausted: null }));
+/** What the hosted Worker has said about the covered research: why it refused (HTTP 402), and how much of the beta allowance this person has used. */
+export interface HostedAllowance { usedUsd: number; allowanceUsd: number }
+export type HostedExhausted = null | 'global' | 'visitor' | 'allowance' | 'allowance-full';
+export const useHostedBudget = create<{ exhausted: HostedExhausted; allowance: HostedAllowance | null }>(() => ({ exhausted: null, allowance: null }));
+
+/** Record a hosted answer's refusal or allowance headers. Only changes the store when something differs (no needless re-render). */
+export function noteHostedAnswer(status: number, body: { reason?: unknown; usedUsd?: unknown; allowanceUsd?: unknown } | null, headers: Headers): void {
+  const number = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null);
+  const state = useHostedBudget.getState();
+  if (status === 402) {
+    const reason = body?.reason === 'allowance' || body?.reason === 'visitor' || body?.reason === 'allowance-full' ? body.reason : 'global';
+    const used = number(body?.usedUsd);
+    const cap = number(body?.allowanceUsd);
+    useHostedBudget.setState({ exhausted: reason, ...(reason === 'allowance' && used !== null && cap !== null ? { allowance: { usedUsd: used, allowanceUsd: cap } } : {}) });
+    return;
+  }
+  const used = headers.get('x-allowance-used-usd');
+  const cap = headers.get('x-allowance-usd');
+  if (used === null || cap === null || used.trim() === '' || cap.trim() === '') return;
+  const next = { usedUsd: Number(used), allowanceUsd: Number(cap) };
+  if (!Number.isFinite(next.usedUsd) || !Number.isFinite(next.allowanceUsd) || next.usedUsd < 0 || next.allowanceUsd <= 0) return;
+  if (state.allowance?.usedUsd !== next.usedUsd || state.allowance?.allowanceUsd !== next.allowanceUsd) useHostedBudget.setState({ allowance: next });
+}
 
 // A share page never talks to the hosted Worker, whatever the build was configured with.
 export const HOSTED_API_URL: string = import.meta.env.MODE === 'share'

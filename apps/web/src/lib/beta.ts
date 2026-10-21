@@ -10,6 +10,13 @@ import { hasHostedApi } from '@/lib/hostedApi';
 export const OPEN_SOURCE_LAUNCH = 'December 1, 2026';
 
 /**
+ * What the beta covers for each person in all, in dollars of research (never a daily figure). The Worker's
+ * LIFETIME_VISITOR_BUDGET_USD is the real limit; keep the two the same. The app shows this number and the Worker's own
+ * count of what a person has used, and then points to their own key in Settings.
+ */
+export const COVERED_USAGE_USD = 15;
+
+/**
  * Where honest feedback goes. Set VITE_FEEDBACK_URL at build time (a form,
  * a mailto: link or an issues page); without it the feedback links are hidden.
  */

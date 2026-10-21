@@ -19,6 +19,7 @@ const { BudgetCounter } = await import('./budget');
 const { ReaderQuota } = await import('./reader-quota');
 const { ShareVault, ShareQuota } = await import('./share-vault');
 const { callCostMicros } = await import('./policy');
+const { allowanceIdentity, MAX_ALLOWANCE_VISITORS } = await import('./allowance');
 
 const APP = 'https://app.example';
 const KEY = 'AIzaTESTKEYTESTKEYTESTKEYTESTKEYTESTKEY';
@@ -38,6 +39,7 @@ function memoryStorage() {
       counters.puts += 1;
       for (const [key, value] of Object.entries(typeof a === 'string' ? { [a]: b } : a)) map.set(key, structuredClone(value));
     },
+    delete: async (key: string) => map.delete(key),
     setAlarm: async () => undefined, deleteAlarm: async () => undefined, deleteAll: async () => map.clear(),
   };
 }
@@ -510,5 +512,162 @@ describe('the preview picture of a share that was stopped', () => {
     const gone = await picture(env, id);
     expect(gone.status).toBe(404);
     expect(gone.headers.get('cache-control')).toBe('no-store');
+  });
+});
+
+describe('the lifetime allowance for covered research', () => {
+  // $0.27 a visitor for all time: one grounded call fits, a second does not (the same size the daily-cap test above uses).
+  const SMALL = { LIFETIME_VISITOR_BUDGET_USD: '0.27' };
+  const lifeKeys = (map: Map<string, unknown>) => [...map.keys()].filter((key) => key.startsWith('life:'));
+  const search = (env: never, ip: string, headers: Record<string, string> = {}) => worker.fetch(new Request('https://worker.example/v1/search', {
+    method: 'POST', headers: { origin: APP, 'content-type': 'application/json', 'cf-connecting-ip': ip, ...headers },
+    body: JSON.stringify({ provider: 'serper', query: 'meal kits' }),
+  }), env);
+  const serper = async (url: string) => (String(url).includes('serper') ? new Response(JSON.stringify({ organic: [] }), { status: 200 }) : google.reply());
+
+  it('refuses a call that would pass the allowance BEFORE making it, with a distinct reason and the numbers', async () => {
+    const { env, budget, budgetStorage } = makeEnv(SMALL);
+    const first = await call(env, GROUNDED);
+    expect(first.status).toBe(200);
+    const spent = (await budget.status(DAY)).spentMicros;
+    expect(Number(first.headers.get('x-allowance-usd'))).toBe(0.27);
+    const refused = await call(env, GROUNDED);
+    expect(refused.status).toBe(402);
+    const body = await refused.json() as Record<string, unknown>;
+    expect(body).toMatchObject({ budget: 'exhausted', reason: 'allowance', allowanceUsd: 0.27 });
+    expect(Number(body.usedUsd)).toBeCloseTo(spent / 1_000_000, 2);
+    expect(String(body.error)).toContain('own Gemini key');
+    expect(googleCalls()).toHaveLength(1); // the second never reached Google
+    // The refused call spent nothing and holds nothing, in the day or in the lifetime record.
+    expect(await budget.status(DAY)).toMatchObject({ spentMicros: spent, heldMicros: 0 });
+    const record = budgetStorage.map.get(lifeKeys(budgetStorage.map)[0]!) as { spent: number; held: number };
+    expect(record).toMatchObject({ spent, held: 0 });
+  });
+
+  it('settles the hold to the actual cost', async () => {
+    const { env, budgetStorage } = makeEnv();
+    await call(env, GROUNDED);
+    const record = budgetStorage.map.get(lifeKeys(budgetStorage.map)[0]!) as { spent: number; held: number };
+    expect(record).toMatchObject({ spent: callCostMicros(MODEL, google.usage, true, 0), held: 0 });
+  });
+
+  it('releases the hold when the call fails before Google answers, and keeps no record for it', async () => {
+    const { env, budget, budgetStorage } = makeEnv(SMALL);
+    fetchMock.mockImplementation(async () => { throw new TypeError('network down'); });
+    await call(env, GROUNDED).catch(() => undefined);
+    expect(lifeKeys(budgetStorage.map)).toHaveLength(0);
+    expect(await budget.status(DAY)).toMatchObject({ heldMicros: 0, allowanceVisitors: 0 });
+    fetchMock.mockImplementation(async () => google.reply());
+    expect((await call(env, GROUNDED)).status).toBe(200); // the allowance is whole
+  });
+
+  it('never counts, and never blocks, a visitor’s own search key', async () => {
+    const { env, budgetStorage } = makeEnv({ LIFETIME_VISITOR_BUDGET_USD: '0' });
+    fetchMock.mockImplementation(serper);
+    const own = await search(env, '203.0.113.9', { 'x-search-key': 'a-visitors-own-serper-key' });
+    expect(own.status).toBe(200);
+    expect(lifeKeys(budgetStorage.map)).toHaveLength(0);
+    // The hosted key, on the same visitor, is what the allowance stops.
+    const hosted = await search(env, '203.0.113.9');
+    expect(hosted.status).toBe(402);
+    expect(await hosted.json()).toMatchObject({ reason: 'allowance' });
+  });
+
+  it('counts hosted search against the allowance too', async () => {
+    const { env, budgetStorage } = makeEnv();
+    fetchMock.mockImplementation(serper);
+    expect((await search(env, '203.0.113.9')).status).toBe(200);
+    expect(budgetStorage.map.get(lifeKeys(budgetStorage.map)[0]!)).toMatchObject({ spent: 1_000, held: 0 });
+  });
+
+  it('is not reset by the day rolling over (the daily ledger is)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-10-20T12:00:00Z'));
+      const { env } = makeEnv(SMALL);
+      expect((await call(env, GROUNDED)).status).toBe(200);
+      vi.setSystemTime(new Date('2026-10-21T00:00:05Z')); // a fresh day: the daily limits are clear
+      const next = await call(env, GROUNDED);
+      expect(next.status).toBe(402);
+      expect(await next.json()).toMatchObject({ reason: 'allowance' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('is one allowance for every address in an IPv6 /64, and another for the next /64', async () => {
+    const { env } = makeEnv(SMALL);
+    expect((await call(env, GROUNDED, '2001:db8:abcd:12::1')).status).toBe(200);
+    for (const ip of ['2001:db8:abcd:12:1:2:3:4', '2001:db8:abcd:12:ffff::9']) {
+      const res = await call(env, GROUNDED, ip);
+      expect(res.status).toBe(402);
+      expect(await res.json()).toMatchObject({ reason: 'allowance' });
+    }
+    expect((await call(env, GROUNDED, '2001:db8:abcd:99::1')).status).toBe(200);
+  });
+
+  it('fails closed when the table of visitors is full: a new visitor is refused, one already in it is still served', async () => {
+    const { env, budgetStorage } = makeEnv();
+    const known = await allowanceIdentity(new Request('https://w.example/', { headers: { 'cf-connecting-ip': '203.0.113.50' } }));
+    budgetStorage.map.set(`life:${known}`, { spent: 1_000_000, held: 0, at: Date.now() });
+    budgetStorage.map.set('lifeCount', MAX_ALLOWANCE_VISITORS);
+    const stranger = await call(env, GROUNDED, '203.0.113.9');
+    expect(stranger.status).toBe(402);
+    const body = await stranger.json() as { reason: string; error: string };
+    expect(body).toMatchObject({ budget: 'exhausted', reason: 'allowance-full' });
+    expect(body.error).toContain('at capacity');
+    expect(body.error).not.toContain('midnight');
+    expect(body).not.toHaveProperty('usedUsd');
+    const stranger2 = await search(env, '203.0.113.77');
+    expect(stranger2.status).toBe(402);
+    expect(await stranger2.json()).toMatchObject({ reason: 'allowance-full' });
+    expect(googleCalls()).toHaveLength(0);
+    expect((await call(env, GROUNDED, '203.0.113.50')).status).toBe(200);
+  });
+
+  it('fails closed on an unusable setting, names it, and treats unset as the default fifteen dollars', async () => {
+    for (const bad of ['abc', '-1', '1e308']) {
+      const { env } = makeEnv({ LIFETIME_VISITOR_BUDGET_USD: bad });
+      const res = await call(env, GROUNDED);
+      expect(res.status).toBe(402);
+      expect(await res.json()).toMatchObject({ misconfigured: [expect.stringContaining('LIFETIME_VISITOR_BUDGET_USD')] });
+      expect(googleCalls()).toHaveLength(0);
+    }
+    const unset = makeEnv();
+    const health = await (await worker.fetch(new Request('https://worker.example/health'), unset.env)).json() as { lifetimeVisitorBudgetUsd: number; budgetMisconfigured: string[] };
+    expect(health).toMatchObject({ lifetimeVisitorBudgetUsd: 15, budgetMisconfigured: [] });
+  });
+
+  it('keeps /health free of anything about one visitor: a count only', async () => {
+    const { env } = makeEnv();
+    await call(env, GROUNDED, '203.0.113.9');
+    const text = await (await worker.fetch(new Request('https://worker.example/health'), env)).text();
+    const id = await allowanceIdentity(new Request('https://w.example/', { headers: { 'cf-connecting-ip': '203.0.113.9' } }));
+    expect(text).not.toContain('203.0.113.9');
+    expect(text).not.toContain(id);
+    expect(JSON.parse(text)).toMatchObject({ visitorsWithAllowance: 1 });
+  });
+});
+
+describe('the lifetime allowance, attacked', () => {
+  const lifeRecords = (map: Map<string, unknown>) => [...map.entries()].filter(([key]) => key.startsWith('life:')).map(([, value]) => value as { spent: number; held: number; at: number });
+
+  it('a parallel burst cannot pass a small allowance: the check and the hold are one step', async () => {
+    // $0.30 holds one call at a time (a grounded call is held about $0.26); the calls overlap because Google answers late.
+    const { env, budget } = makeEnv({ LIFETIME_VISITOR_BUDGET_USD: '0.3' });
+    fetchMock.mockImplementation(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); return google.reply(); });
+    const answers = await Promise.all(Array.from({ length: 12 }, () => call(env, GROUNDED)));
+    expect(answers.filter((res) => res.status === 200)).toHaveLength(1);
+    expect(googleCalls().length).toBeLessThanOrEqual(1);
+    expect(await budget.status(DAY)).toMatchObject({ heldMicros: 0 });
+  });
+
+  it('charges a call cut off mid-generation its whole hold against the allowance', async () => {
+    const { env, budgetStorage } = makeEnv();
+    fetchMock.mockImplementation(async () => { const gone = new Error('aborted'); gone.name = 'AbortError'; throw gone; });
+    await call(env, GROUNDED).catch(() => undefined);
+    const [record] = lifeRecords(budgetStorage.map);
+    expect(record!.held).toBe(0);
+    expect(record!.spent).toBeGreaterThan(100_000);
   });
 });

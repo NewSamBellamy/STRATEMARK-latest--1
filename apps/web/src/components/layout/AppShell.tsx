@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { OPEN_SOURCE_LAUNCH, isHostedBeta } from '@/lib/beta';
+import { COVERED_USAGE_USD, OPEN_SOURCE_LAUNCH, isHostedBeta } from '@/lib/beta';
 import { Menu, X } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -47,11 +47,32 @@ function BetaNotice() {
   );
 }
 
-/** Free hosted research hit today's budget: say so once, plainly, with the fix. */
-function HostedBudgetBanner() {
+/** Free hosted research hit today's budget, or this person's beta allowance: say so once, plainly, with the fix. */
+export function HostedBudgetBanner() {
   const exhausted = useHostedBudget((s) => s.exhausted);
+  const allowance = useHostedBudget((s) => s.allowance);
   const hosted = useApiKey((s) => s.hosted);
   if (!exhausted || !hosted) return null;
+  if (exhausted === 'allowance') {
+    const cap = allowance?.allowanceUsd ?? COVERED_USAGE_USD;
+    const used = allowance ? Math.min(allowance.usedUsd, cap) : cap;
+    return (
+      <div role="status" className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-[12.5px] text-amber-900 md:px-6">
+        You’ve used ${used.toFixed(2)} of the ${cap.toFixed(2)} of research we cover for the beta, so the covered research is used up.
+        Your decks are safe and everything already researched still works. To keep researching,{' '}
+        <SettingsLink tab="engine" className="font-semibold underline">add your own Gemini key</SettingsLink>; it runs on your own quota.
+      </div>
+    );
+  }
+  if (exhausted === 'allowance-full') {
+    return (
+      <div role="status" className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-[12.5px] text-amber-900 md:px-6">
+        Free research is at capacity for the beta right now. Your decks are safe and everything already researched still works.
+        You can keep going by{' '}
+        <SettingsLink tab="engine" className="font-semibold underline">adding your own Gemini key</SettingsLink>.
+      </div>
+    );
+  }
   return (
     <div role="status" className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-[12.5px] text-amber-900 md:px-6">
       {exhausted === 'visitor'
