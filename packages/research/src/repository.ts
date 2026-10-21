@@ -135,7 +135,7 @@ import { applyMilestone, usageSince, type DeckRun, type DeckRunMilestone } from 
 import type { ResearchNoteEntry, ReportedMetricSupport } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { searchEvidenceCorpus } from './retrieval';
-import { companyDomainOf, settleMetric as settleMetricEvidence } from './metric-assessment';
+import { assessedForDisplay, companyDomainOf, resolveAgainstPrior, settleMetric as settleMetricEvidence } from './metric-assessment';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
 import { secAdvFirmCandidates, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
@@ -2734,9 +2734,14 @@ export class GeminiRepository implements MarketIntelRepository {
   }
 
   /** Assess a figure that was just accepted and store the assessment; a `verified` label its evidence does not support becomes `estimated`. */
-  private settleAccepted(metric: CompanyMetric, asOfHint?: string | null): void {
+  private settleAccepted(metric: CompanyMetric, asOfHint?: string | null, prior: CompanyMetric | null = null): boolean {
     const company = this.snap.companies.find((c) => c.id === metric.companyId);
-    settleMetricEvidence(metric, new Date(), companyDomainOf(company?.websiteUrl), asOfHint);
+    const now = new Date();
+    const domain = companyDomainOf(company?.websiteUrl);
+    settleMetricEvidence(metric, now, domain, asOfHint);
+    // Latest wins: a figure written over an existing one only stays when the
+    // evidence says it should (false = the old row was put back untouched).
+    return resolveAgainstPrior(metric, prior, now, domain);
   }
 
   /** The facts as the evidence supports them, before source binding hides or relinks any. */
@@ -4162,6 +4167,7 @@ export class GeminiRepository implements MarketIntelRepository {
               };
               this.snap.metrics.push(metric);
             }
+            const priorFigure = metric.value != null ? structuredClone(metric) : null;
             metric.value = normalizeMetricToUsd(type, observed.value, observed.passageSupport.unit);
             metric.confidence = 'verified';
             metric.passageSupport = observed.passageSupport;
@@ -4169,7 +4175,7 @@ export class GeminiRepository implements MarketIntelRepository {
             metric.source = observed.citations[0]?.url ?? metric.source;
             metric.methodNote = observed.methodNote;
             metric.capturedAt = nowIso;
-            this.settleAccepted(metric);
+            if (!this.settleAccepted(metric, null, priorFigure)) continue;
             if (metric.confidence === 'verified') Object.assign(metric, markVerified(metric, nowIso));
             filled.push(type);
           }
@@ -4244,6 +4250,7 @@ export class GeminiRepository implements MarketIntelRepository {
                 capturedAt: nowIso,
               };
               if (!metric) this.snap.metrics.push(row);
+              const priorFigure = row.value != null ? structuredClone(row) : null;
               row.value = observed.value;
               row.confidence = 'verified';
               row.passageSupport = observed.passageSupport;
@@ -4252,9 +4259,10 @@ export class GeminiRepository implements MarketIntelRepository {
               row.source = observed.citations[0]?.url ?? null;
               row.methodNote = `Annual revenue reported in SEC XBRL for ${observed.passageSupport.periodStart} to ${observed.passageSupport.asOf}; not ARR or an independent audit.`;
               row.capturedAt = nowIso;
-              this.settleAccepted(row);
-              if (row.confidence === 'verified') Object.assign(row, markVerified(row, nowIso));
-              filled.push('arr');
+              if (this.settleAccepted(row, null, priorFigure)) {
+                if (row.confidence === 'verified') Object.assign(row, markVerified(row, nowIso));
+                filled.push('arr');
+              }
             }
           }
         }
@@ -5146,8 +5154,11 @@ export class GeminiRepository implements MarketIntelRepository {
         let metric = current?.metric;
         // Recheck after provider work: a human correction or another completed
         // verification may have hardened this row while the hunt was in flight.
+        // A verified row whose evidence has gone stale or undated reads as
+        // estimated, so it may be replaced by a newer figure (resolveAgainstPrior
+        // decides); a still-supported verified row is left alone.
         if (metric?.confidence === 'user_verified' || (metric?.confidence === 'verified' &&
-          (acceptedAtWrite === null || acceptedAtWrite.get(fig.metricType)?.confidence === 'verified'))) continue;
+          (acceptedAtWrite?.get(fig.metricType)?.confidence ?? assessedForDisplay(metric, new Date(), companyDomainOf(company.websiteUrl)).confidence) === 'verified')) continue;
         if (!metric) {
           metric = {
             id: `met_hunt_${Date.now().toString(36)}_${fig.metricType}`,
@@ -5162,6 +5173,7 @@ export class GeminiRepository implements MarketIntelRepository {
           };
           this.snap.metrics.push(metric);
         }
+        const priorFigure = metric.value != null ? structuredClone(metric) : null;
         metric.value = normalizeMetricToUsd(fig.metricType, fig.value, fig.passageSupport?.unit);
         metric.confidence = 'verified';
         metric.passageSupport = this.originalSources ? fig.passageSupport : null;
@@ -5171,7 +5183,7 @@ export class GeminiRepository implements MarketIntelRepository {
           ? `Original reported ${fig.metricType} as of ${fig.passageSupport!.asOf}. ${currencyConversionNote(fig.value, fig.passageSupport?.unit)}`.trim()
           : fig.methodNote ?? 'Filled by a targeted metrics hunt.';
         metric.capturedAt = nowIso;
-        this.settleAccepted(metric);
+        if (!this.settleAccepted(metric, null, priorFigure)) continue;
         if (metric.confidence === 'verified') Object.assign(metric, markVerified(metric, nowIso));
         filledTypes.push(fig.metricType);
       }
