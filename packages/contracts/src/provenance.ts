@@ -412,6 +412,9 @@ function evidenceWeight(metric: CompanyMetric): number {
   return (sourceWeight[credibility] ?? 0) + confidenceWeight;
 }
 
+/** Disagreeing observations kept per figure (the newest); same bound as the latest-wins write path. */
+const CONFLICTS_KEPT = 8;
+
 /**
  * Merge a newly researched metric into the canonical row. Contradictory values
  * are never silently discarded: both observations are retained, while the most
@@ -426,7 +429,7 @@ export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric
     const preferred = next.value !== null && preferNext ? next : current;
     return {
       ...preferred,
-      conflicts: [...(current.conflicts ?? []), ...(next.conflicts ?? [])],
+      conflicts: [...(current.conflicts ?? []), ...(next.conflicts ?? [])].slice(-CONFLICTS_KEPT),
       revision: Math.max(current.revision ?? 0, next.revision ?? 0) + 1,
     };
   }
@@ -456,7 +459,7 @@ export function reconcileMetric(existing: CompanyMetric, incoming: CompanyMetric
   const preferred = preferredObservation === 1 ? next : current;
   return {
     ...preferred,
-    conflicts: [...(current.conflicts ?? []), ...(next.conflicts ?? []), conflict],
+    conflicts: [...(current.conflicts ?? []), ...(next.conflicts ?? []), conflict].slice(-CONFLICTS_KEPT),
     revision: Math.max(current.revision ?? 0, next.revision ?? 0) + 1,
   };
 }

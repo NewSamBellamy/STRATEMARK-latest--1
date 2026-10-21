@@ -393,6 +393,19 @@ describe('the human-only confidence gate (automation may never claim a human)', 
     expect(merged.find((m) => m.metricType === 'arr')!.confidence).toBe('user_verified');
   });
 
+  it('keeps conflicts bounded however many disagreeing observations arrive (at most 8, newest kept)', () => {
+    let held: CompanyMetric = { ...base, citations: [cite('https://sec.gov/Archives/report')] };
+    for (let i = 0; i < 20; i++) {
+      held = reconcileMetric(held, { ...base, value: 30_000_000_000 + i, confidence: 'estimated',
+        citations: [cite('https://reuters.com/report')], capturedAt: `2026-08-${String(i + 1).padStart(2, '0')}T00:00:00.000Z` });
+    }
+    expect(held.conflicts).toHaveLength(8);
+    expect(held.conflicts!.at(-1)!.observations.map((o) => o.value)).toContain(30_000_000_019);
+    // Same-value merges of two rows that each already carry conflicts cannot grow past the bound either.
+    const twin = { ...held, conflicts: held.conflicts };
+    expect(reconcileMetric(held, twin).conflicts!.length).toBeLessThanOrEqual(8);
+  });
+
   it('reports which confidences a model may assert', () => {
     expect(isModelAssertable('estimated')).toBe(true);
     expect(isModelAssertable('unknown')).toBe(true);
