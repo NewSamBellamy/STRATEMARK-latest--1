@@ -1,5 +1,8 @@
 import type { CompanyMetric, CurrencyState, FigureAssessment } from '@mi/contracts';
 import { cn } from '@/lib/cn';
+import { formatMetricValue } from '@/lib/format';
+import { figureCurrency as reportedCurrency, withReportedCurrency } from './figureCurrency';
+import { formatDay } from './figureSet';
 
 /**
  * The "Source check" in plain English: a one-line summary that opens to five lines
@@ -7,7 +10,8 @@ import { cn } from '@/lib/cn';
  * on read (never computes or imputes one): a figure with no assessment, no value, or a
  * human's own correction shows nothing here.
  */
-type Checked = Pick<CompanyMetric, 'value' | 'confidence' | 'assessment'>;
+type Checked = Pick<CompanyMetric, 'value' | 'confidence' | 'assessment'> &
+  Partial<Pick<CompanyMetric, 'metricType' | 'methodNote' | 'passageSupport' | 'quotedSupport'>>;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const statedMonth = (date: string): string => {
@@ -67,7 +71,25 @@ export function sourceCheckLines(m: Checked, label: string): string[] {
   const n = a.accuracy.independentSources;
   const how = a.accuracy.corroboration === 'contested' ? 'Sources disagree on this figure'
     : n >= 2 ? `${n} independent sources agree` : n === 1 ? 'One source, no independent confirmation' : 'No source to check against';
-  return [when, who, SUPPORT_WORD[a.accuracy.support], PURPOSE_WORD[a.purpose.kind], how];
+  const lines = [when, who, SUPPORT_WORD[a.accuracy.support], PURPOSE_WORD[a.purpose.kind], how];
+  const newer = newerFigureLine(m, a);
+  return newer ? [...lines, newer] : lines;
+}
+
+/**
+ * The newer, less authoritative figure the research kept out, named from what the row
+ * holds: its value, date and publisher. The row carries no currency for it, so it is
+ * shown on the shown figure's own basis (as reported, never converted); a missing
+ * date or publisher is said to be missing, never filled in.
+ */
+function newerFigureLine(m: Checked, a: FigureAssessment): string | null {
+  const n = a.accuracy.newerObservation;
+  if (!n || n.value == null || !m.metricType) return null;
+  const reported = reportedCurrency(m as CompanyMetric);
+  const value = withReportedCurrency(formatMetricValue(m.metricType, n.value), reported);
+  const basis = reported && !reported.converted ? ` (reported in ${reported.name}; not converted)` : '';
+  const day = formatDay(n.asOf);
+  return `A newer figure exists: ${value}${basis}, ${day ? `dated ${day}` : 'no stated date'}, from ${n.publisher ?? 'an unnamed source'} - a less authoritative source than the one shown.`;
 }
 
 const STATUS_WORD: Record<CurrencyState, string> = { current: 'Current', aging: 'Aging', stale: 'Out of date', undated: 'Undated' };

@@ -57,4 +57,39 @@ describe('Source check', () => {
     expect(staleFigureCount(rows)).toBe(2);
     expect(figureCounts(rows)).toEqual({ current: 1, outOfDate: 1, undated: 1, oldest: { label: 'employees', asOf: '2024-03-01' } });
   });
+
+  describe('newer, less authoritative figure', () => {
+    const withNewer = (newer: { value: number | null; asOf: string | null; publisher: string | null } | null, patch: Patch = {}) => {
+      const base = assessment(patch);
+      return { ...base, accuracy: { ...base.accuracy, newerObservation: newer } };
+    };
+    const SENTENCE = 'A newer figure exists: 1.3K, dated 2 Oct 2026, from Some Blog - a less authoritative source than the one shown.';
+
+    it('names the newer figure in the Source check, on the card of the Metrics tab and the expanded list', () => {
+      const a = withNewer({ value: 1300, asOf: '2026-10-02', publisher: 'Some Blog' });
+      expect(sourceCheckLines(fig(a), 'Employees').at(-1)).toBe(SENTENCE);
+      render(<SourceCheck metric={fig(a)} label="Employees" />);
+      expect(screen.getByText(SENTENCE)).toBeInTheDocument();
+    });
+    it('adds nothing when there is no newer figure, and keeps the shown figure dated', () => {
+      expect(sourceCheckLines(fig(assessment()), 'Employees')).toHaveLength(5);
+      const stale = withNewer({ value: 1300, asOf: '2026-10-02', publisher: 'Some Blog' }, { currency: { asOf: '2025-01-10', ageDays: 648, state: 'stale' } });
+      const lines = sourceCheckLines(fig(stale), 'Employees');
+      expect(lines[0]).toBe('As of Jan 2025 (out of date for employees: 21 months)');
+      expect(lines).toHaveLength(6);
+    });
+    it('says what is missing instead of inventing a date or publisher', () => {
+      const a = withNewer({ value: 1300, asOf: null, publisher: null });
+      expect(sourceCheckLines(fig(a), 'Employees').at(-1)).toBe(
+        'A newer figure exists: 1.3K, no stated date, from an unnamed source - a less authoritative source than the one shown.');
+    });
+    it('shows the currency as reported and never converts', () => {
+      const a = withNewer({ value: 9_000_000_000, asOf: '2026-10-02', publisher: 'Some Blog' });
+      const euro = { ...fig(a, { metricType: 'revenue' }), methodNote: 'Reported in euros by the company' };
+      const line = sourceCheckLines(euro, 'Revenue').at(-1)!;
+      expect(line).toContain('€9');
+      expect(line).toContain('(reported in euros; not converted)');
+      expect(line).not.toContain('$');
+    });
+  });
 });
