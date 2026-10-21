@@ -4,7 +4,8 @@ import { useIsFetching } from '@tanstack/react-query';
 import { ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useCachedDashboardTab } from '../useCachedTab';
-import { Section, useTabHref } from '../dashboardKit';
+import { useTabHref } from '../dashboardKit';
+import { TabSection } from './TabKit';
 import { fundingSnapshot, leadershipSnapshot, newsMood, formatUsdCompact, peerTable } from '../snapshot';
 import { shortCompanyName } from '../companyNames';
 import { deriveInvestors } from '@mi/contracts';
@@ -69,7 +70,7 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
 
   if (leaders.length === 0 && !funding && !hasSignals) {
     return (
-      <Section title="Leadership, funding & signals">
+      <TabSection title="Leadership, funding & signals">
         <p className="panel px-4 py-3.5 text-[12.5px] leading-snug text-muted">
           {gathering
             ? `Gathering who runs ${companyName}, who funded it and what is being said about it from live sources. This fills in as each finishes.`
@@ -80,12 +81,12 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
               <Link to={href('mission_governance')} className="text-primary-ink hover:underline">Mission &amp; governance</Link>.
             </>}
         </p>
-      </Section>
+      </TabSection>
     );
   }
 
   return (
-    <Section title="Leadership, funding & signals">
+    <TabSection title="Leadership, funding & signals">
       <div className={cn('grid gap-4', leadersWide ? LEADERS_WIDE : COLUMNS[panels])}>
         {leaders.length > 0 && (
           <div className="panel min-w-0 p-5">
@@ -155,7 +156,7 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
           </div>
         )}
       </div>
-    </Section>
+    </TabSection>
   );
 }
 
@@ -182,7 +183,7 @@ export function MarketPeers({ companyId }: { companyId: string }) {
   };
   if (table) {
     return (
-      <Section title="How they compare" hint="This deck on three headline figures. A dash means no sourced figure yet, never zero. A figure in another currency is shown as reported and left out of the order.">
+      <TabSection title="How they compare" hint="This deck on three headline figures. A dash means no sourced figure yet, never zero. A figure in another currency is shown as reported and left out of the order.">
         <div className="panel overflow-x-auto">
           <table className="w-full min-w-[420px] border-collapse text-[13px]">
             <caption className="sr-only">Companies in this deck compared on valuation, revenue and employees</caption>
@@ -219,11 +220,11 @@ export function MarketPeers({ companyId }: { companyId: string }) {
           </table>
         </div>
         {table.length > 12 && <p className="mt-1.5 text-[11.5px] text-faint">Showing 12 of {table.length}. All figures and peers are on the Metrics tab.</p>}
-      </Section>
+      </TabSection>
     );
   }
   return (
-    <Section title="In this market" hint="The rest of this deck. Open one to see its dashboard.">
+    <TabSection title="In this market" hint="The rest of this deck. Open one to see its dashboard.">
       <ul className="flex flex-wrap gap-2">
         {others.slice(0, 12).map((peer) => (
           <li key={peer.companyId}>
@@ -235,6 +236,6 @@ export function MarketPeers({ companyId }: { companyId: string }) {
         ))}
         {others.length > 12 && <li className="self-center text-[11.5px] text-faint">+{others.length - 12} more</li>}
       </ul>
-    </Section>
+    </TabSection>
   );
 }

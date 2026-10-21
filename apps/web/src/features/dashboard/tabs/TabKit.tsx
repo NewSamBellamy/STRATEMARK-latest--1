@@ -37,6 +37,27 @@ export function SectionHeader({
   );
 }
 
+/** A labelled page section on the standard header: the section element plus
+ * `SectionHeader`, so a tab composes sections without re-deriving the pattern. */
+export function TabSection({
+  title,
+  hint,
+  action,
+  children,
+}: {
+  title: string;
+  hint?: ReactNode;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section aria-label={title} className="min-w-0">
+      <SectionHeader title={title} description={hint} actions={action} as="h2" />
+      {children}
+    </section>
+  );
+}
+
 /** Toggle chip used for every filter row. */
 export function FilterChip({
   active,

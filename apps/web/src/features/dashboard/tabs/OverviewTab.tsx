@@ -19,14 +19,15 @@ import {
   splitAttribution,
   type PeerRanking,
 } from '../dashboardModel';
-import { KpiTileSkeleton, Section, metricLabel, useTabHref } from '../dashboardKit';
+import { KpiTileSkeleton, metricLabel, useTabHref } from '../dashboardKit';
+import { TabSection } from './TabKit';
 import { SourceCheck } from '../SourceCheck';
 import { usePeers } from '../usePeers';
 import { buildFigureSet, currencyCaptionFor, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
 import { figureCaveats, rowDates, type FigureCaveats } from '../figureCaveats';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { newestFirst, sourceCoverage, statedNote } from '../overviewTruth';
-import { ArticleReader, TopStories, type StoryCompany } from './LiveIntelTab';
+import { ArticleReader, StoryMeta } from './LiveIntelTab';
 import { SitePreview } from './LiveLandingTab';
 import { VideoStrip } from '@/components/media/StoryMedia';
 import { MarketPeers, OverviewSnapshot } from './OverviewSnapshot';
@@ -192,7 +193,9 @@ function FigureTile({ metric, ranking, href, group }: { metric: CompanyMetric; r
 
 /** The scoop: today's stories with their pictures. Starts the news search if
  * this company has none yet (the same pass the Live Intel tab would run). */
-function Happening({ companyId, companyName, company }: { companyId: string; companyName: string; company?: StoryCompany }) {
+const HEADLINES = 3;
+
+function Happening({ companyId, companyName }: { companyId: string; companyName: string }) {
   const href = useTabHref(companyId);
   const intel = useDashboardTab(companyId, 'live_intel');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -201,24 +204,31 @@ function Happening({ companyId, companyName, company }: { companyId: string; com
     .sort((a, b) => (b.publishedDate ?? '').localeCompare(a.publishedDate ?? '')), [intel.data]);
   const open = openId ? items.find((i) => i.id === openId) ?? null : null;
   return (
-    <Section
+    <TabSection
       title="What's happening"
-      action={items.length > 4 ? <Link to={href('live_intel')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All {items.length} stories <ArrowRight className="h-3 w-3" aria-hidden /></Link> : undefined}
+      action={items.length > HEADLINES ? <Link to={href('live_intel')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All {items.length} stories <ArrowRight className="h-3 w-3" aria-hidden /></Link> : undefined}
     >
       {intel.isPending ? (
-        <div className="grid gap-4" aria-label="Finding the latest stories">
-          <div className="panel h-[240px] animate-pulse bg-surface-2" />
-          <div className="grid gap-4 xl:grid-cols-3">{[0, 1, 2].map((i) => <div key={i} className="panel h-[104px] animate-pulse bg-surface-2" />)}</div>
-        </div>
+        <div className="panel h-[168px] animate-pulse bg-surface-2" aria-label="Finding the latest stories" />
       ) : items.length > 0 ? (
-        <TopStories items={items} onOpen={setOpenId} company={company} />
+        // Compact on purpose: Live Intel owns the lead story and picture block.
+        <ul className="panel divide-y divide-border">
+          {items.slice(0, HEADLINES).map((item) => (
+            <li key={item.id}>
+              <button type="button" onClick={() => setOpenId(item.id)} className="group block w-full space-y-1 px-5 py-3 text-left">
+                <StoryMeta item={item} />
+                <span className="block text-[14.5px] font-medium leading-snug text-content group-hover:text-primary-ink">{item.title}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
       ) : (
         <p className="panel px-4 py-4 text-[13px] leading-snug text-muted">
           No recent coverage found. <Link to={href('live_intel')} className="text-primary-ink hover:underline">Search again</Link>
         </p>
       )}
       {open && <ArticleReader item={open} companyId={companyId} companyName={companyName} onClose={() => setOpenId(null)} />}
-    </Section>
+    </TabSection>
   );
 }
 
@@ -227,9 +237,9 @@ function Watch({ companyId }: { companyId: string }) {
   const videos = useCachedDashboardTab(companyId, 'live_intel').data?.content.videos ?? [];
   if (!videos.length) return null;
   return (
-    <Section title="Watch">
+    <TabSection title="Watch">
       <VideoStrip videos={videos} />
-    </Section>
+    </TabSection>
   );
 }
 
@@ -240,7 +250,7 @@ function Milestones({ companyId }: { companyId: string }) {
   const timeline = newestFirst(history?.content.timeline ?? []).slice(0, 5);
   if (!timeline.length) return null;
   return (
-    <Section
+    <TabSection
       title="Milestones"
       action={<Link to={href('history')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">Full history <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
     >
@@ -255,7 +265,7 @@ function Milestones({ companyId }: { companyId: string }) {
           </li>
         ))}
       </ol>
-    </Section>
+    </TabSection>
   );
 }
 
@@ -318,7 +328,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
 
   return (
     <div className="cascade space-y-8">
-      <Section
+      <TabSection
         title="Key figures"
         action={<Link to={href('metrics')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All figures and peers <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
       >
@@ -341,13 +351,13 @@ export function OverviewTab({ companyId }: { companyId: string }) {
           )}
           </>
         )}
-      </Section>
+      </TabSection>
 
       {figures && (
         <OverviewCoverage companyId={companyId} figuresFound={figures.known.length} figureSlots={figures.all.length} />
       )}
 
-      <Happening companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} company={companyQ.data ? { name: companyQ.data.name, website: companyQ.data.websiteUrl, logoUrl: companyQ.data.logoUrl } : undefined} />
+      <Happening companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} />
 
       {query.isPending ? (
         <HydratingPanel label="Overview" variant="compact" />
@@ -358,19 +368,19 @@ export function OverviewTab({ companyId }: { companyId: string }) {
           onRetry={() => void query.refetch()}
         />
       ) : !result ? (
-        <Section title="Summary">
+        <TabSection title="Summary">
           <Empty title="Not researched yet" text="Use Research above to generate a sourced brief." />
-        </Section>
+        </TabSection>
       ) : !structured ? (
-        <Section title="Summary">
+        <TabSection title="Summary">
           <article className="markdown panel p-6">
             {result.content.markdown.trim()
               ? <ResearchMarkdown text={result.content.markdown} />
               : <p className="text-sm text-muted">No overview is available from the saved research yet.</p>}
           </article>
-        </Section>
+        </TabSection>
       ) : takeaways.length > 0 && (
-        <Section title="Summary">
+        <TabSection title="Summary">
           <div className={cn('grid gap-4', site && 'lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]')}>
           <dl className="panel divide-y divide-border">
             {takeaways.slice(0, 4).map((t) => (
@@ -385,7 +395,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
           </dl>
           {site && <SiteGlance url={site} />}
           </div>
-        </Section>
+        </TabSection>
       )}
 
       <OverviewSnapshot companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} />

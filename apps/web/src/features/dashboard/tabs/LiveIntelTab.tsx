@@ -264,7 +264,7 @@ function PublisherPlate({ item }: { item: LiveIntelItem }) {
   );
 }
 
-function StoryMeta({ item }: { item: LiveIntelItem }) {
+export function StoryMeta({ item }: { item: LiveIntelItem }) {
   const publisher = item.publisher ?? publisherOf(item.url, null);
   return (
     <p className="flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-muted">
