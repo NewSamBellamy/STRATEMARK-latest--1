@@ -38,6 +38,7 @@ import { previewFromHtml, type PagePreview } from './preview';
 import type { ReaderQuota } from './reader-quota';
 import type { ShareQuota, ShareVault } from './share-vault';
 import { visitorAddress } from './visitor';
+import { allowanceIdentity } from './allowance';
 import {
   SHARE_LIMITS_DEFAULT, SHARE_MAX_BODY_CHARS, SHARE_TTL_DAYS_DEFAULT, goneHtml, newShareId, parseShareCreate, randomToken, sha256Hex, sharePageHtml,
 } from './share-policy';
@@ -69,6 +70,11 @@ export interface Env {
   DAILY_BUDGET_USD?: string;
   /** Per-visitor (IP) share of that budget per UTC day. */
   DAILY_VISITOR_BUDGET_USD?: string;
+  /**
+   * Lifetime hosted-key spend one visitor is covered for, in dollars, all days together (default 15; 0 switches the
+   * allowance to zero, so every hosted call is refused). Unlike the daily limits it never resets.
+   */
+  LIFETIME_VISITOR_BUDGET_USD?: string;
 }
 
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -86,6 +92,8 @@ function cors(origin: string | null): Record<string, string> {
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-Search-Key, X-Share-Token',
     'Access-Control-Max-Age': '86400',
+    // The page reads how much of the lifetime allowance it has used from a hosted answer's headers.
+    'Access-Control-Expose-Headers': 'X-Allowance-Used-Usd, X-Allowance-Usd',
     Vary: 'Origin',
   } : {};
 }
@@ -171,35 +179,51 @@ export function keyShape(raw: string | undefined): { present: boolean; length: n
   return { present: key.length > 0, length: key.length, looksValid: /^AIza[0-9A-Za-z_-]{35}$/.test(key) };
 }
 
+/** What the beta covers for each person in all, unless LIFETIME_VISITOR_BUDGET_USD says otherwise. The app's COVERED_USAGE_USD is the same number. */
+const LIFETIME_ALLOWANCE_DEFAULT_USD = 15;
+
 const usd = (micros: number) => Math.round(micros / 10_000) / 100;
 
 /**
  * The two ceilings in micro-dollars. A setting that is not usable is 0 (fail closed, see readBudgetUsd) and is named in
  * `problems`, so the refusal and /health can say the budget is misconfigured rather than spent.
  */
-function budgets(env: Env): { budget: number; visitor: number; problems: string[] } {
+function budgets(env: Env): { budget: number; visitor: number; allowance: number; problems: string[] } {
   const total = readBudgetUsd(env.DAILY_BUDGET_USD, 100);
   const each = readBudgetUsd(env.DAILY_VISITOR_BUDGET_USD, 20);
+  const life = readBudgetUsd(env.LIFETIME_VISITOR_BUDGET_USD, LIFETIME_ALLOWANCE_DEFAULT_USD);
   return {
     budget: Math.round(total.usd * 1_000_000),
     visitor: Math.round(each.usd * 1_000_000),
+    allowance: Math.round(life.usd * 1_000_000),
     problems: [
       ...(total.problem ? [`DAILY_BUDGET_USD ${total.problem}`] : []),
       ...(each.problem ? [`DAILY_VISITOR_BUDGET_USD ${each.problem}`] : []),
+      ...(life.problem ? [`LIFETIME_VISITOR_BUDGET_USD ${life.problem}`] : []),
     ],
   };
 }
 
 /** The 402 for a refused reservation. A misconfigured budget says so (names the setting, never its value) and is logged. */
-function budgetRefusal(reason: 'global' | 'visitor', problems: string[], spentText: string, origin: string): Response {
+function budgetRefusal(reason: 'global' | 'visitor' | 'allowance', problems: string[], spentText: string, origin: string, allowance?: { usedUsd: number; allowanceUsd: number }): Response {
   if (problems.length > 0) console.log(`budget misconfigured: ${problems.join('; ')}`);
   return json({
     budget: 'exhausted', reason,
+    ...(reason === 'allowance' && allowance ? allowance : {}),
     ...(problems.length > 0 ? { misconfigured: problems } : {}),
     error: problems.length > 0
       ? 'Free research is switched off because the hosted budget is not set up correctly. Add your own Gemini key in Settings to keep going.'
       : spentText,
   }, 402, origin);
+}
+
+/** The 402 for a visitor whose lifetime allowance is spent: what they used, and the way on (their own key). Nothing is held or called. */
+function allowanceRefusal(caps: { allowance: number; problems: string[] }, usedMicros: number, origin: string): Response {
+  const usedUsd = usd(usedMicros);
+  const allowanceUsd = usd(caps.allowance);
+  return budgetRefusal('allowance', caps.problems,
+    `You’ve used $${usedUsd.toFixed(2)} of the $${allowanceUsd.toFixed(2)} of research we cover for the beta. Add your own Gemini key in Settings to keep going.`,
+    origin, { usedUsd, allowanceUsd });
 }
 
 function ledger(env: Env) {
@@ -243,8 +267,11 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
   const held = reserveMicros(model, grounded, bodyBytes, worstOutputTokens);
   const caps = budgets(env);
   const counter = ledger(env);
-  const reservation = await counter.reserve(day, ip, held, caps.budget, caps.visitor);
+  // The hosted key is in use, so this call counts against the visitor's lifetime allowance too (a visitor's own key never comes here).
+  const allowanceId = await allowanceIdentity(request);
+  const reservation = await counter.reserve(day, ip, held, caps.budget, caps.visitor, { id: allowanceId, micros: caps.allowance });
   if (!reservation.ok) {
+    if (reservation.reason === 'allowance') return allowanceRefusal(caps, reservation.usedMicros, origin);
     // 402, not 429: a spent budget must not look like a transient rate limit
     // (clients retry 429s). The web app shows a banner and stops asking.
     return budgetRefusal(reservation.reason, caps.problems, reservation.reason === 'global'
@@ -289,7 +316,11 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
     }
     return new Response(text, {
       status: upstream.status,
-      headers: { 'Content-Type': upstream.headers.get('content-type') ?? 'application/json', 'Cache-Control': 'no-store', ...cors(origin) },
+      headers: {
+        'Content-Type': upstream.headers.get('content-type') ?? 'application/json', 'Cache-Control': 'no-store', ...cors(origin),
+        // What this visitor had used of the allowance before this call (it is settled just after): for a low-key readout, never a gate.
+        ...(reservation.allowanceSpentMicros === undefined ? {} : { 'X-Allowance-Used-Usd': String(usd(reservation.allowanceSpentMicros)), 'X-Allowance-Usd': String(usd(caps.allowance)) }),
+      },
     });
   } catch (cause) {
     // Google answered, or was cut off mid-generation (timeout, client gone):
@@ -299,7 +330,7 @@ async function geminiProxy(request: Request, env: Env, model: string, origin: st
     actual = answered || aborted ? held : 0;
     throw cause;
   } finally {
-    await counter.settle(reservation.day, ip, held, actual);
+    await counter.settle(reservation.day, ip, held, actual, allowanceId);
   }
 }
 
@@ -327,15 +358,19 @@ async function searchRelay(request: Request, env: Env, origin: string): Promise<
   const day = new Date().toISOString().slice(0, 10);
   const caps = budgets(env);
   const counter = ledger(env);
-  const reservation = await counter.reserve(day, ip, SEARCH_COST_MICROS, caps.budget, caps.visitor);
-  if (!reservation.ok) return budgetRefusal(reservation.reason, caps.problems, 'Free search has reached today’s budget.', origin);
+  const allowanceId = await allowanceIdentity(request);
+  const reservation = await counter.reserve(day, ip, SEARCH_COST_MICROS, caps.budget, caps.visitor, { id: allowanceId, micros: caps.allowance });
+  if (!reservation.ok) {
+    if (reservation.reason === 'allowance') return allowanceRefusal(caps, reservation.usedMicros, origin);
+    return budgetRefusal(reservation.reason, caps.problems, 'Free search has reached today’s budget.', origin);
+  }
   let actual = 0;
   try {
     const response = await runSearch('serper', hostedKey, input, origin);
     actual = response.ok ? SEARCH_COST_MICROS : 0;
     return response;
   } finally {
-    await counter.settle(reservation.day, ip, SEARCH_COST_MICROS, actual);
+    await counter.settle(reservation.day, ip, SEARCH_COST_MICROS, actual, allowanceId);
   }
 }
 
@@ -666,8 +701,8 @@ export default {
       const status = await ledgerStatus(env, new Date().toISOString().slice(0, 10));
       return json({
         ok: true, hostedResearch: shape.present, keyLength: shape.length, keyLooksValid: shape.looksValid,
-        budgetUsd: usd(budgets(env).budget), visitorBudgetUsd: usd(budgets(env).visitor), budgetMisconfigured: budgets(env).problems,
-        spentTodayUsd: status ? usd(status.spentMicros) : null, visitorsToday: status?.visitors ?? null,
+        budgetUsd: usd(budgets(env).budget), visitorBudgetUsd: usd(budgets(env).visitor), lifetimeVisitorBudgetUsd: usd(budgets(env).allowance), budgetMisconfigured: budgets(env).problems,
+        spentTodayUsd: status ? usd(status.spentMicros) : null, visitorsToday: status?.visitors ?? null, visitorsWithAllowance: status?.allowanceVisitors ?? null,
         last7Days: status?.history ?? [],
       }, 200, null);
     }

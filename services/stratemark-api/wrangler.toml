@@ -49,6 +49,9 @@ ALLOW_LOCALHOST = "false"
 # list price per model family, so real spend stays at or under these.
 DAILY_BUDGET_USD = "100"
 DAILY_VISITOR_BUDGET_USD = "20"
+# Hosted spend one visitor (an IPv4 address, or an IPv6 /64) is covered for in all, never reset: the beta's covered usage.
+# Past it the visitor is asked to use their own key. Keep the app's COVERED_USAGE_USD (apps/web/src/lib/beta.ts) the same.
+LIFETIME_VISITOR_BUDGET_USD = "15"
 
 # Days a share link lives before it deletes itself (1 to 365).
 SHARE_TTL_DAYS = "90"

@@ -19,7 +19,11 @@ function countedStorage() {
   const counters = { gets: 0, puts: 0 };
   return {
     map, counters,
-    get: async (key: string) => { counters.gets += 1; return map.get(key); },
+    get: async (key: string | string[]) => {
+      counters.gets += 1;
+      return Array.isArray(key) ? new Map(key.filter((k) => map.has(k)).map((k) => [k, map.get(k)])) : map.get(key);
+    },
+    delete: async (key: string) => map.delete(key),
     put: async (key: string, value: unknown) => { counters.puts += 1; map.set(key, structuredClone(value)); },
   };
 }
