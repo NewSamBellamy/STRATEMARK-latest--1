@@ -9,15 +9,15 @@
  * Grounding contract (non-negotiable): answers come from the deck's stored
  * research plus a fresh Google Search — never from model memory.
  */
+import { sourceHref } from '@/lib/sourceHref';
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   ArrowUp,
   ExternalLink,
-  FilePlus2,
   FileText,
   Layers,
   MessageCircle,
@@ -33,6 +33,15 @@ import { useCards, useCompany, useReports } from '@/hooks/data';
 import { cn } from '@/lib/cn';
 import { MicButton } from '@/components/ui/MicButton';
 import { Logo } from '@/features/card/Logo';
+import { useApiKey } from '@/lib/settings/apiKey';
+import { useSettingsModal } from '@/lib/settings/settingsModal';
+import { ExportMenu } from '@/features/export/ExportMenu';
+import { splitFollowUps } from './followUps';
+import { AskOrb } from './AskOrb';
+import { CardThumbStrip } from './CardThumbs';
+import { resolveOrbScope } from './orbScope';
+import logoMark from '@/assets/logo-mark.svg';
+import { useSupports } from '@/lib/repository/RepositoryProvider';
 
 type PanelMode = 'locked' | 'floating';
 
@@ -82,25 +91,50 @@ function useIsDesktop(): boolean {
   return desktop;
 }
 
-/** Rotating status phrases shown inside the assistant "typing" bubble. */
-const THINKING_PHASES = [
-  'Searching the web…',
-  'Reading sources…',
-  'Cross-checking claims…',
-  'Drafting the answer…',
-] as const;
-
+/**
+ * Honest progress: what the engine is doing (one grounded search, then the
+ * write-up) and how long it has taken — not a timer pretending to be steps.
+ */
 function useThinkingPhase(active: boolean): string {
-  const [index, setIndex] = useState(0);
+  const [seconds, setSeconds] = useState(0);
   useEffect(() => {
     if (!active) {
-      setIndex(0);
+      setSeconds(0);
       return;
     }
-    const id = setInterval(() => setIndex((i) => (i + 1) % THINKING_PHASES.length), 2200);
+    const started = Date.now();
+    const id = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
     return () => clearInterval(id);
   }, [active]);
-  return THINKING_PHASES[index]!;
+  const label = seconds < 45 ? 'Searching and reading sources' : 'Still working — deep questions can take a minute';
+  return seconds < 3 ? `${label}…` : `${label} · ${seconds}s`;
+}
+
+/** Markdown tables (compare-two-companies answers) scroll sideways instead of overflowing the panel. */
+const CHAT_MD_COMPONENTS = {
+  table: ({ children }: { children?: ReactNode }) => (
+    <div className="my-2 overflow-x-auto rounded-lg border border-border">
+      <table className="w-full border-collapse text-[12px]">{children}</table>
+    </div>
+  ),
+  th: ({ children }: { children?: ReactNode }) => (
+    <th className="border-b border-border bg-surface-2 px-2 py-1 text-left font-semibold text-content">{children}</th>
+  ),
+  td: ({ children }: { children?: ReactNode }) => (
+    <td className="border-b border-border px-2 py-1 align-top">{children}</td>
+  ),
+  a: ({ href, children }: { href?: string; children?: ReactNode }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="link">{children}</a>
+  ),
+};
+
+/** Friendlier wording for the failures people actually hit. */
+function chatErrorMessage(raw: string, hasKey: boolean): string {
+  if (!hasKey || /api[ _-]?key|unauthori[sz]ed|permission_denied|\b40[13]\b/i.test(raw)) {
+    return 'Chat needs a Gemini API key. Add yours in Settings and ask again - your question is still in the box.';
+  }
+  if (/\b429\b|quota|rate/i.test(raw)) return 'The research service is rate-limited right now. Wait a moment and send again.';
+  return raw;
 }
 
 /** Assistant-bubble-shaped "typing" indicator — bouncing dots + cycling status text. */
@@ -123,6 +157,8 @@ function TypingBubble({ active }: { active: boolean }) {
 interface ChatOptions {
   seed?: string;
   placeholder?: string;
+  /** Prefills the box (editable) without sending — a ready question to start from. */
+  draft?: string;
 }
 
 interface DeepDiveContextValue {
@@ -161,7 +197,7 @@ function SourceChips({ citations }: { citations: Citation[] }) {
       {citations.slice(0, 6).map((c, i) => (
         <a
           key={i}
-          href={c.url}
+          href={sourceHref(c.url, c.title)}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-0.5 text-[10.5px] text-muted hover:border-primary/50 hover:text-primary-ink"
@@ -213,8 +249,12 @@ export function DeepDiveProvider({ children }: { children: ReactNode }) {
  */
 export function DeepDiveProviderWithPanel({ children }: { children: ReactNode }) {
   const repo = useRepository();
+  const canSaveReport = useSupports('saveThreadAsReport');
   const qc = useQueryClient();
   const conversational = typeof repo.askResearch === 'function';
+  const hasKey = useApiKey((st) => st.hasKey);
+  const openSettings = useSettingsModal((st) => st.open);
+  const location = useLocation();
 
   const [openState, setOpenState] = useState(false);
   const [scope, setScope] = useState<ResearchScope | null>(null);
@@ -223,6 +263,10 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
   const [error, setError] = useState<string | null>(null);
   const [placeholder, setPlaceholder] = useState<string | undefined>(undefined);
   const [draft, setDraft] = useState('');
+  // The question in flight: shown as your bubble at once, restored to the box
+  // if it fails so nothing you typed is lost.
+  const [pending, setPending] = useState<string | null>(null);
+  const [failed, setFailed] = useState<{ question: string; scope: ResearchScope | null; threadId?: string } | null>(null);
   // Pinned context: reports/conversations attached to THIS chat. They ride
   // along with every question as the grounding's main focus.
   const [attachOpen, setAttachOpen] = useState(false);
@@ -275,7 +319,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     if (el && typeof el.scrollTo === 'function') {
       el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     }
-  }, [thread?.messages.length, busy]);
+  }, [thread?.messages.length, busy, pending]);
 
   // Conversation starters: quick ways in, so the chat feels like a
   // conversation you steer rather than a research job that fires instantly.
@@ -306,6 +350,8 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     setShowReportForm(false);
     setReportFocus('');
     setDraft('');
+    setPending(null);
+    setFailed(null);
     setAttachOpen(false);
     setAttachedReportIds([]);
     setAttachedThreadIds([]);
@@ -315,6 +361,8 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     if (!repo.askResearch) return;
     setBusy(true);
     setError(null);
+    setFailed(null);
+    setPending(question);
     try {
       const attachments =
         attachedReportIds.length > 0 || attachedThreadIds.length > 0
@@ -328,16 +376,29 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
       setThread(t);
       void qc.invalidateQueries({ queryKey: ['researchThreads'] });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(chatErrorMessage(e instanceof Error ? e.message : String(e), hasKey));
+      setFailed({ question, scope: forScope, threadId });
+      setDraft((d) => (d.trim() ? d : question));
     } finally {
       setBusy(false);
+      setPending(null);
     }
   };
 
   const chat = (s: ResearchScope, opts?: ChatOptions) => {
+    // Reopening the same conversation keeps it: closing the panel is not
+    // "start over". A seeded question or a different subject starts fresh.
+    const same = scope && thread && thread.id !== 'oneshot' &&
+      scope.kind === s.kind && scope.deckId === s.deckId && scope.companyId === s.companyId &&
+      (scope.cardIds ?? []).join() === (s.cardIds ?? []).join();
+    if (same && !opts?.seed) {
+      setOpenState(true);
+      return;
+    }
     reset();
     setScope(s);
     setPlaceholder(opts?.placeholder);
+    if (opts?.draft) setDraft(opts.draft);
     setOpenState(true);
     if (opts?.seed) void ask(opts.seed, s);
   };
@@ -374,8 +435,15 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
       setScope(s);
       setOpenState(true);
       setBusy(true);
-      void repo
-        .deepDive(input)
+      // Completeness gate: before the report is served, the same readiness
+      // pass the living deck uses (free recovery → structured lanes → one
+      // hunt) takes its shot at the company's known gaps. Research failure
+      // must never block the answer the user asked for.
+      const readiness = input.companyId && repo.ensureReportReadiness
+        ? repo.ensureReportReadiness([input.companyId]).catch(() => undefined)
+        : Promise.resolve();
+      void readiness
+        .then(() => repo.deepDive(input))
         .then((r) => {
           setThread({
             id: 'oneshot',
@@ -389,6 +457,20 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           });
+          // A finished deep-dive is a finished product (red team #10): persist it
+          // as a Report so "Saved" opens the full-page reader instead of leaving
+          // long-form findings trapped in this panel.
+          void repo.saveReport?.({
+            kind: input.companyId ? 'company' : 'deck',
+            subjectId: input.companyId ?? 'deep-dive',
+            title: input.topic,
+            markdown: r.markdown,
+            citations: r.citations.map((c) => ({ title: c.title, url: c.url })),
+          })
+            .then((report) => {
+              if (report) setThread((prev) => (prev && prev.id === 'oneshot' ? { ...prev, reportId: report.id } : prev));
+            })
+            .catch(() => { /* the modal copy still reads fine unsaved; saving is best-effort */ });
         })
         .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
         .finally(() => setBusy(false));
@@ -457,17 +539,17 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     >
       {children}
 
-      {/* Floating pill — in floating mode, when minimized, a tap reopens the chat. */}
-      {mode === 'floating' && !openState && scope && (
-        <button
-          type="button"
-          onClick={() => setOpenState(true)}
-          className="fixed bottom-5 right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-fg shadow-lg transition-transform hover:scale-105"
-          aria-label="Open AI chat"
-          title="Open AI chat"
-        >
-          <MessageCircle className="h-5 w-5" />
-        </button>
+      {/* The Ask orb: from any page, one press asks about what you are looking at, or reopens the conversation you left. */}
+      {!openState && conversational && !location.pathname.startsWith('/share/') && (
+        <AskOrb
+          hint={thread ? 'Back to your conversation. Drag to move.' : 'Ask Stratemark about what you are looking at. Drag to move.'}
+          onAsk={() => {
+            if (scope && thread) { setOpenState(true); return; }
+            void resolveOrbScope(`#${location.pathname}${location.search}`, repo)
+              .then((s) => { if (s) chat(s, { placeholder: 'Ask me anything about this…' }); })
+              .catch(() => undefined);
+          }}
+        />
       )}
 
       {/* AI panel — docks (locked) or overlays (floating) at the right edge.
@@ -519,14 +601,14 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
             >
               {mode === 'locked' ? <PictureInPicture2 className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
             </button>
-            {canConverse && hasAnswer && repo.saveThreadAsReport && !thread?.reportId && (
-              <button
-                type="button"
-                onClick={() => setShowReportForm((v) => !v)}
-                className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:border-primary/50 hover:text-primary-ink"
-              >
-                <FilePlus2 className="h-3 w-3" /> Report
-              </button>
+            {thread && hasAnswer && (
+              <ExportMenu
+                variant="icon"
+                transcript={{ title: thread.title ?? scopeLabel, scopeLabel, messages: thread.messages }}
+                report={canConverse && canSaveReport && !thread.reportId
+                  ? { label: 'Save this chat as a report', onClick: () => setShowReportForm(true) }
+                  : undefined}
+              />
             )}
             {thread?.reportId && (
               <Link
@@ -534,7 +616,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                 onClick={close}
                 className="inline-flex items-center gap-1 rounded-lg border border-positive/40 bg-positive/10 px-2 py-1 text-[11px] text-positive"
               >
-                <FileText className="h-3 w-3" /> Saved
+                <FileText className="h-3 w-3" /> Open full report
               </Link>
             )}
             <button
@@ -574,13 +656,10 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
         {/* Conversation */}
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           {(thread?.messages ?? []).length === 0 && !busy && !error && (
-            <div className="flex flex-col items-center justify-center gap-4 py-10 text-center text-muted">
-              <p className="text-[13px]">
-                What would you like to dig into about{' '}
-                <span className="font-medium text-content">{scopeLabel.toLowerCase()}</span>?
-              </p>
+            <div className="flex flex-col gap-4 py-4 text-muted">
+              {scope && <Greeting scope={scope} scopeLabel={scopeLabel} />}
               {conversational && (
-                <div className="flex max-w-sm flex-wrap justify-center gap-2">
+                <div className="flex flex-wrap gap-2 pl-9">
                   {starters.map((q) => (
                     <button
                       key={q}
@@ -593,16 +672,18 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                   ))}
                 </div>
               )}
-              <p className="max-w-xs text-[11px] leading-relaxed text-faint">
-                Or type your own below — every answer is grounded in this deck's research plus a
-                fresh search.
+              <p className="max-w-xs pl-9 text-[11px] leading-relaxed text-faint">
+                Or type your own below. Every answer comes from this deck&apos;s research plus a
+                fresh search, with the sources next to it.
               </p>
             </div>
           )}
 
           <div className="space-y-4">
-            {(thread?.messages ?? []).map((m) =>
-              m.role === 'user' ? (
+            {(thread?.messages ?? []).map((m, idx, all) => {
+              const isLast = idx === all.length - 1;
+              const parsed = m.role === 'assistant' ? splitFollowUps(m.text) : null;
+              return m.role === 'user' ? (
                 <div key={m.id} className="flex justify-end">
                   <div className="max-w-[85%] rounded-2xl rounded-br-md bg-content/5 px-3 py-2 text-[13px] text-content">
                     {m.text}
@@ -610,19 +691,55 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                 </div>
               ) : (
                 <div key={m.id} className="max-w-full">
-                  <article className="markdown text-[13px]">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+                  <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-faint">Stratemark</p>
+                  <article className="markdown text-[13px] text-content/90">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={CHAT_MD_COMPONENTS}>
+                      {parsed?.body ?? m.text}
+                    </ReactMarkdown>
                   </article>
                   <SourceChips citations={m.citations} />
+                  {isLast && !busy && conversational && parsed && parsed.followUps.length > 0 && (
+                    <div className="mt-2.5 flex flex-wrap gap-1.5" aria-label="Suggested follow-up questions">
+                      {parsed.followUps.map((q) => (
+                        <button
+                          key={q}
+                          type="button"
+                          className="rounded-full border border-border bg-surface px-2.5 py-1 text-left text-[11.5px] text-muted transition-colors hover:border-primary/50 hover:text-primary-ink"
+                          onClick={() => void ask(q, scope, thread && thread.id !== 'oneshot' ? thread.id : undefined)}
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ),
-            )}
+              );
+            })}
           </div>
 
+          {busy && pending && (
+            <div className="mt-4 flex justify-end">
+              <div className="max-w-[85%] rounded-2xl rounded-br-md bg-content/5 px-3 py-2 text-[13px] text-content">{pending}</div>
+            </div>
+          )}
           {busy && <TypingBubble active={busy} />}
           {error && (
             <div className="mt-4 rounded-lg border border-negative/40 bg-negative/10 p-3 text-[13px] text-negative">
               {error}
+              {failed && hasKey && (
+                <button
+                  type="button"
+                  className="ml-2 font-semibold underline"
+                  onClick={() => { setDraft(''); void ask(failed.question, failed.scope, failed.threadId); }}
+                >
+                  Retry
+                </button>
+              )}
+              {!hasKey && (
+                <button type="button" className="ml-2 font-semibold underline" onClick={openSettings}>
+                  Open Settings
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -789,36 +906,41 @@ function CompanyChip({ companyId, subject }: { companyId: string; subject: strin
   );
 }
 
-function CardsChips({ deckId, cardIds }: { deckId: string; cardIds: string[] }) {
-  const cards = useCards(deckId).data ?? [];
-  const wanted = new Set(cardIds);
-  const matched = cards.filter((c) => wanted.has(c.card.id));
-  const shown = matched.slice(0, 6);
+/**
+ * The analyst's opening line: who they are looking at, in plain words, with no
+ * figures in it. For cards the user lined up it names them, so the chat starts
+ * as a conversation about those cards and not an empty box.
+ */
+function Greeting({ scope, scopeLabel }: { scope: ResearchScope; scopeLabel: string }) {
+  const cards = useCards(scope.kind === 'cards' && scope.deckId ? scope.deckId : undefined).data ?? [];
+  const company = useCompany(scope.kind === 'company' || scope.kind === 'datapoint' ? scope.companyId ?? undefined : undefined).data;
+  let line: string;
+  if (scope.kind === 'cards') {
+    const wanted = new Set(scope.cardIds ?? []);
+    const names = cards.filter((c) => wanted.has(c.card.id)).map((c) => c.company?.name ?? c.card.title ?? '').filter(Boolean);
+    line = names.length >= 2
+      ? `You've lined up ${names.length <= 3 ? names.join(', ').replace(/, ([^,]*)$/, ' and $1') : `${names.length} cards`}. I'll put them side by side and be straight about where the research has gaps. Where do you want to start?`
+      : `I have ${names[0] ?? 'this card'}'s research in front of me. Ask me anything: what stands out, where they're exposed, what I'd check next.`;
+  } else if (scope.kind === 'company' || scope.kind === 'datapoint') {
+    const name = company?.name ?? scope.subject ?? 'this company';
+    line = `I have ${name}'s research in front of me. Ask me what changed, how they make money, or where they're exposed, and I'll tell you what the sources say.`;
+  } else {
+    line = `I've been through everything in ${scopeLabel === 'This deck' ? 'this deck' : scopeLabel}. Ask me who's winning, who looks overhyped, or where the gaps are.`;
+  }
   return (
-    <ChipRow>
-      {shown.map((c) => (
-        <RefChip
-          key={c.card.id}
-          label={c.company?.name ?? c.card.title ?? 'Card'}
-          logo={
-            c.company ? (
-              <Logo name={c.company.name} website={c.company.websiteUrl} logoUrl={c.company.logoUrl} className="h-full w-full" />
-            ) : undefined
-          }
-        />
-      ))}
-      {matched.length > shown.length && (
-        <span className="text-[11px] text-faint">+{matched.length - shown.length} more</span>
-      )}
-      {matched.length === 0 && <span className="text-[11px] text-faint">{cardIds.length} cards</span>}
-    </ChipRow>
+    <div className="flex items-start gap-2.5">
+      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full border border-border bg-surface">
+        <img src={logoMark} alt="" className="h-4 w-4" />
+      </span>
+      <p className="max-w-[88%] rounded-2xl rounded-tl-md bg-surface-2 px-3 py-2 text-[13px] leading-relaxed text-content">{line}</p>
+    </div>
   );
 }
 
 /** Renders the reference chips appropriate to the current chat scope. */
 function ContextChips({ scope }: { scope: ResearchScope }) {
   if (scope.kind === 'cards' && scope.deckId) {
-    return <CardsChips deckId={scope.deckId} cardIds={scope.cardIds ?? []} />;
+    return <CardThumbStrip deckId={scope.deckId} cardIds={scope.cardIds ?? []} />;
   }
   if ((scope.kind === 'company' || scope.kind === 'datapoint') && scope.companyId) {
     return (
@@ -842,7 +964,11 @@ function ContextChips({ scope }: { scope: ResearchScope }) {
  * plus a free-form option, so "engage the AI about this" keeps its power with
  * exactly one entry point.
  */
-export function DigDeeperMenu({
+export function DigDeeperMenu(props: Parameters<typeof DigDeeperMenuInner>[0]) {
+  return useSupports('deepDive') ? <DigDeeperMenuInner {...props} /> : null;
+}
+
+function DigDeeperMenuInner({
   topics,
   companyId,
   companyName,
@@ -926,7 +1052,11 @@ export function DigDeeperMenu({
  * AI affordance icon — replaces the old "Shovel" with a MessageCircle icon.
  * Appears beside data points everywhere, so it stays quiet.
  */
-export function DigDeeper({
+export function DigDeeper(props: Parameters<typeof DigDeeperInner>[0]) {
+  return useSupports('deepDive') ? <DigDeeperInner {...props} /> : null;
+}
+
+function DigDeeperInner({
   topic,
   companyId,
   companyName,

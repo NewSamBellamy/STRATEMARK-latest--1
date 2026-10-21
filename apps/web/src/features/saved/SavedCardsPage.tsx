@@ -2,6 +2,7 @@ import { BookmarkSimple } from '@phosphor-icons/react';
 import { useMemo } from 'react';
 import { EmptyState } from '@/components/states/EmptyState';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { CardGridSkeleton } from '@/components/states/Skeleton';
 import { CardGrid } from '@/features/deck/CardGrid';
 import { useSavedCards } from '@/hooks/data';
 
@@ -22,7 +23,7 @@ export default function SavedCardsPage() {
       </h1>
       <QueryBoundary
         query={cards}
-        loading={<div className="py-12 text-[13px] text-muted">Loading saved cards…</div>}
+        loading={<CardGridSkeleton count={3} />}
         errorTitle="Saved cards couldn't load"
         isEmpty={(data) => data.length === 0}
         empty={

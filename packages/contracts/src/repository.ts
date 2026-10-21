@@ -18,12 +18,16 @@ import type {
   MaturityTier,
   MetricType,
   RefreshCadence,
+  ReportTopic,
 } from './enums';
+import type { MarketProfile } from './market-profile';
 import type {
   Card,
   Company,
   CompanyMetric,
   DashboardContentFor,
+  Ownership,
+  ProductBrief,
   Deck,
   Market,
   ScopeDefinition,
@@ -37,9 +41,16 @@ export interface CreateMarketInput {
 }
 
 /** A user's free-text request to research a new deck (the "New deck" screen). */
+export type CompanyScope = {
+  mode: 'market' | 'selected_only';
+  names: string[];
+};
+
 export interface DeckResearchBrief {
   prompt: string;
   region: string | null;
+  /** Optional hard scope from the user's explicit company selection. */
+  companyScope?: CompanyScope;
 }
 
 export type ResearchStage = 'scope' | 'catalog' | 'summary' | 'metrics' | 'signals' | 'dashboard';
@@ -191,6 +202,43 @@ export interface VerifyMetricResult {
   retieredCardIds: string[];
   rationale: string;
   citations: Citation[];
+  /** Original-page attempts, not accepted claims. Optional for older transports. */
+  originalSources?: {
+    requestedUrl: string;
+    finalUrl?: string;
+    status: 'retrieved' | 'blocked' | 'unavailable';
+    retrievedAt: string;
+    reason?: string;
+    text?: string;
+    truncated?: boolean;
+  }[];
+}
+
+export interface BatchMetricVerification {
+  metricType: MetricType;
+  verdict: FactCheckVerdict;
+  changed: boolean;
+  /** Stored confidence AFTER verification applied (or was skipped). */
+  confidence: Confidence;
+  /** Stored value AFTER verification applied (or was skipped). */
+  value: number | null;
+  rationale: string;
+}
+
+/**
+ * ONE grounded pass re-checking every estimated figure a company has — the
+ * promote-to-verified / demote-on-contradiction lane. Unknown slots are the
+ * hunt's job; user-verified rows are law. One action instead of two calls per
+ * metric is what makes background verification affordable at deck scale.
+ */
+export interface VerifyCompanyMetricsResult {
+  /** Metric types the batch pass examined. */
+  examined: MetricType[];
+  /** Types whose stored value or confidence actually changed. */
+  changedTypes: MetricType[];
+  retieredCardIds: string[];
+  results: BatchMetricVerification[];
+  citations: Citation[];
 }
 
 /**
@@ -207,6 +255,21 @@ export interface HuntMetricsResult {
   retieredCardIds: string[];
 }
 
+/** Escalation knob for a repeated metric hunt. */
+export interface HuntMetricsOptions {
+  /**
+   * 0 = first attempt for this company this session; N ≥ 1 = N earlier
+   * general searches for these figures came back empty, so the hunt must
+   * vary its approach rather than repeat the same query shape.
+   */
+  escalation?: number;
+  /**
+   * Face sweep: ask ONLY for the metric types whose card-face slots are still
+   * empty (PROFILE_CORE_SLOTS alternatives), nothing else from the profile.
+   */
+  faceSlotsOnly?: boolean;
+}
+
 /** A saved research report composed by the AI from deck/company evidence. */
 export interface ReportRequest {
   kind: 'deck' | 'company';
@@ -220,6 +283,13 @@ export interface ReportRequest {
   focus?: string | null;
   /** Fold a research conversation's findings into the report. */
   threadId?: string | null;
+  /**
+   * Company reports only: the sections to include, mirroring the dashboard
+   * tabs. When given, the report runs the four-step flow (read what is stored,
+   * find the gaps, research those gaps more deeply, write it up) and returns
+   * structured `sections`. Absent keeps the older single-pass report.
+   */
+  topics?: ReportTopic[];
 }
 
 // ---------------------------------------------------------------------------
@@ -251,6 +321,25 @@ export interface ThreadMessage {
   at: string;
 }
 
+export interface DistilledSemanticFact {
+  id: string;
+  fact: string;
+  category?: 'metric' | 'finding' | 'competitor' | 'trend' | 'risk' | 'general';
+  companyId?: string | null;
+  subject?: string | null;
+  citations: Citation[];
+  extractedAt: string;
+  userVerified?: boolean;
+}
+
+export interface SemanticMemory {
+  threadId: string;
+  distilledFacts: DistilledSemanticFact[];
+  lastDistilledTurnIndex: number;
+  totalTurnsDistilled: number;
+  distilledAt: string;
+}
+
 export interface ResearchThread {
   id: string;
   scope: ResearchScope;
@@ -258,6 +347,8 @@ export interface ResearchThread {
   messages: ThreadMessage[];
   /** Set when the thread has been distilled into a saved report. */
   reportId: string | null;
+  /** Structured, scoped semantic facts extracted after turn threshold (issue #56). */
+  semanticMemory?: SemanticMemory | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -369,6 +460,29 @@ export interface SiteAuditInput {
   companyId?: string | null;
 }
 
+/** One written section of a topic-based company report. */
+export interface ReportSection {
+  topic: ReportTopic;
+  title: string;
+  markdown: string;
+  /** Sources behind this section, shown as numbered footnotes. */
+  citations: Citation[];
+  /** What the stored research lacked for this topic, in plain words. Empty when nothing was missing. */
+  gaps: string[];
+  /** True when the section needed a deeper research pass beyond what was stored. */
+  researchedDeeper: boolean;
+}
+
+/** What building a report cost. Unknown is null, never zero. */
+export interface ReportCost {
+  /** Estimated USD at deliberately high list prices; null when the provider reported no usage. */
+  estUsd: number | null;
+  /** Provider calls made while building this report; null when not measured. */
+  calls: number | null;
+  /** Google searches those calls ran; null when not measured. */
+  searches: number | null;
+}
+
 export interface Report {
   id: string;
   kind: 'deck' | 'company' | 'site_audit';
@@ -381,7 +495,44 @@ export interface Report {
   evidenceCitations?: Citation[];
   /** Structured content when kind='site_audit' — drives the visual report. */
   audit?: SiteAuditContent;
+  /** Topic-based company reports: the topics asked for and the written sections. */
+  topics?: ReportTopic[];
+  sections?: ReportSection[];
+  cost?: ReportCost;
   createdAt: string;
+}
+
+/**
+ * A read-only copy of researched work, for a share link: what a recipient needs
+ * to browse a card or a deck (cards, companies, figures with their sources, and
+ * every stored dashboard tab) and nothing private (no chats, notes, saved
+ * flags, reports, keys or evidence vault). Shaped like the demo seed so the
+ * same viewer code renders it. Built from what is stored; it never runs research.
+ */
+/** One website the research engine just searched, read or found a source on. */
+export interface SourceActivity {
+  id: number;
+  at: string;
+  /** The site only (no path, no query): enough to show where research is looking. */
+  domain: string;
+  kind: 'searched' | 'read' | 'found';
+  company: string | null;
+}
+
+export interface ShareSnapshot {
+  v: 1;
+  kind: 'card' | 'deck';
+  /** The card a card share opens on; null for a whole deck. */
+  focusCardId: string | null;
+  sharedAt: string;
+  markets: Market[];
+  decks: Deck[];
+  companies: Company[];
+  metrics: CompanyMetric[];
+  cards: Card[];
+  viceClaims: ViceClaim[];
+  /** Stored dashboard tabs per company, exactly as the dashboard shows them. */
+  dashboards: Record<string, Partial<Record<DashboardTab, { content: unknown; lastRefreshedAt: string }>>>;
 }
 
 /** Targeted micro-research to fill a gap in an existing deck (intelligent empty states). */
@@ -431,6 +582,21 @@ export interface DashboardTabResult<T extends DashboardTab> {
   tab: T;
   content: DashboardContentFor<T>;
   lastRefreshedAt: string | null;
+  /** Search attribution for this section, not independently verified claims.
+   * Absent on legacy cached sections; never inferred from unrelated research. */
+  citations?: Citation[];
+  /** Sanitized original-page acquisition outcomes; not citations or proof of claims. */
+  sourceDiagnostics?: DashboardSourceDiagnostics;
+}
+
+export interface DashboardSourceDiagnostics {
+  reads: Array<{
+    host: string;
+    outcome: 'retrieved' | 'blocked' | 'unavailable';
+    httpStatus?: number;
+  }>;
+  eligibleSourceCount: number;
+  acceptedExcerptCount: number;
 }
 
 /** Emitted after a deck refresh so the UI can reconcile without a full refetch (spec §9). */
@@ -441,23 +607,145 @@ export interface DeckRefreshEvent {
   addedCardIds: string[];
   updatedCardIds: string[];
   prunedCardIds: string[];
+  /** Companies whose stored figures or dashboards changed — lets the UI
+   * invalidate live-updating dashboard/company queries precisely. Optional
+   * for older emitters. */
+  companyIds?: string[];
 }
 
 export type DeckRefreshListener = (event: DeckRefreshEvent) => void;
 export type Unsubscribe = () => void;
+
+/** What a followed company did: Today's kinds of move. */
+export type MoveKind = 'funding' | 'launch' | 'hire' | 'deal' | 'filing';
+
+/**
+ * One dated move by a followed company, from a free source (a news feed or SEC
+ * EDGAR). The title is the publisher's own headline, or EDGAR's form name and
+ * filed items; nothing in it is written by a model.
+ */
+export interface CompanyMove {
+  id: string;
+  companyId: string;
+  companyName: string;
+  kind: MoveKind;
+  /** 3 = major, 2 = notable, 1 = minor. */
+  importance: 1 | 2 | 3;
+  title: string;
+  url: string;
+  publisher: string | null;
+  /** When the source published or filed it (ISO). */
+  publishedAt: string;
+  /** When Stratemark found it (ISO). */
+  foundAt: string;
+  source: 'news' | 'sec_filing';
+  readAt: string | null;
+}
+
+export interface CompanyFollow {
+  companyId: string;
+  followedAt: string;
+  /** The company's name, for listing follows without loading each company. */
+  companyName?: string;
+}
+
+export interface MovesRefreshResult {
+  added: number;
+  /** Followed companies looked at successfully; 0 when every one was looked at in the last day. */
+  refreshed: number;
+  refreshedAt: string | null;
+}
+
 
 export interface SavedCard {
   cardId: string;
   savedAt: string;
 }
 
+/** A user-authored entry in the deck's research knowledge base. Structural
+ * subset of the research package's evidence record (contracts cannot import
+ * the research package). */
+export interface ResearchNoteEntry {
+  id: string;
+  companyId: string;
+  companyName: string;
+  topic: string;
+  capturedAt: string;
+  text: string;
+  citations: Citation[];
+}
+
+/** What the configured provider can actually do. Features must degrade
+ * honestly when a capability is absent — never error, never fake. */
+export interface ProviderCapabilities {
+  /** Google-Search-grounded research. */
+  ground: boolean;
+  /** Structured JSON extraction. */
+  structure: boolean;
+  /** Image generation (Nano Banana covers). */
+  image: boolean;
+  /**
+   * Repository methods this engine cannot run (they would only throw). The UI
+   * hides the matching controls instead of offering a button that always fails.
+   */
+  unsupported?: readonly string[];
+}
+
+export interface ResearchPassage {
+  evidenceId: string;
+  companyId: string | null;
+  companyName: string | null;
+  topic: string;
+  capturedAt: string;
+  /** Best-matching window of the record, sentence-aligned and bounded. Verbatim record text. */
+  snippet: string;
+  citations: Citation[];
+}
+
+export interface ResearchCorpusQuery {
+  query: string;
+  /** Restrict to these companies (a deck's roster, a card's subject). Absent = the whole corpus. */
+  companyIds?: readonly string[];
+  topics?: readonly string[];
+  /** Default 8, hard cap 25. */
+  limit?: number;
+}
+
+/** One unfilled core slot on a company's card: which metric it concerns and
+ * WHY it is a gap — a valueless row exists (`unknown`) or no row at all
+ * (`absent`). A gap never carries a proposed value; filling is research's job. */
+export interface CompanyCompletenessGap {
+  metricType: MetricType;
+  /** Human label for UI display (mirrors METRIC_TYPE_LABELS). */
+  label: string;
+  state: 'unknown' | 'absent';
+}
+
+/** The honest readiness of one company's report: every core slot of its market
+ * profile that still lacks a value. `ready` is true only when `gaps` is empty. */
+export interface CompanyCompleteness {
+  companyId: string;
+  name: string;
+  profile: MarketProfile;
+  gaps: CompanyCompletenessGap[];
+  ready: boolean;
+}
+
 export interface MarketIntelRepository {
+  /** Capability report for the active engine/key. OPTIONAL — engines without
+   * capability plumbing are assumed fully capable by callers that need a
+   * default, but honest UIs should prefer this. */
+  capabilities?(): ProviderCapabilities;
+
   // Markets
   listMarkets(): Promise<Market[]>;
   getMarket(id: string): Promise<Market | null>;
   createMarket(input: CreateMarketInput): Promise<Market>;
   updateMarketCadence(id: string, cadence: RefreshCadence): Promise<Market>;
   deleteMarket?(id: string): Promise<boolean>;
+  /** Archive (or restore) a deck by its market id. Nothing is deleted; an archived
+   * deck is left out of the library, sidebar and scheduled refreshes. */
+  setMarketArchived?(id: string, archived: boolean): Promise<Market>;
 
   // Decks
   getDeckByMarket(marketId: string): Promise<Deck | null>;
@@ -476,13 +764,30 @@ export interface MarketIntelRepository {
   // Cards
   listCards(deckId: string, filter?: CardFilter): Promise<CardWithCompany[]>;
   getCard(cardId: string): Promise<CardWithCompany | null>;
+  /**
+   * Take a card out of its deck because it does not belong in this market.
+   * The company stays out of that deck even if later research finds it again.
+   * OPTIONAL — engines without it simply do not offer the action.
+   */
+  removeCard?(cardId: string): Promise<void>;
   listSavedCards(): Promise<CardWithCompany[]>;
+  /** Today: moves of followed companies, unread first, then importance, then newest. */
+  listMoves?(): Promise<CompanyMove[]>;
+  /** Look for new moves (free sources + one classification call). At most once a day unless forced. */
+  refreshMoves?(options?: { force?: boolean }): Promise<MovesRefreshResult>;
+  markMoveRead?(moveId: string, read: boolean): Promise<void>;
+  listFollows?(): Promise<CompanyFollow[]>;
+  followCompanies?(companyIds: readonly string[]): Promise<void>;
+  unfollowCompany?(companyId: string): Promise<void>;
   saveCard(cardId: string): Promise<SavedCard>;
   unsaveCard(cardId: string): Promise<void>;
 
   // Company detail
   getCompany(companyId: string): Promise<Company | null>;
+  /** Raw observations for audit/correction, not a user-facing facts projection. */
   getCompanyMetrics(companyId: string): Promise<CompanyMetric[]>;
+  /** Accepted current facts, not raw observation history; no provider calls. */
+  getCompanyFacts?(companyId: string): Promise<CompanyMetric[]>;
   getViceClaims(cardId: string): Promise<ViceClaim[]>;
 
   // Dashboard (spec §8)
@@ -507,11 +812,106 @@ export interface MarketIntelRepository {
   verifyMetric?(input: VerifyMetricInput): Promise<VerifyMetricResult>;
 
   /**
+   * ONE grounded pass re-checking every estimated figure this company has:
+   * promote to verified on reputable corroboration, demote on contradiction,
+   * leave unknowns to hunts and user-verified rows untouched. Optional — only
+   * live-research transports implement it.
+   */
+  verifyCompanyMetrics?(companyId: string): Promise<VerifyCompanyMetricsResult>;
+
+  /**
    * Hunt grounded values for ALL of a company's soft figures (missing rows,
    * unknowns, unverified estimates) in a single research pass, write them back
    * with citations, and re-tier. OPTIONAL — live-research transports only.
+   * `options.escalation` marks a retry after empty earlier passes.
    */
-  huntCompanyMetrics?(companyId: string): Promise<HuntMetricsResult>;
+  huntCompanyMetrics?(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult>;
+
+  /**
+   * Face hunt for several companies in one grounded search, each company still
+   * held to its own per-figure gates. Returns the companies it hunted; one it
+   * left out or failed is absent, for the caller to hunt alone. OPTIONAL.
+   */
+  huntFaceSlotsBatch?(companyIds: readonly string[]): Promise<Record<string, HuntMetricsResult>>;
+
+  /**
+   * Market-batch estimated fill: ONE grounded call proposes estimated-tier
+   * figures for several gapped companies at once, per-claim provider support,
+   * identity-guarded against the deck roster. Estimated tier only; structured
+   * lanes and verified evidence always take precedence. Optional capability.
+   */
+  fillMissingMarketEstimates?(deckId: string): Promise<{ filledCompanies: number; filledTypes: number }>;
+
+  /**
+   * Cross-run evidence reuse: copy a same-company (root domain or normalized
+   * legal name) twin's retained originals and evidence into this company so
+   * free recovery can re-derive its facts without provider calls. Copies
+   * evidence only — confidence is re-earned by the gates. Optional capability.
+   */
+  reuseCompanyEvidence?(companyId: string): Promise<number>;
+
+  /**
+   * Add a user-authored note to the deck's research knowledge base. The note
+   * is stored as a user_note evidence record so it flows through the same
+   * rendering and export paths as provider research. OPTIONAL.
+   */
+  addResearchNote?(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }):
+    Promise<ResearchNoteEntry>;
+
+  /**
+   * Keyword retrieval over the accumulated research corpus (evidence notes,
+   * hunts, verifications, user notes). This is how the agent and the Research
+   * tab find things in weeks of research without loading it into a prompt.
+   * Passages carry their own citations; empty query ranks by recency.
+   * OPTIONAL — engines holding saved evidence locally.
+   */
+  searchResearchCorpus?(query: ResearchCorpusQuery): Promise<ResearchPassage[]>;
+
+  /**
+   * Persist a finished research artifact (e.g. a deep-dive story) as a Report
+   * so it opens in the full-page reader and lives in the Reports library.
+   * OPTIONAL — engines holding saved research locally.
+   */
+  saveReport?(input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: Citation[] }): Promise<Report>;
+
+  /**
+   * Re-project retained company_profile evidence through the reported-claims
+   * validator and fill only rows that currently hold no value. Free: makes no
+   * provider call. OPTIONAL — engines holding saved evidence locally.
+   */
+  recoverSavedCompanyMetrics?(companyId: string): Promise<HuntMetricsResult>;
+
+  /**
+   * The completeness gate before a report or deep-dive is served: compute each
+   * company's honest core-slot gaps, and when any remain run one bounded fill
+   * pass — free recovery, the structured lanes, then at most ONE hunt with no
+   * escalation — before recomputing. `researched` lists companies any pass ran
+   * for; `stillMissing` counts what research honestly could not fill, never a
+   * proposed value. Optional — live-research transports only.
+   */
+  ensureReportReadiness?(
+    companyIds: string[],
+    options?: { signal?: AbortSignal },
+  ): Promise<{ reports: CompanyCompleteness[]; researched: string[]; stillMissing: number }>;
+
+  /**
+   * Asset lane: resolve the company's real logo from its own site and store it
+   * only over a guessed favicon (curated/Wikidata art stays). `read` must
+   * return RAW-HTML receipts (the transport's asset reader). Optional — needs
+   * a transport with web-read access; the result is honest-null when the site
+   * yields nothing.
+   */
+  fillCompanyAssets?(
+    companyId: string,
+    read: (url: string) => Promise<unknown>,
+  ): Promise<{ logo: { url: string; sourceUrl: string } | null }>;
+
+  /**
+   * Ownership lane (optional): acquired / acquisition pending / registry
+   * parent, each with citations, persisted on `company.ownership`. Never
+   * replaces a human-verified record; finding nothing keeps the stored one.
+   */
+  fillCompanyOwnership?(companyId: string): Promise<{ ownership: Ownership | null }>;
 
   /** Fill a gap in a deck via targeted micro-research (e.g. hunt Seed-stage companies). */
   expandDeck(
@@ -528,6 +928,32 @@ export interface MarketIntelRepository {
 
   // Reports — AI-composed research artifacts, kept in an organized library.
   generateReport(request: ReportRequest, handlers?: ResearchHandlers): Promise<Report>;
+  /**
+   * Package a card or a whole deck as a read-only snapshot for a share link.
+   * Reads stored research only: a tab that was never researched is simply
+   * absent. OPTIONAL — engines holding research locally.
+   */
+  exportShareSnapshot?(input: { deckId: string; cardId?: string | null }): Promise<ShareSnapshot>;
+  /**
+   * A dashboard tab only if it is already stored, exactly as the dashboard shows
+   * it; null when it was never researched. Unlike `getDashboardTab` this never
+   * starts research, so a screen can show what is known without spending.
+   * OPTIONAL — engines holding research locally.
+   */
+  peekDashboardTab?<T extends DashboardTab>(companyId: string, tab: T): Promise<DashboardTabResult<T> | null>;
+  /**
+   * Research one product for its own page: key metrics, overview, how it is
+   * received and its growth timeline, every figure sourced. Stores the result.
+   * Spends research credits, so only on request. OPTIONAL — live-research engines.
+   */
+  researchProductBrief?(input: { companyId: string; productName: string; force?: boolean }): Promise<ProductBrief>;
+  /**
+   * The websites research touched most recently, newest last, after `sinceId`.
+   * Reported as they happen; nothing here is a forecast. OPTIONAL — live-research engines.
+   */
+  listSourceActivity?(sinceId?: number): Promise<{ items: SourceActivity[]; lastId: number }>;
+  /** A stored product brief, or null when none was researched. Never researches. OPTIONAL. */
+  peekProductBrief?(companyId: string, productName: string): Promise<ProductBrief | null>;
   listReports(): Promise<Report[]>;
   getReport(id: string): Promise<Report | null>;
 

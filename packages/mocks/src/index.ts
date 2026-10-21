@@ -3,6 +3,7 @@ export * from './ids';
 export * from './dashboard-content';
 export * from './build-dataset';
 export * from './mock-repository';
+export * from './share-repository';
 // NOTE: msw-handlers is deliberately NOT re-exported here.
 //
 // It imports `msw`, whose cookie store touches `localStorage` at module-init

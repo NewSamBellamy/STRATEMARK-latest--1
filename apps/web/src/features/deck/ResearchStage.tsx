@@ -81,7 +81,7 @@ function deriveInsights(lines: LogLine[]): Insight[] {
     id: 'signals',
     eyebrow: 'What we capture per company',
     body:
-      'Market share, ARR, valuation or market cap, team size, and user base — then a maturity tier from T1 The Sandbox up to T8 The Titans.',
+      'Market share, revenue or ARR, valuation or market cap, team size, and user base — each with the source it came from.',
     icon: Layers,
     method: true,
   });

@@ -108,6 +108,13 @@ describe('Desktop IPC Schemas & Payload Validation', () => {
       expect(parsed.subjectId).toBe('deck_123');
     });
 
+    it('accepts report topics and rejects an empty or unknown list', () => {
+      const ok = reportRequestSchema.parse({ kind: 'company', subjectId: 'cmp_1', topics: ['overview', 'metrics'] });
+      expect(ok.topics).toEqual(['overview', 'metrics']);
+      expect(() => reportRequestSchema.parse({ kind: 'company', subjectId: 'cmp_1', topics: [] })).toThrow();
+      expect(() => reportRequestSchema.parse({ kind: 'company', subjectId: 'cmp_1', topics: ['gossip'] })).toThrow();
+    });
+
     it('validates expand focus options', () => {
       expect(expandFocusSchema.parse({ tier: 4 })).toEqual({ tier: 4 });
       expect(expandFocusSchema.parse({ cardType: 'infrastructure' })).toEqual({

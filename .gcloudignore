@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-electron/
+release/
+coverage/
+playwright-report/
+test-results/
+storybook-static/
+.git/
+.firebase/
+.aider*
+.claude/
+.cursor/
+*.session.json
+apps/web/shots/

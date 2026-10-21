@@ -1,0 +1,24 @@
+{
+  "name": "@mi/stratemark-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hosted API for the Stratemark web beta (Cloudflare Worker): server-held Gemini key behind daily caps, source and logo readers.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "budget": "node scripts/set-budget.mjs"
+  },
+  "dependencies": {
+    "@mi/research": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.40.0"
+  }
+}

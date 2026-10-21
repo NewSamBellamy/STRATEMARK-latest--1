@@ -19,14 +19,14 @@ import {
   Loader2,
   Newspaper,
   RefreshCw,
-  Share2,
 } from 'lucide-react';
 import { deckBakedState, type DeckBriefing } from '@mi/contracts';
 import { useCards, useDeckBriefings, useDeckByMarket, useGenerateBriefing, useMarket } from '@/hooks/data';
-import { useRepository } from '@/lib/repository/RepositoryProvider';
+import { useRepository, useRepositoryMode } from '@/lib/repository/RepositoryProvider';
 import { useApiKey } from '@/lib/settings/apiKey';
+import { SettingsLink } from '@/components/SettingsLink';
 import { buildBriefingShare } from '@/lib/share/codec';
-import { ShareDialog } from '@/features/share/ShareDialog';
+import { ExportMenu } from '@/features/export/ExportMenu';
 import { cn } from '@/lib/cn';
 import { BriefingUnboxing } from './BriefingUnboxing';
 import { BriefingReport, toBriefingView } from './BriefingReport';
@@ -46,17 +46,22 @@ export default function BriefingPage() {
   const cards = useCards(deck.data?.id);
   const briefings = useDeckBriefings(marketId);
   const generate = useGenerateBriefing();
-  const [shareOpen, setShareOpen] = useState(false);
 
   const [windowHours, setWindowHours] = useState(24);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [view, setView] = useState<'auto' | 'unbox' | 'report'>('auto');
 
   const supported = typeof repo.generateDeckBriefing === 'function' && hasKey;
-  const baked = useMemo(
-    () => deckBakedState((cards.data ?? []).map((c) => c.card)),
-    [cards.data],
-  );
+  // Same rule as the engine and the deck's "Deck ready" banner: wait only
+  // while research is actively running. A finished deck with a few honest
+  // Unknown cards is ready — it must never read as "still forming".
+  const deckStatus = (deck.data as { status?: string } | null)?.status;
+  const running = deckStatus === 'running' || deckStatus === 'refreshing';
+  const baked = useMemo(() => {
+    const st = deckBakedState((cards.data ?? []).map((c) => c.card));
+    return { ...st, baked: st.total > 0 && (!running || st.baked) };
+  }, [cards.data, running]);
+  const engine = useRepositoryMode();
   const list = briefings.data ?? [];
   const active: DeckBriefing | null =
     (activeId ? list.find((b) => b.id === activeId) : null) ?? list[0] ?? null;
@@ -109,13 +114,13 @@ export default function BriefingPage() {
           <Newspaper className="mx-auto h-8 w-8 text-muted" />
           <h1 className="mt-3 font-display text-xl font-semibold text-content">Daily Briefing</h1>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            The briefing is a live-research feature: one grounded pass hunts the last 24 hours of
-            real developments across every company in this deck and composes them into an editorial
-            report. Connect your Gemini key in Settings to turn it on.
+            {engine === 'cloud'
+              ? 'The briefing isn’t available on the cloud engine yet. Switch the engine to Local in Settings to run it on your own key.'
+              : 'The briefing searches the last 24 hours of news for every company in this deck and writes it up as one report. Add your Gemini key in Settings to turn it on.'}
           </p>
-          <Link to="/settings" className="btn-primary mt-5 inline-flex">
+          <SettingsLink className="btn-primary mt-5 inline-flex">
             Open Settings
-          </Link>
+          </SettingsLink>
         </div>
       )}
 
@@ -124,12 +129,12 @@ export default function BriefingPage() {
         <div className="panel mx-auto max-w-xl p-8 text-center">
           <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary-ink" />
           <h1 className="mt-3 font-display text-xl font-semibold text-content">
-            The deck is still baking
+            Research is still running
           </h1>
           <p className="mt-2 text-sm leading-relaxed text-muted">
             {baked.total === 0
               ? 'No company cards yet — run the research pass first.'
-              : `${baked.formed} of ${baked.total} cards have finished forming. The briefing waits for all of them: digesting a half-researched deck would put skeletons into prose.`}
+              : `${baked.formed} of ${baked.total} cards have figures so far. The briefing starts once this research pass finishes, so it doesn’t summarise half-finished cards.`}
           </p>
           {baked.total > 0 && (
             <div className="mx-auto mt-4 h-1.5 w-56 overflow-hidden rounded-full bg-surface-2">
@@ -140,7 +145,7 @@ export default function BriefingPage() {
             </div>
           )}
           <Link to={`/markets/${marketId}/deck`} className="btn-primary mt-5 inline-flex">
-            Watch the deck form
+            Back to the deck
           </Link>
         </div>
       )}
@@ -150,12 +155,11 @@ export default function BriefingPage() {
         <div className="panel mx-auto max-w-xl p-8 text-center">
           <CheckCircle2 className="mx-auto h-8 w-8 text-positive" />
           <h1 className="mt-3 font-display text-xl font-semibold text-content">
-            The deck is fully baked
+            Ready for today’s briefing
           </h1>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            All {baked.total} cards are formed. Send the desk out over {marketName}: one grounded
-            hunt across every tracked company, composed into today's briefing — and unboxed like it
-            deserves.
+            Search the latest news across all {baked.total} companies in {marketName} and get it
+            written up as one sourced briefing.
           </p>
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
             {WINDOWS.map((w) => (
@@ -186,11 +190,10 @@ export default function BriefingPage() {
             ) : (
               <Newspaper className="h-4 w-4" />
             )}
-            {generate.isPending ? 'The desk is out hunting…' : "Unbox today's briefing"}
+            {generate.isPending ? 'Searching the latest news…' : 'Create today’s briefing'}
           </button>
           <p className="mt-3 text-[11px] text-faint">
-            Costs one grounded search + one structuring call on your key (typically a fraction of a
-            cent). Article art generates progressively after the reveal.
+            Uses two Gemini calls on your key, one of them a Google search: usually around 10 cents.
           </p>
           {generate.isError && (
             <p className="mt-3 text-[12px] text-negative">
@@ -234,15 +237,13 @@ export default function BriefingPage() {
                     <RefreshCw className="h-3.5 w-3.5" />
                     Replay
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setShareOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
-                    title="Share this briefing — the unboxing, the report, and its evidence cards all travel inside the link. AI layer removed."
-                  >
-                    <Share2 className="h-3.5 w-3.5" />
-                    Share
-                  </button>
+                  <ExportMenu
+                    share={{
+                      title: `${active.marketName} — Daily Briefing`,
+                      subtitle: new Date(active.generatedAt).toLocaleDateString(),
+                      build: async () => buildShare(),
+                    }}
+                  />
                   <button
                     type="button"
                     onClick={runGenerate}
@@ -295,14 +296,6 @@ export default function BriefingPage() {
         </>
       )}
 
-      {/* The share dialog — packages the briefing + its evidence cards. */}
-      <ShareDialog
-        open={shareOpen}
-        onOpenChange={setShareOpen}
-        title={active ? `${active.marketName} — Daily Briefing` : 'Daily Briefing'}
-        subtitle={active ? new Date(active.generatedAt).toLocaleDateString() : null}
-        build={async () => buildShare()}
-      />
     </div>
   );
 }

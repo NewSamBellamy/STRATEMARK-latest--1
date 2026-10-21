@@ -6,8 +6,17 @@
  * seam between them is the `VisionJudge` function type.
  */
 import { GoogleGenAI } from '@google/genai';
+import { zodToGenAiSchema } from '@mi/research';
 import type { ServiceEnv } from '../env';
-import type { VisionJudge } from './verify';
+import { visionVerdictSchema, type VisionJudge } from './verify';
+
+/**
+ * The verdict contract as a native `responseSchema` (issue #48). Derived from
+ * the same Zod schema `parseVisionVerdict` validates against, so what the model
+ * is constrained to emit and what we accept cannot drift apart. Asking for
+ * `application/json` alone left the shape entirely up to the model.
+ */
+const VISION_RESPONSE_SCHEMA = zodToGenAiSchema(visionVerdictSchema);
 
 /**
  * Flash-Lite is the right tier here. The question is "is this a real page or a
@@ -50,7 +59,11 @@ export function createVisionJudge(opts: VisionOptions): VisionJudge | undefined 
           ],
         },
       ],
-      config: { temperature: 0, responseMimeType: 'application/json' },
+      config: {
+        temperature: 0,
+        responseMimeType: 'application/json',
+        responseSchema: VISION_RESPONSE_SCHEMA,
+      },
     });
     return result.text ?? '';
   };

@@ -3,6 +3,8 @@
  * connecting the Web / Desktop client to the deployed Sentinel Cloud Run backend.
  */
 
+import type { CompanyScope, VerifyMetricInput, VerifyMetricResult, HuntMetricsResult } from '@mi/contracts';
+
 export interface SentinelAlert {
   id: string;
   userId: string;
@@ -57,6 +59,8 @@ export async function fetchUserProfile(token?: string | null): Promise<SentinelU
 export interface CloudResearchDeckResponse {
   ok: boolean;
   stage?: string;
+  deckId?: string;
+  state?: { status?: string; error?: string };
   market?: Record<string, unknown>;
   deck?: Record<string, unknown>;
   cards?: Array<Record<string, unknown>>;
@@ -75,21 +79,19 @@ export interface CloudResearchDeckResponse {
  * Where the Sentinel cloud engine lives.
  *
  * There is deliberately NO hardcoded fallback URL. This previously defaulted to
- * `https://stratemark-sentinel-api.a.run.app`, a service that was never
+ * `https://stratemark-agent-142700126606.us-central1.run.app`, a service that was never
  * deployed — so selecting the cloud engine produced a DNS failure that looked
  * like a bug in the app rather than missing configuration.
  *
- * It also deliberately does NOT fall back to `VITE_API_BASE_URL`. That variable
- * points at the agent service in `apps/api`, which is a DIFFERENT service with a
- * different contract: it serves `/v1/*` and authenticates with `X-Gemini-Key` /
- * `X-Stratemark-Token`, whereas this module calls `/api/*` with a Bearer token.
- * Pointing one at the other produces 404s that surface as silent fallback data —
- * worse than an honest "not configured", because the app appears to work.
+ * `VITE_API_BASE_URL` is the deployment-script alias for this same Cloud Run
+ * service. Prefer it when both variables exist so a build-time deployment URL
+ * cannot be shadowed by a stale local `VITE_SENTINEL_API_URL`.
  *
  * An empty string is the honest value: callers check `isSentinelConfigured()`.
- * Set `VITE_SENTINEL_API_URL` explicitly to enable it.
+ * Set `VITE_API_BASE_URL` for deployments or `VITE_SENTINEL_API_URL` locally.
  */
-const DEFAULT_SENTINEL_URL = import.meta.env.VITE_SENTINEL_API_URL || '';
+const DEFAULT_SENTINEL_URL =
+  import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_SENTINEL_API_URL || '';
 
 /** True when a cloud endpoint is actually configured. */
 export function isSentinelConfigured(): boolean {
@@ -115,22 +117,21 @@ function getSentinelUrl(path: string): string {
   return `${cleanBase}/${subPath}`;
 }
 
-function getStoredAuthToken(): string {
+async function getStoredAuthToken(): Promise<string | null> {
   try {
-    if (typeof localStorage !== 'undefined') {
-      const raw = localStorage.getItem('stratemark_auth_user');
-      if (raw) {
-        const parsed = JSON.parse(raw) as { id?: string };
-        if (parsed.id) return parsed.id;
-      }
+    const { getAuth } = await import('firebase/auth');
+    const auth = getAuth();
+    if (auth && auth.currentUser) {
+      return await auth.currentUser.getIdToken();
     }
   } catch {
-    /* ignore */
+    /* ignore - Firebase might not be initialized */
   }
-  return 'demo-user-token';
+
+  return null;
 }
 
-async function fetchSentinel<T>(
+export async function fetchSentinel<T>(
   endpoint: string,
   options: RequestInit & { token?: string | null } = {},
 ): Promise<T> {
@@ -142,8 +143,13 @@ async function fetchSentinel<T>(
     ...(customHeaders as Record<string, string>),
   };
 
-  const authToken = token || getStoredAuthToken();
-  headers['Authorization'] = `Bearer ${authToken}`;
+  const authToken = token || await getStoredAuthToken();
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const appToken = (import.meta.env?.VITE_API_APP_TOKEN as string | undefined)?.trim();
+  if (appToken && !headers['X-Stratemark-Token'] && !headers['x-stratemark-token']) {
+    headers['X-Stratemark-Token'] = appToken;
+  }
 
   const res = await fetch(url, { ...rest, headers });
 
@@ -201,10 +207,19 @@ export async function runCloudResearchDeck(
   region?: string | null,
   targetCompanies?: number,
   token?: string | null,
+  deckId?: string,
+  companyScope?: CompanyScope,
 ): Promise<CloudResearchDeckResponse> {
   return fetchSentinel<CloudResearchDeckResponse>('/api/research/deck', {
     method: 'POST',
-    body: JSON.stringify({ prompt, region, targetCompanies }),
+    body: JSON.stringify({
+      prompt,
+      query: prompt,
+      region,
+      targetCompanies,
+      ...(companyScope ? { companyScope } : {}),
+      ...(deckId ? { deckId } : {}),
+    }),
     token,
   });
 }
@@ -273,6 +288,9 @@ export async function getCloudDeck(
   companies: Array<Record<string, unknown>>;
   metrics: Array<Record<string, unknown>>;
   viceClaims: Array<Record<string, unknown>>;
+  companySourceAttempts?: unknown;
+  originalSourceAttempts?: unknown;
+  state?: { status?: string; error?: string };
 } | null> {
   try {
     return await fetchSentinel(`/api/decks/${encodeURIComponent(deckId)}`, { token });
@@ -325,7 +343,32 @@ export async function askCloudResearch(
   });
 }
 
-/** Submit targeted micro-research expansion request to Sentinel Cloud Run backend */
+/** Re-verify one Cloud Deck metric against fresh grounded evidence. */
+export async function verifyCloudMetric(
+  input: VerifyMetricInput,
+  deckId?: string,
+  token?: string | null,
+): Promise<VerifyMetricResult> {
+  return fetchSentinel<VerifyMetricResult>('/api/research/verify', {
+    method: 'POST',
+    body: JSON.stringify(deckId ? { ...input, deckId } : input),
+    token,
+  });
+}
+
+/** Fill missing or soft company metrics in a Cloud Deck. */
+export async function huntCloudMetrics(
+  companyId: string,
+  deckId?: string,
+  token?: string | null,
+): Promise<HuntMetricsResult> {
+  return fetchSentinel<HuntMetricsResult>('/api/research/hunt-metrics', {
+    method: 'POST',
+    body: JSON.stringify({ companyId, deckId }),
+    token,
+  });
+}
+
 export async function expandCloudDeck(
   marketId: string,
   focus: { tier?: number | null; cardType?: string | null },

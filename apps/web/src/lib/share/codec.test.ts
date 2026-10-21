@@ -6,7 +6,8 @@
  * to null (the friendly error page), never to garbage data.
  */
 import { describe, expect, it } from 'vitest';
-import type { CardWithCompany } from '@mi/contracts';
+import { ownershipLabel, type CardWithCompany } from '@mi/contracts';
+import { buildCardView } from '@/features/card/card-view';
 import {
   buildReportShare,
   buildCardShare,
@@ -103,6 +104,46 @@ describe('share codec round-trip', () => {
     expect(cwc.card.tier).toBe(7);
     expect(cwc.metrics.find((m) => m.metricType === 'arr')?.confidence).toBe('verified');
     expect(cwc.viceClaims[0]?.sourceUrl).toBe('https://theverge.com/x');
+  });
+
+  it('a source-reported figure still shows on the card face after sharing (the face re-checks its proof)', async () => {
+    // A search-reported figure sits on the face only while the sentence that supports it is on the row. A share that
+    // dropped the sentence showed "Not found yet" for every figure the app itself showed.
+    const live = liveCard();
+    live.company = { ...live.company!, name: 'HelloFresh', websiteUrl: 'https://www.hellofresh.com' };
+    const citation = { title: 'sec.gov', url: 'https://www.sec.gov/hf' };
+    live.metrics = [{
+      id: 'met_r', companyId: 'cmp_1', metricType: 'employees', value: 18_000, confidence: 'estimated', source: citation.url,
+      citations: [citation], methodNote: 'Reported by Google Search', capturedAt: '2026-09-01T10:00:00.000Z',
+      reportedSupport: { provider: 'google-search', companyName: 'HelloFresh', basis: 'employees', value: 18_000, unit: 'count',
+        asOf: '2026-03-01', definition: 'employees',
+        support: { supportIndex: 3, text: 'HelloFresh employed about 18,000 people as of March 2026.', startIndex: 10, endIndex: 70,
+          sources: [{ chunkIndex: 1, url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/' + 'A'.repeat(200), title: 'sec.gov' }] } },
+    } as CardWithCompany['metrics'][number]];
+    const onFace = (cwc: CardWithCompany) => buildCardView(cwc).faceMetrics.filter((f) => f.metric?.value != null).map((f) => f.display);
+    expect(onFace(live)).toEqual(['18K']);
+
+    const decoded = (await decodeSharePayload(await encodeSharePayload(buildCardShare(live, 'Meal kits'))))!;
+    const shared = sharedToCardWithCompany(decoded.cards[0]!, 0, decoded.sharedAt);
+    expect(onFace(shared)).toEqual(['18K']);
+    // The long provider redirect is not carried, and the capture date is, so "over a month old" stays true.
+    expect(JSON.stringify(decoded)).not.toContain('grounding-api-redirect/AAAA');
+    expect(shared.metrics[0]!.capturedAt.slice(0, 10)).toBe('2026-09-01');
+    // The proof must still be the company's: a share cannot make another company's sentence count.
+    const tampered = structuredClone(decoded.cards[0]!);
+    tampered.metrics[0]!.rs!.n = 'Someone Else';
+    expect(onFace(sharedToCardWithCompany(tampered, 0, decoded.sharedAt))).toEqual([]);
+  });
+
+  it('a headcount band and an ownership line survive a share', async () => {
+    const live = liveCard();
+    live.company = { ...live.company!, name: 'Gobble', websiteUrl: 'https://www.gobble.com',
+      ownership: { status: 'acquisition_pending', acquirer: 'Forbes Intelligent Foods', closedOn: null, price: null, confidence: 'verified',
+        citations: [{ title: 'reuters.com', url: 'https://reuters.com/gobble' }, { title: 'x.com', url: 'https://x.com/y' }], methodNote: 'long note' } } as CardWithCompany['company'];
+    const decoded = (await decodeSharePayload(await encodeSharePayload(buildCardShare(live, null))))!;
+    const shared = sharedToCardWithCompany(decoded.cards[0]!, 0, decoded.sharedAt);
+    expect(ownershipLabel(shared.company?.ownership)).toContain('Forbes Intelligent Foods');
+    expect(shared.company?.ownership?.citations).toHaveLength(1);
   });
 
   it('a 10-company deck stays link-sized (compressed)', async () => {

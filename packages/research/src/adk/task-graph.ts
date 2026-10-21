@@ -30,7 +30,7 @@ import {
   type AdkTraceError,
   type LivingDeckNodeStatus,
 } from '@mi/contracts';
-import { AbortError, throwIfAborted } from '../util';
+import { throwIfAborted } from '../util';
 import { toTraceError, type AdkSpan, type AdkTelemetryHub } from './telemetry';
 
 // ============================================================================
@@ -142,6 +142,8 @@ export interface AdkTaskNode {
   outputKey?: string | null;
   /** When true (the default), a failure aborts the whole graph. */
   critical?: boolean;
+  /** Optional timeout in milliseconds for this specific node. */
+  timeoutMs?: number;
   run: (ctx: AdkTaskContext) => Promise<unknown>;
 }
 
@@ -310,14 +312,33 @@ export async function runAdkTaskGraph(
     });
 
     const task = (async (): Promise<void> => {
+      let nodeSignal = signal;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let controller: AbortController | undefined;
+      let onParentAbort: (() => void) | undefined;
+
+      if (node.timeoutMs && node.timeoutMs > 0) {
+        controller = new AbortController();
+        if (signal?.aborted) {
+          controller.abort(signal.reason);
+        } else if (signal) {
+          onParentAbort = () => controller?.abort(signal.reason);
+          signal.addEventListener('abort', onParentAbort, { once: true });
+        }
+        timer = setTimeout(() => {
+          controller?.abort(new Error(`Node "${node.id}" timed out after ${node.timeoutMs}ms`));
+        }, node.timeoutMs);
+        nodeSignal = controller.signal;
+      }
+
       try {
-        throwIfAborted(signal);
+        throwIfAborted(nodeSignal);
         const value = await node.run({
           nodeId: node.id,
           session,
           span,
           telemetry,
-          signal,
+          signal: nodeSignal,
         });
 
         if (node.outputKey) {
@@ -354,12 +375,15 @@ export async function runAdkTaskGraph(
           error: error.message,
         });
 
-        const isAbort = err instanceof AbortError || error.name === 'AbortError';
-        if (isAbort || (node.critical ?? true)) {
+        const isCritical = node.critical !== false;
+        if (isCritical) {
           stopScheduling = true;
           aborted = true;
+          cascadeSkips();
         }
       } finally {
+        if (timer) clearTimeout(timer);
+        if (signal && onParentAbort) signal.removeEventListener('abort', onParentAbort);
         running.delete(node.id);
       }
     })();

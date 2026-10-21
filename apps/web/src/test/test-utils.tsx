@@ -7,6 +7,7 @@ import type { MarketIntelRepository } from '@mi/contracts';
 import { MockRepository } from '@mi/mocks';
 import { RepositoryProvider } from '@/lib/repository/RepositoryProvider';
 import { AuthProvider } from '@/lib/auth/AuthContext';
+import { TaskManagerProvider } from '@/lib/tasks/TaskManagerContext';
 import { DeepDiveProvider } from '@/features/deepdive/DeepDive';
 import { createQueryClient } from '@/lib/query/queryClient';
 
@@ -25,7 +26,9 @@ function Providers({
     <RepositoryProvider repository={repository}>
       <QueryClientProvider client={createQueryClient()}>
         <AuthProvider>
-          <DeepDiveProvider>{children}</DeepDiveProvider>
+          <TaskManagerProvider>
+            <DeepDiveProvider>{children}</DeepDiveProvider>
+          </TaskManagerProvider>
         </AuthProvider>
       </QueryClientProvider>
     </RepositoryProvider>

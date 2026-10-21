@@ -30,6 +30,12 @@ export type PreloadRepositoryApi = Omit<
   MarketIntelRepository,
   'subscribeDeckRefresh' | 'createResearchedDeck'
 > & {
+  /** Local-only evidence read (research knowledge base), mirrored over IPC. */
+  getResearchEvidence(input: { companyId?: string; limit?: number }): unknown[];
+  addResearchNote(input: { companyId: string; companyName: string; text: string; sourceUrl?: string }): Promise<unknown>;
+  searchResearchCorpus(input: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }): Promise<unknown>;
+  verifyCompanyMetrics(companyId: string): Promise<unknown>;
+  saveReport(input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }): Promise<unknown>;
   createResearchedDeck(
     brief: Parameters<MarketIntelRepository['createResearchedDeck']>[0],
     requestId: string,
@@ -47,6 +53,8 @@ export const IPC_CHANNELS = {
   getMarket: 'mi:getMarket',
   createMarket: 'mi:createMarket',
   updateMarketCadence: 'mi:updateMarketCadence',
+  deleteMarket: 'mi:deleteMarket',
+  setMarketArchived: 'mi:setMarketArchived',
   getDeckByMarket: 'mi:getDeckByMarket',
   refreshDeck: 'mi:refreshDeck',
   createResearchedDeck: 'mi:createResearchedDeck',
@@ -55,13 +63,27 @@ export const IPC_CHANNELS = {
   listSavedCards: 'mi:listSavedCards',
   saveCard: 'mi:saveCard',
   unsaveCard: 'mi:unsaveCard',
+  listMoves: 'mi:listMoves',
+  refreshMoves: 'mi:refreshMoves',
+  markMoveRead: 'mi:markMoveRead',
+  listFollows: 'mi:listFollows',
+  followCompanies: 'mi:followCompanies',
+  unfollowCompany: 'mi:unfollowCompany',
   getCompany: 'mi:getCompany',
   getCompanyMetrics: 'mi:getCompanyMetrics',
+  getCompanyFacts: 'mi:getCompanyFacts',
   getViceClaims: 'mi:getViceClaims',
   getDashboardTab: 'mi:getDashboardTab',
   deepDive: 'mi:deepDive',
   factCheck: 'mi:factCheck',
   verifyMetric: 'mi:verifyMetric',
+  huntCompanyMetrics: 'mi:huntCompanyMetrics',
+  huntFaceSlotsBatch: 'mi:huntFaceSlotsBatch',
+  recoverSavedCompanyMetrics: 'mi:recoverSavedCompanyMetrics',
+  reuseCompanyEvidence: 'mi:reuseCompanyEvidence',
+  generateDeckBriefing: 'mi:generateDeckBriefing',
+  listDeckBriefings: 'mi:listDeckBriefings',
+  auditSite: 'mi:auditSite',
   generateReport: 'mi:generateReport',
   listReports: 'mi:listReports',
   getReport: 'mi:getReport',
@@ -72,7 +94,17 @@ export const IPC_CHANNELS = {
   listResearchThreads: 'mi:listResearchThreads',
   getResearchThread: 'mi:getResearchThread',
   saveThreadAsReport: 'mi:saveThreadAsReport',
+  exportShareSnapshot: 'mi:exportShareSnapshot',
+  peekDashboardTab: 'mi:peekDashboardTab',
+  researchProductBrief: 'mi:researchProductBrief',
+  peekProductBrief: 'mi:peekProductBrief',
+  listSourceActivity: 'mi:listSourceActivity',
   listResearchJobs: 'mi:listResearchJobs',
+  addResearchNote: 'mi:addResearchNote',
+  searchResearchCorpus: 'mi:searchResearchCorpus',
+  verifyCompanyMetrics: 'mi:verifyCompanyMetrics',
+  saveReport: 'mi:saveReport',
+  getResearchEvidence: 'mi:getResearchEvidence',
   getResearchJob: 'mi:getResearchJob',
   cancelResearchJob: 'mi:cancelResearchJob',
   resumeResearchJob: 'mi:resumeResearchJob',
@@ -89,6 +121,9 @@ export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 export const SECURE_CHANNELS = {
   getApiKey: 'mi:secure:getApiKey',
   setApiKey: 'mi:secure:setApiKey',
+  exportResearch: 'mi:secure:exportResearch',
+  importResearch: 'mi:secure:importResearch',
+  getResearchStorageInfo: 'mi:secure:getResearchStorageInfo',
   googleSignIn: 'mi:secure:googleSignIn',
   googleSignOut: 'mi:secure:googleSignOut',
 } as const;
@@ -97,6 +132,9 @@ export const SECURE_CHANNELS = {
 export interface SecureApi {
   getApiKey(): Promise<string>;
   setApiKey(key: string): Promise<void>;
+  exportResearch(): Promise<string | null>;
+  importResearch(json: string): Promise<void>;
+  getResearchStorageInfo(): Promise<{ marketCount: number; sizeBytes: number; hasBackup: boolean }>;
   googleSignIn?(): Promise<{ id: string; name: string; email: string | null; photoURL?: string | null } | null>;
   googleSignOut?(): Promise<void>;
 }

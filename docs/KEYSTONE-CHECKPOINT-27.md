@@ -1,0 +1,33 @@
+# Keystone checkpoint 27 — connected, owner-scoped cloud Ask
+
+Date: 2026-10-05 (local). Branch: `revival/initial-card-redesign`. Preceding commit: `5b5e850`.
+
+## What changed for the actual journey
+
+The legacy cloud chat handler did not return the ResearchThread contract the app consumes, did not use configured app storage or scoped deck evidence, and ran a separate model distillation flow inside a retryable Firestore transaction. It now reuses GeminiRepository Ask, including current metric provenance, finding-card context, saved original excerpts, citation attribution and acknowledged question/answer persistence. There is no second answer engine or direct Gemma credential path.
+
+Cloud Ask validates a bounded question/scope, authenticates the user, applies existing rate/spend guards, checks deck ownership and cloud entitlement before model work. Company and selected-card scopes must belong to the owned deck. Existing conversations cannot change scope. Optional attached conversations require the same user's ownership and an accessible source deck; unsupported cloud report attachments explicitly fail rather than silently disappearing. Local desktop/browser BYOK storage, credentials and approved visuals are unchanged. The existing subscription requirement applies only to cloud execution; this is not a new requirement for free local research.
+
+New conversations use independent IDs, not a shared default thread. A dedicated `research_threads` collection stores `{userId, deckId, revision, thread}`. A hash of the owner/thread pair separates document identity across users. Both memory and Firestore stores acknowledge writes, deep-copy thread data and reject stale revisions. Each save rechecks deck ownership/existence. Firestore transactions perform storage operations only; model calls stay outside transaction retries. A saved user question survives model failure. A late answer cannot overwrite newer conversation state; the API returns a clear conflict, with no automatic paid retry.
+
+Authenticated read/list endpoints and the actual SentinelRepository methods now load retained cloud conversations instead of returning null/empty stubs. Read access to owned retained history does not require active cloud execution entitlement. Deck deletion and user purge include new conversation records; no existing user data was deleted in this run. Existing unowned `chatThreads` legacy documents are not imported, overwritten or exposed; migration requires a separately proven ownership process.
+
+## Red-team and verification
+
+- Initial ten endpoint regressions failed against the old path, which reached global Firebase instead of configured storage. The direct shared-engine integration then exposed a missing legacy market scope adapter; it is normalized before Ask.
+- Additional failing cases caught conversation records left behind on deck deletion/purge, empty app-side history reads, and a stale answer returning generic failure rather than a conflict. These now pass.
+- New coverage totals 24 cases: 19 API journey/security tests, four storage tests, and one actual web-repository transport test. Checks include unauthorized/cross-user requests, out-of-deck scopes, unsupported attachments, valid source reuse and citations, create/reopen/continue/list, spend authorization, server metering, BYOK key non-retention, expired entitlement/read-only history, storage/provider failures, safe errors, concurrent slow/fast answers, object isolation, revision conflicts and replayed Firestore storage callbacks.
+- Final `pnpm check`: exit 0; workspace typechecks/lint and reported contracts 95 / mocks 15 / research 446 / desktop 33 / API 252 / web 195 tests passed.
+- Desktop `pnpm build`: exit 0. Browser `pnpm --filter @mi/web build`: exit 0, run afterward to leave browser-configured assets. Existing Firebase import/large-bundle warnings remain.
+- `git diff --check`: exit 0 before checkpoint documentation. Shared API store additions checked against all consumers; no contracts-package change or visual component edit.
+- No paid live Gemini call, credential extraction, deployed cloud validation, Firestore emulator, installer run or fresh video recording this checkpoint. Fixture/replayed SDK tests are not production source accuracy or real-world latency evidence. Credential-dependent live audits self-skipped: NOT RUN as live audits.
+
+## Limits / next measurable work
+
+This closes the identified legacy handler/response/ownership seams in code, not the entire cloud security or backend production gate. Budget/rate counters retain existing per-instance estimated limits, not a globally transactional money cap. Already-sent model requests are not canceled by access loss; independent concurrent questions may both incur work, although stale answer writes are rejected. Request-level idempotency/leases remain future work.
+
+History lookup is interim: at most 100 records before filters, no pagination or guaranteed globally newest selection; it reads full bounded thread documents. One thread is limited to 800 KB; large conversations need partitioned storage. Existing deletion/purge uses one Firestore batch and can exceed service limits for large accounts; concurrent deletion races and scalable cleanup need an explicit retention pass. Current repository memory distillation retains a full audit transcript and can resend too much history; it is not yet a complete incremental token-budgeted memory system. Cited semantic facts still need independent entailment/entity/period acceptance, not an authoritative-sounding label.
+
+Cloud report creation/attachment is still unavailable. Saved dashboard-tab narrative is not yet part of a complete canonical company dossier, and evidence-aware Ask does not independently verify every sentence. The first-eight-company excerpt search, original-source access limitations and known metric/history semantics from checkpoint 26 still apply. Do not treat cloud Ask as proof that public/private research, dashboards, Scout scheduling, specialist reports, scores, multi-provider routing, local MCP or installer production journeys are finished.
+
+Next high-value action: return to the source-to-company vertical slice from the delivery map. Obtain a bounded real configured-key run with accepted original evidence, or a specific unavailable state, and verify card/reader/one deeper dashboard/save-reopen agreement. Prioritize first-ready data and a useful, inspectable dossier over more isolated guard refactoring. Carry the same facts into source-backed narratives; track real request counts, first-ready timing and unresolved sources. Do not launch broad paid census tests or declare live accuracy from fixtures.

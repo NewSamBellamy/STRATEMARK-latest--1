@@ -10,7 +10,7 @@ import fs from 'fs';
 describe('Institutional 30-Company Market Census Live Benchmark', () => {
   it('executes a 30-company live census across 3 vectors with macro signals and proxy hydration', async () => {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    if (!apiKey) {
+    if (!apiKey || process.env.LIVE_TESTS !== '1') {
       console.warn('Skipping live census test — no API key in environment.');
       return;
     }

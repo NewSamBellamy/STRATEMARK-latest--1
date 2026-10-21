@@ -2,13 +2,19 @@
 import type { z } from 'zod';
 import type {
   boardMemberSchema,
+  businessRelationshipSchema,
   brandThemeSchema,
+  companyFoundedSchema,
   capTableSliceSchema,
   cardSchema,
   companyMetricSchema,
+  reportedMetricSupportSchema,
   companySchema,
   deckSchema,
   historyContentSchema,
+  companyVideoSchema,
+  historyVideoSchema,
+  productBriefSchema,
   liveIntelContentSchema,
   liveIntelItemSchema,
   liveLandingContentSchema,
@@ -17,6 +23,7 @@ import type {
   missionGovernanceContentSchema,
   orgNodeSchema,
   overviewContentSchema,
+  ownershipSchema,
   productSchema,
   productsRoadmapContentSchema,
   quoteSchema,
@@ -39,13 +46,20 @@ export type Market = z.infer<typeof marketSchema>;
 export type Deck = z.infer<typeof deckSchema>;
 export type BrandTheme = z.infer<typeof brandThemeSchema>;
 export type Company = z.infer<typeof companySchema>;
+export type CompanyFounded = z.infer<typeof companyFoundedSchema>;
+export type Ownership = z.infer<typeof ownershipSchema>;
+export type OwnershipStatus = Ownership['status'];
 export type CompanyMetric = z.infer<typeof companyMetricSchema>;
+export type ReportedMetricSupport = z.infer<typeof reportedMetricSupportSchema>;
 export type Card = z.infer<typeof cardSchema>;
 export type ViceClaim = z.infer<typeof viceClaimSchema>;
 
 export type OverviewContent = z.infer<typeof overviewContentSchema>;
 export type LiveIntelItem = z.infer<typeof liveIntelItemSchema>;
 export type LiveIntelContent = z.infer<typeof liveIntelContentSchema>;
+export type CompanyVideo = z.infer<typeof companyVideoSchema>;
+export type HistoryVideo = z.infer<typeof historyVideoSchema>;
+export type ProductBrief = z.infer<typeof productBriefSchema>;
 export type OrgNode = z.infer<typeof orgNodeSchema>;
 export type TeamOrgContent = z.infer<typeof teamOrgContentSchema>;
 export type LiveLandingContent = z.infer<typeof liveLandingContentSchema>;
@@ -59,11 +73,19 @@ export type Quote = z.infer<typeof quoteSchema>;
 export type HistoryContent = z.infer<typeof historyContentSchema>;
 export type Product = z.infer<typeof productSchema>;
 export type RoadmapItem = z.infer<typeof roadmapItemSchema>;
+export type BusinessRelationship = z.infer<typeof businessRelationshipSchema>;
 export type ProductsRoadmapContent = z.infer<typeof productsRoadmapContentSchema>;
 
 /** Strongly-typed map from tab id → its content payload type. */
+/** The Research & Sources tab reads retained evidence directly — it never
+ * runs provider research, so its content is a local projection, not a cache. */
+export interface ResearchContent {
+  markdown: string;
+}
+
 export interface DashboardContentMap {
   overview: OverviewContent;
+  research: ResearchContent;
   live_intel: LiveIntelContent;
   team_org: TeamOrgContent;
   live_landing: LiveLandingContent;

@@ -12,6 +12,10 @@ import {
   type DeckRefreshEvent,
   type DeckRefreshListener,
   type PreloadRepositoryApi,
+  type ResearchNoteEntry,
+  type ResearchPassage,
+  type VerifyCompanyMetricsResult,
+  type Report,
   type ResearchJob,
   type ResearchProgressEvent,
   type ResearchProgressListener,
@@ -24,6 +28,8 @@ const api: PreloadRepositoryApi = {
   createMarket: (input) => ipcRenderer.invoke(IPC_CHANNELS.createMarket, input),
   updateMarketCadence: (id, cadence) =>
     ipcRenderer.invoke(IPC_CHANNELS.updateMarketCadence, id, cadence),
+  deleteMarket: (id) => ipcRenderer.invoke(IPC_CHANNELS.deleteMarket, id),
+  setMarketArchived: (id, archived) => ipcRenderer.invoke(IPC_CHANNELS.setMarketArchived, id, archived),
   getDeckByMarket: (marketId) => ipcRenderer.invoke(IPC_CHANNELS.getDeckByMarket, marketId),
   refreshDeck: (marketId) => ipcRenderer.invoke(IPC_CHANNELS.refreshDeck, marketId),
   // Progress handlers can't cross IPC; the renderer polls/receives events instead.
@@ -34,8 +40,15 @@ const api: PreloadRepositoryApi = {
   listSavedCards: () => ipcRenderer.invoke(IPC_CHANNELS.listSavedCards),
   saveCard: (cardId) => ipcRenderer.invoke(IPC_CHANNELS.saveCard, cardId),
   unsaveCard: (cardId) => ipcRenderer.invoke(IPC_CHANNELS.unsaveCard, cardId),
+  listMoves: () => ipcRenderer.invoke(IPC_CHANNELS.listMoves),
+  refreshMoves: (options) => ipcRenderer.invoke(IPC_CHANNELS.refreshMoves, options),
+  markMoveRead: (moveId, read) => ipcRenderer.invoke(IPC_CHANNELS.markMoveRead, moveId, read),
+  listFollows: () => ipcRenderer.invoke(IPC_CHANNELS.listFollows),
+  followCompanies: (companyIds) => ipcRenderer.invoke(IPC_CHANNELS.followCompanies, companyIds),
+  unfollowCompany: (companyId) => ipcRenderer.invoke(IPC_CHANNELS.unfollowCompany, companyId),
   getCompany: (companyId) => ipcRenderer.invoke(IPC_CHANNELS.getCompany, companyId),
   getCompanyMetrics: (companyId) => ipcRenderer.invoke(IPC_CHANNELS.getCompanyMetrics, companyId),
+  getCompanyFacts: (companyId) => ipcRenderer.invoke(IPC_CHANNELS.getCompanyFacts, companyId),
   getViceClaims: (cardId) => ipcRenderer.invoke(IPC_CHANNELS.getViceClaims, cardId),
   getDashboardTab: (companyId, tab, force) =>
     ipcRenderer.invoke(IPC_CHANNELS.getDashboardTab, companyId, tab, force),
@@ -44,6 +57,13 @@ const api: PreloadRepositoryApi = {
   verifyMetric: (input) => ipcRenderer.invoke(IPC_CHANNELS.verifyMetric, input),
   generateReport: (request) => ipcRenderer.invoke(IPC_CHANNELS.generateReport, request),
   listReports: () => ipcRenderer.invoke(IPC_CHANNELS.listReports),
+  huntCompanyMetrics: (id, options) => ipcRenderer.invoke(IPC_CHANNELS.huntCompanyMetrics, id, options),
+  huntFaceSlotsBatch: (companyIds) => ipcRenderer.invoke(IPC_CHANNELS.huntFaceSlotsBatch, companyIds),
+  recoverSavedCompanyMetrics: (id) => ipcRenderer.invoke(IPC_CHANNELS.recoverSavedCompanyMetrics, id),
+  reuseCompanyEvidence: (id) => ipcRenderer.invoke(IPC_CHANNELS.reuseCompanyEvidence, id),
+  generateDeckBriefing: (id, opts) => ipcRenderer.invoke(IPC_CHANNELS.generateDeckBriefing, id, opts),
+  listDeckBriefings: (id) => ipcRenderer.invoke(IPC_CHANNELS.listDeckBriefings, id),
+  auditSite: (input) => ipcRenderer.invoke(IPC_CHANNELS.auditSite, input),
   getReport: (id) => ipcRenderer.invoke(IPC_CHANNELS.getReport, id),
   expandDeck: (marketId, focus) => ipcRenderer.invoke(IPC_CHANNELS.expandDeck, marketId, focus),
   overrideMetric: (input) => ipcRenderer.invoke(IPC_CHANNELS.overrideMetric, input),
@@ -54,6 +74,11 @@ const api: PreloadRepositoryApi = {
   getResearchThread: (id) => ipcRenderer.invoke(IPC_CHANNELS.getResearchThread, id),
   saveThreadAsReport: (threadId, focus) =>
     ipcRenderer.invoke(IPC_CHANNELS.saveThreadAsReport, threadId, focus),
+  peekDashboardTab: (companyId, tab) => ipcRenderer.invoke(IPC_CHANNELS.peekDashboardTab, companyId, tab),
+  researchProductBrief: (input) => ipcRenderer.invoke(IPC_CHANNELS.researchProductBrief, input),
+  peekProductBrief: (companyId, productName) => ipcRenderer.invoke(IPC_CHANNELS.peekProductBrief, companyId, productName),
+  listSourceActivity: (sinceId) => ipcRenderer.invoke(IPC_CHANNELS.listSourceActivity, sinceId),
+  exportShareSnapshot: (input) => ipcRenderer.invoke(IPC_CHANNELS.exportShareSnapshot, input),
   listResearchJobs: () =>
     ipcRenderer.invoke(IPC_CHANNELS.listResearchJobs) as Promise<ResearchJob[]>,
   getResearchJob: (id) =>
@@ -62,6 +87,16 @@ const api: PreloadRepositoryApi = {
     ipcRenderer.invoke(IPC_CHANNELS.cancelResearchJob, id) as Promise<ResearchJob | null>,
   resumeResearchJob: (id) =>
     ipcRenderer.invoke(IPC_CHANNELS.resumeResearchJob, id) as Promise<ResearchJob | null>,
+  addResearchNote: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.addResearchNote, input) as Promise<ResearchNoteEntry>,
+  searchResearchCorpus: (input: { query: string; companyIds?: string[]; topics?: string[]; limit?: number }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.searchResearchCorpus, input) as Promise<ResearchPassage[]>,
+  verifyCompanyMetrics: (companyId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.verifyCompanyMetrics, { companyId }) as Promise<VerifyCompanyMetricsResult>,
+  saveReport: (input: { kind: 'company' | 'deck' | 'site_audit'; subjectId: string; title: string; markdown: string; citations: { title: string; url: string }[] }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveReport, input) as Promise<Report>,
+  getResearchEvidence: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getResearchEvidence, input) as unknown as unknown[],
   googleSignIn: () => ipcRenderer.invoke(IPC_CHANNELS.googleSignIn),
   googleSignOut: () => ipcRenderer.invoke(IPC_CHANNELS.googleSignOut),
   onAuthCallback: (listener) => {
@@ -92,6 +127,9 @@ contextBridge.exposeInMainWorld('mi', api);
 const secure: SecureApi = {
   getApiKey: () => ipcRenderer.invoke(SECURE_CHANNELS.getApiKey),
   setApiKey: (key) => ipcRenderer.invoke(SECURE_CHANNELS.setApiKey, key),
+  exportResearch: () => ipcRenderer.invoke(SECURE_CHANNELS.exportResearch),
+  importResearch: (json) => ipcRenderer.invoke(SECURE_CHANNELS.importResearch, json),
+  getResearchStorageInfo: () => ipcRenderer.invoke(SECURE_CHANNELS.getResearchStorageInfo),
   googleSignIn: () => ipcRenderer.invoke(SECURE_CHANNELS.googleSignIn),
   googleSignOut: () => ipcRenderer.invoke(SECURE_CHANNELS.googleSignOut),
 };

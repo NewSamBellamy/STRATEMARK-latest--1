@@ -10,10 +10,10 @@ export function LiveBadge({ lastRefreshedAt }: { lastRefreshedAt?: string | null
   return (
     <span
       className="chip border-primary/40 bg-primary/10 text-primary-ink"
-      title="Refreshed by the live research pipeline when the back end is wired."
+      title="Refreshed by the live research pipeline."
     >
       <Radio className="h-3.5 w-3.5" />
-      Live · updated {formatRelative(lastRefreshedAt)}
+      {lastRefreshedAt ? `Live · updated ${formatRelative(lastRefreshedAt)}` : 'Live'}
     </span>
   );
 }

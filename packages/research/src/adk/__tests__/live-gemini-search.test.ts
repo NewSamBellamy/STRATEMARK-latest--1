@@ -7,7 +7,7 @@ import fs from 'fs';
 describe('Live Google Grounded Search on Gemini API Benchmark', () => {
   it('executes a real search on Google Gemini API and captures timing + real candidates', async () => {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    if (!apiKey) {
+    if (!apiKey || process.env.LIVE_TESTS !== '1') {
       console.warn('Skipping live Gemini search test — no API key in environment.');
       return;
     }

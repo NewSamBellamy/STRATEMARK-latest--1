@@ -25,6 +25,7 @@ import {
   type DiscoveryVector,
 } from '@mi/contracts';
 import { discoveryOutSchema } from '../schemas';
+import { isPlaceholderCompany } from '../placeholder-names';
 import {
   GROUNDED_SYSTEM,
   STRUCTURE_SYSTEM,
@@ -125,7 +126,7 @@ export interface DiscoveryAgentOptions {
 
 function isUsableName(name: string): boolean {
   const trimmed = name.trim();
-  return trimmed.length > 1 && trimmed.length < 120;
+  return trimmed.length > 1 && trimmed.length < 120 && !isPlaceholderCompany(trimmed);
 }
 
 function toCandidate(
@@ -178,7 +179,7 @@ export async function runDiscoveryVector(
     span.toolCall('llm.ground', { vector });
     const grounded = await client.ground(
       discoverPrompt(plan, target, focus, [...(options.exclude ?? [])], VECTOR_SEARCH_ANGLES[vector]),
-      { system: GROUNDED_SYSTEM, signal },
+      { system: GROUNDED_SYSTEM, label: 'market:discover', signal },
     );
     span.toolResult('llm.ground', {
       vector,
@@ -199,7 +200,7 @@ export async function runDiscoveryVector(
     const candidates: TopologyCandidate[] = [];
     let rejected = 0;
     for (const row of structured.companies) {
-      if (!isUsableName(row.name)) {
+      if (!isUsableName(row.name) || isPlaceholderCompany(row.name, row.descriptor)) {
         rejected += 1;
         continue;
       }

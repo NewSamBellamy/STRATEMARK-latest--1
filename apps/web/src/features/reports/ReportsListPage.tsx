@@ -131,7 +131,7 @@ export default function ReportsListPage() {
                       </div>
                       <p className="mt-1 text-xs text-muted">
                         <span className="capitalize">{KIND_LABEL[r.kind] ?? r.kind}</span> ·{' '}
-                        {formatRelative(r.createdAt)} · {r.citations.length} sources
+                        {formatRelative(r.createdAt)} · {r.citations.length > 0 ? `${r.citations.length} ${r.citations.length === 1 ? 'source' : 'sources'}` : r.kind === 'deck' ? 'research plan' : 'no sources'}
                       </p>
                     </div>
                     <ArrowRight className="h-5 w-5 shrink-0 text-muted transition-transform group-hover:translate-x-0.5" />

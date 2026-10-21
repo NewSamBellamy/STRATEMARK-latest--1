@@ -13,13 +13,38 @@
 import { useEffect, useState } from 'react';
 import type { OrgNode } from '@mi/contracts';
 import { cn } from '@/lib/cn';
+import { fetchWikidataHeadshot } from '@/lib/media/wikidataHeadshot';
+import { loadPersisted, makeLimiter, savePersisted } from '@/lib/media/headshotCache';
+import { LruCache, fetchWithTimeout } from '@/lib/media/lookupCache';
 
-interface Headshot {
+export interface Headshot {
   thumb: string;
   sourceUrl: string;
 }
 
-const headshotCache = new Map<string, Headshot | null>();
+const headshotCache = new LruCache<string, Headshot | null>(500);
+const inflightHeadshots = new Map<string, Promise<Headshot | null>>();
+const limit = makeLimiter(3);
+
+/**
+ * The fetch for one headshot resolution: every request is time-bounded, and a
+ * request that fails (network, timeout, 429/5xx) marks the resolution
+ * incomplete, so its miss is never remembered as "this person has no photo".
+ */
+function trackedFetch(): { f: typeof fetch; failed: () => boolean } {
+  let failed = false;
+  const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    try {
+      const res = await fetchWithTimeout(input, init);
+      if (res.status === 429 || res.status >= 500) failed = true;
+      return res;
+    } catch (err) {
+      failed = true;
+      throw err;
+    }
+  }) as typeof fetch;
+  return { f, failed: () => failed };
+}
 
 interface WikiSummary {
   thumbnail?: { source?: string };
@@ -28,15 +53,27 @@ interface WikiSummary {
   content_urls?: { desktop?: { page?: string } };
 }
 
+/**
+ * Article summaries by title, for the session. A 404 is a fact about the title
+ * ("no such article") and is remembered, so the same missing name isn't asked
+ * for again by every avatar and retry; a network/429/5xx failure is not, and
+ * is retried next time.
+ */
+const summaryCache = new LruCache<string, WikiSummary | null>(500);
+
 /** Fetch a Wikipedia article summary by exact title; null on any failure. */
-async function wikiSummary(title: string): Promise<WikiSummary | null> {
+async function wikiSummary(f: typeof fetch, title: string): Promise<WikiSummary | null> {
+  if (summaryCache.has(title)) return summaryCache.get(title) ?? null;
   try {
-    const res = await fetch(
+    const res = await f(
       `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`,
       { headers: { accept: 'application/json' } },
     );
+    if (res.status === 404) summaryCache.set(title, null);
     if (!res.ok) return null;
-    return (await res.json()) as WikiSummary;
+    const summary = (await res.json()) as WikiSummary;
+    summaryCache.set(title, summary);
+    return summary;
   } catch {
     return null;
   }
@@ -70,31 +107,49 @@ function verifiedShot(
  * misses — wrong title, disambiguation page, no company mention — a Wikipedia
  * search for "{name} {company}" finds the real article title and the summary
  * is re-fetched and re-verified. Both attempts pass the same verification
- * gate; only a confirmed match ever renders. Results (including misses) cache.
+ * gate; only a confirmed match ever renders. Results (including misses) cache,
+ * except a miss from a lookup that failed part-way — that one is retried.
  */
-async function fetchWikiHeadshot(
-  personName: string,
-  companyName: string,
-): Promise<Headshot | null> {
+function fetchWikiHeadshot(personName: string, companyName: string): Promise<Headshot | null> {
   const key = `${personName}::${companyName}`;
-  if (headshotCache.has(key)) return headshotCache.get(key) ?? null;
+  if (headshotCache.has(key)) return Promise.resolve(headshotCache.get(key) ?? null);
+  const persisted = loadPersisted<Headshot>(key);
+  if (persisted.hit) {
+    headshotCache.set(key, persisted.value);
+    return Promise.resolve(persisted.value);
+  }
+  // One person usually appears several times on a tab (leadership grid, org
+  // chart, board list) and every avatar mounts at once — share the lookup.
+  const pending = inflightHeadshots.get(key);
+  if (pending) return pending;
+  const lookup = limit(async () => {
+    const { f, failed } = trackedFetch();
+    const shot = await resolveHeadshot(f, personName, companyName);
+    if (shot || !failed()) {
+      headshotCache.set(key, shot);
+      savePersisted(key, shot);
+    }
+    return shot;
+  }).finally(() => inflightHeadshots.delete(key));
+  inflightHeadshots.set(key, lookup);
+  return lookup;
+}
+
+async function resolveHeadshot(f: typeof fetch, personName: string, companyName: string): Promise<Headshot | null> {
 
   // Attempt 1: the article usually lives at the person's exact name.
   const direct = verifiedShot(
-    await wikiSummary(personName),
+    await wikiSummary(f, personName),
     personName,
     personName,
     companyName,
   );
-  if (direct) {
-    headshotCache.set(key, direct);
-    return direct;
-  }
+  if (direct) return direct;
 
   // Attempt 2: search Wikipedia for the person IN their company context —
   // finds "Name (executive)"-style titles and articles the direct miss hides.
   try {
-    const res = await fetch(
+    const res = await f(
       `https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=3&format=json&origin=*&srsearch=${encodeURIComponent(
         `${personName} ${companyName}`,
       )}`,
@@ -107,34 +162,37 @@ async function fetchWikiHeadshot(
       for (const hit of data.query?.search ?? []) {
         const title = hit.title?.trim();
         if (!title) continue;
-        const shot = verifiedShot(await wikiSummary(title), title, personName, companyName);
-        if (shot) {
-          headshotCache.set(key, shot);
-          return shot;
-        }
+        const shot = verifiedShot(await wikiSummary(f, title), title, personName, companyName);
+        if (shot) return shot;
       }
     }
   } catch {
     // fall through to the honest miss
   }
 
-  headshotCache.set(key, null);
-  return null;
+  // Attempt 3: Wikidata — a human tied to the company by employer/position
+  // claims, with a Commons portrait (P18). Namesakes elsewhere are rejected.
+  const wd = await fetchWikidataHeadshot(personName, companyName, [], f);
+  return wd ? { thumb: wd.thumb, sourceUrl: wd.sourceUrl } : null;
 }
 
 /** Shared hook: resolve the verified headshot for a person at a company. */
-function useWikiHeadshot(name: string, companyName: string): Headshot | null {
-  const [shot, setShot] = useState<Headshot | null>(null);
+export function useWikiHeadshot(name: string, companyName: string): Headshot | null {
+  const key = `${name}::${companyName}`;
+  // The face is remembered WITH whose face it is: an avatar reused for another
+  // person (a list re-filtered, re-sorted or re-keyed) must never keep showing
+  // the previous person's photo while the new lookup runs.
+  const [shot, setShot] = useState<{ key: string; shot: Headshot | null } | null>(null);
   useEffect(() => {
     let live = true;
     void fetchWikiHeadshot(name, companyName).then((s) => {
-      if (live) setShot(s);
+      if (live) setShot({ key: `${name}::${companyName}`, shot: s });
     });
     return () => {
       live = false;
     };
   }, [name, companyName]);
-  return shot;
+  return shot?.key === key ? shot.shot : null;
 }
 
 const GROUP_RING: Record<OrgNode['group'], string> = {
@@ -145,7 +203,11 @@ const GROUP_RING: Record<OrgNode['group'], string> = {
   other: 'ring-slate-300/60',
 };
 
-function initialsOf(name: string): string {
+export function photoCredit(shot: Headshot): string {
+  return /wikipedia.org/.test(shot.sourceUrl) ? 'Photo: Wikipedia' : 'Photo: Wikimedia Commons';
+}
+
+export function initialsOf(name: string): string {
   return name
     .split(/\s+/)
     .filter(Boolean)
@@ -180,7 +242,13 @@ export function WikiAvatar({
       )}
     >
       {shot ? (
-        <img src={shot.thumb} alt={name} className="h-full w-full object-cover" loading="lazy" />
+        <img
+          src={shot.thumb}
+          alt={name}
+          title={photoCredit(shot)}
+          className="h-full w-full object-cover"
+          loading="lazy"
+        />
       ) : (
         <span
           className={cn(
@@ -222,6 +290,7 @@ function LeaderCard({
           <img
             src={shot.thumb}
             alt={person.name}
+            title={photoCredit(shot)}
             className="h-full w-full object-cover"
             loading="lazy"
           />

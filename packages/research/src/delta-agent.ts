@@ -26,6 +26,7 @@
  *      - Missing data is honestly reported as null / unknown with method notes.
  */
 
+import { isPlaceholderCompany } from './placeholder-names';
 import {
   buildCmsInput,
   computeCms,
@@ -52,6 +53,7 @@ import {
 } from './prompts';
 import { rootDomain, throwIfAborted } from './util';
 import { hydrateCompanyCard } from './company-agent';
+import type { OriginalSourceServices } from './original-source';
 import type {
   Citation,
   CompanyCandidate,
@@ -103,6 +105,7 @@ export interface DeltaExecutionStats {
 }
 
 export interface DeltaSearchOptions {
+  originalSources?: OriginalSourceServices;
   focus: ExpandFocus | string;
   target?: number;
   exclude?: EntityExclusionInput;
@@ -122,7 +125,19 @@ export interface DeltaSearchResult {
   stats: DeltaExecutionStats;
 }
 
+export interface DeltaDiscovery {
+  plan: MarketPlan;
+  translated: TranslatedFocus;
+  candidates: CompanyCandidate[];
+  rejected: string[];
+  citations: Citation[];
+  discoveredCount: number;
+  deduplicatedCount: number;
+  excludedCount: number;
+}
+
 export interface ExpandDeckWithDeltaAgentArgs {
+  originalSources?: OriginalSourceServices;
   client: LlmClient;
   marketName: string;
   vertical: string;
@@ -481,6 +496,21 @@ export class IncrementalDeltaAgent {
   async searchDelta(options: DeltaSearchOptions): Promise<DeltaSearchResult> {
     const emit: OnResearchEvent = options.onEvent ?? (() => {});
     const target = Math.max(1, options.target ?? 3);
+    const { plan, translated, candidates, rejected, citations, discoveredCount, deduplicatedCount, excludedCount } =
+      await this.discoverDelta(options);
+    return this.hydrateDelta(options, { plan, translated, candidates, rejected, citations }, {
+      target, discoveredCount, deduplicatedCount, excludedCount, emit,
+    });
+  }
+
+  /**
+   * Discovery half of a delta pass: one grounded search plus one structuring
+   * call, diffed against the deck. Returns candidates without researching
+   * them, so a caller can show them at once and hydrate them however it likes.
+   */
+  async discoverDelta(options: DeltaSearchOptions): Promise<DeltaDiscovery> {
+    const emit: OnResearchEvent = options.onEvent ?? (() => {});
+    const target = Math.max(1, options.target ?? 3);
     throwIfAborted(options.signal);
 
     // 1. Translate Focus Directive
@@ -496,7 +526,7 @@ export class IncrementalDeltaAgent {
     // 2. Build Exclusion Clause & Identity Key Set
     const exclusion = buildExclusionClause(options.exclude);
 
-    emit({
+    await emit({
       type: 'status',
       step: 'discover',
       message: `Hunting: ${translated.focusPrompt}`,
@@ -512,7 +542,7 @@ export class IncrementalDeltaAgent {
     ].join('\n');
 
     const grounded = await this.client.ground(groundPrompt, {
-      system: GROUNDED_SYSTEM,
+      system: GROUNDED_SYSTEM, label: 'deck:refresh-discover',
       signal: options.signal,
     });
 
@@ -534,6 +564,10 @@ export class IncrementalDeltaAgent {
 
     for (const c of structured.companies ?? []) {
       const name = c.name.trim();
+      if (isPlaceholderCompany(name, c.descriptor)) {
+        rejected.push(name);
+        continue;
+      }
       const domain = rootDomain(c.domain);
       const keys = buildEntityIdentityKeys(name, domain);
 
@@ -595,16 +629,30 @@ export class IncrementalDeltaAgent {
       }
     }
 
-    emit({ type: 'candidates', candidates });
+    await emit({ type: 'candidates', candidates });
+
+    return {
+      plan, translated, candidates, rejected, citations: [...grounded.citations],
+      discoveredCount: structured.companies?.length ?? 0, deduplicatedCount, excludedCount,
+    };
+  }
+
+  private async hydrateDelta(
+    options: DeltaSearchOptions,
+    found: Pick<DeltaDiscovery, 'plan' | 'translated' | 'candidates' | 'rejected' | 'citations'>,
+    counts: { target: number; discoveredCount: number; deduplicatedCount: number; excludedCount: number; emit: OnResearchEvent },
+  ): Promise<DeltaSearchResult> {
+    const { plan, translated, candidates, rejected } = found;
+    const { target, discoveredCount, deduplicatedCount, excludedCount, emit } = counts;
 
     // 6. Full Subagent Hydration via CompanyAgent
     const resultCards: CardWithCompany[] = [];
-    const allCitations: Citation[] = [...grounded.citations];
+    const allCitations: Citation[] = [...found.citations];
 
     for (const candidate of candidates) {
       throwIfAborted(options.signal);
 
-      emit({
+      await emit({
         type: 'status',
         step: 'enrich',
         message: `Researched ${candidate.name}`,
@@ -612,6 +660,8 @@ export class IncrementalDeltaAgent {
 
       // Hydrate via deep module company-agent
       const hydration = await hydrateCompanyCard({
+        originalSources: options.originalSources,
+        recoverMissingMetrics: true,
         candidate,
         client: this.client,
         plan,
@@ -627,6 +677,7 @@ export class IncrementalDeltaAgent {
 
       // Perform tier review if candidate was scored and tier review is enabled
       if (
+        !options.originalSources &&
         options.reviewTiers !== false &&
         hydration.cmsResult.baseTier != null &&
         hydration.cmsResult.finalTier != null
@@ -680,13 +731,13 @@ export class IncrementalDeltaAgent {
       // Collect emitted cards
       for (const cwc of hydration.cards) {
         resultCards.push(cwc);
-        emit({ type: 'card', card: cwc });
+        await emit({ type: 'card', card: cwc });
       }
     }
 
     const stats: DeltaExecutionStats = {
       target,
-      discoveredCount: structured.companies?.length ?? 0,
+      discoveredCount,
       deduplicatedCount,
       excludedCount,
       addedCount: resultCards.length,
@@ -759,6 +810,7 @@ export async function expandDeckWithDeltaAgent(
     args.focus ?? (args.focusPrompt || 'notable companies missed in the initial pass');
 
   const result = await agent.searchDelta({
+    originalSources: args.originalSources,
     focus: focusInput,
     target: args.target ?? 3,
     exclude: excludeItems,

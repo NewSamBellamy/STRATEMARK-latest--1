@@ -3,17 +3,24 @@
  * Client-side via pptxgenjs (dynamically imported to keep the bundle lean).
  */
 import type PptxGenJS from 'pptxgenjs';
-import type { CardWithCompany, MaturityTier } from '@mi/contracts';
-import { TIER_LABELS } from '@mi/contracts';
-import { formatMetricValue } from '@/lib/format';
+import { isEntityCardType, publisherOf, type CardWithCompany, type MetricType } from '@mi/contracts';
+import { sourceHref } from '@/lib/sourceHref';
+import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
+import { toMetricRow } from '@/features/export/exportModel';
 
 const INK = '18181B';
 const MUTED = '6B6B72';
 const ACCENT = 'F15A24';
 
-function metric(c: CardWithCompany, type: string): string {
-  const m = c.metrics.find((x) => x.metricType === type && x.value != null);
-  return m ? formatMetricValue(m.metricType, m.value) : '—';
+/** A figure only appears when it is sourced (Rule 9); otherwise an honest Unknown. */
+function metric(c: CardWithCompany, type: MetricType): string {
+  const row = toMetricRow(type, c.metrics.find((x) => x.metricType === type));
+  return row.unknown ? 'Unknown' : row.valueText;
+}
+
+function valuation(c: CardWithCompany): string {
+  const v = metric(c, 'valuation');
+  return v !== 'Unknown' ? v : metric(c, 'market_cap');
 }
 
 export async function exportDeckPptx(args: {
@@ -24,7 +31,7 @@ export async function exportDeckPptx(args: {
   const { default: PptxGen } = await import('pptxgenjs');
   const pptx = new PptxGen();
   pptx.layout = 'LAYOUT_16x9';
-  pptx.author = 'Market Intel Deck Builder';
+  pptx.author = 'Stratemark';
 
   // 1) Title slide
   const title = pptx.addSlide();
@@ -35,27 +42,31 @@ export async function exportDeckPptx(args: {
   title.addText('Competitive intelligence deck · grounded research with cited sources', {
     x: 0.6, y: 2.7, w: 9, h: 0.5, fontSize: 14, color: MUTED,
   });
-  title.addText(`Generated ${new Date().toLocaleDateString()} · Market Intel Deck Builder (open source)`, {
+  title.addText(`Generated ${new Date().toLocaleDateString()} · Stratemark`, {
     x: 0.6, y: 4.9, w: 9, h: 0.4, fontSize: 10, color: MUTED,
   });
 
-  // 2) Landscape table slide
-  const companies = args.cards.filter((c) => c.card.cardType === 'company' && c.company);
+  // 2) Landscape table slide. Every entity card counts (the deck header's
+  // "16 companies" includes infrastructure and distribution), once each.
+  const seen = new Set<string>();
+  const companies = args.cards.filter((c) => {
+    if (!isEntityCardType(c.card.cardType) || !c.company || seen.has(c.company.id)) return false;
+    seen.add(c.company.id);
+    return true;
+  });
   const rows: PptxGenJS.TableRow[] = [
-    ['Company', 'Tier', 'Mkt share', 'ARR', 'Valuation/Cap', 'Team'].map((t) => ({
+    ['Company', 'HQ', 'Mkt share', 'ARR', 'Valuation/Cap', 'Team'].map((t) => ({
       text: t,
       options: { bold: true, color: 'FFFFFF', fill: { color: INK }, fontSize: 11 },
     })),
   ];
   for (const c of companies.slice(0, 14)) {
-    const val =
-      c.metrics.find((m) => (m.metricType === 'valuation' || m.metricType === 'market_cap') && m.value != null);
     rows.push([
       { text: c.company!.name, options: { fontSize: 11, bold: true, color: INK } },
-      { text: c.card.tier ? `T${c.card.tier} ${TIER_LABELS[c.card.tier as MaturityTier]}` : '—', options: { fontSize: 10, color: MUTED } },
+      { text: c.company!.hqLocation?.trim() || '—', options: { fontSize: 10, color: MUTED } },
       { text: metric(c, 'market_share'), options: { fontSize: 11, color: INK } },
       { text: metric(c, 'arr'), options: { fontSize: 11, color: INK } },
-      { text: val ? formatMetricValue(val.metricType, val.value) : '—', options: { fontSize: 11, color: INK } },
+      { text: valuation(c), options: { fontSize: 11, color: INK } },
       { text: metric(c, 'employees'), options: { fontSize: 11, color: INK } },
     ]);
   }
@@ -72,30 +83,41 @@ export async function exportDeckPptx(args: {
     });
   }
 
-  // 4) One slide per company (top 10 by tier desc)
-  const top = [...companies].sort((a, b) => (b.card.tier ?? 0) - (a.card.tier ?? 0)).slice(0, 10);
+  // 4) One slide per company (first 16, in deck order)
+  const top = companies.slice(0, 16);
   for (const c of top) {
     const s = pptx.addSlide();
     const brand = (c.company!.brandTheme?.primary ?? '#F15A24').replace('#', '');
     s.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.25, fill: { color: brand } });
     s.addText(c.company!.name, { x: 0.5, y: 0.5, w: 9, h: 0.6, fontSize: 26, bold: true, color: INK });
     s.addText(
-      `${c.card.tier ? `${TIER_LABELS[c.card.tier as MaturityTier]} (T${c.card.tier})` : 'Untiered'} · ${c.company!.hqLocation ?? ''}`,
+      c.company!.hqLocation?.trim() || 'Location unknown',
       { x: 0.5, y: 1.1, w: 9, h: 0.4, fontSize: 12, color: MUTED },
     );
-    s.addText(c.company!.oneLiner, { x: 0.5, y: 1.6, w: 9, h: 0.8, fontSize: 13, color: INK });
+    if (c.company!.oneLiner && c.company!.oneLiner !== UNSUPPORTED_COMPANY_SUMMARY) {
+      s.addText(c.company!.oneLiner, { x: 0.5, y: 1.6, w: 9, h: 0.8, fontSize: 13, color: INK });
+    }
     const facts = [
       `Market share: ${metric(c, 'market_share')}`,
       `ARR: ${metric(c, 'arr')}`,
-      `Valuation/Cap: ${(() => { const v = c.metrics.find((m) => (m.metricType === 'valuation' || m.metricType === 'market_cap') && m.value != null); return v ? formatMetricValue(v.metricType, v.value) : '—'; })()}`,
+      `Valuation/Cap: ${valuation(c)}`,
       `Team: ${metric(c, 'employees')}`,
       `Users: ${metric(c, 'users')}`,
     ];
     s.addText(facts.map((f) => ({ text: f, options: { bullet: true, fontSize: 13, color: INK } })), {
       x: 0.5, y: 2.6, w: 5.5, h: 2.4, valign: 'top',
     });
-    if (c.card.tierReason) {
-      s.addText(`Tier note: ${c.card.tierReason}`, { x: 0.5, y: 5.0, w: 9, h: 0.5, fontSize: 10, italic: true, color: MUTED });
+    // The title slide promises cited sources; each company slide carries its own.
+    const sources = [...new Map(
+      (['market_share', 'arr', 'valuation', 'market_cap', 'employees', 'users'] as MetricType[])
+        .flatMap((type) => toMetricRow(type, c.metrics.find((x) => x.metricType === type)).sources)
+        .map((src) => [src.url, src]),
+    ).values()].slice(0, 4);
+    if (sources.length) {
+      s.addText([
+        { text: 'Sources', options: { bold: true, fontSize: 10, color: MUTED, breakLine: true } },
+        ...sources.map((src) => ({ text: publisherOf(src.url, src.title), options: { fontSize: 9, color: MUTED, hyperlink: { url: sourceHref(src.url, src.title) }, breakLine: true } })),
+      ], { x: 6.2, y: 2.6, w: 3.3, h: 2.4, valign: 'top' });
     }
   }
 

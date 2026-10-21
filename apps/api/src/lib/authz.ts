@@ -32,9 +32,9 @@ export type SpendAuthorization =
 
 export class UnauthorizedSpendError extends Error {
   readonly status = 401;
-  constructor() {
+  constructor(message?: string) {
     super(
-      'This endpoint spends real money, so it needs one of two things: ' +
+      message || 'This endpoint spends real money, so it needs one of two things: ' +
         'your own Gemini key in X-Gemini-Key, or the service access token in X-Stratemark-Token.',
     );
     this.name = 'UnauthorizedSpendError';

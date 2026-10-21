@@ -17,6 +17,8 @@
  * means the vault quietly does nothing and the app behaves exactly as before.
  */
 
+import { installBrowserResearch, readBrowserResearchData } from './browserResearchStore';
+
 const DB_NAME = 'stratemark.vault';
 const STORE = 'snapshots';
 /** Generated imagery — paid for once on the user's key, kept forever. */
@@ -141,13 +143,8 @@ export async function hydrateFromVault(key = 'mi.repo.v1'): Promise<HydrationRes
 // Export / import — the user's own hands on their research.
 // ---------------------------------------------------------------------------
 
-export function exportSnapshot(key = 'mi.repo.v1'): boolean {
-  let json: string | null = null;
-  try {
-    json = localStorage.getItem(key);
-  } catch {
-    return false;
-  }
+export async function exportSnapshot(_key = 'mi.repo.v1'): Promise<boolean> {
+  const { current: json } = await readBrowserResearchData();
   if (!json) return false;
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -159,17 +156,9 @@ export function exportSnapshot(key = 'mi.repo.v1'): boolean {
   return true;
 }
 
-/** Validates + installs an exported snapshot; returns market count or -1. */
-export async function importSnapshot(json: string, key = 'mi.repo.v1'): Promise<number> {
-  const markets = marketCountOf(json);
-  if (markets < 0) return -1;
-  try {
-    localStorage.setItem(key, json);
-  } catch {
-    return -1;
-  }
-  await vaultPut(key, json);
-  return markets;
+/** Installs only after a durable transaction; existing workspace becomes backup. */
+export async function importSnapshot(json: string, _key = 'mi.repo.v1'): Promise<number> {
+  return installBrowserResearch(json);
 }
 
 

@@ -68,8 +68,9 @@ function readAppToken(): string | undefined {
 }
 
 /** True when a service endpoint is configured. Drives UI affordances. */
-export function isServiceConfigured(baseUrl: string | undefined = readBaseUrl()): boolean {
-  return Boolean(baseUrl);
+export function isServiceConfigured(baseUrl?: string | undefined): boolean {
+  const url = arguments.length > 0 ? baseUrl : readBaseUrl();
+  return Boolean(url);
 }
 
 function headers(config: ServiceConfig): Record<string, string> {
@@ -97,7 +98,10 @@ export async function checkHealth(config: ServiceConfig): Promise<ServiceHealth 
   if (!config.baseUrl) return null;
   const doFetch = config.fetchImpl ?? fetch;
   try {
-    const res = await doFetch(`${config.baseUrl}/healthz`);
+    let res = await doFetch(`${config.baseUrl}/health`);
+    if (!res.ok) {
+      res = await doFetch(`${config.baseUrl}/healthz`);
+    }
     if (!res.ok) return null;
     return (await res.json()) as ServiceHealth;
   } catch {

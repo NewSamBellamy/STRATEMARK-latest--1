@@ -3,6 +3,8 @@ import { ClipboardCheck, ExternalLink, Globe, Loader2, MonitorPlay } from 'lucid
 import { useNavigate } from 'react-router-dom';
 import { useAuditSite, useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { HydratingPanel } from './HydratingPanel';
+import { EmptyNote, SectionHeader } from './TabKit';
 import {
   SHOT_MAX_ATTEMPTS as MAX_ATTEMPTS,
   SHOT_PLACEHOLDER_MAX_WIDTH as PLACEHOLDER_MAX_WIDTH,
@@ -11,7 +13,9 @@ import {
   pageShotUrlAlt,
 } from '@/lib/screenshot';
 
-function SitePreview({ url, fallbackShot }: { url: string; fallbackShot: string | null }) {
+/** A live capture of the site. `quiet` renders nothing instead of the error
+ * panel when both capture services are refused (for small inline previews). */
+export function SitePreview({ url, fallbackShot, quiet = false, onFail }: { url: string; fallbackShot: string | null; quiet?: boolean; onFail?: () => void }) {
   const [attempt, setAttempt] = useState(0);
   // After mShots exhausts its attempts, ONE pass through the independent
   // second provider (thum.io) — the permanent "works here, not there" fix.
@@ -24,22 +28,26 @@ function SitePreview({ url, fallbackShot }: { url: string; fallbackShot: string 
     () => () => {
       if (timer.current) clearTimeout(timer.current);
     },
-    [],
+    // Also on url change: a retry queued for the old url must not bump the new one.
+    [url],
   );
 
   const scheduleRetry = () => {
     if (provider === 'alt') {
       setFailed(true);
+      onFail?.();
       return;
     }
     if (attempt >= MAX_ATTEMPTS) {
       setProvider('alt');
       return;
     }
+    if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setAttempt((a) => a + 1), RETRY_MS);
   };
 
   const retryAll = () => {
+    if (timer.current) clearTimeout(timer.current);
     setFailed(false);
     setSettled(false);
     setProvider('primary');
@@ -55,6 +63,7 @@ function SitePreview({ url, fallbackShot }: { url: string; fallbackShot: string 
       />
     );
   }
+  if (failed && quiet) return null;
   if (failed) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
@@ -121,22 +130,28 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
   const [tryEmbed, setTryEmbed] = useState(false);
 
   return (
-    <QueryBoundary query={query}>
+    <QueryBoundary query={query} loading={<HydratingPanel label="Live Landing Page" />}>
       {(result) => {
         const { url, embeddable, screenshotUrl } = result.content;
+        if (!/^https?:\/\//.test(url)) {
+          return (
+            <EmptyNote title="No official website recorded">
+              Live Website shows a capture of the company’s own site. It fills in once research
+              identifies {name}’s official domain.
+            </EmptyNote>
+          );
+        }
         return (
-          <div>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-muted">
-                {name}’s live website, captured for a first-hand look at how they present
-                themselves right now — audit the messaging or open the site directly.
-              </p>
-              {/* Compact actions (the full-size trio read as overwhelming). */}
+          <div className="cascade">
+            <SectionHeader
+              title="Live website"
+              description={`${name}’s own site as it looks right now, captured for a first-hand read of how they present themselves. Audit the messaging or open the site directly.`}
+              actions={
               <div className="flex items-center gap-1">
                 <button
                   type="button"
                   className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-surface-2 hover:text-content disabled:opacity-60"
-                  title="Full CRO/UX teardown of this page, saved as a visual report with screenshots — exportable as PDF. One grounded pass on your key."
+                  title="A full review of this page: what works, what's missing and what to test, saved as a report with screenshots you can export as PDF. Uses one search on your key."
                   disabled={audit.isPending}
                   onClick={() =>
                     audit.mutate(
@@ -177,16 +192,17 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
                   Open site
                 </a>
               </div>
-            </div>
+              }
+            />
 
             {/* Browser-chrome frame: the preview reads as a window onto the
                 real site, not a broken image. */}
             <div className="panel overflow-hidden">
               <div className="flex items-center gap-2 border-b border-border bg-surface-2/70 px-3 py-2">
                 <span className="flex gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#FF5F57]" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#FEBC2E]" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#28C840]" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-border" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-border" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-border" />
                 </span>
                 <span className="ml-2 flex min-w-0 flex-1 items-center gap-1.5 rounded-md bg-surface px-2.5 py-1 text-[11px] text-muted">
                   <Globe className="h-3 w-3 shrink-0" />
@@ -208,6 +224,11 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
                 )}
               </div>
             </div>
+            <p className="mt-2 text-[11px] text-faint">
+              {tryEmbed && embeddable
+                ? `Live embed of ${url.replace(/^https?:\/\//, '')}.`
+                : `Third-party screenshot of ${url.replace(/^https?:\/\//, '')}; it may lag the live page.`}
+            </p>
           </div>
         );
       }}

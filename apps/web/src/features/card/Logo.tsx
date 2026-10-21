@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { knownCompanyDomain, knownCompanyLogoUrl } from '@mi/research';
 import { cn } from '@/lib/cn';
 import { initials } from '@/lib/format';
 
@@ -38,10 +39,8 @@ function domainOf(website: string | null | undefined): string | null {
  * Below MIN_USABLE_PX it isn't brand art at all — it's a tab icon — and the
  * designed lettermark plate beats an upscaled smear.
  */
-const GOOD_ENOUGH_PX = 96;
 const MIN_USABLE_PX = 24;
 /** Below this the mark can't fill the window without visible blur. */
-const CRISP_PX = 64;
 /** Hard ceiling on upscaling — past ~2x, raster marks turn to mush. */
 const MAX_UPSCALE = 2;
 
@@ -55,7 +54,7 @@ const MAX_UPSCALE = 2;
  * the wordmark overruns. Equal *area* is how identity designers normalise a
  * mixed logo set, and it's what keeps a deck reading as one printed set.
  */
-const TARGET_FILL = 0.62;
+const TARGET_FILL = 0.74;
 
 /** Box for a mark of the given proportions, as a share of the square window. */
 function fitToSquare(natural: { width: number; height: number }): {
@@ -78,15 +77,38 @@ interface Candidate {
   vector: boolean;
 }
 
+/** Honest 24px+ marks remain useful when capped at 2×; smaller tab icons do not. */
+export function isHeroLogoUsable(candidate: Pick<Candidate, 'width' | 'height' | 'vector'>): boolean {
+  return candidate.vector || Math.min(candidate.width, candidate.height) >= MIN_USABLE_PX;
+}
+
+/** Vector beats raster; otherwise the larger short side wins. */
+export function isBetterLogo(next: Candidate, current: Candidate): boolean {
+  if (current.vector !== next.vector) return next.vector;
+  if (next.vector) return false;
+  return Math.min(next.width, next.height) > Math.min(current.width, current.height);
+}
+
 const isSvg = (src: string): boolean => /\.svg(\?|$)|image\/svg/i.test(src);
 
 /** Load an image off-screen just to learn whether it exists and how big it is. */
-function probe(src: string): Promise<Candidate | null> {
+export function probe(src: string): Promise<Candidate | null> {
   return new Promise((resolve) => {
     const img = new Image();
+    const finish = (candidate: Candidate | null) => {
+      clearTimeout(timer);
+      img.onload = null;
+      img.onerror = null;
+      resolve(candidate);
+    };
+    // One stalled image must not prevent the remaining logo sources or retry UI.
+    const timer = setTimeout(() => {
+      finish(null);
+      img.src = '';
+    }, 4000);
     img.referrerPolicy = 'no-referrer';
     img.onload = () =>
-      resolve(
+      finish(
         img.naturalWidth > 0
           ? {
               src,
@@ -96,7 +118,7 @@ function probe(src: string): Promise<Candidate | null> {
             }
           : null,
       );
-    img.onerror = () => resolve(null);
+    img.onerror = () => finish(null);
     img.src = src;
   });
 }
@@ -114,6 +136,7 @@ export function Logo({
   bare = false,
   retryNonce = 0,
   logoUrl,
+  onAvailabilityChange,
 }: {
   name: string;
   website: string | null | undefined;
@@ -130,26 +153,35 @@ export function Logo({
   bare?: boolean;
   /** Bump to re-walk the source chain with fresh (cache-busted) requests. */
   retryNonce?: number;
+  /** Lets the card show a retry control only after every candidate has failed. */
+  onAvailabilityChange?: (available: boolean) => void;
 }) {
   const sources = useMemo(() => {
     const bust = retryNonce > 0 ? `r=${retryNonce}` : '';
     const q = (sep: string) => (bust ? `${sep}${bust}` : '');
     // Pre-resolved art wins: it was chosen at research time from a trusted
     // source and is usually vector, so there's nothing better to look for.
-    const preferred = logoUrl ? [logoUrl + (bust ? (logoUrl.includes('?') ? `&${bust}` : `?${bust}`) : '')] : [];
-    const domain = domainOf(website);
+    const preferredLogo = knownCompanyLogoUrl(name) ?? logoUrl;
+    const preferred = preferredLogo ? [preferredLogo + (bust && !preferredLogo.startsWith('data:') ? (preferredLogo.includes('?') ? `&${bust}` : `?${bust}`) : '')] : [];
+    // A reviewed alias beats a model-researched URL. The latter may point at a
+    // product, regional site, or similarly named company and return the wrong mark.
+    const domain = knownCompanyDomain(name) ?? domainOf(website);
     if (!domain) return preferred;
-    // NOTE: icon.horse is deliberately absent (returns its own grey placeholder
-    // with HTTP 200) and gstatic runs WITHOUT fallback_opts (so it 404s instead
-    // of serving a default globe). Sources must fail honestly — a generic
-    // placeholder poisons both the hero and the brand-color extraction.
+    // NOTE: icon.horse is deliberately absent (it serves its own grey
+    // placeholder). Every source here is probed IN PARALLEL and the largest
+    // honest hit wins, so the chain can be wide without being slow. gstatic
+    // MUST carry fallback_opts: without it the service returns a 200 16x16
+    // placeholder for icons it only holds at a larger size. DuckDuckGo's
+    // ip3 icons are real marks (its placeholder case 404s), but small ones
+    // lose the size race; the <24px floor still rejects tab icons.
     return [
       ...preferred,
-      `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&url=https://${domain}&size=256${q('&')}`,
-      `https://unavatar.io/${domain}?fallback=false${q('&')}`,
+      `https://${domain}/apple-touch-icon.png${q('?')}`,
+      `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=256${q('&')}`,
       `https://icons.duckduckgo.com/ip3/${domain}.ico${q('?')}`,
+      `https://unavatar.io/${domain}?fallback=false${q('&')}`,
     ];
-  }, [website, retryNonce, logoUrl]);
+  }, [website, retryNonce, logoUrl, name]);
 
   const [best, setBest] = useState<Candidate | null>(null);
   const [settled, setSettled] = useState(false);
@@ -160,28 +192,36 @@ export function Logo({
     setSettled(false);
     if (sources.length === 0) {
       setSettled(true);
+      onAvailabilityChange?.(false);
       return;
     }
     let cancelled = false;
     void (async () => {
-      let winner: Candidate | null = null;
-      for (const src of sources) {
-        const hit = await probe(src);
-        if (cancelled) return;
-        if (hit && (!winner || hit.vector || hit.width > winner.width)) {
-          winner = hit;
-          setBest(winner);
-          // Vector wins outright; raster only if it's already sharp enough.
-          if (hit.vector || hit.width >= GOOD_ENOUGH_PX) break;
-        }
+      // Probe every source at once; surface the best hit as results land so
+      // a fast small icon can show while a slower large one is still loading.
+      const result: { winner: Candidate | null } = { winner: null };
+      await Promise.all(
+        sources.map(async (src) => {
+          const hit = await probe(src);
+          if (cancelled || !hit) return;
+          if (!result.winner || isBetterLogo(hit, result.winner)) {
+            result.winner = hit;
+            setBest(hit);
+          }
+        }),
+      );
+      if (cancelled) return;
+      if (!cancelled) {
+        setSettled(true);
+        const winner = result.winner;
+        onAvailabilityChange?.(Boolean(winner && (bare ? isHeroLogoUsable(winner) : winner.vector || winner.width >= MIN_USABLE_PX)));
       }
-      if (!cancelled) setSettled(true);
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, bare, onAvailabilityChange]);
 
   // Brand-color extraction runs on the winning source only.
   useEffect(() => {
@@ -198,7 +238,7 @@ export function Logo({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [best?.src]);
 
-  const usable = best && (best.vector || best.width >= MIN_USABLE_PX) ? best : null;
+  const usable = best && (bare ? isHeroLogoUsable(best) : best.vector || best.width >= MIN_USABLE_PX) ? best : null;
 
   return (
     <div
@@ -208,24 +248,7 @@ export function Logo({
         className,
       )}
     >
-      {usable && bare && !usable.vector && usable.width < CRISP_PX ? (
-        // Low-res mark: show it at its honest size (capped upscale) inside a
-        // composed plate with the name beneath — same composition family as the
-        // lettermark below, so the grid still reads as one set instead of one
-        // card having a blurry balloon.
-        <span className="flex max-w-full flex-col items-center justify-center gap-2.5 px-2 text-center">
-          <img
-            src={usable.src}
-            alt={`${name} logo`}
-            className="object-contain"
-            style={{ width: usable.width * MAX_UPSCALE, height: usable.width * MAX_UPSCALE }}
-            referrerPolicy="no-referrer"
-          />
-          <span className="max-w-full truncate text-[8.5px] font-semibold uppercase tracking-[0.2em] text-faint">
-            {name}
-          </span>
-        </span>
-      ) : usable ? (
+      {usable ? (
         <img
           src={usable.src}
           alt={`${name} logo`}
@@ -247,20 +270,12 @@ export function Logo({
         // Probing — hold the space so cards don't jump as art resolves.
         <span aria-hidden className="block h-full w-full" />
       ) : bare ? (
-        // Designed lettermark plate — brand-colored initials + the full name.
+        // A designed lettermark plate is preferable to stretching a tiny favicon.
         <span
           aria-label={`${name} monogram`}
-          className="flex max-w-full flex-col items-center justify-center gap-1.5 px-2 text-center"
+          className="collectible__monogram"
         >
-          <span
-            className="font-display text-[42px] font-bold leading-none tracking-tight"
-            style={{ color: 'var(--tcg-primary, #3F3F46)', opacity: 0.88 }}
-          >
-            {initials(name)}
-          </span>
-          <span className="max-w-full truncate text-[8.5px] font-semibold uppercase tracking-[0.2em] text-faint">
-            {name}
-          </span>
+          {initials(name)}
         </span>
       ) : (
         <span aria-label={`${name} monogram`}>{initials(name)}</span>

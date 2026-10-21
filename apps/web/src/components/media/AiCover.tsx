@@ -1,5 +1,10 @@
 /**
- * AiCover — nano-banana generated article imagery with an honest fallback.
+ * AiCover — the cover for a story, product or report.
+ *
+ * Order: the REAL image the source page publishes for link previews (free,
+ * true to the source, credited) → a generated illustration only when there is
+ * none and the user has their own key with images switched on → the designed
+ * editorial cover. Hosted beta users never trigger generation.
  *
  * Shows the AI-generated cover (prompted from the story's own research) the
  * moment it's ready; until then — and on transports without a key — the
@@ -12,7 +17,9 @@
  * Aspect is explicit: wide panels get true 16:9 generations, thumbs 4:3 —
  * no more square images cropped into letterboxes.
  */
+import { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
+import { useRealCover } from '@/lib/media/realCover';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { useAiCover, type CoverAspect } from '@/lib/ai/aiCover';
 import { EditorialCover } from './EditorialCover';
@@ -40,8 +47,38 @@ export function AiCover({
   className?: string;
 }) {
   const shape: CoverAspect = aspect ?? (compact ? '4:3' : '16:9');
-  const { url: generated, respinning, respin } = useAiCover(cacheKey, title, context, shape);
+  const real = useRealCover(url);
+  const [realBroken, setRealBroken] = useState(false);
+  const useReal = real.status === 'ready' && !realBroken;
+  // Generation only once we know the page has no usable real image.
+  const aiEnabled = real.status === 'none' || realBroken;
+  const { url: generated, respinning, respin } = useAiCover(cacheKey, title, context, shape, aiEnabled);
   const hasKey = useApiKey((s) => s.hasKey);
+  if (useReal) {
+    return (
+      <div className={cn('relative h-full w-full overflow-hidden bg-surface-2', className)}>
+        <img
+          src={real.src!}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setRealBroken(true)}
+          className="h-full w-full object-cover"
+        />
+        {real.publisher && (
+          <>
+            <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/45 to-transparent" />
+            <span
+              className={cn('absolute truncate text-white/85', compact ? 'bottom-0.5 right-1.5 max-w-[90%] text-[7px]' : 'bottom-1.5 right-2.5 max-w-[80%] text-[10px]')}
+              title={`Preview image published by ${real.publisher}`}
+            >
+              Image: {real.publisher}
+            </span>
+          </>
+        )}
+      </div>
+    );
+  }
   if (!generated) {
     return (
       <EditorialCover title={title} url={url} source={source} compact={compact} className={className} />

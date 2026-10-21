@@ -58,7 +58,7 @@ export const ENTITY_CARD_TYPES = ['company', 'infrastructure', 'distribution'] a
  * valuation, ARR and user count as *unsourced* "verified" figures. Signal cards
  * must carry their claim and its sources, never borrowed numbers.
  */
-export const SIGNAL_CARD_TYPES = ['culture', 'vice', 'insight'] as const;
+export const SIGNAL_CARD_TYPES = ['culture', 'vice', 'insight', 'barrier'] as const;
 
 /** True when a card type describes a real business that can own metrics. */
 export function isEntityCardType(type: CardType): boolean {
@@ -89,18 +89,33 @@ export const METRIC_TYPES = [
   'valuation',
   'market_share',
   'arr',
+  'aum',
   'users',
   'employees',
+  'revenue',
+  'funding_total',
+  'last_round',
+  'distribution',
 ] as const;
 export type MetricType = (typeof METRIC_TYPES)[number];
+
+/** Metric types whose value is money (stored in USD). Every unit check reads this. */
+export const MONEY_METRIC_TYPES: readonly MetricType[] = [
+  'arr', 'valuation', 'market_cap', 'aum', 'revenue', 'funding_total', 'last_round',
+];
 
 export const METRIC_TYPE_LABELS: Record<MetricType, string> = {
   market_cap: 'Market Cap',
   valuation: 'Valuation',
   market_share: 'Market Share',
   arr: 'ARR',
+  aum: 'AUM',
   users: 'Users',
   employees: 'Employees',
+  revenue: 'Revenue',
+  funding_total: 'Total raised',
+  last_round: 'Latest round',
+  distribution: 'Distribution',
 };
 
 // ---------------------------------------------------------------------------
@@ -108,6 +123,19 @@ export const METRIC_TYPE_LABELS: Record<MetricType, string> = {
 // ---------------------------------------------------------------------------
 export const CONFIDENCE_LEVELS = ['verified', 'estimated', 'unknown', 'user_verified'] as const;
 export type Confidence = (typeof CONFIDENCE_LEVELS)[number];
+
+/**
+ * The confidence vocabulary a MODEL is allowed to propose (issue #48).
+ *
+ * `user_verified` is deliberately absent: it asserts that a person checked this
+ * figure, and no model output can make that true. Because this tuple backs the
+ * model-facing Zod schema, it is also what becomes the native `@google/genai`
+ * `responseSchema` enum — so a conforming model cannot even emit the value.
+ *
+ * `verified` IS proposable but is not thereby granted: provenance enforcement
+ * demotes it unless a usable, verification-grade citation stands behind it.
+ */
+export const MODEL_PROPOSABLE_CONFIDENCE = ['verified', 'estimated', 'unknown'] as const;
 
 export const CONFIDENCE_LABELS: Record<Confidence, string> = {
   verified: 'Verified',
@@ -139,6 +167,7 @@ export const REFRESH_CADENCE_HOURS: Record<RefreshCadence, number> = {
 // ---------------------------------------------------------------------------
 export const DASHBOARD_TABS = [
   'overview',
+  'research',
   'metrics',
   'live_intel',
   'team_org',
@@ -151,6 +180,7 @@ export type DashboardTab = (typeof DASHBOARD_TABS)[number];
 
 export const DASHBOARD_TAB_LABELS: Record<DashboardTab, string> = {
   overview: 'Overview',
+  research: 'Research & Sources',
   live_intel: 'Live Intel',
   team_org: 'Team & Org Chart',
   live_landing: 'Live Landing Page',
@@ -158,6 +188,45 @@ export const DASHBOARD_TAB_LABELS: Record<DashboardTab, string> = {
   mission_governance: 'Mission & Governance',
   history: 'History',
   products_roadmap: 'Products & Roadmap',
+};
+
+// ---------------------------------------------------------------------------
+// Company report topics — the sections a user ticks when creating a report.
+// Each mirrors a dashboard tab, so a report is "the tabs I care about", written up.
+// ---------------------------------------------------------------------------
+export const REPORT_TOPICS = [
+  'overview',
+  'metrics',
+  'live_intel',
+  'team_org',
+  'products_roadmap',
+  'history',
+  'mission_governance',
+  'sources',
+] as const;
+export type ReportTopic = (typeof REPORT_TOPICS)[number];
+
+export const REPORT_TOPIC_LABELS: Record<ReportTopic, string> = {
+  overview: 'Overview',
+  metrics: 'Metrics',
+  live_intel: 'Live intel',
+  team_org: 'Team & org',
+  products_roadmap: 'Products & roadmap',
+  history: 'History',
+  mission_governance: 'Mission & governance',
+  sources: 'Sources',
+};
+
+/** The dashboard tab whose stored research a report topic is written from. */
+export const REPORT_TOPIC_TAB: Record<ReportTopic, DashboardTab> = {
+  overview: 'overview',
+  metrics: 'metrics',
+  live_intel: 'live_intel',
+  team_org: 'team_org',
+  products_roadmap: 'products_roadmap',
+  history: 'history',
+  mission_governance: 'mission_governance',
+  sources: 'research',
 };
 
 // ---------------------------------------------------------------------------
