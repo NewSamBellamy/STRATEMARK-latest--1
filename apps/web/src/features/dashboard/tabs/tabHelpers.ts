@@ -3,7 +3,7 @@
  * live intel, research). No React, no data fabrication: every function only
  * regroups, filters or labels what research already retained.
  */
-import type { OrgNode } from '@mi/contracts';
+import type { BoardMember, OrgNode } from '@mi/contracts';
 
 // ── Org chart ───────────────────────────────────────────────────────────────
 
@@ -249,6 +249,12 @@ export function recencyBucket(reported: string | null | undefined, now = Date.no
   if (days <= 30) return 'month';
   if (days <= 90) return 'quarter';
   return 'older';
+}
+
+/** Directors who are not already a person on the team list (matched by name), so nobody is shown twice. */
+export function boardOnly(board: readonly BoardMember[], people: readonly OrgNode[]): BoardMember[] {
+  const onTeam = new Set(people.map((p) => p.name.trim().toLowerCase()));
+  return board.filter((m) => m.name?.trim() && !onTeam.has(m.name.trim().toLowerCase()));
 }
 
 /** Case-insensitive all-terms match; an empty query matches everything. */

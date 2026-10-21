@@ -371,12 +371,12 @@ export function OrgBoard({ people, parentOf, company, board, onOpen, careerNote 
         {shownColumns.map((col) => (
           <section key={col.key} aria-label={col.label}>
             <ColumnHeader label={col.label} count={col.people.length} color={COLUMN_COLOR[col.key]} />
-            <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-3 pt-2">
+            <div className="grid grid-cols-1 items-start gap-3 px-1 pb-3 pt-2 min-[520px]:grid-cols-2">
               {col.shown.map((p) => (
-                <div key={p.id} className="w-[200px] shrink-0 snap-start">{card(p)}</div>
+                <div key={p.id} className="min-w-0">{card(p)}</div>
               ))}
               {col.people.length > col.shown.length && (
-                <div className="w-[120px] shrink-0 snap-start self-start">
+                <div className="min-w-0 self-start">
                   <MorePin colKey={col.key} count={col.people.length - col.shown.length} label={col.label} onExpand={() => expand(col.key)} />
                 </div>
               )}

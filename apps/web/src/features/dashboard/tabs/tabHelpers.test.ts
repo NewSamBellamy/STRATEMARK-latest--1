@@ -1,13 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import type { OrgNode } from '@mi/contracts';
 import {
-  buildOrgTree, classifyEvent, countByGroup, filterOrgTree, groupByHost, groupByYear,
+  boardOnly, buildOrgTree, classifyEvent, countByGroup, filterOrgTree, groupByHost, groupByYear,
   hostOf, isLiveFresh, isOrgAttribution, storyCountText, matchesQuery, orgInitials, parseEventYear, recencyBucket, sourceStrength, splitSearchReport, strengthMix,
   type OrgTreeNode,
 } from './tabHelpers';
 
 const person = (id: string, parentId: string | null, group: OrgNode['group'] = 'exec'): OrgNode => ({
   id, name: `P ${id}`, role: 'Role', group, parentId, bio: '',
+});
+
+describe('boardOnly', () => {
+  it('drops directors who are already team cards, by name and ignoring case', () => {
+    const board = [
+      { name: 'p a', affiliation: null },
+      { name: 'Outside Director', affiliation: 'Some Fund' },
+      { name: '  ', affiliation: null },
+    ] as never;
+    expect(boardOnly(board, [person('A', null)]).map((m) => m.name)).toEqual(['Outside Director']);
+  });
 });
 
 describe('buildOrgTree', () => {

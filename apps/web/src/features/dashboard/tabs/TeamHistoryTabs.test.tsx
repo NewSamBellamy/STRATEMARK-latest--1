@@ -48,13 +48,11 @@ describe('team & org tab', () => {
     localStorage.removeItem('mi.teamOrgView');
   });
 
-  it('disables Moving with the reason when no sourced move exists, and says so when search finds no one', async () => {
+  it('hides the zero-count Moving chip when no sourced move exists, and says so when search finds no one', async () => {
     localStorage.removeItem('mi.teamOrgView');
     const { user } = renderWithProviders(<TeamOrgTab companyId="cmp" />, { repository: repoWith('team_org', { nodes: orgNodes }) });
     await screen.findByRole('group', { name: 'Org board' });
-    const moving = screen.getByRole('button', { name: /Moving/ });
-    expect(moving).toBeDisabled();
-    expect(moving.parentElement).toHaveAttribute('title', 'No sourced moves in this research');
+    expect(screen.queryByRole('button', { name: /Moving/ })).not.toBeInTheDocument();
     await user.type(screen.getByLabelText('Search people'), 'zzzz');
     expect(await screen.findByText(/No one matches/)).toBeInTheDocument();
     await user.click(screen.getAllByRole('button', { name: 'Clear search' }).at(-1)!);
