@@ -203,8 +203,8 @@ export function MarketPeers({ companyId }: { companyId: string }) {
                 <tr key={row.companyId} className={cn(row.isSelf && 'bg-primary/5')} aria-current={row.isSelf ? 'true' : undefined}>
                   <th scope="row" className="px-3 py-2 text-left font-medium text-content">
                     {row.isSelf
-                      ? <span className="inline-flex items-center gap-2"><Logo name={row.name} website={row.websiteUrl} logoUrl={row.logoUrl} bare className="h-4 w-4" />{shortCompanyName(row.name)} <span className="text-[11px] font-normal text-faint">(this company)</span></span>
-                      : <Link to={to(row.companyId)} className="inline-flex items-center gap-2 hover:text-primary-ink hover:underline"><Logo name={row.name} website={row.websiteUrl} logoUrl={row.logoUrl} bare className="h-4 w-4" />{shortCompanyName(row.name)}</Link>}
+                      ? <span className="inline-flex items-center gap-2">{shortCompanyName(row.name)} <span className="text-[11px] font-normal text-faint">(this company)</span></span>
+                      : <Link to={to(row.companyId)} className="inline-flex items-center gap-2 hover:text-primary-ink hover:underline">{shortCompanyName(row.name)}</Link>}
                   </th>
                   {row.cells.map((cell, i) => (
                     <td key={PEER_COLUMNS[i]![0]} className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
