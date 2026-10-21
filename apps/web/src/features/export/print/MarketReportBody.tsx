@@ -1,31 +1,11 @@
 /** The market (deck) report: cover, contents, glance table, signals and one profile per company. */
 import { Logo } from '@/features/card/Logo';
-import type { FullReportCompany, FullReportModel, ReportSource, SignalBlock } from '../fullReportModel';
+import type { FullReportCompany, FullReportModel } from '../fullReportModel';
 import { Cover } from './Cover';
 import { Row, Section } from './Section';
-
-/** "Sources: reuters.com, ft.com": publishers only, as a quiet line. */
-function SourceLine({ sources }: { sources: readonly ReportSource[] }) {
-  const names = [...new Set(sources.map((s) => s.title))];
-  return names.length > 0 ? <p className="sm-srcline">Sources: {names.join(', ')}</p> : null;
-}
-
-function SignalList({ title, blocks }: { title: string; blocks: readonly SignalBlock[] }) {
-  if (blocks.length === 0) return null;
-  return (
-    <div className="sm-signal-group">
-      <h3 className="sm-h3">{title}</h3>
-      {blocks.map((b) => (
-        <article key={b.title} className="sm-signal">
-          <p className="sm-signal-title">{b.title}</p>
-          {b.summary && <p>{b.summary}</p>}
-          {b.points.length > 0 && <ul>{b.points.map((p) => <li key={p}>{p}</li>)}</ul>}
-          <SourceLine sources={b.sources} />
-        </article>
-      ))}
-    </div>
-  );
-}
+import { SignalSection } from './SignalSection';
+import { MethodsPage } from './MethodsPage';
+import { SourcesList } from './SourcesList';
 
 /** Rule 9: an item the stored profile holds without a source says so, rather than looking sourced by sitting on a sourced page. */
 export const UNSOURCED_PROFILE_NOTE = 'From the stored company profile; no source was attached to this item.';
@@ -106,7 +86,7 @@ function ProfileBlocks({ c }: { c: FullReportCompany }) {
 export function MarketReportBody({ model }: { model: FullReportModel }) {
   const n = model.companies.length;
   // Exactly what the section prints: risks and culture notes print inside each company's profile, not here.
-  const hasSignals = model.marketSignalCount > 0;
+  const hasSignals = model.signals.some((x) => x.printable);
   return (
     <>
       <Cover
@@ -123,7 +103,7 @@ export function MarketReportBody({ model }: { model: FullReportModel }) {
         <h2 className="sm-h2">Contents</h2>
         <ol>
           <li><a href="#sm-glance"><span className="sm-toc-n">&middot;</span><span className="sm-toc-name">The market at a glance</span><span className="sm-toc-meta" /></a></li>
-          {hasSignals && <li><a href="#sm-signals"><span className="sm-toc-n">&middot;</span><span className="sm-toc-name">Market signals</span><span className="sm-toc-meta">barriers and insights</span></a></li>}
+          {hasSignals && <li><a href="#sm-signals"><span className="sm-toc-n">&middot;</span><span className="sm-toc-name">Signals</span><span className="sm-toc-meta">findings and their sources</span></a></li>}
           {model.companies.map((c, i) => (
             <li key={c.id}>
               <a href={`#sm-co-${c.id}`}>
@@ -154,12 +134,8 @@ export function MarketReportBody({ model }: { model: FullReportModel }) {
         <p className="sm-methods">Figures are the four strongest sourced ones each card shows. &ldquo;Estimated&rdquo; figures were reported by a source and have not been checked against the original document.</p>
       </section>
 
-      {hasSignals && (
-        <Section id="sm-signals" className="sm-signals" head={<h2 className="sm-h2">Market signals</h2>}>
-          <Row><SignalList title="Barriers to entry" blocks={model.barriers} /></Row>
-          <Row><SignalList title="Insights" blocks={model.insights} /></Row>
-        </Section>
-      )}
+      {/* B2: signals, methods, sources */}
+      <SignalSection model={model} />
 
       {model.companies.map((c, i) => (
         <Section
@@ -212,6 +188,8 @@ export function MarketReportBody({ model }: { model: FullReportModel }) {
               </Row>
         </Section>
       ))}
+      <MethodsPage model={model} />
+      <SourcesList sources={model.sources} />
     </>
   );
 }

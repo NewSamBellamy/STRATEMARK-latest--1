@@ -57,7 +57,7 @@ describe('the printed market report', () => {
     const { container } = render(<PrintDocument job={{ kind: 'marketReport', model }} />);
     const text = container.textContent ?? '';
     expect(text).not.toContain('Market signals');
-    expect(container.querySelector('#sm-signals')).toBeNull();
+    expect(container.querySelector('#sm-signals .sm-sigcard--barrier, #sm-signals .sm-sigcard--insight')).toBeNull();
     expect(text).not.toMatch(/\d+ market signals/);
   });
 
@@ -69,7 +69,7 @@ describe('the printed market report', () => {
     const printed = model.barriers.length + model.insights.length;
     expect(printed).toBeGreaterThan(0);
     const { container } = render(<PrintDocument job={{ kind: 'marketReport', model }} />);
-    expect(container.querySelectorAll('#sm-signals .sm-signal')).toHaveLength(printed);
+    expect(container.querySelectorAll('#sm-signals .sm-sigcard--barrier, #sm-signals .sm-sigcard--insight')).toHaveLength(printed);
     expect(container.querySelector('.sm-cover-meta')?.textContent).toContain(`${printed} market signals`);
   });
 
@@ -84,7 +84,7 @@ describe('the printed market report', () => {
     profiles.forEach((p, i) => {
       expect(p.querySelector('table.sm-run > thead .sm-company-head h2')?.textContent).toContain(model.companies[i]!.name);
     });
-    expect(container.querySelector('#sm-signals table.sm-run > thead')?.textContent).toBe('Market signals');
+    expect(container.querySelector('#sm-signals table.sm-run > thead h2')?.textContent).toBe('Signals');
     expect(container.querySelectorAll('header, aside')).toHaveLength(0);
   });
 
