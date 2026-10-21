@@ -80,7 +80,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                   />
                 }
               />
-              <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
                 <div className="panel space-y-5 p-5">
                   <ProseBlock label="Mission" text={c.mission ?? ''} missing="No mission statement sourced yet." />
                   <ProseBlock label="Ethos" text={c.ethos ?? ''} missing="No stated values or ethos sourced yet." />
@@ -130,7 +130,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                   companies often disclose little.
                 </EmptyNote>
               ) : (
-                <div className={`grid gap-4 ${investors.length > 0 ? 'lg:grid-cols-[1fr_320px]' : ''}`}>
+                <div className={`grid grid-cols-1 gap-4 ${investors.length > 0 ? 'lg:grid-cols-[minmax(0,1fr)_320px]' : ''}`}>
                   <div className="space-y-4">
                   <FundingChart rounds={fundingRounds} />
                   <div className="panel overflow-hidden">
