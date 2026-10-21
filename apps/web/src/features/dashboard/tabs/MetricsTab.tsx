@@ -46,6 +46,7 @@ import {
   type SortKey,
 } from '../dashboardModel';
 import { Section, metricLabel } from '../dashboardKit';
+import { SourceCheck } from '../SourceCheck';
 import { usePeers, type PeerState } from '../usePeers';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
 
@@ -460,6 +461,8 @@ function MetricTable({
                       {publisherOf(cite.url, cite.title)} ↗
                     </a>
                   )}
+                  {/* The Source column is hidden on a phone, so the check sits under the value there. */}
+                  {known && <SourceCheck metric={metric} label={metricLabel(metric)} className="mt-0.5 max-w-[200px] sm:hidden" />}
                 </td>
                 <td className="hidden max-w-[180px] px-3 py-3 sm:table-cell">
                   {cite && known ? (
@@ -475,6 +478,7 @@ function MetricTable({
                     </a>
                   ) : known && <span className="text-[12px] text-muted">{metric.confidence === 'user_verified' ? 'Your correction' : 'No link recorded'}</span>}
                   {known && <span className="block text-[11px] text-faint">{trust}</span>}
+                  {known && <SourceCheck metric={metric} label={metricLabel(metric)} className="mt-0.5" />}
                 </td>
                 <td className="hidden px-3 py-3 text-[12px] tabular-nums text-muted md:table-cell">
                   {/* Only a source-stated date is an "as of"; capture time is not the figure's date. */}

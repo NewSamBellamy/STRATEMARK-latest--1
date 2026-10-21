@@ -41,6 +41,19 @@ describe('dashboard metric evidence projection', () => {
     expect(within(table).getByText('Employees')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Company headline metrics' })).not.toBeInTheDocument();
   });
+  it('shows the stored source check under the figure, with why a stale one is old', async () => {
+    show({ source: 'https://sec.gov/Archives/report', citations: [{ title: 'Filing', url: 'https://sec.gov/Archives/report', credibility: 'primary' }],
+      assessment: {
+        currency: { status: 'stale', ageMonths: 18, horizonMonths: 12, basis: 'publishedDate', date: '2025-04' },
+        authority: { tier: 'primary', reason: 'SEC filing' }, purpose: 'regulatory_filing', independentSources: 1,
+        companyReportedOnly: false, grade: 'weak',
+        plainEnglish: ['Published Apr 2025 (stale: 18 months old)', 'SEC filing (primary source)', '1 independent source'],
+      } });
+    const table = await screen.findByRole('table');
+    const checks = within(table).getAllByLabelText('Source check for Employees');
+    expect(checks[0]).toHaveTextContent('Published Apr 2025 (older than usual for employees: 18 months) · SEC filing (primary source) · 1 independent source');
+    expect(within(table).getByText('123')).toBeInTheDocument();
+  });
   it('does not label unsupported legacy figures as verified when cards reject them', async () => {
     const metric = show({ source: 'https://reuters.com.attacker.test/figure',
       citations: [{ title: 'Reuters', url: 'https://reuters.com.attacker.test/figure', credibility: 'primary' }] });

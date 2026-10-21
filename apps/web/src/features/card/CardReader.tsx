@@ -22,6 +22,7 @@ import { buildCardView, faceFigureStatus, sourceUrl } from './card-view';
 import { printScoped } from '@/lib/print';
 import { useReadOnly } from '@/lib/readOnly';
 import { sourceHref } from '@/lib/sourceHref';
+import { SourceCheck } from '@/features/dashboard/SourceCheck';
 
 type Props = {
   data: CardWithCompany | null; open: boolean; onOpenChange: (open: boolean) => void;
@@ -183,6 +184,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
                     {metric?.reportedBand && <span>{metric.reportedBand.asOf
                       ? `Range dated ${metric.reportedBand.asOf}` : 'Reporting date unavailable'}</span>}
                   </div>
+                  {metric && <SourceCheck metric={metric} label={item.label} className="mt-1.5 text-[9.5px]" />}
                 </li>;
               })}
             </ul>
