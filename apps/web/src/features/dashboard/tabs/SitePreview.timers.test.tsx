@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+vi.mock('@/lib/media/siteChallenge', () => ({ probeSiteChallenge: async () => null }));
+
 import { SitePreview } from './LiveLandingTab';
 import { PageShot } from '@/components/media/PageShot';
 import { SHOT_RETRY_MS, pageShotUrl } from '@/lib/screenshot';
@@ -31,7 +33,7 @@ describe('screenshot retry timers', () => {
   it('SitePreview: unmounting cancels the pending retry', () => {
     const { unmount } = render(<SitePreview url={A} fallbackShot={null} />);
     fireEvent.error(screen.getByRole('img'));
-    expect(vi.getTimerCount()).toBe(1);
+    expect(vi.getTimerCount()).toBeGreaterThan(0); // the retry, and the capture timeout
     unmount();
     expect(vi.getTimerCount()).toBe(0);
   });

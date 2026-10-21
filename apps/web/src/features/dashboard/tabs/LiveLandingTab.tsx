@@ -13,6 +13,27 @@ import {
   pageShotUrl,
   pageShotUrlAlt,
 } from '@/lib/screenshot';
+import { probeSiteChallenge } from '@/lib/media/siteChallenge';
+
+/** How long a capture may sit on "Capturing the live site" before we give up on it. */
+export const CAPTURE_TIMEOUT_MS = 60_000;
+
+/** Shown instead of a CAPTCHA screenshot, or a capture that never arrived. `inLink` when a parent link already opens the site. */
+function PreviewUnavailable({ url, inLink }: { url: string; inLink: boolean }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center" data-testid="preview-unavailable">
+      <div className="rounded-full bg-surface-2 p-3 text-muted"><Globe className="h-5 w-5" /></div>
+      <p className="text-[12.5px] font-medium text-content">Preview unavailable - site blocks automated capture</p>
+      {inLink ? (
+        <span className="text-[12px] text-primary-ink">Open the site</span>
+      ) : (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">
+          <ExternalLink className="h-3 w-3" aria-hidden /> Open live site
+        </a>
+      )}
+    </div>
+  );
+}
 
 /** A live capture of the site. `quiet` renders nothing instead of the error
  * panel when both capture services are refused (for small inline previews). */
@@ -23,6 +44,7 @@ export function SitePreview({ url, fallbackShot, quiet = false, onFail }: { url:
   const [provider, setProvider] = useState<'primary' | 'alt'>('primary');
   const [settled, setSettled] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [unavailable, setUnavailable] = useState<'blocked' | 'timeout' | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -50,10 +72,28 @@ export function SitePreview({ url, fallbackShot, quiet = false, onFail }: { url:
   const retryAll = () => {
     if (timer.current) clearTimeout(timer.current);
     setFailed(false);
+    setUnavailable(null);
     setSettled(false);
     setProvider('primary');
     setAttempt((a) => a + 1); // fresh cache-buster
   };
+
+  // A site that answers with a bot challenge would be screenshotted as its CAPTCHA.
+  useEffect(() => {
+    setUnavailable(null);
+    let live = true;
+    void probeSiteChallenge(url).then((blocked) => { if (live && blocked) setUnavailable('blocked'); });
+    return () => { live = false; };
+  }, [url]);
+
+  // A capture that never settles ("Capturing the live site" forever) gets the same honest fallback.
+  useEffect(() => {
+    if (settled || failed) return;
+    const t = setTimeout(() => setUnavailable((u) => u ?? 'timeout'), CAPTURE_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [url, settled, failed, attempt]);
+
+  if (unavailable) return <PreviewUnavailable url={url} inLink={quiet} />;
 
   if (failed && fallbackShot) {
     return (

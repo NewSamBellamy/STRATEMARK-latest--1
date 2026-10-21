@@ -9,7 +9,7 @@
  */
 import { publisherOf } from '@mi/contracts';
 import { DEFAULT_CARD_ART } from '@/features/card/MarketCardArt';
-import { faviconUrl } from '@/lib/screenshot';
+import { Favicon } from '@/components/media/Favicon';
 import { cn } from '@/lib/cn';
 
 const ART_KEYS = ['insight', 'barrier', 'culture', 'vice'] as const;
@@ -44,7 +44,7 @@ export function EditorialCover({
       <img src={art.src} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover" />
       <div className={cn('relative bg-[#14201d]/85 text-white', compact ? 'px-2 py-1.5' : 'px-4 py-3')}>
         <div className="flex items-center gap-1.5">
-          {hasRealUrl && <img src={faviconUrl(url)} alt="" className={compact ? 'h-3 w-3 rounded-sm' : 'h-4 w-4 rounded-sm'} />}
+          {hasRealUrl && <Favicon url={url} className={compact ? 'h-3 w-3 rounded-sm' : 'h-4 w-4 rounded-sm'} />}
           <span className={cn('truncate font-semibold uppercase tracking-widest text-white/70', compact ? 'text-[7px]' : 'text-[10px]')}>{publisher}</span>
         </div>
         <p className={cn('font-display font-semibold leading-snug', compact ? 'mt-0.5 line-clamp-2 text-[9px]' : 'mt-1 line-clamp-3 text-base')}>{title}</p>

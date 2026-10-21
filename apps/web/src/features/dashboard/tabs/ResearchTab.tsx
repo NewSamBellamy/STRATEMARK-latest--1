@@ -8,7 +8,7 @@ import { EmptyState } from '@/components/states/EmptyState';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { publisherOf, usableCitations } from '@mi/contracts';
 import { isDirectSource, sourceHref } from '@/lib/sourceHref';
-import { faviconUrl } from '@/lib/screenshot';
+import { Favicon } from '@/components/media/Favicon';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
 import { SOURCE_STRENGTH_LABEL, groupByHost, matchesQuery, sourceStrength, strengthMix, type SourceStrength } from './tabHelpers';
@@ -98,7 +98,7 @@ function EvidenceCard({ evidence }: { evidence: ResearchEvidence }) {
                     title={isDirectSource(c.url) ? publisherOf(c.url, c.title) : 'Find the original story'}
                     className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-surface px-2 py-0.5 text-[11px] text-muted hover:border-primary/50 hover:text-primary-ink"
                   >
-                    {isDirectSource(c.url) && <img src={faviconUrl(c.url)} alt="" className="h-3 w-3 shrink-0 rounded-sm" loading="lazy" />}
+                    {isDirectSource(c.url) && <Favicon url={c.url} className="h-3 w-3 shrink-0 rounded-sm" />}
                     <span className="truncate">{publisherOf(c.url, c.title)}</span>
                   </a>
                 </li>
@@ -153,7 +153,7 @@ function SourcesView({ evidence, query }: { evidence: ResearchEvidence[]; query:
       {groups.map((g) => (
         <section key={g.host} className="panel p-4" aria-label={g.host}>
           <h4 className="flex items-center gap-2 text-sm font-medium text-content">
-            <img src={faviconUrl(`https://${g.host}`)} alt="" className="h-4 w-4 rounded-sm" loading="lazy" />
+            <Favicon url={`https://${g.host}`} className="h-4 w-4 rounded-sm" />
             {g.host}
             <span className="text-xs font-normal tabular-nums text-muted">{g.items.length}</span>
           </h4>

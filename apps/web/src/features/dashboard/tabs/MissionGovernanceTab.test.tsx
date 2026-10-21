@@ -21,6 +21,21 @@ const sparseTab = vi.fn().mockResolvedValue({
   lastRefreshedAt: '2026-10-01T00:00:00.000Z',
 });
 
+/** The company's own marketing is not governance evidence: no site crop sits under Board. */
+describe('mission tab decoration', () => {
+  it('shows no picture from the company site, even when its page publishes one', async () => {
+    vi.mocked(lookupMajorShareholders).mockReset().mockResolvedValue(null);
+    const getCompany = vi.fn().mockResolvedValue({ id: 'cmp', name: 'Mistral AI', websiteUrl: 'https://mistral.ai' });
+    const { container } = renderWithProviders(<MissionGovernanceTab companyId="cmp" />, {
+      repository: Object.assign(makeRepo(), { getDashboardTab: sparseTab, getCompany }),
+    });
+    expect(await screen.findByText('Build safe AI.')).toBeInTheDocument();
+    expect(screen.queryByAltText(/image published by the company/i)).toBeNull();
+    expect(screen.queryByText(/^Image:/)).toBeNull();
+    expect(container.querySelector('section[aria-label*="oard" i] img, section[aria-label*="overnance" i] img')).toBeNull();
+  });
+});
+
 /** The model may omit every optional section. A missing array must render as
  * an honest empty — never crash the tab (taste-test found exactly that). */
 describe('mission & governance tab', () => {
@@ -60,6 +75,7 @@ describe('mission & governance tab', () => {
     });
     expect(await screen.findByText('Major shareholders')).toBeInTheDocument();
     expect(lookupMajorShareholders).toHaveBeenCalledWith('Medpace Holdings, Inc.');
+    expect(lookupMajorShareholders).toHaveBeenCalledTimes(1);
     expect(screen.getByText('August J. Troendle')).toBeInTheDocument();
     expect(screen.getByText('19.1%')).toBeInTheDocument();
     expect(screen.getByText('With Medpace Investors, LLC')).toBeInTheDocument();

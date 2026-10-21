@@ -14,10 +14,11 @@ import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
 import { Modal } from '@/components/ui/Modal';
 import { StoryImage, VideoStrip } from '@/components/media/StoryMedia';
+import { Logo } from '@/features/card/Logo';
 import { LiveBadge } from '../LiveBadge';
 import { DigDeeper } from '@/features/deepdive/DeepDive';
 import { formatRelative } from '@/lib/format';
-import { faviconUrl } from '@/lib/screenshot';
+import { Favicon } from '@/components/media/Favicon';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
 import { SecFilings } from './SecFilings';
@@ -104,7 +105,7 @@ export function ArticleReader({
       <div className="space-y-4">
         {/* The publisher's own picture for this story; none means none. */}
         <StoryImage pageUrl={item.url} imageUrl={item.imageUrl} publisher={item.publisher}
-          credit className="h-[220px] rounded-xl border border-border" />
+          credit subject={{ name: companyName }} className="h-[220px] rounded-xl border border-border" />
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted">
           <span className="inline-flex items-center gap-1.5">
@@ -113,7 +114,7 @@ export function ArticleReader({
           </span>
           {publisher && (
             <span className="inline-flex items-center gap-1.5">
-              <img src={faviconUrl(item.url)} alt="" className="h-3.5 w-3.5 rounded-sm" />
+              <Favicon url={item.url} className="h-3.5 w-3.5 rounded-sm" />
               {publisher}
             </span>
           )}
@@ -200,7 +201,7 @@ function IntelRow({
             className="inline-flex items-center gap-1.5 font-medium text-content hover:text-primary-ink hover:underline"
             title="Open the source"
           >
-            <img src={faviconUrl(item.url)} alt="" className="h-3.5 w-3.5 rounded-sm" />
+            <Favicon url={item.url} className="h-3.5 w-3.5 rounded-sm" />
             {publisher}
             <ExternalLink className="h-2.5 w-2.5" aria-hidden />
           </a>
@@ -244,12 +245,23 @@ function IntelRow({
 }
 
 /** Stand-in when a story has no picture: the publisher's mark on a quiet panel. */
+export interface StoryCompany { name: string; website?: string | null; logoUrl?: string | null }
+
+/** No usable story picture: the company's own logo on a neutral plate (never a generated or unrelated image). */
+function CompanyPlate({ company }: { company: StoryCompany }) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-surface-2 p-4" data-testid="company-plate">
+      <Logo name={company.name} website={company.website} logoUrl={company.logoUrl} bare className="h-12 w-12 object-contain" />
+    </div>
+  );
+}
+
 function PublisherPlate({ item }: { item: LiveIntelItem }) {
   const publisher = item.publisher ?? publisherOf(item.url, null);
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-surface-2 to-surface-muted">
       <span className="inline-flex items-center gap-2 text-[13px] font-medium text-muted">
-        {/^https?:\/\//.test(item.url) && <img src={faviconUrl(item.url)} alt="" className="h-5 w-5 rounded" />}
+        {/^https?:\/\//.test(item.url) && <Favicon url={item.url} className="h-5 w-5 rounded" />}
         {publisher ?? SOURCE_LABEL[item.source]}
       </span>
     </div>
@@ -273,15 +285,17 @@ export function featuredStories(items: LiveIntelItem[]): LiveIntelItem[] {
   return items.filter((i) => !i.stale).slice(0, 4);
 }
 
-export function TopStories({ items, onOpen }: { items: LiveIntelItem[]; onOpen: (id: string) => void }) {
+export function TopStories({ items, onOpen, company }: { items: LiveIntelItem[]; onOpen: (id: string) => void; company?: StoryCompany }) {
   const [lead, ...rest] = featuredStories(items);
   if (!lead) return null;
+  const plate = (item: LiveIntelItem) => (company ? <CompanyPlate company={company} /> : <PublisherPlate item={item} />);
+  const subject = company ? { name: company.name, website: company.website } : undefined;
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
       <button type="button" onClick={() => onOpen(lead.id)}
         className="panel group overflow-hidden text-left transition-shadow hover:shadow-md">
         <StoryImage pageUrl={lead.url} imageUrl={lead.imageUrl} publisher={lead.publisher} credit
-          className="aspect-[16/9] w-full" fallback={<PublisherPlate item={lead} />} />
+          className="aspect-[16/9] w-full" subject={subject} fallback={plate(lead)} />
         <div className="space-y-1.5 p-4">
           <StoryMeta item={lead} />
           <h3 className="text-[18px] font-semibold leading-snug text-content group-hover:text-primary-ink">{lead.title}</h3>
@@ -294,7 +308,7 @@ export function TopStories({ items, onOpen }: { items: LiveIntelItem[]; onOpen: 
             <button key={item.id} type="button" onClick={() => onOpen(item.id)}
               className="panel group flex gap-3 overflow-hidden p-2.5 text-left transition-shadow hover:shadow-md">
               <StoryImage pageUrl={item.url} imageUrl={item.imageUrl} publisher={item.publisher}
-                className="h-[84px] w-[128px] shrink-0 rounded-md" fallback={<PublisherPlate item={item} />} />
+                className="h-[84px] w-[128px] shrink-0 rounded-md" subject={subject} fallback={plate(item)} />
               <div className="min-w-0 space-y-1 py-0.5">
                 <StoryMeta item={item} />
                 <p className="line-clamp-3 text-[13.5px] font-medium leading-snug text-content group-hover:text-primary-ink">{item.title}</p>
@@ -309,7 +323,8 @@ export function TopStories({ items, onOpen }: { items: LiveIntelItem[]; onOpen: 
 
 export function LiveIntelTab({ companyId }: { companyId: string }) {
   const query = useDashboardTab(companyId, 'live_intel');
-  const companyNameRaw = useCompany(companyId).data?.name;
+  const companyRec = useCompany(companyId).data;
+  const companyNameRaw = companyRec?.name;
   const companyName = companyNameRaw ?? 'this company';
   const rerun = useRerunDashboardTab(companyId, 'live_intel');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -389,7 +404,7 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
               }
             />
             <div className="mb-8 space-y-8">
-              <TopStories items={all} onOpen={setOpenId} />
+              <TopStories items={all} onOpen={setOpenId} company={companyRec ? { name: companyRec.name, website: companyRec.websiteUrl, logoUrl: companyRec.logoUrl } : undefined} />
               {(result.content.videos?.length ?? 0) > 0 && (
                 <section aria-label="Videos from the company">
                   <h4 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-muted">From their channel</h4>
