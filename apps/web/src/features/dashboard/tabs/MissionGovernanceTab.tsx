@@ -139,7 +139,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                   companies often disclose little.
                 </EmptyNote>
               ) : (
-                <div className={`grid grid-cols-1 gap-4 ${investors.length > 0 ? 'lg:grid-cols-[minmax(0,1fr)_320px]' : ''}`}>
+                <div className={`grid grid-cols-1 gap-4 ${investors.length > 0 ? 'lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : ''}`}>
                   <div className="space-y-4">
                   <FundingChart rounds={fundingRounds} />
                   <div className="panel overflow-hidden">
@@ -240,15 +240,15 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
 
             {/* Balanced view of positive and negative actions (spec §8).
                 Every signal opens as its own readable card — click to expand. */}
-            <section aria-label="Signals">
+            <section aria-label="Strengths and concerns">
               <SectionHeader
-                title="Signals"
+                title="Strengths & concerns"
                 description="Reported positives and concerns. Open one to read the whole story and verify it."
               />
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="panel p-5">
                   <h3 className="flex items-center gap-2 font-display text-sm font-semibold text-positive">
-                    <ThumbsUp className="h-4 w-4" /> Positive signals
+                    <ThumbsUp className="h-4 w-4" /> Strengths
                     <span className="text-xs font-normal tabular-nums text-muted">{positives.length || ''}</span>
                   </h3>
                   <ul className="mt-2 space-y-1">
