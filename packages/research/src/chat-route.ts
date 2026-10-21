@@ -6,6 +6,7 @@
  * - `memory`: one ungrounded call over what the card already knows. Its citations come only from the stored passages it names.
  */
 import { usableCitations, type Citation } from '@mi/contracts';
+import { isFreshCapture } from './capture-age';
 import { wordsOf } from './claim-support';
 import { CONTROVERSY } from './risk-claims';
 import { allowedFigures, dropUntraceableFigures, hasUntraceableFigure, sanitizeSectionMarkdown } from './report-topics';
@@ -16,7 +17,6 @@ export type ChatRoute = 'greeting' | 'fresh' | 'memory';
 export const MIN_MEMORY_PASSAGES = 2;
 /** Stored research older than this is never served as current: the question is searched afresh (the owner's 14-day rule). */
 export const MEMORY_MAX_AGE_DAYS = 14;
-const DAY_MS = 24 * 60 * 60 * 1000;
 /** What the memory call may read on top of the existing deck digest. */
 export const MEMORY_MAX_CHARS = 6000;
 
@@ -52,10 +52,7 @@ export interface StoredPassage {
 
 /** Whether a stored passage is recent enough to answer from. A missing, unreadable or future-dated capture time is not fresh. */
 export function isFreshPassage(passage: Pick<StoredPassage, 'capturedAt'>, now: Date = new Date()): boolean {
-  const at = passage.capturedAt ? Date.parse(passage.capturedAt) : Number.NaN;
-  if (!Number.isFinite(at)) return false;
-  const age = now.getTime() - at;
-  return age >= -DAY_MS && age <= MEMORY_MAX_AGE_DAYS * DAY_MS;
+  return isFreshCapture(passage.capturedAt, now, MEMORY_MAX_AGE_DAYS);
 }
 
 const STOP = new Set(['the', 'and', 'for', 'what', 'how', 'this', 'that', 'with', 'are', 'was', 'does', 'about', 'company', 'tell', 'them', 'they', 'their']);

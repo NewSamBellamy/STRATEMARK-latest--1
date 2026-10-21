@@ -135,6 +135,7 @@ import { applyMilestone, usageSince, type DeckRun, type DeckRunMilestone } from 
 import type { ResearchNoteEntry, ReportedMetricSupport } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { searchEvidenceCorpus } from './retrieval';
+import { isFreshForMetric } from './capture-age';
 import { assessedForDisplay, companyDomainOf, resolveAgainstPrior, settleMetric as settleMetricEvidence } from './metric-assessment';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
@@ -5371,6 +5372,9 @@ export class GeminiRepository implements MarketIntelRepository {
       .flatMap((row) => row.receipts.filter((r) => r.status === 'retrieved' && r.text));
     for (const row of rows) {
       if (row.value == null || row.confidence === 'unknown') continue;
+      // Saved research older than this metric's horizon is dated context, not a
+      // current basis: it fills no slot, so the gap stays and a fresh lookup runs.
+      if (!isFreshForMetric(evidence.capturedAt, row.metricType, new Date())) continue;
       // Tied conflicting rows stay untouched: recovery never resolves an
       // ambiguity the evidence itself created.
       const revision = currentMetricRevision(mine(), companyId, row.metricType);

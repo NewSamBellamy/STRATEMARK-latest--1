@@ -3,6 +3,7 @@ import { enrichmentOutSchema } from './schemas';
 import { providerCompanySummary, reportedCompanyMetrics } from './reported-metrics';
 import type { ResearchEvidence } from './research-evidence';
 import { CONFLICTING_OBSERVATIONS_NOTE } from './company-facts';
+import { isFreshForMetric } from './capture-age';
 
 /** The single eligibility rule for offline recovery: the latest retained
  * company_profile for exactly this subject and name — newest wins even when
@@ -26,7 +27,7 @@ export function latestSavedCompanyProfile(
  * ("As of December 31, 2025, Equinix, Inc. employed…"); without it those
  * fail closed, exactly like the hydration-time gate. */
 export function savedCompanyProfile(company: Company, metrics: readonly CompanyMetric[], evidence: readonly ResearchEvidence[],
-  otherCompanies?: readonly string[]) {
+  otherCompanies?: readonly string[], now: Date = new Date()) {
   const profile = latestSavedCompanyProfile(company, evidence);
   if (!profile) return { company, metrics: [...metrics] };
   const recovered = reportedCompanyMetrics({ companyId: company.id, companyName: company.name, website: company.websiteUrl,
@@ -36,7 +37,9 @@ export function savedCompanyProfile(company: Company, metrics: readonly CompanyM
   const current = metrics.filter(row => row.companyId === company.id);
   // A slot withheld because sources disagree is not missing: filling it from the
   // saved profile would show one side of the conflict as fact.
-  const missing = recovered.filter(row => row.value !== null && !current.some(existing => existing.metricType === row.metricType &&
+  // A profile captured longer ago than the metric's horizon is dated context, not a current basis: it
+  // fills no slot, so the gap stays a gap and a fresh lookup is triggered (never an old guess shown as now).
+  const missing = recovered.filter(row => row.value !== null && isFreshForMetric(profile.capturedAt, row.metricType, now) && !current.some(existing => existing.metricType === row.metricType &&
     (existing.value !== null || existing.confidence === 'user_verified' || existing.methodNote === CONFLICTING_OBSERVATIONS_NOTE)));
   return { company: withProfileSummary(company, profile),
     metrics: [...current.filter(row => !missing.some(repair => repair.metricType === row.metricType)), ...missing] };

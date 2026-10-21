@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import type { CompanyMetric } from '@mi/contracts';
 import { savedCompanyProfile } from './saved-profile';
 import { CONFLICTING_OBSERVATIONS_NOTE } from './company-facts';
@@ -45,4 +45,21 @@ it('projects saved profile repair consistently into card, company and metrics da
   expect(dashboard?.content.markdown).toContain('not verified');
   expect(dashboard?.content.markdown).toContain(description);
   expect(snapshot.companies[0]!.oneLiner).toBe(company.oneLiner);
+});
+it('does not serve saved research older than the metric horizon as a current figure', () => {
+  // Employees horizon is 18 months: captured 2026-10-02, so fresh in 2027 and past it in mid 2028.
+  expect(savedCompanyProfile(company, [], [evidence], undefined, new Date('2027-06-01T00:00:00Z')).metrics).toHaveLength(1);
+  expect(savedCompanyProfile(company, [], [evidence], undefined, new Date('2028-06-01T00:00:00Z')).metrics).toEqual([]);
+});
+it('stale saved research fills nothing in free recovery and the readiness ladder looks again', async () => {
+  const snapshot = migrateSnapshot(null).snapshot;
+  snapshot.companies = [company];
+  snapshot.researchEvidence = [{ ...evidence, capturedAt: '2024-01-02T00:00:00Z' }];
+  const ground = vi.fn(async () => ({ text: 'No reliable figure.', citations: [], queries: [] }));
+  const structure = vi.fn(async (_prompt: string, schema: { parse: (v: unknown) => unknown }) => schema.parse({ figures: [] })) as LlmClient['structure'];
+  const repo = new GeminiRepository({ apiKey: 'test-placeholder', store: { read: () => snapshot, write: () => undefined }, client: { ground, structure } });
+  expect((await repo.recoverSavedCompanyMetrics('c')).filledTypes).toEqual([]);
+  expect((await repo.getCompanyFacts('c')).find(row => row.metricType === 'employees')?.value ?? null).toBeNull();
+  await repo.ensureReportReadiness(['c']);
+  expect(ground).toHaveBeenCalled();
 });

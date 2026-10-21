@@ -41,7 +41,7 @@ export interface DisplayedFactsInput {
 /** Facts before source binding hides or relinks any (the repository's projectedFacts). */
 export function projectedCompanyFacts(input: Omit<DisplayedFactsInput, 'sourceChecks'>): CompanyMetric[] {
   const current = projectCompanyFacts(input.company, [...input.metrics], [...input.attempts]);
-  return savedCompanyProfile(input.company, current, input.evidence, input.otherCompanies).metrics;
+  return savedCompanyProfile(input.company, current, input.evidence, input.otherCompanies, input.now).metrics;
 }
 
 /** Facts exactly as getCompanyFacts serves them. */
