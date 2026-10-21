@@ -59,7 +59,7 @@ export function SettingsModal() {
       description="Manage your research key, engine, and saved data."
       size="2xl"
     >
-      <div className="mt-2 flex h-[65vh] min-h-[500px] flex-col overflow-hidden border-t border-border sm:flex-row">
+      <div className="mt-2 flex h-[calc(88vh-10rem)] min-h-[320px] flex-col overflow-hidden border-t border-border sm:flex-row">
         
         {/* Sidebar Navigation */}
         <nav aria-label="Settings sections" className="flex shrink-0 flex-row overflow-x-auto border-b border-border bg-surface-2/30 p-2 sm:w-48 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:pr-2 sm:pt-4">
@@ -77,6 +77,7 @@ export function SettingsModal() {
           {activeTab === 'data' && (isCommunityDesktop() ? <DesktopDataPanel /> : <DataSafetyPanel />)}
           {activeTab === 'usage' && <UsageBillingPanel />}
           {activeTab === 'about' && isCommunityDesktop() && <CommunityPanel />}
+          <div aria-hidden="true" className="pointer-events-none sticky -bottom-6 -mx-4 -mb-6 mt-2 h-8 bg-gradient-to-t from-surface to-transparent sm:-mx-8" />
         </div>
       </div>
     </Modal>
@@ -171,7 +172,7 @@ function GeneralTab() {
         <p className="text-sm text-muted mb-4">
           {hosted
             ? 'You’re using the research we cover during the beta, which has a limit. Add your own Gemini key to keep going on your own quota.'
-            : 'Add your Gemini key to run live research. It’s stored in this browser and sent only to Google.'}
+            : 'Add your Gemini key to run live research.'}
         </p>
 
         <label className="label" htmlFor="key">API key</label>
@@ -205,7 +206,6 @@ function GeneralTab() {
           >
             aistudio.google.com/app/apikey <ExternalLink className="h-3 w-3" />
           </a>
-          . Your key is sent only to Google. {isCommunityDesktop() ? 'It is encrypted on disk using your operating system’s key storage.' : 'It is saved in this browser.'}
         </p>
       </div>
 
@@ -313,7 +313,9 @@ function GeneralTab() {
 
       <div className="flex items-start gap-2 rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
-        Your key is stored on this device and sent only to Google’s API.
+        {isCommunityDesktop()
+          ? 'Your key is encrypted on disk with your operating system’s key storage and sent only to Google’s API.'
+          : 'Your key is stored in this browser and sent only to Google’s API.'}
       </div>
       {(saveError || storageError) && <p role="alert" className="text-sm text-negative">{saveError || storageError}</p>}
 
