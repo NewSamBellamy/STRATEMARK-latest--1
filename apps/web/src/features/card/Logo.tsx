@@ -229,6 +229,8 @@ export function Logo({
 
   return (
     <div
+      // Read by the print job, which waits for every logo to finish probing: the probe images live outside the DOM.
+      data-logo-settled={settled ? 'true' : 'false'}
       className={cn(
         'grid shrink-0 place-items-center overflow-hidden font-display font-bold text-content',
         bare ? 'text-2xl' : 'game-card__logo rounded-xl text-sm',

@@ -35,7 +35,7 @@ import {
   type DashboardTab,
 } from '@mi/contracts';
 import { buildCardView, fitFaceLine } from '@/features/card/card-view';
-import { buildReportModel, companiesFromCards, type ReportCompany, type ReportModel } from './exportModel';
+import { buildReportModel, companiesFromCards, metricAsOf, type ReportCompany, type ReportModel } from './exportModel';
 import { isDirectSource, sourceHref } from '@/lib/sourceHref';
 import { hasProseFigure, withoutProseFigures } from './proseFigures';
 
@@ -61,9 +61,10 @@ export interface FullReportCompany extends ReportCompany {
   overview: string[];
   /** The four strongest sourced figures, as the card face shows them ("Not found yet" slots left out). */
   keyFigures: Array<{ label: string; display: string }>;
-  products: Array<{ name: string; description: string | null }>;
-  leaders: Array<{ name: string; role: string }>;
-  timeline: Array<{ date: string; title: string }>;
+  /** `sourced` is false when the stored item carries no source of its own (a product line, a history event). */
+  products: Array<{ name: string; description: string | null; sourced: boolean }>;
+  leaders: Array<{ name: string; role: string; sourced: boolean }>;
+  timeline: Array<{ date: string; title: string; sourced: boolean }>;
   news: Array<{ title: string; publisher: string | null; date: string | null; url: string }>;
   risks: Array<{ text: string; source: ReportSource }>;
   /** How many risk (vice) cards the printed risks come from: cards, not claims. */
@@ -71,16 +72,116 @@ export interface FullReportCompany extends ReportCompany {
   culture: { note: string; sources: ReportSource[] } | null;
   /** The kind of card the company sits under (Company, Infrastructure, Distribution). */
   role: string;
+  /** The card the app's face is built from, for the print card face. Same object, never a rebuilt copy. */
+  card: CardWithCompany;
+  /** Deck-wide note number for each of this company's own footnotes (index n-1 of `footnotes`). */
+  deckNotes: number[];
+  /** Exactly the figure slots the card face shows, in the face's order (an unsourced slot is status 'unknown'). */
+  faceFigures: FaceFigure[];
+  /** How many of those slots carry a sourced figure: the numerator of the face's own "n/4 figures sourced". */
+  faceSourced: number;
+}
+
+/** One slot of the card face, as the report prints it. */
+export interface FaceFigure {
+  label: string;
+  status: 'sourced' | 'range' | 'unknown';
+  display: string | null;
+  asOf: string | null;
+  note: number | null;
+  confidence: 'verified' | 'estimated' | null;
 }
 
 export interface FullReportModel extends Omit<ReportModel, 'companies'> {
   companies: FullReportCompany[];
   barriers: SignalBlock[];
   insights: SignalBlock[];
-  /** How many signal CARDS the report prints: barriers, insights, risk cards with a printed risk, culture notes. */
+  /** How many signal cards the whole report prints, counting the risks and culture notes that sit inside company profiles. The "Market signals" section itself prints only barriers and insights: see marketSignalCount. */
   signalCount: number;
+  /** What the "Market signals" section prints: the barriers and insights with a usable source. */
+  marketSignalCount: number;
   /** True when no company has anything beyond its figures: the report is then the short form. */
   thin: boolean;
+  /** Every signal card (risk, culture, barrier, insight), printable or held back. A held-back entry carries no card and no text. */
+  signals: SignalEntry[];
+  signalTally: { printable: number; heldBack: number; heldBackByKind: Record<SignalKind, number> };
+  /** One series per face metric for the market overview page. */
+  overview: OverviewSeries[];
+  methods: MethodsCounts;
+  /** Deck-wide notes, deduplicated by address and numbered in a fixed walk (see buildSourceRegistry). */
+  sources: DeckSource[];
+}
+
+export type SignalKind = 'risk' | 'culture' | 'barrier' | 'insight';
+
+/** A stored brief for a signal card, as the card-memory branch will hand it over (kept structural so the merge is trivial). */
+export interface SignalBriefInput {
+  lead: string;
+  points: Array<{ text: string; sources: Array<{ title: string; url: string }> }>;
+  sources: Array<{ title: string; url: string }>;
+}
+export type SignalBriefsInput = Record<string, SignalBriefInput>;
+
+export interface DeckSource extends ReportSource {
+  /** Deck-wide note number, starting at 1. */
+  n: number;
+  /** The publisher's name (the title shown is always the publisher). */
+  publisher: string;
+}
+
+export interface SignalPoint { text: string; sources: ReportSource[]; notes: number[] }
+
+export interface SignalEntry {
+  cardId: string;
+  kind: SignalKind;
+  printable: boolean;
+  /** Null when held back: the card's text must not travel with it. Otherwise the card with the company's metrics removed. */
+  card: CardWithCompany | null;
+  companyId: string | null;
+  /** Only sourced points; the lead only when the brief has a usable source of its own. */
+  brief: { lead: string | null; points: SignalPoint[]; sources: ReportSource[]; notes: number[] } | null;
+  /** The stored summary, points and sources, for a printable signal with no brief (usable citations on the card). */
+  stored: (SignalBlock & { notes: number[] }) | null;
+}
+
+export type OverviewKey = 'company_value' | 'revenue' | 'reach' | 'employees';
+
+export interface OverviewEntry {
+  companyId: string;
+  name: string;
+  /** 'sourced' has a stored number; 'range' is a stated band (shown, never charted); 'unknown' is null and listed as unknown. */
+  status: 'sourced' | 'range' | 'unknown';
+  /** What the card face prints. Null when unknown. */
+  display: string | null;
+  /** The face's label for this figure. Null when unknown. */
+  label: string | null;
+  value: number | null;
+  asOf: string | null;
+  /** Deck-wide note number of the figure's first source. */
+  note: number | null;
+  /** How the figure prints: verified (or human-checked) in solid ink, estimated in italics. Null when unknown. */
+  confidence: 'verified' | 'estimated' | null;
+}
+
+export interface OverviewSeries {
+  key: OverviewKey;
+  label: string;
+  entries: OverviewEntry[];
+  /** Names of the companies with no sourced figure here. */
+  unknown: string[];
+  /** True only when at least two values are sourced numbers. */
+  chartable: boolean;
+}
+
+export interface MethodsCounts {
+  /** Human-checked figures count as verified. */
+  verified: number;
+  estimated: number;
+  unknown: number;
+  signalsPrinted: number;
+  signalsHeldBack: number;
+  /** Stored profile items printed with no source attached: overview paragraphs, products, leaders, history events. */
+  unsourcedProfileItems: number;
 }
 
 const source = (c: Pick<Citation, 'url' | 'title'>): ReportSource => ({ title: publisherOf(c.url, c.title), url: sourceHref(c.url, c.title), direct: isDirectSource(c.url) });
@@ -144,11 +245,11 @@ function profileOf(card: CardWithCompany, tabs: StoredTabs, base: ReportCompany,
   const leaders = (team?.nodes ?? [])
     .filter((n) => n.name.trim() && n.role.trim())
     .sort((a, b) => Number(b.group === 'exec') - Number(a.group === 'exec'))
-    .slice(0, 8).map((n) => ({ name: n.name.trim(), role: n.role.trim() }));
+    .slice(0, 8).map((n) => ({ name: n.name.trim(), role: n.role.trim(), sourced: usableCitations(n.sourceUrl ? [{ url: n.sourceUrl, title: '' }] : []).length > 0 }));
 
   // History events carry no source of their own, so one that states a money or headcount figure is left out.
   const events = [...(history?.timeline ?? [])].filter((e) => e.date && e.title && !hasProseFigure(e.title)).sort((a, b) => dateKey(a.date).localeCompare(dateKey(b.date)));
-  const timeline = (events.length > 8 ? [...events.slice(0, 2), ...events.slice(-6)] : events).map((e) => ({ date: e.date, title: e.title.trim() }));
+  const timeline = (events.length > 8 ? [...events.slice(0, 2), ...events.slice(-6)] : events).map((e) => ({ date: e.date, title: e.title.trim(), sourced: false }));
 
   const news = (intel?.items ?? []).filter((i) => !i.stale && i.title.trim())
     .sort((a, b) => (b.publishedDate ?? '').localeCompare(a.publishedDate ?? '')).slice(0, 5)
@@ -162,7 +263,7 @@ function profileOf(card: CardWithCompany, tabs: StoredTabs, base: ReportCompany,
     overview: overviewParagraphs(overview?.markdown),
     keyFigures: view.faceMetrics.filter((m) => m.metric?.value != null || m.metric?.reportedBand != null).map((m) => ({ label: m.label, display: m.display })),
     products: (products?.products ?? []).filter((p) => p.name.trim()).slice(0, 8)
-      .map((p) => ({ name: p.name.trim(), description: fitFaceLine(withoutProseFigures(p.description), 200) })),
+      .map((p) => ({ name: p.name.trim(), description: fitFaceLine(withoutProseFigures(p.description), 200), sourced: false })),
     leaders,
     timeline,
     news,
@@ -170,6 +271,10 @@ function profileOf(card: CardWithCompany, tabs: StoredTabs, base: ReportCompany,
     riskCards: new Set(printedRisks.map((r) => r.cardId)).size,
     culture: cultureCard ? { note: cultureCard.card.summary!.trim(), sources: usableCitations(cultureCard.card.citations ?? []).slice(0, 3).map(source) } : null,
     role: view.type,
+    card,
+    deckNotes: [],
+    faceFigures: [],
+    faceSourced: 0,
   };
 }
 
@@ -184,14 +289,71 @@ function signalBlock(card: CardWithCompany): SignalBlock {
   };
 }
 
+const FACE_SERIES: ReadonlyArray<{ key: OverviewKey; label: string }> = [
+  { key: 'company_value', label: 'Valuation / market cap' },
+  { key: 'revenue', label: 'Revenue / ARR' },
+  { key: 'reach', label: 'Users / customers' },
+  { key: 'employees', label: 'Employees' },
+];
+
+const normUrl = (url: string) => url.trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/#.*$/, '').replace(/\/+$/, '');
+
+/**
+ * Deck-wide notes. One number per distinct address; numbering follows the order sources are first registered, which is
+ * a fixed walk (companies in name order: figure sources, risks, culture, news; then signals), so it is stable for the same deck.
+ */
+function buildSourceRegistry() {
+  const list: DeckSource[] = [];
+  const byKey = new Map<string, number>();
+  const note = (s: ReportSource): number => {
+    const key = normUrl(s.url);
+    let n = byKey.get(key);
+    if (!n) { n = list.length + 1; byKey.set(key, n); list.push({ n, title: s.title, publisher: s.title, url: s.url, direct: s.direct }); }
+    return n;
+  };
+  return { list, note, find: (url: string) => byKey.get(normUrl(url)) ?? null };
+}
+
+const KIND_OF: Record<string, SignalKind | undefined> = { vice: 'risk', culture: 'culture', barrier: 'barrier', insight: 'insight' };
+
+function viceStored(card: CardWithCompany): SignalBlock {
+  const seen = new Set<string>();
+  const points: string[] = [];
+  const sources: ReportSource[] = [];
+  for (const claim of card.viceClaims) {
+    const cited = usableCitations(claim.sourceUrl ? [{ url: claim.sourceUrl, title: claim.sourceTitle ?? '' }] : [])[0];
+    const text = cited ? once(seen, claim.claimText) : null;
+    if (cited && text) { points.push(text); sources.push(source(cited)); }
+  }
+  return { title: card.card.title?.trim() || 'Risks', summary: null, points, sources };
+}
+
+function briefOf(input: SignalBriefInput | undefined, note: (s: ReportSource) => number) {
+  if (!input) return null;
+  const points: SignalPoint[] = [];
+  const seen = new Set<string>();
+  for (const p of input.points ?? []) {
+    const cites = usableCitations(p.sources ?? []);
+    const text = cites.length ? once(seen, p.text) : null;
+    if (!text) continue;
+    const sources = cites.slice(0, 4).map(source);
+    points.push({ text, sources, notes: sources.map(note) });
+  }
+  if (points.length === 0) return null;
+  const own = usableCitations(input.sources ?? []).slice(0, 4).map(source);
+  const lead = own.length ? once(new Set<string>(), input.lead) : null;
+  return { lead, points, sources: own, notes: own.map(note) };
+}
+
 /**
  * The report for a deck. `tabs` is the deck's stored dashboard tabs (the share snapshot carries them); a company
- * without a stored tab simply has no such section.
+ * without a stored tab simply has no such section. `signalBriefs` (card id to stored brief) is optional.
  */
 export function buildFullReport(args: {
   title: string;
   cards: readonly CardWithCompany[];
   tabs: StoredTabs;
+  signalBriefs?: SignalBriefsInput | null;
   now?: Date;
 }): FullReportModel {
   const companies = companiesFromCards(args.cards);
@@ -213,12 +375,99 @@ export function buildFullReport(args: {
   // Cards, not claims: a risk card with three printed claims is one signal.
   const riskCount = profiles.reduce((n, c) => n + c.riskCards, 0);
   const cultureCount = profiles.filter((c) => c.culture).length;
+
+  // -- Deck-wide notes, registered in a fixed walk ----------------------------------------------------------------
+  const registry = buildSourceRegistry();
+  const faceNotes = new Map<string, number[]>();
+  for (const c of profiles) {
+    faceNotes.set(c.id, c.footnotes.map((f) => registry.note({ title: f.title, url: f.url, direct: f.direct })));
+    for (const r of c.risks) registry.note(r.source);
+    for (const s of c.culture?.sources ?? []) registry.note(s);
+    for (const n of c.news) registry.note({ title: n.publisher ?? publisherOf(n.url, n.title), url: sourceHref(n.url, n.title), direct: isDirectSource(n.url) });
+  }
+
+  // -- Signals ------------------------------------------------------------------------------------------------------
+  const entries: SignalEntry[] = [];
+  for (const c of args.cards) {
+    const kind = KIND_OF[c.card.cardType];
+    if (!kind) continue;
+    const brief = briefOf(args.signalBriefs?.[c.card.id], registry.note);
+    const block = kind === 'risk' ? viceStored(c) : signalBlock(c);
+    const cited = kind === 'risk' ? block.sources.length > 0 : usableCitations(c.card.citations ?? []).length > 0;
+    const storedOk = cited && (kind === 'risk' || !!c.card.summary?.trim() || block.points.length > 0);
+    if (brief === null && !storedOk) {
+      entries.push({ cardId: c.card.id, kind, printable: false, card: null, companyId: c.company?.id ?? null, brief: null, stored: null });
+      continue;
+    }
+    entries.push({
+      cardId: c.card.id, kind, printable: true,
+      // A signal is never a company's card: its figures are not carried along.
+      card: { ...c, metrics: [] },
+      companyId: c.company?.id ?? null,
+      brief,
+      stored: brief || !storedOk ? null : { ...block, notes: block.sources.map(registry.note) },
+    });
+  }
+  const heldBackByKind: Record<SignalKind, number> = { risk: 0, culture: 0, barrier: 0, insight: 0 };
+  for (const e of entries) if (!e.printable) heldBackByKind[e.kind] += 1;
+  const heldBack = entries.filter((e) => !e.printable).length;
+
+  // -- Overview series: only what each card face prints ---------------------------------------------------------------
+  type Face = ReturnType<typeof buildCardView>['faceMetrics'][number];
+  const sourcedFace = (face: Face | undefined): Face | undefined => (face && face.metric && (face.metric.value != null || face.metric.reportedBand != null)
+    && (face.citations.length > 0 || face.metric.confidence === 'user_verified') ? face : undefined);
+  const figureOf = (face: Face | undefined): Omit<OverviewEntry, 'companyId' | 'name' | 'label' | 'value'> & { label: string | null; value: number | null } => {
+    if (!face || !face.metric) return { status: 'unknown', display: null, label: null, value: null, asOf: null, note: null, confidence: null };
+    const first = face.citations[0];
+    const value = face.metric.value != null && Number.isFinite(face.metric.value) ? face.metric.value : null;
+    return {
+      status: value != null ? 'sourced' : 'range', display: face.display, label: face.label, value, asOf: metricAsOf(face.metric),
+      note: first ? registry.find(source(first).url) : null,
+      confidence: face.metric.confidence === 'estimated' ? 'estimated' : 'verified',
+    };
+  };
+  const faceFiguresOf = (c: FullReportCompany): FaceFigure[] => buildCardView(c.card).faceMetrics.map((face) => {
+    const f = figureOf(sourcedFace(face));
+    return { label: face.label, status: f.status, display: f.display, asOf: f.asOf, note: f.note, confidence: f.confidence };
+  });
+  const overview: OverviewSeries[] = FACE_SERIES.map(({ key, label }) => {
+    const series: OverviewEntry[] = profiles.map((c): OverviewEntry => ({
+      companyId: c.id, name: c.name, ...figureOf(sourcedFace(buildCardView(c.card).faceMetrics.find((m) => m.key === key))),
+    }));
+    return {
+      key, label, entries: series,
+      unknown: series.filter((e) => e.status === 'unknown').map((e) => e.name),
+      chartable: series.filter((e) => e.status === 'sourced').length >= 2,
+    };
+  });
+
+  // -- Methods ------------------------------------------------------------------------------------------------------
+  const rows = profiles.flatMap((c) => c.rows);
+  const methods: MethodsCounts = {
+    verified: rows.filter((r) => !r.unknown && (r.confidence === 'verified' || r.confidence === 'user_verified')).length,
+    estimated: rows.filter((r) => !r.unknown && r.confidence === 'estimated').length,
+    unknown: rows.filter((r) => r.unknown).length,
+    signalsPrinted: entries.length - heldBack,
+    signalsHeldBack: heldBack,
+    unsourcedProfileItems: profiles.reduce((n, c) => n + c.overview.length + c.products.filter((p) => !p.sourced).length
+      + c.leaders.filter((l) => !l.sourced).length + c.timeline.filter((t) => !t.sourced).length, 0),
+  };
+
   return {
     ...base,
-    companies: profiles,
+    companies: profiles.map((c) => {
+      const faceFigures = faceFiguresOf(c);
+      return { ...c, deckNotes: faceNotes.get(c.id) ?? [], faceFigures, faceSourced: faceFigures.filter((f) => f.status !== 'unknown').length };
+    }),
     barriers,
     insights,
+    marketSignalCount: barriers.length + insights.length,
     signalCount: barriers.length + insights.length + riskCount + cultureCount,
     thin: profiles.every((c) => c.overview.length === 0 && c.products.length === 0 && c.leaders.length === 0 && c.timeline.length === 0 && c.news.length === 0),
+    signals: entries,
+    signalTally: { printable: entries.length - heldBack, heldBack, heldBackByKind },
+    overview,
+    methods,
+    sources: registry.list,
   };
 }

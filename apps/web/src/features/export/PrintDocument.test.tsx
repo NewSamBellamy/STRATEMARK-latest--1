@@ -28,7 +28,7 @@ describe('the printed market report', () => {
     for (const company of model.companies) expect(headings.some((h) => h?.includes(company.name))).toBe(true);
     const text = container.textContent ?? '';
     expect(text).toContain('The market at a glance');
-    expect(text).toContain('Barriers to entry');
+    // Barriers and insights print in B2's signals section.
     expect(text).toContain('Figures');
   });
 
@@ -37,7 +37,10 @@ describe('the printed market report', () => {
     const model = buildReportModel({ title: market.name, kind: 'deck', companies: companiesFromCards(cards) });
     const { container } = render(<PrintDocument job={{ kind: 'report', model }} />);
     expect(container.querySelectorAll('header')).toHaveLength(0);
-    expect(container.querySelectorAll('.sm-company-head h2').length).toBe(model.companies.length);
+    // Each company is a running-head section: its name is in the thead, which Chromium repeats on every page it covers.
+    const heads = [...container.querySelectorAll('table.sm-run > thead .sm-r-h2')].map((h) => h.textContent ?? '');
+    expect(heads).toHaveLength(model.companies.length);
+    for (const company of model.companies) expect(heads.some((h) => h.includes(company.name))).toBe(true);
   });
 
   it('puts a company history in time order, whatever way its dates are written', () => {
@@ -47,5 +50,61 @@ describe('the printed market report', () => {
     ]);
     // A date with no year goes last rather than first.
     expect(dateKey('Today')).toBe('9999-0');
+  });
+  it('prints no Market signals heading, and counts none on the cover, when every signal card is unsourced', async () => {
+    const { market, cards: stored, tabs } = await sampleDeck();
+    // Drop every citation: nothing a signal section could print is attributable.
+    const bare = stored.map((c) => ['barrier', 'insight'].includes(c.card.cardType) ? { ...c, card: { ...c.card, citations: [] } } : c);
+    const model = buildFullReport({ title: market.name, cards: bare, tabs });
+    expect(model.marketSignalCount).toBe(0);
+    const { container } = render(<PrintDocument job={{ kind: 'marketReport', model }} />);
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('Market signals');
+    // Risk and culture signals with a source still print (the sample deck has them); the section holds exactly the printable ones.
+    expect(container.querySelectorAll('.sm-sigcard').length).toBe(model.signalTally.printable);
+    expect(text).not.toMatch(/\d+ market signals/);
+  });
+
+  it('lists Signals in the contents only when the report prints signals, and the cover counts come from the model', async () => {
+    const { market, cards, tabs } = await sampleDeck();
+    const model = buildFullReport({ title: market.name, cards, tabs });
+    const { container } = render(<PrintDocument job={{ kind: 'marketReport', model }} />);
+    const n = model.companies.length;
+    expect(container.querySelector('[data-testid="cover-counts"]')?.textContent).toBe(`${n} companies · ${model.figureCount} sourced figures · ${model.unknownCount} marked Unknown`);
+    const toc = container.querySelector('[data-testid="contents"]')?.textContent ?? '';
+    expect(toc.includes('Signals')).toBe(model.signalTally.printable > 0 || model.marketSignalCount > 0);
+  });
+
+  it('repeats a running head with the company name through every company profile and the signal section', async () => {
+    const { market, cards: stored, tabs } = await sampleDeck();
+    const cards = stored.map((c) => c.card.cardType === 'barrier'
+      ? { ...c, card: { ...c.card, citations: [{ title: 'reuters.com', url: `https://reuters.com/${c.card.id}` }] } } : c);
+    const model = buildFullReport({ title: market.name, cards, tabs });
+    const { container } = render(<PrintDocument job={{ kind: 'marketReport', model }} />);
+    const profiles = [...container.querySelectorAll('.sm-profile')];
+    expect(profiles).toHaveLength(model.companies.length);
+    profiles.forEach((p, i) => {
+      expect(p.querySelector('table.sm-run > thead .sm-company-head h2')?.textContent).toContain(model.companies[i]!.name);
+    });
+    // The signals section's own running head is asserted by its component (B2).
+    expect(container.querySelectorAll('header, aside')).toHaveLength(0);
+  });
+
+  it('labels history, products and leaders that carry no source, and only those', async () => {
+    const { market, cards, tabs } = await sampleDeck();
+    const model = buildFullReport({ title: market.name, cards, tabs });
+    const NOTE = 'From the stored company profile; no source was attached to this item.';
+    const withHistory = model.companies.filter((c) => c.timeline.length > 0).length;
+    const { container, unmount } = render(<PrintDocument job={{ kind: 'marketReport', model }} />);
+    expect(withHistory).toBeGreaterThan(0);
+    const labelled = (blockTitle: string) => [...container.querySelectorAll('.sm-block')].filter((b) => b.querySelector('.sm-h3')?.textContent === blockTitle && (b.textContent ?? '').includes(NOTE)).length;
+    expect(labelled('History')).toBe(withHistory);
+    expect(labelled('Products')).toBe(model.companies.filter((c) => c.products.length > 0).length);
+    expect(labelled('Overview')).toBe(0);
+    unmount();
+    // A block whose every item is sourced carries no label.
+    const sourced = { ...model, companies: model.companies.map((c) => ({ ...c, products: c.products.map((p) => ({ ...p, sourced: true })), leaders: c.leaders.map((l) => ({ ...l, sourced: true })), timeline: c.timeline.map((t) => ({ ...t, sourced: true })) })) };
+    const again = render(<PrintDocument job={{ kind: 'marketReport', model: sourced }} />);
+    expect(again.container.textContent ?? '').not.toContain(NOTE);
   });
 });

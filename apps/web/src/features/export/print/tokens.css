@@ -1,0 +1,45 @@
+/*
+ * Print design tokens: the one place the report's type scale, palette and font
+ * stacks are written down. Colours are the LIGHT app tokens written out
+ * literally (a PDF stays light-on-white in dark mode). Page size and margins are
+ * not here: @page cannot read custom properties, so print/pageStyle.ts owns them
+ * and injects them per print job.
+ *
+ * Fonts: Parkinsans and Google Sans Flex are named first and load from Google
+ * Fonts through index.html; the stacks after them are what prints when they have
+ * not loaded (offline, blocked), chosen to look close.
+ */
+.sm-print-doc {
+  /* Font stacks */
+  --sm-font-display: Parkinsans, "Google Sans Flex", ui-sans-serif, "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --sm-font-text: "Google Sans Flex", ui-sans-serif, "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+
+  /* Palette */
+  --sm-ink: #171a19;
+  --sm-ink-soft: #3d4543;
+  --sm-muted: #68716f;
+  --sm-hairline: #dce8e5;
+  --sm-teal: #0f766e;
+  --sm-teal-tint: #eef6f4;
+  --sm-card-paper: #ddd5bf;
+  --sm-card-paper-2: #d8d1c0;
+  --sm-art-ground: #20332f;
+  --sm-gap: #c9a227;
+  --sm-gap-bg: #faf6e6;
+  /* Signal accents */
+  --sm-risk: #71594b;
+  --sm-barrier: #5f6958;
+  --sm-culture: #4e715b;
+  --sm-insight: #526e68;
+
+  /* Type scale */
+  --sm-fs-cover: 40pt;
+  --sm-fs-opener: 28pt;
+  --sm-fs-h2: 18pt;
+  --sm-fs-hero: 22pt;
+  --sm-fs-body: 9.5pt;
+  --sm-lh-body: 14pt;
+  --sm-fs-eyebrow: 7.5pt;
+  --sm-fs-note: 7.5pt;
+  --sm-eyebrow-tracking: 0.16em;
+}

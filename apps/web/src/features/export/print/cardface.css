@@ -1,0 +1,49 @@
+/*
+ * Print styling for the real card face (PrintCardFace.tsx).
+ * The face is laid out at 300 px wide (it clips below about 260 px) and shown at 79 mm (hero, scale 1)
+ * or about 38 mm (lineup, scale 0.48) by scaling the inner element inside a fixed-size box.
+ */
+.sm-cardface {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+.sm-cardface--hero {
+  width: 300px;
+  height: 420px;
+}
+.sm-cardface--lineup {
+  width: 144px;
+  height: 201.6px;
+}
+.sm-cardface__inner {
+  width: 300px;
+  transform-origin: 0 0;
+}
+.sm-cardface--lineup .sm-cardface__inner {
+  transform: scale(0.48);
+}
+
+/* Paper, not screen: no shadow, no foil, no motion, no hover. */
+.sm-cardface *,
+.sm-cardface *::before,
+.sm-cardface *::after {
+  animation: none !important;
+  transition: none !important;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+.sm-cardface .collectible,
+.sm-cardface .collectible__paper {
+  box-shadow: none !important;
+}
+.sm-cardface .collectible {
+  transform: none !important;
+}
+.sm-cardface .collectible__foil {
+  display: none !important;
+}
