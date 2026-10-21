@@ -19,7 +19,7 @@ import { HOSTED_KEY } from '@/lib/hostedApi';
 import { IpcRepository, isElectron } from './ipc-repository';
 import { SentinelRepository } from './SentinelRepository';
 import { openBrowserResearchStore } from './browserResearchStore';
-import { QUOTA_PRESETS, useApiKey } from '@/lib/settings/apiKey';
+import { QUOTA_PRESETS, effectiveQuotaPreset, useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
 import { currentWebSearch } from '@/lib/settings/searchKey';
 import { currentMovesNewsSearch, currentNewsSearch } from './news-lane';
@@ -146,7 +146,8 @@ export function RepositoryProvider({
   const apiKey = userKey || (hosted ? HOSTED_KEY : '');
   const model = useApiKey((s) => s.model);
   const judgeModel = useApiKey((s) => s.judgeModel);
-  const quotaPreset = useApiKey((s) => s.quotaPreset);
+  const chosenPreset = useApiKey((s) => s.quotaPreset);
+  const quotaPreset = effectiveQuotaPreset({ hasUserKey: Boolean(userKey), hosted, chosen: chosenPreset });
   const { engine } = useEngineChoice();
   const [value, setValue] = useState<MarketIntelRepository | null>(repository ?? null);
   const [mode, setMode] = useState<RepositoryMode>(repository ? 'browser-live' : 'demo');

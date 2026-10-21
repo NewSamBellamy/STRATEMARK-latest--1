@@ -36,6 +36,15 @@ export function readQuotaPreset(): QuotaPreset {
 }
 
 /**
+ * The pacing a run actually uses. A hosted-beta visitor with no key of their own runs on the Worker's server key (a paid
+ * key, bounded by the Worker's dollar caps), so they get the paid pacing; the "free key" default is for someone who pastes a
+ * free key of their own, and it throttled every hosted deck to the free tier's 10 searches a minute for no reason.
+ */
+export function effectiveQuotaPreset(input: { hasUserKey: boolean; hosted: boolean; chosen: QuotaPreset }): QuotaPreset {
+  return input.hosted && !input.hasUserKey ? 'paid' : input.chosen;
+}
+
+/**
  * Strip characters that can't legally travel in an HTTP header.
  *
  * The key is sent as `x-goog-api-key`, and headers must be ISO-8859-1. Keys
