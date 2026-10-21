@@ -3,16 +3,18 @@ import { formatDate } from '@/lib/format';
 import { ChevronDown, Loader2, Plus, StickyNote } from 'lucide-react';
 import type { ResearchEvidence } from '@mi/research';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
-import { useCompany } from '@/hooks/data';
+import { useQuery } from '@tanstack/react-query';
+import { useCompany, useCompanyMetrics } from '@/hooks/data';
 import { presentable } from '@mi/research';
 import { EmptyState } from '@/components/states/EmptyState';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
-import { publisherOf, usableCitations } from '@mi/contracts';
+import { publisherOf, usableCitations, type DashboardTab } from '@mi/contracts';
 import { isDirectSource, sourceHref } from '@/lib/sourceHref';
 import { Favicon } from '@/components/media/Favicon';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
-import { SOURCE_STRENGTH_LABEL, groupByHost, matchesQuery, sourceStrength, strengthMix, type SourceStrength } from './tabHelpers';
+import { SOURCE_STRENGTH_LABEL, matchesQuery, strengthMix, type SourceStrength } from './tabHelpers';
+import { buildSourceLedger, groupByPublisher, type LedgerSection, type LedgerSource } from './sourceLedger';
 
 /** Human-readable topic names — provider topics are machine words. */
 const TOPIC_LABELS: Record<string, string> = {
@@ -112,30 +114,19 @@ function EvidenceCard({ evidence }: { evidence: ResearchEvidence }) {
   );
 }
 
-/** Every distinct source across the retained evidence, grouped by publisher and weighed by strength. */
-function SourcesView({ evidence, query }: { evidence: ResearchEvidence[]; query: string }) {
+const HOST_LIKE = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i;
+
+/** Every distinct source behind the company's figures, news, people and research, grouped by publisher. */
+function SourcesView({ sources, query }: { sources: LedgerSource[]; query: string }) {
   const [strength, setStrength] = useState<SourceStrength | 'all'>('all');
-  const sources = useMemo(() => {
-    const seen = new Map<string, { url: string; title: string; topics: Set<string>; strength: SourceStrength }>();
-    for (const e of evidence) {
-      for (const c of usableCitations(e.citations)) {
-        const row = seen.get(c.url) ?? { url: c.url, title: publisherOf(c.url, c.title), topics: new Set<string>(), strength: sourceStrength(c.credibility) };
-        row.topics.add(topicLabel(e.topic));
-        seen.set(c.url, row);
-      }
-    }
-    return [...seen.values()];
-  }, [evidence]);
   const mix = useMemo(() => strengthMix(sources), [sources]);
-  const groups = useMemo(() => groupByHost(sources.filter((s) => strength === 'all' || s.strength === strength)).filter((g) =>
-    matchesQuery(`${g.host} ${g.items.map((i) => i.title).join(' ')}`, query),
+  const groups = useMemo(() => groupByPublisher(sources.filter((s) => strength === 'all' || s.strength === strength)).filter((g) =>
+    matchesQuery(`${g.publisher} ${g.items.map((i) => `${i.title} ${i.uses.join(' ')}`).join(' ')}`, query),
   ), [sources, strength, query]);
-  if (sources.length === 0 || groups.length === 0) {
+  if (groups.length === 0) {
     return (
-      <EmptyNote compact title={query.trim() ? 'No sources match' : 'No sources retained yet'}>
-        {query.trim()
-          ? `No retained source matches "${query.trim()}".`
-          : 'Sources appear here once a grounded research pass returns citations. Run research on a tab to collect some.'}
+      <EmptyNote compact title="No sources match">
+        {`No source matches "${query.trim()}".`}
       </EmptyNote>
     );
   }
@@ -151,25 +142,29 @@ function SourcesView({ evidence, query }: { evidence: ResearchEvidence[]; query:
           ))}
         </div>
       )}
-      {groups.map((g) => (
-        <section key={g.host} className="panel p-4" aria-label={g.host}>
-          <h4 className="flex items-center gap-2 text-sm font-medium text-content">
-            <Favicon url={`https://${g.host}`} className="h-4 w-4 rounded-sm" />
-            {g.host}
-            <span className="text-xs font-normal tabular-nums text-muted">{g.items.length}</span>
-          </h4>
-          <ul className="mt-2 space-y-1.5">
-            {g.items.map((s) => (
-              <li key={s.url} className="flex flex-wrap items-baseline gap-x-2">
-                <a href={sourceHref(s.url, s.title)} target="_blank" rel="noopener noreferrer" className="break-words text-sm text-primary-ink hover:underline">
-                  {s.title}
-                </a>
-                <span className="text-[11px] text-faint">{[SOURCE_STRENGTH_LABEL[s.strength], ...s.topics].join(' · ')}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
+      <div className="panel divide-y divide-border">
+        {groups.map((g) => (
+          <section key={g.publisher} className="px-4 py-3" aria-label={g.publisher}>
+            <h4 className="flex items-center gap-2 text-sm font-medium text-content">
+              {HOST_LIKE.test(g.publisher) && <Favicon url={`https://${g.publisher}`} className="h-4 w-4 rounded-sm" />}
+              {g.publisher}
+              <span className="text-xs font-normal tabular-nums text-muted">{g.items.length}</span>
+            </h4>
+            <ul className="mt-1.5 space-y-1 pl-6">
+              {g.items.map((s) => (
+                <li key={s.url} className="flex flex-wrap items-baseline gap-x-2">
+                  <a href={sourceHref(s.url, s.title)} target="_blank" rel="noopener noreferrer" className="break-words text-sm text-primary-ink hover:underline">
+                    {s.title === s.publisher ? 'Source page' : s.title}
+                  </a>
+                  <span className="text-[11px] text-faint">
+                    {[SOURCE_STRENGTH_LABEL[s.strength], s.date, s.uses.join(', ')].filter(Boolean).join(' · ')}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
     </div>
   );
 }
@@ -179,7 +174,7 @@ export function ResearchTab({ companyId }: { companyId: string }) {
   const repo = useRepository();
   const company = useCompany(companyId);
   const name = company.data?.name ?? 'this company';
-  const [view, setView] = useState<'evidence' | 'sources'>('evidence');
+  const [view, setView] = useState<'evidence' | 'sources'>('sources');
   const [filter, setFilter] = useState<string>('all');
   const [searchText, setSearchText] = useState('');
   const [visible, setVisible] = useState(20);
@@ -191,7 +186,7 @@ export function ResearchTab({ companyId }: { companyId: string }) {
   const [version, setVersion] = useState(0);
 
   const canAdd = typeof repo.addResearchNote === 'function';
-  const { evidence, available } = useEvidence(companyId, version);
+  const { evidence } = useEvidence(companyId, version);
   const topics = useMemo(() => {
     const present = new Set(evidence.map((e) => e.topic));
     return [...present].sort((a, b) => {
@@ -202,10 +197,19 @@ export function ResearchTab({ companyId }: { companyId: string }) {
   const filtered = (filter === 'all' ? evidence : evidence.filter((e) => e.topic === filter)).filter((e) =>
     matchesQuery(`${e.topic} ${e.companyName ?? ''} ${e.text}`, searchText),
   );
-  const sourceTotal = useMemo(
-    () => new Set(evidence.flatMap((e) => usableCitations(e.citations).map((c) => c.url))).size,
-    [evidence],
+  const metricsQ = useCompanyMetrics(companyId);
+  const sections = useHeldSections(companyId);
+  const ledger = useMemo(
+    () => buildSourceLedger({
+      metrics: metricsQ.data,
+      sections,
+      retained: evidence.map((e) => ({ label: 'Research', citations: e.citations })),
+    }),
+    [metricsQ.data, sections, evidence],
   );
+  const sourceTotal = ledger.length;
+  const hasEvidence = evidence.length > 0;
+  const shownView = !hasEvidence ? 'sources' : sourceTotal === 0 ? 'evidence' : view;
 
   const addNote = async () => {
     if (!noteText.trim() || saving) return;
@@ -224,22 +228,17 @@ export function ResearchTab({ companyId }: { companyId: string }) {
     }
   };
 
-  if (!available) {
-    return (
-      <EmptyState title="Research base unavailable"
-        description="This engine does not expose retained research. Update the app to use the knowledge base." />
-    );
-  }
-
   return (
     <div className="space-y-6">
       <SectionHeader
         title="Research & sources"
         description={
           <>
-            {evidence.length} retained record{evidence.length === 1 ? '' : 's'} for {name}
-            {sourceTotal > 0 ? ` · ${sourceTotal} distinct source${sourceTotal === 1 ? '' : 's'}` : ''}. Search
-            output is attribution, not independent verification.
+            {sourceTotal > 0
+              ? `${sourceTotal} source${sourceTotal === 1 ? '' : 's'} behind ${name}'s figures, news and people`
+              : `Sources behind ${name}'s figures, news and people`}
+            {hasEvidence ? ` · ${evidence.length} retained record${evidence.length === 1 ? '' : 's'}` : ''}.
+            {sourceTotal > 0 ? ' Search output is attribution, not independent verification.' : ''}
           </>
         }
         actions={
@@ -278,26 +277,28 @@ export function ResearchTab({ companyId }: { companyId: string }) {
         </div>
       )}
 
-      {evidence.length === 0 ? (
-        <EmptyNote title="No research retained yet">
-          Every grounded research pass on {name} is kept here with its sources, and you can add your
-          own notes. Open another tab or run research to start filling it.
+      {!hasEvidence && sourceTotal === 0 ? (
+        <EmptyNote compact title="No sources held yet">
+          Nothing has been sourced for {name} yet. Run research on a tab and its sources appear here;
+          you can also add your own notes.
         </EmptyNote>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-lg border border-border bg-surface-2/60 p-0.5" role="group" aria-label="View">
-              {(['evidence', 'sources'] as const).map((v) => (
-                <button key={v} type="button" aria-pressed={view === v}
-                  onClick={() => setView(v)}
-                  className={cn(
-                    'rounded-md px-3 py-1 text-xs font-medium transition-colors',
-                    view === v ? 'bg-surface text-content shadow-card' : 'text-muted hover:text-content',
-                  )}>
-                  {v === 'evidence' ? 'Evidence' : `Sources · ${sourceTotal}`}
-                </button>
-              ))}
-            </div>
+            {hasEvidence && sourceTotal > 0 && (
+              <div className="inline-flex rounded-lg border border-border bg-surface-2/60 p-0.5" role="group" aria-label="View">
+                {(['sources', 'evidence'] as const).map((v) => (
+                  <button key={v} type="button" aria-pressed={shownView === v}
+                    onClick={() => setView(v)}
+                    className={cn(
+                      'rounded-md px-3 py-1 text-xs font-medium transition-colors',
+                      shownView === v ? 'bg-surface text-content shadow-card' : 'text-muted hover:text-content',
+                    )}>
+                    {v === 'evidence' ? `Retained records · ${evidence.length}` : `Sources · ${sourceTotal}`}
+                  </button>
+                ))}
+              </div>
+            )}
             <SearchBox
               value={searchText}
               onChange={(v) => { setSearchText(v); setVisible(20); }}
@@ -307,7 +308,7 @@ export function ResearchTab({ companyId }: { companyId: string }) {
             />
           </div>
 
-          {view === 'evidence' && topics.length > 1 && (
+          {shownView === 'evidence' && topics.length > 1 && (
             <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by topic">
               <FilterChip active={filter === 'all'} onClick={() => setFilter('all')} count={evidence.length}>
                 All
@@ -321,8 +322,8 @@ export function ResearchTab({ companyId }: { companyId: string }) {
             </div>
           )}
 
-          {view === 'sources' ? (
-            <SourcesView evidence={evidence} query={searchText} />
+          {shownView === 'sources' ? (
+            <SourcesView sources={ledger} query={searchText} />
           ) : (
             <div className="space-y-4">
               {filtered.slice(0, visible).map((e) => <EvidenceCard key={e.id} evidence={e} />)}
@@ -342,6 +343,26 @@ export function ResearchTab({ companyId }: { companyId: string }) {
       )}
     </div>
   );
+}
+
+const LEDGER_TABS: DashboardTab[] = ['overview', 'team_org', 'products_roadmap', 'history', 'live_intel', 'mission_governance'];
+
+/** Sections already stored for the company. A peek never starts research, so this tab stays free. */
+function useHeldSections(companyId: string) {
+  const repo = useRepository();
+  const held = useQuery({
+    queryKey: ['source-ledger', companyId],
+    queryFn: async () => {
+      const out: Partial<Record<DashboardTab, LedgerSection>> = {};
+      await Promise.all(LEDGER_TABS.map(async (tab) => {
+        const found = await repo.peekDashboardTab?.(companyId, tab).catch(() => null);
+        if (found) out[tab] = { content: found.content, citations: found.citations };
+      }));
+      return out;
+    },
+    enabled: typeof repo.peekDashboardTab === 'function',
+  });
+  return held.data;
 }
 
 /** Evidence reader — a local read on evidence-holding engines, never a
