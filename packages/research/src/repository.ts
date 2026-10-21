@@ -5886,20 +5886,22 @@ export class GeminiRepository implements MarketIntelRepository {
    * The sourced half of a research conversation, for folding into a topic report: every question the analyst
    * asked, but only the answers that carried at least one usable source (an unsourced answer is not evidence).
    */
-  private reportConversation(threadIds: string[]): { text: string; citations: Citation[] } | null {
+  private reportConversation(threadIds: string[]): { text: string; citations: Citation[]; found: string } | null {
     const parts: string[] = [];
     const citations: Citation[] = [];
+    const found: string[] = [];
     for (const threadId of threadIds) {
       const thread = this.snap.threads.find((t) => t.id === threadId);
-      if (!thread) continue;
+      if (!isReadableThread(thread)) continue;
       const kept = thread.messages.filter((m) => m.role === 'user' || usableCitations(m.citations ?? []).length > 0);
       if (!kept.some((m) => m.role === 'assistant')) continue;
       const lines = kept.map((m) => `${m.role === 'user' ? 'ANALYST ASKED' : 'RESEARCH FOUND'}: ${m.text}`).join('\n');
       parts.push(threadIds.length > 1 ? `CONVERSATION "${thread.title}":\n${lines}` : lines);
       citations.push(...kept.flatMap((m) => m.citations ?? []));
+      found.push(...kept.filter((m) => m.role !== 'user').map((m) => m.text));
     }
     if (parts.length === 0) return null;
-    return { text: parts.join('\n\n').slice(0, 8000), citations: usableCitations(citations) };
+    return { text: parts.join('\n\n').slice(0, 8000), citations: usableCitations(citations), found: found.join('\n').slice(0, 8000) };
   }
 
   /**

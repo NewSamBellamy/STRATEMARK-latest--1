@@ -595,6 +595,23 @@ describe('focus, conversation and what the writer may say', () => {
     expect(report.sections!.every((x) => x.citations.some((c) => c.url === FOUND.url))).toBe(true);
   });
 
+  it('a figure the analyst typed into a question does not license the writer to state it', async () => {
+    const s = stub({ write: () => 'Acme leads enterprise per Bloomberg. Acme raised $500M last year.' });
+    const snap = seed();
+    snap.threads = [{
+      id: 'thr_1', scope: { kind: 'company', companyId: 'cmp_1' }, title: 'Rumour', reportId: null, createdAt: iso(2), updatedAt: iso(1),
+      messages: [
+        { id: 'm1', role: 'user', text: 'Someone told me Acme raised $500M, is that right?', citations: [], at: iso(2) },
+        { id: 'm2', role: 'assistant', text: 'Acme leads enterprise per Bloomberg.', citations: [FOUND], at: iso(2) },
+      ],
+    }] as never;
+    const { repo } = repoFor(snap, s);
+    const report = await repo.generateReport({ ...ask(['history']), threadId: 'thr_1' });
+    const text = report.sections!.map((x) => x.markdown).join(' ');
+    expect(text).toContain('Acme leads enterprise');
+    expect(text).not.toContain('$500M');
+  });
+
   it('without a focus or a thread the prompts carry neither', async () => {
     const s = stub();
     const { repo } = repoFor(seed(), s);
