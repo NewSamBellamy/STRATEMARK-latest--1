@@ -7,10 +7,10 @@ import { DashboardTabNav } from './DashboardPage';
 const original = window.matchMedia;
 afterEach(() => { window.matchMedia = original; });
 
-/** A fake viewport: the tab bar only asks whether it is at least 1280 px wide. */
+/** A fake viewport: the tab bar only asks whether it is at least 1344 px wide. */
 function viewport(width: number) {
   window.matchMedia = ((query: string) => ({
-    matches: query.includes('min-width: 1280px') ? width >= 1280 : query.includes('max-width: 1023px') ? width <= 1023 : false,
+    matches: query.includes('min-width: 1344px') ? width >= 1344 : query.includes('max-width: 1023px') ? width <= 1023 : false,
     media: query,
     onchange: null,
     addListener: () => {},
@@ -49,7 +49,7 @@ describe('dashboard tab nav', () => {
     expect(screen.getByRole('navigation', { name: 'Company dashboard tabs' }).className).toContain('max-lg:overflow-x-auto');
   });
 
-  it('shows every tab and no More button at 1280 px and wider', () => {
+  it('shows every tab and no More button at 1344 px and wider', () => {
     viewport(1400);
     show('live_intel');
     expect(screen.queryByRole('button', { name: /More/ })).not.toBeInTheDocument();
