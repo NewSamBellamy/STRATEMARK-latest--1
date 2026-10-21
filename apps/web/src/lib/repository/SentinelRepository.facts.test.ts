@@ -85,6 +85,21 @@ describe('facts are assessed on read with the injected clock (parity with the sh
     expect(shown).toMatchObject({ value: 45, confidence: 'estimated' });
     expect(shown.assessment!.effect).toBe('shown_aged_out');
   });
+  it('reads a figure on another company in the same deck as a competitor page, like the api does', async () => {
+    const rivalUrl = 'https://blog.rival.com/acme';
+    const rivalQuote = 'Acme reported 45 employees as of 2026-10-01.';
+    const onRival = { ...metric, confidence: 'estimated', source: rivalUrl, citations: [{ title: 'rival', url: rivalUrl }],
+      passageSupport: null, reportedSupport: null, lastVerifiedAt: null };
+    const rivalCard = { ...cardWith([]), card: { ...payload.cards[0]!.card, id: 'card2', companyId: 'rv' },
+      company: { ...payload.cards[0]!.company, id: 'rv', name: 'Rival', websiteUrl: 'https://www.rival.com/' } };
+    const attempts = [{ ...payload.companySourceAttempts[0]!, receipts: [{ ...payload.companySourceAttempts[0]!.receipts[0]!,
+      requestedUrl: rivalUrl, finalUrl: rivalUrl, text: rivalQuote }] }];
+    vi.spyOn(api, 'getCloudDeck').mockResolvedValue({ ...payload, cards: [cardWith([onRival]), rivalCard], companySourceAttempts: attempts });
+    const repo = new SentinelRepository(() => NOW);
+    await repo.getDeckByMarket('market');
+    const served = (await repo.listCards('deck')).find(row => row.card.id === 'card')!;
+    expect(served.metrics[0]!.assessment!.purpose.kind).toBe('competitor');
+  });
   it('gives a signal card no facts', async () => {
     vi.spyOn(api, 'getCloudDeck').mockResolvedValue({ ...payload, cards: [cardWith([metric], 'culture')] });
     const repo = new SentinelRepository(() => NOW);

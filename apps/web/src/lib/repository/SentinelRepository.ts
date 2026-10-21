@@ -47,7 +47,7 @@ import type {
 } from '@mi/contracts';
 import { MockRepository } from '@mi/mocks';
 import { loadSampleSnapshot } from '@/sample/loadSampleSnapshot';
-import { isOriginalSourceAttempt, projectCompanyCardFacts, retainedDiagnosticAttempts, type OriginalSourceAttempt } from '@mi/research';
+import { deckRivalWebsites, isOriginalSourceAttempt, projectCompanyCardFacts, retainedDiagnosticAttempts, type OriginalSourceAttempt } from '@mi/research';
 
 /** A Market/Deck object that optionally carries a runtime `engine` tag. */
 interface CloudTagged {
@@ -157,7 +157,8 @@ export class SentinelRepository implements MarketIntelRepository {
   private factsCard(card: CardWithCompany): CardWithCompany {
     const originals = this.memoryOriginals.get(card.card.deckId) ?? readCloudCache().get(card.card.deckId)?.companySourceAttempts;
     // Assessed afresh on read, like every facts path; any assessment the cached card carries is discarded.
-    return projectCompanyCardFacts(card, originals, { now: this.clock() });
+    const rivalWebsites = deckRivalWebsites(card, this.memoryCards.get(card.card.deckId) ?? []);
+    return projectCompanyCardFacts(card, originals, { now: this.clock(), rivalWebsites });
   }
 
   async listMarkets(): Promise<Market[]> {

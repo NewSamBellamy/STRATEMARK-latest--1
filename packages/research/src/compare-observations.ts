@@ -42,11 +42,14 @@ function standing(metric: CompanyMetric, ctx: AssessContext): { lane: number; le
   const assessment = assessFigure(metric, ctx);
   const own = figureAsOf(metric);
   const reading = readCurrency({ metricType: metric.metricType, asOf: own.asOf, asOfSource: own.source, now: ctx.now });
+  // The date as the assessment reads it: a page or URL date earlier than the stated one caps it, so a
+  // mis-dated figure can never look newer here than it does on the card (page dates only make it older).
+  const effectiveAsOf = assessment ? assessment.currency.asOf : reading.asOf;
   const demoted = assessment?.effect === 'demoted_stale' || assessment?.effect === 'demoted_authority'
-    || (metric.confidence === 'verified' && reading.asOf != null && ctx.now.getTime() - Date.parse(`${reading.asOf}T00:00:00.000Z`) > AGED_OUT_MS);
+    || (metric.confidence === 'verified' && effectiveAsOf != null && ctx.now.getTime() - Date.parse(`${effectiveAsOf}T00:00:00.000Z`) > AGED_OUT_MS);
   const lane = demoted && laneRank(metric) === 3 ? 2 : laneRank(metric);
   const level = assessment?.authority.level ? LEVEL_RANK[assessment.authority.level] : 0;
-  return { lane, level, asOf: reading.asOf };
+  return { lane, level, asOf: effectiveAsOf };
 }
 
 const within2pct = (a: number, b: number): boolean => Math.abs(a - b) <= 0.02 * Math.max(Math.abs(a), Math.abs(b));

@@ -39,6 +39,13 @@ describe('rankInDeck', () => {
     expect(r.rank).toBeNull();
     expect(r.unknownPeers).toBe(3);
   });
+  it('a figure the source check withheld is a gap in the ranking, never a zero or a last place', () => {
+    const withheld = metric('c', 'valuation', null, { methodNote: 'No accepted original-backed current fact.' });
+    const r = rankInDeck('a', 'valuation', [peer('a', metric('a', 'valuation', 300)), peer('c', withheld)]);
+    expect(r.points.map((p) => p.companyId)).toEqual(['a']);
+    expect(r.points.some((p) => p.value === 0)).toBe(false);
+    expect(r.unknownPeers).toBe(1);
+  });
   it('shares the better rank on ties and flags estimates', () => {
     const r = rankInDeck('a', 'valuation', [
       peer('a', metric('a', 'valuation', 5, { confidence: 'estimated' })),

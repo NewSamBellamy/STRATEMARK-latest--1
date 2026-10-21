@@ -109,3 +109,25 @@ it('resolves legacy saved references from owned decks and reports unresolvable b
   expect(result.cards[0]!.metrics[0]!.value).toBe(45);
   expect(result.unresolvedCount).toBe(1);
 });
+
+it.each(['/api/cards?deckId=deck', '/api/cards/saved'])('%s reads a figure on another deck company’s site as a competitor page', async route => {
+  const store = new MemoryDataStore();
+  const auth = new MockFirebaseAdapter();
+  const service = new CloudDeckService(store, auth, auth);
+  const rivalUrl = 'https://blog.rival.com/acme';
+  const onRival = { ...structuredClone(card.metrics[0]!), confidence: 'estimated', source: rivalUrl, citations: [{ title: 'rival', url: rivalUrl }],
+    passageSupport: null, reportedSupport: null, lastVerifiedAt: null };
+  const acme = { ...structuredClone(card), metrics: [onRival] } as unknown as CardWithCompany;
+  const rival: CardWithCompany = { ...structuredClone(card), card: { ...card.card, id: 'card2', companyId: 'rv' },
+    company: { ...card.company!, id: 'rv', name: 'Rival', websiteUrl: 'https://www.rival.com/' }, metrics: [] };
+  await service.saveDeck('user_123', 'deck', { deck: { id: 'deck' }, market: {}, cards: [acme, rival] });
+  await store.saveCompanyOriginal('user_123', 'deck', { id: 'src_00000000-0000-4000-8000-000000000002', companyId: 'cmp',
+    metricType: 'company_profile', capturedAt: date,
+    receipts: [{ requestedUrl: rivalUrl, finalUrl: rivalUrl, status: 'retrieved', httpStatus: 200, contentHash: 'a'.repeat(64), text: quote, retrievedAt: date }] });
+  const app = createApp(readEnv({ APP_TOKEN: 'app-token' }), { store, cloudDeckService: service, forceMemoryStore: true,
+    clock: () => new Date('2026-10-20T12:00:00Z') });
+  await service.saveCard('user_123', 'card', { deckId: 'deck' });
+  const result = await (await app.request(route, { headers: { Authorization: 'Bearer valid_token' } })).json() as { cards: CardWithCompany[] };
+  const served = result.cards.find(row => row.card.id === 'card')!.metrics[0]! as unknown as { assessment?: { purpose: { kind: string } } };
+  expect(served.assessment?.purpose.kind).toBe('competitor');
+});

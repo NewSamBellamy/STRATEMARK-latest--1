@@ -79,6 +79,19 @@ export function companyPageDates(companyId: string, metrics: readonly CompanyMet
 }
 
 /**
+ * The websites of the other companies in the card's deck (one deck is one market): what the
+ * repository reads from its market roster. The card read paths (apps/api, SentinelRepository)
+ * pass this to projectCompanyCardFacts so a source on a rival's domain reads as a competitor's
+ * everywhere, not only where the roster happens to be at hand. Signal cards own no company.
+ */
+export function deckRivalWebsites(card: CardWithCompany, deckCards: readonly CardWithCompany[]): string[] {
+  const own = card.company?.id;
+  const sites = deckCards.flatMap((row) => row.company && row.company.id !== own && !isSignalCardType(row.card.cardType) && row.company.websiteUrl
+    ? [row.company.websiteUrl] : []);
+  return [...new Set(sites)];
+}
+
+/**
  * A card's facts through the SAME read-time composition as getCompanyFacts: accepted facts
  * (an old verified figure shows as a dated estimate), assessed afresh with an injected
  * clock; any assessment on the incoming card is discarded. A signal card gets no facts.
