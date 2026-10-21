@@ -156,10 +156,12 @@ describe('OrgBoard', () => {
       expect(container.querySelectorAll('[data-pin-for="head:ai"]')).toHaveLength(1);
     });
 
-    it('keeps a single report in a column as its own string', () => {
+    it('trunks every column of a team over six, and keeps per-person strings for six or fewer', () => {
       const { container } = render(board([ceo, ...ai, ...prod.slice(0, 1), lone]));
-      // 7 reports: 5 in AI hang from a trunk; the lone design report keeps its own string.
-      expect([...container.querySelectorAll('path[data-string]')].map((s) => s.getAttribute('data-to')).sort()).toEqual(['card:lone', 'card:pr0', 'head:ai']);
+      // 7 reports: every column group hangs from one trunk to its header pin.
+      expect([...container.querySelectorAll('path[data-string]')].map((s) => s.getAttribute('data-to')).sort()).toEqual(['head:ai', 'head:other', 'head:product_design']);
+      const six = render(board([ceo, ...ai, lone]));
+      expect([...six.container.querySelectorAll('path[data-string]')]).toHaveLength(6);
       const few = render(board([ceo, ai[0]!, lone]));
       expect(few.container.querySelectorAll('path[data-string]')).toHaveLength(2);
       expect([...few.container.querySelectorAll('path[data-string]')].every((s) => s.getAttribute('data-to')!.startsWith('card:'))).toBe(true);
@@ -170,6 +172,43 @@ describe('OrgBoard', () => {
       const { container } = render(board([ceo, ...ai, ...prod]));
       await user.hover(container.querySelector('[data-person-id="ai2"]')!);
       expect(container.querySelectorAll('path[data-string-lit]')).toHaveLength(1);
+    });
+  });
+
+  describe('string layers', () => {
+    it('draws the strings behind the cards and the lit strings in front of them', () => {
+      const { container } = render(board(team));
+      const back = container.querySelector('svg[data-string-layer="back"]')!;
+      const front = container.querySelector('svg[data-string-layer="front"]')!;
+      const firstCard = container.querySelector('section [data-person-id]')!;
+      const z = (el: Element) => Number((el.getAttribute('class') ?? '').match(/\bz-(\d+)\b/)?.[1] ?? 'NaN');
+      expect(back.querySelectorAll('path[data-string]').length).toBeGreaterThan(0);
+      // The SVG is earlier in the DOM than the cards, and under their z-index.
+      expect(back.compareDocumentPosition(firstCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(z(back)).toBeLessThan(z(firstCard.closest('section')!));
+      expect(z(front)).toBeGreaterThan(z(firstCard.closest('section')!));
+      expect(back.querySelector('path[data-string]')!.getAttribute('stroke-width')).toBe('1.5');
+    });
+
+    it('brings the strings of a hovered card to the front and dims the rest, then returns them on blur', async () => {
+      const user = userEvent.setup();
+      const { container } = render(board(team));
+      const strings = () => [...container.querySelectorAll<SVGPathElement>('svg[data-string-layer="back"] path[data-string]')];
+      expect(container.querySelectorAll('path[data-string-lit]')).toHaveLength(0);
+      await user.hover(container.querySelector('[data-person-id="b"]')!);
+      // b's manager string and its one report's string.
+      expect(container.querySelectorAll('svg[data-string-layer="front"] path[data-string-lit]')).toHaveLength(2);
+      expect(strings().every((s) => s.style.opacity === '0.4')).toBe(true);
+      await user.unhover(container.querySelector('[data-person-id="b"]')!);
+      expect(container.querySelectorAll('path[data-string-lit]')).toHaveLength(0);
+      expect(strings().every((s) => s.style.opacity === '1')).toBe(true);
+    });
+
+    it('raises the strings on keyboard focus too', async () => {
+      const user = userEvent.setup();
+      const { container } = render(board(team));
+      await user.tab();
+      expect(container.querySelectorAll('path[data-string-lit]').length).toBeGreaterThan(0);
     });
   });
 

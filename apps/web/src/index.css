@@ -436,6 +436,10 @@
 }
 .sm-pin-drop { animation: sm-pin-drop 260ms ease-out backwards; }
 .sm-string { stroke-dasharray: 1; animation: sm-string-draw 300ms ease-out 400ms backwards; }
+/* Red thread: a clear red on the light board, a lighter red on the dark one. */
+.sm-thread { stroke: #c62828; color: #7f1d1d; }
+.dark .sm-thread { stroke: #ff6b5e; color: #ff9a8d; }
 @media (prefers-reduced-motion: reduce) {
   .sm-pin-drop, .sm-string { animation: none; }
+  .sm-thread { transition: none !important; }
 }

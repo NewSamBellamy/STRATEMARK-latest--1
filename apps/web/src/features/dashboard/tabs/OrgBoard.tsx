@@ -59,7 +59,13 @@ export const SPLIT_ABOVE = 4;
 export const FAN_LIMIT = 6;
 
 /** `hw`: half the width of the card the pin sits on, so a string can clear the card's edge. */
-interface Point { x: number; y: number; hw?: number }
+interface Point {
+  x: number;
+  y: number;
+  hw?: number;
+  /** The y of the gutter strip just under this pin's column header, where a string runs sideways before it drops into the pin. */
+  strip?: number;
+}
 interface Edge {
   key: string;
   from: string;
@@ -75,10 +81,9 @@ const headKey = (col: string) => `head:${col}`;
 const n1 = (v: number) => v.toFixed(1);
 
 /**
- * A thread between two pins, routed to stay in the gaps where it can:
- * - pins in one column, one under the other: it loops out into the gutter beside the column, so it does not run down through the names;
- * - pins at about the same height (neighbouring columns, or a column header): it arches over the tops of the cards;
- * - anything else sags a little under its own weight.
+ * A thread between two pins, routed to stay in the gaps where it can (it is drawn behind the cards):
+ * - pins in one column, one under the other: it loops out into the gutter beside the column;
+ * - anything else rises into the strip just above the target's column, sags a little along it, then drops into the pin.
  */
 function threadPath(a: Point, b: Point): string {
   const dx = Math.abs(b.x - a.x);
@@ -88,13 +93,11 @@ function threadPath(a: Point, b: Point): string {
     const x = Math.min(a.x, b.x) - reach;
     return `M ${n1(a.x)} ${n1(a.y)} C ${n1(x)} ${n1(a.y)} ${n1(x)} ${n1(b.y)} ${n1(b.x)} ${n1(b.y)}`;
   }
+  // Up into the strip above the target's column, a slight sag along it, then down into the pin.
   const mx = (a.x + b.x) / 2;
-  if (dy < 60) {
-    const peak = Math.min(a.y, b.y) - 8;
-    return `M ${n1(a.x)} ${n1(a.y)} Q ${n1(mx)} ${n1(2 * peak - (a.y + b.y) / 2)} ${n1(b.x)} ${n1(b.y)}`;
-  }
-  const sag = Math.min(8 + Math.hypot(dx, dy) * 0.06, 34);
-  return `M ${n1(a.x)} ${n1(a.y)} Q ${n1(mx)} ${n1((a.y + b.y) / 2 + sag * 2)} ${n1(b.x)} ${n1(b.y)}`;
+  const s = b.strip ?? Math.min(a.y, b.y) - 8;
+  const sag = Math.min(3 + dx * 0.02, 10);
+  return `M ${n1(a.x)} ${n1(a.y)} C ${n1(a.x)} ${n1(s)} ${n1(a.x)} ${n1(s + sag)} ${n1(mx)} ${n1(s + sag)} C ${n1(b.x)} ${n1(s + sag)} ${n1(b.x)} ${n1(s)} ${n1(b.x)} ${n1(b.y)}`;
 }
 
 /** `pinKey` hangs a pin on the header's rule: where a trunk string for a big team ties off. */
@@ -242,16 +245,15 @@ export function OrgBoard({ people, parentOf, company, board, onOpen }: OrgBoardP
     for (const [managerId, reportIds] of reportsOf) {
       const from = resolve(managerId);
       if (!from) continue;
-      // A big team is not a fan of strings: the reports sharing another column hang from one trunk to that column's header.
+      // A big team is not a fan of strings: the reports sharing a column hang from one trunk to that column's header.
       const trunked = new Set<string>();
       if (reportIds.length > FAN_LIMIT) {
         const byColumn = new Map<string, string[]>();
         for (const id of reportIds) {
           const col = columnOfPerson.get(id);
-          if (col && col !== columnOfPerson.get(managerId)) byColumn.set(col, [...(byColumn.get(col) ?? []), id]);
+          if (col) byColumn.set(col, [...(byColumn.get(col) ?? []), id]);
         }
         for (const [col, ids] of byColumn) {
-          if (ids.length < 2) continue;
           add({ key: `${from}>${headKey(col)}`, from, to: headKey(col), reports: ids });
           for (const id of ids) trunked.add(id);
         }
@@ -293,6 +295,10 @@ export function OrgBoard({ people, parentOf, company, board, onOpen }: OrgBoardP
       const r = pin.getBoundingClientRect();
       next[key] = { x: Math.round((r.left + r.width / 2 - origin.left) * 10) / 10, y: Math.round((r.top + r.height / 2 - origin.top) * 10) / 10 };
       if (owner) next[key]!.hw = Math.round(owner.getBoundingClientRect().width / 2);
+      // The strip sits in the gap between the column header's rule and the first card; a header pin sits on the rule itself.
+      const header = pin.closest('section')?.querySelector('h4');
+      if (header && !pin.closest('h4')) next[key]!.strip = Math.round((header.getBoundingClientRect().bottom - origin.top + 8) * 10) / 10;
+      else if (pin.closest('h4')) next[key]!.strip = next[key]!.y;
     }
     setPoints((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
     const scroller = scrollerRef.current;
@@ -337,7 +343,8 @@ export function OrgBoard({ people, parentOf, company, board, onOpen }: OrgBoardP
         flipped={flipped.has(p.id)}
         onFlip={() => toggleFlip(p.id)}
         onOpenProfile={() => onOpen(p.id)}
-        dim={related ? !related.has(p.id) : false}
+        // Cards stay opaque so the strings behind them never show through; the strings dim instead.
+        dim={false}
         reportsTo={parentOf.has(p.id) ? nameById.get(parentOf.get(p.id)!) ?? null : null}
         enterIndex={enter++}
       />
@@ -409,32 +416,32 @@ export function OrgBoard({ people, parentOf, company, board, onOpen }: OrgBoardP
           className="relative grid items-start gap-x-3 px-4 pb-6 pt-6"
           style={{ gridTemplateColumns: template, justifyContent: 'safe center' }}
         >
-          {/* Every string, hung over the cards like thread on a pinboard: thin enough to read the names through. */}
-          <svg className="pointer-events-none absolute inset-0 z-20 h-full w-full overflow-visible" aria-hidden focusable="false">
+          {/* Every string, hung BEHIND the cards (they are opaque, one layer up): a string shows only in the gaps and above the cards, never across a name. */}
+          <svg data-string-layer="back" className="pointer-events-none absolute inset-0 z-0 h-full w-full overflow-visible" aria-hidden focusable="false">
             {edges.map((e) => (
               <path
                 key={e.key}
                 data-string
                 data-from={e.from}
                 data-to={e.to}
-                className="sm-string"
+                className="sm-string sm-thread"
                 pathLength={1}
                 d={pathFor(e)}
                 fill="none"
-                stroke="rgb(var(--c-negative))"
                 strokeLinecap="round"
                 strokeWidth={1.5}
-                style={{ opacity: related ? 0.12 : 0.7, transition: 'opacity 150ms' }}
+                style={{ opacity: related ? 0.4 : 1, transition: 'opacity 150ms' }}
               />
             ))}
-            {ends.map((k) => (
-              <circle key={k} data-string-end={k} cx={points[k]!.x} cy={points[k]!.y} r={2.5} fill="#7f1d1d" style={{ opacity: related ? 0.3 : 1 }} />
-            ))}
           </svg>
-          {/* The hovered or focused card's own strings, drawn bolder. */}
-          <svg className="pointer-events-none absolute inset-0 z-20 h-full w-full overflow-visible" aria-hidden focusable="false">
+          {/* The hovered or focused card's own strings come to the front, bolder; the rest dim to 40 percent behind. */}
+          <svg data-string-layer="front" className="pointer-events-none absolute inset-0 z-20 h-full w-full overflow-visible" aria-hidden focusable="false">
             {drawn.map((e) => (
-              <path key={e.key} data-string-lit d={pathFor(e)} fill="none" stroke="rgb(var(--c-negative))" strokeLinecap="round" strokeWidth={2.5} />
+              <path key={e.key} data-string-lit className="sm-thread" d={pathFor(e)} fill="none" strokeLinecap="round" strokeWidth={3} />
+            ))}
+            {/* Knots at each pin that carries a string, above the cards. */}
+            {ends.map((k) => (
+              <circle key={k} data-string-end={k} className="sm-thread" cx={points[k]!.x} cy={points[k]!.y} r={2.5} fill="currentColor" style={{ stroke: 'none', opacity: related ? 0.4 : 1 }} />
             ))}
           </svg>
           {shownColumns.map((col) => (
