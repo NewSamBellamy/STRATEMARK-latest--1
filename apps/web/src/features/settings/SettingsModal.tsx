@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { createGeminiClient } from '@mi/research';
 import { exportSnapshot, importSnapshot, marketCountOf } from '@/lib/repository/vault';
-import { OPEN_SOURCE_LAUNCH } from '@/lib/beta';
+import { OPEN_SOURCE_LAUNCH, isHostedBeta } from '@/lib/beta';
 import { readBrowserResearchData } from '@/lib/repository/browserResearchStore';
 import { clearAccess, getAccessProfile } from '@/lib/access';
 import {
@@ -103,6 +103,7 @@ function TabButton({ id, active, onClick, icon: Icon, label }: { id: TabId, acti
 
 function GeneralTab() {
   const hosted = useApiKey((st) => st.hosted);
+  const hostedBeta = isHostedBeta();
   const { model, hasKey, setApiKey, setModel, setJudgeModel, setQuotaPreset, quotaPreset, clear, apiKey, storageError, judgeModel } = useApiKey();
   const [draft, setDraft] = useState(apiKey);
   const [saved, setSaved] = useState(false);
@@ -146,7 +147,9 @@ function GeneralTab() {
             : /API key not valid|400|403/.test(msg)
               ? 'Key rejected by Google. Check you copied it fully from AI Studio.'
               : /429/.test(msg)
-                ? 'Rate limited (429). Your key works, but you’ve hit the free-tier quota.'
+                ? (hostedBeta
+                  ? 'Rate limited (429). Your key works, but it has hit its request limit for now.'
+                  : 'Rate limited (429). Your key works, but you’ve hit the free-tier quota.')
                 : /Failed to fetch|NetworkError/i.test(msg)
                   ? 'Couldn’t reach Google. Check your connection, VPN, or ad-blocker.'
                   : msg.slice(0, 180),
@@ -193,7 +196,7 @@ function GeneralTab() {
           </p>
         )}
         <p className="mt-2 text-xs text-muted">
-          Get a free key at{' '}
+          {hostedBeta ? 'Get a key at' : 'Get a free key at'}{' '}
           <a
             href="https://aistudio.google.com/app/apikey"
             target="_blank"
@@ -238,6 +241,7 @@ function GeneralTab() {
         </div>
       </details>
 
+      {!hostedBeta && (
       <div className="text-sm">
         <label className="mb-1 block font-medium text-content" htmlFor="quota-preset">
           Research speed
@@ -256,6 +260,7 @@ function GeneralTab() {
           How fast research may spend your quota. Free-tier pacing stays under Google's per-minute cap; paid keys can fill decks several times faster.
         </p>
       </div>
+      )}
 
       {test.status !== 'idle' && (
         <div
@@ -321,6 +326,7 @@ function GeneralTab() {
 
 function EngineTab() {
   const { engine, setEngine } = useEngineChoice();
+  const hostedBeta = isHostedBeta();
 
   if (isCommunityDesktop()) return <div className="space-y-3"><h2 className="font-display text-lg">Local Engine</h2><p className="text-sm text-muted">Research runs on this device with your Gemini key. Google handles the AI requests; no Stratemark account or hosted service is required.</p></div>;
 
@@ -330,6 +336,7 @@ function EngineTab() {
         <h2 className="font-display text-lg text-content">Research engine</h2>
         <p className="mt-1 text-sm text-muted">
           Choose where your competitive intelligence and deck research runs.
+          {hostedBeta && ' The beta engine is covered for you, so no key is needed. You can add your own key under General.'}
         </p>
       </div>
 
@@ -370,7 +377,9 @@ function EngineTab() {
             <span>Local Engine</span>
           </div>
           <p className={`mt-2 text-xs leading-relaxed ${engine === 'local' ? 'text-content/75' : 'text-muted'}`}>
-            Runs grounded search directly in your local browser / desktop client using your connected Gemini API key.
+            {hostedBeta
+              ? 'Runs research from this browser. During the beta the research engine is covered for you; to use your own Gemini key instead, add it under General.'
+              : 'Runs grounded search directly in your local browser / desktop client using your connected Gemini API key.'}
           </p>
         </button>
       </div>
@@ -422,10 +431,11 @@ function DataSafetyPanel() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [data, setData] = useState<{ current: string | null; backup: string | null }>({ current: null, backup: null });
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     let live = true;
-    void readBrowserResearchData().then((saved) => { if (live) setData(saved); })
-      .catch((error: unknown) => { if (live) setMsg(error instanceof Error ? error.message : 'Storage could not be read.'); });
+    void readBrowserResearchData().then((saved) => { if (live) { setData(saved); setLoaded(true); } })
+      .catch((error: unknown) => { if (live) { setLoaded(true); setMsg(error instanceof Error ? error.message : 'Storage could not be read.'); } });
     return () => { live = false; };
   }, []);
   const { current, backup } = data;
@@ -465,11 +475,19 @@ function DataSafetyPanel() {
       </div>
 
       <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm">
-        <span className="text-content">
-          <span className="font-semibold tabular-nums">{Math.max(currentMarkets, 0)}</span>{' '}
-          deck{currentMarkets === 1 ? '' : 's'} stored
-        </span>
-        <span className="text-muted tabular-nums">{sizeKb} KB</span>
+        {currentMarkets < 0 ? (
+          <span className="text-muted">
+            {loaded ? 'No saved copy in this browser yet. Decks you see may be sample or unsaved data.' : 'Reading saved research…'}
+          </span>
+        ) : (
+          <>
+            <span className="text-content">
+              <span className="font-semibold tabular-nums">{currentMarkets}</span>{' '}
+              deck{currentMarkets === 1 ? '' : 's'} stored
+            </span>
+            <span className="text-muted tabular-nums">{sizeKb} KB</span>
+          </>
+        )}
         {backupMarkets > 0 && (
           <span className="text-muted">
             backup: <span className="tabular-nums">{backupMarkets}</span> deck{backupMarkets === 1 ? '' : 's'}
@@ -556,6 +574,16 @@ function UsageBillingPanel() {
   };
 
   const usd = (n: number) => `$${n.toFixed(2)}`;
+  const hostedBeta = isHostedBeta();
+  const [limitDraft, setLimitDraft] = useState(
+    controls.dailyRequestLimit != null ? String(controls.dailyRequestLimit) : '',
+  );
+  const applyLimit = () => {
+    const n = Math.floor(Number(limitDraft));
+    setCostControls({ dailyRequestLimit: limitDraft.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n });
+  };
+  const monthRequests = spend.grounded + spend.structure + spend.image;
+  const todayRequests = usage.grounded + usage.structure + usage.image;
 
   return (
     <div className="space-y-6 pb-6">
@@ -566,10 +594,62 @@ function UsageBillingPanel() {
       {lowPower && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          Low power mode — your spending cap is reached. Autonomous research is paused.
+          {hostedBeta
+            ? 'Low power mode — your limit is reached. Autonomous research is paused.'
+            : 'Low power mode — your spending cap is reached. Autonomous research is paused.'}
         </div>
       )}
 
+      {hostedBeta ? (
+        <>
+          <div className="rounded-lg border border-border bg-surface-2 p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm font-semibold text-content">This month</p>
+              <p className="font-display text-2xl font-bold tabular-nums text-content">
+                {monthRequests}
+                <span className="ml-1 text-[11px] font-medium text-faint">requests</span>
+              </p>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+              <div>
+                <p className="font-display text-sm font-bold tabular-nums text-content">{spend.grounded}</p>
+                <p className="text-[10px] uppercase tracking-wide text-muted">searches</p>
+              </div>
+              <div>
+                <p className="font-display text-sm font-bold tabular-nums text-content">{spend.structure}</p>
+                <p className="text-[10px] uppercase tracking-wide text-muted">extractions</p>
+              </div>
+              <div>
+                <p className="font-display text-sm font-bold tabular-nums text-content">{spend.image}</p>
+                <p className="text-[10px] uppercase tracking-wide text-muted">images</p>
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] leading-relaxed text-faint">
+              Counted locally in this browser. Today: {todayRequests} requests.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 p-4">
+            <div className="min-w-0">
+              <label className="text-sm font-semibold text-content" htmlFor="low-power-limit">Low-power limit: requests per day</label>
+              <p className="mt-0.5 text-xs text-muted">Reach the limit and the app scales back to low power mode for the day.</p>
+            </div>
+            <input
+              id="low-power-limit"
+              className="input w-24 py-1.5 text-sm tabular-nums"
+              inputMode="numeric"
+              placeholder="none"
+              value={limitDraft}
+              onChange={(e) => setLimitDraft(e.target.value)}
+              onBlur={applyLimit}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') applyLimit();
+              }}
+            />
+          </div>
+        </>
+      ) : (
+      <>
       <div className="rounded-lg border border-border bg-surface-2 p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <p className="text-sm font-semibold text-content">This month on your key</p>
@@ -621,6 +701,8 @@ function UsageBillingPanel() {
           />
         </div>
       </div>
+      </>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 p-4">
         <div className="min-w-0">

@@ -177,9 +177,11 @@ export interface CostControls {
   imagesEnabled: boolean;
   /** Monthly estimated-spend cap in USD; null = no cap. */
   monthlyCapUsd: number | null;
+  /** Hosted beta: requests per day before low power mode (people never see dollars there); null = no limit. */
+  dailyRequestLimit: number | null;
 }
 
-const DEFAULT_CONTROLS: CostControls = { imagesEnabled: true, monthlyCapUsd: null };
+const DEFAULT_CONTROLS: CostControls = { imagesEnabled: true, monthlyCapUsd: null, dailyRequestLimit: null };
 
 export function getCostControls(): CostControls {
   try {
@@ -202,7 +204,11 @@ export function setCostControls(patch: Partial<CostControls>): void {
  * this before every call; deliberate manual actions stay available.
  */
 export function isLowPower(): boolean {
-  const cap = getCostControls().monthlyCapUsd;
+  const { monthlyCapUsd: cap, dailyRequestLimit: limit } = getCostControls();
+  if (limit != null && limit > 0) {
+    const day = readDay();
+    if (day.grounded + day.structure + day.image >= limit) return true;
+  }
   if (cap == null || cap <= 0) return false;
   return getSpend().estUsd >= cap;
 }
