@@ -39,7 +39,7 @@ export type ParsedLink =
   | { ok: true; url: string; host: string; kind: CapturedLinkKind; handle: string | null }
   | { ok: false; reason: string };
 
-const X_HOSTS = new Set(['x.com', 'twitter.com', 'mobile.twitter.com', 'mobile.x.com']);
+const X_HOSTS = new Set(['x.com', 'twitter.com', 'mobile.twitter.com', 'mobile.x.com', 'www.x.com', 'www.twitter.com']);
 /** X paths that are pages of the site, not accounts. */
 const X_RESERVED = new Set([
   'home', 'i', 'intent', 'search', 'hashtag', 'explore', 'share', 'settings', 'notifications', 'messages',
@@ -51,8 +51,8 @@ const PLATFORM_HOSTS = [
   'substack.com', 'github.com', 'crunchbase.com', 'wikipedia.org', 'tiktok.com', 'threads.net', 'bsky.app',
   'news.ycombinator.com', 'pitchbook.com', 'producthunt.com',
 ];
-/** Query keys that only track the click; never kept. */
-const TRACKING_KEY = /^(?:utm_.*|fbclid|gclid|dclid|msclkid|yclid|igshid|igsh|mc_.*|_hs.*|hsa_.*|ref|ref_src|ref_url|referrer|source|s|t|si|feature|cmpid|cid|trk|trkcampaign)$/i;
+/** Query keys that only track the click; never kept. Keys that can name the page itself (t, s, cid, ref, source) are kept. */
+const TRACKING_KEY = /^(?:utm_.*|fbclid|gclid|dclid|msclkid|yclid|igshid|igsh|mc_.*|_hs.*|hsa_.*|ref_src|ref_url|si|feature|cmpid|trk|trkcampaign)$/i;
 
 const hostIs = (host: string, domain: string): boolean => host === domain || host.endsWith(`.${domain}`);
 
@@ -80,11 +80,11 @@ export function parseCaptureUrl(raw: string): ParsedLink {
   try { url = new URL(withScheme); } catch { return { ok: false, reason: 'That does not look like a web link.' }; }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return { ok: false, reason: 'Only web links (http or https) can be read.' };
   if (url.username || url.password) return { ok: false, reason: 'Links with a name or password in them are not read.' };
-  const host = url.hostname.toLowerCase().replace(/\.$/, '');
+  const host = url.hostname.toLowerCase().replace(/\.+$/, '');
   if (host.startsWith('[') || /^\d+(?:\.\d+){0,3}$/.test(host) || privateIpv4(host)) {
     return { ok: false, reason: 'Links to a numeric or private address are not read.' };
   }
-  if (!host.includes('.') || /(?:^|\.)(?:localhost|local|internal|test|invalid|home|lan|corp|example)$/.test(host)) {
+  if (!host.includes('.') || /(?:^|\.)(?:localhost|local|internal|test|invalid|home|lan|corp|example|arpa|intranet|localdomain|private)$/.test(host)) {
     return { ok: false, reason: 'That address is not a public website.' };
   }
   if (url.port && url.port !== '80' && url.port !== '443') return { ok: false, reason: 'Links to other ports are not read.' };
@@ -137,16 +137,28 @@ function decode(v: string): string {
     .replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+/** The text of the first <title>, by a bounded scan: unterminated tags in a hostile page must not make the reader quadratic. */
+function titleOf(html: string): string | undefined {
+  const open = /<title\b/i.exec(html);
+  if (!open) return undefined;
+  const end = html.slice(open.index, open.index + 2001).indexOf('>');
+  if (end < 0) return undefined;
+  const start = open.index + end + 1;
+  const text = html.slice(start, start + 2000);
+  const close = /<\/title/i.exec(text);
+  return close ? text.slice(0, close.index) : text;
+}
+
 /** What a page says about itself: its title, site name, description. Pure; the page is untrusted data. */
 export function pageFacts(html: string): PageFacts {
   const head = html.slice(0, MAX_PAGE_CHARS);
   const meta = new Map<string, string>();
-  for (const tag of head.match(/<meta\b[^>]*>/gi) ?? []) {
+  for (const tag of head.match(/<meta\b[^<>]{0,4000}>/gi) ?? []) {
     const key = (attr(tag, 'property') ?? attr(tag, 'name') ?? '').toLowerCase();
     const content = attr(tag, 'content');
     if (key && content && !meta.has(key)) meta.set(key, decode(content));
   }
-  const titleTag = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(head)?.[1];
+  const titleTag = titleOf(head);
   let organization: string | null = null;
   try { organization = extractOrganizationJsonLd(head)?.name ?? null; } catch { /* malformed JSON-LD is just absent */ }
   const cut = (v: string | null | undefined, n: number): string | null => (v ? decode(v).slice(0, n) || null : null);
@@ -167,9 +179,28 @@ const fold = (text: string): string => text.normalize('NFKD').replace(/[̀-ͯ]/g
 /** ", Inc." style tails only: a name that ends in "Corp" is the name. */
 const LEGAL_TAIL = /,\s*(?:inc|llc|ltd|limited|corp|corporation|plc|gmbh|co)\.?$/i;
 
+const GENERIC_TAIL = /(?:incorporated|corporation|company|holdings|group|limited|corp|inc|llc|ltd|plc|gmbh|hq|app|io|co)$/;
+/** A name or label without a trailing legal or generic word ("sunrunhq" and "sunruninc" are "sunrun"). */
+const generic = (folded: string): string => {
+  const bare = folded.replace(GENERIC_TAIL, '');
+  return bare.length >= 3 ? bare : folded;
+};
+
+/** Hosts that rent out subdomains: a page there says nothing about the host's own brand. */
+const SHARED_HOSTS = [
+  'github.io', 'gitlab.io', 'blogspot.com', 'vercel.app', 'netlify.app', 'herokuapp.com', 'pages.dev', 'workers.dev', 'web.app',
+  'firebaseapp.com', 'wixsite.com', 'wordpress.com', 'substack.com', 'medium.com', 'notion.site', 'webflow.io', 'squarespace.com',
+  'carrd.co', 'onrender.com', 'azurewebsites.net', 'amazonaws.com', 'cloudfront.net', 'tumblr.com', 'weebly.com', 'myshopify.com',
+  'fly.dev', 'railway.app', 'glitch.me', 'repl.co', 'framer.website', 'bubbleapps.io',
+];
+
 /** The label that names a site: "sunrun" of www.sunrun.com, "bbc" of news.bbc.co.uk. */
 export function hostLabel(host: string): string {
-  const parts = host.replace(/^www\./, '').split('.');
+  const bare = host.replace(/^www\./, '');
+  // On shared hosting the subdomain is the site, and the host is only the landlord ("acme.github.io" is not GitHub).
+  const shared = SHARED_HOSTS.find((d) => bare.endsWith(`.${d}`));
+  if (shared) return bare.slice(0, -shared.length - 1).split('.').pop() ?? bare;
+  const parts = bare.split('.');
   const tld2 = parts.length >= 3 && /^(?:co|com|org|net|gov|ac)$/.test(parts[parts.length - 2]!);
   return parts[Math.max(0, parts.length - (tld2 ? 3 : 2))] ?? host;
 }
@@ -200,8 +231,8 @@ function siteName(facts: PageFacts, host: string): string | null {
   for (const raw of heads) {
     const name = cleanName(raw);
     if (!name) continue;
-    const f = fold(name);
-    if (f === label || f.startsWith(label) || label.startsWith(f)) return name;
+    // The name must BE the site's label (bar a legal or generic tail): "Apple" on appl.com or app.com is a look-alike.
+    if (generic(fold(name)) === generic(label)) return name;
   }
   return null;
 }
@@ -312,10 +343,13 @@ async function fromEvidence(
   throwIfAborted(signal);
   const name = cleanName(out.company);
   // The model's name stands only when the text itself writes it (or it IS the handle).
-  const written = name && out.isCompany && (nameAppears(name, evidence) || (handle !== null && fold(name) === fold(handle)));
-  if (!name || !written) return { status: 'unidentified', kind, reason: NEED_NAME };
+  const inText = name !== '' && nameAppears(name, evidence);
+  const isHandle = name !== '' && handle !== null && fold(name) === fold(handle);
+  if (!name || !out.isCompany || !(inText || isHandle)) return { status: 'unidentified', kind, reason: NEED_NAME };
   const confirmed = await confirmCompany(client, name, signal);
   const own = confirmed ? ownSite(name, confirmed.citations) : null;
+  // A name that is only the account's handle (the text does not write it) needs the company's own site from the search.
+  if (!inText && !own) return { status: 'unidentified', kind, reason: NEED_NAME };
   return {
     status: 'identified', kind, name,
     websiteUrl: own?.url ?? null,
@@ -347,7 +381,8 @@ async function fromHandle(kind: CapturedLinkKind, link: string, handle: string, 
   const name = cleanName(out.company);
   const echoed = new RegExp(`(?:@|x\\.com/|twitter\\.com/)${handle.replace(/[^A-Za-z0-9_]/g, '')}(?![A-Za-z0-9_])`, 'i').test(g.text);
   const own = name ? ownSite(name, citations) : null;
-  const related = name !== '' && (fold(name).includes(fold(handle)) || fold(handle).includes(fold(name)) ||
+  const contains = (a: string, b: string): boolean => a === b || (Math.min(a.length, b.length) >= 4 && a.includes(b));
+  const related = name !== '' && (contains(fold(name), fold(handle)) || contains(fold(handle), fold(name)) ||
     (own !== null && fold(hostLabel(new URL(own.url).hostname)).includes(fold(handle).slice(0, 4))));
   if (!name || !out.isCompany || !(echoed || related)) return { status: 'unidentified', kind, reason: NEED_NAME };
   return {
