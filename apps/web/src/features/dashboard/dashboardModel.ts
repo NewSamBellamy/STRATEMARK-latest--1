@@ -41,10 +41,8 @@ export const METRIC_ORDER: MetricType[] = [
   'market_share', 'users', 'employees', 'distribution',
 ];
 
-/** KPI tile priority: what an analyst reaches for first. */
-const KPI_PRIORITY: MetricType[] = [
-  'valuation', 'market_cap', 'revenue', 'arr', 'aum', 'funding_total', 'users', 'employees', 'market_share', 'last_round', 'distribution',
-];
+/** KPI tile priority: what an analyst reaches for first. One order for Overview and Metrics. */
+const KPI_PRIORITY: MetricType[] = METRIC_ORDER;
 
 /** "What would fill this" — stated per metric, never a guess at the value. */
 export const FILL_HINT: Record<MetricType, string> = {
