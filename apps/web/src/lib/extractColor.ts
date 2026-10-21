@@ -18,9 +18,27 @@ function sampleUrl(url: string): string {
   } catch { return url; }
 }
 
+/**
+ * Sources that never send CORS headers (Google's favicon service, Wikimedia's
+ * Special:FilePath redirect): reading them can only fail, and the failure is
+ * printed to the console. Without the hosted reader we do not ask; the logo
+ * still shows, it just has no sampled brand color.
+ */
+export function isCorsOpaqueSource(url: string): boolean {
+  try {
+    const u = new URL(url, 'https://x.invalid');
+    const host = u.hostname.toLowerCase();
+    if (host === 'gstatic.com' || host.endsWith('.gstatic.com')) return true;
+    if ((host === 'google.com' || host.endsWith('.google.com')) && u.pathname.startsWith('/s2/favicons')) return true;
+    if (host.endsWith('wikimedia.org') && u.pathname.includes('Special:FilePath')) return true;
+  } catch { /* not a url */ }
+  return false;
+}
+
 export function extractDominantColor(url: string): Promise<string | null> {
   const hit = cache.get(url);
   if (hit) return hit;
+  if (!hasHostedApi() && isCorsOpaqueSource(url)) return Promise.resolve(null);
   const p = compute(url).catch(() => null);
   cache.set(url, p);
   return p;

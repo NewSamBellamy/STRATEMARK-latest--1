@@ -1,6 +1,6 @@
 import { publisherOf, usableCitations, type DashboardTab } from '@mi/contracts';
 import { useDashboardTab } from '@/hooks/data';
-import { faviconUrl } from '@/lib/screenshot';
+import { Favicon } from '@/components/media/Favicon';
 
 /** One quiet source inspector shared by every researched company section. */
 export function DashboardSources({ companyId, tab }: { companyId: string; tab: DashboardTab }) {
@@ -70,7 +70,7 @@ export function DashboardSources({ companyId, tab }: { companyId: string; tab: D
           {publishers.map(({ name, url, count }) => <li key={name}>
             <a href={url} target="_blank" rel="noopener noreferrer"
               className="inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-[11.5px] text-content transition-colors hover:border-primary/40 hover:text-primary-ink">
-              {/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(name) && <img src={faviconUrl(`https://${name}`)} alt="" className="h-3.5 w-3.5 shrink-0 rounded-sm" loading="lazy" />}
+              {/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(name) && <Favicon url={`https://${name}`} className="h-3.5 w-3.5 shrink-0 rounded-sm" />}
               <span className="truncate">{name}</span>
               {count > 1 && <span className="tabular-nums text-faint">×{count}</span>}
             </a>

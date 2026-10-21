@@ -18,7 +18,7 @@ import { Logo } from '@/features/card/Logo';
 import { LiveBadge } from '../LiveBadge';
 import { DigDeeper } from '@/features/deepdive/DeepDive';
 import { formatRelative } from '@/lib/format';
-import { faviconUrl } from '@/lib/screenshot';
+import { Favicon } from '@/components/media/Favicon';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
 import { SecFilings } from './SecFilings';
@@ -114,7 +114,7 @@ export function ArticleReader({
           </span>
           {publisher && (
             <span className="inline-flex items-center gap-1.5">
-              <img src={faviconUrl(item.url)} alt="" className="h-3.5 w-3.5 rounded-sm" />
+              <Favicon url={item.url} className="h-3.5 w-3.5 rounded-sm" />
               {publisher}
             </span>
           )}
@@ -201,7 +201,7 @@ function IntelRow({
             className="inline-flex items-center gap-1.5 font-medium text-content hover:text-primary-ink hover:underline"
             title="Open the source"
           >
-            <img src={faviconUrl(item.url)} alt="" className="h-3.5 w-3.5 rounded-sm" />
+            <Favicon url={item.url} className="h-3.5 w-3.5 rounded-sm" />
             {publisher}
             <ExternalLink className="h-2.5 w-2.5" aria-hidden />
           </a>
@@ -261,7 +261,7 @@ function PublisherPlate({ item }: { item: LiveIntelItem }) {
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-surface-2 to-surface-muted">
       <span className="inline-flex items-center gap-2 text-[13px] font-medium text-muted">
-        {/^https?:\/\//.test(item.url) && <img src={faviconUrl(item.url)} alt="" className="h-5 w-5 rounded" />}
+        {/^https?:\/\//.test(item.url) && <Favicon url={item.url} className="h-5 w-5 rounded" />}
         {publisher ?? SOURCE_LABEL[item.source]}
       </span>
     </div>
