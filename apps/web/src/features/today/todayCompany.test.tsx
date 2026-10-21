@@ -131,6 +131,18 @@ describe('the Today button next to a card\'s bookmark', () => {
     const { user } = renderWithProviders(<FollowTodayButton companyId={company.id} companyName={company.name} />, { repository });
     await user.click(await screen.findByRole('button', { name: `Add ${company.name} to Today` }));
     await waitFor(() => expect(repository.followCompanies).toHaveBeenCalledWith([company.id]));
+    // A one-line confirmation with the way to Today.
+    const notice = await screen.findByRole('status');
+    expect(notice).toHaveTextContent(`Following ${company.name}.`);
+    expect(within(notice).getByRole('link', { name: 'See it on Today' })).toHaveAttribute('href', '/today');
+  });
+
+  it('says nothing extra when the company is taken off Today', async () => {
+    const { repository, company } = await setup();
+    const { user } = renderWithProviders(<FollowTodayButton companyId={company.id} companyName={company.name} />, { repository });
+    await user.click(await screen.findByRole('button', { name: new RegExp(`Following ${company.name}`) }));
+    await waitFor(() => expect(repository.unfollowCompany).toHaveBeenCalled());
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('shows that the company is already on Today', async () => {

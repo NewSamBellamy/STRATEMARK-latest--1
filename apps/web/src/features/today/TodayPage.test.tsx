@@ -78,6 +78,21 @@ describe('Today', () => {
     expect(repo.refreshMoves).not.toHaveBeenCalled();
   });
 
+  it('the empty state says what really happens, names the sun icon and offers a way in', async () => {
+    renderWithProviders(<TodayPage />, { repository: todayRepo([], []) });
+    await screen.findByText('Follow companies to see their moves here');
+    expect(document.body.textContent).not.toMatch(/each morning/i);
+    expect(screen.getByText(/sun icon/)).toBeInTheDocument();
+    expect(screen.getByText(/when you open it, and about once a day while it stays open/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open a deck' })).toHaveAttribute('href', '/history');
+  });
+
+  it('the no-moves state does not promise a morning check either', async () => {
+    renderWithProviders(<TodayPage />, { repository: todayRepo([acmeFollow], []) });
+    await screen.findByText('No moves found yet');
+    expect(document.body.textContent).not.toMatch(/daily check|each morning/i);
+  });
+
   it('a session opens on Today once companies are followed; New Deck stays home otherwise', async () => {
     function Where() { const loc = useLocation(); return <output data-testid="where">{loc.pathname}</output>; }
     const mount = (repo: MarketIntelRepository) => render(

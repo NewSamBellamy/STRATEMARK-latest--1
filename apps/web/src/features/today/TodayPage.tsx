@@ -154,8 +154,9 @@ export default function TodayPage() {
       {follows.isSuccess && followCount === 0 ? (
         <EmptyState
           title="Follow companies to see their moves here"
-          description="Open a deck and choose More → Follow on Today. Each morning this page lists what those companies did — funding, launches, hires, deals and filings — every item dated and linked to its source."
+          description="Press the sun icon on a company’s card (or choose More → Follow on Today in a deck). Today checks those companies when you open it, and about once a day while it stays open, and lists what they did: funding, launches, hires, deals and filings, each dated and linked to its source."
           icon={<Sun weight="duotone" size={24} />}
+          action={<Link to="/history" className="btn-primary">Open a deck</Link>}
         />
       ) : selected ? (
         <TodayCompanyView key={selected} companyId={selected} />
@@ -178,7 +179,7 @@ export default function TodayPage() {
               title="No moves found yet"
               description={failedCount > 0
                 ? 'Some of the news and filings could not be reached, so this is not a full answer yet. Today tries those companies again later.'
-                : 'Nothing dated in the last week from the news feed or SEC filings for the companies you follow. The next daily check looks again.'}
+                : 'Nothing dated in the last week from the news feed or SEC filings for the companies you follow. Today looks again when you next open it, and about once a day while it stays open.'}
               icon={<Sun weight="duotone" size={24} />}
             />
           )}
