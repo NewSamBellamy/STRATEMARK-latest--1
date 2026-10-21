@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import type { CompanyMove } from '@mi/contracts';
-import { classifyMoves, filingMoveCandidates, mergeMoves, moveId, moveSince, newsMoveCandidates, rankMoves, type MoveCandidate } from './company-moves';
+import { classifyMoves, filingMoveCandidates, mergeMoves, moveId, moveSince, moveDayBucket, newsMoveCandidates, rankMoves, type MoveCandidate } from './company-moves';
 import type { LlmClient } from './types';
 
 const now = new Date('2026-10-16T09:00:00Z');
@@ -106,6 +106,33 @@ describe('merging and ranking', () => {
     expect(second.moves.find((m) => m.kind === 'funding')!.readAt).toBe('2026-10-15T10:00:00Z');
     expect(rankMoves(second.moves).map((m) => m.kind)).toEqual(['hire', 'funding']);
     expect(moveId('acme', 'https://news.example/a?utm_source=x')).toBe(moveId('acme', 'https://news.example/a'));
+  });
+
+  it('ranks unread first, then day group, then importance, then newest (a fresh minor story beats an old major one)', () => {
+    const noon = new Date('2026-10-16T12:00:00Z');
+    const mv = (id: string, publishedAt: string, importance: 1 | 2 | 3, readAt: string | null = null): CompanyMove => ({
+      id, companyId: 'acme', companyName: 'Acme Robotics', kind: 'funding', importance, title: id, url: `https://news.example/${id}`,
+      publisher: null, publishedAt, foundAt: '2026-10-16T07:00:00.000Z', source: 'news', readAt });
+    const ranked = rankMoves([
+      mv('old-major', '2026-08-01T12:00:00.000Z', 3),
+      mv('week-minor', '2026-10-12T12:00:00.000Z', 1),
+      mv('today-minor', '2026-10-16T11:00:00.000Z', 1),
+      mv('today-major', '2026-10-16T10:00:00.000Z', 3),
+      mv('yesterday-major', '2026-10-15T12:00:00.000Z', 3),
+      mv('read-today', '2026-10-16T11:30:00.000Z', 3, '2026-10-16T11:40:00.000Z'),
+    ], noon);
+    expect(ranked.map((m) => m.id)).toEqual(['today-major', 'today-minor', 'yesterday-major', 'week-minor', 'old-major', 'read-today']);
+  });
+
+  it('puts a move in Today / Yesterday / This week / Older by its own publish day', () => {
+    const noon = new Date('2026-10-16T12:00:00Z');
+    const at = (publishedAt: string, source: CompanyMove['source'] = 'news') => moveDayBucket({ publishedAt, source }, noon);
+    expect(at('2026-10-16T11:00:00.000Z')).toBe('today');
+    expect(at('2026-10-15T12:00:00.000Z')).toBe('yesterday');
+    expect(at('2026-10-12T12:00:00.000Z')).toBe('week');
+    expect(at('2026-10-01T12:00:00.000Z')).toBe('older');
+    // A filing is dated by its EDGAR filing day.
+    expect(at('2026-10-15T00:00:00.000Z', 'sec_filing')).toBe('yesterday');
   });
 
   it('looks a week back the first time, and a day before the last refresh after that', () => {

@@ -46,6 +46,24 @@ export function useMarkMoveRead() {
   });
 }
 
+/** Mark many moves read in one write (engines without the batch call mark them one by one). */
+export function useMarkMovesRead() {
+  const repo = useRepository();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: readonly string[]) => {
+      if (repo.markMovesRead) await repo.markMovesRead(ids);
+      else for (const id of ids) await repo.markMoveRead?.(id, true);
+    },
+    onMutate: (ids) => {
+      const set = new Set(ids);
+      const at = new Date().toISOString();
+      qc.setQueryData<CompanyMove[]>(qk.moves, (moves) => moves?.map((move) => (set.has(move.id) && !move.readAt ? { ...move, readAt: at } : move)));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.moves }),
+  });
+}
+
 export function useFollowCompanies() {
   const repo = useRepository();
   const qc = useQueryClient();

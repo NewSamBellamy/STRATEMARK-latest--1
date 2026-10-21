@@ -2580,6 +2580,18 @@ export class GeminiRepository implements MarketIntelRepository {
     await this.persist();
   }
 
+  async markMovesRead(moveIds: readonly string[]): Promise<void> {
+    const ids = new Set(moveIds);
+    const readAt = new Date().toISOString();
+    let changed = false;
+    for (const move of this.snap.moves ?? []) {
+      if (!ids.has(move.id) || move.readAt) continue;
+      move.readAt = readAt;
+      changed = true;
+    }
+    if (changed) await this.persist();
+  }
+
   private movesRefresh: Promise<MovesRefreshResult> | null = null;
 
   /**

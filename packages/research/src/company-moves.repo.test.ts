@@ -60,6 +60,16 @@ describe('Today in the workspace', () => {
       url: 'https://news.example/acme-b', source: 'news', readAt: null });
   });
 
+  it('marks several moves read in one write', async () => {
+    const { repo, saved } = movesRepo(feed);
+    await repo.followCompanies(['acme', 'gamma']);
+    await repo.refreshMoves();
+    const ids = (await repo.listMoves()).map((m) => m.id);
+    await repo.markMovesRead([...ids, 'unknown']);
+    expect((await repo.listMoves()).every((m) => m.readAt)).toBe(true);
+    expect(saved().moves?.every((m) => m.readAt)).toBe(true);
+  });
+
   it('refreshes a company at most once a day unless forced, and never files a story twice', async () => {
     const { repo, structure, newsSearch } = movesRepo(feed);
     await repo.followCompanies(['acme']);

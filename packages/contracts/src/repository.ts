@@ -864,6 +864,8 @@ export interface MarketIntelRepository {
   /** Look for new moves (free sources + one classification call). At most once a day unless forced. */
   refreshMoves?(options?: { force?: boolean }): Promise<MovesRefreshResult>;
   markMoveRead?(moveId: string, read: boolean): Promise<void>;
+  /** Mark several moves read in one write ("Mark all read"). Unknown ids are ignored. */
+  markMovesRead?(moveIds: readonly string[]): Promise<void>;
   listFollows?(): Promise<CompanyFollow[]>;
   followCompanies?(companyIds: readonly string[]): Promise<void>;
   unfollowCompany?(companyId: string): Promise<void>;
