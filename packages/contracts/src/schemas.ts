@@ -630,6 +630,8 @@ export const fundingRoundSchema = z.object({
   leadInvestors: rows(z.string()),
   /** Additive: the cited page that states the round; absent when none is cited. */
   sourceUrl: z.string().optional().catch(undefined),
+  /** Additive: a round size the source states in a currency other than USD, as written ("€105M"); never converted. */
+  amountNote: z.string().optional().catch(undefined),
 });
 /** An investor with reported context — the investor-board treatment. */
 export const investorSchema = z.object({
