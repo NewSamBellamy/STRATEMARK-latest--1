@@ -91,8 +91,8 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                   />
                 </div>
 
-                <div className="space-y-4">
-                  <div className="panel p-5">
+                <div className="flex flex-col">
+                  <div className="panel p-5 lg:flex-1">
                     <h3 className="font-display text-sm font-semibold text-content">
                       Board <span className="ml-1 text-xs font-normal tabular-nums text-muted">{board.length || ''}</span>
                     </h3>
@@ -130,7 +130,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                   companies often disclose little.
                 </EmptyNote>
               ) : (
-                <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+                <div className={`grid gap-4 ${investors.length > 0 ? 'lg:grid-cols-[1fr_320px]' : ''}`}>
                   <div className="space-y-4">
                   <FundingChart rounds={fundingRounds} />
                   <div className="panel overflow-hidden">
@@ -156,7 +156,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                                   <td className="whitespace-nowrap px-4 py-2.5 text-xs font-semibold tabular-nums text-primary-ink">
                                     {r.date || <span className="font-normal text-faint">Not reported</span>}
                                   </td>
-                                  <td className="px-2 py-2.5 font-medium text-content">
+                                  <td className="whitespace-nowrap px-2 py-2.5 font-medium text-content">
                                     {r.round}
                                     {r.sourceUrl && <SourceLink url={r.sourceUrl} className="ml-2" />}
                                   </td>
@@ -178,7 +178,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                   </div>
                   </div>
 
-                  <div className="panel p-4">
+                  <div className="panel p-5">
                     <div className="mb-3 flex flex-wrap items-center gap-1.5">
                       <FieldLabel>Investors · {investors.length}</FieldLabel>
                       {kinds.length > 1 && (
