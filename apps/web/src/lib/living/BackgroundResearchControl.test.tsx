@@ -10,7 +10,7 @@ it('wires the visible dashboard switch to the same durable control as decks', as
   render(<BackgroundResearchControl />);
   await user.click(screen.getByRole('button', { name: 'Pause background research' }));
   expect(useResearchControl.getState().paused).toBe(true);
-  expect(screen.getByRole('button', { name: 'Resume background research' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('button', { name: 'Resume background research' })).not.toHaveAttribute('aria-pressed');
   expect(screen.getByText(/manual checks can still use your key/i)).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Resume background research' }));
   expect(useResearchControl.getState().paused).toBe(false);

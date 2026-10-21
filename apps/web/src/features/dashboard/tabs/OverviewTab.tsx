@@ -294,7 +294,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
   const active = briefTabs[Math.min(briefIdx, Math.max(0, briefTabs.length - 1))];
 
   return (
-    <div className="cascade mx-auto max-w-4xl space-y-8">
+    <div className="cascade space-y-8">
       <Section
         title="Key figures"
         action={<Link to={href('metrics')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All figures and peers <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
