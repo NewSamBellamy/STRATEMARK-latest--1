@@ -41,6 +41,19 @@ describe('structured-lane reader regressions (live-verified)', () => {
     expect(oversized.reason).toBe('JSON source exceeds the retained document limit');
   });
 
+  it('carries the page date from raw HTML on a generic page receipt, and omits it when absent', async () => {
+    const page = (head: string) => transportFor(() => ({
+      status: 200, headers: { 'content-type': 'text/html' },
+      body: Buffer.from(`<html><head>${head}</head><body><p>Acme reported 45 employees.</p></body></html>`),
+    }));
+    const dated = await retrieveOriginalSource('https://acme.example/about', page('<meta property="article:modified_time" content="2024-03-05T10:00:00Z">'));
+    expect(dated.status).toBe('retrieved');
+    expect(dated.publishedAt).toBe('2024-03-05');
+    const plain = await retrieveOriginalSource('https://acme.example/about', page(''));
+    expect(plain.status).toBe('retrieved');
+    expect(plain.publishedAt).toBeUndefined();
+  });
+
   it('retains the IAPD firm search as a bounded slice that keeps every firm row', async () => {
     // Apollo's live answer was 41 KB — past both the 32 KB JSON bound and the
     // 4 KB retained-attempt bound, so the whole attempt (PDF proof included)

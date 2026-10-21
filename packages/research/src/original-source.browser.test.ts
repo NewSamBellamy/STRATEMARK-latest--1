@@ -28,6 +28,13 @@ describe('bounded browser original retrieval', () => {
     expect(receipt.contentHash).toMatch(/^[a-f0-9]{64}$/);
     expect(fetchImpl).toHaveBeenCalledWith(url, expect.objectContaining({ credentials: 'omit', redirect: 'error', mode: 'cors', referrerPolicy: 'no-referrer' }));
   });
+  it('reads the page date from raw HTML before the tags are stripped, and omits it when absent', async () => {
+    const html = '<html><head><meta property="article:published_time" content="2024-03-05"></head><body><p>Acme Inc. reported 45 employees.</p></body></html>';
+    const dated = await retrieveBrowserOriginalSource(url, vi.fn(async () => response(html, { 'content-type': 'text/html' })));
+    expect(dated.publishedAt).toBe('2024-03-05');
+    const plain = await retrieveBrowserOriginalSource(url, vi.fn(async () => response()));
+    expect(plain.publishedAt).toBeUndefined();
+  });
   it.each(['http://sec.gov/a', 'https://sec.gov.evil.example/a', 'https://127.0.0.1/a', 'https://user:password@sec.gov/a', 'https://sec.gov:444/a', 'https://unresolved-company.example/a'])('blocks unsupported or unsafe URLs before fetching: %s', async (target) => {
     const fetchImpl = vi.fn();
     expect((await retrieveBrowserOriginalSource(target, fetchImpl)).status).toBe('blocked');
