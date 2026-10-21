@@ -29,6 +29,13 @@
   transform: translateY(-5px);
   filter: saturate(1.03);
 }
+/* A status badge sits on the sleeve, not inside the card that lifts, so it rises by the same amount at the same pace. */
+.card-sleeve__badge {
+  transition: transform 180ms ease;
+}
+.card-sleeve:has(.card-sleeve__open:hover) .card-sleeve__badge {
+  transform: translateY(-5px);
+}
 .card-sleeve__open:focus-visible,
 .card-control:focus-visible {
   outline: 3px solid rgb(var(--c-primary));
@@ -766,6 +773,11 @@
     transition: none;
   }
   .card-sleeve__open:hover {
+    transform: none;
+  }
+  .card-sleeve__badge,
+  .card-sleeve:has(.card-sleeve__open:hover) .card-sleeve__badge {
+    transition: none;
     transform: none;
   }
   .card-stage__tilt {

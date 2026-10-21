@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { buildDataset } from '@mi/mocks';
@@ -118,5 +120,23 @@ describe('GameCard', () => {
     renderWithProviders(<GameCard data={cwc} />);
     expect(screen.getByText(cwc.card.title!)).toBeInTheDocument();
     expect(screen.queryByText('ARR')).not.toBeInTheDocument();
+  });
+});
+
+describe('the status badge on a card', () => {
+  it('rises with the card when the card is hovered: the badge carries the class the lift rule targets, and the rule matches the lift of the card itself', () => {
+    const cwc = hydrate(companyCard.id);
+    const pending = { ...cwc, card: { ...cwc.card, tier: null } };
+    renderWithProviders(<GameCard data={pending} deckStatus="running" />);
+    const badge = screen.getByTestId('card-researching');
+    expect(badge.className).toContain('card-sleeve__badge');
+    // jsdom does not run :hover or :has, so the stylesheet itself is checked: the badge moves the same distance at the same pace.
+    const css = readFileSync(resolve(__dirname, 'collectible.css'), 'utf8');
+    const lift = /\.card-sleeve__open:hover\s*\{[^}]*transform:\s*(translateY\([^)]*\))/.exec(css)?.[1];
+    const badgeLift = /\.card-sleeve:has\(\.card-sleeve__open:hover\) \.card-sleeve__badge\s*\{[^}]*transform:\s*(translateY\([^)]*\))/.exec(css)?.[1];
+    expect(lift).toBeTruthy();
+    expect(badgeLift).toBe(lift);
+    expect(/\.card-sleeve__open\s*\{[^}]*transform 180ms ease/.test(css)).toBe(true);
+    expect(/\.card-sleeve__badge\s*\{[^}]*transform 180ms ease/.test(css)).toBe(true);
   });
 });
