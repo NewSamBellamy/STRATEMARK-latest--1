@@ -17,6 +17,8 @@ const FILTERS: Array<{ id: 'all' | 'unread' | MoveKind; label: string }> = [
   { id: 'launch', label: 'Launches' }, { id: 'hire', label: 'People' }, { id: 'deal', label: 'Deals' }, { id: 'filing', label: 'Filings' },
 ];
 const LAST_VISIT_KEY = 'mi.today.lastVisit';
+/** While Today stays open it looks again this often (the engine's 20 h rule still bounds what each look reads). */
+export const TODAY_RECHECK_MS = 60 * 60_000;
 
 /** When the user last opened Today (this device); the visit before this one decides what is "new". */
 function useLastVisit(): string | null {
@@ -54,13 +56,25 @@ export default function TodayPage() {
   const select = (id: string | null) => setParams(id ? { company: id } : {}, { replace: false });
   const followCount = follows.data?.length ?? 0;
 
-  // The daily look runs when Today opens; the engine skips companies it looked at in the last day.
-  const asked = useRef(false);
+  // The look runs when Today opens, when the person comes back to the tab, and hourly while it stays open. The engine
+  // skips companies it looked at in the last 20 hours, so each trigger is cheap. No ref guard: a remount (StrictMode)
+  // simply asks again, and the engine hands the second ask the check already running.
+  const hasFollows = followCount > 0;
+  const { mutate: check } = refresh;
+  const checking = useRef(false);
+  checking.current = refresh.isPending;
   useEffect(() => {
-    if (asked.current || !followCount) return;
-    asked.current = true;
-    refresh.mutate(false);
-  }, [followCount, refresh]);
+    if (!hasFollows) return undefined;
+    check(false);
+    const again = () => { if (!checking.current) check(false); };
+    const onVisible = () => { if (document.visibilityState === 'visible') again(); };
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = window.setInterval(again, TODAY_RECHECK_MS);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(timer);
+    };
+  }, [hasFollows, check]);
 
   const all = moves.data ?? [];
   const isNew = (move: CompanyMove) => !move.readAt && (!since || move.foundAt > since);

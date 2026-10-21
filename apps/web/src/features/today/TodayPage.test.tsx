@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { StrictMode } from 'react';
+import { act } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -9,7 +11,7 @@ import { AuthProvider } from '@/lib/auth/AuthContext';
 import { DeepDiveProvider } from '@/features/deepdive/DeepDive';
 import { createQueryClient } from '@/lib/query/queryClient';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
-import TodayPage from './TodayPage';
+import TodayPage, { TODAY_RECHECK_MS } from './TodayPage';
 
 const move = (over: Partial<CompanyMove>): CompanyMove => ({
   id: 'mv_1', companyId: 'acme', companyName: 'Acme Robotics', kind: 'funding', importance: 3,
@@ -154,6 +156,84 @@ describe('Today', () => {
       const alert = await screen.findByRole('alert');
       expect(alert).toHaveTextContent('Reload before making changes. Stored moves are still shown.');
       expect(alert.textContent).not.toContain('..');
+    });
+  });
+
+  describe('stays current while it is open', () => {
+    let visibility: 'visible' | 'hidden' = 'visible';
+    const setVisibility = (next: 'visible' | 'hidden') => {
+      visibility = next;
+      act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    };
+    beforeEach(() => {
+      visibility = 'visible';
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      Reflect.deleteProperty(document, 'visibilityState');
+    });
+
+    it('checks again when the person comes back to the tab, not when they leave it', async () => {
+      const repo = todayRepo([acmeFollow], [move({})]);
+      renderWithProviders(<TodayPage />, { repository: repo });
+      await waitFor(() => expect(repo.refreshMoves).toHaveBeenCalledTimes(1));
+      setVisibility('hidden');
+      expect(repo.refreshMoves).toHaveBeenCalledTimes(1);
+      setVisibility('visible');
+      await waitFor(() => expect(repo.refreshMoves).toHaveBeenCalledTimes(2));
+      // Never forced: the engine's 20 hour rule bounds what each look reads.
+      expect(repo.refreshMoves).toHaveBeenLastCalledWith({ force: false });
+    });
+
+    it('checks hourly while open, and stops when Today is closed', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      const repo = todayRepo([acmeFollow], [move({})]);
+      const view = renderWithProviders(<TodayPage />, { repository: repo });
+      await waitFor(() => expect(repo.refreshMoves).toHaveBeenCalledTimes(1));
+      await act(async () => { vi.advanceTimersByTime(TODAY_RECHECK_MS - 1_000); });
+      expect(repo.refreshMoves).toHaveBeenCalledTimes(1);
+      await act(async () => { vi.advanceTimersByTime(1_000); });
+      await waitFor(() => expect(repo.refreshMoves).toHaveBeenCalledTimes(2));
+      view.unmount();
+      await act(async () => { vi.advanceTimersByTime(3 * TODAY_RECHECK_MS); });
+      expect(repo.refreshMoves).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not start another check while one is still running', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      const repo = todayRepo([acmeFollow], [move({})]);
+      repo.refreshMoves.mockReturnValue(new Promise(() => {}));
+      renderWithProviders(<TodayPage />, { repository: repo });
+      await waitFor(() => expect(repo.refreshMoves).toHaveBeenCalledTimes(1));
+      setVisibility('visible');
+      await act(async () => { vi.advanceTimersByTime(2 * TODAY_RECHECK_MS); });
+      expect(repo.refreshMoves).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows stories a later check adds without a reload', async () => {
+      const state = { moves: [move({})] };
+      const repo = todayRepo([acmeFollow], []);
+      repo.listMoves.mockImplementation(async () => [...state.moves]);
+      repo.refreshMoves.mockImplementation(async () => {
+        if (repo.refreshMoves.mock.calls.length > 1) {
+          state.moves = [...state.moves, move({ id: 'mv_9', title: 'Acme Robotics opens a Texas plant', url: 'https://news.example/acme-tx', kind: 'launch', importance: 1 })];
+        }
+        return { added: state.moves.length - 1, refreshed: 1, refreshedAt: new Date().toISOString() };
+      });
+      renderWithProviders(<TodayPage />, { repository: repo });
+      await screen.findByRole('link', { name: 'Acme Robotics raises $40M Series B' });
+      expect(screen.queryByRole('link', { name: 'Acme Robotics opens a Texas plant' })).not.toBeInTheDocument();
+      setVisibility('visible');
+      expect(await screen.findByRole('link', { name: 'Acme Robotics opens a Texas plant' })).toBeInTheDocument();
+    });
+
+    it('does not hang on "checking now" when mounted twice (React StrictMode, follows already cached)', async () => {
+      const repo = todayRepo([acmeFollow], [move({})]);
+      renderWithProviders(<StrictMode><TodayPage /></StrictMode>, { repository: repo });
+      await screen.findByRole('link', { name: 'Acme Robotics raises $40M Series B' });
+      await waitFor(() => expect(screen.getByText(/checked just now/)).toBeInTheDocument());
+      expect(screen.queryByText(/checking now/)).not.toBeInTheDocument();
     });
   });
 });
