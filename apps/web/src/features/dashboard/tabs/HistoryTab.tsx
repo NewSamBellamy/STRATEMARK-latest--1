@@ -11,7 +11,7 @@ import { HistoryVideoHero } from './HistoryVideoHero';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { cn } from '@/lib/cn';
 import { useCachedDashboardTab } from '../useCachedTab';
-import { isFundingRoundEvent, unifyFunding, roundForEvent } from '../funding';
+import { isFundingRoundEvent, unifyFunding, roundForEvent, statedByEvent } from '../funding';
 import { formatUsdCompact } from '../snapshot';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader, SourceLink } from './TabKit';
 import {
@@ -84,7 +84,10 @@ export function HistoryTab({ companyId }: { companyId: string }) {
   // True of every funding round on the timeline (two or more), so it is said once, not on each event.
   const noRoundAmounts = useMemo(() => {
     const funding = events.filter(isFundingRoundEvent);
-    return funding.length >= 2 && funding.every((e) => roundForEvent(rounds, e)?.amountUsd == null);
+    return funding.length >= 2 && funding.every((e) => {
+      const r = roundForEvent(rounds, e);
+      return r?.amountUsd == null && !r?.amountNote;
+    });
   }, [events, rounds]);
   const dense = detailMode === 'compact' || (detailMode === 'auto' && events.length > DENSE_AT);
   const filtering = kind !== 'all' || search.trim().length > 0;
@@ -265,7 +268,10 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                                         const r = roundForEvent(rounds, t);
                                         const leads = r?.leadInvestors ?? [];
                                         // When no round has an amount the line above the timeline says so once.
-                                        const amount = r?.amountUsd != null ? formatUsdCompact(r.amountUsd) : noRoundAmounts ? null : 'Amount not reported';
+                                        // "Not reported" never sits under text that states an amount.
+                                        const amount = r?.amountUsd != null ? formatUsdCompact(r.amountUsd)
+                                          : r?.amountNote ? r.amountNote
+                                          : noRoundAmounts || statedByEvent(t).statesAmount ? null : 'Amount not reported';
                                         if (!amount && leads.length === 0 && !r?.sourceUrl) return null;
                                         return (
                                           <p className="px-3 pb-1 text-xs text-muted">

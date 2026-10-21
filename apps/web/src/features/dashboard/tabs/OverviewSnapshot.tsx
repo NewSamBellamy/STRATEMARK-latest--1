@@ -7,6 +7,8 @@ import { useCachedDashboardTab } from '../useCachedTab';
 import { Section, useTabHref } from '../dashboardKit';
 import { fundingSnapshot, leadershipSnapshot, newsMood, formatUsdCompact, peerTable } from '../snapshot';
 import { shortCompanyName } from '../companyNames';
+import { deriveInvestors } from '@mi/contracts';
+import { unifyFunding } from '../funding';
 import { UnknownInline } from '@/features/card/UnknownValue';
 import { Logo } from '@/features/card/Logo';
 import { WikiAvatar } from './LeaderGrid';
@@ -47,10 +49,17 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
   const intel = useCachedDashboardTab(companyId, 'live_intel').data;
 
   const leaders = useMemo(() => leadershipSnapshot(team?.content.nodes ?? []), [team]);
-  const funding = useMemo(
-    () => fundingSnapshot(governance?.content.fundingRounds ?? [], governance?.content.investors ?? []),
-    [governance],
-  );
+  const history = useCachedDashboardTab(companyId, 'history').data;
+  // The same rounds the Funding and History tabs list: governance rounds plus the timeline's funding events.
+  const funding = useMemo(() => {
+    const rounds = unifyFunding(governance?.content.fundingRounds, history?.content.timeline);
+    return fundingSnapshot(rounds, deriveInvestors({
+      companyName,
+      board: governance?.content.board,
+      fundingRounds: rounds,
+      investors: governance?.content.investors,
+    }));
+  }, [governance, history, companyName]);
   const mood = useMemo(() => newsMood(intel?.content.items ?? []), [intel]);
   const positive = governance?.content.positives?.[0];
   const concern = governance?.content.negatives?.[0];
@@ -99,7 +108,7 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
           <div className="panel min-w-0 p-5">
             <PanelHead title="Funding" to={href('mission_governance')} label="All rounds" />
             <p className="font-display text-[22px] font-semibold leading-none tabular-nums text-content">
-              {funding.latest.amountUsd != null ? formatUsdCompact(funding.latest.amountUsd) : <UnknownInline />}
+              {funding.latest.amountUsd != null ? formatUsdCompact(funding.latest.amountUsd) : funding.latest.amountNote ?? <UnknownInline />}
             </p>
             <p className="mt-1.5 text-[12.5px] text-content">
               {funding.latest.round}

@@ -100,6 +100,26 @@ describe('history tab', () => {
     expect(screen.getByText('No attributable quotes yet')).toBeInTheDocument();
   });
 
+  it('never says "Amount not reported" under a description that states an amount', async () => {
+    renderWithProviders(<HistoryTab companyId="cmp" />, {
+      repository: repoWith('history', {
+        founderStory: '',
+        quotes: [],
+        timeline: [
+          { date: '2025', title: 'Series E funding', detail: 'Closes an oversubscribed $1.375 billion Series E round led by Zeta Ventures.' },
+          { date: '2024', title: 'Series C funding', detail: 'Raises $50 million plus a $20 million extension.' },
+          { date: '2023', title: 'Series D funding', detail: 'Announces a round.' },
+          { date: '2022', title: 'Seed funding', detail: 'Raises a €105M seed round.' },
+        ],
+      }),
+    });
+    expect(await screen.findByText(/\$1\.4B/)).toBeInTheDocument();
+    expect(screen.getByText(/Zeta Ventures/, { selector: 'p' })).toBeInTheDocument();
+    expect(screen.getByText('€105M')).toBeInTheDocument();
+    // Only the round whose text states nothing is called "not reported".
+    expect(screen.getAllByText('Amount not reported')).toHaveLength(1);
+  });
+
   it('labels an empty timeline instead of leaving a blank panel', async () => {
     renderWithProviders(<HistoryTab companyId="cmp" />, {
       repository: repoWith('history', { founderStory: '', quotes: [], timeline: [] }),

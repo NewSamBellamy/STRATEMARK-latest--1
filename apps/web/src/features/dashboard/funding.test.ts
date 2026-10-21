@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { unifyFunding, isFundingRoundEvent } from './funding';
+import { unifyFunding, isFundingRoundEvent, statedByEvent } from './funding';
 
 // Clearly fake company: Fakeco / Zeta Ventures.
 const timeline = [
@@ -34,6 +34,49 @@ describe('one funding structure', () => {
     const rounds = unifyFunding(gov, [{ date: '2021 Jan', title: 'Fakeco raises Pre-seed', detail: '' }]);
     expect(rounds).toHaveLength(2);
     expect(rounds[1]).toMatchObject({ round: 'Pre-seed', amountUsd: null, leadInvestors: [] });
+  });
+
+  it('an amount and lead the event description states fill the round (old cached events carry no fields)', () => {
+    const rounds = unifyFunding([], [
+      { date: '2026 Q3 (July)', title: 'Series C Financing', detail: 'Raises $800 million in Series C funding at an $8.3 billion valuation led by Zeta Ventures.' },
+    ]);
+    expect(rounds).toEqual([{ round: 'Series C', amountUsd: 800e6, date: '2026 Q3 (July)', leadInvestors: ['Zeta Ventures'] }]);
+  });
+
+  it('a stated amount in another currency is kept as written, never converted or put in the USD field', () => {
+    const [round] = unifyFunding([], [
+      { date: '2023 Jun', title: 'Seed Funding', detail: 'Raises a €105M (~$113M) Seed round led by Zeta Ventures at a €240M valuation.' },
+    ]);
+    expect(round).toMatchObject({ round: 'Seed', amountUsd: null, amountNote: '€105M', leadInvestors: ['Zeta Ventures'] });
+  });
+
+  it('two competing amounts fill nothing', () => {
+    const [round] = unifyFunding([], [{ date: '2024', title: 'Series B Funding', detail: 'Raises $50 million plus a $20 million extension.' }]);
+    expect(round).toMatchObject({ amountUsd: null, leadInvestors: [] });
+    expect(round!.amountNote).toBeUndefined();
+    expect(statedByEvent({ title: 'Series B Funding', detail: 'Raises $50 million plus a $20 million extension.' }).statesAmount).toBe(true);
+  });
+
+  it('an event stating its own amount beats the description', () => {
+    const [round] = unifyFunding([], [{ date: '2024', title: 'Series B Funding', detail: 'Raises $50 million.', amountUsd: 45e6 }]);
+    expect(round!.amountUsd).toBe(45e6);
+  });
+
+  it('a round listed twice for the same date is one row, and an extension is not the plain round', () => {
+    const rounds = unifyFunding(
+      [
+        { round: 'Series A', amountUsd: null, date: '2023 Nov', leadInvestors: [] },
+        { round: 'series a', amountUsd: 20e6, date: '2023 Nov', leadInvestors: ['Zeta Ventures'], sourceUrl: 'https://news.test/a' },
+      ],
+      [
+        { date: '2024 Mar', title: 'Series A Extension / Series B Funding', detail: 'Raises $106 million, valuing the company at $1.25 billion.' },
+        { date: '2025 Feb', title: 'Series B Funding and Revenue Milestone', detail: 'Raises $305 million at a $3.3 billion valuation.' },
+      ],
+    );
+    expect(rounds.map((r) => r.round)).toEqual(['Series A', 'Series A Extension / Series B Funding', 'Series B']);
+    expect(rounds[0]).toMatchObject({ amountUsd: 20e6, leadInvestors: ['Zeta Ventures'], sourceUrl: 'https://news.test/a' });
+    expect(rounds[1]!.amountUsd).toBe(106e6);
+    expect(rounds[2]!.amountUsd).toBe(305e6);
   });
 
   it('non-funding events are not rounds', () => {

@@ -107,6 +107,54 @@ describe('mission & governance tab', () => {
     expect(document.querySelector('a[href="https://news.test/b"]')).not.toBeNull();
   });
 
+  const tabWith = (content: Record<string, unknown>) => vi.fn().mockResolvedValue({
+    companyId: 'cmp',
+    tab: 'mission_governance',
+    content: { mission: 'Fake mission.', ethos: '', governanceStructure: '', board: [], positives: [], negatives: [], investors: [], fundingRounds: [], ...content },
+    lastRefreshedAt: '2026-10-01T00:00:00.000Z',
+  });
+
+  it('lists investors from sourced board affiliations and round leads, not "0" beside a board of backers', async () => {
+    const tab = tabWith({
+      board: [
+        { name: 'Ann Lee', affiliation: 'Zeta Ventures' },
+        { name: 'Bo Chen', affiliation: 'Fakeco (CEO)' },
+      ],
+      fundingRounds: [{ round: 'Seed', amountUsd: 5e6, date: '2022', leadInvestors: ['Orion Capital'] }],
+    });
+    const getCompany = vi.fn().mockResolvedValue({ id: 'cmp', name: 'Fakeco', websiteUrl: null });
+    renderWithProviders(<MissionGovernanceTab companyId="cmp" />, {
+      repository: Object.assign(makeRepo(), { getDashboardTab: tab, getCompany }),
+    });
+    expect(await screen.findByText('Investors · 2')).toBeInTheDocument();
+    expect(screen.getByText('Affiliation of board member Ann Lee.')).toBeInTheDocument();
+    expect(screen.getByText('Led Seed (2022).')).toBeInTheDocument();
+    expect(screen.queryByText(/No named investors/)).not.toBeInTheDocument();
+  });
+
+  it('with no investors at all it says so without a zero', async () => {
+    renderWithProviders(<MissionGovernanceTab companyId="cmp" />, {
+      repository: Object.assign(makeRepo(), { getDashboardTab: tabWith({
+        fundingRounds: [{ round: 'Seed', amountUsd: null, date: '2022', leadInvestors: [] }],
+      }) }),
+    });
+    expect(await screen.findByText('No investor list in the research.')).toBeInTheDocument();
+    expect(screen.queryByText(/Investors · 0/)).not.toBeInTheDocument();
+  });
+
+  it('a stated amount in another currency shows as written in the Amount column', async () => {
+    renderWithProviders(<MissionGovernanceTab companyId="cmp" />, {
+      repository: Object.assign(makeRepo(), { getDashboardTab: tabWith({
+        fundingRounds: [
+          { round: 'Seed', amountUsd: null, date: '2023', leadInvestors: [], amountNote: '€105M' },
+          { round: 'Series A', amountUsd: null, date: '2024', leadInvestors: [] },
+        ],
+      }) }),
+    });
+    expect(await screen.findByText('€105M')).toBeInTheDocument();
+    expect(screen.getAllByText('Amount not reported')).toHaveLength(1);
+  });
+
   it('shows 5%+ holders from SEC filings, each citing its filing; an unstated percent is Unknown', async () => {
     vi.mocked(lookupMajorShareholders).mockResolvedValue([
       {
