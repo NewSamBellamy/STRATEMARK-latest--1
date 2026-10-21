@@ -67,6 +67,11 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
   const hasSignals = mood.total > 0 || Boolean(positive || concern);
   const panels = [leaders.length > 0, Boolean(funding), hasSignals].filter(Boolean).length;
   const leadersWide = leaders.length > 1 && panels === 2;
+  // Name only the panels actually shown, so the heading never promises funding that is absent.
+  const parts = [leaders.length > 0 && 'Leadership', Boolean(funding) && 'funding', hasSignals && 'signals'].filter(Boolean) as string[];
+  const sectionTitle = parts.length > 1
+    ? `${parts.slice(0, -1).join(', ')} & ${parts[parts.length - 1]}`
+    : (parts[0] ?? 'Leadership, funding & signals');
 
   if (leaders.length === 0 && !funding && !hasSignals) {
     return (
@@ -86,7 +91,7 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
   }
 
   return (
-    <TabSection title="Leadership, funding & signals">
+    <TabSection title={sectionTitle}>
       <div className={cn('grid gap-4', leadersWide ? LEADERS_WIDE : COLUMNS[panels])}>
         {leaders.length > 0 && (
           <div className="panel min-w-0 p-5">
