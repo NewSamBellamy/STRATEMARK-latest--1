@@ -6,6 +6,7 @@
  * "New Deck" — the running session is still here.
  */
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { formatClock } from '@/lib/format';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -400,7 +401,7 @@ function InputPill({
 // ── Main page ────────────────────────────────────────────────────────────────
 
 function timeLabel(): string {
-  return new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return formatClock();
 }
 
 export default function NewDeckPage() {

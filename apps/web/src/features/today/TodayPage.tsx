@@ -4,7 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import type { CompanyMove, MoveKind } from '@mi/contracts';
 import { EmptyState } from '@/components/states/EmptyState';
 import { cn } from '@/lib/cn';
-import { formatRelative } from '@/lib/format';
+import { formatDate, formatRelative } from '@/lib/format';
 import { safeHttpUrl } from '@/lib/sourceHref';
 import { isAnotherWindowError, MOVE_STALE_DAYS, moveAgeDays, moveDayBucket, type MoveDayBucket } from '@mi/research';
 import { useAnotherWindow, useFollows, useMarkMoveRead, useMarkMovesRead, useMoves, useRefreshMoves, useUnfollowCompany } from '@/hooks/today';
@@ -34,9 +34,7 @@ function useLastVisit(): string | null {
 
 /** A filing's date is EDGAR's filing day (no time); a story's is its feed timestamp. */
 function moveDate(move: CompanyMove): string {
-  return new Date(move.publishedAt).toLocaleDateString(undefined, {
-    month: 'short', day: 'numeric', year: 'numeric', ...(move.source === 'sec_filing' ? { timeZone: 'UTC' } : {}),
-  });
+  return formatDate(move.publishedAt);
 }
 
 function sourceName(move: CompanyMove): string {

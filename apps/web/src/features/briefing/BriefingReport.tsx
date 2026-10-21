@@ -9,6 +9,7 @@
  * high-fidelity, zero dependencies.
  */
 import { Link } from 'react-router-dom';
+import { formatDateLong } from '@/lib/format';
 import { Activity, CalendarDays, ExternalLink, Printer, Radio } from 'lucide-react';
 import { publisherOf } from '@mi/contracts';
 import { AiCover } from '@/components/media/AiCover';
@@ -99,12 +100,7 @@ export function BriefingReport({
   const highs = view.updates.filter((u) => u.signal === 'high');
   const notables = view.updates.filter((u) => u.signal === 'notable');
   const sourceCount = new Set(view.updates.flatMap((u) => u.citations.map((c) => c.url))).size;
-  const date = new Date(view.generatedAt).toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  const date = formatDateLong(view.generatedAt, { weekday: true });
 
 
   const CompanyTag = ({ u }: { u: BriefingViewUpdate }) =>

@@ -8,6 +8,7 @@
  * usable source says so, and an unmeasured cost is shown as not measured,
  * never as zero.
  */
+import { formatDateLong } from '@/lib/format';
 import { REPORT_TOPIC_LABELS, usableCitations, type Citation, type Report, type ReportCost, type ReportSection, type ReportTopic } from '@mi/contracts';
 import { exportSource, localDate } from './exportModel';
 
@@ -102,7 +103,7 @@ export function buildTopicReportModel(
     id: report.id,
     title: report.title,
     company,
-    dateText: now.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }),
+    dateText: formatDateLong(now),
     sections,
     costLine: costLine(report.cost),
     openGapCount: sections.filter((s) => s.gaps.length > 0).length,

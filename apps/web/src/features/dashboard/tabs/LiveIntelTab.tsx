@@ -17,7 +17,7 @@ import { StoryImage, VideoStrip } from '@/components/media/StoryMedia';
 import { Logo } from '@/features/card/Logo';
 import { LiveBadge } from '../LiveBadge';
 import { DigDeeper } from '@/features/deepdive/DeepDive';
-import { formatRelative } from '@/lib/format';
+import { formatDate, formatDateTime, formatRelative } from '@/lib/format';
 import { Favicon } from '@/components/media/Favicon';
 import { cn } from '@/lib/cn';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader } from './TabKit';
@@ -71,11 +71,7 @@ function newsOrder(items: LiveIntelItem[]): LiveIntelItem[] {
 function fmtPublishDate(raw: string): string {
   const t = Date.parse(raw);
   if (Number.isNaN(t)) return raw;
-  return new Date(t).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatDate(t);
 }
 
 /** The story, opened: capture, dated meta, reported paragraph with quotes. */
@@ -344,7 +340,7 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
         // Empty-state taxonomy (red team #16): "researched, nothing surfaced"
         // and "never searched" are different facts and must read differently.
         const researchedAt = r.lastRefreshedAt
-          ? new Date(r.lastRefreshedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+          ? formatDateTime(r.lastRefreshedAt)
           : null;
         return (
           <EmptyNote

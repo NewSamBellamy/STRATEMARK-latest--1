@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatDate } from '@/lib/format';
 import { ExternalLink } from 'lucide-react';
 import type { BusinessRelationship, Product, RoadmapItem } from '@mi/contracts';
 import { useCompany, useDashboardTab } from '@/hooks/data';
@@ -225,7 +226,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
         }, {});
         // The tab's own recorded research capture date; null stamps nothing.
         const statedOn = result.lastRefreshedAt
-          ? new Date(result.lastRefreshedAt).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
+          ? formatDate(result.lastRefreshedAt)
           : null;
         // Dense table by default for a long lineup; the reader can switch.
         const anySource = c.products.some((p) => hasHttpUrl(p.url));
@@ -245,7 +246,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                   c.products.length
                     ? 'Company-reported product disclosures, not a revenue ranking. Revenue contribution is not established.'
                     : (result.lastRefreshedAt
-                      ? `Last researched ${new Date(result.lastRefreshedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}.`
+                      ? `Last researched ${formatDate(result.lastRefreshedAt)}.`
                       : 'No original-backed product details are available yet. Refresh research to check official sources; earlier notes remain saved.')
                 }
                 actions={

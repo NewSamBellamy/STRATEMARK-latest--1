@@ -1,5 +1,6 @@
 import { publisherOf, usableCitations, type DashboardTab } from '@mi/contracts';
 import { useDashboardTab } from '@/hooks/data';
+import { formatDate } from '@/lib/format';
 import { Favicon } from '@/components/media/Favicon';
 
 /** One quiet source inspector shared by every researched company section. */
@@ -64,7 +65,7 @@ export function DashboardSources({ companyId, tab }: { companyId: string; tab: D
           {' '}Open the sources to check their context and reporting dates.
         </p>
         {query.data.lastRefreshedAt && <p className="mt-2">
-          Research collected: {query.data.lastRefreshedAt.slice(0, 10)} — not the source publication date.
+          Research collected: {formatDate(query.data.lastRefreshedAt)} — not the source publication date.
         </p>}
         <ul className="mt-3 flex flex-wrap gap-1.5">
           {publishers.map(({ name, url, count }) => <li key={name}>

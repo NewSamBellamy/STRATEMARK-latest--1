@@ -11,7 +11,7 @@
  */
 import { classifyMarketProfile, type Company, type CompanyMetric, type MetricType } from '@mi/contracts';
 import { buildMetricViews } from '@/features/card/card-view';
-import { formatMetricValue } from '@/lib/format';
+import { formatDate, formatMetricValue } from '@/lib/format';
 import { isKnown, metricAsOf, missingCoreTypes, orderMetrics } from './dashboardModel';
 import { currencyCaption, figureCurrency, withReportedCurrency } from './figureCurrency';
 
@@ -97,15 +97,12 @@ export function figureTrust(metric: CompanyMetric): 'Human checked' | 'Verified'
     : metric.confidence === 'verified' ? 'Verified' : linkedCitation(metric) ? 'Reported' : 'Estimated';
 }
 
-const dayFormat = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-const dayFormatUtc = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-
-/** "30 Jul 2026". A plain calendar date is never timezone-shifted; a timestamp reads in the viewer's calendar. */
+/** "30 Jul 2026" via the shared formatter (calendar day in UTC, so no date is timezone-shifted). */
 export function formatDay(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const at = new Date(iso);
   if (!Number.isFinite(at.getTime())) return null;
-  return (/T\d{2}:\d{2}/.test(iso) ? dayFormat : dayFormatUtc).format(at);
+  return formatDate(at);
 }
 
 /**

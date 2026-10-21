@@ -8,7 +8,7 @@ import {
 } from '@mi/contracts';
 import { useDeckByMarket, useMarket, useRefreshDeck, useUpdateCadence } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
-import { formatRelative } from '@/lib/format';
+import { formatDue, formatRelative } from '@/lib/format';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
 
 export default function MarketSettingsPage() {
@@ -75,11 +75,11 @@ export default function MarketSettingsPage() {
                     Last refreshed: {formatRelative(deck.data?.lastRefreshedAt)}
                     {deck.data?.lastRefreshedAt && (
                       <>
-                        {' · next auto-refresh '}
-                        {new Date(
+                        {' · next auto-refresh: '}
+                        {formatDue(
                           Date.parse(deck.data.lastRefreshedAt) +
                             REFRESH_CADENCE_HOURS[m.refreshCadence] * 3600 * 1000,
-                        ).toLocaleString()}
+                        )}
                       </>
                     )}
                   </span>

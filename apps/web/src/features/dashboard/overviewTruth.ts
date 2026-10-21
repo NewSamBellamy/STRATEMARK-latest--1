@@ -4,6 +4,7 @@
  * undated item says so.
  */
 import type { LiveIntelItem } from '@mi/contracts';
+import { formatDate } from '@/lib/format';
 
 type Story = Pick<LiveIntelItem, 'stale' | 'publishedDate'>;
 
@@ -84,7 +85,7 @@ export function statedNote(eventDate: string, capturedAt: string | null | undefi
   const captured = capturedAt ? new Date(capturedAt) : null;
   if (at === null || !captured || !Number.isFinite(captured.getTime())) return null;
   if (at <= captured.getUTCFullYear() * 12 + captured.getUTCMonth()) return null;
-  const day = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(captured);
+  const day = formatDate(captured);
   return `stated ${day}`;
 }
 

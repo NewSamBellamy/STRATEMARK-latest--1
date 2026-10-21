@@ -14,6 +14,7 @@
  * everything else is hidden for the duration of window.print().
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { formatDateLong } from '@/lib/format';
 import { useNavigate } from 'react-router-dom';
 import { FilePlus2, FileSpreadsheet, FileText, Link2, MessageSquareText, Presentation, Printer, Share2 } from 'lucide-react';
 import type { CardWithCompany, ThreadMessage } from '@mi/contracts';
@@ -208,7 +209,7 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
         kind: 'transcript',
         title: transcript.title,
         scopeLabel: transcript.scopeLabel ?? null,
-        dateText: new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }),
+        dateText: formatDateLong(new Date()),
         messages: transcript.messages,
       },
       `${transcript.title} - Stratemark conversation`,

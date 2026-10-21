@@ -1,4 +1,5 @@
 import { useMemo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { formatDateTime } from '@/lib/format';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -454,7 +455,7 @@ export default function DeckPage() {
                 {deckError || 'The refresh did not complete. The deck below is the last successful snapshot.'}
                 {lastSyncedAt && (
                   <span className="block mt-1 text-xs text-faint">
-                    Last synced: {new Date(lastSyncedAt).toLocaleString()}{deckRevision ? ` · Revision ${deckRevision}` : ''}
+                    Last synced: {formatDateTime(lastSyncedAt)}{deckRevision ? ` · Revision ${deckRevision}` : ''}
                   </span>
                 )}
               </p>

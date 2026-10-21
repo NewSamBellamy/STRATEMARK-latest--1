@@ -10,6 +10,7 @@
  * keeps the sources the desk grounded it in.
  */
 import { useEffect, useRef, useState } from 'react';
+import { formatDateLong } from '@/lib/format';
 import {
   CalendarDays,
   CheckCircle2,
@@ -216,12 +217,7 @@ function ScoreBar({ score }: { score: number }) {
 }
 
 export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAuditContent }) {
-  const date = new Date(report.createdAt).toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  const date = formatDateLong(report.createdAt, { weekday: true });
   const dialTone =
     audit.overall >= 80 ? 'text-emerald-600' : audit.overall >= 50 ? 'text-amber-600' : 'text-rose-600';
 

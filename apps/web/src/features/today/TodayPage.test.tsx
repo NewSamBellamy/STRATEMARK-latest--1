@@ -96,9 +96,9 @@ describe('Today', () => {
     const first = headline.closest('li')!;
     expect(within(first).getByText('New')).toBeInTheDocument();
     expect(within(first).getByText('Major')).toBeInTheDocument();
-    expect(within(first).getByText(/Reuters · Oct 15, 2026/)).toBeInTheDocument();
+    expect(within(first).getByText(/Reuters · 15 Oct 2026/)).toBeInTheDocument();
     // A filing is dated by its EDGAR filing day, whatever the viewer's time zone.
-    expect(screen.getByText(/SEC EDGAR · Oct 14, 2026/)).toBeInTheDocument();
+    expect(screen.getByText(/SEC EDGAR · 14 Oct 2026/)).toBeInTheDocument();
     expect(screen.getByText(/1 new since your last visit/)).toBeInTheDocument();
     await waitFor(() => expect(repo.refreshMoves).toHaveBeenCalledTimes(1));
     expect(repo.refreshMoves).toHaveBeenCalledWith(expect.objectContaining({ force: false }));

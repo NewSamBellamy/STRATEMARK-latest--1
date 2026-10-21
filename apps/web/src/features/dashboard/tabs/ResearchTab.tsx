@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { formatDate } from '@/lib/format';
 import { ChevronDown, Loader2, Plus, StickyNote } from 'lucide-react';
 import type { ResearchEvidence } from '@mi/research';
 import { useRepository } from '@/lib/repository/RepositoryProvider';
@@ -52,7 +53,7 @@ function EvidenceCard({ evidence }: { evidence: ResearchEvidence }) {
           )}
         </div>
         <span className="text-[11px] tabular-nums text-faint" title="When this research was collected, not a publication date">
-          Collected {evidence.capturedAt.slice(0, 10)}
+          Collected {formatDate(evidence.capturedAt)}
         </span>
       </div>
       <div

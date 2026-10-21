@@ -12,6 +12,7 @@
  *      inside the URL, AI layer removed.
  */
 import { useMemo, useState } from 'react';
+import { formatDate } from '@/lib/format';
 import { Link, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -240,7 +241,7 @@ export default function BriefingPage() {
                   <ExportMenu
                     share={{
                       title: `${active.marketName} — Daily Briefing`,
-                      subtitle: new Date(active.generatedAt).toLocaleDateString(),
+                      subtitle: formatDate(active.generatedAt),
                       build: async () => buildShare(),
                     }}
                   />
@@ -282,10 +283,7 @@ export default function BriefingPage() {
                           : 'border-border bg-surface text-muted hover:text-content',
                       )}
                     >
-                      {new Date(b.generatedAt).toLocaleDateString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                      })}{' '}
+                      {formatDate(b.generatedAt)}{' '}
                       · {b.updates.length} update{b.updates.length === 1 ? '' : 's'}
                     </button>
                   </li>

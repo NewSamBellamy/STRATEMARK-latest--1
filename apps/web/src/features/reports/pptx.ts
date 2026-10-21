@@ -3,6 +3,7 @@
  * Client-side via pptxgenjs (dynamically imported to keep the bundle lean).
  */
 import type PptxGenJS from 'pptxgenjs';
+import { formatDate } from '@/lib/format';
 import { isEntityCardType, publisherOf, type CardWithCompany, type MetricType } from '@mi/contracts';
 import { safeHttpUrl, sourceHref } from '@/lib/sourceHref';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
@@ -77,7 +78,7 @@ export async function exportDeckPptx(args: {
   title.addText('Competitive intelligence deck · grounded research with cited sources', {
     x: 0.6, y: 2.7, w: 9, h: 0.5, fontSize: 14, color: MUTED,
   });
-  title.addText(`Generated ${new Date().toLocaleDateString()} · Stratemark`, {
+  title.addText(`Generated ${formatDate(new Date())} · Stratemark`, {
     x: 0.6, y: 4.9, w: 9, h: 0.4, fontSize: 10, color: MUTED,
   });
 

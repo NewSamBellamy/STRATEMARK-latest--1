@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { METRIC_TYPE_LABELS, type DashboardTab } from '@mi/contracts';
-import { formatRelative } from '@/lib/format';
+import { formatDateTime, formatRelative } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { useCompanyMetrics } from '@/hooks/data';
 import { figureCounts, statedMonth } from './SourceCheck';
@@ -41,7 +41,7 @@ export function TabFreshness({ companyId, tab, onRefresh, refreshing, disabled, 
     <div className={cn('flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[11.5px] text-faint', showFreshness ? 'mb-3' : '-mt-2 mb-1')} data-testid="freshness-row">
       {showFreshness && refreshedAt && (
         <>
-          <span title={new Date(refreshedAt).toLocaleString()}>
+          <span title={formatDateTime(refreshedAt)}>
             Researched {formatRelative(refreshedAt, now)}
             {old && <span className="text-red-700 dark:text-negative"> · over a month old</span>}
           </span>

@@ -5,6 +5,7 @@
  * its sources as numbered footnotes. Nothing is inferred to fill a field.
  */
 import type { OrgNode } from '@mi/contracts';
+import { formatDateLong } from '@/lib/format';
 import { exportSource } from './exportModel';
 import type { ReportCompanyInfo, ReportFootnote, ReportImage } from './topicReportModel';
 
@@ -44,7 +45,7 @@ export function buildPersonReportModel(args: {
   return {
     company: args.company,
     person: { name: person.name, role: clean(person.role) ?? 'Role not reported', group: args.groupLabel },
-    dateText: (args.now ?? new Date()).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }),
+    dateText: formatDateLong(args.now ?? new Date()),
     portrait: args.portrait,
     facts: [
       { label: 'Role', value: clean(person.role) },

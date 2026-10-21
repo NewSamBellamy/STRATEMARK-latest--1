@@ -6,6 +6,7 @@
  * how long, and how to stop it.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { formatDate } from '@/lib/format';
 import { AlertTriangle, Check, Copy, Loader2, Link2, Share2, Trash2 } from 'lucide-react';
 import type { SharePayload } from '@/lib/share/codec';
 import { Modal } from '@/components/ui/Modal';
@@ -236,7 +237,7 @@ export function HostedShareDialog({
             )}
 
             <p className="text-[11.5px] leading-relaxed text-faint">
-              Open to anyone with the link until {new Date(view.share.expiresAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}. Read-only.
+              Open to anyone with the link until {formatDate(view.share.expiresAt)}. Read-only.
             </p>
             <div className="border-t border-border pt-3">
               <button type="button" className="inline-flex items-center gap-1.5 text-[12px] font-medium text-negative hover:underline disabled:opacity-60" disabled={busyStop} onClick={() => void stop(view.share)}>
