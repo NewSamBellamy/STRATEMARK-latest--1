@@ -12,6 +12,7 @@ import { UnknownInline } from '@/features/card/UnknownValue';
 import { Logo } from '@/features/card/Logo';
 import { WikiAvatar } from './LeaderGrid';
 import { usePeers } from '../usePeers';
+import { storiesCaption } from '../overviewTruth';
 
 /**
  * The people, the money and the mood around a company, taken from the Team,
@@ -118,13 +119,13 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
             {mood.total > 0 && (
               <div>
                 <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-2" role="img"
-                  aria-label={`${mood.positive} positive, ${mood.neutral} neutral, ${mood.negative} negative of ${mood.total} recent stories`}>
+                  aria-label={`${mood.positive} positive, ${mood.neutral} neutral, ${mood.negative} negative of ${storiesCaption(intel?.content.items ?? [])}`}>
                   <span className="bg-positive" style={{ width: `${(mood.positive / mood.total) * 100}%` }} />
                   <span className="bg-border" style={{ width: `${(mood.neutral / mood.total) * 100}%` }} />
                   <span className="bg-negative" style={{ width: `${(mood.negative / mood.total) * 100}%` }} />
                 </div>
                 <p className="mt-1.5 text-[11.5px] tabular-nums text-muted">
-                  {mood.total} recent {mood.total === 1 ? 'story' : 'stories'}: {mood.positive} positive · {mood.neutral} neutral · {mood.negative} negative
+                  {storiesCaption(intel?.content.items ?? [])}: {mood.positive} positive · {mood.neutral} neutral · {mood.negative} negative
                 </p>
               </div>
             )}

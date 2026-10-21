@@ -55,7 +55,7 @@ describe('overview: leadership, funding and signals', () => {
     expect(screen.getByText('$300M')).toBeInTheDocument();
     expect(screen.getByText('Series B')).toBeInTheDocument();
     expect(screen.getByText('Led by Thrive, a16z')).toBeInTheDocument();
-    expect(screen.getByText(/2 recent stories: 1 positive · 0 neutral · 1 negative/)).toBeInTheDocument();
+    expect(screen.getByText(/2 stories \(dates not reported\): 1 positive · 0 neutral · 1 negative/)).toBeInTheDocument();
     expect(screen.getByText('Shipped a major model')).toBeInTheDocument();
     expect(screen.getByText('Regulatory probe opened')).toBeInTheDocument();
   });
