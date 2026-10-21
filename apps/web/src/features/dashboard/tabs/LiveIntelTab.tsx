@@ -317,7 +317,7 @@ export function TopStories({ items, onOpen, company }: { items: LiveIntelItem[];
                 className="h-[84px] w-[128px] shrink-0 rounded-md" subject={subject} fallback={plate(item)} />
               <div className="min-w-0 space-y-1 py-0.5">
                 <StoryMeta item={item} />
-                <p className="line-clamp-3 text-[13.5px] font-medium leading-snug text-content group-hover:text-primary-ink">{item.title}</p>
+                <p className="line-clamp-4 text-[13.5px] font-medium leading-snug text-content group-hover:text-primary-ink">{item.title}</p>
               </div>
             </button>
           ))}

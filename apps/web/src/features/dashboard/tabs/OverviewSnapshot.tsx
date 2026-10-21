@@ -21,12 +21,12 @@ import { storiesCaption } from '../overviewTruth';
  * until then a single line says where the rest lives.
  */
 
-// One column per panel, so panels fill the row instead of leaving a gap. When leadership
-// sits with one other panel it takes two thirds (its list runs in two columns), which
+// One column per panel, so panels fill the row instead of leaving a gap. On wide screens, when
+// leadership sits with one other panel it takes two thirds (its list runs in two columns), which
 // matches the 2:1 split of the summary above and keeps the shorter signals panel from
 // floating beside a tall single-column list.
 const COLUMNS: Record<number, string> = { 1: 'md:grid-cols-1', 2: 'md:grid-cols-2', 3: 'md:grid-cols-3' };
-const LEADERS_WIDE = 'md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]';
+const LEADERS_WIDE = 'md:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]';
 
 function PanelHead({ title, to, label }: { title: string; to: string; label: string }) {
   return (
@@ -82,7 +82,7 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
         {leaders.length > 0 && (
           <div className="panel min-w-0 p-5">
             <PanelHead title="Leadership" to={href('team_org')} label="Team & org" />
-            <ul className={cn('grid gap-x-6 gap-y-2.5', leadersWide && 'sm:grid-cols-2')}>
+            <ul className={cn('grid gap-x-6 gap-y-2.5', leadersWide && 'xl:grid-cols-2')}>
               {leaders.map((person) => (
                 <li key={person.id} className="flex min-w-0 items-center gap-2.5">
                   <WikiAvatar name={person.name} companyName={companyName} size="sm" />
