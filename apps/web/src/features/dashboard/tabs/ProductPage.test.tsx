@@ -40,6 +40,24 @@ describe('ProductPage', () => {
     expect(screen.getByRole('button', { name: /Research again/ })).toBeInTheDocument();
   });
 
+  it('links only web addresses from researched sources, the timeline and the product page', async () => {
+    const hostile: ProductBrief = {
+      ...brief,
+      sentiment: { summary: 'Mostly liked.', positive: [], negative: [], sources: [{ title: 'Review', url: 'javascript:alert(1)' }, { title: 'Wire', url: 'https://wire.example/a' }] },
+      timeline: [{ date: 'Nov 2022', title: 'Launch', detail: '', sourceUrl: 'javascript:alert(2)' }],
+    };
+    const repo = Object.assign(makeRepo(), { peekProductBrief: vi.fn().mockResolvedValue(hostile), researchProductBrief: vi.fn() });
+    renderWithProviders(
+      <ProductPage product={{ ...product, url: 'javascript:alert(3)' }} companyId="cmp" company={company} roadmap={[]} onClose={vi.fn()} />,
+      { repository: repo },
+    );
+    expect(await screen.findByText('Launch')).toBeInTheDocument();
+    const hrefs = Array.from(document.querySelectorAll('a[href]')).map((a) => a.getAttribute('href') ?? '');
+    expect(hrefs.filter((href) => !/^https?:\/\//.test(href)), JSON.stringify(hrefs)).toEqual([]);
+    expect(screen.getByRole('link', { name: 'Wire' })).toHaveAttribute('href', 'https://wire.example/a');
+    expect(screen.queryByRole('link', { name: /Official page/ })).not.toBeInTheDocument();
+  });
+
   it('hides the research button when the engine cannot research', async () => {
     renderWithProviders(<ProductPage product={product} companyId="cmp" company={company} roadmap={[]} onClose={vi.fn()} />, { repository: makeRepo() });
     expect(await screen.findByText('A planner for teams.')).toBeInTheDocument();

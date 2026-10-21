@@ -27,6 +27,7 @@ import {
   useUnfollowCompany,
 } from '@/hooks/today';
 import { cn } from '@/lib/cn';
+import { safeHttpUrl } from '@/lib/sourceHref';
 import { localDate } from '@/features/export/exportModel';
 import {
   KIND_LABEL,
@@ -37,8 +38,6 @@ import {
   updatesFromSocial,
   type TodayUpdate,
 } from './todayUpdates';
-
-const safeHref = (url: string) => (/^https?:\/\//i.test(url) ? url : undefined);
 
 const SENTIMENT_STYLE = {
   positive: 'border-positive/40 text-positive',
@@ -166,7 +165,7 @@ export function TodayCompanyView({ companyId }: { companyId: string }) {
                   )}
                   {update.importance === 3 && <span className="rounded-full bg-primary/8 px-2 py-0.5 font-medium text-primary">Major</span>}
                 </div>
-                <a href={safeHref(update.url)} target="_blank" rel="noopener noreferrer"
+                <a href={safeHttpUrl(update.url)} target="_blank" rel="noopener noreferrer"
                   className={cn('mt-1 block text-[15px] leading-snug text-content hover:text-primary hover:underline', !update.readAt && 'font-semibold')}
                   onClick={() => { if (!update.readAt) setRead(update, true); }}>
                   {update.title}

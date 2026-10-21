@@ -10,11 +10,10 @@
  * research plus a fresh Google Search — never from model memory.
  */
 import { sourceHref } from '@/lib/sourceHref';
+import { SafeMarkdown } from '@/components/ResearchMarkdown';
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import {
   ArrowUp,
   ExternalLink,
@@ -122,9 +121,6 @@ const CHAT_MD_COMPONENTS = {
   ),
   td: ({ children }: { children?: ReactNode }) => (
     <td className="border-b border-border px-2 py-1 align-top">{children}</td>
-  ),
-  a: ({ href, children }: { href?: string; children?: ReactNode }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="link">{children}</a>
   ),
 };
 
@@ -693,9 +689,9 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
                 <div key={m.id} className="max-w-full">
                   <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-faint">Stratemark</p>
                   <article className="markdown text-[13px] text-content/90">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={CHAT_MD_COMPONENTS}>
+                    <SafeMarkdown components={CHAT_MD_COMPONENTS} linkClassName="link">
                       {parsed?.body ?? m.text}
-                    </ReactMarkdown>
+                    </SafeMarkdown>
                   </article>
                   <SourceChips citations={m.citations} />
                   {isLast && !busy && conversational && parsed && parsed.followUps.length > 0 && (

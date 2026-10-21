@@ -17,9 +17,9 @@ export class BudgetCounter extends DurableObject {
     return (await this.ctx.storage.get<LedgerDay>(KEY)) ?? { day: '', spentMicros: 0, heldMicros: 0, visitors: {} };
   }
 
-  /** When the UTC day changes, keep a one-line summary of the day that ended. */
+  /** When the UTC day changes, keep a one-line summary of the day that ended. A call that carries an older day than the ledger's ends nothing. */
   private async rollover(ledger: LedgerDay, day: string): Promise<void> {
-    if (!ledger.day || ledger.day === day) return;
+    if (!ledger.day || ledger.day >= day) return;
     const history = (await this.ctx.storage.get<DaySummary[]>(HISTORY)) ?? [];
     await this.ctx.storage.put(HISTORY, rollHistory(history, ledger));
   }
@@ -28,8 +28,11 @@ export class BudgetCounter extends DurableObject {
     const current = await this.load();
     await this.rollover(current, day);
     const result = tryReserve(current, day, ip, amount, budgetMicros, visitorBudgetMicros);
-    await this.ctx.storage.put(KEY, result.ledger);
-    return result.ok ? { ok: true as const } : { ok: false as const, reason: result.reason };
+    // A refused call changes nothing, so it writes nothing (a flood of refused calls used to rewrite the whole ledger each time).
+    // The first call of a new day does change the ledger, refused or not: it starts that day's.
+    if (result.ledger !== current) await this.ctx.storage.put(KEY, result.ledger);
+    // `day` is the day the hold was put on, which is the ledger's day when the caller's was older: settle on that one.
+    return result.ok ? { ok: true as const, day: result.ledger.day } : { ok: false as const, reason: result.reason };
   }
 
   async settle(day: string, ip: string, held: number, actual: number): Promise<void> {

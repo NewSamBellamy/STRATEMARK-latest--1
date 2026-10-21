@@ -40,6 +40,16 @@ describe('ProfileCard', () => {
     expect(screen.getByText('A. Photographer, CC BY-SA 4.0')).toBeInTheDocument();
   });
 
+  it('links the source only when it is a web address', () => {
+    const { rerender } = render(<ProfileCard person={person({ sourceUrl: 'https://news.example/a' })} company={company} flipped onFlip={vi.fn()} onOpenProfile={vi.fn()} />);
+    expect(screen.getByRole('link', { name: 'Source' })).toHaveAttribute('href', 'https://news.example/a');
+    for (const sourceUrl of ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', '//evil.example/x']) {
+      rerender(<ProfileCard person={person({ sourceUrl })} company={company} flipped onFlip={vi.fn()} onOpenProfile={vi.fn()} />);
+      expect(screen.queryByRole('link', { name: 'Source' })).not.toBeInTheDocument();
+      expect(screen.getByText('No source link')).toBeInTheDocument();
+    }
+  });
+
   it('opens the profile from the back and keeps the hidden face out of the tab order', async () => {
     const onOpen = vi.fn();
     const { rerender } = render(<ProfileCard person={person()} company={company} flipped={false} onFlip={vi.fn()} onOpenProfile={onOpen} />);

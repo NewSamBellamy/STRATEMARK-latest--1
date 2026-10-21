@@ -1,8 +1,7 @@
 import { sourceHref } from '@/lib/sourceHref';
 import { useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { SafeMarkdown } from '@/components/ResearchMarkdown';
 import { ArrowLeft, ExternalLink, Target } from 'lucide-react';
 import {
   CartesianGrid,
@@ -181,7 +180,7 @@ export default function OpportunityPage() {
           {(o) => (
             <>
               <article className="markdown">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{o.markdown}</ReactMarkdown>
+                <SafeMarkdown>{o.markdown}</SafeMarkdown>
               </article>
               {o.citations.length > 0 && (
                 <footer className="mt-5 border-t border-border pt-3">

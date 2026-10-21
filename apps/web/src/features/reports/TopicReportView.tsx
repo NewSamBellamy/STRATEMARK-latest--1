@@ -5,8 +5,7 @@
  * the research came up empty, and the sources as numbered footnotes.
  */
 import { useEffect, useMemo, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { SafeMarkdown } from '@/components/ResearchMarkdown';
 import { ExternalLink } from 'lucide-react';
 import type { Report, ReportTopic } from '@mi/contracts';
 import { Logo } from '@/features/card/Logo';
@@ -59,7 +58,7 @@ function Section({ section, index }: { section: TopicReportSectionModel; index: 
         </div>
       )}
       <div className="markdown mt-4 max-w-[70ch] text-[15px] leading-[1.75]">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{section.markdown}</ReactMarkdown>
+        <SafeMarkdown>{section.markdown}</SafeMarkdown>
       </div>
       {section.gaps.length > 0 && (
         <p className="mt-4 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200">

@@ -8,8 +8,6 @@
 import { sourceHref } from '@/lib/sourceHref';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { ExternalLink, Layers, Link2Off, MapPin } from 'lucide-react';
 import {
   METRIC_TYPE_LABELS,
@@ -23,6 +21,8 @@ import { BriefingReport, type BriefingView } from '@/features/briefing/BriefingR
 import { Logo } from '@/features/card/Logo';
 import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
 import { Modal } from '@/components/ui/Modal';
+import { SafeLink } from '@/components/SafeLink';
+import { SafeMarkdown } from '@/components/ResearchMarkdown';
 import { FullPageLoader } from '@/components/states/FullPageLoader';
 import { formatMetricValue } from '@/lib/format';
 import { siteUrl } from '@/lib/siteUrl';
@@ -67,15 +67,13 @@ function SharedReader({
                   </span>
                 )}
                 {company.websiteUrl && (
-                  <a
-                    href={siteUrl(company.websiteUrl) ?? undefined}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <SafeLink
+                    href={siteUrl(company.websiteUrl)}
                     className="inline-flex items-center gap-1 text-primary-ink hover:underline"
                   >
                     <ExternalLink className="h-3 w-3" />
                     {company.websiteUrl.replace(/^https?:\/\//, '')}
-                  </a>
+                  </SafeLink>
                 )}
               </div>
             </div>
@@ -140,14 +138,12 @@ function SharedReader({
               {viceClaims.map((v) => (
                 <li key={v.id} className="text-sm leading-relaxed text-content">
                   {v.claimText}
-                  <a
+                  <SafeLink
                     href={v.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
                     className="ml-2 text-[11px] text-primary-ink hover:underline"
                   >
                     {publisherOf(v.sourceUrl, v.sourceTitle)}
-                  </a>
+                  </SafeLink>
                 </li>
               ))}
             </ul>
@@ -304,24 +300,22 @@ function SharedReportView({
 
           <div className="markdown">
             {/* Strip a leading H1 if the model repeated the title — the masthead owns it. */}
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <SafeMarkdown>
               {r.md.replace(/^#\s[^\n]*\n+/, '')}
-            </ReactMarkdown>
+            </SafeMarkdown>
           </div>
 
           {r.c.length > 0 && (
             <div className="mt-6 flex flex-wrap gap-x-4 gap-y-1.5 border-t border-border pt-4">
               {r.c.map((c, i) => (
-                <a
+                <SafeLink
                   key={i}
                   href={c.u}
-                  target="_blank"
-                  rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"
                 >
                   <ExternalLink className="h-3 w-3" />
                   {publisherOf(c.u, c.t)}
-                </a>
+                </SafeLink>
               ))}
             </div>
           )}
@@ -431,7 +425,8 @@ export default function SharePage() {
     );
   }
 
-  const companyCount = payload.cards.filter((c) => c.company).length;
+  // Companies, not cards: a company with a risk card and a culture card is still one company.
+  const companyCount = new Set(payload.cards.flatMap((c) => (c.company ? [c.company.name.trim().toLowerCase()] : []))).size;
   const sharedDate = new Date(payload.sharedAt).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
