@@ -35,7 +35,10 @@ export function roundForEvent(rounds: readonly FundingRound[], event: Pick<Timel
   const title = norm(event.title);
   return rounds.find((r) => {
     const label = norm(r.round);
-    return label.length > 0 && title.includes(label) && sameYear(r.date, event.date);
+    // Whole-word: "seed" must not match inside "pre-seed", "series b" not inside "series bb".
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const inTitle = new RegExp(`(^|[^a-z0-9-])${escaped}($|[^a-z0-9+])`).test(title);
+    return label.length > 0 && inTitle && sameYear(r.date, event.date);
   });
 }
 
