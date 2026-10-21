@@ -129,7 +129,7 @@ export const citationSchema = z.object({
  * CRAAP source assessment (currency, relevance, authority, accuracy, purpose):
  * a deterministic read of how fresh, how authoritative and how independent the
  * sources behind one figure are (research/source-assessment.ts has the rules).
- * Additive and optional; NOT yet part of any stored snapshot. It never holds a
+ * Additive and optional; stored on a metric as `assessment`. It never holds a
  * figure's value, only what the evidence behind it looks like.
  */
 export const CURRENCY_STATUSES = ['current', 'aging', 'stale', 'undated'] as const;
@@ -336,6 +336,32 @@ export const companyMetricSchema = z.object({
   lastVerifiedAt: isoTimestamp.nullish(),
   /** Last completed check, including inconclusive attempts; not evidence of support. */
   lastVerificationAttemptAt: isoTimestamp.nullish(),
+  /**
+   * CRAAP read of the evidence behind this figure (research/source-assessment.ts),
+   * written when the figure is accepted and recomputed at read time from the
+   * stored citations, so rows written before it existed still get one. Never
+   * holds a value; absent = not assessed yet.
+   */
+  assessment: sourceAssessmentSchema.nullish(),
+  /**
+   * Figures this row replaced because a newer, at-least-as-authoritative one
+   * arrived (newest first, bounded). Kept with their own date, never deleted.
+   */
+  priorFigures: z
+    .array(
+      z.object({
+        value: z.number().nullable(),
+        confidence: confidenceSchema,
+        source: z.string().nullable(),
+        /** The figure's stated period or publication date (YYYY, YYYY-MM or YYYY-MM-DD); null when it had none. */
+        asOf: z.string().nullable(),
+        capturedAt: isoTimestamp,
+        supersededAt: isoTimestamp,
+        reason: z.string().max(300),
+      }),
+    )
+    .max(8)
+    .optional(),
   /**
    * This figure's own decay window. Written onto the row rather than derived at
    * read time, so a later policy change cannot silently reinterpret the

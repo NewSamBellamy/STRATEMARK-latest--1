@@ -11,7 +11,7 @@
  * @mi/contracts; the table below only adds the tiers that function cannot say
  * (aggregator, reference, press wire, filing hosts, weak content hosts).
  *
- * Not wired into any stored snapshot yet (see `sourceAssessmentSchema`).
+ * Wired into stored figures by metric-assessment.ts.
  */
 import {
   classifySource,

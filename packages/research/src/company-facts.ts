@@ -81,7 +81,11 @@ export function projectCompanyFactsFromOriginals(company: Company, observations:
     const proof = metricPassageSupportSchema.safeParse(metric.passageSupport);
     // Market share needs a defined market/denominator/period contract. A dated
     // percentage in a sentence is not that contract; automatic shares wait.
-    const assessment = !current.ambiguous && bounded && metric.confidence === 'verified' && proof.success && type !== 'market_share' &&
+    // An original-backed figure whose evidence did not earn `verified` (stale, company-only,
+    // weak: metric-assessment.ts) is stored `estimated` with its passage and is re-checked
+    // by the same gate, then shown at its stored label.
+    const cappedOriginal = metric.confidence === 'estimated' && metric.assessment != null;
+    const assessment = !current.ambiguous && bounded && (metric.confidence === 'verified' || cappedOriginal) && proof.success && type !== 'market_share' &&
       !(type === 'users' && metric.value === 0)
       ? inspectMetricPassage({ companyName: company.name, officialWebsite: company.websiteUrl, metricType: type, value: metric.value, support: proof.data, originals }) : null;
     const citations = assessment?.citations ?? [];

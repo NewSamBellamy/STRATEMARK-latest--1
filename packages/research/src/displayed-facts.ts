@@ -18,6 +18,7 @@
  */
 import type { Company, CompanyMetric } from '@mi/contracts';
 import { projectCompanyFacts } from './company-facts';
+import { assessedForDisplay, companyDomainOf } from './metric-assessment';
 import type { OriginalSourceAttempt } from './original-source';
 import type { ResearchEvidence } from './research-evidence';
 import { savedCompanyProfile } from './saved-profile';
@@ -33,6 +34,8 @@ export interface DisplayedFactsInput {
   /** The market roster, excluding this company: enables roster-guarded profile recovery. */
   otherCompanies?: readonly string[];
   sourceChecks?: SourceChecks;
+  /** The clock for figure ages; defaults to the present. */
+  now?: Date;
 }
 
 /** Facts before source binding hides or relinks any (the repository's projectedFacts). */
@@ -43,5 +46,13 @@ export function projectedCompanyFacts(input: Omit<DisplayedFactsInput, 'sourceCh
 
 /** Facts exactly as getCompanyFacts serves them. */
 export function displayedCompanyFacts(input: DisplayedFactsInput): CompanyMetric[] {
-  return applySourceChecks(input.company.id, projectedCompanyFacts(input), input.sourceChecks);
+  return assessedFacts(applySourceChecks(input.company.id, projectedCompanyFacts(input), input.sourceChecks), input.company, input.now);
+}
+
+/** Every shown figure assessed afresh from its stored citations (so rows saved before
+ * assessments existed get one), with a `verified` label its evidence no longer supports
+ * lowered. Values are never changed or dropped. */
+export function assessedFacts(facts: readonly CompanyMetric[], company: Pick<Company, 'websiteUrl'>, now: Date = new Date()): CompanyMetric[] {
+  const domain = companyDomainOf(company.websiteUrl);
+  return facts.map((fact) => assessedForDisplay(fact, now, domain));
 }

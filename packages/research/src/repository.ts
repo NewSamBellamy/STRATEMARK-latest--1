@@ -135,6 +135,7 @@ import { applyMilestone, usageSince, type DeckRun, type DeckRunMilestone } from 
 import type { ResearchNoteEntry, ReportedMetricSupport } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { searchEvidenceCorpus } from './retrieval';
+import { companyDomainOf, settleMetric as settleMetricEvidence } from './metric-assessment';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
 import { secAdvFirmCandidates, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
@@ -233,7 +234,7 @@ import { dropQuestionOnlyFigures, routeChat } from './chat-route';
 import { answerFromMemory, answerGreeting, compareArchive, gatherChatMemory, keepFreshEvidence } from './chat-memory';
 import { savedCompanySummary } from './saved-profile';
 import { buildCompanyTopicReport } from './company-report';
-import { projectedCompanyFacts } from './displayed-facts';
+import { assessedFacts, projectedCompanyFacts } from './displayed-facts';
 import { companySourceTargets } from './source-policy';
 import { companyBriefingPrompt, renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
 import { canonicalTabMarkers, companyTabsBatchPrompt, companyTabsParts, companyTabsSections, headingCompanyKey, TAB_BATCH_SIZE } from './company-tabs-batch';
@@ -2727,7 +2728,15 @@ export class GeminiRepository implements MarketIntelRepository {
   }
   async getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
     // A reported figure links to the page that states it, or is not shown.
-    return applySourceChecks(companyId, await this.projectedFacts(companyId), this.snap.sourceChecks);
+    const facts = applySourceChecks(companyId, await this.projectedFacts(companyId), this.snap.sourceChecks);
+    // Assessed afresh at read time (displayed-facts.ts), the same as the completeness report sees them.
+    return assessedFacts(facts, this.snap.companies.find((c) => c.id === companyId) ?? { websiteUrl: null });
+  }
+
+  /** Assess a figure that was just accepted and store the assessment; a `verified` label its evidence does not support becomes `estimated`. */
+  private settleAccepted(metric: CompanyMetric, asOfHint?: string | null): void {
+    const company = this.snap.companies.find((c) => c.id === metric.companyId);
+    settleMetricEvidence(metric, new Date(), companyDomainOf(company?.websiteUrl), asOfHint);
   }
 
   /** The facts as the evidence supports them, before source binding hides or relinks any. */
@@ -4160,7 +4169,8 @@ export class GeminiRepository implements MarketIntelRepository {
             metric.source = observed.citations[0]?.url ?? metric.source;
             metric.methodNote = observed.methodNote;
             metric.capturedAt = nowIso;
-            Object.assign(metric, markVerified(metric, nowIso));
+            this.settleAccepted(metric);
+            if (metric.confidence === 'verified') Object.assign(metric, markVerified(metric, nowIso));
             filled.push(type);
           }
         }
@@ -4242,7 +4252,8 @@ export class GeminiRepository implements MarketIntelRepository {
               row.source = observed.citations[0]?.url ?? null;
               row.methodNote = `Annual revenue reported in SEC XBRL for ${observed.passageSupport.periodStart} to ${observed.passageSupport.asOf}; not ARR or an independent audit.`;
               row.capturedAt = nowIso;
-              Object.assign(row, markVerified(row, nowIso));
+              this.settleAccepted(row);
+              if (row.confidence === 'verified') Object.assign(row, markVerified(row, nowIso));
               filled.push('arr');
             }
           }
@@ -5160,7 +5171,8 @@ export class GeminiRepository implements MarketIntelRepository {
           ? `Original reported ${fig.metricType} as of ${fig.passageSupport!.asOf}. ${currencyConversionNote(fig.value, fig.passageSupport?.unit)}`.trim()
           : fig.methodNote ?? 'Filled by a targeted metrics hunt.';
         metric.capturedAt = nowIso;
-        Object.assign(metric, markVerified(metric, nowIso));
+        this.settleAccepted(metric);
+        if (metric.confidence === 'verified') Object.assign(metric, markVerified(metric, nowIso));
         filledTypes.push(fig.metricType);
       }
     }
@@ -5351,6 +5363,7 @@ export class GeminiRepository implements MarketIntelRepository {
       if (revision?.ambiguous) continue;
       const current = revision?.metric;
       let originalCitations: Citation[] = [];
+      let originalAsOf: string | null = null;
       if (row.reportedSupport) {
         for (const receipt of retainedOriginals) {
           for (const sentence of (receipt.text ?? '').split(/(?<=[.!?])\s+/)) {
@@ -5367,7 +5380,7 @@ export class GeminiRepository implements MarketIntelRepository {
               },
               originals: retainedOriginals,
             });
-            if (citations.length) { originalCitations = citations; break; }
+            if (citations.length) { originalCitations = citations; originalAsOf = businessDates(sentence)[0] ?? null; break; }
           }
           if (originalCitations.length) break;
         }
@@ -5385,7 +5398,8 @@ export class GeminiRepository implements MarketIntelRepository {
           ? `Verified against a retained original page recovered from saved research. ${currencyConversionNote(row.reportedSupport?.value ?? row.value, (row.passageSupport ?? row.reportedSupport)?.unit)}`.trim()
           : row.methodNote;
         current.capturedAt = nowIso;
-        if (verified) Object.assign(current, markVerified(current, nowIso));
+        this.settleAccepted(current, originalAsOf ?? row.reportedSupport?.asOf);
+        if (current.confidence === 'verified') Object.assign(current, markVerified(current, nowIso));
       } else {
         const filled: CompanyMetric = { ...row, capturedAt: nowIso,
           value: row.value };
@@ -5396,8 +5410,9 @@ export class GeminiRepository implements MarketIntelRepository {
           filled.source = originalCitations[0]!.url;
           filled.reportedSupport = null;
           filled.methodNote = `Verified against a retained original page recovered from saved research. ${conversion}`.trim();
-          Object.assign(filled, markVerified(filled, nowIso));
         }
+        this.settleAccepted(filled, originalAsOf ?? row.reportedSupport?.asOf);
+        if (filled.confidence === 'verified') Object.assign(filled, markVerified(filled, nowIso));
         this.snap.metrics.push(filled);
       }
       filledTypes.push(row.metricType);
