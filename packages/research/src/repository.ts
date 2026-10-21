@@ -5934,10 +5934,15 @@ export class GeminiRepository implements MarketIntelRepository {
       const market = deck ? this.snap.markets.find((m) => m.id === deck.marketId) : null;
       if (!deck || !market) throw new Error('Deck not found for report');
       // Reports are gated the same way briefings are: digesting a
-      // half-researched deck would launder skeletons into prose.
-      this.assertDeckSettled(deck.id, 'report');
+      // half-researched deck would launder skeletons into prose. A report written from a conversation is about what that
+      // conversation found, so it does not wait for the deck: it digests only the cards that have finished forming, never
+      // a skeleton, and the conversation carries the rest.
+      const fromConversation = Boolean(request.threadId);
+      if (!fromConversation) this.assertDeckSettled(deck.id, 'report');
       title = `${market.name} — Market Report`;
-      const cards = this.snap.cards.filter((c) => c.deckId === deck.id);
+      const cards = this.snap.cards
+        .filter((c) => c.deckId === deck.id)
+        .filter((c) => !fromConversation || !isEntityCardType(c.cardType) || c.tier != null);
       // Red-team the face-value figures FIRST — the digest below then reads
       // the corrected metrics straight from the snapshot.
       const redTeam = await this.redTeamReportFigures(
