@@ -789,6 +789,15 @@ describe('card face picks its figures by currency', () => {
     ]);
     expect(slot.metric?.id).toBe('arr');
   });
+  it('equal currency and score leave the whole face exactly as it is without assessments', () => {
+    const rows = (patch: Partial<CompanyMetric>) => [
+      metric({ id: 'arr', metricType: 'arr', value: 40_000_000, ...patch }),
+      metric({ id: 'rev', metricType: 'revenue', value: 50_000_000, ...patch }),
+      metric({ id: 'emp', metricType: 'employees', value: 120, ...patch }),
+    ];
+    const face = (metrics: CompanyMetric[]) => view(metrics).faceMetrics.map(({ metric: m, ...rest }) => ({ ...rest, id: m?.id }));
+    expect(face(rows(assessed('current', 60)))).toEqual(face(rows({})));
+  });
   it('equal currency falls to the higher assessment score', () => {
     const slot = revenueSlot([
       metric({ id: 'arr', metricType: 'arr', value: 40_000_000, ...assessed('current', 40) }),
