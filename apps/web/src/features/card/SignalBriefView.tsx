@@ -29,12 +29,15 @@ function noteFailure(repo: MarketIntelRepository, cardId: string, message: strin
   byCard.set(cardId, { at: Date.now(), message });
 }
 
-function sharedBuild(repo: MarketIntelRepository, cardId: string, force: boolean): Promise<SignalBrief> {
+/** How long a person must stay on a card before its brief is bought; passing through costs nothing. (Tests set this to 0.) */
+export const signalBriefTiming = { startDelayMs: 1200 };
+
+function sharedBuild(repo: MarketIntelRepository, cardId: string, force: boolean, signal?: AbortSignal): Promise<SignalBrief> {
   let byCard = builds.get(repo);
   if (!byCard) builds.set(repo, byCard = new Map());
   const running = byCard.get(cardId);
   if (running) return running;
-  const run = repo.researchSignalBrief!({ cardId, ...(force ? { force: true } : {}) });
+  const run = repo.researchSignalBrief!({ cardId, ...(force ? { force: true } : {}), ...(signal ? { signal } : {}) });
   byCard.set(cardId, run);
   const clear = () => { if (byCard.get(cardId) === run) byCard.delete(cardId); };
   run.then(clear, clear);
@@ -56,15 +59,18 @@ export function useSignalBrief(cardId: string, enabled: boolean) {
   const [state, setState] = useState<SignalBriefState>({ status: 'idle' });
   const canBuild = !readOnly && typeof repo.researchSignalBrief === 'function';
 
-  const build = useCallback((force: boolean, auto = false) => {
+  const build = useCallback((force: boolean, auto = false, signal?: AbortSignal) => {
     if (!canBuild) return;
     // Opening a card again must not pay again for a build that just failed.
     const recent = auto ? recentFailure(repo, cardId) : null;
     if (recent !== null) { setState({ status: 'failed', message: recent }); return; }
     setState({ status: 'building' });
-    sharedBuild(repo, cardId, force).then(
+    sharedBuild(repo, cardId, force, signal).then(
       (brief) => setState({ status: 'ready', brief }),
       (error: unknown) => {
+        // A build dropped because its card was closed is not a failure: it must not hold back the next opening. (If this
+        // card is still open, another opener's cancelled build was shared with it: start its own.)
+        if (error instanceof Error && error.name === 'BriefCancelled') { if (!signal?.aborted) build(force, auto, signal); return; }
         const message = error instanceof Error && error.message ? error.message : 'The report could not be written.';
         noteFailure(repo, cardId, message);
         setState({ status: 'failed', message });
@@ -73,20 +79,27 @@ export function useSignalBrief(cardId: string, enabled: boolean) {
   }, [repo, cardId, canBuild]);
 
   useEffect(() => {
-    if (!enabled || typeof repo.peekSignalBrief !== 'function') {
-      if (enabled && canBuild) build(false, true);
-      return;
-    }
+    if (!enabled) return;
     let live = true;
-    repo.peekSignalBrief(cardId).then(
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const closed = new AbortController();
+    // The brief is bought only for a card the person stays on; a failure just seen is shown at once, never retried here.
+    const buildSoon = () => {
+      if (!canBuild || !live) return;
+      const recent = recentFailure(repo, cardId);
+      if (recent !== null) { setState({ status: 'failed', message: recent }); return; }
+      timer = setTimeout(() => { timer = null; if (live) build(false, true, closed.signal); }, signalBriefTiming.startDelayMs);
+    };
+    if (typeof repo.peekSignalBrief !== 'function') buildSoon();
+    else repo.peekSignalBrief(cardId).then(
       (stored) => {
         if (!live) return;
         if (stored) setState({ status: 'ready', brief: stored });
-        else if (canBuild) build(false, true);
+        else buildSoon();
       },
-      () => { if (live && canBuild) build(false, true); },
+      buildSoon,
     );
-    return () => { live = false; };
+    return () => { live = false; if (timer) clearTimeout(timer); closed.abort(); };
   }, [enabled, repo, cardId, canBuild, build]);
 
   return { state, canBuild, retry: () => build(false), rebuild: () => build(true) };

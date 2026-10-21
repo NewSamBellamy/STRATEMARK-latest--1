@@ -3029,7 +3029,7 @@ export class GeminiRepository implements MarketIntelRepository {
   /** A build waits for a free slot; a card closed meanwhile (its signal aborted) is dropped before it pays for anything. */
   private queueSignalBrief(cardId: string, signal?: AbortSignal): Promise<SignalBrief> {
     return new Promise<SignalBrief>((resolve, reject) => {
-      const cancelled = () => new Error('The card was closed before its report was started.');
+      const cancelled = () => Object.assign(new Error('The card was closed before its report was started.'), { name: 'BriefCancelled' });
       const entry = {
         start: () => {
           signal?.removeEventListener('abort', onAbort);

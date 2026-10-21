@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { buildDataset, createShareRepository } from '@mi/mocks';
 import type { MarketIntelRepository, ShareSnapshot, SignalBrief } from '@mi/contracts';
@@ -10,6 +10,7 @@ import { DeepDiveProvider } from '@/features/deepdive/DeepDive';
 import { createQueryClient } from '@/lib/query/queryClient';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
 import { CardReader } from './CardReader';
+import { signalBriefTiming } from './SignalBriefView';
 
 const data = buildDataset();
 
@@ -48,6 +49,10 @@ const open = (repository: MarketIntelRepository, cwc = signal) =>
   renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />, { repository });
 
 describe('signal brief in the reader', () => {
+  // The stay-on-the-card delay is exercised in its own describe below with fake timers.
+  beforeEach(() => { signalBriefTiming.startDelayMs = 0; });
+  afterEach(() => { signalBriefTiming.startDelayMs = 1200; });
+
   it('shows a stored brief with every point and its source links, and spends nothing', async () => {
     const repo = repoWith(briefFor(signal.card.id), vi.fn());
     open(repo);
@@ -185,3 +190,57 @@ describe('signal brief in the reader', () => {
     expect(screen.queryByText(/Writing the full report/)).not.toBeInTheDocument();
   });
 });
+
+describe('the brief is bought only for a card the person stays on', () => {
+  beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  const cards = Array.from({ length: 8 }, (_, i) => ({ ...signal, card: { ...signal.card, id: `${signal.card.id}_${i}` } }));
+
+  it('builds nothing while the person passes through cards, and builds once for the card they stay on', async () => {
+    const repo = repoWith(null, async () => briefFor(signal.card.id));
+    const first = open(repo, cards[0]!);
+    await vi.advanceTimersByTimeAsync(300);
+    first.unmount();
+    // Next, next, next through the rest, 300 ms each.
+    for (const card of cards.slice(1, 7)) {
+      const view = open(repo, card);
+      await vi.advanceTimersByTimeAsync(300);
+      view.unmount();
+    }
+    expect(repo.researchSignalBrief).not.toHaveBeenCalled();
+    open(repo, cards[7]!);
+    await vi.advanceTimersByTimeAsync(1300);
+    expect(repo.researchSignalBrief).toHaveBeenCalledTimes(1);
+    expect((repo.researchSignalBrief as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatchObject({ cardId: cards[7]!.card.id });
+  });
+
+  it('passes an abort signal that fires when the card is closed', async () => {
+    let seen: AbortSignal | undefined;
+    const repo = repoWith(null, () => new Promise<SignalBrief>(() => undefined));
+    (repo.researchSignalBrief as ReturnType<typeof vi.fn>).mockImplementation((input: { signal?: AbortSignal }) => { seen = input.signal; return new Promise(() => undefined); });
+    const view = open(repo);
+    await vi.advanceTimersByTimeAsync(1300);
+    expect(seen?.aborted).toBe(false);
+    view.unmount();
+    expect(seen?.aborted).toBe(true);
+  });
+
+  it('a build dropped because its card was closed does not count as a failure on the next opening', async () => {
+    const dropped = Object.assign(new Error('closed'), { name: 'BriefCancelled' });
+    let drop!: (e: Error) => void;
+    const build = vi.fn<() => Promise<SignalBrief>>()
+      .mockImplementationOnce(() => new Promise<SignalBrief>((_, reject) => { drop = reject; }))
+      .mockResolvedValueOnce(briefFor(signal.card.id));
+    const repo = repoWith(null, build);
+    const first = open(repo);
+    await vi.advanceTimersByTimeAsync(1300);
+    first.unmount();
+    drop(dropped);
+    open(repo);
+    await vi.advanceTimersByTimeAsync(1300);
+    expect(await screen.findByText('Acme bought Beta in 2025.')).toBeInTheDocument();
+    expect(build).toHaveBeenCalledTimes(2);
+  });
+});
+
