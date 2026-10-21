@@ -7,7 +7,7 @@
 import { hasHostedApi } from '@/lib/hostedApi';
 
 /** When the open-source, bring-your-own-key version ships. */
-export const OPEN_SOURCE_LAUNCH = 'the end of October 2026';
+export const OPEN_SOURCE_LAUNCH = 'December 1, 2026';
 
 /**
  * Where honest feedback goes. Set VITE_FEEDBACK_URL at build time (a form,

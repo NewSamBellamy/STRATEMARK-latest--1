@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fireEvent, screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/test-utils';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
+import { OPEN_SOURCE_LAUNCH } from '@/lib/beta';
 import BetaPage from './BetaPage';
 
 describe('About this beta', () => {
@@ -15,6 +16,11 @@ describe('About this beta', () => {
     expect(screen.getByText(/bring-your-own-key/i)).toBeInTheDocument();
     // Nothing about paid plans for now: that comes later.
     expect(screen.queryByText(/paid|subscription|per month/i)).not.toBeInTheDocument();
+  });
+  it('says the open-source version launches on December 1', () => {
+    renderWithProviders(<BetaPage />);
+    expect(OPEN_SOURCE_LAUNCH).toBe('December 1, 2026');
+    expect(screen.getAllByText(/December 1, 2026/).length).toBeGreaterThan(0);
   });
   it('opens Settings straight to Data controls for export', () => {
     renderWithProviders(<BetaPage />);

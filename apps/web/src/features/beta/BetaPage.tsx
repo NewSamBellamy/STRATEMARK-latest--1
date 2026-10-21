@@ -26,7 +26,7 @@ export default function BetaPage() {
       </h1>
       <p className="mt-3 text-[15px] leading-relaxed text-muted">
         Stratemark is being built open source and local-first. This beta is a free web version so you can try it
-        before the open-source release at {OPEN_SOURCE_LAUNCH}.
+        before the open-source release on {OPEN_SOURCE_LAUNCH}.
       </p>
 
       <div className="panel mt-6 px-5">
@@ -64,7 +64,7 @@ export default function BetaPage() {
         </Point>
         <Point icon={<PackageOpen className="h-4 w-4" />} title="Take your decks to the open-source version">
           <p>
-            When Stratemark launches open source at {OPEN_SOURCE_LAUNCH}, import that same file and carry on with
+            When Stratemark launches open source on {OPEN_SOURCE_LAUNCH}, import that same file and carry on with
             everything you built here.
           </p>
         </Point>

@@ -37,7 +37,7 @@ function BetaNotice() {
       <p className="min-w-0 flex-1">
         <span className="font-semibold">Free beta.</span> We cover the AI and server costs so you can try Stratemark.
         Your decks, research and AI chats stay in this browser, and we don&apos;t see them. Export everything any time,
-        and bring it into the open-source version at {OPEN_SOURCE_LAUNCH}.{' '}
+        and bring it into the open-source version on {OPEN_SOURCE_LAUNCH}.{' '}
         <Link to="/beta" className="font-medium text-primary-ink underline">How this works</Link>
       </p>
       <button type="button" onClick={dismiss} className="shrink-0 rounded p-0.5 text-muted hover:text-content" aria-label="Dismiss beta notice">
