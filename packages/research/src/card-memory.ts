@@ -8,6 +8,13 @@ import type { RepoSnapshot } from './repository';
 
 type MemorySnap = Pick<RepoSnapshot, 'cards' | 'threads' | 'reports'>;
 
+/** A stored conversation that can be read safely: a workspace file is untrusted, and one broken row must not break the rest. */
+export function isReadableThread(thread: unknown): thread is ResearchThread {
+  const t = thread as Partial<ResearchThread> | null | undefined;
+  return t != null && typeof t === 'object' && typeof t.id === 'string' && t.scope != null && typeof t.scope === 'object'
+    && Array.isArray(t.messages) && t.messages.every((m) => m != null && typeof m === 'object');
+}
+
 /** The cards a conversation belongs to: its explicit `cardIds`, else every entity card of its company, else none. */
 export function cardIdsForThread(thread: ResearchThread, snap: Pick<RepoSnapshot, 'cards'>): string[] {
   const explicit = thread.scope.cardIds;
@@ -47,6 +54,7 @@ export function reportStamp(
 export function cardMemory(snap: MemorySnap, cardId: string): CardMemory {
   const card = snap.cards.find((c) => c.id === cardId);
   const threads = snap.threads
+    .filter(isReadableThread)
     .filter((t) => cardIdsForThread(t, snap).includes(cardId))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
   const threadIds = new Set(threads.map((t) => t.id));

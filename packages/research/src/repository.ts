@@ -124,7 +124,7 @@ import {
 } from './semantic-memory';
 import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest, reachHuntRequest, FIGURE_DATE_RULE } from './prompts';
 import type { ResearchPassage } from '@mi/contracts';
-import { cardIdsForThread, cardMemory, reportStamp, requestThreadIds } from './card-memory';
+import { cardIdsForThread, cardMemory, isReadableThread, reportStamp, requestThreadIds } from './card-memory';
 import type { Ownership } from '@mi/contracts';
 import { findOwnership, metricOwnershipEvidence, preferOwnership, receiptOwnershipEvidence } from './ownership';
 import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
@@ -6669,6 +6669,7 @@ ${references}`
 
   listResearchThreads(filter?: { deckId?: string; companyId?: string; cardId?: string }): Promise<ResearchThread[]> {
     const out = this.snap.threads
+      .filter(isReadableThread)
       .filter((t) => (filter?.cardId ? cardIdsForThread(t, this.snap).includes(filter.cardId) : true))
       .filter((t) => (filter?.deckId ? t.scope.deckId === filter.deckId : true))
       .filter((t) => (filter?.companyId ? t.scope.companyId === filter.companyId : true))
