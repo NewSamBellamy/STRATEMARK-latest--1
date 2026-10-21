@@ -280,7 +280,7 @@ function LeaderCard({
     <button
       type="button"
       onClick={onOpen}
-      className="group/leader relative flex min-w-0 flex-col items-center gap-1.5 rounded-xl border border-transparent p-2 text-center transition-colors hover:border-border hover:bg-surface-2 focus-visible:border-border focus-visible:bg-surface-2"
+      className="group/leader relative flex min-w-0 items-center gap-3 rounded-xl border border-transparent p-2 text-left transition-colors hover:border-border hover:bg-surface-2 focus-visible:border-border focus-visible:bg-surface-2 lg:flex-col lg:gap-1.5 lg:text-center"
     >
       <span
         className={cn(
@@ -302,10 +302,12 @@ function LeaderCard({
           </span>
         )}
       </span>
-      <span className="w-full break-words text-[12.5px] font-semibold leading-tight text-content">
-        {person.name}
+      <span className="flex min-w-0 flex-1 flex-col gap-1 lg:w-full lg:flex-none lg:gap-1.5">
+        <span className="w-full break-words text-[12.5px] font-semibold leading-tight text-content">
+          {person.name}
+        </span>
+        <span className="w-full break-words text-[11px] leading-snug text-muted">{person.role}</span>
       </span>
-      <span className="w-full break-words text-[11px] leading-snug text-muted">{person.role}</span>
 
       {/* Hover profile — the sourced background, in place. */}
       {/* Left-aligned (not centered): a centered popover on a card near the
@@ -345,7 +347,8 @@ export function LeaderGrid({
       <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-muted">
         Starting five · founders and chiefs
       </p>
-      <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5">
+      {/* Five people: one column of rows below lg, five across from lg. Never a 2+2+1 or 3+2 grid with a hole. */}
+      <div className="grid grid-cols-1 gap-1 lg:grid-cols-5">
         {ordered.map((p) => (
           <LeaderCard
             key={p.id}

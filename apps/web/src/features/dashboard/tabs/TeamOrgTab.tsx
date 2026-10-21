@@ -312,6 +312,7 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
           </FilterChip>
         )}
       </div>
+      <span className="hidden h-5 w-px bg-border lg:block" aria-hidden />
       <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="More filters">
         <span title={movingCount === 0 ? 'No sourced moves in this research' : undefined}>
           <FilterChip active={moving} onClick={() => setMoving((m) => !m)} count={movingCount} disabled={movingCount === 0}>
@@ -368,7 +369,9 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
               }
             />
 
-            <div className="mb-3 flex flex-wrap items-center gap-2">
+            {/* Toolbar: search and the view switch on one row; the filter chips sit on a row of their own beneath. */}
+            <div className="mb-4 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
               <SearchBox
                 value={search}
                 onChange={setSearch}
@@ -386,9 +389,7 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
                   <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
                   Filter{activeFilters > 0 ? ` (${activeFilters})` : ''}
                 </button>
-              ) : (
-                filterControls
-              )}
+              ) : null}
               <div className="ml-auto inline-flex rounded-lg border border-border bg-surface-2/60 p-0.5" role="group" aria-label="View">
                 {(['board', 'list'] as const).map((v) => (
                   <button
@@ -424,9 +425,12 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
                 </span>
               )}
             </div>
-            {narrow && filtersOpen && (
-              <div className="mb-3 space-y-2 rounded-xl border border-border bg-surface p-3">{filterControls}</div>
+            {narrow ? (
+              filtersOpen && <div className="space-y-2 rounded-xl border border-border bg-surface p-3">{filterControls}</div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">{filterControls}</div>
             )}
+            </div>
 
             {view === 'board' ? (
               <div className="space-y-4">
