@@ -183,6 +183,15 @@ describe('risks in the printed report', () => {
     expect(mine.risks.every((r) => /^https?:\/\//.test(r.source.url))).toBe(true);
   });
 
+  it('labels a risk source with no recorded publisher Source not named', async () => {
+    const { market, cards, tabs, company } = await plainDeck();
+    const redirect = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQabc';
+    const card = viceCard(company, 'vice_n', [{ claimText: 'Acme was fined.', sourceUrl: redirect }]);
+    const report = buildFullReport({ title: market.name, cards: [...cards, card], tabs });
+    const mine = report.companies.find((c) => c.id === company.company!.id)!;
+    expect(mine.risks[0]!.source.title).toBe('Source not named');
+  });
+
   it('prints no risk at all, and counts no card, when none of its claims has a source', async () => {
     const { market, cards, tabs, company } = await plainDeck();
     const baseline = buildFullReport({ title: market.name, cards, tabs }).signalCount;
