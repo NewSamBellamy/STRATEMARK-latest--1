@@ -37,7 +37,8 @@ export function TabFreshness({ companyId, tab, onRefresh, refreshing, disabled, 
   const counts = tab === 'overview' && metrics ? figureCounts(metrics) : null;
   const assessed = counts ? counts.current + counts.outOfDate + counts.undated : 0;
   return (
-    <div className="mb-3 flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[11.5px] text-faint" data-testid="freshness-row">
+    // Only the pause icon (no research to date): pull the row up under the tab strip so it is not a bare band of space.
+    <div className={cn('flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[11.5px] text-faint', showFreshness ? 'mb-3' : '-mt-2 mb-1')} data-testid="freshness-row">
       {showFreshness && refreshedAt && (
         <>
           <span title={new Date(refreshedAt).toLocaleString()}>

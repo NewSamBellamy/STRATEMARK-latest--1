@@ -95,8 +95,8 @@ function PeerBars({ ranking, type }: { ranking: PeerRanking; type: MetricType })
   const color = METRIC_COLORS[type];
   return (
     <div>
-      <div className="mb-2 flex items-baseline justify-between gap-2">
-        <h3 className="font-display text-sm font-semibold text-content">In this deck</h3>
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+        <h3 className="whitespace-nowrap font-display text-sm font-semibold text-content">In this deck</h3>
         <p className="text-[11px] text-faint">
           {ranking.rank != null ? `#${ranking.rank} of ${ranking.of} companies with this figure` : `${ranking.of} companies with this figure`}
           {ranking.includesEstimates ? ' · includes estimates' : ''}
@@ -187,7 +187,7 @@ export function MetricExplorer({
               className={cn('min-w-[132px] flex-1 bg-surface px-4 py-3 text-left transition-colors', on ? 'bg-surface' : 'bg-surface-2/50 hover:bg-surface')}
               style={on ? { boxShadow: `inset 0 -2px 0 ${METRIC_COLORS[metric.metricType]}` } : undefined}>
               <span className="block text-[10.5px] font-semibold uppercase tracking-wider text-faint">{metricLabel(metric)}</span>
-              <span className={cn('mt-0.5 block font-display text-lg font-semibold tabular-nums', on ? 'text-content' : 'text-muted')}>
+              <span className={cn('mt-0.5 block whitespace-nowrap font-display text-lg font-semibold tabular-nums', on ? 'text-content' : 'text-muted')}>
                 {figureDisplay(metric)}
                 {metric.confidence === 'estimated' && <>{' '}<abbr title="Estimated" className="text-[10px] font-normal text-faint no-underline">est.</abbr></>}
               </span>
