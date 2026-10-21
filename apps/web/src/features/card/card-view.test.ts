@@ -768,3 +768,52 @@ describe('a signal card face shows a whole sentence of the card rather than one 
     expect(view.frontFinding).toBe(short);
   });
 });
+
+describe('card face picks its figures by currency', () => {
+  const assessed = (state: 'current' | 'aging' | 'stale' | 'undated', score: number | null = 60): Partial<CompanyMetric> => ({
+    assessment: { currency: { state }, score } as CompanyMetric['assessment'],
+  });
+  const revenueSlot = (metrics: CompanyMetric[]) => view(metrics).faceMetrics.find((m) => m.key === 'revenue')!;
+
+  it('a current ARR beats an aging revenue figure at equal strength', () => {
+    const slot = revenueSlot([
+      metric({ id: 'rev', metricType: 'revenue', value: 50_000_000, ...assessed('aging', 90) }),
+      metric({ id: 'arr', metricType: 'arr', value: 40_000_000, ...assessed('current', 50) }),
+    ]);
+    expect(slot.metric?.id).toBe('arr');
+  });
+  it('without assessments the more important type wins, as before', () => {
+    const slot = revenueSlot([
+      metric({ id: 'rev', metricType: 'revenue', value: 50_000_000 }),
+      metric({ id: 'arr', metricType: 'arr', value: 40_000_000 }),
+    ]);
+    expect(slot.metric?.id).toBe('arr');
+  });
+  it('equal currency falls to the higher assessment score', () => {
+    const slot = revenueSlot([
+      metric({ id: 'arr', metricType: 'arr', value: 40_000_000, ...assessed('current', 40) }),
+      metric({ id: 'rev', metricType: 'revenue', value: 50_000_000, ...assessed('current', 80) }),
+    ]);
+    expect(slot.metric?.id).toBe('rev');
+  });
+  it('a stale reported figure stays off the face and the slot falls back', () => {
+    const result = view([metric({ id: 'arr', metricType: 'arr', value: 40_000_000, ...assessed('stale') })]);
+    const slot = result.faceMetrics.find((m) => m.key === 'revenue')!;
+    expect(slot.metric).toBeUndefined();
+    expect(slot.display).toBe('Not found yet');
+  });
+  it('a stale figure yields to a non-stale one in the same family', () => {
+    const slot = revenueSlot([
+      metric({ id: 'arr', metricType: 'arr', value: 40_000_000, ...assessed('stale') }),
+      metric({ id: 'rev', metricType: 'revenue', value: 30_000_000, ...assessed('undated', null) }),
+    ]);
+    expect(slot.metric?.id).toBe('rev');
+  });
+  it('a verified figure beats a fresher estimate (strength comes first)', () => {
+    const slot = revenueSlot([
+      metric({ id: 'arr', metricType: 'arr', value: 40_000_000, confidence: 'verified', ...assessed('aging', 50) }),
+      metric({ id: 'rev', metricType: 'revenue', value: 30_000_000, confidence: 'estimated', ...assessed('current', 95) }),
+    ]);
+    expect(slot.metric?.id).toBe('arr');
+  });
+});
