@@ -108,6 +108,36 @@ describe('Today in the workspace', () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it('says honestly when each company was last checked, and which could not be reached, from stored state', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      let down = true;
+      const { repo } = movesRepo(async (query) => { if (down && query.includes('Gamma')) throw new Error('feed down'); return feed(query); });
+      await repo.followCompanies(['acme', 'gamma']);
+      expect((await repo.listFollows()).map((f) => f.lastCheckedAt ?? null)).toEqual([null, null]);
+      const first = await repo.refreshMoves();
+      expect(first).toMatchObject({ refreshed: 1, failed: ['gamma'] });
+      const [acme, gamma] = await repo.listFollows();
+      expect(acme).toMatchObject({ companyId: 'acme', lastCheckedAt: first.refreshedAt });
+      expect(acme!.checkFailedAt ?? null).toBeNull();
+      // The retry time parked for the failed company is not shown as a time it was checked.
+      expect(gamma).toMatchObject({ companyId: 'gamma', lastCheckedAt: null });
+      expect(gamma!.checkFailedAt).toEqual(expect.any(String));
+      down = false;
+      vi.setSystemTime(Date.now() + 2 * HOUR + 1_000);
+      const second = await repo.refreshMoves();
+      expect(second).toMatchObject({ refreshed: 1, failed: [] });
+      const after = await repo.listFollows();
+      expect(after.every((f) => f.lastCheckedAt && !f.checkFailedAt)).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('when every feed is down no check time is claimed at all', async () => {
+    const { repo } = movesRepo(async () => { throw new Error('feed down'); });
+    await repo.followCompanies(['acme']);
+    expect(await repo.refreshMoves()).toMatchObject({ refreshed: 0, refreshedAt: null, failed: ['acme'] });
+  });
+
   it('an SEC outage does not count as a look, and does not hold back the news', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     try {

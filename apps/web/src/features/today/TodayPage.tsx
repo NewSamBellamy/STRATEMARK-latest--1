@@ -68,7 +68,14 @@ export default function TodayPage() {
   const unreadCount = all.filter((move) => !move.readAt).length;
   const shown = useMemo(() => (moves.data ?? []).filter((move) =>
     filter === 'all' ? true : filter === 'unread' ? !move.readAt : move.kind === filter), [moves.data, filter]);
-  const checkedAt = refresh.data?.refreshedAt ?? null;
+  // "Checked" comes from the times the engine stored, so it survives a reload; a failed look is never counted as one.
+  const checkedAt = (follows.data ?? []).reduce<string | null>((latest, follow) =>
+    follow.lastCheckedAt && (!latest || follow.lastCheckedAt > latest) ? follow.lastCheckedAt : latest, null) ?? refresh.data?.refreshedAt ?? null;
+  const failedCount = (follows.data ?? []).filter((follow) => follow.checkFailedAt).length;
+  const firstCheckRunning = refresh.isPending && !checkedAt && all.length === 0;
+  const checkedLabel = refresh.isPending ? 'checking now…'
+    : checkedAt ? `checked ${formatRelative(checkedAt)}`
+      : all.length > 0 ? null : 'not checked yet';
 
   return (
     <div className={cn('mx-auto', selected ? 'max-w-6xl' : 'max-w-3xl')}>
@@ -77,11 +84,13 @@ export default function TodayPage() {
           <h1 className="font-display text-[28px] font-bold tracking-tight text-content">Today</h1>
           <p className="mt-1 text-sm text-muted">
             {followCount
-              ? <>
-                  {newCount ? `${newCount} new since your last visit` : 'Nothing new since your last visit'}
-                  {' · '}{unreadCount} unread{' · '}
-                  {refresh.isPending ? 'checking now…' : `checked ${formatRelative(checkedAt)}`}
-                </>
+              ? firstCheckRunning
+                ? 'Checking the companies you follow…'
+                : <>
+                    {newCount ? `${newCount} new since your last visit` : 'Nothing new since your last visit'}
+                    {' · '}{unreadCount} unread
+                    {checkedLabel ? ` · ${checkedLabel}` : ''}
+                  </>
               : 'Funding, launches, hires, deals and filings of the companies you follow.'}
           </p>
         </div>
@@ -119,7 +128,12 @@ export default function TodayPage() {
 
       {refresh.isError && (
         <p role="alert" className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
-          The check didn’t finish: {refresh.error instanceof Error ? refresh.error.message : 'unknown error'}. Stored moves are still shown.
+          The check didn’t finish: {(refresh.error instanceof Error ? refresh.error.message : 'unknown error').replace(/[.\s]+$/, '')}. Stored moves are still shown.
+        </p>
+      )}
+      {failedCount > 0 && !refresh.isPending && (
+        <p role="status" className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
+          Couldn’t reach the news or filings for {failedCount} {failedCount === 1 ? 'company' : 'companies'}, trying again later.
         </p>
       )}
 
@@ -148,7 +162,9 @@ export default function TodayPage() {
           {moves.isSuccess && all.length === 0 && !refresh.isPending && (
             <EmptyState
               title="No moves found yet"
-              description="Nothing dated in the last week from the news feed or SEC filings for the companies you follow. The next daily check looks again."
+              description={failedCount > 0
+                ? 'Some of the news and filings could not be reached, so this is not a full answer yet. Today tries those companies again later.'
+                : 'Nothing dated in the last week from the news feed or SEC filings for the companies you follow. The next daily check looks again.'}
               icon={<Sun weight="duotone" size={24} />}
             />
           )}
