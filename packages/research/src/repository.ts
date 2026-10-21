@@ -6008,9 +6008,10 @@ export class GeminiRepository implements MarketIntelRepository {
       cards: structuredClone(cards),
       viceClaims: structuredClone([...cardIds].flatMap((cardId) => this.sourcedViceClaims(cardId))),
       dashboards,
-      signalBriefs: Object.fromEntries(Object.entries(this.snap.signalBriefs ?? {})
-        .filter(([id]) => cardIds.has(id) && !isEntityCardType(this.snap.cards.find((c) => c.id === id)?.cardType ?? 'company'))
-        .map(([id, brief]) => [id, structuredClone(brief)])),
+      // Only briefs that pass the schema (every point sourced) leave the machine; a stored row that does not is not shared.
+      signalBriefs: Object.fromEntries([...cardIds]
+        .filter((id) => !isEntityCardType(this.snap.cards.find((c) => c.id === id)?.cardType ?? 'company'))
+        .flatMap((id) => { const brief = this.storedSignalBrief(id); return brief ? [[id, structuredClone(brief)] as const] : []; })),
     };
   }
 
