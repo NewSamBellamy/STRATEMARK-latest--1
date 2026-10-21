@@ -43,8 +43,8 @@ export function figureCounts(metrics: readonly (Checked & { metricType: CompanyM
 }
 
 const TIER_WORD: Record<number, string> = {
-  1: 'regulator or official filing', 2: 'wire service or company site', 3: 'established publisher',
-  4: 'data provider or analyst', 5: 'community or unrecognised source',
+  1: 'regulator or official filing', 2: 'company site or wire service', 3: 'independent trade press',
+  4: 'data provider or analyst', 5: 'unrecognised publisher',
 };
 const SUPPORT_WORD: Record<FigureAssessment['accuracy']['support'], string> = {
   human: 'Checked by a person', original_passage: 'The figure is stated on a saved copy of the page',
@@ -63,11 +63,11 @@ export function sourceCheckLines(m: Checked, label: string): string[] {
   if (!a) return [];
   const { currency } = a;
   const when = currency.asOf == null
-    ? (currency.state === 'stale' ? 'No stated date, and the page is old: age unknown' : 'No stated date: age unknown')
+    ? (currency.state === 'stale' ? 'The source gives no date for this figure, and the saved page is old' : 'The source gives no date for this figure')
     : `${currency.asOfSource === 'filing' ? 'Filed' : 'As of'} ${statedMonth(currency.asOf)} (${currency.state === 'stale'
       ? `out of date for ${label.toLowerCase()}: ${Math.floor((currency.ageDays ?? 0) / 30.4375)} months` : currency.state})`;
   const who = a.authority.tier == null ? 'Source not identified'
-    : `${a.authority.publisher ?? 'Unnamed source'} (${TIER_WORD[a.authority.tier]})`;
+    : `${a.authority.publisher ?? 'Unnamed source'}: ${TIER_WORD[a.authority.tier]}`;
   const n = a.accuracy.independentSources;
   const how = a.accuracy.corroboration === 'contested' ? 'Sources disagree on this figure'
     : n >= 2 ? `${n} independent sources agree` : n === 1 ? 'One source, no independent confirmation' : 'No source to check against';
@@ -93,9 +93,9 @@ function newerFigureLine(m: Checked, a: FigureAssessment): string | null {
 }
 
 const STATUS_WORD: Record<CurrencyState, string> = { current: 'Current', aging: 'Aging', stale: 'Out of date', undated: 'Undated' };
-// The freshness row's own colours: its warning red for old research, quiet text otherwise.
+// Warning red only for a figure known to be out of date; an undated one is unknown, not wrong.
 const STATUS_TONE: Record<CurrencyState, string> = {
-  current: 'text-faint', aging: 'text-muted', stale: 'text-red-700 dark:text-negative', undated: 'text-red-700 dark:text-negative',
+  current: 'text-faint', aging: 'text-muted', stale: 'text-red-700 dark:text-negative', undated: 'text-muted',
 };
 
 export function SourceCheck({ metric, label, className }: { metric: Checked; label: string; className?: string }) {
@@ -106,8 +106,7 @@ export function SourceCheck({ metric, label, className }: { metric: Checked; lab
     <details className={cn('text-[11px] leading-snug text-faint', className)} aria-label={`Source check for ${label}`}>
       <summary className="cursor-pointer list-none">
         <span className="font-medium text-muted">Source check: </span>
-        <span className={cn((status === 'stale' || status === 'undated') && STATUS_TONE[status])}>{lines[0]}</span>
-        {metric.confidence === 'estimated' && <>{' · '}<abbr title="Estimated" className="no-underline">est.</abbr></>}
+        <span className={cn(status !== 'current' && STATUS_TONE[status])}>{lines[0]}</span>
       </summary>
       <ul className="mt-0.5 space-y-0.5">{lines.map((line) => <li key={line}>{line}</li>)}</ul>
     </details>

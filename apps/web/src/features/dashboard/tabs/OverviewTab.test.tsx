@@ -37,7 +37,7 @@ describe('OverviewTab executive summary', () => {
     await user.click(screen.getByRole('tab', { name: 'Where they stand' }));
     expect(screen.getByRole('tabpanel', { name: 'Where they stand' })).toHaveTextContent('leading share');
   });
-  it.each([['stale', 'Out of date'], ['aging', 'Aging'], ['current', 'Current']] as const)('marks a %s figure with its freshness word', async (status, word) => {
+  it.each([['stale', 'out of date for employees'], ['aging', 'aging'], ['current', 'current']] as const)('gives a %s figure a Source check line with its date', async (status, word) => {
     render([{ ...seed, metricType: 'employees', value: 250, confidence: 'verified', source: 'https://sec.gov/x',
       citations: [{ title: 'SEC filing', url: 'https://sec.gov/x', credibility: 'primary' }],
       passageSupport: null, reportedSupport: null, capturedAt: '2026-05-04T00:00:00Z',
@@ -47,14 +47,15 @@ describe('OverviewTab executive summary', () => {
         accuracy: { support: 'original_passage', independentSources: 1, corroboration: 'single', plausibility: 'ok', newerObservation: null },
         purpose: { kind: 'regulatory_filing', reportedBy: 'regulator' }, score: 70, verdict: 'fair', effect: 'none', summary: 'x' } }]);
     const tile = await screen.findByRole('article', { name: 'Employees: 250' });
-    expect(within(tile).getByText(word)).toHaveAttribute('data-freshness', status);
+    const check = within(tile).getByLabelText('Source check for Employees');
+    expect(check.querySelector('summary')).toHaveTextContent(`Source check: As of Mar 2025 (${word}`);
   });
-  it('shows no freshness word for a figure that was never assessed', async () => {
+  it('shows no Source check for a figure that was never assessed', async () => {
     render([{ ...seed, metricType: 'employees', value: 250, confidence: 'verified', source: 'https://sec.gov/x',
       citations: [{ title: 'SEC filing', url: 'https://sec.gov/x', credibility: 'primary' }],
       passageSupport: null, reportedSupport: null, assessment: undefined }]);
     const tile = await screen.findByRole('article', { name: 'Employees: 250' });
-    expect(tile.querySelector('[data-freshness]')).toBeNull();
+    expect(within(tile).queryByLabelText(/Source check/)).toBeNull();
   });
   it('shows an estimated figure with its est. marker and says it has no link, as Metrics does', async () => {
     render([{ ...seed, metricType: 'employees', value: 250, confidence: 'estimated', source: null, citations: [],

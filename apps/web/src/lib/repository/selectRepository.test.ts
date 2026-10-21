@@ -3,6 +3,7 @@ import { MockRepository } from '@mi/mocks';
 import { loadSampleSnapshot } from '@/sample/loadSampleSnapshot';
 import { needsSampleDeck, selectRepository } from './RepositoryProvider';
 import { SentinelRepository } from './SentinelRepository';
+import { sourceCheckLines } from '@/features/dashboard/SourceCheck';
 
 describe('repository selection', () => {
   it('only demo mode needs the bundled sample deck', () => {
@@ -23,7 +24,7 @@ describe('repository selection', () => {
 
   it('demo facts carry a read-time assessment computed from the injected clock; a forged one is discarded', async () => {
     const sample = await loadSampleSnapshot();
-    const companyId = sample.companies.find((c) => sample.metrics.some((m) => m.companyId === c.id && m.value != null))!.id;
+    const companyId = 'cmp_mistral-ai_iubim';
     const forged = { ...sample, metrics: sample.metrics.map((m) => (m.companyId === companyId ? { ...m, assessment: { version: 1, score: 100, summary: 'forged' } } : m)) } as typeof sample;
     const asOf = async (iso: string) => {
       const repo = selectRepository('', '', undefined, undefined, 'free', '', forged, () => new Date(iso));
@@ -36,6 +37,12 @@ describe('repository selection', () => {
       expect(m.assessment).toBeTruthy();
       expect(m.assessment!.summary).not.toBe('forged');
       expect(m.assessment!.assessedAt.startsWith('202')).toBe(true);
+    }
+    // The sample figures are undated captures from one search-found page: the check says exactly that, no more.
+    for (const m of early) {
+      const lines = sourceCheckLines(m, m.metricType);
+      expect(lines.slice(0, 2)).toEqual(['The source gives no date for this figure', 'forbes.com: independent trade press']);
+      expect(m.assessment!.currency).toMatchObject({ asOf: null, state: 'undated' });
     }
     // Same stored figures, different clock: age follows the injected now, values never change.
     expect(later.map((m) => m.value)).toEqual(early.map((m) => m.value));

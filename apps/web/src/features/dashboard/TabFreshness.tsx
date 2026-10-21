@@ -44,7 +44,7 @@ export function TabFreshness({ companyId, tab, onRefresh, refreshing, disabled, 
             Researched {formatRelative(refreshedAt, now)}
             {old && <span className="text-red-700 dark:text-negative"> · over a month old</span>}
           </span>
-          {counts && assessed > 0 && <span className={cn(counts.outOfDate + counts.undated > 0 && 'text-red-700 dark:text-negative')}>
+          {counts && assessed > 0 && <span className={cn(counts.outOfDate > 0 ? 'text-red-700 dark:text-negative' : counts.undated > 0 && 'text-muted')}>
             · Figures: {[`${counts.current} current`, counts.outOfDate > 0 && `${counts.outOfDate} out of date`, counts.undated > 0 && `${counts.undated} undated`]
               .filter(Boolean).join(', ')}
             {counts.outOfDate > 0 && counts.oldest && ` · oldest: ${METRIC_TYPE_LABELS[counts.oldest.label]}, ${statedMonth(counts.oldest.asOf)}`}

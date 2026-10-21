@@ -23,7 +23,7 @@ describe('Source check', () => {
     const box = screen.getByLabelText('Source check for Employees');
     expect(box).toHaveTextContent('Source check: As of Sep 2026 (current)');
     expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
-      'As of Sep 2026 (current)', 'SEC (regulator or official filing)', 'The figure is stated on a saved copy of the page',
+      'As of Sep 2026 (current)', 'SEC: regulator or official filing', 'The figure is stated on a saved copy of the page',
       'Filed with a regulator', '2 independent sources agree',
     ]);
     expect(box.textContent).not.toMatch(/CRAAP/i);
@@ -32,16 +32,16 @@ describe('Source check', () => {
     const a = assessment({ currency: { asOf: '2025-01-10', ageDays: 648, state: 'stale' } });
     expect(sourceCheckLines(fig(a), 'Employees')[0]).toBe('As of Jan 2025 (out of date for employees: 21 months)');
   });
-  it('marks an estimate with est. and says when only the company reported it', () => {
+  it('does not repeat est. and says when only the company reported it', () => {
     const a = assessment({ purpose: { kind: 'press_release', reportedBy: 'company' }, accuracy: { support: 'page_quote', independentSources: 1, corroboration: 'single', plausibility: 'ok', newerObservation: null } });
     render(<SourceCheck metric={fig(a, { confidence: 'estimated' })} label="Revenue" />);
-    expect(screen.getByText('est.')).toBeInTheDocument();
+    expect(screen.queryByText('est.')).toBeNull(); // the figure row beside it already says estimated
     expect(screen.getByText('A press release (company-reported)')).toBeInTheDocument();
     expect(screen.getByText('One source, no independent confirmation')).toBeInTheDocument();
   });
   it('words an undated figure plainly', () => {
     const a = assessment({ currency: { asOf: null, asOfSource: 'none', ageDays: null, state: 'undated' } });
-    expect(sourceCheckLines(fig(a), 'Revenue')[0]).toBe('No stated date: age unknown');
+    expect(sourceCheckLines(fig(a), 'Revenue')[0]).toBe('The source gives no date for this figure');
     render(<FreshnessMark metric={fig(a)} />);
     expect(screen.getByText('Undated')).toHaveAttribute('data-freshness', 'undated');
   });
