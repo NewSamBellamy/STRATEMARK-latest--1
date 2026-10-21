@@ -15,15 +15,16 @@ export function DemoDeckBanner() {
   if (mode !== 'demo') return null;
   return (
     <div role="note" data-testid="demo-banner"
-      className="panel flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm"
-      style={{ borderLeft: '3px solid #6366F1' }}>
+      className="panel flex items-start gap-3 border-indigo-200 bg-indigo-50/60 px-4 py-2.5 text-[13px] leading-snug dark:border-indigo-900 dark:bg-indigo-950/30">
       <FlaskConical className="h-4 w-4 shrink-0 text-indigo-500" />
-      <span className="font-medium text-content">Demo deck — sample research, not live.</span>
-      <span className="text-muted">
+      <p>
+        <span className="font-medium text-content">Demo deck — sample research, not live.</span>{' '}
+        <span className="text-muted">
         {hasKey
           ? 'Switch the engine in Settings to run real research on this market.'
           : 'Add your Gemini API key in Settings to run real research on any market.'}
-      </span>
+        </span>
+      </p>
     </div>
   );
 }

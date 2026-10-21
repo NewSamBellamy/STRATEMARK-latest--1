@@ -256,14 +256,17 @@ export function DeckStatusBar({
       .map((d) => ({ key: d.id, id: d.id as string | null, name: d.name, done: d.filled >= d.total, note: `${d.filled} of ${d.total} figures` }));
 
   return (
-    <div data-testid="deck-status" className="mt-3 rounded-lg border border-border bg-surface">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2">
+    <div data-testid="deck-status" className="panel">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
         <span className="relative flex h-2 w-2 shrink-0" aria-hidden>
           {tone === 'live' && !paused && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-40 [animation-duration:2s]" />}
           <span className={cn('relative inline-flex h-2 w-2 rounded-full',
             tone === 'done' ? 'bg-positive' : tone === 'bad' ? 'bg-negative' : tone === 'warn' || paused ? 'bg-amber-400' : 'bg-primary')} />
         </span>
-        <p role="status" className="min-w-0 text-[12px] leading-snug">
+        {/* Phones: the text takes the first line beside the dot; the progress hairline and the
+            controls share the second. From lg everything sits on one line. */}
+        <p role="status" className={cn('min-w-0 flex-1 text-[12px] leading-snug',
+          segments.length > 1 ? 'basis-[calc(100%-1.25rem)] lg:basis-0' : 'basis-0')}>
           {phase === 'ready' && <Check className="mr-1 inline h-3.5 w-3.5 -translate-y-px text-positive" aria-hidden />}
           <span className="font-semibold text-content">{title}</span>
           {meta.map((part) => /not found yet$/.test(part) && gaps.length > 0
@@ -276,14 +279,14 @@ export function DeckStatusBar({
           )}
         </p>
         {segments.length > 1 && (
-          <div className="order-last flex h-1 w-full gap-px overflow-hidden rounded-full sm:order-none sm:ml-auto sm:w-40" aria-hidden>
+          <div className="flex h-1 min-w-[5rem] flex-1 gap-px overflow-hidden rounded-full lg:w-40 lg:flex-none" aria-hidden>
             {segments.map((s) => (
               <span key={s.key} title={s.label} className={cn('h-full flex-1',
                 s.state === 'done' ? (tone === 'done' ? 'bg-positive' : 'bg-primary') : s.state === 'part' ? 'bg-primary/40' : 'bg-surface-2')} />
             ))}
           </div>
         )}
-        <span className={cn('flex shrink-0 items-center gap-1', segments.length <= 1 && 'ml-auto')}>
+        <span className="ml-auto flex shrink-0 items-center gap-1">
           {(phase === 'stopped' || phase === 'failed') && resume && (
             <button type="button" className="btn-ghost h-7 px-2 text-[12px]" disabled={resume.pending} onClick={resume.run}>
               <RefreshCw className={cn('h-3.5 w-3.5', resume.pending && 'animate-spin')} />

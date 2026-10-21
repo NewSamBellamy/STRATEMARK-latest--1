@@ -215,7 +215,7 @@ export default function DeckPage() {
   // live actions, demo/progress banners) may imply there is research here.
   if (deckMissing) {
     return (
-      <div className="w-full max-w-[1600px] px-2 sm:px-4">
+      <div className="mx-auto w-full max-w-6xl">
         <div className="panel mx-auto max-w-xl p-8 text-center">
           <Layers className="mx-auto h-8 w-8 text-muted" />
           <h2 className="mt-3 font-display text-xl font-semibold text-content">
@@ -247,7 +247,7 @@ export default function DeckPage() {
   }
 
   return (
-    <div className="w-full max-w-[1600px] px-2 sm:px-4">
+    <div className="mx-auto w-full max-w-6xl">
       {/* ── Header — tight, structured, clear hierarchy ── */}
       <div className="mb-6">
         {/* Back link */}
@@ -262,7 +262,7 @@ export default function DeckPage() {
         <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-display text-[22px] font-bold tracking-tight text-content sm:text-[28px]">
+              <h1 className="font-display text-2xl font-semibold tracking-tight text-content">
                 {market.data?.name ?? 'Deck'}
               </h1>
               {((market.data as { engine?: string } | undefined)?.engine === 'cloud' ||
@@ -273,7 +273,7 @@ export default function DeckPage() {
               )}
             </div>
             {market.data?.scopeDefinition && (
-              <p className="mt-0.5 text-[12px] text-faint">
+              <p className="mt-1 text-sm text-muted">
                 {[
                   `${companyCount} ${companyCount === 1 ? 'company' : 'companies'}`,
                   market.data.scopeDefinition.geography,
@@ -369,20 +369,23 @@ export default function DeckPage() {
           </div>}
         </div>
 
-        {!readOnly && <DemoDeckBanner />}
-        {/* One status line for the deck: creation progress, card completeness
-            and live research, counted the same way as the header above. */}
-        {!readOnly && <DeckStatusBar
-          deckId={deckId}
-          marketName={market.data?.name ?? 'this deck'}
-          cards={all}
-          living={living}
-          deckStatus={deckStatus}
-          resume={resumableJob.data
-            ? { run: () => resumableJob.data && resumeJob.mutate(resumableJob.data.id), pending: resumeJob.isPending }
-            : null}
-        />}
-        {!readOnly && <GroundingQuotaNotice />}
+        {/* The notices stack on one rhythm (a shared copy has none of them). */}
+        {!readOnly && <div className="mt-4 space-y-3 empty:hidden">
+          <DemoDeckBanner />
+          {/* One status line for the deck: creation progress, card completeness
+              and live research, counted the same way as the header above. */}
+          <DeckStatusBar
+            deckId={deckId}
+            marketName={market.data?.name ?? 'this deck'}
+            cards={all}
+            living={living}
+            deckStatus={deckStatus}
+            resume={resumableJob.data
+              ? { run: () => resumableJob.data && resumeJob.mutate(resumableJob.data.id), pending: resumeJob.isPending }
+              : null}
+          />
+          <GroundingQuotaNotice />
+        </div>}
       </div>
 
       {(isRunning || isPartial) && all.length === 0 ? (
@@ -576,12 +579,10 @@ export default function DeckPage() {
                   Pick 2 to 4 cards to compare
                 </p>
               )}
-              <div className="mb-4">
-                <p className="text-[12px] text-muted">
-                  {filtered.length} {cardCountNoun(defaultType, filtered.length)}
-                  <span className="text-faint"> — {CARD_TYPE_DESCRIPTIONS[defaultType]}</span>
-                </p>
-              </div>
+              <p className="mb-4 text-xs text-muted">
+                {filtered.length} {cardCountNoun(defaultType, filtered.length)}
+                <span className="text-faint"> — {CARD_TYPE_DESCRIPTIONS[defaultType]}</span>
+              </p>
               {filtered.length > 0 ? (
                 <>
                   <CardGrid
@@ -596,7 +597,7 @@ export default function DeckPage() {
                     onToggle={toggleSelected}
                   />
                   {/* The deck never "just stops": hunting more of this type is always one click. */}
-                  <div className="mt-6">
+                  <div className="mt-8">
                     <ExpandPrompt
                       marketId={marketId}
                       deckId={deckId}
@@ -628,9 +629,9 @@ export default function DeckPage() {
           </QueryBoundary>
         )}
 
-      {/* Compare mode action bar */}
+      {/* Compare mode action bar: sticky inside the page column (not fixed to the window), so it centres on the cards rather than on the window behind the sidebar. */}
       {compare && actionPolicy.compare && (
-        <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full border border-border bg-surface px-4 py-2.5 shadow-card">
+        <div className="sticky bottom-6 z-40 mx-auto mt-6 flex w-fit max-w-full items-center gap-3 rounded-full border border-border bg-surface px-4 py-2.5 shadow-card">
           <span className="text-sm tabular-nums text-muted">
             {selected.size} card{selected.size === 1 ? '' : 's'} selected
           </span>
@@ -685,7 +686,7 @@ function MoreMenu({
     <div ref={ref} className="relative">
       <button
         type="button"
-        className="btn-ghost px-2.5"
+        className="btn-ghost rounded-lg px-2.5 py-1.5"
         onClick={() => setOpen(!open)}
         aria-label="More actions"
         aria-expanded={open}
@@ -791,6 +792,18 @@ function TypeNav({
   // still be there") — an empty class opens its hunt prompt, never vanishes.
   const present = CARD_TYPE_ORDER;
 
+  // On a phone the strip scrolls: bring the open lane's tab into view (a deep link
+  // to the fifth lane would otherwise show no selected tab).
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = navRef.current;
+    const tab = nav?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (!nav || !tab) return;
+    const right = tab.offsetLeft + tab.offsetWidth;
+    if (right > nav.scrollLeft + nav.clientWidth - 32) nav.scrollLeft = right - nav.clientWidth + 32;
+    else if (tab.offsetLeft < nav.scrollLeft) nav.scrollLeft = tab.offsetLeft;
+  }, [active, split]);
+
   const Tab = ({
     label,
     count,
@@ -807,7 +820,7 @@ function TypeNav({
       onClick={onClick}
       aria-pressed={selected}
       className={cn(
-        'whitespace-nowrap border-b-2 px-4 py-2 text-[13px] font-medium transition-colors',
+        'whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors',
         selected
           ? 'border-primary text-primary'
           : 'border-transparent text-muted hover:text-content',
@@ -826,8 +839,9 @@ function TypeNav({
   );
 
   return (
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-2 border-b border-border">
+    <div className="mb-4 border-b border-border">
       <nav
+        ref={navRef}
         data-testid="type-nav"
         // Phones: the strip scrolls, so the right edge fades out as a "more this way" hint
         // (padding keeps the last tab clear of the fade once scrolled to the end).
