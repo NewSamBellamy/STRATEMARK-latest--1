@@ -227,7 +227,7 @@ import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } f
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
 import { answerSize, buildChatPrompt, formatCompanyBlock, formatDeckRankings, isGreeting } from './chat-context';
 import { dropQuestionOnlyFigures, routeChat } from './chat-route';
-import { answerFromMemory, answerGreeting, gatherChatMemory, keepFreshEvidence } from './chat-memory';
+import { answerFromMemory, answerGreeting, compareArchive, gatherChatMemory, keepFreshEvidence } from './chat-memory';
 import { savedCompanySummary } from './saved-profile';
 import { buildCompanyTopicReport } from './company-report';
 import { projectedCompanyFacts } from './displayed-facts';
@@ -6626,7 +6626,16 @@ export class GeminiRepository implements MarketIntelRepository {
     // search when it has the answer. Ranked passages across the whole scope,
     // each carrying its own citations; the fresh grounded search below
     // supplements, never replaces, what the archive already knows.
-    const archive = searchEvidenceCorpus(this.snap.researchEvidence ?? [], {
+    // A head-to-head (two or more companies' entity cards lined up) reads each company's own notes: its question is
+    // generic, so one keyword search over the whole set would find none of them and re-search what is already on file.
+    const comparedCompanyIds = thread.scope.kind === 'cards'
+      ? [...new Set(this.snap.cards
+        .filter((card) => thread!.scope.cardIds?.includes(card.id) && isEntityCardType(card.cardType) && card.companyId)
+        .map((card) => card.companyId as string))]
+      : [];
+    const comparing = comparedCompanyIds.length >= 2;
+    const compared = comparing ? compareArchive(this.snap.researchEvidence ?? [], comparedCompanyIds, input.question) : null;
+    const archive = compared?.passages ?? searchEvidenceCorpus(this.snap.researchEvidence ?? [], {
       query: input.question,
       companyIds: evidenceCompanyIds.size ? [...evidenceCompanyIds] : undefined,
       limit: 8,
@@ -6657,8 +6666,13 @@ ${references}`
     // The user turn was already pushed above; history is everything before it.
     const history = context.messages.slice(0, -1).map((m) => ({ role: m.role, text: m.text }));
     const size = answerSize(input.question, thread.scope);
-    const memory = gatherChatMemory(this.snap, thread, input.question, archive);
-    const route = routeChat({ question: input.question, hasFreshFlag: input.fresh === true, storedPassages: memory.passages, isGreeting: isGreeting(input.question) });
+    const memory = gatherChatMemory(this.snap, thread, input.question, archive, comparing);
+    // A comparison that includes a company with nothing on file (its research is still running) cannot be answered from
+    // what is stored: it searches, and keeps what it finds for every card it names.
+    const route = routeChat({
+      question: input.question, hasFreshFlag: input.fresh === true,
+      storedPassages: compared && compared.uncovered.length > 0 ? [] : memory.passages, isGreeting: isGreeting(input.question),
+    });
 
     if (route === 'greeting') {
       const reply = await answerGreeting(this.client, { question: input.question, history, lastTime: memory.lastTime });
@@ -6682,7 +6696,7 @@ ${references}`
       { system: CHAT_SYSTEM, label: 'chat', priority: 'urgent' },
     );
     // Keep what the search itself attributed, so this research is not wasted. Never fails the answer.
-    keepFreshEvidence(this.snap, thread, evidenceCompanyIds, g);
+    const kept = keepFreshEvidence(this.snap, thread, evidenceCompanyIds, g);
 
     const mentionedUrls = new Set((g.text.match(/https?:\/\/[^\s<>"'\]]+/g) ?? [])
       .flatMap(url => [url, url.replace(/[),.;:!?]+$/, '')]));
@@ -6700,6 +6714,13 @@ ${references}`
     });
     thread.updatedAt = new Date().toISOString();
     await this.persist();
+    // What the answer's search found now sits on each card it was about: tell open views so they re-read it.
+    const keptCardIds = [...new Set(kept.flatMap((record) => (record.cardId ? [record.cardId] : [])))];
+    const deckId = thread.scope.deckId ?? this.snap.cards.find((card) => keptCardIds.includes(card.id))?.deckId;
+    const marketId = this.snap.decks.find((deck) => deck.id === deckId)?.marketId;
+    if (deckId && marketId && keptCardIds.length > 0) {
+      this.emit({ marketId, deckId, refreshedAt: new Date().toISOString(), addedCardIds: [], updatedCardIds: keptCardIds, prunedCardIds: [] });
+    }
     return structuredClone(thread);
   }
 

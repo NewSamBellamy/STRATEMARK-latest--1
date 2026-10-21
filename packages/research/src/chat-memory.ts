@@ -10,7 +10,7 @@ import { buildChatPrompt, type AnswerSize, type LastTime } from './chat-context'
 import { chatEvidenceFromAnswer } from './chat-writeback';
 import { fitPassages, isFreshPassage, passageIsRelevant, resolveMemoryAnswer, type MemoryAnswer, type StoredPassage } from './chat-route';
 import { CHAT_SYSTEM } from './prompts';
-import type { ScoredPassage } from './retrieval';
+import { searchEvidenceCorpus, type ScoredPassage } from './retrieval';
 import type { ResearchEvidence } from './research-evidence';
 import type { LlmClient, ProviderGrounding } from './types';
 
@@ -21,6 +21,28 @@ function summaryOf(markdown: string, max = 1500): string {
   const m = /^#{1,3}\s*executive summary\s*$/im.exec(markdown);
   const from = m ? markdown.slice(m.index + m[0].length) : markdown;
   return clip(from.split(/\n#{1,3}\s/)[0]!.trim(), max);
+}
+
+/**
+ * What the lined-up cards already have on file, for a head-to-head. A compare is phrased generally ("where each is stronger,
+ * where the gaps are"), so keyword search over the whole set finds little of what each company's own research says. Each company
+ * is searched on its own instead, falling back to its newest notes, and the results are interleaved so every company is read.
+ * `uncovered` names companies with nothing on file at all: the stored research cannot answer a comparison that includes them.
+ */
+export function compareArchive(
+  records: readonly ResearchEvidence[],
+  companyIds: readonly string[],
+  question: string,
+  total = 8,
+): { passages: ScoredPassage[]; uncovered: string[] } {
+  const each = Math.max(1, Math.min(3, Math.floor(total / Math.max(1, companyIds.length))));
+  const perCompany = companyIds.map((id) => {
+    const matched = searchEvidenceCorpus(records, { query: question, companyIds: [id], limit: each });
+    return matched.length ? matched : searchEvidenceCorpus(records, { query: '', companyIds: [id], limit: each });
+  });
+  const passages: ScoredPassage[] = [];
+  for (let rank = 0; rank < each; rank += 1) for (const list of perCompany) if (list[rank]) passages.push(list[rank]!);
+  return { passages: passages.slice(0, total), uncovered: companyIds.filter((_, i) => perCompany[i]!.length === 0) };
 }
 
 export interface ChatMemory {
@@ -37,6 +59,8 @@ export function gatherChatMemory(
   thread: ResearchThread,
   question: string,
   archive: readonly ScoredPassage[],
+  /** A head-to-head: the card's briefs and reports are read whatever the question's words, as the question is generic. */
+  compare = false,
   now: Date = new Date(),
 ): ChatMemory {
   const cardIds = cardIdsForThread(thread, snap);
@@ -77,7 +101,7 @@ export function gatherChatMemory(
     seenReports.add(report.id);
     extra.push({ id: `R${seenReports.size}`, label: `report "${report.title}", ${report.createdAt.slice(0, 10)}`, text: summaryOf(report.markdown), citations: report.citations, capturedAt: report.createdAt });
   }
-  const relevant = [...passages, ...extra.filter((p) => passageIsRelevant(question, p))];
+  const relevant = [...passages, ...(compare ? extra : extra.filter((p) => passageIsRelevant(question, p)))];
   return { lastTime, passages: relevant.filter((p) => isFreshPassage(p, now)), stale: relevant.filter((p) => !isFreshPassage(p, now)) };
 }
 
