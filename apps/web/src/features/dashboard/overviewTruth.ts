@@ -25,3 +25,39 @@ export function storiesCaption(items: readonly Story[]): string | null {
   if (dated === 0) return `${live.length} ${noun} (dates not reported)`;
   return `${live.length} ${noun} (${dated} with a reported date)`;
 }
+
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+const PART_MONTH: Record<string, number> = { early: 0, mid: 5, late: 9, spring: 2, summer: 5, fall: 8, winter: 11 };
+
+/**
+ * Where a written milestone date falls, as year*12+month (month 0-11), or null
+ * when it cannot be read with certainty. Reads the forms research uses
+ * ("March 2026", "April 29, 2026", "Q2 2026", "Early 2024", "2025"); a year
+ * alone counts as its first month. It orders; it never rewrites the date.
+ */
+export function eventDateIndex(raw: string): number | null {
+  const text = raw.trim();
+  const years = text.match(/\b(?:1[5-9]\d{2}|20\d{2}|21\d{2})\b/g) ?? [];
+  if (years.length !== 1) return null;
+  const year = Number(years[0]);
+  const words = text.replace(year.toString(), ' ').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const quarter = words.map((w) => /^q([1-4])$/.exec(w)).find(Boolean);
+  if (quarter) return year * 12 + (Number(quarter[1]) - 1) * 3;
+  const month = words.map((w) => MONTHS.findIndex((m) => m === w || (w.length === 3 && m.startsWith(w)))).find((i) => i >= 0);
+  if (month !== undefined) return year * 12 + month;
+  const part = words.map((w) => PART_MONTH[w]).find((i) => i !== undefined);
+  if (part !== undefined) return year * 12 + part;
+  return words.length === 0 ? year * 12 : null;
+}
+
+/**
+ * Milestones newest first, in one consistent order. Dates that cannot be read
+ * go last in the order research gave them; titles are passed through untouched.
+ */
+export function newestFirst<T extends { date: string }>(events: readonly T[]): T[] {
+  return events
+    .map((event, order) => ({ event, order, at: eventDateIndex(event.date) }))
+    .sort((a, b) => (a.at === null && b.at === null ? a.order - b.order
+      : a.at === null ? 1 : b.at === null ? -1 : b.at - a.at || a.order - b.order))
+    .map((row) => row.event);
+}

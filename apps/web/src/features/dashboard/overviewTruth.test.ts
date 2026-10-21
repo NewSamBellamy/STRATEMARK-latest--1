@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { storiesCaption } from './overviewTruth';
+import { eventDateIndex, newestFirst, storiesCaption } from './overviewTruth';
+
+describe('newestFirst', () => {
+  it('orders mixed quarter, month and year dates newest first and keeps titles untouched', () => {
+    const rows = [
+      { date: 'Q1 2025', title: 'a' }, { date: 'Q2 2026', title: 'Sovereignty Warnings & Talks' },
+      { date: 'Q4 2024', title: 'c' }, { date: 'March 2026', title: 'd' }, { date: 'Q2 2025', title: 'e' },
+    ];
+    expect(newestFirst(rows).map((r) => r.title)).toEqual(['Sovereignty Warnings & Talks', 'd', 'e', 'a', 'c']);
+  });
+  it('puts unreadable dates last in research order', () => {
+    const rows = [{ date: 'Soon', title: 'x' }, { date: '2020', title: 'y' }, { date: 'Later', title: 'z' }];
+    expect(newestFirst(rows).map((r) => r.title)).toEqual(['y', 'x', 'z']);
+  });
+  it('does not read a range as a date', () => {
+    expect(eventDateIndex('2019-2021')).toBeNull();
+  });
+});
 
 const story = (publishedDate: string | null, stale = false) => ({ publishedDate, stale });
 

@@ -23,6 +23,7 @@ import { KpiTileSkeleton, Section, metricLabel, useTabHref } from '../dashboardK
 import { usePeers } from '../usePeers';
 import { buildFigureSet, currencyCaptionFor, figureDates, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
 import { useCachedDashboardTab } from '../useCachedTab';
+import { newestFirst } from '../overviewTruth';
 import { ArticleReader, TopStories } from './LiveIntelTab';
 import { SitePreview } from './LiveLandingTab';
 import { VideoStrip } from '@/components/media/StoryMedia';
@@ -220,7 +221,7 @@ function Watch({ companyId }: { companyId: string }) {
 function Milestones({ companyId }: { companyId: string }) {
   const href = useTabHref(companyId);
   const history = useCachedDashboardTab(companyId, 'history').data;
-  const timeline = (history?.content.timeline ?? []).slice(-5).reverse();
+  const timeline = newestFirst(history?.content.timeline ?? []).slice(0, 5);
   if (!timeline.length) return null;
   return (
     <Section
